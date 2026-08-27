@@ -61,23 +61,16 @@ describe("working-indicator aurora display sizing", () => {
     }
   });
 
-  it("keeps the working indicator free of a transformed WebGL wrapper", () => {
+  it("no longer mounts the aurora inside the chat working indicator", () => {
     const component = fs.readFileSync(
       path.join(PACKAGE_ROOT, "src/app/chat/WorkingIndicator.tsx"),
       "utf8",
     );
-    const css = fs.readFileSync(
-      path.join(PACKAGE_ROOT, "src/app/chat/indicators.css"),
-      "utf8",
-    );
-    const wrapperRule = css.match(
-      /\.indicator-stella-scale\s*\{([^}]*)\}/,
-    )?.[1];
 
-    expect(component).toContain("displayWidth={30}");
-    expect(component).toContain("displayHeight={30}");
-    expect(wrapperRule).toContain("inset: 0");
-    expect(wrapperRule).not.toMatch(/\btransform\s*:/);
-    expect(wrapperRule).not.toMatch(/\btranslate\s*:/);
+    // The indicator now draws the SVG character rig; the aurora stays for the
+    // onboarding overlay only.
+    expect(component).not.toContain("StellaAnimation");
+    expect(component).toContain("StellaCharacter");
+    expect(component).toContain("INDICATOR_MARK_SIZE_PX = 30");
   });
 });

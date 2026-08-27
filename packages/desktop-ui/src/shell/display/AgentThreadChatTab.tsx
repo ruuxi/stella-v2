@@ -552,14 +552,18 @@ export function AgentThreadChatTab({
                     ) : null}
                     {isAssistant ? (
                       <div className="event-item assistant">
-                        <Markdown
-                          text={message.content}
-                          cacheKey={message.entryId ?? `${threadId}:${index}`}
-                          hideHorizontalRules
-                        />
+                        <div className="assistant-message-text chat-bubble-text">
+                          <Markdown
+                            text={message.content}
+                            cacheKey={
+                              message.entryId ?? `${threadId}:${index}`
+                            }
+                            hideHorizontalRules
+                          />
+                        </div>
                       </div>
                     ) : (
-                      <div className="event-item user">
+                      <div className="event-item user chat-bubble-text">
                         <div className="event-body">{message.content}</div>
                       </div>
                     )}

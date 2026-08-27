@@ -120,7 +120,7 @@ describe("worker run-event acks", () => {
   it("keeps replay-critical terminal and synthetic events in the worker log", () => {
     expect(
       shouldAckWorkerRunEvent({
-        type: AGENT_STREAM_EVENT_TYPES.STREAM,
+        type: AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE,
         seq: 42,
       }),
     ).toBe(true);
@@ -153,7 +153,7 @@ describe("RuntimeHostAdapter resumed chat sessions", () => {
 
   const createCallbacks = () => ({
     onRunFinished: vi.fn(),
-    onStream: vi.fn(),
+    onAssistantMessage: vi.fn(),
     onToolStart: vi.fn(),
     onToolEnd: vi.fn(),
   });
@@ -172,16 +172,16 @@ describe("RuntimeHostAdapter resumed chat sessions", () => {
     );
 
     emitRunEvent(adapter, {
-      type: AGENT_STREAM_EVENT_TYPES.STREAM,
+      type: AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE,
       runId: "run-1",
       seq: 1,
       conversationId: "conversation-1",
-      chunk: "still ",
+      assistantMessageText: "still here",
     });
 
-    expect(callbacks.onStream).toHaveBeenCalledTimes(1);
-    expect(callbacks.onStream).toHaveBeenCalledWith(
-      expect.objectContaining({ chunk: "still " }),
+    expect(callbacks.onAssistantMessage).toHaveBeenCalledTimes(1);
+    expect(callbacks.onAssistantMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ assistantMessageText: "still here" }),
     );
   });
 
@@ -200,15 +200,15 @@ describe("RuntimeHostAdapter resumed chat sessions", () => {
     );
 
     emitRunEvent(adapter, {
-      type: AGENT_STREAM_EVENT_TYPES.STREAM,
+      type: AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE,
       runId: "run-1",
       seq: 1,
       conversationId: "conversation-1",
       requestId: "request-1",
-      chunk: "live",
+      assistantMessageText: "live",
     });
 
-    expect(callbacks.onStream).toHaveBeenCalledTimes(1);
+    expect(callbacks.onAssistantMessage).toHaveBeenCalledTimes(1);
   });
 
   it("streams a visible follow-up run that reuses the preserved request id", () => {
@@ -235,18 +235,18 @@ describe("RuntimeHostAdapter resumed chat sessions", () => {
       userMessageId: "message-1",
     });
     emitRunEvent(adapter, {
-      type: AGENT_STREAM_EVENT_TYPES.STREAM,
+      type: AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE,
       runId: "follow-up-run",
       seq: 2,
       conversationId: "conversation-1",
       requestId: "request-1",
       userMessageId: "message-1",
-      chunk: "visible reply",
+      assistantMessageText: "visible reply",
     });
 
     expect(onRunStarted).toHaveBeenCalledTimes(1);
-    expect(callbacks.onStream).toHaveBeenCalledWith(
-      expect.objectContaining({ chunk: "visible reply" }),
+    expect(callbacks.onAssistantMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ assistantMessageText: "visible reply" }),
     );
   });
 

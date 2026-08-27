@@ -6,17 +6,15 @@
  * badge, office preview, end-resource pill, self-mod undo) attach to
  * the assistant row that immediately followed the producing tool events.
  *
- * Streaming is NOT a separate row: live stream chunks update an
- * in-memory `MessageRecord` overlay that `useConversationDisplayMessages`
- * merges into the displayed list under a stable
+ * Assistant text is never streamed: one runtime `assistant-message` event
+ * carries the whole message, which `useConversationDisplayMessages` merges
+ * in as an in-memory `MessageRecord` overlay under a stable
  * `assistant-{userMessageId}-{indexInTurn}` key. When the persisted
  * `assistant_message` lands, the overlay remains the visible text
  * source while borrowing persisted metadata/tool events; when the
  * overlay later clears, the persisted row reuses the same React key.
- * The only marker that the row is currently receiving chunks is
- * `isStreaming` below (styling). Scroll follow is driven by runtime
- * `assistantScrollFollowKey` signals and `data-scroll-follow-key` on
- * the row.
+ * A live arrival is tagged `justArrived` for one animation window so the
+ * bubble plays its entrance.
  *
  * Reasoning text is intentionally NOT rendered anywhere in this surface
  * (the underlying data still flows through state for model history).
@@ -44,7 +42,6 @@ import type {
   ChannelEnvelope,
 } from "@/features/chat/lib/event-transforms";
 import { Markdown } from "@/app/chat/Markdown";
-import { StreamingTextReveal } from "@/app/chat/StreamingTextReveal";
 import {
   EndResourceCard,
   SourceDiffEndResource,
@@ -581,7 +578,7 @@ export const UserMessageRow = memo(
       >
         {chips.length > 0 && <UserContextChips chips={chips} />}
         {text.trim() && (
-          <div className="event-item user">
+          <div className="event-item user chat-bubble-text">
             <UserMessageBody text={text} />
           </div>
         )}
@@ -634,28 +631,12 @@ export const AssistantMessageRow = memo(
     // Shared predicate with ChatTimeline (which drops renderless rows
     // before virtualization) — see assistant-row-content.ts.
     if (!assistantRowHasVisibleContent(row)) {
-      // Reserve a scroll-follow target before the first token lands;
-      // otherwise `followActiveAssistantRow` can't find
-      // `[data-scroll-follow-key]` and auto-follow waits on ResizeObserver
-      // luck.
-      if (row.isStreaming) {
-        return (
-          <div
-            className="event-row event-row--assistant event-row--streaming"
-            data-chat-row-id={row.id}
-            data-scroll-follow-key={row.id}
-            aria-hidden
-          >
-            <div className="event-item assistant event-item--streaming-placeholder" />
-          </div>
-        );
-      }
       return null;
     }
 
     return (
       <div
-        className={`event-row event-row--assistant${row.isStreaming ? " event-row--streaming" : ""}`}
+        className={`event-row event-row--assistant${row.justArrived ? " event-row--assistant--just-arrived" : ""}`}
         data-chat-row-id={row.id}
         data-scroll-follow-key={row.id}
         data-react-key={row.id}
@@ -665,20 +646,12 @@ export const AssistantMessageRow = memo(
             <VoiceSessionCard durationMs={row.voiceSession.durationMs} />
           )}
           {hasText && (
-            <div
-              className={`assistant-message-text${row.isFadingOut ? " assistant-message-text--fading" : ""}`}
-            >
-              <StreamingTextReveal active={Boolean(row.isStreaming)}>
-                <Markdown
-                  text={text}
-                  cacheKey={row.cacheKey}
-                  mode={row.isStreaming ? "streaming" : "static"}
-                  animateStreamingWords={Boolean(
-                    row.isStreaming && !row.isFadingOut,
-                  )}
-                  hideHorizontalRules
-                />
-              </StreamingTextReveal>
+            <div className="assistant-message-text chat-bubble-text">
+              <Markdown
+                text={text}
+                cacheKey={row.cacheKey}
+                hideHorizontalRules
+              />
             </div>
           )}
           {hasBackgroundWork && row.backgroundWork ? (
@@ -751,7 +724,6 @@ export const AssistantMessageRow = memo(
               showReadAloud
               align="start"
               timestampMs={row.timestampMs}
-              streaming={Boolean(row.isStreaming)}
             />
           )}
         </div>

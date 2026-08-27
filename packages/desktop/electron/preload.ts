@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type { ChatContext } from "@stella/contracts";
 import type { StellaBrowserBridgeStatus } from "@stella/contracts/browser-bridge-status";
+import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
 import type {
   ConversationSummaryCursor,
   ConversationSummaryPage,
@@ -832,100 +833,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
           userMessageId?: string;
           uiVisibility?: "visible" | "hidden";
         } | null;
-        events: Array<{
-          type:
-            | "run-started"
-            | "run-finished"
-            | "status"
-            | "stream"
-            | "tool-start"
-            | "tool-end"
-            | "agent-started"
-            | "agent-reasoning"
-            | "agent-completed"
-            | "agent-failed"
-            | "agent-canceled"
-            | "agent-progress";
-          runId: string;
-          conversationId?: string;
-          requestId?: string;
-          agentType?: string;
-          seq: number;
-          userMessageId?: string;
-          uiVisibility?: "visible" | "hidden";
-          rootRunId?: string;
-          chunk?: string;
-          statusState?:
-            | "running"
-            | "compacting"
-            | "provider-retry"
-            | "model-fallback";
-          toolCallId?: string;
-          toolName?: string;
-          args?: Record<string, unknown>;
-          resultPreview?: string;
-          error?: string;
-          fatal?: boolean;
-          finalText?: string;
-          persisted?: boolean;
-          outcome?: "completed" | "error" | "canceled";
-          reason?: string;
-          replacedByRunId?: string;
-          agentId?: string;
-          description?: string;
-          parentAgentId?: string;
-          result?: string;
-          statusText?: string;
-          reasoningText?: string;
-        }>;
+        events: AgentStreamEvent[];
       }>,
-    onStream: onIpc<{
-      type:
-        | "run-started"
-        | "run-finished"
-        | "status"
-        | "stream"
-        | "tool-start"
-        | "tool-end"
-        | "agent-started"
-        | "agent-reasoning"
-        | "agent-completed"
-        | "agent-failed"
-        | "agent-canceled"
-        | "agent-progress";
-      runId: string;
-      conversationId?: string;
-      requestId?: string;
-      agentType?: string;
-      seq: number;
-      userMessageId?: string;
-      uiVisibility?: "visible" | "hidden";
-      rootRunId?: string;
-      chunk?: string;
-      statusState?:
-        | "running"
-        | "compacting"
-        | "provider-retry"
-        | "model-fallback";
-      toolCallId?: string;
-      toolName?: string;
-      args?: Record<string, unknown>;
-      resultPreview?: string;
-      html?: string;
-      error?: string;
-      fatal?: boolean;
-      finalText?: string;
-      persisted?: boolean;
-      outcome?: "completed" | "error" | "canceled";
-      reason?: string;
-      replacedByRunId?: string;
-      agentId?: string;
-      description?: string;
-      parentAgentId?: string;
-      result?: string;
-      statusText?: string;
-      reasoningText?: string;
-    }>("agent:event"),
+    /**
+     * Every agent lifecycle/text event for the current renderer, on the
+     * `agent:event` channel. Typed by the shared contract so new event types
+     * (notably `assistant-message`, the sole assistant-text carrier) cannot
+     * drift out of the preload surface again.
+     */
+    onStream: onIpc<AgentStreamEvent>("agent:event"),
     /**
      * Subscribe to runtime client availability transitions. The host
      * adapter fires this whenever the worker connection drops or

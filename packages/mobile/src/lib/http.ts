@@ -145,10 +145,21 @@ export const postJsonAnonymous = (
     { anonymous: true, timeoutMs: options?.timeoutMs },
   );
 
+/**
+ * Drive the offline-chat SSE lane.
+ *
+ * The transport is unchanged, but the payload contract is: a `{"t": …}` frame
+ * now arrives exactly ONCE per completed assistant text segment and carries
+ * that segment's full text (tool-loop interleaving preserved). So `onSegment`
+ * fires per whole message segment, not per token — there is nothing to smooth
+ * or reassemble on this side. The only buffering left is at the LINE level:
+ * progress events fire on arbitrary network-buffer boundaries, so a frame can
+ * still arrive split in two.
+ */
 function executeStream(
   path: string,
   body: unknown,
-  onDelta: (text: string) => void,
+  onSegment: (text: string) => void,
   authHeader: string | null,
   options?: StreamRequestOptions,
 ): Promise<void> {
@@ -201,7 +212,7 @@ function executeStream(
         xhr.abort();
         return false;
       }
-      if (frame.type === "text") onDelta(frame.text);
+      if (frame.type === "text") onSegment(frame.text);
       if (frame.type === "toolCall") options?.onToolCall?.(frame.toolCall);
       return true;
     };
@@ -275,19 +286,19 @@ function executeStream(
 export function postStream(
   path: string,
   body: unknown,
-  onDelta: (text: string) => void,
+  onSegment: (text: string) => void,
   options?: StreamRequestOptions,
 ): Promise<void> {
   return getConvexToken().then((token) =>
-    executeStream(path, body, onDelta, `Bearer ${token}`, options),
+    executeStream(path, body, onSegment, `Bearer ${token}`, options),
   );
 }
 
 export function postStreamAnonymous(
   path: string,
   body: unknown,
-  onDelta: (text: string) => void,
+  onSegment: (text: string) => void,
   options?: StreamRequestOptions,
 ): Promise<void> {
-  return executeStream(path, body, onDelta, null, options);
+  return executeStream(path, body, onSegment, null, options);
 }

@@ -91,11 +91,16 @@
   list-style: none;
 }
 
-/* The shared compact-surface assistant item carries 10px block padding
-   (bubble chrome the sidebar chat wants); this transcript renders assistant
-   text chrome-less, so that padding just doubles the inter-message gap. */
+/* This transcript is dense, so the shared assistant bubble is tightened:
+   the item itself carries no block padding (the bubble owns it) and the
+   bubble's own padding drops a notch versus the sidebar chat. */
 .agent-thread-chat__messages .event-item.assistant {
   padding-block: 2px;
+}
+
+.agent-thread-chat__messages .assistant-message-text {
+  --compact-chat-assistant-padding: 4px 10px;
+  --compact-chat-assistant-max-width: 88%;
 }
 
 .agent-thread-chat__new-messages {

@@ -97,10 +97,9 @@ describe("SwapText minimum visible duration", () => {
     expect(visibleIn()).toBe("Ran command");
   });
 
-  it("returns to thinking after a tool until assistant text starts", () => {
+  it("returns to thinking after a tool and stays up until the run ends", () => {
     const afterTool = buildInlineWorkingIndicatorProps({
       isStreaming: true,
-      isStreamingResponseText: false,
       isToolActive: false,
     });
     expect(afterTool).toMatchObject({
@@ -118,19 +117,8 @@ describe("SwapText minimum visible duration", () => {
       }),
     ).not.toMatch(/read|command/i);
 
-    const answering = buildInlineWorkingIndicatorProps({
-      isStreaming: true,
-      isStreamingResponseText: true,
-      isToolActive: false,
-    });
-    expect(answering).toMatchObject({
-      active: false,
-      exitImmediately: true,
-    });
-
     const ended = buildInlineWorkingIndicatorProps({
       isStreaming: false,
-      isStreamingResponseText: false,
       isToolActive: false,
     });
     expect(ended).toMatchObject({ active: false, exitImmediately: true });
@@ -139,19 +127,16 @@ describe("SwapText minimum visible duration", () => {
   it("holds the in-progress tool phrase, then catches up to thinking", async () => {
     const thinking = buildInlineWorkingIndicatorProps({
       isStreaming: true,
-      isStreamingResponseText: false,
       isToolActive: false,
     });
     const during = buildInlineWorkingIndicatorProps({
       isStreaming: true,
-      isStreamingResponseText: false,
       isToolActive: true,
       activeToolName: "read",
       activeToolCallId: "call-1",
     });
     const after = buildInlineWorkingIndicatorProps({
       isStreaming: true,
-      isStreamingResponseText: false,
       isToolActive: false,
     });
 
@@ -193,7 +178,6 @@ describe("SwapText minimum visible duration", () => {
   it("uses friendly tool copy instead of live runtime status text", () => {
     const props = buildInlineWorkingIndicatorProps({
       isStreaming: true,
-      isStreamingResponseText: false,
       isToolActive: true,
       activeToolName: "exec_command",
       activeToolCallId: "call-1",

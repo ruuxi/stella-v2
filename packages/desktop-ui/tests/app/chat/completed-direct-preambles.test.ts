@@ -63,14 +63,13 @@ describe("suppressCompletedDirectPreambleText", () => {
     expect(suppressCompletedDirectPreambleText(messages)).toBe(messages);
   });
 
-  it("does not cut off a live overlay when the durable final row lands", () => {
+  it("suppresses a live overlay preamble the same as its persisted twin", () => {
     const livePreamble = assistant(
       "stream-overlay:user-1:1",
       "Let me check that.",
       {
         workingMode: "direct",
         followedByToolCall: true,
-        assistantTextTransition: "holding",
       },
     );
     const final = assistant("assistant-2", "Done.", {
@@ -80,8 +79,8 @@ describe("suppressCompletedDirectPreambleText", () => {
 
     const result = suppressCompletedDirectPreambleText([livePreamble, final]);
 
-    expect(result[0]).toBe(livePreamble);
-    expect(result[0]?.payload?.text).toBe("Let me check that.");
+    expect(result[0]?.payload?.text).toBe("");
+    expect(result[1]?.payload?.text).toBe("Done.");
   });
 
   it("does not change completed orchestrated turns", () => {

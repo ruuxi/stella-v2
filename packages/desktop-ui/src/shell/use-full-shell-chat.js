@@ -12,7 +12,6 @@ import { useTraceEventMonitor, useTraceIpcListener, } from "@/platform/diagnosti
 import { buildActivityTasks, } from "@/features/chat/lib/event-transforms";
 import { useCapturedChatContext } from "./use-captured-chat-context";
 import { useChatScrollManagement } from "./use-chat-scroll-management";
-import { getAssistantScrollFollowKey } from "./chat-scroll-follow";
 import { useChatHomeSurface } from "./use-chat-home-surface";
 import { useAgentInputRouting } from "./use-agent-input-routing";
 import { useConversationModelSelection } from "./use-conversation-model-selection";
@@ -98,7 +97,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
     const { activities, hasOlderActivity, isLoadingOlder: isLoadingOlderActivity, loadOlder: loadOlderActivity, } = useConversationActivity(activeConversationId ?? undefined);
     const { files: persistedFiles, hasOlderFiles, isLoadingOlder: isLoadingOlderFiles, loadOlder: loadOlderFiles, } = useConversationFiles(activeConversationId ?? undefined);
     const { records: threadActivityRecords } = useThreadActivity(activeConversationId ?? undefined);
-    const { taskDecorations, optimisticEvents, runtimeStatusText, activeToolCallId, activeToolName, latestCompletedTool, hasToolActivity, isToolActive, reasoningText, streamingAssistants, isStreaming, isStreamingResponseText, pendingUserMessageId, queuedUserMessages, removeQueuedUserMessage, sendMessage, cancelCurrentStream, } = useStreamingChat({
+    const { taskDecorations, optimisticEvents, runtimeStatusText, activeToolCallId, activeToolName, latestCompletedTool, hasToolActivity, isToolActive, reasoningText, streamingAssistants, isStreaming, pendingUserMessageId, queuedUserMessages, removeQueuedUserMessage, sendMessage, cancelCurrentStream, } = useStreamingChat({
         conversationId: activeConversationId,
         persistedMessages,
     });
@@ -282,7 +281,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             showHomeContent || getIsEffectivelyAtBottom() || getShouldPlaceLatestTurn();
         const shouldNudgeAfterSend = !isStreaming && shouldKeepTailFramed;
         const submittedConversationId = activeConversationId;
-        const followKeyBeforeSend = getAssistantScrollFollowKey();
         const accepted = await sendMessage({
             text: latestMessageRef.current,
             selectedText,
@@ -325,7 +323,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             // Places the newest user turn near the top of the readable area,
             // above the (now settled) response spacer. The gentle loop keeps
             // that reframe continuous with the assistant stream-follow.
-            nudgeAfterSend(followKeyBeforeSend);
+            nudgeAfterSend();
         }
         else {
             releaseFollow();
@@ -502,7 +500,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         streaming: {
             reasoningText,
             isStreaming,
-            isStreamingResponseText,
             runtimeStatusText,
             activeToolCallId,
             activeToolName,
@@ -546,7 +543,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         reasoningText,
         runtimeStatusText,
         isStreaming,
-        isStreamingResponseText,
         isToolActive,
     ]);
     const chatColumnComposer = useMemo(() => ({

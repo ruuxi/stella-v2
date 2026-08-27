@@ -47,7 +47,7 @@ import {
 } from "../components/working-indicator-state";
 import {
   collapseLinkedDuplicates,
-  finalizeStreamedAssistantText,
+  finalizeAssistantTurnText,
   linkOptimisticTurnToCanonical,
   mergeMessagesById,
   reconcileSentDesktopTurn,
@@ -85,7 +85,6 @@ import {
   type OfflineChatToolMessage,
 } from "./offline-chat-request";
 import { admitSend } from "./send-admission";
-import { createStreamTextSmoother } from "./stream-text-smoother";
 import { shouldReuseQueuedReplayBatch } from "./desktop-send-batch-policy";
 import { drainDesktopSteerAcceptanceQueue } from "./desktop-steer-pump";
 import { userFacingError } from "./user-facing-error";
@@ -197,7 +196,7 @@ const composeRawQuotes = (quotes: ComposerQuote[]): string =>
 /** Bounded preview of quoted context stored on the sent message for its chip. */
 const QUOTED_TEXT_PREVIEW_MAX_CHARS = 4_000;
 
-// Run-level connection status shown before the desktop starts streaming.
+// Run-level connection status shown before the desktop starts the run.
 // `connecting` deliberately carries no copy: desktop has no "reaching" state,
 // so mobile lets the indicator fall through to the same baseline
 // "Thinking"/reasoning label desktop shows (see working-indicator-status).
@@ -389,7 +388,7 @@ export type ChatThread = {
 
 /**
  * Owns a single chat transcript end-to-end: persistence (keyed per thread),
- * the optimistic send queue, streaming, stop, and — for the desktop transport
+ * the optimistic send queue, delivery, stop, and — for the desktop transport
  * — sync/reconcile against the canonical desktop rows. Routing is fixed by
  * `transport`, so each surface (cloud Chat tab, computer Computer tab) gets a
  * coherent, single-destination conversation with no cross-routing.
@@ -440,12 +439,12 @@ export function useChatThread(opts: {
   }, []);
 
   // Merge a partial activity update onto the live snapshot. Run-level status
-  // (wake copy, compaction) and the bridge's tool/streaming signals patch in
+  // (wake copy, compaction) and the bridge's tool/message signals patch in
   // independently, so callers only set the fields they own.
   const patchActivity = useCallback((patch: Partial<WorkingActivity>) => {
     setWorkingActivity((current) => {
-      // Identity-stable bail-out: streaming patches per network delta, and a
-      // fresh object here re-renders the whole chat surface for no change.
+      // Identity-stable bail-out: several events can patch the same settled
+      // value, and a fresh object here re-renders the chat surface for nothing.
       for (const key of Object.keys(patch) as (keyof WorkingActivity)[]) {
         if (!Object.is(current[key], patch[key])) {
           return { ...current, ...patch };
@@ -459,11 +458,9 @@ export function useChatThread(opts: {
   // caller owns, so it can't clear one the snapshot dropped (a tool ending
   // would leave its label pinned); this replaces every field instead.
   //
-  // It carries the same bail-out, and needs it more: the desktop bridge
-  // re-emits a settled snapshot on EVERY streamed chunk, so committing a fresh
-  // object here re-rendered the whole chat surface at provider token rate —
-  // on top of the smoother's own per-frame text commit — for a value that
-  // stops changing after the first chunk of a run.
+  // It carries the same bail-out: the desktop bridge re-emits a settled
+  // snapshot on every tool/status/message event, and committing a fresh object
+  // for an unchanged snapshot would re-render the whole chat surface.
   const replaceActivity = useCallback((next: WorkingActivity) => {
     setWorkingActivity((current) => {
       for (const key of WORKING_ACTIVITY_KEYS) {
@@ -584,8 +581,9 @@ export function useChatThread(opts: {
     });
   }, [isDesktop, threadId]);
 
-  // Debounce persistence so streaming (which mutates `messages` many times a
-  // second) doesn't rewrite the whole history to disk on every chunk. The
+  // Debounce persistence so a busy turn (tool steps and artifacts mutate
+  // `messages` repeatedly) doesn't rewrite the whole history to disk each
+  // time. The
   // offline (cloud) chat also mirrors its messages into the SQLite FTS index
   // that backs recall (upserts are no-ops for unchanged rows).
   const pendingSaveRef = useRef<ChatMessage[] | null>(null);
@@ -598,9 +596,10 @@ export function useChatThread(opts: {
     // Still a trailing debounce — the write must stay off the hot path, since
     // `saveChatMessages` JSON-stringifies the whole transcript — but armed
     // once instead of re-armed per change. `messages` gets a new identity on
-    // every revealed frame, so the old clear/re-arm pair ran ~60x a second.
-    // If more text lands while the timer is out, it re-sleeps the remainder
-    // rather than writing early.
+    // every landed segment / tool step / artifact, so the old clear/re-arm
+    // pair re-armed far more often than the write needed.
+    // If more content lands while the timer is out, it re-sleeps the
+    // remainder rather than writing early.
     if (saveTimerRef.current !== null) return;
     const arm = (delayMs: number) => {
       saveTimerRef.current = setTimeout(() => {
@@ -1138,7 +1137,7 @@ export function useChatThread(opts: {
 
   // Flush push notifications the mid-send gate deferred. First await the
   // turn's reconcile: it can satisfy an ordinary push intent itself, avoiding
-  // the redundant empty delta that previously followed every streamed reply.
+  // the redundant empty delta that previously followed every reply.
   useEffect(() => {
     if (!appActive) return;
     if (sending) return;
@@ -1167,13 +1166,33 @@ export function useChatThread(opts: {
     };
   }, [appActive, sending, storageLoaded, runDesktopSync]);
 
-  const appendAssistantText = useCallback((replyId: string, chunk: string) => {
-    setMessages((m) =>
-      m.map((msg) =>
-        msg.id === replyId ? { ...msg, text: msg.text + chunk } : msg,
-      ),
-    );
-  }, []);
+  /**
+   * Append one COMPLETED assistant message segment to the turn's reply row.
+   *
+   * Assistant text is no longer streamed: each segment (preamble, post-tool
+   * answer, …) arrives whole, exactly once. A turn keeps ONE optimistic reply
+   * row — artifacts and tool steps are keyed to it by text offset, and the
+   * merge machinery (`retargetOptimisticReplyToUser`,
+   * `reconcileSentDesktopTurn`) links exactly one reply per turn — so a
+   * multi-segment turn concatenates into that row with a paragraph break. The
+   * background reconcile then splits it into its canonical desktop rows in one
+   * atomic merge.
+   */
+  const appendAssistantSegment = useCallback(
+    (replyId: string, segment: string) => {
+      if (!segment) return;
+      setMessages((m) =>
+        m.map((msg) => {
+          if (msg.id !== replyId) return msg;
+          const text = msg.text
+            ? `${msg.text.replace(/\s+$/, "")}\n\n${segment}`
+            : segment;
+          return { ...msg, text };
+        }),
+      );
+    },
+    [],
+  );
 
   const finishDispatch = useCallback(() => {
     const settle = async () => {
@@ -1339,10 +1358,6 @@ export function useChatThread(opts: {
         flushPersistNow();
         return;
       }
-
-      const textSmoother = createStreamTextSmoother({
-        appendText: (chunk) => appendAssistantText(replyId, chunk),
-      });
 
       const ensureFallbackReply = () => {
         setMessages((m) =>
@@ -1584,7 +1599,7 @@ export function useChatThread(opts: {
 
       try {
         if (!toolsEnabled) {
-          // Lean path: plain streamed text, no memory/tools/compaction.
+          // Lean path: plain text segments, no memory/tools/compaction.
           await streamFn(
             OFFLINE_CHAT_STREAM_PATH,
             buildOfflineChatRequest({
@@ -1592,13 +1607,12 @@ export function useChatThread(opts: {
               history: baseHistory,
               images: imagesPayload,
             }),
-            (delta) => {
-              if (/\S/.test(delta)) patchActivity({ isStreamingText: true });
-              textSmoother.push(delta);
+            (segment) => {
+              appendAssistantSegment(replyId, segment);
+              if (/\S/.test(segment)) patchActivity({ answerLanded: true });
             },
             streamOptions,
           );
-          await textSmoother.drain();
           ensureFallbackReply();
           notifySuccess();
           return;
@@ -1643,11 +1657,11 @@ export function useChatThread(opts: {
               enableTools: allowTools,
               toolMessages,
             }),
-            (delta) => {
-              roundText += delta;
-              roundVisibleChars += delta.length;
-              if (/\S/.test(delta)) patchActivity({ isStreamingText: true });
-              textSmoother.push(delta);
+            (segment) => {
+              roundText += segment;
+              roundVisibleChars += segment.length;
+              appendAssistantSegment(replyId, segment);
+              if (/\S/.test(segment)) patchActivity({ answerLanded: true });
             },
             {
               ...streamOptions,
@@ -1664,6 +1678,10 @@ export function useChatThread(opts: {
           toolTimelineOffset = textOffset;
 
           if (nativeCalls.length === 0) break;
+
+          // The round handed off to tools: this text was a preamble, not the
+          // answer, so bring the working indicator back up for the tool work.
+          patchActivity({ answerLanded: false });
 
           toolMessages.push({
             role: "assistant",
@@ -1829,19 +1847,16 @@ export function useChatThread(opts: {
           }
         }
 
-        await textSmoother.drain();
         ensureFallbackReply();
         notifySuccess();
       } catch (e) {
         if (e instanceof StreamAbortError) {
-          textSmoother.cancel();
           setMessages((m) =>
             m.map((msg) =>
               msg.id === replyId ? { ...msg, stopped: true } : msg,
             ),
           );
         } else {
-          textSmoother.flushNow();
           setMessages((m) =>
             m.map((msg) =>
               msg.id === replyId
@@ -1851,7 +1866,6 @@ export function useChatThread(opts: {
           );
         }
       } finally {
-        textSmoother.cancel();
         acknowledgeDesktopSendIds([item.dispatchId, item.userMessageId]);
         if (activeDispatchRef.current?.replyId === replyId) {
           activeDispatchRef.current = null;
@@ -1863,7 +1877,7 @@ export function useChatThread(opts: {
       }
     },
     [
-      appendAssistantText,
+      appendAssistantSegment,
       acknowledgeDesktopSendIds,
       finishDispatch,
       flushPersistNow,
@@ -1881,10 +1895,7 @@ export function useChatThread(opts: {
       abort: AbortController,
       access: StoredPhoneAccess,
     ) => {
-      const textSmoother = createStreamTextSmoother({
-        appendText: (chunk) => appendAssistantText(replyId, chunk),
-      });
-      let sawDelta = false;
+      let sawAssistantSegment = false;
       // Canonical desktop id of the submitted user message, reported by the
       // bridge as soon as the desktop persists the row (before the run
       // settles). Captured so the error path below can link the optimistic
@@ -1993,27 +2004,28 @@ export function useChatThread(opts: {
           onStatus: (status) => {
             if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
             // Connection/wake copy is a run-level status; merge it without
-            // disturbing the live tool/streaming flags.
+            // disturbing the live tool/answer flags.
             patchActivity({ statusText: WAKE_STATUS_COPY[status] });
           },
           onActivity: (activity: DesktopBridgeActivity) => {
             if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
-            // The bridge already folded the tool/stream events into a settled
-            // snapshot; adopt it wholesale so the indicator tracks the run.
+            // The bridge already folded the tool/message events into a
+            // settled snapshot; adopt it wholesale so the indicator tracks the
+            // run.
             // Falsy fields collapse to `undefined` so an absent tool compares
             // equal across snapshots and the bail-out can hold.
             replaceActivity({
               toolName: activity.toolName || undefined,
               toolCallId: activity.toolCallId || undefined,
               statusText: activity.statusText || undefined,
-              isStreamingText: activity.isStreamingText,
+              answerLanded: activity.answerLanded,
               hasToolActivity: activity.hasToolActivity,
             });
           },
-          onTextDelta: (delta) => {
+          onAssistantSegment: (segment) => {
             if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
-            sawDelta = true;
-            textSmoother.push(delta);
+            sawAssistantSegment = true;
+            appendAssistantSegment(replyId, segment.text);
           },
           onArtifacts: (artifacts) => {
             const stopped = stoppedDispatchIdsRef.current.has(item.dispatchId);
@@ -2047,7 +2059,6 @@ export function useChatThread(opts: {
           markSending(false);
           return;
         }
-        await textSmoother.drain();
         // Link the turn to its canonical desktop ids immediately (not just in
         // the background reconcile below, whose delta may race the desktop
         // persisting the rows): the user bubble adopts the canonical id the
@@ -2063,11 +2074,11 @@ export function useChatThread(opts: {
           let changed = false;
           const next = m.map((msg) => {
             if (msg.id === replyId) {
-              // Finalize IN PLACE: keep the streamed text (same string
-              // reference) whenever it already covers the turn's final text,
-              // so the reply that just streamed doesn't get rewritten — and
-              // its markdown re-rendered/re-animated — at end of turn.
-              const text = finalizeStreamedAssistantText(msg.text, result.text);
+              // Finalize IN PLACE: keep the delivered segments (same string
+              // reference) whenever they already cover the turn's final text,
+              // so the reply the user is reading isn't rewritten — and its
+              // markdown re-rendered — at end of turn.
+              const text = finalizeAssistantTurnText(msg.text, result.text);
               const requestId = canonicalUserMessageId || msg.requestId;
               const artifacts =
                 result.artifacts.length > 0 ? result.artifacts : msg.artifacts;
@@ -2164,10 +2175,9 @@ export function useChatThread(opts: {
         notifySuccess();
         finishDispatch();
       } catch (e) {
-        textSmoother.cancel();
         if (stoppedDispatchIdsRef.current.has(item.dispatchId)) {
           activeDispatchRef.current = null;
-          // The user stopped this turn mid-stream (the abort surfaced here).
+          // The user stopped this turn mid-run (the abort surfaced here).
           // The desktop persisted the turn's canonical user row at run start,
           // so link the optimistic bubble to it now — otherwise the next send's
           // wake→sync re-merges that canonical row as a duplicate of this user
@@ -2186,7 +2196,7 @@ export function useChatThread(opts: {
         // to the cloud. Surface an offline reply the user can act on (wake the
         // computer and retry).
         const message =
-          e instanceof DesktopOfflineError && !sawDelta
+          e instanceof DesktopOfflineError && !sawAssistantSegment
             ? "Your computer is offline. Wake it from the menu, then try again."
             : userFacingError(e);
         // The desktop persists the turn's canonical user row (and, if it got
@@ -2243,12 +2253,10 @@ export function useChatThread(opts: {
           closeDesktopBridgeSendBatch(desktopSendBatchRef.current);
           desktopSendBatchRef.current = null;
         }
-      } finally {
-        textSmoother.cancel();
       }
     },
     [
-      appendAssistantText,
+      appendAssistantSegment,
       acknowledgeDesktopSendIds,
       finishDispatch,
       markSending,
@@ -2285,7 +2293,7 @@ export function useChatThread(opts: {
           if (msg.id !== item.userMessageId) return msg;
           // Re-stamp a *queued* bubble's display time to its real dispatch
           // moment. Its original `createdAt` is the enqueue moment (when the
-          // user tapped send while the prior turn was still streaming), which
+          // user tapped send while the prior turn was still running), which
           // would read as sent before any messages that landed during the
           // wait. Ordering converges via the canonical desktop stamp once the
           // turn reconciles (`canonicalCreatedAt` — see `sortCanonically` in
@@ -2332,7 +2340,7 @@ export function useChatThread(opts: {
     (suppliedPrompt?: string): { userMessageId: string } | null => {
       // Don't dispatch until hydration has restored the persisted transcript and
       // sync cursor: sending earlier lets the async load overwrite the optimistic
-      // bubble, and lets the landing sync fire mid-stream against a fresh cursor.
+      // bubble, and lets the landing sync fire mid-run against a fresh cursor.
       // The draft is left intact so the queued tap lands once we're loaded.
       if (!storageLoaded) return null;
       const supplied = suppliedPrompt !== undefined;
@@ -2536,7 +2544,7 @@ export function useChatThread(opts: {
     (messageId: string) => {
       if (transport.kind !== "cloud") return;
       if (!storageLoaded) return;
-      // Never truncate under an in-flight turn — the streaming reply writes into
+      // Never truncate under an in-flight turn — the in-flight reply writes into
       // the very rows we would be dropping.
       if (sendingRef.current) return;
       const current = messagesRef.current;

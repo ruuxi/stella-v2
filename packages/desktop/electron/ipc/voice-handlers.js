@@ -392,7 +392,6 @@ export const registerVoiceHandlers = (options) => {
             throw new Error("Stella runtime not initialized");
         }
         return await stellaHostRunner.handleVoiceChat(payload, {
-            onStream: () => { },
             onToolStart: (event) => {
                 emitVoiceAgentEvent({ ...event, type: "tool-start" });
             },

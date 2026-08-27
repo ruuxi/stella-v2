@@ -17,10 +17,10 @@ import type {
   RuntimeWebSearchResult,
 } from "@stella/contracts/protocol";
 import type {
+  RuntimeAssistantMessageEvent,
   RuntimeEndEvent,
   RuntimeErrorEvent,
   RuntimeStatusEvent,
-  RuntimeStreamEvent,
   RuntimeToolEndEvent,
   RuntimeToolStartEvent,
 } from "../../kernel/agent-runtime.js";
@@ -49,7 +49,7 @@ type VoiceRunner = {
       storageMode?: "cloud" | "local";
     },
     callbacks: {
-      onStream: (event: RuntimeStreamEvent) => void;
+      onAssistantMessage?: (event: RuntimeAssistantMessageEvent) => void;
       onStatus?: (event: RuntimeStatusEvent) => void;
       onToolStart: (event: RuntimeToolStartEvent) => void;
       onToolEnd: (event: RuntimeToolEndEvent) => void;
@@ -481,11 +481,18 @@ export class VoiceRuntimeService {
             storageMode: "local",
           },
           {
-            onStream: (event) => {
-              if (event.chunk) {
-                fullText += event.chunk;
+            // Assistant text arrives whole, one event per completed segment
+            // (a tool-calling turn emits several: preamble, post-tool answer).
+            // Concatenating them keeps `fullText` as the belt-and-braces
+            // fallback for the spoken reply when `run-finished` carries no
+            // `finalText`. Nothing is emitted on the voice agent-event wire:
+            // the voice overlay only renders tool/lifecycle cards, and the
+            // reply text reaches the caller through this promise's resolution
+            // (it discarded the old per-chunk STREAM frames anyway).
+            onAssistantMessage: (event) => {
+              if (event.text) {
+                fullText += (fullText ? "\n\n" : "") + event.text;
               }
-              emitAgentEvent(event, AGENT_STREAM_EVENT_TYPES.STREAM);
             },
             onStatus: (event) =>
               emitAgentEvent(event, AGENT_STREAM_EVENT_TYPES.STATUS),

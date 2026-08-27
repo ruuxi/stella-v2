@@ -657,12 +657,38 @@ const streamOfflineReply = async (args: {
           onOutput: () => void,
         ): Promise<AssistantMessage> => {
           let completed: AssistantMessage | null = null;
+          // Assistant text is delivered whole: deltas accumulate here and are
+          // flushed as ONE `{t: <segment text>}` frame when the text block
+          // closes (`text_end`), so the client renders a finished message
+          // rather than a typewriter. One frame per segment (not one per
+          // response) keeps the tool-calling loop's interleaving intact:
+          // text → toolCall → text all stay in wire order.
+          const pendingText = new Map<number, string>();
+          const flushText = (contentIndex?: number) => {
+            for (const [index, text] of [...pendingText.entries()].sort(
+              (left, right) => left[0] - right[0],
+            )) {
+              if (contentIndex !== undefined && index !== contentIndex) continue;
+              pendingText.delete(index);
+              if (text) controller.enqueue(encodeSseData({ t: text }));
+            }
+          };
           for await (const event of stream) {
             if (event.type === "text_delta") {
               if (event.delta.trim()) onOutput();
-              controller.enqueue(encodeSseData({ t: event.delta }));
+              pendingText.set(
+                event.contentIndex,
+                (pendingText.get(event.contentIndex) ?? "") + event.delta,
+              );
+            } else if (event.type === "text_end") {
+              // Providers report the canonical block text here; prefer it over
+              // the accumulated deltas, which can be re-emitted or partial.
+              pendingText.set(event.contentIndex, event.content);
+              flushText(event.contentIndex);
             } else if (event.type === "toolcall_end") {
               onOutput();
+              // Any text that opened before this tool call belongs ahead of it.
+              flushText();
               controller.enqueue(
                 encodeSseData({
                   toolCall: {
@@ -681,6 +707,9 @@ const streamOfflineReply = async (args: {
                 }),
               );
             } else if (event.type === "done") {
+              // Safety net for a provider that ends a stream without closing
+              // its text block.
+              flushText();
               completed = event.message;
             } else if (event.type === "error") {
               throw new Error(
@@ -688,6 +717,7 @@ const streamOfflineReply = async (args: {
               );
             }
           }
+          flushText();
           if (!completed)
             throw new Error("Model stream ended without a result");
           return completed;

@@ -11,16 +11,16 @@ export type {
 import type { AgentResponseTarget } from "@stella/contracts/agent-stream";
 
 /**
- * In-memory assistant message currently being streamed.
+ * In-memory assistant message delivered by the runtime for the active run.
  *
- * Stella streams runtime → renderer over IPC and the persisted source
- * of truth is SQLite. Per Option A (standard chat-UI pattern, c.f.
- * Vercel `useChat`), the renderer treats stream chunks as updates to
- * a synthetic in-memory `MessageRecord` rather than overlaying a
- * separate "tail row" on top of the persisted list. The overlay is
- * inserted into `displayMessages` by `useConversationDisplayMessages`.
- * While it exists, it masks the persisted row at the same
- * `(userMessageId, indexInTurn)` slot and borrows that row's metadata.
+ * Assistant text is NOT streamed: one `assistant-message` runtime event
+ * carries the whole canonical text for a message segment, and the renderer
+ * materializes it as a single locked overlay row. The overlay exists only so
+ * the message is on screen the instant the runtime reports it — before the
+ * SQLite `localChat:updated` snapshot lands. While present it masks the
+ * persisted row at the same `(userMessageId, indexInTurn)` slot and borrows
+ * that row's metadata / tool events (see
+ * `useConversationDisplayMessages`).
  *
  * Layout invariants:
  *   - `indexInTurn` is 1-based per `userMessageId`. The first assistant
@@ -45,41 +45,15 @@ export type StreamingAssistantOverlay = {
   /** Exact persisted twin learned from the assistant-message boundary. */
   canonicalMessageId?: string;
   /**
-   * Marked true once this slot's text equals the full upstream-received
-   * text for its message (set on `ASSISTANT_MESSAGE` boundary or
-   * `RUN_FINISHED`).
+   * Always `true` for overlays created from an `assistant-message` event —
+   * the text they carry is the runtime's canonical text for the message, so
+   * there is never a partial state. Kept as a field because the display merge
+   * and the read-aloud/pet consumers still key on "is this row settled".
    */
   locked?: boolean;
-  /**
-   * Direct-mode intra-turn text handoff. Queued text is buffered until the
-   * previous segment has painted and dwelled; hidden text keeps masking its
-   * persisted twin while preserving that row's tool artifacts.
-   */
-  textTransition?: "holding" | "queued" | "fading" | "hidden";
 };
 
-export const linkStreamingAssistantCanonicalMessage = (
-  overlays: StreamingAssistantOverlay[],
-  args: {
-    userMessageId: string;
-    indexInTurn: number;
-    canonicalMessageId: string;
-  },
-): StreamingAssistantOverlay[] => {
-  const index = overlays.findIndex(
-    (overlay) =>
-      overlay.userMessageId === args.userMessageId &&
-      overlay.indexInTurn === args.indexInTurn,
-  );
-  if (index < 0) return overlays;
-  const current = overlays[index]!;
-  if (current.canonicalMessageId === args.canonicalMessageId) return overlays;
-  const next = overlays.slice();
-  next[index] = { ...current, canonicalMessageId: args.canonicalMessageId };
-  return next;
-};
-
-/** Replace optimistic streamed text with the provider's finalized text. */
+/** Replace an existing overlay slot's text with the provider's finalized text. */
 export const reconcileStreamingAssistantCanonicalMessage = (
   overlays: StreamingAssistantOverlay[],
   args: {

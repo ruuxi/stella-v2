@@ -13,7 +13,6 @@ import type { MessageMetadata } from '@/features/chat/lib/event-transforms'
 import type { EventRecord } from '@/features/chat/lib/event-transforms'
 import type { MessageRecord } from "@stella/contracts/local-chat"
 import { resolveComposerContextState } from '../composer-context'
-import { shouldTreatResumedAnswerAsStarted } from '@/features/chat/working-indicator-state'
 import {
   buildAllLocalAttachments,
   toDisplayAttachments,
@@ -237,13 +236,11 @@ export function useStreamingChatCore({
   const {
     taskDecorations,
     runtimeStatusText,
-    markAssistantResponseTextStarted,
     activeToolCallId,
     activeToolName,
     latestCompletedTool,
     hasToolActivity,
     isToolActive,
-    isStreamingResponseText,
     reasoningText,
     streamingAssistants,
     isStreaming,
@@ -399,16 +396,11 @@ export function useStreamingChatCore({
   useEffect(() => {
     if (!pendingUserMessageId) return
 
-    // Once the runtime is no longer streaming AND we've seen a
-    // persisted assistant_message that targets the pending user
-    // message, drop `pendingUserMessageId` so composer / scroll
-    // gating logic stops treating the turn as in-flight. Do NOT wipe
-    // `streamingAssistants` here: active live rows keep owning the
-    // visible text and borrow SQLite metadata as it arrives. A
-    // multi-message run (preamble + post-tool answer) persists each row
-    // as its own SQLite write, often across two `localChat:updated`
-    // snapshots; clearing on the first snapshot would still drop the
-    // second row's live stream for one tick.
+    // Once the run is over AND a persisted assistant_message targeting the
+    // pending user message has landed, drop `pendingUserMessageId` so
+    // composer / scroll gating stops treating the turn as in-flight. Do NOT
+    // wipe `streamingAssistants` here: the delivered rows keep owning the
+    // visible text and borrow SQLite metadata as it arrives.
     if (isStreaming) return
     const hasAssistantReply = persistedMessages.some((message) => {
       if (message.type !== 'assistant_message') return false
@@ -424,37 +416,6 @@ export function useStreamingChatCore({
     pendingUserMessageId,
     persistedMessages,
     setPendingUserMessageId,
-  ])
-
-  // Resume hand-off: an already-streamed answer can come back from persistence
-  // with no live overlay. Mark it as response text so the inline working
-  // indicator does not hang under the visible answer until the run terminates.
-  useEffect(() => {
-    if (!pendingUserMessageId) return
-    const activeTurnAnswerVisible = persistedMessages.some((message) => {
-      if (message.type !== 'assistant_message') return false
-      if (!message.payload || typeof message.payload !== 'object') return false
-      const payload = message.payload as { userMessageId?: string; text?: string }
-      if (payload.userMessageId !== pendingUserMessageId) return false
-      return typeof payload.text === 'string' && payload.text.trim().length > 0
-    })
-    if (
-      shouldTreatResumedAnswerAsStarted({
-        isStreaming,
-        isStreamingResponseText,
-        hasLiveStreamingOverlay: streamingAssistants.length > 0,
-        activeTurnAnswerVisible,
-      })
-    ) {
-      markAssistantResponseTextStarted()
-    }
-  }, [
-    isStreaming,
-    isStreamingResponseText,
-    streamingAssistants,
-    pendingUserMessageId,
-    persistedMessages,
-    markAssistantResponseTextStarted,
   ])
 
   useEffect(() => {
@@ -612,7 +573,6 @@ export function useStreamingChatCore({
     reasoningText,
     streamingAssistants,
     isStreaming,
-    isStreamingResponseText,
     pendingUserMessageId,
     removeQueuedUserMessage,
     sendMessage,

@@ -159,7 +159,7 @@ describe("external live steering", () => {
       { userMessageId: "user-1", uiVisibility: "visible" },
       { userMessageId: "user-2", uiVisibility: "visible" },
     ]);
-    expect(recorder.recordStream("answer")).toMatchObject({
+    expect(recorder.recordAssistantTextEnd("answer")).toMatchObject({
       userMessageId: "user-2",
       uiVisibility: "visible",
     });

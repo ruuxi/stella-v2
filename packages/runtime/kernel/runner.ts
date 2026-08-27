@@ -277,7 +277,6 @@ export const createStellaHostRunner = (
   };
 
   const noopRuntimeCallbacks: RuntimeRunCallbacks = {
-    onStream: () => {},
     onToolStart: () => {},
     onToolEnd: () => {},
     onError: () => {},

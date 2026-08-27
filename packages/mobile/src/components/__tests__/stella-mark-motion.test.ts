@@ -1,0 +1,112 @@
+import { describe, expect, test } from "bun:test";
+import {
+  DOT_CYCLE_MS,
+  DOT_ENTRANCE_STAGGER,
+  DOT_PHASE_OFFSET,
+  dotEntrance,
+  dotGaussian,
+  dotWave,
+  easeOutBack,
+  easeOutCubic,
+  morphEnvelope,
+  wrappedDistance,
+} from "../stella-mark/motion";
+
+// The repo's `bun test` runner has no React Native renderer, so the indicator's
+// motion lives in a pure module and is verified here instead of by rendering.
+
+describe("morph envelope", () => {
+  test("runs from rest to fully morphed and clamps outside the window", () => {
+    expect(morphEnvelope(0)).toBe(0);
+    expect(morphEnvelope(1)).toBe(1);
+    expect(morphEnvelope(-0.5)).toBe(0);
+    expect(morphEnvelope(2)).toBe(1);
+  });
+
+  test("has the shape of a critically damped spring — monotonic, no overshoot", () => {
+    let previous = 0;
+    for (let i = 1; i <= 40; i += 1) {
+      const value = morphEnvelope(i / 40);
+      expect(value).toBeGreaterThan(previous);
+      expect(value).toBeLessThanOrEqual(1);
+      previous = value;
+    }
+  });
+
+  test("is past halfway by a quarter of the settle window and nearly there by two thirds", () => {
+    expect(morphEnvelope(0.25)).toBeGreaterThan(0.4);
+    expect(morphEnvelope(0.25)).toBeLessThan(0.6);
+    expect(morphEnvelope(2 / 3)).toBeGreaterThan(0.9);
+  });
+});
+
+describe("wrapped distance", () => {
+  test("measures around the cycle seam, not across it", () => {
+    expect(wrappedDistance(0.05, 0.95)).toBeCloseTo(0.1, 10);
+    expect(wrappedDistance(0.1, 0.4)).toBeCloseTo(0.3, 10);
+    expect(wrappedDistance(0.5, 0.5)).toBe(0);
+  });
+});
+
+describe("dot bounce wave", () => {
+  test("each slot peaks once per cycle, a third of a cycle apart", () => {
+    for (const slot of [0, 1, 2]) {
+      // Slot i peaks when the phase-shifted progress reaches i / 3.
+      const peakMs =
+        ((slot / 3 - DOT_PHASE_OFFSET + 1) % 1) * DOT_CYCLE_MS;
+      expect(dotGaussian(slot, peakMs)).toBeCloseTo(1, 6);
+    }
+  });
+
+  test("the peak travels left → middle → right, a third of a cycle apart", () => {
+    const peakAt = (slot: number) =>
+      ((slot / 3 - DOT_PHASE_OFFSET + 1) % 1) * DOT_CYCLE_MS;
+    const third = DOT_CYCLE_MS / 3;
+    // Measured around the cycle: slot 0's peak is a third of a cycle before
+    // slot 1's, which is a third before slot 2's.
+    const gap = (from: number, to: number) =>
+      (peakAt(to) - peakAt(from) + DOT_CYCLE_MS) % DOT_CYCLE_MS;
+    expect(gap(0, 1)).toBeCloseTo(third, 6);
+    expect(gap(1, 2)).toBeCloseTo(third, 6);
+  });
+
+  test("wraps across the cycle seam without a discontinuity", () => {
+    const beforeSeam = dotGaussian(0, DOT_CYCLE_MS - 1);
+    const afterSeam = dotGaussian(0, DOT_CYCLE_MS + 1);
+    expect(Math.abs(beforeSeam - afterSeam)).toBeLessThan(0.02);
+  });
+
+  test("lift, pop and tone all ride the same gaussian within their spec range", () => {
+    for (let ms = 0; ms < DOT_CYCLE_MS; ms += 37) {
+      const wave = dotWave(1, ms);
+      expect(wave.gaussian).toBeGreaterThanOrEqual(0);
+      expect(wave.gaussian).toBeLessThanOrEqual(1);
+      expect(wave.liftUnits).toBeCloseTo(wave.gaussian * 9, 10);
+      expect(wave.scale).toBeGreaterThanOrEqual(0.84);
+      expect(wave.scale).toBeLessThanOrEqual(0.84 + 0.22 + 1e-9);
+      expect(wave.opacity).toBeGreaterThanOrEqual(0.5);
+      expect(wave.opacity).toBeLessThanOrEqual(1 + 1e-9);
+    }
+  });
+});
+
+describe("entrance", () => {
+  test("dots cascade — a later slot starts after an earlier one", () => {
+    expect(dotEntrance(0, DOT_ENTRANCE_STAGGER)).toBeGreaterThan(0);
+    expect(dotEntrance(2, DOT_ENTRANCE_STAGGER)).toBe(0);
+    // Every slot is fully in by the time the morph settles.
+    expect(dotEntrance(0, 1)).toBe(1);
+    expect(dotEntrance(1, 1)).toBe(1);
+    expect(dotEntrance(2, 1)).toBe(1);
+  });
+
+  test("easings are clamped and land on their endpoints", () => {
+    expect(easeOutCubic(0)).toBe(0);
+    expect(easeOutCubic(1)).toBe(1);
+    expect(easeOutCubic(-1)).toBe(0);
+    expect(easeOutBack(0)).toBeCloseTo(0, 10);
+    expect(easeOutBack(1)).toBeCloseTo(1, 10);
+    // Ease-out-back overshoots past its target before settling.
+    expect(easeOutBack(0.7)).toBeGreaterThan(1);
+  });
+});

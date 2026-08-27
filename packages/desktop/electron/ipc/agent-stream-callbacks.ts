@@ -17,6 +17,7 @@ type StreamEventBase = {
   statusText?: string;
   groupKey?: string;
   groupLabel?: string;
+  /** Reasoning deltas only — assistant text no longer streams. */
   chunk?: string;
   finalText?: string;
   persisted?: boolean;
@@ -106,14 +107,7 @@ export const createLocalChatStreamCallbacks = (
       });
       afterRunStarted?.(ev.runId);
     },
-    onStream: (ev: StreamEventBase) =>
-      emit(
-        withRequest(
-          { ...ev, type: AGENT_STREAM_EVENT_TYPES.STREAM },
-          conversationId,
-          requestId,
-        ),
-      ),
+    // No `onStream`: assistant text is delivered whole on `assistant-message`.
     onAssistantMessage: (ev: StreamEventBase) =>
       emit(
         withRequest(

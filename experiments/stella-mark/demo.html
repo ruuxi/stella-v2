@@ -1,0 +1,1644 @@
+<title>Stella Mark</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --paper:#f7f7f6; --card:#fff; --stage:#eeeef0;
+  --ink:#16171b; --ink-2:#4e535c; --ink-3:#7f858f;
+  --rule:#e0e0dd; --rule-2:#c9c9c5;
+  --accent:#5243ff; --accent-soft:#5243ff16;
+  --mark-bg:#eeeef0;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0b0c10; --card:#131519; --stage:#08090c;
+    --ink:#e9eaee; --ink-2:#a3a9b4; --ink-3:#6c727c;
+    --rule:#20232a; --rule-2:#2d323a;
+    --accent:#8f86ff; --accent-soft:#8f86ff1f;
+    --mark-bg:#08090c;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0b0c10; --card:#131519; --stage:#08090c;
+  --ink:#e9eaee; --ink-2:#a3a9b4; --ink-3:#6c727c;
+  --rule:#20232a; --rule-2:#2d323a;
+  --accent:#8f86ff; --accent-soft:#8f86ff1f;
+  --mark-bg:#08090c;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.6}
+.wrap{max-width:1000px;margin:0 auto;padding:0 26px 90px}
+header{padding:52px 0 26px;border-bottom:1px solid var(--rule);display:flex;flex-direction:column;gap:16px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3)}
+h1{margin:0;font-size:clamp(28px,4vw,40px);line-height:1.08;letter-spacing:-.03em;font-weight:600;text-wrap:balance}
+.dek{margin:0;max-width:62ch;color:var(--ink-2)}
+section{padding-top:52px}
+h2{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:19px;letter-spacing:-.02em;margin:0 0 12px}
+h3{font-family:"IBM Plex Sans",sans-serif;font-weight:600;font-size:11.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ink-3);margin:30px 0 10px}
+p{margin:0 0 14px;max-width:70ch;color:var(--ink-2)}
+p strong{color:var(--ink);font-weight:600}
+code{font-family:"IBM Plex Mono",monospace;font-size:.88em;background:var(--stage);
+  border:1px solid var(--rule);padding:.08em .34em;border-radius:2px}
+.panel{border:1px solid var(--rule);background:var(--card);margin:18px 0 24px}
+.stage{background:var(--stage);padding:40px 24px;display:flex;align-items:center;
+  justify-content:center;gap:46px;flex-wrap:wrap;min-height:200px;
+  --stella-mark-bg:var(--stage)}
+.hero{min-height:300px}
+.specimen{display:grid;grid-template-rows:186px auto;justify-items:center;align-items:center;gap:12px}
+.cap{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3)}
+.bar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:12px 16px;border-top:1px solid var(--rule)}
+.bar+.bar{border-top:1px dashed var(--rule)}
+.lbl{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);margin-right:2px}
+button{font:inherit;font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-2);
+  background:transparent;border:1px solid var(--rule-2);padding:4px 10px;border-radius:2px;cursor:pointer}
+button:hover{border-color:var(--ink-3);color:var(--ink)}
+button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.line{display:flex;align-items:center;gap:9px;color:var(--ink-2);font-size:15px}
+.line .mk{width:26px;height:26px;flex:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:1px;
+  background:var(--rule);border:1px solid var(--rule)}
+.cell{background:var(--card);padding:16px 8px 12px;display:grid;grid-template-rows:1fr auto;
+  justify-items:center;gap:10px;--stella-mark-bg:var(--card)}
+pre{margin:0 0 22px;padding:15px 17px;background:var(--stage);border:1px solid var(--rule);
+  overflow-x:auto;font-family:"IBM Plex Mono",monospace;font-size:12.5px;line-height:1.6;color:var(--ink)}
+pre b{color:var(--accent);font-weight:400}
+pre i{color:var(--ink-3);font-style:normal}
+.note{border-left:2px solid var(--accent);background:var(--accent-soft);padding:11px 15px;
+  margin:0 0 20px;max-width:70ch;font-size:14px;color:var(--ink-2)}
+.note strong{color:var(--ink)}
+ul{margin:0 0 14px;padding-left:1.1em;max-width:70ch;color:var(--ink-2)}
+li{margin-bottom:6px}
+li strong{color:var(--ink);font-weight:600}
+footer{margin-top:64px;padding-top:20px;border-top:1px solid var(--rule);
+  font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-3);line-height:1.7}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Stella · character mark · prototype</div>
+  <h1>A star with a face</h1>
+  <p class="dek">Stella's six-ray brand star, rigged the way Grok Bot rigs its blob: one render, one rAF loop, springs at a fixed substep, and the character itself becoming the middle dot when it thinks. Standalone — nothing here is wired into the app.</p>
+</header>
+
+<section>
+  <h2>Live</h2>
+  <div class="panel">
+    <div class="stage hero" id="hero"></div>
+    <div class="bar" id="states"><span class="lbl">state</span></div>
+    <div class="bar">
+      <span class="lbl">shape</span><span id="shapes"></span>
+      <span class="lbl" style="margin-left:14px">eyes</span>
+      <button id="follow" aria-pressed="false">follow pointer</button>
+      <button id="spark">sparkle</button>
+    </div>
+  </div>
+  <div class="note"><strong>Try thinking.</strong> The star balls up, drops its face, and joins a three-slot bounce as the middle dot. Then <code>working</code>: the star stays a star and a light wave runs around its rays. Then <code>loading</code>, where a band of compression travels up the body and the face squeezes along with it.</div>
+</section>
+
+<section>
+  <h2>Every state</h2>
+  <p>Sixteen states, each with its own eye-pose pool, blink cadence and face tuning. Seven of them add an overlay; the rest just change expression.</p>
+  <div class="grid" id="gallery"></div>
+</section>
+
+<section>
+  <h2>At the sizes it has to work</h2>
+  <p>The rig measures its own rendered width every 500&nbsp;ms. Below 44&nbsp;px the thinking dots zoom 1.5×, above 134&nbsp;px they don't — so one component covers a 16&nbsp;px sidebar chip and a 200&nbsp;px empty state.</p>
+  <div class="panel">
+    <div class="stage" id="sizes"></div>
+    <div class="bar"><span class="lbl">state</span><span id="sizeStates"></span></div>
+  </div>
+  <div class="panel">
+    <div class="stage" style="gap:34px">
+      <div class="line"><span class="mk" id="l1"></span><span>Thinking</span></div>
+      <div class="line"><span class="mk" id="l2"></span><span>Searching the web</span></div>
+      <div class="line"><span class="mk" id="l3"></span><span>Running commands</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Where the shape comes from</h2>
+  <p>One source of truth: the six-ray star already shipping in <code>WorkingStar.tsx</code>. But the logo is not a tidy six. Its vertical pair runs to full length while the four side rays reach barely half, and those four sit in two close pairs about 37&deg; apart rather than evenly around the circle. Gorgeous as a flare at 512&nbsp;px. Shrink it to 24&nbsp;px and put a face in it and the long pair dominates while the close pairs merge into horizontal arms — <strong>it reads as a kite, not a star.</strong></p>
+  <p>So the character profile is rebuilt from the logo's own ray set, one correction at a time:</p>
+  <div class="panel">
+    <div class="stage" id="derivation"></div>
+    <div class="bar"><span class="lbl">morph</span>
+      <span id="puffLabel" class="lbl" style="color:var(--ink-2);min-width:78px">puff 1.00</span>
+      <input type="range" id="puff" min="0" max="100" value="100" style="width:240px;accent-color:var(--accent)">
+      <span class="lbl" style="margin-left:6px">logo &rarr; character</span></div>
+  </div>
+  <p><code>puff</code> crossfades the rebuilt profile against the untouched logo, which is why the rig can <em>morph</em> between the character and the brand mark instead of swapping one asset for another.</p>
+</section>
+
+<section>
+  <h2>Using it</h2>
+<pre><b>import</b> { createStellaMark } <b>from</b> <i>"./stella-mark.js"</i>;
+
+<b>const</b> mark = createStellaMark(el, {
+  size: <b>28</b>,
+  state: <i>"idle"</i>,
+  shape: <i>"star"</i>,          <i>// star | pebble | brand | orb</i>
+  ink: <i>"aurora"</i>,          <i>// the shipping WorkingStar ramp</i>
+  followPointer: <b>true</b>,
+});
+
+mark.setState(<i>"thinking"</i>);
+mark.setShape(<i>"brand"</i>);     <i>// morphs, does not swap</i>
+mark.sparkle(<b>18</b>);           <i>// one-off burst</i>
+mark.destroy();</pre>
+
+  <h3>What it inherits from the Grok rig</h3>
+  <ul>
+    <li><strong>One render, one loop.</strong> A fixed node pool — 2 dots, 3 dot-sparkles, 5 orbit sparkles, 4 rings, 2 eyes — created once and then shown, hidden and re-transformed by hand.</li>
+    <li><strong>Springs at a fixed 1/120&nbsp;s substep</strong>, <code>dt</code> clamped to 0.1&nbsp;s, so a slow frame doesn't launch the star off screen.</li>
+    <li><strong>It parks itself.</strong> When every spring has settled and no particles are alive, the loop stops instead of burning a frame to redraw the same picture.</li>
+    <li><strong>Ring-lerp morphing.</strong> Every outline is 96 points on 96 rays from the centre, so any shape lerps into any other and re-emits as one Catmull-Rom path.</li>
+    <li><strong>The three-slot Gaussian bounce</strong>, 1400&nbsp;ms, σ 0.15, with the body as slot 1 — the character does not sit beside the dots, it becomes the middle one.</li>
+    <li><strong>Reduced motion is read once at mount</strong> and short-circuits the physics rather than being a class you can forget to apply.</li>
+  </ul>
+
+  <h3>What is Stella's</h3>
+  <ul>
+    <li><strong>The star stays a star.</strong> Grok collapses to a dot for all fourteen of its activities. Here only <code>thinking</code> does — a star has rays worth animating, so <code>working</code> runs a light wave around them instead.</li>
+    <li><strong>The silhouette is derived, not drawn.</strong> Four knobs turn the shipping logo into a character and back, so there is no second asset to keep in sync when the brand mark changes.</li>
+    <li><strong><code>squeeze</code> instead of a spin.</strong> A Y-axis flip is the obvious motion for a mark and the wrong one here: a flip only reads on a shape whose silhouette is roughly the same at every angle, and a six-ray star at 40&deg; is a different star while at 90&deg; it is a stick. So <code>loading</code> runs a band of compression up the body instead — the waist pinches, the material ahead of it swells and rides upward, and the whole star stretches a little as the band crosses the middle. It deforms the silhouette on purpose and never stops being a star.</li>
+    <li><strong>Star eyes</strong> for <code>celebrate</code>, and an ambient glow that swells with the ray wave.</li>
+    <li><strong>Idle starlight.</strong> A 1.2&nbsp;% three-lobe swell drifting around the rays — below the threshold of "animation", above the threshold of "alive".</li>
+  </ul>
+</section>
+
+<footer>
+  Geometry from <code>packages/mobile/src/components/WorkingStar.tsx</code> — the same six-ray path and aurora ramp already shipping.<br>
+  Source: <code>experiments/stella-mark/</code> — <code>geometry.js</code>, <code>shapes.js</code>, <code>eyes.js</code>, <code>stella-mark.js</code>. No dependencies, no framework.
+</footer>
+</div>
+
+<script type="module">
+// Shared geometry helpers for the Stella character mark.
+// No dependencies. Everything works on closed rings of N points.
+
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const r2 = (v) => Math.round(v * 100) / 100;
+
+/**
+ * Flatten an SVG path string into a polyline of roughly `step`-spaced points.
+ * Handles M/L/C/Q/Z, absolute and relative. Ported in spirit from the same
+ * trick Grok Bot uses: sample once at build time, then only ever lerp rings.
+ */
+function flattenPath(d, step = 1.2) {
+  const tk = d.match(/[MLCQZmlcqz]|-?\d*\.?\d+(?:e[-+]?\d+)?/g) ?? [];
+  const out = [];
+  let i = 0, cmd = "", rel = false, x = 0, y = 0, sx = 0, sy = 0;
+  const num = () => parseFloat(tk[i++]);
+  const emit = (fn, len) => {
+    const n = Math.max(2, Math.ceil(len / step));
+    for (let k = 1; k <= n; k++) out.push(fn(k / n));
+  };
+  while (i < tk.length) {
+    if (/[a-z]/i.test(tk[i])) { rel = tk[i] === tk[i].toLowerCase(); cmd = tk[i++].toUpperCase(); }
+    if (cmd === "Z") {
+      if (Math.hypot(sx - x, sy - y) > 0.01) {
+        const ax = x, ay = y;
+        emit((t) => [ax + (sx - ax) * t, ay + (sy - ay) * t], Math.hypot(sx - ax, sy - ay));
+      }
+      x = sx; y = sy; continue;
+    }
+    if (i >= tk.length) break;
+    const ox = rel ? x : 0, oy = rel ? y : 0;
+    if (cmd === "M") { x = num() + ox; y = num() + oy; sx = x; sy = y; out.push([x, y]); cmd = "L"; }
+    else if (cmd === "L") {
+      const nx = num() + ox, ny = num() + oy, ax = x, ay = y;
+      emit((t) => [ax + (nx - ax) * t, ay + (ny - ay) * t], Math.hypot(nx - ax, ny - ay));
+      x = nx; y = ny;
+    } else if (cmd === "Q") {
+      const cx = num() + ox, cy = num() + oy, nx = num() + ox, ny = num() + oy, ax = x, ay = y;
+      emit((t) => { const u = 1 - t; return [u*u*ax + 2*u*t*cx + t*t*nx, u*u*ay + 2*u*t*cy + t*t*ny]; },
+        Math.hypot(cx-ax, cy-ay) + Math.hypot(nx-cx, ny-cy));
+      x = nx; y = ny;
+    } else if (cmd === "C") {
+      const c1x = num()+ox, c1y = num()+oy, c2x = num()+ox, c2y = num()+oy,
+            nx = num()+ox, ny = num()+oy, ax = x, ay = y;
+      emit((t) => { const u = 1 - t; return [
+        u*u*u*ax + 3*u*u*t*c1x + 3*u*t*t*c2x + t*t*t*nx,
+        u*u*u*ay + 3*u*u*t*c1y + 3*u*t*t*c2y + t*t*t*ny]; },
+        Math.hypot(c1x-ax,c1y-ay) + Math.hypot(c2x-c1x,c2y-c1y) + Math.hypot(nx-c2x,ny-c2y));
+      x = nx; y = ny;
+    } else break;
+  }
+  return out;
+}
+
+/** Centroid-ish center: the midpoint of the bounding box, which is what a mark wants. */
+function boundsCenter(pts) {
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const [x, y] of pts) {
+    if (x < x0) x0 = x; if (x > x1) x1 = x;
+    if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  return [(x0 + x1) / 2, (y0 + y1) / 2];
+}
+
+/**
+ * Cast N rays from `center` and keep the farthest boundary hit on each.
+ * Valid for star-shaped outlines (every boundary point visible from the
+ * center) — which is exactly what a star is.
+ */
+function radialProfile(pts, center, N) {
+  const [cx, cy] = center;
+  const prof = new Float64Array(N);
+  for (let k = 0; k < N; k++) {
+    const a = (k / N) * TAU, ca = Math.cos(a), sa = Math.sin(a);
+    let best = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i], q = pts[(i + 1) % pts.length];
+      const ux = p[0] - cx, uy = p[1] - cy, vx = q[0] - cx, vy = q[1] - cy;
+      const den = (vx - ux) * sa - (vy - uy) * ca;
+      if (Math.abs(den) < 1e-9) continue;
+      const t = (ux * sa - uy * ca) / -den;
+      if (t < 0 || t > 1) continue;
+      const r = (ux + (vx - ux) * t) * ca + (uy + (vy - uy) * t) * sa;
+      if (r > best) best = r;
+    }
+    prof[k] = best;
+  }
+  return prof;
+}
+
+/** Circular box-blur, repeated 3x — a cheap Gaussian. `sigma` is in samples. */
+function smoothProfile(prof, sigma) {
+  const N = prof.length;
+  const half = Math.max(0, Math.round(sigma));
+  if (half === 0) return Float64Array.from(prof);
+  let cur = Float64Array.from(prof);
+  for (let pass = 0; pass < 3; pass++) {
+    const next = new Float64Array(N);
+    for (let i = 0; i < N; i++) {
+      let sum = 0;
+      for (let k = -half; k <= half; k++) sum += cur[(i + k + N * 4) % N];
+      next[i] = sum / (half * 2 + 1);
+    }
+    cur = next;
+  }
+  return cur;
+}
+
+const profileMax = (prof) => { let m = 0; for (const v of prof) if (v > m) m = v; return m; };
+
+/** Profile → ring of [x,y] points on a circle of radius `radius` around `center`. */
+function profileToRing(prof, radius, center) {
+  const N = prof.length, [cx, cy] = center;
+  const max = profileMax(prof) || 1;
+  return Array.from({ length: N }, (_, k) => {
+    const a = (k / N) * TAU, r = (prof[k] / max) * radius;
+    return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+  });
+}
+
+/** Closed Catmull-Rom through every point, emitted as cubic Béziers. */
+function toPath(p) {
+  const n = p.length;
+  let d = `M${r2(p[0][0])} ${r2(p[0][1])}`;
+  for (let i = 0; i < n; i++) {
+    const a = p[(i - 1 + n) % n], b = p[i], c = p[(i + 1) % n], e = p[(i + 2) % n];
+    d += `C${r2(b[0] + (c[0] - a[0]) / 6)} ${r2(b[1] + (c[1] - a[1]) / 6)} ` +
+         `${r2(c[0] - (e[0] - b[0]) / 6)} ${r2(c[1] - (e[1] - b[1]) / 6)} ` +
+         `${r2(c[0])} ${r2(c[1])}`;
+  }
+  return d + "Z";
+}
+
+const lerpRing = (a, b, t) =>
+  a.map(([x, y], i) => [x + (b[i][0] - x) * t, y + (b[i][1] - y) * t]);
+
+/** Polygon path with straight segments — used for eyes, which want crisp corners. */
+const polyPath = (p) => "M" + p.map((q) => `${r2(q[0])} ${r2(q[1])}`).join("L") + "Z";
+
+/**
+ * Largest inscribed axis-aligned ellipse, found by coarse-then-fine search.
+ * This is how the rig decides where a face fits: on a six-ray star the answer
+ * is a wide, slightly squat ellipse sitting in the central mass, well clear of
+ * the rays. Ported from the same approach Grok Bot uses for its blob shapes.
+ */
+function fitFace(ring, center, radius) {
+  const [cx, cy] = center;
+  const sample = [];
+  const stride = Math.max(1, Math.round(ring.length / 110));
+  for (let i = 0; i < ring.length; i += stride) sample.push(ring[i]);
+  const ratios = [1 / 1.45, 1 / 1.25, 1 / 1.12, 1, 1.12, 1.25, 1.45];
+  let best = { score: -1, x: cx, y: cy, a: 1, b: 1 };
+  const probe = (x, y, k) => {
+    let d2 = Infinity;
+    for (const p of sample) {
+      const dx = p[0] - x, dy = (p[1] - y) * k;
+      const q = dx * dx + dy * dy;
+      if (q < d2) d2 = q;
+    }
+    const d = Math.sqrt(d2), b = d / k;
+    // Prefer big, and prefer centred — the two penalty terms keep the face from
+    // sliding off into one of the rays when a ray happens to be fat.
+    const score = d * b * (1 - 0.0018 * Math.abs(y - cy) - 0.004 * Math.abs(x - cx));
+    if (score > best.score) best = { score, x, y, a: d, b };
+  };
+  const span = radius * 0.5;
+  for (let y = cy - span; y <= cy + span; y += 8)
+    for (let x = cx - span * 0.3; x <= cx + span * 0.3; x += 8)
+      for (const k of ratios) probe(x, y, k);
+  for (let y = best.y - 8; y <= best.y + 8; y += 2)
+    for (let x = best.x - 8; x <= best.x + 8; x += 2)
+      for (const k of ratios) probe(x, y, k);
+  return {
+    dx: best.x - cx,
+    dy: best.y - cy,
+    rx: best.a,
+    ry: best.b,
+  };
+}
+
+/** Horizontal span of the ring at height y — used to keep eyes inside the silhouette. */
+function spanAt(ring, y, center) {
+  let left = -Infinity, right = Infinity;
+  const cx = center[0];
+  for (let i = 0; i < ring.length; i++) {
+    const p = ring[i], q = ring[(i + 1) % ring.length];
+    if ((p[1] <= y) === (q[1] <= y)) continue;
+    const x = p[0] + (q[0] - p[0]) * (y - p[1]) / (q[1] - p[1]);
+    if (x <= cx) { if (x > left) left = x; }
+    else if (x < right) right = x;
+  }
+  return [Number.isFinite(left) ? left : cx, Number.isFinite(right) ? right : cx];
+}
+
+// Stella's silhouettes.
+//
+// Everything derives from ONE source of truth: the six-ray aurora brand star
+// already shipping in `packages/mobile/src/components/WorkingStar.tsx`. The
+// character shape is that same star with its radial profile inflated toward a
+// circle and smoothed, so the character and the logo are provably the same
+// object at two different `puff` values — and the rig can morph between them.
+
+/** Ring resolution. Every morphable outline in the rig has exactly this many points. */
+const N = 96;
+
+/** Shape space. Body radius equals the distance from centre to a ray tip. */
+const C = 114.2705;
+const BLEED = 15;
+const VIEWBOX = `${-BLEED} ${-BLEED} ${C * 2 + BLEED * 2} ${C * 2 + BLEED * 2}`;
+const VIEW_CENTER = -BLEED + (C * 2 + BLEED * 2) / 2;
+
+/**
+ * Six-ray Stella brand star, viewBox 0 0 100 100. Copied verbatim from
+ * WorkingStar.tsx so the two can never drift.
+ */
+const BRAND_STAR_PATH =
+  "M50 8 L49.68 12.93 L49.39 15.14 L48.66 19.35 L47.69 23.64 L46.51 27.96 L45.01 32.61 L43.33 37.2 L41.47 41.76 L37.04 42.37 L32.26 42.65 L28.42 42.57 L25.56 42.29 L23.96 42.04 L23.45 42.14 L26.19 43.4 L29.44 45.25 L32.6 47.4 L35.9 50 L32.6 52.6 L29.44 54.75 L26.19 56.6 L23.45 57.86 L23.96 57.96 L26.7 57.57 L29.13 57.39 L33.05 57.37 L35.58 57.5 L38.27 57.76 L41.62 58.24 L42.57 58.4 L42.63 58.48 L44.28 62.84 L45.73 67.12 L47 71.37 L48.01 75.34 L48.74 78.8 L49.43 82.9 L49.69 85.07 L50 89.9 L50.31 85.07 L50.57 82.9 L51.26 78.8 L51.99 75.34 L53.13 70.93 L54.36 66.84 L55.89 62.36 L57.43 58.4 L62.52 57.68 L67.33 57.36 L71.58 57.43 L74.44 57.71 L76.04 57.96 L76.55 57.86 L73.81 56.6 L70.56 54.75 L67.4 52.6 L64.1 50 L67.4 47.4 L70.56 45.25 L73.81 43.4 L76.55 42.14 L76.04 42.04 L74.44 42.29 L71.58 42.57 L67.74 42.65 L62.96 42.37 L58.53 41.76 L56.67 37.2 L54.99 32.61 L53.49 27.96 L52.31 23.64 L51.34 19.35 L50.61 15.14 L50.32 12.93 Z";
+
+const CENTER = [C, C];
+
+/** The brand star's raw radial profile, normalised so its longest ray is 1. */
+const rawPts = flattenPath(BRAND_STAR_PATH, 0.4);
+const rawCenter = boundsCenter(rawPts);
+const RAW = (() => {
+  const p = radialProfile(rawPts, rawCenter, N);
+  const m = profileMax(p);
+  return Float64Array.from(p, (v) => v / m);
+})();
+
+/**
+ * Turning the logo into a character.
+ *
+ * The brand star is six rays, but not a tidy six: the vertical pair runs to
+ * 1.0 while the four side rays only reach 0.54–0.64, and they sit in two close
+ * pairs about 37° apart rather than evenly around the circle. As a logo at
+ * 512px that reads as an aurora flare. Shrunk to 24px with a face in it, the
+ * long pair dominates and the close pairs merge into horizontal arms, and the
+ * whole thing reads as a kite.
+ *
+ * So the character profile is rebuilt from the logo's own ray set — same count,
+ * same starting angles, same heights — with four knobs:
+ *
+ *   balance  even out the ray heights            (1 = all six the same length)
+ *   even     even out the ray angles             (1 = one ray every 60°)
+ *   core     radius of the body a ray grows from
+ *   gamma    ray taper; >1 is pointy, <1 is fat and plush
+ *
+ * `puff` crossfades the result against the untouched logo, so puff 0 is still
+ * exactly the shipping mark and the rig can morph between the two.
+ */
+
+/** Local maxima of the raw profile — one per ray. */
+const PEAKS = (() => {
+  let lo = 1;
+  for (const v of RAW) if (v < lo) lo = v;
+  const gate = lo + 0.28 * (1 - lo);
+  const found = [];
+  for (let i = 0; i < N; i++) {
+    const p = RAW[(i - 1 + N) % N], c = RAW[i], n = RAW[(i + 1) % N];
+    if (c >= p && c > n && c > gate) found.push({ angle: (i / N) * TAU, height: c });
+  }
+  return found;
+})();
+
+const RAY_COUNT = PEAKS.length;
+
+/** Where each ray would sit if the six were evenly spaced, one pointing up. */
+const EVEN_ANGLES = PEAKS.map((_, k) => (-Math.PI / 2) + (k * TAU) / PEAKS.length);
+
+const angDist = (a, b) => {
+  let d = Math.abs(((a - b) % TAU + TAU) % TAU);
+  return d > Math.PI ? TAU - d : d;
+};
+
+function starProfile(puff, opts = {}) {
+  const {
+    core = 0.44, gamma = 1.15, sharp = 1, even = 0.9, balance = 0.92, smooth = 0.7,
+  } = opts;
+  let lo = 1, hi = 0;
+  for (const v of RAW) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  const span = Math.max(hi - lo, 1e-6);
+
+  const rays = PEAKS.map((p, k) => {
+    const h = (p.height - lo) / span;
+    // Shortest-way blend toward the even slot, so a ray never sweeps the long way.
+    let delta = ((EVEN_ANGLES[k] - p.angle + Math.PI * 3) % TAU) - Math.PI;
+    return { angle: p.angle + delta * even, height: h + (1 - h) * balance };
+  });
+
+  const halfWidth = (Math.PI / rays.length) * sharp;
+  const out = new Float64Array(N);
+  for (let i = 0; i < N; i++) {
+    const th = (i / N) * TAU;
+    let ridge = 0;
+    for (const r of rays) {
+      const t = 1 - angDist(th, r.angle) / halfWidth;
+      if (t <= 0) continue;
+      const v = r.height * Math.pow(t, gamma);
+      if (v > ridge) ridge = v;
+    }
+    const shaped = core + (1 - core) * ridge;
+    out[i] = RAW[i] + (shaped - RAW[i]) * puff;
+  }
+  const sm = smoothProfile(out, smooth * puff);
+  const m = profileMax(sm) || 1;
+  return Float64Array.from(sm, (v) => v / m);
+}
+
+function buildShape(label, puff, opts) {
+  const prof = starProfile(puff, opts);
+  const ring = profileToRing(prof, C, CENTER);
+  const face = fitFace(ring, CENTER, C);
+  return { label, puff, profile: prof, ring, path: toPath(ring), face };
+}
+
+/**
+ * The set. `star` is the character; `brand` is the shipping logo; the rig
+ * morphs between any two because they are all the same 96-point ring.
+ */
+const SHAPES = {
+  /** The character. Unmistakably six-pointed, plush enough to hold a face. */
+  star: buildShape("Star", 1, { core: 0.46, gamma: 1.15, sharp: 1.2, even: 1, balance: 0.94, smooth: 0.7 }),
+  /** Softer, for 16–20px chrome where six points turn to fuzz. */
+  pebble: buildShape("Pebble", 1, { core: 0.78, gamma: 1.15, sharp: 1.2, even: 1, balance: 0.94, smooth: 1.1 }),
+  /** The shipping mark: original ray heights, original angles, needle tips. */
+  brand: buildShape("Brand star", 0.1, { core: 0.3, gamma: 1, sharp: 1, even: 0, balance: 0, smooth: 0.4 }),
+  /** Fully balled up — and the morph target for the thinking dots. */
+  orb: buildShape("Orb", 1, { core: 1, gamma: 1, sharp: 1, even: 0, balance: 0, smooth: 0 }),
+};
+
+const ORB_RING = SHAPES.orb.ring;
+const ORB_PATH = SHAPES.orb.path;
+
+/**
+ * A four-point sparkle, for particles and for the flash at each dot's peak.
+ * Concave, so it is authored directly rather than as a radial profile.
+ */
+const SPARKLE_PATH = (() => {
+  const pts = [];
+  const n = 8;
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI / 2 + (i * TAU) / n;
+    const r = i % 2 === 0 ? 1 : 0.19;
+    pts.push(`${(Math.cos(a) * r).toFixed(3)} ${(Math.sin(a) * r).toFixed(3)}`);
+  }
+  // Straight-line star, drawn in unit space and scaled by the caller.
+  return "M" + pts.join("L") + "Z";
+})();
+
+// Procedural eye poses.
+//
+// Every pose is the same 48-point loop in unit space (centred on the origin,
+// nominal height 1), so any pose lerps into any other pose without matching
+// work. Shapes come from a superellipse plus two warps — a vertical squash and
+// a parabolic bend — which is enough for the whole expression range and keeps
+// the point correspondence sane.
+
+const EYE_N = 48;
+
+/** Superellipse: n=2 is an ellipse, n→∞ is a rectangle. n≈4 reads as a pill. */
+function pill(w, h, n = 4) {
+  const pts = new Array(EYE_N);
+  for (let i = 0; i < EYE_N; i++) {
+    const a = (i / EYE_N) * TAU;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const k = Math.pow(Math.pow(Math.abs(ca), n) + Math.pow(Math.abs(sa), n), -1 / n);
+    pts[i] = [ca * k * (w / 2), sa * k * (h / 2)];
+  }
+  return pts;
+}
+
+/** Five-point star eyes. Reserved for `celebrate` — it should stay rare. */
+function starEye(w, h, spikes = 5, inner = 0.44) {
+  const pts = new Array(EYE_N);
+  for (let i = 0; i < EYE_N; i++) {
+    const a = (i / EYE_N) * TAU;
+    const phase = ((a + Math.PI / 2) * spikes) % TAU;
+    const tri = Math.abs(((phase / TAU) * 2) % 2 - 1); // 0 at spike, 1 at valley
+    const r = 1 - (1 - inner) * Math.pow(tri, 0.65);
+    pts[i] = [Math.cos(a) * r * (w / 2), Math.sin(a) * r * (h / 2)];
+  }
+  return pts;
+}
+
+/**
+ * squash  — vertical scale, 1 is untouched
+ * bend    — parabolic lift of the outer edges. Positive arcs the eye up into a
+ *           `^`; negative droops it. Measured in units of the eye's height.
+ * shift   — vertical offset, for poses that sit high or low in the socket
+ */
+function warp(pts, { squash = 1, bend = 0, shift = 0 } = {}) {
+  let maxX = 0;
+  for (const [x] of pts) maxX = Math.max(maxX, Math.abs(x));
+  const inv = maxX > 0 ? 1 / maxX : 0;
+  return pts.map(([x, y]) => {
+    const u = x * inv;
+    return [x, y * squash - bend * u * u + bend * 0.34 + shift];
+  });
+}
+
+const EYE_POSES = {
+  /** Straight ahead. The default half of the time. */
+  neutral: pill(0.60, 1.0, 4.0),
+  /** A hair wider — used to break up long idles so it doesn't look frozen. */
+  open: pill(0.66, 1.0, 3.4),
+  /** Alert. Listening, surprised. */
+  wide: warp(pill(0.80, 1.0, 3.0), { squash: 1.04 }),
+  /** Narrow and tall. Reading, focusing. */
+  focus: pill(0.46, 1.0, 4.8),
+  /** `^ ^` — the happy arc. */
+  happy: warp(pill(0.74, 1.0, 4.0), { squash: 0.30, bend: 0.52 }),
+  /** Half-lidded. Working, thinking hard. */
+  squint: warp(pill(0.66, 1.0, 4.0), { squash: 0.46, bend: 0.14 }),
+  /** Droopy. Sleeping, powering down. */
+  sleepy: warp(pill(0.62, 1.0, 4.0), { squash: 0.26, bend: -0.16 }),
+  /** Downturned. Errors and failures. */
+  sad: warp(pill(0.58, 1.0, 4.0), { squash: 0.66, bend: -0.30, shift: 0.06 }),
+  /** Rounder and taller. Curious, questioning. */
+  curious: warp(pill(0.72, 1.0, 2.6), { squash: 0.96 }),
+  /** Star eyes. Celebration only. */
+  star: starEye(1.02, 1.06),
+};
+
+const POSE_NAMES = Object.keys(EYE_POSES);
+
+const lerpPose = (a, b, t) =>
+  a.map(([x, y], i) => [x + (b[i][0] - x) * t, y + (b[i][1] - y) * t]);
+
+/**
+ * Stella's character mark.
+ *
+ * A six-ray star with a face, driven the way Grok Bot drives its blob: render
+ * the SVG once, then run one rAF loop that writes `d` / `transform` / `opacity`
+ * straight onto the nodes. No per-frame framework work, no CSS keyframes for
+ * anything that has to stay in step, and the loop parks itself when every
+ * spring has settled.
+ *
+ * What is borrowed: the architecture (spring envelopes at a fixed substep,
+ * ring-lerp morphing, a pooled node set, activity crossfades) and the
+ * three-slot Gaussian bounce, where the character itself becomes the middle
+ * dot.
+ *
+ * What is Stella's: the geometry comes from the shipping six-ray brand star;
+ * the star stays a star for every activity except thinking, because a star has
+ * rays you can animate and a blob does not; `twinkle` runs a light wave around
+ * those rays for the default busy state; and `loading` is a band of compression
+ * travelling up the body rather than a coin-flip, because a flip only reads on
+ * a shape that looks the same from every angle and a star does not.
+ */
+
+
+
+const SVGNS = "http://www.w3.org/2000/svg";
+
+/* ------------------------------------------------------------------ physics */
+
+const spring = (v) => ({ x: v, v: 0, t: v });
+const stepSpring = (s, w, z, dt) => {
+  s.v += (-2 * z * w * s.v - w * w * (s.x - s.t)) * dt;
+  s.x += s.v * dt;
+  if (!Number.isFinite(s.x) || !Number.isFinite(s.v)) { s.x = s.t; s.v = 0; }
+};
+const SUBSTEP = 1 / 120;
+
+const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+const easeOutBack = (t) => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
+const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const smoothstep = (t) => t * t * (3 - 2 * t);
+const rand = (a, b) => a + Math.random() * (b - a);
+
+/* -------------------------------------------------------------- motion spec */
+
+/** The bounce. Slot 1 is the star; slots 0 and 2 are the flanking dots. */
+const CYCLE = 1400, PHASE0 = 0.119, SIGMA = 0.15;
+const LIFT = 9, POP_LO = 0.84, POP_K = 0.22;
+const DOT_R = 22, DOT_X = 62, DOT_FUDGE = 1.02, DOT_STAGGER = 0.12;
+const DOTS_ZOOM = 1.5;
+/** Below this rendered width the mark zooms during `dots`; above it, never. */
+const ZOOM_SMALL_PX = 44, ZOOM_LARGE_PX = 134;
+/** The star is fully balled up by the time the envelope reaches this. */
+const MORPH_END = 0.62;
+
+const ENV_W = 14, ENV_Z = 1;      // activity envelope
+const FADE_W = 11, FADE_Z = 1;    // crossfade between two activities
+
+function wave(now, slot, amount, t0) {
+  let p = (((now - t0) / CYCLE + PHASE0) % 1 + 1) % 1;
+  let d = Math.abs(p - slot / 3);
+  d = Math.min(d, 1 - d);
+  const g = Math.exp(-(d * d) / (2 * SIGMA * SIGMA));
+  return { g, lift: g * LIFT * amount, pop: POP_LO + POP_K * g, tone: 1 - 0.5 * (1 - g) };
+}
+
+/**
+ * `squeeze` — a band of compression travelling up the body, bottom to top.
+ *
+ * This replaces a Y-axis coin-flip, which is the obvious move for a mark and
+ * the wrong one for this one. A flip only reads on a shape whose silhouette is
+ * roughly the same at every angle; a six-ray star turned 40° is a different
+ * star, and at 90° it is a stick. A squeeze is the opposite bet — it deforms
+ * the silhouette on purpose and stays unmistakably a star the whole way.
+ *
+ * Everything is a function of the band's height `b`, in normalised y where -1
+ * is the top tip and +1 the bottom. It starts and ends well outside the body so
+ * the loop has a beat of rest instead of a seam.
+ */
+const SQ_CYCLE = 1500;
+const SQ_SIGMA = 0.30;        // band width, normalised y
+const SQ_PINCH = 0.34;        // how far the waist narrows at the band
+const SQ_BULGE = 0.16;        // how far it swells just ahead of the band
+const SQ_LEAD = 0.62;         // distance from band to swell
+const SQ_LIFT = 0.052;        // how much the displaced mass rides upward
+const SQ_TRAVEL = 1.78;       // start/end height; > 1 keeps the loop seamless
+const SQ_TIP_RELIEF = 0.55;   // how much the tips are spared
+const SQ_FACE_GIVE = 0.62;    // the face deforms less than the body around it
+
+function squeezeBand(now, startedAt) {
+  const p = (((now - startedAt) / SQ_CYCLE) % 1 + 1) % 1;
+  return SQ_TRAVEL - 2 * SQ_TRAVEL * p;
+}
+
+/**
+ * The deformation, as a point warp. Applied to the outline and to the eyes
+ * alike, so the face compresses along with the body it is painted on rather
+ * than floating over a shape that is moving underneath it.
+ */
+function squeezeWarp(band, amount, scale = 1) {
+  const lead = band - SQ_LEAD;
+  return (px, py) => {
+    const ny = (py - C) / C;
+    const a = (ny - band) / SQ_SIGMA;
+    const b = (ny - lead) / SQ_SIGMA;
+    const pinch = Math.exp(-a * a);
+    const swell = Math.exp(-b * b);
+    // Ease the pinch off toward the tips. A ray is thin to begin with, and
+    // squeezing it by the full amount turns it into a needle that reads as a
+    // rendering glitch rather than as a squeeze.
+    const ease = 1 - SQ_TIP_RELIEF * ny * ny * ny * ny;
+    const k = amount * scale;
+    const sx = 1 - (SQ_PINCH * pinch * ease - SQ_BULGE * swell) * k;
+    return [C + (px - C) * sx, py - SQ_LIFT * C * swell * k];
+  };
+}
+
+/* --------------------------------------------------------------- state maps */
+
+const ACTIVITIES = ["dots", "twinkle", "orbit", "radar", "progress", "squeeze", "standby"];
+
+/** Which overlay each state runs. Absent means "just the face". */
+const ACTIVITY_OF = {
+  thinking: "dots",
+  working: "twinkle",
+  writing: "twinkle",
+  searching: "orbit",
+  reading: "orbit",
+  listening: "radar",
+  speaking: "radar",
+  loading: "squeeze",
+  generating: "squeeze",
+  uploading: "progress",
+  downloading: "progress",
+  sleeping: "standby",
+  "powering-down": "standby",
+};
+
+/** Body radius while an activity runs. Only `dots` collapses the star. */
+const BODY_R = {
+  dots: DOT_R,
+  twinkle: C,
+  orbit: C * 0.9,
+  radar: C * 0.94,
+  progress: C * 0.78,
+  squeeze: C,
+  standby: C,
+};
+
+/** Eye pose pools. Picked at random, never the same one twice running. */
+const POSES = {
+  idle: ["neutral", "open", "neutral", "curious"],
+  listening: ["wide", "open", "neutral"],
+  thinking: ["squint", "focus", "curious", "neutral"],
+  working: ["focus", "squint", "neutral"],
+  writing: ["focus", "neutral"],
+  searching: ["focus", "curious", "wide", "neutral"],
+  reading: ["focus", "squint"],
+  loading: ["neutral", "open"],
+  generating: ["neutral", "focus"],
+  speaking: ["open", "happy", "neutral"],
+  uploading: ["focus", "neutral"],
+  downloading: ["focus", "neutral"],
+  happy: ["happy", "open", "happy", "neutral"],
+  celebrate: ["star", "happy", "star"],
+  confused: ["curious", "squint", "wide"],
+  sad: ["sad", "sleepy", "sad"],
+  sleeping: ["sleepy"],
+  waking: ["sleepy", "open", "neutral"],
+  "powering-down": ["sleepy"],
+};
+
+/** How often the pose changes, per state. */
+const POSE_EVERY = {
+  idle: [9000, 16000], listening: [2800, 5000], thinking: [2000, 3600],
+  working: [1800, 3200], writing: [2400, 4200], searching: [1000, 1800],
+  reading: [2200, 3800], loading: [4000, 8000], generating: [3000, 6000],
+  speaking: [1400, 2600], uploading: [3000, 6000], downloading: [3000, 6000],
+  happy: [2500, 4500], celebrate: [1200, 2400], confused: [2200, 3800],
+  sad: [4000, 7000], sleeping: [6000, 10000], waking: [800, 1400],
+  "powering-down": [6000, 9000],
+};
+
+/** How often it blinks. `null` means never. */
+const BLINK_EVERY = {
+  idle: [6000, 14000], listening: [3000, 7000], thinking: [3500, 7000],
+  working: [2800, 5500], writing: [3000, 6000], searching: [1600, 4000],
+  reading: [3000, 6000], loading: [5000, 9000], generating: [4000, 8000],
+  speaking: [2500, 5000], uploading: [4000, 8000], downloading: [4000, 8000],
+  happy: [2500, 5000], celebrate: [2200, 4500], confused: [2800, 5500],
+  sad: [4000, 8000], sleeping: null, waking: [900, 1600], "powering-down": null,
+};
+
+/** Per-state face tuning: eye size, the gap between them, and their height. */
+const FACE_TUNE = {
+  idle: [1, 1, 1],
+  listening: [1.08, 1.03, 1.06],
+  thinking: [0.97, 0.98, 0.94],
+  working: [0.98, 1, 0.96],
+  writing: [0.96, 0.98, 0.95],
+  searching: [1.02, 1.02, 1],
+  reading: [0.96, 0.96, 0.98],
+  speaking: [1.04, 1.02, 1.02],
+  happy: [1.05, 1.02, 1],
+  celebrate: [1.12, 1.04, 1.08],
+  confused: [1.03, 1.05, 1],
+  sad: [0.94, 0.98, 0.92],
+  sleeping: [0.9, 0.98, 0.85],
+  "powering-down": [0.9, 0.98, 0.85],
+};
+const FACE_DEFAULT = [1, 1, 1];
+
+/* ------------------------------------------------------------------ palette */
+
+const INKS = {
+  /** The working-indicator ramp already shipping in the app. Bottom to top. */
+  aurora: [["#00aad8", 0], ["#3493d9", 0.25], ["#4878db", 0.5], ["#7449c5", 0.75], ["#be57a4", 1]],
+  /** The logo's ramp. Louder; good on large surfaces, shouty at 24px. */
+  vivid: [["#4ffff7", 0], ["#00b5ff", 0.22], ["#3164ff", 0.45], ["#703cff", 0.68], ["#ff45c3", 1]],
+};
+
+/* -------------------------------------------------------------------- rig */
+
+let uid = 0;
+
+function createStellaMark(host, opts = {}) {
+  const o = {
+    size: null,
+    state: "idle",
+    shape: "star",
+    ink: "aurora",
+    flat: null,
+    eyeColor: "var(--stella-mark-bg, #101014)",
+    glow: true,
+    core: true,
+    followPointer: false,
+    interactive: false,
+    paused: false,
+    ...opts,
+  };
+  const id = `sm${++uid}`;
+  const reduced = typeof matchMedia === "function" &&
+    matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---- DOM, built once ---- */
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("viewBox", VIEWBOX);
+  svg.setAttribute("aria-hidden", "true");
+  svg.style.cssText = "display:block;width:100%;height:auto;overflow:visible;user-select:none";
+  if (o.size) { svg.style.width = `${o.size}px`; svg.style.height = `${o.size}px`; }
+
+  const defs = document.createElementNS(SVGNS, "defs");
+  const clip = document.createElementNS(SVGNS, "clipPath");
+  clip.id = `${id}-clip`;
+  const clipPath = document.createElementNS(SVGNS, "path");
+  clip.appendChild(clipPath);
+  defs.appendChild(clip);
+
+  const stops = INKS[o.ink] ?? null;
+  if (stops && !o.flat) {
+    const g = document.createElementNS(SVGNS, "linearGradient");
+    g.id = `${id}-ink`;
+    g.setAttribute("gradientUnits", "userSpaceOnUse");
+    g.setAttribute("x1", C); g.setAttribute("y1", C * 1.86);
+    g.setAttribute("x2", C); g.setAttribute("y2", C * 0.14);
+    for (const [color, offset] of stops) {
+      const s = document.createElementNS(SVGNS, "stop");
+      s.setAttribute("offset", offset); s.setAttribute("stop-color", color);
+      g.appendChild(s);
+    }
+    defs.appendChild(g);
+  }
+  if (o.core) {
+    const g = document.createElementNS(SVGNS, "radialGradient");
+    g.id = `${id}-core`;
+    g.setAttribute("gradientUnits", "userSpaceOnUse");
+    g.setAttribute("cx", C); g.setAttribute("cy", C); g.setAttribute("r", C * 0.92);
+    for (const [op, off] of [[0.26, 0], [0.09, 0.32], [0, 1]]) {
+      const s = document.createElementNS(SVGNS, "stop");
+      s.setAttribute("offset", off);
+      s.setAttribute("stop-color", "#ffffff");
+      s.setAttribute("stop-opacity", op);
+      g.appendChild(s);
+    }
+    defs.appendChild(g);
+  }
+  if (o.glow) {
+    const g = document.createElementNS(SVGNS, "radialGradient");
+    g.id = `${id}-glow`;
+    for (const [color, op, off] of [["#4878db", 0.26, 0], ["#00aad8", 0.1, 0.55], ["#00aad8", 0, 1]]) {
+      const s = document.createElementNS(SVGNS, "stop");
+      s.setAttribute("offset", off);
+      s.setAttribute("stop-color", o.flat ? "var(--fg)" : color);
+      s.setAttribute("stop-opacity", op);
+      g.appendChild(s);
+    }
+    defs.appendChild(g);
+  }
+  svg.appendChild(defs);
+
+  // Hit area that survives the group transforms. `fill:none` with
+  // `pointer-events:all` paints nothing at all — no near-transparent rectangle
+  // to band into visibility on light surfaces.
+  const hit = document.createElementNS(SVGNS, "rect");
+  hit.setAttribute("x", -BLEED); hit.setAttribute("y", -BLEED);
+  hit.setAttribute("width", C * 2 + BLEED * 2); hit.setAttribute("height", C * 2 + BLEED * 2);
+  hit.setAttribute("fill", "none");
+  hit.setAttribute("pointer-events", o.interactive ? "all" : "none");
+  svg.appendChild(hit);
+
+  const zoomG = document.createElementNS(SVGNS, "g");
+  svg.appendChild(zoomG);
+
+  let glowEl = null;
+  if (o.glow) {
+    glowEl = document.createElementNS(SVGNS, "circle");
+    glowEl.setAttribute("cx", C); glowEl.setAttribute("cy", C);
+    glowEl.setAttribute("r", C * 1.02);
+    glowEl.setAttribute("fill", `url(#${id}-glow)`);
+    zoomG.appendChild(glowEl);
+  }
+
+  const inkFill = o.flat ? "var(--fg)" : stops ? `url(#${id}-ink)` : "var(--fg)";
+
+  // Flanking dots for `dots` — orb outlines, so they are the same object as the star.
+  const dots = [0, 1].map(() => {
+    const p = document.createElementNS(SVGNS, "path");
+    p.setAttribute("d", toPath(ORB_RING));
+    p.setAttribute("fill", inkFill);
+    p.style.display = "none";
+    zoomG.appendChild(p);
+    return p;
+  });
+  // Pooled satellites: filled sparkles for `orbit`, stroked rings for `radar`
+  // and `progress`. Hidden every frame, then re-shown by whichever activity wants them.
+  const sparks = Array.from({ length: 5 }, () => {
+    const p = document.createElementNS(SVGNS, "path");
+    p.setAttribute("d", SPARKLE_PATH);
+    p.setAttribute("fill", inkFill);
+    p.style.display = "none";
+    zoomG.appendChild(p);
+    return p;
+  });
+  const rings = Array.from({ length: 4 }, () => {
+    const c = document.createElementNS(SVGNS, "circle");
+    c.setAttribute("cx", C); c.setAttribute("cy", C); c.setAttribute("r", 0);
+    c.setAttribute("fill", "none");
+    c.setAttribute("stroke", o.flat || !stops ? "var(--fg)" : stops[2][0]);
+    c.style.display = "none";
+    zoomG.appendChild(c);
+    return c;
+  });
+
+  const bodyG = document.createElementNS(SVGNS, "g");
+  const body = document.createElementNS(SVGNS, "path");
+  body.setAttribute("fill", inkFill);
+  bodyG.appendChild(body);
+  let coreEl = null;
+  if (o.core) {
+    coreEl = document.createElementNS(SVGNS, "path");
+    coreEl.setAttribute("fill", `url(#${id}-core)`);
+    bodyG.appendChild(coreEl);
+  }
+  // The light that rides the squeeze. A moving gradient inside a rect clipped
+  // to the body, so it can never spill past the silhouette while the silhouette
+  // is itself being deformed.
+  const sweepGrad = document.createElementNS(SVGNS, "linearGradient");
+  sweepGrad.id = `${id}-sweep`;
+  sweepGrad.setAttribute("gradientUnits", "userSpaceOnUse");
+  sweepGrad.setAttribute("x1", C); sweepGrad.setAttribute("x2", C);
+  for (const [op, off] of [[0, 0], [0.4, 0.5], [0, 1]]) {
+    const st = document.createElementNS(SVGNS, "stop");
+    st.setAttribute("offset", off);
+    st.setAttribute("stop-color", "#ffffff");
+    st.setAttribute("stop-opacity", op);
+    sweepGrad.appendChild(st);
+  }
+  defs.appendChild(sweepGrad);
+  const sweepG = document.createElementNS(SVGNS, "g");
+  sweepG.setAttribute("clip-path", `url(#${id}-clip)`);
+  sweepG.style.display = "none";
+  const sweepRect = document.createElementNS(SVGNS, "rect");
+  sweepRect.setAttribute("x", -BLEED); sweepRect.setAttribute("y", -BLEED);
+  sweepRect.setAttribute("width", C * 2 + BLEED * 2);
+  sweepRect.setAttribute("height", C * 2 + BLEED * 2);
+  sweepRect.setAttribute("fill", `url(#${id}-sweep)`);
+  sweepG.appendChild(sweepRect);
+  bodyG.appendChild(sweepG);
+
+  const eyeG = document.createElementNS(SVGNS, "g");
+  eyeG.setAttribute("clip-path", `url(#${id}-clip)`);
+  const eyes = [0, 1].map(() => {
+    const p = document.createElementNS(SVGNS, "path");
+    p.setAttribute("fill", o.eyeColor);
+    eyeG.appendChild(p);
+    return p;
+  });
+  bodyG.appendChild(eyeG);
+  zoomG.appendChild(bodyG);
+
+  const burstG = document.createElementNS(SVGNS, "g");
+  zoomG.appendChild(burstG);
+
+  host.appendChild(svg);
+
+  /* ---- mutable state ---- */
+  let state = o.state;
+  let shapeName = o.shape;
+  let shape = SHAPES[shapeName] ?? SHAPES.star;
+  let shapeFrom = shape, shapeMix = spring(1);
+
+  const env = spring(0);          // is any activity running
+  const fade = spring(1);         // crossfade current activity over previous
+  const blink = spring(1);        // eye height multiplier
+  const eyeSize = spring(1);
+  const gazeX = spring(0), gazeY = spring(0);
+  const bobX = spring(0), bobY = spring(0);
+  const breathe = spring(1);
+
+  let activity = ACTIVITY_OF[state] ?? null;
+  let prevActivity = null;
+  let activityStart = 0;
+
+  let poseCur = EYE_POSES.neutral, poseFrom = EYE_POSES.neutral;
+  let poseMix = 1, poseDur = 160, poseAt = 0, poseIdx = 0;
+  let nextPoseAt = 0, nextBlinkAt = 0;
+
+  let pointer = null;             // {x, y} in client coords
+  let paused = o.paused;
+  let running = false, raf = 0, last = 0, clock = 0;
+  let boxW = o.size ?? 28, measuredAt = -1e9;
+  let lastPath = "", lastZoom = "";
+  let squeezeStart = 0;
+  let particles = [];
+  let destroyed = false;
+
+  /* ---- derived helpers ---- */
+
+  const weightOf = (name) => {
+    const e = clamp(env.x, 0, 1);
+    if (name === activity) return e * clamp(fade.x, 0, 1);
+    if (name === prevActivity) return e * (1 - clamp(fade.x, 0, 1));
+    return 0;
+  };
+
+  function setPose(name, dur = 160) {
+    const next = EYE_POSES[name] ?? EYE_POSES.neutral;
+    if (next === poseCur && poseMix >= 1) return;
+    poseFrom = currentPosePoints();
+    poseCur = next;
+    poseMix = 0; poseDur = dur; poseAt = clock;
+  }
+  const currentPosePoints = () =>
+    poseMix >= 1 ? poseCur : lerpPose(poseFrom, poseCur, easeInOutCubic(poseMix));
+
+  function pickPose() {
+    const pool = POSES[state] ?? POSES.idle;
+    poseIdx = (poseIdx + 1 + Math.floor(Math.random() * (pool.length - 1))) % pool.length;
+    setPose(pool[poseIdx], state === "searching" || state === "celebrate" ? 110 : 170);
+  }
+
+  function scheduleFace(now) {
+    const every = POSE_EVERY[state] ?? POSE_EVERY.idle;
+    nextPoseAt = now + rand(every[0], every[1]);
+    const b = BLINK_EVERY[state];
+    nextBlinkAt = b ? now + rand(b[0], b[1]) : Infinity;
+  }
+
+  function applyState(next) {
+    if (next === state) return;
+    state = next;
+    const nextActivity = ACTIVITY_OF[state] ?? null;
+    if (nextActivity !== activity) {
+      if (activity && env.x > 0.02) { prevActivity = activity; fade.x = 0; fade.v = 0; fade.t = 1; }
+      else { prevActivity = null; fade.x = 1; fade.v = 0; fade.t = 1; }
+      activity = nextActivity;
+      activityStart = clock;
+      if (nextActivity === "squeeze") squeezeStart = clock;
+    }
+    const pool = POSES[state] ?? POSES.idle;
+    poseIdx = 0;
+    setPose(pool[0], 200);
+    scheduleFace(clock);
+    if (state === "celebrate") burst(18);
+    wake();
+  }
+
+  /* ---- particles: a sparkle burst ---- */
+
+  function burst(count = 16) {
+    if (reduced) return;
+    for (let i = 0; i < count; i++) {
+      const a = rand(0, TAU), sp = rand(70, 210);
+      particles.push({
+        x: C, y: C, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40,
+        life: 0, max: rand(0.5, 1.05), r: rand(5, 13), rot: rand(0, 360),
+        vr: rand(-260, 260), el: null,
+      });
+    }
+    wake();
+  }
+
+  function stepParticles(dt) {
+    if (!particles.length) return;
+    const next = [];
+    for (const p of particles) {
+      p.life += dt;
+      if (p.life >= p.max) { p.el?.remove(); continue; }
+      p.vx *= 1 - 1.6 * dt;
+      p.vy = p.vy * (1 - 1.6 * dt) + 150 * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+      const u = p.life / p.max;
+      const alpha = u < 0.12 ? u / 0.12 : Math.pow(1 - (u - 0.12) / 0.88, 1.7);
+      const size = p.r * (1 - u * 0.45);
+      if (!p.el) {
+        p.el = document.createElementNS(SVGNS, "path");
+        p.el.setAttribute("d", SPARKLE_PATH);
+        p.el.setAttribute("fill", inkFill);
+        burstG.appendChild(p.el);
+      }
+      p.el.setAttribute("opacity", alpha.toFixed(3));
+      p.el.setAttribute("transform",
+        `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)}) rotate(${p.rot.toFixed(1)}) scale(${size.toFixed(2)})`);
+      next.push(p);
+    }
+    particles = next;
+  }
+
+  /* ---- the ring, rebuilt only when it actually changes ---- */
+
+  const workProfile = new Float64Array(N);
+  const workRing = new Array(N);
+  let ringCache = null;
+
+  function buildRing(now, twinkleW) {
+    const base = shape.profile;
+    const from = shapeFrom.profile;
+    const mixing = shapeMix.x < 0.999;
+    const m = easeInOutCubic(clamp(shapeMix.x, 0, 1));
+
+    // Idle starlight: a very slow three-lobe swell running around the rays.
+    // Small enough that you register it as "alive", not as an animation.
+    const shimmerAmp = paused || reduced ? 0 : 0.012 * (1 - twinkleW);
+    const shimmerPhase = now * 0.0009;
+    // `twinkle`: a bright wave travelling around the star, one lap per 1.9 s.
+    const sweep = ((now - activityStart) / 1900) * TAU;
+
+    for (let i = 0; i < N; i++) {
+      let r = mixing ? from[i] + (base[i] - from[i]) * m : base[i];
+      const th = (i / N) * TAU;
+      if (shimmerAmp) r *= 1 + shimmerAmp * Math.sin(th * 3 + shimmerPhase);
+      if (twinkleW > 0.004) {
+        let d = Math.abs(((th - sweep) % TAU + TAU) % TAU - Math.PI);
+        d = Math.PI - d;                       // 0 at the crest
+        const g = Math.exp(-(d * d) / (2 * 0.55 * 0.55));
+        r *= 1 + 0.17 * twinkleW * g;
+      }
+      workProfile[i] = r;
+    }
+    const max = profileMax(workProfile) || 1;
+    const k = C / max;
+    for (let i = 0; i < N; i++) {
+      const th = (i / N) * TAU;
+      const r = workProfile[i] * k;
+      workRing[i] = [C + Math.cos(th) * r, C + Math.sin(th) * r];
+    }
+    return workRing;
+  }
+
+  /* ---- one frame ---- */
+
+  function frame(now) {
+    if (destroyed) return;
+    const dtReal = Math.min((now - (last || now)) / 1000, 0.1);
+    last = now;
+    const dt = paused ? 0 : dtReal;
+    clock += dt * 1000;
+    const t = clock;
+
+    if (now - measuredAt > 500) {
+      measuredAt = now;
+      const w = svg.getBoundingClientRect().width;
+      if (w > 0) boxW = w;
+    }
+
+    /* springs */
+    env.t = activity ? 1 : 0;
+    if (reduced) {
+      env.x = env.t; fade.x = 1; shapeMix.x = 1;
+      blink.x = 1; eyeSize.x = 1; gazeX.x = gazeX.t; gazeY.x = gazeY.t;
+      bobX.x = 0; bobY.x = 0; breathe.x = 1;
+    } else {
+      const sub = Math.max(1, Math.ceil(dt / SUBSTEP)), h = dt / sub;
+      for (let i = 0; i < sub; i++) {
+        stepSpring(env, ENV_W, ENV_Z, h);
+        stepSpring(fade, FADE_W, FADE_Z, h);
+        stepSpring(shapeMix, 10, 1, h);
+        stepSpring(blink, 26, 1, h);
+        stepSpring(eyeSize, 9, 0.85, h);
+        stepSpring(gazeX, 13, 1, h);
+        stepSpring(gazeY, 13, 1, h);
+        stepSpring(bobX, 3.5, 1, h);
+        stepSpring(bobY, 4, 1, h);
+        stepSpring(breathe, 6, 0.9, h);
+      }
+    }
+    if (fade.x > 0.996) prevActivity = null;
+    if (poseMix < 1) poseMix = reduced ? 1 : clamp((t - poseAt) / poseDur, 0, 1);
+
+    /* scheduled face beats */
+    if (!paused && !reduced) {
+      if (t >= nextPoseAt) { pickPose(); const e = POSE_EVERY[state] ?? POSE_EVERY.idle; nextPoseAt = t + rand(e[0], e[1]); }
+      if (t >= nextBlinkAt) {
+        blink.x = 1; blink.t = 0.06;
+        setTimeout(() => { blink.t = 1; }, 78);
+        const b = BLINK_EVERY[state];
+        nextBlinkAt = b ? t + rand(b[0], b[1]) : Infinity;
+      }
+      // Slow idle drift, two detuned sines so it never visibly repeats.
+      bobX.t = Math.sin(t * 0.00042) * 2.6 + Math.sin(t * 0.001) * 0.9;
+      bobY.t = Math.sin(t * 0.00058) * 2.0 + Math.sin(t * 0.0013) * 0.7;
+      breathe.t = 1 + 0.013 * Math.sin(t * 0.0016);
+    }
+
+    /* gaze */
+    if (pointer) {
+      const r = svg.getBoundingClientRect();
+      if (r.width > 0) {
+        const nx = clamp((pointer.x - (r.left + r.width / 2)) / r.width, -0.9, 0.9);
+        const ny = clamp((pointer.y - (r.top + r.height / 2)) / r.height, -0.9, 0.9);
+        const reach = Math.min(1, Math.hypot(nx, ny));
+        const ang = Math.atan2(ny, nx);
+        gazeX.t = Math.cos(ang) * reach * C * 0.085;
+        gazeY.t = Math.sin(ang) * reach * C * 0.06;
+      }
+    } else { gazeX.t = 0; gazeY.t = 0; }
+
+    const act = clamp(env.x, 0, 1);
+    const wDots = weightOf("dots");
+    const wTwinkle = weightOf("twinkle");
+    const wOrbit = weightOf("orbit");
+    const wRadar = weightOf("radar");
+    const wProgress = weightOf("progress");
+    const wSqueeze = weightOf("squeeze");
+    const wStandby = weightOf("standby");
+
+    /* ---- squeeze: resolved before anything is drawn, so the eyes can ride it ---- */
+    let band = 0, warp = null, faceWarp = null;
+    if (wSqueeze > 0.004) {
+      band = squeezeBand(t, squeezeStart);
+      warp = squeezeWarp(band, wSqueeze);
+      faceWarp = squeezeWarp(band, wSqueeze, SQ_FACE_GIVE);
+    }
+
+    /* ---- body outline ---- */
+    const ring = buildRing(t, wTwinkle);
+    const morph = clamp(wDots / MORPH_END, 0, 1);
+    let finalRing = morph <= 0 ? ring
+      : morph >= 1 ? ORB_RING
+      : lerpRing(ring, ORB_RING, easeInOutCubic(morph));
+    // Eye placement measures the undeformed silhouette: the face is painted on
+    // the star's surface and is then squeezed along with it.
+    const layoutRing = finalRing;
+    if (warp) finalRing = finalRing.map(([x, y]) => warp(x, y));
+    const d = toPath(finalRing);
+    if (d !== lastPath) {
+      body.setAttribute("d", d);
+      clipPath.setAttribute("d", d);
+      coreEl?.setAttribute("d", d);
+      lastPath = d;
+    }
+    if (warp) {
+      // The light sits just ahead of the pinch, where the body is swelling.
+      const y = C + (band - SQ_LEAD * 0.5) * C;
+      const h = SQ_SIGMA * C * 1.5;
+      sweepG.style.display = "";
+      sweepG.style.opacity = wSqueeze.toFixed(3);
+      sweepGrad.setAttribute("y1", (y - h).toFixed(1));
+      sweepGrad.setAttribute("y2", (y + h).toFixed(1));
+    } else {
+      sweepG.style.display = "none";
+    }
+
+    /* ---- body transform: slot 1 of the bounce, plus every other activity ---- */
+    const w1 = wave(t, 1, act, activityStart);
+    const bodyR = activity
+      ? (BODY_R[activity] ?? C) * clamp(fade.x, 0, 1) +
+        (prevActivity ? BODY_R[prevActivity] ?? C : BODY_R[activity] ?? C) * (1 - clamp(fade.x, 0, 1))
+      : C;
+    const pop = 1 + (w1.pop - 1) * (wDots / Math.max(act, 0.001));
+    const rest = 1 - act;
+    let scale = rest * breathe.x + (bodyR / C) * act * pop;
+    let scaleX = scale, scaleY = scale;
+    let tx = C + bobX.x * rest;
+    let ty = C + bobY.x * rest - w1.lift * wDots;
+    let rot = 0;
+    let bodyAlpha = 1 - (1 - w1.tone) * wDots;
+
+    if (wSqueeze > 0.004) {
+      // A pinched tube gets taller. Peaks as the band crosses the middle.
+      const inside = Math.exp(-(band * band) / (2 * 0.72 * 0.72));
+      scaleY *= 1 + 0.04 * inside * wSqueeze;
+      scaleX *= 1 - 0.014 * inside * wSqueeze;
+      ty -= C * 0.01 * inside * wSqueeze;
+    }
+    if (wStandby > 0.004) bodyAlpha *= 1 - (0.3 + 0.18 * Math.sin(t * 0.0016)) * wStandby;
+    if (wProgress > 0.004 || wOrbit > 0.004) rot += Math.sin(t * 0.0009) * 3 * (wProgress + wOrbit);
+
+    bodyG.setAttribute("transform",
+      `translate(${tx.toFixed(2)} ${ty.toFixed(2)}) rotate(${rot.toFixed(2)}) ` +
+      `scale(${scaleX.toFixed(4)} ${scaleY.toFixed(4)}) translate(${-C} ${-C})`);
+    bodyG.style.opacity = bodyAlpha.toFixed(3);
+
+    if (glowEl) {
+      const gl = (rest * breathe.x + act * (bodyR / C)) * (1 + 0.05 * Math.sin(t * 0.0011));
+      glowEl.setAttribute("transform",
+        `translate(${tx.toFixed(2)} ${ty.toFixed(2)}) scale(${gl.toFixed(4)}) translate(${-C} ${-C})`);
+      glowEl.style.opacity = (0.55 + 0.45 * wTwinkle).toFixed(3);
+    }
+
+    /* ---- eyes ---- */
+    const face = shape.face;
+    const [fSize, fGap, fHeight] = FACE_TUNE[state] ?? FACE_DEFAULT;
+    const hideEyes = wDots > 0.5;
+    eyeG.style.display = hideEyes ? "none" : "";
+    if (!hideEyes) {
+      const pts = currentPosePoints();
+      const socketX = C + face.dx;
+      const socketY = C + face.dy - face.ry * 0.05;   // a touch high reads friendlier
+      // `ew`/`eh` are the socket the pose is drawn into; a pose carries its own
+      // width, so `neutral` at 0.60 fills 60% of the socket's width.
+      const half = face.rx * 0.42 * fGap;
+      const ew = face.rx * 0.78 * fSize * eyeSize.x;
+      const eh = face.ry * 0.62 * fSize * fHeight * eyeSize.x * Math.max(blink.x, 0.04);
+      const [l, r] = spanAt(layoutRing, socketY + gazeY.x, [C, C]);
+      for (let i = 0; i < 2; i++) {
+        const dir = i === 0 ? -1 : 1;
+        let cx = socketX + dir * half + gazeX.x;
+        const cy = socketY + gazeY.x + bobY.x * 0.25;
+        // Never let an eye ride out onto a ray.
+        cx = clamp(cx, l + ew * 0.8, r - ew * 0.8);
+        let placed = pts.map(([x, y]) => [cx + x * ew, cy + y * eh]);
+        if (faceWarp) placed = placed.map(([x, y]) => faceWarp(x, y));
+        eyes[i].setAttribute("d", polyPath(placed));
+      }
+    }
+
+    /* ---- overlays ---- */
+    for (const s of sparks) s.style.display = "none";
+    for (const r of rings) r.style.display = "none";
+    for (const p of dots) p.style.display = "none";
+
+    if (wDots > 0.004) drawDots(wDots, t);
+    if (wOrbit > 0.004) drawOrbit(wOrbit, t);
+    if (wRadar > 0.004) drawRadar(wRadar, t, (bodyR / C) * C);
+    if (wProgress > 0.004) drawProgress(wProgress, t);
+
+    stepParticles(dt);
+
+    /* ---- zoom, so the dots stay legible on small marks ---- */
+    const small = 1 - smoothstep(clamp((boxW - ZOOM_SMALL_PX) / (ZOOM_LARGE_PX - ZOOM_SMALL_PX), 0, 1));
+    const z = 1 + (DOTS_ZOOM - 1) * wDots * small;
+    const zt = z === 1 ? "" :
+      `translate(${VIEW_CENTER} ${VIEW_CENTER}) scale(${z.toFixed(4)}) translate(${-VIEW_CENTER} ${-VIEW_CENTER})`;
+    if (zt !== lastZoom) { zoomG.setAttribute("transform", zt); lastZoom = zt; }
+
+    /* ---- park when there is nothing left to do ---- */
+    const settled = !particles.length &&
+      Math.abs(env.x - env.t) < 0.001 && Math.abs(env.v) < 0.001 &&
+      poseMix >= 1 && blink.t === 1 && Math.abs(blink.x - 1) < 0.002 &&
+      shapeMix.x > 0.999;
+    if (reduced && settled) { running = false; raf = 0; return; }
+    raf = requestAnimationFrame(frame);
+  }
+
+  /* ---- activity painters ---- */
+
+  function drawDots(w, t) {
+    const xs = [C - DOT_X, C + DOT_X];
+    for (let i = 0; i < 2; i++) {
+      const k = clamp((w - i * DOT_STAGGER) / (1 - i * DOT_STAGGER), 0, 1);
+      if (k <= 0.004) continue;
+      const app = easeOutCubic(k), spread = easeOutBack(k);
+      const wv = wave(t, i === 0 ? 0 : 2, w, activityStart);
+      const s = (DOT_R * app * wv.pop * DOT_FUDGE) / C;
+      const x = C + (xs[i] - C) * spread, y = C - wv.lift;
+      dots[i].style.display = "";
+      dots[i].setAttribute("transform",
+        `translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${s.toFixed(4)}) translate(${-C} ${-C})`);
+      dots[i].setAttribute("opacity", (app * wv.tone).toFixed(3));
+    }
+  }
+
+  function drawOrbit(w, t) {
+    const a0 = t * 0.0016;
+    const rx = C * 1.02, ry = C * 0.42;
+    for (let i = 0; i < sparks.length; i++) {
+      const a = a0 + (i * TAU) / sparks.length;
+      const front = 0.5 + 0.5 * clamp(Math.cos(a), 0, 1);
+      const el = sparks[i];
+      el.style.display = "";
+      el.setAttribute("opacity", (clamp((Math.cos(a) + 0.5) / 0.7, 0.2, 1) * w).toFixed(3));
+      el.setAttribute("transform",
+        `translate(${(C + rx * Math.sin(a)).toFixed(1)} ${(C - ry * Math.cos(a)).toFixed(1)}) ` +
+        `rotate(${((a * 40) % 360).toFixed(1)}) scale(${(17 * front * w).toFixed(2)})`);
+    }
+  }
+
+  function drawRadar(w, t, from) {
+    for (let i = 0; i < 3; i++) {
+      const p = ((t / 1500 + i / 3) % 1 + 1) % 1;
+      const el = rings[i];
+      el.style.display = "";
+      el.setAttribute("r", (from * 0.72 + (C * 1.2 - from * 0.72) * p).toFixed(1));
+      el.setAttribute("stroke-width", (4.2 * (1 - p * 0.55)).toFixed(2));
+      el.removeAttribute("stroke-dasharray");
+      el.setAttribute("opacity", (w * (1 - p) * 0.75).toFixed(3));
+    }
+  }
+
+  function drawProgress(w, t) {
+    const r = C * 1.06;
+    const track = rings[3];
+    const circ = TAU * r;
+    const p = clamp(((t - activityStart) / 2600) % 1, 0, 1);
+    track.style.display = "";
+    track.setAttribute("r", r.toFixed(1));
+    track.setAttribute("stroke-width", "5");
+    track.setAttribute("stroke-dasharray", `${(circ * 0.28).toFixed(1)} ${(circ * 0.72).toFixed(1)}`);
+    track.setAttribute("stroke-dashoffset", (-circ * p).toFixed(1));
+    track.setAttribute("stroke-linecap", "round");
+    track.setAttribute("opacity", (w * 0.9).toFixed(3));
+  }
+
+  /* ---- lifecycle ---- */
+
+  function wake() {
+    if (destroyed || running) return;
+    running = true; last = 0;
+    raf = requestAnimationFrame(frame);
+  }
+
+  const onPointerMove = (e) => { pointer = { x: e.clientX, y: e.clientY }; wake(); };
+  const onPointerLeave = () => { pointer = null; };
+  if (o.followPointer && !reduced) {
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    document.documentElement.addEventListener("pointerleave", onPointerLeave);
+  }
+
+  applyStateInitial();
+  function applyStateInitial() {
+    const pool = POSES[state] ?? POSES.idle;
+    poseCur = poseFrom = EYE_POSES[pool[0]] ?? EYE_POSES.neutral;
+    scheduleFace(0);
+    if (activity === "squeeze") squeezeStart = 0;
+    env.x = 0; env.t = activity ? 1 : 0;
+  }
+  wake();
+
+  return {
+    el: svg,
+    get state() { return state; },
+    setState: (s) => applyState(s),
+    setShape(name) {
+      const next = SHAPES[name];
+      if (!next || next === shape) return;
+      shapeFrom = shape; shape = next; shapeName = name;
+      shapeMix.x = 0; shapeMix.v = 0; shapeMix.t = 1;
+      wake();
+    },
+    get shape() { return shapeName; },
+    setGaze(p) { pointer = p; wake(); },
+    sparkle: (n) => burst(n),
+    pause() { paused = true; },
+    resume() { paused = false; last = 0; wake(); },
+    destroy() {
+      destroyed = true;
+      cancelAnimationFrame(raf);
+      window.removeEventListener("pointermove", onPointerMove);
+      document.documentElement.removeEventListener("pointerleave", onPointerLeave);
+      svg.remove();
+    },
+  };
+}
+
+
+
+const STATES = ["idle","listening","thinking","working","writing","searching","reading",
+  "loading","generating","speaking","uploading","happy","celebrate","confused","sad","sleeping"];
+
+/* ---- hero ---- */
+const hero = document.getElementById("hero");
+const heroHost = document.createElement("span");
+heroHost.style.cssText = "width:200px;height:200px;display:block";
+hero.appendChild(heroHost);
+const heroMark = createStellaMark(heroHost, { size: 200, state: "thinking", followPointer: false });
+window.__hero = heroMark;
+window.__sizes = [];
+
+const statesBar = document.getElementById("states");
+const stateBtns = STATES.map((s) => {
+  const b = document.createElement("button");
+  b.textContent = s;
+  b.setAttribute("aria-pressed", String(s === "thinking"));
+  b.addEventListener("click", () => {
+    heroMark.setState(s);
+    stateBtns.forEach((x) => x.setAttribute("aria-pressed", String(x.textContent === s)));
+  });
+  statesBar.appendChild(b);
+  return b;
+});
+
+const shapesBar = document.getElementById("shapes");
+["star","pebble","brand","orb"].forEach((s) => {
+  const b = document.createElement("button");
+  b.textContent = s;
+  b.setAttribute("aria-pressed", String(s === "star"));
+  b.addEventListener("click", () => {
+    heroMark.setShape(s);
+    [...shapesBar.children].forEach((x) => x.setAttribute("aria-pressed", String(x.textContent === s)));
+  });
+  shapesBar.appendChild(b);
+});
+
+let following = false;
+const followBtn = document.getElementById("follow");
+followBtn.addEventListener("click", () => {
+  following = !following;
+  followBtn.setAttribute("aria-pressed", String(following));
+  if (!following) heroMark.setGaze(null);
+});
+window.addEventListener("pointermove", (e) => {
+  if (following) heroMark.setGaze({ x: e.clientX, y: e.clientY });
+}, { passive: true });
+document.getElementById("spark").addEventListener("click", () => heroMark.sparkle(20));
+
+/* ---- gallery ---- */
+const gallery = document.getElementById("gallery");
+for (const s of STATES) {
+  const cell = document.createElement("div");
+  cell.className = "cell";
+  const host = document.createElement("span");
+  host.style.cssText = "width:56px;height:56px;display:block";
+  const cap = document.createElement("span");
+  cap.className = "cap";
+  cap.textContent = s;
+  cell.appendChild(host); cell.appendChild(cap);
+  gallery.appendChild(cell);
+  createStellaMark(host, { size: 56, state: s });
+}
+
+/* ---- sizes ---- */
+const sizesStage = document.getElementById("sizes");
+const sizeMarks = [16, 22, 28, 44, 96, 168].map((px) => {
+  const wrap = document.createElement("div");
+  wrap.className = "specimen";
+  const host = document.createElement("span");
+  host.style.cssText = `width:${px}px;height:${px}px;display:block`;
+  const cap = document.createElement("span");
+  cap.className = "cap";
+  cap.textContent = px + " px";
+  wrap.appendChild(host); wrap.appendChild(cap);
+  sizesStage.appendChild(wrap);
+  const m = createStellaMark(host, { size: px, state: "thinking" }); window.__sizes.push(m); return m;
+});
+const sizeBar = document.getElementById("sizeStates");
+["thinking","working","searching","loading","idle"].forEach((s, i) => {
+  const b = document.createElement("button");
+  b.textContent = s;
+  b.setAttribute("aria-pressed", String(i === 0));
+  b.addEventListener("click", () => {
+    sizeMarks.forEach((m) => m.setState(s));
+    [...sizeBar.children].forEach((x) => x.setAttribute("aria-pressed", String(x.textContent === s)));
+  });
+  sizeBar.appendChild(b);
+});
+
+/* ---- activity lines ---- */
+createStellaMark(document.getElementById("l1"), { size: 26, state: "thinking" });
+createStellaMark(document.getElementById("l2"), { size: 26, state: "searching" });
+createStellaMark(document.getElementById("l3"), { size: 26, state: "working" });
+
+/* ---- derivation ---- */
+const STEPS = [
+  ["the logo", { core: 0.3, gamma: 1, sharp: 1, even: 0, balance: 0, smooth: 0.4 }, 0.1],
+  ["+ balance", { core: 0.3, gamma: 1, sharp: 1, even: 0, balance: 0.94, smooth: 0.4 }, 1],
+  ["+ even", { core: 0.3, gamma: 1, sharp: 1, even: 1, balance: 0.94, smooth: 0.4 }, 1],
+  ["+ core, gamma", { core: 0.46, gamma: 1.15, sharp: 1.2, even: 1, balance: 0.94, smooth: 0.7 }, 1],
+];
+const derivation = document.getElementById("derivation");
+for (const [name, opts, puff] of STEPS) {
+  const wrap = document.createElement("div");
+  wrap.className = "specimen";
+  wrap.style.gridTemplateRows = "132px auto";
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", VIEWBOX);
+  svg.style.cssText = "width:118px;height:118px;display:block";
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("fill", "var(--ink-3)");
+  path.setAttribute("d", toPath(profileToRing(starProfile(puff, opts), C, [C, C])));
+  svg.appendChild(path);
+  const cap = document.createElement("span");
+  cap.className = "cap"; cap.textContent = name;
+  wrap.appendChild(svg); wrap.appendChild(cap);
+  derivation.appendChild(wrap);
+}
+
+const liveWrap = document.createElement("div");
+liveWrap.className = "specimen";
+liveWrap.style.gridTemplateRows = "132px auto";
+const puffSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+puffSvg.setAttribute("viewBox", VIEWBOX);
+puffSvg.style.cssText = "width:118px;height:118px;display:block";
+const puffPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+puffPath.setAttribute("fill", "var(--accent)");
+puffSvg.appendChild(puffPath);
+const liveCap = document.createElement("span");
+liveCap.className = "cap"; liveCap.textContent = "morph";
+liveWrap.appendChild(puffSvg); liveWrap.appendChild(liveCap);
+derivation.appendChild(liveWrap);
+
+const puffInput = document.getElementById("puff");
+const puffLabel = document.getElementById("puffLabel");
+function drawPuff() {
+  const v = puffInput.value / 100;
+  puffPath.setAttribute("d", toPath(profileToRing(
+    starProfile(v, { core: 0.46, gamma: 1.15, sharp: 1.2, even: 1, balance: 0.94, smooth: 0.7 }), C, [C, C])));
+  puffLabel.textContent = "puff " + v.toFixed(2);
+}
+puffInput.addEventListener("input", drawPuff);
+drawPuff();
+</script>

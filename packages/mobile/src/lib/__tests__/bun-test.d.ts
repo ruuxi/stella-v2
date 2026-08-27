@@ -19,7 +19,10 @@ declare module "bun:test" {
     toBeLessThanOrEqual(expected: number): void;
     toBeInstanceOf(expected: unknown): void;
     toBeGreaterThan(expected: number): void;
+    toBeGreaterThanOrEqual(expected: number): void;
     toBeLessThan(expected: number): void;
+    toBeLessThanOrEqual(expected: number): void;
+    toBeCloseTo(expected: number, precision?: number): void;
     toThrow(expected?: unknown): void;
     readonly rejects: PromiseMatchers;
     readonly resolves: PromiseMatchers;

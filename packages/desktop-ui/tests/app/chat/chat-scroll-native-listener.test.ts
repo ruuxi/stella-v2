@@ -35,21 +35,24 @@ describe("chat scroll performance contract", () => {
     );
   });
 
-  it("defers live timeline updates only during direct user scrolling", () => {
+  it("notes manual scrolling from the native wheel listener", () => {
     const hook = readSource("src/shell/use-chat-scroll-management.ts");
-    const fullChat = readSource("src/app/chat/ChatColumn.tsx");
-    const compactChat = readSource(
-      "src/features/chat/CompactConversationSurface.tsx",
-    );
 
     expect(hook).toContain("const noteManualScroll = useCallback");
     expect(hook).toMatch(
       /const handleWheel = \(event: WheelEvent\) => \{\s*noteManualScroll\(\)/,
     );
-    expect(fullChat).toContain("useDeferredChatMessages(");
-    expect(fullChat).toContain("isUserScrolling,");
-    expect(compactChat).toContain("useDeferredChatMessages(");
-    expect(compactChat).toContain("scroll.isUserScrolling,");
+  });
+
+  it("routes every tail growth through the single content-growth channel", () => {
+    const hook = readSource("src/shell/use-chat-scroll-management.ts");
+    const follow = readSource("src/shell/chat-scroll-follow.ts");
+
+    // Assistant text is delivered whole, so there is no per-delta keyed
+    // follow left to prefer.
+    expect(hook).not.toContain("followActiveAssistantRow");
+    expect(hook).toContain("subscribeChatContentGrowth(");
+    expect(follow).not.toContain("beginAssistantScrollFollow");
   });
 
   it("keeps send and turn reframes on the same gentle path across platforms", () => {

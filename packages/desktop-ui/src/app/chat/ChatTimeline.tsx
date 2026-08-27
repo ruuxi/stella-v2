@@ -45,6 +45,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type RefObject,
@@ -54,6 +55,11 @@ import {
   type LegendListRef,
   type LegendListRenderItemProps,
 } from "@legendapp/list/react";
+import {
+  getFixedRowHeight,
+  measureTranscriptRowMetrics,
+  type TranscriptRowMetrics,
+} from "@/features/chat/pretext/row-metrics";
 import {
   AssistantMessageRow,
   UserMessageRow,
@@ -270,6 +276,86 @@ const ItemSeparator = ({ leadingItem }: { leadingItem: TimelineListItem }) => (
   <div style={{ height: leadingItem.gapAfter }} aria-hidden="true" />
 );
 
+/**
+ * Reads the geometry `getFixedItemSize` needs off the live transcript.
+ *
+ * Everything is measured from a throwaway probe rendered inside the list's
+ * own scroll node, so per-surface CSS, the active theme and the browser zoom
+ * are all reflected without hard-coded constants. Re-measured whenever the
+ * column width changes (window/panel resize) or the document's theme
+ * attributes change; the column width is quantized to whole pixels so
+ * sub-pixel resize jitter doesn't thrash the cache.
+ */
+const useTranscriptRowMetrics = (
+  listRef: RefObject<LegendListRef | null>,
+  listAttached: boolean,
+): TranscriptRowMetrics | null => {
+  const [metrics, setMetrics] = useState<TranscriptRowMetrics | null>(null);
+  const metricsRef = useRef<TranscriptRowMetrics | null>(null);
+  metricsRef.current = metrics;
+
+  useEffect(() => {
+    if (!listAttached) return;
+    const scrollNode = listRef.current?.getScrollableNode?.();
+    if (!scrollNode) return;
+
+    const readColumnWidth = (): number => {
+      // A real laid-out row is the exact width `getFixedItemSize` must model.
+      // The trailing region (always rendered as the list footer) is the same
+      // width and is available even before the first row mounts.
+      const row =
+        scrollNode.querySelector<HTMLElement>(".event-row") ??
+        scrollNode.querySelector<HTMLElement>(".event-list-trailing-region");
+      return row ? Math.round(row.getBoundingClientRect().width) : 0;
+    };
+
+    const remeasure = () => {
+      const columnWidth = readColumnWidth();
+      if (columnWidth <= 0) return;
+      const next = measureTranscriptRowMetrics(scrollNode, columnWidth);
+      if (!next) return;
+      if (metricsRef.current?.epoch === next.epoch) return;
+      metricsRef.current = next;
+      setMetrics(next);
+    };
+
+    remeasure();
+
+    let frame = 0;
+    const scheduleRemeasure = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        remeasure();
+      });
+    };
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(scheduleRemeasure);
+    resizeObserver?.observe(scrollNode);
+
+    // Theme swaps re-point the typography/surface tokens without resizing.
+    const themeObserver =
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver(scheduleRemeasure);
+    themeObserver?.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "data-theme", "style"],
+    });
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
+      themeObserver?.disconnect();
+    };
+  }, [listAttached, listRef]);
+
+  return metrics;
+};
+
 const renderRow = (
   row: EventRowViewModel,
   conversationId?: string | null,
@@ -326,6 +412,21 @@ export const ChatTimeline = memo(function ChatTimeline({
   contentContainerStyle,
 }: ChatTimelineProps) {
   const t = useT();
+  // The surface owns `listRef` (its scroll hook drives it); the timeline needs
+  // the same instance to reach `getScrollableNode()` for row measurement, so
+  // keep a local ref and mirror it into the caller's. `listAttached` turns the
+  // ref assignment (invisible to React) into a render the metrics effect can
+  // key off.
+  const innerListRef = useRef<LegendListRef | null>(null);
+  const [listAttached, setListAttached] = useState(false);
+  const attachListRef = useCallback(
+    (instance: LegendListRef | null) => {
+      innerListRef.current = instance;
+      if (listRef) listRef.current = instance;
+      setListAttached(Boolean(instance));
+    },
+    [listRef],
+  );
   const listItems = useMemo<TimelineListItem[]>(() => {
     const items = buildChatTimelineItems({
       rows,
@@ -366,6 +467,28 @@ export const ChatTimeline = memo(function ChatTimeline({
   );
 
   const keyExtractor = useCallback((item: TimelineListItem) => item.id, []);
+
+  /**
+   * Exact row heights for plain-text bubbles.
+   *
+   * LegendList renders the item separator INSIDE the item's container (every
+   * item but the last), so a fixed size has to include `gapAfter`. Anything
+   * this can't predict exactly — markdown, cards, chips, attachments, the
+   * queued stack, the working indicator — returns `undefined` and keeps the
+   * measure-after-mount path.
+   */
+  const rowMetrics = useTranscriptRowMetrics(innerListRef, listAttached);
+  const itemCount = listItems.length;
+  const getFixedItemSize = useCallback(
+    (item: TimelineListItem, index: number): number | undefined => {
+      if (!rowMetrics || item.type !== "message") return undefined;
+      const rowHeight = getFixedRowHeight(item.row, rowMetrics);
+      if (rowHeight === undefined) return undefined;
+      const separator = index === itemCount - 1 ? 0 : item.gapAfter;
+      return rowHeight + separator;
+    },
+    [itemCount, rowMetrics],
+  );
   const hasQueuedTimelineItem = listItems.some(
     (item) => item.type === "queued-users",
   );
@@ -446,11 +569,12 @@ export const ChatTimeline = memo(function ChatTimeline({
 
   return (
     <LegendList<TimelineListItem>
-      ref={listRef}
+      ref={attachListRef}
       data={listItems}
       keyExtractor={keyExtractor}
       renderItem={renderItem}
       estimatedItemSize={estimatedItemSize}
+      getFixedItemSize={getFixedItemSize}
       drawDistance={drawDistance}
       recycleItems={recycleItems}
       alignItemsAtEnd={alignItemsAtEnd}

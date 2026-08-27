@@ -156,6 +156,17 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Making it happen",
     "Just a sec",
   ],
+  code: [
+    "Running code",
+    "Working on it",
+    "Writing some code",
+    "Getting it done",
+    "On it",
+    "Handling it",
+    "Making it happen",
+    "Just a sec",
+  ],
+  // Legacy transcript compatibility; never advertised to new turns.
   node_repl: [
     "Running code",
     "Working on it",
@@ -324,30 +335,82 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
   ],
 
   // Direct scheduling tools
-  schedule_add: ["Scheduling it", "Setting it up", "Adding it", "Penciling it in", "Booking it"],
+  schedule_add: [
+    "Scheduling it",
+    "Setting it up",
+    "Adding it",
+    "Penciling it in",
+    "Booking it",
+  ],
   schedule_list: [
     "Checking the schedule",
     "Looking at what's planned",
     "Reviewing the schedule",
     "Pulling up the schedule",
   ],
-  schedule_update: ["Updating the schedule", "Adjusting it", "Rescheduling", "Tweaking the timing"],
-  schedule_remove: ["Clearing it", "Removing it", "Canceling it", "Taking it off the schedule"],
+  schedule_update: [
+    "Updating the schedule",
+    "Adjusting it",
+    "Rescheduling",
+    "Tweaking the timing",
+  ],
+  schedule_remove: [
+    "Clearing it",
+    "Removing it",
+    "Canceling it",
+    "Taking it off the schedule",
+  ],
 
   // Legacy schedule subagent tool names (still seen in old activity rows)
-  cron_add: ["Scheduling it", "Setting it up", "Adding it", "Penciling it in", "Booking it"],
+  cron_add: [
+    "Scheduling it",
+    "Setting it up",
+    "Adding it",
+    "Penciling it in",
+    "Booking it",
+  ],
   cron_list: [
     "Checking the schedule",
     "Looking at what's planned",
     "Reviewing the schedule",
     "Pulling up the schedule",
   ],
-  cron_remove: ["Clearing it", "Removing it", "Canceling it", "Taking it off the schedule"],
-  cron_run: ["Running it", "Kicking it off", "Triggering it", "Setting it in motion"],
-  cron_update: ["Updating the schedule", "Adjusting it", "Rescheduling", "Tweaking the timing"],
-  heartbeat_get: ["Checking in", "Taking a pulse", "Checking status", "Seeing how it's going"],
-  heartbeat_run: ["Running a check", "Checking in", "Taking a pulse", "Testing it"],
-  heartbeat_upsert: ["Saving the status", "Updating the check-in", "Logging it", "Recording it"],
+  cron_remove: [
+    "Clearing it",
+    "Removing it",
+    "Canceling it",
+    "Taking it off the schedule",
+  ],
+  cron_run: [
+    "Running it",
+    "Kicking it off",
+    "Triggering it",
+    "Setting it in motion",
+  ],
+  cron_update: [
+    "Updating the schedule",
+    "Adjusting it",
+    "Rescheduling",
+    "Tweaking the timing",
+  ],
+  heartbeat_get: [
+    "Checking in",
+    "Taking a pulse",
+    "Checking status",
+    "Seeing how it's going",
+  ],
+  heartbeat_run: [
+    "Running a check",
+    "Checking in",
+    "Taking a pulse",
+    "Testing it",
+  ],
+  heartbeat_upsert: [
+    "Saving the status",
+    "Updating the check-in",
+    "Logging it",
+    "Recording it",
+  ],
 
   // Fashion subagent
   fashion_search_products: [
@@ -535,7 +598,10 @@ export function normalizeDisplayStatusText(
   }
 
   if (looksLikeMachineStatus(trimmed)) {
-    return computeWorkingIndicatorStatus({ toolName: "unknown", seed: trimmed });
+    return computeWorkingIndicatorStatus({
+      toolName: "unknown",
+      seed: trimmed,
+    });
   }
 
   return trimmed;

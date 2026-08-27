@@ -14,7 +14,7 @@ export const LEGAL_TITLES: Record<LegalDocument, string> = {
   privacy: "Privacy Policy",
 };
 
-export const LEGAL_LAST_UPDATED = "August 9, 2026";
+export const LEGAL_LAST_UPDATED = "August 26, 2026";
 
 export const TERMS_OF_SERVICE = `Stella — FromYou LLC
 Last updated: ${LEGAL_LAST_UPDATED}
@@ -45,24 +45,24 @@ Account Linking — If you upgrade from anonymous use to a registered account, a
 
 4. Description of the Service
 
-The Stella Platform (Free) — Stella is a personal AI assistant that runs primarily on your local device. The platform is completely free and open source. It includes the desktop application (an Electron-based app that runs AI agent orchestration, tool execution, computer use, and data storage locally on your computer), the mobile companion app (a lightweight mobile client that connects to your desktop or provides an offline fallback chat), and the open-source codebase.
+The Stella Platform (Free) — Stella is a personal AI assistant with desktop, mobile, and hosted components. The platform is completely free and open source. The Electron desktop application can run tool execution and computer use on your device and keep local execution data and a rebuildable cache. The mobile app and supported desktop experiences use Stella's hosted conversation services.
 
 The Stella Provider (Paid LLM Service) — Separately, FromYou operates the Stella Provider, a managed LLM inference service that routes AI model requests to upstream providers on your behalf. The Stella Provider is the paid component of the Service — subscription plans and usage-based billing apply to LLM inference consumed through the Stella Provider. You are never required to use the Stella Provider; you may supply your own API keys (BYOK) and use the platform entirely for free.
 
-Additional Backend Services — Our backend also provides authentication, an offline fallback responder, Stella mobile app connectivity, the mod store, social features, and media generation capabilities.
+Additional Backend Services — Our backend also provides authentication, cloud-authoritative conversations and memory, cloud agent execution, Stella mobile app connectivity, connected integrations, the mod store, social features, and media generation capabilities.
 
 
-5. Local-First Architecture and Your Data
+5. Cloud and Local Data
 
-Local Storage — Stella is designed with a local-first architecture. Your conversations, chat history, agent state, event transcripts, tool outputs, and personal data are stored locally on your device — not on our servers. We do not have access to this data.
+Cloud-Authoritative Service Data — Stella's hosted services maintain the authoritative copy of conversations, chat history, event transcripts, tool outputs, activity records, and saved memory. This service data is encrypted in transit and at rest. Supported clients may keep a rebuildable local cache for display and local execution. Deleting a local cache does not by itself delete the cloud-authoritative copy.
 
-No Cloud Storage of Conversations — We do not store your conversation content, prompts, or AI responses on our cloud infrastructure under normal operation. The sole exception is the offline responder described below.
+Local Execution Data — Files on your device, locally captured screenshots, locally stored credentials and settings, and other device execution data can remain local. Data needed for a requested hosted feature, AI inference, cloud agent task, or connected integration may be sent to and processed by Stella services and the applicable third party. A task's relevant inputs and results may also become part of the cloud-authoritative conversation, tool, activity, or memory record.
 
-Offline Responder — When your desktop application is not running or not reachable, you may interact with Stella through the Stella mobile app. In this case, your message is sent to our backend, processed by a minimal fallback AI agent, and a response is returned. These offline interactions are transient — they are processed in memory and are not persistently stored in our systems beyond what is required to deliver the response and record usage for billing purposes.
+Provider and Integration Processing — Prompts, attachments, relevant conversation context, tool inputs and results, and data you direct Stella to use may be processed by Stella's infrastructure, selected AI providers, and connected integrations as needed to provide the requested feature. Those third parties process data under their own terms and privacy policies.
 
-Discovery Signals — During onboarding, Stella may optionally collect signals from your device (browser bookmarks, installed applications, development environment, etc.) to personalize your experience. This data is processed and stored entirely on your local device. Discovery categories involving sensitive data (messages, notes) are opt-in and disabled by default.
+Discovery Signals — During onboarding, Stella may optionally process signals from your device (browser bookmarks, installed applications, development environment, etc.) to personalize your experience. Raw discovery signals are processed locally unless you choose a feature that imports resulting memory or selected data into Stella's hosted services. Discovery categories involving sensitive data (messages, notes) are opt-in and disabled by default.
 
-Stella Mobile App — When you pair the Stella mobile app with your desktop, messages you send from the app are routed to your desktop device for local processing whenever possible. When your desktop is offline, the backend offline responder processes them transiently as described above. Pairing and routing metadata (device identifiers, conversation mappings) is stored on our backend to facilitate message delivery.
+Stella Mobile App — The mobile app reads and writes the same cloud-authoritative conversation history available to supported Stella clients. When a task executes on your desktop, Stella also uses device and routing metadata to deliver work and synchronize the resulting conversation and activity records.
 
 
 6. Computer Use and Agent Autonomy
@@ -78,9 +78,9 @@ Safety Mechanisms — Stella includes certain safety mechanisms (e.g., command s
 
 7. AI Services and the Stella Provider
 
-Managed LLM Inference (Stella Provider) — The Stella Provider is a managed LLM inference service. When you do not supply your own API keys, Stella routes AI model requests through our backend to named third parties that provide AI infrastructure and model access. Depending on the model and routing path, this can include OpenRouter or Fireworks as managed AI gateways, and upstream AI model providers such as DeepSeek, Anthropic, OpenAI, and Google. Your prompts and responses pass through our infrastructure in transit but are not stored by us beyond what is necessary for real-time processing and usage metering. The Stella Provider is the only paid component of the Service.
+Managed LLM Inference (Stella Provider) — The Stella Provider is a managed LLM inference service. When you do not supply your own API keys, Stella routes AI model requests through our backend to named third parties that provide AI infrastructure and model access. Depending on the model and routing path, this can include OpenRouter or Fireworks as managed AI gateways, and upstream AI model providers such as DeepSeek, Anthropic, OpenAI, and Google. Requests made through a provider's Responses API may enable provider-side response storage for stateful continuation. Prompts and responses pass through our infrastructure in transit and may be retained by the selected provider under its own policies. The Stella Provider is the only paid component of the Service.
 
-Bring Your Own Keys (BYOK) — You may configure your own API keys for supported AI providers (Anthropic, OpenAI, Google, etc.). When using BYOK, requests are sent directly from your device to the provider, and our backend is not involved in those AI calls. Your API keys are stored locally on your device in encrypted form. Using BYOK means you can use Stella entirely for free.
+Bring Your Own Keys (BYOK) — You may configure your own API keys for supported AI providers (Anthropic, OpenAI, Google, etc.). Supported BYOK routes send the model request directly from your device to the provider, without using the Stella Provider for that model call. Your API keys are stored locally on your device in encrypted form. The cloud-authoritative conversation record remains in Stella's hosted services. Using BYOK means you can use Stella entirely for free.
 
 Third-Party AI Providers — Whether using the Stella Provider or BYOK, your prompts and other model inputs you choose to send, including text, images, and related model context, are processed by third-party AI services. These providers have their own terms of service and privacy policies. We do not control how third-party providers handle your data once it reaches their systems. FromYou is not responsible for the outputs, accuracy, or behavior of any third-party AI model.
 
@@ -199,23 +199,23 @@ Last updated: ${LEGAL_LAST_UPDATED}
 
 This Privacy Policy describes how FromYou LLC ("FromYou," "we," "us," or "our") handles information when you use Stella, including the desktop application, mobile companion app, backend services, and related websites or APIs (collectively, the "Service").
 
-Stella stores its canonical conversation history and local context on your device. Some features send data to Stella services or third-party providers to perform the actions you request. Stella's platform is open source. This policy explains what we collect, how requested features process data, and when data reaches our infrastructure.
+Stella maintains cloud-authoritative conversation and memory records while supported clients may keep rebuildable local caches and device execution data. Requested features may also send data to AI providers and connected integrations. Stella's platform is open source. This policy explains what is stored by Stella's services, what can remain on your device, and when third parties process data.
 
 
-1. Local and Hosted Data Flows
+1. Cloud and Local Data Flows
 
-Stella runs primarily on your local machine. Unlike most AI assistants:
+Stella combines local execution with hosted services:
 
-• Your conversations are not stored on our servers. Chat history, prompts, AI responses, agent state, and tool outputs are stored locally on your device in a local database.
+• Stella's hosted services maintain the authoritative copy of conversations, event transcripts, tool outputs, activity records, and saved memory. That service data is encrypted in transit and at rest.
+• The desktop app may keep a rebuildable SQLite cache and device-local execution data. Removing that cache does not delete the cloud-authoritative copy.
 • No account is required. You can use Stella anonymously without providing any personal information.
 • The platform is open source. You can inspect exactly how your data is handled.
 
 
-2. Information We Do NOT Collect
+2. Device Data Not Uploaded by Default
 
-Under normal operation, we do not collect or store:
+Stella does not upload device data merely because it exists on your computer. Unless you attach it, direct Stella to use it, enable a feature that needs it, or it becomes part of a cloud conversation or memory record, the following can remain local:
 
-• Your conversations, prompts, or AI responses
 • Files on your computer or files created, modified, or deleted by Stella's AI agents
 • Screenshots, screen captures, or on-screen content read by the agent
 • Websites visited, forms filled, or actions taken by Stella's browser-use capabilities
@@ -223,53 +223,56 @@ Under normal operation, we do not collect or store:
 • Contents of your messages, notes, or calendar
 • Shell commands executed by the agent or their output
 • Voice recordings or transcripts
-• Any data discovered during onboarding personalization
+• Raw data discovered during onboarding personalization
 • Your locally stored API keys
-• Any record of what the AI agent does on your computer
+
+Relevant content from these categories may be sent to Stella's hosted services, an AI provider, or a connected integration when needed to perform a task you request. Cloud-authoritative conversation, transcript, tool, activity, and memory records are described below.
 
 
-3. Information Stored Locally on Your Device
+3. Information Stored on Your Device
 
-The following data is created and stored entirely on your device and is never transmitted to our servers:
+Depending on the client and features you use, Stella may store the following on your device:
 
-• Conversations and chat history — your interactions with Stella
-• Agent state and event transcripts — runtime operation of the AI agent system
-• Tool execution results — output from shell commands, file operations, web searches, browser actions
-• Computer-use activity logs — records of agent actions (browsing, file edits, commands)
+• A rebuildable SQLite cache of cloud conversation, transcript, tool, activity, and file projections
+• Device execution state and local working data used while a task runs on that device
+• Files, screenshots, and command output that are not included in a hosted task or record
 • Discovery signals — optional onboarding personalization data (browser bookmarks, apps, dev environment, etc.)
-• Voice transcripts — records of voice interactions
 • LLM API keys (encrypted) — your own provider credentials for BYOK use
 • Local preferences and settings — theme, model preferences, configuration
 • Self-modification history (Git) — tracking of AI-made UI changes for undo/revert
 • Installed mods and skills — extensions you have installed
 • Device identity keypair — cryptographic identity for your device
-• Local SQLite database — persistent storage for all of the above
 
-You have full control over this data. You can delete it at any time by removing the Stella data directory from your device or using the in-app reset function.
+You can delete device-local data by removing the Stella data directory or using applicable in-app controls. Clearing a device cache does not necessarily delete cloud-authoritative data; use the Service's data or account deletion controls for hosted copies.
 
 
-4. Information That Passes Through Our Servers
+4. Information Stored or Processed by Hosted Services
 
-In limited circumstances, data transits our backend infrastructure:
+Cloud Conversations and Memory — Stella stores the authoritative conversation history, event transcripts, tool outputs, activity records, and saved memory for an owner in its hosted services. This data is encrypted in transit and at rest and is used to synchronize supported clients, recover from local cache loss, and provide requested cloud features.
 
-Stella Provider (Managed LLM Inference) — The Stella Provider is our managed LLM inference service — the only paid component of Stella. When you use the Stella Provider (i.e., you have not configured your own API keys), your prompts are routed through our backend to named third parties that provide AI infrastructure and model access. Depending on the model and routing path, this can include OpenRouter or Fireworks as managed AI gateways, and upstream AI model providers such as DeepSeek, Anthropic, OpenAI, and Google. During this process: your prompt, any images you attach, relevant conversation context, and the AI response pass through our servers in transit to reach the third-party AI service used for that request; we do not persistently store the content of your prompts or responses; we do log usage metadata for billing and rate-limiting purposes (timestamp, model used, token count, duration, success/failure status, and your owner ID if signed in or an anonymous device identifier). When using BYOK (your own API keys), requests go directly from your device to the AI provider and do not pass through our servers at all. In this case, the Stella platform is entirely free and we have zero visibility into your AI usage.
+Stella Provider (Managed LLM Inference) — The Stella Provider is our managed LLM inference service, the only paid component of Stella. When you use it, your prompt, attachments, relevant conversation context, and the AI response pass through our backend and the selected third-party AI infrastructure. Requests made through a provider's Responses API may enable provider-side response storage for stateful continuation. The selected provider may retain request and response records under its own retention and deletion policies.
 
-Offline Responder — When your desktop is offline and you interact with Stella via the Stella mobile app, your message is sent to our backend and processed by a minimal fallback AI agent. The interaction is transient — it is processed in memory and not persistently stored beyond what is needed to deliver the response and record usage metadata.
+The Stella Provider forwards model response bytes as they arrive. Conversation events and model or tool results accepted into Stella's cloud journal become part of the cloud-authoritative record; upstream providers may separately store or retain request and response data under their own policies.
 
-Stella Mobile App Routing — When you pair the Stella mobile app with your desktop, we store pairing metadata (which device is linked to which Stella account, conversation mapping identifiers) and transient message events (inbound and outbound messages held temporarily for delivery, with a short time-to-live, automatically cleaned up). We do not permanently store the text content of mobile app messages.
+We separately log usage metadata for billing, security, and rate limiting, such as timestamp, model, token count, duration, success or failure, safe upstream request identifiers, and an owner or anonymous device identifier. We do not put prompt or response bodies in those diagnostics. Supported BYOK routes may send model requests directly to the provider, which remains subject to that provider's policies.
+
+Cloud Agent and Mobile Processing — Messages submitted from supported clients and cloud agent work are processed by Stella's hosted services. Accepted messages, responses, event transcripts, tool outputs, and activity records are written to the cloud-authoritative conversation history.
+
+Device Routing — When Stella dispatches or synchronizes work with a desktop, we process device identifiers, conversation mappings, connectivity state, and delivery metadata needed to route that work.
+
+Connected Integrations — When you connect or direct Stella to use another service, the task inputs, selected content, credentials or authorization tokens, and results needed for that action may be processed by Stella's integration infrastructure and the connected service. The connected service's own terms and privacy policy apply.
 
 
 5. Computer Use and Agent Activity Data
 
-Stella's AI agents can perform actions on your computer, including browsing the web, executing commands, reading and writing files, and interacting with applications. All data related to these activities is processed and stored entirely on your local device. Specifically:
+Stella's AI agents can perform actions on your computer, including browsing the web, executing commands, reading and writing files, and interacting with applications. The underlying action can occur locally, while relevant instructions, context, status, and results may be included in the cloud-authoritative conversation or sent to a selected provider or integration. In general:
 
-• Websites the agent visits, forms it fills, and data it reads from web pages are processed locally and never sent to our servers.
-• Files the agent creates, reads, modifies, or deletes remain on your local filesystem.
-• Shell commands and their output are executed and stored locally.
-• Screenshots and screen content captured by the agent stay on your device.
-• The complete history of all agent actions is recorded in your local conversation log, which we cannot access.
+• Files the agent creates, reads, modifies, or deletes remain on your local filesystem unless you ask Stella to upload, share, or process them through a hosted feature or integration.
+• Shell commands execute on the selected device, but relevant commands, output, and status can appear in the cloud conversation and activity record.
+• Screenshots and screen content stay on your device unless they are needed as task context or you direct Stella to send or store them.
+• Browser and integration data may be processed by the applicable service when the task requires it.
 
-The only exception is when the agent's actions require an LLM inference call (e.g., the agent needs to decide what to do next). In that case, the prompt sent to the AI model may contain context about the agent's current task, which passes through the Stella Provider — but is not stored. If you use BYOK, even this data never reaches our servers.
+When an agent action requires AI inference, relevant task context is sent through the configured model route. Managed routes pass through Stella infrastructure and the selected provider; supported BYOK routes may send the model request directly to the provider. The cloud-authoritative Stella record and the provider's own processing are separate, and provider or integration retention is governed by that third party's policies.
 
 
 6. Information We Collect When You Create an Account
@@ -308,34 +311,37 @@ If you publish a mod to the Stella Mod Store, we store the mod package, metadata
 
 12. Third-Party Services
 
-Stella integrates with third-party services. When your data reaches these services, it is subject to their respective privacy policies. This includes AI gateways and model providers (OpenRouter, Fireworks, DeepSeek, Anthropic, OpenAI, and Google) when processing AI requests, Stripe when subscribing to a paid plan, fal.ai when using media generation features, and Convex for backend infrastructure. When using BYOK (your own API keys), AI requests go directly from your device to the provider — our servers are not involved.
+Stella integrates with third-party services. When your data reaches these services, it is subject to their respective privacy policies. This includes AI gateways and model providers (OpenRouter, Fireworks, DeepSeek, Anthropic, OpenAI, and Google) when processing AI requests, Stripe when subscribing to a paid plan, fal.ai when using media generation features, Convex for backend infrastructure, and services you connect through Stella integrations. Supported BYOK model requests may go directly from your device to the provider without using the Stella Provider; the cloud-authoritative conversation record remains in Stella's hosted services.
 
 
 13. Data Retention
 
-• Local device data — until you delete it; we have no access to it
+Retention depends on the data category, the feature used, legal requirements, available deletion controls, and any third-party provider or integration policy. This policy does not promise a fixed retention period except where one is expressly stated.
+
+• Device-local data — remains on the device until removed by you or the operating system; portions you send to a hosted feature may also exist in the cloud-authoritative record
+• Cloud conversation and memory data — stored to provide conversation history, synchronization, recovery, memory, and cloud agent features, subject to applicable data and account deletion controls
 • Account information — until you delete your account
 • Billing records — as required by law and for dispute resolution (typically 7 years for financial records)
 • Usage metadata — rolling windows (5-hour, weekly, monthly); aggregates retained for billing reconciliation
-• Transient connector events — automatically deleted after a short TTL (minutes to hours)
-• Anonymous device usage — retained for rate-limiting purposes; periodically pruned
+• Connector and integration data — retention depends on Stella's service operation and the connected provider's policies
+• Anonymous device usage — retained for service operation, security, and rate limiting
 • Social data — until you delete your account or the relevant content
 
 
 14. Data Security
 
-We implement reasonable security measures to protect data that does reach our infrastructure: encryption in transit (all communication uses TLS/HTTPS), secret encryption (user-provided secrets stored on our backend are encrypted using AES-256-GCM with a versioned master key system), local encryption (API keys stored on your device are encrypted locally), device identity (devices authenticate using Ed25519 cryptographic keypairs), rate limiting (multi-layer rate limiting protects against abuse), and provider redaction (AI responses are scrubbed of upstream provider details before being returned to you).
+We implement reasonable security measures to protect data processed by Stella: cloud-authoritative conversation and memory data is encrypted in transit and at rest; user-provided secrets stored on our backend are encrypted using AES-256-GCM with a versioned master key system; API keys stored on your device are encrypted locally; devices authenticate using Ed25519 cryptographic keypairs; and multi-layer rate limiting protects against abuse. No security measure eliminates all risk, and third-party providers and integrations apply their own security practices.
 
 
 15. Your Rights and Choices
 
-Access and Control — Because Stella stores data locally, you have direct access to and control over your data at all times. You can view, export, or delete your local data by accessing Stella's data directory, use the in-app reset function to clear all local data, revoke connected integrations at any time, and delete your account, which removes your account information, billing profile, social data, and published mods from our backend.
+Access and Control — You can manage device-local data through Stella's data directory and applicable in-app controls. Cloud conversation, memory, account, and other hosted data must be managed through the Service's data, reset, integration-revocation, or account-deletion controls where available. Clearing a local cache alone does not delete the cloud-authoritative copy.
 
 Discovery Opt-Out — During onboarding, each discovery category is individually selectable. The most sensitive category (Messages & Notes) is disabled by default and requires explicit opt-in. You can skip discovery entirely.
 
 Anonymous Use — You can use Stella's core features without creating an account or providing any personal information.
 
-BYOK — You can provide your own AI provider API keys to avoid routing prompts through our infrastructure entirely.
+BYOK — You can provide your own AI provider API keys for supported direct model routes. This avoids the Stella Provider for those model calls, but does not remove the cloud-authoritative conversation record from Stella's hosted services.
 
 
 16. Children's Privacy
@@ -350,12 +356,12 @@ Our backend infrastructure is hosted in the United States. If you access the Ser
 
 18. California Privacy Rights
 
-If you are a California resident, you may have additional rights under the California Consumer Privacy Act (CCPA). Given Stella's local-first architecture, the personal information we hold on our servers is minimal (account email, billing data, device identifiers). You may exercise your rights to know, delete, or opt out by contacting us. We do not sell your personal information. We do not use your data for targeted advertising.
+If you are a California resident, you may have additional rights under the California Consumer Privacy Act (CCPA), including rights concerning cloud conversation, memory, account, billing, device, and other personal information we process. You may exercise your rights to know, delete, or opt out by contacting us. We do not sell your personal information. We do not use your data for targeted advertising.
 
 
 19. European Privacy Rights
 
-If you are in the European Economic Area (EEA) or United Kingdom, you may have rights under the GDPR including the right to access, rectify, erase, restrict processing, data portability, and objection. Given that the vast majority of your data is stored locally on your device and never reaches our servers, these rights primarily apply to account information and billing data. Contact us to exercise these rights. Where we do process personal data, we rely on: (a) contractual necessity; (b) legitimate interests (security, abuse prevention); and (c) your consent (optional features).
+If you are in the European Economic Area (EEA) or United Kingdom, you may have rights under the GDPR including the right to access, rectify, erase, restrict processing, data portability, and objection. These rights can apply to cloud conversation, memory, account, billing, device, and other personal data we process. Contact us to exercise these rights. Where we process personal data, we rely on applicable legal bases, which may include contractual necessity, legitimate interests such as security and abuse prevention, and consent for optional features.
 
 
 20. Changes to This Policy

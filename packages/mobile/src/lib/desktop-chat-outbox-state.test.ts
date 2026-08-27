@@ -3,7 +3,11 @@ import { mergeMessagesById } from "./chat-merge";
 import {
   acknowledgeDesktopChatOutboxRecords,
   appendDesktopChatOutboxRecord,
+  markDesktopChatOutboxRecordCanceled,
+  parseDesktopChatOutbox,
+  partitionDesktopChatOutboxForAuthority,
   restoreOutboxMessages,
+  type DesktopChatOutboxAuthority,
   type DesktopChatOutboxRecord,
 } from "./desktop-chat-outbox-state";
 
@@ -20,10 +24,27 @@ const pending = (
   assets: [],
 });
 
+const authorityA1: DesktopChatOutboxAuthority = {
+  accountScope: "account:a",
+  ownerGeneration: "generation:1",
+  conversationId: "conversation:a",
+};
+const authorityA2: DesktopChatOutboxAuthority = {
+  ...authorityA1,
+  ownerGeneration: "generation:2",
+};
+const authorityB: DesktopChatOutboxAuthority = {
+  accountScope: "account:b",
+  ownerGeneration: "generation:1",
+  conversationId: "conversation:b",
+};
+
 describe("chat durable outbox", () => {
   test("does not expose a transmissible record before durable enqueue completes", () => {
     const durable: DesktopChatOutboxRecord[] = [];
-    const attemptedBeforeCommit = durable.find((record) => record.sendId === "send-1");
+    const attemptedBeforeCommit = durable.find(
+      (record) => record.sendId === "send-1",
+    );
     expect(attemptedBeforeCommit).toBe(undefined);
 
     const committed = appendDesktopChatOutboxRecord(
@@ -63,6 +84,33 @@ describe("chat durable outbox", () => {
     outbox = acknowledgeDesktopChatOutboxRecords(outbox, new Set(["send-1"]));
     outbox = acknowledgeDesktopChatOutboxRecords(outbox, new Set(["send-1"]));
     expect(outbox).toEqual([]);
+  });
+
+  test("keeps a cancel intent durable until the exact server dispatch is terminal", () => {
+    let records = appendDesktopChatOutboxRecord(
+      [],
+      pending("send-cancel", "stop this", 1_000),
+    ).records;
+    records = markDesktopChatOutboxRecordCanceled(
+      records,
+      "send-cancel",
+      "cancel:send-cancel",
+      2_000,
+    );
+    const restarted = parseDesktopChatOutbox(
+      JSON.parse(JSON.stringify(records)),
+    );
+    expect(restarted[0]).toMatchObject({
+      sendId: "send-cancel",
+      cancelRequestId: "cancel:send-cancel",
+      cancelRequestedAt: 2_000,
+    });
+    expect(
+      acknowledgeDesktopChatOutboxRecords(restarted, new Set()),
+    ).toHaveLength(1);
+    expect(
+      acknowledgeDesktopChatOutboxRecords(restarted, new Set(["send-cancel"])),
+    ).toEqual([]);
   });
 
   test("preserves compose order and keeps intentional identical messages distinct", () => {
@@ -160,5 +208,106 @@ describe("chat durable outbox", () => {
       hasImage: true,
       thumbnailUris: ["file:///photo.png"],
     });
+  });
+
+  test("account switches quarantine other owners and replay only exact scope", () => {
+    let records = appendDesktopChatOutboxRecord([], {
+      ...pending("send-a", "from a", 1),
+      authority: authorityA1,
+    }).records;
+    records = appendDesktopChatOutboxRecord(records, {
+      ...pending("send-b", "from b", 2),
+      authority: authorityB,
+    }).records;
+    records = appendDesktopChatOutboxRecord(
+      records,
+      pending("legacy", "unscoped", 3),
+    ).records;
+
+    const forB = partitionDesktopChatOutboxForAuthority(records, authorityB);
+    expect(forB.active.map((record) => record.sendId)).toEqual(["send-b"]);
+    expect(forB.stale).toEqual([]);
+    expect(forB.retained.map((record) => record.sendId)).toEqual([
+      "send-a",
+      "send-b",
+      "legacy",
+    ]);
+
+    const backToA = partitionDesktopChatOutboxForAuthority(
+      forB.retained,
+      authorityA1,
+    );
+    expect(backToA.active.map((record) => record.sendId)).toEqual(["send-a"]);
+  });
+
+  test("owner generation rotation deletes only stale same-account work", () => {
+    let records = appendDesktopChatOutboxRecord([], {
+      ...pending("old-a", "old generation", 1),
+      authority: authorityA1,
+    }).records;
+    records = appendDesktopChatOutboxRecord(records, {
+      ...pending("other-account", "keep quarantined", 2),
+      authority: authorityB,
+    }).records;
+
+    const rotated = partitionDesktopChatOutboxForAuthority(
+      records,
+      authorityA2,
+    );
+    expect(rotated.active).toEqual([]);
+    expect(rotated.stale.map((record) => record.sendId)).toEqual(["old-a"]);
+    expect(rotated.retained.map((record) => record.sendId)).toEqual([
+      "other-account",
+    ]);
+  });
+
+  test("scoped acknowledgement and cancellation cannot mutate another owner", () => {
+    let records = appendDesktopChatOutboxRecord([], {
+      ...pending("same-send", "from a", 1),
+      authority: authorityA1,
+    }).records;
+    records = appendDesktopChatOutboxRecord(records, {
+      ...pending("same-send", "from b", 2),
+      authority: authorityB,
+    }).records;
+
+    records = markDesktopChatOutboxRecordCanceled(
+      records,
+      "same-send",
+      "cancel:b",
+      5,
+      authorityB,
+    );
+    expect(
+      records.find(
+        (record) => record.authority?.accountScope === authorityA1.accountScope,
+      )?.cancelRequestId,
+    ).toBeUndefined();
+    expect(
+      records.find(
+        (record) => record.authority?.accountScope === authorityB.accountScope,
+      ),
+    ).toMatchObject({ authority: authorityB, cancelRequestId: "cancel:b" });
+
+    const acknowledgedB = acknowledgeDesktopChatOutboxRecords(
+      records,
+      new Set(["same-send"]),
+      authorityB,
+    );
+    expect(acknowledgedB).toHaveLength(1);
+    expect(acknowledgedB[0]?.authority).toEqual(authorityA1);
+  });
+
+  test("rejects a reused scope identity with different routing bytes", () => {
+    const records = appendDesktopChatOutboxRecord([], {
+      ...pending("send-conflict", "first", 1),
+      authority: authorityA1,
+    }).records;
+    expect(() =>
+      appendDesktopChatOutboxRecord(records, {
+        ...pending("send-conflict", "changed", 1),
+        authority: authorityA1,
+      }),
+    ).toThrow("Conflicting durable chat outbox identity");
   });
 });

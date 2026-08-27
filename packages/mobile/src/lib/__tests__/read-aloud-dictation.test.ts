@@ -37,8 +37,13 @@ type MockPlayer = {
 
 const players: MockPlayer[] = [];
 const files: Array<{ uri: string; deleted: boolean }> = [];
-const fetchCalls: Array<{ url: string; aborted: boolean }> = [];
+const fetchCalls: Array<{
+  url: string;
+  aborted: boolean;
+  body: string | null;
+}> = [];
 let configurePlayback: () => Promise<boolean> = async () => true;
+let uuidSequence = 0;
 let fetchImpl: (
   url: string,
   init: RequestInit,
@@ -89,6 +94,11 @@ mock.module("expo-file-system", () => ({
   },
 }));
 
+mock.module("expo-crypto", () => ({
+  randomUUID: () =>
+    `00000000-0000-4000-8000-${String(++uuidSequence).padStart(12, "0")}`,
+}));
+
 mock.module("../../config/env", () => ({
   env: { convexSiteUrl: "https://example.convex.site" },
 }));
@@ -133,8 +143,7 @@ const audioResponse = (): Response =>
     ok: true,
     json: async () => ({}),
     text: async () => "",
-    arrayBuffer: async () =>
-      new Uint8Array([0xff, 0xe0, 0x00, 0x00]).buffer,
+    arrayBuffer: async () => new Uint8Array([0xff, 0xe0, 0x00, 0x00]).buffer,
     headers: new Headers({ "content-type": "audio/mpeg" }),
   }) as Response;
 
@@ -187,7 +196,11 @@ beforeEach(() => {
   };
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    fetchCalls.push({ url, aborted: Boolean(init?.signal?.aborted) });
+    fetchCalls.push({
+      url,
+      aborted: Boolean(init?.signal?.aborted),
+      body: typeof init?.body === "string" ? init.body : null,
+    });
     return withAbort(init, () => fetchImpl(url, init ?? {}));
   }) as typeof fetch;
   stopReadAloud();
@@ -198,15 +211,48 @@ afterEach(() => {
 });
 
 describe("mobile read-aloud stop on dictation", () => {
+  test("reuses one operation id across streaming and buffered fallback", async () => {
+    fetchImpl = async (url) => {
+      if (url.includes("/api/voice/tts/stream/prepare")) {
+        return failResponse("stream unavailable");
+      }
+      if (url.endsWith("/api/voice/tts")) {
+        return audioResponse();
+      }
+      throw new Error(url);
+    };
+
+    await speakReply("fallback with one identity", "msg-operation-id");
+
+    const prepare = fetchCalls.find((call) =>
+      call.url.includes("/api/voice/tts/stream/prepare"),
+    );
+    const buffered = fetchCalls.find((call) =>
+      call.url.endsWith("/api/voice/tts"),
+    );
+    const prepareBody = JSON.parse(prepare?.body ?? "null") as {
+      operationId?: unknown;
+    };
+    const bufferedBody = JSON.parse(buffered?.body ?? "null") as {
+      operationId?: unknown;
+    };
+
+    expect(typeof prepareBody.operationId).toBe("string");
+    expect(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        String(prepareBody.operationId),
+      ),
+    ).toBe(true);
+    expect(bufferedBody.operationId).toBe(prepareBody.operationId);
+  });
+
   test("is a no-op when nothing is playing and still starts dictation after", async () => {
     const order: string[] = [];
     expect(getReadAloudPlaybackState()).toBeNull();
     stopReadAloudForDictation();
     stopReadAloudForDictation();
     const started = await startAfterStoppingReadAloud(async () => {
-      order.push(
-        getReadAloudPlaybackState() === null ? "stopped" : "playing",
-      );
+      order.push(getReadAloudPlaybackState() === null ? "stopped" : "playing");
       return true;
     });
     expect(started).toBe(true);

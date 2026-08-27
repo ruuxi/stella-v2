@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-  createAudioPlayer,
-  type AudioPlayer,
-} from "expo-audio";
+import { createAudioPlayer, type AudioPlayer } from "expo-audio";
 import { File, Paths } from "expo-file-system";
+import * as Crypto from "expo-crypto";
 import { env } from "../config/env";
 import { assert } from "./assert";
 import { getConvexToken } from "./auth-token";
@@ -102,8 +100,11 @@ const beginPlaybackWork = (): AbortSignal => {
   return controller.signal;
 };
 
-const fetchReadAloud = (input: string, init: RequestInit, signal: AbortSignal) =>
-  fetch(input, { ...init, signal });
+const fetchReadAloud = (
+  input: string,
+  init: RequestInit,
+  signal: AbortSignal,
+) => fetch(input, { ...init, signal });
 
 const speakingListeners = new Set<() => void>();
 const emitSpeaking = () => {
@@ -242,7 +243,11 @@ const createAudioFile = (audio: ArrayBuffer, contentType: string) => {
   return file;
 };
 
-async function fetchInworldReadAloudAudio(text: string, signal: AbortSignal) {
+async function fetchInworldReadAloudAudio(
+  text: string,
+  operationId: string,
+  signal: AbortSignal,
+) {
   assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
   const token = await getConvexToken();
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");
@@ -257,6 +262,7 @@ async function fetchInworldReadAloudAudio(text: string, signal: AbortSignal) {
       body: JSON.stringify({
         text,
         voiceProvider: "inworld",
+        operationId,
       }),
     },
     signal,
@@ -279,6 +285,7 @@ async function fetchInworldReadAloudAudio(text: string, signal: AbortSignal) {
 // URL. The (long) assistant text is POSTed here and never appears in the URL.
 async function prepareInworldReadAloudStream(
   text: string,
+  operationId: string,
   signal: AbortSignal,
 ): Promise<string> {
   assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
@@ -295,6 +302,7 @@ async function prepareInworldReadAloudStream(
       body: JSON.stringify({
         text,
         voiceProvider: "inworld",
+        operationId,
       }),
     },
     signal,
@@ -416,6 +424,7 @@ export async function speakReply(text: string, messageId?: string) {
   if (!spoken) return;
 
   stopReadAloud();
+  const operationId = Crypto.randomUUID();
   const generation = playbackGeneration;
   const signal = beginPlaybackWork();
   const id = messageId ?? null;
@@ -428,7 +437,13 @@ export async function speakReply(text: string, messageId?: string) {
   // synthesized. Fall back to a one-shot buffered clip if streaming is
   // unavailable or fails before any audio is audible.
   try {
-    const streamed = await tryStreamReply(spoken, id, generation, signal);
+    const streamed = await tryStreamReply(
+      spoken,
+      operationId,
+      id,
+      generation,
+      signal,
+    );
     if (streamed) return;
   } catch (error) {
     if (generation !== playbackGeneration || signal.aborted) return;
@@ -439,6 +454,7 @@ export async function speakReply(text: string, messageId?: string) {
   try {
     const { audio, contentType } = await fetchInworldReadAloudAudio(
       spoken,
+      operationId,
       signal,
     );
     if (generation !== playbackGeneration || signal.aborted) return;
@@ -494,11 +510,12 @@ export async function speakReply(text: string, messageId?: string) {
 // the fall-back path so nothing lingers.
 async function tryStreamReply(
   text: string,
+  operationId: string,
   id: string | null,
   generation: number,
   signal: AbortSignal,
 ): Promise<boolean> {
-  const ticket = await prepareInworldReadAloudStream(text, signal);
+  const ticket = await prepareInworldReadAloudStream(text, operationId, signal);
   if (generation !== playbackGeneration || signal.aborted) {
     // Superseded before playback began — end the background synthesis so it
     // does not run to completion unheard.

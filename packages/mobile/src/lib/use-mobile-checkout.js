@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import * as WebBrowser from "expo-web-browser";
+import * as Crypto from "expo-crypto";
 import { useAction } from "convex/react";
 import {
   createBillingPortalSessionRef,
@@ -45,10 +46,14 @@ export function useMobileCheckout() {
   const [phase, setPhase] = useState("idle");
   const [error, setError] = useState(null); // { code, message } | null
   const inFlightRef = useRef(false);
+  const checkoutRequestRef = useRef(null);
+  const portalRequestRef = useRef(null);
 
   const reset = useCallback(() => {
     setPhase("idle");
     setError(null);
+    checkoutRequestRef.current = null;
+    portalRequestRef.current = null;
   }, []);
 
   const startCheckout = useCallback(
@@ -59,11 +64,21 @@ export function useMobileCheckout() {
       setError(null);
       setPhase("starting");
       try {
+        const requestKey = `${plan}:${countryCode ?? ""}`;
+        const request =
+          checkoutRequestRef.current?.key === requestKey
+            ? checkoutRequestRef.current
+            : {
+                key: requestKey,
+                requestId: Crypto.randomUUID(),
+              };
+        checkoutRequestRef.current = request;
         const result = await createCheckout({
           plan,
           returnUrl: CHECKOUT_RETURN_URL,
           source: "ios",
           appStoreCountry: countryCode ?? undefined,
+          requestId: request.requestId,
         });
         const url = result && result.url;
         if (!url) {
@@ -71,6 +86,7 @@ export function useMobileCheckout() {
         }
         setPhase("pending");
         await WebBrowser.openBrowserAsync(url, { dismissButtonStyle: "done" });
+        checkoutRequestRef.current = null;
         // Remain "pending": the section flips to success when the plan
         // updates, or lets the user retry if they dismissed without paying.
       } catch (err) {
@@ -91,10 +107,16 @@ export function useMobileCheckout() {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     try {
-      const result = await createPortal({ returnUrl: CHECKOUT_RETURN_URL });
+      const requestId = portalRequestRef.current ?? Crypto.randomUUID();
+      portalRequestRef.current = requestId;
+      const result = await createPortal({
+        returnUrl: CHECKOUT_RETURN_URL,
+        requestId,
+      });
       const url = result && result.url;
       if (url) {
         await WebBrowser.openBrowserAsync(url, { dismissButtonStyle: "done" });
+        portalRequestRef.current = null;
       }
     } catch (err) {
       setError({ code: null, message: messageFromError(err) });

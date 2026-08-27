@@ -53,17 +53,28 @@ const REQUEST_TIMEOUT_MS = 15_000;
 async function requestJson(
   path: string,
   request: JsonRequest,
-  options?: { anonymous?: boolean; timeoutMs?: number },
+  options?: {
+    anonymous?: boolean;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
 ) {
   assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
   const authHeader = options?.anonymous
     ? null
     : `Bearer ${await getConvexToken()}`;
   const controller = new AbortController();
+  let timedOut = false;
   const timer = setTimeout(
-    () => controller.abort(),
+    () => {
+      timedOut = true;
+      controller.abort();
+    },
     options?.timeoutMs ?? REQUEST_TIMEOUT_MS,
   );
+  const onAbort = () => controller.abort();
+  if (options?.signal?.aborted) controller.abort();
+  else options?.signal?.addEventListener("abort", onAbort, { once: true });
   let response: Response;
   try {
     response = await fetch(`${env.convexSiteUrl}${path}`, {
@@ -78,12 +89,16 @@ async function requestJson(
       signal: controller.signal,
     });
   } catch (error) {
-    if (controller.signal.aborted) {
+    if (options?.signal?.aborted) {
+      throw new StreamAbortError();
+    }
+    if (timedOut) {
       throw new Error("Request timed out. Try again.");
     }
     throw error;
   } finally {
     clearTimeout(timer);
+    options?.signal?.removeEventListener("abort", onAbort);
   }
 
   if (!response.ok) {
@@ -102,18 +117,26 @@ async function requestJson(
 
 export const getJson = (
   path: string,
-  options?: { headers?: Record<string, string>; timeoutMs?: number },
+  options?: {
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
 ) =>
   requestJson(
     path,
     { method: "GET", headers: options?.headers },
-    { timeoutMs: options?.timeoutMs },
+    { timeoutMs: options?.timeoutMs, signal: options?.signal },
   );
 
 export const postJson = (
   path: string,
   body: unknown,
-  options?: { headers?: Record<string, string>; timeoutMs?: number },
+  options?: {
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
 ) =>
   requestJson(
     path,
@@ -122,13 +145,17 @@ export const postJson = (
       body: JSON.stringify(body),
       headers: options?.headers,
     },
-    { timeoutMs: options?.timeoutMs },
+    { timeoutMs: options?.timeoutMs, signal: options?.signal },
   );
 
 export const postJsonAnonymous = (
   path: string,
   body: unknown,
-  options?: { headers?: Record<string, string>; timeoutMs?: number },
+  options?: {
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
 ) =>
   requestJson(
     path,
@@ -137,8 +164,55 @@ export const postJsonAnonymous = (
       body: JSON.stringify(body),
       headers: options?.headers,
     },
-    { anonymous: true, timeoutMs: options?.timeoutMs },
+    {
+      anonymous: true,
+      timeoutMs: options?.timeoutMs,
+      signal: options?.signal,
+    },
   );
+
+/** Authenticated non-JSON POST used by Stella's SDP signaling boundary. */
+export const postText = async (
+  path: string,
+  body: string,
+  options?: {
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
+): Promise<string> => {
+  assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, options?.timeoutMs ?? REQUEST_TIMEOUT_MS);
+  const onAbort = () => controller.abort();
+  if (options?.signal?.aborted) controller.abort();
+  else options?.signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    const response = await fetch(`${env.convexSiteUrl}${path}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${await getConvexToken()}`,
+        "Content-Type": "text/plain",
+        ...options?.headers,
+      },
+      body,
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(await readErrorMessage(response));
+    return await response.text();
+  } catch (error) {
+    if (options?.signal?.aborted) throw new StreamAbortError();
+    if (timedOut) throw new Error("Request timed out. Try again.");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    options?.signal?.removeEventListener("abort", onAbort);
+  }
+};
 
 function executeStream(
   path: string,

@@ -318,25 +318,25 @@ export const useConversation = (
   const cancelExecutionDispatch = useMutation(cloudApi.cancelExecutionDispatch);
   const { cloudMode, accountScope, ownerSubject } = useCloudMode();
   const webShell = isWebShell();
-  const placementIdentity = useQuery(
-    cloudApi.getMyExecutionPlacementIdentity,
+  const conversationIdentity = useQuery(
+    cloudApi.getMyCloudConversationIdentity,
     cloudMode ? {} : "skip",
   );
   const authority = useMemo<CloudConversationOutboxAuthority | null>(() => {
     if (
       !cloudMode ||
       !ownerSubject ||
-      !placementIdentity ||
-      placementIdentity.ownerId !== ownerSubject ||
-      !placementIdentity.ownerGeneration
+      !conversationIdentity ||
+      conversationIdentity.ownerId !== ownerSubject ||
+      !conversationIdentity.ownerGeneration
     ) {
       return null;
     }
     return {
       accountScope,
-      ownerGeneration: placementIdentity.ownerGeneration,
+      ownerGeneration: conversationIdentity.ownerGeneration,
     };
-  }, [accountScope, cloudMode, ownerSubject, placementIdentity]);
+  }, [accountScope, cloudMode, conversationIdentity, ownerSubject]);
   const activeAuthorityKey = authority
     ? `${authority.accountScope}\u0000${authority.ownerGeneration}`
     : null;

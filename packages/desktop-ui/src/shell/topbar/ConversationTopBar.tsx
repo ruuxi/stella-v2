@@ -253,13 +253,13 @@ export function ConversationTopBar() {
     cloudApi.listMyConversations,
     cloudMode ? {} : "skip",
   );
-  const placementIdentity = useQuery(
-    cloudApi.getMyExecutionPlacementIdentity,
+  const conversationIdentity = useQuery(
+    cloudApi.getMyCloudConversationIdentity,
     cloudMode ? {} : "skip",
   );
   const ownerGeneration =
-    placementIdentity?.ownerId === ownerSubject
-      ? placementIdentity.ownerGeneration
+    conversationIdentity?.ownerId === ownerSubject
+      ? conversationIdentity.ownerGeneration
       : null;
   const historySnapshotCandidate = useQuery(
     cloudApi.getMyConversationHistorySnapshot,

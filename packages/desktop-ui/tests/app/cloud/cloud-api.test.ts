@@ -7,6 +7,9 @@ describe("cloud API references", () => {
     expect(getFunctionName(cloudApi.getCloudRealtimeConfig)).toBe(
       "cloud_apps:getCloudRealtimeConfig",
     );
+    expect(getFunctionName(cloudApi.getMyCloudConversationIdentity)).toBe(
+      "cloud_apps:getMyCloudConversationIdentity",
+    );
     expect(getFunctionName(cloudApi.getMyExecutionPlacementIdentity)).toBe(
       "execution_placement:getMyExecutionPlacementIdentity",
     );

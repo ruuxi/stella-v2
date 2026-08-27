@@ -1551,6 +1551,30 @@ export const confirmMySessionIdentity = query({
 });
 
 /**
+ * Returns the lifecycle authority used to fence cloud-conversation state.
+ *
+ * Unlike execution placement, ordinary hosted chat is available to the
+ * Better Auth anonymous owner created during onboarding. Keep this query in
+ * the conversation domain so anonymous chat never has to call a
+ * connected-account-only device-placement endpoint.
+ */
+export const getMyCloudConversationIdentity = query({
+  args: {},
+  returns: v.object({
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+  }),
+  handler: async (ctx) => {
+    const ownerId = await requireOwnerId(ctx);
+    const lifecycle = await assertOwnerMigrationWriteAllowed(ctx, ownerId);
+    return {
+      ownerId,
+      ownerGeneration: lifecycle.generation,
+    };
+  },
+});
+
+/**
  * Creates the durable identity for a conversation without starting a model
  * turn. The client key makes a lost mutation response safe to retry; the
  * server-generated UUID remains the only identity used to address the DO.

@@ -27,6 +27,7 @@ DEV-CONTEXT.md
 /workers/cloud-builder/.image/
 /packages/executor-cloud/node_modules/
 /packages/app-template/node_modules/
+/packages/app-template/dist/
 /packages/runtime/node_modules/
 /packages/desktop/node_modules/
 /.stella-runtime-reload-state.json

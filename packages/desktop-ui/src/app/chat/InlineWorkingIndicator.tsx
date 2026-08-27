@@ -7,16 +7,10 @@
  *
  * Behavior:
  *  - While the assistant is reasoning (no answer text yet) it shows a
- *    rotating thinking label ("Thinking", "Mulling it over", …) seeded
- *    per turn; while a tool is running it shows that tool's friendly
- *    status. It ordinarily stays up until the assistant's first visible
- *    provider delta arrives (the streaming-text hand-off), then deactivates.
- *    After a tool result, its newest friendly receipt stays visible until the
- *    turn finishes, then exits immediately.
- *    through the `MIN_VISIBLE_MS` floor. Because deactivation always runs
- *    through that floor (no immediate-exit shortcut), on a fast (sub-2s)
- *    turn the indicator briefly lingers over the start of the streaming
- *    answer rather than vanishing the instant text appears.
+ *    rotating thinking label ("Thinking", "Mulling it over", …); while a
+ *    tool is running it shows that tool's friendly
+ *    status. After a tool it returns to thinking until the next tool or
+ *    the first visible answer text, which deactivates it immediately.
  *  - Long-running agent task presence lives in the composer's task chip; this
  *    inline indicator only follows the orchestrator's thinking/tool lifecycle.
  *  - When the work finishes (`active` flips false) the indicator stays visible
@@ -54,6 +48,10 @@ const EXIT_ANIMATION_MS = 240;
 const ENTER_ANIMATION_MS = 320;
 const MIN_VISIBLE_MS = INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS;
 
+function newReasoningSeed(): string {
+  return `${Date.now()}-${Math.random()}`;
+}
+
 export function InlineWorkingIndicator({
   active,
   exitImmediately,
@@ -87,11 +85,16 @@ export function InlineWorkingIndicator({
   const exitTimerRef = useRef<number | null>(null);
   const activatedAtRef = useRef<number | null>(active ? Date.now() : null);
   const wasActiveRef = useRef(active);
-  // Per-activation seed so the reasoning label ("Thinking" / "Mulling it
-  // over" / …) varies across turns but stays stable within one.
-  const [reasoningSeed, setReasoningSeed] = useState(() =>
-    String(Date.now()),
-  );
+  const showingThinking = active && !runningTool;
+  const wasShowingThinkingRef = useRef(showingThinking);
+  const [reasoningSeed, setReasoningSeed] = useState(newReasoningSeed);
+
+  useEffect(() => {
+    if (showingThinking && !wasShowingThinkingRef.current) {
+      setReasoningSeed(newReasoningSeed());
+    }
+    wasShowingThinkingRef.current = showingThinking;
+  }, [showingThinking]);
 
   useEffect(() => {
     if (!entering) return;
@@ -116,7 +119,6 @@ export function InlineWorkingIndicator({
       const isReactivation = !wasActiveRef.current;
       if (isReactivation) {
         activatedAtRef.current = Date.now();
-        setReasoningSeed(String(Date.now()));
       }
       wasActiveRef.current = true;
       if (!renderShell) {

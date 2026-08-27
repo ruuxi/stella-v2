@@ -215,9 +215,6 @@ export const ChatColumn = memo(function ChatColumn({
     );
     return () => cancelIdle(handle as number);
   }, []);
-  // Before tool results, the indicator hands off on the assistant's first
-  // visible provider delta. A completed tool keeps its newest friendly
-  // one-line receipt visible until the turn ends.
   // Memoize over the primitive streaming inputs so the indicator mount
   // props keep a stable object identity across streaming re-renders
   // driven by streaming text growth. Without this, a fresh object every
@@ -232,20 +229,16 @@ export const ChatColumn = memo(function ChatColumn({
           conversation.streaming.isStreamingResponseText,
         ),
         isToolActive: Boolean(conversation.streaming.isToolActive),
-        hasToolActivity: Boolean(conversation.streaming.hasToolActivity),
         activeToolName: conversation.streaming.activeToolName,
         activeToolCallId: conversation.streaming.activeToolCallId,
-        latestCompletedTool: conversation.streaming.latestCompletedTool,
         runtimeStatusText: conversation.streaming.runtimeStatusText,
       }),
     [
       conversation.streaming.isStreaming,
       conversation.streaming.isStreamingResponseText,
       conversation.streaming.isToolActive,
-      conversation.streaming.hasToolActivity,
       conversation.streaming.activeToolName,
       conversation.streaming.activeToolCallId,
-      conversation.streaming.latestCompletedTool,
       conversation.streaming.runtimeStatusText,
     ],
   );

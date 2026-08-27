@@ -46,8 +46,6 @@ function ChatDisplayTab({
       runtimeStatusText={chat.conversation.streaming.runtimeStatusText}
       activeToolCallId={chat.conversation.streaming.activeToolCallId}
       activeToolName={chat.conversation.streaming.activeToolName}
-      latestCompletedTool={chat.conversation.streaming.latestCompletedTool}
-      hasToolActivity={chat.conversation.streaming.hasToolActivity}
       isToolActive={chat.conversation.streaming.isToolActive}
       pendingUserMessageId={chat.conversation.pendingUserMessageId}
       queuedUserMessages={chat.conversation.streaming.queuedUserMessages}

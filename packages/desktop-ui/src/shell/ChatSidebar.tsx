@@ -95,12 +95,6 @@ interface ChatPanelTabProps {
   runtimeStatusText?: string | null;
   activeToolCallId?: string | null;
   activeToolName?: string | null;
-  latestCompletedTool?: {
-    toolName: string;
-    toolCallId: string;
-    exitCode?: number;
-  } | null;
-  hasToolActivity?: boolean;
   isToolActive?: boolean;
   pendingUserMessageId: string | null;
   queuedUserMessages?: QueuedUserMessage[];
@@ -140,8 +134,6 @@ export function ChatPanelTab({
   runtimeStatusText,
   activeToolCallId,
   activeToolName,
-  latestCompletedTool,
-  hasToolActivity,
   isToolActive,
   pendingUserMessageId,
   queuedUserMessages,
@@ -282,17 +274,12 @@ export function ChatPanelTab({
   );
 
   useReadAloud(messages);
-  // Before tool results, the indicator hands off on the assistant's first
-  // visible provider delta. A completed tool keeps its newest friendly
-  // one-line receipt visible until the turn ends.
   const indicatorProps = buildInlineWorkingIndicatorProps({
     isStreaming: Boolean(isStreaming),
     isStreamingResponseText: Boolean(isStreamingResponseText),
     isToolActive: Boolean(isToolActive),
-    hasToolActivity: Boolean(hasToolActivity),
     activeToolName,
     activeToolCallId,
-    latestCompletedTool,
     runtimeStatusText,
   });
 

@@ -43,59 +43,151 @@ describe("SwapText minimum visible duration", () => {
     });
   };
 
-  it("holds a phrase for two seconds and then shows the latest update", async () => {
+  const visibleIn = () =>
+    container.querySelector(".swap-text__layer--in")?.textContent;
+
+  it("holds the current phrase for two seconds, then skips ahead to the latest", async () => {
     await renderText("Thinking");
-    await act(async () => vi.advanceTimersByTimeAsync(500));
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
     await renderText("Reading");
     await act(async () => vi.advanceTimersByTimeAsync(500));
+    await renderText("Read files");
+    await act(async () => vi.advanceTimersByTimeAsync(500));
     await renderText("Making changes");
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    await renderText("Ran command");
 
-    expect(container.textContent).toBe("Thinking");
+    expect(visibleIn()).toBe("Reading");
 
-    await act(async () => vi.advanceTimersByTimeAsync(999));
-    expect(container.textContent).toBe("Thinking");
+    await act(async () => vi.advanceTimersByTimeAsync(499));
+    expect(visibleIn()).toBe("Reading");
 
     await act(async () => vi.advanceTimersByTimeAsync(1));
-    expect(container.textContent).toContain("Making changes");
-    expect(container.textContent).not.toContain("Reading");
+    expect(visibleIn()).toBe("Ran command");
   });
 
-  it("shows a tool result immediately when the receipt disables the hold", async () => {
+  it("does not let an early receipt abort the in-progress tool phrase", async () => {
+    await renderText("Thinking");
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    await renderText("Reading");
+    await act(async () => vi.advanceTimersByTimeAsync(200));
+    await renderText("Read files", 0);
+
+    expect(visibleIn()).toBe("Reading");
+
+    await act(async () => vi.advanceTimersByTimeAsync(1799));
+    expect(visibleIn()).toBe("Reading");
+
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(visibleIn()).toBe("Read files");
+  });
+
+  it("keeps the in-progress tool phrase for two seconds before showing the receipt", async () => {
     await renderText("Running command");
     await act(async () => vi.advanceTimersByTimeAsync(100));
 
     await renderText("Ran command", 0);
 
-    expect(
-      container.querySelector(".swap-text__layer--in")?.textContent,
-    ).toBe("Ran command");
+    expect(visibleIn()).toBe("Running command");
+
+    await act(async () => vi.advanceTimersByTimeAsync(1899));
+    expect(visibleIn()).toBe("Running command");
+
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(visibleIn()).toBe("Ran command");
   });
 
-  it("keeps only the latest friendly tool result until the turn ends", () => {
-    const completed = buildInlineWorkingIndicatorProps({
+  it("returns to thinking after a tool until assistant text starts", () => {
+    const afterTool = buildInlineWorkingIndicatorProps({
+      isStreaming: true,
+      isStreamingResponseText: false,
+      isToolActive: false,
+    });
+    expect(afterTool).toMatchObject({
+      active: true,
+      runningTool: undefined,
+      status: null,
+    });
+    expect(afterTool.exitImmediately).toBeUndefined();
+    expect(
+      getWorkingIndicatorDisplayStatus({
+        status: afterTool.status ?? undefined,
+        toolName: afterTool.runningTool,
+        isReasoning: !afterTool.runningTool,
+        reasoningSeed: "turn-1",
+      }),
+    ).not.toMatch(/read|command/i);
+
+    const answering = buildInlineWorkingIndicatorProps({
       isStreaming: true,
       isStreamingResponseText: true,
       isToolActive: false,
-      hasToolActivity: true,
-      latestCompletedTool: {
-        toolCallId: "call-1",
-        toolName: "exec_command",
-      },
     });
-    expect(completed).toMatchObject({
-      active: true,
-      status: "Ran command",
-      minimumVisibleMs: 0,
+    expect(answering).toMatchObject({
+      active: false,
+      exitImmediately: true,
     });
-    expect(completed.runningTool).toBeUndefined();
 
     const ended = buildInlineWorkingIndicatorProps({
       isStreaming: false,
       isStreamingResponseText: false,
       isToolActive: false,
-      hasToolActivity: true,
     });
     expect(ended).toMatchObject({ active: false, exitImmediately: true });
+  });
+
+  it("holds the in-progress tool phrase, then catches up to thinking", async () => {
+    const thinking = buildInlineWorkingIndicatorProps({
+      isStreaming: true,
+      isStreamingResponseText: false,
+      isToolActive: false,
+    });
+    const during = buildInlineWorkingIndicatorProps({
+      isStreaming: true,
+      isStreamingResponseText: false,
+      isToolActive: true,
+      activeToolName: "read",
+      activeToolCallId: "call-1",
+    });
+    const after = buildInlineWorkingIndicatorProps({
+      isStreaming: true,
+      isStreamingResponseText: false,
+      isToolActive: false,
+    });
+
+    const thinkingText = getWorkingIndicatorDisplayStatus({
+      status: thinking.status ?? undefined,
+      toolName: thinking.runningTool,
+      toolCallId: thinking.runningToolId,
+      isReasoning: !thinking.runningTool,
+      reasoningSeed: "turn-1",
+    });
+    const duringText = getWorkingIndicatorDisplayStatus({
+      status: during.status ?? undefined,
+      toolName: during.runningTool,
+      toolCallId: during.runningToolId,
+    });
+    const afterText = getWorkingIndicatorDisplayStatus({
+      status: after.status ?? undefined,
+      toolName: after.runningTool,
+      toolCallId: after.runningToolId,
+      isReasoning: !after.runningTool,
+      reasoningSeed: "turn-1",
+    });
+
+    await renderText(thinkingText, thinking.minimumVisibleMs ?? 2_000);
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    await renderText(duringText, during.minimumVisibleMs ?? 2_000);
+    await act(async () => vi.advanceTimersByTimeAsync(200));
+    await renderText(afterText, after.minimumVisibleMs ?? 2_000);
+
+    expect(visibleIn()).toBe(duringText);
+
+    await act(async () => vi.advanceTimersByTimeAsync(1799));
+    expect(visibleIn()).toBe(duringText);
+
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(visibleIn()).toBe(afterText);
   });
 
   it("uses friendly tool copy instead of live runtime status text", () => {
@@ -103,7 +195,6 @@ describe("SwapText minimum visible duration", () => {
       isStreaming: true,
       isStreamingResponseText: false,
       isToolActive: true,
-      hasToolActivity: true,
       activeToolName: "exec_command",
       activeToolCallId: "call-1",
       runtimeStatusText: "Running exec_command with internal details",

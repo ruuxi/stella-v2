@@ -46,6 +46,10 @@ export type DesktopUpdaterOptions = {
   currentVersion: string;
   enabled: boolean;
   autoInstallOnAppQuit?: boolean;
+  // Modern desktop apps stage the update in the background so the visible
+  // action is a single click. Leave this on unless a caller needs the
+  // download to stay manual.
+  autoDownload?: boolean;
   startupDelayMs?: number;
   checkIntervalMs?: number;
   restartStallMs?: number;
@@ -114,6 +118,7 @@ export class DesktopUpdater {
   private readonly enabled: boolean;
   private readonly feedUrl: string;
   private readonly autoInstallOnAppQuit: boolean;
+  private readonly autoDownload: boolean;
   private readonly startupDelayMs: number;
   private readonly checkIntervalMs: number;
   private readonly restartStallMs: number;
@@ -134,6 +139,7 @@ export class DesktopUpdater {
     this.enabled = options.enabled;
     this.feedUrl = resolveDesktopUpdateFeedUrl();
     this.autoInstallOnAppQuit = options.autoInstallOnAppQuit ?? true;
+    this.autoDownload = options.autoDownload ?? true;
     this.startupDelayMs = options.startupDelayMs ?? DEFAULT_STARTUP_DELAY_MS;
     this.checkIntervalMs = options.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS;
     this.restartStallMs = options.restartStallMs ?? DEFAULT_RESTART_STALL_MS;
@@ -247,6 +253,9 @@ export class DesktopUpdater {
 
   download(): Promise<DesktopUpdateSnapshot> {
     if (!this.enabled) return Promise.resolve(this.getState());
+    // The background download normally wins the race, so a manual download
+    // joins the in-flight one instead of failing the caller.
+    if (this.downloadPromise) return this.downloadPromise;
     if (
       this.snapshot.status === "downloaded" ||
       this.snapshot.status === "restarting"
@@ -258,7 +267,6 @@ export class DesktopUpdater {
         new Error("No Stella desktop update is ready to download."),
       );
     }
-    if (this.downloadPromise) return this.downloadPromise;
     this.patch({ status: "downloading", error: null, progress: null });
     this.downloadPromise = this.client
       .downloadUpdate()
@@ -327,6 +335,14 @@ export class DesktopUpdater {
       progress: null,
       checkedAt: new Date().toISOString(),
       error: null,
+    });
+    if (!this.autoDownload) return;
+    // Stage the payload immediately so the pill only ever appears once the
+    // update is installable in one click. electron-updater's own autoDownload
+    // stays off: routing through download() keeps the snapshot, the in-flight
+    // promise, and the error path identical to a manual download.
+    queueMicrotask(() => {
+      void this.download().catch(() => undefined);
     });
   }
 

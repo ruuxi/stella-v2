@@ -28,7 +28,7 @@ exposes cookies to you — it does not need to.
 ## 1. Record
 
 Open a tab, start recording, then drive the flow you want to reproduce. Record
-the *shortest path* that produces the data — extra browsing adds noise.
+the _shortest path_ that produces the data — extra browsing adds noise.
 
 ```js
 var tab = await browser.tabs.new("https://example.com/orders");
@@ -37,7 +37,10 @@ await browser.chain([{ action: "har_start", params: { tabId: tab.id } }]);
 // Drive the actual flow. Use whatever interaction the task needs.
 var page = tab.playwright;
 await page.getByRole("button", { name: "My orders" }).click();
-await page.locator("[data-testid='order-row']").first().waitFor({ state: "visible" });
+await page
+  .locator("[data-testid='order-row']")
+  .first()
+  .waitFor({ state: "visible" });
 ```
 
 If the flow needs a login the user must perform themselves, say so and let them
@@ -54,12 +57,14 @@ own browser writes a file and returns its path.
 var fs = require("node:fs");
 var path = require("node:path");
 
-var stopped = await browser.chain([{ action: "har_stop", params: { tabId: tab.id } }]);
+var stopped = await browser.chain([
+  { action: "har_stop", params: { tabId: tab.id } },
+]);
 var data = stopped.results[0].data;
 
 var harPath;
 if (data.log) {
-  harPath = path.join(nodeRepl.tmp, "example-com.har.json");
+  harPath = path.join(codeRuntime.tmp, "example-com.har.json");
   fs.writeFileSync(harPath, JSON.stringify(data));
 } else {
   harPath = data.path; // already on disk

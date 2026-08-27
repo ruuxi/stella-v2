@@ -308,6 +308,18 @@ export const IPC_ONBOARDING_SYNTHESIZE =
 
 // ── Migration ───────────────────────────────────────────────────────────────
 
+export const IPC_CLOUD_HOME_SCAN_LOCAL = "cloudHome:scanLocal" as const;
+export const IPC_CLOUD_HOME_GET_IMPORT_OWNERSHIP =
+  "cloudHome:getImportOwnership" as const;
+export const IPC_CLOUD_HOME_CONFIRM_IMPORT_OWNERSHIP =
+  "cloudHome:confirmImportOwnership" as const;
+export const IPC_CLOUD_HOME_BEGIN_MEMORY_EXPORT =
+  "cloudHome:beginMemoryExport" as const;
+export const IPC_CLOUD_HOME_COMMIT_MEMORY_EXPORT =
+  "cloudHome:commitMemoryExport" as const;
+export const IPC_CLOUD_HOME_CANCEL_MEMORY_EXPORT =
+  "cloudHome:cancelMemoryExport" as const;
+
 // ── Discovery ───────────────────────────────────────────────────────────────
 
 export const IPC_DISCOVERY_CORE_MEMORY_EXISTS =
@@ -363,10 +375,8 @@ export const IPC_SCHEDULE_UPDATED = "schedule:updated" as const;
 // Mobile-bridge mutation lanes: the phone's Schedule tab pauses/resumes and
 // removes cron jobs through the same privileged handlers the desktop dialog
 // uses (heartbeats stay read-only on mobile for now).
-export const IPC_SCHEDULE_UPDATE_CRON_JOB =
-  "schedule:updateCronJob" as const;
-export const IPC_SCHEDULE_REMOVE_CRON_JOB =
-  "schedule:removeCronJob" as const;
+export const IPC_SCHEDULE_UPDATE_CRON_JOB = "schedule:updateCronJob" as const;
+export const IPC_SCHEDULE_REMOVE_CRON_JOB = "schedule:removeCronJob" as const;
 
 // ── Store ───────────────────────────────────────────────────────────────────
 

@@ -29,6 +29,24 @@ export type AgentStreamEvent = {
   rootRunId?: string;
   chunk?: string;
   statusState?: "running" | "compacting" | "provider-retry" | "model-fallback";
+  /**
+   * Hash-only proof of the physical provider transport owned by this run.
+   * The raw upstream request identity never crosses the provider adapter.
+   */
+  providerLifecyclePhase?:
+    | "request-admitted"
+    | "request-dispatched"
+    | "stream-open"
+    | "transport-closed"
+    | "transport-joined"
+    | "abandoned"
+    | "outcome-unknown";
+  providerRequestIdSha256?: string;
+  providerPhysicalAttempt?: number;
+  providerStreamOrdinal?: number;
+  providerName?: string;
+  providerModelId?: string;
+  providerOutcome?: "completed" | "canceled" | "error";
   toolCallId?: string;
   toolName?: string;
   args?: Record<string, unknown>;

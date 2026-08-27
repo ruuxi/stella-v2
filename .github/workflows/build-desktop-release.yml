@@ -248,7 +248,21 @@ jobs:
           if ($certificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) -ne "FromYou, LLC") {
             throw "The synchronized Windows signing certificate has the wrong publisher"
           }
-          "STELLA_WINDOWS_SIGNING_CERT_SHA1=$expectedThumbprint" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $publicCertificatePath = Join-Path $env:RUNNER_TEMP "stella-windows-signing-public.cer"
+          Export-Certificate -Cert $certificate -FilePath $publicCertificatePath -Type CERT | Out-Null
+          $signTool = Get-Command signtool.exe -ErrorAction SilentlyContinue
+          if (-not $signTool) {
+            $kitsRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
+            $signTool = Get-ChildItem $kitsRoot -Filter signtool.exe -Recurse -File |
+              Where-Object { $_.FullName -match "\\x64\\signtool\.exe$" } |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+          }
+          if (-not $signTool) {
+            throw "Microsoft SignTool was not found"
+          }
+          "STELLA_WINDOWS_PUBLIC_CERT_FILE=$publicCertificatePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "STELLA_WINDOWS_SIGNTOOL_PATH=$($signTool.Source ?? $signTool.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Output "Approved DigiCert certificate synchronized for this runner."
 
       - name: Import Apple Developer ID certificate
@@ -319,7 +333,6 @@ jobs:
           node node_modules/electron-builder/out/cli/cli.js ${{ matrix.builderArgs }} \
             --publish never \
             --config.forceCodeSigning=true \
-            --config.win.signtoolOptions.certificateSha1="$STELLA_WINDOWS_SIGNING_CERT_SHA1" \
             --config.extraMetadata.version="${{ needs.validate_stable_tag.outputs.version }}"
 
       # Linux is deliberately unsigned for the beta: Linux packages have no
@@ -440,6 +453,9 @@ jobs:
         run: |
           if ($env:SM_CLIENT_CERT_FILE -and (Test-Path $env:SM_CLIENT_CERT_FILE)) {
             Remove-Item $env:SM_CLIENT_CERT_FILE -Force
+          }
+          if ($env:STELLA_WINDOWS_PUBLIC_CERT_FILE -and (Test-Path $env:STELLA_WINDOWS_PUBLIC_CERT_FILE)) {
+            Remove-Item $env:STELLA_WINDOWS_PUBLIC_CERT_FILE -Force
           }
 
   publish:

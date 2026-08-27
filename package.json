@@ -308,7 +308,8 @@
           "sha256"
         ],
         "rfc3161TimeStampServer": "http://timestamp.digicert.com",
-        "publisherName": "FromYou, LLC"
+        "publisherName": "FromYou, LLC",
+        "sign": "packages/desktop/scripts/sign-windows.mjs"
       }
     },
     "nsis": {

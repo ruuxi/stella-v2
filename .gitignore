@@ -23,6 +23,7 @@ DEV-CONTEXT.md
 /workers/*/.dev.vars
 /workers/*/node_modules/
 /workers/*/.wrangler/
+/workers/*/tests/fixtures/.wrangler/
 /workers/cloud-builder/.image/
 /packages/executor-cloud/node_modules/
 /packages/app-template/node_modules/

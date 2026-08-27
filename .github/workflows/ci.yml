@@ -17,14 +17,118 @@ concurrency:
 
 jobs:
   desktop:
+    name: Desktop build and verification
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.0
+
+      - name: Restore Bun cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-1.4.0-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-1.4.0-
+
+      - name: Install dependencies
+        env:
+          STELLA_SKIP_BROWSER_HYDRATE: "1"
+        run: bun install --frozen-lockfile
+
+      - name: Build renderer
+        env:
+          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
+          VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
+          # CI is a development-tier harness. Production packaging must never
+          # inherit this host; the release workflow requires its own reviewed
+          # VITE_STELLA_APPS_HOST repository variable.
+          VITE_STELLA_APPS_HOST: https://stella-v2-apps-host-dev.lolruuxi.workers.dev
+          VITE_STELLA_DEV_APPS_HOST_HARNESS: "1"
+        run: |
+          node packages/desktop/scripts/validate-cloud-apps-host.mjs --allow-development-host
+          bun run build
+
+      - name: Check generated route tree
+        run: git diff --exit-code -- packages/desktop-ui/src/routeTree.gen.ts
+
+      - name: Check generated contracts
+        run: bun run check:generated
+
+      - name: Typecheck Electron and preload
+        run: bun run electron:typecheck
+
+      - name: Test desktop UI
+        run: bun run test:run
+
+      - name: Test Electron services
+        run: bun run test:electron
+
+      - name: Test packaging and verification scripts
+        run: bun run test:verification
+
+  backend:
+    name: Backend and prompt contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Restore Bun cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-1.4.0-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-1.4.0-
+
+      - name: Install dependencies
+        env:
+          STELLA_SKIP_BROWSER_HYDRATE: "1"
+        run: bun install --frozen-lockfile
+
+      - name: Check generated prompt defaults
+        run: bun run prompts:check-defaults
+
+      - name: Typecheck Convex backend
+        run: bun run backend:typecheck
+
+      - name: Test backend:test:all components with serial Convex workers
+        env:
+          # Convex suites patch process.env and global fetch. One worker and no
+          # file parallelism prevents test-file mock state from bleeding.
+          VITEST_MAX_WORKERS: "1"
+        run: |
+          bun run backend:test
+          bun run backend:test:convex -- --maxWorkers=1 --no-file-parallelism
+          bun run backend:test:lib
+
+  runtime:
+    name: Runtime and Effect ownership
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Restore Bun cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-1.4.0-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-1.4.0-
 
       - name: Install dependencies
         env:
@@ -34,16 +138,17 @@ jobs:
       - name: Check package boundaries
         run: bun run check:boundary
 
-      - name: Build renderer
-        env:
-          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
-          VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
-        run: bun run build
+      - name: Check Effect ownership ratchet
+        run: bun run check:ratchet
 
-      - name: Typecheck Electron and preload
-        run: bun run electron:typecheck
+      - name: Typecheck runtime
+        run: bun run runtime:typecheck
 
-  backend:
+      - name: Test runtime
+        run: bun run runtime:test
+
+  executor:
+    name: Cloud executor
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -52,19 +157,109 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.0
+
+      - name: Restore Bun cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-1.4.0-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-1.4.0-
 
       - name: Install dependencies
         env:
           STELLA_SKIP_BROWSER_HYDRATE: "1"
         run: bun install --frozen-lockfile
 
-      - name: Typecheck Convex backend
-        run: bun run backend:typecheck
+      - name: Typecheck executor
+        run: bun run executor:typecheck
 
-      - name: Test backend
-        run: bun run backend:test
+      - name: Test executor
+        run: bun run executor:test
+
+  stella_browser:
+    name: Stella Browser contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Restore Bun cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-1.4.0-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-1.4.0-
+
+      - name: Restore Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            packages/stella-browser/cli/target
+          key: ${{ runner.os }}-cargo-stella-browser-${{ hashFiles('packages/stella-browser/cli/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-stella-browser-
+
+      - name: Install dependencies
+        env:
+          STELLA_SKIP_BROWSER_HYDRATE: "1"
+        run: bun install --frozen-lockfile
+
+      - name: Test Rust CLI, extension, and browser action contracts
+        run: bun run test:stella-browser
+
+  cloud_workers:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Cloud Builder worker
+            script: cloud-builder
+            test_name: Test worker including Workerd acceptance
+          - name: Apps Host worker
+            script: apps-host
+            test_name: Test worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Restore Bun cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-1.4.0-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-1.4.0-
+
+      - name: Install dependencies
+        env:
+          STELLA_SKIP_BROWSER_HYDRATE: "1"
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck worker
+        run: bun run ${{ matrix.script }}:typecheck
+
+      - name: ${{ matrix.test_name }}
+        run: bun run ${{ matrix.script }}:test
+
+      - name: Verify worker bundle
+        run: bun run ${{ matrix.script }}:build:dry-run
 
   mobile:
+    name: Mobile
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -73,6 +268,14 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.0
+
+      - name: Restore Bun cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-1.4.0-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-1.4.0-
 
       - name: Install dependencies
         env:
@@ -87,3 +290,6 @@ jobs:
 
       - name: Test mobile
         run: bun run mobile:test
+
+      - name: Check generated mobile catalogs
+        run: git diff --exit-code -- packages/mobile/src/i18n/locales

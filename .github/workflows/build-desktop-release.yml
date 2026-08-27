@@ -216,9 +216,13 @@ jobs:
         env:
           VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
           VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
+          # This repository intentionally has no hard-coded production Apps
+          # origin. The reviewed release value must be supplied explicitly.
+          VITE_STELLA_APPS_HOST: ${{ vars.VITE_STELLA_APPS_HOST }}
         shell: bash
         run: |
           set -euo pipefail
+          node packages/desktop/scripts/validate-cloud-apps-host.mjs
           bun run packaging:prepare-runtimes -- \
             --platform "${{ matrix.sourcePlatform }}" \
             --git-manifest-file release-pins/git-runtime-manifest.json

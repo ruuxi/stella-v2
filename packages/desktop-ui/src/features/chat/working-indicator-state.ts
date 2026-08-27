@@ -91,7 +91,6 @@ export function buildInlineWorkingIndicatorProps({
   return {
     active,
     ...(!isStreaming ? { exitImmediately: true } : {}),
-    ...(completedToolStatus ? { minimumVisibleMs: 0 } : {}),
     runningTool:
       isToolActive && !completedToolStatus
         ? (activeToolName ?? undefined)

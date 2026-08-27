@@ -24,7 +24,7 @@ function useMinimumVisibleText(text: string, minimumVisibleMs: number): string {
   const [visibleText, setVisibleText] = useState(text);
   const visibleRef = useRef<HeldPhrase>({ text, minimumVisibleMs });
   const visibleSinceRef = useRef(Date.now());
-  const pendingRef = useRef<HeldPhrase | null>(null);
+  const queueRef = useRef<HeldPhrase[]>([]);
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -43,43 +43,42 @@ function useMinimumVisibleText(text: string, minimumVisibleMs: number): string {
     const show = (phrase: HeldPhrase) => {
       visibleRef.current = phrase;
       visibleSinceRef.current = Date.now();
-      pendingRef.current = null;
       setVisibleText(phrase.text);
     };
-    const showPendingWhenReady = () => {
+    const drainReady = () => {
       clearTimer();
-      const pending = pendingRef.current;
-      if (!pending) return;
-      const wait = remainingMs();
-      if (wait === 0) {
-        if (pending.text !== visibleRef.current.text) {
-          show(pending);
-        } else {
-          pendingRef.current = null;
-        }
-        return;
-      }
-      timerRef.current = window.setTimeout(() => {
-        timerRef.current = null;
-        const next = pendingRef.current;
-        if (!next) return;
+      while (queueRef.current.length > 0 && remainingMs() === 0) {
+        const next = queueRef.current.shift();
+        if (!next) break;
         if (next.text !== visibleRef.current.text) {
           show(next);
-        } else {
-          pendingRef.current = null;
         }
-      }, wait);
+      }
+      if (queueRef.current.length === 0) return;
+      timerRef.current = window.setTimeout(() => {
+        timerRef.current = null;
+        drainReady();
+      }, remainingMs());
     };
 
     if (text === visibleRef.current.text) {
-      pendingRef.current = null;
-      clearTimer();
+      const lastQueued = queueRef.current.at(-1);
+      if (lastQueued?.text === text) {
+        lastQueued.minimumVisibleMs = minimumVisibleMs;
+      } else if (queueRef.current.length === 0) {
+        visibleRef.current.minimumVisibleMs = minimumVisibleMs;
+      }
       return;
     }
 
-    pendingRef.current = { text, minimumVisibleMs };
+    const lastQueued = queueRef.current.at(-1);
+    if (lastQueued?.text === text) {
+      lastQueued.minimumVisibleMs = minimumVisibleMs;
+    } else if (!queueRef.current.some((phrase) => phrase.text === text)) {
+      queueRef.current.push({ text, minimumVisibleMs });
+    }
     if (timerRef.current === null) {
-      showPendingWhenReady();
+      drainReady();
     }
   }, [minimumVisibleMs, text]);
 

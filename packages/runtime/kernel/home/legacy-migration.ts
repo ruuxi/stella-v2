@@ -16,7 +16,9 @@
  *   opts out of updates);
  * - modified prompts / skills / PERSONALITY.md stay where they are — in the
  *   new layout their presence already means "user replacement / fork";
- * - the manifests and the old applied-state machinery are removed.
+ * - manifests are removed only when their entry shape proves they belong to
+ *   the retired layout. Current v2 prompt/personality manifests use the same
+ *   filenames and must survive every seed.
  *
  * Entries with no manifest record were always user-owned and are untouched.
  */
@@ -29,6 +31,9 @@ const BUNDLED_MANIFEST_FILENAME = ".bundled-manifest.json";
 const PERSONALITY_MANIFEST_FILENAME = ".personality-manifest.json";
 
 type LegacyManifestEntries = Record<string, { lastSyncedHash: string }>;
+
+const isSha256 = (value: unknown): value is string =>
+  typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
 
 const sha256 = (value: Buffer | string): string =>
   createHash("sha256").update(value).digest("hex");
@@ -47,23 +52,38 @@ const readLegacyManifest = async (
   }
   if (!parsed || typeof parsed !== "object") return null;
   const record = parsed as Record<string, unknown>;
+  if (record.version !== 1 && record.version !== 2) return null;
   const rawEntries =
     record.entries ?? (legacyEntriesKey ? record[legacyEntriesKey] : undefined);
-  if (!rawEntries || typeof rawEntries !== "object") return null;
+  if (
+    !rawEntries ||
+    typeof rawEntries !== "object" ||
+    Array.isArray(rawEntries)
+  ) {
+    return null;
+  }
+  const rawEntryPairs = Object.entries(rawEntries as Record<string, unknown>);
+  // An empty v2 manifest is ambiguous. Preserve it rather than deleting live
+  // reconciliation state under a legacy filename.
+  if (rawEntryPairs.length === 0) return null;
   const entries: LegacyManifestEntries = {};
-  for (const [id, value] of Object.entries(
-    rawEntries as Record<string, unknown>,
-  )) {
-    if (typeof value === "string") {
+  for (const [id, value] of rawEntryPairs) {
+    if (isSha256(value)) {
       entries[id] = { lastSyncedHash: value };
     } else if (
       value &&
       typeof value === "object" &&
-      typeof (value as { lastSyncedHash?: unknown }).lastSyncedHash === "string"
+      !Array.isArray(value) &&
+      Object.keys(value).length === 1 &&
+      isSha256((value as { lastSyncedHash?: unknown }).lastSyncedHash)
     ) {
       entries[id] = {
         lastSyncedHash: (value as { lastSyncedHash: string }).lastSyncedHash,
       };
+    } else {
+      // Current v2 entries include sourceRevision and customized. Unknown or
+      // mixed schemas fail closed so a seed can never consume live state.
+      return null;
     }
   }
   return entries;
@@ -154,9 +174,23 @@ const migratePersonality = async (stellaDataDir: string): Promise<void> => {
   let recorded: string | undefined;
   try {
     const parsed = JSON.parse(await fs.readFile(manifestPath, "utf-8")) as {
-      entries?: Record<string, { lastSyncedHash?: string }>;
+      version?: unknown;
+      entries?: Record<string, unknown>;
     };
-    recorded = parsed.entries?.PERSONALITY?.lastSyncedHash;
+    if (parsed.version !== 1 && parsed.version !== 2) return;
+    const entry = parsed.entries?.PERSONALITY;
+    if (
+      !entry ||
+      typeof entry !== "object" ||
+      Array.isArray(entry) ||
+      Object.keys(entry).length !== 1 ||
+      !isSha256((entry as { lastSyncedHash?: unknown }).lastSyncedHash)
+    ) {
+      // Current v2 metadata adds sourceRevision + customized. Preserve it and
+      // PERSONALITY.md; this function is only for the one-field legacy shape.
+      return;
+    }
+    recorded = (entry as { lastSyncedHash: string }).lastSyncedHash;
   } catch {
     return;
   }
@@ -171,29 +205,20 @@ const migratePersonality = async (stellaDataDir: string): Promise<void> => {
   await fs.rm(manifestPath, { force: true });
 };
 
-/** Remove files owned by the retired automatic memory-consolidation pipeline. */
-export const retireAutomaticMemoryArtifacts = async (
-  stellaDataDir: string,
-): Promise<void> => {
-  await Promise.all(
-    [
-      path.join(stellaDataDir, "DREAM.md"),
-      path.join(stellaDataDir, "memories", "MEMORY.md"),
-      path.join(stellaDataDir, "memories", "memory_map.md"),
-      path.join(stellaDataDir, "memories", "memory_summary.md"),
-    ].map((filePath) => fs.rm(filePath, { force: true })),
-  );
-};
-
 /**
- * Always retire known automatic-memory artifacts, then migrate legacy
- * manifest-owned content. Homes without legacy manifests remain a fast no-op
- * after the idempotent cleanup.
+ * Migrate legacy manifest-owned content without touching user memory.
+ *
+ * Historical local runtimes wrote MEMORY.md, memory_map.md, profile.md, and
+ * other user Markdown before Cloud Home existed. The connected-account import
+ * bridge claims and scans that corpus later in startup, after Electron has
+ * seeded the runtime home. Deleting any of those files here would race that
+ * ownership check and irreversibly erase the only copy before Cloud Home can
+ * capture it. Leave all memory artifacts in place: Cloud Home is additive,
+ * owner-fenced, and retains the local source after either success or failure.
  */
 export const migrateLegacyHomeLayout = async (
   stellaDataDir: string,
 ): Promise<void> => {
-  await retireAutomaticMemoryArtifacts(stellaDataDir);
   await migrateFileArea(path.join(stellaDataDir, "agents"), {
     replaceSuffixForModified: true,
   });
@@ -202,15 +227,4 @@ export const migrateLegacyHomeLayout = async (
   });
   await migrateSkills(path.join(stellaDataDir, "skills"));
   await migratePersonality(stellaDataDir);
-  // Old applied-state machinery: superseded by system/revision.json.
-  await fs.rm(path.join(stellaDataDir, "cache", "prompt-applied-state"), {
-    recursive: true,
-    force: true,
-  });
-  await fs.rm(path.join(stellaDataDir, "cache", "prompt-applied-state.json"), {
-    force: true,
-  });
-  await fs.rm(path.join(stellaDataDir, "cache", "prompt-apply-lock.sqlite"), {
-    force: true,
-  });
 };

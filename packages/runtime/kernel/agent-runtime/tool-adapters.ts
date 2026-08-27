@@ -43,6 +43,10 @@ import {
   type ImageCapTarget,
 } from "../../ai/utils/image-caps.js";
 import { buildCatalogSection } from "../tools/code-catalog.js";
+import {
+  CODE_TOOL_NAME,
+  toolRequiresExplicitApproval,
+} from "../tools/code-tool.js";
 import { spillSanitizedToolOutput } from "./tool-output-spill.js";
 import {
   DEFAULT_MAX_BYTES,
@@ -59,7 +63,6 @@ export const STELLA_LOCAL_TOOLS = [
   TOOL_IDS.NO_RESPONSE,
 ] as const;
 
-const NODE_REPL_TOOL_NAME = "node_repl";
 const COMMAND_OUTPUT_TOOL_NAMES = new Set(["exec_command", "write_stdin"]);
 const MULTI_TOOL_USE_PARALLEL_TOOL_NAME = "multi_tool_use_parallel";
 export const MODEL_VISIBLE_COMMAND_RESULT_MAX_BYTES = 10_000;
@@ -80,7 +83,9 @@ const containsCommandOutput = (
   if (COMMAND_OUTPUT_TOOL_NAMES.has(toolName)) return true;
   if (toolName !== MULTI_TOOL_USE_PARALLEL_TOOL_NAME) return false;
   const results = (
-    toolResult.details as { results?: Array<{ tool_name?: unknown }> } | undefined
+    toolResult.details as
+      | { results?: Array<{ tool_name?: unknown }> }
+      | undefined
   )?.results;
   return (
     Array.isArray(results) &&
@@ -267,10 +272,7 @@ const resolveModelVisibleLimits = (
   return {
     maxBytes,
     maxLines: limits?.maxLines ?? DEFAULT_MAX_LINES,
-    previewMaxBytes: Math.min(
-      maxBytes,
-      limits?.previewMaxBytes ?? maxBytes,
-    ),
+    previewMaxBytes: Math.min(maxBytes, limits?.previewMaxBytes ?? maxBytes),
   };
 };
 
@@ -397,7 +399,8 @@ export const preserveModelVisibleToolText = async (
   const marker = `\n\n[TOOL_OUTPUT_TRUNCATED complete post-sanitization output preserved: artifact=${artifact.path} bytes=${artifact.bytes} sha256=${artifact.sha256} encoding=${artifact.encoding} lines=${artifact.lineCount}. Read more with Read({ file_path: ${JSON.stringify(artifact.path)}, offset: 1, limit: 200 }); offsets are 1-based lines; complete byte range is [0, ${artifact.bytes}).]`;
   const previewBudget = Math.max(
     0,
-    Math.min(resolved.previewMaxBytes, resolved.maxBytes) - utf8ByteLength(marker),
+    Math.min(resolved.previewMaxBytes, resolved.maxBytes) -
+      utf8ByteLength(marker),
   );
   return {
     ...truncated,
@@ -543,7 +546,7 @@ export const collectVisibleDemotedTools = (
   });
 
 /**
- * Names to widen `allowedToolNames` with so node_repl's nested dispatcher
+ * Names to widen `allowedToolNames` with so code's nested dispatcher
  * (and multi_tool_use_parallel) or a provider's direct-schema fallback can
  * reach demoted tools.
  */
@@ -559,41 +562,46 @@ const DEMOTED_WORKFLOW_TEXT =
   'Some tools are demoted from your direct tool list and callable only here via tools.<name>(args). The compact catalog below lists names, signatures, and descriptions. When it is marked COMPLETE, call simple listed tools directly. When PARTIAL, first run await tools.$search({ query: "<intent + key nouns>" }) for ranked compact matches. For an unfamiliar or complex match, optionally run await tools.$describe(name) to load exactly that tool\'s complete schema, then invoke tools.<name>(args). Do not guess tool names.';
 
 /** Workflow paragraph + budgeted signature catalog; "" for an empty set. */
-const buildDemotedNodeReplSuffix = (demotedTools: ToolMetadata[]): string =>
+const buildDemotedCodeSuffix = (demotedTools: ToolMetadata[]): string =>
   demotedTools.length > 0
     ? `\n\n${DEMOTED_WORKFLOW_TEXT}\n\n${buildCatalogSection(demotedTools)}`
     : "";
 
 /**
- * External-engine parity for the node_repl catalog: engines that build their
+ * External-engine parity for the code catalog: engines that build their
  * tool list through `getRuntimeToolMetadata` (never `createPiTools`) still
- * get the workflow text + signature catalog appended to node_repl's
+ * get the workflow text + signature catalog appended to code's
  * description, so demoted tools are discoverable there the same way. No-op
- * when node_repl is absent from the metadata or nothing is demoted.
+ * when code is absent from the metadata or nothing is demoted.
  */
-export const appendDemotedCatalogToNodeRepl = (
+export const appendDemotedCatalogToCode = (
   toolMetadata: ToolMetadata[],
   toolCatalog: ToolMetadata[] | undefined,
   connectorProvider: string | undefined,
 ): ToolMetadata[] => {
-  const suffix = buildDemotedNodeReplSuffix(
-    collectVisibleDemotedTools(toolCatalog ?? [], connectorProvider),
+  const suffix = buildDemotedCodeSuffix(
+    collectVisibleDemotedTools(toolCatalog ?? [], connectorProvider).filter(
+      (tool) => !toolRequiresExplicitApproval(tool.approval),
+    ),
   );
   if (!suffix) return toolMetadata;
   return toolMetadata.map((tool) =>
-    tool.name === NODE_REPL_TOOL_NAME
+    tool.name === CODE_TOOL_NAME
       ? { ...tool, description: `${tool.description}${suffix}` }
       : tool,
   );
 };
 
+/** @deprecated Source-compatibility alias; only `code` is advertised. */
+export const appendDemotedCatalogToNodeRepl = appendDemotedCatalogToCode;
+
 /**
  * Provider-visible metadata with deferred-tool semantics applied.
  *
  * This is the metadata-only counterpart to createPiTools for external
- * engines: when node_repl is active, demoted tools are removed from the eager
- * function list and summarized in node_repl's bounded catalog. Without
- * node_repl, visible demoted tools retain their full direct schemas so a
+ * engines: when code is active, demoted tools are removed from the eager
+ * function list and summarized in code's bounded catalog. Without code,
+ * visible demoted tools retain their full direct schemas so a
  * profile can never strand them.
  */
 export const getProviderToolMetadata = (opts: {
@@ -603,9 +611,9 @@ export const getProviderToolMetadata = (opts: {
 }): ToolMetadata[] => {
   const catalog = opts.toolCatalog ?? [];
   const requestedNames = getRequestedRuntimeToolNames(opts.toolsAllowlist);
-  const nodeReplAvailable =
-    requestedNames.includes(NODE_REPL_TOOL_NAME) &&
-    catalog.some((tool) => tool.name === NODE_REPL_TOOL_NAME);
+  const codeAvailable =
+    requestedNames.includes(CODE_TOOL_NAME) &&
+    catalog.some((tool) => tool.name === CODE_TOOL_NAME);
   const hasExplicitAllowlist =
     Array.isArray(opts.toolsAllowlist) && opts.toolsAllowlist.length > 0;
   const visibleDemotedTools = hasExplicitAllowlist
@@ -618,12 +626,29 @@ export const getProviderToolMetadata = (opts: {
   const eagerNames = new Set<string>();
   for (const tool of getRuntimeToolMetadata(opts)) {
     if (tool.demoted) {
-      if (!visibleDemotedNames.has(tool.name) || nodeReplAvailable) continue;
+      if (
+        !visibleDemotedNames.has(tool.name) ||
+        (codeAvailable && !toolRequiresExplicitApproval(tool.approval))
+      ) {
+        continue;
+      }
     }
     eager.push(tool);
     eagerNames.add(tool.name);
   }
-  if (!nodeReplAvailable) {
+  if (codeAvailable) {
+    for (const tool of visibleDemotedTools) {
+      if (
+        eagerNames.has(tool.name) ||
+        !toolRequiresExplicitApproval(tool.approval)
+      ) {
+        continue;
+      }
+      eager.push(tool);
+      eagerNames.add(tool.name);
+    }
+  }
+  if (!codeAvailable) {
     for (const tool of visibleDemotedTools) {
       if (eagerNames.has(tool.name)) continue;
       eager.push(tool);
@@ -631,11 +656,7 @@ export const getProviderToolMetadata = (opts: {
     }
     return eager;
   }
-  return appendDemotedCatalogToNodeRepl(
-    eager,
-    catalog,
-    opts.connectorProvider,
-  );
+  return appendDemotedCatalogToCode(eager, catalog, opts.connectorProvider);
 };
 
 export const extractAttachImageBlocks = async (
@@ -799,21 +820,24 @@ export const extractAttachImageBlocks = async (
 };
 
 /**
- * Materialize typed node_repl image items without converting them back into
+ * Materialize typed code-runtime image items without converting them back into
  * model-visible marker strings. Audio remains in structured details because
  * the current ToolResultMessage content union supports text and images only.
  */
-export const extractNodeReplImageBlocks = async (
+export const extractCodeImageBlocks = async (
   details: unknown,
   target: ImageCapTarget = {},
 ): Promise<ImageBlock[]> => {
-  const nodeRepl =
+  const codeRuntime =
     details && typeof details === "object" && !Array.isArray(details)
-      ? (details as Record<string, unknown>).nodeRepl
+      ? ((details as Record<string, unknown>).code ??
+        (details as Record<string, unknown>).nodeRepl)
       : undefined;
   const content =
-    nodeRepl && typeof nodeRepl === "object" && !Array.isArray(nodeRepl)
-      ? (nodeRepl as Record<string, unknown>).content
+    codeRuntime &&
+    typeof codeRuntime === "object" &&
+    !Array.isArray(codeRuntime)
+      ? (codeRuntime as Record<string, unknown>).content
       : undefined;
   if (!Array.isArray(content)) return [];
 
@@ -884,6 +908,9 @@ export const extractNodeReplImageBlocks = async (
   }
   return images;
 };
+
+/** @deprecated Reads both legacy `nodeRepl` and current `code` details. */
+export const extractNodeReplImageBlocks = extractCodeImageBlocks;
 
 type RuntimeToolContextArgs = {
   toolCallId: string;
@@ -1084,12 +1111,12 @@ export const createPiTools = (opts: {
     (opts.toolCatalog ?? []).map((tool) => [tool.name, tool]),
   );
   const connectorProvider = opts.connectorDeliveryTarget?.provider;
-  // Never-strand rule: demoted tools leave the direct list ONLY when
-  // node_repl is actually part of this turn's resolved active set.
-  // Profiles intentionally lacking node_repl keep demoted tools as plain
+  // Never-strand rule: demoted tools leave the direct list ONLY when code is
+  // actually part of this turn's resolved active set. Profiles intentionally
+  // lacking code keep demoted tools as plain
   // direct tools with full schemas.
-  const nodeReplAvailable =
-    requested.includes(NODE_REPL_TOOL_NAME) && catalog.has(NODE_REPL_TOOL_NAME);
+  const codeAvailable =
+    requested.includes(CODE_TOOL_NAME) && catalog.has(CODE_TOOL_NAME);
   // Demoted reachability requires an explicit per-agent allowlist. The
   // empty-allowlist STELLA_LOCAL_TOOLS fallback is a minimal device-tool
   // surface that could never reach deferred tools before the clean cut,
@@ -1099,18 +1126,33 @@ export const createPiTools = (opts: {
   const visibleDemotedTools = hasExplicitAllowlist
     ? collectVisibleDemotedTools([...catalog.values()], connectorProvider)
     : [];
-  const demotedToolNames = new Set(visibleDemotedTools.map((tool) => tool.name));
+  const demotedToolNames = new Set(
+    visibleDemotedTools.map((tool) => tool.name),
+  );
   // Catalog section is generated fresh each turn from the live catalog
-  // snapshot; with no demoted tools in scope the node_repl description
+  // snapshot; with no demoted tools in scope the code description
   // stays byte-identical and the whole feature is inert.
-  const nodeReplDescriptionSuffix = nodeReplAvailable
-    ? buildDemotedNodeReplSuffix(visibleDemotedTools)
+  const codeReachableDemotedTools = visibleDemotedTools.filter(
+    (tool) => !toolRequiresExplicitApproval(tool.approval),
+  );
+  const codeDescriptionSuffix = codeAvailable
+    ? buildDemotedCodeSuffix(codeReachableDemotedTools)
     : "";
   const activeTools: AgentTool[] = [];
   const activeToolNames = new Set<string>();
   const contextAllowedToolNames = (): string[] =>
-    nodeReplAvailable
-      ? [...new Set([...activeToolNames, ...demotedToolNames])]
+    codeAvailable
+      ? [
+          ...new Set(
+            [
+              ...activeToolNames,
+              ...codeReachableDemotedTools.map((tool) => tool.name),
+            ].filter(
+              (name) =>
+                !toolRequiresExplicitApproval(catalog.get(name)?.approval),
+            ),
+          ),
+        ]
       : [...activeToolNames];
 
   const registerTool = (toolName: string): AgentTool => {
@@ -1147,10 +1189,10 @@ export const createPiTools = (opts: {
         maxAgentDepth: opts.maxAgentDepth,
         modelConfigSnapshot: opts.modelConfigSnapshot,
         connectorDeliveryTarget: opts.connectorDeliveryTarget,
-        // REPL-reachable union: nested node_repl dispatch (and
+        // Code-reachable union: nested dispatch (and
         // multi_tool_use_parallel) must pass the host allowlist
         // gate for demoted tools that are absent from the direct
-        // list. Without node_repl the union collapses to the
+        // list. Without code the union collapses to the
         // active set — demoted tools were registered directly.
         allowedToolNames: contextAllowedToolNames(),
         store: opts.store,
@@ -1159,7 +1201,10 @@ export const createPiTools = (opts: {
         signal,
         onUpdate: onUpdate
           ? (partialResult: ToolResult) => {
-              const formattedPartial = formatToolResult(partialResult, toolName);
+              const formattedPartial = formatToolResult(
+                partialResult,
+                toolName,
+              );
               const truncatedPartial = truncateModelVisibleToolText(
                 formattedPartial.text,
                 modelVisibleLimitsFor(toolName, partialResult),
@@ -1177,7 +1222,7 @@ export const createPiTools = (opts: {
       // the screenshot on the very next turn with no extra Read step.
       const { text: forwardedText, images: legacyImages } =
         await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
-      const nodeReplImages = await extractNodeReplImageBlocks(
+      const codeImages = await extractCodeImageBlocks(
         formatted.details,
         opts.imageCapTarget,
       );
@@ -1192,7 +1237,7 @@ export const createPiTools = (opts: {
       );
       const truncatedText = preservedText.text;
       const content: Array<TextContent | ImageBlock> = [];
-      const attachedImages = [...nodeReplImages, ...legacyImages];
+      const attachedImages = [...codeImages, ...legacyImages];
       const screenshotNote =
         attachedImages.length > 0
           ? "\n\n[Image attached below. Inspect it directly. If it is a UI screenshot and the accessibility tree is sparse or missing a visible control, use screenshot x/y coordinates.]"
@@ -1234,8 +1279,8 @@ export const createPiTools = (opts: {
       label: metadata.label ?? formatToolLabel(toolName),
       workingText: formatToolWorkingText(metadata),
       description:
-        toolName === NODE_REPL_TOOL_NAME && nodeReplDescriptionSuffix
-          ? `${metadata.description}${nodeReplDescriptionSuffix}`
+        toolName === CODE_TOOL_NAME && codeDescriptionSuffix
+          ? `${metadata.description}${codeDescriptionSuffix}`
           : metadata.description,
       parameters: metadata.parameters as typeof AnyToolArgsSchema,
       // Tool executions supervise as child fibers of the owning run: the
@@ -1261,20 +1306,30 @@ export const createPiTools = (opts: {
       // Connector-gated demoted tools that fail the gate are invisible
       // everywhere, including the direct-list fallback.
       if (!demotedToolNames.has(toolName)) continue;
-      // REPL-only this turn; reachable via tools.<name> inside node_repl.
-      if (nodeReplAvailable) continue;
+      // Code-only this turn unless an explicit top-level approval is required.
+      if (
+        codeAvailable &&
+        !toolRequiresExplicitApproval(catalog.get(toolName)?.approval)
+      ) {
+        continue;
+      }
     }
     activeToolNames.add(toolName);
     activeTools.push(registerTool(toolName));
   }
   // Demoted tools outside the frontmatter allowlist surface directly when
-  // node_repl is unavailable, so nothing reachable becomes stranded.
-  if (!nodeReplAvailable) {
-    for (const tool of visibleDemotedTools) {
-      if (activeToolNames.has(tool.name)) continue;
-      activeToolNames.add(tool.name);
-      activeTools.push(registerTool(tool.name));
-    }
+  // Approval-bearing tools stay direct so nested code cannot bypass their
+  // top-level approval flow. Without code, every visible demoted tool stays
+  // direct so nothing reachable becomes stranded.
+  const directlyAddedDemotedTools = codeAvailable
+    ? visibleDemotedTools.filter((tool) =>
+        toolRequiresExplicitApproval(tool.approval),
+      )
+    : visibleDemotedTools;
+  for (const tool of directlyAddedDemotedTools) {
+    if (activeToolNames.has(tool.name)) continue;
+    activeToolNames.add(tool.name);
+    activeTools.push(registerTool(tool.name));
   }
   return activeTools;
 };

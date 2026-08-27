@@ -69,15 +69,15 @@ export const chatHandlers: WorkerRpcHandlers = {
       // cancel if it hasn't started yet. The joining cancel resolves only
       // after the run's owned resources tore down and its single terminal
       // was emitted (bounded by the per-resource abandonment graces).
-      yield* Effect.promise(
+      const cancelled = yield* Effect.promise(
         () =>
           sessions
             .current()
             ?.runnerCell.get()
             ?.cancelLocalChat((params as { runId: string }).runId) ??
-          Promise.resolve(),
+          Promise.resolve(false),
       );
-      return { ok: true };
+      return { ok: true, cancelled };
     }),
 
   [METHOD_NAMES.INTERNAL_WORKER_CANCEL_BY_CONVERSATION]: (params) =>

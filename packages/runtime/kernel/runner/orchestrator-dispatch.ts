@@ -43,9 +43,16 @@ export const executeOrQueueSystemOrchestratorTurn = async (args: {
   hasActiveRun: boolean;
   queueOrchestratorTurn: (turn: QueuedOrchestratorTurn) => void;
   execute: () => Promise<void>;
+  rejectIfBusy?: boolean;
+  onBusy?: () => void;
 }): Promise<void> => {
   if (!args.hasActiveRun) {
-      await args.execute();
+    await args.execute();
+    return;
+  }
+
+  if (args.rejectIfBusy) {
+    args.onBusy?.();
     return;
   }
 

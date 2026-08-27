@@ -5,10 +5,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  migrateLegacyHomeLayout,
-  retireAutomaticMemoryArtifacts,
-} from "@stella/runtime/kernel/home/legacy-migration";
+import { migrateLegacyHomeLayout } from "@stella/runtime/kernel/home/legacy-migration";
 
 const roots = new Set<string>();
 
@@ -184,22 +181,109 @@ describe("migrateLegacyHomeLayout", () => {
     ).resolves.toBe("overlay");
   });
 
-  it("idempotently removes only retired automatic-memory artifacts", async () => {
-    const home = await tempDir("retired-memory-migration-");
+  it("preserves live prompt, personality, and rollback state across repeated seeds", async () => {
+    const home = await tempDir("live-prompt-state-");
+    const prompt = "current remote prompt";
+    const personality = "current personality";
+    const liveEntry = (content: string, sourceRevision: string) => ({
+      lastSyncedHash: hash(content),
+      sourceRevision,
+      customized: false,
+    });
+
+    await mkdir(path.join(home, "prompts"), { recursive: true });
+    await writeFile(
+      path.join(home, "prompts", "fallback-orchestrator.md"),
+      prompt,
+    );
+    const promptManifest = `${JSON.stringify(
+      {
+        version: 2,
+        entries: {
+          "fallback-orchestrator": liveEntry(prompt, "remote-revision"),
+        },
+      },
+      null,
+      2,
+    )}\n`;
+    await writeFile(
+      path.join(home, "prompts", ".bundled-manifest.json"),
+      promptManifest,
+    );
+
+    await writeFile(path.join(home, "PERSONALITY.md"), personality);
+    const personalityManifest = `${JSON.stringify(
+      {
+        version: 2,
+        entries: {
+          PERSONALITY: liveEntry(personality, "remote-revision"),
+        },
+      },
+      null,
+      2,
+    )}\n`;
+    await writeFile(
+      path.join(home, ".personality-manifest.json"),
+      personalityManifest,
+    );
+
+    await mkdir(path.join(home, "cache", "prompt-applied-state"), {
+      recursive: true,
+    });
+    const stateRecord = '{"revision":"abc"}\n';
+    await writeFile(
+      path.join(home, "cache", "prompt-applied-state", "record.json"),
+      stateRecord,
+    );
+    await writeFile(
+      path.join(home, "cache", "prompt-applied-state.json"),
+      stateRecord,
+    );
+    await writeFile(
+      path.join(home, "cache", "prompt-apply-lock.sqlite"),
+      "sqlite-lock-state",
+    );
+
+    await migrateLegacyHomeLayout(home);
+    await migrateLegacyHomeLayout(home);
+
+    await expect(
+      readFile(path.join(home, "prompts", "fallback-orchestrator.md"), "utf-8"),
+    ).resolves.toBe(prompt);
+    await expect(
+      readFile(path.join(home, "prompts", ".bundled-manifest.json"), "utf-8"),
+    ).resolves.toBe(promptManifest);
+    await expect(
+      readFile(path.join(home, "PERSONALITY.md"), "utf-8"),
+    ).resolves.toBe(personality);
+    await expect(
+      readFile(path.join(home, ".personality-manifest.json"), "utf-8"),
+    ).resolves.toBe(personalityManifest);
+    await expect(
+      readFile(
+        path.join(home, "cache", "prompt-applied-state", "record.json"),
+        "utf-8",
+      ),
+    ).resolves.toBe(stateRecord);
+    await expect(
+      readFile(path.join(home, "cache", "prompt-applied-state.json"), "utf-8"),
+    ).resolves.toBe(stateRecord);
+    await expect(
+      readFile(path.join(home, "cache", "prompt-apply-lock.sqlite"), "utf-8"),
+    ).resolves.toBe("sqlite-lock-state");
+  });
+
+  it("preserves legacy memory for the owner-fenced Cloud Home import across repeated seeds", async () => {
+    const home = await tempDir("cloud-home-memory-migration-");
     await mkdir(path.join(home, "memories"), { recursive: true });
     await mkdir(path.join(home, "threads"), { recursive: true });
     await mkdir(path.join(home, "transcripts"), { recursive: true });
 
-    const retired = [
-      path.join(home, "DREAM.md"),
-      path.join(home, "memories", "MEMORY.md"),
-      path.join(home, "memories", "memory_map.md"),
-      path.join(home, "memories", "memory_summary.md"),
-    ];
-    await Promise.all(
-      retired.map((filePath) => writeFile(filePath, "retired artifact")),
-    );
     const retained = new Map([
+      [path.join(home, "DREAM.md"), "legacy dream"],
+      [path.join(home, "memories", "MEMORY.md"), "durable memory"],
+      [path.join(home, "memories", "memory_map.md"), "memory map"],
+      [path.join(home, "memories", "memory_summary.md"), "memory summary"],
       [path.join(home, "core-memory.md"), "core memory"],
       [path.join(home, "memories", "profile.md"), "durable profile"],
       [path.join(home, "threads", "thread-42.json"), "thread result"],
@@ -211,14 +295,11 @@ describe("migrateLegacyHomeLayout", () => {
       [...retained].map(([filePath, content]) => writeFile(filePath, content)),
     );
 
-    await retireAutomaticMemoryArtifacts(home);
-    await retireAutomaticMemoryArtifacts(home);
+    // First and second boot both seed before the renderer can claim and scan
+    // the local corpus. Neither pass may consume the import source.
+    await migrateLegacyHomeLayout(home);
+    await migrateLegacyHomeLayout(home);
 
-    await Promise.all(
-      retired.map((filePath) =>
-        expect(readFile(filePath, "utf-8")).rejects.toThrow(),
-      ),
-    );
     await Promise.all(
       [...retained].map(([filePath, content]) =>
         expect(readFile(filePath, "utf-8")).resolves.toBe(content),

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  appendDemotedCatalogToNodeRepl,
+  appendDemotedCatalogToCode,
   collectDemotedToolNames,
   createPiTools,
   getProviderToolMetadata,
@@ -13,14 +13,13 @@ import type {
   ToolMetadata,
 } from "@stella/runtime/kernel/tools/types";
 
-const NODE_REPL_DESCRIPTION =
-  "Run JavaScript in a persistent Node REPL with top-level await.";
+const CODE_DESCRIPTION = "Run JavaScript with top-level await.";
 
 const baseCatalog: ToolMetadata[] = [
   {
-    name: "node_repl",
-    label: "Node REPL",
-    description: NODE_REPL_DESCRIPTION,
+    name: "code",
+    label: "Code",
+    description: CODE_DESCRIPTION,
     parameters: { type: "object", properties: { code: { type: "string" } } },
   },
   {
@@ -96,16 +95,13 @@ const makeTools = (options: {
   });
 
 describe("demoted tool catalog (createPiTools)", () => {
-  it("removes demoted tools from the direct list only when node_repl is active", () => {
-    const withRepl = makeTools({ toolsAllowlist: ["node_repl", "web"] });
-    expect(withRepl.map((tool) => tool.name).sort()).toEqual([
-      "node_repl",
-      "web",
-    ]);
+  it("removes demoted tools from the direct list only when code is active", () => {
+    const withCode = makeTools({ toolsAllowlist: ["code", "web"] });
+    expect(withCode.map((tool) => tool.name).sort()).toEqual(["code", "web"]);
 
     const withoutRepl = makeTools({ toolsAllowlist: ["web"] });
     // Never-strand fallback: demoted tools surface directly, with their
-    // real schema and description, for agents without node_repl.
+    // real schema and description, for agents without code.
     expect(withoutRepl.map((tool) => tool.name).sort()).toEqual([
       "connector_status",
       "web",
@@ -122,12 +118,12 @@ describe("demoted tool catalog (createPiTools)", () => {
   });
 
   it("applies the same deferred list and safe fallback to metadata-only provider routes", () => {
-    const withRepl = getProviderToolMetadata({
-      toolsAllowlist: ["node_repl", "web"],
+    const withCode = getProviderToolMetadata({
+      toolsAllowlist: ["code", "web"],
       toolCatalog: baseCatalog,
     });
-    expect(withRepl.map((tool) => tool.name)).toEqual(["node_repl", "web"]);
-    expect(withRepl[0]?.description).toContain("tools.connector_status(");
+    expect(withCode.map((tool) => tool.name)).toEqual(["code", "web"]);
+    expect(withCode[0]?.description).toContain("tools.connector_status(");
 
     const withoutRepl = getProviderToolMetadata({
       toolsAllowlist: ["web"],
@@ -142,21 +138,64 @@ describe("demoted tool catalog (createPiTools)", () => {
     );
   });
 
-  it("embeds a COMPLETE signature catalog into node_repl's description", () => {
-    const tools = makeTools({ toolsAllowlist: ["node_repl", "web"] });
-    const nodeRepl = tools.find((tool) => tool.name === "node_repl");
-    expect(nodeRepl?.description.startsWith(NODE_REPL_DESCRIPTION)).toBe(true);
-    expect(nodeRepl?.description).toContain(
+  it("keeps approval-required demoted tools direct and out of code", async () => {
+    const protectedTool: ToolMetadata = {
+      name: "publish_release",
+      description: "Publish a release.",
+      parameters: { type: "object", additionalProperties: false },
+      approval: { required: true },
+      demoted: {},
+    };
+    const catalog = [...baseCatalog, protectedTool];
+    const captured: CapturedCall[] = [];
+    const tools = makeTools({
+      toolsAllowlist: ["code"],
+      toolCatalog: catalog,
+      captured,
+    });
+
+    expect(tools.map((tool) => tool.name).sort()).toEqual([
+      "code",
+      "publish_release",
+    ]);
+    expect(
+      tools.find((tool) => tool.name === "code")?.description,
+    ).not.toContain("publish_release");
+    await tools
+      .find((tool) => tool.name === "code")!
+      .execute("call-code", {
+        code: "1 + 1",
+      });
+    expect(captured[0]?.allowedToolNames).not.toContain("publish_release");
+
+    const providerTools = getProviderToolMetadata({
+      toolsAllowlist: ["code"],
+      toolCatalog: catalog,
+    });
+    expect(providerTools.map((tool) => tool.name).sort()).toEqual([
+      "code",
+      "publish_release",
+    ]);
+    expect(
+      providerTools.find((tool) => tool.name === "code")?.description,
+    ).not.toContain("publish_release");
+  });
+
+  it("embeds a COMPLETE signature catalog into code's description", () => {
+    const tools = makeTools({ toolsAllowlist: ["code", "web"] });
+    const code = tools.find((tool) => tool.name === "code");
+    expect(code?.description.startsWith(CODE_DESCRIPTION)).toBe(true);
+    expect(code?.description).toContain(
       "Some tools are demoted from your direct tool list",
     );
     // the example connector tool is connector-gated out, so only connector_status is in scope.
-    expect(nodeRepl?.description).toContain(
-      "## Demoted tools (COMPLETE — all 1 shown; call via tools.<name> inside node_repl)",
+    expect(code?.description).toContain(
+      "## Demoted tools (COMPLETE — all 1 shown; call via tools.<name> inside code)",
     );
-    expect(nodeRepl?.description).toContain(
+    expect(code?.description).toContain(
       "tools.connector_status(input: { connector: string }): Promise<unknown>",
     );
-    expect(nodeRepl?.description).not.toContain("example_react_message");
+    expect(code?.description).not.toContain("example_react_message");
 
     // The web tool's description is untouched.
     expect(tools.find((tool) => tool.name === "web")?.description).toBe(
@@ -164,13 +203,13 @@ describe("demoted tool catalog (createPiTools)", () => {
     );
   });
 
-  it("keeps the node_repl description byte-identical when no demoted tool is in scope", () => {
+  it("keeps the code description byte-identical when no demoted tool is in scope", () => {
     const tools = makeTools({
-      toolsAllowlist: ["node_repl", "web"],
+      toolsAllowlist: ["code", "web"],
       toolCatalog: baseCatalog.filter((tool) => !tool.demoted),
     });
-    expect(tools.find((tool) => tool.name === "node_repl")?.description).toBe(
-      NODE_REPL_DESCRIPTION,
+    expect(tools.find((tool) => tool.name === "code")?.description).toBe(
+      CODE_DESCRIPTION,
     );
   });
 
@@ -185,26 +224,27 @@ describe("demoted tool catalog (createPiTools)", () => {
       demoted: {},
     }));
     const tools = makeTools({
-      toolsAllowlist: ["node_repl"],
+      toolsAllowlist: ["code"],
       toolCatalog: [baseCatalog[0]!, ...bulky],
     });
-    const description = tools.find((tool) => tool.name === "node_repl")
-      ?.description;
+    const description = tools.find((tool) => tool.name === "code")?.description;
     expect(description).toContain("## Demoted tools (PARTIAL — ");
     expect(description).toContain(
       "find the rest with await tools.$search({ query })",
     );
   });
 
-  it("widens allowedToolNames with context-visible demoted names only when node_repl is active", async () => {
+  it("widens allowedToolNames with context-visible demoted names only when code is active", async () => {
     const captured: CapturedCall[] = [];
     const tools = makeTools({
-      toolsAllowlist: ["node_repl", "web"],
+      toolsAllowlist: ["code", "web"],
       captured,
     });
-    await tools.find((tool) => tool.name === "web")!.execute("call-1", {
-      query: "hi",
-    });
+    await tools
+      .find((tool) => tool.name === "web")!
+      .execute("call-1", {
+        query: "hi",
+      });
     expect(captured[0]?.allowedToolNames).toContain("connector_status");
     expect(captured[0]?.allowedToolNames).not.toContain(
       "example_react_message",
@@ -215,10 +255,12 @@ describe("demoted tool catalog (createPiTools)", () => {
       toolsAllowlist: ["web"],
       captured: capturedNoRepl,
     });
-    await withoutRepl.find((tool) => tool.name === "web")!.execute("call-2", {
-      query: "hi",
-    });
-    // Without node_repl the demoted tool is itself in the active set, so
+    await withoutRepl
+      .find((tool) => tool.name === "web")!
+      .execute("call-2", {
+        query: "hi",
+      });
+    // Without code the demoted tool is itself in the active set, so
     // the union collapses to the active names.
     expect(capturedNoRepl[0]?.allowedToolNames?.sort()).toEqual([
       "connector_status",
@@ -227,24 +269,26 @@ describe("demoted tool catalog (createPiTools)", () => {
   });
 
   it("applies the requiredConnectorProvider gate to catalog, union, and direct fallback", async () => {
-    // Connector turn with node_repl: connector tools join the catalog and the union.
+    // Connector turn with code: connector tools join the catalog and the union.
     const captured: CapturedCall[] = [];
     const connectorTools = makeTools({
-      toolsAllowlist: ["node_repl", "web"],
+      toolsAllowlist: ["code", "web"],
       connectorProvider: "example_connector",
       captured,
     });
-    const nodeRepl = connectorTools.find((tool) => tool.name === "node_repl");
-    expect(nodeRepl?.description).toContain(
+    const code = connectorTools.find((tool) => tool.name === "code");
+    expect(code?.description).toContain(
       "## Demoted tools (COMPLETE — all 2 shown",
     );
-    expect(nodeRepl?.description).toContain("example_react_message");
-    await connectorTools.find((tool) => tool.name === "web")!.execute("call-1", {
-      query: "hi",
-    });
+    expect(code?.description).toContain("example_react_message");
+    await connectorTools
+      .find((tool) => tool.name === "web")!
+      .execute("call-1", {
+        query: "hi",
+      });
     expect(captured[0]?.allowedToolNames).toContain("example_react_message");
 
-    // Connector turn without node_repl: direct fallback includes the connector tool.
+    // Connector turn without code: direct fallback includes the connector tool.
     const connectorDirect = makeTools({
       toolsAllowlist: ["web"],
       connectorProvider: "example_connector",
@@ -255,7 +299,7 @@ describe("demoted tool catalog (createPiTools)", () => {
       "web",
     ]);
 
-    // Non-connector turn without node_repl: the gate hides the connector tool even
+    // Non-connector turn without code: the gate hides the connector tool even
     // from the direct fallback.
     const nonConnectorDirect = makeTools({ toolsAllowlist: ["web"] });
     expect(
@@ -282,10 +326,9 @@ describe("demoted tool catalog (createPiTools)", () => {
     expect(collectDemotedToolNames(baseCatalog, undefined)).toEqual([
       "connector_status",
     ]);
-    expect(collectDemotedToolNames(baseCatalog, "example_connector").sort()).toEqual([
-      "connector_status",
-      "example_react_message",
-    ]);
+    expect(
+      collectDemotedToolNames(baseCatalog, "example_connector").sort(),
+    ).toEqual(["connector_status", "example_react_message"]);
   });
 });
 
@@ -298,12 +341,12 @@ describe("collectReplSearchableTools (searchable must equal callable)", () => {
   };
 
   it("excludes a demoted tool absent from allowedToolNames (never-widened context)", () => {
-    // e.g. a voice-style session that has node_repl but never widened its
+    // e.g. a voice-style session that has code but never widened its
     // allowedToolNames with demoted tools: $search must not advertise a
     // signature that tools.<name> cannot invoke.
     const names = collectReplSearchableTools(baseCatalog, {
       ...baseContext,
-      allowedToolNames: ["node_repl", "web"],
+      allowedToolNames: ["code", "web"],
     }).map((tool) => tool.name);
     expect(names).toEqual(["web"]);
   });
@@ -311,7 +354,7 @@ describe("collectReplSearchableTools (searchable must equal callable)", () => {
   it("includes a demoted tool once the union carries its name", () => {
     const names = collectReplSearchableTools(baseCatalog, {
       ...baseContext,
-      allowedToolNames: ["node_repl", "web", "connector_status"],
+      allowedToolNames: ["code", "web", "connector_status"],
     }).map((tool) => tool.name);
     expect(names.sort()).toEqual(["connector_status", "web"]);
   });
@@ -355,37 +398,37 @@ describe("collectReplSearchableTools (searchable must equal callable)", () => {
   it("never returns REPL-excluded intrinsics", () => {
     const names = collectReplSearchableTools(baseCatalog, {
       ...baseContext,
-      allowedToolNames: ["node_repl", "multi_tool_use_parallel", "web"],
+      allowedToolNames: ["code", "node_repl", "multi_tool_use_parallel", "web"],
     }).map((tool) => tool.name);
     expect(names).toEqual(["web"]);
   });
 });
 
-describe("appendDemotedCatalogToNodeRepl (external-engine parity)", () => {
-  it("appends the workflow text + catalog to node_repl only, when demoted tools are in scope", () => {
+describe("appendDemotedCatalogToCode (external-engine parity)", () => {
+  it("appends the workflow text + catalog to code only, when demoted tools are in scope", () => {
     const metadata = [
-      { name: "node_repl", description: NODE_REPL_DESCRIPTION },
+      { name: "code", description: CODE_DESCRIPTION },
       { name: "web", description: "Search and fetch the web." },
     ];
-    const appended = appendDemotedCatalogToNodeRepl(
+    const appended = appendDemotedCatalogToCode(
       metadata,
       baseCatalog,
       undefined,
     ) as Array<{ name: string; description: string }>;
-    const nodeRepl = appended.find((tool) => tool.name === "node_repl");
-    expect(nodeRepl?.description).toContain(
+    const code = appended.find((tool) => tool.name === "code");
+    expect(code?.description).toContain(
       "Some tools are demoted from your direct tool list",
     );
-    expect(nodeRepl?.description).toContain("connector_status");
+    expect(code?.description).toContain("connector_status");
     expect(appended.find((tool) => tool.name === "web")?.description).toBe(
       "Search and fetch the web.",
     );
-    // No node_repl in the metadata → untouched. No demoted in scope → same.
+    // No code in the metadata → untouched. No demoted in scope → same.
     expect(
-      appendDemotedCatalogToNodeRepl([metadata[1]!], baseCatalog, undefined),
+      appendDemotedCatalogToCode([metadata[1]!], baseCatalog, undefined),
     ).toEqual([metadata[1]]);
     expect(
-      appendDemotedCatalogToNodeRepl(
+      appendDemotedCatalogToCode(
         metadata,
         baseCatalog.filter((tool) => !tool.demoted),
         undefined,
@@ -411,7 +454,7 @@ describe("multi_tool_use_parallel with demoted tools", () => {
       // The widened union from createPiTools: demoted connector_status is
       // reachable even though it is absent from the direct tool list.
       allowedToolNames: [
-        "node_repl",
+        "code",
         "web",
         "multi_tool_use_parallel",
         "connector_status",

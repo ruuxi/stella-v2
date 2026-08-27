@@ -13,6 +13,7 @@ import type {
   RuntimeErrorEvent,
   RuntimeExecutionSessionHandle,
   RuntimeReasoningEvent,
+  RuntimeProviderLifecycleEvent,
   RuntimeRunStartedEvent,
   RuntimeStatusEvent,
   RuntimeStreamEvent,
@@ -218,6 +219,7 @@ export type AgentCallbacks = {
     },
   ) => void;
   onStatus?: (event: RuntimeStatusEvent) => void;
+  onProviderLifecycle?: (event: RuntimeProviderLifecycleEvent) => void;
   onToolStart: (event: RuntimeToolStartEvent) => void;
   onToolEnd: (event: RuntimeToolEndEvent) => void;
   onError: (event: RuntimeErrorEvent) => void;
@@ -516,7 +518,15 @@ export type RunnerPublicApi = {
   sendMessage: (input: RuntimeSendMessageInput) => Promise<void>;
   sendUserMessage: (input: RuntimeSendUserMessageInput) => Promise<void>;
   runAutomationTurn: (
-    payload: RuntimeAutomationTurnRequest,
+    payload: RuntimeAutomationTurnRequest & {
+      /** Worker-local callback; never crosses the JSON-RPC boundary. */
+      onRemoteTurnAdmitted?: (args: {
+        requestId: string;
+        attemptId: string;
+        conversationId: string;
+        runId: string;
+      }) => Promise<boolean>;
+    },
   ) => Promise<RuntimeAutomationTurnResult>;
   runBlockingLocalAgent: (
     request: Omit<AgentToolRequest, "storageMode">,
@@ -534,6 +544,16 @@ export type RunnerPublicApi = {
     agentId: string,
     reason?: string,
   ) => Promise<{ canceled: boolean }>;
+  /** Exact local-only cancel with a pre-create tombstone; never falls to cloud. */
+  cancelBlockingLocalAgent: (
+    agentId: string,
+    reason?: string,
+  ) => Promise<{ canceled: boolean }>;
+  /** Durable pre-cancel plus exact joining cancel for a placement chat run. */
+  cancelPlacementAutomation: (
+    runId: string,
+    reason?: string,
+  ) => Promise<{ canceled: boolean }>;
   /**
    * The single joining cancel path: interrupts the run's fiber tree and
    * resolves only after every owned resource (provider streams, tools,
@@ -541,7 +561,7 @@ export type RunnerPublicApi = {
    * truthful terminal was emitted. Bounded by the per-resource abandonment
    * graces, so it can never hang.
    */
-  cancelLocalChat: (runId: string) => Promise<void>;
+  cancelLocalChat: (runId: string) => Promise<boolean>;
   /**
    * Cancel the active orchestrator run for the given local conversation,
    * if one exists. Resolves `true` (after the joining cancel) if a run was

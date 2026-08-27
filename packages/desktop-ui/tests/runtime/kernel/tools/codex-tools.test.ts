@@ -1423,15 +1423,15 @@ EOF`,
     }
   });
 
-  it("node_repl preserves file tracking from nested tool calls", async () => {
+  it("code preserves file tracking from nested tool calls", async () => {
     const root = await createTempDir();
     const target = path.join(root, "nested-edit.txt");
     const host = createToolHost({ stellaAppDir: root });
-    const patch = `*** Begin Patch\n*** Add File: ${target}\n+tracked through node repl\n*** End Patch`;
+    const patch = `*** Begin Patch\n*** Add File: ${target}\n+tracked through code\n*** End Patch`;
 
     try {
       const result = await host.executeTool(
-        "node_repl",
+        "code",
         {
           code: `await tools.apply_patch({input: ${JSON.stringify(patch)}})`,
         },
@@ -1443,7 +1443,7 @@ EOF`,
           agentType: "general",
           stellaAppDir: root,
           toolWorkspaceRoot: root,
-          allowedToolNames: ["node_repl", "apply_patch"],
+          allowedToolNames: ["code", "apply_patch"],
         },
       );
 
@@ -1452,7 +1452,7 @@ EOF`,
         { path: target, kind: { type: "add" } },
       ]);
       await expect(readFile(target, "utf8")).resolves.toBe(
-        "tracked through node repl\n",
+        "tracked through code\n",
       );
     } finally {
       await host.shutdown();
@@ -1496,7 +1496,7 @@ EOF`,
     }
   });
 
-  it("exposes persistent Computer Use through node_repl in the general agent metadata", async () => {
+  it("exposes persistent Computer Use through code in the general agent metadata", async () => {
     const metadataPath = path.join(
       repoRoot,
       "packages/runtime/extensions/stella-runtime/agent-metadata/general.md",
@@ -1510,7 +1510,8 @@ EOF`,
     expect(toolsLine).not.toContain("computer_list_apps");
     expect(toolsLine).not.toContain("computer_get_app_state");
     expect(toolsLine).not.toContain("computer_click");
-    expect(toolsLine).toContain("node_repl");
+    expect(toolsLine).toContain("code");
+    expect(toolsLine).not.toContain("node_repl");
   });
 
   it("RequestCredential delegates to the device callback", async () => {

@@ -19,7 +19,10 @@ import {
   getAgentSteeringMode,
   getLocalCliWorkingDirectory,
 } from "@stella/contracts/agent-runtime";
-import { resolveAgentThinkingLevel } from "./run-shared.js";
+import {
+  buildDefaultTransformContext,
+  resolveAgentThinkingLevel,
+} from "./run-shared.js";
 import { AGENT_RUN_MAX_ATTEMPTS } from "./run-retry.js";
 import { preflightProviderPayload } from "./context-budget.js";
 
@@ -314,6 +317,14 @@ export const createRuntimeAgent = (args: {
     // versa). The inner `?.()` returns `undefined` when the route lacks
     // one, which the agent loop already handles.
     refreshApiKey: () => resolveLlm().refreshApiKey?.(),
+    // Resolve the model on every provider round so a mid-session model swap
+    // immediately updates both its context budget and legacy code-history
+    // normalization at the provider edge.
+    transformContext: async (messages, signal) =>
+      buildDefaultTransformContext({ model: resolveLlm().model })(
+        messages,
+        signal,
+      ),
     onPayload: async (payload, model) => {
       const transform = createBeforeProviderPayloadTransform(
         args.hookEmitter,

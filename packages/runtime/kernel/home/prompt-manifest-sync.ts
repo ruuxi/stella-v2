@@ -8,9 +8,8 @@ import type { SqliteDatabase } from "../storage/shared.js";
 
 import {
   STELLA_PROMPT_COUNT,
+  STELLA_PROMPT_IDS,
   STELLA_PROMPT_ID_SET,
-  STELLA_PROMPT_LEGACY_COUNT,
-  STELLA_PROMPT_LEGACY_IDS,
   STELLA_PROMPT_MAX_CONTENT_BYTES,
   STELLA_PROMPT_MAX_MANIFEST_BYTES,
   STELLA_PROMPT_MAX_TOTAL_CONTENT_BYTES,
@@ -23,7 +22,6 @@ import {
 } from "@stella/contracts/stella-api";
 import { ensurePrivateDir } from "../shared/private-fs.js";
 import {
-  createFileEntryAdapter,
   reconcileBundledEntriesEffect,
   type BundledEntryAdapter,
   type BundledSyncReport,
@@ -169,8 +167,7 @@ export const parseRemotePromptManifest = (
     !Number.isSafeInteger(candidate.publishedAt) ||
     candidate.publishedAt < 0 ||
     !Array.isArray(candidate.prompts) ||
-    (candidate.prompts.length !== STELLA_PROMPT_COUNT &&
-      candidate.prompts.length !== STELLA_PROMPT_LEGACY_COUNT)
+    candidate.prompts.length !== STELLA_PROMPT_COUNT
   ) {
     return null;
   }
@@ -197,8 +194,8 @@ export const parseRemotePromptManifest = (
     ids.add(prompt.id);
   }
   if (
-    ids.size !== candidate.prompts.length ||
-    STELLA_PROMPT_LEGACY_IDS.some((id) => !ids.has(id)) ||
+    ids.size !== STELLA_PROMPT_COUNT ||
+    STELLA_PROMPT_IDS.some((id) => !ids.has(id)) ||
     revisionForPrompts(candidate.prompts) !== candidate.revision
   ) {
     return null;
@@ -985,35 +982,4 @@ export const reconcileRemotePromptManifest = (
       stellaDataDir,
       agentMetadataDir,
     ),
-  );
-
-/**
- * Transitional fallback for app versions that know about the Manager agent
- * before the deployed prompt manifest does. Remote reconciliation always runs
- * first; this only fills a missing home file and participates in the same
- * hash-history manifest, so a later remote Manager prompt can replace an
- * untouched fallback without trampling user edits.
- */
-export const reconcileBundledManagerPromptFallbackEffect = (
-  stellaDataDir: string,
-  agentMetadataDir: string,
-): Effect.Effect<BundledSyncReport, unknown> =>
-  reconcileBundledEntriesEffect(
-    agentMetadataDir,
-    path.join(stellaDataDir, "agents"),
-    createFileEntryAdapter(".md"),
-    {
-      includeBundledId: (id) => id === "manager",
-      sourceRevision: "bundled-manager-fallback",
-      seedMissingOnly: true,
-      removeObsolete: false,
-    },
-  );
-
-export const reconcileBundledManagerPromptFallback = (
-  stellaDataDir: string,
-  agentMetadataDir: string,
-): Promise<BundledSyncReport> =>
-  runHome(
-    reconcileBundledManagerPromptFallbackEffect(stellaDataDir, agentMetadataDir),
   );

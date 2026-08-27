@@ -32,6 +32,7 @@ import { Effect, Layer, ManagedRuntime, Stream } from "effect";
 import { streamSimple } from "../../ai/stream.js";
 import { AssistantMessageEventStream } from "../../ai/utils/event-stream.js";
 import type { AssistantMessageEvent } from "../../ai/types.js";
+import type { ProviderRequestLifecycleProof } from "../../ai/types.js";
 import type { StreamFn } from "../agent-core/types.js";
 import { createRuntimeLogger } from "../debug.js";
 import type { RunResourceRegistrar } from "./run-resources.js";
@@ -53,6 +54,22 @@ export const PROVIDER_STREAM_ABORT_JOIN_GRACE_MS = 5_000;
 type StreamOptions = NonNullable<Parameters<StreamFn>[2]>;
 type ProviderStream = Awaited<ReturnType<StreamFn>>;
 
+export type ProviderStreamLifecycleEvent = ProviderRequestLifecycleProof & {
+  streamOrdinal: number;
+  provider: string;
+  modelId: string;
+};
+
+export type ProviderStreamSettlementEvent = {
+  phase: "transport-joined" | "abandoned" | "outcome-unknown";
+  requestIdSha256: string;
+  physicalAttempt: number;
+  streamOrdinal: number;
+  provider: string;
+  modelId: string;
+  outcome?: "completed" | "canceled" | "error";
+};
+
 /**
  * Wrap a `StreamFn` so every stream it opens is supervised as a child
  * resource of the owning run and delivered through a run-owned Effect
@@ -69,6 +86,10 @@ export const createRunScopedStreamFn = (args: {
   runId: string;
   /** Test seam; production uses {@link PROVIDER_STREAM_ABORT_JOIN_GRACE_MS}. */
   abortJoinGraceMs?: number;
+  /** Hash-only proof callback. It never receives raw provider material. */
+  onLifecycle?: (
+    event: ProviderStreamLifecycleEvent | ProviderStreamSettlementEvent,
+  ) => void;
 }): StreamFn => {
   const base = args.base ?? streamSimple;
   const graceMs = args.abortJoinGraceMs ?? PROVIDER_STREAM_ABORT_JOIN_GRACE_MS;
@@ -76,6 +97,7 @@ export const createRunScopedStreamFn = (args: {
 
   return (model, context, options) => {
     sequence += 1;
+    const streamOrdinal = sequence;
     const label = `provider-stream:${args.runId}:${sequence}`;
     const outer = options?.signal;
     // Effect-ratchet pin (1 new AbortController): the relay seam controller —
@@ -90,6 +112,44 @@ export const createRunScopedStreamFn = (args: {
     }
 
     const release = () => outer?.removeEventListener("abort", onOuterAbort);
+    let latestProof: ProviderRequestLifecycleProof | undefined;
+    let transportClosed = false;
+    let lifecycleFinalized = false;
+    const emitLifecycle = (
+      event: ProviderStreamLifecycleEvent | ProviderStreamSettlementEvent,
+    ): void => {
+      try {
+        args.onLifecycle?.(event);
+      } catch (error) {
+        logger.warn("provider-stream.lifecycle-observer-failed", {
+          label,
+          model: model.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    };
+    const onProviderRequestLifecycle = (
+      proof: ProviderRequestLifecycleProof,
+    ): void => {
+      // Once abandonment or a joined close is published, late adapter
+      // callbacks cannot rewrite the observed outcome of this physical attempt.
+      if (lifecycleFinalized) return;
+      latestProof = proof;
+      if (proof.phase === "transport-closed") transportClosed = true;
+      emitLifecycle({
+        ...proof,
+        streamOrdinal,
+        provider: model.provider,
+        modelId: model.id,
+      });
+      try {
+        void Promise.resolve(options?.onProviderRequestLifecycle?.(proof)).catch(
+          () => undefined,
+        );
+      } catch {
+        // Proof observers are diagnostic only and cannot alter transport life.
+      }
+    };
 
     const superviseStream = (inner: ProviderStream): ProviderStream => {
       // True Effect Stream delivery: forward every provider event, in
@@ -135,6 +195,7 @@ export const createRunScopedStreamFn = (args: {
         const finish = (abandoned: boolean) => {
           if (settledFlag) return;
           settledFlag = true;
+          lifecycleFinalized = true;
           if (abandonTimer) clearTimeout(abandonTimer);
           release();
           if (abandoned) {
@@ -144,6 +205,47 @@ export const createRunScopedStreamFn = (args: {
               model: model.id,
               error: new RunResourceAbandonedError({ label, graceMs }).message,
             });
+          }
+          if (latestProof) {
+            if (abandoned) {
+              emitLifecycle({
+                phase: "abandoned",
+                requestIdSha256: latestProof.requestIdSha256,
+                physicalAttempt: latestProof.physicalAttempt,
+                streamOrdinal,
+                provider: model.provider,
+                modelId: model.id,
+              });
+              emitLifecycle({
+                phase: "outcome-unknown",
+                requestIdSha256: latestProof.requestIdSha256,
+                physicalAttempt: latestProof.physicalAttempt,
+                streamOrdinal,
+                provider: model.provider,
+                modelId: model.id,
+              });
+            } else if (transportClosed) {
+              emitLifecycle({
+                phase: "transport-joined",
+                requestIdSha256: latestProof.requestIdSha256,
+                physicalAttempt: latestProof.physicalAttempt,
+                streamOrdinal,
+                provider: model.provider,
+                modelId: model.id,
+                ...(latestProof.outcome
+                  ? { outcome: latestProof.outcome }
+                  : {}),
+              });
+            } else {
+              emitLifecycle({
+                phase: "outcome-unknown",
+                requestIdSha256: latestProof.requestIdSha256,
+                physicalAttempt: latestProof.physicalAttempt,
+                streamOrdinal,
+                provider: model.provider,
+                modelId: model.id,
+              });
+            }
           }
           resolve();
         };
@@ -180,6 +282,7 @@ export const createRunScopedStreamFn = (args: {
     const relayOptions = {
       ...(options ?? {}),
       signal: relay.signal,
+      onProviderRequestLifecycle,
     } as StreamOptions;
 
     let produced: ReturnType<StreamFn>;

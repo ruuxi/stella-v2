@@ -463,6 +463,10 @@ export class OrchestratorSession extends PiSessionCore {
       ? createRunScopedStreamFn({
           supervise: opts.superviseRunResource,
           runId,
+          onLifecycle: (event) =>
+            opts.callbacks?.onProviderLifecycle?.(
+              runEvents.recordProviderLifecycle(event),
+            ),
         })
       : streamSimple;
 

@@ -2,7 +2,7 @@
  * Live browser screenshot acceptance for the complete model-facing path.
  *
  * This intentionally runs outside Vitest and uses the production BrowserSession,
- * Node REPL worker, node_repl tool definition, and Pi tool adapter. It creates one
+ * trusted local Node kernel, public code tool, and Pi tool adapter. It creates one
  * task-owned external-browser tab, captures it, and finalizes that owner before
  * reporting. Run while the Stella browser bridge and extension are connected:
  *
@@ -26,8 +26,10 @@ import {
   type BrowserSessionOptions,
   type BrowserTurnEndBehavior,
 } from "../kernel/browser-use/client.js";
-import { NodeReplKernelRegistry } from "../kernel/computer-use/kernel.js";
-import { createNodeReplTool } from "../kernel/tools/defs/node-repl.js";
+import {
+  CodeKernelRegistry,
+  createCodeTool,
+} from "../kernel/tools/defs/code.js";
 import type {
   ToolContext,
   ToolResult,
@@ -152,12 +154,12 @@ const createTrackedBrowserSession = (
   };
 };
 
-const registry = new NodeReplKernelRegistry({
+const registry = new CodeKernelRegistry({
   sessionFactory: () => ({ request: async () => ({}) }),
   browserSessionFactory: createTrackedBrowserSession,
   idleTimeoutMs: 60_000,
 });
-const nodeReplTool = createNodeReplTool({ registry });
+const codeTool = createCodeTool({ registry });
 
 const [modelTool] = createPiTools({
   runId,
@@ -169,15 +171,15 @@ const [modelTool] = createPiTools({
   stellaDataDir: process.env.STELLA_DATA_DIR,
   toolWorkspaceRoot: process.cwd(),
   agentDepth: 1,
-  toolsAllowlist: ["node_repl"],
+  toolsAllowlist: ["code"],
   toolCatalog: [
     {
-      name: "node_repl",
-      description: nodeReplTool.description,
-      parameters: nodeReplTool.parameters,
+      name: "code",
+      description: codeTool.description,
+      parameters: codeTool.parameters,
     },
   ],
-  // This acceptance dispatches only node_repl, whose production adapter does
+  // This acceptance dispatches only code, whose production adapter does
   // not touch durable runtime storage. Keep the store deliberately inert so
   // the browser/REPL path remains the only exercised surface.
   store: {} as never,
@@ -188,21 +190,21 @@ const [modelTool] = createPiTools({
     signal?: AbortSignal,
     onUpdate?: ToolUpdateCallback,
   ): Promise<ToolResult> => {
-    assert(toolName === "node_repl", `Unexpected tool dispatch: ${toolName}`);
-    return await nodeReplTool.execute(toolArgs, toolContext, {
+    assert(toolName === "code", `Unexpected tool dispatch: ${toolName}`);
+    return await codeTool.execute(toolArgs, toolContext, {
       ...(signal ? { signal } : {}),
       ...(onUpdate ? { onUpdate } : {}),
     });
   },
 });
 
-assert(modelTool, "node_repl was not registered in the model tool adapter");
+assert(modelTool, "code was not registered in the model tool adapter");
 
 try {
   const resetErrorResult = await modelTool.execute(
     `live-browser-reset-error-${randomUUID()}`,
     {
-      code: "var discardedAfterLiveResetError = 1; nodeRepl.reset(); throw new Error('live adapter reset failure')",
+      code: "var discardedAfterLiveResetError = 1; codeRuntime.reset(); throw new Error('live adapter reset failure')",
       timeout_ms: 20_000,
     },
     undefined,
@@ -210,7 +212,7 @@ try {
   );
   const resetErrorDetails = resetErrorResult.details as
     | {
-        nodeRepl?: {
+        code?: {
           generation?: number;
           status?: string;
           reset?: {
@@ -224,17 +226,17 @@ try {
     | undefined;
   assert(resetErrorResult.isError === true, "Reset-then-error did not fail");
   assert(
-    resetErrorDetails?.nodeRepl?.status === "failed" &&
-      resetErrorDetails.nodeRepl.reset?.reason === "explicit" &&
-      resetErrorDetails.nodeRepl.reset.previousGeneration === 1 &&
-      resetErrorDetails.nodeRepl.reset.nextGeneration === 2 &&
-      resetErrorDetails.nodeRepl.reset.bindingsDiscarded === true,
+    resetErrorDetails?.code?.status === "failed" &&
+      resetErrorDetails.code.reset?.reason === "explicit" &&
+      resetErrorDetails.code.reset.previousGeneration === 1 &&
+      resetErrorDetails.code.reset.nextGeneration === 2 &&
+      resetErrorDetails.code.reset.bindingsDiscarded === true,
     `Reset-then-error lost provenance: ${JSON.stringify(resetErrorDetails)}`,
   );
   const afterErrorReset = await modelTool.execute(
     `live-browser-after-reset-error-${randomUUID()}`,
     {
-      code: "({ status: nodeRepl.status(), discarded: typeof discardedAfterLiveResetError })",
+      code: "({ status: codeRuntime.status(), discarded: typeof discardedAfterLiveResetError })",
       timeout_ms: 20_000,
     },
     undefined,
@@ -256,11 +258,11 @@ var acceptanceScreenshot;
 try {
   await acceptanceTab.playwright.waitForURL(${JSON.stringify(pageUrl)}, { timeout: 5000 });
   acceptanceScreenshot = await acceptanceTab.screenshot({ format: "png" });
-  nodeRepl.write({ tabId: acceptanceTab.id, screenshot: acceptanceScreenshot });
+  codeRuntime.write({ tabId: acceptanceTab.id, screenshot: acceptanceScreenshot });
 } finally {
   await browser.tabs.finalize([]);
 }
-nodeRepl.reset()`;
+codeRuntime.reset()`;
 
   const result = await modelTool.execute(
     `live-browser-adapter-${randomUUID()}`,
@@ -277,7 +279,7 @@ nodeRepl.reset()`;
 
   assert(
     result.isError !== true,
-    `Model-facing node_repl result was an error: ${text}`,
+    `Model-facing code result was an error: ${text}`,
   );
   assert(
     images.length === 1,
@@ -329,7 +331,7 @@ nodeRepl.reset()`;
 
   const details = result.details as
     | {
-        nodeRepl?: {
+        code?: {
           content?: Array<{
             type?: string;
             path?: string;
@@ -345,13 +347,13 @@ nodeRepl.reset()`;
         };
       }
     | undefined;
-  const typedDetail = details?.nodeRepl?.content?.find(
+  const typedDetail = details?.code?.content?.find(
     (item) => item.type === "image",
   );
-  assert(typedDetail, "Typed node_repl image metadata is missing");
+  assert(typedDetail, "Typed code image metadata is missing");
   assert(
     typedDetail.path === image.sourcePath,
-    "Model image source and node_repl image receipt disagree",
+    "Model image source and code image receipt disagree",
   );
   assert(
     typedDetail.deleteAfterAttach === true,
@@ -368,15 +370,15 @@ nodeRepl.reset()`;
     "Adapter did not acknowledge and clean up the transferred screenshot",
   );
   assert(
-    details?.nodeRepl?.reset?.reason === "explicit" &&
-      details.nodeRepl.reset.previousGeneration === 2 &&
-      details.nodeRepl.reset.nextGeneration === 3 &&
-      details.nodeRepl.reset.bindingsDiscarded === true,
+    details?.code?.reset?.reason === "explicit" &&
+      details.code.reset.previousGeneration === 2 &&
+      details.code.reset.nextGeneration === 3 &&
+      details.code.reset.bindingsDiscarded === true,
     `Screenshot reset lost provenance: ${JSON.stringify(details)}`,
   );
   const afterScreenshotReset = await modelTool.execute(
     `live-browser-after-screenshot-reset-${randomUUID()}`,
-    { code: "nodeRepl.status()", timeout_ms: 20_000 },
+    { code: "codeRuntime.status()", timeout_ms: 20_000 },
     undefined,
     undefined,
   );
@@ -416,11 +418,11 @@ nodeRepl.reset()`;
         rawBase64InModelText: false,
         legacyMarkerInModelText: false,
         resetThenError: {
-          reset: resetErrorDetails?.nodeRepl?.reset,
+          reset: resetErrorDetails?.code?.reset,
           committedState: afterErrorText,
         },
         screenshotReset: {
-          reset: details?.nodeRepl?.reset,
+          reset: details?.code?.reset,
           nextState: afterScreenshotText,
           temporaryFileRemoved: true,
         },

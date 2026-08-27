@@ -143,11 +143,11 @@ export type ToolMetadata = {
   /** MCP-style callable annotations, when the tool source provides them. */
   annotations?: Record<string, unknown>;
   /**
-   * Demoted tools leave the model's direct tool list whenever `node_repl`
+   * Demoted tools leave the model's direct tool list whenever `code`
    * is available for the agent and become callable only as
    * `tools.<name>(args)` inside the REPL, advertised through the
-   * token-budgeted signature catalog in node_repl's description and
-   * discoverable via `tools.$search`. Agents without node_repl get the tool
+   * token-budgeted signature catalog in code's description and
+   * discoverable via `tools.$search`. Agents without code get the tool
    * in their direct list as usual (never stranded).
    */
   demoted?: {
@@ -689,13 +689,13 @@ export type ToolDefinition = {
   promptSnippet?: string;
   /**
    * Demoted tools are dropped from the model's direct tool list whenever
-   * `node_repl` is available for the agent; they remain callable inside the
+   * `code` is available for the agent; they remain callable inside the
    * REPL as `tools.<name>(args)` and are advertised through the signature
-   * catalog appended to node_repl's description (plus `tools.$search` and
+   * catalog appended to code's description (plus `tools.$search` and
    * on-demand full docs via `tools.$describe`).
    * `requiredConnectorProvider` gates context-specific tools to matching
    * connector-delivery turns; `searchTerms` feed `$search` scoring.
-   * Agents without node_repl get demoted tools in their direct list as
+   * Agents without code get demoted tools in their direct list as
    * normal tools, so nothing is ever stranded.
    *
    * Reachability rule: demoted tools are gated by `agentTypes`/catalog

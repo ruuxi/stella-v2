@@ -30,11 +30,11 @@ export interface ToolDefinition {
   /** MCP-style callable annotations supplied by the tool source. */
   annotations?: Record<string, unknown>;
   /**
-   * Demoted: dropped from the model's direct tool list when node_repl is
+   * Demoted: dropped from the model's direct tool list when code is
    * available; callable inside the REPL as `tools.<name>(args)` and
    * discoverable via `tools.$search` and fully documented on demand via
    * `tools.$describe`. Direct-listed as a normal tool for agents without
-   * node_repl.
+   * code.
    */
   demoted?: {
     searchTerms?: readonly string[];

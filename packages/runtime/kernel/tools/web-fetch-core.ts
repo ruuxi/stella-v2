@@ -28,6 +28,14 @@ export const MAX_FETCH_BODY_BYTES = 8 * 1024 * 1024;
  * not the whole stream.
  */
 const readCappedText = async (response: Response): Promise<string> => {
+  const contentLength = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(contentLength) &&
+    contentLength > MAX_FETCH_BODY_BYTES
+  ) {
+    await response.body?.cancel("response byte limit exceeded").catch(() => undefined);
+    throw new Error("Response exceeded the safe byte limit.");
+  }
   const body = response.body;
   if (!body) return response.text();
   const reader = body.getReader();
@@ -38,12 +46,20 @@ const readCappedText = async (response: Response): Promise<string> => {
       const { done, value } = await reader.read();
       if (done) break;
       if (!value) continue;
-      chunks.push(value);
-      total += value.byteLength;
-      if (total >= MAX_FETCH_BODY_BYTES) break;
+      const remaining = MAX_FETCH_BODY_BYTES - total;
+      if (remaining <= 0) break;
+      // A stream is allowed to yield a chunk larger than the remaining budget.
+      // Never use that chunk's full size to allocate the joined buffer.
+      const accepted = Math.min(value.byteLength, remaining);
+      chunks.push(
+        accepted === value.byteLength ? value : value.slice(0, accepted),
+      );
+      total += accepted;
+      if (accepted < value.byteLength || total >= MAX_FETCH_BODY_BYTES) break;
     }
   } finally {
     await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
   const joined = new Uint8Array(total);
   let offset = 0;
@@ -89,6 +105,8 @@ export type WebFetchCoreOptions = {
   /** Redact/clean text before it becomes model-visible. */
   sanitize?: (text: string) => string;
   userAgent?: string;
+  /** Caller cancellation is combined with the whole-pipeline deadline. */
+  signal?: AbortSignal;
 };
 
 export const fetchReadableText = async (
@@ -106,6 +124,9 @@ export const fetchReadableText = async (
   // platform's own `AbortSignal.timeout` rather than an Effect fiber; the
   // catch below maps its `TimeoutError` to the exact legacy timeout string.
   const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  const requestSignal = options.signal
+    ? AbortSignal.any([options.signal, timeoutSignal])
+    : timeoutSignal;
 
   try {
     let targetUrl = await options.guardUrl(args.url);
@@ -117,7 +138,7 @@ export const fetchReadableText = async (
       redirectCount += 1
     ) {
       response = await fetch(targetUrl, {
-        signal: timeoutSignal,
+        signal: requestSignal,
         redirect: "manual",
         headers: {
           "User-Agent": options.userAgent ?? "Stella/1.0",
@@ -178,6 +199,9 @@ export const fetchReadableText = async (
     // `TimeoutError` is what `AbortSignal.timeout` rejects with; its message
     // varies by runtime ("The operation timed out." on Bun does not contain
     // "abort"), so match the name as well to keep the legacy timeout string.
+    if (options.signal?.aborted) {
+      return "Error: Request canceled.";
+    }
     if (msg.includes("abort") || (error as Error).name === "TimeoutError") {
       return `Error: Request timed out after ${FETCH_TIMEOUT_MS / 1000}s`;
     }

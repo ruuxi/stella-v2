@@ -31,6 +31,10 @@ import type {
   FileChangeRecord,
   ProducedFileRecord,
 } from "@stella/contracts/file-changes";
+import type {
+  ProviderStreamLifecycleEvent,
+  ProviderStreamSettlementEvent,
+} from "./provider-stream-lifecycle.js";
 
 export type RuntimeStreamEvent = {
   runId: string;
@@ -101,6 +105,22 @@ export type RuntimeStatusEvent = {
   seq: number;
   statusState: "running" | "compacting" | "provider-retry" | "model-fallback";
   statusText: string;
+  uiVisibility?: "visible" | "hidden";
+};
+
+export type RuntimeProviderLifecycleEvent = {
+  runId: string;
+  agentType: string;
+  seq: number;
+  providerLifecyclePhase:
+    | ProviderStreamLifecycleEvent["phase"]
+    | ProviderStreamSettlementEvent["phase"];
+  providerRequestIdSha256: string;
+  providerPhysicalAttempt: number;
+  providerStreamOrdinal: number;
+  providerName: string;
+  providerModelId: string;
+  providerOutcome?: "completed" | "canceled" | "error";
   uiVisibility?: "visible" | "hidden";
 };
 
@@ -184,6 +204,7 @@ export type RuntimeRunCallbacks = {
   onStream: (event: RuntimeStreamEvent) => void;
   onReasoning?: (event: RuntimeReasoningEvent) => void;
   onStatus?: (event: RuntimeStatusEvent) => void;
+  onProviderLifecycle?: (event: RuntimeProviderLifecycleEvent) => void;
   onToolStart: (event: RuntimeToolStartEvent) => void;
   onToolEnd: (event: RuntimeToolEndEvent) => void;
   onError: (event: RuntimeErrorEvent) => void;

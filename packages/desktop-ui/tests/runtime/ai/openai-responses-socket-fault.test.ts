@@ -86,6 +86,7 @@ describe("OpenAI Responses socket fault recovery", () => {
     const idempotencyKeys: Array<string | undefined> = [];
     const requestBodies: string[] = [];
     const retries: Array<{ attempt: number; delayMs: number }> = [];
+    const lifecycle: Array<Record<string, unknown>> = [];
     const server = http.createServer(async (request, response) => {
       idempotencyKeys.push(request.headers["idempotency-key"] as string);
       let body = "";
@@ -103,6 +104,7 @@ describe("OpenAI Responses socket fault recovery", () => {
       apiKey: "test",
       onProviderRetry: ({ attempt, delayMs }) =>
         retries.push({ attempt, delayMs }),
+      onProviderRequestLifecycle: (proof) => lifecycle.push(proof),
     }).result();
 
     expect(result.stopReason).toBe("stop");
@@ -112,6 +114,20 @@ describe("OpenAI Responses socket fault recovery", () => {
     expect(idempotencyKeys[1]).toBe(idempotencyKeys[0]);
     expect(requestBodies[1]).toBe(requestBodies[0]);
     expect(retries).toHaveLength(1);
+    expect(lifecycle.map((event) => event.phase)).toEqual([
+      "request-admitted",
+      "request-dispatched",
+      "request-dispatched",
+      "stream-open",
+      "transport-closed",
+    ]);
+    expect(lifecycle.map((event) => event.physicalAttempt)).toEqual([
+      1, 1, 2, 2, 2,
+    ]);
+    const proofHashes = lifecycle.map((event) => event.requestIdSha256);
+    expect(new Set(proofHashes).size).toBe(1);
+    expect(proofHashes[0]).toMatch(/^[a-f0-9]{64}$/u);
+    expect(JSON.stringify(lifecycle)).not.toContain(idempotencyKeys[0]);
   });
 
   it("resumes a provider-durable response by id and cursor without duplicating deltas", async () => {

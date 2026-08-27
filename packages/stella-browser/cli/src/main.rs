@@ -23,7 +23,7 @@ Usage:
   stella-browser diagnostics tabs [--session <name>] [--json]
   stella-browser native-host
 
-Browser automation is available through Stella's persistent node_repl browser
+Browser automation is available through Stella's persistent code browser
 API. This executable only hosts and diagnoses the native browser service."#
     );
 }
@@ -203,7 +203,7 @@ fn main() {
             Err(error) => fail(error, args.iter().any(|arg| arg == "--json")),
         },
         _ => fail(
-            "Browser action commands were removed. Use Stella's node_repl browser API.",
+            "Browser action commands were removed. Use Stella's code browser API.",
             args.iter().any(|arg| arg == "--json"),
         ),
     }

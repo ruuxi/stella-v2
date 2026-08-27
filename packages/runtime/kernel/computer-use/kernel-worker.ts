@@ -72,7 +72,7 @@ const nodeReplWorkerMain = async (
   )) as typeof import("node:util");
 
   if (!parentPort || !workerData) {
-    throw new Error("Node REPL worker requires a parent transport and data.");
+    throw new Error("Code worker requires a parent transport and data.");
   }
 
   const kernelRequire = createRequire(workerData.moduleUrl);
@@ -86,7 +86,7 @@ const nodeReplWorkerMain = async (
   ]);
   const blockedCapability = (name: string) => {
     const blocked = function blockedNodeReplCapability() {
-      throw new Error(`Direct process access is blocked in node_repl: ${name}`);
+      throw new Error(`Direct process access is blocked in code: ${name}`);
     };
     return blocked;
   };
@@ -249,9 +249,7 @@ const nodeReplWorkerMain = async (
   const callSky = (method: SkyMethod, args: unknown[]): Promise<unknown> => {
     if (activeEvaluationId === null) {
       return Promise.reject(
-        new Error(
-          "sky methods may only be called during node_repl evaluation.",
-        ),
+        new Error("sky methods may only be called during code evaluation."),
       );
     }
     if (pendingSkyCalls.size >= workerData.maxPendingSkyCalls) {
@@ -293,9 +291,7 @@ const nodeReplWorkerMain = async (
   ): Promise<unknown> => {
     if (activeEvaluationId === null) {
       return Promise.reject(
-        new Error(
-          "browser methods may only be called during node_repl evaluation.",
-        ),
+        new Error("browser methods may only be called during code evaluation."),
       );
     }
     if (pendingBrowserCalls.size >= workerData.maxPendingBrowserCalls) {
@@ -335,9 +331,7 @@ const nodeReplWorkerMain = async (
   ): Promise<unknown> => {
     if (activeEvaluationId === null) {
       return Promise.reject(
-        new Error(
-          "connect methods may only be called during node_repl evaluation.",
-        ),
+        new Error("connect methods may only be called during code evaluation."),
       );
     }
     if (pendingConnectCalls.size >= (workerData.maxPendingConnectCalls ?? 16)) {
@@ -374,7 +368,7 @@ const nodeReplWorkerMain = async (
   ): Promise<unknown> => {
     if (activeEvaluationId === null) {
       return Promise.reject(
-        new Error("tools may only be called during node_repl evaluation."),
+        new Error("tools may only be called during code evaluation."),
       );
     }
     if (
@@ -539,7 +533,9 @@ const nodeReplWorkerMain = async (
 
   const appendContent = (item: NodeReplContentItem) => {
     if (!content) {
-      throw new Error("nodeRepl.write may only be called during evaluation.");
+      throw new Error(
+        "codeRuntime.write may only be called during evaluation.",
+      );
     }
     const separatorBytes = content.length > 0 ? 1 : 0;
     if (item.type !== "text") {
@@ -549,7 +545,7 @@ const nodeReplWorkerMain = async (
         itemBytes + contentBytes + separatorBytes >
           workerData.maxEvalOutputBytes
       ) {
-        throw new Error("Node REPL media output exceeds the evaluation limit.");
+        throw new Error("Code media output exceeds the evaluation limit.");
       }
       content.push(Object.freeze(item));
       contentBytes += separatorBytes + itemBytes;
@@ -584,18 +580,18 @@ const nodeReplWorkerMain = async (
   const mediaPath = (value: unknown, helper: "emitImage" | "emitAudio") => {
     if (typeof value !== "string") {
       throw new Error(
-        `nodeRepl.${helper} requires an absolute file path or file:// URL.`,
+        `codeRuntime.${helper} requires an absolute file path or file:// URL.`,
       );
     }
     let absolutePath: string;
     try {
       absolutePath = value.startsWith("file://") ? fileURLToPath(value) : value;
     } catch {
-      throw new Error(`nodeRepl.${helper} received an invalid file:// URL.`);
+      throw new Error(`codeRuntime.${helper} received an invalid file:// URL.`);
     }
     if (!path.isAbsolute(absolutePath)) {
       throw new Error(
-        `nodeRepl.${helper} requires an absolute file path or file:// URL.`,
+        `codeRuntime.${helper} requires an absolute file path or file:// URL.`,
       );
     }
     return absolutePath;
@@ -672,7 +668,9 @@ const nodeReplWorkerMain = async (
     });
   const reset = () => {
     if (activeEvaluationId === null) {
-      throw new Error("nodeRepl.reset may only be called during evaluation.");
+      throw new Error(
+        "codeRuntime.reset may only be called during evaluation.",
+      );
     }
     const requestedAt = Date.now();
     post({
@@ -694,23 +692,23 @@ const nodeReplWorkerMain = async (
       bindings:
         "Bindings persist within one kernel generation. Use var for names you may redeclare. let and const cannot be redeclared in a later cell.",
       images:
-        "Browser screenshots attach automatically and return a receipt. Call nodeRepl.emitImage(path, { mimeType, detail }) only for an absolute local path or file:// URL you created yourself; emitAudio(path, { mimeType }) records typed audio output.",
+        "Browser screenshots attach automatically and return a receipt. Call codeRuntime.emitImage(path, { mimeType, detail }) only for an absolute local path or file:// URL you created yourself; emitAudio(path, { mimeType }) records typed audio output.",
       reset:
-        "nodeRepl.reset() ends the current generation after this cell and discards all bindings. nodeRepl.status() reports the current generation.",
+        "codeRuntime.reset() ends the current generation after this cell and discards all bindings. codeRuntime.status() reports the current generation.",
       tools:
         "Use tools.$list() for exact callable names and access expressions, including bracket notation for names that are not valid JavaScript identifiers. Use await tools.$search({ query }) for scoped discovery. Browser and computer APIs are documented by their installed skills.",
     } as const;
     if (topic === undefined) {
-      return "nodeRepl help topics: bindings, images, reset, tools";
+      return "codeRuntime help topics: bindings, images, reset, tools";
     }
     if (!(topic in entries)) {
       throw new Error(
-        "nodeRepl.help topic must be bindings, images, reset, or tools.",
+        "codeRuntime.help topic must be bindings, images, reset, or tools.",
       );
     }
     return entries[topic as keyof typeof entries];
   };
-  const nodeRepl = Object.freeze({
+  const codeRuntime = Object.freeze({
     cwd: workerData.cwd,
     home,
     tmp,
@@ -773,16 +771,22 @@ const nodeReplWorkerMain = async (
   });
   const guardedRequire = (specifier: string) => {
     if (BLOCKED_NODE_MODULES.has(specifier)) {
-      throw new Error(
-        `Direct process access is blocked in node_repl: ${specifier}`,
-      );
+      throw new Error(`Direct process access is blocked in code: ${specifier}`);
     }
     return kernelRequire(specifier);
   };
   Object.defineProperties(server.context, {
-    nodeRepl: {
-      value: nodeRepl,
+    codeRuntime: {
+      value: codeRuntime,
       enumerable: true,
+      writable: false,
+      configurable: false,
+    },
+    // Compatibility for JavaScript authored against the pre-`code` helper.
+    // It is intentionally non-enumerable and absent from current prompts.
+    nodeRepl: {
+      value: codeRuntime,
+      enumerable: false,
       writable: false,
       configurable: false,
     },
@@ -844,7 +848,7 @@ const nodeReplWorkerMain = async (
     let firstFailure: Error | undefined;
     // Bounded settlement deadline. A nested call the cell started without
     // awaiting can be wedged on a transport that never responds; waiting
-    // unboundedly would hold the whole node_repl tool call open until the
+    // unboundedly would hold the whole code tool call open until the
     // parent's eval timeout kills the kernel (losing REPL state) — or
     // forever if that rejection is itself blocked. Fail the evaluation with
     // a diagnosis instead; the kernel stays alive and reusable. The literal
@@ -882,7 +886,7 @@ const nodeReplWorkerMain = async (
         ];
         if (unsettled.length > 0) {
           const timeoutError = new Error(
-            `node_repl finished evaluating, but ${unsettled.length} nested tool call(s) started by this cell never settled within ${drainWaitMs}ms: ${unsettled.join(", ")}. The unsettled call(s) were abandoned. Await nested tools.* promises inside the cell so failures and results surface deterministically.`,
+            `code finished evaluating, but ${unsettled.length} nested tool call(s) started by this cell never settled within ${drainWaitMs}ms: ${unsettled.join(", ")}. The unsettled call(s) were abandoned. Await nested tools.* promises inside the cell so failures and results surface deterministically.`,
           );
           timeoutError.name = "NodeReplDrainTimeoutError";
           throw timeoutError;
@@ -908,9 +912,7 @@ const nodeReplWorkerMain = async (
       post({
         type: "evaluation-error",
         evaluationId,
-        error: serializeError(
-          new Error("Node REPL worker is already evaluating."),
-        ),
+        error: serializeError(new Error("Code worker is already evaluating.")),
         finalCursor: 0,
       });
       return;
@@ -924,7 +926,7 @@ const nodeReplWorkerMain = async (
     try {
       const rendered = await new Promise<string>((resolve, reject) => {
         outputErrorReject = reject;
-        server.eval(code, server.context, "node_repl", (error, value) => {
+        server.eval(code, server.context, "stella-code", (error, value) => {
           clearTimeout(outputErrorTimer);
           outputErrorTimer = undefined;
           outputErrorReject = undefined;

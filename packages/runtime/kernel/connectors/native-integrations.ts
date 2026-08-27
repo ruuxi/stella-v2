@@ -378,7 +378,7 @@ export const getNativeConnectorTools = (
       {
         name: backendIntegrationRunToolName(entry.id),
         title: `Run ${entry.name} Action`,
-        description: `Run a ${entry.name} action through Stella's connected integration account. Inspect supported action names and inputs with the node_repl connect client (connect.actions / connect.schema).`,
+        description: `Run a ${entry.name} action through Stella's connected integration account. Inspect supported action names and inputs with the code connect client (connect.actions / connect.schema).`,
         inputSchema: {
           type: "object",
           additionalProperties: false,
@@ -665,8 +665,8 @@ const writeNativeConnectorSkill = async (
       : "- No recovered catalog actions were available for this provider.";
   const restLine =
     remainingActionCount > 0
-      ? `\n\n${remainingActionCount} more actions are not listed here. Find them with \`await connect.actions("${entry.id}", { query: "<keywords>" })\` and fetch a full input schema with \`await connect.schema("${entry.id}", "<ACTION>")\` in node_repl.`
-      : `\n\nFull input schemas: \`await connect.schema("${entry.id}", "<ACTION>")\` in node_repl.`;
+      ? `\n\n${remainingActionCount} more actions are not listed here. Find them with \`await connect.actions("${entry.id}", { query: "<keywords>" })\` and fetch a full input schema with \`await connect.schema("${entry.id}", "<ACTION>")\` in code.`
+      : `\n\nFull input schemas: \`await connect.schema("${entry.id}", "<ACTION>")\` in code.`;
   const catalogActionsPath = path.join(skillDir, "ACTIONS.md");
   if (
     entry.provider === "oauth-catalog" ||
@@ -675,8 +675,8 @@ const writeNativeConnectorSkill = async (
     await fs.writeFile(
       catalogActionsPath,
       entry.provider === "backend-composio"
-        ? `# ${entry.name} Actions (top ${topActions.length} of ${catalogActions.length})\n\nCompact Stella action reference for ${entry.name}. Execute with \`await connect.call("${entry.id}", "<ACTION>", { ... })\` in node_repl.\n\n${catalogActionLines}${restLine}\n`
-        : `# ${entry.name} Catalog Actions (top ${topActions.length} of ${catalogActions.length})\n\nRecovered OAuth action references for choosing the right ${entry.name} API endpoint. Execute via \`await connect.call("${entry.id}", "/path", { method, query, body })\` in node_repl.\n\n${catalogActionLines}${restLine}\n`,
+        ? `# ${entry.name} Actions (top ${topActions.length} of ${catalogActions.length})\n\nCompact Stella action reference for ${entry.name}. Execute with \`await connect.call("${entry.id}", "<ACTION>", { ... })\` in code.\n\n${catalogActionLines}${restLine}\n`
+        : `# ${entry.name} Catalog Actions (top ${topActions.length} of ${catalogActions.length})\n\nRecovered OAuth action references for choosing the right ${entry.name} API endpoint. Execute via \`await connect.call("${entry.id}", "/path", { method, query, body })\` in code.\n\n${catalogActionLines}${restLine}\n`,
       "utf-8",
     );
   }
@@ -690,7 +690,7 @@ ${GENERATED_SKILL_MARKER}
 
 Use this skill for work that needs ${entry.name}. The integration must stay enabled in the Store; calls are refused when it is disabled.
 
-Preferred: the frozen \`connect\` client inside \`node_repl\`:
+Preferred: the frozen \`connect\` client inside \`code\`:
 
 \`\`\`js
 await connect.actions("${entry.id}", { query: "<keywords>" }); // find actions (capped list)

@@ -324,4 +324,195 @@ describe("subagent shell recovery scope", () => {
     });
     expect(manager.cancelAgent).toHaveBeenCalledWith("agent-1", "paused");
   });
+
+  it("durably pre-cancels an exact blocking-agent ID across a worker restart", async () => {
+    const durableSettings = new Map<string, string>();
+    const runtimeStore = {
+      getAgentRecord: vi.fn(() => null),
+      getSetting: vi.fn((key: string) => durableSettings.get(key) ?? null),
+      setSetting: vi.fn((key: string, value: string) => {
+        durableSettings.set(key, value);
+      }),
+    };
+    const context = {
+      stellaDataDir: "/tmp/stella-data",
+      state: {
+        isRunning: true,
+        backgroundExitWake: null,
+        localAgentManager: null,
+        orchestratorSessions: new Map(),
+        runCallbacksByRunId: new Map(),
+        conversationCallbacks: new Map(),
+      },
+      runtimeStore,
+      toolHost: { listRunningShellSessionsOwnedBy: vi.fn(() => []) },
+    } as never;
+    const orchestration = createAgentOrchestration(context, {
+      buildAgentContext: vi.fn(),
+      sendMessage: vi.fn(),
+    });
+    const manager = (
+      context as unknown as {
+        state: {
+          localAgentManager: {
+            createAgent: (...args: unknown[]) => Promise<unknown>;
+            cancelAgent: (...args: unknown[]) => Promise<unknown>;
+          };
+        };
+      }
+    ).state.localAgentManager;
+    const createAgent = vi.spyOn(manager, "createAgent");
+    const cancelAgent = vi.spyOn(manager, "cancelAgent");
+
+    await orchestration.cancelBlockingLocalAgent(
+      "placement-agent:exact-pre-cancel",
+      "Canceled by placement",
+    );
+    // Recreate the orchestration/manager around the same durable store to model
+    // the worker dying after cancellation ACK but before the run RPC arrives.
+    const restartedContext = {
+      ...context,
+      state: {
+        ...context.state,
+        localAgentManager: null,
+        orchestratorSessions: new Map(),
+        runCallbacksByRunId: new Map(),
+        conversationCallbacks: new Map(),
+      },
+    } as never;
+    const restarted = createAgentOrchestration(restartedContext, {
+      buildAgentContext: vi.fn(),
+      sendMessage: vi.fn(),
+    });
+    const restartedManager = (
+      restartedContext as unknown as {
+        state: {
+          localAgentManager: {
+            createAgent: (...args: unknown[]) => Promise<unknown>;
+            cancelAgent: (...args: unknown[]) => Promise<unknown>;
+          };
+        };
+      }
+    ).state.localAgentManager;
+    const restartedCreateAgent = vi.spyOn(restartedManager, "createAgent");
+    const result = await restarted.runBlockingLocalAgent({
+      conversationId: "conversation-1",
+      description: "Must stay canceled",
+      prompt: "Do not start",
+      agentType: AGENT_IDS.GENERAL,
+      threadId: "placement-agent:exact-pre-cancel",
+    });
+
+    expect(result).toEqual({
+      status: "error",
+      finalText: "",
+      error: "Canceled by placement",
+      threadId: "placement-agent:exact-pre-cancel",
+    });
+    expect(runtimeStore.setSetting).toHaveBeenCalledOnce();
+    expect(createAgent).not.toHaveBeenCalled();
+    expect(restartedCreateAgent).not.toHaveBeenCalled();
+    expect(cancelAgent).not.toHaveBeenCalled();
+  });
+
+  it("cancels the exact local blocking-agent owner after create wins the race", async () => {
+    let created = false;
+    const durableSettings = new Map<string, string>();
+    let settle!: (value: { status: "canceled"; error: string }) => void;
+    const settled = new Promise<{ status: "canceled"; error: string }>(
+      (resolve) => {
+        settle = resolve;
+      },
+    );
+    const context = {
+      stellaDataDir: "/tmp/stella-data",
+      state: {
+        isRunning: true,
+        backgroundExitWake: null,
+        localAgentManager: null,
+        orchestratorSessions: new Map(),
+        runCallbacksByRunId: new Map(),
+        conversationCallbacks: new Map(),
+      },
+      runtimeStore: {
+        getSetting: vi.fn((key: string) => durableSettings.get(key) ?? null),
+        setSetting: vi.fn((key: string, value: string) => {
+          durableSettings.set(key, value);
+        }),
+        getAgentRecord: vi.fn(() =>
+          created
+            ? {
+                threadId: "placement-agent:exact-running",
+                conversationId: "conversation-1",
+                storageMode: "local",
+                status: "running",
+              }
+            : null,
+        ),
+      },
+      toolHost: { listRunningShellSessionsOwnedBy: vi.fn(() => []) },
+    } as never;
+    const orchestration = createAgentOrchestration(context, {
+      buildAgentContext: vi.fn(),
+      sendMessage: vi.fn(),
+    });
+    const manager = (
+      context as unknown as {
+        state: {
+          localAgentManager: {
+            createAgent: (request: { threadId?: string }) => Promise<{
+              threadId: string;
+            }>;
+            awaitAgentSettled: () => Promise<{
+              status: "canceled";
+              error: string;
+            }>;
+            cancelAgentAndJoin: (
+              agentId: string,
+              reason?: string,
+            ) => Promise<{ canceled: boolean }>;
+          };
+        };
+      }
+    ).state.localAgentManager;
+    vi.spyOn(manager, "createAgent").mockImplementation(async (request) => {
+      expect(request.threadId).toBe("placement-agent:exact-running");
+      created = true;
+      return { threadId: "placement-agent:exact-running" };
+    });
+    vi.spyOn(manager, "awaitAgentSettled").mockImplementation(
+      async () => await settled,
+    );
+    const cancelAgentAndJoin = vi
+      .spyOn(manager, "cancelAgentAndJoin")
+      .mockImplementation(async (_agentId, reason) => {
+        settle({ status: "canceled", error: reason ?? "Canceled" });
+        return { canceled: true };
+      });
+
+    const running = orchestration.runBlockingLocalAgent({
+      conversationId: "conversation-1",
+      description: "Exact local run",
+      prompt: "Start then cancel",
+      agentType: AGENT_IDS.GENERAL,
+      threadId: "placement-agent:exact-running",
+    });
+    await vi.waitFor(() => expect(created).toBe(true));
+    expect(
+      await orchestration.cancelBlockingLocalAgent(
+        "placement-agent:exact-running",
+        "Canceled by placement",
+      ),
+    ).toEqual({ canceled: true });
+    expect(await running).toEqual({
+      status: "error",
+      finalText: "",
+      error: "Canceled by placement",
+      threadId: "placement-agent:exact-running",
+    });
+    expect(cancelAgentAndJoin).toHaveBeenCalledWith(
+      "placement-agent:exact-running",
+      "Canceled by placement",
+    );
+  });
 });

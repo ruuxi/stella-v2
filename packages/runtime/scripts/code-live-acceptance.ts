@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 
-import { NodeReplKernelRegistry } from "../kernel/computer-use/kernel.js";
+import { CodeKernelRegistry } from "../kernel/tools/defs/code.js";
 import type { ToolContext } from "../kernel/tools/types.js";
 
 const ONE_BY_ONE_PNG = Buffer.from(
@@ -14,19 +14,19 @@ const assert: (condition: unknown, message: string) => asserts condition = (
   condition,
   message,
 ) => {
-  if (!condition) throw new Error(`Node REPL acceptance failed: ${message}`);
+  if (!condition) throw new Error(`Code runtime acceptance failed: ${message}`);
 };
 
 const context: ToolContext = {
-  conversationId: "node-repl-live-acceptance",
+  conversationId: "code-live-acceptance",
   deviceId: "local-device",
-  requestId: "node-repl-live-acceptance",
-  runId: "node-repl-live-acceptance",
-  agentId: "node-repl-live-acceptance",
+  requestId: "code-live-acceptance",
+  runId: "code-live-acceptance",
+  agentId: "code-live-acceptance",
   agentType: "general",
   stellaAppDir: process.cwd(),
   toolWorkspaceRoot: process.cwd(),
-  allowedToolNames: ["node_repl"],
+  allowedToolNames: ["code"],
 };
 
 const main = async () => {
@@ -35,16 +35,16 @@ const main = async () => {
     "run with Bun so the production external Node child transport is exercised",
   );
   const tempDir = await mkdtemp(
-    path.join(os.tmpdir(), "stella-node-repl-live-"),
+    path.join(os.tmpdir(), "stella-code-live-"),
   );
   const imagePath = path.join(tempDir, "typed-output.png");
   await writeFile(imagePath, ONE_BY_ONE_PNG);
 
-  const registry = new NodeReplKernelRegistry({
+  const registry = new CodeKernelRegistry({
     sessionFactory: () => ({
       request: async () => {
         throw new Error(
-          "Live Node REPL acceptance unexpectedly invoked computer use.",
+          "Live Code acceptance unexpectedly invoked computer use.",
         );
       },
     }),
@@ -66,9 +66,9 @@ const main = async () => {
 
     const started = await registry.startCell(
       [
-        "nodeRepl.write('chunk-one')",
+        "codeRuntime.write('chunk-one')",
         "await new Promise((resolve) => setTimeout(resolve, 250))",
-        "nodeRepl.write('chunk-two')",
+        "codeRuntime.write('chunk-two')",
         "await new Promise((resolve) => setTimeout(resolve, 250))",
         "'terminal-value'",
       ].join("; "),
@@ -141,7 +141,7 @@ const main = async () => {
     );
 
     const image = await registry.evaluateDetailed(
-      `nodeRepl.emitImage(${JSON.stringify(imagePath)}, { mimeType: 'image/png', detail: 'original' }); 'image-complete'`,
+      `codeRuntime.emitImage(${JSON.stringify(imagePath)}, { mimeType: 'image/png', detail: 'original' }); 'image-complete'`,
       context,
     );
     assert(image.content.length === 2, "typed image content count was not two");
@@ -163,7 +163,7 @@ const main = async () => {
     );
 
     const reset = await registry.evaluateDetailed(
-      "var bindingDiscardedByReset = 123; nodeRepl.reset()",
+      "var bindingDiscardedByReset = 123; codeRuntime.reset()",
       context,
     );
     assert(
@@ -177,7 +177,7 @@ const main = async () => {
       `unexpected reset receipt: ${JSON.stringify(reset.reset)}`,
     );
     const status = await registry.evaluateDetailed(
-      "nodeRepl.status()",
+      "codeRuntime.status()",
       context,
     );
     assert(
@@ -194,7 +194,7 @@ const main = async () => {
     );
 
     const resetError = await registry.startCell(
-      "var bindingDiscardedAfterResetError = 456; nodeRepl.reset(); throw new Error('live failure after reset')",
+      "var bindingDiscardedAfterResetError = 456; codeRuntime.reset(); throw new Error('live failure after reset')",
       context,
       { yieldTimeMs: 1_000 },
     );
@@ -211,7 +211,7 @@ const main = async () => {
       `reset-then-error lost reset provenance: ${JSON.stringify(resetError.reset)}`,
     );
     const resetErrorStatus = await registry.evaluateDetailed(
-      "nodeRepl.status()",
+      "codeRuntime.status()",
       context,
     );
     assert(

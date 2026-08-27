@@ -23,6 +23,8 @@ const NON_PARALLEL_TOOL_NAMES = new Set<string>([
   "Write",
   "Edit",
   "write_stdin",
+  "code",
+  // Persisted legacy calls can still reach the host during history recovery.
   "node_repl",
   "request_credential",
   "RequestCredential",

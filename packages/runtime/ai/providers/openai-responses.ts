@@ -21,6 +21,7 @@ import type {
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
 import { anomalousStreamStopError } from "../utils/provider-stop.js";
+import { hashProviderRequestIdentity } from "../utils/provider-request-proof.js";
 import { resilientEventStream } from "../utils/resilient-event-stream.js";
 import { readRetryAfterMs } from "../utils/retry.js";
 import {
@@ -126,6 +127,31 @@ export const streamOpenAIResponses: StreamFunction<
   // Start async processing
   (async () => {
     let detachRelayAbortListener = () => {};
+    let relayCancellationWork: Promise<boolean> | undefined;
+    let relayCancellationRequired = false;
+    let requestIdSha256: string | undefined;
+    let physicalAttempt = 0;
+    const notifyRequestLifecycle = async (
+      phase:
+        | "request-admitted"
+        | "request-dispatched"
+        | "stream-open"
+        | "transport-closed",
+      outcome?: "completed" | "canceled" | "error",
+    ): Promise<void> => {
+      if (!requestIdSha256) return;
+      try {
+        await options?.onProviderRequestLifecycle?.({
+          phase,
+          requestIdSha256,
+          physicalAttempt: Math.max(physicalAttempt, 1),
+          ...(outcome ? { outcome } : {}),
+        });
+      } catch {
+        // Acceptance diagnostics are observation-only and cannot alter a
+        // production provider request.
+      }
+    };
     const output: AssistantMessage = {
       role: "assistant",
       content: [],
@@ -169,6 +195,13 @@ export const streamOpenAIResponses: StreamFunction<
       const proposedRelayRequestId = isManagedStellaRelayBaseUrl(model.baseUrl)
         ? `stella-relay-${requestNonce}`
         : undefined;
+      relayCancellationRequired = proposedRelayRequestId !== undefined;
+      // The adapter owns the raw transport id. Only its digest crosses the
+      // callback boundary, and it is bound before the first POST dispatch.
+      requestIdSha256 = await hashProviderRequestIdentity(
+        proposedRelayRequestId ?? idempotencyKey,
+      );
+      await notifyRequestLifecycle("request-admitted");
       const requestOptions = (
         signal?: AbortSignal,
         initializeRelay = false,
@@ -228,7 +261,7 @@ export const streamOpenAIResponses: StreamFunction<
         if (!options?.signal || relayAbortListenerAttached) return;
         relayAbortListenerAttached = true;
         const cancelRelayResponse = () => {
-          void (async () => {
+          relayCancellationWork ??= (async () => {
             // A pre-header abort can race the relay reservation. Retrying only
             // 404 lets the server's bounded cancellation tombstone win that
             // race without retrying the upstream Responses POST.
@@ -244,11 +277,14 @@ export const streamOpenAIResponses: StreamFunction<
                     },
                   );
                 });
-                return;
+                return true;
               } catch (error) {
-                if ((error as { status?: unknown })?.status !== 404) return;
+                if ((error as { status?: unknown })?.status !== 404) {
+                  return false;
+                }
               }
             }
+            return false;
           })();
         };
         if (options.signal.aborted) cancelRelayResponse();
@@ -293,12 +329,15 @@ export const streamOpenAIResponses: StreamFunction<
           { status: response.status, headers },
           model,
         );
+        await notifyRequestLifecycle("stream-open");
       };
 
       const connect = async (
         signal?: AbortSignal,
         timeoutMs?: number,
       ): Promise<AsyncIterable<ResponseStreamEvent>> => {
+        physicalAttempt += 1;
+        await notifyRequestLifecycle("request-dispatched");
         const { data, response } = await withActiveAuth((client) =>
           client.responses
             .create(params, requestOptions(signal, true, timeoutMs))
@@ -318,6 +357,8 @@ export const streamOpenAIResponses: StreamFunction<
         signal?: AbortSignal;
         timeoutMs?: number;
       }): Promise<AsyncIterable<ResponseStreamEvent>> => {
+        physicalAttempt += 1;
+        await notifyRequestLifecycle("request-dispatched");
         const { data, response } = await withActiveAuth((client) =>
           client.responses
             .retrieve(
@@ -407,6 +448,7 @@ export const streamOpenAIResponses: StreamFunction<
         throw anomalousStreamStopError(output);
       }
 
+      await notifyRequestLifecycle("transport-closed", "completed");
       stream.push({ type: "done", reason: output.stopReason, message: output });
       detachRelayAbortListener();
       stream.end();
@@ -426,6 +468,22 @@ export const streamOpenAIResponses: StreamFunction<
       // below this layer has already honored it.
       const retryAfterMs = readRetryAfterMs(error);
       if (retryAfterMs !== undefined) output.retryAfterMs = retryAfterMs;
+      const canceled = options?.signal?.aborted === true;
+      // A managed relay owns a background provider response after the local
+      // body closes. Do not claim `transport-closed` until its exact DELETE
+      // completed; the run-scoped wrapper will publish `outcome-unknown` when
+      // cancellation could not be confirmed and therefore cannot truthfully
+      // report `transport-joined`/provider-stopped.
+      const relayCancellationConfirmed =
+        !canceled ||
+        !relayCancellationRequired ||
+        (await relayCancellationWork?.catch(() => false)) === true;
+      if (relayCancellationConfirmed) {
+        await notifyRequestLifecycle(
+          "transport-closed",
+          canceled ? "canceled" : "error",
+        );
+      }
       stream.push({ type: "error", reason: output.stopReason, error: output });
       stream.end();
     }

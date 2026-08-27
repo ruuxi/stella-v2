@@ -1833,6 +1833,31 @@ export class LocalAgentManager {
             canceled: false,
         };
     }
+    /**
+     * Placement-only exact cancel barrier. Capture the physical attempt before
+     * the durable terminal transition, then wait until it settles or the
+     * manager's existing bounded generation-fenced abandonment removes its
+     * ownership. Callers may acknowledge cancellation only after this returns.
+     */
+    async cancelAgentAndJoin(agentId, reason) {
+        const ownedAttempt = this.inFlightAttempts.get(agentId);
+        const result = await this.cancelAgent(agentId, reason);
+        if (!ownedAttempt) {
+            return result;
+        }
+        const timeoutMs = Math.max(1, this.opts.attemptTeardownTimeoutMs ??
+            DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS);
+        await Promise.race([
+            ownedAttempt.promise,
+            managerRuntime.runPromise(Effect.sleep(timeoutMs + 50)),
+        ]);
+        const current = this.inFlightAttempts.get(agentId);
+        if (current?.generation === ownedAttempt.generation &&
+            current.promise === ownedAttempt.promise) {
+            throw new Error(`Local agent ${agentId} did not reach its bounded cancellation barrier.`);
+        }
+        return result;
+    }
     async sendAgentMessage(agentId, message, from, options) {
         const text = message.trim();
         if (!text) return { delivered: false };

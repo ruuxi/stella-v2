@@ -4,7 +4,8 @@ import { pathToFileURL } from "node:url";
 
 // The Effect migration ratchet (M5 completion, phase 0 — see
 // ~/projects/stella-v2-effect-completion-plan.md "The ratchet"). Promise-land
-// concurrency primitives are banned from packages/runtime source; every
+// concurrency primitives are banned from every Effect-bearing package:
+// packages/runtime, packages/executor-cloud, and workers/cloud-builder. Every
 // current offender is pinned in effect-ratchet-allowlist.json with its exact
 // hit count. Migration = shrinking the allowlist. CI fails on any new hit or
 // any file exceeding its pinned count; `--update` rewrites the allowlist DOWN
@@ -21,11 +22,21 @@ const ignoredDirectories = new Set([
   "dist-electron",
   "coverage",
   "release",
+  "tests",
   // Maintenance/CI scripts are not migration targets; the ratchet measures
   // shipped runtime source only.
   "scripts",
 ]);
-const sourceSuffixes = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"]);
+const sourceSuffixes = new Set([
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".mts",
+  ".cts",
+]);
 const isTestFile = (name) => /\.test\.[cm]?[jt]sx?$/.test(name);
 
 const walk = async (directory) => {
@@ -52,39 +63,61 @@ const walk = async (directory) => {
   return files;
 };
 
+const effectBearingTargets = [
+  { segments: ["packages", "runtime"], keyPrefix: "" },
+  {
+    segments: ["packages", "executor-cloud"],
+    keyPrefix: "packages/executor-cloud/",
+  },
+  {
+    segments: ["workers", "cloud-builder"],
+    keyPrefix: "workers/cloud-builder/",
+  },
+];
+
 /**
- * Scan packages/runtime for banned promise-land patterns.
- * Returns Map<relativeFile, { total, byPattern: Map<label, count>, lines: [{line, label, text}] }>.
+ * Scan every Effect-bearing package for banned promise-land patterns.
+ * Runtime keys remain relative to packages/runtime for allowlist continuity;
+ * the newer executor and Worker keys are repository-relative and explicit.
+ * Returns Map<allowlistKey, { total, byPattern: Map<label, count>, lines: [{line, label, text}] }>.
  */
-const scanRuntime = async (runtimeRoot) => {
+export const scanEffectRatchetTargets = async (repoRoot) => {
   const hitsByFile = new Map();
-  for (const file of await walk(runtimeRoot)) {
-    const text = await readFile(file, "utf8");
-    const relativeFile = path.relative(runtimeRoot, file).replace(/\\/g, "/");
-    const lines = text.split("\n");
-    let entry = null;
-    for (let index = 0; index < lines.length; index += 1) {
-      const trimmed = lines[index].trim();
-      if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) {
-        continue; // prose mentions in comments are not migration debt
-      }
-      for (const pattern of bannedPatterns) {
-        const matches = lines[index].match(pattern.regex);
-        if (!matches) continue;
-        if (!entry) {
-          entry = { total: 0, byPattern: new Map(), lines: [] };
-          hitsByFile.set(relativeFile, entry);
+  for (const target of effectBearingTargets) {
+    const targetRoot = path.join(repoRoot, ...target.segments);
+    for (const file of await walk(targetRoot)) {
+      const text = await readFile(file, "utf8");
+      const relativeFile = path.relative(targetRoot, file).replace(/\\/g, "/");
+      const allowlistKey = `${target.keyPrefix}${relativeFile}`;
+      const lines = text.split("\n");
+      let entry = null;
+      for (let index = 0; index < lines.length; index += 1) {
+        const trimmed = lines[index].trim();
+        if (
+          trimmed.startsWith("//") ||
+          trimmed.startsWith("*") ||
+          trimmed.startsWith("/*")
+        ) {
+          continue; // prose mentions in comments are not migration debt
         }
-        entry.total += matches.length;
-        entry.byPattern.set(
-          pattern.label,
-          (entry.byPattern.get(pattern.label) ?? 0) + matches.length,
-        );
-        entry.lines.push({
-          line: index + 1,
-          label: pattern.label,
-          text: lines[index].trim(),
-        });
+        for (const pattern of bannedPatterns) {
+          const matches = lines[index].match(pattern.regex);
+          if (!matches) continue;
+          if (!entry) {
+            entry = { total: 0, byPattern: new Map(), lines: [] };
+            hitsByFile.set(allowlistKey, entry);
+          }
+          entry.total += matches.length;
+          entry.byPattern.set(
+            pattern.label,
+            (entry.byPattern.get(pattern.label) ?? 0) + matches.length,
+          );
+          entry.lines.push({
+            line: index + 1,
+            label: pattern.label,
+            text: lines[index].trim(),
+          });
+        }
       }
     }
   }
@@ -100,34 +133,110 @@ const loadAllowlist = async (allowlistPath) => {
     throw error;
   }
   const parsed = JSON.parse(raw);
+  const patternLabels = new Set(bannedPatterns.map(({ label }) => label));
+  const validPinnedCount = (count) => Number.isInteger(count) && count >= 1;
+  const validEntry = (entry) => {
+    if (validPinnedCount(entry)) return true;
+    if (
+      typeof entry !== "object" ||
+      entry === null ||
+      Array.isArray(entry) ||
+      Object.keys(entry).length === 0
+    ) {
+      return false;
+    }
+    return Object.entries(entry).every(
+      ([label, count]) => patternLabels.has(label) && validPinnedCount(count),
+    );
+  };
   if (
     typeof parsed !== "object" ||
     parsed === null ||
     Array.isArray(parsed) ||
-    Object.values(parsed).some((count) => !Number.isInteger(count) || count < 1)
+    Object.values(parsed).some((entry) => !validEntry(entry))
   ) {
     throw new Error(
-      `Malformed allowlist at ${allowlistPath}: expected { "path/relative/to/packages-runtime.ts": positiveCount }`,
+      `Malformed allowlist at ${allowlistPath}: expected positive file counts or positive per-pattern counts`,
     );
   }
   return parsed;
 };
 
+const isPatternPinnedEntry = (entry) =>
+  typeof entry === "object" && entry !== null && !Array.isArray(entry);
+
+/**
+ * Compare measured debt with the pinned baseline. Legacy Runtime entries use
+ * one file total; newly admitted cloud packages pin each primitive so swapping
+ * a timer for an AbortController cannot hide new debt behind a flat total.
+ */
+export const evaluateEffectRatchet = (hitsByFile, allowlist) => {
+  const offenders = [];
+  for (const [file, entry] of [...hitsByFile.entries()].sort()) {
+    const pinned = allowlist[file];
+    if (!isPatternPinnedEntry(pinned)) {
+      const allowed = typeof pinned === "number" ? pinned : 0;
+      if (entry.total > allowed) {
+        offenders.push({ file, entry, allowed, patternOverages: [] });
+      }
+      continue;
+    }
+
+    const patternOverages = [];
+    for (const [label, actual] of entry.byPattern) {
+      const allowed = pinned[label] ?? 0;
+      if (actual > allowed) patternOverages.push({ label, actual, allowed });
+    }
+    if (patternOverages.length > 0) {
+      offenders.push({
+        file,
+        entry,
+        allowed: Object.values(pinned).reduce((sum, count) => sum + count, 0),
+        patternOverages,
+      });
+    }
+  }
+
+  const shrinkage = [];
+  for (const [file, pinned] of Object.entries(allowlist).sort()) {
+    const entry = hitsByFile.get(file);
+    if (!isPatternPinnedEntry(pinned)) {
+      const actual = entry?.total ?? 0;
+      if (actual < pinned) shrinkage.push({ file, allowed: pinned, actual });
+      continue;
+    }
+    for (const [label, allowed] of Object.entries(pinned).sort()) {
+      const actual = entry?.byPattern.get(label) ?? 0;
+      if (actual < allowed) {
+        shrinkage.push({ file, label, allowed, actual });
+      }
+    }
+  }
+  return { offenders, shrinkage };
+};
+
 const formatByPattern = (byPattern) =>
-  [...byPattern.entries()].map(([label, count]) => `${label} x${count}`).join(", ");
+  [...byPattern.entries()]
+    .map(([label, count]) => `${label} x${count}`)
+    .join(", ");
 
 const isMain =
   process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isMain) {
   const update = process.argv.includes("--update");
-  const runtimeRoot = path.resolve(import.meta.dirname, "..");
-  const allowlistPath = path.join(runtimeRoot, "scripts", "effect-ratchet-allowlist.json");
+  const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
+  const runtimeRoot = path.join(repoRoot, "packages", "runtime");
+  const allowlistPath = path.join(
+    runtimeRoot,
+    "scripts",
+    "effect-ratchet-allowlist.json",
+  );
   const allowlistName = path
-    .relative(path.resolve(runtimeRoot, "..", ".."), allowlistPath)
+    .relative(repoRoot, allowlistPath)
     .replace(/\\/g, "/");
 
-  const hitsByFile = await scanRuntime(runtimeRoot);
+  const hitsByFile = await scanEffectRatchetTargets(repoRoot);
   const allowlist = await loadAllowlist(allowlistPath);
 
   if (allowlist === null && !update) {
@@ -138,34 +247,30 @@ if (isMain) {
     process.exit(1);
   }
 
-  // Offenders: new files with hits, or files that grew past their pinned
-  // count. On the bootstrap run (--update with no allowlist yet) there is no
-  // baseline to exceed — the scan itself becomes the baseline.
-  const offenders = [];
-  if (allowlist !== null) {
-    for (const [file, entry] of [...hitsByFile.entries()].sort()) {
-      const allowed = allowlist[file] ?? 0;
-      if (entry.total > allowed) {
-        offenders.push({ file, entry, allowed });
-      }
-    }
-  }
-
-  // Shrinkage: pinned counts higher than reality (or files gone clean).
-  const shrinkage = [];
-  for (const [file, allowed] of Object.entries(allowlist ?? {}).sort()) {
-    const actual = hitsByFile.get(file)?.total ?? 0;
-    if (actual < allowed) shrinkage.push({ file, allowed, actual });
-  }
+  // On the bootstrap run there is no baseline to exceed — the scan itself
+  // becomes the baseline. Every later run compares against the pinned form.
+  const { offenders, shrinkage } =
+    allowlist === null
+      ? { offenders: [], shrinkage: [] }
+      : evaluateEffectRatchet(hitsByFile, allowlist);
 
   if (offenders.length > 0) {
     console.error(
-      "Effect ratchet violations (banned promise-land patterns in packages/runtime):",
+      "Effect ratchet violations (banned promise-land patterns in Effect-bearing packages):",
     );
-    for (const { file, entry, allowed } of offenders) {
+    for (const { file, entry, allowed, patternOverages } of offenders) {
       console.error(
         `- ${file}: ${entry.total} hits, ${allowed} allowlisted (${formatByPattern(entry.byPattern)})`,
       );
+      for (const {
+        label,
+        actual,
+        allowed: patternAllowed,
+      } of patternOverages) {
+        console.error(
+          `    ${label} debt: ${actual} hits, ${patternAllowed} allowlisted`,
+        );
+      }
       for (const hit of entry.lines) {
         console.error(`    ${file}:${hit.line} [${hit.label}] ${hit.text}`);
       }
@@ -181,7 +286,11 @@ if (isMain) {
   if (update) {
     const next = {};
     for (const file of [...hitsByFile.keys()].sort()) {
-      next[file] = hitsByFile.get(file).total;
+      const entry = hitsByFile.get(file);
+      const pinned = allowlist?.[file];
+      next[file] = isPatternPinnedEntry(pinned)
+        ? Object.fromEntries([...entry.byPattern.entries()].sort())
+        : entry.total;
     }
     await writeFile(allowlistPath, `${JSON.stringify(next, null, 2)}\n`);
     const dropped = shrinkage.filter((item) => item.actual === 0).length;
@@ -194,18 +303,24 @@ if (isMain) {
         ` (${allowlistName})`,
     );
   } else if (shrinkage.length > 0) {
-    console.log("Effect ratchet: shrinkage available — ratchet the allowlist down:");
-    for (const { file, allowed, actual } of shrinkage) {
+    console.log(
+      "Effect ratchet: shrinkage available — ratchet the allowlist down:",
+    );
+    for (const { file, label, allowed, actual } of shrinkage) {
       console.log(
         actual === 0
-          ? `- ${file}: clean (was ${allowed}) — remove the entry`
-          : `- ${file}: ${actual} actual < ${allowed} allowlisted`,
+          ? `- ${file}${label ? ` [${label}]` : ""}: clean (was ${allowed}) — remove the entry`
+          : `- ${file}${label ? ` [${label}]` : ""}: ${actual} actual < ${allowed} allowlisted`,
       );
     }
-    console.log("Run: node packages/runtime/scripts/check-effect-ratchet.mjs --update");
+    console.log(
+      "Run: node packages/runtime/scripts/check-effect-ratchet.mjs --update",
+    );
   }
 
-  const totalsByPattern = new Map(bannedPatterns.map((pattern) => [pattern.label, 0]));
+  const totalsByPattern = new Map(
+    bannedPatterns.map((pattern) => [pattern.label, 0]),
+  );
   let total = 0;
   for (const entry of hitsByFile.values()) {
     total += entry.total;
@@ -214,7 +329,7 @@ if (isMain) {
     }
   }
   console.log(
-    `Effect ratchet OK: ${total} allowlisted hits across ${hitsByFile.size} files ` +
+    `Effect ratchet OK: ${total} allowlisted hits across ${hitsByFile.size} Effect-bearing files ` +
       `(${formatByPattern(totalsByPattern)})`,
   );
 }

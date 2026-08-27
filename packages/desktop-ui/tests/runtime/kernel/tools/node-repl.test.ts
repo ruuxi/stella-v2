@@ -25,10 +25,10 @@ const context: ToolContext = {
   agentId: "agent-1",
   agentType: AGENT_IDS.GENERAL,
   stellaAppDir: "/workspace",
-  allowedToolNames: ["node_repl", "multi_tool_use_parallel", "fake_tool"],
+  allowedToolNames: ["code", "multi_tool_use_parallel", "fake_tool"],
 };
 
-describe("node_repl tool", () => {
+describe("code tool (local Node kernel)", () => {
   it("falls back to home when its inherited cwd points at app.asar", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "stella-node-repl-cwd-"));
     const appAsar = path.join(dir, "app.asar");
@@ -38,7 +38,7 @@ describe("node_repl tool", () => {
     });
     try {
       await expect(
-        registry.evaluate("nodeRepl.write(nodeRepl.cwd)", {
+        registry.evaluate("codeRuntime.write(codeRuntime.cwd)", {
           ...context,
           agentId: "agent-file-cwd",
           stellaAppDir: appAsar,
@@ -62,6 +62,7 @@ describe("node_repl tool", () => {
     });
     const tool = createNodeReplTool({ registry });
     try {
+      expect(tool.name).toBe("code");
       expect(tool.agentTypes).toEqual([
         AGENT_IDS.ORCHESTRATOR,
         AGENT_IDS.GENERAL,
@@ -147,7 +148,7 @@ describe("node_repl tool", () => {
       await expect(
         registry.evaluate("await tools.fake_tool({id: 3})", {
           ...context,
-          allowedToolNames: ["node_repl"],
+          allowedToolNames: ["code"],
         }),
       ).rejects.toThrow("tools.fake_tool is not a function");
     } finally {
@@ -189,7 +190,7 @@ describe("node_repl tool", () => {
       const demotedContext = {
         ...context,
         allowedToolNames: [
-          "node_repl",
+          "code",
           ...demotedCatalog.map((entry) => entry.name),
         ],
       };
@@ -263,7 +264,7 @@ describe("node_repl tool", () => {
               "({ mapDocs, mapResult })",
             ].join("\n"),
           },
-          { ...context, allowedToolNames: ["node_repl", "map"] },
+          { ...context, allowedToolNames: ["code", "map"] },
         ),
       ).resolves.toMatchObject({
         result: expect.stringMatching(
@@ -325,10 +326,7 @@ describe("node_repl tool", () => {
         ].join("\n"),
         {
           ...context,
-          allowedToolNames: [
-            "node_repl",
-            ...liveCatalog.map((entry) => entry.name),
-          ],
+          allowedToolNames: ["code", ...liveCatalog.map((entry) => entry.name)],
         },
       );
       expect(result).toContain("alpha_zz_hidden_route_planner");
@@ -360,7 +358,7 @@ describe("node_repl tool", () => {
     });
     const bracketContext = {
       ...context,
-      allowedToolNames: ["node_repl", "mcp.server/tool"],
+      allowedToolNames: ["code", "mcp.server/tool"],
     };
     try {
       const output = await registry.evaluate(
@@ -395,9 +393,9 @@ describe("node_repl tool", () => {
         },
         context,
       );
-      expect(started.result).toContain("[node_repl running:");
-      const cellId = (started.details as { nodeRepl: { cellId: string } })
-        .nodeRepl.cellId;
+      expect(started.result).toContain("[code running:");
+      const cellId = (started.details as { code: { cellId: string } }).code
+        .cellId;
       expect(cellId).toMatch(/^g1:/);
 
       const completed = await tool.execute(
@@ -424,15 +422,15 @@ describe("node_repl tool", () => {
         { code: "await new Promise(() => {})", yield_time_ms: 0 },
         context,
       );
-      const cellId = (started.details as { nodeRepl: { cellId: string } })
-        .nodeRepl.cellId;
+      const cellId = (started.details as { code: { cellId: string } }).code
+        .cellId;
       const terminated = await tool.execute(
         { cell_id: cellId, terminate: true, wait_ms: 2_000 },
         context,
       );
       expect(terminated.error).toContain("reason=terminated");
       expect(terminated.details).toMatchObject({
-        nodeRepl: {
+        code: {
           status: "failed",
           reset: {
             reason: "terminated",
@@ -443,7 +441,7 @@ describe("node_repl tool", () => {
         },
       });
       await expect(
-        registry.evaluate("nodeRepl.status()", context),
+        registry.evaluate("codeRuntime.status()", context),
       ).resolves.toContain("generation: 2");
     } finally {
       await registry.dispose();
@@ -458,14 +456,14 @@ describe("node_repl tool", () => {
     try {
       const failed = await tool.execute(
         {
-          code: "var discardedAfterToolResetError = 1; nodeRepl.reset(); throw new Error('tool reset failure')",
+          code: "var discardedAfterToolResetError = 1; codeRuntime.reset(); throw new Error('tool reset failure')",
           yield_time_ms: 2_000,
         },
         context,
       );
       expect(failed.error).toContain("tool reset failure");
       expect(failed.details).toMatchObject({
-        nodeRepl: {
+        code: {
           generation: 1,
           status: "failed",
           reset: {
@@ -477,7 +475,7 @@ describe("node_repl tool", () => {
         },
       });
       await expect(
-        registry.evaluate("nodeRepl.status()", context),
+        registry.evaluate("codeRuntime.status()", context),
       ).resolves.toContain("generation: 2");
       await expect(
         registry.evaluate("typeof discardedAfterToolResetError", context),
@@ -497,9 +495,9 @@ describe("node_repl tool", () => {
       const started = await tool.execute(
         {
           code: [
-            "nodeRepl.write('first')",
+            "codeRuntime.write('first')",
             "await new Promise((resolve) => setTimeout(resolve, 100))",
-            "nodeRepl.write('second')",
+            "codeRuntime.write('second')",
             "await new Promise((resolve) => setTimeout(resolve, 100))",
             "'done'",
           ].join("; "),
@@ -507,16 +505,30 @@ describe("node_repl tool", () => {
         },
         context,
       );
-      expect(started.result).toContain("first");
-      expect(started.result).not.toContain("second");
-      const first = started.details as {
-        nodeRepl: { cellId: string; cursor: number };
+      const startedDetails = started.details as {
+        code: { cellId: string; cursor: number };
       };
-      expect(first.nodeRepl.cursor).toBe(1);
+      // Under a loaded test runner the external child can legitimately take
+      // longer than the 20 ms initial yield to start. Observe the same cell
+      // until its first event instead of treating a valid cursor=0 running
+      // receipt as a missing write.
+      const firstChunk =
+        startedDetails.code.cursor === 0
+          ? await tool.execute(
+              { cell_id: startedDetails.code.cellId, wait_ms: 500 },
+              context,
+            )
+          : started;
+      expect(firstChunk.result).toContain("first");
+      expect(firstChunk.result).not.toContain("second");
+      const first = firstChunk.details as {
+        code: { cellId: string; cursor: number };
+      };
+      expect(first.code.cursor).toBe(1);
 
       const second = await tool.execute(
         {
-          cell_id: first.nodeRepl.cellId,
+          cell_id: first.code.cellId,
           wait_ms: 500,
         },
         context,
@@ -524,16 +536,16 @@ describe("node_repl tool", () => {
       expect(second.result).toContain("second");
       expect(second.result).not.toContain("first");
       const secondDetails = second.details as {
-        nodeRepl: { cursor: number; status: string };
+        code: { cursor: number; status: string };
       };
-      expect(secondDetails.nodeRepl).toMatchObject({
+      expect(secondDetails.code).toMatchObject({
         cursor: 2,
         status: "running",
       });
 
       const terminal = await tool.execute(
         {
-          cell_id: first.nodeRepl.cellId,
+          cell_id: first.code.cellId,
           wait_ms: 500,
         },
         context,
@@ -542,11 +554,11 @@ describe("node_repl tool", () => {
       expect(terminal.result).not.toContain("first");
       expect(terminal.result).not.toContain("second");
       expect(terminal.details).toMatchObject({
-        nodeRepl: { fromCursor: 2, cursor: 3, status: "completed" },
+        code: { fromCursor: 2, cursor: 3, status: "completed" },
       });
 
       const replay = await tool.execute(
-        { cell_id: first.nodeRepl.cellId, cursor: 0, wait_ms: 0 },
+        { cell_id: first.code.cellId, cursor: 0, wait_ms: 0 },
         context,
       );
       expect(replay.result).toContain("first");
@@ -565,9 +577,9 @@ describe("node_repl tool", () => {
       await registry.evaluate("0", context);
       const started = await registry.startCell(
         [
-          "nodeRepl.write('before-abort')",
+          "codeRuntime.write('before-abort')",
           "await new Promise((resolve) => setTimeout(resolve, 100))",
-          "nodeRepl.write('after-abort')",
+          "codeRuntime.write('after-abort')",
           "await new Promise((resolve) => setTimeout(resolve, 50))",
           "'terminal'",
         ].join("; "),
@@ -615,7 +627,7 @@ describe("node_repl tool", () => {
       });
       await expect(
         registry.waitCell(first.cellId, context, { waitMs: 0 }),
-      ).rejects.toThrow("Unknown or stale Node REPL cell id");
+      ).rejects.toThrow("Unknown or stale code cell id");
       expect(
         await registry.waitCell(second.cellId, context, {
           afterCursor: 0,
@@ -626,7 +638,7 @@ describe("node_repl tool", () => {
       await new Promise((resolve) => setTimeout(resolve, 60));
       await expect(
         registry.waitCell(second.cellId, context, { waitMs: 0 }),
-      ).rejects.toThrow("Unknown or stale Node REPL cell id");
+      ).rejects.toThrow("Unknown or stale code cell id");
     } finally {
       await registry.dispose();
     }
@@ -727,7 +739,7 @@ describe("node_repl tool", () => {
     }
   });
 
-  it("aborts nested tools when the node_repl evaluation is cancelled", async () => {
+  it("aborts nested tools when the code evaluation is cancelled", async () => {
     let nestedSignal: AbortSignal | undefined;
     let markNestedStarted!: () => void;
     const nestedStarted = new Promise<void>((resolve) => {
@@ -803,7 +815,7 @@ describe("node_repl tool", () => {
       const startedAt = Date.now();
       await expect(
         registry.evaluate(`await browser.tabs.list()`, context),
-      ).rejects.toThrow("Node REPL timed out after 300ms.");
+      ).rejects.toThrow("Code evaluation timed out after 300ms.");
       expect(Date.now() - startedAt).toBeLessThan(5_000);
       // The wedged kernel was dropped; a follow-up evaluate gets a fresh
       // kernel instead of queueing behind the dead one.
@@ -815,7 +827,7 @@ describe("node_repl tool", () => {
     }
   });
 
-  it("hoists nested tool file tracking onto the node_repl result", async () => {
+  it("hoists nested tool file tracking onto the code result", async () => {
     const registry = new NodeReplKernelRegistry({
       sessionFactory: () => ({ request: async () => ({}) }),
       executeTool: async () => ({

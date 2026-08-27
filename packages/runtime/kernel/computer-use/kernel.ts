@@ -78,6 +78,10 @@ import {
   type SkyMethod,
   type WorkerToNodeReplParentMessage,
 } from "./protocol.js";
+import {
+  CODE_TOOL_NAME,
+  LEGACY_NODE_REPL_TOOL_NAME,
+} from "../tools/code-tool.js";
 import type { ReplConnectClient } from "../connectors/connect-service.js";
 import { resolveToolFallbackCwd } from "../tools/cwd.js";
 
@@ -307,7 +311,7 @@ const SKY_METHODS = new Set<SkyMethod>([
 const abortError = (signal: AbortSignal) =>
   signal.reason instanceof Error
     ? signal.reason
-    : new Error("Node REPL evaluation aborted.");
+    : new Error("Code evaluation aborted.");
 
 const byteLength = (value: string) => Buffer.byteLength(value, "utf8");
 
@@ -486,7 +490,8 @@ const MAX_BROWSER_SCREENSHOT_FILES_PER_KERNEL = 100;
  * `tools.$search` or `tools.$describe`.
  */
 export const NODE_REPL_EXCLUDED_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "node_repl",
+  CODE_TOOL_NAME,
+  LEGACY_NODE_REPL_TOOL_NAME,
   "multi_tool_use_parallel",
 ]);
 
@@ -570,7 +575,7 @@ const resetReceipt = (
 });
 
 const formatResetReceipt = (receipt: NodeReplResetReceipt): string =>
-  `[node_repl reset: reason=${receipt.reason} generation=${receipt.previousGeneration} previousGeneration=${receipt.previousGeneration} nextGeneration=${receipt.nextGeneration} bindingsDiscarded=true requestedAt=${receipt.requestedAt}]`;
+  `[code reset: reason=${receipt.reason} generation=${receipt.previousGeneration} previousGeneration=${receipt.previousGeneration} nextGeneration=${receipt.nextGeneration} bindingsDiscarded=true requestedAt=${receipt.requestedAt}]`;
 
 export type NodeReplTransport = {
   on(event: "message", listener: (message: unknown) => void): unknown;
@@ -645,7 +650,7 @@ export const createExternalNodeReplTransport = (
   child.stdin?.on("error", forwardError);
   try {
     if (!child.stdin) {
-      forwardError(new Error("Node REPL child stdin is unavailable."));
+      forwardError(new Error("Code worker child stdin is unavailable."));
     } else {
       child.stdin.end(source);
     }
@@ -671,7 +676,7 @@ export const createExternalNodeReplTransport = (
     },
     postMessage(message) {
       if (!child.connected) {
-        throw new Error("Node REPL child transport is not connected.");
+        throw new Error("Code worker child transport is not connected.");
       }
       child.send(message);
     },
@@ -818,7 +823,7 @@ class NodeReplKernel {
     this.worker.on("exit", (code) => {
       if (!this.closed) {
         this.handleWorkerFailure(
-          new Error(`Node REPL worker exited unexpectedly with code ${code}.`),
+          new Error(`Code worker exited unexpectedly with code ${code}.`),
         );
       }
     });
@@ -833,10 +838,10 @@ class NodeReplKernel {
     this.cancelIdleTimer = null;
     const active = this.active;
     if (active) {
-      active.controller.abort(new Error("Node REPL kernel closed."));
+      active.controller.abort(new Error("Code runtime closed."));
       this.settleActive(
         active,
-        new KernelTerminatedError("Node REPL kernel closed.", "closed"),
+        new KernelTerminatedError("Code runtime closed.", "closed"),
       );
     }
     this.closePromise = Promise.allSettled([
@@ -869,7 +874,7 @@ class NodeReplKernel {
     if (byteLength(code) > MAX_NODE_REPL_CODE_BYTES) {
       return Promise.reject(
         new Error(
-          `Node REPL input exceeds the ${MAX_NODE_REPL_CODE_BYTES}-byte limit.`,
+          `Code input exceeds the ${MAX_NODE_REPL_CODE_BYTES}-byte limit.`,
         ),
       );
     }
@@ -938,7 +943,7 @@ class NodeReplKernel {
     if (BLOCKED_NODE_MODULE_RE.test(code)) {
       return Promise.reject(
         new Error(
-          "Direct process spawning is blocked in node_repl; use sky for computer use or exec_command for explicit shell work.",
+          "Direct process spawning is blocked in code; use sky for computer use or exec_command for explicit shell work.",
         ),
       );
     }
@@ -956,7 +961,7 @@ class NodeReplKernel {
       const cancelTimeout = forkCancelableTimeout(timeoutMs, () => {
         this.terminateActive(
           new KernelTerminatedError(
-            `Node REPL timed out after ${timeoutMs}ms.`,
+            `Code evaluation timed out after ${timeoutMs}ms.`,
             "timeout",
           ),
         );
@@ -1011,7 +1016,7 @@ class NodeReplKernel {
       } catch (error) {
         this.terminateActive(
           new KernelTerminatedError(
-            `Failed to send Node REPL evaluation: ${error instanceof Error ? error.message : String(error)}`,
+            `Failed to send code evaluation: ${error instanceof Error ? error.message : String(error)}`,
             "transport_error",
           ),
         );
@@ -1080,7 +1085,7 @@ class NodeReplKernel {
       ) {
         this.terminateActive(
           new KernelTerminatedError(
-            "Node REPL worker returned invalid or out-of-order content.",
+            "Code worker returned invalid or out-of-order content.",
             "protocol_error",
           ),
         );
@@ -1102,7 +1107,7 @@ class NodeReplKernel {
       ) {
         this.terminateActive(
           new KernelTerminatedError(
-            "Node REPL worker returned invalid or oversized output.",
+            "Code worker returned invalid or oversized output.",
             "protocol_error",
           ),
         );
@@ -1124,7 +1129,7 @@ class NodeReplKernel {
       if (typed.finalCursor !== active.content.length) {
         this.terminateActive(
           new KernelTerminatedError(
-            "Node REPL worker returned an invalid terminal content cursor.",
+            "Code worker returned an invalid terminal content cursor.",
             "protocol_error",
           ),
         );
@@ -1677,7 +1682,7 @@ class NodeReplKernel {
         );
         if (serializedSize(results) > MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES) {
           throw new Error(
-            "Tool search result exceeds the Node REPL protocol limit.",
+            "Tool search result exceeds the code-runtime protocol limit.",
           );
         }
         if (!this.closed && this.active === active) {
@@ -1725,7 +1730,7 @@ class NodeReplKernel {
         );
         if (serializedSize(result) > MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES) {
           throw new Error(
-            "Tool description exceeds the Node REPL protocol limit. The host must provide deterministic paged retrieval.",
+            "Tool description exceeds the code-runtime protocol limit. The host must provide deterministic paged retrieval.",
           );
         }
         if (!this.closed && this.active === active) {
@@ -1793,7 +1798,7 @@ class NodeReplKernel {
       if (
         serializedSize(result.result) > MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES
       ) {
-        throw new Error("Tool result exceeds the Node REPL protocol limit.");
+        throw new Error("Tool result exceeds the code-runtime protocol limit.");
       }
       if (!this.closed && this.active === active) {
         this.post({
@@ -1916,7 +1921,7 @@ class NodeReplKernel {
     const forwardAbort = () =>
       controller.abort(
         active.controller.signal.reason ??
-          new Error("Node REPL evaluation aborted."),
+          new Error("Code evaluation aborted."),
       );
     active.controller.signal.addEventListener("abort", forwardAbort, {
       once: true,
@@ -2225,7 +2230,7 @@ class NodeReplKernel {
     void this.close();
   }
 
-  terminate(reason = "Node REPL cell terminated by caller."): void {
+  terminate(reason = "Code cell terminated by caller."): void {
     const active = this.active;
     if (!active) {
       void this.close();
@@ -2253,9 +2258,7 @@ class NodeReplKernel {
       active.signal.removeEventListener("abort", active.onAbort);
     }
     if (!active.controller.signal.aborted) {
-      active.controller.abort(
-        error ?? new Error("Node REPL evaluation completed."),
-      );
+      active.controller.abort(error ?? new Error("Code evaluation completed."));
     }
     if (error) active.reject(error);
     else active.resolve(result);
@@ -2264,7 +2267,7 @@ class NodeReplKernel {
   private handleWorkerFailure(error: Error) {
     if (this.closed) return;
     const terminated = new KernelTerminatedError(
-      `Node REPL worker failed: ${error.message}`,
+      `Code worker failed: ${error.message}`,
       "worker_error",
     );
     const active = this.active;
@@ -2350,9 +2353,7 @@ const waitForCellChange = async (
         const aborted = Deferred.await(abortLatch).pipe(
           Effect.flatMap(() =>
             Effect.fail(
-              signal
-                ? abortError(signal)
-                : new Error("Node REPL wait aborted."),
+              signal ? abortError(signal) : new Error("Code wait aborted."),
             ),
           ),
         );
@@ -2435,7 +2436,7 @@ export class NodeReplKernelRegistry {
     const existingCellId = this.runningCellByOwner.get(id);
     if (existingCellId) {
       throw new Error(
-        `Node REPL already has a running cell for this session: ${existingCellId}. Wait for or terminate that cell before starting another.`,
+        `Code already has a running cell for this session: ${existingCellId}. Wait for or terminate that cell before starting another.`,
       );
     }
     const cellId = `g${kernel.generation}:${randomUUID()}`;
@@ -2515,16 +2516,14 @@ export class NodeReplKernelRegistry {
     this.pruneCells();
     const id = getStellaComputerSessionId(context);
     if (!id) {
-      throw new Error(
-        "node_repl requires a stable Stella agent/session identity.",
-      );
+      throw new Error("code requires a stable Stella agent/session identity.");
     }
     const cell = this.cells.get(cellId);
     if (!cell || cell.ownerId !== id) {
-      throw new Error(`Unknown or stale Node REPL cell id: ${cellId}.`);
+      throw new Error(`Unknown or stale code cell id: ${cellId}.`);
     }
     if (options.terminate && !cell.outcome) {
-      cell.kernel.terminate(`Node REPL cell ${cellId} terminated by caller.`);
+      cell.kernel.terminate(`Code cell ${cellId} terminated by caller.`);
     }
     return await this.observeCell(
       cell,
@@ -2541,16 +2540,14 @@ export class NodeReplKernelRegistry {
     const id = getStellaComputerSessionId(context);
     const browserSessionId = getStellaBrowserSessionId(context);
     if (!id || !browserSessionId) {
-      throw new Error(
-        "node_repl requires a stable Stella agent/session identity.",
-      );
+      throw new Error("code requires a stable Stella agent/session identity.");
     }
     let kernel = this.kernels.get(id);
     if (!kernel) {
       const sessionFactory = this.options.sessionFactory;
       if (!sessionFactory) {
         throw new Error(
-          "node_repl computer use requires a typed ComputerUseSession factory.",
+          "code computer use requires a typed ComputerUseSession factory.",
         );
       }
       const cwd = resolveToolFallbackCwd(
@@ -2650,7 +2647,7 @@ export class NodeReplKernelRegistry {
       fromCursor > cell.cursor
     ) {
       throw new Error(
-        `Invalid Node REPL content cursor ${String(requestedAfterCursor)} for cell ${cell.cellId}; current cursor is ${cell.cursor}.`,
+        `Invalid code content cursor ${String(requestedAfterCursor)} for cell ${cell.cellId}; current cursor is ${cell.cursor}.`,
       );
     }
     await waitForCellChange(

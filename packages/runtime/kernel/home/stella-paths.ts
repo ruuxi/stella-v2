@@ -13,8 +13,9 @@ import type { App } from "electron";
  */
 
 /**
- * Capability-bearing agent metadata stays in the install tree. Prompt bodies
- * are backend-owned and are joined with this frontmatter during remote sync.
+ * Capability-bearing agent metadata and prompt bodies stay authoritative in
+ * the install tree. Backend/cloud prompt defaults are derived from these
+ * bundled files after runtime-only frontmatter is stripped.
  */
 export const resolveBundledAgentMetadataDir = (
   stellaAppDir: string,

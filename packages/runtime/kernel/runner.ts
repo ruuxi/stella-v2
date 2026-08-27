@@ -580,6 +580,9 @@ export const createStellaHostRunner = (
       return manager.getAgent(agentId);
     },
     cancelLocalAgent: taskOrchestration.cancelLocalAgent,
+    cancelBlockingLocalAgent: taskOrchestration.cancelBlockingLocalAgent,
+    cancelPlacementAutomation:
+      orchestratorController.cancelPlacementAutomation,
     cancelLocalChat: orchestratorController.cancelLocalChat,
     cancelLocalChatByConversation:
       orchestratorController.cancelLocalChatByConversation,

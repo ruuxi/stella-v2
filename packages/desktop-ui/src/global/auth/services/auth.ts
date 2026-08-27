@@ -13,13 +13,17 @@ export const secureSignOut = async (scope: SignOutScope = "current_device") => {
   // the local auth token, so we await before tearing the session down.
   const deviceId = await getDeviceIdOrNull();
   const tasks: Promise<unknown>[] = [];
+  // Revocation is NOT best-effort. It deletes every Better Auth session on the
+  // account, and reporting success when it failed would leave the user
+  // believing their other devices are signed out when they are still live. A
+  // failure here propagates so the caller can surface it; the local sign-out
+  // below is deliberately not attempted in that case.
+  let revocationFailure: Error | null = null;
   if (scope === "all_devices") {
     tasks.push(
-      convexClient.mutation(api.auth.revokeActiveSessions, {}).catch((error) => {
-        console.debug(
-          "[auth] Session revocation failed (best-effort):",
-          (error as Error).message,
-        );
+      convexClient.action(api.auth.revokeActiveSessions, {}).catch((error) => {
+        revocationFailure =
+          error instanceof Error ? error : new Error(String(error));
       }),
     );
   }
@@ -37,6 +41,9 @@ export const secureSignOut = async (scope: SignOutScope = "current_device") => {
   }
   if (tasks.length > 0) {
     await Promise.allSettled(tasks);
+  }
+  if (revocationFailure !== null) {
+    throw revocationFailure;
   }
   await signOutAuthSession();
 };

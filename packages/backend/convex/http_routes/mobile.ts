@@ -8,7 +8,6 @@ import {
   getAuthBaseUrl,
   isAnonymousIdentity,
 } from "../auth";
-import { getAppReviewEmail } from "../lib/app_review_auth";
 import { AGENT_IDS } from "../lib/agent_constants";
 import { MANAGED_GATEWAY } from "../agent/model";
 import {
@@ -43,6 +42,11 @@ import {
   rateLimitResponse,
 } from "../http_shared/webhook_controls";
 import { readJsonBody } from "../http_shared/request";
+import {
+  decryptHandoffToken,
+  encryptHandoffToken,
+  sha256Base64Url,
+} from "../lib/handoff_crypto";
 import { encodeSseData, sseResponse } from "../http_shared/sse";
 import { dollarsToMicroCents } from "../lib/billing_money";
 import { getClientAddressKey } from "../lib/http_utils";
@@ -151,6 +155,7 @@ const MAGIC_LINK_IP_RATE_LIMIT = 10;
 const MAGIC_LINK_RATE_WINDOW_MS = 60_000;
 const MAGIC_LINK_EXPIRY_MS = 10 * 60_000;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CLAIM_HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 type AuthenticatedOwnerResult =
   | { ownerId: string; name?: string; isAnonymous: boolean }
@@ -1944,12 +1949,13 @@ export const registerMobileRoutes = (http: HttpRouter) => {
   registerCorsOptions(http, [
     "/api/auth/link/send",
     "/api/auth/link/status",
+    "/api/auth/link/claim",
     "/api/auth/desktop-social/start",
   ]);
 
   // Start a desktop social sign-in and return a requestId for polling. The
   // OAuth callback lands on `/api/auth/desktop-social/verify`, where the OTT is
-  // exchanged server-side for the raw Better Auth session cookie.
+  // exchanged server-side for a bearer token encrypted into the claim row.
   http.route({
     path: "/api/auth/desktop-social/start",
     method: "POST",
@@ -1972,6 +1978,19 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           return errorResponse(500, "Server configuration error", origin);
         }
 
+        let socialClaimHash = "";
+        try {
+          const body = (await request.json()) as { claimHash?: unknown };
+          if (typeof body?.claimHash === "string") {
+            socialClaimHash = body.claimHash.trim();
+          }
+        } catch {
+          return errorResponse(400, "Invalid JSON body", origin);
+        }
+        if (!CLAIM_HASH_PATTERN.test(socialClaimHash)) {
+          return errorResponse(400, "A valid claimHash is required", origin);
+        }
+
         const requestId = crypto.randomUUID();
         const now = Date.now();
         await ctx.runMutation(internal.mobile_auth.createPendingLinkRequest, {
@@ -1979,6 +1998,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           requestId,
           expiresAt: now + MAGIC_LINK_EXPIRY_MS,
           createdAt: now,
+          claimHash: socialClaimHash,
         });
 
         await ctx.scheduler.runAfter(
@@ -2005,9 +2025,15 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        let body: { email?: unknown } | null = null;
+        let body: {
+          email?: unknown;
+          claimHash?: unknown;
+        } | null = null;
         try {
-          body = (await request.json()) as { email?: unknown };
+          body = (await request.json()) as {
+            email?: unknown;
+            claimHash?: unknown;
+          };
         } catch {
           return errorResponse(400, "Invalid JSON body", origin);
         }
@@ -2018,6 +2044,11 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             : "";
         if (!email || !EMAIL_PATTERN.test(email)) {
           return errorResponse(400, "A valid email is required.", origin);
+        }
+        const claimHash =
+          typeof body?.claimHash === "string" ? body.claimHash.trim() : "";
+        if (!CLAIM_HASH_PATTERN.test(claimHash)) {
+          return errorResponse(400, "A valid claimHash is required", origin);
         }
 
         const rateLimit = await ctx.runMutation(
@@ -2059,13 +2090,13 @@ export const registerMobileRoutes = (http: HttpRouter) => {
 
         const requestId = crypto.randomUUID();
         const now = Date.now();
-        const appReviewEmail = getAppReviewEmail();
 
         await ctx.runMutation(internal.mobile_auth.createPendingLinkRequest, {
           email,
           requestId,
           expiresAt: now + MAGIC_LINK_EXPIRY_MS,
           createdAt: now,
+          claimHash,
         });
 
         // Schedule cleanup before attempting the send so a failed send
@@ -2078,53 +2109,11 @@ export const registerMobileRoutes = (http: HttpRouter) => {
 
         try {
           const auth = createAuth(ctx);
-          if (appReviewEmail && email === appReviewEmail) {
-            const signInAppReview = (
-              auth.api as unknown as {
-                signInAppReview(args: {
-                  body: { email: string };
-                  headers: Headers;
-                  returnHeaders: true;
-                }): Promise<unknown>;
-              }
-            ).signInAppReview;
-            const signInResult = await signInAppReview({
-              body: { email },
-              headers: new Headers({ origin: authBaseUrl }),
-              returnHeaders: true,
-            });
-
-            let sessionCookie = "";
-            const headersList = (signInResult as Record<string, unknown>)
-              ?.headers as { _headersList?: [string, string][] } | undefined;
-            if (Array.isArray(headersList?._headersList)) {
-              for (const [name, value] of headersList._headersList) {
-                if (
-                  name === "set-better-auth-cookie" ||
-                  name === "set-cookie"
-                ) {
-                  sessionCookie = value;
-                  break;
-                }
-              }
-            }
-
-            if (!sessionCookie) {
-              throw new Error("Missing session cookie");
-            }
-
-            await ctx.runMutation(internal.mobile_auth.completeLinkRequest, {
-              requestId,
-              ott: "app-review",
-              sessionCookie,
-            });
-          } else {
-            const callbackURL = `${authBaseUrl}/api/auth/link/verify?requestId=${encodeURIComponent(requestId)}`;
-            await auth.api.signInMagicLink({
-              body: { email, callbackURL },
-              headers: new Headers({ origin: authBaseUrl }),
-            });
-          }
+          const callbackURL = `${authBaseUrl}/api/auth/link/verify?requestId=${encodeURIComponent(requestId)}`;
+          await auth.api.signInMagicLink({
+            body: { email, callbackURL },
+            headers: new Headers({ origin: authBaseUrl }),
+          });
         } catch (error) {
           console.error("[mobile/auth] Failed to send magic link:", error);
           return errorResponse(500, "Failed to send sign-in email.", origin);
@@ -2173,8 +2162,76 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // Browser landing after desktop social auth. The cross-domain plugin appends
-  // ?ott=... to this URL after the provider flow completes.
+  // Exchange a claim secret for the bearer token produced by a completed
+  // handoff. This replaces returning a raw session cookie from /link/status:
+  // the credential is encrypted at rest, single-use, short-lived, and
+  // unreachable without the secret the client generated.
+  http.route({
+    path: "/api/auth/link/claim",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        let body: { requestId?: unknown; claimSecret?: unknown } | null = null;
+        try {
+          body = (await request.json()) as {
+            requestId?: unknown;
+            claimSecret?: unknown;
+          };
+        } catch {
+          return errorResponse(400, "Invalid JSON body", origin);
+        }
+
+        const requestId =
+          typeof body?.requestId === "string" ? body.requestId.trim() : "";
+        const claimSecret =
+          typeof body?.claimSecret === "string" ? body.claimSecret : "";
+        if (!requestId || !claimSecret) {
+          return errorResponse(
+            400,
+            "requestId and claimSecret are required",
+            origin,
+          );
+        }
+
+        const rateLimit = await consumeWebhookRateLimit(ctx, {
+          scope: "mobile_auth_link_claim",
+          key: requestId,
+          limit: 5,
+          windowMs: 60_000,
+          blockMs: 5 * 60_000,
+        });
+        if (!rateLimit.allowed) {
+          return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+        }
+
+        const result = await ctx.runMutation(
+          internal.mobile_auth.claimLinkRequest,
+          {
+            requestId,
+            claimHash: await sha256Base64Url(claimSecret),
+            nowMs: Date.now(),
+          },
+        );
+        if (!result.ok || !result.tokenEnc) {
+          // Deliberately indistinguishable from "unknown requestId".
+          return errorResponse(404, "Not claimable", origin);
+        }
+
+        let token: string;
+        try {
+          token = await decryptHandoffToken(result.tokenEnc);
+        } catch (err) {
+          console.error("[mobile/auth] Handoff decrypt failed:", err);
+          return errorResponse(500, "Server configuration error", origin);
+        }
+
+        return jsonResponse({ token }, 200, origin);
+      }),
+    ),
+  });
+
+  // Browser landing after desktop social auth. The native OTT redirect plugin
+  // appends ?ott=... after the provider flow completes.
   http.route({
     path: "/api/auth/desktop-social/verify",
     method: "GET",
@@ -2184,7 +2241,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
       const ott = url.searchParams.get("ott") ?? "";
 
       if (requestId && ott) {
-        let sessionCookie = "";
+        let tokenEnc: string | undefined;
         try {
           const auth = createAuth(ctx);
           const verifyRes = await auth.api.verifyOneTimeToken({
@@ -2192,24 +2249,22 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             headers: new Headers(),
             returnHeaders: true,
           });
-          const headersList = (verifyRes as Record<string, unknown>)
-            ?.headers as { _headersList?: [string, string][] } | undefined;
-          if (Array.isArray(headersList?._headersList)) {
-            for (const [name, value] of headersList._headersList) {
-              if (name === "set-better-auth-cookie" || name === "set-cookie") {
-                sessionCookie = value;
-                break;
-              }
-            }
+          // `returnHeaders: true` yields a real Headers object, so read the
+          // bearer token directly rather than reaching into undici internals.
+          const headers = (verifyRes as { headers?: Headers })?.headers;
+          const bearerToken = headers?.get?.("set-auth-token") ?? "";
+          if (bearerToken) {
+            tokenEnc = await encryptHandoffToken(bearerToken);
           }
         } catch (err) {
           console.error("[desktop/auth] Server-side OTT verify failed:", err);
         }
-        await ctx.runMutation(internal.mobile_auth.completeLinkRequest, {
-          requestId,
-          ott,
-          ...(sessionCookie ? { sessionCookie } : {}),
-        });
+        if (tokenEnc) {
+          await ctx.runMutation(internal.mobile_auth.completeLinkRequest, {
+            requestId,
+            tokenEnc,
+          });
+        }
       }
 
       const websiteUrl =
@@ -2223,10 +2278,9 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     }),
   });
 
-  // Browser landing after magic link verification.
-  // The cross-domain plugin appends ?ott=... to this URL after verifying the token.
-  // Exchanges the OTT for a session cookie server-side and stores the raw
-  // Set-Cookie value so polling clients can apply it directly.
+  // Browser landing after magic-link verification. The native OTT redirect
+  // plugin appends ?ott=..., which is exchanged server-side for the bearer
+  // token encrypted into the claim row.
   http.route({
     path: "/api/auth/link/verify",
     method: "GET",
@@ -2236,7 +2290,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
       const ott = url.searchParams.get("ott") ?? "";
 
       if (requestId && ott) {
-        let sessionCookie = "";
+        let tokenEnc: string | undefined;
         try {
           const auth = createAuth(ctx);
           const verifyRes = await auth.api.verifyOneTimeToken({
@@ -2244,24 +2298,22 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             headers: new Headers(),
             returnHeaders: true,
           });
-          const headersList = (verifyRes as Record<string, unknown>)
-            ?.headers as { _headersList?: [string, string][] } | undefined;
-          if (Array.isArray(headersList?._headersList)) {
-            for (const [name, value] of headersList._headersList) {
-              if (name === "set-better-auth-cookie" || name === "set-cookie") {
-                sessionCookie = value;
-                break;
-              }
-            }
+          // `returnHeaders: true` yields a real Headers object, so read the
+          // bearer token directly rather than reaching into undici internals.
+          const headers = (verifyRes as { headers?: Headers })?.headers;
+          const bearerToken = headers?.get?.("set-auth-token") ?? "";
+          if (bearerToken) {
+            tokenEnc = await encryptHandoffToken(bearerToken);
           }
         } catch (err) {
           console.error("[mobile/auth] Server-side OTT verify failed:", err);
         }
-        await ctx.runMutation(internal.mobile_auth.completeLinkRequest, {
-          requestId,
-          ott,
-          ...(sessionCookie ? { sessionCookie } : {}),
-        });
+        if (tokenEnc) {
+          await ctx.runMutation(internal.mobile_auth.completeLinkRequest, {
+            requestId,
+            tokenEnc,
+          });
+        }
       }
 
       const websiteUrl =

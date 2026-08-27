@@ -16,7 +16,7 @@ const OWNER_TABLES = [
   "devices",
   "device_presence",
   "cloudflare_tunnels",
-  "auth_session_policies",
+  "auth_revoked_sessions",
   "usage_logs",
   "usage_rollups",
   "billing_usage_windows",

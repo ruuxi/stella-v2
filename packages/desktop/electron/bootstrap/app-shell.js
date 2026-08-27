@@ -96,12 +96,6 @@ const finalizeWindowLaunch = (context) => {
         });
         void startDeferredStartup(context);
     };
-    // The cold-boot deep-link OTT (`stella://auth/callback?ott=…`) sits in
-    // `authService.pendingAuthCallback` waiting for the renderer to pull it via
-    // `auth:consumePendingCallback`. We deliberately don't rebroadcast on
-    // `did-finish-load` — that fires before React commits its first effects,
-    // so the renderer-side `auth:callback` listener wasn't necessarily mounted.
-    // The renderer pulls explicitly from `AuthDeepLinkHandler` once subscribed.
     if (fullWindow) {
         fullWindow.webContents.once("did-finish-load", () => {
             getMainLogger()?.process("startup.first-paint", {

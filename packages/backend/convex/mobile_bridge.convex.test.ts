@@ -19,12 +19,24 @@ const createTest = () => {
   registerRateLimiter(t);
   return t;
 };
-const asOwner = (t: ReturnType<typeof createTest>, issuedAt = 1_000) =>
+const ownerSessionId = "session-bridge-owner";
+/**
+ * `sessionId: null` omits the claim entirely (modelling a token that predates
+ * or loses it). Note it must be `null`, not `undefined` — passing `undefined`
+ * for an optional parameter selects its default value in JS.
+ */
+const asOwner = (
+  t: ReturnType<typeof createTest>,
+  sessionId: string | null = ownerSessionId,
+) =>
   t.withIdentity({
     issuer: "https://issuer.test",
     subject: "bridge-owner",
     tokenIdentifier: ownerId,
-    iat: issuedAt,
+    // Mirrors the real token: the Convex plugin stamps `sessionId` on every
+    // JWT and Convex surfaces it (`iat` is stripped by the customJwt decoder,
+    // which is why revocation keys on this claim instead).
+    ...(sessionId === null ? {} : { sessionId }),
   });
 
 const registrationArgs = {
@@ -56,18 +68,95 @@ describe("desktop bridge registration", () => {
     ).rejects.toThrow("Sign in with an account");
   });
 
-  it("enforces the sensitive-session revocation policy", async () => {
+  it("rejects a revoked session", async () => {
     const t = createTest();
     await t.run(async (ctx) => {
-      await ctx.db.insert("auth_session_policies", {
+      await ctx.db.insert("auth_revoked_sessions", {
         ownerId,
-        minIssuedAtSec: 2_000,
-        updatedAt: Date.now(),
+        sessionId: ownerSessionId,
+        revokedAt: Date.now(),
+        expiresAt: Date.now() + 30 * 60_000,
       });
     });
 
     await expect(
-      asOwner(t, 1_000).mutation(
+      asOwner(t).mutation(
+        api.mobile_bridge.registerDesktopBridge,
+        registrationArgs,
+      ),
+    ).rejects.toThrow("Session has been revoked");
+  });
+
+  // The old `iat`-based test only covered the reject path, so a mechanism
+  // that rejected *everything* would still have passed. These three pin the
+  // allow paths that actually matter.
+  it("allows a session that was never revoked", async () => {
+    const t = createTest();
+    const result = await asOwner(t).mutation(
+      api.mobile_bridge.registerDesktopBridge,
+      registrationArgs,
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("allows a different session on an account with other revocations", async () => {
+    const t = createTest();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("auth_revoked_sessions", {
+        ownerId,
+        sessionId: "some-other-device-session",
+        revokedAt: Date.now(),
+        expiresAt: Date.now() + 30 * 60_000,
+      });
+    });
+
+    const result = await asOwner(t).mutation(
+      api.mobile_bridge.registerDesktopBridge,
+      registrationArgs,
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("ignores a tombstone whose covered JWT has already expired", async () => {
+    const t = createTest();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("auth_revoked_sessions", {
+        ownerId,
+        sessionId: ownerSessionId,
+        revokedAt: Date.now() - 60 * 60_000,
+        expiresAt: Date.now() - 60_000,
+      });
+    });
+
+    const result = await asOwner(t).mutation(
+      api.mobile_bridge.registerDesktopBridge,
+      registrationArgs,
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("denies an unidentifiable session only when revocations exist", async () => {
+    const t = createTest();
+
+    // No tombstones: a token without `sessionId` still works, so a future
+    // regression in the claim cannot mass-lock accounts.
+    const before = await asOwner(t, null).mutation(
+      api.mobile_bridge.registerDesktopBridge,
+      registrationArgs,
+    );
+    expect(before.ok).toBe(true);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("auth_revoked_sessions", {
+        ownerId,
+        sessionId: "any-session",
+        revokedAt: Date.now(),
+        expiresAt: Date.now() + 30 * 60_000,
+      });
+    });
+
+    await expect(
+      asOwner(t, null).mutation(
         api.mobile_bridge.registerDesktopBridge,
         registrationArgs,
       ),

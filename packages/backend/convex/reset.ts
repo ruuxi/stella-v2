@@ -33,7 +33,7 @@ const OWNER_TABLES = [
   ["devices", "by_ownerId"],
   ["device_presence", "by_ownerId"],
   ["cloudflare_tunnels", "by_ownerId"],
-  ["auth_session_policies", "by_ownerId"],
+  ["auth_revoked_sessions", "by_ownerId_and_sessionId"],
   ["usage_logs", "by_ownerId_and_createdAt"],
   ["usage_rollups", "by_ownerId_and_bucketStartMs"],
   ["billing_usage_windows", "by_ownerId"],
@@ -258,7 +258,7 @@ const ownerTableValidator = v.union(
   v.literal("devices"),
   v.literal("device_presence"),
   v.literal("cloudflare_tunnels"),
-  v.literal("auth_session_policies"),
+  v.literal("auth_revoked_sessions"),
   v.literal("usage_logs"),
   v.literal("usage_rollups"),
   v.literal("billing_usage_windows"),
@@ -342,10 +342,10 @@ async function deleteOneOwnerTableBatch(
       ids = rows.map((r) => r._id) as Id<OwnerTable>[];
       break;
     }
-    case "auth_session_policies": {
+    case "auth_revoked_sessions": {
       const rows = await ctx.db
-        .query("auth_session_policies")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+        .query("auth_revoked_sessions")
+        .withIndex("by_ownerId_and_sessionId", (q) => q.eq("ownerId", ownerId))
         .take(BATCH);
       ids = rows.map((r) => r._id) as Id<OwnerTable>[];
       break;

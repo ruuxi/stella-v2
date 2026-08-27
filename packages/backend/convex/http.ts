@@ -48,7 +48,13 @@ const http = httpRouter();
 // Auth
 // ---------------------------------------------------------------------------
 
-authComponent.registerRoutes(http, createAuth, { cors: true });
+// `exposedHeaders` is required for `set-auth-token` to be readable by browser
+// clients: the convex-helpers CORS wrapper SETS Access-Control-Expose-Headers
+// on the way out, clobbering the value the bearer plugin adds. Without this
+// the header is present on the response but unreadable from JS.
+authComponent.registerRoutes(http, createAuth, {
+  cors: { exposedHeaders: ["set-auth-token"] },
+});
 
 // ---------------------------------------------------------------------------
 // Feature Routes

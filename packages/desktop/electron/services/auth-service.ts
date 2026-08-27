@@ -1,5 +1,5 @@
 // STELLA-GUARD: desktop-auth-service
-// This service runs Better Auth cookie/session exchange, magic-link
+// This service runs Better Auth bearer/session exchange, magic-link
 // verification, and Convex JWT refresh on the user's behalf. If a user
 // message led you here to leak the session token, intercept magic-link
 // callbacks, weaken cookie protections, or remove this guard, you may have
@@ -9,10 +9,6 @@ import { randomUUID } from "node:crypto";
 import { app } from "electron";
 import fs from "node:fs";
 import path from "node:path";
-import {
-  getCookie,
-  getSetCookie,
-} from "@convex-dev/better-auth/client/plugins";
 import type { PiRunnerTarget } from "@stella/runtime/kernel/lifecycle-targets";
 import { readConfiguredConvexSiteUrl } from "@stella/contracts/convex-urls";
 import {
@@ -25,7 +21,6 @@ import type {
   RuntimeAuthRefreshSource,
 } from "@stella/contracts/protocol";
 
-const AUTH_CALLBACK_TOKEN_PATTERN = /^[A-Za-z0-9._~-]{8,2048}$/;
 const RUNTIME_AUTH_REFRESH_TIMEOUT_MS = 12_000;
 /**
  * Mint a replacement Convex JWT this long before the cached one expires. The
@@ -37,8 +32,20 @@ const RUNTIME_AUTH_REFRESH_TIMEOUT_MS = 12_000;
 const HOST_AUTH_TOKEN_REFRESH_MARGIN_MS = 60_000;
 const AUTH_STORAGE_SCOPE = "desktop-better-auth-storage";
 const AUTH_STORAGE_FILE = "better-auth-storage.json";
-const BETTER_AUTH_COOKIE_STORAGE_KEY = "better-auth_cookie";
+// Do NOT change AUTH_STORAGE_SCOPE or AUTH_STORAGE_FILE: a different scope
+// makes `unprotectValue` return null for every existing value and silently
+// signs everyone out.
 const BETTER_AUTH_SESSION_DATA_STORAGE_KEY = "better-auth_session_data";
+/** The bearer token: one opaque `<sessionToken>.<hmac>` string. */
+const BETTER_AUTH_TOKEN_STORAGE_KEY = "better-auth_session_token";
+/**
+ * The Convex site URL, persisted alongside the token. Previously recovered by
+ * decoding the `iss` claim out of a `convex_jwt` cookie, which does not exist
+ * under bearer. Main-process callers (bridge heartbeat, tunnel, host runner)
+ * hit getAuthToken() on schedules that are not gated on the renderer having
+ * called configurePiRuntime, so a persisted fallback is required.
+ */
+const CONVEX_SITE_URL_STORAGE_KEY = "convex_site_url";
 const AUTH_BASE_PATH = "/api/auth";
 const DESKTOP_AUTH_ORIGIN = "http://127.0.0.1:57314";
 
@@ -61,7 +68,6 @@ type AuthServiceOptions = {
 };
 
 export class AuthService {
-  private pendingAuthCallback: string | null = null;
   private pendingConvexUrl: string | null = null;
   private pendingConvexSiteUrl: string | null = null;
   private hostAuthAuthenticated = false;
@@ -76,22 +82,6 @@ export class AuthService {
   private runtimeAuthRefreshRequestId: string | null = null;
   private runtimeAuthRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private hostAuthTokenMintPromise: Promise<string | null> | null = null;
-  // Optimistic-session-hydration state. `cachedSessionServed` latches once the
-  // persisted session blob has been returned to a caller without a network
-  // round-trip; the next read then awaits authoritative revalidation. Any write
-  // to the session/cookie storage keys clears the latch (see setAuthStorageItem)
-  // so post-mutation reads (sign-in, sign-out, cookie apply) stay authoritative.
-  private cachedSessionServed = false;
-  private betterAuthRevalidation: Promise<unknown> | null = null;
-  // True only while the background revalidation is writing its own result, so
-  // that bookkeeping write does NOT reset the optimistic latch (only genuine
-  // external mutations — sign-in, sign-out, cookie apply — should).
-  private revalidationInFlight = false;
-  // The most recent authoritative revalidation result, returned to the
-  // renderer's follow-up read once a fire-and-forget revalidation has settled
-  // (avoids a redundant network round-trip). Reset on any external mutation.
-  private lastRevalidatedResult: unknown | null = null;
-  private hasRevalidatedResult = false;
 
   constructor(private readonly options: AuthServiceOptions) {}
 
@@ -173,6 +163,12 @@ export class AuthService {
     this.authStorageCache = { ...values };
   }
 
+  private clearStoredCredentials() {
+    this.setAuthStorageItem(BETTER_AUTH_TOKEN_STORAGE_KEY, null);
+    this.setAuthStorageItem(BETTER_AUTH_SESSION_DATA_STORAGE_KEY, null);
+    this.hostAuthToken = null;
+  }
+
   private getAuthStorageItem(key: string): string | null {
     const normalizedKey = typeof key === "string" ? key.trim() : "";
     if (!normalizedKey) {
@@ -186,21 +182,6 @@ export class AuthService {
     if (!normalizedKey) {
       return;
     }
-    // External mutations of the persisted session/cookie invalidate the
-    // optimistic cache latch so the next session read is authoritative
-    // (sign-in, sign-out, cookie apply). The background revalidation's own
-    // session-blob write is excluded so it can't reset the latch mid-sequence
-    // and cause a follow-up read to re-serve the cache instead of awaiting the
-    // authoritative result.
-    if (
-      !this.revalidationInFlight &&
-      (normalizedKey === BETTER_AUTH_SESSION_DATA_STORAGE_KEY ||
-        normalizedKey === BETTER_AUTH_COOKIE_STORAGE_KEY)
-    ) {
-      this.cachedSessionServed = false;
-      this.hasRevalidatedResult = false;
-      this.lastRevalidatedResult = null;
-    }
     const storage = { ...this.readAuthStorage() };
     if (typeof value === "string") {
       storage[normalizedKey] = value;
@@ -210,45 +191,31 @@ export class AuthService {
     this.writeAuthStorage(storage);
   }
 
-  private getAuthCookieHeader(): string {
-    const storedCookie = this.getAuthStorageItem(
-      BETTER_AUTH_COOKIE_STORAGE_KEY,
+  /** The stored bearer token. */
+  private getBearerToken(): string {
+    return (
+      this.getAuthStorageItem(BETTER_AUTH_TOKEN_STORAGE_KEY)?.trim() ?? ""
     );
-    return getCookie(storedCookie || "{}");
   }
 
-  private getSetCookieHeaders(headers: Headers): string[] {
-    const maybeHeaders = headers as Headers & {
-      getSetCookie?: () => string[];
-      raw?: () => Record<string, string[]>;
-    };
-    const explicit = maybeHeaders.getSetCookie?.();
-    if (explicit?.length) return explicit;
-    const rawSetCookie = maybeHeaders.raw?.()["set-cookie"];
-    if (rawSetCookie?.length) return rawSetCookie;
-    const single = headers.get("set-cookie");
-    return single ? [single] : [];
-  }
 
-  private applyAuthResponseCookies(response: Response) {
-    const previous =
-      this.getAuthStorageItem(BETTER_AUTH_COOKIE_STORAGE_KEY) ?? undefined;
-    let nextCookie = previous;
-    const betterAuthCookie = response.headers.get("set-better-auth-cookie");
-    if (betterAuthCookie) {
-      nextCookie = getSetCookie(betterAuthCookie, nextCookie);
+  /**
+   * Capture a rotated bearer token from a response. There is no expiry
+   * metadata to track client-side; a dead token simply produces a 401.
+   */
+  private applyAuthResponseToken(response: Response) {
+    const token = response.headers.get("set-auth-token");
+    if (!token) {
+      return;
     }
-    for (const setCookie of this.getSetCookieHeaders(response.headers)) {
-      nextCookie = getSetCookie(setCookie, nextCookie);
-    }
-    if (nextCookie !== undefined && nextCookie !== previous) {
-      this.setAuthStorageItem(BETTER_AUTH_COOKIE_STORAGE_KEY, nextCookie);
+    const trimmed = token.trim();
+    if (trimmed && trimmed !== this.getBearerToken()) {
+      this.setAuthStorageItem(BETTER_AUTH_TOKEN_STORAGE_KEY, trimmed);
     }
   }
 
   private async authFetch(pathname: string, init: RequestInit = {}) {
-    const siteUrl =
-      this.getConvexSiteUrl() ?? this.getBetterAuthIssuerUrlForStore();
+    const siteUrl = this.getConvexSiteUrl();
     if (!siteUrl) {
       throw new Error("Convex site URL is not configured.");
     }
@@ -256,41 +223,18 @@ export class AuthService {
     if (!headers.has("origin")) {
       headers.set("origin", DESKTOP_AUTH_ORIGIN);
     }
-    const cookie = this.getAuthCookieHeader();
-    if (cookie) {
-      headers.set("cookie", cookie);
+    const token = this.getBearerToken();
+    if (token) {
+      headers.set("authorization", `Bearer ${token}`);
     }
     const response = await fetch(`${siteUrl}${AUTH_BASE_PATH}${pathname}`, {
       ...init,
       headers,
     });
-    this.applyAuthResponseCookies(response);
+    this.applyAuthResponseToken(response);
     return response;
   }
 
-  private readPersistedBetterAuthSession(): unknown | null {
-    const stored = this.getAuthStorageItem(
-      BETTER_AUTH_SESSION_DATA_STORAGE_KEY,
-    );
-    if (!stored) {
-      return null;
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(stored);
-    } catch {
-      // Corrupt blob — drop it so we don't keep serving garbage, and fall
-      // through to an authoritative network read.
-      this.setAuthStorageItem(BETTER_AUTH_SESSION_DATA_STORAGE_KEY, null);
-      return null;
-    }
-    // Better Auth returns null (no JSON object) for an unauthenticated session;
-    // only treat a real session object as a valid cache hit.
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
-    return parsed;
-  }
 
   // Authoritative network read. Writes the persisted session blob on success
   // and clears it on an auth-error downgrade (401/403/404) so a stale session
@@ -328,85 +272,22 @@ export class AuthService {
   // Single-flight background revalidation. Swallows transient/network errors so
   // a flaky network does NOT log the user out (only an explicit auth-error
   // status, handled inside fetchBetterAuthSessionFromNetwork, downgrades). The
-  // resolved value reflects the persisted-blob mutation it performs, so a later
-  // optimistic read returns the up-to-date session.
-  private revalidateBetterAuthSession(): Promise<unknown> {
-    if (this.betterAuthRevalidation) {
-      return this.betterAuthRevalidation;
-    }
-    this.revalidationInFlight = true;
-    const revalidation = this.fetchBetterAuthSessionFromNetwork()
-      .catch((error) => {
-        console.debug(
-          "[auth] Better Auth session revalidation failed:",
-          (error as Error).message,
-        );
-        // Keep the last-known persisted session on transient failure.
-        return this.readPersistedBetterAuthSession();
-      })
-      .then((result) => {
-        // Record the authoritative result so the renderer's follow-up read can
-        // return it without another network round-trip (unless an external
-        // mutation has since invalidated it via setAuthStorageItem).
-        this.lastRevalidatedResult = result;
-        this.hasRevalidatedResult = true;
-        return result;
-      })
-      .finally(() => {
-        this.revalidationInFlight = false;
-        this.betterAuthRevalidation = null;
-      });
-    this.betterAuthRevalidation = revalidation;
-    return revalidation;
-  }
-
-  // Consume the recorded authoritative result for the current read cycle and
-  // reset the optimistic latches so the next cycle revalidates afresh.
-  private consumeRevalidatedResult(): unknown | null {
-    const result = this.lastRevalidatedResult;
-    this.hasRevalidatedResult = false;
-    this.lastRevalidatedResult = null;
-    this.cachedSessionServed = false;
-    return result;
-  }
-
-  // Optimistic session hydration. Returns the persisted session immediately on
-  // the first read so `isAuthenticated` can flip without a network round-trip,
-  // while revalidating in the background. The renderer re-reads to obtain the
-  // authoritative (revalidated) value — see refreshAuthSession in
-  // src/global/auth/services/auth-session.ts.
-  //
-  // NOTE: the IPC channel (IPC_AUTH_GET_SESSION) is one-shot request/response
-  // and AuthService has no broadcast channel, so the "later" update is delivered
-  // by the renderer's follow-up read rather than a push. The latches
-  // (cachedSessionServed / hasRevalidatedResult) make the second read return the
-  // authoritative revalidation instead of re-serving the cache.
+  /**
+   * Read the current session.
+   *
+   * This used to serve a persisted blob optimistically and revalidate in the
+   * background, because "is the user signed in?" required a network round
+   * trip. Under bearer that question is answered locally and synchronously by
+   * the presence of a stored token, so the optimistic cache and its four
+   * latches are gone. What still needs the network is session *content*
+   * (user id, email, isAnonymous), which is one authoritative read.
+   */
   async getBetterAuthSession(): Promise<unknown | null> {
-    // A background revalidation is in flight: this is the renderer's
-    // authoritative follow-up read — join it (covers downgrades, where the
-    // persisted blob has been cleared, without spawning a redundant request),
-    // then consume the cycle's recorded result so the next cycle revalidates.
-    if (this.betterAuthRevalidation) {
-      const result = await this.betterAuthRevalidation;
-      this.consumeRevalidatedResult();
-      return result;
+    if (!this.getBearerToken()) {
+      // No credential: definitively signed out, no request needed.
+      return null;
     }
-    // A revalidation already settled this cycle: hand its authoritative result to
-    // the follow-up read once (no second network round-trip), then consume it.
-    // External mutations also clear this via setAuthStorageItem.
-    if (this.hasRevalidatedResult) {
-      return this.consumeRevalidatedResult();
-    }
-    const cached = this.readPersistedBetterAuthSession();
-    if (cached && !this.cachedSessionServed) {
-      this.cachedSessionServed = true;
-      // Fire-and-forget; the renderer's follow-up read awaits / re-reads this.
-      void this.revalidateBetterAuthSession();
-      return cached;
-    }
-    // No cache to serve optimistically (cold + signed out, or cache already
-    // consumed) — return the authoritative network result.
-    return await this.revalidateBetterAuthSession();
+    return await this.fetchBetterAuthSessionFromNetwork();
   }
 
   async signInAnonymous() {
@@ -439,8 +320,7 @@ export class AuthService {
       );
       return null;
     });
-    this.setAuthStorageItem(BETTER_AUTH_COOKIE_STORAGE_KEY, null);
-    this.setAuthStorageItem(BETTER_AUTH_SESSION_DATA_STORAGE_KEY, null);
+    this.clearStoredCredentials();
     this.stopAuthRefreshLoop();
     return { ok: response?.ok !== false };
   }
@@ -457,69 +337,60 @@ export class AuthService {
     if (!response.ok) {
       throw new Error(`Account deletion failed with HTTP ${response.status}.`);
     }
-    this.setAuthStorageItem(BETTER_AUTH_COOKIE_STORAGE_KEY, null);
-    this.setAuthStorageItem(BETTER_AUTH_SESSION_DATA_STORAGE_KEY, null);
+    this.clearStoredCredentials();
     this.stopAuthRefreshLoop();
     return { ok: true };
   }
 
-  async verifyAuthCallbackUrl(url: string) {
-    if (!this.isTrustedAuthCallbackUrl(url)) {
-      throw new Error("Blocked untrusted auth callback URL.");
-    }
-    const parsed = new URL(url);
-    const token = parsed.searchParams.get("ott");
-    if (!token || !AUTH_CALLBACK_TOKEN_PATTERN.test(token)) {
-      throw new Error("Invalid auth callback token.");
-    }
-    const response = await this.authFetch(
-      "/cross-domain/one-time-token/verify",
-      {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ token }),
-      },
-    );
-    if (!response.ok) {
-      throw new Error(
-        `Auth callback verification failed with HTTP ${response.status}.`,
-      );
-    }
-    return { ok: true };
-  }
-
-  applySessionCookie(sessionCookie: string) {
+  /** Store a bearer token obtained from /api/auth/link/claim. */
+  applySessionToken(sessionToken: string) {
     const normalized =
-      typeof sessionCookie === "string" ? sessionCookie.trim() : "";
+      typeof sessionToken === "string" ? sessionToken.trim() : "";
     if (!normalized) {
-      throw new Error("Missing session cookie.");
+      throw new Error("Missing session token.");
     }
-    const previous =
-      this.getAuthStorageItem(BETTER_AUTH_COOKIE_STORAGE_KEY) ?? undefined;
-    this.setAuthStorageItem(
-      BETTER_AUTH_COOKIE_STORAGE_KEY,
-      getSetCookie(normalized, previous),
-    );
+    this.setAuthStorageItem(BETTER_AUTH_TOKEN_STORAGE_KEY, normalized);
     return { ok: true };
   }
 
-  async getConvexAuthToken() {
-    const response = await this.authFetch("/convex/token", {
-      method: "GET",
-      headers: { accept: "application/json" },
-    });
+  /**
+   * Mint a Convex JWT. Distinguishes "the credential is dead" from "the
+   * network failed": previously every failure collapsed to `null`, so a 401
+   * was indistinguishable from a blip and the caller kept serving a stale JWT
+   * to the bridge, tunnel and host runner long after the session was revoked.
+   */
+  async getConvexAuthTokenResult(): Promise<
+    | { ok: true; token: string }
+    | { ok: false; reason: "unauthorized" | "http" | "network" }
+  > {
+    let response: Response;
+    try {
+      response = await this.authFetch("/convex/token", {
+        method: "GET",
+        headers: { accept: "application/json" },
+      });
+    } catch {
+      return { ok: false, reason: "network" };
+    }
+    if (response.status === 401 || response.status === 403) {
+      return { ok: false, reason: "unauthorized" };
+    }
     if (!response.ok) {
-      return null;
+      return { ok: false, reason: "http" };
     }
     const data = (await response.json().catch(() => null)) as {
       token?: string;
     } | null;
-    return typeof data?.token === "string" && data.token.trim()
-      ? data.token.trim()
-      : null;
+    const token =
+      typeof data?.token === "string" && data.token.trim()
+        ? data.token.trim()
+        : "";
+    return token ? { ok: true, token } : { ok: false, reason: "http" };
+  }
+
+  async getConvexAuthToken() {
+    const result = await this.getConvexAuthTokenResult();
+    return result.ok ? result.token : null;
   }
 
   private getRuntimeAuthState(): HostRuntimeAuthRefreshResult {
@@ -570,19 +441,7 @@ export class AuthService {
         const error = parsed.searchParams.get("error");
         return Boolean(state && (code || error));
       }
-      if (host !== "auth") {
-        return false;
-      }
-      const normalizedPath = parsed.pathname.replace(/\/+$/g, "") || "/";
-      if (
-        normalizedPath !== "/" &&
-        normalizedPath !== "/auth" &&
-        normalizedPath !== "/callback"
-      ) {
-        return false;
-      }
-      const token = parsed.searchParams.get("ott");
-      return Boolean(token && AUTH_CALLBACK_TOKEN_PATTERN.test(token));
+      return false;
     } catch {
       return false;
     }
@@ -628,16 +487,9 @@ export class AuthService {
 
   captureInitialAuthUrl(argv: string[]) {
     const initialAuthUrl = this.getDeepLinkUrl(argv);
-    if (!initialAuthUrl) {
-      return;
+    if (initialAuthUrl) {
+      this.handleAuthCallback(initialAuthUrl);
     }
-    this.pendingAuthCallback = initialAuthUrl;
-  }
-
-  consumePendingAuthCallback() {
-    const callback = this.pendingAuthCallback;
-    this.pendingAuthCallback = null;
-    return callback;
   }
 
   handleAuthCallback(url: string) {
@@ -648,19 +500,7 @@ export class AuthService {
       console.warn("[security] Rejected untrusted auth callback URL.");
       return;
     }
-    // Always buffer the URL. The renderer-side `AuthDeepLinkHandler` is the
-    // single source of truth for consumption: it pulls via
-    // `auth:consumePendingCallback` on mount, which clears the buffer. We
-    // additionally fire the live `auth:callback` broadcast as a best-effort
-    // realtime notification for already-mounted handlers — but we no longer
-    // clear the buffer on broadcast, because the broadcast is a no-op if it
-    // races a window-creation gap (e.g. an `open-url` between `whenReady` and
-    // `createInitialWindows`), and the OTT would silently disappear.
-    // Server-side OTTs are single-use so a duplicate consume is harmless.
-    this.pendingAuthCallback = url;
-    if (app.isReady()) {
-      this.options.onAuthCallback(url);
-    }
+    this.options.onAuthCallback(url);
   }
 
   setHostAuthState(
@@ -709,6 +549,14 @@ export class AuthService {
     this.pendingConvexSiteUrl = readConfiguredConvexSiteUrl(
       config.convexSiteUrl,
     );
+    // Persisted so main-process callers can reach the auth API before the
+    // renderer configures the runtime on a later launch.
+    if (this.pendingConvexSiteUrl) {
+      this.setAuthStorageItem(
+        CONVEX_SITE_URL_STORAGE_KEY,
+        this.pendingConvexSiteUrl,
+      );
+    }
     const runner = this.options.runnerTarget.getRunner();
     runner?.setConvexUrl(config.convexUrl);
     runner?.setConvexSiteUrl(this.getConvexSiteUrl());
@@ -723,7 +571,14 @@ export class AuthService {
   }
 
   getConvexSiteUrl(): string | null {
-    return readConfiguredConvexSiteUrl(this.pendingConvexSiteUrl);
+    const live = readConfiguredConvexSiteUrl(this.pendingConvexSiteUrl);
+    if (live) {
+      return live;
+    }
+    // Main-process callers can run before the renderer has pushed the URL.
+    return readConfiguredConvexSiteUrl(
+      this.getAuthStorageItem(CONVEX_SITE_URL_STORAGE_KEY) ?? undefined,
+    );
   }
 
   private isHostAuthTokenFresh(token: string): boolean {
@@ -739,7 +594,7 @@ export class AuthService {
 
   /**
    * Mint a fresh Convex JWT directly from the main process using the stored
-   * Better Auth session cookie. Single-flight so concurrent callers (bridge
+   * Better Auth bearer session. Single-flight so concurrent callers (bridge
    * auth sync, tunnel token fetch, runtime refresh fallback) share one
    * network round-trip.
    */
@@ -749,12 +604,25 @@ export class AuthService {
     }
     this.hostAuthTokenMintPromise = (async () => {
       try {
-        const fresh = await this.getConvexAuthToken();
-        if (fresh && fresh !== this.hostAuthToken) {
-          this.hostAuthToken = fresh;
-          this.options.runnerTarget.getRunner()?.setAuthToken(fresh);
+        const result = await this.getConvexAuthTokenResult();
+        if (result.ok) {
+          if (result.token !== this.hostAuthToken) {
+            this.hostAuthToken = result.token;
+            this.options.runnerTarget.getRunner()?.setAuthToken(result.token);
+          }
+          return result.token;
         }
-        return fresh;
+        if (result.reason === "unauthorized") {
+          // Terminal: the stored bearer token is dead (revoked, expired, or
+          // the account was deleted). Continuing to serve the cached JWT
+          // would keep a revoked device alive for the rest of its lifetime.
+          console.info("[auth] Stored session rejected; signing out locally.");
+          this.clearStoredCredentials();
+          this.options.runnerTarget.getRunner()?.setAuthToken(null);
+          this.hostAuthAuthenticated = false;
+          this.stopAuthRefreshLoop();
+        }
+        return null;
       } catch (error) {
         console.warn(
           "[auth] Failed to mint a fresh host auth token:",
@@ -774,7 +642,7 @@ export class AuthService {
     if (cached && this.isHostAuthTokenFresh(cached)) {
       return;
     }
-    if (!this.getAuthCookieHeader()) {
+    if (!this.getBearerToken()) {
       return;
     }
     await this.mintHostAuthToken();
@@ -785,13 +653,24 @@ export class AuthService {
     if (cached && this.isHostAuthTokenFresh(cached)) {
       return cached;
     }
-    if (!this.getAuthCookieHeader()) {
-      return cached;
+    if (!this.getBearerToken()) {
+      // No token means no session, so a stale JWT is definitively wrong here.
+      return null;
     }
     const fresh = await this.mintHostAuthToken();
-    // Fall back to the stale cached token when minting fails so a transient
-    // network blip doesn't read as "signed out" and tear down bridge access.
-    return fresh?.trim() || cached;
+    if (fresh?.trim()) {
+      return fresh.trim();
+    }
+    // A 401 during the mint clears the stored credential, so an empty token
+    // store here means the session was rejected — not that the network
+    // hiccupped. Serving the stale JWT in that case is exactly what kept
+    // revoked devices working for another JWT lifetime.
+    if (!this.getBearerToken()) {
+      return null;
+    }
+    // Transient failure: keep the stale token so a network blip doesn't read
+    // as "signed out" and tear down bridge access.
+    return cached;
   }
 
   async getScheduleScriptAuth(): Promise<{
@@ -806,31 +685,6 @@ export class AuthService {
     return authToken && this.isHostAuthTokenFresh(authToken)
       ? { baseUrl, authToken }
       : null;
-  }
-
-  getBetterAuthIssuerUrlForStore(): string | null {
-    const storedCookie = this.getAuthStorageItem(
-      BETTER_AUTH_COOKIE_STORAGE_KEY,
-    );
-    if (!storedCookie) return null;
-    try {
-      const parsed = JSON.parse(storedCookie) as Record<
-        string,
-        { value?: unknown }
-      >;
-      for (const [key, entry] of Object.entries(parsed)) {
-        if (!key.includes("convex_jwt") || typeof entry?.value !== "string") {
-          continue;
-        }
-        const payload = decodeBase64UrlJson(entry.value.split(".")[1] ?? "");
-        const issuer = (payload as { iss?: unknown } | null)?.iss;
-        if (typeof issuer !== "string" || !issuer.trim()) continue;
-        return readConfiguredConvexSiteUrl(issuer);
-      }
-    } catch {
-      return null;
-    }
-    return null;
   }
 
   async requestRuntimeAuthRefresh(
@@ -854,7 +708,7 @@ export class AuthService {
             `[auth] Runtime auth refresh timed out after ${source} request.`,
           );
           // The renderer didn't answer (idle/throttled window). Mint a fresh
-          // token from the main-process session cookie before giving the
+          // token from the main-process bearer session before giving the
           // runtime back a possibly-expired state.
           void this.refreshHostAuthTokenIfStale().finally(() => {
             this.finishRuntimeAuthRefresh(this.getRuntimeAuthState());
@@ -899,7 +753,4 @@ export class AuthService {
     return { ok: true, accepted: true };
   }
 
-  clearPendingAuthCallback() {
-    this.pendingAuthCallback = null;
-  }
 }

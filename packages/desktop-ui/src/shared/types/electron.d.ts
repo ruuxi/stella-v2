@@ -613,8 +613,7 @@ export type ElectronSystemApi = {
   signInAnonymous: () => Promise<unknown>;
   signOutAuth: () => Promise<{ ok: boolean }>;
   deleteAuthUser: () => Promise<{ ok: boolean }>;
-  verifyAuthCallbackUrl: (url: string) => Promise<{ ok: boolean }>;
-  applyAuthSessionCookie: (sessionCookie: string) => Promise<{ ok: boolean }>;
+  applyAuthSessionToken: (sessionToken: string) => Promise<{ ok: boolean }>;
   getConvexAuthToken: () => Promise<string | null>;
   completeRuntimeAuthRefresh: (payload: {
     requestId: string;
@@ -628,8 +627,6 @@ export type ElectronSystemApi = {
   setModelCatalogUpdatedAt: (payload: {
     updatedAt: number | null;
   }) => Promise<{ ok: boolean }>;
-  onAuthCallback: (callback: (data: { url: string }) => void) => () => void;
-  consumePendingAuthCallback: () => Promise<string | null>;
   onRuntimeAuthRefreshRequested: (
     callback: (data: {
       requestId: string;

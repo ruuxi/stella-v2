@@ -1,11 +1,7 @@
 import { createAuthClient } from "better-auth/client";
-import {
-  convexClient,
-  crossDomainClient,
-} from "@convex-dev/better-auth/client/plugins";
+import { convexClient } from "@convex-dev/better-auth/client/plugins";
 import { anonymousClient, magicLinkClient } from "better-auth/client/plugins";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
-import { desktopAuthStorage } from "@/global/auth/services/auth-storage";
 
 // `convexClient()` exposes `authClient.convex.token()`, which is the JWT
 // `desktop/src/global/auth/services/auth-token.ts` actually consumes. The
@@ -13,7 +9,6 @@ import { desktopAuthStorage } from "@/global/auth/services/auth-storage";
 // in `backend/convex/auth.ts` (see comment there) and is intentionally absent.
 const plugins = [
   convexClient(),
-  crossDomainClient({ storage: desktopAuthStorage }),
   anonymousClient(),
   magicLinkClient(),
 ];

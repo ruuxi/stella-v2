@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { AuthDeepLinkHandler } from "./global/auth/AuthDeepLinkHandler";
 import { PhoneAccessBridge } from "./global/mobile/PhoneAccessBridge";
 import { AppBootstrap } from "./bootstrap/AppBootstrap";
 import { ChatStoreProvider } from "@/context/chat-store";
@@ -40,7 +39,6 @@ function App() {
 
   return (
     <>
-      <AuthDeepLinkHandler />
       <div className="app window-full">
         <ChatStoreProvider>
           <AppBootstrap />

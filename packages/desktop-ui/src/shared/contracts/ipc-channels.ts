@@ -163,15 +163,11 @@ export const IPC_AUTH_GET_SESSION = "auth:getSession" as const;
 export const IPC_AUTH_SIGN_IN_ANONYMOUS = "auth:signInAnonymous" as const;
 export const IPC_AUTH_SIGN_OUT = "auth:signOut" as const;
 export const IPC_AUTH_DELETE_USER = "auth:deleteUser" as const;
-export const IPC_AUTH_VERIFY_CALLBACK_URL = "auth:verifyCallbackUrl" as const;
-export const IPC_AUTH_APPLY_SESSION_COOKIE = "auth:applySessionCookie" as const;
+export const IPC_AUTH_APPLY_SESSION_TOKEN = "auth:applySessionToken" as const;
 export const IPC_AUTH_GET_CONVEX_TOKEN = "auth:getConvexToken" as const;
 export const IPC_HOST_SET_CLOUD_SYNC = "host:setCloudSyncEnabled" as const;
 export const IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT =
   "host:setModelCatalogUpdatedAt" as const;
-export const IPC_AUTH_CALLBACK = "auth:callback" as const;
-export const IPC_AUTH_CONSUME_PENDING_CALLBACK =
-  "auth:consumePendingCallback" as const;
 export const IPC_AUTH_RUNTIME_REFRESH_REQUESTED =
   "auth:runtimeRefreshRequested" as const;
 export const IPC_AUTH_RUNTIME_REFRESH_COMPLETE =

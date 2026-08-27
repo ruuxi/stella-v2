@@ -2,10 +2,9 @@
  * Auth token helper for custom HTTP endpoints (e.g. /api/chat,
  * /api/speech-to-text/session).
  *
- * BetterAuth crossDomain stores session cookies in localStorage, NOT as browser
- * cookies. So `credentials: "include"` sends nothing to the Convex site domain.
- * Instead, we must fetch a Convex JWT via the BetterAuth token endpoint and
- * include it as an Authorization header.
+ * The Electron main process owns the Better Auth bearer token. The renderer
+ * asks main for a Convex JWT and includes that short-lived token as an
+ * Authorization header.
  */
 
 import { configurePiRuntime } from "@/platform/electron/device";

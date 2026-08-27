@@ -210,6 +210,7 @@ describe("working orchestrator surface", () => {
     expect(orchestrated?.systemPrompt).toContain(
       "Work is done by agents you spawn",
     );
+    expect(orchestrated?.systemPrompt).toContain("one consolidated update");
     expect(orchestrated?.toolsAllowlist).toEqual(
       expect.arrayContaining([
         "web",

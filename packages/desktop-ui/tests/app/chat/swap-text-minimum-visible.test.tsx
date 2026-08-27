@@ -46,41 +46,39 @@ describe("SwapText minimum visible duration", () => {
   const visibleIn = () =>
     container.querySelector(".swap-text__layer--in")?.textContent;
 
-  it("holds each phrase for two seconds and then plays the next queued one", async () => {
+  it("holds the current phrase for two seconds, then skips ahead to the latest", async () => {
     await renderText("Thinking");
-    await act(async () => vi.advanceTimersByTimeAsync(500));
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
     await renderText("Reading");
     await act(async () => vi.advanceTimersByTimeAsync(500));
+    await renderText("Read files");
+    await act(async () => vi.advanceTimersByTimeAsync(500));
     await renderText("Making changes");
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    await renderText("Ran command");
 
-    expect(visibleIn()).toBe("Thinking");
-
-    await act(async () => vi.advanceTimersByTimeAsync(999));
-    expect(visibleIn()).toBe("Thinking");
-
-    await act(async () => vi.advanceTimersByTimeAsync(1));
     expect(visibleIn()).toBe("Reading");
 
-    await act(async () => vi.advanceTimersByTimeAsync(1999));
+    await act(async () => vi.advanceTimersByTimeAsync(499));
     expect(visibleIn()).toBe("Reading");
 
     await act(async () => vi.advanceTimersByTimeAsync(1));
-    expect(visibleIn()).toBe("Making changes");
+    expect(visibleIn()).toBe("Ran command");
   });
 
-  it("does not skip an in-progress orchestrator tool phrase when a receipt arrives early", async () => {
+  it("does not let an early receipt abort the in-progress tool phrase", async () => {
     await renderText("Thinking");
-    await act(async () => vi.advanceTimersByTimeAsync(400));
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
     await renderText("Reading");
     await act(async () => vi.advanceTimersByTimeAsync(200));
     await renderText("Read files", 0);
 
-    expect(visibleIn()).toBe("Thinking");
-
-    await act(async () => vi.advanceTimersByTimeAsync(1400));
     expect(visibleIn()).toBe("Reading");
 
-    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    await act(async () => vi.advanceTimersByTimeAsync(1799));
+    expect(visibleIn()).toBe("Reading");
+
+    await act(async () => vi.advanceTimersByTimeAsync(1));
     expect(visibleIn()).toBe("Read files");
   });
 

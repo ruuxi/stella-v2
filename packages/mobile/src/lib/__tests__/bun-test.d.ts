@@ -35,5 +35,11 @@ declare module "bun:test" {
 
   export const mock: {
     module: (specifier: string, factory: () => unknown) => void;
+    restore: () => void;
   };
+
+  export function spyOn<T extends object, K extends keyof T>(
+    object: T,
+    method: K,
+  ): { mockResolvedValue: (value: unknown) => unknown };
 }

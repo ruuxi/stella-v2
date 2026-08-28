@@ -33,7 +33,6 @@ export type WorkingIndicatorState = {
   status?: string;
   toolName?: string;
   toolCallId?: string;
-  isReasoning: boolean;
 };
 
 export function buildWorkingIndicatorState({
@@ -60,6 +59,5 @@ export function buildWorkingIndicatorState({
       isPreToolThinking || isToolActive ? activity.statusText : undefined,
     toolName,
     toolCallId: isToolActive ? activity.toolCallId : undefined,
-    isReasoning: !toolName,
   };
 }

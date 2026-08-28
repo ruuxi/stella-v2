@@ -95,11 +95,6 @@ html[data-low-power] .inline-generated-image-card__placeholder::before {
   animation: none !important;
 }
 
-html[data-low-power]
-  .stella-animation-container:not(.stella-animation-container--paused) {
-  animation: none !important;
-}
-
 html[data-low-power] .onboarding-enter-step__dots > span {
   animation: none !important;
   opacity: 0.55;

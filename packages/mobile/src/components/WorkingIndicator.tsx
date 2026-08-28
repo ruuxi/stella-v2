@@ -24,7 +24,6 @@ interface WorkingIndicatorProps {
   status?: string;
   toolName?: string;
   toolCallId?: string;
-  isReasoning?: boolean;
 
   exitImmediately?: boolean;
 }
@@ -151,7 +150,6 @@ export const WorkingIndicator = memo(function WorkingIndicator({
   status,
   toolName,
   toolCallId,
-  isReasoning = true,
   exitImmediately = false,
 }: WorkingIndicatorProps) {
   const colors = useColors();
@@ -163,12 +161,12 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     status,
     toolName,
     seed: toolCallId ?? reasoningSeed,
-    isReasoning,
   });
 
   const frozenStatusRef = useRef(liveStatus);
   if (active) frozenStatusRef.current = liveStatus;
   const displayStatus = active ? liveStatus : frozenStatusRef.current;
+  const hasLabel = displayStatus.length > 0;
   const [renderShell, setRenderShell] = useState(active);
   const shellProgress = useRef(new Animated.Value(active ? 1 : 0)).current;
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -238,7 +236,11 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     >
       {renderShell ? (
         <Animated.View style={[styles.row, shellStyle]} collapsable={false}>
-          <StellaMarkIndicator active={active} size={INDICATOR_VIEWPORT_SIZE} />
+          <StellaMarkIndicator
+            active={active}
+            size={INDICATOR_VIEWPORT_SIZE}
+            mode={hasLabel ? "star" : "dots"}
+          />
           <SwapText
             text={displayStatus}
             active={active}

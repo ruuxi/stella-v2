@@ -18,10 +18,7 @@ import {
   type Theme,
   type ThemeColors,
 } from "../shared/theme/themes";
-import {
-  generateAuroraStops,
-  generateGradientTokens,
-} from "../shared/theme/color";
+import { generateGradientTokens } from "../shared/theme/color";
 import { uiState } from "../platform/ui-state";
 
 type ColorMode = "light" | "dark" | "system";
@@ -144,15 +141,6 @@ function applyThemeToDocument(
   root.style.setProperty("--stella-animation-color-1", colors.interactive);
   root.style.setProperty("--stella-animation-color-2", colors.success);
   root.style.setProperty("--stella-animation-color-3", colors.warning);
-
-  const auroraStops = generateAuroraStops(
-    colors.interactive,
-    colors.accent,
-    isDark,
-  );
-  auroraStops.forEach((stop, index) => {
-    root.style.setProperty(`--stella-aurora-${index + 1}`, stop);
-  });
 
   const gradientTokens = getGradientTokens(
     {

@@ -7,29 +7,25 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import type {
-  PetAnimationState,
-  PetOverlayState,
-  PetOverlayStatus,
-} from "@stella/contracts/desktop/pet";
+import type { PetOverlayStatus } from "@stella/contracts/desktop/pet";
 import type { VoiceRuntimeSnapshot } from "@/shared/types/electron";
-import { BUILT_IN_PET } from "./built-in-pet";
-import { PetSprite } from "./PetSprite";
+import { StellaCharacter } from "@/ui/stella-character/StellaCharacter";
+import { getPetCharacterState, type PetVoiceMode } from "./pet-character-state";
 import "./pet-overlay.css";
 
 const MASCOT_SIZE = 76;
 
-const DRAG_THRESHOLD_PX = 4;
+const PET_DISPLAY_NAME = "Stella";
 
-type VoicePetMode = "idle" | "listening" | "speaking";
+const DRAG_THRESHOLD_PX = 4;
 
 const VOICE_OUTPUT_LEVEL_THRESHOLD = 0.02;
 const ASSISTANT_BUBBLE_VISIBLE_MS = 4_000;
 
-const deriveVoicePetMode = (
+const derivePetVoiceMode = (
   state: VoiceRuntimeSnapshot | null | undefined,
   voiceActive: boolean,
-): VoicePetMode => {
+): PetVoiceMode => {
 
   if (!voiceActive) return "idle";
   if (
@@ -39,24 +35,6 @@ const deriveVoicePetMode = (
     return "speaking";
   }
   return "listening";
-};
-
-const mapStateToAnimation = (state: PetOverlayState): PetAnimationState => {
-  switch (state) {
-    case "running":
-      return "running";
-    case "waiting":
-      return "waiting";
-    case "review":
-      return "review";
-    case "failed":
-      return "failed";
-    case "waving":
-      return "waving";
-    case "idle":
-    default:
-      return "idle";
-  }
 };
 
 export type PetOverlayProps = {
@@ -109,14 +87,13 @@ export const PetOverlay = ({
   onClose,
 }: PetOverlayProps) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const pet = BUILT_IN_PET;
 
   const [hover, setHover] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   const voiceActiveRef = useRef(false);
-  const [voiceMode, setVoiceMode] = useState<VoicePetMode>("idle");
+  const [voiceMode, setVoiceMode] = useState<PetVoiceMode>("idle");
   const [assistantBubbleVisible, setAssistantBubbleVisible] = useState(true);
 
   useEffect(() => {
@@ -134,7 +111,7 @@ export const PetOverlay = ({
     const applyRuntimeState = (
       state: VoiceRuntimeSnapshot | null | undefined,
     ) => {
-      setVoiceMode(deriveVoicePetMode(state, voiceActiveRef.current));
+      setVoiceMode(derivePetVoiceMode(state, voiceActiveRef.current));
     };
     const ui = window.electronAPI?.ui;
     if (ui?.onState) {
@@ -376,20 +353,12 @@ export const PetOverlay = ({
     return null;
   }
 
-  const baseAnimation = mapStateToAnimation(status.state);
-  const voiceAnimation: PetAnimationState | null =
-    voiceMode === "speaking"
-      ? "waving"
-      : voiceMode === "listening"
-        ? "waiting"
-        : null;
-  const animationState: PetAnimationState = dragging
-    ? "jumping"
-    : voiceAnimation
-      ? voiceAnimation
-      : hover && baseAnimation === "idle"
-        ? "waving"
-        : baseAnimation;
+  const characterState = getPetCharacterState({
+    state: status.state,
+    voiceMode,
+    dragging,
+    hover,
+  });
   const hasBubbleContent =
     Boolean(status.message?.trim()) || Boolean(status.title?.trim());
   const showBubble =
@@ -412,11 +381,8 @@ export const PetOverlay = ({
         onPointerUp={finishDrag}
         onPointerCancel={finishDrag}
         onContextMenu={handleContextMenu}
-        title={pet.displayName}
+        title={PET_DISPLAY_NAME}
       >
-        {
-
-}
         <div
           className="pet-overlay-bubble"
           data-visible={showBubble ? "true" : "false"}
@@ -425,11 +391,14 @@ export const PetOverlay = ({
         >
           <PetBubbleMessage message={status.message} />
         </div>
-        <PetSprite
-          spritesheetUrl={pet.spritesheetUrl}
-          state={animationState}
-          continuous={voiceAnimation != null}
+        <StellaCharacter
+          className="pet-overlay-character"
           size={MASCOT_SIZE}
+          state={characterState}
+          shape="star"
+          ink="aurora"
+          glow
+          followPointer
         />
       </div>
 

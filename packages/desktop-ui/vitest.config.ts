@@ -12,7 +12,6 @@ const aliases = [
 const jsdomTests = [
   'tests/app/**/*.test.tsx',
   'tests/app/apps/user-apps-registry.test.ts',
-  'tests/app/chat/aurora-display-size.test.ts',
   'tests/app/chat/chat-history-pagination.test.ts',
   'tests/app/chat/context-message-metadata.test.ts',
   'tests/app/chat/pretext-row-measure.test.ts',

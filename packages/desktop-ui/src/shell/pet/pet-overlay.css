@@ -101,6 +101,11 @@ html[data-stella-window="pet"] #root {
   cursor: grabbing;
 }
 
+.pet-overlay-character {
+  display: block;
+  pointer-events: none;
+}
+
 .pet-overlay-context-menu {
   position: absolute;
   min-width: 140px;

@@ -161,37 +161,6 @@ function generateScale(seed: HexColor, isDark: boolean): HexColor[] {
   return scale;
 }
 
-export function generateAuroraStops(
-  interactive: string,
-  accent: string,
-  isDark: boolean,
-): [string, string, string, string, string] {
-  const p = hexToOklch(interactive);
-  const a = hexToOklch(accent);
-
-  let delta = ((a.h - p.h + 540) % 360) - 180;
-  const accentIsDistinct = a.c >= 0.05 && Math.abs(delta) >= 50;
-  if (!accentIsDistinct) delta = 75;
-
-  const hues = accentIsDistinct
-    ? [p.h - 30, p.h - 12, p.h, p.h + delta * 0.55, p.h + delta]
-    : [p.h - 40, p.h - 18, p.h, p.h + 32, p.h + delta];
-
-  const lightness = [0.74, 0.7, 0.65, 0.58, 0.67];
-  const chromaMul = [0.9, 0.85, 1.0, 1.15, 1.0];
-  const cBase = Math.min(Math.max(p.c, 0.05), 0.16);
-
-  const lightnessShift = isDark ? 0 : -0.06;
-
-  return hues.map((h, i) =>
-    oklchToHex({
-      l: lightness[i] + lightnessShift,
-      c: cBase * chromaMul[i],
-      h: ((h % 360) + 360) % 360,
-    }),
-  ) as [string, string, string, string, string];
-}
-
 export function generateGradientTokens(
   seeds: {
     primary: string;

@@ -11,7 +11,7 @@ export type { StellaCharacterShape, StellaCharacterState };
 
 export interface StellaCharacterProps {
 
-  size: number;
+  size: number | null;
   state?: StellaCharacterState;
   shape?: StellaCharacterShape;
 
@@ -20,6 +20,7 @@ export interface StellaCharacterProps {
   eyeColor?: string;
   glow?: boolean;
   paused?: boolean;
+  followPointer?: boolean;
   className?: string;
   style?: React.CSSProperties;
 
@@ -34,6 +35,7 @@ export function StellaCharacter({
   eyeColor,
   glow = false,
   paused = false,
+  followPointer = false,
   className,
   style,
   handleRef,
@@ -51,6 +53,7 @@ export function StellaCharacter({
       ink,
       glow,
       paused,
+      followPointer,
     };
     if (eyeColor) opts.eyeColor = eyeColor;
     const mark = createStellaMark(host, opts);
@@ -62,7 +65,7 @@ export function StellaCharacter({
       mark.destroy();
     };
 
-  }, [size, ink, glow, eyeColor]);
+  }, [size, ink, glow, eyeColor, followPointer]);
 
   useEffect(() => {
     markRef.current?.setState(state);
@@ -84,8 +87,8 @@ export function StellaCharacter({
       aria-hidden
       style={{
         display: "inline-block",
-        width: size,
-        height: size,
+        width: size ?? undefined,
+        height: size ?? undefined,
         flex: "0 0 auto",
         ...style,
       }}

@@ -3370,7 +3370,6 @@ export function ChatPane({
           status={workingIndicator?.status}
           toolName={workingIndicator?.toolName}
           toolCallId={workingIndicator?.toolCallId}
-          isReasoning={workingIndicator?.isReasoning ?? true}
         />
       </View>
     ),
@@ -4363,7 +4362,7 @@ const makeStyles = (colors: Colors) =>
       borderWidth: StyleSheet.hairlineWidth,
       borderRadius: 18,
       borderBottomLeftRadius: 4,
-      maxWidth: "85%",
+      maxWidth: "100%",
       paddingBottom: 2,
       paddingHorizontal: 13,
       paddingTop: 10,

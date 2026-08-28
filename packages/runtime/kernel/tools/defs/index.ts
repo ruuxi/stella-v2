@@ -27,6 +27,7 @@ import { createScriptDraftTool } from "./script-draft.js";
 import { strReplaceTool } from "./str-replace.js";
 import { createAgentTools } from "./task.js";
 import { createConnectorStatusTool } from "./connector-status.js";
+import { createLinkWalletTool } from "./link-wallet.js";
 import { createWebTool } from "./web.js";
 import { writeTool } from "./write.js";
 import { createWriteStdinTool } from "./write-stdin.js";
@@ -135,6 +136,13 @@ export const buildBuiltinTools = (
         : {}),
       ...(options.requestConnectorConnection
         ? { requestConnectorConnection: options.requestConnectorConnection }
+        : {}),
+    }),
+  );
+  tools.push(
+    createLinkWalletTool({
+      ...(options.requestLinkWalletConnection
+        ? { requestLinkWalletConnection: options.requestLinkWalletConnection }
         : {}),
     }),
   );

@@ -15,6 +15,7 @@ const NON_PARALLEL_TOOL_NAMES = new Set<string>([
   "node_repl",
   "request_credential",
   "RequestCredential",
+  "link_wallet",
 ]);
 
 type ParallelToolDeps = {

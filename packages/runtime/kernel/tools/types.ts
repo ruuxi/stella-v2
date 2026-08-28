@@ -285,6 +285,8 @@ export type ToolHostOptions = {
   >;
 
   requestConnectorConnection?: import("./defs/connector-status.js").ConnectorConnectionRequester;
+
+  requestLinkWalletConnection?: import("./defs/link-wallet.js").LinkWalletConnectionRequester;
 };
 
 export type FashionShopProduct = {

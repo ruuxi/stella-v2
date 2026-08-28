@@ -194,6 +194,11 @@ export const createHostRunnerHandlers = (context, options) => ({
     requestConnectorConnection: (payload) => context.services.connectorConnectService.requestConnection(payload),
     cancelConnectorConnection: async (payload) => context.services.connectorConnectService.cancelByOfferId(payload.offerId),
     requestBrowserExtensionConnect: (payload) => context.services.connectorConnectService.requestBrowserExtensionConnect(payload),
+    requestLinkWalletConnection: (payload) => context.services.linkWalletService.requestConnection(payload),
+    cancelLinkWalletConnection: async (payload) => context.services.linkWalletService.cancelByOfferId(payload.offerId),
+    notifyLinkSpendApproval: (payload) => {
+        context.services.linkWalletService.notifySpendApproval(payload ?? {});
+    },
     requestComputerUseAppApproval: (payload) => context.services.securityPolicyService.ensureComputerUseAppApproval(payload),
     displayUpdate: (payload) => {
 

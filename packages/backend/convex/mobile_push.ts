@@ -21,7 +21,11 @@ const MAX_TOKENS_PER_OWNER = 25;
 const TOKEN_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 const pushDataValidator = v.object({
-  kind: v.union(v.literal("computer_reply"), v.literal("agent_activity")),
+  kind: v.union(
+    v.literal("computer_reply"),
+    v.literal("agent_activity"),
+    v.literal("wallet_spend"),
+  ),
 });
 
 const activityNotificationKindValidator = v.union(
@@ -76,6 +80,34 @@ export const sendActivityNotification = action({
       title: copy.title,
       body: copy.body,
       data: { kind: "agent_activity" },
+    });
+    return null;
+  },
+});
+
+export const sendWalletSpendNotification = action({
+  args: {
+    merchantName: v.string(),
+    amountCents: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const ownerId = await requireSensitiveUserIdAction(ctx);
+    await enforceActionRateLimit(
+      ctx,
+      "mobile_activity_push",
+      ownerId,
+      RATE_STANDARD,
+      "Slow down a moment and try again.",
+    );
+
+    const amountLabel = `$${(args.amountCents / 100).toFixed(2)}`;
+    const merchant = args.merchantName.trim() || "a merchant";
+    await ctx.runAction(internal.mobile_push.sendToOwner, {
+      ownerId,
+      title: "Approve a purchase",
+      body: `${amountLabel} at ${merchant} — open the Link app to approve.`,
+      data: { kind: "wallet_spend" },
     });
     return null;
   },

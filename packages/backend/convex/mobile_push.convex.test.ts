@@ -1,7 +1,7 @@
 import { register as registerRateLimiter } from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -121,5 +121,30 @@ describe("mobile_push.upsertToken idempotency", () => {
 
     const rows = await readRows(t);
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe("mobile_push.sendWalletSpendNotification", () => {
+  it("returns null for a signed-in owner", async () => {
+    const t = createTest();
+    const asOwner = t.withIdentity({
+      issuer: "https://issuer.test",
+      subject: "owner-1",
+      tokenIdentifier: OWNER,
+      sessionId: "session-owner-1",
+    });
+    await t.mutation(internal.mobile_push.upsertToken, {
+      ownerId: OWNER,
+      mobileDeviceId: DEVICE,
+      expoPushToken: TOKEN,
+      platform: "ios",
+      nowMs: 1_000_000,
+    });
+    await expect(
+      asOwner.action(api.mobile_push.sendWalletSpendNotification, {
+        merchantName: "Stripe Press",
+        amountCents: 3500,
+      }),
+    ).resolves.toBeNull();
   });
 });

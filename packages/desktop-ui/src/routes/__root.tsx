@@ -77,6 +77,7 @@ import {
 import { ModelCatalogUpdatedAtProvider } from "@/global/settings/hooks/model-catalog-updated-at";
 import { useRestrictedStellaModelReset } from "@/global/settings/hooks/use-restricted-stella-model-reset";
 import { MobileActivityNotificationsBridge } from "@/global/mobile/MobileActivityNotificationsBridge";
+import { MobileWalletSpendNotificationsBridge } from "@/global/mobile/MobileWalletSpendNotificationsBridge";
 import { useDictationToggleBridge } from "@/shell/root-chrome/use-dictation-toggle-bridge";
 import { useDisplayPayloadRouting } from "@/shell/root-chrome/use-display-payload-routing";
 import { useLastLocationRestore } from "@/shell/root-chrome/use-last-location-restore";
@@ -480,6 +481,7 @@ function RootChrome() {
   return (
     <>
       <MobileActivityNotificationsBridge />
+      <MobileWalletSpendNotificationsBridge />
 
       <StellaContextMenu
         isOpen={panelOpen}

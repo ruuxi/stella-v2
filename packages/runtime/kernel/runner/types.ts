@@ -118,6 +118,12 @@ export type StellaHostRunnerOptions = {
         reason: "declined" | "cancelled" | "timeout" | "unsupported" | string;
       }
   >;
+  requestLinkWalletConnection?: import("../tools/defs/link-wallet.js").LinkWalletConnectionRequester;
+  notifyLinkSpendApproval?: (payload: {
+    merchantName?: string;
+    amountCents?: number;
+    conversationId?: string;
+  }) => Promise<void> | void;
   requestRuntimeAuthRefresh?: (payload: {
     source: RuntimeAuthRefreshSource;
   }) => Promise<HostRuntimeAuthRefreshResult>;
@@ -294,6 +300,7 @@ export type RunnerContext = {
   requestCredential?: StellaHostRunnerOptions["requestCredential"];
   requestComputerUseAppApproval?: StellaHostRunnerOptions["requestComputerUseAppApproval"];
   requestRuntimeAuthRefresh?: StellaHostRunnerOptions["requestRuntimeAuthRefresh"];
+  notifyLinkSpendApproval?: StellaHostRunnerOptions["notifyLinkSpendApproval"];
   scheduleApi?: ScheduleToolApi;
   fashionApi?: FashionToolApi;
   runtimeStore: RuntimeStore;

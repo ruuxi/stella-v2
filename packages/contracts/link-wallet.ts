@@ -50,3 +50,12 @@ export type LinkWalletCardView = {
   amountLabel?: string;
   message?: string;
 };
+
+export const formatLinkSpendUsd = (amountCents: number): string =>
+  `$${(amountCents / 100).toFixed(2)}`;
+
+export const parseLinkSpendUsd = (label: string): number | undefined => {
+  const match = /^\$(\d+)\.(\d{2})$/u.exec(label.trim());
+  if (!match) return undefined;
+  return Number(match[1]) * 100 + Number(match[2]);
+};

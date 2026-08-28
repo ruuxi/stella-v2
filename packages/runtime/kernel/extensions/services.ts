@@ -13,6 +13,12 @@ export type ExtensionServices = {
   stellaAppDir: string;
 
   store: RuntimeStore;
+
+  notifyLinkSpendApproval?: (payload: {
+    merchantName?: string;
+    amountCents?: number;
+    conversationId?: string;
+  }) => Promise<void> | void;
 };
 
 export type RuntimeRunServices = {

@@ -15,6 +15,7 @@ import {
 } from "@/app/chat/ComposerContextRow";
 import { ComposerLeadRow } from "@/app/chat/ComposerLeadRow";
 import { ConnectorConnectCard } from "@/app/chat/ConnectorConnectCard";
+import { LinkWalletCard } from "@/app/chat/LinkWalletCard";
 import { ComposerAddMenu } from "@/app/chat/ComposerAddMenu";
 import {
   ComposerMicButton,
@@ -455,6 +456,7 @@ export function ChatPanelTab({
 
             <div className="chat-sidebar-composer">
               <ConnectorConnectCard compact conversationId={conversationId} />
+              <LinkWalletCard compact conversationId={conversationId} />
               <ComposerLeadRow
                 replyPeek={
                   assistantReplyPeek.visible

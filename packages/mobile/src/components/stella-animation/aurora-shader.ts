@@ -70,6 +70,7 @@ export const AURORA_STAR_SPIN_FRAGMENT = `#define STAR_SPIN 1
     return color;
   }
 
+
   #define STAR_CYCLE 3.2
   #define STAR_DRIFT_END 0.50
   #define STAR_WIND_END 0.57
@@ -244,6 +245,7 @@ export const AURORA_STAR_SPIN_FRAGMENT = `#define STAR_SPIN 1
 
     float height = 0.5 + p.y * 0.5;
     float hueAxis = clamp(height / 0.68 + (q.x - 0.5) * 0.38, 0.0, 1.0);
+
 
     if (u_listening > 0.01) {
       float rings = sin(dist * 20.0 + u_time * 5.0) * 0.5 + 0.5;

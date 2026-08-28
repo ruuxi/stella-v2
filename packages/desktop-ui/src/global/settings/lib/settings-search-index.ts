@@ -317,6 +317,12 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
     keywords: ["chime", "ping", "feedback", "mute dictation"],
   },
   {
+    tab: "wallet",
+    titleKey: "settings.wallet.title",
+    descriptionKey: "settings.search.descriptions.wallet",
+    keywords: ["link", "wallet", "spend", "card", "payment"],
+  },
+  {
     tab: "account",
     titleKey: "settings.account.signOut.label",
     cardTitleKey: "settings.account.title",

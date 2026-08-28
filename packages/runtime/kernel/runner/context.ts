@@ -392,6 +392,8 @@ export const createRunnerContext = ({
   requestCredential,
   requestBrowserExtensionConnect,
   requestConnectorConnection,
+  requestLinkWalletConnection,
+  notifyLinkSpendApproval,
   requestRuntimeAuthRefresh,
   scheduleApi,
   fashionApi,
@@ -469,6 +471,7 @@ export const createRunnerContext = ({
       ? { requestBrowserExtensionConnect }
       : {}),
     ...(requestConnectorConnection ? { requestConnectorConnection } : {}),
+    ...(requestLinkWalletConnection ? { requestLinkWalletConnection } : {}),
 
     validateSpawnModel: (modelName) => {
       resolveRunnerLlmRoute(context, AGENT_IDS.GENERAL, modelName);
@@ -797,6 +800,7 @@ export const createRunnerContext = ({
     stellaComputerCliPath,
     requestCredential,
     requestRuntimeAuthRefresh,
+    notifyLinkSpendApproval,
     scheduleApi,
 
     fashionApi: resolvedFashionApi,

@@ -53,6 +53,7 @@
     "./electron/services/capture-service.js": "./electron/services/capture-service.js",
     "./electron/services/in-app-browser-auth-policy.js": "./electron/services/in-app-browser-auth-policy.js",
     "./electron/services/connector-connect-service.js": "./electron/services/connector-connect-service.js",
+    "./electron/services/link-wallet-service.js": "./electron/services/link-wallet-service.ts",
     "./electron/services/connector-credential-service.js": "./electron/services/connector-credential-service.js",
     "./electron/services/connector-oauth-service.js": "./electron/services/connector-oauth-service.js",
     "./electron/services/credential-service.js": "./electron/services/credential-service.js",

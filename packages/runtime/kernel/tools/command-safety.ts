@@ -91,6 +91,7 @@ const STELLA_CREDENTIAL_FILES = [
   "config.json",
   "preferences.json",
   "connectors/.credentials.json",
+  "wallet/link-auth.json",
 ];
 
 const normalizePath = (filePath: string): string => {
@@ -148,7 +149,7 @@ const isSensitiveStellaPath = (
         return true;
       }
     }
-    for (const rel of ["mcp-tokens", "pairing", "skills/.hub"]) {
+    for (const rel of ["mcp-tokens", "pairing", "wallet", "skills/.hub"]) {
       if (pathMatchesPrefix(normalized, path.join(home, rel))) {
         return true;
       }

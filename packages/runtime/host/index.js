@@ -1589,6 +1589,34 @@ export class StellaRuntimeHost {
                 offerId,
             });
         });
+        peer.registerRequestHandler(METHOD_NAMES.HOST_LINK_WALLET_CONNECT_REQUEST, async (params) => {
+            if (!this.options.hostHandlers.requestLinkWalletConnection) {
+                return { ok: false, reason: "unsupported" };
+            }
+            return await this.options.hostHandlers.requestLinkWalletConnection(params);
+        });
+        peer.registerRequestHandler(METHOD_NAMES.HOST_LINK_WALLET_CONNECT_CANCEL, async (params) => {
+            if (!this.options.hostHandlers.cancelLinkWalletConnection) {
+                return { ok: false };
+            }
+            const offerId = params && typeof params === "object"
+                ? String(params.offerId ?? "")
+                : "";
+            if (!offerId)
+                return { ok: false };
+            return await this.options.hostHandlers.cancelLinkWalletConnection({
+                offerId,
+            });
+        });
+        peer.registerRequestHandler(METHOD_NAMES.HOST_LINK_WALLET_SPEND_NOTIFY, async (params) => {
+            const payload = params && typeof params === "object" ? params : {};
+            this.options.hostHandlers.notifyLinkSpendApproval?.({
+                merchantName: typeof payload.merchantName === "string" ? payload.merchantName : undefined,
+                amountCents: typeof payload.amountCents === "number" ? payload.amountCents : undefined,
+                conversationId: typeof payload.conversationId === "string" ? payload.conversationId : undefined,
+            });
+            return { ok: true };
+        });
         peer.registerRequestHandler(METHOD_NAMES.HOST_BROWSER_EXTENSION_CONNECT_REQUEST, async (params) => {
             if (!this.options.hostHandlers.requestBrowserExtensionConnect) {
                 return { ok: false, reason: "unsupported" };

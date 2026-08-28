@@ -21,6 +21,7 @@ import { AccountTab } from "./tabs/AccountTab";
 import { BackupTab } from "./tabs/BackupTab";
 import { GeneralTab } from "./tabs/GeneralTab";
 import { ShortcutsTab } from "./tabs/ShortcutsTab";
+import { WalletTab } from "./tabs/WalletTab";
 import type { ScoredSettingsSearchEntry } from "@/global/settings/lib/settings-search-index";
 import { useT } from "@/shared/i18n";
 import "@/global/settings/settings.css";
@@ -265,21 +266,37 @@ function SettingsTabContent({
     };
   }, [activeTab, pendingScrollTarget, onScrollTargetHandled]);
 
+  let tabContent;
+  switch (activeTab) {
+    case "general":
+      tabContent = <GeneralTab />;
+      break;
+    case "shortcuts":
+      tabContent = <ShortcutsTab />;
+      break;
+    case "backup":
+      tabContent = <BackupTab />;
+      break;
+    case "account":
+      tabContent = (
+        <AccountTab onSignOut={onSignOut} onOpenLegal={onOpenLegal} />
+      );
+      break;
+    case "audio":
+      tabContent = <AudioTab />;
+      break;
+    case "wallet":
+      tabContent = <WalletTab />;
+      break;
+    default: {
+      const _exhaustive: never = activeTab;
+      tabContent = _exhaustive;
+    }
+  }
+
   return (
     <div ref={contentRef} className="settings-panel-content">
-      {activeTab === "general" ? (
-        <GeneralTab />
-      ) : activeTab === "shortcuts" ? (
-        <ShortcutsTab />
-      ) : activeTab === "backup" ? (
-        <BackupTab />
-      ) : activeTab === "account" ? (
-        <AccountTab onSignOut={onSignOut} onOpenLegal={onOpenLegal} />
-      ) : activeTab === "audio" ? (
-        <AudioTab />
-      ) : (
-        <GeneralTab />
-      )}
+      {tabContent}
     </div>
   );
 }

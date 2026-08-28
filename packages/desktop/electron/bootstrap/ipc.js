@@ -245,6 +245,11 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         submitConnectorCredential: (payload) => services.connectorCredentialService.submitCredential(payload),
         cancelConnectorCredential: (payload) => services.connectorCredentialService.cancelCredential(payload),
         respondConnectorConnect: (payload) => services.connectorConnectService.respond(payload),
+        getLinkWalletStatus: () => services.linkWalletService.status(),
+        connectLinkWallet: (payload) => services.linkWalletService.connect(payload ?? {}),
+        disconnectLinkWallet: () => services.linkWalletService.disconnect(),
+        addLinkWalletCard: () => services.linkWalletService.addCard(),
+        respondLinkWallet: (payload) => services.linkWalletService.respond(payload),
         getBroadcastToMobile: lazyMobileBroadcast,
         startPhoneAccessSession: () => {
             startMobileBridge(context);

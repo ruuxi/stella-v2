@@ -111,6 +111,7 @@ export const createToolHost = ({
   requestCredential,
   requestBrowserExtensionConnect,
   requestConnectorConnection,
+  requestLinkWalletConnection,
   agentApi,
   validateSpawnModel,
   validateSpawnModelWithMetadata,
@@ -224,6 +225,7 @@ export const createToolHost = ({
       ? { requestBrowserExtensionConnect }
       : {}),
     ...(requestConnectorConnection ? { requestConnectorConnection } : {}),
+    ...(requestLinkWalletConnection ? { requestLinkWalletConnection } : {}),
     agentApi,
     scheduleApi,
 

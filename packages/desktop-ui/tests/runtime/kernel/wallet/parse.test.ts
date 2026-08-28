@@ -9,6 +9,10 @@ import {
   snapshotFromCli,
 } from "@stella/runtime/kernel/wallet/parse";
 import { detectLinkCliInvocation } from "@stella/runtime/kernel/wallet/detect";
+import {
+  formatLinkSpendUsd,
+  parseLinkSpendUsd,
+} from "@stella/contracts/link-wallet";
 
 describe("link wallet parse", () => {
   it("treats missing auth JSON as disconnected", () => {
@@ -115,5 +119,13 @@ describe("detectLinkCliInvocation", () => {
       merchantName: "Stripe Press",
       amountCents: 3500,
     });
+  });
+});
+
+describe("link spend display helpers", () => {
+  it("formats and parses dollar amounts without leftover fractions", () => {
+    expect(formatLinkSpendUsd(3500)).toBe("$35.00");
+    expect(parseLinkSpendUsd("$35.00")).toBe(3500);
+    expect(parseLinkSpendUsd("not money")).toBeUndefined();
   });
 });

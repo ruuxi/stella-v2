@@ -16,8 +16,14 @@ import {
 } from "../kernel/shared/image-mime.js";
 import type { WorkerPeerLike } from "./peer-broker.js";
 
+import type { LinkWalletSnapshot } from "@stella/contracts/link-wallet";
+
 type ConnectCardOutcome =
-  | { ok: true; status: "connected" | "already_connected" }
+  | {
+      ok: true;
+      status: "connected" | "already_connected";
+      snapshot?: LinkWalletSnapshot;
+    }
   | {
       ok: false;
       reason: "declined" | "cancelled" | "timeout" | "unsupported" | string;
@@ -28,6 +34,7 @@ const requestConnectCardFromHost = async (
   method: string,
   payload: Record<string, unknown>,
   signal?: AbortSignal,
+  cancelMethod: string = "host.connectorConnect.cancel",
 ): Promise<ConnectCardOutcome> => {
   if (signal?.aborted) return { ok: false, reason: "cancelled" };
   const offerId = crypto.randomUUID();
@@ -53,7 +60,7 @@ const requestConnectCardFromHost = async (
     if (winner !== "aborted") return winner;
 
     void peer
-      .request(METHOD_NAMES.HOST_CONNECTOR_CONNECT_CANCEL, { offerId })
+      .request(cancelMethod, { offerId })
       .catch(() => undefined);
 
     void request.catch(() => undefined);
@@ -989,6 +996,21 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
           payload as Record<string, unknown>,
           signal,
         ),
+      requestLinkWalletConnection: (payload, signal) =>
+        requestConnectCardFromHost(
+          peer,
+          METHOD_NAMES.HOST_LINK_WALLET_CONNECT_REQUEST,
+          payload as Record<string, unknown>,
+          signal,
+          METHOD_NAMES.HOST_LINK_WALLET_CONNECT_CANCEL,
+        ),
+      notifyLinkSpendApproval: async (payload) => {
+        await peer
+          .request(METHOD_NAMES.HOST_LINK_WALLET_SPEND_NOTIFY, payload, {
+            retryOnDisconnect: true,
+          })
+          .catch(() => undefined);
+      },
       requestRuntimeAuthRefresh: async (payload) =>
         await peer.request(METHOD_NAMES.HOST_RUNTIME_AUTH_REFRESH, payload, {
           retryOnDisconnect: true,

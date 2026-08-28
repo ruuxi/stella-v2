@@ -993,6 +993,35 @@ export type ElectronSystemApi = {
     requestId: string;
     action: "accept" | "decline" | "cancel";
   }) => Promise<{ ok: boolean; error?: string }>;
+  getLinkWalletStatus: () => Promise<
+    import("@stella/contracts/link-wallet").LinkWalletSnapshot
+  >;
+  connectLinkWallet: (payload?: { conversationId?: string }) => Promise<
+    | {
+        ok: true;
+        status: "connected" | "already_connected";
+        snapshot: import("@stella/contracts/link-wallet").LinkWalletSnapshot;
+      }
+    | { ok: false; reason: string }
+  >;
+  disconnectLinkWallet: () => Promise<{ ok: boolean; error?: string }>;
+  addLinkWalletCard: () => Promise<{ ok: boolean; error?: string }>;
+  respondLinkWallet: (payload: {
+    requestId: string;
+    action: "accept" | "decline" | "cancel";
+  }) => Promise<{ ok: boolean; error?: string }>;
+  onLinkWalletCard: (
+    callback: (
+      event: unknown,
+      data: import("@stella/contracts/link-wallet").LinkWalletCardView,
+    ) => void,
+  ) => () => void;
+  onLinkWalletSnapshot: (
+    callback: (
+      event: unknown,
+      data: import("@stella/contracts/link-wallet").LinkWalletSnapshot,
+    ) => void,
+  ) => () => void;
 };
 
 export type ElectronOnboardingApi = {

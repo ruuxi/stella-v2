@@ -420,28 +420,16 @@ const cmdLaunch = async (options) => {
   const buildCode = await new Promise((resolve) => build.on("exit", resolve));
   if (buildCode !== 0) fail(`dev-electron-build failed with exit ${buildCode}.`);
 
-  const vite = spawnLogged(bunBin(), ["run", "dev"], {
-    cwd: repoRoot,
-    env: sharedEnv,
-    logPath: path.join(runDir, "vite.log"),
-  });
-  const electronArgs = [
-    `--user-data-dir=${userDataDir}`,
-    `--remote-debugging-port=${cdpPort}`,
-    "--no-sandbox",
-    "--disable-gpu",
-    "--disable-dev-shm-usage",
-    ".",
-    "--dev",
-  ];
-  const electron = spawnLogged(electronBin(), electronArgs, {
-    cwd: repoRoot,
-    env: {
-      ...sharedEnv,
-      NODE_ENV: "development",
+  process.stderr.write("Starting Vite under bun...\n");
+  const vite = spawnLogged(
+    bunBin(),
+    ["--bun", path.join(repoRoot, "node_modules/vite/bin/vite.js")],
+    {
+      cwd: path.join(repoRoot, "packages/desktop-ui"),
+      env: sharedEnv,
+      logPath: path.join(runDir, "vite.log"),
     },
-    logPath: path.join(runDir, "electron.log"),
-  });
+  );
 
   const run = {
     runId,
@@ -452,7 +440,7 @@ const cmdLaunch = async (options) => {
     vitePort,
     cdpPort,
     vitePid: vite.pid,
-    electronPid: electron.pid,
+    electronPid: null,
     startedAt: new Date().toISOString(),
     evidenceDir: DEFAULT_EVIDENCE_DIR,
   };
@@ -461,6 +449,34 @@ const cmdLaunch = async (options) => {
 
   try {
     await waitForHttp(viteUrl, LAUNCH_TIMEOUT_MS);
+    process.stderr.write("Starting Electron...\n");
+    const electronArgs = [
+      `--user-data-dir=${userDataDir}`,
+      `--remote-debugging-port=${cdpPort}`,
+      "--no-sandbox",
+      "--disable-gpu",
+      "--disable-gpu-sandbox",
+      "--in-process-gpu",
+      "--enable-unsafe-swiftshader",
+      "--disable-dev-shm-usage",
+      "--ozone-platform=x11",
+      ".",
+      "--dev",
+    ];
+    const electron = spawnLogged(electronBin(), electronArgs, {
+      cwd: repoRoot,
+      env: {
+        ...sharedEnv,
+        NODE_ENV: "development",
+        ELECTRON_OZONE_PLATFORM_HINT: "x11",
+        LIBGL_ALWAYS_SOFTWARE: "1",
+      },
+      logPath: path.join(runDir, "electron.log"),
+    });
+    run.electronPid = electron.pid;
+    writeJson(POINTER_PATH, run);
+    writeJson(path.join(runDir, "run.json"), run);
+
     await waitForCdp(cdpPort, CDP_CONNECT_TIMEOUT_MS);
     const deadline = Date.now() + CDP_CONNECT_TIMEOUT_MS;
     let ready = false;
@@ -484,8 +500,9 @@ const cmdLaunch = async (options) => {
     }
     if (!ready) throw new Error(`Electron window came up but the shell did not: ${lastError}`);
   } catch (error) {
-    await stopPid(electron.pid);
-    await stopPid(vite.pid);
+    await stopPid(run.electronPid);
+    await stopPid(run.vitePid);
+    rmSync(POINTER_PATH, { force: true });
     throw error;
   }
 

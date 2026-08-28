@@ -25,6 +25,7 @@ function newReasoningSeed(): string {
 export function InlineWorkingIndicator({
   active,
   exitImmediately,
+  handoff,
   runningTool,
   runningToolId,
   status,
@@ -110,13 +111,14 @@ export function InlineWorkingIndicator({
       }, EXIT_ANIMATION_MS);
     };
 
-    const remainingMs = exitImmediately
-      ? 0
-      : getInlineWorkingIndicatorExitDelayMs({
-          activatedAtMs: activatedAtRef.current ?? Date.now(),
-          nowMs: Date.now(),
-          minVisibleMs: MIN_VISIBLE_MS,
-        });
+    const remainingMs =
+      exitImmediately || handoff
+        ? 0
+        : getInlineWorkingIndicatorExitDelayMs({
+            activatedAtMs: activatedAtRef.current ?? Date.now(),
+            nowMs: Date.now(),
+            minVisibleMs: MIN_VISIBLE_MS,
+          });
     if (remainingMs > 0) {
       exitTimerRef.current = window.setTimeout(startExit, remainingMs);
     } else {
@@ -126,7 +128,7 @@ export function InlineWorkingIndicator({
     return () => {
       clearTimer();
     };
-  }, [active, renderShell, exitImmediately]);
+  }, [active, renderShell, exitImmediately, handoff]);
 
   const showInner = renderShell;
 
@@ -137,7 +139,7 @@ export function InlineWorkingIndicator({
 
   return (
     <div
-      className={`inline-working-indicator${entering ? " inline-working-indicator--entering" : ""}${leaving ? " inline-working-indicator--leaving" : ""}${showInner ? "" : " inline-working-indicator--vacated"}`}
+      className={`inline-working-indicator${entering ? " inline-working-indicator--entering" : ""}${leaving ? " inline-working-indicator--leaving" : ""}${leaving && handoff ? " inline-working-indicator--handoff" : ""}${showInner ? "" : " inline-working-indicator--vacated"}`}
       aria-live="polite"
     >
       {showInner && (

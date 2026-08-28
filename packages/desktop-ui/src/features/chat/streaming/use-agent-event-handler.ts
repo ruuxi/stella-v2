@@ -62,6 +62,7 @@ type UseAgentEventHandlerOptions = {
       canonicalMessageId?: string
       canonicalText?: string
       workingMode?: 'direct' | 'orchestrated'
+      followedByToolCall?: boolean
     }) => void
     finalizeRunOnFinish: (args: { runId: string }) => void
   }
@@ -333,15 +334,14 @@ export function useAgentEventHandler({
                 ? { canonicalText: event.assistantMessageText }
                 : {}),
               ...(event.workingMode ? { workingMode: event.workingMode } : {}),
+              followedByToolCall: Boolean(event.followedByToolCall),
             })
 
-            if (event.followedByToolCall) {
-              dispatch({
-                type: 'assistant-message-boundary',
-                runId: event.runId,
-                followedByToolCall: true,
-              })
-            }
+            dispatch({
+              type: 'assistant-message-boundary',
+              runId: event.runId,
+              followedByToolCall: Boolean(event.followedByToolCall),
+            })
           }
           break
         }

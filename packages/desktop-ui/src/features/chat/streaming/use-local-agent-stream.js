@@ -8,6 +8,7 @@ import { useAgentEventHandler } from "./use-agent-event-handler";
 import { useApplyResumeSnapshot } from "./use-resume-snapshot";
 import { reconcileStreamingAssistantCanonicalMessage, streamingAssistantOverlayId, } from "./streaming-types";
 import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
+import { WORKING_INDICATOR_HANDOFF_MS } from "@/features/chat/working-indicator-state";
 import { resolveAgentNotReadyToast } from "./agent-stream-errors";
 import { isStellaLimitOrAuthReason, resolveStellaProviderErrorToast, } from "./stella-provider-error-toast";
 export function useLocalAgentStream({ activeConversationId, storageMode, onRunStarted, onRunFinished, }) {
@@ -50,6 +51,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
     const latestCompletedTool = activeRun?.latestCompletedTool ?? null;
     const hasToolActivity = Boolean(activeRun?.hasToolActivity);
     const isToolActive = Boolean(activeToolName);
+    const answerLanded = Boolean(activeRun?.answerLanded && !isToolActive);
     const reasoningText = "";
 
     const beginStreamingRun = useCallback((args) => {
@@ -57,6 +59,28 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             nextSlotIndexByUserMessageIdRef.current.set(args.userMessageId, 1);
         }
     }, []);
+
+    const handoffTimersRef = useRef(new Map());
+
+    const releaseHandoffHold = useCallback((slotId) => {
+        const timer = handoffTimersRef.current.get(slotId);
+        if (timer !== undefined) {
+            window.clearTimeout(timer);
+            handoffTimersRef.current.delete(slotId);
+        }
+        commitStreamingAssistants((current) => {
+            if (!current.some((slot) => slot._id === slotId && slot.heldForHandoff)) {
+                return current;
+            }
+            return current.map((slot) => {
+                if (slot._id !== slotId)
+                    return slot;
+                const { heldForHandoff: _held, ...rest } = slot;
+                return rest;
+            });
+        });
+        notifyChatContentGrowth();
+    }, [commitStreamingAssistants]);
 
     const finalizeMessageBoundary = useCallback((args) => {
         if (!args.userMessageId)
@@ -66,6 +90,10 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
         nextSlotIndexByUserMessageIdRef.current.set(userMessageId, indexInTurn + 1);
         const slotId = streamingAssistantOverlayId(userMessageId, indexInTurn);
         const canonicalText = args.canonicalText ?? "";
+        const holdForHandoff = args.followedByToolCall !== true &&
+            typeof window !== "undefined" &&
+            typeof window.matchMedia === "function" &&
+            !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         commitStreamingAssistants((current) => {
             if (current.some((slot) => slot._id === slotId)) {
                 return reconcileStreamingAssistantCanonicalMessage(current, {
@@ -93,12 +121,20 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                         ? { canonicalMessageId: args.canonicalMessageId }
                         : {}),
                     locked: true,
+                    ...(holdForHandoff ? { heldForHandoff: true } : {}),
                 },
             ];
         });
-
-        notifyChatContentGrowth();
-    }, [commitStreamingAssistants]);
+        if (holdForHandoff) {
+            const timer = window.setTimeout(() => {
+                releaseHandoffHold(slotId);
+            }, WORKING_INDICATOR_HANDOFF_MS);
+            handoffTimersRef.current.set(slotId, timer);
+        }
+        else {
+            notifyChatContentGrowth();
+        }
+    }, [commitStreamingAssistants, releaseHandoffHold]);
 
     const finalizeRunOnFinish = useCallback(() => { }, []);
     activeConversationIdRef.current = activeConversationId;
@@ -113,9 +149,17 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             agentStreamCleanupRef.current();
             agentStreamCleanupRef.current = null;
         }
+        for (const timer of handoffTimersRef.current.values()) {
+            window.clearTimeout(timer);
+        }
+        handoffTimersRef.current.clear();
     }, []);
     const resetStreamingState = useCallback(() => {
         setPendingUserMessageId(null);
+        for (const timer of handoffTimersRef.current.values()) {
+            window.clearTimeout(timer);
+        }
+        handoffTimersRef.current.clear();
         commitStreamingAssistants([]);
         nextSlotIndexByUserMessageIdRef.current.clear();
 
@@ -287,6 +331,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
         latestCompletedTool,
         hasToolActivity,
         isToolActive,
+        answerLanded,
         reasoningText,
         streamingAssistants,
         isStreaming,

@@ -253,6 +253,7 @@ export const overlayToMessageRecord = (
           ...(overlay.responseTarget
             ? { responseTarget: overlay.responseTarget }
             : {}),
+          ...(overlay.heldForHandoff ? { heldForHandoff: true } : {}),
         },
       },
     },

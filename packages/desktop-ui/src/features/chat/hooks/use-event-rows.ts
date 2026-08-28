@@ -615,10 +615,14 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
                   responseTarget?: AgentResponseTarget;
                   followedByToolCall?: boolean;
                   turnComplete?: boolean;
+                  heldForHandoff?: boolean;
                 };
               }
             | undefined
         )?.runtime;
+        if (runtimeMetadata?.heldForHandoff === true) {
+          continue;
+        }
         const responseTarget = runtimeMetadata?.responseTarget;
 
         const stableKey =

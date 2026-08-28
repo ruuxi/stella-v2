@@ -38,6 +38,7 @@ function QuickChatConversation({
     activeToolCallId,
     activeToolName,
     isToolActive,
+    answerLanded,
     isStreaming,
     pendingUserMessageId,
     queuedUserMessages,
@@ -94,6 +95,7 @@ function QuickChatConversation({
           activeToolCallId={activeToolCallId}
           activeToolName={activeToolName}
           isToolActive={isToolActive}
+          answerLanded={answerLanded}
           pendingUserMessageId={pendingUserMessageId}
           queuedUserMessages={queuedUserMessages}
           removeQueuedUserMessage={removeQueuedUserMessage}

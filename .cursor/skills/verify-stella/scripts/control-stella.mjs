@@ -7,9 +7,10 @@
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import {
-  createWriteStream,
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -301,15 +302,18 @@ const seedDataDir = (dataDir) => {
 
 const spawnLogged = (command, args, options) => {
   mkdirSync(path.dirname(options.logPath), { recursive: true });
-  const log = createWriteStream(options.logPath, { flags: "a" });
+  const logFd = openSync(options.logPath, "a");
   const child = spawn(command, args, {
     cwd: options.cwd,
     env: options.env,
     detached: true,
-    stdio: ["ignore", log, log],
+    stdio: ["ignore", logFd, logFd],
   });
+  closeSync(logFd);
   child.on("error", (error) => {
-    log.write(`[spawn error] ${error.message}\n`);
+    writeFileSync(options.logPath, `[spawn error] ${error.message}\n`, {
+      flag: "a",
+    });
   });
   child.unref();
   return child;

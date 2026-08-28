@@ -16,7 +16,7 @@ export const LINK_WALLET_DISCONNECTED_REMINDER_KEY = "link-wallet-offer";
 export const LINK_WALLET_CONNECTED_REMINDER_KEY = "link-wallet-connected";
 
 export const LINK_WALLET_DISCONNECTED_REMINDER_TEXT =
-  "The user asked about buying or paying. Link is not connected. Call the `link_wallet` tool so they see the connect card — do not run Link CLI `auth login` yourself. After they connect, use the link-wallet skill to pay.";
+  "The user asked about buying or paying. Link is not connected. Call the `link_wallet` tool so they see the connect card. Do not run Link CLI `auth login` yourself. After they connect, use the link-wallet skill to pay.";
 
 export const LINK_WALLET_CONNECTED_REMINDER_TEXT =
   "The user asked about buying or paying. Link is connected. Use the link-wallet skill (`npx --yes @stripe/link-cli`) with `--request-approval` for spend requests. Do not paste card numbers into chat. This is not Stella product billing and not the Stripe Connect connector.";

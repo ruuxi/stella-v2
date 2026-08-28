@@ -64,7 +64,7 @@ describe("link_wallet tool", () => {
       }),
       undefined,
     );
-    expect(resultText(result)).toContain("just approved the connect card");
+    expect(resultText(result)).toContain("approved the connect card");
   });
 
   it("asks the user to add a card before paying when none are on file", async () => {

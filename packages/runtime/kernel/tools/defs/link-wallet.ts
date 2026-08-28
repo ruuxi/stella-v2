@@ -50,7 +50,7 @@ export const createLinkWalletTool = (
   workingText: "Checking Link",
   agentTypes: [AGENT_IDS.ORCHESTRATOR, AGENT_IDS.GENERAL],
   description:
-    "Check whether the user's Link wallet is connected, and if not, show an inline connect card (same consent pattern as OAuth). Deterministic — the card is the user's consent, so don't ask permission before calling. Blocks until they connect, decline, or the card times out. Do not run Link CLI `auth login` yourself; this tool owns login UX. Not Stella product billing and not the Stripe Connect connector.",
+    "Show an inline connect card if Link is not connected. The card is consent, so call it without asking first. Wait until they connect, decline, or the card times out. Do not run Link CLI `auth login`. This is not Stella product billing and not the Stripe Connect connector.",
   parameters: {
     type: "object",
     properties: {
@@ -91,7 +91,7 @@ export const createLinkWalletTool = (
         result:
           outcome.status === "already_connected"
             ? summary
-            : `${summary} The user just approved the connect card — continue the original task immediately.`,
+            : `${summary} The user approved the connect card. Continue the original task now.`,
         details: { status: "connected" },
       };
     }

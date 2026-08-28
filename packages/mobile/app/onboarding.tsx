@@ -11,7 +11,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppBackdrop } from "../src/components/AppBackdrop";
 import { ConnectHeroAnimation } from "../src/components/ConnectHeroAnimation";
-import { StellaAnimation } from "../src/components/stella-animation";
+import { StellaMarkHero } from "../src/components/stella-mark/StellaMarkHero";
 import { isGuest } from "../src/lib/guest-mode";
 import { markOnboardingSeen } from "../src/lib/onboarding";
 import { tapLight } from "../src/lib/haptics";
@@ -23,6 +23,7 @@ import { useT } from "../src/i18n";
 
 const STEP_COUNT = 3;
 const SWAP_MS = 260;
+const HERO_SIZE = 120;
 
 export default function OnboardingScreen() {
   const colors = useColors();
@@ -187,13 +188,7 @@ function WelcomeStep({
   return (
     <View style={styles.stepBody}>
       <View style={styles.creatureSlot}>
-        <StellaAnimation
-          width={14}
-          height={14}
-          displayWidth={120}
-          displayHeight={120}
-          frameSkip={1}
-        />
+        <StellaMarkHero size={HERO_SIZE} />
       </View>
       <Text style={styles.title}>{t("mobile.onboarding.welcomeTitle")}</Text>
       <Text style={styles.body}>{t("mobile.onboarding.welcomeBody")}</Text>
@@ -319,10 +314,10 @@ const makeStyles = (colors: Colors) =>
     },
     creatureSlot: {
       alignItems: "center",
-      height: 120,
+      height: HERO_SIZE,
       justifyContent: "center",
       marginBottom: 8,
-      width: 120,
+      width: HERO_SIZE,
     },
     title: {
       color: colors.text,

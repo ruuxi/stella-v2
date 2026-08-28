@@ -1,7 +1,3 @@
-.onboarding-stella-animation .stella-animation-container {
-  animation: none;
-}
-
 :root {
 
   --onboarding-ease-standard: cubic-bezier(0.22, 1, 0.36, 1);

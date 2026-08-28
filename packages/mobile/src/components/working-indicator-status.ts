@@ -1,29 +1,3 @@
-const IDLE_VARIATIONS: readonly string[] = [
-  "Thinking",
-  "Mulling it over",
-  "Figuring it out",
-  "Working it out",
-  "Putting it together",
-  "Lining things up",
-  "Weighing options",
-  "Settling on a plan",
-  "Sorting it out",
-  "Considering",
-];
-
-const REASONING_VARIATIONS: readonly string[] = [
-  "Thinking",
-  "Mulling it over",
-  "Working through it",
-  "Turning it over",
-  "Reasoning",
-  "Chewing on this",
-  "Connecting the dots",
-  "Sitting with it",
-  "Untangling it",
-  "Piecing it together",
-];
-
 const AGENT_WORK_VARIATIONS: readonly string[] = [
   "On it",
   "Working on it",
@@ -433,12 +407,10 @@ export function computeWorkingIndicatorStatus({
   status,
   toolName,
   seed,
-  isReasoning,
 }: {
   status?: string;
   toolName?: string;
   seed?: string;
-  isReasoning?: boolean;
 } = {}): string {
   if (status) {
     return normalizeDisplayStatusText(status) ?? status;
@@ -452,7 +424,5 @@ export function computeWorkingIndicatorStatus({
     return pickVariation(FALLBACK_VARIATIONS, seed ?? normalizedToolName);
   }
 
-  if (isReasoning) return pickVariation(REASONING_VARIATIONS, seed);
-
-  return pickVariation(IDLE_VARIATIONS, seed);
+  return "";
 }

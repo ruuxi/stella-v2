@@ -1,7 +1,6 @@
 import { Check, X } from "@/ui/icons";
 import { getPlatform } from "@/platform/electron/platform";
-import { BUILT_IN_PET } from "@/shell/pet/built-in-pet";
-import { PetSprite } from "@/shell/pet/PetSprite";
+import { StellaCharacter } from "@/ui/stella-character/StellaCharacter";
 import { Keychord } from "./Keychord";
 import { useChoreography, useTypedText, } from "./demo/use-choreography";
 import "./OnboardingVoicePhase.css";
@@ -62,7 +61,7 @@ export function OnboardingVoicePhase({ splitTransitionActive, onContinue, }) {
               <div className="ovoice-talk__sprite" data-listening={listening || undefined}>
                 <span className="ovoice-talk__ring"/>
                 <span className="ovoice-talk__ring" data-late=""/>
-                <PetSprite spritesheetUrl={BUILT_IN_PET.spritesheetUrl} state="waving" size={128}/>
+                <StellaCharacter size={128} shape="star" ink="aurora" glow state={listening ? "listening" : "happy"}/>
               </div>
 
               <div className="ovoice-talk__exchange">

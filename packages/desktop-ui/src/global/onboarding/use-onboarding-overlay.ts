@@ -9,9 +9,7 @@ import {
   useOnboardingState,
 } from "@/global/onboarding/use-onboarding-state";
 import { SPLIT_PHASES, type Phase } from "@/global/onboarding/onboarding-flow";
-import type { StellaAnimationHandle } from "@/shell/aurora/StellaAnimation";
-
-export const CREATURE_INITIAL_SIZE = 0.22;
+import type { StellaMarkHandle } from "@/ui/stella-character/rig";
 
 const deleteIndexedDatabase = (name: string) =>
   new Promise<void>((resolve) => {
@@ -108,7 +106,7 @@ export function useOnboardingOverlay() {
   const splitEnterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [onboardingExiting, setOnboardingExiting] = useState(false);
   const [onboardingKey, setOnboardingKey] = useState(0);
-  const stellaAnimationRef = useRef<StellaAnimationHandle | null>(null);
+  const stellaAnimationRef = useRef<StellaMarkHandle | null>(null);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -119,7 +117,7 @@ export function useOnboardingOverlay() {
   }, [onboardingDone, onboardingExiting]);
 
   const triggerFlash = useCallback(() => {
-    stellaAnimationRef.current?.triggerFlash();
+    stellaAnimationRef.current?.sparkle();
   }, []);
 
   const enterSplit = useCallback(() => {
@@ -173,7 +171,6 @@ export function useOnboardingOverlay() {
     setSplitMode(false);
     setOnboardingExiting(false);
     setOnboardingKey((k) => k + 1);
-    stellaAnimationRef.current?.reset(CREATURE_INITIAL_SIZE);
     resetOnboarding();
 
     const finishLocalReset = async () => {

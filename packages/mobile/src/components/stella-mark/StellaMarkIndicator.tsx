@@ -10,14 +10,12 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
-import Svg, { Defs, LinearGradient, Path, Stop } from "react-native-svg";
+import { STELLA_MARK_CENTER, STELLA_ORB_PATH, STELLA_STAR_PATH } from "./geometry";
+import { MarkLayer, VIEWBOX_SPAN } from "./MarkLayer";
 import {
-  STELLA_MARK_CENTER,
-  STELLA_MARK_VIEWBOX,
-  STELLA_ORB_PATH,
-  STELLA_STAR_PATH,
-} from "./geometry";
-import {
+  BREATHE_AMPLITUDE,
+  BREATHE_MS,
+  CLOCK_SPAN_MS,
   DOT_RADIUS_UNITS,
   DOT_SPREAD_UNITS,
   MORPH_MS,
@@ -31,64 +29,22 @@ import {
 
 const DEFAULT_SIZE = 34;
 
-const VIEWBOX_SPAN = 258.541;
-const VIEWBOX_MIN = -15;
-
 const DOT_SCALE = DOT_RADIUS_UNITS / STELLA_MARK_CENTER;
 
 const SMALL_SIZE_THRESHOLD = 44;
 const DOTS_ZOOM = 1.5;
 
-const BREATHE_AMPLITUDE = 0.013;
-const BREATHE_MS = 4000;
-
-const CLOCK_SPAN_MS = 2_800_000;
-
-function MarkLayer({
-  d,
-  size,
-  gradientId,
-}: {
-  d: string;
-  size: number;
-  gradientId: string;
-}) {
-  return (
-    <Svg
-      pointerEvents="none"
-      width={size}
-      height={size}
-      viewBox={STELLA_MARK_VIEWBOX}
-      style={StyleSheet.absoluteFill}
-    >
-      <Defs>
-        <LinearGradient
-          id={gradientId}
-          x1={STELLA_MARK_CENTER}
-          y1={VIEWBOX_MIN + VIEWBOX_SPAN}
-          x2={STELLA_MARK_CENTER}
-          y2={VIEWBOX_MIN}
-          gradientUnits="userSpaceOnUse"
-        >
-          <Stop offset={0} stopColor="#00aad8" />
-          <Stop offset={0.25} stopColor="#3493d9" />
-          <Stop offset={0.5} stopColor="#4878db" />
-          <Stop offset={0.75} stopColor="#7449c5" />
-          <Stop offset={1} stopColor="#be57a4" />
-        </LinearGradient>
-      </Defs>
-      <Path d={d} fill={`url(#${gradientId})`} />
-    </Svg>
-  );
-}
+export type StellaMarkMode = "dots" | "star";
 
 export function StellaMarkIndicator({
   active,
   size = DEFAULT_SIZE,
+  mode = "dots",
 }: {
 
   active: boolean;
   size?: number;
+  mode?: StellaMarkMode;
 }) {
   const reduceMotion = useReducedMotion();
 
@@ -128,12 +84,12 @@ export function StellaMarkIndicator({
       morphT.value = 0;
       return;
     }
-    morphT.value = withTiming(active ? 1 : 0, {
+    morphT.value = withTiming(active && mode === "dots" ? 1 : 0, {
       duration: MORPH_MS,
       easing: Easing.linear,
     });
     return () => cancelAnimation(morphT);
-  }, [active, morphT, reduceMotion]);
+  }, [active, mode, morphT, reduceMotion]);
 
   const envelope = useDerivedValue(() => morphEnvelope(morphT.value));
 

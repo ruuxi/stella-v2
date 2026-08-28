@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { OnboardingStep1 } from "@/global/onboarding/OnboardingStep1";
-import { StellaAnimation } from "@/shell/aurora/StellaAnimation";
-import { disposeIdleAuroraRenderersFor } from "@/shell/aurora/renderer-pool";
+import { StellaCharacter } from "@/ui/stella-character/StellaCharacter";
 import { LegalDialog } from "@/global/legal/LegalDialog";
 import { shouldUseLowPowerEffects } from "@/shared/lib/device-perf";
 import { LOCALE_NATIVE_LABELS, useI18n, useT } from "@/shared/i18n";
@@ -46,12 +45,7 @@ function LegalFooter({
   );
 }
 
-const CREATURE_AURORA = {
-  variant: "star",
-  width: 33.6,
-  height: 24,
-  maxDpr: 1,
-};
+const CHARACTER_FILL_STYLE = { width: "100%", height: "100%" };
 
 export function OnboardingView({
   hasExpanded,
@@ -76,12 +70,6 @@ export function OnboardingView({
 }) {
   const [activeLegalDoc, setActiveLegalDoc] = useState(null);
 
-  useEffect(
-    () => () => {
-      setTimeout(() => disposeIdleAuroraRenderersFor(CREATURE_AURORA), 0);
-    },
-    [],
-  );
   const t = useT();
   const { locale, setLocale, supportedLocales } = useI18n();
 
@@ -124,12 +112,14 @@ export function OnboardingView({
           data-hidden={stellaAnimationHidden || undefined}
           title="Click to sparkle"
         >
-          <StellaAnimation
-            ref={stellaAnimationRef}
-            {...CREATURE_AURORA}
-            maxFps={splitMode || lowPowerCreature ? 30 : 60}
-            requireWindowFocus
-            initialBirthProgress={1}
+          <StellaCharacter
+            handleRef={stellaAnimationRef}
+            size={null}
+            shape="star"
+            ink="aurora"
+            glow
+            state="idle"
+            style={CHARACTER_FILL_STYLE}
             paused={
               stellaAnimationPaused ||
               stellaAnimationHidden ||

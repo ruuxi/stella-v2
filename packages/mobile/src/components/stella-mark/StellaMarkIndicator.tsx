@@ -1,148 +1,316 @@
-import { useEffect, useId, useMemo } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
-  cancelAnimation,
+  useAnimatedProps,
   useAnimatedStyle,
-  useDerivedValue,
+  useFrameCallback,
   useReducedMotion,
   useSharedValue,
-  withRepeat,
   withTiming,
+  type SharedValue,
 } from "react-native-reanimated";
-import { STELLA_MARK_CENTER, STELLA_ORB_PATH, STELLA_STAR_PATH } from "./geometry";
-import { MarkLayer, VIEWBOX_SPAN } from "./MarkLayer";
+import Svg, {
+  Circle,
+  ClipPath,
+  Defs,
+  Ellipse,
+  LinearGradient,
+  Path,
+  Rect,
+  Stop,
+} from "react-native-svg";
+import { STELLA_STAR_PATH } from "./geometry";
+import { MarkLayer } from "./MarkLayer";
 import {
-  BREATHE_AMPLITUDE,
-  BREATHE_MS,
-  CLOCK_SPAN_MS,
-  DOT_RADIUS_UNITS,
-  DOT_SPREAD_UNITS,
+  CELL,
+  CX,
+  DIAMOND_PATH,
+  DOT_EXTRA,
+  DOT_VIEW_SPAN,
+  INK_RAMP,
+  MID_Y,
   MORPH_MS,
-  SIDE_DOT_SCALE,
-  dotEntrance,
-  dotWave,
-  easeOutBack,
-  easeOutCubic,
-  morphEnvelope,
-} from "./motion";
+  SHEEN_STOPS,
+  SHEEN_WIDTH,
+  TIP_Y,
+  TRAVEL_MS,
+  ZOOM_PIVOT_Y,
+  computeSpinnerFrame,
+  makeDotState,
+  type SpinnerFrame,
+} from "./top-spinner";
 
 const DEFAULT_SIZE = 34;
+const FRAME_DT_CAP = 0.05;
+const STOP_GRACE_MS = 120;
 
-const DOT_SCALE = DOT_RADIUS_UNITS / STELLA_MARK_CENTER;
-
-const SMALL_SIZE_THRESHOLD = 44;
-const DOTS_ZOOM = 1.5;
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+const AnimatedEllipse = Animated.createAnimatedComponent(Ellipse);
+const AnimatedRect = Animated.createAnimatedComponent(Rect);
 
 export type StellaMarkMode = "dots" | "star";
+
+type FrameValue = SharedValue<SpinnerFrame>;
+
+function InkRamp({ id }: { id: string }) {
+  return (
+    <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+      {INK_RAMP.map((color, index) => (
+        <Stop
+          key={color}
+          offset={index / (INK_RAMP.length - 1)}
+          stopColor={color}
+        />
+      ))}
+    </LinearGradient>
+  );
+}
+
+function OrbitDot({
+  frame,
+  index,
+  behind,
+  fill,
+}: {
+  frame: FrameValue;
+  index: number;
+  behind: boolean;
+  fill: string;
+}) {
+  const animatedProps = useAnimatedProps(() => {
+    const f = frame.value;
+    return {
+      cx: f.dotX[index],
+      cy: f.dotY[index],
+      r: f.dotR[index],
+      opacity: behind ? f.dotBack[index] : f.dotFront[index],
+    };
+  });
+  return <AnimatedCircle animatedProps={animatedProps} fill={fill} />;
+}
+
+function OrbitDotLayer({
+  frame,
+  size,
+  gradientId,
+  behind,
+}: {
+  frame: FrameValue;
+  size: number;
+  gradientId: string;
+  behind: boolean;
+}) {
+  const pxPerUnit = size / CELL;
+  const width = DOT_VIEW_SPAN * pxPerUnit;
+  const layout = useMemo(
+    () => ({
+      position: "absolute" as const,
+      top: 0,
+      left: -DOT_EXTRA * pxPerUnit,
+      width,
+      height: size,
+    }),
+    [pxPerUnit, size, width],
+  );
+  return (
+    <View style={layout} pointerEvents="none">
+      <Svg
+        width={width}
+        height={size}
+        viewBox={`${-DOT_EXTRA} 0 ${DOT_VIEW_SPAN} ${CELL}`}
+      >
+        <Defs>
+          <InkRamp id={gradientId} />
+        </Defs>
+        {[0, 1, 2].map((index) => (
+          <OrbitDot
+            key={index}
+            frame={frame}
+            index={index}
+            behind={behind}
+            fill={`url(#${gradientId})`}
+          />
+        ))}
+      </Svg>
+    </View>
+  );
+}
+
+function SpinnerBody({
+  frame,
+  size,
+  uid,
+}: {
+  frame: FrameValue;
+  size: number;
+  uid: string;
+}) {
+  const inkId = `${uid}-ink`;
+  const sheenId = `${uid}-sheen`;
+  const clipId = `${uid}-clip`;
+
+  const lensProps = useAnimatedProps(() => {
+    const f = frame.value;
+    return { rx: f.lensRx, ry: f.lensRy, opacity: f.lensOpacity };
+  });
+  const sheenProps = useAnimatedProps(() => ({ x: frame.value.sheenX }));
+
+  return (
+    <Svg width={size} height={size} viewBox={`0 0 ${CELL} ${CELL}`}>
+      <Defs>
+        <InkRamp id={inkId} />
+        <LinearGradient id={sheenId} x1="0" y1="0" x2="1" y2="0">
+          {SHEEN_STOPS.map((stop, index) => (
+            <Stop
+              key={index}
+              offset={stop.offset}
+              stopColor={stop.color}
+              stopOpacity={stop.opacity}
+            />
+          ))}
+        </LinearGradient>
+        <ClipPath id={clipId}>
+          <Path d={DIAMOND_PATH} />
+        </ClipPath>
+      </Defs>
+      <AnimatedEllipse
+        animatedProps={lensProps}
+        cx={CX}
+        cy={MID_Y}
+        fill={`url(#${inkId})`}
+      />
+      <Path d={DIAMOND_PATH} fill={`url(#${inkId})`} />
+      <AnimatedRect
+        animatedProps={sheenProps}
+        y={0}
+        width={SHEEN_WIDTH}
+        height={CELL}
+        fill={`url(#${sheenId})`}
+        clipPath={`url(#${clipId})`}
+      />
+    </Svg>
+  );
+}
 
 export function StellaMarkIndicator({
   active,
   size = DEFAULT_SIZE,
   mode = "dots",
 }: {
-
   active: boolean;
   size?: number;
   mode?: StellaMarkMode;
 }) {
   const reduceMotion = useReducedMotion();
-
   const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
+  const pxPerUnit = size / CELL;
 
-  const pxPerUnit = size / VIEWBOX_SPAN;
-  const spreadPx = DOT_SPREAD_UNITS * pxPerUnit;
-  const zoom = size < SMALL_SIZE_THRESHOLD ? DOTS_ZOOM : 1;
+  const spinning = active && mode === "dots";
+  const morphTarget = spinning ? 0 : 1;
 
-  const clock = useSharedValue(0);
+  const phase = useMemo(() => Math.random() * TRAVEL_MS, []);
+  const morph = useSharedValue(morphTarget);
+  const dotState = useSharedValue<number[]>(makeDotState());
+  const frame = useSharedValue<SpinnerFrame>(
+    computeSpinnerFrame(0, 0, morphTarget, true, makeDotState()),
+  );
 
-  const morphT = useSharedValue(0);
-
-  useEffect(() => {
-    cancelAnimation(clock);
-    if (reduceMotion) {
-
-      clock.value = 0;
-      return;
-    }
-    clock.value = 0;
-    clock.value = withRepeat(
-      withTiming(CLOCK_SPAN_MS, {
-        duration: CLOCK_SPAN_MS,
-        easing: Easing.linear,
-      }),
-      -1,
-      false,
-    );
-    return () => cancelAnimation(clock);
-  }, [clock, reduceMotion]);
+  const [running, setRunning] = useState(spinning && !reduceMotion);
 
   useEffect(() => {
-    cancelAnimation(morphT);
     if (reduceMotion) {
-
-      morphT.value = 0;
+      morph.value = morphTarget;
       return;
     }
-    morphT.value = withTiming(active && mode === "dots" ? 1 : 0, {
+    morph.value = withTiming(morphTarget, {
       duration: MORPH_MS,
-      easing: Easing.linear,
+      easing: Easing.inOut(Easing.cubic),
     });
-    return () => cancelAnimation(morphT);
-  }, [active, mode, morphT, reduceMotion]);
+  }, [morph, morphTarget, reduceMotion]);
 
-  const envelope = useDerivedValue(() => morphEnvelope(morphT.value));
+  useEffect(() => {
+    if (reduceMotion) {
+      setRunning(false);
+      return;
+    }
+    if (spinning) {
+      setRunning(true);
+      return;
+    }
+    const timer = setTimeout(
+      () => setRunning(false),
+      MORPH_MS + STOP_GRACE_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [reduceMotion, spinning]);
 
-  const stageStyle = useAnimatedStyle(() => {
-    const env = envelope.value;
-    const breathe =
-      1 +
-      BREATHE_AMPLITUDE *
-        Math.sin((clock.value / BREATHE_MS) * 2 * Math.PI) *
-        (1 - env);
-    return { transform: [{ scale: (1 + (zoom - 1) * env) * breathe }] };
-  });
+  useEffect(() => {
+    if (running) return;
+    const parked = makeDotState();
+    frame.value = computeSpinnerFrame(
+      0,
+      0,
+      reduceMotion ? morphTarget : 1,
+      true,
+      parked,
+    );
+    dotState.value = parked;
+  }, [dotState, frame, morphTarget, reduceMotion, running]);
 
-  const middleStyle = useAnimatedStyle(() => {
-    const env = envelope.value;
-    const wave = dotWave(1, clock.value);
-    const base = 1 + (DOT_SCALE - 1) * env;
-    const pop = 1 + (wave.scale - 1) * env;
+  const frameCallback = useFrameCallback((info) => {
+    const now = info.timeSinceFirstFrame + phase;
+    const dtSec = Math.min(
+      (info.timeSincePreviousFrame ?? 0) / 1000,
+      FRAME_DT_CAP,
+    );
+    const state = dotState.value;
+    frame.value = computeSpinnerFrame(now, dtSec, morph.value, false, state);
+    dotState.value = state;
+  }, false);
+
+  useEffect(() => {
+    frameCallback.setActive(running);
+  }, [frameCallback, running]);
+
+  const zoomPivot = (ZOOM_PIVOT_Y - CELL / 2) * pxPerUnit;
+  const leanPivot = (TIP_Y - CELL / 2) * pxPerUnit;
+
+  const stageStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: zoomPivot },
+      { scale: frame.value.zoom },
+      { translateY: -zoomPivot },
+    ],
+  }));
+
+  const travelStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: frame.value.tx * pxPerUnit },
+      { translateY: frame.value.ty * pxPerUnit },
+    ],
+  }));
+
+  const bodyStyle = useAnimatedStyle(() => {
+    const f = frame.value;
     return {
-      opacity: 1 - (1 - wave.opacity) * env,
+      opacity: f.bodyOpacity,
       transform: [
-        { translateY: -wave.liftUnits * pxPerUnit * env },
-        { scale: base * pop },
+        { translateY: leanPivot },
+        { rotate: `${f.lean}deg` },
+        { scaleY: f.bodySy },
+        { translateY: -leanPivot },
       ],
     };
   });
-  const starStyle = useAnimatedStyle(() => ({ opacity: 1 - envelope.value }));
-  const orbStyle = useAnimatedStyle(() => ({ opacity: envelope.value }));
 
-  const leftStyle = useAnimatedStyle(() => {
-    const env = envelope.value;
-    const wave = dotWave(0, clock.value);
-    const entrance = dotEntrance(0, env);
+  const blobStyle = useAnimatedStyle(() => {
+    const f = frame.value;
     return {
-      opacity: wave.opacity * easeOutCubic(entrance),
+      opacity: f.blobOpacity,
       transform: [
-        { translateX: -spreadPx * easeOutBack(entrance) },
-        { translateY: -wave.liftUnits * pxPerUnit * env },
-        { scale: DOT_SCALE * SIDE_DOT_SCALE * wave.scale },
-      ],
-    };
-  });
-
-  const rightStyle = useAnimatedStyle(() => {
-    const env = envelope.value;
-    const wave = dotWave(2, clock.value);
-    const entrance = dotEntrance(2, env);
-    return {
-      opacity: wave.opacity * easeOutCubic(entrance),
-      transform: [
-        { translateX: spreadPx * easeOutBack(entrance) },
-        { translateY: -wave.liftUnits * pxPerUnit * env },
-        { scale: DOT_SCALE * SIDE_DOT_SCALE * wave.scale },
+        { translateY: f.blobY * pxPerUnit },
+        { scale: f.blobScale },
       ],
     };
   });
@@ -155,36 +323,30 @@ export function StellaMarkIndicator({
   return (
     <View style={viewport} pointerEvents="none">
       <Animated.View style={[styles.stage, stageStyle]}>
-        <Animated.View style={[styles.layer, leftStyle]}>
-          <MarkLayer
-            d={STELLA_ORB_PATH}
-            size={size}
-            gradientId={`${uid}-left`}
-          />
-        </Animated.View>
-        <Animated.View style={[styles.layer, rightStyle]}>
-          <MarkLayer
-            d={STELLA_ORB_PATH}
-            size={size}
-            gradientId={`${uid}-right`}
-          />
-        </Animated.View>
-        <Animated.View style={[styles.layer, middleStyle]}>
-          <Animated.View style={[styles.layer, starStyle]}>
+        <OrbitDotLayer
+          frame={frame}
+          size={size}
+          gradientId={`${uid}-dot-back`}
+          behind
+        />
+        <Animated.View style={[styles.layer, travelStyle]}>
+          <Animated.View style={[styles.layer, bodyStyle]}>
+            <SpinnerBody frame={frame} size={size} uid={uid} />
+          </Animated.View>
+          <Animated.View style={[styles.layer, blobStyle]}>
             <MarkLayer
               d={STELLA_STAR_PATH}
               size={size}
-              gradientId={`${uid}-star`}
-            />
-          </Animated.View>
-          <Animated.View style={[styles.layer, orbStyle]}>
-            <MarkLayer
-              d={STELLA_ORB_PATH}
-              size={size}
-              gradientId={`${uid}-orb`}
+              gradientId={`${uid}-blob`}
             />
           </Animated.View>
         </Animated.View>
+        <OrbitDotLayer
+          frame={frame}
+          size={size}
+          gradientId={`${uid}-dot-front`}
+          behind={false}
+        />
       </Animated.View>
     </View>
   );
@@ -193,5 +355,9 @@ export function StellaMarkIndicator({
 const styles = StyleSheet.create({
   layer: { ...StyleSheet.absoluteFillObject },
   stage: { ...StyleSheet.absoluteFillObject },
-  viewport: { alignItems: "center", justifyContent: "center" },
+  viewport: {
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
+  },
 });

@@ -108,7 +108,7 @@ export const sendWalletSpendNotification = action({
       args.merchantName.trim().slice(0, 80) || "a merchant";
     const body =
       amountCents > 0
-        ? `$${(amountCents / 100).toFixed(2)} at ${merchant} — open the Link app to approve.`
+        ? `$${(amountCents / 100).toFixed(2)} at ${merchant}. Open the Link app to approve.`
         : `Open the Link app to approve a purchase at ${merchant}.`;
     await ctx.runAction(internal.mobile_push.sendToOwner, {
       ownerId,

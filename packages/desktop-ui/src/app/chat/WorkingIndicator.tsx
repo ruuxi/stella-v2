@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+import { useMinimumVisibleValue } from "@/shared/hooks/use-minimum-visible-value";
 import { useWindowFocus } from "@/shared/hooks/use-window-focus";
 import { cn } from "@/shared/lib/utils";
 import { StellaCharacter } from "@/ui/stella-character/StellaCharacter";
@@ -41,18 +43,28 @@ export function WorkingIndicator({
   const windowFocused = useWindowFocus();
   const animationPaused = !animationActive || !windowFocused;
 
-  const displayStatus = getWorkingIndicatorDisplayStatus({
-    status,
-    toolName,
-    toolCallId,
-    isReasoning,
-    reasoningSeed,
-  });
-  const characterState = getWorkingIndicatorCharacterState({
-    toolName,
-    isReasoning,
-  });
-  const dotsOnly = characterState === "thinking";
+  const liveDisplay = useMemo(
+    () => ({
+      status: getWorkingIndicatorDisplayStatus({
+        status,
+        toolName,
+        toolCallId,
+        isReasoning,
+        reasoningSeed,
+      }),
+      characterState: getWorkingIndicatorCharacterState({
+        toolName,
+        isReasoning,
+      }),
+    }),
+    [status, toolName, toolCallId, isReasoning, reasoningSeed],
+  );
+  const held = useMinimumVisibleValue(
+    liveDisplay,
+    minimumVisibleMs,
+    (a, b) => a.status === b.status && a.characterState === b.characterState,
+  );
+  const dotsOnly = held.characterState === "thinking";
 
   return (
     <div
@@ -65,17 +77,16 @@ export function WorkingIndicator({
 }
         <StellaCharacter
           size={INDICATOR_MARK_SIZE_PX}
-          state={characterState}
+          state={held.characterState}
           eyeColor={INDICATOR_EYE_COLOR}
           paused={animationPaused}
         />
       </div>
       {dotsOnly ? null : (
         <SwapText
-          text={displayStatus}
+          text={held.status}
           active={animationActive}
           animateInitial={false}
-          minimumVisibleMs={minimumVisibleMs}
           className="working-status"
           shimmerGroup={CHAT_ACTIVITY_SHIMMER_GROUP}
           shimmerPriority={100}

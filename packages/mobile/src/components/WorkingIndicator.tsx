@@ -3,6 +3,7 @@ import { Animated, Easing, StyleSheet, View } from "react-native";
 import { ShimmerText } from "./ShimmerText";
 import { StellaMarkIndicator } from "./stella-mark/StellaMarkIndicator";
 import { computeWorkingIndicatorStatus } from "./working-indicator-status";
+import { useMinimumVisibleValue } from "../lib/use-minimum-visible-value";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
@@ -11,6 +12,7 @@ const ENTER_DURATION_MS = 320;
 const EXIT_HOLD_MS = 300;
 const EXIT_ANIMATION_MS = 480;
 const SWAP_DURATION_MS = 240;
+const STATUS_MIN_VISIBLE_MS = 2000;
 const INDICATOR_PAD_TOP = 0;
 const INDICATOR_PAD_BOTTOM = 0;
 const INDICATOR_VIEWPORT_SIZE = 34;
@@ -162,10 +164,11 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     toolName,
     seed: toolCallId ?? reasoningSeed,
   });
+  const heldStatus = useMinimumVisibleValue(liveStatus, STATUS_MIN_VISIBLE_MS);
 
-  const frozenStatusRef = useRef(liveStatus);
-  if (active) frozenStatusRef.current = liveStatus;
-  const displayStatus = active ? liveStatus : frozenStatusRef.current;
+  const frozenStatusRef = useRef(heldStatus);
+  if (active) frozenStatusRef.current = heldStatus;
+  const displayStatus = active ? heldStatus : frozenStatusRef.current;
   const hasLabel = displayStatus.length > 0;
   const [renderShell, setRenderShell] = useState(active);
   const shellProgress = useRef(new Animated.Value(active ? 1 : 0)).current;

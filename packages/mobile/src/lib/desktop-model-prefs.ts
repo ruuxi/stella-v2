@@ -13,10 +13,10 @@ export type AgentRuntimeEngine =
 
 export type RuntimeEngine = Exclude<AgentRuntimeEngine, "default">;
 
-export const ENGINE_OPTIONS: ReadonlyArray<{
+export const ENGINE_OPTIONS: readonly {
   id: AgentRuntimeEngine;
   label: string;
-}> = [
+}[] = [
   { id: "default", label: "Stella" },
   { id: "codex_cli", label: "Codex" },
   { id: "claude_code_local", label: "Claude Code" },
@@ -30,10 +30,10 @@ export type ReasoningEffort =
   | "high"
   | "xhigh";
 
-export const REASONING_OPTIONS: ReadonlyArray<{
+export const REASONING_OPTIONS: readonly {
   id: ReasoningEffort;
   label: string;
-}> = [
+}[] = [
   { id: "default", label: "Auto" },
   { id: "minimal", label: "Min" },
   { id: "low", label: "Low" },
@@ -100,13 +100,13 @@ const FALLBACK_STELLA_MODELS: StellaCatalogModel[] = [
 ];
 
 type CatalogApiResponse = {
-  data?: Array<{
+  data?: {
     id?: unknown;
     name?: unknown;
     provider?: unknown;
     allowedForAudience?: unknown;
-  }>;
-  defaults?: Array<{ agentType?: unknown }>;
+  }[];
+  defaults?: { agentType?: unknown }[];
 };
 
 export async function fetchStellaCatalog(): Promise<StellaCatalog> {

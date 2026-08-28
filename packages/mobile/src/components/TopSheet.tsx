@@ -66,7 +66,7 @@ export function TopSheet({
       });
     }
 
-  }, [visible]);
+  }, [visible, progress]);
 
   const hideDistance =
     (contentSized ? (measuredHeight ?? maxSheetHeight) : maxSheetHeight) +

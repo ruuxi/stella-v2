@@ -36,8 +36,8 @@ type MockPlayer = {
 };
 
 const players: MockPlayer[] = [];
-const files: Array<{ uri: string; deleted: boolean }> = [];
-const fetchCalls: Array<{ url: string; aborted: boolean }> = [];
+const files: { uri: string; deleted: boolean }[] = [];
+const fetchCalls: { url: string; aborted: boolean }[] = [];
 let configurePlayback: () => Promise<boolean> = async () => true;
 let fetchImpl: (
   url: string,

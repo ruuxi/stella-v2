@@ -4,7 +4,6 @@ import {
   Easing,
   StyleSheet,
   Text,
-  View,
   type TextStyle,
 } from "react-native";
 import MaskedView from "@react-native-masked-view/masked-view";

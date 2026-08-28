@@ -134,7 +134,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       setGradientPreference,
       gradientMode,
     }),
-    [preference, themeId, isDark, gradientPreference, gradientMode],
+    [preference, theme, isDark, colors, gradientPreference, gradientMode],
   );
 
   if (!loaded) return null;

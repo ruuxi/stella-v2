@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -11,11 +11,11 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { loadAsync, useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
 import {
   ConvexBetterAuthProvider,
   type AuthClient,
 } from "@convex-dev/better-auth/react";
+import { ShareIntentProvider } from "expo-share-intent";
 import { authClient } from "../src/lib/auth-client";
 import { getConvexClient } from "../src/lib/convex";
 import { hasMobileConfig } from "../src/config/env";
@@ -24,8 +24,6 @@ import {
   registerForPushNotifications,
 } from "../src/lib/notifications";
 import { installTextDefaults } from "../src/lib/setup-text-defaults";
-
-installTextDefaults();
 import { loadGuestMode, isGuest, setGuestMode } from "../src/lib/guest-mode";
 import { loadAiConsent } from "../src/lib/ai-consent";
 import { loadNotificationsMuted } from "../src/lib/notifications-prefs";
@@ -38,12 +36,13 @@ import {
   criticalStellaFontAssets,
   deferredStellaFontAssets,
 } from "../src/theme/fonts";
-import { ShareIntentProvider } from "expo-share-intent";
 import { ThemeProvider } from "../src/theme/theme-context";
 import { ChatSearchProvider } from "../src/lib/chat-search";
 import { I18nProvider, useT } from "../src/i18n";
 import { ShareIntentHandler } from "../src/lib/share-intent-handler";
 import { CarPlayBridge } from "../src/carplay/CarPlayBridge";
+
+installTextDefaults();
 
 void SplashScreen.preventAutoHideAsync();
 

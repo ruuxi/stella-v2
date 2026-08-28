@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { app } from "electron";
+import { app, powerMonitor } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import type { PiRunnerTarget } from "@stella/runtime/kernel/lifecycle-targets";
@@ -9,14 +8,17 @@ import {
   protectValue,
   unprotectValue,
 } from "@stella/runtime/kernel/shared/protected-storage";
-import type {
-  HostRuntimeAuthRefreshResult,
-  RuntimeAuthRefreshSource,
-} from "@stella/contracts/protocol";
-
-const RUNTIME_AUTH_REFRESH_TIMEOUT_MS = 12_000;
+import type { HostRuntimeAuthRefreshResult } from "@stella/contracts/protocol";
 
 const HOST_AUTH_TOKEN_REFRESH_MARGIN_MS = 60_000;
+
+const HOST_AUTH_TOKEN_SCHEDULE_MARGIN_MS = 90_000;
+const HOST_AUTH_TOKEN_SCHEDULE_MIN_DELAY_MS = 15_000;
+const HOST_AUTH_TOKEN_SCHEDULE_FALLBACK_MS = 3 * 60 * 1000;
+const HOST_AUTH_TOKEN_RETRY_BASE_MS = 5_000;
+const HOST_AUTH_TOKEN_RETRY_MAX_MS = 5 * 60 * 1000;
+const HOST_AUTH_TOKEN_RETRY_JITTER = 0.2;
+const AUTH_REQUEST_TIMEOUT_MS = 12_000;
 const AUTH_STORAGE_SCOPE = "desktop-better-auth-storage";
 const AUTH_STORAGE_FILE = "better-auth-storage.json";
 
@@ -44,6 +46,7 @@ type AuthServiceOptions = {
   runnerTarget: PiRunnerTarget;
   onAuthCallback: (url: string) => void;
   onSecondInstanceFocus: () => void;
+  onSessionInvalidated?: () => void;
 };
 
 export class AuthService {
@@ -53,14 +56,16 @@ export class AuthService {
   private hostHasConnectedAccount = false;
   private hostAuthToken: string | null = null;
   private authStorageCache: Record<string, string | null> | null = null;
-  private runtimeAuthRefreshPromise: Promise<HostRuntimeAuthRefreshResult> | null =
-    null;
-  private runtimeAuthRefreshResolve:
-    | ((result: HostRuntimeAuthRefreshResult) => void)
-    | null = null;
-  private runtimeAuthRefreshRequestId: string | null = null;
-  private runtimeAuthRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private hostAuthTokenMintPromise: Promise<string | null> | null = null;
+  private hostAuthTokenRefreshTimer: ReturnType<typeof setTimeout> | null =
+    null;
+  private pendingCredentialResync = false;
+  private credentialResyncPromise: Promise<void> | null = null;
+  private trailingResyncPromise: Promise<void> | null = null;
+  private credentialEpoch = 0;
+  private refreshRetryAttempt = 0;
+  private sessionStateDerived = false;
+  private powerResumeBound = false;
 
   constructor(private readonly options: AuthServiceOptions) {}
 
@@ -143,9 +148,14 @@ export class AuthService {
   }
 
   private clearStoredCredentials() {
+    this.invalidateCredentialEpoch();
     this.setAuthStorageItem(BETTER_AUTH_TOKEN_STORAGE_KEY, null);
     this.setAuthStorageItem(BETTER_AUTH_SESSION_DATA_STORAGE_KEY, null);
     this.hostAuthToken = null;
+  }
+
+  private invalidateCredentialEpoch() {
+    this.credentialEpoch += 1;
   }
 
   private getAuthStorageItem(key: string): string | null {
@@ -203,9 +213,29 @@ export class AuthService {
     const response = await fetch(`${siteUrl}${AUTH_BASE_PATH}${pathname}`, {
       ...init,
       headers,
+      signal: init.signal ?? AbortSignal.timeout(AUTH_REQUEST_TIMEOUT_MS),
     });
     this.applyAuthResponseToken(response);
     return response;
+  }
+
+  private applySessionDerivedState(session: unknown | null) {
+    const isAnonymous =
+      (session as { user?: { isAnonymous?: boolean | null } } | null)?.user
+        ?.isAnonymous === true;
+    this.sessionStateDerived = true;
+    this.hostAuthAuthenticated = Boolean(session);
+    this.setHostHasConnectedAccount(Boolean(session) && !isAnonymous);
+  }
+
+  private setHostHasConnectedAccount(hasConnectedAccount: boolean) {
+    if (this.hostHasConnectedAccount === hasConnectedAccount) {
+      return;
+    }
+    this.hostHasConnectedAccount = hasConnectedAccount;
+    this.options.runnerTarget
+      .getRunner()
+      ?.setHasConnectedAccount(hasConnectedAccount);
   }
 
   private async fetchBetterAuthSessionFromNetwork(): Promise<unknown | null> {
@@ -219,6 +249,7 @@ export class AuthService {
       response.status === 404
     ) {
       this.setAuthStorageItem(BETTER_AUTH_SESSION_DATA_STORAGE_KEY, null);
+      this.applySessionDerivedState(null);
       return null;
     }
     if (!response.ok) {
@@ -234,12 +265,13 @@ export class AuthService {
 
       this.setAuthStorageItem(BETTER_AUTH_SESSION_DATA_STORAGE_KEY, null);
     }
+    this.applySessionDerivedState(data ?? null);
     return data;
   }
 
   async getBetterAuthSession(): Promise<unknown | null> {
     if (!this.getBearerToken()) {
-
+      this.applySessionDerivedState(null);
       return null;
     }
     return await this.fetchBetterAuthSessionFromNetwork();
@@ -257,7 +289,9 @@ export class AuthService {
     if (!response.ok) {
       throw new Error(`Anonymous sign-in failed with HTTP ${response.status}.`);
     }
-    return await response.json().catch(() => ({ ok: true }));
+    const body = await response.json().catch(() => ({ ok: true }));
+    await this.resyncAfterCredentialChange();
+    return body;
   }
 
   async signOut() {
@@ -297,13 +331,14 @@ export class AuthService {
     return { ok: true };
   }
 
-  applySessionToken(sessionToken: string) {
+  async applySessionToken(sessionToken: string) {
     const normalized =
       typeof sessionToken === "string" ? sessionToken.trim() : "";
     if (!normalized) {
       throw new Error("Missing session token.");
     }
     this.setAuthStorageItem(BETTER_AUTH_TOKEN_STORAGE_KEY, normalized);
+    await this.resyncAfterCredentialChange();
     return { ok: true };
   }
 
@@ -342,24 +377,12 @@ export class AuthService {
   }
 
   private getRuntimeAuthState(): HostRuntimeAuthRefreshResult {
+    const token = this.hostAuthToken?.trim() || null;
     return {
-      authenticated:
-        this.hostAuthAuthenticated && Boolean(this.hostAuthToken?.trim()),
-      token: this.hostAuthToken?.trim() || null,
+      authenticated: Boolean(token),
+      token,
       hasConnectedAccount: this.hostHasConnectedAccount,
     };
-  }
-
-  private finishRuntimeAuthRefresh(result: HostRuntimeAuthRefreshResult) {
-    if (this.runtimeAuthRefreshTimer) {
-      clearTimeout(this.runtimeAuthRefreshTimer);
-      this.runtimeAuthRefreshTimer = null;
-    }
-    const resolve = this.runtimeAuthRefreshResolve;
-    this.runtimeAuthRefreshResolve = null;
-    this.runtimeAuthRefreshPromise = null;
-    this.runtimeAuthRefreshRequestId = null;
-    resolve?.(result);
   }
 
   private getDeepLinkUrl(argv: string[]) {
@@ -397,6 +420,12 @@ export class AuthService {
 
   stopAuthRefreshLoop() {
     const runner = this.options.runnerTarget.getRunner();
+    this.invalidateCredentialEpoch();
+    this.clearHostAuthTokenRefreshTimer();
+    this.pendingCredentialResync = false;
+    this.refreshRetryAttempt = 0;
+    this.sessionStateDerived = false;
+    this.hostAuthAuthenticated = false;
     this.hostHasConnectedAccount = false;
     runner?.setHasConnectedAccount(false);
     this.hostAuthToken = null;
@@ -451,39 +480,6 @@ export class AuthService {
     this.options.onAuthCallback(url);
   }
 
-  setHostAuthState(
-    authenticated: boolean,
-    token?: string,
-    hasConnectedAccount?: boolean,
-  ) {
-    const runner = this.options.runnerTarget.getRunner();
-    const previousAuthToken = this.hostAuthToken;
-    const previousHasConnectedAccount = this.hostHasConnectedAccount;
-    this.hostAuthAuthenticated = authenticated;
-    this.hostHasConnectedAccount = authenticated
-      ? (hasConnectedAccount ?? this.hostHasConnectedAccount)
-      : false;
-    const normalizedToken = typeof token === "string" ? token.trim() : "";
-
-    if (!authenticated) {
-      this.stopAuthRefreshLoop();
-      return;
-    }
-
-    if (normalizedToken) {
-      this.hostAuthToken = normalizedToken;
-      if (normalizedToken !== previousAuthToken) {
-        runner?.setAuthToken(normalizedToken);
-      }
-    } else if (!this.hostAuthToken) {
-      runner?.setAuthToken(null);
-    }
-
-    if (this.hostHasConnectedAccount !== previousHasConnectedAccount) {
-      runner?.setHasConnectedAccount(this.hostHasConnectedAccount);
-    }
-  }
-
   getHostAuthAuthenticated() {
     return this.hostAuthAuthenticated;
   }
@@ -511,6 +507,18 @@ export class AuthService {
       runner?.setAuthToken(this.hostAuthToken);
     }
     runner?.setHasConnectedAccount(this.hostHasConnectedAccount);
+    this.bindPowerResumeRefresh();
+    this.ensureHostAuthTokenRefreshArmed();
+  }
+
+  private bindPowerResumeRefresh() {
+    if (this.powerResumeBound || !powerMonitor?.on) {
+      return;
+    }
+    this.powerResumeBound = true;
+    powerMonitor.on("resume", () => {
+      void this.refreshHostAuthTokenIfStale();
+    });
   }
 
   getPendingConvexUrl() {
@@ -542,23 +550,32 @@ export class AuthService {
     if (this.hostAuthTokenMintPromise) {
       return await this.hostAuthTokenMintPromise;
     }
+    const mintEpoch = this.credentialEpoch;
     this.hostAuthTokenMintPromise = (async () => {
       try {
         const result = await this.getConvexAuthTokenResult();
+        if (this.credentialEpoch !== mintEpoch) {
+          // Credentials changed while this mint was in flight: the result
+          // belongs to the previous identity and must never reach the runner.
+          return null;
+        }
+
         if (result.ok) {
           if (result.token !== this.hostAuthToken) {
             this.hostAuthToken = result.token;
             this.options.runnerTarget.getRunner()?.setAuthToken(result.token);
           }
+          this.hostAuthAuthenticated = true;
+          this.refreshRetryAttempt = 0;
+          this.scheduleHostAuthTokenRefresh(result.token);
           return result.token;
         }
         if (result.reason === "unauthorized") {
 
           console.info("[auth] Stored session rejected; signing out locally.");
           this.clearStoredCredentials();
-          this.options.runnerTarget.getRunner()?.setAuthToken(null);
-          this.hostAuthAuthenticated = false;
           this.stopAuthRefreshLoop();
+          this.notifySessionInvalidated();
         }
         return null;
       } catch (error) {
@@ -620,68 +637,207 @@ export class AuthService {
       : null;
   }
 
-  async requestRuntimeAuthRefresh(
-    source: RuntimeAuthRefreshSource,
-    broadcastRequest: (payload: {
-      requestId: string;
-      source: RuntimeAuthRefreshSource;
-    }) => void,
-  ): Promise<HostRuntimeAuthRefreshResult> {
-    if (this.runtimeAuthRefreshPromise) {
-      return await this.runtimeAuthRefreshPromise;
-    }
-
-    const requestId = randomUUID();
-    this.runtimeAuthRefreshRequestId = requestId;
-    this.runtimeAuthRefreshPromise = new Promise<HostRuntimeAuthRefreshResult>(
-      (resolve) => {
-        this.runtimeAuthRefreshResolve = resolve;
-        this.runtimeAuthRefreshTimer = setTimeout(() => {
-          console.warn(
-            `[auth] Runtime auth refresh timed out after ${source} request.`,
-          );
-
-          void this.refreshHostAuthTokenIfStale().finally(() => {
-            this.finishRuntimeAuthRefresh(this.getRuntimeAuthState());
-          });
-        }, RUNTIME_AUTH_REFRESH_TIMEOUT_MS);
-      },
-    );
-    const pendingRefresh = this.runtimeAuthRefreshPromise;
-
+  async refreshRuntimeAuth(): Promise<HostRuntimeAuthRefreshResult> {
     try {
-      broadcastRequest({ requestId, source });
+      await this.awaitPendingResync();
+      const epoch = this.credentialEpoch;
+      if (this.getConvexSiteUrl() && this.getBearerToken()) {
+        await this.mintHostAuthToken();
+        // The runtime treats authenticated:false as an authoritative teardown,
+        // so a transient mint failure inside the post-credential-change window
+        // gets one inline retry before a verdict is reported.
+        if (
+          this.pendingCredentialResync &&
+          !this.hostAuthToken?.trim() &&
+          this.getBearerToken()
+        ) {
+          await this.mintHostAuthToken();
+        }
+      }
+      if (this.credentialEpoch !== epoch) {
+        await this.awaitPendingResync();
+      }
     } catch (error) {
       console.warn(
-        "[auth] Failed to broadcast runtime auth refresh request.",
-        error,
+        "[auth] Runtime auth refresh failed:",
+        (error as Error).message,
       );
-      this.finishRuntimeAuthRefresh(this.getRuntimeAuthState());
     }
-
-    return await pendingRefresh;
+    return this.getRuntimeAuthState();
   }
 
-  completeRuntimeAuthRefresh(payload: {
-    requestId: string;
-    authenticated?: boolean;
-    token?: string | null;
-    hasConnectedAccount?: boolean;
-  }) {
-    if (!this.runtimeAuthRefreshRequestId) {
-      return { ok: false, accepted: false };
+  private notifySessionInvalidated() {
+    try {
+      this.options.onSessionInvalidated?.();
+    } catch (error) {
+      console.warn(
+        "[auth] Failed to broadcast auth session invalidation.",
+        error,
+      );
     }
-    if (payload.requestId !== this.runtimeAuthRefreshRequestId) {
-      return { ok: false, accepted: false };
+  }
+
+  private clearHostAuthTokenRefreshTimer() {
+    if (!this.hostAuthTokenRefreshTimer) {
+      return;
+    }
+    clearTimeout(this.hostAuthTokenRefreshTimer);
+    this.hostAuthTokenRefreshTimer = null;
+  }
+
+  private armHostAuthTokenRefresh(delayMs: number) {
+    this.clearHostAuthTokenRefreshTimer();
+    const timer = setTimeout(() => {
+      this.hostAuthTokenRefreshTimer = null;
+      void this.runScheduledHostAuthRefresh();
+    }, Math.max(0, delayMs));
+    timer.unref?.();
+    this.hostAuthTokenRefreshTimer = timer;
+  }
+
+  private armHostAuthTokenRetry() {
+    const ceiling = Math.min(
+      HOST_AUTH_TOKEN_RETRY_MAX_MS,
+      HOST_AUTH_TOKEN_RETRY_BASE_MS * 2 ** Math.min(this.refreshRetryAttempt, 8),
+    );
+    this.refreshRetryAttempt += 1;
+    const jitter = 1 + (Math.random() * 2 - 1) * HOST_AUTH_TOKEN_RETRY_JITTER;
+    this.armHostAuthTokenRefresh(Math.round(ceiling * jitter));
+  }
+
+  private scheduleHostAuthTokenRefresh(token: string) {
+    const payload = decodeBase64UrlJson(token.split(".")[1] ?? "");
+    const exp = (payload as { exp?: unknown } | null)?.exp;
+    this.armHostAuthTokenRefresh(
+      typeof exp === "number"
+        ? Math.max(
+            HOST_AUTH_TOKEN_SCHEDULE_MIN_DELAY_MS,
+            exp * 1000 - Date.now() - HOST_AUTH_TOKEN_SCHEDULE_MARGIN_MS,
+          )
+        : HOST_AUTH_TOKEN_SCHEDULE_FALLBACK_MS,
+    );
+  }
+
+  private ensureHostAuthTokenRefreshArmed() {
+    if (this.hostAuthTokenRefreshTimer) {
+      return;
+    }
+    if (!this.getConvexSiteUrl() || !this.getBearerToken()) {
+      return;
+    }
+    const cached = this.hostAuthToken?.trim();
+    if (cached) {
+      this.scheduleHostAuthTokenRefresh(cached);
+      return;
+    }
+    this.armHostAuthTokenRefresh(0);
+  }
+
+  private async runScheduledHostAuthRefresh(): Promise<void> {
+    if (!this.getConvexSiteUrl() || !this.getBearerToken()) {
+      return;
+    }
+    if (this.pendingCredentialResync) {
+      if (this.credentialResyncPromise || this.trailingResyncPromise) {
+        await this.awaitPendingResync();
+        return;
+      }
+      await this.resyncAfterCredentialChange();
+      return;
     }
 
-    this.setHostAuthState(
-      Boolean(payload.authenticated),
-      payload.token ?? undefined,
-      payload.hasConnectedAccount,
-    );
-    this.finishRuntimeAuthRefresh(this.getRuntimeAuthState());
-    return { ok: true, accepted: true };
+    if (!this.sessionStateDerived) {
+      await this.getBetterAuthSession().catch(() => null);
+      if (!this.getBearerToken()) {
+        return;
+      }
+    }
+    const token = await this.mintHostAuthToken();
+    if (!token && this.getBearerToken()) {
+      this.armHostAuthTokenRetry();
+    }
+  }
+
+  private async resyncAfterCredentialChange(): Promise<void> {
+    this.pendingCredentialResync = true;
+    const inflight = this.credentialResyncPromise;
+    if (!inflight) {
+      return await this.startCredentialResync();
+    }
+    // A credential change landed while another resync was in flight: that
+    // resync minted under the previous bearer, so its result is invalidated
+    // here and a fresh pass is chained behind it. One trailing pass covers
+    // every caller that piles up while the in-flight pass drains.
+    this.invalidateCredentialEpoch();
+    if (this.trailingResyncPromise) {
+      return await this.trailingResyncPromise;
+    }
+    const trailing = (async () => {
+      await inflight.catch(() => {});
+      await this.startCredentialResync();
+    })().catch((error) => {
+      console.warn(
+        "[auth] Chained credential resync failed:",
+        (error as Error).message,
+      );
+    });
+    this.trailingResyncPromise = trailing;
+    try {
+      await trailing;
+    } finally {
+      if (this.trailingResyncPromise === trailing) {
+        this.trailingResyncPromise = null;
+      }
+    }
+  }
+
+  private startCredentialResync(): Promise<void> {
+    const resync = this.runCredentialResync().finally(() => {
+      if (this.credentialResyncPromise === resync) {
+        this.credentialResyncPromise = null;
+      }
+    });
+    this.credentialResyncPromise = resync;
+    return resync;
+  }
+
+  private async awaitPendingResync(): Promise<void> {
+    for (let depth = 0; depth < 4; depth += 1) {
+      const pending =
+        this.trailingResyncPromise ?? this.credentialResyncPromise;
+      if (!pending) {
+        return;
+      }
+      await pending.catch(() => {});
+    }
+  }
+
+  private async runCredentialResync(): Promise<void> {
+    this.pendingCredentialResync = true;
+    this.invalidateCredentialEpoch();
+    const inflightMint = this.hostAuthTokenMintPromise;
+    if (inflightMint) {
+      await inflightMint.catch(() => null);
+    }
+    this.hostAuthToken = null;
+    if (!this.getConvexSiteUrl() || !this.getBearerToken()) {
+      return;
+    }
+    const token = await this.mintHostAuthToken();
+    const session = await this.getBetterAuthSession().catch((error) => {
+      console.warn(
+        "[auth] Failed to re-read the session after a credential change:",
+        (error as Error).message,
+      );
+      return undefined;
+    });
+    if (token && session !== undefined) {
+      this.pendingCredentialResync = false;
+      return;
+    }
+    if (this.getBearerToken()) {
+      this.armHostAuthTokenRetry();
+    }
   }
 
 }

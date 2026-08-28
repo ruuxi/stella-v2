@@ -558,35 +558,19 @@ export type ElectronSystemApi = {
     convexUrl?: string;
     convexSiteUrl?: string;
   }) => Promise<{ deviceId: string | null }>;
-  setAuthState: (payload: {
-    authenticated: boolean;
-    token?: string;
-    hasConnectedAccount?: boolean;
-  }) => Promise<{ ok: boolean }>;
   getAuthSession: () => Promise<unknown | null>;
   signInAnonymous: () => Promise<unknown>;
   signOutAuth: () => Promise<{ ok: boolean }>;
   deleteAuthUser: () => Promise<{ ok: boolean }>;
   applyAuthSessionToken: (sessionToken: string) => Promise<{ ok: boolean }>;
   getConvexAuthToken: () => Promise<string | null>;
-  completeRuntimeAuthRefresh: (payload: {
-    requestId: string;
-    authenticated: boolean;
-    token?: string;
-    hasConnectedAccount?: boolean;
-  }) => Promise<{ ok: boolean; accepted?: boolean }>;
   setCloudSyncEnabled: (payload: {
     enabled: boolean;
   }) => Promise<{ ok: boolean }>;
   setModelCatalogUpdatedAt: (payload: {
     updatedAt: number | null;
   }) => Promise<{ ok: boolean }>;
-  onRuntimeAuthRefreshRequested: (
-    callback: (data: {
-      requestId: string;
-      source: "heartbeat" | "subscription" | "register";
-    }) => void,
-  ) => () => void;
+  onAuthSessionInvalidated: (callback: () => void) => () => void;
   quitForRestart: () => Promise<{ ok: boolean }>;
   openFullDiskAccess: () => void;
   getPermissionStatus: () => Promise<{

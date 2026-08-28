@@ -35,7 +35,7 @@ export const createBootstrapResetFlows = (context, options) => ({
         services.connectorCredentialService.cancelAll();
         await shutdownBootstrapRuntime(context, { stopScheduler: true });
         services.localChatHistoryService.closeForReset();
-        services.authService.setHostAuthState(false);
+        services.authService.stopAuthRefreshLoop();
         state.appReady = false;
         services.uiStateService.state.isVoiceRtcActive = false;
         services.captureService.resetForHardReset();

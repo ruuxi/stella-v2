@@ -30,12 +30,6 @@ import {
   DEFAULT_ASSISTANT_WORKING_MODE,
   type AssistantWorkingMode,
 } from "@stella/contracts/local-preferences";
-import {
-  DEFAULT_PERSONALITY_ID,
-  PERSONALITY_OPTIONS,
-  isKnownPersonalityId,
-  type PersonalityId,
-} from "@stella/contracts/personality";
 import { STELLA_BROWSER_EXTENSION_STORE_URL } from "@stella/contracts/browser-extension";
 import { getSettingsErrorMessage } from "./shared";
 
@@ -82,14 +76,6 @@ export function GeneralTab() {
   const [isSavingSoundNotifications, setIsSavingSoundNotifications] =
     useState(false);
   const [soundNotificationsError, setSoundNotificationsError] = useState<
-    string | null
-  >(null);
-  const [personalityVoiceId, setPersonalityVoiceIdState] =
-    useState<PersonalityId>(DEFAULT_PERSONALITY_ID);
-  const [personalityVoiceLoaded, setPersonalityVoiceLoaded] = useState(false);
-  const [isSavingPersonalityVoice, setIsSavingPersonalityVoice] =
-    useState(false);
-  const [personalityVoiceError, setPersonalityVoiceError] = useState<
     string | null
   >(null);
   const [isResettingCustomizations, setIsResettingCustomizations] =
@@ -327,62 +313,6 @@ export function GeneralTab() {
       }
     },
     [lockedComputerUseStatus, t],
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const current =
-          await window.electronAPI?.system?.getPersonalityVoice?.();
-        if (!cancelled) {
-          setPersonalityVoiceIdState(
-            isKnownPersonalityId(current) ? current : DEFAULT_PERSONALITY_ID,
-          );
-          setPersonalityVoiceError(null);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setPersonalityVoiceError(
-            getSettingsErrorMessage(error, t("settings.errors.loadVoice")),
-          );
-        }
-      } finally {
-        if (!cancelled) setPersonalityVoiceLoaded(true);
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [t]);
-
-  const handlePersonalityVoiceChange = useCallback(
-    async (nextVoiceId: PersonalityId) => {
-      const systemApi = window.electronAPI?.system;
-      if (!systemApi?.setPersonalityVoice) {
-        setPersonalityVoiceError(t("settings.errors.voiceUnavailable"));
-        return;
-      }
-      const previous = personalityVoiceId;
-      setPersonalityVoiceIdState(nextVoiceId);
-      setPersonalityVoiceError(null);
-      setIsSavingPersonalityVoice(true);
-      try {
-        const result = await systemApi.setPersonalityVoice(nextVoiceId);
-        if (isKnownPersonalityId(result?.voiceId)) {
-          setPersonalityVoiceIdState(result.voiceId);
-        }
-      } catch (error) {
-        setPersonalityVoiceIdState(previous);
-        setPersonalityVoiceError(
-          getSettingsErrorMessage(error, t("settings.errors.saveVoice")),
-        );
-      } finally {
-        setIsSavingPersonalityVoice(false);
-      }
-    },
-    [personalityVoiceId, t],
   );
 
   const handleResetCustomizations = useCallback(async () => {
@@ -1126,50 +1056,6 @@ export function GeneralTab() {
             isSavingLockedComputerUse,
           onChange: (checked) => void handleLockedComputerUseChange(checked),
         })}
-        <div className="settings-card">
-          <h3 className="settings-card-title">
-            {t("settings.voice.personality.label")}
-          </h3>
-          {personalityVoiceError ? (
-            <p
-              className="settings-card-desc settings-card-desc--error"
-              role="alert"
-            >
-              {personalityVoiceError}
-            </p>
-          ) : null}
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <div className="settings-row-label">
-                {PERSONALITY_OPTIONS.find(
-                  (option) => option.id === personalityVoiceId,
-                )?.label ?? ""}
-              </div>
-              <div className="settings-row-sublabel">
-                {PERSONALITY_OPTIONS.find(
-                  (option) => option.id === personalityVoiceId,
-                )?.description ?? ""}
-              </div>
-            </div>
-            <div className="settings-row-control">
-              <Select
-                className="settings-runtime-select"
-                value={personalityVoiceId}
-                disabled={!personalityVoiceLoaded || isSavingPersonalityVoice}
-                aria-label={t("settings.voice.personality.label")}
-                onValueChange={(value) => {
-                  if (isKnownPersonalityId(value)) {
-                    void handlePersonalityVoiceChange(value);
-                  }
-                }}
-                options={PERSONALITY_OPTIONS.map((option) => ({
-                  value: option.id,
-                  label: option.label,
-                }))}
-              />
-            </div>
-          </div>
-        </div>
         <div className="settings-card">
           <div className="settings-card-header">
             <h3 className="settings-card-title">

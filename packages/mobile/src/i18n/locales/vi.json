@@ -70,12 +70,6 @@
         "off": "Tắt"
       }
     },
-    "voice": {
-      "title": "Giọng nói",
-      "personality": {
-        "label": "Tính cách"
-      }
-    },
     "notifications": {
       "title": "Thông báo âm thanh",
       "description": "Phát âm thanh khi Stella hoàn thành một lần chạy tác nhân."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} kết quả",
       "resultsAriaOther": "{count} kết quả",
       "descriptions": {
-        "voice": "Chọn phong cách nói và giọng tính cách của Stella.",
         "permissions": "Cấp quyền trợ năng, quay màn hình và micrô trên macOS.",
         "shortcuts": "Thay đổi phím tắt đọc chính tả và giọng nói.",
         "backup": "Bản sao lưu được mã hóa tự động, điểm khôi phục và ảnh chụp theo yêu cầu.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "Không tải được cài đặt thông báo âm thanh.",
       "saveSoundNotifications": "Không cập nhật được cài đặt thông báo âm thanh.",
       "soundNotificationsUnavailable": "Cài đặt thông báo âm thanh không khả dụng trong cửa sổ này.",
-      "loadVoice": "Không tải được cài đặt giọng nói.",
-      "saveVoice": "Không cập nhật được cài đặt giọng nói.",
-      "voiceUnavailable": "Cài đặt giọng nói không khả dụng trong cửa sổ này.",
       "loadWorkingMode": "Không tải được chế độ điều phối.",
       "saveWorkingMode": "Không cập nhật được chế độ điều phối.",
       "workingModeUnavailable": "Chế độ điều phối không khả dụng trong cửa sổ này.",
@@ -638,7 +628,6 @@
       "extension": "Thêm Stella vào trình duyệt của bạn.",
       "browser": "Hãy để Stella hiểu bạn hơn.",
       "theme": "Stella nên trông như thế nào?",
-      "personality": "Stella nên nói chuyện thế nào?",
       "voice": "Hãy nói thay vì gõ.",
       "enter": "Stella gần như đã sẵn sàng."
     },

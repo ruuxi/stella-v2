@@ -70,12 +70,6 @@
         "off": "Av"
       }
     },
-    "voice": {
-      "title": "Stemme",
-      "personality": {
-        "label": "Personlighet"
-      }
-    },
     "notifications": {
       "title": "Lydvarsler",
       "description": "Spiller en lyd når Stella fullfører en agentkjøring."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} resultat",
       "resultsAriaOther": "{count} resultater",
       "descriptions": {
-        "voice": "Velg Stellas talestil og personlighetsstemme.",
         "permissions": "Gi tilgang til tilgjengelighet, skjermopptak og mikrofon på macOS.",
         "shortcuts": "Endre hurtigtaster for diktering og stemme.",
         "backup": "Automatiske krypterte sikkerhetskopier, gjenopprettingspunkter og øyeblikksbilder på forespørsel.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "Kunne ikke laste inn innstillingen for lydvarsler.",
       "saveSoundNotifications": "Kunne ikke oppdatere innstillingen for lydvarsler.",
       "soundNotificationsUnavailable": "Innstillinger for lydvarsler er ikke tilgjengelige i dette vinduet.",
-      "loadVoice": "Kunne ikke laste inn stemmeinnstillingen.",
-      "saveVoice": "Kunne ikke oppdatere stemmeinnstillingen.",
-      "voiceUnavailable": "Stemmeinnstillinger er ikke tilgjengelige i dette vinduet.",
       "loadWorkingMode": "Kunne ikke laste inn orkestratormodus.",
       "saveWorkingMode": "Kunne ikke oppdatere orkestratormodus.",
       "workingModeUnavailable": "Orkestratormodus er ikke tilgjengelig i dette vinduet.",
@@ -639,7 +629,6 @@
       "extension": "Legg til Stella i nettleseren.",
       "browser": "La Stella bli kjent med deg.",
       "theme": "Hvordan skal Stella se ut?",
-      "personality": "Hvordan skal Stella snakke?",
       "voice": "Snakk i stedet for å skrive.",
       "enter": "Stella er nesten klar."
     },

@@ -6,11 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import { getMainLogger } from "../observability/main-logger.js";
 import { resolveLogPaths } from "@stella/runtime/observability/log-paths";
-import { getLocalModelPreferences, getOnboardingCompleted, getPersonalityVoiceId, setPersonalityVoiceId, getPreventComputerSleep, getReadAloudEnabled, setReadAloudEnabled, getSoundNotificationsEnabled, getSyncMode, loadLocalPreferences, normalizeImageGenerationPreferences, normalizeCodexServiceTier, normalizeRealtimeVoicePreferences, saveLocalPreferences, setOnboardingCompleted, updateLocalModelPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
+import { getLocalModelPreferences, getOnboardingCompleted, getPreventComputerSleep, getReadAloudEnabled, setReadAloudEnabled, getSoundNotificationsEnabled, getSyncMode, loadLocalPreferences, normalizeImageGenerationPreferences, normalizeCodexServiceTier, normalizeRealtimeVoicePreferences, saveLocalPreferences, setOnboardingCompleted, updateLocalModelPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { coerceAgentRuntimeEngine } from "@stella/contracts/agent-engine";
 import { hasRealtimeVoiceSessionRouteChanged, } from "@stella/contracts/local-preferences";
-import { coercePersonalityId, isKnownPersonalityId, } from "@stella/contracts/personality";
-import { writePersonality } from "@stella/runtime/kernel/personality/personality";
 import { resetStellaCustomizations } from "@stella/runtime/kernel/home/reset-customizations";
 import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-home";
 import { loadAgentSystemPrompt } from "@stella/runtime/kernel/agents/home-agent-prompt";
@@ -23,7 +21,7 @@ import { deleteLocalLlmCredential, getLocalLlmCredential, listLocalLlmCredential
 import { cleanupRetiredLocalLlmOAuthCredentials, deleteLocalLlmOAuthCredential, getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, saveLocalLlmOAuthCredential, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { getOAuthProvider, getOAuthProviders, } from "@stella/runtime/ai/utils/oauth";
 import { isRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
-import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_APPLY_SESSION_TOKEN, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_CONVEX_TOKEN, IPC_AUTH_GET_SESSION, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_BACKUP_GET_STATUS, IPC_BACKUP_LIST, IPC_BACKUP_RESTORE, IPC_BACKUP_RUN_NOW, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT, IPC_SYSTEM_OPEN_FDA, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_PERSONALITY_VOICE, IPC_PREFERENCES_SET_PERSONALITY_VOICE, IPC_PREFERENCES_GET_MODELS, IPC_PREFERENCES_LIST_CODEX_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SYNC_MODE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SYNC_MODE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_USER_APPS_LIST, IPC_USER_APPS_START, IPC_USER_APPS_STOP, IPC_VOICE_PREFERENCES_CHANGED, } from "@stella/contracts/desktop/ipc-channels";
+import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_APPLY_SESSION_TOKEN, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_CONVEX_TOKEN, IPC_AUTH_GET_SESSION, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_BACKUP_GET_STATUS, IPC_BACKUP_LIST, IPC_BACKUP_RESTORE, IPC_BACKUP_RUN_NOW, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT, IPC_SYSTEM_OPEN_FDA, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_MODELS, IPC_PREFERENCES_LIST_CODEX_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SYNC_MODE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SYNC_MODE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_USER_APPS_LIST, IPC_USER_APPS_START, IPC_USER_APPS_STOP, IPC_VOICE_PREFERENCES_CHANGED, } from "@stella/contracts/desktop/ipc-channels";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
 import { hasMacPermission, clearPermissionCache, getMicrophonePermissionStatus, requestMacPermission, resetMacMicrophonePermissions, resetMacPermission, } from "../utils/macos-permissions.js";
 import { waitForConnectedRunner } from "./runtime-availability.js";
@@ -999,15 +997,6 @@ export const registerSystemHandlers = (options) => {
             };
         }
     });
-    ipcMain.handle(IPC_PREFERENCES_GET_PERSONALITY_VOICE, (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_GET_PERSONALITY_VOICE)) {
-            throw new Error("Blocked untrusted preferences:getPersonalityVoice request.");
-        }
-        const stellaAppDir = options.getStellaAppDir();
-        if (!stellaAppDir)
-            return null;
-        return getPersonalityVoiceId(stellaAppDir) ?? null;
-    });
     const promptPresetContext = (event, channel, agentId) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, channel)) {
             throw new Error(`Blocked untrusted ${channel} request.`);
@@ -1093,32 +1082,6 @@ export const registerSystemHandlers = (options) => {
                 error: error instanceof Error ? error.message : String(error),
             };
         }
-    });
-    ipcMain.handle(IPC_PREFERENCES_SET_PERSONALITY_VOICE, (event, voiceId) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_SET_PERSONALITY_VOICE)) {
-            throw new Error("Blocked untrusted preferences:setPersonalityVoice request.");
-        }
-        const stellaAppDir = options.getStellaAppDir();
-        if (!stellaAppDir)
-            return { ok: false, voiceId: "" };
-        if (!isKnownPersonalityId(voiceId)) {
-            throw new Error("Unknown personality preset id.");
-        }
-        const normalized = coercePersonalityId(voiceId);
-        const previous = coercePersonalityId(getPersonalityVoiceId(stellaAppDir));
-        try {
-            setPersonalityVoiceId(stellaAppDir, normalized);
-            writePersonality(stellaAppDir, normalized);
-        }
-        catch (error) {
-            setPersonalityVoiceId(stellaAppDir, previous);
-            return {
-                ok: false,
-                voiceId: previous,
-                error: error instanceof Error ? error.message : String(error),
-            };
-        }
-        return { ok: true, voiceId: normalized };
     });
     ipcMain.handle(IPC_PREFERENCES_GET_MODELS, (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_GET_MODELS)) {

@@ -70,12 +70,6 @@
         "off": "关闭"
       }
     },
-    "voice": {
-      "title": "语音",
-      "personality": {
-        "label": "个性"
-      }
-    },
     "notifications": {
       "title": "声音通知",
       "description": "当 Stella 完成一次智能体运行时播放声音。"
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} 条结果",
       "resultsAriaOther": "{count} 条结果",
       "descriptions": {
-        "voice": "选择 Stella 的说话风格和个性语音。",
         "permissions": "在 macOS 上授予辅助功能、屏幕录制和麦克风访问权限。",
         "shortcuts": "更改听写和语音快捷键。",
         "backup": "自动加密备份、恢复点和按需快照。",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "加载声音通知设置失败。",
       "saveSoundNotifications": "更新声音通知设置失败。",
       "soundNotificationsUnavailable": "此窗口中无法使用声音通知设置。",
-      "loadVoice": "加载语音设置失败。",
-      "saveVoice": "更新语音设置失败。",
-      "voiceUnavailable": "此窗口中无法使用语音设置。",
       "loadWorkingMode": "加载编排器模式失败。",
       "saveWorkingMode": "更新编排器模式失败。",
       "workingModeUnavailable": "此窗口中无法使用编排器模式。",
@@ -638,7 +628,6 @@
       "extension": "把 Stella 添加到浏览器。",
       "browser": "让 Stella 了解您。",
       "theme": "Stella 应该是什么样子？",
-      "personality": "Stella 应该怎么说话？",
       "voice": "用说的，而不是用打的。",
       "enter": "Stella 已经快准备好了。"
     },

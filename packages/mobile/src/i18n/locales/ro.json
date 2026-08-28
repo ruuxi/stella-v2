@@ -70,12 +70,6 @@
         "off": "Dezactivat"
       }
     },
-    "voice": {
-      "title": "Voce",
-      "personality": {
-        "label": "Personalitate"
-      }
-    },
     "notifications": {
       "title": "Notificări sonore",
       "description": "Redă un sunet când Stella termină rularea unui agent."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} rezultat",
       "resultsAriaOther": "{count} rezultate",
       "descriptions": {
-        "voice": "Alege stilul de vorbire și vocea de personalitate a Stellei.",
         "permissions": "Acordă acces la accesibilitate, captură de ecran și microfon pe macOS.",
         "shortcuts": "Modifică scurtăturile pentru dictare și voce.",
         "backup": "Copii de rezervă criptate automate, puncte de restaurare și instantanee la cerere.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "Nu s-a putut încărca setarea notificărilor sonore.",
       "saveSoundNotifications": "Nu s-a putut actualiza setarea notificărilor sonore.",
       "soundNotificationsUnavailable": "Setările notificărilor sonore nu sunt disponibile în această fereastră.",
-      "loadVoice": "Nu s-a putut încărca setarea de voce.",
-      "saveVoice": "Nu s-a putut actualiza setarea de voce.",
-      "voiceUnavailable": "Setările de voce nu sunt disponibile în această fereastră.",
       "loadWorkingMode": "Încărcarea modului orchestrator a eșuat.",
       "saveWorkingMode": "Actualizarea modului orchestrator a eșuat.",
       "workingModeUnavailable": "Modul orchestrator nu este disponibil în această fereastră.",
@@ -640,7 +630,6 @@
       "extension": "Adaugă Stella în browser.",
       "browser": "Lasă Stella să te cunoască.",
       "theme": "Cum ar trebui să arate Stella?",
-      "personality": "Cum ar trebui să vorbească Stella?",
       "voice": "Vorbește în loc să tastezi.",
       "enter": "Stella e aproape gata."
     },

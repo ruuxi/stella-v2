@@ -70,12 +70,6 @@
         "off": "Desativado"
       }
     },
-    "voice": {
-      "title": "Voz",
-      "personality": {
-        "label": "Personalidade"
-      }
-    },
     "notifications": {
       "title": "Notificações sonoras",
       "description": "Toca um som quando a Stella termina a execução de um agente."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} resultado",
       "resultsAriaOther": "{count} resultados",
       "descriptions": {
-        "voice": "Escolha o estilo de fala e a voz de personalidade da Stella.",
         "permissions": "Conceda acesso a acessibilidade, captura de tela e microfone no macOS.",
         "shortcuts": "Altere os atalhos de ditado e voz.",
         "backup": "Backups criptografados automáticos, pontos de restauração e snapshots sob demanda.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "Falha ao carregar a configuração de notificações sonoras.",
       "saveSoundNotifications": "Falha ao atualizar a configuração de notificações sonoras.",
       "soundNotificationsUnavailable": "As configurações de notificações sonoras não estão disponíveis nesta janela.",
-      "loadVoice": "Falha ao carregar a configuração de voz.",
-      "saveVoice": "Falha ao atualizar a configuração de voz.",
-      "voiceUnavailable": "As configurações de voz não estão disponíveis nesta janela.",
       "loadWorkingMode": "Falha ao carregar o modo orquestrador.",
       "saveWorkingMode": "Falha ao atualizar o modo orquestrador.",
       "workingModeUnavailable": "O modo orquestrador não está disponível nesta janela.",
@@ -640,7 +630,6 @@
       "extension": "Adicione a Stella ao seu navegador.",
       "browser": "Deixe a Stella te conhecer.",
       "theme": "Como a Stella deve aparecer?",
-      "personality": "Como a Stella deve falar?",
       "voice": "Fale em vez de digitar.",
       "enter": "A Stella está quase pronta."
     },

@@ -70,12 +70,6 @@
         "off": "Ki"
       }
     },
-    "voice": {
-      "title": "Hang",
-      "personality": {
-        "label": "Személyiség"
-      }
-    },
     "notifications": {
       "title": "Hangértesítések",
       "description": "Hangot játszik le, amikor a Stella befejez egy ügynökfuttatást."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} találat",
       "resultsAriaOther": "{count} találat",
       "descriptions": {
-        "voice": "Válaszd ki a Stella beszédstílusát és személyiséghangját.",
         "permissions": "Adj hozzáférést a kisegítő lehetőségekhez, a képernyőrögzítéshez és a mikrofonhoz macOS-en.",
         "shortcuts": "Módosítsd a diktálás és a hang gyorsbillentyűit.",
         "backup": "Automatikus titkosított biztonsági mentések, visszaállítási pontok és igény szerinti pillanatképek.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "Nem sikerült betölteni a hangértesítések beállítását.",
       "saveSoundNotifications": "Nem sikerült frissíteni a hangértesítések beállítását.",
       "soundNotificationsUnavailable": "A hangértesítések beállításai nem érhetők el ebben az ablakban.",
-      "loadVoice": "Nem sikerült betölteni a hangbeállítást.",
-      "saveVoice": "Nem sikerült frissíteni a hangbeállítást.",
-      "voiceUnavailable": "A hangbeállítások nem érhetők el ebben az ablakban.",
       "loadWorkingMode": "Az orkesztrátor mód betöltése sikertelen.",
       "saveWorkingMode": "Az orkesztrátor mód frissítése sikertelen.",
       "workingModeUnavailable": "Az orkesztrátor mód nem érhető el ebben az ablakban.",
@@ -639,7 +629,6 @@
       "extension": "Add hozzá a Stellát a böngésződhöz.",
       "browser": "Hadd ismerjen meg téged a Stella.",
       "theme": "Hogyan nézzen ki a Stella?",
-      "personality": "Hogyan beszéljen a Stella?",
       "voice": "Beszélj gépelés helyett.",
       "enter": "A Stella majdnem készen áll."
     },

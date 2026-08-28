@@ -70,12 +70,6 @@
         "off": "關閉"
       }
     },
-    "voice": {
-      "title": "語音",
-      "personality": {
-        "label": "個性"
-      }
-    },
     "notifications": {
       "title": "聲音通知",
       "description": "當 Stella 完成一次代理執行時播放聲音。"
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} 筆結果",
       "resultsAriaOther": "{count} 筆結果",
       "descriptions": {
-        "voice": "選擇 Stella 的說話風格和個性語音。",
         "permissions": "在 macOS 上授予輔助使用、螢幕錄製和麥克風存取權。",
         "shortcuts": "變更聽寫與語音快速鍵。",
         "backup": "自動加密備份、還原點和隨需快照。",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "載入聲音通知設定失敗。",
       "saveSoundNotifications": "更新聲音通知設定失敗。",
       "soundNotificationsUnavailable": "此視窗中無法使用聲音通知設定。",
-      "loadVoice": "載入語音設定失敗。",
-      "saveVoice": "更新語音設定失敗。",
-      "voiceUnavailable": "此視窗中無法使用語音設定。",
       "loadWorkingMode": "載入協調器模式失敗。",
       "saveWorkingMode": "更新協調器模式失敗。",
       "workingModeUnavailable": "此視窗無法使用協調器模式。",
@@ -638,7 +628,6 @@
       "extension": "將 Stella 加入您的瀏覽器。",
       "browser": "讓 Stella 認識您。",
       "theme": "Stella 該長什麼樣子？",
-      "personality": "Stella 該怎麼說話？",
       "voice": "用說的，不要用打字。",
       "enter": "Stella 即將準備就緒。"
     },

@@ -70,12 +70,6 @@
         "off": "Kapalı"
       }
     },
-    "voice": {
-      "title": "Ses",
-      "personality": {
-        "label": "Kişilik"
-      }
-    },
     "notifications": {
       "title": "Ses bildirimleri",
       "description": "Stella bir aracı çalıştırmasını tamamladığında bir ses çalar."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} sonuç",
       "resultsAriaOther": "{count} sonuç",
       "descriptions": {
-        "voice": "Stella'nın konuşma tarzını ve kişilik sesini seçin.",
         "permissions": "macOS'te erişilebilirlik, ekran kaydı ve mikrofon erişimi verin.",
         "shortcuts": "Dikte ve ses kısayollarını değiştirin.",
         "backup": "Otomatik şifreli yedekler, geri yükleme noktaları ve istek üzerine anlık görüntüler.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "Ses bildirimi ayarı yüklenemedi.",
       "saveSoundNotifications": "Ses bildirimi ayarı güncellenemedi.",
       "soundNotificationsUnavailable": "Ses bildirimi ayarları bu pencerede kullanılamıyor.",
-      "loadVoice": "Ses ayarı yüklenemedi.",
-      "saveVoice": "Ses ayarı güncellenemedi.",
-      "voiceUnavailable": "Ses ayarları bu pencerede kullanılamıyor.",
       "loadWorkingMode": "Orkestratör modu yüklenemedi.",
       "saveWorkingMode": "Orkestratör modu güncellenemedi.",
       "workingModeUnavailable": "Orkestratör modu bu pencerede kullanılamıyor.",
@@ -639,7 +629,6 @@
       "extension": "Stella'yı tarayıcınıza ekleyin.",
       "browser": "Stella'nın sizi tanımasına izin verin.",
       "theme": "Stella nasıl görünmeli?",
-      "personality": "Stella nasıl konuşmalı?",
       "voice": "Yazmak yerine konuşun.",
       "enter": "Stella neredeyse hazır."
     },

@@ -267,22 +267,8 @@
 
 .onboarding-dialogue[data-phase="permissions"] .onboarding-split-right,
 .onboarding-dialogue[data-phase="browser"] .onboarding-split-right,
-.onboarding-dialogue[data-phase="theme"] .onboarding-split-right,
-.onboarding-dialogue[data-phase="personality"] .onboarding-split-right {
+.onboarding-dialogue[data-phase="theme"] .onboarding-split-right {
   transform: translateX(clamp(-200px, -9vw, -120px));
-}
-
-.onboarding-dialogue[data-phase="personality"] .onboarding-split-right {
-  justify-content: center;
-  align-items: center;
-}
-
-.onboarding-dialogue[data-phase="personality"] .onboarding-split-stage {
-  align-items: center;
-}
-
-.onboarding-dialogue[data-phase="personality"] .onboarding-split-title {
-  text-align: center;
 }
 
 @keyframes splitPaneFadeIn {
@@ -787,35 +773,6 @@
   line-height: 1.4;
 }
 
-.onboarding-voice-description {
-  --onboarding-collapse-gap: 16px;
-  box-sizing: border-box;
-  font-size: var(--font-size-base);
-  font-weight: var(--weight-regular);
-  letter-spacing: 0.02em;
-  color: var(--foreground);
-  line-height: 1.4;
-  margin: 0;
-  padding: 0 4px;
-  text-align: center;
-  height: 0;
-  margin-top: calc(-1 * var(--onboarding-collapse-gap));
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    height var(--onboarding-duration-enter) var(--onboarding-ease-soft),
-    margin-top var(--onboarding-duration-enter) var(--onboarding-ease-soft),
-    opacity var(--onboarding-duration-enter) var(--onboarding-ease-soft);
-}
-
-.onboarding-voice-description[data-visible="true"] {
-  height: auto;
-  margin-top: 0;
-  opacity: 0.85;
-  pointer-events: auto;
-}
-
 .onboarding-reveal {
   display: grid;
   grid-template-rows: 0fr;
@@ -1113,8 +1070,7 @@
 .onboarding-dialogue[data-phase="theme"] .onboarding-theme-row .onboarding-pill,
 .onboarding-dialogue[data-phase="theme"]
   .onboarding-theme-grid
-  .onboarding-pill,
-.onboarding-dialogue[data-phase="personality"] .onboarding-pill {
+  .onboarding-pill {
   padding: 10px 18px;
   font-size: var(--font-size-lg);
 }

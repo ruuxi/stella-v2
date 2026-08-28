@@ -70,12 +70,6 @@
         "off": "Off"
       }
     },
-    "voice": {
-      "title": "Voice",
-      "personality": {
-        "label": "Personality"
-      }
-    },
     "notifications": {
       "title": "Sound notifications",
       "description": "Play a sound when Stella finishes an agent run."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} result",
       "resultsAriaOther": "{count} results",
       "descriptions": {
-        "voice": "Pick Stella's speaking style and personality voice.",
         "permissions": "Grant accessibility, screen capture, and microphone access on macOS.",
         "shortcuts": "Change dictation and voice shortcuts.",
         "backup": "Automatic encrypted backups, restore points, and on-demand snapshots.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "Failed to load sound notification setting.",
       "saveSoundNotifications": "Failed to update sound notification setting.",
       "soundNotificationsUnavailable": "Sound notification settings are unavailable in this window.",
-      "loadVoice": "Failed to load voice setting.",
-      "saveVoice": "Failed to update voice setting.",
-      "voiceUnavailable": "Voice settings are unavailable in this window.",
       "loadWorkingMode": "Failed to load orchestrator mode.",
       "saveWorkingMode": "Failed to update orchestrator mode.",
       "workingModeUnavailable": "Orchestrator mode is unavailable in this window.",
@@ -639,7 +629,6 @@
       "extension": "Add Stella to your browser.",
       "browser": "Let Stella get to know you.",
       "theme": "How should Stella look?",
-      "personality": "How should Stella talk?",
       "voice": "Speak instead of type.",
       "enter": "Stella is almost ready."
     },

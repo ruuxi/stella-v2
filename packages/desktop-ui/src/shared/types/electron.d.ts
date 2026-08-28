@@ -658,10 +658,6 @@ export type ElectronSystemApi = {
   openLogs: () => Promise<{ ok: boolean; path?: string; error?: string }>;
   getWakeWordEnabled: () => Promise<boolean>;
   setWakeWordEnabled: (enabled: boolean) => Promise<{ enabled: boolean }>;
-  getPersonalityVoice: () => Promise<string | null>;
-  setPersonalityVoice: (
-    voiceId: string,
-  ) => Promise<{ ok: boolean; voiceId: string }>;
   listPromptPresets: (agentId: string) => Promise<{
     presets: Array<{ id: string; name: string; agentId: string }>;
     selectedId: string;

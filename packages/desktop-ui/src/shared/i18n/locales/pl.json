@@ -70,12 +70,6 @@
         "off": "Wył."
       }
     },
-    "voice": {
-      "title": "Głos",
-      "personality": {
-        "label": "Osobowość"
-      }
-    },
     "notifications": {
       "title": "Powiadomienia dźwiękowe",
       "description": "Odtwarza dźwięk, gdy Stella kończy działanie agenta."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} wynik",
       "resultsAriaOther": "Wyniki: {count}",
       "descriptions": {
-        "voice": "Wybierz styl mówienia i głos osobowości Stelli.",
         "permissions": "Przyznaj dostęp do dostępności, przechwytywania ekranu i mikrofonu w macOS.",
         "shortcuts": "Zmień skróty dyktowania i głosu.",
         "backup": "Automatyczne szyfrowane kopie zapasowe, punkty przywracania i migawki na żądanie.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "Nie udało się wczytać ustawienia powiadomień dźwiękowych.",
       "saveSoundNotifications": "Nie udało się zaktualizować ustawienia powiadomień dźwiękowych.",
       "soundNotificationsUnavailable": "Ustawienia powiadomień dźwiękowych są niedostępne w tym oknie.",
-      "loadVoice": "Nie udało się wczytać ustawienia głosu.",
-      "saveVoice": "Nie udało się zaktualizować ustawienia głosu.",
-      "voiceUnavailable": "Ustawienia głosu są niedostępne w tym oknie.",
       "loadWorkingMode": "Nie udało się wczytać trybu orkiestratora.",
       "saveWorkingMode": "Nie udało się zaktualizować trybu orkiestratora.",
       "workingModeUnavailable": "Tryb orkiestratora jest niedostępny w tym oknie.",
@@ -641,7 +631,6 @@
       "extension": "Dodaj Stellę do przeglądarki.",
       "browser": "Pozwól Stelli Cię poznać.",
       "theme": "Jak ma wyglądać Stella?",
-      "personality": "Jak ma mówić Stella?",
       "voice": "Mów zamiast pisać.",
       "enter": "Stella jest prawie gotowa."
     },

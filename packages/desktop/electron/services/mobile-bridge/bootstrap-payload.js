@@ -7,7 +7,6 @@ const MOBILE_BRIDGE_LOCAL_STORAGE_KEYS = new Set([
     "stella-gradient-color",
     "stella:locale",
     "stella-onboarding-complete",
-    "stella-welcome-dialog-seen",
     "stella:post-onboarding-hints",
     "stella-request-signin-after-onboarding",
     "stella-discovery-categories",

@@ -47,8 +47,10 @@
   padding: 8px 14px;
   border-radius: var(--radius-3xl);
   border-bottom-left-radius: 4px;
-  background: var(--surface-inset);
-  border: 1px solid var(--border);
+  background: var(--chat-assistant-bubble-fill);
+  border: none;
+  --chat-text-color: var(--chat-assistant-bubble-text);
+  color: var(--chat-assistant-bubble-text);
 }
 
 .assistant-message-text :is(pre, .shiki, table, [data-streamdown="table-wrapper"]) {
@@ -394,8 +396,7 @@
   border: none;
   width: 100%;
   max-width: 100%;
-
-  --chat-bubble-padding: 0 12px;
+  --chat-bubble-padding: 0;
 }
 
 .event-item.system {

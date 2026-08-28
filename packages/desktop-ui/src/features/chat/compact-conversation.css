@@ -19,10 +19,10 @@
   --compact-chat-user-tail-radius: var(--compact-chat-user-radius);
   --compact-chat-user-max-width: 85%;
   --compact-chat-user-color: var(--text-strong);
-
-  --compact-chat-assistant-bg: var(--surface-inset);
-  --compact-chat-assistant-border-width: 1px;
-  --compact-chat-assistant-border-color: var(--border);
+  --compact-chat-assistant-bg: var(--chat-assistant-bubble-fill);
+  --compact-chat-assistant-color: var(--chat-assistant-bubble-text);
+  --compact-chat-assistant-border-width: 0px;
+  --compact-chat-assistant-border-color: transparent;
   --compact-chat-assistant-radius: 14px;
   --compact-chat-assistant-tail-radius: 4px;
   --compact-chat-assistant-max-width: 85%;
@@ -56,7 +56,11 @@
   --compact-chat-user-tail-radius: 4px;
   --compact-chat-user-max-width: 88%;
   --compact-chat-assistant-bg: var(--orb-assistant-surface, var(--surface-raised));
+  --compact-chat-assistant-color: var(--text-strong);
+  --compact-chat-assistant-border-width: 1px;
   --compact-chat-assistant-border-color: var(--orb-assistant-border-color, var(--border));
+  --compact-chat-assistant-radius: 14px;
+  --compact-chat-assistant-tail-radius: 4px;
   --compact-chat-assistant-max-width: 88%;
 }
 
@@ -110,6 +114,8 @@
 
 .chat-conversation-surface .assistant-message-text {
   background: var(--compact-chat-assistant-bg);
+  --chat-text-color: var(--compact-chat-assistant-color);
+  color: var(--compact-chat-assistant-color);
   border-style: solid;
   border-width: var(--compact-chat-assistant-border-width);
   border-color: var(--compact-chat-assistant-border-color);

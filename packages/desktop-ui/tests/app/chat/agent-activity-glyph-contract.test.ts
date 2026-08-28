@@ -83,16 +83,6 @@ describe("agent-thread transcript spacing + hover timestamp", () => {
     expect(Number(gap![1])).toBeLessThanOrEqual(6);
   });
 
-  it("strips the inherited block padding from chrome-less assistant items", () => {
-    const item = blockFor(
-      threadCss,
-      ".agent-thread-chat__messages .event-item.assistant",
-    );
-    const padding = /padding-block:\s*(\d+)px/.exec(item);
-    expect(padding).not.toBeNull();
-    expect(Number(padding![1])).toBeLessThanOrEqual(4);
-  });
-
   it("reveals the left-gutter timestamp only on row hover", () => {
     const stamp = blockFor(threadCss, ".agent-thread-chat__timestamp");
     expect(stamp).toContain("opacity: 0");

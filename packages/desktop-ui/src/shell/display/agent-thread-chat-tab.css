@@ -78,16 +78,11 @@
 .agent-thread-chat__messages {
   display: flex;
   flex-direction: column;
-
   gap: 4px;
   max-width: 760px;
   margin: 0 auto;
   padding: 0;
   list-style: none;
-}
-
-.agent-thread-chat__messages .event-item.assistant {
-  padding-block: 2px;
 }
 
 .agent-thread-chat__messages .assistant-message-text {

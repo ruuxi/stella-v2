@@ -26,12 +26,12 @@ What launch does:
 1. Creates `.cursor/skills/verify-stella/.run/<runId>/` with `data/` and `electron-user-data/`.
 2. Seeds `data/ui-state.json` (`stella-onboarding-complete=true`) and `data/preferences.json` (`onboardingCompleted`, `assistantWorkingMode=direct` plus `assistantWorkingModeDefaultVersion=1`). Direct mode is required so the top-bar **New chat** button exists. The default product mode is orchestrated, which hides that button and puts New chat behind Conversation history with a second-click confirm.
 3. Runs `node packages/desktop/scripts/dev-electron-build.mjs --once`.
-4. Starts Vite with `STELLA_DEV_SERVER_URL=http://127.0.0.1:<ephemeral>` and `STELLA_DATA_DIR` pointing at the isolated data dir. Vite's ui-state plugin reads `STELLA_DATA_DIR`, not `STELLA_V2_DEV_DATA_DIR`.
-5. Starts Electron with `--dev`, `--user-data-dir` on the isolated Chromium profile, `--remote-debugging-port`, `--no-sandbox`, and `STELLA_V2_DEV_DATA_DIR` equal to that same data dir.
+4. Starts Vite with bun as the runtime (`bun --bun node_modules/vite/bin/vite.js` from `packages/desktop-ui`). Node cannot load the TypeScript imports in `vite.config.ts`. Sets `STELLA_DEV_SERVER_URL=http://127.0.0.1:<ephemeral>` and `STELLA_DATA_DIR` to the isolated data dir. Vite's ui-state plugin reads `STELLA_DATA_DIR`, not `STELLA_V2_DEV_DATA_DIR`.
+5. After Vite answers HTTP, starts Electron with `--dev`, `--user-data-dir` on the isolated Chromium profile, `--remote-debugging-port`, and `STELLA_V2_DEV_DATA_DIR` equal to that same data dir. On Linux the helper also passes `--no-sandbox`, `--in-process-gpu`, and `--enable-unsafe-swiftshader` so Chromium can start without a real GPU.
 
 Ready: `GET` on the Vite URL succeeds, CDP lists a page whose URL contains `index.html` or `window=full`, and `[data-testid="conversation-topbar"]` is in the DOM. Launch prints the run record as JSON. Logs are `vite.log` and `electron.log` under the run directory.
 
-Linux cloud agents need `DISPLAY` (this environment uses `:1`). Electron is launched with `--no-sandbox` and `--disable-gpu` because those flags are what make Chromium start in this kind of container. Do not copy them into a normal developer recipe.
+Linux cloud agents need `DISPLAY` (this environment uses `:1`). The helper's Chromium flags are for this kind of container, not for a normal developer GPU.
 
 Two verification instances can run together if each has its own Vite port, CDP port, data dir, and `--user-data-dir`. They will not if they share user-data: `app.requestSingleInstanceLock()` quits the second process.
 

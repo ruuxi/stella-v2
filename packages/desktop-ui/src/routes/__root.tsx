@@ -33,11 +33,6 @@ const WorkspaceHomeSurface = lazy(() =>
   })),
 );
 
-const WelcomeDialog = lazy(() =>
-  import("@/global/onboarding/WelcomeDialog").then((m) => ({
-    default: m.WelcomeDialog,
-  })),
-);
 const NicknameDialog = lazy(() =>
   import("@/global/auth/NicknameDialog").then((m) => ({
     default: m.NicknameDialog,
@@ -552,17 +547,6 @@ function RootChrome() {
       <SettingsDialogHost />
 
       <FeedbackDialogHost />
-
-      {
-
-}
-      <Suspense fallback={null}>
-        <WelcomeDialog
-          conversationId={conversationId}
-          onConnect={showConnectDialog}
-          onSignIn={showAuthDialog}
-        />
-      </Suspense>
 
       <Suspense fallback={null}>
         <NicknameDialog />

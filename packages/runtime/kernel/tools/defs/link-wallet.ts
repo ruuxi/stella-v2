@@ -31,7 +31,7 @@ const summarizeSnapshot = (snapshot: LinkWalletSnapshot): string => {
     return "Link is not connected.";
   }
   if (snapshot.paymentMethods.length === 0) {
-    return "Link is connected, but there is no card yet. The user is being asked to add one in Link. Wait until they add a card before paying. Do not paste card numbers into chat.";
+    return "Link is connected, but there is no card yet. Stella is showing the add-card prompt. Wait until they add a card before paying. Do not paste card numbers into chat.";
   }
   const cards = snapshot.paymentMethods
     .map(

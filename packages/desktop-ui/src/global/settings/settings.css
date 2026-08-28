@@ -364,6 +364,15 @@
   color: var(--destructive);
 }
 
+.settings-wallet-phrase {
+  margin: 0 0 16px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+}
+
 .settings-row {
   display: flex;
   align-items: center;

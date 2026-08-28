@@ -19,13 +19,24 @@ export function WalletTab() {
       setSnapshot({ status: "disconnected" });
       return;
     }
-    void systemApi.getLinkWalletStatus().then(setSnapshot).catch(() => {
-      setSnapshot({ status: "disconnected" });
-    });
-    return systemApi.onLinkWalletSnapshot((_event, next) => {
+    const refresh = () => {
+      void systemApi
+        .getLinkWalletStatus()
+        .then(setSnapshot)
+        .catch(() => {
+          setSnapshot({ status: "disconnected" });
+        });
+    };
+    refresh();
+    window.addEventListener("focus", refresh);
+    const unsubscribe = systemApi.onLinkWalletSnapshot((_event, next) => {
       setSnapshot(next);
       setError(null);
     });
+    return () => {
+      window.removeEventListener("focus", refresh);
+      unsubscribe();
+    };
   }, []);
 
   const connect = useCallback(async () => {
@@ -36,7 +47,11 @@ export function WalletTab() {
     try {
       const outcome = await systemApi.connectLinkWallet();
       if (!outcome.ok && outcome.reason !== "already_pending") {
-        setError(outcome.reason);
+        setError(
+          outcome.reason === "cancelled" || outcome.reason === "declined"
+            ? null
+            : outcome.reason,
+        );
       }
     } catch (caught) {
       setError(
@@ -49,7 +64,7 @@ export function WalletTab() {
 
   const disconnect = useCallback(async () => {
     const systemApi = getElectronApi()?.system;
-    if (!systemApi?.disconnectLinkWallet || busy) return;
+    if (!systemApi?.disconnectLinkWallet) return;
     setBusy(true);
     setError(null);
     try {
@@ -66,7 +81,7 @@ export function WalletTab() {
     } finally {
       setBusy(false);
     }
-  }, [busy, t]);
+  }, [t]);
 
   const addCard = useCallback(async () => {
     const systemApi = getElectronApi()?.system;
@@ -79,6 +94,7 @@ export function WalletTab() {
 
   const status = snapshot?.status ?? "disconnected";
   const connected = snapshot?.status === "connected" ? snapshot : null;
+  const connecting = snapshot?.status === "connecting" ? snapshot : null;
 
   return (
     <div className="settings-tab-content">
@@ -95,17 +111,24 @@ export function WalletTab() {
             >
               {t("settings.wallet.disconnect")}
             </Button>
+          ) : status === "connecting" ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="pill-btn"
+              onClick={() => void disconnect()}
+            >
+              {t("settings.wallet.cancel")}
+            </Button>
           ) : (
             <Button
               type="button"
               variant="primary"
               className="pill-btn pill-btn--primary"
-              disabled={busy || status === "connecting"}
+              disabled={busy}
               onClick={() => void connect()}
             >
-              {status === "connecting"
-                ? t("settings.wallet.connecting")
-                : t("settings.wallet.connect")}
+              {t("settings.wallet.connect")}
             </Button>
           )}
         </div>
@@ -117,6 +140,14 @@ export function WalletTab() {
               ? t("settings.wallet.statusConnecting")
               : t("settings.wallet.statusDisconnected")}
         </p>
+        {connecting?.userCode ? (
+          <p className="settings-wallet-phrase">{connecting.userCode}</p>
+        ) : null}
+        {connecting?.verificationUrl ? (
+          <p className="settings-card-desc">
+            {t("settings.wallet.pairingOpen", { url: connecting.verificationUrl })}
+          </p>
+        ) : null}
         {error ? (
           <p className="settings-card-desc settings-card-desc--error" role="alert">
             {error}
@@ -127,7 +158,7 @@ export function WalletTab() {
       <div className="settings-card">
         <div className="settings-card-header">
           <h3 className="settings-card-title">{t("settings.wallet.cardsTitle")}</h3>
-          {connected ? (
+          {connected && connected.paymentMethods.length > 0 ? (
             <Button
               type="button"
               variant="ghost"
@@ -140,7 +171,17 @@ export function WalletTab() {
         </div>
         {connected ? (
           connected.paymentMethods.length === 0 ? (
-            <p className="settings-card-desc">{t("settings.wallet.cardsEmpty")}</p>
+            <>
+              <p className="settings-card-desc">{t("settings.wallet.cardsEmpty")}</p>
+              <Button
+                type="button"
+                variant="primary"
+                className="pill-btn pill-btn--primary"
+                onClick={() => void addCard()}
+              >
+                {t("settings.wallet.addCard")}
+              </Button>
+            </>
           ) : (
             connected.paymentMethods.map((method) => (
               <div className="settings-row" key={method.id}>
@@ -181,7 +222,7 @@ export function WalletTab() {
             ))
           )
         ) : (
-          <p className="settings-card-desc">{t("settings.wallet.spendEmpty")}</p>
+          <p className="settings-card-desc">{t("settings.wallet.spendConnectHint")}</p>
         )}
       </div>
     </div>

@@ -76,11 +76,32 @@ There is no `blocked` / `awaiting_input` state anywhere. Task status is
   `packages/runtime/kernel/storage/database-init.ts` + `session-store.js`.
 - Surface it in the event stream (`AGENT_STREAM_EVENT_TYPES`) and mirror to Convex so the
   phone can render "what Stella is waiting on" and the call/push can carry it.
-- Related hole to fix: `connector_status` is orchestrator-only
-  (`agentTypes: [ORCHESTRATOR]` in `packages/runtime/kernel/tools/defs/connector-status.ts`),
-  so a background General agent can't even raise an OAuth card today — it just finishes
-  and reports "blocked" in prose. Open it to General (or proxy through the orchestrator)
-  so background tasks can enter this flow at all.
+- Related hole to fix — OAuth blockers from background agents. Connector actions run
+  through the agent-agnostic `connect` client in `node_repl`
+  (`packages/runtime/kernel/connectors/connect-service.ts`), so General *can* call
+  connectors; what it can't do is raise the chat OAuth connect card, which today only
+  `connector_status` (orchestrator-only) triggers. When General hits an unconnected
+  service, the composio-brokered path throws with no UI at all, and the oauth-catalog
+  path pops the plainer credential dialog via `withAuthRetry`
+  (`connect-service.ts:188-232`).
+
+  **Decision: raise the connect card from the infrastructure, not the model.** The card
+  is just a host RPC (`host.connectorConnect.request`, wired agent-agnostically in
+  `packages/runtime/worker/server.ts:985` → `connector-connect-service.js`), and its
+  payload already carries `conversationId`. So:
+  - `withAuthRetry` (oauth-catalog): on `ConnectorAuthError` for an OAuth-able
+    connector, call `requestConnectorConnection` (the connect card) instead of the
+    credential dialog; keep the credential dialog for plain API-key `tokenKey` secrets.
+  - Composio path (`callBackendNativeIntegration`): detect the broker's "not connected"
+    case (needs a structured error code from the broker, not message matching) and
+    raise the same card, then retry once on `{ok: true}`.
+
+  Because the card is raised host-side with the parent `conversationId`, it appears in
+  the chat immediately — no dependency on the orchestrator taking a turn — and it flows
+  through `connector-connect-service.js` → `pending-request-store.ts`, so it inherits
+  the escalation ladder for free. Guardrails: respect `connect-preferences.ts` declines,
+  dedupe to one card per connector per task, and mind the `node_repl` cell blocking on
+  the card for up to the card timeout (verify cell execution timeouts allow this).
 
 ### B. Escalation engine (desktop Electron main)
 

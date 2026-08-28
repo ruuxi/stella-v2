@@ -188,6 +188,11 @@
   justify-content: center;
 }
 
+.working-indicator[data-mode="thinking"] .indicator-stella {
+
+  width: 64px;
+}
+
 .indicator-stella > svg {
   display: block;
   overflow: visible;

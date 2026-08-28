@@ -11,7 +11,7 @@ import {
 import type { JournalRecord } from "../../../src/features/cloud/conversation-protocol";
 import type { CloudAgentThread } from "../../../src/features/cloud/cloud-api";
 import {
-  cloudThreadsForAccountScope,
+  cloudThreadsForOwnerSubject,
   mergeCloudConversationTasks,
 } from "../../../src/features/cloud/use-cloud-activity";
 import { deriveConversationFiles } from "../../../src/features/workspace-display/derive-conversation-files";
@@ -219,15 +219,23 @@ describe("cloud Activity authority", () => {
     });
 
     expect(
-      cloudThreadsForAccountScope(
-        [cloudThread("owned", "owner-a"), cloudThread("stale", "owner-b")],
-        "account:owner-a",
+      cloudThreadsForOwnerSubject(
+        [
+          cloudThread("owned", "https://deployment.convex.site|owner-a"),
+          cloudThread("stale", "https://deployment.convex.site|owner-b"),
+        ],
+        "https://deployment.convex.site|owner-a",
       ).map((thread) => thread.threadId),
     ).toEqual(["owned"]);
     expect(
-      cloudThreadsForAccountScope(
-        [cloudThread("anonymous", "anonymous-owner")],
-        "anonymous:anonymous-owner",
+      cloudThreadsForOwnerSubject(
+        [
+          cloudThread(
+            "anonymous",
+            "https://deployment.convex.site|anonymous-owner",
+          ),
+        ],
+        "https://deployment.convex.site|anonymous-owner",
       ).map((thread) => thread.threadId),
     ).toEqual(["anonymous"]);
   });

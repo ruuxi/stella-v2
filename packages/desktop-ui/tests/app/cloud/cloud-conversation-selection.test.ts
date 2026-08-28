@@ -1,18 +1,21 @@
 import { describe, expect, test } from "vitest";
 import type { CloudConversation } from "../../../src/features/cloud/cloud-api";
 import {
-  cloudConversationsForAccountScope,
+  cloudConversationsForOwnerSubject,
   markCloudConversationCreated,
   resolveCloudConversationForShell,
   resolveCloudConversationRoute,
 } from "../../../src/features/cloud/cloud-conversation-selection";
+
+const OWNER_SUBJECT_A = "https://deployment.convex.site|a";
+const OWNER_SUBJECT_B = "https://deployment.convex.site|b";
 
 const conversation = (
   conversationId: string,
   updatedAt: number,
 ): CloudConversation => ({
   conversationId,
-  ownerId: "a",
+  ownerId: OWNER_SUBJECT_A,
   title: conversationId,
   createdAt: updatedAt,
   updatedAt,
@@ -28,6 +31,7 @@ describe("resolveCloudConversationRoute", () => {
         routeConversationId: "older",
         cachedConversationId: "newest",
         accountScope: "account:a",
+        ownerSubject: OWNER_SUBJECT_A,
       }),
     ).toBe("older");
   });
@@ -39,6 +43,7 @@ describe("resolveCloudConversationRoute", () => {
         routeConversationId: "desktop-only",
         cachedConversationId: "also-stale",
         accountScope: "account:a",
+        ownerSubject: OWNER_SUBJECT_A,
       }),
     ).toBe("newest");
   });
@@ -53,6 +58,7 @@ describe("resolveCloudConversationRoute", () => {
         routeConversationId: null,
         cachedConversationId: exactOwned.conversationId,
         accountScope: "account:a",
+        ownerSubject: OWNER_SUBJECT_A,
       }),
     ).toBe(exactOwned.conversationId);
   });
@@ -65,6 +71,7 @@ describe("resolveCloudConversationRoute", () => {
         routeConversationId: "created-now",
         cachedConversationId: null,
         accountScope: "account:a",
+        ownerSubject: OWNER_SUBJECT_A,
       }),
     ).toBe("created-now");
   });
@@ -77,6 +84,7 @@ describe("resolveCloudConversationRoute", () => {
         routeConversationId: null,
         cachedConversationId: "cached-created-now",
         accountScope: "account:a",
+        ownerSubject: OWNER_SUBJECT_A,
       }),
     ).toBe("cached-created-now");
   });
@@ -89,6 +97,7 @@ describe("resolveCloudConversationRoute", () => {
         routeConversationId: "account-a-only",
         cachedConversationId: null,
         accountScope: "account:b",
+        ownerSubject: OWNER_SUBJECT_A,
       }),
     ).toBe("newest");
   });
@@ -101,18 +110,19 @@ describe("resolveCloudConversationRoute", () => {
         routeConversationId: "anonymous-a-only",
         cachedConversationId: null,
         accountScope: "anonymous:session-b",
+        ownerSubject: OWNER_SUBJECT_A,
       }),
     ).toBe("newest");
   });
 
   test("filters a cached prior-owner query snapshot before routing or history", () => {
     expect(
-      cloudConversationsForAccountScope(
+      cloudConversationsForOwnerSubject(
         [
           conversation("current", 2),
-          { ...conversation("prior", 3), ownerId: "b" },
+          { ...conversation("prior", 3), ownerId: OWNER_SUBJECT_B },
         ],
-        "account:a",
+        OWNER_SUBJECT_A,
       ).map((item) => item.conversationId),
     ).toEqual(["current"]);
   });
@@ -129,6 +139,7 @@ describe("resolveCloudConversationForShell", () => {
         routeConversationId: null,
         cachedConversationId: "older",
         accountScope: "account:a",
+        ownerSubject: OWNER_SUBJECT_A,
       }),
     ).toBe("older");
   });
@@ -141,6 +152,7 @@ describe("resolveCloudConversationForShell", () => {
         routeConversationId: "foreign-route",
         cachedConversationId: "older",
         accountScope: "account:a",
+        ownerSubject: OWNER_SUBJECT_A,
       }),
     ).toBe("older");
   });
@@ -153,6 +165,7 @@ describe("resolveCloudConversationForShell", () => {
         routeConversationId: "foreign-route",
         cachedConversationId: "older",
         accountScope: "account:a",
+        ownerSubject: OWNER_SUBJECT_A,
       }),
     ).toBeNull();
   });

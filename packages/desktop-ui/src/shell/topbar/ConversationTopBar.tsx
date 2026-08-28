@@ -31,8 +31,8 @@ import {
 import { conversationModelSelections } from "@/features/chat/services/conversation-model-selection";
 import { cloudApi, type CloudConversation } from "@/features/cloud/cloud-api";
 import {
-  cloudConversationBelongsToAccountScope,
-  cloudConversationsForAccountScope,
+  cloudConversationBelongsToOwnerSubject,
+  cloudConversationsForOwnerSubject,
   markCloudConversationCreated,
 } from "@/features/cloud/cloud-conversation-selection";
 import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
@@ -48,7 +48,10 @@ import {
   Trash2,
   X,
 } from "@/ui/icons";
-import { dispatchShowHome } from "@/shared/lib/stella-orb-chat";
+import {
+  dispatchEnterChat,
+  dispatchShowHome,
+} from "@/shared/lib/stella-orb-chat";
 import { useT } from "@/shared/i18n";
 import "./conversation-topbar.css";
 
@@ -274,11 +277,11 @@ export function ConversationTopBar() {
   );
   const scopedRecentCloudConversations = useMemo(
     () =>
-      cloudConversationsForAccountScope(
+      cloudConversationsForOwnerSubject(
         recentCloudConversations ?? [],
-        accountScope,
+        ownerSubject,
       ),
-    [accountScope, recentCloudConversations],
+    [ownerSubject, recentCloudConversations],
   );
   const createCloudConversation = useMutation(cloudApi.createMyConversation);
   const deleteCloudConversation = useAction(cloudApi.deleteMyConversation);
@@ -286,9 +289,9 @@ export function ConversationTopBar() {
   const activeConversationId = chat.conversation.conversationId;
   const activeConversationIsRecent = Boolean(
     activeConversationId &&
-    scopedRecentCloudConversations.some(
-      (conversation) => conversation.conversationId === activeConversationId,
-    ),
+      scopedRecentCloudConversations.some(
+        (conversation) => conversation.conversationId === activeConversationId,
+      ),
   );
   const activeCloudConversation = useQuery(
     cloudApi.getMyConversation,
@@ -298,9 +301,9 @@ export function ConversationTopBar() {
   );
   const scopedActiveCloudConversation =
     activeCloudConversation &&
-    cloudConversationBelongsToAccountScope(
+    cloudConversationBelongsToOwnerSubject(
       activeCloudConversation,
-      accountScope,
+      ownerSubject,
     )
       ? activeCloudConversation
       : null;
@@ -342,6 +345,7 @@ export function ConversationTopBar() {
   }>({ accountScope: "", values: new Map() });
   const historyDeleteTimerRef = useRef<number | null>(null);
   const historyHoverCloseTimerRef = useRef<number | null>(null);
+  const historyAuthorityRef = useRef({ accountScope, ownerGeneration });
   const stripRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef(new Map<string, HTMLDivElement>());
   const titleRefs = useRef(new Map<string, HTMLSpanElement>());
@@ -389,6 +393,7 @@ export function ConversationTopBar() {
         title,
         cursor,
       );
+      dispatchEnterChat();
       void router.navigate({
         to: "/chat",
         search: { c: conversationId },
@@ -468,15 +473,15 @@ export function ConversationTopBar() {
   );
 
   const historyFromServer = useMemo(() => {
-    const frozen = cloudConversationsForAccountScope(
+    const frozen = cloudConversationsForOwnerSubject(
       paginatedHistory.results as CloudConversation[],
-      accountScope,
+      ownerSubject,
     );
     return mergeCloudConversationHistory(
       frozen,
       scopedRecentCloudConversations,
     ).map(cloudConversationToSummary);
-  }, [accountScope, paginatedHistory.results, scopedRecentCloudConversations]);
+  }, [ownerSubject, paginatedHistory.results, scopedRecentCloudConversations]);
 
   useEffect(() => {
     if (!historyOpen) {
@@ -498,6 +503,13 @@ export function ConversationTopBar() {
   ]);
 
   useEffect(() => {
+    const previousAuthority = historyAuthorityRef.current;
+    historyAuthorityRef.current = { accountScope, ownerGeneration };
+    const initialGenerationResolution =
+      previousAuthority.accountScope === accountScope &&
+      previousAuthority.ownerGeneration === null &&
+      ownerGeneration !== null;
+    if (initialGenerationResolution) return;
     for (const timerRef of [historyDeleteTimerRef, historyHoverCloseTimerRef]) {
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -516,7 +528,11 @@ export function ConversationTopBar() {
   useEffect(() => {
     setHistoryState({ accountScope, items: historyFromServer });
     conversationTabs.mergeSummaries(historyFromServer);
-  }, [accountScope, historyFromServer]);
+    // `ownerGeneration` can resolve after the server list. The authority-reset
+    // effect above deliberately clears prior-generation rows; rerun this
+    // owner-filtered projection in the same commit so initial resolution does
+    // not strand History empty until a later server mutation.
+  }, [accountScope, historyFromServer, ownerGeneration]);
 
   useEffect(() => {
     if (!activeConversationId) return;

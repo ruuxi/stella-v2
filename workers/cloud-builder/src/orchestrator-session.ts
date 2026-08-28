@@ -393,6 +393,7 @@ const CLOUD_AGENT_CONTROL_PREFIX = "cloudAgentControl:";
 const CLOUD_AGENT_TOOL_OUTCOME_PREFIX = "cloudAgentToolOutcome:";
 const OWNER_FENCE_LEASE_RECEIPT_PREFIX = "ownerFenceLeaseReceipt:";
 const OWNER_FENCE_RUN_SLOT_PREFIX = "ownerFenceRunSlot:";
+const OWNER_FENCE_ID_HEADER = "x-stella-owner-fence-id";
 const localTurnReceiptKey = (turnId: string): string =>
   `${LOCAL_TURN_RECEIPT_PREFIX}${turnId}`;
 const localClientMessageKey = (clientMsgId: string): string =>
@@ -901,8 +902,11 @@ export class OrchestratorSession extends DurableObject<Env> {
       `https://build-session/owner-fence/${path}`,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
+        headers: {
+          "content-type": "application/json",
+          [OWNER_FENCE_ID_HEADER]: ownerId,
+        },
+        body: JSON.stringify({ ...body, ownerId }),
       },
     );
   }
@@ -2408,7 +2412,11 @@ export class OrchestratorSession extends DurableObject<Env> {
       const callbackIdentity = { ownerId, ownerGeneration, turnId };
       const receiptMatches = Boolean(
         leaseReceipt &&
-        this.ownerFenceReceiptMatches(leaseReceipt, callbackIdentity, leaseId),
+          this.ownerFenceReceiptMatches(
+            leaseReceipt,
+            callbackIdentity,
+            leaseId,
+          ),
       );
       if (leaseReceipt && !receiptMatches) {
         return json({ error: "Owner purge lease identity is stale." }, 409);
@@ -4511,13 +4519,13 @@ export class OrchestratorSession extends DurableObject<Env> {
     ]);
     return Boolean(
       retainedTurnBlocksOwnerTransfer(turn !== undefined, terminal) ||
-      localLease ||
-      queued.size > 0 ||
-      this.live ||
-      this.activeTurnId ||
-      this.currentAgent ||
-      this.currentTurnCancellation ||
-      this.journal.inboxSize().rows > 0,
+        localLease ||
+        queued.size > 0 ||
+        this.live ||
+        this.activeTurnId ||
+        this.currentAgent ||
+        this.currentTurnCancellation ||
+        this.journal.inboxSize().rows > 0,
     );
   }
 
@@ -4536,10 +4544,10 @@ export class OrchestratorSession extends DurableObject<Env> {
     const row = next.rows[0];
     return Boolean(
       row &&
-      row.seq === throughSeq + 1 &&
-      row.kind === "message" &&
-      row.role === "user" &&
-      row.hidden === 0,
+        row.seq === throughSeq + 1 &&
+        row.kind === "message" &&
+        row.role === "user" &&
+        row.hidden === 0,
     );
   }
 

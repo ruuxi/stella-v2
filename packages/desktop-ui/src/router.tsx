@@ -1,6 +1,6 @@
 import { createMemoryHistory, createRouter } from "@tanstack/react-router";
-import { CrashSurface } from "./shell/CrashSurface";
 import { routeTree } from "./routeTree.gen";
+import { RouteErrorRecovery } from "./shell/RouteErrorRecovery";
 
 /**
  * App router. Uses memory history because Stella ships in Electron — there's
@@ -34,12 +34,7 @@ export const router = createRouter({
   defaultPreloadDelay: 0,
   defaultPreloadStaleTime: Number.POSITIVE_INFINITY,
   scrollRestoration: false,
-  defaultErrorComponent: ({ error, info }) => (
-    <CrashSurface
-      error={error instanceof Error ? error : new Error(String(error))}
-      componentStack={info?.componentStack ?? null}
-    />
-  ),
+  defaultErrorComponent: RouteErrorRecovery,
 });
 
 // HMR boundary for `routeTree.gen.ts`. The TanStack Router Vite plugin

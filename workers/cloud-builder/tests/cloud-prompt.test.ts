@@ -87,6 +87,34 @@ describe("canonical cloud prompts", () => {
     );
   });
 
+  test("keeps the canonical cache ETag when Convex rewrites a gzipped 200", async () => {
+    const remote = await publication();
+    globalThis.fetch = (async () =>
+      Response.json(remote.body, {
+        headers: {
+          etag: `W/"${remote.body.publishedAt}-${remote.revision}-gzip"`,
+        },
+      })) as typeof fetch;
+
+    const result = await refreshCanonicalPrompts(
+      "https://convex.example",
+      null,
+      2_000,
+    );
+    expect(result).toMatchObject({
+      disposition: "fresh",
+      snapshot: { etag: remote.etag, revision: remote.revision },
+    });
+
+    globalThis.fetch = (async () =>
+      Response.json(remote.body, {
+        headers: { etag: `W/"${remote.revision}-unrelated"` },
+      })) as typeof fetch;
+    await expect(
+      refreshCanonicalPrompts("https://convex.example", null, 2_000),
+    ).rejects.toMatchObject({ reason: "stale_etag" });
+  });
+
   test("blocks a cold fetch failure and a cold digest mismatch", async () => {
     globalThis.fetch = (async () => {
       throw new Error("offline");

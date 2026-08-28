@@ -822,6 +822,7 @@ type TransferRouteIdentity = ReturnType<typeof parseCommonLease> & {
 const parseTransferIdentity = (
   row: Record<string, unknown>,
   side: "source" | "destination",
+  options: { requireMatchingMount?: boolean } = {},
 ): TransferRouteIdentity => {
   const lease = parseCommonLease(row);
   const transferOperationId = requiredHex(row, "transferOperationId");
@@ -841,7 +842,8 @@ const parseTransferIdentity = (
     !destination ||
     destination.canonical !== destinationWorkspace ||
     !destination.mountPath ||
-    source.mountPath !== destination.mountPath ||
+    (options.requireMatchingMount !== false &&
+      source.mountPath !== destination.mountPath) ||
     lease.turnId !== `owner-transfer:${transferOperationId}` ||
     (side === "source" &&
       (lease.ownerId !== fromOwnerId ||
@@ -2684,7 +2686,10 @@ const destinationTransferStatus = async (
   }
   for (const [key, value] of records) {
     if (key === OWNER_MARKER_KEY || !plainObject(value)) continue;
-    if (value.ownerHash !== ownerHash || value.workspaceHash !== workspaceHash) {
+    if (
+      value.ownerHash !== ownerHash ||
+      value.workspaceHash !== workspaceHash
+    ) {
       continue;
     }
     if (allowed.has(key)) continue;
@@ -2835,7 +2840,8 @@ const assertDestinationTransferScope = async (
         Boolean(stage.archive) !== Boolean(plan.objectKey) ||
         stage.archive?.key !== plan.objectKey ||
         stage.archive?.kind !== expectedKind ||
-        (stage.archive && !sameJson(parseArchive(stage.archive), stage.archive)) ||
+        (stage.archive &&
+          !sameJson(parseArchive(stage.archive), stage.archive)) ||
         (parsedEntry.entryKind === "workspace" && stage.nativeCheckpoint) ||
         (parsedEntry.entryKind === "thread" &&
           Boolean(stage.nativeCheckpoint) !==
@@ -2919,7 +2925,7 @@ const reserveTransferStage = async (
       manifest.destinationWorkspaceHash,
       entry.entryFingerprint,
     );
-      const reservation: TransferStageRecord = {
+    const reservation: TransferStageRecord = {
       schemaVersion: TURN_STATE_SCHEMA_VERSION,
       ownerHash: manifest.destinationOwnerHash,
       ownerGeneration: identity.toOwnerGeneration,
@@ -2935,12 +2941,12 @@ const reserveTransferStage = async (
       destinationRequestFingerprint: plan.requestFingerprint,
       destinationTurnHash: plan.turnHash,
       ...(plan.objectKey ? { destinationObjectKey: plan.objectKey } : {}),
-        state: "reserved",
-      };
-      await assertDestinationTransferScope(storage, identity, manifest, {
-        objectState: "staged",
-      });
-      const existing = await storage.get<TransferStageRecord>(key);
+      state: "reserved",
+    };
+    await assertDestinationTransferScope(storage, identity, manifest, {
+      objectState: "staged",
+    });
+    const existing = await storage.get<TransferStageRecord>(key);
     if (existing) {
       if (
         !sameTransferStageIdentity(existing, reservation) ||
@@ -3446,8 +3452,8 @@ const activateTransfer = async (
       const group = threadGroups.get(head.originThreadHash);
       const matches = [
         ...(group?.committed ? [group.committed] : []),
-        ...(group?.candidates.filter(
-          (stage): stage is TransferStageRecord => Boolean(stage),
+        ...(group?.candidates.filter((stage): stage is TransferStageRecord =>
+          Boolean(stage),
         ) ?? []),
       ].filter(
         (stage) =>
@@ -3480,9 +3486,7 @@ const activateTransfer = async (
     for (const workspaceStage of Object.values(workspaceStages)) {
       if (!workspaceStage?.archive) continue;
       if (
-        workspaceArchiveByOperation.has(
-          workspaceStage.destinationOperationId,
-        )
+        workspaceArchiveByOperation.has(workspaceStage.destinationOperationId)
       ) {
         throw new TurnStateOwnerRouteError(
           "Turn state transfer workspace operations are duplicated.",
@@ -3550,7 +3554,9 @@ const activateTransfer = async (
           "turn_state_transfer_conflict",
         );
       }
-      const destinationThread = threadRecords.get(candidateHead.originThreadHash);
+      const destinationThread = threadRecords.get(
+        candidateHead.originThreadHash,
+      );
       const destinationCandidates = destinationThread?.candidates.filter(
         (candidate) => candidate.operationId === candidateHead.operationId,
       );
@@ -3691,10 +3697,7 @@ const activateTransfer = async (
         ...[...threadRecords].map(
           ([threadHash, record]) =>
             [
-              registryThreadKey(
-                manifest.destinationWorkspaceHash,
-                threadHash,
-              ),
+              registryThreadKey(manifest.destinationWorkspaceHash, threadHash),
               record,
             ] as [string, unknown],
         ),
@@ -4574,7 +4577,13 @@ export const handleTurnStateOwnerRoute = async (args: {
     if (args.path === "turn-state/transfer-status") {
       const row = exactObject(raw, TRANSFER_IDENTITY_KEYS);
       validateSchemaVersion(row);
-      const identity = parseTransferIdentity(row, "destination");
+      // The product-transfer planner observes its project fallback before it
+      // selects a destination. This route is read-only, so it may inspect a
+      // canonical workspace with a different mount. Every route that exports,
+      // stages, activates, or retires state retains the same-mount fence.
+      const identity = parseTransferIdentity(row, "destination", {
+        requireMatchingMount: false,
+      });
       assertTransferLease(
         args.scopedOwnerId,
         args.fence,

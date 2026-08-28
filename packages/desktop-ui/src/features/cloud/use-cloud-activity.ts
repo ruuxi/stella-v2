@@ -14,7 +14,7 @@ import {
 import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
 import type { TaskItem } from "@/features/chat/lib/event-transforms";
 import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
-import { cloudConversationBelongsToAccountScope } from "./cloud-conversation-selection";
+import { cloudConversationBelongsToOwnerSubject } from "./cloud-conversation-selection";
 import { cloudApi, type CloudAgentThread } from "./cloud-api";
 
 /** Human label for a C2 workspace identity. */
@@ -163,12 +163,12 @@ export type CloudConversationActivity = CloudActivity & {
 /** Match the historical first-page size while making every older row reachable. */
 export const CLOUD_ACTIVITY_PAGE_SIZE = 30;
 
-export const cloudThreadsForAccountScope = (
+export const cloudThreadsForOwnerSubject = (
   threads: readonly CloudAgentThread[],
-  accountScope: string,
+  ownerSubject: string | null,
 ): CloudAgentThread[] =>
   threads.filter((thread) =>
-    cloudConversationBelongsToAccountScope(thread, accountScope),
+    cloudConversationBelongsToOwnerSubject(thread, ownerSubject),
   );
 
 export const mergeCloudThreadSnapshots = (
@@ -195,7 +195,7 @@ export const mergeCloudThreadSnapshots = (
 export const useCloudConversationActivity = (
   conversationId: string | null,
 ): CloudConversationActivity => {
-  const { cloudMode, accountScope, identityRevision } = useCloudMode();
+  const { cloudMode, ownerSubject, identityRevision } = useCloudMode();
   // Object-form pagination returns deployment-skew/auth-refresh errors as a
   // value instead of throwing through the shell. That preserves the previous
   // `useQueries` behavior while delegating cursor splitting and invalid-cursor
@@ -231,16 +231,16 @@ export const useCloudConversationActivity = (
   const ownedThreads = useMemo(
     () =>
       pageThreads
-        ? cloudThreadsForAccountScope(pageThreads, accountScope)
+        ? cloudThreadsForOwnerSubject(pageThreads, ownerSubject)
         : undefined,
-    [accountScope, pageThreads],
+    [ownerSubject, pageThreads],
   );
   const ownedRunningThreads = useMemo(
     () =>
       runningThreads
-        ? cloudThreadsForAccountScope(runningThreads, accountScope)
+        ? cloudThreadsForOwnerSubject(runningThreads, ownerSubject)
         : undefined,
-    [accountScope, runningThreads],
+    [ownerSubject, runningThreads],
   );
   const pageOwnedByCurrentScope =
     pageThreads === undefined || ownedThreads?.length === pageThreads.length;

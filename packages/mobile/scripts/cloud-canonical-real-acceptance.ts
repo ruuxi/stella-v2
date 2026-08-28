@@ -104,6 +104,16 @@ const fail: (message: string) => never = (message) => {
   throw new Error(message);
 };
 
+class MobileAcceptanceEvidenceError extends Error {
+  constructor(
+    message: string,
+    readonly evidence: Readonly<Record<string, unknown>>,
+  ) {
+    super(message);
+    this.name = "MobileAcceptanceEvidenceError";
+  }
+}
+
 const assert: (condition: unknown, message: string) => asserts condition = (
   condition,
   message,
@@ -435,7 +445,7 @@ export const runMobileCanonicalRealAcceptance = async (): Promise<unknown> => {
   assert(RUN_ID_PATTERN.test(runId), "The acceptance run id is invalid.");
   const phase = required("STELLA_MOBILE_ACCEPTANCE_PHASE");
   assert(
-    phase === "enqueue" || phase === "replay",
+    phase === "enqueue" || phase === "replay" || phase === "core",
     "The mobile acceptance phase is invalid.",
   );
   const jwt = required("STELLA_MOBILE_ACCEPTANCE_JWT");
@@ -467,18 +477,25 @@ export const runMobileCanonicalRealAcceptance = async (): Promise<unknown> => {
         DEFAULT_TIMEOUT_MS,
     ),
   );
-  const { outboxFile } = await resolveOutboxFile(
-    required("STELLA_MOBILE_ACCEPTANCE_HARNESS_ROOT"),
-    required("STELLA_MOBILE_ACCEPTANCE_OUTBOX_FILE"),
-  );
-  assert(
-    phase === "enqueue"
-      ? !(await outboxExists(outboxFile))
-      : await outboxExists(outboxFile),
-    phase === "enqueue"
-      ? "The mobile outbox file is not fresh."
-      : "The prior-process mobile outbox is unavailable.",
-  );
+  const outboxFile =
+    phase === "core"
+      ? null
+      : (
+          await resolveOutboxFile(
+            required("STELLA_MOBILE_ACCEPTANCE_HARNESS_ROOT"),
+            required("STELLA_MOBILE_ACCEPTANCE_OUTBOX_FILE"),
+          )
+        ).outboxFile;
+  if (outboxFile) {
+    assert(
+      phase === "enqueue"
+        ? !(await outboxExists(outboxFile))
+        : await outboxExists(outboxFile),
+      phase === "enqueue"
+        ? "The mobile outbox file is not fresh."
+        : "The prior-process mobile outbox is unavailable.",
+    );
+  }
 
   const receipts: Receipt[] = [];
   const tokenOwner = decodeConvexTokenOwner(jwt);
@@ -507,6 +524,26 @@ export const runMobileCanonicalRealAcceptance = async (): Promise<unknown> => {
           receipts,
         )) === true,
       ensureConversation: async () => {
+        if (phase === "core") {
+          const conversationId = required(
+            "STELLA_MOBILE_ACCEPTANCE_CONVERSATION_ID",
+          );
+          const existing = (await convexCall(
+            convexOrigin,
+            jwt,
+            "query",
+            "cloud_apps:getMyConversation",
+            { conversationId },
+            timeoutMs,
+            receipts,
+          )) as Record<string, unknown> | null;
+          assert(
+            existing?.conversationId === conversationId &&
+              existing.ownerId === tokenOwner.tokenIdentifier,
+            "The mobile session cannot read the exact desktop conversation.",
+          );
+          return conversationId;
+        }
         const value = (await convexCall(
           convexOrigin,
           jwt,
@@ -606,6 +643,141 @@ export const runMobileCanonicalRealAcceptance = async (): Promise<unknown> => {
       ? { seq: initialHydration.ready.headSeq }
       : {}),
   });
+
+  if (phase === "core") {
+    const marker = `MOBILE-CORE-${runId}`;
+    const prompt = `Reply exactly ${marker}.`;
+    const admission = buildAutomaticExecutionAdmission({
+      idempotencyKey: `mobile-core:${runId}`,
+      conversationId: authority.conversationId,
+      kind: "chat",
+      prompt,
+      requiredCapabilities: ["chat"],
+    });
+    assert(
+      authority.conversationId ===
+        required("STELLA_MOBILE_ACCEPTANCE_CONVERSATION_ID") &&
+        admission.body.subject === "portable" &&
+        admission.body.requiredCapabilities.length === 1 &&
+        admission.body.requiredCapabilities[0] === "chat" &&
+        !Object.hasOwn(admission.body, "engine") &&
+        !Object.hasOwn(admission.body, "provider") &&
+        !Object.hasOwn(admission.body, "model"),
+      "The focused mobile send is not the exact desktop conversation on Stella's managed default route.",
+    );
+    const admitted = await submitExecution({
+      convexSiteOrigin,
+      jwt,
+      body: admission.body,
+      timeoutMs,
+      operation: "mobile.execution.core-submit",
+      receipts,
+    });
+    const terminal = await waitForAutomaticExecutionStatus({
+      dispatchId: admitted.dispatchId,
+      pollIntervalMs: 750,
+      readStatus: async (dispatchId) => {
+        const response = await fetchJson(
+          `${convexSiteOrigin}/api/mobile/execution/status?dispatchId=${encodeURIComponent(dispatchId)}`,
+          { method: "GET", headers: { authorization: `Bearer ${jwt}` } },
+          [200],
+          Math.min(timeoutMs, 30_000),
+          "Focused mobile execution status",
+        );
+        return readAutomaticExecutionDispatch(response.value, {
+          dispatchId,
+        }) as ReturnType<typeof readAutomaticExecutionDispatch> & {
+          cloudTurnId?: string;
+          resultJson?: string;
+          errorCode?: string;
+          errorMessage?: string;
+        };
+      },
+    });
+    if (
+      terminal.state !== "completed" ||
+      terminal.placement !== "cloud" ||
+      terminal.conversationId !== authority.conversationId
+    ) {
+      throw new MobileAcceptanceEvidenceError(
+        "The focused mobile turn did not complete in cloud placement.",
+        {
+          terminalState: terminal.state,
+          placement: terminal.placement ?? null,
+          conversationMatches:
+            terminal.conversationId === authority.conversationId,
+          hasCloudTurnId:
+            typeof terminal.cloudTurnId === "string" &&
+            terminal.cloudTurnId.length > 0,
+          dispatchIdSha256: sha256(admitted.dispatchId),
+          ...(typeof terminal.cloudTurnId === "string" &&
+          terminal.cloudTurnId.length > 0
+            ? { cloudTurnIdSha256: sha256(terminal.cloudTurnId) }
+            : {}),
+          errorCodeSha256: sha256(String(terminal.errorCode ?? "")),
+          errorMessageSha256: sha256(String(terminal.errorMessage ?? "")),
+        },
+      );
+    }
+    const cloudTurnId = requireString(
+      terminal.cloudTurnId,
+      "Focused mobile cloud turn id",
+      256,
+    );
+    const hydrated = await hydrateConversation({
+      conversationId: authority.conversationId,
+      socketOrigin: authority.socketOrigin,
+      jwt,
+      timeoutMs: Math.min(timeoutMs, 90_000),
+    });
+    const turnRecords = hydrated.records.filter(
+      (record) => record.turnId === cloudTurnId,
+    );
+    const terminalRecord = turnRecords.find(
+      (record) => record.kind === "turn" && record.phase === "completed",
+    );
+    const projected = projectCloudConversationMessages({
+      conversationId: authority.conversationId,
+      records: hydrated.records,
+      live: null,
+      hasOlder: hydrated.ready.windowStartSeq > hydrated.ready.floorSeq,
+    });
+    const projectedUser = projected.find(
+      (message) =>
+        message.role === "user" && message.id === admitted.dispatchId,
+    );
+    const projectedAssistant = projected.find(
+      (message) =>
+        message.role === "assistant" &&
+        message.requestId === admitted.dispatchId &&
+        message.text.includes(marker),
+    );
+    assert(
+      terminalRecord && projectedUser && projectedAssistant,
+      "A clean mobile projection did not reconstruct the focused cloud turn.",
+    );
+    return {
+      version: 1,
+      phase,
+      passed: true,
+      bunVersion,
+      providerRoute: "stella-managed-default",
+      identitySha256: sha256(identity.identityKey),
+      ownerGenerationSha256: sha256(authority.ownerGeneration),
+      conversationIdSha256: sha256(authority.conversationId),
+      beforeJournalSha256: sha256(stableJson(initialHydration.records)),
+      afterJournalSha256: sha256(stableJson(hydrated.records)),
+      dispatchIdSha256: sha256(admitted.dispatchId),
+      cloudTurnIdSha256: sha256(cloudTurnId),
+      promptSha256: sha256(prompt),
+      assistantSha256: sha256(projectedAssistant.text),
+      resultSha256: sha256(automaticExecutionResultText(terminal)),
+      placement: "cloud",
+      projectedOnCleanSocket: true,
+    };
+  }
+
+  assert(outboxFile, "The durable mobile outbox is unavailable.");
 
   const authorityFence: DesktopChatOutboxAuthority = {
     accountScope: authority.accountScope,
@@ -981,7 +1153,13 @@ if (import.meta.main) {
     (error) => {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(
-        `${JSON.stringify({ ok: false, errorSha256: sha256(message) })}\n`,
+        `${JSON.stringify({
+          ok: false,
+          errorSha256: sha256(message),
+          ...(error instanceof MobileAcceptanceEvidenceError
+            ? { evidence: error.evidence }
+            : {}),
+        })}\n`,
       );
       process.exitCode = 1;
     },

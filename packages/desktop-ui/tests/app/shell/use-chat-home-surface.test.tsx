@@ -4,7 +4,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { uiState } from "@/platform/ui-state";
-import { dispatchShowHome } from "@/shared/lib/stella-orb-chat";
+import {
+  dispatchEnterChat,
+  dispatchShowHome,
+} from "@/shared/lib/stella-orb-chat";
 import { useChatHomeSurface } from "@/shell/use-chat-home-surface";
 
 type HarnessProps = {
@@ -121,5 +124,13 @@ describe("useChatHomeSurface conversation tabs", () => {
 
     await act(async () => dispatchShowHome());
     expect(container.textContent).toBe("home");
+  });
+
+  it("enters an already-selected populated chat from Home", async () => {
+    await render({ conversationId: "existing", hasMessages: true });
+    expect(container.textContent).toBe("home");
+
+    await act(async () => dispatchEnterChat());
+    expect(container.textContent).toBe("chat");
   });
 });

@@ -386,6 +386,54 @@ const controlledExecution = <T>(
 };
 
 describe("execution-placement exact cloud turn cancellation", () => {
+  test("scopes orchestrator owner-fence calls to the exact owner", async () => {
+    const { instance } = sessionHarness();
+    let observedName = "";
+    let observedUrl = "";
+    let observedInit: RequestInit | undefined;
+    instance["env"] = {
+      BUILD_SESSIONS: {
+        getByName: (name: string) => {
+          observedName = name;
+          return {
+            fetch: async (url: string, init: RequestInit) => {
+              observedUrl = url;
+              observedInit = init;
+              return Response.json({ generation: "fence-generation-1" });
+            },
+          };
+        },
+      },
+    };
+
+    const response = await (
+      instance["callOwnerFence"] as (
+        ownerId: string,
+        path: string,
+        body: Record<string, unknown>,
+      ) => Promise<Response>
+    )("owner-1", "register", {
+      ownerGeneration: "generation-1",
+      leaseId: "lease-1",
+      sessionId: "conversation-1",
+      turnId: "turn-1",
+    });
+
+    expect(response.status).toBe(200);
+    expect(observedName).toBe(`owner-purge-${await sha256Hex("owner-1")}`);
+    expect(observedUrl).toBe("https://build-session/owner-fence/register");
+    expect(
+      new Headers(observedInit?.headers).get("x-stella-owner-fence-id"),
+    ).toBe("owner-1");
+    expect(JSON.parse(String(observedInit?.body))).toMatchObject({
+      ownerId: "owner-1",
+      ownerGeneration: "generation-1",
+      leaseId: "lease-1",
+      sessionId: "conversation-1",
+      turnId: "turn-1",
+    });
+  });
+
   test("persists a pre-admission tombstone across an isolate restart", async () => {
     const { storage } = storageHarness();
     const first = new ExactTurnCancellationLedger(storage);

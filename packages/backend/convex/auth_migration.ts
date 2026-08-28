@@ -133,8 +133,6 @@ const ownerMigrationPurgeArgs = {
 
 const isFullPage = (rows: readonly unknown[]) => rows.length === BATCH_SIZE;
 const OWNERSHIP_MIGRATION_BLOCKED_PREFIX = "ownership_migration_blocked:";
-const BACKUP_MIGRATION_REPAIR_REQUIRED_PREFIX =
-  "backup_migration_repair_required:";
 
 const purgeMigratedSourceOwnerRef = makeFunctionReference<
   "action",
@@ -151,22 +149,6 @@ const listPendingMigratedSourceIdentityDeletionsRef = makeFunctionReference<
   { limit?: number },
   Array<Id<"auth_owner_migrations">>
 >("auth_migration:listPendingMigratedSourceIdentityDeletionsInternal");
-const migrateBackupsForOwnershipPassRef = makeFunctionReference<
-  "action",
-  {
-    fromOwnerId: string;
-    toOwnerId: string;
-    migrationId: string;
-    leaseId: string;
-    leaseGeneration: number;
-    fromOwnerGeneration: string;
-    toOwnerGeneration: string;
-    planRevision: number;
-    now: number;
-  },
-  { ready: boolean; retryAfterMs?: number }
->("backup_migration:migrateBackupsForOwnershipPassInternal");
-
 const blockOwnershipMigration = (reason: string): never => {
   throw new Error(`${OWNERSHIP_MIGRATION_BLOCKED_PREFIX} ${reason}`);
 };
@@ -6077,6 +6059,9 @@ export const finishOwnershipMigrationPass = internalMutation({
       });
     }
     if (args.outcome === "complete") {
+      // Legacy backups are retired and deliberately do not participate in
+      // account linking. Remove only an obsolete per-migration sweep receipt;
+      // dormant backup rows and objects remain untouched for later cleanup.
       const backupSweep = await ctx.db
         .query("backup_legacy_r2_sweeps")
         .withIndex("by_scopeKey", (q) =>
@@ -6086,35 +6071,7 @@ export const finishOwnershipMigrationPass = internalMutation({
           ),
         )
         .unique();
-      if (
-        !row.fromOwnerGeneration ||
-        !row.toOwnerGeneration ||
-        !backupSweep ||
-        backupSweep.protocolVersion !== 1 ||
-        !Number.isSafeInteger(backupSweep.revision) ||
-        backupSweep.revision <= 0 ||
-        backupSweep.kind !== "migration" ||
-        backupSweep.operationId !== String(row._id) ||
-        backupSweep.sourceOwnerId !== args.fromOwnerId ||
-        backupSweep.sourceOwnerGeneration !== row.fromOwnerGeneration ||
-        backupSweep.destinationOwnerId !== args.toOwnerId ||
-        backupSweep.destinationOwnerGeneration !== row.toOwnerGeneration ||
-        backupSweep.planRevision !== (row.planRevision ?? 1) ||
-        backupSweep.goal !== "preserve_refs" ||
-        backupSweep.phase !== "ready" ||
-        !backupSweep.legacyRowFenceComplete
-      ) {
-        throw new ConvexError({
-          code: "BACKUP_LEGACY_SWEEP_INCOMPLETE",
-          message:
-            "The exact backup raw-storage migration proof is not ready for this ownership plan.",
-        });
-      }
-      // Retire only in the same transaction that publishes completion. A lost
-      // response preserves either both the ready proof and running migration,
-      // or neither proof and a completed migration; intermediate passes never
-      // discard the reusable proof.
-      await ctx.db.delete(backupSweep._id);
+      if (backupSweep) await ctx.db.delete(backupSweep._id);
     }
     if (row.watchdogId) await ctx.scheduler.cancel(row.watchdogId);
     await ctx.db.patch(row._id, {
@@ -8782,40 +8739,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
 
     const retryChecks = [
       [
-        "backup_key_escrows",
-        await ctx.db
-          .query("backup_key_escrows")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "backup_objects",
-        await ctx.db
-          .query("backup_objects")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "backup_manifests",
-        await ctx.db
-          .query("backup_manifests")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "backup_upload_reservations",
-        await ctx.db
-          .query("backup_upload_reservations")
-          .withIndex("by_ownerId_and_uploadExpiresAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
         "cloud_engine_import_source_reference",
         [
           ...(await ctx.db
@@ -11070,97 +10993,77 @@ export const migrateOwnership = internalAction({
               Math.max(1_000, externalMediaCleanup.retryAfterMs ?? 5_000),
             );
           } else {
-            const backupMigration = await ctx.runAction(
-              migrateBackupsForOwnershipPassRef,
+            const deviceMigration = await ctx.runMutation(
+              internal.auth_migration.migrateDevicesForAccountLink,
               {
-                ...ownerIds,
-                migrationId: String(migrationId),
-                leaseId,
-                leaseGeneration,
-                fromOwnerGeneration,
-                toOwnerGeneration,
-                planRevision,
-                now: Date.now(),
+                ...leaseForCommit(),
               },
             );
-            if (!backupMigration.ready) {
-              retryAfterMs = Math.min(
-                60_000,
-                Math.max(1_000, backupMigration.retryAfterMs ?? 1_000),
-              );
-            } else {
-              const deviceMigration = await ctx.runMutation(
-                internal.auth_migration.migrateDevicesForAccountLink,
-                {
-                  ...leaseForCommit(),
-                },
-              );
-              const stripeMigration = await ctx.runAction(
-                internal.auth_migration
-                  .migrateNextStripeOperationWithProviderInternal,
-                { ...leaseForCommit() },
-              );
-              const stripeResolutionMigration = stripeMigration.hasMore
+            const stripeMigration = await ctx.runAction(
+              internal.auth_migration
+                .migrateNextStripeOperationWithProviderInternal,
+              { ...leaseForCommit() },
+            );
+            const stripeResolutionMigration = stripeMigration.hasMore
+              ? { hasMore: true }
+              : await ctx.runMutation(
+                  internal.auth_migration
+                    .migrateStripeOperationResolutionsBatch,
+                  { ...leaseForCommit() },
+                );
+            const usageAccountingMigration =
+              stripeMigration.hasMore || stripeResolutionMigration.hasMore
                 ? { hasMore: true }
                 : await ctx.runMutation(
-                    internal.auth_migration
-                      .migrateStripeOperationResolutionsBatch,
+                    internal.auth_migration.migrateUsageAccountingBatch,
                     { ...leaseForCommit() },
                   );
-              const usageAccountingMigration =
-                stripeMigration.hasMore || stripeResolutionMigration.hasMore
-                  ? { hasMore: true }
-                  : await ctx.runMutation(
-                      internal.auth_migration.migrateUsageAccountingBatch,
-                      { ...leaseForCommit() },
-                    );
-              const independentMigrations = await Promise.all(
-                PARALLEL_TABLE_MUTATIONS.map((mutation) =>
-                  ctx.runMutation(mutation as OwnerBatchMutation, {
+            const independentMigrations = await Promise.all(
+              PARALLEL_TABLE_MUTATIONS.map((mutation) =>
+                ctx.runMutation(mutation as OwnerBatchMutation, {
+                  ...leaseForCommit(),
+                }),
+              ),
+            );
+            if (
+              deviceMigration.hasMore ||
+              stripeMigration.hasMore ||
+              stripeResolutionMigration.hasMore ||
+              usageAccountingMigration.hasMore ||
+              independentMigrations.some((result) => result.hasMore)
+            ) {
+              retryAfterMs = 1_000;
+            } else {
+              // These depend on all source-owner rows having drained.
+              await Promise.all([
+                ctx.runMutation(
+                  internal.auth_migration.deduplicateDefaultConversation,
+                  {
                     ...leaseForCommit(),
-                  }),
+                  },
                 ),
+                ctx.runMutation(
+                  internal.auth_migration.deduplicateUserCounters,
+                  {
+                    ...leaseForCommit(),
+                  },
+                ),
+              ]);
+              const residue = await ctx.runQuery(
+                internal.auth_migration.auditOwnershipMigrationResidue,
+                ownerIds,
               );
-              if (
-                deviceMigration.hasMore ||
-                stripeMigration.hasMore ||
-                stripeResolutionMigration.hasMore ||
-                usageAccountingMigration.hasMore ||
-                independentMigrations.some((result) => result.hasMore)
-              ) {
+              if (residue.kind === "retry") {
                 retryAfterMs = 1_000;
+                migrationError = `Source-owner state reappeared in ${residue.table ?? "an anonymous-usable table"}; another bounded pass is required.`;
+              } else if (residue.kind === "blocked") {
+                outcome = "failed";
+                migrationError = `Account linking is blocked by unresolved ${residue.table ?? "connected-only or in-flight"} state on the anonymous identity.`;
               } else {
-                // These depend on all source-owner rows having drained.
-                await Promise.all([
-                  ctx.runMutation(
-                    internal.auth_migration.deduplicateDefaultConversation,
-                    {
-                      ...leaseForCommit(),
-                    },
-                  ),
-                  ctx.runMutation(
-                    internal.auth_migration.deduplicateUserCounters,
-                    {
-                      ...leaseForCommit(),
-                    },
-                  ),
-                ]);
-                const residue = await ctx.runQuery(
-                  internal.auth_migration.auditOwnershipMigrationResidue,
-                  ownerIds,
+                outcome = "complete";
+                console.log(
+                  `[auth_migration] Completed ownership migration ${String(migrationId)}.`,
                 );
-                if (residue.kind === "retry") {
-                  retryAfterMs = 1_000;
-                  migrationError = `Source-owner state reappeared in ${residue.table ?? "an anonymous-usable table"}; another bounded pass is required.`;
-                } else if (residue.kind === "blocked") {
-                  outcome = "failed";
-                  migrationError = `Account linking is blocked by unresolved ${residue.table ?? "connected-only or in-flight"} state on the anonymous identity.`;
-                } else {
-                  outcome = "complete";
-                  console.log(
-                    `[auth_migration] Completed ownership migration ${String(migrationId)}.`,
-                  );
-                }
               }
             }
           }
@@ -11168,15 +11071,7 @@ export const migrateOwnership = internalAction({
       }
     } catch (error) {
       migrationError = error instanceof Error ? error.message : String(error);
-      if (migrationError.includes(BACKUP_MIGRATION_REPAIR_REQUIRED_PREFIX)) {
-        // Backup rows move in bounded transactions. A prior pass may already
-        // have progressed, so a data repair condition can never terminally
-        // release either owner's backup fence.
-        retryAfterMs = 60_000;
-        console.error(
-          `[auth_migration] Ownership migration ${String(migrationId)} is waiting for backup-state repair.`,
-        );
-      } else if (isOwnershipMigrationBlockedMessage(migrationError)) {
+      if (isOwnershipMigrationBlockedMessage(migrationError)) {
         outcome = "failed";
         migrationError = migrationError
           .slice(OWNERSHIP_MIGRATION_BLOCKED_PREFIX.length)

@@ -1254,6 +1254,54 @@ describe("turn-state owner routes", () => {
     ).toMatchObject({ manifest: { count: 0 }, entries: [] });
   });
 
+  test.each(["drive", "stella"])(
+    "allows a read-only %s fallback status probe without weakening mutating mount fences",
+    async (sourceWorkspace) => {
+      const destinationStorage = new FakeDurableObjectStorage();
+      const r2 = new FakeR2Bucket();
+      const destinationFence = transferFence(
+        destinationOwnerId,
+        destinationOwnerGeneration,
+        "destination",
+      );
+      const crossMountBody = {
+        ...transferBody("destination"),
+        sourceWorkspace,
+        destinationWorkspace: `project:import-${sourceWorkspace}`,
+      };
+
+      const status = await callRoute({
+        path: "turn-state/transfer-status",
+        body: crossMountBody,
+        storage: destinationStorage,
+        r2,
+        fence: destinationFence,
+        scopedOwnerId: destinationOwnerId,
+      });
+      expect(status?.status).toBe(200);
+      expect(
+        await responseBody<TurnStateTransferDestinationStatus>(status),
+      ).toEqual({ state: "empty" });
+
+      const sourceStorage = new FakeDurableObjectStorage();
+      const exported = await callRoute({
+        path: "turn-state/transfer-export",
+        body: {
+          ...transferBody("source"),
+          sourceWorkspace,
+          destinationWorkspace: `project:import-${sourceWorkspace}`,
+        },
+        storage: sourceStorage,
+        r2,
+        fence: transferFence(ownerId, ownerGeneration, "source"),
+      });
+      expect(exported?.status).toBe(400);
+      expect(await responseBody(exported)).toMatchObject({
+        code: "invalid_request",
+      });
+    },
+  );
+
   test("transfers global workspace heads and per-thread native state before guarded source retirement", async () => {
     const sourceStorage = new FakeDurableObjectStorage();
     const destinationStorage = new FakeDurableObjectStorage();
@@ -1544,9 +1592,7 @@ describe("turn-state owner routes", () => {
       `turn-state:v1:retirement:${abortProbe.workspacePublication.operationId}`,
     );
     expect(transferredRetirement.size).toBe(1);
-    expect(
-      [...transferredRetirement.values()][0],
-    ).toMatchObject({
+    expect([...transferredRetirement.values()][0]).toMatchObject({
       objectKeys: [
         transferredWorkspaceRecord.candidate.archive.key,
         abortProbe.restore.native.key,
@@ -2118,7 +2164,10 @@ describe("turn-state owner routes", () => {
       fence,
     });
     expect(purged?.status).toBe(200);
-    expect(await responseBody(purged)).toMatchObject({ pending: false, prefix });
+    expect(await responseBody(purged)).toMatchObject({
+      pending: false,
+      prefix,
+    });
     expect(r2.keys(prefix)).toEqual([]);
     expect(storage.entries("turn-state:v1:route-operation:").size).toBe(0);
 

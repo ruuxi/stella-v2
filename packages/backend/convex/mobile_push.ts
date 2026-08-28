@@ -95,18 +95,25 @@ export const sendWalletSpendNotification = action({
     const ownerId = await requireSensitiveUserIdAction(ctx);
     await enforceActionRateLimit(
       ctx,
-      "mobile_activity_push",
+      "mobile_wallet_push",
       ownerId,
       RATE_STANDARD,
       "Slow down a moment and try again.",
     );
 
-    const amountLabel = `$${(args.amountCents / 100).toFixed(2)}`;
-    const merchant = args.merchantName.trim() || "a merchant";
+    const amountCents = Number.isFinite(args.amountCents)
+      ? Math.min(50_000, Math.max(0, Math.round(args.amountCents)))
+      : 0;
+    const merchant =
+      args.merchantName.trim().slice(0, 80) || "a merchant";
+    const body =
+      amountCents > 0
+        ? `$${(amountCents / 100).toFixed(2)} at ${merchant} — open the Link app to approve.`
+        : `Open the Link app to approve a purchase at ${merchant}.`;
     await ctx.runAction(internal.mobile_push.sendToOwner, {
       ownerId,
       title: "Approve a purchase",
-      body: `${amountLabel} at ${merchant} — open the Link app to approve.`,
+      body,
       data: { kind: "wallet_spend" },
     });
     return null;

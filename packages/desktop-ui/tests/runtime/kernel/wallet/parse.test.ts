@@ -4,6 +4,7 @@ import {
   parseAuthStatus,
   parseJsonObject,
   parseLoginPrompt,
+  extractLoginPrompts,
   parsePaymentMethods,
   parseSpendHistory,
   snapshotFromCli,
@@ -39,6 +40,20 @@ describe("link wallet parse", () => {
       userCode: "blue-forest",
     });
     expect(JSON.stringify(prompt)).not.toMatch(/access_token|card|pan|cvc/i);
+  });
+
+  it("reads login prompts from split JSON chunks", () => {
+    const first = extractLoginPrompts('{"verification_url":"https://link.com/device"');
+    expect(first).toEqual([]);
+    const second = extractLoginPrompts(
+      '{"verification_url":"https://link.com/device","user_code":"blue-forest"}\n',
+    );
+    expect(second).toEqual([
+      {
+        verificationUrl: "https://link.com/device",
+        userCode: "blue-forest",
+      },
+    ]);
   });
 
   it("maps payment methods to last4 views only", () => {

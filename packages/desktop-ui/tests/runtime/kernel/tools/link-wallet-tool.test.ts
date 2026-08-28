@@ -67,6 +67,24 @@ describe("link_wallet tool", () => {
     expect(resultText(result)).toContain("just approved the connect card");
   });
 
+  it("asks the user to add a card before paying when none are on file", async () => {
+    const requester: LinkWalletConnectionRequester = vi.fn(async () => ({
+      ok: true as const,
+      status: "connected" as const,
+      snapshot: {
+        status: "connected" as const,
+        paymentMethods: [],
+        spends: [],
+      },
+    }));
+    const tool = createLinkWalletTool({
+      requestLinkWalletConnection: requester,
+    });
+    const result = await tool.execute({}, context);
+    expect(resultText(result)).toContain("no card yet");
+    expect(resultText(result)).toContain("Wait until they add a card");
+  });
+
   it("reports a decline without retrying", async () => {
     const requester: LinkWalletConnectionRequester = vi.fn(async () => ({
       ok: false as const,

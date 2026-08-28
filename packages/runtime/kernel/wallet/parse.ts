@@ -91,6 +91,31 @@ export const parseLoginPrompt = (
   };
 };
 
+const promptKey = (prompt: {
+  verificationUrl?: string;
+  userCode?: string;
+}): string => `${prompt.verificationUrl ?? ""}|${prompt.userCode ?? ""}`;
+
+export const extractLoginPrompts = (
+  text: string,
+): { verificationUrl?: string; userCode?: string }[] => {
+  const prompts: { verificationUrl?: string; userCode?: string }[] = [];
+  const seen = new Set<string>();
+  const consider = (value: unknown) => {
+    const prompt = parseLoginPrompt(value);
+    if (!prompt.verificationUrl && !prompt.userCode) return;
+    const key = promptKey(prompt);
+    if (seen.has(key)) return;
+    seen.add(key);
+    prompts.push(prompt);
+  };
+  consider(parseJsonObject(text));
+  for (const line of text.split(/\r?\n/u)) {
+    consider(parseJsonObject(line));
+  }
+  return prompts;
+};
+
 export const parsePaymentMethods = (
   value: unknown,
 ): LinkPaymentMethodView[] => {

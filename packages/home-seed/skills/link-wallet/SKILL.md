@@ -11,7 +11,7 @@ Stella owns Link login UX. This is not Stella product billing and not the Stripe
 
 If Link is disconnected, call the `link_wallet` tool so the user sees the connect card. Do **not** run `auth login` yourself.
 
-The user can also connect or disconnect from Settings → Wallet, and add another card there (opens https://app.link.com/wallet).
+The user can also connect or disconnect from Settings → Wallet, and add a card there (opens https://app.link.com/wallet). After connect, if there is no card yet, Stella asks them to add one.
 
 `--client-name` is already set when Stella logs in.
 

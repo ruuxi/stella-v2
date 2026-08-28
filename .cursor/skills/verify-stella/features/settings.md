@@ -32,6 +32,7 @@ Preconditions:
 
 ## Gotchas
 
+- Isolated verification profiles use direct working mode (`assistantWorkingMode=direct`). General therefore shows Orchestrator mode off. That is the seed, not a product bug.
 - The first click on **Settings** opens a menu, not the dialog. A second click on the **Settings** item is required. If the menu closed because the click matched the gear again, reopen it.
 - `/settings` is a full-page Settings screen used in tests and deep links. Proving only that route skips the menu users actually click.
 - The dialog close X has no accessible name. Use Escape.

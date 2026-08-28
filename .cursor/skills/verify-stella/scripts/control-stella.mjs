@@ -616,16 +616,46 @@ const evaluateFind = (ws, query) =>
 const cmdClick = async (options) => {
   const run = requireRun();
   if (!options.name && !options.selector) fail("click requires --name or --selector");
-  await withCdp(run, (ws) =>
-    runtimeEvaluate(
+  await withCdp(run, async (ws) => {
+    const hit = await runtimeEvaluate(
       ws,
-      `(() => { const el = (${FIND_ELEMENT_JS})(${JSON.stringify({
-        role: options.role ?? null,
-        name: options.name ?? null,
-        selector: options.selector ?? null,
-      })}); el.click(); return { tag: el.tagName, name: el.getAttribute("aria-label") || el.textContent.trim().slice(0, 80) }; })()`,
-    ),
-  ).then((value) => process.stdout.write(`${JSON.stringify(value)}\n`));
+      `(() => {
+        const el = (${FIND_ELEMENT_JS})(${JSON.stringify({
+          role: options.role ?? null,
+          name: options.name ?? null,
+          selector: options.selector ?? null,
+        })});
+        el.scrollIntoView({ block: "center", inline: "center" });
+        const rect = el.getBoundingClientRect();
+        return {
+          x: rect.x + rect.width / 2,
+          y: rect.y + rect.height / 2,
+          tag: el.tagName,
+          name: (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 80),
+        };
+      })()`,
+    );
+    await cdpSend(ws, 30, "Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: hit.x,
+      y: hit.y,
+    });
+    await cdpSend(ws, 31, "Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x: hit.x,
+      y: hit.y,
+      button: "left",
+      clickCount: 1,
+    });
+    await cdpSend(ws, 32, "Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x: hit.x,
+      y: hit.y,
+      button: "left",
+      clickCount: 1,
+    });
+    process.stdout.write(`${JSON.stringify(hit)}\n`);
+  });
 };
 
 const cmdFill = async (options) => {

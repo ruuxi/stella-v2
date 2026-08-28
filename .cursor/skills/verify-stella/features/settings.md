@@ -22,7 +22,7 @@ Preconditions:
 - Doctor is `ok`.
 - No dialog is already open.
 
-- **Open menu.** Choose the gear. Run `node .cursor/skills/verify-stella/scripts/control-stella.mjs click --role button --name "Settings"`. A menu named `Settings destinations` appears with items `Settings`, `Theme`, `Stella on your phone`.
+- **Open menu.** Choose the gear. Run `node .cursor/skills/verify-stella/scripts/control-stella.mjs click --role button --name "Settings"` and `node .cursor/skills/verify-stella/scripts/control-stella.mjs wait --role menuitem --name "Settings"`. A menu named `Settings destinations` appears with items `Settings`, `Theme`, `Stella on your phone`.
 - **Open dialog.** Choose Settings in that menu. Run `node .cursor/skills/verify-stella/scripts/control-stella.mjs click --role menuitem --name "Settings"`. A dialog titled `Settings` appears. The tablist named `Settings` has `General` selected.
 - **Tab Shortcuts.** Choose Shortcuts. Run `node .cursor/skills/verify-stella/scripts/control-stella.mjs click --role tab --name "Shortcuts"`. The tabpanel is labelled by Shortcuts. The heading `Shortcuts` is visible.
 - **Tab remaining.** Choose `Backups`, then `Account & Legal`, then `Audio` the same way. Each selected tab's accessible name matches the tab, and General is no longer `aria-selected`.

@@ -81,7 +81,7 @@
 }
 
 .inline-working-indicator--entering {
-  animation: inline-indicator-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: inline-indicator-in 320ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
 }
 
 .chat-viewport-region--sidebar .inline-working-indicator,
@@ -93,6 +93,11 @@
 
 .event-list-working-indicator {
   padding-top: 4px;
+}
+
+.event-list-working-indicator:has(.inline-working-indicator--leaving) {
+  padding-top: 0;
+  transition: padding-top 220ms cubic-bezier(0.4, 0, 0.7, 1);
 }
 
 .event-list-working-indicator:has(.inline-working-indicator--vacated) {
@@ -112,8 +117,9 @@
 }
 
 .inline-working-indicator--leaving {
-  animation: inline-indicator-out 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: inline-indicator-out 220ms cubic-bezier(0.4, 0, 0.7, 1) both;
   transform-origin: left top;
+  overflow: hidden;
 }
 
 @keyframes inline-indicator-in {
@@ -132,11 +138,16 @@
     opacity: 1;
     transform: translateY(0) scale(1);
     filter: blur(0);
+    max-height: 48px;
+  }
+  60% {
+    opacity: 0;
   }
   to {
     opacity: 0;
-    transform: translateY(-2px) scale(0.92);
+    transform: translateY(-3px) scale(0.94);
     filter: blur(2px);
+    max-height: 0;
   }
 }
 

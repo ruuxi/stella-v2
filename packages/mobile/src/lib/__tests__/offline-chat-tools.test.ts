@@ -1,18 +1,4 @@
 import { describe, expect, test } from "bun:test";
-
-const memoryStore = new Map<string, string>();
-(globalThis as Record<string, unknown>).window = {
-  localStorage: {
-    getItem: (key: string) => memoryStore.get(key) ?? null,
-    setItem: (key: string, value: string) => {
-      memoryStore.set(key, value);
-    },
-    removeItem: (key: string) => {
-      memoryStore.delete(key);
-    },
-  },
-};
-
 import type { ChatMessage } from "../../types";
 import {
   buildFtsMatchQuery,
@@ -32,6 +18,19 @@ import {
   contextTokenEstimate,
   type ChatCheckpoint,
 } from "../chat-compaction";
+
+const memoryStore = new Map<string, string>();
+(globalThis as Record<string, unknown>).window = {
+  localStorage: {
+    getItem: (key: string) => memoryStore.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      memoryStore.set(key, value);
+    },
+    removeItem: (key: string) => {
+      memoryStore.delete(key);
+    },
+  },
+};
 
 const msg = (
   id: string,

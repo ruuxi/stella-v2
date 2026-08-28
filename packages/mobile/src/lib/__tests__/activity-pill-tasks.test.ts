@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import type { ChatMessage, MobileTask } from "../../types";
+import { mergeMessagesById } from "../chat-merge";
+import { collectConversationTasks } from "../mobile-task-merge";
+import { loadChatMessages, saveChatMessages } from "../offline-chat-storage";
 
 const memoryStore = new Map<string, string>();
 (globalThis as Record<string, unknown>).window = {
@@ -12,11 +16,6 @@ const memoryStore = new Map<string, string>();
     },
   },
 };
-
-import type { ChatMessage, MobileTask } from "../../types";
-import { mergeMessagesById } from "../chat-merge";
-import { collectConversationTasks } from "../mobile-task-merge";
-import { loadChatMessages, saveChatMessages } from "../offline-chat-storage";
 
 const task = (overrides: Partial<MobileTask> = {}): MobileTask => ({
   id: "agent-1",

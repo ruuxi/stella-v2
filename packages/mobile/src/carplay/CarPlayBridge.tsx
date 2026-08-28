@@ -316,18 +316,15 @@ function CarPlayVoiceLoop({
   }, [onTalk, onReadReply, onReadLatest, onToggleConverse, onToggleVoiceTarget]);
 
   useEffect(() => {
-    carPlayLog(`voice loop mounted (target=${target})`);
-
+    carPlayLog("voice loop mounted");
     goPhase("idle");
-
-  }, []);
+  }, [goPhase]);
 
   useEffect(() => {
     if (transport.kind !== "desktop") return;
     if (!storageLoaded) return;
     void runDesktopSync({ catchUp: true });
-
-  }, [transport.kind, storageLoaded]);
+  }, [transport.kind, storageLoaded, runDesktopSync]);
 
   useEffect(() => {
     const pending = pendingSendRef.current;

@@ -45,7 +45,7 @@ type I18nContextValue = {
 
   tPlural: (key: string, count: number, params?: TranslateParams) => string;
 
-  supportedLocales: ReadonlyArray<Locale>;
+  supportedLocales: readonly Locale[];
 };
 
 const I18nContext = createContext<I18nContextValue | null>(null);

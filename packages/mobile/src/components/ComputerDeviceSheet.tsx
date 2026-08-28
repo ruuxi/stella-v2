@@ -7,7 +7,6 @@ import {
   Text,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TopSheet } from "./TopSheet";
 import { Icon, type IconName } from "./Icon";
@@ -64,7 +63,6 @@ export function ComputerDeviceSheet({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
   const [pairSheetOpen, setPairSheetOpen] = useState(false);
 

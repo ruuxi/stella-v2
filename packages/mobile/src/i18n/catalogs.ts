@@ -102,7 +102,7 @@ const isPluralForms = (value: unknown): value is PluralForms => {
   if (entries.length === 0) return false;
   return entries.every(
     ([category, form]) =>
-      (PLURAL_CATEGORIES as ReadonlyArray<string>).includes(category) &&
+      (PLURAL_CATEGORIES as readonly string[]).includes(category) &&
       typeof form === "string",
   );
 };

@@ -99,10 +99,12 @@ export function ComputerSettingsSheet({
     null,
   );
 
+  const runtimeModelsRef = useRef(runtimeModels);
+  runtimeModelsRef.current = runtimeModels;
   const loadRuntimeModels = useCallback(
     async (target: RuntimeEngine) => {
       const bridge = bridgeRef.current;
-      if (!bridge || runtimeModels[target]) return;
+      if (!bridge || runtimeModelsRef.current[target]) return;
       setRuntimeLoading(true);
       try {
         const models = await listDesktopRuntimeModels(bridge, target);
@@ -113,7 +115,7 @@ export function ComputerSettingsSheet({
         setRuntimeLoading(false);
       }
     },
-    [runtimeModels],
+    [],
   );
 
   useEffect(() => {
@@ -159,8 +161,7 @@ export function ComputerSettingsSheet({
     return () => {
       cancelled = true;
     };
-
-  }, [visible, access]);
+  }, [visible, access, loadRuntimeModels, onApplied]);
 
   const apply = useCallback(
     async (patch: Parameters<typeof setDesktopModelPrefs>[1]) => {

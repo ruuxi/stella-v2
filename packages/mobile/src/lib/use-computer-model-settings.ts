@@ -165,8 +165,10 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
     [recordRecent],
   );
 
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
   const refresh = useCallback(async () => {
-    if (!access || loading) return;
+    if (!access || loadingRef.current) return;
     setLoading(true);
     try {
       const bridge = await openDesktopBridge(access);
@@ -174,13 +176,12 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
     } finally {
       setLoading(false);
     }
-  }, [access, loading, syncFromSnapshot]);
+  }, [access, syncFromSnapshot]);
 
   useEffect(() => {
     setSnapshot(null);
     if (access) void refresh().catch(() => undefined);
-
-  }, [access?.desktopDeviceId]);
+  }, [access, refresh]);
 
   const applyPatch = useCallback(
     async (patch: DesktopModelPrefsPatch) => {

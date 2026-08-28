@@ -21,7 +21,6 @@ import {
 } from "../../src/components/AppBackdrop";
 import { StellaBrandMark } from "../../src/components/StellaBrandMark";
 import {
-  ActivityIndicator,
   Keyboard,
   Pressable,
   StyleSheet,
@@ -210,11 +209,11 @@ export default function MainLayout() {
   const onChatSurface = pathname === "/chat" || pathname === "/computer";
 
   const search = useChatSearch();
+  const closeSearch = search.close;
 
   useEffect(() => {
-    search.close();
-
-  }, [pathname]);
+    closeSearch();
+  }, [pathname, closeSearch]);
 
   useEffect(() => {
     if (activeTab) {
@@ -239,11 +238,11 @@ export default function MainLayout() {
     drawerProgress.value = withSpring(1, DRAWER_SPRING);
   };
 
-  const closeSidebar = (haptic = true) => {
+  const closeSidebar = useCallback((haptic = true) => {
     if (haptic) tapLight();
     setSidebarOpen(false);
     drawerProgress.value = withSpring(0, DRAWER_SPRING);
-  };
+  }, [drawerProgress]);
 
   const navigate = (tab: TabId) => {
     tapLight();
@@ -253,7 +252,7 @@ export default function MainLayout() {
 
   useEffect(() => {
     if (wide) closeSidebar(false);
-  }, [wide]);
+  }, [wide, closeSidebar]);
 
   const dismissKeyboard = () => Keyboard.dismiss();
   const openPan = Gesture.Pan()

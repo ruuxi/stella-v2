@@ -1288,6 +1288,9 @@ const ChatMessageRow = memo(function ChatMessageRow({
     return receipts;
   }, [item.toolSteps]);
 
+  const hasText = item.text.trim().length > 0;
+  const mountedEmptyRef = useRef(!hasText);
+
   if (item.role === "user") {
     const thumbs = item.thumbnailUris ?? [];
     const showThumbs = thumbs.length > 0;
@@ -1371,9 +1374,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
       </View>
     );
   }
-  const hasText = item.text.trim().length > 0;
-
-  const mountedEmptyRef = useRef(!hasText);
 
   const {
     agentWork: agentWorkArtifacts,
@@ -2549,7 +2549,23 @@ export function ChatPane({
     [messages],
   );
   const lastMessage = visibleMessages[visibleMessages.length - 1];
-  const scroll = useChatScroll(
+  const {
+    listRef,
+    onScroll,
+    onListContentSizeChange,
+    onActiveAssistantLayout,
+    clearActiveAssistantLayout,
+    scrollToBottom,
+    resetAssistantAutoScroll,
+    prepareAssistantLayoutFollow,
+    onLatestUserLayout,
+    onScrollBeginDrag,
+    onScrollSettle,
+    getShouldPlaceLatestTurn,
+    releaseFollow,
+    nudgeAfterSend,
+    awayFromBottom,
+  } = useChatScroll(
     listTrailingSlackPx,
     responseSpacerHeightPx,
     lastMessage?.id ?? null,
@@ -2567,11 +2583,11 @@ export function ChatPane({
     const isNewAssistant = lastMessage.id !== assistantIdRef.current;
     const grewText = lastMessage.text.length > assistantTextLenRef.current;
     if (isNewAssistant) {
-      scroll.resetAssistantAutoScroll();
+      resetAssistantAutoScroll();
     }
 
     if (streaming && (isNewAssistant || grewText)) {
-      scroll.prepareAssistantLayoutFollow();
+      prepareAssistantLayoutFollow();
     }
     assistantTextLenRef.current = lastMessage.text.length;
     assistantIdRef.current = lastMessage.id;
@@ -2581,29 +2597,29 @@ export function ChatPane({
   }
 
   useEffect(() => {
-    if (streaming) scroll.resetAssistantAutoScroll();
-  }, [streaming, scroll.resetAssistantAutoScroll]);
+    if (streaming) resetAssistantAutoScroll();
+  }, [streaming, resetAssistantAutoScroll]);
 
   const prevKeyboardHeightRef = useRef(0);
   const pinTailForKeyboardRef = useRef(false);
   useEffect(() => {
     const prev = prevKeyboardHeightRef.current;
     prevKeyboardHeightRef.current = keyboardHeight;
-    if (keyboardHeight > prev && !scroll.awayFromBottom) {
+    if (keyboardHeight > prev && !awayFromBottom) {
       pinTailForKeyboardRef.current = true;
       requestAnimationFrame(() =>
-        scroll.listRef.current?.scrollToEnd({ animated: true }),
+        listRef.current?.scrollToEnd({ animated: true }),
       );
     } else if (keyboardHeight === 0) {
       pinTailForKeyboardRef.current = false;
     }
-  }, [keyboardHeight, scroll.awayFromBottom, scroll.listRef]);
+  }, [keyboardHeight, awayFromBottom, listRef]);
 
   useEffect(() => {
     if (!pinTailForKeyboardRef.current) return;
     pinTailForKeyboardRef.current = false;
-    scroll.listRef.current?.scrollToEnd({ animated: true });
-  }, [keyboardExtra, scroll.listRef]);
+    listRef.current?.scrollToEnd({ animated: true });
+  }, [keyboardExtra, listRef]);
 
   const pendingSendNudgeRef = useRef<{
     userMessageId: string;
@@ -2613,8 +2629,8 @@ export function ChatPane({
     const pending = pendingSendNudgeRef.current;
     if (!pending || keyboardExtra > 0) return;
     pendingSendNudgeRef.current = null;
-    scroll.nudgeAfterSend(pending.userMessageId, pending.trailingSlackPx);
-  }, [keyboardExtra, scroll.nudgeAfterSend]);
+    nudgeAfterSend(pending.userMessageId, pending.trailingSlackPx);
+  }, [keyboardExtra, nudgeAfterSend]);
 
   const [sendPinSuppressForId, setSendPinSuppressForId] = useState<
     string | null
@@ -2633,12 +2649,12 @@ export function ChatPane({
       setUnread(false);
       return;
     }
-    if (grew && scroll.awayFromBottom) setUnread(true);
-  }, [visibleMessages.length, scroll.awayFromBottom]);
+    if (grew && awayFromBottom) setUnread(true);
+  }, [visibleMessages.length, awayFromBottom]);
 
   useEffect(() => {
-    if (!scroll.awayFromBottom) setUnread(false);
-  }, [scroll.awayFromBottom]);
+    if (!awayFromBottom) setUnread(false);
+  }, [awayFromBottom]);
 
   useEffect(() => {
     if (!readAloud.enabled) {
@@ -2697,7 +2713,7 @@ export function ChatPane({
 
   const submit = useCallback(() => {
     tapMedium();
-    const shouldPlaceLatestTurn = scroll.getShouldPlaceLatestTurn();
+    const shouldPlaceLatestTurn = getShouldPlaceLatestTurn();
     const submitted = onSubmit();
     if (submitted && shouldPlaceLatestTurn) {
 
@@ -2716,11 +2732,11 @@ export function ChatPane({
           trailingSlackPx: restingSpacerTargetPx,
         };
       } else {
-        scroll.nudgeAfterSend(submitted.userMessageId, restingSpacerTargetPx);
+        nudgeAfterSend(submitted.userMessageId, restingSpacerTargetPx);
       }
     } else if (submitted) {
       clearResponseSpacer();
-      scroll.releaseFollow();
+      releaseFollow();
     }
     Keyboard.dismiss();
   }, [
@@ -2730,9 +2746,9 @@ export function ChatPane({
     footerHeight,
     keyboardExtra,
     listViewportHeight,
-    scroll.getShouldPlaceLatestTurn,
-    scroll.nudgeAfterSend,
-    scroll.releaseFollow,
+    getShouldPlaceLatestTurn,
+    nudgeAfterSend,
+    releaseFollow,
   ]);
 
   const dictationHeadersMemo = useMemo(
@@ -3002,7 +3018,7 @@ export function ChatPane({
   }, []);
   const handleListScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      scroll.onScroll(e);
+      onScroll(e);
       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
       const prevOffsetY = floatingMetricsRef.current.offsetY;
       floatingMetricsRef.current = {
@@ -3018,7 +3034,7 @@ export function ChatPane({
         ),
       );
     },
-    [applyFloatingHidden, scroll.onScroll],
+    [applyFloatingHidden, onScroll],
   );
 
   const refreshFloatingFromPosition = useCallback(() => {
@@ -3029,17 +3045,17 @@ export function ChatPane({
   }, [applyFloatingHidden]);
 
   const handleListScrollSettle = useCallback(() => {
-    scroll.onScrollSettle();
+    onScrollSettle();
     refreshFloatingFromPosition();
-  }, [refreshFloatingFromPosition, scroll.onScrollSettle]);
+  }, [refreshFloatingFromPosition, onScrollSettle]);
 
   const handleListContentSizeChange = useCallback(
     (width: number, height: number) => {
-      scroll.onListContentSizeChange(width, height);
+      onListContentSizeChange(width, height);
       floatingMetricsRef.current.contentHeight = height;
       refreshFloatingFromPosition();
     },
-    [refreshFloatingFromPosition, scroll.onListContentSizeChange],
+    [refreshFloatingFromPosition, onListContentSizeChange],
   );
 
   const onPressPlus = useCallback(() => {
@@ -3280,9 +3296,9 @@ export function ChatPane({
     lastMessage?.role === "user" ? lastMessage.id : null;
   useEffect(() => {
     if (!activeAssistantId) {
-      scroll.clearActiveAssistantLayout();
+      clearActiveAssistantLayout();
     }
-  }, [activeAssistantId, scroll.clearActiveAssistantLayout]);
+  }, [activeAssistantId, clearActiveAssistantLayout]);
 
   const activeMenuMessageId = messageMenu?.message.id ?? null;
 
@@ -3313,9 +3329,9 @@ export function ChatPane({
           animate={animate}
           onLayout={
             isActiveAssistant
-              ? scroll.onActiveAssistantLayout
+              ? onActiveAssistantLayout
               : isLatestUser
-                ? (event) => scroll.onLatestUserLayout(item.id, event)
+                ? (event) => onLatestUserLayout(item.id, event)
                 : undefined
           }
         >
@@ -3342,12 +3358,11 @@ export function ChatPane({
       onOpenArtifact,
       onOpenStellaFile,
       latestUserMessageId,
-      scroll.onLatestUserLayout,
-      scroll.onActiveAssistantLayout,
+      onLatestUserLayout,
+      onActiveAssistantLayout,
       activeAssistantId,
       activeMenuMessageId,
       selectingMessageId,
-      startSelectingMessage,
       stopSelectingMessage,
       onOpenActivityHub,
       realtimeVoiceDesktopAccess,
@@ -3413,10 +3428,10 @@ export function ChatPane({
       search.close();
 
       setTimeout(() => {
-        scroll.listRef.current?.scrollToIndex({ index, animated: true });
+        listRef.current?.scrollToIndex({ index, animated: true });
       }, 60);
     },
-    [search, scroll.listRef],
+    [search, listRef],
   );
 
   const empty = visibleMessages.length === 0;
@@ -3523,7 +3538,7 @@ export function ChatPane({
         ) : (
           <>
             <LegendList<ChatMessage>
-              ref={scroll.listRef}
+              ref={listRef}
               style={styles.messageList}
               contentContainerStyle={listContentContainerStyle}
               data={visibleMessages}
@@ -3537,7 +3552,7 @@ export function ChatPane({
               onScrollBeginDrag={() => {
 
                 if (selectingMessageId != null) stopSelectingMessage();
-                scroll.onScrollBeginDrag();
+                onScrollBeginDrag();
               }}
               onScrollEndDrag={handleListScrollSettle}
               onMomentumScrollEnd={handleListScrollSettle}
@@ -3601,9 +3616,9 @@ export function ChatPane({
           ) : null}
           {!historyLoading && !empty ? (
             <ScrollToBottomFab
-              visible={scroll.awayFromBottom}
+              visible={awayFromBottom}
               hasUnread={unread}
-              onPress={scroll.scrollToBottom}
+              onPress={scrollToBottom}
               styles={styles}
               colors={colors}
               bottomOffset={footerHeight + FLOATING_CONTROL_LIFT - 24}

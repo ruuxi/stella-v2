@@ -57,7 +57,7 @@ export function ConnectHeroAnimation() {
       -1,
       false,
     );
-  }, []);
+  }, [cursorVal, pulseVal, signalOffset]);
 
   const signalLineProps = useAnimatedProps(() => ({
     strokeDashoffset: signalOffset.value,

@@ -162,10 +162,14 @@
 }
 
 .odemo-bubble[data-role="assistant"] {
-  align-self: stretch;
-  max-width: 100%;
-  padding: 0 2px;
-  color: var(--text-base);
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: var(--radius-3xl);
+  border-bottom-left-radius: 4px;
+  background: var(--chat-assistant-bubble-fill);
+  color: var(--chat-assistant-bubble-text);
 }
 
 .odemo-working {

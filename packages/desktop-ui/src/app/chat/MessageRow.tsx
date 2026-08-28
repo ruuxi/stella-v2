@@ -513,9 +513,6 @@ export const UserMessageRow = memo(
             <UserMessageBody text={text} />
           </div>
         )}
-        {
-
-}
         {(text.trim() || chips.length > 0) && (
           <MessageActions
             text={text}
@@ -644,7 +641,6 @@ export const AssistantMessageRow = memo(
           ) : null}
           {row.customSlot ? row.customSlot : null}
           {hasText && !row.isIntraTurn && (
-
             <MessageActions
               text={text}
               messageKey={row.id}

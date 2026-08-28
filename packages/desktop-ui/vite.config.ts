@@ -300,11 +300,11 @@ export default defineConfig({
     },
     watch: {
       ignored: [
-        `${BUNDLED_STELLA_DATA_SEED_DIR.replace(/\\/g, "/")},
-        `${DIST_ELECTRON_DIR.replace(/\\/g, "/")},
+        `${BUNDLED_STELLA_DATA_SEED_DIR.replace(/\\/g, "/")}/**`,
+        `${DIST_ELECTRON_DIR.replace(/\\/g, "/")}/**`,
 
-        `${NATIVE_DIR.replace(/\\/g, "/")},
-        `${RELEASE_DIR.replace(/\\/g, "/")},
+        `${NATIVE_DIR.replace(/\\/g, "/")}/**`,
+        `${RELEASE_DIR.replace(/\\/g, "/")}/**`,
         normalizeWatchedFilePath(BUNDLE_FINGERPRINT_FILE),
       ],
     },

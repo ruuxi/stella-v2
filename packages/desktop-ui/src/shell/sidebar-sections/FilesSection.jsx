@@ -109,7 +109,8 @@ function AgentGroupRow({ hierarchy, conversationId, expanded, onToggle }) {
     </>);
 }
 
-export function WorkList({ section = "files", idleContent = null }) {
+export function WorkList(props) {
+    const { section = "files", idleContent = null } = props;
 
     const showSearch = section === "home";
     const chat = useChatRuntime();

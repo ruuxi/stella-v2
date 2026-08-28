@@ -13,11 +13,6 @@ const desktopI18n = resolve(
 const outDir = join(mobileRoot, "src", "i18n");
 const outLocales = join(outDir, "locales");
 
-const banner = (source) =>
-  `// GENERATED FILE — DO NOT EDIT.\n` +
-  `// Copied from packages/desktop-ui/src/shared/i18n/${source}\n` +
-  `// by packages/mobile/scripts/sync-i18n-catalogs.mjs.\n`;
-
 mkdirSync(outLocales, { recursive: true });
 
 const localesSource = readFileSync(join(desktopI18n, "locales.ts"), "utf8");
@@ -28,7 +23,7 @@ if (/^\s*import\s/m.test(localesSource)) {
 }
 writeFileSync(
   join(outDir, "locales.ts"),
-  `${banner("locales.ts")}\n${localesSource}`,
+  localesSource,
 );
 
 const catalogDir = join(desktopI18n, "locales");
@@ -57,8 +52,7 @@ const entries = catalogFiles
 
 writeFileSync(
   join(outDir, "catalog-registry.generated.ts"),
-  `${banner("locales/*.json")}
-import type { Catalog } from "./catalog-types";
+  `import type { Catalog } from "./catalog-types";
 
 export const CATALOG_LOADERS: Record<string, () => Catalog> = {
 ${entries}

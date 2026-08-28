@@ -21,17 +21,18 @@ const COPIED_RESET_MS = 1600;
 
 const REWIND_CONFIRM_TIMEOUT_MS = 3000;
 
-function MessageActionsImpl({
-  text,
-  messageKey,
-  showReadAloud = false,
-  align = "start",
-  onRewind,
-  onFork,
-  actionsDisabled = false,
-  timestampMs = undefined,
-  copyAttachment = undefined,
-}) {
+function MessageActionsImpl(props) {
+  const {
+    text,
+    messageKey,
+    showReadAloud = false,
+    align = "start",
+    onRewind,
+    onFork,
+    actionsDisabled = false,
+    timestampMs,
+    copyAttachment,
+  } = props;
   const t = useT();
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef(null);

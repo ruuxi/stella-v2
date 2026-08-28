@@ -3290,7 +3290,12 @@ export function ChatPane({
     () =>
       onOpenArtifact
         ? (path: string) =>
-            onOpenArtifact(stellaFileChatArtifact(path, conversationId ?? ""))
+            onOpenArtifact(
+              stellaFileChatArtifact(
+                path,
+                conversationId ?? "",
+              ) as ChatArtifact,
+            )
         : undefined,
     [onOpenArtifact, conversationId],
   );

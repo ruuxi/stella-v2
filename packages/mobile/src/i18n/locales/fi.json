@@ -70,12 +70,6 @@
         "off": "Pois"
       }
     },
-    "voice": {
-      "title": "Ääni",
-      "personality": {
-        "label": "Persoonallisuus"
-      }
-    },
     "notifications": {
       "title": "Ääni-ilmoitukset",
       "description": "Toistaa äänen, kun Stella saa agentin ajon valmiiksi."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} tulos",
       "resultsAriaOther": "{count} tulosta",
       "descriptions": {
-        "voice": "Valitse Stellan puhetyyli ja persoonallisuusääni.",
         "permissions": "Myönnä macOS:ssä käyttöoikeudet saavutettavuuteen, näytön tallennukseen ja mikrofoniin.",
         "shortcuts": "Muuta sanelun ja puheen pikanäppäimiä.",
         "backup": "Automaattiset salatut varmuuskopiot, palautuspisteet ja pyynnöstä otettavat tilannevedokset.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "Ääni-ilmoitusasetuksen lataaminen epäonnistui.",
       "saveSoundNotifications": "Ääni-ilmoitusasetuksen päivitys epäonnistui.",
       "soundNotificationsUnavailable": "Ääni-ilmoitusasetukset eivät ole käytettävissä tässä ikkunassa.",
-      "loadVoice": "Ääniasetuksen lataaminen epäonnistui.",
-      "saveVoice": "Ääniasetuksen päivitys epäonnistui.",
-      "voiceUnavailable": "Ääniasetukset eivät ole käytettävissä tässä ikkunassa.",
       "loadWorkingMode": "Orkestraattoritilan lataaminen epäonnistui.",
       "saveWorkingMode": "Orkestraattoritilan päivittäminen epäonnistui.",
       "workingModeUnavailable": "Orkestraattoritila ei ole käytettävissä tässä ikkunassa.",
@@ -639,7 +629,6 @@
       "extension": "Lisää Stella selaimeesi.",
       "browser": "Anna Stellan oppia tuntemaan sinut.",
       "theme": "Miltä Stellan pitäisi näyttää?",
-      "personality": "Miten Stellan pitäisi puhua?",
       "voice": "Puhu kirjoittamisen sijaan.",
       "enter": "Stella on melkein valmis."
     },

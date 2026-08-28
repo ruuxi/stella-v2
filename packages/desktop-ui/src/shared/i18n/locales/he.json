@@ -70,12 +70,6 @@
         "off": "כבוי"
       }
     },
-    "voice": {
-      "title": "קול",
-      "personality": {
-        "label": "אישיות"
-      }
-    },
     "notifications": {
       "title": "התראות קוליות",
       "description": "השמעת צליל כאשר Stella מסיימת הרצת סוכן."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} תוצאה",
       "resultsAriaOther": "{count} תוצאות",
       "descriptions": {
-        "voice": "בחר את סגנון הדיבור ואת קול האישיות של Stella.",
         "permissions": "הענק גישה לנגישות, צילום מסך ומיקרופון ב-macOS.",
         "shortcuts": "שנה את קיצורי הדרך להכתבה ולקול.",
         "backup": "גיבויים מוצפנים אוטומטיים, נקודות שחזור ותמונות מצב לפי דרישה.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "טעינת הגדרת ההתראות הקוליות נכשלה.",
       "saveSoundNotifications": "עדכון הגדרת ההתראות הקוליות נכשל.",
       "soundNotificationsUnavailable": "הגדרות ההתראות הקוליות אינן זמינות בחלון זה.",
-      "loadVoice": "טעינת הגדרת הקול נכשלה.",
-      "saveVoice": "עדכון הגדרת הקול נכשל.",
-      "voiceUnavailable": "הגדרות הקול אינן זמינות בחלון זה.",
       "loadWorkingMode": "טעינת מצב התזמור נכשלה.",
       "saveWorkingMode": "עדכון מצב התזמור נכשל.",
       "workingModeUnavailable": "מצב התזמור אינו זמין בחלון הזה.",
@@ -640,7 +630,6 @@
       "extension": "הוסיפו את Stella לדפדפן שלכם.",
       "browser": "אפשרו ל-Stella להכיר אתכם.",
       "theme": "איך Stella צריכה להיראות?",
-      "personality": "איך Stella צריכה לדבר?",
       "voice": "דברו במקום להקליד.",
       "enter": "Stella כמעט מוכנה."
     },

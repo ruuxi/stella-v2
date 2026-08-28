@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AGENT_IDS,
+  agentHasCapability,
   getLocalCliWorkingDirectory,
   isLocalCliAgentId,
   normalizeRetiredAgentType,
@@ -22,5 +23,26 @@ describe("agent runtime contracts", () => {
   it("reinterprets the retired manager type as General", () => {
     expect(normalizeRetiredAgentType("manager")).toBe(AGENT_IDS.GENERAL);
     expect(AGENT_IDS).not.toHaveProperty("MANAGER");
+  });
+
+  it("injects personality only for the orchestrator", () => {
+    expect(agentHasCapability(AGENT_IDS.ORCHESTRATOR, "injectsPersonality")).toBe(
+      true,
+    );
+    expect(agentHasCapability(AGENT_IDS.GENERAL, "injectsPersonality")).toBe(
+      false,
+    );
+    expect(agentHasCapability(AGENT_IDS.EXPLORE, "injectsPersonality")).toBe(
+      false,
+    );
+    expect(agentHasCapability(AGENT_IDS.DREAM, "injectsPersonality")).toBe(
+      false,
+    );
+    expect(agentHasCapability(AGENT_IDS.FASHION, "injectsPersonality")).toBe(
+      false,
+    );
+    expect(
+      agentHasCapability(AGENT_IDS.OFFLINE_RESPONDER, "injectsPersonality"),
+    ).toBe(false);
   });
 });

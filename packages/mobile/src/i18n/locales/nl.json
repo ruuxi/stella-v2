@@ -70,12 +70,6 @@
         "off": "Uit"
       }
     },
-    "voice": {
-      "title": "Stem",
-      "personality": {
-        "label": "Persoonlijkheid"
-      }
-    },
     "notifications": {
       "title": "Geluidsmeldingen",
       "description": "Speelt een geluid af wanneer Stella een agent-taak voltooit."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} resultaat",
       "resultsAriaOther": "{count} resultaten",
       "descriptions": {
-        "voice": "Kies Stella's spreekstijl en persoonlijkheidsstem.",
         "permissions": "Verleen toegang tot toegankelijkheid, schermopname en microfoon op macOS.",
         "shortcuts": "Wijzig de sneltoetsen voor dicteren en spraak.",
         "backup": "Automatische versleutelde back-ups, herstelpunten en momentopnamen op aanvraag.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "Instelling voor geluidsmeldingen laden mislukt.",
       "saveSoundNotifications": "Instelling voor geluidsmeldingen bijwerken mislukt.",
       "soundNotificationsUnavailable": "Instellingen voor geluidsmeldingen zijn niet beschikbaar in dit venster.",
-      "loadVoice": "Steminstelling laden mislukt.",
-      "saveVoice": "Steminstelling bijwerken mislukt.",
-      "voiceUnavailable": "Steminstellingen zijn niet beschikbaar in dit venster.",
       "loadWorkingMode": "Laden van de orkestratormodus is mislukt.",
       "saveWorkingMode": "Bijwerken van de orkestratormodus is mislukt.",
       "workingModeUnavailable": "De orkestratormodus is niet beschikbaar in dit venster.",
@@ -639,7 +629,6 @@
       "extension": "Voeg Stella toe aan je browser.",
       "browser": "Laat Stella je leren kennen.",
       "theme": "Hoe moet Stella eruitzien?",
-      "personality": "Hoe moet Stella praten?",
       "voice": "Praat in plaats van typen.",
       "enter": "Stella is bijna klaar."
     },

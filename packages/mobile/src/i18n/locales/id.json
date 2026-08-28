@@ -70,12 +70,6 @@
         "off": "Nonaktif"
       }
     },
-    "voice": {
-      "title": "Suara",
-      "personality": {
-        "label": "Kepribadian"
-      }
-    },
     "notifications": {
       "title": "Notifikasi suara",
       "description": "Memutar suara saat Stella menyelesaikan sebuah proses agen."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} hasil",
       "resultsAriaOther": "{count} hasil",
       "descriptions": {
-        "voice": "Pilih gaya bicara dan suara kepribadian Stella.",
         "permissions": "Berikan akses ke aksesibilitas, rekam layar, dan mikrofon di macOS.",
         "shortcuts": "Ubah pintasan dikte dan suara.",
         "backup": "Cadangan terenkripsi otomatis, titik pemulihan, dan snapshot sesuai permintaan.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "Gagal memuat pengaturan notifikasi suara.",
       "saveSoundNotifications": "Gagal memperbarui pengaturan notifikasi suara.",
       "soundNotificationsUnavailable": "Pengaturan notifikasi suara tidak tersedia di jendela ini.",
-      "loadVoice": "Gagal memuat pengaturan suara.",
-      "saveVoice": "Gagal memperbarui pengaturan suara.",
-      "voiceUnavailable": "Pengaturan suara tidak tersedia di jendela ini.",
       "loadWorkingMode": "Gagal memuat mode orkestrator.",
       "saveWorkingMode": "Gagal memperbarui mode orkestrator.",
       "workingModeUnavailable": "Mode orkestrator tidak tersedia di jendela ini.",
@@ -638,7 +628,6 @@
       "extension": "Tambahkan Stella ke peramban Anda.",
       "browser": "Biarkan Stella mengenal Anda.",
       "theme": "Bagaimana Stella seharusnya terlihat?",
-      "personality": "Bagaimana Stella seharusnya berbicara?",
       "voice": "Bicaralah, jangan mengetik.",
       "enter": "Stella hampir siap."
     },

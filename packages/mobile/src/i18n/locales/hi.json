@@ -70,12 +70,6 @@
         "off": "बंद"
       }
     },
-    "voice": {
-      "title": "आवाज़",
-      "personality": {
-        "label": "व्यक्तित्व"
-      }
-    },
     "notifications": {
       "title": "ध्वनि सूचनाएँ",
       "description": "जब Stella किसी एजेंट का रन पूरा करती है तो एक ध्वनि बजाएँ।"
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} परिणाम",
       "resultsAriaOther": "{count} परिणाम",
       "descriptions": {
-        "voice": "Stella की बोलने की शैली और व्यक्तित्व आवाज़ चुनें।",
         "permissions": "macOS पर एक्सेसिबिलिटी, स्क्रीन कैप्चर और माइक्रोफ़ोन एक्सेस दें।",
         "shortcuts": "डिक्टेशन और वॉइस शॉर्टकट बदलें।",
         "backup": "स्वचालित एन्क्रिप्टेड बैकअप, पुनर्स्थापना बिंदु और मांग पर स्नैपशॉट।",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "ध्वनि सूचना सेटिंग लोड करने में विफल।",
       "saveSoundNotifications": "ध्वनि सूचना सेटिंग अपडेट करने में विफल।",
       "soundNotificationsUnavailable": "इस विंडो में ध्वनि सूचना सेटिंग्स उपलब्ध नहीं हैं।",
-      "loadVoice": "आवाज़ सेटिंग लोड करने में विफल।",
-      "saveVoice": "आवाज़ सेटिंग अपडेट करने में विफल।",
-      "voiceUnavailable": "इस विंडो में आवाज़ सेटिंग्स उपलब्ध नहीं हैं।",
       "loadWorkingMode": "ऑर्केस्ट्रेटर मोड लोड नहीं हो सका।",
       "saveWorkingMode": "ऑर्केस्ट्रेटर मोड अपडेट नहीं हो सका।",
       "workingModeUnavailable": "इस विंडो में ऑर्केस्ट्रेटर मोड उपलब्ध नहीं है।",
@@ -639,7 +629,6 @@
       "extension": "अपने ब्राउज़र में Stella जोड़ें।",
       "browser": "Stella को आपको जानने दें।",
       "theme": "Stella कैसी दिखे?",
-      "personality": "Stella कैसे बात करे?",
       "voice": "टाइप करने के बजाय बोलें।",
       "enter": "Stella लगभग तैयार है।"
     },

@@ -70,12 +70,6 @@
         "off": "Fra"
       }
     },
-    "voice": {
-      "title": "Stemme",
-      "personality": {
-        "label": "Personlighed"
-      }
-    },
     "notifications": {
       "title": "Lydnotifikationer",
       "description": "Afspiller en lyd, når Stella afslutter en agentkørsel."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} resultat",
       "resultsAriaOther": "{count} resultater",
       "descriptions": {
-        "voice": "Vælg Stellas talestil og personlighedsstemme.",
         "permissions": "Giv adgang til tilgængelighed, skærmoptagelse og mikrofon på macOS.",
         "shortcuts": "Skift genveje til diktering og stemme.",
         "backup": "Automatiske krypterede sikkerhedskopier, gendannelsespunkter og øjebliksbilleder efter behov.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "Kunne ikke indlæse indstillingen for lydnotifikationer.",
       "saveSoundNotifications": "Kunne ikke opdatere indstillingen for lydnotifikationer.",
       "soundNotificationsUnavailable": "Indstillinger for lydnotifikationer er ikke tilgængelige i dette vindue.",
-      "loadVoice": "Kunne ikke indlæse stemmeindstillingen.",
-      "saveVoice": "Kunne ikke opdatere stemmeindstillingen.",
-      "voiceUnavailable": "Stemmeindstillinger er ikke tilgængelige i dette vindue.",
       "loadWorkingMode": "Orkestratortilstanden kunne ikke indlæses.",
       "saveWorkingMode": "Orkestratortilstanden kunne ikke opdateres.",
       "workingModeUnavailable": "Orkestratortilstand er ikke tilgængelig i dette vindue.",
@@ -639,7 +629,6 @@
       "extension": "Tilføj Stella til din browser.",
       "browser": "Lad Stella lære dig at kende.",
       "theme": "Hvordan skal Stella se ud?",
-      "personality": "Hvordan skal Stella tale?",
       "voice": "Tal i stedet for at skrive.",
       "enter": "Stella er næsten klar."
     },

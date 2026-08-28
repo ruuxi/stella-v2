@@ -70,12 +70,6 @@
         "off": "Vypnuto"
       }
     },
-    "voice": {
-      "title": "Hlas",
-      "personality": {
-        "label": "Osobnost"
-      }
-    },
     "notifications": {
       "title": "Zvuková upozornění",
       "description": "Přehraje zvuk, když Stella dokončí běh agenta."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} výsledek",
       "resultsAriaOther": "Výsledky: {count}",
       "descriptions": {
-        "voice": "Vyberte styl mluvení a hlas osobnosti Stelly.",
         "permissions": "Udělte v systému macOS přístup ke zpřístupnění, záznamu obrazovky a mikrofonu.",
         "shortcuts": "Změňte klávesové zkratky pro diktování a hlas.",
         "backup": "Automatické šifrované zálohy, body obnovení a snímky na vyžádání.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "Nepodařilo se načíst nastavení zvukových upozornění.",
       "saveSoundNotifications": "Nepodařilo se aktualizovat nastavení zvukových upozornění.",
       "soundNotificationsUnavailable": "Nastavení zvukových upozornění nejsou v tomto okně dostupná.",
-      "loadVoice": "Nepodařilo se načíst nastavení hlasu.",
-      "saveVoice": "Nepodařilo se aktualizovat nastavení hlasu.",
-      "voiceUnavailable": "Nastavení hlasu nejsou v tomto okně dostupná.",
       "loadWorkingMode": "Nepodařilo se načíst režim orchestrátoru.",
       "saveWorkingMode": "Nepodařilo se aktualizovat režim orchestrátoru.",
       "workingModeUnavailable": "Režim orchestrátoru není v tomto okně k dispozici.",
@@ -641,7 +631,6 @@
       "extension": "Přidejte Stellu do prohlížeče.",
       "browser": "Nechte Stellu, ať vás pozná.",
       "theme": "Jak by Stella měla vypadat?",
-      "personality": "Jak by Stella měla mluvit?",
       "voice": "Mluvte místo psaní.",
       "enter": "Stella je téměř připravena."
     },

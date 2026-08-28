@@ -70,12 +70,6 @@
         "off": "Aus"
       }
     },
-    "voice": {
-      "title": "Stimme",
-      "personality": {
-        "label": "Persönlichkeit"
-      }
-    },
     "notifications": {
       "title": "Tonbenachrichtigungen",
       "description": "Spielt einen Ton ab, wenn Stella einen Agentenlauf beendet."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} Ergebnis",
       "resultsAriaOther": "{count} Ergebnisse",
       "descriptions": {
-        "voice": "Wähle Stellas Sprechstil und Persönlichkeitsstimme.",
         "permissions": "Erteile unter macOS Zugriff auf Bedienungshilfen, Bildschirmaufnahme und Mikrofon.",
         "shortcuts": "Ändere die Tastenkürzel für Diktat und Sprache.",
         "backup": "Automatische verschlüsselte Backups, Wiederherstellungspunkte und Snapshots auf Abruf.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "Einstellung für Tonbenachrichtigungen konnte nicht geladen werden.",
       "saveSoundNotifications": "Einstellung für Tonbenachrichtigungen konnte nicht aktualisiert werden.",
       "soundNotificationsUnavailable": "Einstellungen für Tonbenachrichtigungen sind in diesem Fenster nicht verfügbar.",
-      "loadVoice": "Spracheinstellung konnte nicht geladen werden.",
-      "saveVoice": "Spracheinstellung konnte nicht aktualisiert werden.",
-      "voiceUnavailable": "Spracheinstellungen sind in diesem Fenster nicht verfügbar.",
       "loadWorkingMode": "Orchestrator-Modus konnte nicht geladen werden.",
       "saveWorkingMode": "Orchestrator-Modus konnte nicht aktualisiert werden.",
       "workingModeUnavailable": "Der Orchestrator-Modus ist in diesem Fenster nicht verfügbar.",
@@ -639,7 +629,6 @@
       "extension": "Füge Stella zu deinem Browser hinzu.",
       "browser": "Lass Stella dich kennenlernen.",
       "theme": "Wie soll Stella aussehen?",
-      "personality": "Wie soll Stella sprechen?",
       "voice": "Sprich, statt zu tippen.",
       "enter": "Stella ist fast bereit."
     },

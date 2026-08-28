@@ -70,12 +70,6 @@
         "off": "إيقاف"
       }
     },
-    "voice": {
-      "title": "الصوت",
-      "personality": {
-        "label": "الشخصية"
-      }
-    },
     "notifications": {
       "title": "إشعارات صوتية",
       "description": "تشغيل صوت عندما تُنهي Stella تشغيل وكيل."
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} نتيجة",
       "resultsAriaOther": "{count} نتيجة",
       "descriptions": {
-        "voice": "اختر أسلوب كلام Stella وصوت شخصيتها.",
         "permissions": "امنح الوصول إلى إمكانية الوصول وتسجيل الشاشة والميكروفون على macOS.",
         "shortcuts": "غيّر اختصارات الإملاء والصوت.",
         "backup": "نسخ احتياطية مشفّرة تلقائية، ونقاط استعادة، ولقطات عند الطلب.",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "تعذّر تحميل إعداد الإشعارات الصوتية.",
       "saveSoundNotifications": "تعذّر تحديث إعداد الإشعارات الصوتية.",
       "soundNotificationsUnavailable": "إعدادات الإشعارات الصوتية غير متاحة في هذه النافذة.",
-      "loadVoice": "تعذّر تحميل إعداد الصوت.",
-      "saveVoice": "تعذّر تحديث إعداد الصوت.",
-      "voiceUnavailable": "إعدادات الصوت غير متاحة في هذه النافذة.",
       "loadWorkingMode": "تعذّر تحميل وضع المنسّق.",
       "saveWorkingMode": "تعذّر تحديث وضع المنسّق.",
       "workingModeUnavailable": "وضع المنسّق غير متاح في هذه النافذة.",
@@ -643,7 +633,6 @@
       "extension": "أضف Stella إلى متصفحك.",
       "browser": "دع Stella تتعرف عليك.",
       "theme": "كيف يجب أن تبدو Stella؟",
-      "personality": "كيف يجب أن تتحدث Stella؟",
       "voice": "تحدث بدلاً من الكتابة.",
       "enter": "‏Stella جاهزة تقريبًا."
     },

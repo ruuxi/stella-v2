@@ -3,7 +3,6 @@ import path from "path";
 import { ensurePrivateDirSync, writePrivateFileSync, } from "../shared/private-fs.js";
 import { coerceAssistantWorkingMode, coerceRealtimeVoiceProvider, DEFAULT_ASSISTANT_WORKING_MODE } from "@stella/contracts/local-preferences";
 import { coerceAgentRuntimeEngine, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_SERVICE_TIER } from "@stella/contracts/agent-engine";
-import { isKnownPersonalityId } from "@stella/contracts/personality";
 import { listLocalLlmCredentials } from "../storage/llm-credentials.js";
 import { listLocalLlmOAuthCredentials } from "../storage/llm-oauth-credentials.js";
 export { DEFAULT_CODEX_MODEL } from "@stella/contracts/agent-engine";
@@ -46,7 +45,6 @@ const DEFAULT_PREFERENCES = {
     onboardingCompleted: false,
     wakeWordThreshold: 0.6,
     readAloudEnabled: false,
-    personalityVoiceId: undefined,
     promptPresetSelections: {},
 
     developerModeEnabled: undefined,
@@ -150,9 +148,6 @@ export const loadLocalPreferences = (stellaDataDir) => {
                 ? parsed.wakeWordThreshold
                 : DEFAULT_PREFERENCES.wakeWordThreshold,
             readAloudEnabled: parsed.readAloudEnabled === true,
-            personalityVoiceId: isKnownPersonalityId(parsed.personalityVoiceId)
-                ? parsed.personalityVoiceId
-                : DEFAULT_PREFERENCES.personalityVoiceId,
             promptPresetSelections: normalizePromptPresetSelections(parsed.promptPresetSelections),
             developerModeEnabled: typeof parsed.developerModeEnabled === "boolean"
                 ? parsed.developerModeEnabled
@@ -357,12 +352,6 @@ export const setPromptPresetSelection = (stellaDataDir, agentId, presetId) => {
         selections[agentId] = presetId;
     saveLocalPreferences(stellaDataDir, { ...prefs, promptPresetSelections: selections });
 };
-export const getPersonalityVoiceId = (stellaDataDir) => loadLocalPreferences(stellaDataDir).personalityVoiceId;
-export const setPersonalityVoiceId = (stellaDataDir, id) => {
-    const prefs = loadLocalPreferences(stellaDataDir);
-    saveLocalPreferences(stellaDataDir, { ...prefs, personalityVoiceId: id });
-};
-
 export const hasDeveloperModeSignals = (stellaDataDir) => {
     const prefs = loadLocalPreferences(stellaDataDir);
     if (prefs.agentRuntimeEngine !== "default")

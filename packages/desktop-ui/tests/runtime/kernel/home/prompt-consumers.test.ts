@@ -6,12 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { buildMemoryReviewSystemPrompt } from "@stella/runtime/kernel/agent-runtime/memory-review";
-import {
-  readOrSeedPersonality,
-  resolvePersonalityPresetContent,
-  writePersonality,
-} from "@stella/runtime/kernel/personality/personality";
-import { setPersonalityVoiceId } from "@stella/runtime/kernel/preferences/local-preferences";
+import { readOrSeedPersonality } from "@stella/runtime/kernel/personality/personality";
 import { defaultPromptForAgentType } from "@stella/runtime/kernel/runner/shared";
 import { resolveThreadCompactionSystemPrompt } from "@stella/runtime/kernel/thread-runtime";
 
@@ -81,49 +76,37 @@ describe("bundled prompt consumers", () => {
     );
   });
 
-  it("ships the real bundled prompt set", () => {
-
+  it("ships the real bundled prompt set", async () => {
     expect(resolveThreadCompactionSystemPrompt()).not.toBe("");
     expect(defaultPromptForAgentType(AGENT_IDS.ORCHESTRATOR)).not.toBe("");
     expect(defaultPromptForAgentType("unknown-agent")).not.toBe("");
+    expect(readOrSeedPersonality(await tempDir())).not.toBe("");
   });
 });
 
 describe("personality composition", () => {
-  it("composes live from the selected bundled preset", async () => {
+  it("composes live from the bundled personality prompt", async () => {
     const prompts = await tempPromptsDir();
     const home = await tempDir();
     expect(readOrSeedPersonality(home)).toBe("");
 
-    await writePrompt(prompts, "personality-stella", "Stella voice");
-    await writePrompt(prompts, "personality-professional", "Professional voice");
+    await writePrompt(prompts, "personality", "Stella voice");
 
-    expect(resolvePersonalityPresetContent(home, "stella")).toBe(
-      "Stella voice\n",
-    );
     expect(readOrSeedPersonality(home)).toBe("Stella voice");
 
     await expect(
       readFile(path.join(home, "PERSONALITY.md"), "utf-8"),
     ).rejects.toThrow();
-    await writePrompt(prompts, "personality-stella", "Updated Stella voice");
+    await writePrompt(prompts, "personality", "Updated Stella voice");
     expect(readOrSeedPersonality(home)).toBe("Updated Stella voice");
   });
 
-  it("lets a hand-written PERSONALITY.md replace the preset until a new pick clears it", async () => {
+  it("lets a hand-written PERSONALITY.md replace the bundled prompt", async () => {
     const prompts = await tempPromptsDir();
     const home = await tempDir();
-    await writePrompt(prompts, "personality-stella", "Stella voice");
-    await writePrompt(prompts, "personality-professional", "Professional voice");
+    await writePrompt(prompts, "personality", "Stella voice");
 
     await writeFile(path.join(home, "PERSONALITY.md"), "my custom voice");
     expect(readOrSeedPersonality(home)).toBe("my custom voice");
-
-    setPersonalityVoiceId(home, "professional");
-    expect(writePersonality(home, "professional")).toBe("Professional voice");
-    await expect(
-      readFile(path.join(home, "PERSONALITY.md"), "utf-8"),
-    ).rejects.toThrow();
-    expect(readOrSeedPersonality(home)).toBe("Professional voice");
   });
 });

@@ -70,12 +70,6 @@
         "off": "オフ"
       }
     },
-    "voice": {
-      "title": "音声",
-      "personality": {
-        "label": "パーソナリティ"
-      }
-    },
     "notifications": {
       "title": "サウンド通知",
       "description": "Stella がエージェントの実行を終えたときにサウンドを再生します。"
@@ -357,7 +351,6 @@
       "resultsAriaOne": "{count} 件の結果",
       "resultsAriaOther": "{count} 件の結果",
       "descriptions": {
-        "voice": "Stella の話し方とパーソナリティの声を選びます。",
         "permissions": "macOS でアクセシビリティ・画面収録・マイクへのアクセスを許可します。",
         "shortcuts": "音声入力と音声のショートカットを変更します。",
         "backup": "自動の暗号化バックアップ、復元ポイント、オンデマンドのスナップショット。",
@@ -379,9 +372,6 @@
       "loadSoundNotifications": "サウンド通知の設定を読み込めませんでした。",
       "saveSoundNotifications": "サウンド通知の設定を更新できませんでした。",
       "soundNotificationsUnavailable": "このウィンドウではサウンド通知の設定を利用できません。",
-      "loadVoice": "音声設定を読み込めませんでした。",
-      "saveVoice": "音声設定を更新できませんでした。",
-      "voiceUnavailable": "このウィンドウでは音声設定を利用できません。",
       "loadWorkingMode": "オーケストレーターモードを読み込めませんでした。",
       "saveWorkingMode": "オーケストレーターモードを更新できませんでした。",
       "workingModeUnavailable": "このウィンドウではオーケストレーターモードを利用できません。",
@@ -638,7 +628,6 @@
       "extension": "ブラウザに Stella を追加しましょう。",
       "browser": "Stella にあなたを知ってもらいましょう。",
       "theme": "Stella の見た目はどうしますか？",
-      "personality": "Stella の話し方はどうしますか？",
       "voice": "入力ではなく声で話しかける。",
       "enter": "Stella の準備はもうすぐ整います。"
     },

@@ -6,7 +6,10 @@ AGENTS.md
 AGENT.md
 docs/
 .claude
-.cursor
+.cursor/*
+!.cursor/skills/
+!.cursor/skills/verify-stella/
+!.cursor/skills/verify-stella/**
 .codex
 DEV-CONTEXT.md
 

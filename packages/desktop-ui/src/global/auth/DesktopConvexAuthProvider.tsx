@@ -6,7 +6,6 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
 } from "react";
 import { ConvexProviderWithAuth } from "convex/react";
 import { MagicLinkAuthProvider } from "@/global/auth/useMagicLinkAuth";
@@ -15,63 +14,23 @@ import {
   clearCachedToken,
 } from "@/global/auth/services/auth-token";
 import {
+  refreshAuthSession,
   signInAnonymous,
   useDesktopAuthSession,
 } from "@/global/auth/services/auth-session";
 import { convexClient } from "@/platform/convex/convex-client";
-import { getJwtExpMs } from "@/shared/lib/jwt";
 
-const TOKEN_BOOTSTRAP_RETRY_BASE_MS = 3_000;
-const TOKEN_BOOTSTRAP_RETRY_MAX_MS = 60_000;
-const TOKEN_BOOTSTRAP_MAX_ATTEMPTS = 10;
-const TOKEN_REFRESH_FALLBACK_MS = 3 * 60 * 1000;
-const TOKEN_REFRESH_MARGIN_MS = 90_000;
-const TOKEN_MIN_REFRESH_MS = 15_000;
-
-const getTokenBootstrapRetryDelayMs = (attempt: number) => {
-  const exponent = Math.max(0, attempt - 1);
-  return Math.min(
-    TOKEN_BOOTSTRAP_RETRY_MAX_MS,
-    TOKEN_BOOTSTRAP_RETRY_BASE_MS * 2 ** exponent,
-  );
-};
-
-export type AuthBootstrapStatus =
-  | "loading_session"
-  | "creating_anonymous_session"
-  | "syncing_runtime_token"
-  | "ready"
-  | "failed";
-
-type AuthBootstrapState = {
-  status: AuthBootstrapStatus;
-  error: string | null;
-};
-
-type AuthBootstrapContextValue = AuthBootstrapState & {
+type AuthBootstrapContextValue = {
   runtimeAuthReady: boolean;
 };
 
 const AuthBootstrapContext = createContext<AuthBootstrapContextValue>({
-  status: "loading_session",
-  error: null,
   runtimeAuthReady: false,
 });
 
 export function useAuthBootstrapState() {
   return useContext(AuthBootstrapContext);
 }
-
-const getHostTokenRefreshDelayMs = (token: string): number => {
-  try {
-    return Math.max(
-      TOKEN_MIN_REFRESH_MS,
-      getJwtExpMs(token) - Date.now() - TOKEN_REFRESH_MARGIN_MS,
-    );
-  } catch {
-    return TOKEN_REFRESH_FALLBACK_MS;
-  }
-};
 
 export function useDesktopConvexAuth() {
   const session = useDesktopAuthSession();
@@ -111,36 +70,12 @@ export function useDesktopConvexAuth() {
   );
 }
 
-function DesktopAuthRuntimeEffects({
-  setAuthBootstrapState,
-}: {
-  setAuthBootstrapState: (state: AuthBootstrapState) => void;
-}) {
+function DesktopAuthRuntimeEffects() {
   const session = useDesktopAuthSession();
   const attemptedAnonAuthRef = useRef(false);
-  const runtimeIdentityKeyRef = useRef<string | null>(null);
-  const runtimeAuthRefreshHandlerRef = useRef<
-    | ((args?: {
-        forceRefreshToken?: boolean;
-        requestId?: string;
-      }) => Promise<void>)
-    | null
-  >(null);
-  const sessionUser = (
-    session.data as
-      | { user?: { id?: string | null; isAnonymous?: boolean | null } }
-      | null
-      | undefined
-  )?.user;
-  const sessionUserId = sessionUser?.id ?? null;
-  const sessionIsAnonymous = sessionUser?.isAnonymous === true;
-  const hasSession = Boolean(session.data);
-  const hasConnectedAccount = hasSession && !sessionIsAnonymous;
-  const isSessionPending = Boolean(session.isPending);
 
   useEffect(() => {
     if (session.isPending) {
-      setAuthBootstrapState({ status: "loading_session", error: null });
       return;
     }
 
@@ -151,19 +86,11 @@ function DesktopAuthRuntimeEffects({
 
     if (attemptedAnonAuthRef.current) return;
     attemptedAnonAuthRef.current = true;
-    setAuthBootstrapState({
-      status: "creating_anonymous_session",
-      error: null,
-    });
 
     void signInAnonymous().catch(() => {
       attemptedAnonAuthRef.current = false;
-      setAuthBootstrapState({
-        status: "failed",
-        error: "Stella could not create a local sign-in session.",
-      });
     });
-  }, [session.data, session.isPending, setAuthBootstrapState]);
+  }, [session.data, session.isPending]);
 
   useEffect(() => {
     const systemApi = window.electronAPI?.system;
@@ -180,206 +107,14 @@ function DesktopAuthRuntimeEffects({
 
   useEffect(() => {
     const systemApi = window.electronAPI?.system;
-    if (
-      !systemApi?.onRuntimeAuthRefreshRequested ||
-      !systemApi.completeRuntimeAuthRefresh
-    ) {
+    if (!systemApi?.onAuthSessionInvalidated) {
       return;
     }
 
-    return systemApi.onRuntimeAuthRefreshRequested(({ requestId }) => {
-      const syncToken = runtimeAuthRefreshHandlerRef.current;
-      if (syncToken) {
-        void syncToken({ forceRefreshToken: true, requestId });
-        return;
-      }
-      void systemApi.completeRuntimeAuthRefresh({
-        requestId,
-        authenticated: false,
-        hasConnectedAccount: false,
-      });
-    });
-  }, []);
-
-  useEffect(() => {
-    const systemApi = window.electronAPI?.system;
-    if (!systemApi?.setAuthState) {
-      runtimeAuthRefreshHandlerRef.current = null;
-      setAuthBootstrapState({
-        status: "failed",
-        error: "Stella could not connect auth to the desktop runtime.",
-      });
-      return;
-    }
-
-    if (isSessionPending) {
-      runtimeAuthRefreshHandlerRef.current = null;
-      setAuthBootstrapState({ status: "loading_session", error: null });
-      return;
-    }
-
-    if (!hasSession) {
-      runtimeAuthRefreshHandlerRef.current = null;
-      setAuthBootstrapState({
-        status: "creating_anonymous_session",
-        error: null,
-      });
-      void systemApi.setAuthState({
-        authenticated: false,
-        hasConnectedAccount: false,
-      });
-      return;
-    }
-
-    setAuthBootstrapState({
-      status: "syncing_runtime_token",
-      error: null,
-    });
-
-    const runtimeIdentityKey = [
-      sessionUserId ?? "unknown",
-      sessionIsAnonymous ? "anonymous" : "connected",
-    ].join(":");
-    const runtimeIdentityChanged =
-      runtimeIdentityKeyRef.current !== runtimeIdentityKey;
-    runtimeIdentityKeyRef.current = runtimeIdentityKey;
-    if (runtimeIdentityChanged) {
+    return systemApi.onAuthSessionInvalidated(() => {
       clearCachedToken();
-    }
-
-    let cancelled = false;
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    let bootstrapAttempts = 0;
-
-    const clearTimers = () => {
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-        refreshTimer = null;
-      }
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-        retryTimer = null;
-      }
-    };
-
-    const scheduleRefresh = (token: string) => {
-      if (cancelled) {
-        return;
-      }
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-      }
-      refreshTimer = setTimeout(() => {
-        refreshTimer = null;
-        void syncToken({ forceRefreshToken: true });
-      }, getHostTokenRefreshDelayMs(token));
-    };
-
-    const syncToken = async ({
-      forceRefreshToken = false,
-      requestId,
-    }: { forceRefreshToken?: boolean; requestId?: string } = {}) => {
-      let token: string | undefined;
-      try {
-        token =
-          (await getConvexToken({
-            forceRefresh: forceRefreshToken,
-          })) ?? undefined;
-      } catch {
-        token = undefined;
-      }
-      if (cancelled) return;
-
-      if (token) {
-        const nextState = {
-          authenticated: true,
-          token,
-          hasConnectedAccount,
-        } as const;
-        if (retryTimer) {
-          clearTimeout(retryTimer);
-          retryTimer = null;
-        }
-        bootstrapAttempts = 0;
-        void systemApi.setAuthState(nextState);
-        if (requestId && systemApi.completeRuntimeAuthRefresh) {
-          void systemApi.completeRuntimeAuthRefresh({
-            requestId,
-            ...nextState,
-          });
-        }
-        scheduleRefresh(token);
-        setAuthBootstrapState({ status: "ready", error: null });
-        return;
-      }
-
-      const nextState = {
-        authenticated: false,
-        hasConnectedAccount: false,
-      } as const;
-      void systemApi.setAuthState(nextState);
-      if (requestId && systemApi.completeRuntimeAuthRefresh) {
-        void systemApi.completeRuntimeAuthRefresh({
-          requestId,
-          ...nextState,
-        });
-      }
-
-      if (requestId) {
-        return;
-      }
-      if (retryTimer) {
-        return;
-      }
-      bootstrapAttempts += 1;
-      if (bootstrapAttempts >= TOKEN_BOOTSTRAP_MAX_ATTEMPTS) {
-        setAuthBootstrapState({
-          status: "failed",
-          error:
-            "Stella couldn't reach the auth runtime. Check your connection and try again.",
-        });
-        return;
-      }
-      setAuthBootstrapState({
-        status: "syncing_runtime_token",
-        error: null,
-      });
-      retryTimer = setTimeout(() => {
-        retryTimer = null;
-        void syncToken();
-      }, getTokenBootstrapRetryDelayMs(bootstrapAttempts));
-    };
-
-    runtimeAuthRefreshHandlerRef.current = syncToken;
-    void syncToken({ forceRefreshToken: runtimeIdentityChanged });
-
-    return () => {
-      cancelled = true;
-      runtimeAuthRefreshHandlerRef.current = null;
-      clearTimers();
-    };
-  }, [
-    hasConnectedAccount,
-    hasSession,
-    isSessionPending,
-    sessionIsAnonymous,
-    sessionUserId,
-    setAuthBootstrapState,
-  ]);
-
-  useEffect(() => {
-    const systemApi = window.electronAPI?.system;
-    if (!systemApi?.setAuthState) {
-      return;
-    }
-
-    return () => {
-      void systemApi.setAuthState({
-        authenticated: false,
-        hasConnectedAccount: false,
-      });
-    };
+      void refreshAuthSession({ silent: true });
+    });
   }, []);
 
   return null;
@@ -392,41 +127,37 @@ export function DesktopConvexAuthProvider({
   children: ReactNode;
   enableRuntimeEffects?: boolean;
 }) {
-  const [authBootstrapState, setAuthBootstrapState] =
-    useState<AuthBootstrapState>(() =>
-      enableRuntimeEffects
-        ? {
-            status: "loading_session",
-            error: null,
-          }
-        : {
-            status: "ready",
-            error: null,
-          },
-    );
-  const authBootstrapValue = useMemo(
-    () => ({
-      ...authBootstrapState,
-      runtimeAuthReady: authBootstrapState.status === "ready",
-    }),
-    [authBootstrapState],
-  );
-
   return (
     <ConvexProviderWithAuth
       client={convexClient}
       useAuth={useDesktopConvexAuth}
     >
-      <AuthBootstrapContext.Provider value={authBootstrapValue}>
+      <AuthBootstrapGate enableRuntimeEffects={enableRuntimeEffects}>
         <MagicLinkAuthProvider>
-          {enableRuntimeEffects ? (
-            <DesktopAuthRuntimeEffects
-              setAuthBootstrapState={setAuthBootstrapState}
-            />
-          ) : null}
+          {enableRuntimeEffects ? <DesktopAuthRuntimeEffects /> : null}
           {children}
         </MagicLinkAuthProvider>
-      </AuthBootstrapContext.Provider>
+      </AuthBootstrapGate>
     </ConvexProviderWithAuth>
+  );
+}
+
+function AuthBootstrapGate({
+  children,
+  enableRuntimeEffects,
+}: {
+  children: ReactNode;
+  enableRuntimeEffects: boolean;
+}) {
+  const session = useDesktopAuthSession();
+
+  const runtimeAuthReady =
+    !enableRuntimeEffects || (!session.isPending && Boolean(session.data));
+  const value = useMemo(() => ({ runtimeAuthReady }), [runtimeAuthReady]);
+
+  return (
+    <AuthBootstrapContext.Provider value={value}>
+      {children}
+    </AuthBootstrapContext.Provider>
   );
 }

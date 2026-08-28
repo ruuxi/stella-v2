@@ -69,8 +69,7 @@ import {
   IPC_AUTH_DELETE_USER,
   IPC_AUTH_GET_CONVEX_TOKEN,
   IPC_AUTH_GET_SESSION,
-  IPC_AUTH_RUNTIME_REFRESH_COMPLETE,
-  IPC_AUTH_RUNTIME_REFRESH_REQUESTED,
+  IPC_AUTH_SESSION_INVALIDATED,
   IPC_AUTH_SIGN_IN_ANONYMOUS,
   IPC_AUTH_SIGN_OUT,
   IPC_BACKUP_GET_STATUS,
@@ -842,11 +841,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       convexUrl?: string;
       convexSiteUrl?: string;
     }) => ipcRenderer.invoke("host:configurePiRuntime", config),
-    setAuthState: (payload: {
-      authenticated: boolean;
-      token?: string;
-      hasConnectedAccount?: boolean;
-    }) => ipcRenderer.invoke("auth:setState", payload),
     getAuthSession: () => ipcRenderer.invoke(IPC_AUTH_GET_SESSION),
     signInAnonymous: () => ipcRenderer.invoke(IPC_AUTH_SIGN_IN_ANONYMOUS),
     signOutAuth: () =>
@@ -859,20 +853,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
       }) as Promise<{ ok: boolean }>,
     getConvexAuthToken: () =>
       ipcRenderer.invoke(IPC_AUTH_GET_CONVEX_TOKEN) as Promise<string | null>,
-    completeRuntimeAuthRefresh: (payload: {
-      requestId: string;
-      authenticated: boolean;
-      token?: string;
-      hasConnectedAccount?: boolean;
-    }) => ipcRenderer.invoke(IPC_AUTH_RUNTIME_REFRESH_COMPLETE, payload),
     setCloudSyncEnabled: (payload: { enabled: boolean }) =>
       ipcRenderer.invoke("host:setCloudSyncEnabled", payload),
     setModelCatalogUpdatedAt: (payload: { updatedAt: number | null }) =>
       ipcRenderer.invoke(IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT, payload),
-    onRuntimeAuthRefreshRequested: onIpc<{
-      requestId: string;
-      source: "heartbeat" | "subscription" | "register";
-    }>(IPC_AUTH_RUNTIME_REFRESH_REQUESTED),
+    onAuthSessionInvalidated: onIpcSignal(IPC_AUTH_SESSION_INVALIDATED),
     quitForRestart: () =>
       ipcRenderer.invoke(IPC_APP_QUIT_FOR_RESTART) as Promise<{ ok: boolean }>,
     openFullDiskAccess: () => ipcRenderer.send(IPC_SYSTEM_OPEN_FDA),

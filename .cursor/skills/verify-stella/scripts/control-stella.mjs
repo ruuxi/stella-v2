@@ -181,7 +181,10 @@ const waitForHttp = async (url, timeoutMs) => {
   let lastError = "not tried";
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(url, { redirect: "manual" });
+      const response = await fetch(url, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(1_500),
+      });
       if (response.ok || response.status === 404) return;
       lastError = `HTTP ${response.status}`;
     } catch (error) {
@@ -423,7 +426,15 @@ const cmdLaunch = async (options) => {
   process.stderr.write("Starting Vite under bun...\n");
   const vite = spawnLogged(
     bunBin(),
-    ["--bun", path.join(repoRoot, "node_modules/vite/bin/vite.js")],
+    [
+      "--bun",
+      path.join(repoRoot, "node_modules/vite/bin/vite.js"),
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(vitePort),
+      "--strictPort",
+    ],
     {
       cwd: path.join(repoRoot, "packages/desktop-ui"),
       env: sharedEnv,
@@ -448,6 +459,13 @@ const cmdLaunch = async (options) => {
   writeJson(path.join(runDir, "run.json"), run);
 
   try {
+    await delay(400);
+    if (!isAlive(vite.pid)) {
+      const log = existsSync(path.join(runDir, "vite.log"))
+        ? readFileSync(path.join(runDir, "vite.log"), "utf8")
+        : "";
+      throw new Error(`Vite exited before becoming ready.\n${log}`);
+    }
     await waitForHttp(viteUrl, LAUNCH_TIMEOUT_MS);
     process.stderr.write("Starting Electron...\n");
     const electronArgs = [

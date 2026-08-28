@@ -139,12 +139,16 @@ export const scheduleCadence = (
     schedule.intervalMs,
   );
 
+export async function listPairedAccess() {
+  const { listStoredPairedPhoneAccess } = await import("./phone-access");
+  return listStoredPairedPhoneAccess();
+}
+
 export async function fetchMobileSchedules(): Promise<MobileSchedule[]> {
   const { resolveDesktopBridge, invokeDesktopBridge } = await import(
     "./desktop-bridge-chat"
   );
-  const { listStoredPairedPhoneAccess } = await import("./phone-access");
-  const paired = await listStoredPairedPhoneAccess();
+  const paired = await listPairedAccess();
   const access = paired[0];
   if (!access) return [];
   const bridge = await resolveDesktopBridge(access);
@@ -167,8 +171,7 @@ export async function mutateMobileSchedule(
   const { resolveDesktopBridge, invokeDesktopBridge } = await import(
     "./desktop-bridge-chat"
   );
-  const { listStoredPairedPhoneAccess } = await import("./phone-access");
-  const paired = await listStoredPairedPhoneAccess();
+  const paired = await listPairedAccess();
   const access = paired[0];
   if (!access) throw new Error("No paired computer.");
   const bridge = await resolveDesktopBridge(access);
@@ -194,8 +197,7 @@ export function subscribeMobileScheduleUpdates(
     try {
       const { resolveDesktopBridge, openDesktopBridgeEventSocket } =
         await import("./desktop-bridge-chat");
-      const { listStoredPairedPhoneAccess } = await import("./phone-access");
-      const paired = await listStoredPairedPhoneAccess();
+      const paired = await listPairedAccess();
       const access = paired[0];
       if (!access || closed) return;
       const bridge = await resolveDesktopBridge(access);

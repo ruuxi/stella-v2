@@ -55,6 +55,37 @@ const setBoundedTabMemory = (memory, conversationId, value) => {
     memory.delete(oldestConversationId);
   }
 };
+export const createConversationScrollMemoryCleanup = ({
+  conversationId,
+  list,
+  scrollMemory,
+  getIsFollowing,
+  isConversationOpen,
+}) => {
+  // Resolve Legend's DOM node while its internal ref is still mounted. During
+  // layout cleanup the list handle can remain non-null after that internal ref
+  // has already been cleared, making a late getScrollableNode() call throw.
+  let element = null;
+  if (conversationId && list) {
+    try {
+      element = list.getScrollableNode();
+    } catch {
+      // A conversation switch can race Legend's own ref teardown. Scroll
+      // memory is best-effort; losing one position is safer than crashing the
+      // account transition while trying to capture it.
+      element = null;
+    }
+  }
+  return () => {
+    if (!conversationId || !isConversationOpen(conversationId) || !element) {
+      return;
+    }
+    setBoundedTabMemory(scrollMemory, conversationId, {
+      scrollTop: element.scrollTop,
+      followingLatest: getIsFollowing(),
+    });
+  };
+};
 const newConversationEditRequestId = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -382,21 +413,17 @@ export function useFullShellChat({
   });
   useLayoutEffect(() => {
     const conversationId = activeConversationId;
-    const list = listRef.current;
     const scrollMemory = scrollMemoryByConversationRef.current;
-    return () => {
-      if (!conversationId) return;
-      const remainsOpen = conversationTabs
-        .getSnapshot()
-        .tabs.some((tab) => tab.conversationId === conversationId);
-      if (!remainsOpen) return;
-      const element = list?.getScrollableNode();
-      if (!element) return;
-      setBoundedTabMemory(scrollMemory, conversationId, {
-        scrollTop: element.scrollTop,
-        followingLatest: getIsFollowing(),
-      });
-    };
+    return createConversationScrollMemoryCleanup({
+      conversationId,
+      list: listRef.current,
+      scrollMemory,
+      getIsFollowing,
+      isConversationOpen: (id) =>
+        conversationTabs
+          .getSnapshot()
+          .tabs.some((tab) => tab.conversationId === id),
+    });
   }, [activeConversationId, getIsFollowing, listRef]);
   useEffect(() => {
     if (

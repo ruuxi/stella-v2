@@ -19,23 +19,22 @@ const pendingCreatedConversations = new Map<
 
 /**
  * Convex returns the immutable owner id with every conversation summary.
- * Checking it against the renderer's immutable auth scope prevents a cached
- * query snapshot from the previous identity from ever entering routing,
- * history, or tab state while Convex re-subscribes after an account switch.
+ * Compare it to Convex's canonical `${issuer}|${subject}` owner identity.
+ * `accountScope` deliberately contains only the Better Auth user id and is a
+ * local cache namespace; treating it as a Convex owner id filters every real
+ * server row out after authentication.
  */
-export const cloudConversationBelongsToAccountScope = (
+export const cloudConversationBelongsToOwnerSubject = (
   conversation: Pick<CloudConversation, "ownerId">,
-  accountScope: string,
-): boolean =>
-  accountScope === `anonymous:${conversation.ownerId}` ||
-  accountScope === `account:${conversation.ownerId}`;
+  ownerSubject: string | null,
+): boolean => ownerSubject !== null && conversation.ownerId === ownerSubject;
 
-export const cloudConversationsForAccountScope = (
+export const cloudConversationsForOwnerSubject = (
   conversations: readonly CloudConversation[],
-  accountScope: string,
+  ownerSubject: string | null,
 ): CloudConversation[] =>
   conversations.filter((conversation) =>
-    cloudConversationBelongsToAccountScope(conversation, accountScope),
+    cloudConversationBelongsToOwnerSubject(conversation, ownerSubject),
   );
 
 const prune = (now = Date.now()): void => {
@@ -76,13 +75,14 @@ export const isOwnedCloudConversation = (
   conversations: readonly CloudConversation[],
   conversationId: string | null,
   accountScope: string,
+  ownerSubject: string | null,
 ): boolean =>
   Boolean(
     conversationId &&
       (conversations.some(
         (conversation) =>
           conversation.conversationId === conversationId &&
-          cloudConversationBelongsToAccountScope(conversation, accountScope),
+          cloudConversationBelongsToOwnerSubject(conversation, ownerSubject),
       ) ||
         isPendingCloudConversation(conversationId, accountScope)),
   );
@@ -96,12 +96,14 @@ export const resolveCloudConversationRoute = (args: {
   routeConversationId: string | null;
   cachedConversationId: string | null;
   accountScope: string;
+  ownerSubject: string | null;
 }): string | null => {
   if (
     isOwnedCloudConversation(
       args.conversations,
       args.routeConversationId,
       args.accountScope,
+      args.ownerSubject,
     )
   ) {
     return args.routeConversationId;
@@ -110,6 +112,7 @@ export const resolveCloudConversationRoute = (args: {
     args.conversations,
     args.cachedConversationId,
     args.accountScope,
+    args.ownerSubject,
   )
     ? args.cachedConversationId
     : null;
@@ -127,12 +130,14 @@ export const resolveCloudConversationForShell = (args: {
   routeConversationId: string | null;
   cachedConversationId: string | null;
   accountScope: string;
+  ownerSubject: string | null;
 }): string | null => {
   if (args.isOnChatRoute) {
     return isOwnedCloudConversation(
       args.conversations,
       args.routeConversationId,
       args.accountScope,
+      args.ownerSubject,
     )
       ? args.routeConversationId
       : null;
@@ -142,5 +147,6 @@ export const resolveCloudConversationForShell = (args: {
     routeConversationId: null,
     cachedConversationId: args.cachedConversationId,
     accountScope: args.accountScope,
+    ownerSubject: args.ownerSubject,
   });
 };

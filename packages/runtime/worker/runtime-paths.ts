@@ -214,8 +214,9 @@ export const resolveRuntimePaths = (
   const rootDir = path.join(baseDir, rootHash);
   const logDir = resolveLogDir(stellaAppDir, options);
   const platform = options?.platform ?? process.platform;
+  const configuredIpcDir = process.env.STELLA_RUNTIME_IPC_DIR?.trim();
   const ipcBaseDir = path.resolve(
-    options?.runtimeIpcDir?.trim() || "/tmp",
+    options?.runtimeIpcDir?.trim() || configuredIpcDir || "/tmp",
     `stella-${typeof process.getuid === "function" ? process.getuid() : "user"}`,
   );
   const ipcDir = path.join(ipcBaseDir, rootHash);

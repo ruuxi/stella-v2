@@ -30,6 +30,20 @@ const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 
 const EXPECTED_PROMPT_IDS = STELLA_PROMPT_IDS;
 
+const transportEtagMatchesCanonical = (
+  observed: string | null,
+  canonical: string,
+): boolean => {
+  if (observed === canonical) return true;
+  if (!canonical.startsWith('"') || !canonical.endsWith('"')) return false;
+  const value = canonical.slice(1, -1);
+  // Convex's HTTP edge may transparently gzip a 200 response and rewrite the
+  // strong application ETag to the exact encoded representation below. The
+  // manifest body still re-derives and verifies every digest; cache identity
+  // must retain the canonical application ETag used by If-None-Match.
+  return observed === `"${value}-gzip"` || observed === `W/"${value}-gzip"`;
+};
+
 type PromptDigest = { id: string; sha256: string };
 
 export type CanonicalPromptSnapshot = {
@@ -253,8 +267,8 @@ const parsePublication = async (
   }
   const revision = exactDigest(row.revision);
   const publishedAt = exactSafeInteger(row.publishedAt);
-  const etag = response.headers.get("etag");
-  if (etag !== `"${publishedAt}-${revision}"`) {
+  const etag = `"${publishedAt}-${revision}"`;
+  if (!transportEtagMatchesCanonical(response.headers.get("etag"), etag)) {
     throw new CanonicalPromptUnavailableError("stale_etag");
   }
   if (
@@ -369,7 +383,10 @@ export const refreshCanonicalPrompts = async (
     signal?.throwIfAborted();
     if (response.status === 304 && cached) {
       const responseEtag = response.headers.get("etag");
-      if (responseEtag && responseEtag !== cached.etag) {
+      if (
+        responseEtag &&
+        !transportEtagMatchesCanonical(responseEtag, cached.etag)
+      ) {
         throw new CanonicalPromptUnavailableError("stale_etag");
       }
       return {

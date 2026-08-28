@@ -1510,6 +1510,16 @@ export const connectRenderedClientCdp = async ({
     targetIdSha256: sha256(target.id),
   });
   session.endpointOwnership = endpointOwnership;
+  session.reconnect = async () =>
+    await connectRenderedClientCdp({
+      debugPort,
+      expectedUrl,
+      surface,
+      expectedProcess,
+      timeoutMs,
+      webSocketFactory,
+      verifyEndpointOwnership,
+    });
   await session.command("Runtime.enable");
   await session.command("Page.enable");
   await session.command("Network.enable", {
@@ -1587,10 +1597,9 @@ const pageInteractiveHelper = `(element) => {
   const painted = ${pagePaintedHelper};
   if (!painted(element)) return false;
   if (element.matches(':disabled, [readonly], [aria-disabled="true"]')) return false;
-  for (let current = element; current instanceof Element; current = current.parentElement) {
-    if (getComputedStyle(current).pointerEvents === 'none') return false;
-  }
-  return true;
+  const rect = element.getBoundingClientRect();
+  const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  return hit === element || element.contains(hit);
 }`;
 
 const browserAuthExpression = ({ sessionCookie, convexUrl, convexSiteUrl }) =>
@@ -1976,13 +1985,15 @@ const verifyExistingRenderedAuthorityProfile = async (
     `${resultLabel} is not cryptographically bound to the reviewed target.`,
   );
   // Browser auth/token requests happen in this renderer and therefore both
-  // reviewed origins must be visible to CDP. Electron obtains its JWT through
-  // main-process IPC: renderer CDP must still observe the Convex cloud origin,
-  // while the exact signed JWT issuer above binds the unobservable site hop.
+  // reviewed Convex origins must be visible to CDP. Electron obtains its JWT
+  // through main-process IPC, so auth completion itself has no renderer-side
+  // remote request to observe. Its exact configured-target and signed-issuer
+  // hashes above bind that otherwise unobservable hop; Builder traffic is
+  // proved later from the mounted conversation transport.
   const requiredNetworkOrigins =
     surface === "browser-cdp"
       ? [expectedConvexOriginSha256, expectedConvexSiteOriginSha256]
-      : [expectedConvexOriginSha256];
+      : [];
   const initialOrigins = client.telemetry().networkOriginHashes;
   if (
     !requiredNetworkOrigins.every((digest) => initialOrigins.includes(digest))
@@ -2638,6 +2649,12 @@ export const snapshotFullRenderedConversation = async (
     (left, right) => left.listIndex - right.listIndex,
   );
   const rowIdHashes = canonicalRows.map((row) => row.idSha256);
+  const textRows = canonicalRows.map((row) => ({
+    kind: row.kind,
+    listIndex: row.listIndex,
+    textSha256: row.textSha256,
+  }));
+  const textRowsSha256 = sha256(canonicalJson(textRows));
   assert(
     new Set(rowIdHashes).size === rowIdHashes.length &&
       canonicalRows.length === expectedRenderedRowCount &&
@@ -2658,6 +2675,8 @@ export const snapshotFullRenderedConversation = async (
     assistantTextHashes: canonicalRows
       .filter((row) => row.kind === "assistant")
       .map((row) => row.textSha256),
+    textRows,
+    textRowsSha256,
     rowsSha256: sha256(canonicalJson(canonicalRows)),
     mountedSnapshotCount,
     scrollStepCount,
@@ -2665,6 +2684,10 @@ export const snapshotFullRenderedConversation = async (
     atNewestTail: true,
     finalMountedRowsSha256: finalSnapshot.rowsSha256,
   };
+  requireSha256(
+    projection.textRowsSha256,
+    "Full rendered text projection hash",
+  );
   requireSha256(projection.rowsSha256, "Full rendered projection hash");
   return Object.freeze(projection);
 };
@@ -3011,8 +3034,51 @@ const clickRenderedElement = async (client, elementExpression, label) => {
   });
 };
 
+const activateRenderedElementWithKeyboard = async (
+  client,
+  elementExpression,
+  label,
+) => {
+  // Prior pointer-driven actions can leave the cursor over a hover trigger.
+  // Drain its bounded close timer before switching to keyboard activation so
+  // that timer cannot close the keyboard-opened surface.
+  await client.command("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x: 0,
+    y: 0,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 160));
+  const focused = await client.evaluate(
+    `(() => {
+      const interactive = ${pageInteractiveHelper};
+      const element = (${elementExpression});
+      if (!interactive(element)) throw new Error("target is not visibly interactive");
+      element.focus({ preventScroll: true });
+      return document.activeElement === element;
+    })()`,
+    label,
+  );
+  assert(focused === true, "Rendered keyboard target did not focus.");
+  await client.command("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "Enter",
+    code: "Enter",
+    text: "\r",
+    unmodifiedText: "\r",
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  });
+  await client.command("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "Enter",
+    code: "Enter",
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  });
+};
+
 const PRODUCT_MAGIC_LINK_REQUEST_CONTRACT =
-  "stella-rendered-product-magic-link-request-v1";
+  "stella-rendered-product-magic-link-request-v2";
 const STRICT_PRODUCT_AUTH_ORIGIN = "http://127.0.0.1:57314";
 const PRODUCT_ONBOARDING_CONTRACT =
   "stella-rendered-product-onboarding-persistence-v1";
@@ -3156,6 +3222,7 @@ export const verifyRenderedProductOnboardingPersistence = async (
 
 const PRODUCT_MAGIC_LINK_REQUEST_KEYS = Object.freeze(
   [
+    "authDialogModalVerified",
     "authDialogReady",
     "crashSurfaceAbsent",
     "credentialMaterialReturned",
@@ -3168,12 +3235,11 @@ const PRODUCT_MAGIC_LINK_REQUEST_KEYS = Object.freeze(
     "onboardingPersistenceVerified",
     "onboardingReceiptSha256",
     "preChatStateSha256",
-    "preChatSurfaceAbsent",
+    "productAuthDialogRouteVerified",
     "productOriginSha256",
     "productDomDriven",
     "profileSha256",
     "requestContract",
-    "settingsAuthRouteVerified",
     "surface",
     "targetIdSha256",
   ].sort(),
@@ -3201,9 +3267,9 @@ const validateProductMagicLinkRequest = (receipt) => {
       body.externalCompletionRequired === true &&
       body.productDomDriven === true &&
       body.onboardingPersistenceVerified === true &&
-      body.settingsAuthRouteVerified === true &&
+      body.productAuthDialogRouteVerified === true &&
+      body.authDialogModalVerified === true &&
       body.authDialogReady === true &&
-      body.preChatSurfaceAbsent === true &&
       body.crashSurfaceAbsent === true,
     "Rendered magic-link request is not a strict product handoff.",
   );
@@ -3276,22 +3342,35 @@ export const beginRenderedProductMagicLinkLogin = async (
       client.evaluate(
         `(async () => {
           const hash = ${pageShaHelper};
+          const painted = ${pagePaintedHelper};
           const interactive = ${pageInteractiveHelper};
           const { router } = await import("/src/router.tsx");
           const { readLocalOnboardingCompleted } = await import("/src/global/onboarding/use-onboarding-state.ts");
           const locationState = router.state.location;
           const search = locationState.search ?? {};
+          const authDialog = document.querySelector('.auth-dialog-content[data-slot="dialog-content"][role="dialog"]');
+          const authOverlay = document.querySelector('[data-component="dialog-overlay"][data-state="open"]');
           const emailInput = document.querySelector('.auth-dialog-content .auth-dialog-form input[type="email"]');
           const submit = document.querySelector('.auth-dialog-content .auth-dialog-cta');
           const crashSurface = document.querySelector('.error-boundary');
+          const overlayStyle = authOverlay instanceof Element ? getComputedStyle(authOverlay) : null;
+          const overlayRect = authOverlay instanceof Element ? authOverlay.getBoundingClientRect() : null;
           return {
             exactOrigin: location.origin === ${JSON.stringify(productOrigin)},
             productOriginSha256: await hash(location.origin),
             onboardingPersisted: readLocalOnboardingCompleted() === true,
-            settingsAuthRoute: locationState.pathname === "/settings" && search.dialog === "auth",
+            productAuthDialogRoute: search.dialog === "auth",
             routeSha256: await hash(locationState.pathname + "?dialog=" + String(search.dialog ?? "")),
-            authDialogReady: interactive(emailInput) && interactive(submit),
-            preChatSurfaceAbsent: !document.querySelector('[data-testid="chat-surface"]'),
+            authDialogModal: painted(authDialog) &&
+              authOverlay instanceof Element &&
+              authOverlay.isConnected &&
+              authOverlay.getAttribute('data-state') === 'open' &&
+              overlayStyle?.display !== 'none' &&
+              overlayStyle?.visibility === 'visible' &&
+              Number.parseFloat(overlayStyle?.opacity || '1') > 0.01 &&
+              overlayRect?.width >= innerWidth &&
+              overlayRect?.height >= innerHeight,
+            authDialogReady: interactive(emailInput) && painted(submit),
             crashSurfaceAbsent: !crashSurface
           };
         })()`,
@@ -3301,9 +3380,9 @@ export const beginRenderedProductMagicLinkLogin = async (
       state?.exactOrigin === true &&
       state.productOriginSha256 === sha256(productOrigin) &&
       state.onboardingPersisted === true &&
-      state.settingsAuthRoute === true &&
+      state.productAuthDialogRoute === true &&
+      state.authDialogModal === true &&
       state.authDialogReady === true &&
-      state.preChatSurfaceAbsent === true &&
       state.crashSurfaceAbsent === true &&
       /^[a-f0-9]{64}$/u.test(state.routeSha256 ?? ""),
     {
@@ -3345,9 +3424,10 @@ export const beginRenderedProductMagicLinkLogin = async (
     () =>
       client.evaluate(
         `(() => {
+          const painted = ${pagePaintedHelper};
           const interactive = ${pageInteractiveHelper};
           return interactive(document.querySelector('.auth-dialog-content .auth-dialog-form input[type="email"]')) &&
-            interactive(document.querySelector('.auth-dialog-content .auth-dialog-cta'));
+            painted(document.querySelector('.auth-dialog-content .auth-dialog-cta'));
         })()`,
         `observe ${client.surface} product magic-link form`,
       ),
@@ -3408,15 +3488,51 @@ export const beginRenderedProductMagicLinkLogin = async (
     typed === sha256(normalizedEmail),
     "Rendered product magic-link email did not enter the real form.",
   );
+  await poll(
+    () =>
+      client.evaluate(
+        `(() => {
+          const interactive = ${pageInteractiveHelper};
+          return interactive(document.querySelector('.auth-dialog-content .auth-dialog-cta'));
+        })()`,
+        `observe ${client.surface} enabled product magic-link submit`,
+      ),
+    (ready) => ready === true,
+    {
+      timeoutMs,
+      intervalMs: 100,
+      label: `${client.surface} enabled product magic-link submit`,
+    },
+  );
   await clickRenderedElement(
     client,
     `document.querySelector('.auth-dialog-content .auth-dialog-cta')`,
     `submit ${client.surface} product magic-link form`,
   );
-  const sent = await poll(
-    () =>
-      client.evaluate(
-        `(async () => {
+  const magicLinkSendUrlSha256 = sha256(
+    `${REQUIRED_CONVEX.siteUrl}/api/auth/link/send`,
+  );
+  const observedSuccessfulMagicLinkRoundTrip = () =>
+    client.requests
+      .slice(beforeTelemetry.requestCount)
+      .some((request) => request.urlSha256 === magicLinkSendUrlSha256) &&
+    client.responses
+      .slice(beforeTelemetry.responseCount)
+      .some(
+        (response) =>
+          response.urlSha256 === magicLinkSendUrlSha256 &&
+          Number.isSafeInteger(response.status) &&
+          response.status >= 200 &&
+          response.status < 300,
+      );
+  const observationClient =
+    typeof client.reconnect === "function" ? await client.reconnect() : client;
+  let sent;
+  try {
+    sent = await poll(
+      () =>
+        observationClient.evaluate(
+          `(async () => {
           const hash = ${pageShaHelper};
           const painted = ${pagePaintedHelper};
           const dialog = document.querySelector('.auth-dialog-content');
@@ -3432,24 +3548,38 @@ export const beginRenderedProductMagicLinkLogin = async (
             errorSha256: error ? await hash(error.textContent ?? '') : null
           };
         })()`,
-        `observe ${client.surface} product magic-link request`,
-      ),
-    (state) =>
-      state?.dialogVisible === true &&
-      state.emailSha256 === sha256(normalizedEmail) &&
-      state.sentOpen === true &&
-      state.sentVisible === true &&
-      state.errorVisible === false,
-    {
-      timeoutMs,
-      intervalMs: 100,
-      label: `${client.surface} product magic-link request`,
-    },
-  );
+          `observe ${client.surface} product magic-link request`,
+        ),
+      (state) => {
+        const visibleSentState =
+          state?.dialogVisible === true &&
+          state.emailSha256 === sha256(normalizedEmail) &&
+          state.sentOpen === true &&
+          state.sentVisible === true &&
+          state.errorVisible === false;
+        const productDismissedAfterSend =
+          state?.dialogVisible === false &&
+          state.emailSha256 === null &&
+          state.sentOpen === false &&
+          state.sentVisible === false &&
+          state.errorVisible === false &&
+          observedSuccessfulMagicLinkRoundTrip();
+        return visibleSentState || productDismissedAfterSend;
+      },
+      {
+        timeoutMs,
+        intervalMs: 100,
+        label: `${client.surface} product magic-link request`,
+      },
+    );
+  } finally {
+    if (observationClient !== client) observationClient.close();
+  }
   const afterTelemetry = client.telemetry();
   assert(
     afterTelemetry.requestCount > beforeTelemetry.requestCount &&
       afterTelemetry.responseCount > beforeTelemetry.responseCount &&
+      observedSuccessfulMagicLinkRoundTrip() &&
       client.authSetupUseCount === 0,
     "Rendered product magic-link form did not produce an observed product request.",
   );
@@ -3481,9 +3611,9 @@ export const beginRenderedProductMagicLinkLogin = async (
     productDomDriven: true,
     externalCompletionRequired: true,
     onboardingPersistenceVerified: true,
-    settingsAuthRouteVerified: true,
+    productAuthDialogRouteVerified: true,
+    authDialogModalVerified: true,
     authDialogReady: true,
-    preChatSurfaceAbsent: true,
     crashSurfaceAbsent: true,
     credentialMaterialReturned: false,
   });
@@ -3761,17 +3891,68 @@ export const listRenderedConversations = async (
       maxScrollSteps <= 10_000,
     "Rendered history scroll bound is invalid.",
   );
-  const alreadyOpen = await client.evaluate(
-    `Boolean(document.querySelector('.conversation-history-popover'))`,
-    `observe ${client.surface} conversation history`,
-  );
-  if (!alreadyOpen) {
-    await clickRenderedElement(
-      client,
-      `document.querySelector('.conversation-topbar__history')`,
-      `open ${client.surface} conversation history`,
+  const historyMounted = () =>
+    client.evaluate(
+      `(() => {
+        const interactive = ${pageInteractiveHelper};
+        const popover = document.querySelector('.conversation-history-popover');
+        const scroller = popover?.querySelector('.conversation-history-popover__list');
+        return popover instanceof HTMLElement &&
+          scroller instanceof HTMLElement &&
+          interactive(scroller);
+      })()`,
+      `observe ${client.surface} conversation history mount`,
     );
-  }
+  const mountDeadline = Date.now() + timeoutMs;
+  let stabilityAttempts = 0;
+  const settleHistoryMount = async () => {
+    while (true) {
+      assert(
+        Date.now() <= mountDeadline,
+        "Rendered conversation history did not settle.",
+      );
+      assert(
+        stabilityAttempts < 8,
+        "Rendered conversation history did not stay mounted after authority settlement.",
+      );
+      if (!(await historyMounted())) {
+        await poll(
+          () =>
+            client.evaluate(
+              `(() => {
+                const interactive = ${pageInteractiveHelper};
+                return interactive(document.querySelector('.conversation-topbar__history'));
+              })()`,
+              `observe ${client.surface} conversation history trigger`,
+            ),
+          (ready) => ready === true,
+          {
+            timeoutMs: Math.max(1, mountDeadline - Date.now()),
+            intervalMs: 100,
+            label: `${client.surface} conversation history trigger`,
+          },
+        );
+        await activateRenderedElementWithKeyboard(
+          client,
+          `document.querySelector('.conversation-topbar__history')`,
+          `open ${client.surface} conversation history`,
+        );
+      }
+      await poll(historyMounted, (ready) => ready === true, {
+        timeoutMs: Math.max(1, mountDeadline - Date.now()),
+        intervalMs: 50,
+        label: `${client.surface} conversation history mount`,
+      });
+      // The signed-in owner generation can resolve immediately after the first
+      // authenticated paint. That authority reset intentionally closes any
+      // surface opened against the unresolved generation. Only begin the strict
+      // history sweep once the real popover survives that bounded transition.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      stabilityAttempts += 1;
+      if (await historyMounted()) return;
+    }
+  };
+  await settleHistoryMount();
   const observedIds = new Set();
   const deadline = Date.now() + timeoutMs;
   let scrollStepCount = 0;
@@ -3807,21 +3988,55 @@ export const listRenderedConversations = async (
       })()`,
       `list ${client.surface} conversations`,
     );
-    assert(
+    const stateValid =
       Array.isArray(state?.ids) &&
-        state.mountedUnique === true &&
-        state.ids.every((digest) => /^[a-f0-9]{64}$/u.test(digest)) &&
-        [
-          state.scrollTop,
-          state.scrollHeight,
-          state.clientHeight,
-          state.x,
-          state.y,
-        ].every(Number.isFinite) &&
-        state.clientHeight > 0,
-      "Rendered conversation history state is invalid.",
-    );
+      state.mountedUnique === true &&
+      state.ids.every((digest) => /^[a-f0-9]{64}$/u.test(digest)) &&
+      [
+        state.scrollTop,
+        state.scrollHeight,
+        state.clientHeight,
+        state.x,
+        state.y,
+      ].every(Number.isFinite) &&
+      state.clientHeight > 0;
+    if (!stateValid) {
+      if (
+        state === null &&
+        observedIds.size === 0 &&
+        scrollStepCount === 0 &&
+        stabilityAttempts < 8
+      ) {
+        await settleHistoryMount();
+        continue;
+      }
+      throw new CloudProofError(
+        "Rendered conversation history state is invalid.",
+        {
+          statePresent: state !== null,
+          idCount: Array.isArray(state?.ids) ? state.ids.length : null,
+          mountedUnique: state?.mountedUnique ?? null,
+          idDigestsValid: Array.isArray(state?.ids)
+            ? state.ids.every((digest) => /^[a-f0-9]{64}$/u.test(digest))
+            : false,
+          hasMore: state?.hasMore ?? null,
+          loading: state?.loading ?? null,
+          scrollTop: Number.isFinite(state?.scrollTop) ? state.scrollTop : null,
+          scrollHeight: Number.isFinite(state?.scrollHeight)
+            ? state.scrollHeight
+            : null,
+          clientHeight: Number.isFinite(state?.clientHeight)
+            ? state.clientHeight
+            : null,
+          geometryFinite: [state?.x, state?.y].every(Number.isFinite),
+        },
+      );
+    }
     state.ids.forEach((digest) => observedIds.add(digest));
+    if (observedIds.size === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      continue;
+    }
     const remaining = state.scrollHeight - state.clientHeight - state.scrollTop;
     if (!state.hasMore && !state.loading && remaining <= 1) break;
     if (state.loading) {
@@ -3854,13 +4069,20 @@ export const selectRenderedConversation = async (
   { conversationId, timeoutMs = UI_SETTLE_TIMEOUT_MS },
 ) => {
   const expected = sha256(conversationId);
-  const current = await snapshotRenderedConversation(client);
-  if (
-    current.conversationIdSha256 === expected &&
-    current.activeConversationIdSha256 === expected &&
-    current.composerInteractive
-  ) {
-    return current;
+  const directlyHydrated = (snapshot) =>
+    snapshot.conversationIdSha256 === expected &&
+    snapshot.activeConversationIdSha256 === expected &&
+    snapshot.composerInteractive;
+  const directHydrationDeadline = Date.now() + Math.min(timeoutMs, 30_000);
+  while (true) {
+    const current = await snapshotRenderedConversation(client);
+    if (directlyHydrated(current)) return current;
+    if (Date.now() >= directHydrationDeadline) break;
+    // A deep /chat?c= route mounts before its Convex identity and owner
+    // generation have necessarily settled. Give that exact route first claim
+    // on hydration; opening History during this transition races the
+    // authority-reset effect and can only produce proof-driver flakiness.
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
   await listRenderedConversations(client, { timeoutMs });
   const deadline = Date.now() + timeoutMs;
@@ -3954,7 +4176,11 @@ export const sendRenderedPrompt = async (
   );
   const baseline = await snapshotRenderedConversation(client);
   const expectedPromptSha256 = sha256(prompt.trim());
-  const textareaExpression = `document.querySelector('form[data-testid="chat-composer"] textarea:not([disabled]):not([readonly])')`;
+  const textareaExpression = `(() => {
+    const interactive = ${pageInteractiveHelper};
+    return [...document.querySelectorAll('form[data-testid="chat-composer"] textarea:not([disabled]):not([readonly])')]
+      .find((candidate) => interactive(candidate)) ?? null;
+  })()`;
   await clickRenderedElement(
     client,
     textareaExpression,
@@ -3999,7 +4225,8 @@ export const sendRenderedPrompt = async (
           const hash = ${pageShaHelper};
           const visible = ${pageInteractiveHelper};
           const textarea = ${textareaExpression};
-          const submit = document.querySelector('form[data-testid="chat-composer"] .composer-submit:not([disabled])');
+          const submit = textarea?.closest('form[data-testid="chat-composer"]')
+            ?.querySelector('.composer-submit:not([disabled])') ?? null;
           return {
             valueSha256: await hash(textarea?.value?.trim() ?? ''),
             submitVisible: visible(submit)
@@ -4018,16 +4245,26 @@ export const sendRenderedPrompt = async (
   );
   await clickRenderedElement(
     client,
-    `document.querySelector('form[data-testid="chat-composer"] .composer-submit:not([disabled])')`,
+    `(() => {
+      const interactive = ${pageInteractiveHelper};
+      const textarea = [...document.querySelectorAll('form[data-testid="chat-composer"] textarea:not([disabled]):not([readonly])')]
+        .find((candidate) => interactive(candidate));
+      return textarea?.closest('form[data-testid="chat-composer"]')
+        ?.querySelector('.composer-submit:not([disabled])') ?? null;
+    })()`,
     `submit ${client.surface} rendered prompt`,
   );
   await poll(
     async () =>
       await client.evaluate(
-        `(() => document.querySelector('form[data-testid="chat-composer"] textarea')?.value ?? null)()`,
+        `(() => [...document.querySelectorAll('form[data-testid="chat-composer"] textarea')]
+          .map((textarea) => textarea.value ?? null))()`,
         `observe ${client.surface} composer clear`,
       ),
-    (value) => value === "",
+    (value) =>
+      Array.isArray(value) &&
+      value.length > 0 &&
+      value.every((entry) => entry === ""),
     {
       timeoutMs,
       intervalMs: 50,
@@ -4173,11 +4410,11 @@ const validReadySocket = (socket, conversationIdSha256) => {
   const ready = socket.readyFrames.at(-1);
   return Boolean(
     ready &&
-    ready.protocol === 1 &&
-    ready.conversationIdSha256 === conversationIdSha256 &&
-    ready.epoch === socket.epoch &&
-    socket.resetFrameCount === 0 &&
-    socket.gapFrameCount === 0,
+      ready.protocol === 1 &&
+      ready.conversationIdSha256 === conversationIdSha256 &&
+      ready.epoch === socket.epoch &&
+      socket.resetFrameCount === 0 &&
+      socket.gapFrameCount === 0,
   );
 };
 

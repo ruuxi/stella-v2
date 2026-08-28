@@ -161,16 +161,22 @@ describe("account connection renderer boundaries", () => {
     ).resolves.toBeNull();
   });
 
-  it("preserves the Electron magic-link request contract", async () => {
+  it("binds Electron magic-link sends to its freshly minted anonymous-owner JWT", async () => {
     setElectronApi({ system: {} });
 
     await expect(
       buildMagicLinkSendRequest("owner@example.com"),
     ).resolves.toEqual({
-      headers: { "Content-Type": "application/json" },
-      body: { email: "owner@example.com" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer current-owner.jwt",
+      },
+      body: {
+        email: "owner@example.com",
+        requireAnonymousOwner: true,
+      },
     });
-    expect(mocks.getConvexToken).not.toHaveBeenCalled();
+    expect(mocks.getConvexToken).toHaveBeenCalledWith({ forceRefresh: true });
   });
 
   it("mirrors a browser cookie and accepts it only after a connected owner revalidates", async () => {

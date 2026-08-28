@@ -29,8 +29,8 @@ import { resolveOwnershipMigrationGate } from "@/global/auth/lib/cloud-session-m
 import { cloudApi } from "@/features/cloud/cloud-api";
 import {
   acknowledgeCloudConversation,
-  cloudConversationBelongsToAccountScope,
-  cloudConversationsForAccountScope,
+  cloudConversationBelongsToOwnerSubject,
+  cloudConversationsForOwnerSubject,
   isOwnedCloudConversation,
   markCloudConversationCreated,
   resolveCloudConversationForShell,
@@ -168,6 +168,22 @@ function CloudStartupFailure({
   );
 }
 
+function CloudStartupPending() {
+  return (
+    <div
+      className="error-boundary"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="error-boundary-gradient" />
+      <div className="error-boundary-content">
+        <h2>Getting Stella ready…</h2>
+      </div>
+    </div>
+  );
+}
+
 /**
  * The root route owns the app chrome — top shell bar, workspace panel,
  * dialogs, welcome — plus an `<Outlet />` where the active route renders.
@@ -196,18 +212,6 @@ function RootLayout() {
   const routeIntent = `${isOnChatRoute ? "chat" : "other"}:${routerConversationId ?? ""}`;
   const activeRouteIntentRef = useRef(routeIntent);
   activeRouteIntentRef.current = routeIntent;
-  const cloudConversations = useQuery(
-    cloudApi.listMyConversations,
-    cloudMode ? {} : "skip",
-  );
-  const conversationIdentity = useQuery(
-    cloudApi.getMyCloudConversationIdentity,
-    cloudMode ? {} : "skip",
-  );
-  const ownerGeneration =
-    conversationIdentity?.ownerId === ownerSubject
-      ? conversationIdentity.ownerGeneration
-      : null;
   const ownershipMigration = useQuery(
     cloudApi.getMyOwnershipMigrationStatus,
     cloudMode ? {} : "skip",
@@ -218,6 +222,20 @@ function RootLayout() {
       : (ownershipMigration?.status ?? null),
     cloudMode,
   );
+  const canQueryOwnershipFencedCloudData =
+    ownershipMigrationGate.canSelectConversation;
+  const cloudConversations = useQuery(
+    cloudApi.listMyConversations,
+    canQueryOwnershipFencedCloudData ? {} : "skip",
+  );
+  const conversationIdentity = useQuery(
+    cloudApi.getMyCloudConversationIdentity,
+    canQueryOwnershipFencedCloudData ? {} : "skip",
+  );
+  const ownerGeneration =
+    conversationIdentity?.ownerId === ownerSubject
+      ? conversationIdentity.ownerGeneration
+      : null;
   const createCloudConversation = useMutation(cloudApi.createMyConversation);
   const retryOwnershipMigrationMutation = useMutation(
     cloudApi.retryMyLatestFailedOwnershipMigration,
@@ -250,8 +268,8 @@ function RootLayout() {
 
   const scopedCloudConversations = useMemo(
     () =>
-      cloudConversationsForAccountScope(cloudConversations ?? [], accountScope),
-    [accountScope, cloudConversations],
+      cloudConversationsForOwnerSubject(cloudConversations ?? [], ownerSubject),
+    [cloudConversations, ownerSubject],
   );
   const cachedCloudConversationId = cloudMode
     ? readActiveCloudConversationIdCache(accountScope)
@@ -260,10 +278,11 @@ function RootLayout() {
     scopedCloudConversations,
     routerConversationId,
     accountScope,
+    ownerSubject,
   );
   const exactCloudConversation = useQuery(
     cloudApi.getMyConversation,
-    cloudMode &&
+    canQueryOwnershipFencedCloudData &&
       routerConversationId &&
       !routeIsListedOrPendingCloudConversation
       ? { conversationId: routerConversationId }
@@ -278,7 +297,7 @@ function RootLayout() {
   );
   const exactCachedCloudConversation = useQuery(
     cloudApi.getMyConversation,
-    cloudMode &&
+    canQueryOwnershipFencedCloudData &&
       cachedCloudConversationId &&
       cachedCloudConversationId !== routerConversationId &&
       !cachedConversationIsListed
@@ -301,20 +320,20 @@ function RootLayout() {
   const routeIsOwnedCloudConversation =
     routeIsListedOrPendingCloudConversation ||
     (exactCloudConversation?.conversationId === routerConversationId &&
-      cloudConversationBelongsToAccountScope(
+      cloudConversationBelongsToOwnerSubject(
         exactCloudConversation,
-        accountScope,
+        ownerSubject,
       ));
   const scopedExactCloudConversation =
     exactCloudConversation &&
-    cloudConversationBelongsToAccountScope(exactCloudConversation, accountScope)
+    cloudConversationBelongsToOwnerSubject(exactCloudConversation, ownerSubject)
       ? exactCloudConversation
       : null;
   const scopedExactCachedCloudConversation =
     exactCachedCloudConversation &&
-    cloudConversationBelongsToAccountScope(
+    cloudConversationBelongsToOwnerSubject(
       exactCachedCloudConversation,
-      accountScope,
+      ownerSubject,
     )
       ? exactCachedCloudConversation
       : null;
@@ -341,6 +360,7 @@ function RootLayout() {
           routeConversationId: routerConversationId,
           cachedConversationId: cachedCloudConversationId,
           accountScope,
+          ownerSubject,
         })
       : null;
 
@@ -473,6 +493,7 @@ function RootLayout() {
       routeConversationId: routerConversationId,
       cachedConversationId: cachedCloudConversationId,
       accountScope,
+      ownerSubject,
     });
     if (fallbackConversationId) {
       clearCloudCreateRetryTimer();
@@ -574,6 +595,7 @@ function RootLayout() {
     cloudConversations,
     cloudCreateRetrySignal,
     ownerGeneration,
+    ownerSubject,
     cloudMode,
     createCloudConversation,
     routeIntent,
@@ -632,6 +654,10 @@ function RootLayout() {
         onRetry={retryOwnershipMigration}
       />
     );
+  }
+
+  if (ownershipMigrationGate.isLoading || ownershipMigrationGate.isPending) {
+    return <CloudStartupPending />;
   }
 
   if (

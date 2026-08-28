@@ -996,6 +996,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         any,
         Name
       >;
+      findUserIdSafely: FunctionReference<
+        "query",
+        "internal",
+        { value: string },
+        string | null,
+        Name
+      >;
       updateMany: FunctionReference<
         "mutation",
         "internal",

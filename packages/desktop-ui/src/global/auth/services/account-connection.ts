@@ -112,8 +112,10 @@ export type MagicLinkSendRequest = {
 };
 
 /**
- * Electron keeps its existing host-mediated link flow. Browser shells bind
- * the send to the current anonymous owner and refuse to issue an unowned link.
+ * Every shell binds the send to the current anonymous owner and refuses to
+ * issue an unowned link. `getConvexToken` obtains Electron authority through
+ * host IPC and browser authority through Better Auth, so the backend receives
+ * the same proof without moving session cookies across either boundary.
  */
 export const buildMagicLinkSendRequest = async (
   email: string,
@@ -121,10 +123,6 @@ export const buildMagicLinkSendRequest = async (
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (window.electronAPI) {
-    return { headers, body: { email } };
-  }
-
   const authorization = await getBrowserOwnerAuthorization();
   if (!authorization) {
     return null;

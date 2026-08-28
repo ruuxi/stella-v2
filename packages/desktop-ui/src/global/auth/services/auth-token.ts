@@ -16,6 +16,13 @@ let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
 let inflightTokenPromise: Promise<string | null> | null = null;
 let tokenRequestVersion = 0;
+let activeValidatedIdentityKey: string | null = null;
+let validatedIdentityVersion = 0;
+let inflightValidatedRefresh: {
+  identityKey: string;
+  identityVersion: number;
+  promise: Promise<string | null>;
+} | null = null;
 
 // JWT lifetime is ~30 minutes (server-minted); refresh 60s before the token's
 // own `exp` (read dynamically below) to avoid races. The margin adapts to
@@ -24,6 +31,21 @@ const REFRESH_MARGIN_MS = 60_000;
 
 type GetConvexTokenOptions = {
   forceRefresh?: boolean;
+};
+
+type GetConvexTokenForIdentityOptions = GetConvexTokenOptions & {
+  /**
+   * Changes whenever the durable auth-session identity changes, even if a
+   * user signs out and later returns as the same Better Auth subject.
+   */
+  identityRevision?: number;
+};
+
+const invalidateTokenCache = (): void => {
+  tokenRequestVersion += 1;
+  cachedToken = null;
+  tokenExpiresAt = 0;
+  inflightTokenPromise = null;
 };
 
 /**
@@ -36,10 +58,7 @@ export async function getConvexToken(
   const forceRefresh = options.forceRefresh ?? false;
 
   if (forceRefresh) {
-    tokenRequestVersion += 1;
-    cachedToken = null;
-    tokenExpiresAt = 0;
-    inflightTokenPromise = null;
+    invalidateTokenCache();
   }
 
   if (!forceRefresh && cachedToken && Date.now() < tokenExpiresAt) {
@@ -125,6 +144,147 @@ const tokenIdentifier = (token: string): string | null => {
   }
 };
 
+type ParsedConvexTokenIdentity = {
+  subject: string;
+  isAnonymous: boolean;
+};
+
+const parseConvexTokenIdentity = (
+  token: string,
+): ParsedConvexTokenIdentity | null => {
+  try {
+    const payload = parseJwtPayload<{
+      iss?: unknown;
+      sub?: unknown;
+      isAnonymous?: unknown;
+    }>(token);
+    if (
+      typeof payload.iss !== "string" ||
+      !payload.iss ||
+      typeof payload.sub !== "string" ||
+      !payload.sub ||
+      typeof payload.isAnonymous !== "boolean"
+    ) {
+      return null;
+    }
+    return {
+      subject: `${payload.iss.replace(/\/+$/, "")}|${payload.sub}`,
+      isAnonymous: payload.isAnonymous,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const validatedIdentityKey = (
+  expectedSubject: string,
+  expectedIsAnonymous: boolean,
+  identityRevision: number | undefined,
+) =>
+  [
+    expectedSubject,
+    expectedIsAnonymous ? "anonymous" : "connected",
+    typeof identityRevision === "number" &&
+    Number.isSafeInteger(identityRevision)
+      ? String(identityRevision)
+      : "",
+  ].join("\u0000");
+
+const tokenMatchesIdentity = (
+  token: string | null,
+  expectedSubject: string,
+  expectedIsAnonymous: boolean,
+): token is string => {
+  if (!token) return false;
+  const identity = parseConvexTokenIdentity(token);
+  return (
+    identity?.subject === expectedSubject &&
+    identity.isAnonymous === expectedIsAnonymous
+  );
+};
+
+/**
+ * Returns a bearer token only when issuer, subject, and anonymous-account state
+ * all match the current renderer session. Activating a new identity invalidates
+ * the untyped cache synchronously before any token is read. A later identity or
+ * forced refresh also fences an older in-flight request from returning to its
+ * caller.
+ */
+export async function getConvexTokenForIdentity(
+  expectedSubject: string,
+  expectedIsAnonymous: boolean,
+  options: GetConvexTokenForIdentityOptions = {},
+): Promise<string | null> {
+  const expected = expectedSubject.trim();
+  if (!expected || expected !== expectedSubject) return null;
+
+  const identityKey = validatedIdentityKey(
+    expected,
+    expectedIsAnonymous,
+    options.identityRevision,
+  );
+  if (activeValidatedIdentityKey !== identityKey) {
+    activeValidatedIdentityKey = identityKey;
+    validatedIdentityVersion += 1;
+    inflightValidatedRefresh = null;
+    invalidateTokenCache();
+  }
+  if (options.forceRefresh) {
+    validatedIdentityVersion += 1;
+    inflightValidatedRefresh = null;
+  }
+
+  const requestIdentityVersion = validatedIdentityVersion;
+  const token = await getConvexToken({
+    forceRefresh: options.forceRefresh ?? false,
+  });
+  if (
+    activeValidatedIdentityKey !== identityKey ||
+    validatedIdentityVersion !== requestIdentityVersion
+  ) {
+    return null;
+  }
+  if (tokenMatchesIdentity(token, expected, expectedIsAnonymous)) return token;
+  if (options.forceRefresh) return null;
+
+  // A same-identity caller may have populated the generic cache before this
+  // strict check ran. Same-identity callers share one strict refresh. Only an
+  // identity change or an explicit force refresh supersedes this work.
+  const existingRefresh = inflightValidatedRefresh;
+  if (
+    existingRefresh?.identityKey === identityKey &&
+    existingRefresh.identityVersion === requestIdentityVersion
+  ) {
+    return await existingRefresh.promise;
+  }
+
+  const refreshPromise = getConvexToken({ forceRefresh: true }).then(
+    (refreshedToken) => {
+      if (
+        activeValidatedIdentityKey !== identityKey ||
+        validatedIdentityVersion !== requestIdentityVersion
+      ) {
+        return null;
+      }
+      return tokenMatchesIdentity(refreshedToken, expected, expectedIsAnonymous)
+        ? refreshedToken
+        : null;
+    },
+  );
+  const refresh = {
+    identityKey,
+    identityVersion: requestIdentityVersion,
+    promise: refreshPromise,
+  };
+  inflightValidatedRefresh = refresh;
+  void refreshPromise.finally(() => {
+    if (inflightValidatedRefresh === refresh) {
+      inflightValidatedRefresh = null;
+    }
+  });
+  return await refreshPromise;
+}
+
 /**
  * Returns a bearer token only when its signed issuer+subject matches the
  * renderer's immutable cloud owner. One forced refresh closes the common
@@ -156,8 +316,8 @@ export async function getAuthHeaders(
 
 /** Clear cached token (e.g. on sign-out). */
 export function clearCachedToken(): void {
-  tokenRequestVersion += 1;
-  cachedToken = null;
-  tokenExpiresAt = 0;
-  inflightTokenPromise = null;
+  activeValidatedIdentityKey = null;
+  validatedIdentityVersion += 1;
+  inflightValidatedRefresh = null;
+  invalidateTokenCache();
 }

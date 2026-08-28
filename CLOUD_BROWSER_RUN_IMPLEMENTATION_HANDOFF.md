@@ -110,7 +110,7 @@ The Browser Gateway, BrowserProfileSession Durable Object, Convex tables, suspen
 
 ## Target topology
 
-~~~
+```
 Modern Stella desktop, hosted web, or mobile shell
     |
     | owner-authenticated challenge decisions and JIT takeover requests
@@ -151,7 +151,7 @@ BrowserProfileSession Durable Object
     v                       v
 Cloudflare Browser Run     Encrypted snapshot objects in R2
 Playwright / CDP           cookies + localStorage + IndexedDB
-~~~
+```
 
 Cloudflare Workflows are optional for long device-code polling, expiry/retry reconciliation, and other waits that do not require a live browser.
 
@@ -159,23 +159,23 @@ Browser Run is a sibling of the Stella general-agent Sandbox. Do not install and
 
 ## Authority and ownership
 
-| State | Authority | Notes |
-|---|---|---|
-| Conversation and turn continuation | Conversation Orchestrator DO journal | Must survive eviction and reconnect |
-| Live Browser Run lease | BrowserProfileSession DO | Exclusive profile writer |
-| Encrypted browser snapshot bytes | Browser Worker R2 namespace | Owner-addressable prefix; application encryption |
-| Safe profile snapshot metadata | Convex | Epoch, generation, hash, size, key version, R2 key |
-| Pending human interaction | Orchestrator DO plus Convex owner projection | DO owns continuation; Convex makes it discoverable on any device |
-| Website action permission | Convex | Exact owner, profile epoch, origin, action, expiry |
-| OAuth refresh/access credentials | Existing scoped credential vault | Never browser storage-state tables |
-| JIT Live View capability | Browser Gateway response only | Memory only; never durable |
-| Browser activity and errors | Redacted structured events | No secret payloads or raw DOM during auth |
+| State                              | Authority                                    | Notes                                                            |
+| ---------------------------------- | -------------------------------------------- | ---------------------------------------------------------------- |
+| Conversation and turn continuation | Conversation Orchestrator DO journal         | Must survive eviction and reconnect                              |
+| Live Browser Run lease             | BrowserProfileSession DO                     | Exclusive profile writer                                         |
+| Encrypted browser snapshot bytes   | Browser Worker R2 namespace                  | Owner-addressable prefix; application encryption                 |
+| Safe profile snapshot metadata     | Convex                                       | Epoch, generation, hash, size, key version, R2 key               |
+| Pending human interaction          | Orchestrator DO plus Convex owner projection | DO owns continuation; Convex makes it discoverable on any device |
+| Website action permission          | Convex                                       | Exact owner, profile epoch, origin, action, expiry               |
+| OAuth refresh/access credentials   | Existing scoped credential vault             | Never browser storage-state tables                               |
+| JIT Live View capability           | Browser Gateway response only                | Memory only; never durable                                       |
+| Browser activity and errors        | Redacted structured events                   | No secret payloads or raw DOM during auth                        |
 
 ## Core state machines
 
 ### Browser profile
 
-~~~
+```
 active
   -> revoking
   -> revoked
@@ -191,33 +191,33 @@ reset:
   terminate Browser Run session
   delete encrypted R2 objects
   finalize new empty active profile or revoked tombstone
-~~~
+```
 
 An old epoch can never commit a snapshot or resume a challenge after reset.
 
 ### Human interaction
 
-~~~
+```
 requested
   -> presented
   -> claimed
   -> approved | denied | canceled | expired | superseded
   -> consumed exactly once
   -> completed
-~~~
+```
 
 Decision writes compare interactionId plus revision. Retries return the prior result. A second device cannot approve a stale revision.
 
 ### Suspended turn
 
-~~~
+```
 running
   -> suspending
   -> waiting_for_user
   -> resuming
   -> running
   -> completed | failed | canceled
-~~~
+```
 
 Entering waiting_for_user must:
 
@@ -643,19 +643,19 @@ Session recording remains disabled by default. If recording is ever enabled, pau
 
 ## Failure behavior
 
-| Failure | Required behavior |
-|---|---|
-| Browser Run session disappeared | reconnect if valid; otherwise launch fresh and restore encrypted snapshot |
-| Snapshot commit races reset | old epoch loses CAS and ciphertext is deleted |
-| Mutating command times out | re-observe state before retry; never blindly repeat |
-| DO evicted during handoff | alarm/Workflow and durable descriptor recover state |
-| Owner approves twice | revision CAS returns the single prior outcome |
-| Website expires session | surface sign-in request again; do not claim persistent connection |
-| Site blocks bot traffic | explicit unsupported/blocked result and provider-neutral fallback path |
-| Live View capability leaks into history | treat as security defect; revoke/terminate capability and redact |
-| User cancels or interaction expires | exactly-once canceled tool result and safe task continuation/failure |
-| Profile is revoked during execution | fence immediately, stop browser, cancel pending interactions |
-| Convex or gateway unavailable | explicit resumable failure; never silently switch identity or authority |
+| Failure                                 | Required behavior                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------- |
+| Browser Run session disappeared         | reconnect if valid; otherwise launch fresh and restore encrypted snapshot |
+| Snapshot commit races reset             | old epoch loses CAS and ciphertext is deleted                             |
+| Mutating command times out              | re-observe state before retry; never blindly repeat                       |
+| DO evicted during handoff               | alarm/Workflow and durable descriptor recover state                       |
+| Owner approves twice                    | revision CAS returns the single prior outcome                             |
+| Website expires session                 | surface sign-in request again; do not claim persistent connection         |
+| Site blocks bot traffic                 | explicit unsupported/blocked result and provider-neutral fallback path    |
+| Live View capability leaks into history | treat as security defect; revoke/terminate capability and redact          |
+| User cancels or interaction expires     | exactly-once canceled tool result and safe task continuation/failure      |
+| Profile is revoked during execution     | fence immediately, stop browser, cancel pending interactions              |
+| Convex or gateway unavailable           | explicit resumable failure; never silently switch identity or authority   |
 
 ## Implementation slices
 
@@ -756,6 +756,46 @@ Complete each slice with focused tests before moving on.
 - explicit unsupported-site UX;
 - security review and gradual rollout;
 - no production enablement without separate authorization.
+
+## User-approved initial completion and verification scope (2026-08-27)
+
+The first complete Browser Run product is not gated on the exhaustive hardening
+matrix below. Its initial acceptance scope is deliberately narrow and uses only
+Stella's managed/default provider:
+
+1. Use one authorized disposable website account on a target that permits
+   email/password signup without email confirmation, OTP, payment, or a CAPTCHA.
+2. Stella reaches the login boundary and pauses for a direct human Live View
+   takeover. The human—not the model, sandbox, or agent tool—enters the email,
+   username, and password into the target page.
+3. While takeover is active, agent browser commands remain locked. After the
+   human finishes, the gateway reports only a bounded completion/result state;
+   it never returns the credential-field values or auth-page DOM to the model.
+4. The original Stella turn resumes and completes one observable post-login
+   task on that site.
+5. Persist the encrypted browser profile, terminate the Browser Run session,
+   create a genuinely fresh session, restore the profile, and verify that the
+   same disposable account remains signed in. This is the proof of reusable
+   authentication; an in-memory reconnect does not count.
+6. Search the model-visible tool results and retained Stella/Worker evidence for
+   the exact disposable email, username, and password. All must be absent. Raw
+   browser secrets and credential-field contents are never intentionally
+   collected merely to perform this assertion.
+7. Reset the disposable browser profile and verify that a subsequent fresh
+   session no longer restores the signed-in state.
+
+A normal password login cannot prove device-code behavior, so device-code
+support gets one additional controlled fixture or authorized disposable-provider
+proof: Stella displays only the user-facing verification URI/code, suspends the
+turn without holding an executor open, and resumes after approval without the
+provider's device secret or resulting OAuth credentials entering model-visible
+state.
+
+Passing those two representative flows is the initial product completion bar.
+The broad site matrix, long-tail CAPTCHA/passkey/SSO coverage, alternate-engine
+parity, large crash matrix, cost soak, and adversarial lifecycle certification
+below are deferred hardening work to perform only when separately requested.
+They must not block shipping the complete core Stella Browser Run experience.
 
 ## Automated verification
 

@@ -215,6 +215,9 @@ describe("cloud conversation journal compatibility", () => {
         )
         .flatMap((event) => event.records as JournalRecord[]);
       expect(ordered.map((record) => record.seq)).toEqual([1, 2, 3, 4]);
+      expect(ordered.every((record) => !Object.hasOwn(record, "type"))).toBe(
+        true,
+      );
       expect(ordered[1]).toMatchObject({
         kind: "skipped",
         originalKind: "future-record-kind",

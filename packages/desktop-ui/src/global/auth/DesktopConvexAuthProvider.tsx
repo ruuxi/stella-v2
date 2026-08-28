@@ -11,8 +11,8 @@ import {
 import { ConvexProviderWithAuth } from "convex/react";
 import { MagicLinkAuthProvider } from "@/global/auth/useMagicLinkAuth";
 import {
-  getConvexToken,
   clearCachedToken,
+  getConvexTokenForIdentity,
 } from "@/global/auth/services/auth-token";
 import {
   getAuthSessionSnapshot,
@@ -21,6 +21,7 @@ import {
   waitForBrowserAuthHandoff,
 } from "@/global/auth/services/auth-session";
 import { convexClient } from "@/platform/convex/convex-client";
+import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { getJwtExpMs } from "@/shared/lib/jwt";
 import { decideAutomaticAnonymousBootstrap } from "./browser-auth-handoff";
 
@@ -30,6 +31,16 @@ const TOKEN_BOOTSTRAP_MAX_ATTEMPTS = 10;
 const TOKEN_REFRESH_FALLBACK_MS = 3 * 60 * 1000;
 const TOKEN_REFRESH_MARGIN_MS = 90_000;
 const TOKEN_MIN_REFRESH_MS = 15_000;
+const CONVEX_TOKEN_ISSUER = readConfiguredConvexSiteUrl(
+  import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
+);
+
+const expectedConvexTokenSubject = (userId: string | null): string | null => {
+  const subject = userId?.trim();
+  return CONVEX_TOKEN_ISSUER && subject
+    ? `${CONVEX_TOKEN_ISSUER}|${subject}`
+    : null;
+};
 
 const getTokenBootstrapRetryDelayMs = (attempt: number) => {
   const exponent = Math.max(0, attempt - 1);
@@ -98,25 +109,53 @@ export function useDesktopConvexAuth() {
         | null
         | undefined
     )?.user?.isAnonymous === true;
+  const expectedTokenSubject = expectedConvexTokenSubject(sessionUserId);
+  const identityRevision = session.identityRevision;
+  const tokenIdentityKey = expectedTokenSubject
+    ? [
+        expectedTokenSubject,
+        sessionIsAnonymous ? "anonymous" : "connected",
+        String(identityRevision),
+      ].join("\u0000")
+    : null;
+  const activeTokenIdentityKeyRef = useRef(tokenIdentityKey);
+  activeTokenIdentityKeyRef.current = tokenIdentityKey;
   const hasValidSessionIdentity = Boolean(
     session.data && sessionUserId?.trim(),
   );
-
-  useEffect(() => {
-    clearCachedToken();
-  }, [sessionIsAnonymous, sessionUserId]);
 
   const fetchAccessToken = useCallback(
     async ({
       forceRefreshToken = false,
     }: { forceRefreshToken?: boolean } = {}) => {
-      return await getConvexToken({ forceRefresh: forceRefreshToken });
+      if (
+        !expectedTokenSubject ||
+        !tokenIdentityKey ||
+        activeTokenIdentityKeyRef.current !== tokenIdentityKey
+      ) {
+        return null;
+      }
+      const token = await getConvexTokenForIdentity(
+        expectedTokenSubject,
+        sessionIsAnonymous,
+        {
+          forceRefresh: forceRefreshToken,
+          identityRevision,
+        },
+      );
+      return activeTokenIdentityKeyRef.current === tokenIdentityKey
+        ? token
+        : null;
     },
-    // Intentionally keyed on sessionUserId and sessionIsAnonymous so
+    // Intentionally keyed on the full session identity so
     // ConvexProviderWithAuth re-calls setAuth when the signed-in identity
     // changes, including anonymous → real account links that preserve user.id.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sessionIsAnonymous, sessionUserId],
+    [
+      expectedTokenSubject,
+      identityRevision,
+      sessionIsAnonymous,
+      tokenIdentityKey,
+    ],
   );
 
   return useMemo(
@@ -139,7 +178,6 @@ function DesktopAuthRuntimeEffects({
   const session = useDesktopAuthSession();
   const attemptedAnonAuthRef = useRef(false);
   const lastRetryAttemptRef = useRef(retryAttempt);
-  const runtimeIdentityKeyRef = useRef<string | null>(null);
   const runtimeAuthRefreshHandlerRef = useRef<
     | ((args?: {
         forceRefreshToken?: boolean;
@@ -155,6 +193,8 @@ function DesktopAuthRuntimeEffects({
   )?.user;
   const sessionUserId = sessionUser?.id ?? null;
   const sessionIsAnonymous = sessionUser?.isAnonymous === true;
+  const sessionIdentityRevision = session.identityRevision;
+  const expectedTokenSubject = expectedConvexTokenSubject(sessionUserId);
   const hasSession = Boolean(session.data);
   const hasConnectedAccount = hasSession && !sessionIsAnonymous;
   const isSessionPending = Boolean(session.isPending);
@@ -300,7 +340,7 @@ function DesktopAuthRuntimeEffects({
       return;
     }
 
-    if (!sessionUserId?.trim()) {
+    if (!sessionUserId?.trim() || !expectedTokenSubject) {
       runtimeAuthRefreshHandlerRef.current = null;
       void systemApi.setAuthState({
         authenticated: false,
@@ -317,17 +357,6 @@ function DesktopAuthRuntimeEffects({
       status: "syncing_runtime_token",
       error: null,
     });
-
-    const runtimeIdentityKey = [
-      sessionUserId ?? "unknown",
-      sessionIsAnonymous ? "anonymous" : "connected",
-    ].join(":");
-    const runtimeIdentityChanged =
-      runtimeIdentityKeyRef.current !== runtimeIdentityKey;
-    runtimeIdentityKeyRef.current = runtimeIdentityKey;
-    if (runtimeIdentityChanged) {
-      clearCachedToken();
-    }
 
     let cancelled = false;
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -365,9 +394,14 @@ function DesktopAuthRuntimeEffects({
       let token: string | undefined;
       try {
         token =
-          (await getConvexToken({
-            forceRefresh: forceRefreshToken,
-          })) ?? undefined;
+          (await getConvexTokenForIdentity(
+            expectedTokenSubject,
+            sessionIsAnonymous,
+            {
+              forceRefresh: forceRefreshToken,
+              identityRevision: sessionIdentityRevision,
+            },
+          )) ?? undefined;
       } catch {
         token = undefined;
       }
@@ -435,7 +469,10 @@ function DesktopAuthRuntimeEffects({
     };
 
     runtimeAuthRefreshHandlerRef.current = syncToken;
-    void syncToken({ forceRefreshToken: runtimeIdentityChanged });
+    // The identity-aware helper invalidates the generic cache synchronously on
+    // a new identity. Do not clear it from this passive effect: that can race a
+    // fresh token already fetched by ConvexProviderWithAuth.
+    void syncToken();
 
     return () => {
       cancelled = true;
@@ -443,10 +480,12 @@ function DesktopAuthRuntimeEffects({
       clearTimers();
     };
   }, [
+    expectedTokenSubject,
     hasConnectedAccount,
     hasSession,
     isSessionPending,
     sessionIsAnonymous,
+    sessionIdentityRevision,
     sessionUserId,
     setAuthBootstrapState,
     retryAttempt,

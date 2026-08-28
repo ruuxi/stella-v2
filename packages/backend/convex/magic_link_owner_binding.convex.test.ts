@@ -3,9 +3,19 @@
 import { convexTest } from "convex-test";
 import { register as registerRateLimiter } from "@convex-dev/rate-limiter/test";
 import { describe, expect, it } from "vitest";
+import { components } from "./_generated/api";
+import { authUserIdFromVerificationPayload } from "./auth";
+import betterAuthSchema from "./betterAuth/schema";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
+const betterAuthModules = import.meta.glob("./betterAuth/**/*.ts");
+
+const createTestWithBetterAuth = () => {
+  const t = convexTest(schema, modules);
+  t.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+  return t;
+};
 
 const linkRequest = (authorization?: string) =>
   ({
@@ -106,5 +116,100 @@ describe("POST /api/auth/link/send owner proof", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store, max-age=0");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  });
+});
+
+describe("Better Auth verification user lookup", () => {
+  it("rejects opaque and wrong-table ids without throwing", async () => {
+    const t = createTestWithBetterAuth();
+    const now = Date.now();
+    const user = (await t.mutation(components.betterAuth.adapter.create, {
+      input: {
+        model: "user",
+        data: {
+          name: "Existing User",
+          email: "existing@example.com",
+          emailVerified: true,
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+    })) as { _id: string };
+    const session = (await t.mutation(components.betterAuth.adapter.create, {
+      input: {
+        model: "session",
+        data: {
+          userId: user._id,
+          token: "session-token",
+          expiresAt: now + 60_000,
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+    })) as { _id: string };
+
+    await expect(
+      t.query(components.betterAuth.adapter.findUserIdSafely, {
+        value: JSON.stringify({ email: "existing@example.com" }),
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      t.query(components.betterAuth.adapter.findUserIdSafely, {
+        value: "opaque-cross-domain-session-token",
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      t.query(components.betterAuth.adapter.findUserIdSafely, {
+        value: session._id,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      t.query(components.betterAuth.adapter.findUserIdSafely, {
+        value: user._id,
+      }),
+    ).resolves.toBe(user._id);
+  });
+
+  it("attributes a magic-link JSON payload through its email", async () => {
+    const userId = "existing-better-auth-user-id";
+    const identifier = "opaque-magic-link-token";
+    const value = JSON.stringify({
+      email: "existing@example.com",
+      name: "Existing User",
+    });
+    const queryCalls: Array<Record<string, unknown>> = [];
+    const authUserId = await authUserIdFromVerificationPayload(
+      {
+        runQuery: async (_ref: unknown, args: Record<string, unknown>) => {
+          queryCalls.push(args);
+          if ("value" in args && !("model" in args)) {
+            expect(args).toEqual({ value });
+            return null;
+          }
+          if (args.model === "user") {
+            const where = args.where as Array<{
+              field: string;
+              value: unknown;
+            }>;
+            expect(where[0]?.field).toBe("email");
+            return where[0]?.value === "existing@example.com"
+              ? { _id: userId }
+              : null;
+          }
+          throw new Error("Unexpected verification lookup");
+        },
+      } as never,
+      { identifier, value },
+    );
+
+    expect(authUserId).toBe(userId);
+    expect(queryCalls).not.toContainEqual({
+      model: "user",
+      where: [{ field: "_id", value }],
+    });
+    expect(queryCalls).toContainEqual({
+      model: "user",
+      where: [{ field: "email", value: "existing@example.com" }],
+    });
   });
 });

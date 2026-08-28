@@ -551,9 +551,12 @@ export class ConversationSocket {
       case "ready":
         this.handleReady(frame);
         return;
-      case "record":
-        this.applyRecord(frame);
+      case "record": {
+        const { type: frameType, ...record } = frame;
+        void frameType;
+        this.applyRecord(record);
         return;
+      }
       case "backfill":
         this.handleBackfill(frame);
         return;

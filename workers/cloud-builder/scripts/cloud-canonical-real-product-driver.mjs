@@ -2834,6 +2834,19 @@ const launchElectron = async (
   await mkdir(profile.root, { recursive: true, mode: 0o700 });
   await mkdir(profile.userData, { recursive: true, mode: 0o700 });
   await mkdir(profile.data, { recursive: true, mode: 0o700 });
+  const runtimeStateDir = path.join(
+    "/tmp",
+    `stella-core-${sha256(profile.root).slice(0, 12)}`,
+  );
+  const runtimeIpcDir = path.join(paths.root, "runtime-ipc", profileName);
+  const browserSocketDir = assertNarrowIsolatedPath(
+    path.join(profile.root, "browser-sockets"),
+    paths.root,
+    "Electron browser socket directory",
+  );
+  await mkdir(runtimeStateDir, { recursive: true, mode: 0o700 });
+  await mkdir(runtimeIpcDir, { recursive: true, mode: 0o700 });
+  await mkdir(browserSocketDir, { recursive: true, mode: 0o700 });
   const profileIdentity = await electronProfileIdentity(paths, profile);
   const canonicalUserDataDir = realpathSync(profile.userData);
   const harnessAppName = `Stella v2 Harness ${sha256(canonicalUserDataDir).slice(0, 12)}`;
@@ -2865,6 +2878,9 @@ const launchElectron = async (
       STELLA_DEV_HARNESS: "1",
       STELLA_V2_DEV_USER_DATA_DIR: profile.userData,
       STELLA_V2_DEV_DATA_DIR: profile.data,
+      STELLA_RUNTIME_STATE_DIR: runtimeStateDir,
+      STELLA_RUNTIME_IPC_DIR: runtimeIpcDir,
+      STELLA_BROWSER_SOCKET_DIR: browserSocketDir,
       STELLA_REMOTE_DEBUG_PORT: "0",
       STELLA_DEV_SERVER_URL: `http://127.0.0.1:${vite.port}`,
       CONVEX_DEPLOYMENT: context.target.deployment,
@@ -2907,7 +2923,9 @@ const launchElectron = async (
     "Isolated Electron CDP omitted its browser build identity.",
   );
   const cdpBrowserSha256 = sha256(cdpVersion.body.Browser);
-  const expectedRendererUrl = new URL(`http://127.0.0.1:${vite.port}/`).href;
+  const expectedRendererUrl = new URL(
+    `http://127.0.0.1:${vite.port}/index.html?window=full`,
+  ).href;
   const cdp = await connectRenderedClientCdp({
     debugPort,
     expectedUrl: expectedRendererUrl,
@@ -3761,19 +3779,27 @@ const REVIEWED_ONBOARDING_PHASES = Object.freeze([
 ]);
 
 const trustedRenderedClick = async (client, selector, label) => {
-  const point = await client.evaluate(
-    `(() => {
-      const element = document.querySelector(${JSON.stringify(selector)});
-      if (!(element instanceof HTMLElement)) throw new Error("reviewed control is absent");
-      const style = getComputedStyle(element);
-      const rect = element.getBoundingClientRect();
-      const disabled = element instanceof HTMLButtonElement ? element.disabled : false;
-      if (disabled || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0 || rect.width <= 0 || rect.height <= 0) {
-        throw new Error("reviewed control is not visibly interactive");
-      }
-      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-    })()`,
-    label,
+  const point = await poll(
+    () =>
+      client.evaluate(
+        `(() => {
+          const element = document.querySelector(${JSON.stringify(selector)});
+          if (!(element instanceof HTMLElement)) return null;
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          const disabled = element instanceof HTMLButtonElement ? element.disabled : false;
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const hit = document.elementFromPoint(x, y);
+          if (disabled || style.display === "none" || style.visibility === "hidden" || style.pointerEvents === "none" || Number(style.opacity) === 0 || rect.width <= 0 || rect.height <= 0 || !(hit === element || element.contains(hit))) {
+            return null;
+          }
+          return { x, y };
+        })()`,
+        label,
+      ),
+    (value) => Number.isFinite(value?.x) && Number.isFinite(value?.y),
+    { timeoutMs: 30_000, intervalMs: 100, label },
   );
   assert(
     Number.isFinite(point?.x) &&
@@ -3850,6 +3876,7 @@ const driveVisibleProductOnboarding = async (
   }
 
   let priorPhase = null;
+  let themeConfigured = false;
   while (Date.now() - started < timeoutMs) {
     const state = await poll(
       () =>
@@ -3915,6 +3942,25 @@ const driveVisibleProductOnboarding = async (
       interactionHashes.push(sha256(`${phase}:memory-off`));
       continue;
     }
+    if (phase === "theme" && themeConfigured !== true) {
+      const selections = [
+        ".onboarding-theme-orb",
+        '.onboarding-theme-grow-in[data-visible="true"]:not(.onboarding-theme-grow-in--delayed-1):not(.onboarding-theme-grow-in--delayed-2) button:not(:disabled)',
+        '.onboarding-theme-grow-in--delayed-1[data-visible="true"] button:not(:disabled)',
+        '.onboarding-theme-grow-in--delayed-2[data-visible="true"] button:not(:disabled)',
+      ];
+      for (const [index, selector] of selections.entries()) {
+        await trustedRenderedClick(
+          client,
+          selector,
+          `configure ${client.surface} product onboarding theme ${index + 1}`,
+        );
+        interactionHashes.push(sha256(`${phase}:selection-${index + 1}`));
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+      themeConfigured = true;
+      continue;
+    }
     if (state.confirmReady !== true) {
       await new Promise((resolve) => setTimeout(resolve, 100));
       continue;
@@ -3933,6 +3979,24 @@ const driveVisibleProductOnboarding = async (
       new Set(observedPhases).size === observedPhases.length,
     "Visible onboarding did not traverse the reviewed first-run product flow.",
   );
+  const welcomeDeadline = Date.now() + 5_000;
+  let welcomeVisible = false;
+  while (Date.now() <= welcomeDeadline && welcomeVisible !== true) {
+    welcomeVisible = await client.evaluate(
+      `Boolean(document.querySelector('.welcome-dialog-content'))`,
+      `observe ${client.surface} post-onboarding welcome`,
+    );
+    if (welcomeVisible !== true) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  if (welcomeVisible === true) {
+    await trustedRenderedClick(
+      client,
+      ".welcome-dialog-close",
+      `dismiss ${client.surface} post-onboarding welcome`,
+    );
+  }
   const transcript = Object.freeze({
     contract: "stella-driver-visible-onboarding-v1",
     surface: client.surface,
@@ -3969,15 +4033,104 @@ const driveVisibleProductOnboarding = async (
 };
 
 const navigateRenderedProduct = async (client, appUrl, label) => {
-  await navigateRenderedClient(client, { appUrl, timeoutMs: 90_000 });
-  const observed = await client.evaluate(
-    `(() => ({ href: location.href, crash: Boolean(document.querySelector('.error-boundary')) }))()`,
-    label,
-  );
+  const target = new URL(appUrl);
   assert(
-    observed?.href === appUrl && observed.crash === false,
-    `${label} did not reach a clean exact product route.`,
+    target.origin === STRICT_PRODUCT_ORIGIN,
+    "Rendered product route must stay on the trusted loopback origin.",
   );
+  const search = Object.fromEntries(target.searchParams.entries());
+  const observed = await client.evaluate(
+    `(async () => {
+      const { router } = await import("/src/router.tsx");
+      await router.navigate({
+        to: ${JSON.stringify(target.pathname)},
+        search: ${JSON.stringify(search)},
+        replace: true
+      });
+      const expectedPathname = ${JSON.stringify(target.pathname)};
+      const expectedSearch = ${JSON.stringify(search)};
+      const deadline = Date.now() + 30000;
+      let snapshot;
+      do {
+        const routeSearch = router.state.location.search;
+        const unexpectedSearchKeys = routeSearch && typeof routeSearch === "object"
+          ? Object.keys(routeSearch).filter((key) => !(key in expectedSearch))
+          : [];
+        const canonicalConversationRoute =
+          expectedPathname === "/chat" &&
+          unexpectedSearchKeys.length === 1 &&
+          unexpectedSearchKeys[0] === "c" &&
+          /^[0-9a-f-]{36}$/iu.test(routeSearch?.c);
+        const routeMatches =
+          router.state.location.pathname === expectedPathname &&
+          routeSearch &&
+          typeof routeSearch === "object" &&
+          Object.entries(expectedSearch).every(([key, value]) => routeSearch[key] === value) &&
+          (unexpectedSearchKeys.length === 0 || canonicalConversationRoute);
+        snapshot = {
+          routeHref: router.state.location.href,
+          routePathname: router.state.location.pathname,
+          routeSearch,
+          pending: Boolean(document.querySelector('.error-boundary[role="status"]')),
+          crash: Boolean(document.querySelector('.error-boundary:not([role="status"])'))
+        };
+        if (snapshot.crash || (routeMatches && !snapshot.pending)) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      } while (Date.now() < deadline);
+      return snapshot;
+    })()`,
+    label,
+    45_000,
+  );
+  const observedSearch =
+    observed?.routeSearch && typeof observed.routeSearch === "object"
+      ? observed.routeSearch
+      : null;
+  const unexpectedSearchKeys = observedSearch
+    ? Object.keys(observedSearch).filter((key) => !(key in search))
+    : [];
+  const canonicalConversationRoute =
+    target.pathname === "/chat" &&
+    unexpectedSearchKeys.length === 1 &&
+    unexpectedSearchKeys[0] === "c" &&
+    /^[0-9a-f-]{36}$/iu.test(observedSearch.c);
+  const expectedSearchMatched =
+    observedSearch !== null &&
+    Object.entries(search).every(
+      ([key, value]) => observedSearch[key] === value,
+    );
+  if (
+    observed?.routePathname !== target.pathname ||
+    !expectedSearchMatched ||
+    (unexpectedSearchKeys.length !== 0 && !canonicalConversationRoute) ||
+    observed.pending !== false ||
+    observed.crash !== false
+  ) {
+    throw new CloudProofError(
+      `${label} did not reach a clean exact product route.`,
+      {
+        observedRoutePathname: observed?.routePathname ?? null,
+        expectedRoutePathname: target.pathname,
+        observedSearchKeys: observedSearch ? Object.keys(observedSearch) : [],
+        expectedSearchKeys: Object.keys(search),
+        expectedSearchMatched,
+        unexpectedSearchCount: unexpectedSearchKeys.length,
+        pending: observed?.pending === true,
+        crash: observed?.crash === true,
+      },
+    );
+  }
+  const welcomeVisible = await client.evaluate(
+    `Boolean(document.querySelector('.welcome-dialog-content'))`,
+    `${label} observe post-onboarding welcome`,
+  );
+  if (welcomeVisible === true) {
+    await trustedRenderedClick(
+      client,
+      ".welcome-dialog-close",
+      `${label} dismiss post-onboarding welcome`,
+    );
+  }
   return appUrl;
 };
 
@@ -9077,22 +9230,38 @@ const readElectronSessionAuthority = async (
           convexSiteUrl: ${JSON.stringify(context.target.convexSiteUrl)}
         });
         const auth = await import("/src/global/auth/services/auth-session.ts");
+        const { router } = await import("/src/router.tsx");
         await auth.refreshAuthSession();
         const snapshot = auth.getAuthSessionSnapshot();
         const session = snapshot.data;
         const token = await window.electronAPI.system.getConvexAuthToken();
+        const routePathname = router.state.location.pathname;
+        const routeSearch =
+          router.state.location.search &&
+          typeof router.state.location.search === "object"
+            ? router.state.location.search
+            : {};
+        const routeSearchKeys = Object.keys(routeSearch);
+        const cleanLocation =
+          ((routePathname === "/" || routePathname === "/settings") &&
+            routeSearchKeys.length === 0) ||
+          (routePathname === "/chat" &&
+            (routeSearchKeys.length === 0 ||
+              (routeSearchKeys.length === 1 &&
+                routeSearchKeys[0] === "c" &&
+                /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(routeSearch.c))));
         return {
           subject: session?.user?.id ?? null,
           sessionId: session?.session?.id ?? null,
           anonymous: session?.user?.isAnonymous === true,
           pending: snapshot.isPending === true,
           identityRevision: snapshot.identityRevision,
-          cleanLocation: ["/", "/settings", "/chat"].includes(location.pathname) && location.search === "" && location.hash === "",
+          cleanLocation,
           pathnameSha256: await (async (value) => {
             const bytes = new TextEncoder().encode(value);
             const digest = await crypto.subtle.digest("SHA-256", bytes);
             return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-          })(location.pathname),
+          })(routePathname),
           authDialogOpen: Boolean(document.querySelector(".auth-dialog-content")),
           token
         };
@@ -16423,6 +16592,56 @@ const STEP_HANDLERS = Object.freeze({
   owner_reset_memory_reimport: stepOwnerResetMemoryReimport,
   apps_host_workerd_runtime: stepAppsHostWorkerdRuntime,
   cleanup: stepCleanup,
+});
+
+/**
+ * Small, reviewed reuse surface for the focused cloud-canonical product smoke.
+ *
+ * Keep this separate from the 26-step driver contract: the core smoke owns its
+ * own four-scenario state and evidence, but it must exercise the same Electron,
+ * authentication, and canonical-journal paths as the exhaustive harness.
+ */
+export const CORE_PRODUCT_SMOKE_DRIVER_PRIMITIVES = Object.freeze({
+  buildElectron,
+  configureElectronSession,
+  connectElectronRenderedClient,
+  convexCall,
+  driveVisibleProductOnboarding,
+  electronLocalTurn,
+  ephemeralJwtSecrets,
+  launchElectron,
+  launchVite,
+  loadSecrets,
+  loadWholeJournal,
+  navigateRenderedProduct,
+  rawReceipt,
+  readAnonymousElectronAuthority,
+  readElectronSessionAuthority,
+  relaunchElectron,
+  stopProcess,
+  stopRenderedElectron,
+  trustedRenderedClick,
+});
+
+/**
+ * Narrow reuse surface for the representative Dream + cloud-skill smoke.
+ *
+ * The focused runner deliberately does not inherit the exhaustive driver's
+ * 26-step ordering, provider matrix, MCP scenarios, or R2 inventory sweep. It
+ * still uses the exact authenticated Cloud Home endpoints, canonical journal,
+ * real Electron cloud turn, and durable tool-receipt validators reviewed by
+ * the full acceptance path.
+ */
+export const DREAM_SKILL_SMOKE_DRIVER_PRIMITIVES = Object.freeze({
+  assistantTextForTurn,
+  cloudHomeControlRequest,
+  cloudHomeUserRequest,
+  electronCloudTurn,
+  loadCloudHomeExport,
+  loadWholeJournal,
+  matchedToolReceipts,
+  recordsForTurn,
+  waitForTurnTerminal,
 });
 
 export const parseRealProductDriverArguments = (argv) => {

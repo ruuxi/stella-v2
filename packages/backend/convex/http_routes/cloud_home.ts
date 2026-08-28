@@ -211,7 +211,13 @@ export function registerCloudHomeRoutes(http: HttpRouter) {
           return json({ error: "ownerId and ownerGeneration required" }, 400);
         }
         try {
-          const args = { ...body, ...owner, now: Date.now() };
+          // Convex rejects undeclared arguments. Cloud Home mutations use an
+          // explicit server timestamp, while the read-only query contracts do
+          // not declare `now`; shape each call to its exact validator.
+          const args =
+            route.kind === "query"
+              ? { ...body, ...owner }
+              : { ...body, ...owner, now: Date.now() };
           const result =
             route.kind === "query"
               ? await ctx.runQuery(route.ref as never, args as never)

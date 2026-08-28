@@ -42,7 +42,12 @@ export function dispatchOpenWorkspacePanel() {
 }
 
 export const STELLA_SHOW_HOME_EVENT = "stella:show-home";
+export const STELLA_ENTER_CHAT_EVENT = "stella:enter-chat";
 
 export function dispatchShowHome() {
   window.dispatchEvent(new CustomEvent(STELLA_SHOW_HOME_EVENT));
+}
+
+export function dispatchEnterChat() {
+  window.dispatchEvent(new CustomEvent(STELLA_ENTER_CHAT_EVENT));
 }

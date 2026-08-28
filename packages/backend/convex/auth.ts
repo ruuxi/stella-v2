@@ -409,14 +409,20 @@ const assertAuthOwnerActionActive = async (
   return generation;
 };
 
-const authUserIdFromVerificationPayload = async (
-  ctx: ActionCtx,
+export const authUserIdFromVerificationPayload = async (
+  ctx: Pick<ActionCtx, "runQuery">,
   verification: { identifier: string; value: string },
 ): Promise<string | null> => {
   const findUser = async (field: "id" | "email", value: string) => {
+    if (field === "id") {
+      return await ctx.runQuery(
+        components.betterAuth.adapter.findUserIdSafely,
+        { value },
+      );
+    }
     const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
       model: "user",
-      where: [{ field: field === "id" ? "_id" : "email", value }],
+      where: [{ field: "email", value }],
     })) as { _id?: string } | null;
     return user?._id ?? null;
   };

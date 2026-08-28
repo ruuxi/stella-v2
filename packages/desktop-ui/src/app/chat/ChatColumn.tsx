@@ -142,6 +142,7 @@ export const ChatColumn = memo(function ChatColumn({
       buildInlineWorkingIndicatorProps({
         isStreaming: Boolean(conversation.streaming.isStreaming),
         isToolActive: Boolean(conversation.streaming.isToolActive),
+        answerLanded: Boolean(conversation.streaming.answerLanded),
         activeToolName: conversation.streaming.activeToolName,
         activeToolCallId: conversation.streaming.activeToolCallId,
         runtimeStatusText: conversation.streaming.runtimeStatusText,
@@ -149,6 +150,7 @@ export const ChatColumn = memo(function ChatColumn({
     [
       conversation.streaming.isStreaming,
       conversation.streaming.isToolActive,
+      conversation.streaming.answerLanded,
       conversation.streaming.activeToolName,
       conversation.streaming.activeToolCallId,
       conversation.streaming.runtimeStatusText,

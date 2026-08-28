@@ -11,6 +11,7 @@ export type RunRecord = {
     hasToolActivity: boolean;
 
     pendingToolAfterPreamble: boolean;
+    answerLanded: boolean;
     activeToolCalls: Record<string, {
         toolName: string;
         statusText: string | null;

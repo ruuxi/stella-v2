@@ -52,8 +52,13 @@ export function WorkingIndicator({
     toolName,
     isReasoning,
   });
+  const dotsOnly = characterState === "thinking";
+
   return (
-    <div className={cn("working-indicator", className)}>
+    <div
+      className={cn("working-indicator", className)}
+      data-mode={dotsOnly ? "thinking" : "tool"}
+    >
       <div className="indicator-stella">
         {
 
@@ -65,15 +70,17 @@ export function WorkingIndicator({
           paused={animationPaused}
         />
       </div>
-      <SwapText
-        text={displayStatus}
-        active={animationActive}
-        animateInitial={false}
-        minimumVisibleMs={minimumVisibleMs}
-        className="working-status"
-        shimmerGroup={CHAT_ACTIVITY_SHIMMER_GROUP}
-        shimmerPriority={100}
-      />
+      {dotsOnly ? null : (
+        <SwapText
+          text={displayStatus}
+          active={animationActive}
+          animateInitial={false}
+          minimumVisibleMs={minimumVisibleMs}
+          className="working-status"
+          shimmerGroup={CHAT_ACTIVITY_SHIMMER_GROUP}
+          shimmerPriority={100}
+        />
+      )}
     </div>
   );
 }

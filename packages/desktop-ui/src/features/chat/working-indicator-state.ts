@@ -7,6 +7,8 @@ import { computeStatus, normalizeDisplayStatusText } from "./status-utils";
 
 export const INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS = 2000;
 
+export const WORKING_INDICATOR_HANDOFF_MS = 240;
+
 export type InlineWorkingIndicatorProps = {
   runningTool?: string;
 
@@ -21,30 +23,37 @@ export type InlineWorkingIndicatorMountProps = InlineWorkingIndicatorProps & {
   active: boolean;
 
   exitImmediately?: boolean;
+
+  handoff?: boolean;
 };
 
 export function buildInlineWorkingIndicatorProps({
   isStreaming,
   isToolActive,
+  answerLanded,
   activeToolName,
   activeToolCallId,
   runtimeStatusText,
 }: {
   isStreaming: boolean;
   isToolActive: boolean;
+  answerLanded?: boolean;
   activeToolName?: string | null;
   activeToolCallId?: string | null;
   runtimeStatusText?: string | null;
 }): InlineWorkingIndicatorMountProps {
+  const handoff = Boolean(answerLanded) && !isToolActive;
   const active = getInlineWorkingIndicatorActive({
     isStreaming,
     isToolActive,
+    answerLanded: handoff,
   });
   const isThinking = isStreaming && !isToolActive;
   return {
     active,
 
-    ...(!isStreaming ? { exitImmediately: true } : {}),
+    ...(!isStreaming && !handoff ? { exitImmediately: true } : {}),
+    ...(handoff ? { handoff: true } : {}),
     runningTool: isToolActive ? (activeToolName ?? undefined) : undefined,
     runningToolId: isToolActive ? (activeToolCallId ?? undefined) : undefined,
     status: isThinking ? (runtimeStatusText ?? null) : null,
@@ -87,11 +96,13 @@ export function getRunningTaskIndicatorText(
 export function getInlineWorkingIndicatorActive({
   isStreaming,
   isToolActive,
+  answerLanded,
 }: {
   isStreaming: boolean;
   isToolActive: boolean;
+  answerLanded?: boolean;
 }): boolean {
-  return isStreaming || isToolActive;
+  return (isStreaming && !answerLanded) || isToolActive;
 }
 
 export function getInlineWorkingIndicatorExitDelayMs({

@@ -39,6 +39,7 @@ export type ChatColumnConversation = {
     } | null;
     hasToolActivity?: boolean;
     isToolActive?: boolean;
+    answerLanded?: boolean;
     pendingUserMessageId: string | null;
     queuedUserMessages: QueuedUserMessage[];
 

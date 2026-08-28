@@ -120,6 +120,7 @@ describe('agent stream tab isolation', () => {
       userMessageId: 'user-b',
       canonicalMessageId: 'assistant-b-1',
       canonicalText: 'visible response',
+      followedByToolCall: false,
     })
   })
 

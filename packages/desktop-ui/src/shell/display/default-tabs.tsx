@@ -39,6 +39,7 @@ function ChatDisplayTab({
       activeToolCallId={chat.conversation.streaming.activeToolCallId}
       activeToolName={chat.conversation.streaming.activeToolName}
       isToolActive={chat.conversation.streaming.isToolActive}
+      answerLanded={chat.conversation.streaming.answerLanded}
       pendingUserMessageId={chat.conversation.pendingUserMessageId}
       queuedUserMessages={chat.conversation.streaming.queuedUserMessages}
       removeQueuedUserMessage={

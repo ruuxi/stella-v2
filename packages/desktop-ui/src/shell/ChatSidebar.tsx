@@ -90,6 +90,7 @@ interface ChatPanelTabProps {
   activeToolCallId?: string | null;
   activeToolName?: string | null;
   isToolActive?: boolean;
+  answerLanded?: boolean;
   pendingUserMessageId: string | null;
   queuedUserMessages?: QueuedUserMessage[];
 
@@ -124,6 +125,7 @@ export function ChatPanelTab({
   activeToolCallId,
   activeToolName,
   isToolActive,
+  answerLanded,
   pendingUserMessageId,
   queuedUserMessages,
   removeQueuedUserMessage,
@@ -248,6 +250,7 @@ export function ChatPanelTab({
   const indicatorProps = buildInlineWorkingIndicatorProps({
     isStreaming: Boolean(isStreaming),
     isToolActive: Boolean(isToolActive),
+    answerLanded: Boolean(answerLanded),
     activeToolName,
     activeToolCallId,
     runtimeStatusText,

@@ -17,6 +17,7 @@ export type StreamingAssistantOverlay = {
   canonicalMessageId?: string;
 
   locked?: boolean;
+  heldForHandoff?: boolean;
 };
 
 export const reconcileStreamingAssistantCanonicalMessage = (

@@ -48,6 +48,7 @@ const createEmptyRunRecord = (args) => ({
     hasToolActivity: false,
     latestCompletedTool: null,
     pendingToolAfterPreamble: false,
+    answerLanded: false,
     activeToolCalls: {},
 });
 export function streamStoreReducer(state, action) {
@@ -96,13 +97,22 @@ export function streamStoreReducer(state, action) {
             };
         }
         case 'assistant-message-boundary': {
-
-            if (!action.followedByToolCall) {
-                return state;
-            }
             const current = state.runsById[action.runId];
             if (!current || current.terminal) {
                 return state;
+            }
+            if (action.followedByToolCall) {
+                return {
+                    ...state,
+                    runsById: {
+                        ...state.runsById,
+                        [action.runId]: {
+                            ...current,
+                            pendingToolAfterPreamble: true,
+                            answerLanded: false,
+                        },
+                    },
+                };
             }
             return {
                 ...state,
@@ -110,7 +120,7 @@ export function streamStoreReducer(state, action) {
                     ...state.runsById,
                     [action.runId]: {
                         ...current,
-                        pendingToolAfterPreamble: true,
+                        answerLanded: true,
                     },
                 },
             };
@@ -132,7 +142,7 @@ export function streamStoreReducer(state, action) {
                     [action.runId]: {
                         ...current,
                         hasToolActivity: true,
-
+                        answerLanded: false,
                         statusText: action.statusText ?? current.statusText,
                         latestCompletedTool: null,
                         activeToolCalls: {

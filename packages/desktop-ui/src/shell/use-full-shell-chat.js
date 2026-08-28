@@ -88,7 +88,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
     const { activities, hasOlderActivity, isLoadingOlder: isLoadingOlderActivity, loadOlder: loadOlderActivity, } = useConversationActivity(activeConversationId ?? undefined);
     const { files: persistedFiles, hasOlderFiles, isLoadingOlder: isLoadingOlderFiles, loadOlder: loadOlderFiles, } = useConversationFiles(activeConversationId ?? undefined);
     const { records: threadActivityRecords } = useThreadActivity(activeConversationId ?? undefined);
-    const { taskDecorations, optimisticEvents, runtimeStatusText, activeToolCallId, activeToolName, latestCompletedTool, hasToolActivity, isToolActive, reasoningText, streamingAssistants, isStreaming, pendingUserMessageId, queuedUserMessages, removeQueuedUserMessage, sendMessage, cancelCurrentStream, } = useStreamingChat({
+    const { taskDecorations, optimisticEvents, runtimeStatusText, activeToolCallId, activeToolName, latestCompletedTool, hasToolActivity, isToolActive, answerLanded, reasoningText, streamingAssistants, isStreaming, pendingUserMessageId, queuedUserMessages, removeQueuedUserMessage, sendMessage, cancelCurrentStream, } = useStreamingChat({
         conversationId: activeConversationId,
         persistedMessages,
     });
@@ -428,6 +428,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             latestCompletedTool,
             hasToolActivity,
             isToolActive,
+            answerLanded,
             pendingUserMessageId,
             queuedUserMessages,
             removeQueuedUserMessage,
@@ -466,6 +467,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         runtimeStatusText,
         isStreaming,
         isToolActive,
+        answerLanded,
     ]);
     const chatColumnComposer = useMemo(() => ({
         message,

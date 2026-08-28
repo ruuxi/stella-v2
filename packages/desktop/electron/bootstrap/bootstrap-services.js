@@ -7,6 +7,7 @@ import { CredentialService } from "../services/credential-service.js";
 import { ConnectorCredentialService } from "../services/connector-credential-service.js";
 import { ConnectorOAuthService } from "../services/connector-oauth-service.js";
 import { ConnectorConnectService } from "../services/connector-connect-service.js";
+import { LinkWalletService } from "../services/link-wallet-service.js";
 import { ExternalLinkService } from "../services/external-link-service.js";
 import { readConfiguredCanvasShareBaseUrl, resolveSharedCanvasPayload, } from "../services/canvas-share-service.js";
 import { isCanvasShareUrl } from "@stella/contracts/canvas-share";
@@ -109,6 +110,11 @@ export const createBootstrapServices = (options) => {
         getConvexAuthToken: () => authService.getConvexAuthToken(),
         getConvexSiteUrl: () => authService.getConvexSiteUrl(),
     });
+    const linkWalletService = new LinkWalletService({
+        windowManagerTarget: lifecycle,
+        stellaDataDir: config.stellaDataDirPath,
+        getStellaDataDir: () => lifecycle.getStellaDataDir(),
+    });
     const captureService = new CaptureService({
         window: {
             getAllWindows: () => options.getAllWindows(),
@@ -141,6 +147,7 @@ export const createBootstrapServices = (options) => {
         connectorCredentialService,
         connectorOAuthService,
         connectorConnectService,
+        linkWalletService,
         externalLinkService,
         localChatHistoryService,
         securityPolicyService,

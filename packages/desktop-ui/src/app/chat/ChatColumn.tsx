@@ -9,6 +9,7 @@ import {
 } from "react";
 import { ChevronDown } from "@/ui/icons";
 import { ConnectorConnectCard } from "./ConnectorConnectCard";
+import { LinkWalletCard } from "./LinkWalletCard";
 import { ConversationEvents } from "./ConversationEvents";
 import { useChatMessages } from "@/context/use-chat-messages";
 import { Composer } from "./Composer";
@@ -255,6 +256,7 @@ export const ChatColumn = memo(function ChatColumn({
           {
 }
           <ConnectorConnectCard conversationId={conversationId} />
+          <LinkWalletCard conversationId={conversationId} />
 
           {}
           <div

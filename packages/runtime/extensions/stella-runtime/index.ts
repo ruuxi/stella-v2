@@ -5,6 +5,8 @@ import type {
 } from "../../kernel/extensions/types.js";
 import { createConnectorAvailabilityReminderHook } from "./hooks/connector-availability-reminder.hook.js";
 import { createConnectorFormatReminderHook } from "./hooks/connector-format-reminder.hook.js";
+import { createLinkSpendNotifyHook } from "./hooks/link-spend-notify.hook.js";
+import { createLinkWalletReminderHook } from "./hooks/link-wallet-reminder.hook.js";
 import { createDreamSchedulerNotifyHook } from "./hooks/dream-scheduler-notify.hook.js";
 import { createOrchestratorReminderHook } from "./hooks/orchestrator-reminder.hook.js";
 import { createMemoryReviewHook } from "./hooks/memory-review.hook.js";
@@ -43,6 +45,13 @@ const stellaRuntimeExtension: ExtensionFactory = (pi, services) => {
       store: services.store,
     }),
   );
+  register(
+    createLinkWalletReminderHook({
+      stellaDataDir: services.stellaDataDir,
+      store: services.store,
+    }),
+  );
+  register(createLinkSpendNotifyHook(services));
   register(
     createMemoryReviewHook({
       stellaDataDir: services.stellaDataDir,

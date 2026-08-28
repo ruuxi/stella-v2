@@ -157,6 +157,9 @@ export const createRuntimeInitialization = (
     stellaDataDir: context.stellaDataDir,
     stellaAppDir: context.stellaAppDir,
     store: context.runtimeStore,
+    ...(context.notifyLinkSpendApproval
+      ? { notifyLinkSpendApproval: context.notifyLinkSpendApproval }
+      : {}),
   });
 
   const loadAndRegisterExtensions = async (): Promise<void> => {

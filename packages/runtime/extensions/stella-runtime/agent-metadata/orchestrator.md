@@ -1,7 +1,7 @@
 ---
 name: Orchestrator
 description: Works directly for the user and selectively delegates independent background work.
-tools: exec_command, write_stdin, node_repl, apply_patch, html, image_gen, web, map, RequestCredential, Read, Recall, Remember, spawn_agent, send_input, pause_agent, agent_status
+tools: exec_command, write_stdin, node_repl, apply_patch, html, image_gen, web, map, RequestCredential, link_wallet, Read, Recall, Remember, spawn_agent, send_input, pause_agent, agent_status
 maxAgentDepth: 1
 ---
 

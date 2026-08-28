@@ -331,3 +331,11 @@ export const IPC_PET_SET_INTERACTIVE = "pet:setInteractive" as const;
 export const IPC_PET_STATUS = "pet:status" as const;
 export const IPC_PET_OPEN_CHAT = "pet:openChat" as const;
 export const IPC_PET_SEND_MESSAGE = "pet:sendMessage" as const;
+
+export const IPC_LINK_WALLET_STATUS = "link-wallet:status" as const;
+export const IPC_LINK_WALLET_CONNECT = "link-wallet:connect" as const;
+export const IPC_LINK_WALLET_DISCONNECT = "link-wallet:disconnect" as const;
+export const IPC_LINK_WALLET_ADD_CARD = "link-wallet:addCard" as const;
+export const IPC_LINK_WALLET_RESPOND = "link-wallet:respond" as const;
+export const IPC_LINK_WALLET_CARD = "link-wallet:card" as const;
+export const IPC_LINK_WALLET_SNAPSHOT = "link-wallet:snapshot" as const;

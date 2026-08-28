@@ -9,6 +9,7 @@ import { getNotificationsMuted } from "./notifications-prefs";
 
 const COMPUTER_REPLY_CATEGORY = "computer_reply";
 const AGENT_ACTIVITY_CATEGORY = "agent_activity";
+const WALLET_SPEND_CATEGORY = "wallet_spend";
 const NOTIFICATION_ACTIONS = [
   {
     identifier: "open",
@@ -126,6 +127,10 @@ export async function installNotificationCategoriesAndListeners(): Promise<() =>
         AGENT_ACTIVITY_CATEGORY,
         NOTIFICATION_ACTIONS,
       ),
+      Notifications.setNotificationCategoryAsync(
+        WALLET_SPEND_CATEGORY,
+        NOTIFICATION_ACTIONS,
+      ),
     ]);
   } catch {
 
@@ -141,7 +146,11 @@ export async function installNotificationCategoriesAndListeners(): Promise<() =>
       if (actionId === "dismiss") {
         return;
       }
-      if (data?.kind === "computer_reply" || data?.kind === "agent_activity") {
+      if (
+        data?.kind === "computer_reply" ||
+        data?.kind === "agent_activity" ||
+        data?.kind === "wallet_spend"
+      ) {
         try {
           router.replace("/computer");
         } catch {

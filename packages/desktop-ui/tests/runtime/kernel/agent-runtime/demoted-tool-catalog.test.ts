@@ -242,6 +242,7 @@ describe("demoted tool catalog (createPiTools)", () => {
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       "NoResponse",
       "RequestCredential",
+      "link_wallet",
     ]);
     await tools
       .find((tool) => tool.name === "RequestCredential")!

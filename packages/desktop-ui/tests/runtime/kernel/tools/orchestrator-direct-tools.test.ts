@@ -190,6 +190,7 @@ describe("working orchestrator surface", () => {
         "apply_patch",
         "web",
         "RequestCredential",
+        "link_wallet",
         "Read",
         "spawn_agent",
         "send_input",
@@ -293,6 +294,7 @@ describe("working orchestrator surface", () => {
       "apply_patch",
       "web",
       "RequestCredential",
+      "link_wallet",
       "Read",
       "Recall",
       "Remember",
@@ -306,6 +308,7 @@ describe("working orchestrator surface", () => {
 
     const topLevelGeneral = advertised(AGENT_IDS.GENERAL);
     expect(topLevelGeneral.has("spawn_agent")).toBe(true);
+    expect(topLevelGeneral.has("link_wallet")).toBe(true);
     expect(topLevelGeneral.has("send_input")).toBe(true);
     expect(topLevelGeneral.has("pause_agent")).toBe(true);
     expect(topLevelGeneral.has("agent_status")).toBe(true);

@@ -161,6 +161,7 @@ export type PublicApiType = {
   };
   "mobile_push": {
     "sendActivityNotification": FunctionReference<'action', 'public', { kind: 'completed' | 'failed' | 'started'; }, any, string | undefined>;
+    "sendWalletSpendNotification": FunctionReference<'action', 'public', { merchantName: string; amountCents: number; }, any, string | undefined>;
   };
   "r2_files": {
     "generateUploadUrl": FunctionReference<'mutation', 'public', {}, any, string | undefined>;

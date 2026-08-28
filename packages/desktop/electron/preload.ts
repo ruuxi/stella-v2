@@ -24,6 +24,13 @@ import {
   IPC_HOME_CAPTURE_APP_WINDOW,
   IPC_HOME_GET_ACTIVE_BROWSER_TAB,
   IPC_HOME_LIST_RECENT_APPS,
+  IPC_LINK_WALLET_ADD_CARD,
+  IPC_LINK_WALLET_CARD,
+  IPC_LINK_WALLET_CONNECT,
+  IPC_LINK_WALLET_DISCONNECT,
+  IPC_LINK_WALLET_RESPOND,
+  IPC_LINK_WALLET_SNAPSHOT,
+  IPC_LINK_WALLET_STATUS,
   IPC_LOCAL_CHAT_DELETE_CONVERSATION,
   IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
   IPC_LOCAL_CHAT_FORK_CONVERSATION,
@@ -1385,6 +1392,43 @@ contextBridge.exposeInMainWorld("electronAPI", {
         ok: boolean;
         error?: string;
       }>,
+    getLinkWalletStatus: () =>
+      ipcRenderer.invoke(IPC_LINK_WALLET_STATUS) as Promise<
+        import("@stella/contracts/link-wallet").LinkWalletSnapshot
+      >,
+    connectLinkWallet: (payload?: { conversationId?: string }) =>
+      ipcRenderer.invoke(IPC_LINK_WALLET_CONNECT, payload) as Promise<
+        | {
+            ok: true;
+            status: "connected" | "already_connected";
+            snapshot: import("@stella/contracts/link-wallet").LinkWalletSnapshot;
+          }
+        | { ok: false; reason: string }
+      >,
+    disconnectLinkWallet: () =>
+      ipcRenderer.invoke(IPC_LINK_WALLET_DISCONNECT) as Promise<{
+        ok: boolean;
+        error?: string;
+      }>,
+    addLinkWalletCard: () =>
+      ipcRenderer.invoke(IPC_LINK_WALLET_ADD_CARD) as Promise<{
+        ok: boolean;
+        error?: string;
+      }>,
+    respondLinkWallet: (payload: {
+      requestId: string;
+      action: "accept" | "decline" | "cancel";
+    }) =>
+      ipcRenderer.invoke(IPC_LINK_WALLET_RESPOND, payload) as Promise<{
+        ok: boolean;
+        error?: string;
+      }>,
+    onLinkWalletCard: onIpcWithEvent<
+      import("@stella/contracts/link-wallet").LinkWalletCardView
+    >(IPC_LINK_WALLET_CARD),
+    onLinkWalletSnapshot: onIpcWithEvent<
+      import("@stella/contracts/link-wallet").LinkWalletSnapshot
+    >(IPC_LINK_WALLET_SNAPSHOT),
   },
 
   onboarding: {

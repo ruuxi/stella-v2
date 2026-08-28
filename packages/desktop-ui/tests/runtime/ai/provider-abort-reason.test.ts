@@ -62,6 +62,38 @@ function makeFakeClient() {
 const tick = (ms = 8) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("provider abort reason surfacing (anthropic)", () => {
+	it("preserves Retry-After on a provider request error", async () => {
+		const providerError = Object.assign(new Error("rate limited"), {
+			status: 429,
+			headers: new Headers({ "retry-after": "7" }),
+		});
+		let requestOptions: { maxRetries?: number } | undefined;
+		const client = {
+			messages: {
+				create: (_body: unknown, options?: { maxRetries?: number }) => {
+					requestOptions = options;
+					return {
+						asResponse: async () => {
+							throw providerError;
+						},
+					};
+				},
+			},
+		} as unknown as Anthropic;
+		const events: AssistantMessageEvent[] = [];
+
+		for await (const event of streamAnthropic(model, context, { client })) {
+			events.push(event);
+		}
+
+		const error = events.find((event) => event.type === "error") as
+			| Extract<AssistantMessageEvent, { type: "error" }>
+			| undefined;
+		expect(requestOptions?.maxRetries).toBe(0);
+		expect(error?.error.retryAfterMs).toBe(7_000);
+		expect(error?.error.errorMessage).toBe("rate limited");
+	});
+
 	it("surfaces the raw refusal stop reason instead of an opaque unknown error", async () => {
 		const { client, push, close } = makeFakeClient();
 		const events: AssistantMessageEvent[] = [];

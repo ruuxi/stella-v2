@@ -29,6 +29,7 @@ const MAX_RELAY_QUERY_BYTES = 2_048;
 const MAX_CALLBACK_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_RELAY_BODY_BYTES = 24 * 1024 * 1024;
 const MAX_CONTROL_BODY_BYTES = 64 * 1024;
+const MAX_TURN_STATE_CHECKPOINT_BODY_BYTES = 5 * 1024 * 1024;
 
 const CALLBACK_PATHS = new Set([
   "/api/cloud/drive/files",
@@ -65,7 +66,12 @@ export type TurnBrokerLiveFence = TurnBrokerIdentity & {
 };
 
 export type TurnBrokerTarget = {
-  kind: "builder-callback" | "callback" | "model-resolution" | "model-relay";
+  kind:
+    | "browser-gateway"
+    | "builder-callback"
+    | "callback"
+    | "model-resolution"
+    | "model-relay";
   method: "POST" | "GET" | "DELETE";
   path: string;
   maxBodyBytes: number;
@@ -360,6 +366,16 @@ export const validateTurnBrokerTarget = (
           kind: "builder-callback",
           method,
           path: parsed.pathname,
+          maxBodyBytes: MAX_TURN_STATE_CHECKPOINT_BODY_BYTES,
+        }
+      : null;
+  }
+  if (parsed.pathname === "/api/cloud/browser/command") {
+    return method === "POST" && !parsed.search
+      ? {
+          kind: "browser-gateway",
+          method,
+          path: parsed.pathname,
           maxBodyBytes: MAX_CONTROL_BODY_BYTES,
         }
       : null;
@@ -391,6 +407,7 @@ export const turnBrokerTargetMatchesEngine = (
   if (target.kind === "callback" || target.kind === "builder-callback") {
     return true;
   }
+  if (target.kind === "browser-gateway") return engine === "stella";
   if (target.kind === "model-resolution") return engine === "stella";
   if (engine === "stella") return true;
   const pathname = new URL(target.path, "https://turn-broker.invalid").pathname;
@@ -471,7 +488,8 @@ export const preflightTurnBrokerRequest = async (args: {
   if (
     sequence < record.nextSequence &&
     !(
-      target.kind === "builder-callback" &&
+      (target.kind === "builder-callback" ||
+        target.kind === "browser-gateway") &&
       sequence === record.nextSequence - 1 &&
       record.lastClaim?.sequence === sequence &&
       record.lastClaim.requestId === requestId &&
@@ -552,15 +570,16 @@ export const claimTurnBrokerRequest = async (args: {
     return failure(413, "body_too_large");
   }
   if (sequence < record.nextSequence) {
-    const exactCheckpointReplay =
-      target.kind === "builder-callback" &&
+    const exactReplay =
+      (target.kind === "builder-callback" ||
+        target.kind === "browser-gateway") &&
       sequence === record.nextSequence - 1 &&
       record.lastClaim?.sequence === sequence &&
       record.lastClaim.requestId === requestId &&
       record.lastClaim.method === target.method &&
       record.lastClaim.targetPath === target.path &&
       record.lastClaim.bodySha256 === args.bodySha256;
-    return exactCheckpointReplay
+    return exactReplay
       ? { ok: true, disposition: "replay", record, target }
       : failure(409, "replay");
   }
@@ -714,6 +733,35 @@ export const turnBrokerSandboxResponseHeaders = (
   return headers;
 };
 
+const finiteTurnBrokerUpstreamErrorResponse = (upstream: Response): Response => {
+  const headers = turnBrokerSandboxResponseHeaders(upstream.headers);
+  headers.delete("content-encoding");
+  headers.delete("content-length");
+  headers.delete("transfer-encoding");
+  headers.set("cache-control", "no-store");
+  headers.set("content-type", "application/json; charset=utf-8");
+  // A managed relay can publish its non-OK status before the upstream body
+  // reaches EOF. Do not carry that live body across the BuildSession Durable
+  // Object/service-binding boundary: the outer Worker (and therefore the
+  // sandbox fetch) can otherwise wait forever before the executor gets a
+  // chance to apply its own finite error-body guard.
+  void upstream.body?.cancel().catch(() => undefined);
+  return new Response(
+    JSON.stringify({
+      type: "error",
+      error: {
+        type: upstream.status === 429 ? "rate_limit_error" : "api_error",
+        message: `Managed model relay returned HTTP ${upstream.status}.`,
+      },
+    }),
+    {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers,
+    },
+  );
+};
+
 export const turnBrokerDenialResponse = (
   denied: TurnBrokerClaimFailure,
 ): Response =>
@@ -735,6 +783,9 @@ export const turnBrokerUpstreamUrl = (
 ): string => {
   if (target.kind === "builder-callback") {
     throw new Error("Builder-local broker callbacks have no upstream URL.");
+  }
+  if (target.kind === "browser-gateway") {
+    throw new Error("Browser Gateway broker calls have no Convex URL.");
   }
   const base = new URL(convexCallbackBase);
   const expected = new URL(expectedConvexOrigin);
@@ -777,7 +828,10 @@ export const forwardTurnBrokerRequest = async (args: {
   signal: AbortSignal;
   fetchImpl?: typeof fetch;
 }): Promise<Response> => {
-  if (args.target.kind === "builder-callback") {
+  if (
+    args.target.kind === "builder-callback" ||
+    args.target.kind === "browser-gateway"
+  ) {
     throw new Error("Builder-local callback cannot be forwarded to Convex.");
   }
   if (!turnBrokerTargetMatchesEngine(args.target, args.engine)) {
@@ -806,6 +860,7 @@ export const forwardTurnBrokerRequest = async (args: {
     await upstream.body?.cancel().catch(() => undefined);
     throw new Error("Turn broker upstream redirect was refused.");
   }
+  if (!upstream.ok) return finiteTurnBrokerUpstreamErrorResponse(upstream);
   return new Response(upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,

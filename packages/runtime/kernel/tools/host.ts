@@ -60,6 +60,7 @@ import {
   withoutSpawnAgentModelParam,
 } from "./defs/task.js";
 import { getDeveloperModeEnabled } from "../preferences/local-preferences.js";
+import { isAgentToolSuspendedError } from "../agent-core/suspension.js";
 import type { ToolDefinition as BuiltinToolDefinition } from "./types.js";
 import { sanitizeToolError, sanitizeToolResult } from "./safety.js";
 import { describeToolCatalogEntry, searchToolCatalog } from "./code-catalog.js";
@@ -76,6 +77,7 @@ import {
   shutdownMacStellaComputerSession,
 } from "../computer-use/stella-computer-executor.js";
 import { createWindowsComputerUseSession } from "../computer-use/windows-session.js";
+import { createComputerUseSession } from "../computer-use/session.js";
 import { cleanupWindowsStellaComputerSessionDaemon } from "../cli/stella-computer-windows.js";
 import { createReplConnectClient } from "../connectors/connect-service.js";
 
@@ -87,6 +89,13 @@ export type ToolHost = ReturnType<typeof createToolHost>;
 
 const MAX_INLINE_TOOL_DESCRIPTION_CHARS = 256_000;
 const TOOL_DESCRIPTION_CHUNK_CHARS = 192_000;
+
+export const createBrowserOnlyComputerUseSession = () =>
+  createComputerUseSession(async () => {
+    throw new Error(
+      "Typed Computer Use is not available in browser-only cloud execution.",
+    );
+  });
 
 const copyCallableMetadata = (
   tool: BuiltinToolDefinition | ToolDefinition,
@@ -191,6 +200,8 @@ export const createToolHost = ({
   stellaAppDir,
   recoverStaleSecrets = true,
   enableShellShims = true,
+  allowCloudCode = false,
+  browserSessionFactory,
   stellaDataDir,
   stellaBrowserBinPath: _stellaBrowserBinPath,
   stellaOfficeBinPath: _stellaOfficeBinPath,
@@ -271,14 +282,18 @@ export const createToolHost = ({
           ...(cliBridgeSocketPath ? { cliBridgeSocketPath } : {}),
         });
       }
+      if (browserSessionFactory) {
+        return createBrowserOnlyComputerUseSession();
+      }
       throw new Error(
         `Typed Computer Use is not available on ${process.platform}.`,
       );
     },
+    ...(browserSessionFactory ? { browserSessionFactory } : {}),
     disposeSession: async (sessionId) => {
       if (process.platform === "win32") {
         await cleanupWindowsStellaComputerSessionDaemon(sessionId);
-      } else {
+      } else if (process.platform === "darwin") {
         shutdownMacStellaComputerSession(sessionId);
       }
     },
@@ -484,7 +499,8 @@ export const createToolHost = ({
     // legacy call cannot bypass the cloud adapter's allowlist.
     if (
       context.storageMode === "cloud" &&
-      (toolName === "code" || toolName === LEGACY_NODE_REPL_TOOL_NAME)
+      (toolName === "code" || toolName === LEGACY_NODE_REPL_TOOL_NAME) &&
+      !(allowCloudCode && browserSessionFactory)
     ) {
       return {
         error: `${toolName} is not available in cloud execution.`,
@@ -568,6 +584,7 @@ export const createToolHost = ({
       });
       return result;
     } catch (error) {
+      if (isAgentToolSuspendedError(error)) throw error;
       const duration = Date.now() - startedAt;
       logError(`Tool ${toolName} threw after ${duration}ms:`, error);
       return {

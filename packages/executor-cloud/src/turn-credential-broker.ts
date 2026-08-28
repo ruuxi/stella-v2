@@ -5,12 +5,17 @@ import {
   TURN_BROKER_RESPONSE_HEADERS,
   TURN_BROKER_TURN_TOKEN_HEADER,
   TURN_BROKER_VERSION,
+  type TurnBrokerCheckpointTranscriptRow,
   type TurnBrokerHandoff,
   type TurnBrokerInput,
   type TurnBrokerNativeStateCheckpoint,
   type TurnBrokerTurnStateCheckpointReceipt,
   type TurnBrokerTurnStateCheckpointRequest,
 } from "@stella/contracts/turn-credential-broker";
+import {
+  CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER,
+  type CloudModelProxyDiagnosticCode,
+} from "@stella/contracts/cloud-model-diagnostic";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { open, unlink, type FileHandle } from "node:fs/promises";
@@ -19,7 +24,10 @@ import path from "node:path";
 const MAX_HANDOFF_BYTES = 16 * 1024;
 const MAX_HANDOFF_FUTURE_MS = 30 * 60_000 + 10_000;
 const MAX_LOCAL_PROXY_BODY_BYTES = 24 * 1024 * 1024;
+const MAX_MODEL_RESOLUTION_RESPONSE_BYTES = 64 * 1024;
 const MAX_CHECKPOINT_RECEIPT_BYTES = 16 * 1024;
+const MAX_SUSPENSION_TRANSCRIPT_ROWS = 1_024;
+const MAX_SUSPENSION_TRANSCRIPT_BYTES = 4 * 1024 * 1024;
 const CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const CHECKPOINT_REPLAY_TIMEOUT_MS = 30_000;
 
@@ -183,6 +191,26 @@ const readBoundedFile = async (
 
 const cleanBrokerRequestHeaders = (value?: RequestInit["headers"]): Headers => {
   const headers = new Headers(value);
+  // Bun supplies transport-scoped headers on the incoming loopback request.
+  // Reusing them for the public Builder fetch can preserve the localhost Host
+  // (and a body framing chosen for the first hop), so the request may be
+  // rejected before it reaches the broker Worker. Let fetch synthesize the
+  // second hop's authority, framing, compression, and connection metadata.
+  for (const name of [
+    "accept-encoding",
+    "connection",
+    "content-length",
+    "host",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-connection",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+  ]) {
+    headers.delete(name);
+  }
   headers.delete("authorization");
   headers.delete("proxy-authorization");
   headers.delete("x-api-key");
@@ -292,9 +320,56 @@ const readLocalProxyBody = async (request: Request): Promise<Uint8Array> => {
 
 const HISTORY_CURSOR_PATTERN = /^(?:v1:empty|v1:[0-9a-f]{64})$/;
 
+const canonicalSuspensionTranscript = (
+  value: readonly TurnBrokerCheckpointTranscriptRow[] | undefined,
+): TurnBrokerCheckpointTranscriptRow[] | undefined => {
+  if (value === undefined) return undefined;
+  if (value.length === 0 || value.length > MAX_SUSPENSION_TRANSCRIPT_ROWS) {
+    throw new Error("Suspended turn transcript is invalid.");
+  }
+  let bytes = 0;
+  return value.map((entry, ordinal) => {
+    if (
+      !entry ||
+      typeof entry !== "object" ||
+      Array.isArray(entry) ||
+      Object.keys(entry).sort().join(",") !==
+        "ordinal,payloadJson,role" ||
+      entry.ordinal !== ordinal ||
+      !["user", "assistant", "toolResult"].includes(entry.role) ||
+      typeof entry.payloadJson !== "string"
+    ) {
+      throw new Error("Suspended turn transcript is invalid.");
+    }
+    bytes += new TextEncoder().encode(entry.payloadJson).byteLength;
+    if (bytes > MAX_SUSPENSION_TRANSCRIPT_BYTES) {
+      throw new Error("Suspended turn transcript is too large.");
+    }
+    try {
+      const payload = JSON.parse(entry.payloadJson) as unknown;
+      if (
+        !payload ||
+        typeof payload !== "object" ||
+        Array.isArray(payload) ||
+        (payload as Record<string, unknown>).role !== entry.role
+      ) {
+        throw new Error("Suspended turn transcript is invalid.");
+      }
+    } catch {
+      throw new Error("Suspended turn transcript is invalid.");
+    }
+    return {
+      ordinal,
+      role: entry.role,
+      payloadJson: entry.payloadJson,
+    };
+  });
+};
+
 const canonicalCheckpointRequest = (args: {
   historyCursor: string;
   nativeCheckpoint?: TurnBrokerNativeStateCheckpoint;
+  suspensionTranscript?: readonly TurnBrokerCheckpointTranscriptRow[];
 }): TurnBrokerTurnStateCheckpointRequest => {
   if (!HISTORY_CURSOR_PATTERN.test(args.historyCursor)) {
     throw new Error("Turn state history cursor is invalid.");
@@ -306,6 +381,9 @@ const canonicalCheckpointRequest = (args: {
   ) {
     throw new Error("Native state checkpoint is invalid.");
   }
+  const suspensionTranscript = canonicalSuspensionTranscript(
+    args.suspensionTranscript,
+  );
   return {
     schemaVersion: 1,
     historyCursor: args.historyCursor,
@@ -325,6 +403,7 @@ const canonicalCheckpointRequest = (args: {
           },
         }
       : {}),
+    ...(suspensionTranscript ? { suspensionTranscript } : {}),
   };
 };
 
@@ -675,6 +754,7 @@ export class TurnCredentialBrokerClient {
     checkpoint: {
       historyCursor: string;
       nativeCheckpoint?: TurnBrokerNativeStateCheckpoint;
+      suspensionTranscript?: readonly TurnBrokerCheckpointTranscriptRow[];
     },
     signal?: AbortSignal,
   ): Promise<TurnBrokerTurnStateCheckpointReceipt> {
@@ -716,6 +796,12 @@ export type TurnCredentialProxy = {
   relayBaseUrl: string;
   /** Random, turn-local bearer accepted only by the loopback proxy. */
   dummyToken: string;
+  /** Bounded progress only; never includes request, response, or authority. */
+  modelResolutionStage: () =>
+    | "idle"
+    | "entered"
+    | "broker_started"
+    | "broker_responded";
   close: () => void;
 };
 
@@ -743,6 +829,106 @@ const validLocalProxyAuthority = (
   );
 };
 
+const localProxyDiagnosticResponse = (
+  status: number,
+  diagnostic: CloudModelProxyDiagnosticCode,
+  error: string,
+): Response =>
+  Response.json(
+    { error },
+    {
+      status,
+      headers: {
+        "cache-control": "no-store",
+        [CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER]: diagnostic,
+      },
+    },
+  );
+
+const decodedResponseHeaders = (response: Response): Headers => {
+  const headers = new Headers(response.headers);
+  // Only this loopback proxy may attest a local failure stage. A public broker
+  // response cannot forge the private diagnostic consumed by relay-model.
+  headers.delete(CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER);
+  // Fetch decodes a compressed public response body but preserves its
+  // Content-Encoding header. The buffered bytes are therefore the decoded
+  // representation; forwarding that header makes the loopback client attempt
+  // a second decompression and fail before it can observe the response.
+  headers.delete("content-encoding");
+  headers.delete("content-length");
+  headers.delete("transfer-encoding");
+  return headers;
+};
+
+const bufferedModelResolutionResponse = async (
+  response: Response,
+): Promise<Response> => {
+  const headers = decodedResponseHeaders(response);
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  if (response.body) {
+    const reader = response.body.getReader();
+    try {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) break;
+        total += next.value.byteLength;
+        if (total > MAX_MODEL_RESOLUTION_RESPONSE_BYTES) {
+          await reader.cancel().catch(() => undefined);
+          throw new Error("Model resolution response exceeded its bound.");
+        }
+        chunks.push(next.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+};
+
+const streamingRelayResponse = (response: Response): Response =>
+  new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: decodedResponseHeaders(response),
+  });
+
+const finiteRelayErrorResponse = (response: Response): Response => {
+  const headers = decodedResponseHeaders(response);
+  headers.set("cache-control", "no-store");
+  headers.set("content-type", "application/json; charset=utf-8");
+  // A managed provider relay may publish its error status before its upstream
+  // body reaches EOF. Provider SDKs read non-OK bodies before throwing, so
+  // forwarding that live stream can prevent the run-level retry envelope from
+  // ever observing the failure. Cancel without awaiting (cancellation itself
+  // is remote work) and expose only a finite, secret-free provider-shaped body.
+  void response.body?.cancel().catch(() => undefined);
+  return new Response(
+    JSON.stringify({
+      type: "error",
+      error: {
+        type: response.status === 429 ? "rate_limit_error" : "api_error",
+        message: `Managed model relay returned HTTP ${response.status}.`,
+      },
+    }),
+    {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    },
+  );
+};
+
 /**
  * Native CLIs require a provider-shaped base URL and token. They receive this
  * loopback URL plus a fixed non-authority sentinel; only the parent broker
@@ -755,18 +941,31 @@ export const startTurnCredentialProxy = (
     crypto.getRandomValues(new Uint8Array(32)),
   ).toString("base64url");
   let localOrigin = "";
+  let modelResolutionStage: ReturnType<
+    TurnCredentialProxy["modelResolutionStage"]
+  > = "idle";
   const server = Bun.serve({
-    hostname: "127.0.0.1",
+    // Cloudflare production sandboxes route container listeners correctly when
+    // they bind the container interface. The only advertised client origin is
+    // still 127.0.0.1, no port is exposed, and every accepted request must also
+    // present the random turn-local token.
+    hostname: "0.0.0.0",
     port: 0,
     async fetch(request): Promise<Response> {
       const url = new URL(request.url);
+      const isModelResolution = url.pathname === "/api/stella/cloud-model";
+      if (isModelResolution) modelResolutionStage = "entered";
       const requestOrigin = request.headers.get("origin");
       if (
         !localOrigin ||
         url.origin !== localOrigin ||
         (requestOrigin !== null && requestOrigin !== localOrigin)
       ) {
-        return Response.json({ error: "Forbidden" }, { status: 403 });
+        return localProxyDiagnosticResponse(
+          403,
+          "model_proxy_reject",
+          "Forbidden",
+        );
       }
       if (
         !(
@@ -775,35 +974,83 @@ export const startTurnCredentialProxy = (
           url.pathname.startsWith("/api/stella/relay/")
         )
       ) {
-        return Response.json({ error: "Not found" }, { status: 404 });
+        return localProxyDiagnosticResponse(
+          404,
+          "model_proxy_reject",
+          "Not found",
+        );
       }
       const method = request.method.toUpperCase();
       if (method !== "POST" && method !== "GET" && method !== "DELETE") {
-        return Response.json({ error: "Method not allowed" }, { status: 405 });
+        return localProxyDiagnosticResponse(
+          405,
+          "model_proxy_reject",
+          "Method not allowed",
+        );
       }
       if (!validLocalProxyAuthority(request.headers, localToken)) {
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
+        return localProxyDiagnosticResponse(
+          401,
+          "model_proxy_reject",
+          "Unauthorized",
+        );
       }
       let body: Uint8Array | undefined;
       if (method !== "GET") {
         try {
           body = await readLocalProxyBody(request);
         } catch {
-          return Response.json(
-            { error: "Request body is too large" },
-            { status: 413 },
+          return localProxyDiagnosticResponse(
+            413,
+            "model_proxy_reject",
+            "Request body is too large",
           );
         }
       }
-      return await broker.fetchTarget(`${url.pathname}${url.search}`, {
-        method,
-        headers: request.headers,
-        ...(body ? { body } : {}),
-        signal: request.signal,
-      });
+      // The loopback request is a transport detail, not turn authority. Some
+      // container proxies abort its Request signal as soon as the response is
+      // detached; feeding that signal into the broker would revoke the whole
+      // one-shot capability before the outbound request even starts. Turn
+      // cancellation still closes the proxy and broker through Effect scope.
+      if (broker.closed) {
+        return localProxyDiagnosticResponse(
+          503,
+          "model_broker_closed",
+          "Turn broker unavailable",
+        );
+      }
+      try {
+        if (isModelResolution) modelResolutionStage = "broker_started";
+        const response = await broker.fetchTarget(
+          `${url.pathname}${url.search}`,
+          {
+            method,
+            headers: request.headers,
+            ...(body ? { body } : {}),
+          },
+        );
+        if (isModelResolution) modelResolutionStage = "broker_responded";
+        // Model resolution is small and fixed-shape, so buffer it under a hard
+        // limit. Provider responses retain their live body stream. Both paths
+        // must remove stale compression/framing headers after Bun decodes the
+        // public response, or the loopback client attempts decompression twice.
+        if (!response.ok) return finiteRelayErrorResponse(response);
+        return isModelResolution
+          ? await bufferedModelResolutionResponse(response)
+          : streamingRelayResponse(response);
+      } catch {
+        return localProxyDiagnosticResponse(
+          502,
+          "model_broker_transport",
+          "Turn broker request failed",
+        );
+      }
     },
   });
-  server.unref();
+  // Keep the server referenced for the whole Effect scope. Bun may otherwise
+  // stop accepting after a quiet hydration interval before the first model
+  // request. The scoped release below always closes it, and the one-shot CLI
+  // force-exits after publishing its final result.
   const origin = `http://127.0.0.1:${server.port}`;
   localOrigin = origin;
   return {
@@ -811,6 +1058,7 @@ export const startTurnCredentialProxy = (
     siteBaseUrl: origin,
     relayBaseUrl: `${origin}/api/stella/relay`,
     dummyToken: localToken,
+    modelResolutionStage: () => modelResolutionStage,
     close: () => {
       server.stop(true);
       broker.close();

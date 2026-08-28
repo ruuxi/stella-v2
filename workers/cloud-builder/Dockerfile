@@ -1,4 +1,4 @@
-FROM docker.io/cloudflare/sandbox:0.12.4
+FROM docker.io/cloudflare/sandbox:0.12.5
 
 USER root
 WORKDIR /opt/stella

@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./agent-turn-result-file": "./src/agent-turn-result-file.ts",
     "./relay-model": "./src/relay-model.ts",
     "./prune-history": "./src/prune-history.ts"
   },

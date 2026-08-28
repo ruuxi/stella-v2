@@ -15,6 +15,7 @@ import {
 } from "@/app/chat/ComposerContextRow";
 import { ComposerLeadRow } from "@/app/chat/ComposerLeadRow";
 import { ConnectorConnectCard } from "@/app/chat/ConnectorConnectCard";
+import { CloudBrowserInterventionCard } from "@/features/cloud/CloudBrowserInterventionCard";
 import { ComposerAddMenu } from "@/app/chat/ComposerAddMenu";
 import {
   ComposerMicButton,
@@ -553,6 +554,10 @@ function AccountScopedChatPanelTab({
 
             <div className="chat-sidebar-composer">
               <ConnectorConnectCard compact conversationId={conversationId} />
+              <CloudBrowserInterventionCard
+                compact
+                conversationId={conversationId}
+              />
               <ComposerLeadRow
                 replyPeek={
                   assistantReplyPeek.visible

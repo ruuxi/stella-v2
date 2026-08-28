@@ -33,6 +33,7 @@ import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.js";
 import { anomalousStreamStopError, pausedTurnStopMessage, providerAbortedStopMessage } from "../utils/provider-stop.js";
+import { readRetryAfterMs } from "../utils/retry.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
 import { normalizeProviderToolInputSchema } from "../utils/tool-schema.js";
 
@@ -844,6 +845,11 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 			}
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
 			output.errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+			// Flattening the SDK error to a string drops its response headers. Keep
+			// the provider-requested delay for the run-level retry envelope, which
+			// owns retries because Anthropic SDK retries are disabled above.
+			const retryAfterMs = readRetryAfterMs(error);
+			if (retryAfterMs !== undefined) output.retryAfterMs = retryAfterMs;
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
 		} finally {

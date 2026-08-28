@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { cloudBrowserResumeReceiptValidator } from "./cloud_browser";
 import { cloudExecutionSelectionValidator } from "../lib/cloud_execution";
 
 export const cloudAppsSchema = {
@@ -292,6 +293,8 @@ export const cloudAppsSchema = {
     // Idempotency fence for a desktop pause control. A retry of the same
     // tool call must not stop a successor turn on this long-lived thread.
     cancelRequestId: v.optional(v.string()),
+    /** Secret-free receipt for a fresh physical browser-resume attempt. */
+    browserResume: v.optional(cloudBrowserResumeReceiptValidator),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

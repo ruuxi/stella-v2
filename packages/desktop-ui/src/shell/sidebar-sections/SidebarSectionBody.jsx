@@ -23,12 +23,14 @@ import { FileSidebarTabExistenceReconciler } from "./FileSidebarTabExistenceReco
 import { FilesSection } from "./FilesSection";
 import { HomeLauncherSection } from "./HomeLauncherSection";
 import { QuickChatSection } from "./QuickChatSection";
+import { CloudBrowserTakeoverSection } from "./CloudBrowserTakeoverSection";
 import "./sidebar-sections.css";
 
 const PER_ITEM_BODIES = {
   files: FilesSection,
   quickchat: QuickChatSection,
   home: HomeLauncherSection,
+  takeover: CloudBrowserTakeoverSection,
 };
 
 function SectionHost({ section, active, children }) {

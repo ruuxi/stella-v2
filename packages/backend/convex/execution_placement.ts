@@ -2460,13 +2460,11 @@ export const quiesceOwnerExecutionPlacementForPurgeInternal = internalMutation({
   returns: executionPurgeQuiescenceValidator,
   handler: async (ctx, args) => {
     await assertOwnerPurgeOperation(ctx, args);
-    if (await hasOwnerMigrationSourceFence(ctx, args.ownerId)) {
-      throw new ConvexError({
-        code: "OWNERSHIP_MIGRATED",
-        message:
-          "This owner is being linked to another account; placement purge cannot recreate source control rows.",
-      });
-    }
+    // A migration source fence permanently rejects ordinary placement writes,
+    // but it must not reject the exact owner-purge operation that retires the
+    // source. Ownership migration already quiesces both placement owners before
+    // publishing the source-deletion handoff; this purge is the authorized
+    // cleanup path for any terminal residue it leaves behind.
 
     const stateBatches = await Promise.all(
       NONTERMINAL_EXECUTION_STATES.map(async (state) => ({

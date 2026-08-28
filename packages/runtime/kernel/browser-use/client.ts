@@ -117,6 +117,22 @@ export const BROWSER_PROTOCOL_ACTIONS = [
 
 export type BrowserChainAction = (typeof BROWSER_CHAIN_ACTIONS)[number];
 export type BrowserProtocolAction = (typeof BROWSER_PROTOCOL_ACTIONS)[number];
+/**
+ * Host-adapted interaction requests exposed by the code browser API. They are
+ * deliberately outside the local daemon protocol manifest: a desktop browser
+ * session rejects them, while a trusted cloud adapter maps them to its private
+ * gateway contract. The agent loop binds a returned neutral suspension to the
+ * active outer Code tool call; the gateway never receives that outer id.
+ */
+export const CLOUD_BROWSER_SESSION_ACTIONS = [
+  "cloud_login_takeover",
+  "cloud_device_code_fixture",
+] as const;
+export type CloudBrowserSessionAction =
+  (typeof CLOUD_BROWSER_SESSION_ACTIONS)[number];
+export type BrowserSessionAction =
+  | BrowserProtocolAction
+  | CloudBrowserSessionAction;
 export type BrowserJsonPrimitive = string | number | boolean | null;
 export type BrowserJsonValue =
   | BrowserJsonPrimitive
@@ -236,6 +252,10 @@ export type BrowserSessionOptions = Readonly<{
   turnId?: string;
 }>;
 
+export type BrowserSessionFactory = (
+  options: BrowserSessionOptions,
+) => BrowserSessionClient;
+
 export type BrowserTurnEndBehavior = "retain-tabs" | "close-tabs";
 
 export type BrowserBackend = "in-app" | "external";
@@ -252,7 +272,7 @@ export type BrowserSessionClientMethod =
 
 export interface BrowserSessionClient {
   command<TData = unknown>(
-    action: BrowserProtocolAction,
+    action: BrowserSessionAction,
     params?: BrowserCommandParams,
     options?: BrowserCommandOptions,
   ): Promise<BrowserCommandReceipt<TData>>;
@@ -1180,7 +1200,7 @@ export class BrowserSession implements BrowserSessionClient {
   }
 
   async command<TData = unknown>(
-    action: BrowserProtocolAction,
+    action: BrowserSessionAction,
     params?: BrowserCommandParams,
     options?: BrowserCommandOptions,
   ): Promise<BrowserCommandReceipt<TData>> {

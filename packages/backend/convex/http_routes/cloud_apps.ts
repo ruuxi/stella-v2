@@ -14,6 +14,7 @@ import {
 } from "../lib/managed_billing";
 import { runManagedDispatchAttempt } from "../runtime_ai/managed";
 import { MANAGED_USAGE_BILLING_KIND } from "../lib/managed_dispatch";
+import { isConnectedOwnerIdAction } from "../auth";
 
 const CLOUD_APP_MODEL = "anthropic/claude-haiku-4.5";
 const CLOUD_APP_UPSTREAM_MODEL = "claude-haiku-4-5-20251001";
@@ -71,6 +72,19 @@ const isActiveCloudParentTurnRef = makeFunctionReference<
   },
   boolean
 >("cloud_apps:isActiveCloudParentTurnInternal");
+
+const getBrowserSuspensionReplayAuthorityRef = makeFunctionReference<
+  "query",
+  {
+    interactionId: string;
+    turnId: string;
+    threadId: string;
+    attemptGeneration: number;
+    tokenHash: string;
+    payloadHash: string;
+  },
+  TurnTokenRow | null
+>("cloud_browser:getBrowserSuspensionReplayAuthorityInternal");
 
 // The sandbox/DO executor's only credential: an opaque per-turn token whose
 // hash Convex stored at dispatch. Callers present it as `x-stella-turn-token`.
@@ -131,8 +145,6 @@ export function registerCloudAppRoutes(http: HttpRouter) {
     method: "POST",
     handler: httpAction(async (ctx, request) => {
       const service = serviceAuthorized(request);
-      const token = service ? null : await verifyTurnToken(ctx, request);
-      if (!service && !token) return json({ error: "Unauthorized" }, 401);
       const body = (await request.json()) as {
         tokenHash?: string;
         ownerId?: string;
@@ -145,6 +157,47 @@ export function registerCloudAppRoutes(http: HttpRouter) {
         payload: unknown;
         terminal?: boolean;
       };
+      const payloadJson = JSON.stringify(body.payload ?? {});
+      let token = service ? null : await verifyTurnToken(ctx, request);
+      // The first waiting projection revokes the physical turn token. If its
+      // HTTP response was lost, admit only a byte-exact replay through the
+      // durable interaction receipt; the revoked token cannot authorize any
+      // other route or payload.
+      if (
+        !service &&
+        !token &&
+        body.kind === "waiting_for_user" &&
+        body.terminal !== true &&
+        typeof body.turnId === "string" &&
+        typeof body.sessionId === "string" &&
+        Number.isSafeInteger(body.attemptGeneration) &&
+        body.payload !== null &&
+        typeof body.payload === "object" &&
+        !Array.isArray(body.payload)
+      ) {
+        const suspension = (body.payload as Record<string, unknown>).suspension;
+        const rawToken = request.headers.get("x-stella-turn-token")?.trim();
+        if (
+          rawToken &&
+          suspension !== null &&
+          typeof suspension === "object" &&
+          !Array.isArray(suspension) &&
+          typeof (suspension as Record<string, unknown>).interactionId ===
+            "string"
+        ) {
+          const tokenHash = await hashToken(rawToken);
+          token = await ctx.runQuery(getBrowserSuspensionReplayAuthorityRef, {
+            interactionId: (suspension as Record<string, unknown>)
+              .interactionId as string,
+            turnId: body.turnId,
+            threadId: body.sessionId,
+            attemptGeneration: body.attemptGeneration!,
+            tokenHash,
+            payloadHash: await hashToken(payloadJson),
+          });
+        }
+      }
+      if (!service && !token) return json({ error: "Unauthorized" }, 401);
       // A turn token only speaks for its own turn.
       if (token && token.turnId !== body.turnId) {
         return json({ error: "Forbidden" }, 403);
@@ -158,6 +211,16 @@ export function registerCloudAppRoutes(http: HttpRouter) {
       const tokenHash = token?.tokenHash ?? body.tokenHash?.trim();
       if (!tokenHash) {
         return json({ error: "Exact turn token hash required" }, 400);
+      }
+      const connectedAccount =
+        body.kind === "waiting_for_user" && body.terminal !== true
+          ? await isConnectedOwnerIdAction(ctx, ownerId)
+          : undefined;
+      if (connectedAccount === false) {
+        return json(
+          { error: "Sign in with an account to use the cloud browser." },
+          403,
+        );
       }
       const autoSeq = body.seq === undefined || body.seq === "auto";
       const result = await ctx.runMutation(
@@ -174,8 +237,9 @@ export function registerCloudAppRoutes(http: HttpRouter) {
           seq: autoSeq ? 0 : (body.seq as number),
           autoSeq,
           kind: body.kind,
-          payloadJson: JSON.stringify(body.payload ?? {}),
+          payloadJson,
           terminal: body.terminal === true,
+          ...(connectedAccount !== undefined ? { connectedAccount } : {}),
           now: Date.now(),
         },
       );
@@ -372,8 +436,7 @@ export function registerCloudAppRoutes(http: HttpRouter) {
       const exact = {
         tokenHash:
           typeof body?.tokenHash === "string" ? body.tokenHash.trim() : "",
-        ownerId:
-          typeof body?.ownerId === "string" ? body.ownerId.trim() : "",
+        ownerId: typeof body?.ownerId === "string" ? body.ownerId.trim() : "",
         ownerGeneration:
           typeof body?.ownerGeneration === "string"
             ? body.ownerGeneration.trim()
@@ -578,9 +641,7 @@ export function registerCloudAppRoutes(http: HttpRouter) {
       if (!body.ownerId?.trim() || !ownerGeneration) {
         return json({ error: "ownerId and ownerGeneration required" }, 400);
       }
-      const parentToken = request.headers
-        .get("x-stella-turn-token")
-        ?.trim();
+      const parentToken = request.headers.get("x-stella-turn-token")?.trim();
       const parentTokenHash = parentToken
         ? await hashToken(parentToken)
         : undefined;
@@ -627,19 +688,19 @@ export function registerCloudAppRoutes(http: HttpRouter) {
         return json({ ok: canceled.canceled, ...canceled });
       }
       if (body.action === "cancel") {
-        const parentActive = await ctx.runQuery(
-          isActiveCloudParentTurnRef,
-          {
-            tokenHash: parentTokenHash!,
-            ownerId: body.ownerId,
-            ownerGeneration,
-            conversationId: body.conversationId,
-            turnId: body.parentTurnId!,
-            now: Date.now(),
-          },
-        );
+        const parentActive = await ctx.runQuery(isActiveCloudParentTurnRef, {
+          tokenHash: parentTokenHash!,
+          ownerId: body.ownerId,
+          ownerGeneration,
+          conversationId: body.conversationId,
+          turnId: body.parentTurnId!,
+          now: Date.now(),
+        });
         if (!parentActive) {
-          return json({ error: "That orchestrator turn is no longer active." }, 409);
+          return json(
+            { error: "That orchestrator turn is no longer active." },
+            409,
+          );
         }
         if (
           !body.threadId ||
@@ -1271,7 +1332,9 @@ export function registerCloudAppRoutes(http: HttpRouter) {
                 totalTokens: inputTokens + outputTokens,
                 costMicroCents: exactCost,
               });
-              throw new Error("Cloud model returned invalid specification JSON");
+              throw new Error(
+                "Cloud model returned invalid specification JSON",
+              );
             }
             await receipt.captureUsage({
               durationMs: Date.now() - startedAt,

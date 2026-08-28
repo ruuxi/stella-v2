@@ -447,7 +447,22 @@ export const launchPreparedOrchestratorRun = (args: {
     } catch (error) {
       runError = error;
     } finally {
-      context.toolHost.endBrowserTurn(prepared.runId, "retain-tabs");
+      try {
+        // Cloud terminal callbacks are deferred below, so profile durability
+        // joins before transcript completion and the terminal event publish.
+        await context.toolHost.endBrowserTurn(prepared.runId, "retain-tabs");
+      } catch (browserFinalizationError) {
+        // Preserve the original run failure when both paths fail; otherwise a
+        // lost browser checkpoint makes this run fail deterministically.
+        if (runError === undefined) {
+          runError = browserFinalizationError;
+        } else {
+          console.error(
+            "Browser turn finalization also failed after the run error:",
+            browserFinalizationError,
+          );
+        }
+      }
     }
 
     if (isCloudTurn && leaseToken && ephemeralCaptureStarted) {

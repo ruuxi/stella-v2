@@ -53,6 +53,13 @@ import { hashSha256Hex } from "./lib/crypto_utils";
 import { createManagedUsageDispatchGuard } from "./lib/managed_billing";
 import { runManagedDispatchAttempt } from "./runtime_ai/managed";
 import { enqueueAutomaticDreamForCompletedChat } from "./cloud_dream";
+import {
+  browserSuspensionReplayMatches,
+  completeCloudBrowserInteractionForResumeTurn,
+  markBrowserResumeDispatchFailed,
+  projectCloudBrowserSuspension,
+} from "./cloud_browser";
+import { cloudBrowserResumeReceiptValidator } from "./schema/cloud_browser";
 
 type CloudPlanQuota = {
   dailyTurns: number;
@@ -234,7 +241,13 @@ type AgentThreadControlReceipt = {
   threadId: string;
   attemptGeneration: number;
   threadUpdatedAt: number;
-  status: "running" | "completed" | "failed" | "canceled";
+  status:
+    | "running"
+    | "waiting_for_user"
+    | "resuming"
+    | "completed"
+    | "failed"
+    | "canceled";
 };
 const agentThreadControlReceiptValidator = v.object({
   threadId: v.string(),
@@ -242,6 +255,8 @@ const agentThreadControlReceiptValidator = v.object({
   threadUpdatedAt: v.number(),
   status: v.union(
     v.literal("running"),
+    v.literal("waiting_for_user"),
+    v.literal("resuming"),
     v.literal("completed"),
     v.literal("failed"),
     v.literal("canceled"),
@@ -514,7 +529,9 @@ const assertThreadMessagePayload = (
     Array.isArray(payload) ||
     (payload as { role?: unknown }).role !== role
   ) {
-    throw new ConvexError("Agent thread message payload does not match its role.");
+    throw new ConvexError(
+      "Agent thread message payload does not match its role.",
+    );
   }
 };
 
@@ -2287,9 +2304,7 @@ export const runCloudTurnInternal = internalAction({
       ownerGeneration: args.ownerGeneration,
       ...(args.execution ? { execution: args.execution } : {}),
       autoActivate: args.autoActivate,
-      ...(pinnedCallbackBase
-        ? { convexCallbackBase: pinnedCallbackBase }
-        : {}),
+      ...(pinnedCallbackBase ? { convexCallbackBase: pinnedCallbackBase } : {}),
       dispatchAttempt: dispatchAttempt + 1,
     });
     try {
@@ -2709,10 +2724,7 @@ export const resolveCurrentTurnToken = async (
       q.eq("turnId", args.turnId).eq("ownerId", args.ownerId),
     )
     .take(2);
-  if (
-    currentAttempts.length !== 1 ||
-    currentAttempts[0]!._id !== token._id
-  ) {
+  if (currentAttempts.length !== 1 || currentAttempts[0]!._id !== token._id) {
     return null;
   }
   if (!requireActive) return { token };
@@ -2755,14 +2767,14 @@ export const isCloudBuildTurnDispatchableInternal = internalQuery({
       .unique();
     return Boolean(
       turn &&
-      turn.ownerId === args.ownerId &&
-      turn.ownerGeneration === args.ownerGeneration &&
-      turn.conversationId === args.conversationId &&
-      turn.appId === args.appId &&
-      turn.sessionId === args.sessionId &&
-      turn.kind === "build" &&
-      turn.status === "running" &&
-      !turn.terminalKind,
+        turn.ownerId === args.ownerId &&
+        turn.ownerGeneration === args.ownerGeneration &&
+        turn.conversationId === args.conversationId &&
+        turn.appId === args.appId &&
+        turn.sessionId === args.sessionId &&
+        turn.kind === "build" &&
+        turn.status === "running" &&
+        !turn.terminalKind,
     );
   },
 });
@@ -2788,13 +2800,13 @@ export const isCloudChatTurnDispatchableInternal = internalQuery({
       .unique();
     return Boolean(
       turn &&
-      turn.ownerId === args.ownerId &&
-      turn.ownerGeneration === args.ownerGeneration &&
-      turn.conversationId === args.conversationId &&
-      turn.sessionId === args.sessionId &&
-      turn.kind === "chat" &&
-      turn.status === "running" &&
-      !turn.terminalKind,
+        turn.ownerId === args.ownerId &&
+        turn.ownerGeneration === args.ownerGeneration &&
+        turn.conversationId === args.conversationId &&
+        turn.sessionId === args.sessionId &&
+        turn.kind === "chat" &&
+        turn.status === "running" &&
+        !turn.terminalKind,
     );
   },
 });
@@ -2817,10 +2829,10 @@ export const isCloudBuildTurnAttemptAuthoritativeInternal = internalQuery({
     const turn = authority?.turn;
     return Boolean(
       turn &&
-      turn.kind === "build" &&
-      turn.conversationId === args.conversationId &&
-      turn.appId === args.appId &&
-      turn.sessionId === args.sessionId,
+        turn.kind === "build" &&
+        turn.conversationId === args.conversationId &&
+        turn.appId === args.appId &&
+        turn.sessionId === args.sessionId,
     );
   },
 });
@@ -2841,9 +2853,9 @@ export const isCloudChatTurnAttemptAuthoritativeInternal = internalQuery({
     const turn = authority?.turn;
     return Boolean(
       turn &&
-      turn.kind === "chat" &&
-      turn.conversationId === args.conversationId &&
-      turn.sessionId === args.sessionId,
+        turn.kind === "chat" &&
+        turn.conversationId === args.conversationId &&
+        turn.sessionId === args.sessionId,
     );
   },
 });
@@ -2864,7 +2876,7 @@ export const isActiveCloudParentTurnInternal = internalQuery({
     const authority = await resolveCurrentTurnToken(ctx, args, true);
     return Boolean(
       authority?.turn?.kind === "chat" &&
-      authority.turn.conversationId === args.conversationId,
+        authority.turn.conversationId === args.conversationId,
     );
   },
 });
@@ -3000,14 +3012,14 @@ export const listThreadMessagesInternal = internalQuery({
       )
       .order("desc")
       .take(THREAD_CONTEXT_SCAN_LIMIT + 1);
-    const candidates = rows.filter(
-      (row) => row.turnId !== args.excludeTurnId,
-    );
+    const candidates = rows.filter((row) => row.turnId !== args.excludeTurnId);
     if (
       rows.length > THREAD_CONTEXT_SCAN_LIMIT &&
       candidates.length < THREAD_CONTEXT_ROW_LIMIT
     ) {
-      throw new ConvexError("Agent thread history exceeds the safe scan bound.");
+      throw new ConvexError(
+        "Agent thread history exceeds the safe scan bound.",
+      );
     }
     const selected: typeof candidates = [];
     let selectedBytes = 0;
@@ -4202,9 +4214,7 @@ export const runOrchestratorTurnInternal = internalAction({
           ? { conversationCreatedAt: args.conversationCreatedAt }
           : {}),
         ...(args.locale ? { locale: args.locale } : {}),
-        ...(args.attachments?.length
-          ? { attachments: args.attachments }
-          : {}),
+        ...(args.attachments?.length ? { attachments: args.attachments } : {}),
         ...(args.agentThreadControl
           ? { agentThreadControl: args.agentThreadControl }
           : {}),
@@ -4683,7 +4693,8 @@ const spawnCloudAgent = async (
       ) {
         return {
           ok: false,
-          error: "That cloud agent request has no authoritative thread receipt.",
+          error:
+            "That cloud agent request has no authoritative thread receipt.",
         };
       }
       return {
@@ -4823,7 +4834,7 @@ const spawnCloudAgent = async (
           "That cloud thread changed before the continuation arrived. Refresh its status and try again.",
       };
     }
-    if (thread.status === "running") {
+    if (["running", "waiting_for_user", "resuming"].includes(thread.status)) {
       return {
         ok: false,
         error:
@@ -4918,32 +4929,44 @@ const spawnCloudAgent = async (
   // Fresh cloud threads carry an explicit expiring lease. The index range is
   // the admission authority: computer rows use lease marker 0 and terminal
   // rows leave the exact "running" prefix, so neither can shadow capacity.
-  const leasedThreads = await ctx.db
-    .query("cloud_agent_threads")
-    .withIndex("by_owner_status_lease_updatedAt", (q) =>
-      q
-        .eq("ownerId", args.ownerId)
-        .eq("status", "running")
-        .gt("sandboxLeaseExpiresAt", args.now),
+  const leasedThreads = (
+    await Promise.all(
+      (["running", "resuming"] as const).map((status) =>
+        ctx.db
+          .query("cloud_agent_threads")
+          .withIndex("by_owner_status_lease_updatedAt", (q) =>
+            q
+              .eq("ownerId", args.ownerId)
+              .eq("status", status)
+              .gt("sandboxLeaseExpiresAt", args.now),
+          )
+          .take(quota.concurrentTurns + 1),
+      ),
     )
-    .take(quota.concurrentTurns);
+  ).flat();
 
   // Rolling compatibility for threads created before the lease field existed.
   // New computer rows use an explicit 0 marker, so only pre-deploy rows can
   // enter this slice. The one-hour updatedAt bound preserves the old watchdog
   // grace. If a pathological legacy slice exceeds the bound, fail closed
   // instead of letting a fixed mixed window hide an active cloud sandbox.
-  const legacyLeaseRows = await ctx.db
-    .query("cloud_agent_threads")
-    .withIndex("by_owner_status_lease_updatedAt", (q) =>
-      q
-        .eq("ownerId", args.ownerId)
-        .eq("status", "running")
-        .eq("sandboxLeaseExpiresAt", undefined)
-        .gt("updatedAt", args.now - CLOUD_SANDBOX_LEASE_MS),
+  const legacyLeaseRows = (
+    await Promise.all(
+      (["running", "resuming"] as const).map((status) =>
+        ctx.db
+          .query("cloud_agent_threads")
+          .withIndex("by_owner_status_lease_updatedAt", (q) =>
+            q
+              .eq("ownerId", args.ownerId)
+              .eq("status", status)
+              .eq("sandboxLeaseExpiresAt", undefined)
+              .gt("updatedAt", args.now - CLOUD_SANDBOX_LEASE_MS),
+          )
+          .order("desc")
+          .take(LEGACY_SANDBOX_ADMISSION_SCAN_LIMIT + 1),
+      ),
     )
-    .order("desc")
-    .take(LEGACY_SANDBOX_ADMISSION_SCAN_LIMIT + 1);
+  ).flat();
   if (legacyLeaseRows.length > LEGACY_SANDBOX_ADMISSION_SCAN_LIMIT) {
     return {
       ok: false,
@@ -4953,14 +4976,16 @@ const spawnCloudAgent = async (
   }
   const runningThreads = [
     ...leasedThreads,
-    ...legacyLeaseRows.filter((candidate) =>
-      cloudSandboxThreadIsActive({
-        workspace: candidate.workspace,
-        status: candidate.status,
-        sandboxLeaseExpiresAt: candidate.sandboxLeaseExpiresAt,
-        updatedAt: candidate.updatedAt,
-        now: args.now,
-      }),
+    ...legacyLeaseRows.filter(
+      (candidate) =>
+        candidate.status === "resuming" ||
+        cloudSandboxThreadIsActive({
+          workspace: candidate.workspace,
+          status: candidate.status,
+          sandboxLeaseExpiresAt: candidate.sandboxLeaseExpiresAt,
+          updatedAt: candidate.updatedAt,
+          now: args.now,
+        }),
     ),
   ].filter((candidate) => candidate.threadId !== threadId);
   if (runningThreads.length >= quota.concurrentTurns) {
@@ -5529,11 +5554,7 @@ export const getCloudAgentThreadControlInternal = internalQuery({
     }),
   ),
   handler: async (ctx, args) => {
-    await assertOwnerDataWriteAllowed(
-      ctx,
-      args.ownerId,
-      args.ownerGeneration,
-    );
+    await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
     const thread = await ctx.db
       .query("cloud_agent_threads")
       .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
@@ -5705,11 +5726,7 @@ export const isCloudAgentTurnDispatchableInternal = internalQuery({
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
-    await assertOwnerDataWriteAllowed(
-      ctx,
-      args.ownerId,
-      args.ownerGeneration,
-    );
+    await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
     const thread = await ctx.db
       .query("cloud_agent_threads")
       .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
@@ -5720,16 +5737,16 @@ export const isCloudAgentTurnDispatchableInternal = internalQuery({
       .unique();
     return Boolean(
       thread &&
-      thread.ownerId === args.ownerId &&
-      thread.ownerGeneration === args.ownerGeneration &&
-      thread.attemptGeneration === args.attemptGeneration &&
-      thread.status === "running" &&
-      turn &&
-      turn.ownerId === args.ownerId &&
-      turn.ownerGeneration === args.ownerGeneration &&
-      turn.attemptGeneration === args.attemptGeneration &&
-      turn.threadId === args.threadId &&
-      turn.status === "running",
+        thread.ownerId === args.ownerId &&
+        thread.ownerGeneration === args.ownerGeneration &&
+        thread.attemptGeneration === args.attemptGeneration &&
+        thread.status === "running" &&
+        turn &&
+        turn.ownerId === args.ownerId &&
+        turn.ownerGeneration === args.ownerGeneration &&
+        turn.attemptGeneration === args.attemptGeneration &&
+        turn.threadId === args.threadId &&
+        turn.status === "running",
     );
   },
 });
@@ -5768,10 +5785,10 @@ export const isCloudAgentTurnAttemptAuthoritativeInternal = internalQuery({
       .unique();
     return Boolean(
       thread &&
-      thread.ownerId === args.ownerId &&
-      thread.ownerGeneration === args.ownerGeneration &&
-      thread.attemptGeneration === args.attemptGeneration &&
-      thread.status === "running",
+        thread.ownerId === args.ownerId &&
+        thread.ownerGeneration === args.ownerGeneration &&
+        thread.attemptGeneration === args.attemptGeneration &&
+        thread.status === "running",
     );
   },
 });
@@ -6118,16 +6135,15 @@ export const cancelMyCloudAgentThread = action({
         attemptGeneration: number;
         threadUpdatedAt: number;
       };
-    } =
-      await ctx.runMutation(cancelCloudAgentTurnRef, {
-        ownerId,
-        ownerGeneration: generation,
-        threadId,
-        turnId: control.runningTurnId,
-        attemptGeneration: control.attemptGeneration,
-        controlRequestId,
-        now: Date.now(),
-      });
+    } = await ctx.runMutation(cancelCloudAgentTurnRef, {
+      ownerId,
+      ownerGeneration: generation,
+      threadId,
+      turnId: control.runningTurnId,
+      attemptGeneration: control.attemptGeneration,
+      controlRequestId,
+      now: Date.now(),
+    });
     if (!canceled.canceled) {
       throw new ConvexError(
         "The cloud thread changed while it was being paused. Try again.",
@@ -6149,6 +6165,7 @@ export const runCloudAgentTurnInternal = internalAction({
     ownerGeneration: v.string(),
     attemptGeneration: v.number(),
     execution: v.optional(cloudExecutionSelectionValidator),
+    browserResume: v.optional(cloudBrowserResumeReceiptValidator),
     convexCallbackBase: v.optional(v.string()),
     dispatchAttempt: v.optional(v.number()),
   },
@@ -6175,9 +6192,8 @@ export const runCloudAgentTurnInternal = internalAction({
       ownerGeneration: args.ownerGeneration,
       attemptGeneration: args.attemptGeneration,
       ...(args.execution ? { execution: args.execution } : {}),
-      ...(pinnedCallbackBase
-        ? { convexCallbackBase: pinnedCallbackBase }
-        : {}),
+      ...(args.browserResume ? { browserResume: args.browserResume } : {}),
+      ...(pinnedCallbackBase ? { convexCallbackBase: pinnedCallbackBase } : {}),
       dispatchAttempt: dispatchAttempt + 1,
     });
     try {
@@ -6337,6 +6353,9 @@ export const runCloudAgentTurnInternal = internalAction({
             turnToken: args.turnToken,
             convexCallbackBase,
             execution,
+            ...(args.browserResume
+              ? { browserResume: args.browserResume }
+              : {}),
           }),
           signal: AbortSignal.timeout(30_000),
         },
@@ -6376,6 +6395,15 @@ export const runCloudAgentTurnInternal = internalAction({
       );
       return null;
     }
+    console.error(
+      JSON.stringify({
+        service: "convex-cloud-apps",
+        event: "agent_dispatch_response_rejected",
+        turnId: args.turnId,
+        dispatchAttempt,
+        status: response.status,
+      }),
+    );
     await ctx.runMutation(failCloudAgentDispatchRef, {
       ownerId: args.ownerId,
       ownerGeneration: args.ownerGeneration,
@@ -6469,6 +6497,11 @@ export const failCloudAgentDispatchInternal = internalMutation({
         updatedAt: args.now,
       });
     }
+    await markBrowserResumeDispatchFailed(ctx, {
+      turn,
+      now: args.now,
+      safeMessage: args.message,
+    });
     if (thread.status !== "running") return null;
     await ctx.db.patch(thread._id, {
       status: "failed",
@@ -7020,14 +7053,14 @@ export const listMyDeviceAgentThreads = query({
       .withIndex(
         "by_ownerId_ownerGeneration_originDeviceId_ackAt_updatedAt",
         (q) => {
-        const deviceRows = q
-          .eq("ownerId", ownerId)
-          .eq("ownerGeneration", ownerGeneration)
-          .eq("originDeviceId", originDeviceId)
-          .eq("originDeliveryAckAt", undefined);
-        return args.sinceUpdatedAt === undefined
-          ? deviceRows
-          : deviceRows.gte("updatedAt", args.sinceUpdatedAt);
+          const deviceRows = q
+            .eq("ownerId", ownerId)
+            .eq("ownerGeneration", ownerGeneration)
+            .eq("originDeviceId", originDeviceId)
+            .eq("originDeliveryAckAt", undefined);
+          return args.sinceUpdatedAt === undefined
+            ? deviceRows
+            : deviceRows.gte("updatedAt", args.sinceUpdatedAt);
         },
       )
       .order("desc")
@@ -7092,8 +7125,8 @@ export const acknowledgeMyDeviceAgentThreadDelivery = mutation({
       throw new ConvexError("Invalid originDeviceId.");
     }
     if (
-      (!Number.isSafeInteger(args.attemptGeneration) ||
-        args.attemptGeneration < 1)
+      !Number.isSafeInteger(args.attemptGeneration) ||
+      args.attemptGeneration < 1
     ) {
       throw new ConvexError("Invalid attemptGeneration.");
     }
@@ -7331,6 +7364,7 @@ export const appendEventInternal = internalMutation({
     kind: v.string(),
     payloadJson: v.string(),
     terminal: v.boolean(),
+    connectedAccount: v.optional(v.boolean()),
     now: v.number(),
   },
   returns: v.object({ inserted: v.boolean(), terminalAccepted: v.boolean() }),
@@ -7347,6 +7381,25 @@ export const appendEventInternal = internalMutation({
     ) {
       throw new ConvexError("Unknown cloud turn.");
     }
+    const isBrowserSuspension =
+      args.kind === "waiting_for_user" && args.terminal === false;
+    const exactBrowserSuspensionReplay =
+      isBrowserSuspension &&
+      Boolean(args.tokenHash) &&
+      turn.kind === "agent" &&
+      Boolean(turn.threadId) &&
+      Number.isSafeInteger(args.attemptGeneration) &&
+      args.attemptGeneration === turn.attemptGeneration
+        ? await browserSuspensionReplayMatches(ctx, {
+            ownerId: args.ownerId,
+            ownerGeneration: args.ownerGeneration,
+            turnId: args.turnId,
+            threadId: turn.threadId!,
+            attemptGeneration: args.attemptGeneration!,
+            tokenHash: args.tokenHash!,
+            payloadJson: args.payloadJson,
+          })
+        : false;
     if (args.tokenHash) {
       // HTTP token verification is useful for an early 401, but it cannot grant
       // write authority across the following action -> mutation boundary. Read
@@ -7356,19 +7409,30 @@ export const appendEventInternal = internalMutation({
       // was lost must reach the idempotent terminal check below. A first write
       // still proves that the loaded turn and (for agents) thread are live.
       const exactTerminalReceipt =
-        Boolean(turn.terminalKind) &&
-        turn.terminalTokenHash === args.tokenHash;
+        Boolean(turn.terminalKind) && turn.terminalTokenHash === args.tokenHash;
       const exactDurableTerminalAdmission =
         args.terminal &&
         !turn.terminalKind &&
         turn.status === "running" &&
         turn.activeTokenHash === args.tokenHash;
-      if (exactTerminalReceipt || exactDurableTerminalAdmission) {
-        await assertOwnerDataWriteAllowed(
-          ctx,
-          args.ownerId,
-          args.ownerGeneration,
-        );
+      if (
+        exactTerminalReceipt ||
+        exactDurableTerminalAdmission ||
+        exactBrowserSuspensionReplay
+      ) {
+        if (exactBrowserSuspensionReplay) {
+          await assertOwnerMigrationWriteAllowed(
+            ctx,
+            args.ownerId,
+            args.ownerGeneration,
+          );
+        } else {
+          await assertOwnerDataWriteAllowed(
+            ctx,
+            args.ownerId,
+            args.ownerGeneration,
+          );
+        }
       } else {
         if (turn.terminalTokenHash) {
           throw new ConvexError("Cloud turn is no longer active.");
@@ -7395,11 +7459,57 @@ export const appendEventInternal = internalMutation({
         args.ownerGeneration,
       );
     }
+    if (isBrowserSuspension) {
+      if (
+        !args.tokenHash ||
+        turn.kind !== "agent" ||
+        !turn.threadId ||
+        !Number.isSafeInteger(args.attemptGeneration) ||
+        args.attemptGeneration !== turn.attemptGeneration
+      ) {
+        throw new ConvexError("Invalid hosted browser waiting event.");
+      }
+      if (exactBrowserSuspensionReplay) {
+        return { inserted: false, terminalAccepted: false };
+      }
+      if (turn.status !== "running" || turn.terminalKind) {
+        throw new ConvexError("Cloud turn is no longer active.");
+      }
+      const seq = args.autoSeq
+        ? await nextEventSeq(ctx, args.turnId)
+        : args.seq;
+      if (!args.autoSeq) {
+        const duplicate = await ctx.db
+          .query("agent_events")
+          .withIndex("by_turnId_and_seq", (q) =>
+            q.eq("turnId", args.turnId).eq("seq", seq),
+          )
+          .unique();
+        if (duplicate) {
+          return { inserted: false, terminalAccepted: false };
+        }
+      }
+      await projectCloudBrowserSuspension(ctx, {
+        turn,
+        tokenHash: args.tokenHash,
+        payloadJson: args.payloadJson,
+        connectedAccount: args.connectedAccount === true,
+        now: args.now,
+      });
+      await ctx.db.insert("agent_events", {
+        ownerId: turn.ownerId,
+        turnId: args.turnId,
+        sessionId: turn.sessionId,
+        seq,
+        kind: args.kind,
+        payloadJson: args.payloadJson,
+        createdAt: args.now,
+      });
+      return { inserted: true, terminalAccepted: false };
+    }
     if (turn.terminalKind) {
       const storedPayload =
-        turn.terminalKind === "completed"
-          ? turn.resultJson
-          : turn.errorMessage;
+        turn.terminalKind === "completed" ? turn.resultJson : turn.errorMessage;
       if (
         args.terminal &&
         args.kind === turn.terminalKind &&
@@ -7416,6 +7526,12 @@ export const appendEventInternal = internalMutation({
     }
     if (turn.status !== "running") {
       throw new ConvexError("Cloud turn is no longer active.");
+    }
+    if (turn.browserResume) {
+      await completeCloudBrowserInteractionForResumeTurn(ctx, {
+        turn,
+        now: args.now,
+      });
     }
     if (turn.kind === "agent") {
       if (
@@ -9039,7 +9155,9 @@ export const routeCloudTurnInternal = internalAction({
               error?: { message?: string };
             };
             if (!upstream.ok) {
-              throw new Error(payload.error?.message ?? "Routing model failed.");
+              throw new Error(
+                payload.error?.message ?? "Routing model failed.",
+              );
             }
             const text =
               payload.content?.find((item) => item.type === "text")?.text ?? "";

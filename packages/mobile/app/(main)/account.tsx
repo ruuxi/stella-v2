@@ -20,6 +20,7 @@ import { clearCachedToken } from "../../src/lib/auth-token";
 import { clearCachedDesktopBridge } from "../../src/lib/desktop-bridge-chat";
 import { isGuest } from "../../src/lib/guest-mode";
 import { clearAccountChatData } from "../../src/lib/chat-account-cleanup";
+import { useCloudBrowserActions } from "../../src/lib/cloud-browser";
 import { userFacingError } from "../../src/lib/user-facing-error";
 import { tapLight } from "../../src/lib/haptics";
 import {
@@ -116,6 +117,8 @@ export default function AccountScreen() {
   const guest = isGuest();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [isResettingCloudBrowser, setIsResettingCloudBrowser] = useState(false);
+  const { resetProfile: resetCloudBrowserProfile } = useCloudBrowserActions();
   const [pairedDesktops, setPairedDesktops] = useState<StoredPhoneAccess[]>([]);
   const desktopPlatforms = useDesktopPlatforms(pairedDesktops);
   const [removingDesktopId, setRemovingDesktopId] = useState<string | null>(
@@ -261,6 +264,40 @@ export default function AccountScreen() {
     );
   };
 
+  const runResetCloudBrowser = async () => {
+    if (isResettingCloudBrowser) return;
+    setIsResettingCloudBrowser(true);
+    try {
+      await resetCloudBrowserProfile();
+      Alert.alert(
+        t("cloudBrowser.settings.title"),
+        t("cloudBrowser.settings.resetComplete"),
+      );
+    } catch {
+      Alert.alert(
+        t("cloudBrowser.settings.title"),
+        t("cloudBrowser.settings.resetFailed"),
+      );
+    } finally {
+      setIsResettingCloudBrowser(false);
+    }
+  };
+
+  const confirmResetCloudBrowser = () => {
+    Alert.alert(
+      t("cloudBrowser.settings.confirmTitle"),
+      t("cloudBrowser.settings.confirmBody"),
+      [
+        { text: t("mobile.common.cancel"), style: "cancel" },
+        {
+          text: t("cloudBrowser.settings.reset"),
+          style: "destructive",
+          onPress: () => void runResetCloudBrowser(),
+        },
+      ],
+    );
+  };
+
   const toggleNotifications = (next: boolean) => {
     setMutedLocal(!next);
     void setNotificationsMuted(!next);
@@ -366,6 +403,38 @@ export default function AccountScreen() {
             </View>
             <Text style={styles.legalChevron}>›</Text>
           </Pressable>
+
+          <View style={styles.separator} />
+          <Text style={styles.sectionLabel}>
+            {t("cloudBrowser.settings.title")}
+          </Text>
+          <View style={styles.toggleRow}>
+            <View style={styles.toggleCopy}>
+              <Text style={styles.toggleLabel}>
+                {t("cloudBrowser.settings.defaultProfile")}
+              </Text>
+              <Text style={styles.toggleSub}>
+                {t("cloudBrowser.settings.description")}
+              </Text>
+            </View>
+            <Pressable
+              onPress={confirmResetCloudBrowser}
+              disabled={isResettingCloudBrowser}
+              accessibilityRole="button"
+              accessibilityLabel={t("cloudBrowser.settings.reset")}
+              style={({ pressed }) => [
+                styles.forgetButton,
+                pressed && styles.forgetButtonPressed,
+                isResettingCloudBrowser && styles.forgetButtonDisabled,
+              ]}
+            >
+              <Text style={styles.resetBrowserText}>
+                {isResettingCloudBrowser
+                  ? t("cloudBrowser.settings.resetting")
+                  : t("cloudBrowser.settings.reset")}
+              </Text>
+            </Pressable>
+          </View>
         </>
       ) : null}
 
@@ -896,6 +965,12 @@ const makeStyles = (colors: Colors) =>
     },
     forgetText: {
       color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 13,
+      letterSpacing: -0.1,
+    },
+    resetBrowserText: {
+      color: colors.danger,
       fontFamily: fonts.sans.medium,
       fontSize: 13,
       letterSpacing: -0.1,

@@ -4588,6 +4588,17 @@ export const getOwnerNamespaceTransferBlocker = internalQuery({
   handler: async (ctx, args) => {
     const memory = await inspectMemoryMigrationState(ctx, args);
     if (memory.blocker) return memory.blocker;
+    const browserInteraction = (
+      await ctx.db
+        .query("cloud_browser_interactions")
+        .withIndex("by_ownerId_and_createdAt", (q) =>
+          q.eq("ownerId", args.fromOwnerId),
+        )
+        .take(1)
+    )[0];
+    if (browserInteraction) {
+      return "The anonymous identity has a browser session that must be reset before account linking.";
+    }
     const pendingUpload = (
       await ctx.db
         .query("cloud_drive_uploads")
@@ -8163,6 +8174,15 @@ export const auditOwnershipMigrationResidue = internalQuery({
     // session turn/file audit rows) are covered by their indexed owner parent,
     // billing-profile, room, and membership fences. Do not full-scan them.
     const blockedChecks = [
+      [
+        "cloud_browser_interactions",
+        await ctx.db
+          .query("cloud_browser_interactions")
+          .withIndex("by_ownerId_and_createdAt", (q) =>
+            q.eq("ownerId", args.fromOwnerId),
+          )
+          .take(1),
+      ],
       [
         "composio_session_provisioning_attempts",
         [

@@ -30,6 +30,10 @@ import type {
 import { mergeProducedFilesOmissions } from "../tools/utils.js";
 import { acquireAbortLatch } from "../agent-core/abort-bridge.js";
 import {
+  isAgentToolSuspendedError,
+  type AgentToolSuspendedError,
+} from "../agent-core/suspension.js";
+import {
   getStellaBrowserSessionId,
   getStellaComputerSessionId,
 } from "../tools/stella-computer-session.js";
@@ -44,7 +48,7 @@ import {
   type BrowserChainOptions,
   type BrowserChainStep,
   type BrowserCommandParams,
-  type BrowserProtocolAction,
+  type BrowserSessionAction,
   type BrowserSessionClient,
   type BrowserSessionOptions,
   type BrowserTurnEndBehavior,
@@ -1400,6 +1404,10 @@ class NodeReplKernel {
         });
       }
     } catch (error) {
+      if (isAgentToolSuspendedError(error)) {
+        this.suspendActive(error);
+        return;
+      }
       if (!this.closed && this.active === active) {
         this.postBrowserError(message.callId, error);
       }
@@ -1559,7 +1567,7 @@ class NodeReplKernel {
         throw new Error("Invalid browser command arguments.");
       }
       return await this.browser.command(
-        message.args[0] as BrowserProtocolAction,
+        message.args[0] as BrowserSessionAction,
         message.args[1] as BrowserCommandParams | undefined,
         { signal: active.controller.signal },
       );
@@ -1809,6 +1817,10 @@ class NodeReplKernel {
         });
       }
     } catch (error) {
+      if (isAgentToolSuspendedError(error)) {
+        this.suspendActive(error);
+        return;
+      }
       if (!this.closed && this.active === active) {
         this.postToolError(message.callId, error);
       }
@@ -2228,6 +2240,21 @@ class NodeReplKernel {
     active.controller.abort(error);
     this.settleActive(active, error);
     void this.close();
+  }
+
+  /**
+   * A suspension is settled in the privileged parent and never serialized
+   * into the worker. Killing the worker before it sees a rejected browser/tool
+   * promise makes JavaScript `try/catch` unable to turn the control signal into
+   * an ordinary code result.
+   */
+  private suspendActive(error: AgentToolSuspendedError): void {
+    const active = this.active;
+    if (!active) return;
+    active.controller.abort(error);
+    this.settleActive(active, error);
+    void this.close();
+    this.onTerminated(this);
   }
 
   terminate(reason = "Code cell terminated by caller."): void {
@@ -2708,6 +2735,9 @@ export class NodeReplKernelRegistry {
           : {}),
       };
     }
+    if (isAgentToolSuspendedError(cell.outcome.error)) {
+      throw cell.outcome.error;
+    }
     return {
       cellId: cell.cellId,
       generation: cell.generation,
@@ -2789,7 +2819,7 @@ export class NodeReplKernelRegistry {
     turnId: string,
     behavior: BrowserTurnEndBehavior,
   ): Promise<void> {
-    await Promise.allSettled(
+    await Promise.all(
       [...this.kernels.values()].map((kernel) =>
         kernel.endBrowserTurn(turnId, behavior),
       ),

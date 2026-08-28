@@ -132,6 +132,9 @@ const OWNER_STORES = {
   // Live per-turn credentials. The expiry cron is a floor on how long a stolen
   // one survives, never a deletion path.
   cloud_turn_tokens: "simple",
+  // Browser profile/session bytes live in the Gateway. Keep the interaction
+  // receipts until the owner-level `default` profile purge is confirmed.
+  cloud_browser_interactions: "external-ref",
   // Memory/Dream/Skills metadata all names bytes under the owner-derived R2
   // `agent-home/<hash>/` prefix. That whole prefix is swept first; every row
   // below is retained as locator/control debt until the worker confirms it.
@@ -557,6 +560,22 @@ export const deleteOwnerCloudBatch = internalMutation({
     await assertOwnerPurgeOperation(ctx, args);
     const deleted = await drainOwnerIndexedTable(ctx, args.ownerId, args.table);
     return { hasMore: deleted === BATCH };
+  },
+});
+
+export const deleteOwnerBrowserInteractionBatchInternal = internalMutation({
+  args: purgeOperationArgs,
+  returns: v.object({ hasMore: v.boolean() }),
+  handler: async (ctx, args) => {
+    await assertOwnerPurgeOperation(ctx, args);
+    const rows = await ctx.db
+      .query("cloud_browser_interactions")
+      .withIndex("by_ownerId_and_createdAt", (q) =>
+        q.eq("ownerId", args.ownerId),
+      )
+      .take(BATCH);
+    for (const row of rows) await ctx.db.delete(row._id);
+    return { hasMore: rows.length === BATCH };
   },
 });
 
@@ -1654,6 +1673,16 @@ export const remainingOwnerStoresInternal = internalQuery({
               .take(1),
           );
           break;
+        case "cloud_browser_interactions":
+          await check(store, () =>
+            ctx.db
+              .query("cloud_browser_interactions")
+              .withIndex("by_ownerId_and_createdAt", (q) =>
+                q.eq("ownerId", ownerId),
+              )
+              .take(1),
+          );
+          break;
         case "cloud_memory_lifecycles":
           await check(store, () =>
             ctx.db
@@ -2066,6 +2095,7 @@ type ExternalPurgeRequest = {
   workspaces?: string[];
   appSlugs?: string[];
   buildPrefixes?: string[];
+  browserProfiles?: string[];
 };
 
 const requireBuilderEndpoint = (): BuilderEndpoint => {
@@ -2230,6 +2260,7 @@ const releaseExternalOwnerPurge = async (
  */
 const purgeExternalStores = async (
   ownerId: string,
+  ownerGeneration: string,
   request: ExternalPurgeRequest,
   purgeGeneration: string,
 ): Promise<{ pending: string[] }> => {
@@ -2241,7 +2272,15 @@ const purgeExternalStores = async (
         authorization: `Bearer ${builder.secret}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ ownerId, purgeGeneration, ...request }),
+      // `ownerGeneration` is Convex's current lifecycle generation. It is a
+      // separate authority from the Builder's external `purgeGeneration` and
+      // must never be substituted with that worker-fence value.
+      body: JSON.stringify({
+        ownerId,
+        ownerGeneration,
+        purgeGeneration,
+        ...request,
+      }),
       signal: AbortSignal.timeout(120_000),
     });
     if (!response.ok) {
@@ -2402,7 +2441,12 @@ export const purgeOwnerCloudStack = internalAction({
         request: ExternalPurgeRequest,
       ): Promise<{ pending: string[] }> => {
         await assertCloudLease();
-        return await purgeExternalStores(ownerId, request, purgeGeneration);
+        return await purgeExternalStores(
+          ownerId,
+          args.generation,
+          request,
+          purgeGeneration,
+        );
       };
 
       await stopOwnerSchedules(ctx, fence);
@@ -2857,6 +2901,7 @@ export const purgeOwnerCloudStack = internalAction({
       //    exist for every owner without a row anywhere naming them.
       const external = await purgeExternalStoresFenced({
         workspaces: ["drive", "stella"],
+        browserProfiles: ["default"],
       });
       if (external.pending.length > 0) {
         pending.push(...external.pending.map((store) => `builder:${store}`));
@@ -2888,6 +2933,22 @@ export const purgeOwnerCloudStack = internalAction({
               logPurge("owner_agent_home_table_drain_truncated", { table });
             }),
           );
+        }
+      }
+
+      // Interaction rows are secret-free, but they are the durable debt that
+      // forces owner deletion/reset to retry the Browser Gateway sweep. Retire
+      // them only after the full final external pass confirms success.
+      if (external.pending.length === 0) {
+        for (let p = 0; p < MAX_PASSES; p += 1) {
+          const result: { hasMore: boolean } = await ctx.runMutation(
+            internal.cloud_purge.deleteOwnerBrowserInteractionBatchInternal,
+            fence,
+          );
+          if (!result.hasMore) break;
+          if (p === MAX_PASSES - 1) {
+            pending.push("cloud_browser_interactions");
+          }
         }
       }
 

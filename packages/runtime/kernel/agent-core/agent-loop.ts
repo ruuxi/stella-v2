@@ -56,6 +56,11 @@ import {
 	ToolAbortAbandonedError,
 	ToolInactivityTimeoutError,
 } from "./errors.js";
+import {
+	type AgentToolSuspendedError,
+	bindAgentToolSuspensionToCall,
+	isAgentToolSuspendedError,
+} from "./suspension.js";
 import type {
 	AgentContext,
 	AgentEvent,
@@ -819,7 +824,7 @@ const executeToolCallsParallel = (
 		// this turn's fiber: joins settle before the turn continues.
 		const runningCalls: Array<{
 			prepared: PreparedToolCall;
-			fiber: Fiber.Fiber<ExecutedToolCallOutcome>;
+			fiber: Fiber.Fiber<ExecutedToolCallOutcome, AgentToolSuspendedError>;
 		}> = [];
 		for (const prepared of runnableCalls) {
 			const fiber = yield* Effect.forkChild(
@@ -895,7 +900,10 @@ const prepareToolCall = (
 	env: LoopEnv,
 	assistantMessage: AssistantMessage,
 	toolCall: AgentToolCall,
-): Effect.Effect<PreparedToolCall | ImmediateToolCallOutcome> => {
+): Effect.Effect<
+	PreparedToolCall | ImmediateToolCallOutcome,
+	AgentToolSuspendedError
+> => {
 	const { currentContext, config, signal } = env;
 	const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
 	if (!tool) {
@@ -936,15 +944,18 @@ const prepareToolCall = (
 		},
 		catch: (error) => error,
 	}).pipe(
-		Effect.catch((error) =>
-			Effect.succeed<ImmediateToolCallOutcome>({
+		Effect.catch((error) => {
+			if (isAgentToolSuspendedError(error)) {
+				return Effect.fail(bindAgentToolSuspensionToCall(error, toolCall.id));
+			}
+			return Effect.succeed<ImmediateToolCallOutcome>({
 				kind: "immediate",
 				result: createErrorToolResult(
 					error instanceof Error ? error.message : String(error),
 				),
 				isError: true,
-			}),
-		),
+			});
+		}),
 	);
 };
 
@@ -1006,7 +1017,7 @@ type ToolWindowArgs = {
  */
 const executeToolWindow = (
 	args: ToolWindowArgs,
-): Effect.Effect<ExecutedToolCallOutcome> =>
+): Effect.Effect<ExecutedToolCallOutcome, AgentToolSuspendedError> =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const { prepared, signal, abortLatch, emit } = args;
@@ -1093,35 +1104,46 @@ const executeToolWindow = (
 				{ startImmediately: true },
 			);
 
-			const outcome = yield* Effect.tryPromise({
-				try: () =>
-					prepared.tool.execute(
-						prepared.toolCall.id,
-						prepared.args as never,
-						toolAbort.signal,
-						onUpdate,
-					),
-				catch: (error) => error,
-			}).pipe(
-				Effect.raceFirst(Deferred.await(failure)),
-				Effect.map(
-					(result): ExecutedToolCallOutcome => ({
-						result,
-						isError: result.isError === true,
-					}),
-				),
-				Effect.catch((error) =>
-					Effect.succeed<ExecutedToolCallOutcome>({
-						result: createErrorToolResult(
-							error instanceof Error ? error.message : String(error),
+			const executionExit = yield* Effect.exit(
+				Effect.tryPromise({
+					try: () =>
+						prepared.tool.execute(
+							prepared.toolCall.id,
+							prepared.args as never,
+							toolAbort.signal,
+							onUpdate,
 						),
-						isError: true,
-					}),
-				),
+					catch: (error) => error,
+				}).pipe(Effect.raceFirst(Deferred.await(failure))),
 			);
 
-			yield* Effect.promise(() => Promise.all(updateEvents));
-			return outcome;
+			const updatesExit = yield* Effect.exit(
+				Effect.promise(() => Promise.all(updateEvents)),
+			);
+			if (Exit.isFailure(executionExit)) {
+				const error = Cause.squash(executionExit.cause);
+				if (isAgentToolSuspendedError(error)) {
+					return yield* Effect.fail(
+						bindAgentToolSuspensionToCall(error, prepared.toolCall.id),
+					);
+				}
+				if (Exit.isFailure(updatesExit)) {
+					return yield* Effect.die(Cause.squash(updatesExit.cause));
+				}
+				return {
+					result: createErrorToolResult(
+						error instanceof Error ? error.message : String(error),
+					),
+					isError: true,
+				};
+			}
+			if (Exit.isFailure(updatesExit)) {
+				return yield* Effect.die(Cause.squash(updatesExit.cause));
+			}
+			return {
+				result: executionExit.value,
+				isError: executionExit.value.isError === true,
+			};
 		}),
 	);
 

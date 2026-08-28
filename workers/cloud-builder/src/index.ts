@@ -44,6 +44,13 @@ import {
 } from "./conversation-types.js";
 import { verifyConvexToken } from "./auth-jwt.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import { CLOUD_AGENT_TURN_RESULT_PATH } from "@stella/executor-cloud/agent-turn-result-file";
+import {
+  isCloudBrowserResumeReceipt,
+  isCloudBrowserSuspension,
+  type CloudBrowserResumeReceipt,
+  type CloudBrowserSuspension,
+} from "@stella/contracts/cloud-browser";
 import { parseOwnerTransferRequest } from "./owner-transfer.js";
 import { OwnerTransferArchiveConflictError } from "./owner-transfer.js";
 import {
@@ -123,9 +130,13 @@ import {
   type ExactTurnCancellationRequest,
 } from "./execution-placement-turn-cancellation.js";
 import { devAcceptanceProbesEnabled } from "./dev-acceptance-probes.js";
+import { classifyAgentFailureDiagnostic } from "./agent-failure-diagnostic.js";
+import { executorSessionEnvironment } from "./executor-session-env.js";
 import { cloudModelRequestId } from "./cloud-model-request.js";
 import {
   APP_BUILD_SESSION_ENV,
+  CapturedSessionAbandonedError,
+  capturedSessionExec,
   startStrictSessionProcess,
   strictSessionExec,
 } from "./strict-session-process.js";
@@ -148,8 +159,10 @@ import {
   readTurnBrokerRequestBody,
   revokeTurnBrokerCredential,
   turnBrokerDenialResponse,
+  turnBrokerSandboxResponseHeaders,
   turnBrokerStorageKey,
   turnBrokerTargetMatchesEngine,
+  validateTurnBrokerTarget,
   type TurnBrokerLiveFence,
   type TurnBrokerRecord,
 } from "./turn-credential-broker.js";
@@ -169,6 +182,7 @@ import {
 import {
   parseTurnStateCheckpointRequest,
   publicTurnStateCheckpointReceipt,
+  replaceTurnStateArchiveSession,
 } from "./turn-state-checkpoint.js";
 import type {
   PreparedTurnStateOperation,
@@ -221,6 +235,8 @@ type Env = {
   BUILD_SESSIONS: DurableObjectNamespace<BuildSession>;
   ORCHESTRATOR_SESSIONS: DurableObjectNamespace<OrchestratorSession>;
   OWNER_TRANSFER_COORDINATORS: DurableObjectNamespace<OwnerTransferCoordinator>;
+  /** Private Browser Run boundary. It alone owns Browser/R2 profile secrets. */
+  BROWSER_GATEWAY?: Fetcher;
   APP_BUILDS: R2Bucket;
   APP_ROUTES: KVNamespace;
   BACKUP_BUCKET: R2Bucket;
@@ -338,6 +354,8 @@ type TurnRequest = {
   autoActivate?: boolean;
   preflightDelayMs?: number;
   watchdogMs?: number;
+  /** Trusted control-plane continuation of a suspended browser tool call. */
+  browserResume?: CloudBrowserResumeReceipt;
   conversationId?: string;
   sessionId?: string;
   threadId?: string;
@@ -386,7 +404,9 @@ const exactTurnIdentityMatches = (
   current.conversationId === expected.conversationId &&
   current.sessionId === expected.sessionId &&
   current.threadId === expected.threadId &&
-  current.attemptGeneration === expected.attemptGeneration;
+  current.attemptGeneration === expected.attemptGeneration &&
+  JSON.stringify(current.browserResume ?? null) ===
+    JSON.stringify(expected.browserResume ?? null);
 
 type OwnerPurgeMode = "temporary" | "permanent";
 type OwnerPurgeFence = {
@@ -517,6 +537,7 @@ class TurnStateOwnerCallError extends Error {
 }
 
 type AgentExecutorResult = {
+  outcome?: "completed" | "suspended";
   ok: boolean;
   finalText?: string;
   error?: string;
@@ -524,6 +545,7 @@ type AgentExecutorResult = {
   checkpointPolicy?: "preserve_prior" | "builder_fallback";
   checkpointMs?: number;
   turnStateCheckpoint?: TurnBrokerTurnStateCheckpointReceipt;
+  suspension?: CloudBrowserSuspension;
   builderFallback?: {
     historyCursor: string;
     messages: Array<{ ordinal: number; role: string; payloadJson: string }>;
@@ -598,6 +620,43 @@ type PendingTerminal = {
   terminateSandbox?: boolean;
 };
 
+/**
+ * Durable handoff from a finished executor to Convex's waiting projection.
+ * The descriptor is intentionally secret-free. It is committed before the
+ * sandbox is destroyed so a Worker restart can redeliver the same interaction.
+ */
+type PendingBrowserSuspension = {
+  schemaVersion: 1;
+  turnId: string;
+  attemptGeneration: number;
+  suspension: CloudBrowserSuspension;
+  payload: Record<string, unknown>;
+  createdAt: number;
+};
+
+const PENDING_BROWSER_SUSPENSION_KEY = "pendingBrowserSuspension";
+
+/**
+ * The Browser Gateway has already entered human control, but the trusted
+ * executor has not yet returned the canonical outer Code tool-call binding.
+ * Keeping this separate from `PendingBrowserSuspension` prevents an alarm
+ * from exposing a takeover before the matching transcript checkpoint is
+ * authoritative.
+ */
+export type ObservedBrowserSuspension = {
+  schemaVersion: 1;
+  turnId: string;
+  attemptGeneration: number;
+  brokerRequestId: string;
+  requestBodySha256: string;
+  responseBodySha256: string;
+  suspension: CloudBrowserSuspension;
+  observedAt: number;
+};
+
+const OBSERVED_BROWSER_SUSPENSION_KEY = "observedBrowserSuspension";
+const BROWSER_GATEWAY_RESPONSE_MAX_BYTES = 64 * 1024;
+
 type AgentHistoryRow = {
   seq: number;
   role: string;
@@ -626,8 +685,76 @@ const json = (body: unknown, status = 200): Response =>
     headers: { "cache-control": "no-store" },
   });
 
+class BrowserGatewayResponseTooLargeError extends Error {
+  constructor() {
+    super("Browser Gateway response exceeded its bound.");
+    this.name = "BrowserGatewayResponseTooLargeError";
+  }
+}
+
+/** Bound a service-binding response even when Content-Length is absent. */
+const readBrowserGatewayResponseBody = async (
+  response: Response,
+): Promise<Uint8Array> => {
+  const declared = response.headers.get("content-length");
+  if (declared) {
+    const parsed = Number(declared);
+    if (
+      !Number.isSafeInteger(parsed) ||
+      parsed < 0 ||
+      parsed > BROWSER_GATEWAY_RESPONSE_MAX_BYTES
+    ) {
+      void response.body?.cancel().catch(() => undefined);
+      throw new BrowserGatewayResponseTooLargeError();
+    }
+  }
+  if (!response.body) return new Uint8Array();
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > BROWSER_GATEWAY_RESPONSE_MAX_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new BrowserGatewayResponseTooLargeError();
+      }
+      chunks.push(next.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+};
+
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+const withInfrastructureDeadline = async <T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> => {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+};
 
 const log = (
   level: "info" | "error",
@@ -836,7 +963,7 @@ const TOOL_WORKSPACE_ROOTS = new Set([
 ]);
 
 /** Establish the post-mount fixed boundary before any model-shaped process. */
-const normalizeToolWorkspaceRoot = async (
+export const normalizeToolWorkspaceRoot = async (
   session: Pick<ExecutionSession, "exec">,
   workspaceRoot: string,
 ): Promise<void> => {
@@ -865,6 +992,28 @@ const normalizeToolWorkspaceRoot = async (
   if (!result.success) {
     throw new Error("Cloud workspace mount boundary validation failed.");
   }
+};
+
+/**
+ * Seed the first Stella interior, then re-establish the directory boundary.
+ *
+ * GNU `cp -a source/. destination/` preserves the source directory's mode on
+ * the existing destination. The immutable renderer source is 0755, while a
+ * cloud workspace root must remain 0750, so the copy can otherwise make the
+ * executor and its fallback checkpoint reject the freshly seeded workspace.
+ */
+export const seedFirstStellaToolWorkspace = async (
+  session: Pick<ExecutionSession, "exec">,
+): Promise<void> => {
+  const seeded = await strictSessionExec(session, [
+    "/bin/sh",
+    "-lc",
+    "set -eu; cp -a /opt/stella/packages/desktop-ui/. /workspace/stella/; ln -s /opt/stella/node_modules /workspace/stella/node_modules; mkdir /workspace/stella/.stella; cp /opt/stella/interior-seed.json /workspace/stella/.stella/interior-source.json",
+  ]);
+  if (!seeded.success) {
+    throw new Error("The Stella interior source seed could not be created.");
+  }
+  await normalizeToolWorkspaceRoot(session, "/workspace/stella");
 };
 
 const contentType = (path: string): string => {
@@ -992,6 +1141,146 @@ const validTurnStateCheckpointReceipt = (
     typeof receipt.replayed === "boolean"
   );
 };
+
+const cloudBrowserSuspensionMarker = (
+  suspension: CloudBrowserSuspension,
+): string =>
+  JSON.stringify([
+    suspension.schemaVersion,
+    suspension.outcome,
+    suspension.interactionId,
+    suspension.interactionRevision,
+    suspension.interactionKind,
+    suspension.toolCallId,
+    suspension.requestDigest,
+    suspension.profileId,
+    suspension.profileEpoch,
+    suspension.displayOrigin,
+    suspension.displayTitle ?? null,
+    suspension.expiresAt,
+  ]);
+
+const canonicalToolCallId = (value: unknown): value is string =>
+  typeof value === "string" &&
+  value.length > 0 &&
+  new TextEncoder().encode(value).byteLength <= 256 &&
+  !/[\u0000-\u001f\u007f]/u.test(value);
+
+/**
+ * Bind the Gateway's neutral request id to the one unresolved outer Code call
+ * in the exact canonical checkpoint. This is the trust boundary that makes a
+ * Gateway observation resumable after executor stdout/finalizer loss.
+ */
+export const bindObservedBrowserSuspensionToCanonicalCodeCall = async (args: {
+  observation: ObservedBrowserSuspension;
+  turnId: string;
+  attemptGeneration: number;
+  checkpoint: TurnBrokerTurnStateCheckpointReceipt;
+  rows: Array<{ turnId: string; role: string; payloadJson: string }>;
+  now?: number;
+}): Promise<CloudBrowserSuspension | null> => {
+  const { observation, checkpoint, rows } = args;
+  const now = args.now ?? Date.now();
+  if (
+    observation.schemaVersion !== 1 ||
+    observation.turnId !== args.turnId ||
+    observation.attemptGeneration !== args.attemptGeneration ||
+    !Number.isSafeInteger(observation.observedAt) ||
+    observation.observedAt < 0 ||
+    typeof observation.brokerRequestId !== "string" ||
+    observation.brokerRequestId.length === 0 ||
+    !SHA256_HEX.test(observation.requestBodySha256) ||
+    !SHA256_HEX.test(observation.responseBodySha256) ||
+    !isCloudBrowserSuspension(observation.suspension) ||
+    observation.suspension.expiresAt <= now ||
+    !validTurnStateCheckpointReceipt(checkpoint) ||
+    rows.at(-1)?.turnId !== args.turnId ||
+    (await nativeHistoryCursorFromRows(rows)) !== checkpoint.historyCursor
+  ) {
+    return null;
+  }
+
+  const currentRows = rows.filter((row) => row.turnId === args.turnId);
+  if (currentRows.length === 0) return null;
+  const parsedRows: Array<{
+    row: (typeof currentRows)[number];
+    payload: Record<string, unknown>;
+  }> = [];
+  for (const row of currentRows) {
+    try {
+      const payload = JSON.parse(row.payloadJson) as unknown;
+      if (
+        !payload ||
+        typeof payload !== "object" ||
+        Array.isArray(payload) ||
+        (payload as Record<string, unknown>).role !== row.role
+      ) {
+        return null;
+      }
+      parsedRows.push({ row, payload: payload as Record<string, unknown> });
+    } catch {
+      return null;
+    }
+  }
+
+  let assistantIndex = -1;
+  for (let index = parsedRows.length - 1; index >= 0; index -= 1) {
+    if (parsedRows[index]?.row.role === "assistant") {
+      assistantIndex = index;
+      break;
+    }
+  }
+  if (
+    assistantIndex < 0 ||
+    parsedRows
+      .slice(assistantIndex + 1)
+      .some((entry) => entry.row.role !== "toolResult")
+  ) {
+    return null;
+  }
+
+  const assistantContent = parsedRows[assistantIndex]?.payload.content;
+  if (!Array.isArray(assistantContent)) return null;
+  const toolCalls: Array<{ id: string; name: string }> = [];
+  for (const part of assistantContent) {
+    if (
+      !part ||
+      typeof part !== "object" ||
+      Array.isArray(part) ||
+      (part as Record<string, unknown>).type !== "toolCall"
+    ) {
+      continue;
+    }
+    const candidate = part as Record<string, unknown>;
+    if (
+      !canonicalToolCallId(candidate.id) ||
+      typeof candidate.name !== "string"
+    ) {
+      return null;
+    }
+    toolCalls.push({ id: candidate.id, name: candidate.name });
+  }
+
+  const resolved = new Set<string>();
+  for (const entry of parsedRows.slice(assistantIndex + 1)) {
+    if (
+      entry.row.role !== "toolResult" ||
+      !canonicalToolCallId(entry.payload.toolCallId)
+    ) {
+      return null;
+    }
+    resolved.add(entry.payload.toolCallId);
+  }
+  const unresolved = toolCalls.filter((call) => !resolved.has(call.id));
+  if (unresolved.length !== 1 || unresolved[0]?.name !== "code") return null;
+
+  const bound = {
+    ...observation.suspension,
+    toolCallId: unresolved[0].id,
+  };
+  return isCloudBrowserSuspension(bound) ? bound : null;
+};
+
 const validBuilderFallbackMessages = (
   value: unknown,
 ): value is Array<{ ordinal: number; role: string; payloadJson: string }> => {
@@ -1008,7 +1297,7 @@ const validBuilderFallbackMessages = (
       Object.keys(row).sort().join(",") !== "ordinal,payloadJson,role" ||
       row.ordinal !== index ||
       typeof row.role !== "string" ||
-      !["user", "assistant", "tool"].includes(row.role) ||
+      !["user", "assistant", "toolResult"].includes(row.role) ||
       typeof row.payloadJson !== "string"
     ) {
       return false;
@@ -1029,6 +1318,7 @@ export const parseAgentExecutorResult = (
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const result = value as Record<string, unknown>;
   const allowed = new Set([
+    "outcome",
     "ok",
     "finalText",
     "error",
@@ -1036,6 +1326,7 @@ export const parseAgentExecutorResult = (
     "checkpointPolicy",
     "checkpointMs",
     "turnStateCheckpoint",
+    "suspension",
     "builderFallback",
     "project",
   ]);
@@ -1044,6 +1335,9 @@ export const parseAgentExecutorResult = (
     new TextEncoder().encode(candidate).byteLength <= 4 * 1024 * 1024;
   if (
     !Object.keys(result).every((key) => allowed.has(key)) ||
+    (result.outcome !== undefined &&
+      result.outcome !== "completed" &&
+      result.outcome !== "suspended") ||
     typeof result.ok !== "boolean" ||
     (result.finalText !== undefined && !boundedOutput(result.finalText)) ||
     (result.error !== undefined && !boundedOutput(result.error)) ||
@@ -1058,6 +1352,21 @@ export const parseAgentExecutorResult = (
       result.checkpointPolicy !== "preserve_prior" &&
       result.checkpointPolicy !== "builder_fallback")
   ) {
+    return null;
+  }
+
+  if (result.outcome === "suspended") {
+    if (
+      result.ok !== false ||
+      result.finalText !== "" ||
+      result.error !== undefined ||
+      !isCloudBrowserSuspension(result.suspension) ||
+      result.checkpointPolicy !== undefined ||
+      result.builderFallback !== undefined
+    ) {
+      return null;
+    }
+  } else if (result.suspension !== undefined) {
     return null;
   }
 
@@ -1122,6 +1431,93 @@ export const parseAgentExecutorResult = (
   }
   return result as AgentExecutorResult;
 };
+
+const readCloudAgentTurnResultText = async (
+  session: Pick<ExecutionSession, "readFile">,
+): Promise<string | undefined> => {
+  try {
+    const recorded = await session.readFile(CLOUD_AGENT_TURN_RESULT_PATH, {
+      encoding: "base64",
+    });
+    const bytes = Uint8Array.from(atob(recorded.content), (character) =>
+      character.charCodeAt(0),
+    );
+    try {
+      if (bytes.byteLength > 4 * 1024 * 1024) return undefined;
+      return new TextDecoder("utf-8", {
+        fatal: true,
+        ignoreBOM: false,
+      }).decode(bytes);
+    } finally {
+      bytes.fill(0);
+    }
+  } catch {
+    return undefined;
+  }
+};
+
+export const waitForCloudAgentTurnResultText = async (
+  session: Pick<ExecutionSession, "readFile">,
+  signals: readonly AbortSignal[],
+): Promise<string> => {
+  const aborted = (): unknown => signals.find((signal) => signal.aborted)?.reason;
+  while (true) {
+    const reason = aborted();
+    if (reason !== undefined) {
+      throw reason instanceof Error
+        ? reason
+        : new Error("Agent result observation was canceled.");
+    }
+    const recorded = await readCloudAgentTurnResultText(session);
+    const afterReadReason = aborted();
+    if (afterReadReason !== undefined) {
+      throw afterReadReason instanceof Error
+        ? afterReadReason
+        : new Error("Agent result observation was canceled.");
+    }
+    if (recorded !== undefined) {
+      // `writeFile()` can make the destination visible before every byte has
+      // landed. Never let a partial-but-readable root result win the race and
+      // trigger executor quiescence; wait until the same strict decoder used
+      // after capture accepts the complete payload.
+      try {
+        if (
+          parseAgentExecutorResult(JSON.parse(recorded) as unknown) !== null
+        ) {
+          return recorded;
+        }
+      } catch {
+        // The executor is still publishing the file. Poll the fixed path again.
+      }
+    }
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(done, 250);
+      const listeners = signals.map((signal) => {
+        const listener = () => {
+          cleanup();
+          reject(
+            signal.reason instanceof Error
+              ? signal.reason
+              : new Error("Agent result observation was canceled."),
+          );
+        };
+        signal.addEventListener("abort", listener, { once: true });
+        return { signal, listener };
+      });
+      function cleanup() {
+        clearTimeout(timer);
+        for (const { signal, listener } of listeners) {
+          signal.removeEventListener("abort", listener);
+        }
+      }
+      function done() {
+        cleanup();
+        resolve();
+      }
+    });
+  }
+};
+
 const nativeTransientBackupKey = (turnId: string): string =>
   `nativeTransientBackup:${turnId}`;
 const nativeBackupDebtKey = (workspaceKey: string): string =>
@@ -1146,6 +1542,10 @@ const nativeStateIntegrityKeyFor = async (
   );
 const transientBuildRouteKey = (turnId: string): string =>
   `transientBuildRoute:${turnId}`;
+const AGENT_WATCHDOG_DEADLINE_KEY = "agentWatchdogDeadlineAt";
+const AGENT_RECOVERY_PENDING_KEY = "agentRecoveryPending";
+const agentRecoveryIdentity = (turn: TurnRequest): string =>
+  `${turn.turnId}:${turn.attemptGeneration ?? 0}`;
 const pendingAppBuildPublicationKey = (turnId: string): string =>
   `pendingAppBuildPublication:${turnId}`;
 type WorkspaceBackupDebt = { backupIds: string[] };
@@ -1767,6 +2167,193 @@ export class BuildSession extends DurableObject<Env> {
     }
   }
 
+  private async recoverObservedBrowserSuspension(
+    turn: TurnRequest,
+    checkpoint: TurnBrokerTurnStateCheckpointReceipt,
+    signal?: AbortSignal,
+  ): Promise<CloudBrowserSuspension | null> {
+    const observation =
+      await this.ctx.storage.get<ObservedBrowserSuspension>(
+        OBSERVED_BROWSER_SUSPENSION_KEY,
+      );
+    if (!observation) return null;
+    const rows = await this.fetchCanonicalAgentHistory(turn, {
+      excludeCurrentTurn: false,
+      ...(signal ? { signal } : {}),
+    });
+    return await bindObservedBrowserSuspensionToCanonicalCodeCall({
+      observation,
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+      checkpoint,
+      rows,
+    });
+  }
+
+  private async retainPendingBrowserSuspension(
+    turn: TurnRequest,
+    pending: PendingBrowserSuspension,
+  ): Promise<boolean> {
+    return await this.ctx.storage.transaction(async (txn) => {
+      const [current, terminal, pendingTerminal, existingPending, observed] =
+        await Promise.all([
+          txn.get<TurnRequest>("turn"),
+          txn.get<boolean>("terminal"),
+          txn.get<PendingTerminal>("pendingTerminal"),
+          txn.get<PendingBrowserSuspension>(
+            PENDING_BROWSER_SUSPENSION_KEY,
+          ),
+          txn.get<ObservedBrowserSuspension>(
+            OBSERVED_BROWSER_SUSPENSION_KEY,
+          ),
+        ]);
+      if (
+        !exactTurnIdentityMatches(current, turn) ||
+        terminal ||
+        pendingTerminal
+      ) {
+        return false;
+      }
+      if (existingPending) {
+        return (
+          existingPending.turnId === pending.turnId &&
+          existingPending.attemptGeneration === pending.attemptGeneration &&
+          cloudBrowserSuspensionMarker(existingPending.suspension) ===
+            cloudBrowserSuspensionMarker(pending.suspension)
+        );
+      }
+      if (
+        !observed ||
+        observed.turnId !== turn.turnId ||
+        observed.attemptGeneration !== turn.attemptGeneration ||
+        !isCloudBrowserSuspension(observed.suspension) ||
+        cloudBrowserSuspensionMarker({
+          ...observed.suspension,
+          toolCallId: pending.suspension.toolCallId,
+        }) !== cloudBrowserSuspensionMarker(pending.suspension)
+      ) {
+        return false;
+      }
+      await txn.put(PENDING_BROWSER_SUSPENSION_KEY, pending);
+      await txn.delete(OBSERVED_BROWSER_SUSPENSION_KEY);
+      await txn.delete(
+        agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!),
+      );
+      await txn.setAlarm(Date.now() + 30_000);
+      return true;
+    });
+  }
+
+  private async ensureObservedBrowserSuspensionRecoveryJournal(
+    turn: TurnRequest,
+    operations: TurnStateCheckpointOperation[],
+  ): Promise<BuilderFallbackTranscript | null> {
+    const observation =
+      await this.ctx.storage.get<ObservedBrowserSuspension>(
+        OBSERVED_BROWSER_SUSPENSION_KEY,
+      );
+    if (!observation) return null;
+    const candidates: Array<{
+      operation: Extract<TurnStateCheckpointOperation, { state: "succeeded" }>;
+      messages: NonNullable<
+        TurnBrokerTurnStateCheckpointRequest["suspensionTranscript"]
+      >;
+    }> = [];
+    for (const operation of operations) {
+      if (
+        operation.state !== "succeeded" ||
+        !operation.payload.suspensionTranscript
+      ) {
+        continue;
+      }
+      const messages = operation.payload.suspensionTranscript;
+      const bound =
+        await bindObservedBrowserSuspensionToCanonicalCodeCall({
+          observation,
+          turnId: turn.turnId,
+          attemptGeneration: turn.attemptGeneration!,
+          checkpoint: operation.receipt,
+          rows: messages.map((message) => ({
+            ...message,
+            turnId: turn.turnId,
+          })),
+        });
+      if (bound) candidates.push({ operation, messages });
+    }
+    if (candidates.length > 1) {
+      throw new Error(
+        "Multiple suspended checkpoints matched the Browser Gateway wait.",
+      );
+    }
+    const candidate = candidates[0];
+    if (!candidate || !validBuilderFallbackMessages(candidate.messages)) {
+      return null;
+    }
+    const { operation, messages } = candidate;
+    const fallbackKey = builderFallbackTranscriptKey(
+      turn.turnId,
+      turn.attemptGeneration!,
+    );
+    const fallback: BuilderFallbackTranscript = {
+      schemaVersion: 1,
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+      requestId: operation.requestId,
+      requestFingerprint: operation.requestFingerprint,
+      createdAt: operation.createdAt,
+      payload: operation.payload,
+      messages: structuredClone(messages),
+      checkpointReceipt: operation.receipt,
+      transcriptCommitted: false,
+      workspacePublished: false,
+    };
+    return await this.ctx.storage.transaction(async (transaction) => {
+      const [currentTurn, currentObserved, currentOperation, existing] =
+        await Promise.all([
+          transaction.get<TurnRequest>("turn"),
+          transaction.get<ObservedBrowserSuspension>(
+            OBSERVED_BROWSER_SUSPENSION_KEY,
+          ),
+          transaction.get<TurnStateCheckpointOperation>(
+            turnStateCheckpointOperationKey(operation.requestId),
+          ),
+          transaction.get<BuilderFallbackTranscript>(fallbackKey),
+        ]);
+      if (!exactTurnIdentityMatches(currentTurn, turn)) {
+        throw new AgentTurnAuthorityLostError();
+      }
+      if (existing) {
+        if (
+          existing.requestId !== fallback.requestId ||
+          existing.requestFingerprint !== fallback.requestFingerprint ||
+          JSON.stringify(existing.messages) !== JSON.stringify(fallback.messages)
+        ) {
+          throw new Error("Browser suspension recovery journal conflicted.");
+        }
+        return existing;
+      }
+      if (
+        !currentObserved ||
+        currentObserved.turnId !== observation.turnId ||
+        currentObserved.attemptGeneration !==
+          observation.attemptGeneration ||
+        currentObserved.responseBodySha256 !==
+          observation.responseBodySha256 ||
+        !currentOperation ||
+        currentOperation.state !== "succeeded" ||
+        currentOperation.requestFingerprint !== operation.requestFingerprint ||
+        JSON.stringify(currentOperation.receipt) !==
+          JSON.stringify(operation.receipt) ||
+        JSON.stringify(currentOperation.payload) !==
+          JSON.stringify(operation.payload)
+      ) {
+        throw new Error("Browser suspension recovery state changed.");
+      }
+      await transaction.put(fallbackKey, fallback);
+      return fallback;
+    });
+  }
+
   private async recoverAgentTurnAfterExecutorLoss(
     turn: TurnRequest,
     marker: AgentExecutionMarker,
@@ -1904,6 +2491,26 @@ export class BuildSession extends DurableObject<Env> {
         accepted[0].operationId,
       );
       return accepted[0].receipt;
+    }
+
+    // A browser suspension can lose the executor after the durable archive
+    // commit but before its direct transcript callback completes. The exact
+    // checkpoint request carries that secret-free transcript, so replay it
+    // through the same durable Builder journal before considering a synthetic
+    // failure. This publishes the original archive/cursor; it never creates a
+    // second workspace checkpoint.
+    const browserRecovery =
+      await this.ensureObservedBrowserSuspensionRecoveryJournal(
+        turn,
+        operations,
+      );
+    if (browserRecovery) {
+      return await this.advanceBuilderFallback(
+        turn,
+        marker.workspace,
+        marker.workspaceRoot,
+        browserRecovery,
+      );
     }
 
     // A checkpoint whose transcript never became canonical must remain
@@ -2185,7 +2792,7 @@ export class BuildSession extends DurableObject<Env> {
           {
             method: "POST",
             headers: {
-              authorization: `Bearer ${turn.turnToken}`,
+              "x-stella-turn-token": turn.turnToken,
               "content-type": "application/json",
             },
             body: JSON.stringify({
@@ -2253,7 +2860,29 @@ export class BuildSession extends DurableObject<Env> {
         ? { generation: turn.ownerPurgeGeneration }
         : {}),
     });
-    if (!response.ok) throw new OwnerPurgeFenceError();
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        code?: unknown;
+      } | null;
+      const rawCode = typeof payload?.code === "string" ? payload.code : "";
+      const code = [
+        "owner_purge_permanent",
+        "owner_purge_temporary",
+        "workspace_busy",
+        "transfer_busy",
+        "bad_request",
+      ].includes(rawCode)
+        ? rawCode
+        : "unknown";
+      log("info", "agent_turn_owner_fence_registration_rejected", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        attemptGeneration: turn.attemptGeneration,
+        status: response.status,
+        code,
+      });
+      throw new OwnerPurgeFenceError();
+    }
     const body = (await response.json()) as { generation?: string };
     if (!body.generation) throw new OwnerPurgeFenceError();
     return body.generation;
@@ -2842,13 +3471,35 @@ export class BuildSession extends DurableObject<Env> {
         },
       );
     } catch {
+      log("error", "agent_turn_authority_rejected", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        attemptGeneration: turn.attemptGeneration,
+        reason: "request_failed",
+      });
       throw new AgentTurnAuthorityLostError();
     }
-    if (!response.ok) throw new AgentTurnAuthorityLostError();
+    if (!response.ok) {
+      log("info", "agent_turn_authority_rejected", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        attemptGeneration: turn.attemptGeneration,
+        reason: "http_rejected",
+        status: response.status,
+      });
+      throw new AgentTurnAuthorityLostError();
+    }
     const payload = (await response.json().catch(() => null)) as {
       authoritative?: unknown;
     } | null;
     if (payload?.authoritative !== true) {
+      log("info", "agent_turn_authority_rejected", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        attemptGeneration: turn.attemptGeneration,
+        reason: "payload_rejected",
+        status: response.status,
+      });
       throw new AgentTurnAuthorityLostError();
     }
   }
@@ -3341,24 +3992,48 @@ export class BuildSession extends DurableObject<Env> {
    */
   private async terminateCurrentAgentSandbox(turn: TurnRequest): Promise<void> {
     const target = await this.ctx.storage.transaction(async (txn) => {
-      const [current, sandboxId, storedSize] = await Promise.all([
-        txn.get<TurnRequest>("turn"),
-        txn.get<string>("sandboxId"),
-        txn.get<InstanceSize>("sandboxSize"),
-      ]);
+      const markerKey =
+        turn.kind === "agent" &&
+        Number.isSafeInteger(turn.attemptGeneration) &&
+        turn.attemptGeneration! >= 1
+          ? agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!)
+          : undefined;
+      const [current, sandboxId, storedSize, executionMarker] =
+        await Promise.all([
+          txn.get<TurnRequest>("turn"),
+          txn.get<string>("sandboxId"),
+          txn.get<InstanceSize>("sandboxSize"),
+          markerKey
+            ? txn.get<AgentExecutionMarker>(markerKey)
+            : Promise.resolve(undefined),
+        ]);
       if (!sandboxId || !exactTurnIdentityMatches(current, turn)) {
         return undefined;
       }
-      return { sandboxId, size: storedSize ?? ("large" as const) };
+      const size = storedSize ?? ("large" as const);
+      return {
+        sandboxId,
+        size,
+        executorAdmitted:
+          executionMarker?.schemaVersion === 1 &&
+          executionMarker.turnId === turn.turnId &&
+          executionMarker.attemptGeneration === turn.attemptGeneration &&
+          executionMarker.sandboxId === sandboxId &&
+          executionMarker.size === size,
+      };
     });
     if (!target) return;
     const sandbox = this.sandbox(target.sandboxId, target.size);
-    if (turn.kind === "agent") {
+    if (turn.kind === "agent" && target.executorAdmitted) {
       const size = target.size;
       const executionSessionId = sessionName(
         `agent-run-${turn.turnId}-${size}`,
       );
-      await sandbox.killAllProcesses(executionSessionId).catch((error) => {
+      await withInfrastructureDeadline(
+        sandbox.killAllProcesses(executionSessionId),
+        30_000,
+        "Agent process teardown did not settle.",
+      ).catch((error) => {
         log("error", "agent_process_kill_failed", {
           turnId: turn.turnId,
           sessionId: executionSessionId,
@@ -3366,7 +4041,11 @@ export class BuildSession extends DurableObject<Env> {
         });
       });
     }
-    await sandbox.destroy();
+    await withInfrastructureDeadline(
+      sandbox.destroy(),
+      30_000,
+      "Agent sandbox destruction did not settle.",
+    );
   }
 
   /**
@@ -3979,6 +4658,7 @@ export class BuildSession extends DurableObject<Env> {
   private async claimTerminalDecision(
     turn: TurnRequest,
     pending: PendingTerminal,
+    alarmAt?: number,
   ): Promise<boolean> {
     return await this.ctx.storage.transaction(async (txn) => {
       const [currentTurn, terminalAlreadyDecided, decided] = await Promise.all([
@@ -4001,6 +4681,11 @@ export class BuildSession extends DurableObject<Env> {
         pendingTerminal: pending,
         alarmAttempts: 0,
       });
+      await txn.delete(PENDING_BROWSER_SUSPENSION_KEY);
+      await txn.delete(OBSERVED_BROWSER_SUSPENSION_KEY);
+      if (alarmAt !== undefined) {
+        await txn.setAlarm(alarmAt);
+      }
       return true;
     });
   }
@@ -4157,9 +4842,67 @@ export class BuildSession extends DurableObject<Env> {
     }
   }
 
+  /** Project a nonterminal human wait without keeping an executor alive. */
+  private async deliverBrowserSuspension(
+    turn: TurnRequest,
+    pending: PendingBrowserSuspension,
+  ): Promise<boolean> {
+    if (
+      pending.turnId !== turn.turnId ||
+      pending.attemptGeneration !== turn.attemptGeneration ||
+      !isCloudBrowserSuspension(pending.suspension)
+    ) {
+      return false;
+    }
+    try {
+      await this.event(
+        turn,
+        "auto",
+        "waiting_for_user",
+        pending.payload,
+        false,
+      );
+      return true;
+    } catch (error) {
+      log("error", "browser_suspension_delivery_failed", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        interactionId: pending.suspension.interactionId,
+        message: errorMessage(error),
+      });
+      await this.setExactTurnAlarm(turn, Date.now() + 30_000);
+      return false;
+    }
+  }
+
   async alarm(): Promise<void> {
     const turn = await this.ctx.storage.get<TurnRequest>("turn");
     if (!turn) return;
+    if (turn.kind === "agent" && this.agentTurnExecutions.has(turn.turnId)) {
+      const [watchdogDeadlineAt, recoveryPending] = await Promise.all([
+        this.ctx.storage.get<number>(AGENT_WATCHDOG_DEADLINE_KEY),
+        this.ctx.storage.get<string>(AGENT_RECOVERY_PENDING_KEY),
+      ]);
+      if (
+        recoveryPending !== agentRecoveryIdentity(turn) &&
+        typeof watchdogDeadlineAt === "number" &&
+        Number.isFinite(watchdogDeadlineAt) &&
+        watchdogDeadlineAt > Date.now()
+      ) {
+        // setAlarm() can race an alarm delivery that Cloudflare has already
+        // begun. That stale callback then observes the successor turn and,
+        // without this durable deadline fence, mistakes its live executor for
+        // an orphan. Re-arm the real watchdog; only its actual deadline may
+        // enter crash recovery while the local Effect fiber is still alive.
+        await this.setExactTurnAlarm(turn, watchdogDeadlineAt);
+        log("info", "agent_watchdog_alarm_rearmed", {
+          turnId: turn.turnId,
+          threadId: turn.threadId,
+          watchdogDeadlineAt,
+        });
+        return;
+      }
+    }
     const hasTransientBuild = Boolean(
       await this.ctx.storage.get<string>(`transientBuild:${turn.turnId}`),
     );
@@ -4199,6 +4942,11 @@ export class BuildSession extends DurableObject<Env> {
                 turn.turnId,
                 turn.attemptGeneration!,
               ),
+            ),
+          ) ||
+          Boolean(
+            await this.ctx.storage.get<ObservedBrowserSuspension>(
+              OBSERVED_BROWSER_SUSPENSION_KEY,
             ),
           ));
       if (useRunLeaseForRecovery) {
@@ -4305,6 +5053,33 @@ export class BuildSession extends DurableObject<Env> {
         }
         await this.retireTerminalAppTurnStorage(turn);
       }
+      return;
+    }
+    const browserSuspension =
+      await this.ctx.storage.get<PendingBrowserSuspension>(
+        PENDING_BROWSER_SUSPENSION_KEY,
+      );
+    if (browserSuspension) {
+      if (
+        browserSuspension.turnId !== turn.turnId ||
+        browserSuspension.attemptGeneration !== turn.attemptGeneration
+      ) {
+        await this.mutateExactTurn(turn, async (txn) => {
+          await txn.delete(PENDING_BROWSER_SUSPENSION_KEY);
+        });
+        return;
+      }
+      const sandbox = await this.currentSandbox();
+      await sandbox?.destroy().catch(() => undefined);
+      if (!(await this.ownsExactTurn(turn))) return;
+      if (!(await this.deliverBrowserSuspension(turn, browserSuspension))) {
+        return;
+      }
+      if (!(await this.settleAgentTransientBackup(turn))) {
+        await this.setExactTurnAlarm(turn, Date.now() + 30_000);
+        return;
+      }
+      await this.deleteTurnStoragePreservingExactCancellations(turn, true);
       return;
     }
     if (await this.ctx.storage.get<boolean>("terminalDelivered")) {
@@ -4416,8 +5191,9 @@ export class BuildSession extends DurableObject<Env> {
         return;
       }
       if (marker) {
+        let recoveredCheckpoint: TurnBrokerTurnStateCheckpointReceipt;
         try {
-          await this.recoverAgentTurnAfterExecutorLoss(
+          recoveredCheckpoint = await this.recoverAgentTurnAfterExecutorLoss(
             turn,
             marker,
             "The agent stopped unexpectedly. Its workspace changes were saved, but its report could not be recovered.",
@@ -4431,6 +5207,81 @@ export class BuildSession extends DurableObject<Env> {
           await this.setExactTurnAlarm(turn, Date.now() + 30_000);
           return;
         }
+        let recoveredSuspension: CloudBrowserSuspension | null;
+        try {
+          recoveredSuspension =
+            await this.recoverObservedBrowserSuspension(
+              turn,
+              recoveredCheckpoint,
+            );
+        } catch (error) {
+          log("error", "browser_suspension_recovery_retry", {
+            turnId: turn.turnId,
+            threadId: turn.threadId,
+            message: errorMessage(error),
+          });
+          await this.setExactTurnAlarm(turn, Date.now() + 30_000);
+          return;
+        }
+        if (recoveredSuspension) {
+          const pendingBrowserSuspension: PendingBrowserSuspension = {
+            schemaVersion: 1,
+            turnId: turn.turnId,
+            attemptGeneration: turn.attemptGeneration!,
+            suspension: recoveredSuspension,
+            payload: {
+              suspension: recoveredSuspension,
+              usage: {},
+              coldContainerStartMs: 0,
+              restoreMs: 0,
+              checkpointMs: 0,
+              wallClockMs: Math.max(0, Date.now() - marker.startedAt),
+              instanceType: INSTANCE_TIERS[marker.size].instanceType,
+            },
+            createdAt: Date.now(),
+          };
+          if (
+            !(await this.retainPendingBrowserSuspension(
+              turn,
+              pendingBrowserSuspension,
+            ))
+          ) {
+            await this.setExactTurnAlarm(turn, Date.now() + 1_000);
+            return;
+          }
+          try {
+            await this.terminateCurrentAgentSandbox(turn);
+          } catch (error) {
+            log("error", "browser_suspension_sandbox_termination_deferred", {
+              turnId: turn.turnId,
+              threadId: turn.threadId,
+              message: errorMessage(error),
+            });
+            return;
+          }
+          if (
+            (await this.deliverBrowserSuspension(
+              turn,
+              pendingBrowserSuspension,
+            )) &&
+            (await this.ownsExactTurn(turn))
+          ) {
+            if (await this.settleAgentTransientBackup(turn)) {
+              await this.deleteTurnStoragePreservingExactCancellations(
+                turn,
+                true,
+              );
+            } else {
+              await this.setExactTurnAlarm(turn, Date.now() + 30_000);
+            }
+          }
+          log("info", "browser_suspension_recovered_after_executor_loss", {
+            turnId: turn.turnId,
+            threadId: turn.threadId,
+            interactionId: recoveredSuspension.interactionId,
+          });
+          return;
+        }
         const recoveredPending: PendingTerminal = {
           turnId: turn.turnId,
           attemptGeneration: turn.attemptGeneration!,
@@ -4442,14 +5293,32 @@ export class BuildSession extends DurableObject<Env> {
           },
           threadError:
             "The agent stopped unexpectedly after saving its workspace changes.",
+          terminateSandbox: true,
         };
-        if (!(await this.claimTerminalDecision(turn, recoveredPending))) {
+        if (
+          !(await this.claimTerminalDecision(
+            turn,
+            recoveredPending,
+            Date.now() + 30_000,
+          ))
+        ) {
           await this.setExactTurnAlarm(turn, Date.now() + 1_000);
           return;
         }
-        const recoveredSandbox = await this.currentSandbox();
-        await recoveredSandbox?.destroy().catch(() => undefined);
-        const delivered = await this.deliverTerminal(turn, recoveredPending);
+        try {
+          await this.terminateCurrentAgentSandbox(turn);
+        } catch (error) {
+          log("error", "recovered_agent_sandbox_termination_deferred", {
+            turnId: turn.turnId,
+            threadId: turn.threadId,
+            message: errorMessage(error),
+          });
+          return;
+        }
+        const delivered = await this.deliverTerminal(turn, {
+          ...recoveredPending,
+          terminateSandbox: false,
+        });
         if (delivered && (await this.ownsExactTurn(turn))) {
           if (await this.settleAgentTransientBackup(turn)) {
             await this.deleteTurnStoragePreservingExactCancellations(
@@ -4622,6 +5491,11 @@ export class BuildSession extends DurableObject<Env> {
             pending.turnId !== request.turnId ||
             pending.kind !== "canceled"
           ) {
+            // The outcome is immutable, but its callback may only be waiting
+            // on a distant watchdog after an isolate/process failure. A Pause
+            // cannot replace that decision; it can safely wake its idempotent
+            // delivery so the thread converges instead of appearing live.
+            await this.ctx.storage.setAlarm(Date.now());
             return {
               response: json(
                 {
@@ -4814,19 +5688,25 @@ export class BuildSession extends DurableObject<Env> {
         503,
       );
     }
-    await this.ctx.blockConcurrencyWhile(async () => {
-      const current = await this.ctx.storage.get<TurnRequest>("turn");
-      const decided =
-        await this.ctx.storage.get<PendingTerminal>("pendingTerminal");
-      if (
-        terminalDelivered &&
-        current?.turnId === request.turnId &&
-        decided?.turnId === request.turnId &&
-        decided.kind === "canceled"
-      ) {
-        await this.ctx.storage.delete("pendingTerminal");
+    if (terminalDelivered) {
+      const cleanupTurn = await this.ctx.storage.get<TurnRequest>("turn");
+      if (cleanupTurn && exactTurnIdentityMatches(cleanupTurn, turn)) {
+        try {
+          // The joined executor can no longer produce a checkpoint. Reuse the
+          // normal terminal-alarm retirement path immediately so its durable
+          // execution marker and original workspace run lease do not survive
+          // until the old watchdog. That otherwise rejects every fresh thread
+          // for this workspace as `workspace_busy` after Stop already ACKed.
+          await this.runAlarmWithLease({ ...cleanupTurn });
+        } catch (error) {
+          log("error", "cancel_terminal_cleanup_deferred", {
+            turnId: turn.turnId,
+            message: errorMessage(error),
+          });
+          await this.setExactTurnAlarm(cleanupTurn, Date.now() + 30_000);
+        }
       }
-    });
+    }
     return json({
       canceled: true,
       turnId: turn.turnId,
@@ -4933,13 +5813,11 @@ export class BuildSession extends DurableObject<Env> {
       `turn-state-${turn.turnId}-${operation.requestId}`,
     );
     // An isolate may disappear after the archive command completed but before
-    // its response was observed. The exact retry owns this deterministic
-    // helper session; stop any survivor before reusing its fixed scratch path.
-    await sandbox.killAllProcesses(archiveSessionId).catch(() => undefined);
-    await sandbox.deleteSession(archiveSessionId).catch(() => undefined);
-    const session = await sandbox.createSession({
-      id: archiveSessionId,
-      cwd: "/opt/stella",
+    // its response was observed. Replace only this deterministic helper
+    // session; global process cleanup would kill the awaiting agent executor.
+    const session = await replaceTurnStateArchiveSession({
+      sandbox,
+      sessionId: archiveSessionId,
       commandTimeoutMs: Number(this.env.TURN_TIMEOUT_MS),
     });
     try {
@@ -5036,6 +5914,61 @@ export class BuildSession extends DurableObject<Env> {
     } finally {
       await sandbox.deleteSession(session.id).catch(() => undefined);
     }
+  }
+
+  private async observeBrowserGatewaySuspension(
+    turn: TurnRequest,
+    input: {
+      brokerRequestId: string;
+      requestBodySha256: string;
+      responseBodySha256: string;
+      suspension: CloudBrowserSuspension;
+    },
+  ): Promise<"stored" | "replay" | "conflict" | "inactive"> {
+    const observation: ObservedBrowserSuspension = {
+      schemaVersion: 1,
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+      ...input,
+      observedAt: Date.now(),
+    };
+    return await this.ctx.storage.transaction(async (txn) => {
+      const [current, terminal, pendingTerminal, pendingSuspension, existing] =
+        await Promise.all([
+          txn.get<TurnRequest>("turn"),
+          txn.get<boolean>("terminal"),
+          txn.get<PendingTerminal>("pendingTerminal"),
+          txn.get<PendingBrowserSuspension>(
+            PENDING_BROWSER_SUSPENSION_KEY,
+          ),
+          txn.get<ObservedBrowserSuspension>(
+            OBSERVED_BROWSER_SUSPENSION_KEY,
+          ),
+        ]);
+      if (
+        !exactTurnIdentityMatches(current, turn) ||
+        terminal ||
+        pendingTerminal ||
+        pendingSuspension
+      ) {
+        return "inactive" as const;
+      }
+      if (existing) {
+        const identical =
+          existing.schemaVersion === 1 &&
+          existing.turnId === observation.turnId &&
+          existing.attemptGeneration === observation.attemptGeneration &&
+          existing.brokerRequestId === observation.brokerRequestId &&
+          existing.requestBodySha256 === observation.requestBodySha256 &&
+          existing.responseBodySha256 === observation.responseBodySha256 &&
+          isCloudBrowserSuspension(existing.suspension) &&
+          cloudBrowserSuspensionMarker(existing.suspension) ===
+            cloudBrowserSuspensionMarker(observation.suspension);
+        return identical ? ("replay" as const) : ("conflict" as const);
+      }
+      await txn.put(OBSERVED_BROWSER_SUSPENSION_KEY, observation);
+      return "stored" as const;
+    });
   }
 
   private async handleTurnBroker(request: Request): Promise<Response> {
@@ -5173,6 +6106,13 @@ export class BuildSession extends DurableObject<Env> {
       });
       if (!claimed.ok) return { kind: "denied" as const, claimed };
       if (claimed.disposition === "replay") {
+        if (claimed.target.kind === "browser-gateway") {
+          return {
+            kind: "forward" as const,
+            target: claimed.target,
+            signal: running!.signal,
+          };
+        }
         return {
           kind: "replay" as const,
           operation:
@@ -5215,10 +6155,132 @@ export class BuildSession extends DurableObject<Env> {
       return turnBrokerDenialResponse(admission.claimed);
     }
     if (admission.kind === "forward") {
+      if (admission.target.kind === "browser-gateway") {
+        if (!this.env.BROWSER_GATEWAY) return this.brokerFailure(503);
+        const command = decoded;
+        if (
+          !command ||
+          typeof command !== "object" ||
+          Array.isArray(command)
+        ) {
+          return this.brokerFailure(400);
+        }
+        try {
+          const upstream = await this.env.BROWSER_GATEWAY.fetch(
+            "https://browser-gateway/internal/turn/command",
+            {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "cache-control": "no-store",
+              },
+              body: JSON.stringify({
+                schemaVersion: 1,
+                authority: {
+                  ownerId: turn.ownerId,
+                  ownerGeneration: turn.ownerGeneration,
+                  conversationId: turn.conversationId,
+                  threadId: turn.threadId,
+                  turnId: turn.turnId,
+                  attemptGeneration: turn.attemptGeneration,
+                },
+                command,
+              }),
+              signal: admission.signal,
+              redirect: "manual",
+            },
+          );
+          if (upstream.status >= 300 && upstream.status < 400) {
+            await upstream.body?.cancel().catch(() => undefined);
+            return this.brokerFailure(502);
+          }
+          const upstreamBody = await readBrowserGatewayResponseBody(upstream);
+          let responsePayload: unknown;
+          try {
+            responsePayload = JSON.parse(
+              new TextDecoder("utf-8", {
+                fatal: true,
+                ignoreBOM: false,
+              }).decode(upstreamBody),
+            ) as unknown;
+          } catch {
+            responsePayload = undefined;
+          }
+          if (
+            responsePayload &&
+            typeof responsePayload === "object" &&
+            !Array.isArray(responsePayload) &&
+            (responsePayload as Record<string, unknown>).outcome ===
+              "suspended"
+          ) {
+            const responseRecord = responsePayload as Record<
+              string,
+              unknown
+            >;
+            const commandRecord = command as Record<string, unknown>;
+            const suspension = responseRecord.suspension;
+            const commandRequestId = commandRecord.requestId;
+            if (
+              !upstream.ok ||
+              Object.keys(responseRecord).sort().join(",") !==
+                "outcome,schemaVersion,suspension" ||
+              responseRecord.schemaVersion !== 1 ||
+              Object.keys(commandRecord).sort().join(",") !==
+                "action,params,requestId,schemaVersion" ||
+              commandRecord.schemaVersion !== 1 ||
+              !canonicalToolCallId(commandRequestId) ||
+              !isCloudBrowserSuspension(suspension) ||
+              suspension.toolCallId !== commandRequestId
+            ) {
+              return this.brokerFailure(502);
+            }
+            const disposition = await this.observeBrowserGatewaySuspension(
+              turn,
+              {
+                brokerRequestId: preflight.requestId,
+                requestBodySha256: requestFingerprint,
+                responseBodySha256: await sha256BytesHex(upstreamBody),
+                suspension,
+              },
+            );
+            if (disposition === "conflict") {
+              log("error", "browser_suspension_observation_conflict", {
+                turnId: turn.turnId,
+                threadId: turn.threadId,
+              });
+              return this.brokerFailure(409);
+            }
+            if (disposition === "inactive") {
+              return this.brokerFailure(410);
+            }
+          }
+          const responseHeaders = turnBrokerSandboxResponseHeaders(
+            upstream.headers,
+          );
+          // Fetch has decoded the buffered bytes. Do not make the sandbox
+          // decode them a second time or trust an upstream framing length.
+          responseHeaders.delete("content-encoding");
+          responseHeaders.delete("content-length");
+          responseHeaders.delete("transfer-encoding");
+          responseHeaders.set("cache-control", "no-store");
+          return new Response(upstreamBody, {
+            status: upstream.status,
+            statusText: upstream.statusText,
+            headers: responseHeaders,
+          });
+        } catch {
+          log("error", "turn_broker_browser_gateway_failed", {
+            turnId: turn.turnId,
+            aborted: admission.signal.aborted,
+            errorCode: "BROWSER_GATEWAY_UPSTREAM_FAILURE",
+          });
+          return this.brokerFailure(admission.signal.aborted ? 410 : 502);
+        }
+      }
       const expectedConvexOrigin = this.env.STELLA_CONVEX_SITE_URL?.trim();
       if (!expectedConvexOrigin) return this.brokerFailure(503);
       try {
-        return await forwardTurnBrokerRequest({
+        const upstream = await forwardTurnBrokerRequest({
           target: admission.target,
           body,
           incomingHeaders: request.headers,
@@ -5228,9 +6290,24 @@ export class BuildSession extends DurableObject<Env> {
           engine: brokerEngine,
           signal: admission.signal,
         });
+        if (
+          admission.target.kind === "model-resolution" &&
+          devAcceptanceProbesEnabled(this.env)
+        ) {
+          // Status-only preview evidence. The response body may contain
+          // account/provider detail and the request carries a raw turn
+          // capability, so neither is ever copied into this diagnostic.
+          log("info", "turn_broker_model_resolution_response", {
+            turnId: turn.turnId,
+            threadId: turn.threadId,
+            status: upstream.status,
+          });
+        }
+        return upstream;
       } catch {
         log("error", "turn_broker_forward_failed", {
           turnId: turn.turnId,
+          threadId: turn.threadId,
           targetKind: admission.target.kind,
           aborted: admission.signal.aborted,
           errorCode: "TURN_BROKER_UPSTREAM_FAILURE",
@@ -5473,6 +6550,13 @@ export class BuildSession extends DurableObject<Env> {
       );
     }
     if (
+      turn.kind === "agent" &&
+      turn.browserResume !== undefined &&
+      !isCloudBrowserResumeReceipt(turn.browserResume)
+    ) {
+      return json({ error: "Browser resume receipt is invalid." }, 400);
+    }
+    if (
       turn.kind !== "agent" &&
       (typeof turn.appId !== "string" ||
         !turn.appId.trim() ||
@@ -5690,20 +6774,35 @@ export class BuildSession extends DurableObject<Env> {
             }
           }
           const currentAttempt = current.attemptGeneration;
-          const [executionMarker, fallbackJournal] = Number.isSafeInteger(
-            currentAttempt,
-          )
-            ? await Promise.all([
-                this.ctx.storage.get<AgentExecutionMarker>(
-                  agentExecutionMarkerKey(current.turnId, currentAttempt!),
-                ),
-                this.ctx.storage.get<BuilderFallbackTranscript>(
-                  builderFallbackTranscriptKey(current.turnId, currentAttempt!),
-                ),
-              ])
-            : [undefined, undefined];
+          const [executionMarker, fallbackJournal, observedSuspension] =
+            Number.isSafeInteger(currentAttempt)
+              ? await Promise.all([
+                  this.ctx.storage.get<AgentExecutionMarker>(
+                    agentExecutionMarkerKey(current.turnId, currentAttempt!),
+                  ),
+                  this.ctx.storage.get<BuilderFallbackTranscript>(
+                    builderFallbackTranscriptKey(
+                      current.turnId,
+                      currentAttempt!,
+                    ),
+                  ),
+                  this.ctx.storage.get<ObservedBrowserSuspension>(
+                    OBSERVED_BROWSER_SUSPENSION_KEY,
+                  ),
+                ])
+              : [undefined, undefined, undefined];
+          const pendingBrowserSuspension =
+            await this.ctx.storage.get<PendingBrowserSuspension>(
+              PENDING_BROWSER_SUSPENSION_KEY,
+            );
           const locallyRunning = this.agentTurnExecutions.has(current.turnId);
-          if (locallyRunning || executionMarker || fallbackJournal) {
+          if (
+            locallyRunning ||
+            executionMarker ||
+            fallbackJournal ||
+            observedSuspension ||
+            pendingBrowserSuspension
+          ) {
             if (!locallyRunning) {
               await this.ctx.storage.setAlarm(Date.now() + 1_000);
             }
@@ -5770,7 +6869,12 @@ export class BuildSession extends DurableObject<Env> {
           alarmAttempts: 0,
           alarmReconcile: false,
         });
-        await this.ctx.storage.delete("pendingTerminal");
+        await this.ctx.storage.delete([
+          "pendingTerminal",
+          PENDING_BROWSER_SUSPENSION_KEY,
+          OBSERVED_BROWSER_SUSPENSION_KEY,
+          AGENT_RECOVERY_PENDING_KEY,
+        ]);
         return { kind: "start", sandboxId, orphan, orphanTurn };
       },
     );
@@ -5836,10 +6940,12 @@ export class BuildSession extends DurableObject<Env> {
         ).catch(() => undefined),
       );
     }
-    await this.setExactTurnAlarm(
-      turn,
-      Date.now() + Math.max(1_000, turn.watchdogMs ?? 15 * 60_000),
-    );
+    const watchdogDeadlineAt =
+      Date.now() + Math.max(1_000, turn.watchdogMs ?? 15 * 60_000);
+    await this.mutateExactTurn(turn, async (txn) => {
+      await txn.put(AGENT_WATCHDOG_DEADLINE_KEY, watchdogDeadlineAt);
+      await txn.setAlarm(watchdogDeadlineAt);
+    });
     this.ctx.waitUntil(
       this.startAgentTurn(turn, sandboxId).catch(() => undefined),
     );
@@ -6186,9 +7292,13 @@ export class BuildSession extends DurableObject<Env> {
         // The watchdog budget was spent on the attempt that died; without a
         // fresh one the retry is guaranteed to be cut off mid-run and the
         // escalation buys nothing.
-        await this.ctx.storage.setAlarm(
-          Date.now() + Math.max(1_000, turn.watchdogMs ?? 15 * 60_000),
+        const watchdogDeadlineAt =
+          Date.now() + Math.max(1_000, turn.watchdogMs ?? 15 * 60_000);
+        await this.ctx.storage.put(
+          AGENT_WATCHDOG_DEADLINE_KEY,
+          watchdogDeadlineAt,
         );
+        await this.ctx.storage.setAlarm(watchdogDeadlineAt);
         execution.assertActive();
         log("info", "agent_turn_resized", {
           turnId: turn.turnId,
@@ -6267,12 +7377,35 @@ export class BuildSession extends DurableObject<Env> {
                 "The agent stopped unexpectedly after making workspace changes.",
               result.builderFallback,
             );
-          builderFallbackUsed = true;
-          result = {
-            ...result,
-            checkpointPolicy: undefined,
-            turnStateCheckpoint: fallbackReceipt,
-          };
+          const recoveredSuspension =
+            await this.recoverObservedBrowserSuspension(
+              turn,
+              fallbackReceipt,
+              execution.signal,
+            );
+          if (recoveredSuspension) {
+            // The executor process/finalizer was lost after the Gateway wait,
+            // checkpoint, and transcript all committed. Reconstruct only the
+            // secret-free result; the canonical transcript supplies the outer
+            // Code id and the durable Gateway observation supplies the rest.
+            result = {
+              outcome: "suspended",
+              ok: false,
+              finalText: "",
+              usage: result.usage ?? {},
+              checkpointMs: result.checkpointMs ?? 0,
+              turnStateCheckpoint: fallbackReceipt,
+              suspension: recoveredSuspension,
+            };
+            builderFallbackUsed = false;
+          } else {
+            builderFallbackUsed = true;
+            result = {
+              ...result,
+              checkpointPolicy: undefined,
+              turnStateCheckpoint: fallbackReceipt,
+            };
+          }
         } catch (error) {
           // The journal and sandbox disk are retained. Alarm replay resumes
           // the same operation/request ids; it never manufactures a second
@@ -6477,10 +7610,104 @@ export class BuildSession extends DurableObject<Env> {
             finalText:
               `${result.finalText ?? ""}\n\nHeads up: Stella could not validate the durable workspace receipt for this turn. Please retry before continuing this agent.`.trim(),
           };
+        } else if (result.outcome === "suspended") {
+          // A human wait is resumable only from the exact checkpoint whose
+          // transcript ends at the browser tool call. Never expose a takeover
+          // for a turn whose continuation receipt cannot be reconstructed.
+          result = {
+            outcome: "completed",
+            ok: false,
+            error:
+              "Stella could not validate the durable workspace receipt for this browser handoff. Please retry before continuing this agent.",
+          };
+        }
+      }
+
+      if (
+        result.outcome === "suspended" &&
+        result.suspension &&
+        validTurnStateCheckpointReceipt(result.turnStateCheckpoint)
+      ) {
+        const verifiedSuspension =
+          await this.recoverObservedBrowserSuspension(
+            turn,
+            result.turnStateCheckpoint,
+            execution.signal,
+          );
+        if (
+          !verifiedSuspension ||
+          cloudBrowserSuspensionMarker(verifiedSuspension) !==
+            cloudBrowserSuspensionMarker(result.suspension)
+        ) {
+          log("error", "browser_suspension_checkpoint_mismatch", {
+            turnId: turn.turnId,
+            threadId: turn.threadId,
+          });
+          result = {
+            outcome: "completed",
+            ok: false,
+            error:
+              "Stella could not validate this browser handoff. Please retry the turn.",
+            turnStateCheckpoint: result.turnStateCheckpoint,
+          };
+        } else {
+          result = { ...result, suspension: verifiedSuspension };
         }
       }
 
       const wallClockMs = Math.round(performance.now() - requestStarted);
+      if (result.outcome === "suspended" && result.suspension) {
+        const pendingBrowserSuspension: PendingBrowserSuspension = {
+          schemaVersion: 1,
+          turnId: turn.turnId,
+          attemptGeneration: turn.attemptGeneration!,
+          suspension: result.suspension,
+          payload: {
+            suspension: result.suspension,
+            usage: result.usage,
+            coldContainerStartMs,
+            restoreMs,
+            checkpointMs,
+            wallClockMs,
+            instanceType: INSTANCE_TIERS[size].instanceType,
+          },
+          createdAt: Date.now(),
+        };
+        // Stop/timeout and suspension are competing decisions. Commit the
+        // secret-free wait descriptor only while no terminal path has won,
+        // and remove the execution marker in the same transaction so alarm
+        // recovery cannot mistake this intentionally exited executor for a
+        // crashed one.
+        const retained = await this.retainPendingBrowserSuspension(
+          turn,
+          pendingBrowserSuspension,
+        );
+        await sandbox.destroy().catch(() => undefined);
+        if (!retained) return;
+
+        const delivered = await this.deliverBrowserSuspension(
+          turn,
+          pendingBrowserSuspension,
+        );
+        if (delivered && (await this.ownsExactTurn(turn))) {
+          if (await this.settleAgentTransientBackup(turn)) {
+            await this.deleteTurnStoragePreservingExactCancellations(
+              turn,
+              true,
+            );
+          } else {
+            await this.setExactTurnAlarm(turn, Date.now() + 30_000);
+          }
+        }
+        log("info", "agent_turn_suspended_for_browser_handoff", {
+          turnId: turn.turnId,
+          threadId: turn.threadId,
+          interactionId: result.suspension.interactionId,
+          wallClockMs,
+        });
+        return;
+      }
+
       let pending: PendingTerminal;
       if (result.ok) {
         pending = {
@@ -6575,6 +7802,10 @@ export class BuildSession extends DurableObject<Env> {
       }
       if (
         executionMarker &&
+        !(
+          error instanceof CapturedSessionAbandonedError &&
+          error.disposition === "sandbox_destroyed"
+        ) &&
         !(error instanceof AgentTurnAuthorityLostError) &&
         !(error instanceof OwnerPurgeFenceError) &&
         (await this.ownsExactTurn(turn)) &&
@@ -6589,14 +7820,50 @@ export class BuildSession extends DurableObject<Env> {
           threadId: turn.threadId,
           message,
         });
-        await this.setExactTurnAlarm(turn, Date.now() + 1_000);
+        await this.mutateExactTurn(turn, async (txn) => {
+          await txn.put(
+            AGENT_RECOVERY_PENDING_KEY,
+            agentRecoveryIdentity(turn),
+          );
+          await txn.setAlarm(Date.now() + 1_000);
+        });
         return;
       }
-      await sandbox.destroy().catch(() => undefined);
+      if (await this.ctx.storage.get<boolean>("terminal")) return;
+      try {
+        await withInfrastructureDeadline(
+          sandbox.destroy(),
+          30_000,
+          "Agent sandbox destruction did not settle.",
+        );
+      } catch (destroyError) {
+        log("error", "agent_sandbox_destruction_deferred", {
+          turnId: turn.turnId,
+          threadId: turn.threadId,
+          message: errorMessage(destroyError),
+        });
+        await this.claimTerminalDecision(
+          turn,
+          {
+            turnId: turn.turnId,
+            attemptGeneration: turn.attemptGeneration!,
+            kind: "failed",
+            payload: {
+              message: "The agent hit a problem and stopped. Try again.",
+            },
+            threadError: "The agent hit a problem and stopped. Try again.",
+            terminateSandbox: true,
+          },
+          Date.now() + 30_000,
+        );
+        return;
+      }
+      const failureCode = classifyAgentFailureDiagnostic(message);
       log("error", "agent_turn_failed", {
         turnId: turn.turnId,
         threadId: turn.threadId,
         message,
+        failureCode,
       });
       if (error instanceof AgentTurnAuthorityLostError) {
         // Rotation/reset may have admitted another physical executor under the
@@ -6636,7 +7903,9 @@ export class BuildSession extends DurableObject<Env> {
       const friendly =
         error instanceof AgentTurnError
           ? error.userMessage
-          : "The agent hit a problem and stopped. Try again.";
+          : devAcceptanceProbesEnabled(this.env)
+            ? `The agent hit a problem and stopped. Try again. [diagnostic: turn.${failureCode}]`
+            : "The agent hit a problem and stopped. Try again.";
       const delivered = await this.deliverTerminal(turn, {
         turnId: turn.turnId,
         attemptGeneration: turn.attemptGeneration!,
@@ -6704,9 +7973,7 @@ export class BuildSession extends DurableObject<Env> {
       id: sessionName(`agent-run-${turn.turnId}-${args.size}`),
       cwd: "/opt/stella",
       commandTimeoutMs: args.commandTimeoutMs,
-      env: {
-        STELLA_CLOUD_WORKSPACE_ROOT: workspaceRoot,
-      },
+      env: executorSessionEnvironment(workspaceRoot),
     });
     turnExecution.assertActive();
     const coldContainerStartMs = Math.round(performance.now() - coldStarted);
@@ -6742,17 +8009,8 @@ export class BuildSession extends DurableObject<Env> {
       // interpolated into this seeding command.
       turnExecution.assertActive();
       await normalizeToolWorkspaceRoot(session, workspaceRoot);
-      const seeded = await strictSessionExec(session, [
-        "/bin/sh",
-        "-lc",
-        "set -eu; cp -a /opt/stella/packages/desktop-ui/. /workspace/stella/; ln -s /opt/stella/node_modules /workspace/stella/node_modules; mkdir /workspace/stella/.stella; cp /opt/stella/interior-seed.json /workspace/stella/.stella/interior-source.json",
-      ]);
+      await seedFirstStellaToolWorkspace(session);
       turnExecution.assertActive();
-      if (!seeded.success) {
-        throw new Error(
-          "The Stella interior source seed could not be created.",
-        );
-      }
     } else {
       turnExecution.assertActive();
       await normalizeToolWorkspaceRoot(session, workspaceRoot);
@@ -6882,7 +8140,10 @@ export class BuildSession extends DurableObject<Env> {
     const brokerCredentialsPath = turnBrokerCredentialsPath();
     let credentialsPath: string | undefined;
     let projectInput: Record<string, unknown> | undefined;
-    let execution: Execution;
+    let execution: Execution | undefined;
+    let capturedExecutionError: unknown;
+    let recordedExecutorResultText: string | undefined;
+    let recordedResultProcessQuiesced = false;
     try {
       await session.writeFile(
         brokerCredentialsPath,
@@ -6935,57 +8196,230 @@ export class BuildSession extends DurableObject<Env> {
           nativeStateIntegrityKey,
           turnBroker: { credentialsPath: brokerCredentialsPath },
           history: args.history,
+          ...(turn.browserResume ? { browserResume: turn.browserResume } : {}),
           ...(cloudSkills ? { skills: cloudSkills } : {}),
           ...(projectInput ? { project: projectInput } : {}),
           ...(turn.execution ? { execution: turn.execution } : {}),
         }),
       );
       turnExecution.assertActive();
+      // Remove any result left by a lost predecessor before this exact
+      // executor is admitted. The file sits in root-owned /workspace, outside
+      // every checkpointed/model-writable workspace root.
+      await session
+        .deleteFile(CLOUD_AGENT_TURN_RESULT_PATH)
+        .catch(() => undefined);
+      turnExecution.assertActive();
       const markerKey = agentExecutionMarkerKey(
         turn.turnId,
         turn.attemptGeneration!,
       );
-      const marker = await this.ctx.storage.transaction(
-        async (transaction): Promise<AgentExecutionMarker> => {
-          const [current, currentSandboxId, currentSize] = await Promise.all([
-            transaction.get<TurnRequest>("turn"),
-            transaction.get<string>("sandboxId"),
-            transaction.get<InstanceSize>("sandboxSize"),
-          ]);
-          if (
-            !exactTurnIdentityMatches(current, turn) ||
-            !currentSandboxId ||
-            currentSize !== args.size
-          ) {
-            throw new AgentTurnAuthorityLostError();
-          }
-          const value: AgentExecutionMarker = {
-            schemaVersion: 1,
-            turnId: turn.turnId,
-            attemptGeneration: turn.attemptGeneration!,
-            sandboxId: currentSandboxId,
-            size: args.size,
-            workspace: resolveWorkspace(turn.workspace)!.canonical,
-            workspaceRoot,
-            startedAt: Date.now(),
-          };
-          await transaction.put(markerKey, value);
-          return value;
-        },
+      turnExecution.assertActive();
+      log("info", "agent_executor_admission_started", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        attemptGeneration: turn.attemptGeneration,
+      });
+      const executorProcessId = sessionName(
+        `agent-executor-${turn.turnId}-${turn.attemptGeneration}`,
       );
-      if (
-        marker.workspaceRoot !== workspaceRoot ||
-        marker.turnId !== turn.turnId
-      ) {
-        throw new AgentTurnAuthorityLostError();
+      const resultPollController = new AbortController();
+      const captureOutcome = capturedSessionExec(
+        sandbox,
+        ["bun", "packages/executor-cloud/src/cli.ts", "--agent-turn"],
+        args.commandTimeoutMs,
+        {
+          cwd: "/opt/stella",
+          env: executorSessionEnvironment(workspaceRoot),
+          // The root-only result file is authoritative. Bound the optional
+          // stdout transfer well below the durable execution-marker alarm so
+          // this invocation can recover the file before alarm fallback runs.
+          resultTimeoutMs: 10_000,
+          processId: executorProcessId,
+          signal: turnExecution.signal,
+          onAbandon: async ({ phase, processId }) => {
+            if (phase === "process_unsettled") {
+              try {
+                // An exact tree-aware kill is sufficient to stop every
+                // model-controlled writer. Keep the session for the durable
+                // Builder fallback, which performs its own final session
+                // teardown before reading the workspace.
+                await withInfrastructureDeadline(
+                  sandbox.killProcess(processId, "SIGKILL"),
+                  35_000,
+                  "Captured session process kill did not settle.",
+                );
+                return "session_quiesced" as const;
+              } catch {
+                // A kill ambiguity must not reach Builder fallback. Fence a
+                // generic terminal result before rotating the sandbox lifetime;
+                // alarm replay will only retry teardown/delivery, never archive
+                // a newly recreated empty container.
+              }
+            }
+            const teardownPending: PendingTerminal = {
+              turnId: turn.turnId,
+              attemptGeneration: turn.attemptGeneration!,
+              kind: "failed",
+              payload: {
+                message: "The agent hit a problem and stopped. Try again.",
+              },
+              threadError: "The agent hit a problem and stopped. Try again.",
+              terminateSandbox: true,
+            };
+            await this.claimTerminalDecision(
+              turn,
+              teardownPending,
+              Date.now() + 1_000,
+            );
+            await withInfrastructureDeadline(
+              sandbox.destroy(),
+              30_000,
+              "Captured session sandbox destruction did not settle.",
+            );
+            await this.ctx.storage
+              .transaction(async (transaction) => {
+                if (
+                  exactTurnIdentityMatches(
+                    await transaction.get<TurnRequest>("turn"),
+                    turn,
+                  )
+                ) {
+                  await transaction.delete(markerKey);
+                }
+              })
+              .catch((error) => {
+                log("error", "agent_execution_marker_cleanup_deferred", {
+                  turnId: turn.turnId,
+                  threadId: turn.threadId,
+                  message: errorMessage(error),
+                });
+              });
+            return "sandbox_destroyed" as const;
+          },
+          onStarted: async () => {
+            // The durable marker means the trusted executor that can spawn
+            // model-controlled children exists, not merely that its sandbox
+            // and turn input are ready. This keeps cancellation and fallback
+            // recovery from resolving a process RPC for a command that never
+            // crossed the sessionless process boundary.
+            turnExecution.assertActive();
+            const marker = await this.ctx.storage.transaction(
+              async (transaction): Promise<AgentExecutionMarker> => {
+                const [current, currentSandboxId, currentSize] =
+                  await Promise.all([
+                    transaction.get<TurnRequest>("turn"),
+                    transaction.get<string>("sandboxId"),
+                    transaction.get<InstanceSize>("sandboxSize"),
+                  ]);
+                if (
+                  !exactTurnIdentityMatches(current, turn) ||
+                  !currentSandboxId ||
+                  currentSize !== args.size
+                ) {
+                  throw new AgentTurnAuthorityLostError();
+                }
+                const value: AgentExecutionMarker = {
+                  schemaVersion: 1,
+                  turnId: turn.turnId,
+                  attemptGeneration: turn.attemptGeneration!,
+                  sandboxId: currentSandboxId,
+                  size: args.size,
+                  workspace: resolveWorkspace(turn.workspace)!.canonical,
+                  workspaceRoot,
+                  startedAt: Date.now(),
+                };
+                await transaction.put(markerKey, value);
+                return value;
+              },
+            );
+            if (
+              marker.workspaceRoot !== workspaceRoot ||
+              marker.turnId !== turn.turnId
+            ) {
+              throw new AgentTurnAuthorityLostError();
+            }
+            turnExecution.assertActive();
+            log("info", "agent_executor_process_started", {
+              turnId: turn.turnId,
+              threadId: turn.threadId,
+              attemptGeneration: turn.attemptGeneration,
+            });
+          },
+        },
+      ).then(
+        (capturedExecution) =>
+          ({
+            kind: "execution" as const,
+            execution: capturedExecution,
+          }) as const,
+        (error: unknown) =>
+          ({ kind: "execution_error" as const, error }) as const,
+      );
+      const resultFileOutcome = waitForCloudAgentTurnResultText(session, [
+        resultPollController.signal,
+        turnExecution.signal,
+      ]).then(
+        (resultText) =>
+          ({ kind: "result_file" as const, resultText }) as const,
+        (error: unknown) =>
+          ({ kind: "result_file_error" as const, error }) as const,
+      );
+      const firstOutcome = await Promise.race([
+        captureOutcome,
+        resultFileOutcome,
+      ]);
+      resultPollController.abort(
+        new Error("Agent process observation already settled."),
+      );
+      if (firstOutcome.kind === "execution") {
+        execution = firstOutcome.execution;
+        recordedResultProcessQuiesced = true;
+      } else if (firstOutcome.kind === "execution_error") {
+        capturedExecutionError = firstOutcome.error;
+        recordedResultProcessQuiesced = !(
+          firstOutcome.error instanceof CapturedSessionAbandonedError
+        );
+      } else if (firstOutcome.kind === "result_file_error") {
+        throw firstOutcome.error;
+      } else {
+        recordedExecutorResultText = firstOutcome.resultText;
+        const captureAfterFile = await Promise.race([
+          captureOutcome,
+          new Promise<{ kind: "capture_pending" }>((resolve) =>
+            setTimeout(() => resolve({ kind: "capture_pending" }), 1_000),
+          ),
+        ]);
+        if (captureAfterFile.kind === "execution") {
+          execution = captureAfterFile.execution;
+          recordedResultProcessQuiesced = true;
+        } else if (captureAfterFile.kind === "execution_error") {
+          capturedExecutionError = captureAfterFile.error;
+          recordedResultProcessQuiesced =
+            !(captureAfterFile.error instanceof CapturedSessionAbandonedError) ||
+            captureAfterFile.error.disposition === "session_quiesced";
+        } else {
+          // The executor writes this file only after its checkpoint and
+          // transcript work has completed. If Cloudflare's process registry is
+          // still waiting, stop that exact process tree before accepting the
+          // root-only result.
+          await withInfrastructureDeadline(
+            sandbox.killProcess(executorProcessId, "SIGKILL"),
+            10_000,
+            "Completed agent executor could not be quiesced.",
+          );
+          recordedResultProcessQuiesced = true;
+        }
       }
       turnExecution.assertActive();
-      execution = (await session.exec(
-        "bun packages/executor-cloud/src/cli.ts --agent-turn",
-        { timeout: args.commandTimeoutMs },
-      )) as Execution;
-      turnExecution.assertActive();
+    } catch (error) {
+      capturedExecutionError = error;
     } finally {
+      recordedExecutorResultText ??=
+        await readCloudAgentTurnResultText(session);
+      await session
+        .deleteFile(CLOUD_AGENT_TURN_RESULT_PATH)
+        .catch(() => undefined);
       // The executor unlinks this the moment it has read it; this is the
       // backstop for an executor that died before it got that far, so the
       // token cannot outlive the process that needed it.
@@ -7006,12 +8440,47 @@ export class BuildSession extends DurableObject<Env> {
         }
       });
     }
+    let recordedExecutorResult: AgentExecutorResult | null = null;
+    if (recordedExecutorResultText) {
+      try {
+        recordedExecutorResult = parseAgentExecutorResult(
+          JSON.parse(recordedExecutorResultText) as unknown,
+        );
+      } catch {
+        recordedExecutorResult = null;
+      }
+    }
+    if (
+      recordedExecutorResult &&
+      recordedResultProcessQuiesced &&
+      !turnExecution.signal.aborted
+    ) {
+      log("info", "agent_executor_result_file_recovered", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+      });
+      return {
+        result: recordedExecutorResult,
+        oom: false,
+        coldContainerStartMs,
+        restoreMs,
+      };
+    }
+    if (capturedExecutionError) {
+      throw capturedExecutionError;
+    }
+    if (!execution) {
+      throw new Error("Captured agent executor returned no process result.");
+    }
     if (execution.success) {
       try {
-        const decoded = JSON.parse(
-          execution.stdout.trim().split("\n").at(-1) ?? "{}",
-        ) as unknown;
-        const parsed = parseAgentExecutorResult(decoded);
+        const parsed =
+          recordedExecutorResult ??
+          parseAgentExecutorResult(
+            JSON.parse(
+              execution.stdout.trim().split("\n").at(-1) ?? "{}",
+            ) as unknown,
+          );
         if (!parsed) throw new Error("invalid agent executor result");
         return {
           result: parsed,
@@ -7037,19 +8506,22 @@ export class BuildSession extends DurableObject<Env> {
       stdout: execution.stdout,
       stderr: execution.stderr,
     });
+    const failureCode = classifyAgentFailureDiagnostic(execution.stderr);
     log("error", "agent_executor_failed", {
       turnId: turn.turnId,
       threadId: turn.threadId,
       oom,
       instanceType: INSTANCE_TIERS[args.size].instanceType,
-      stderr: execution.stderr.slice(-4_000),
+      failureCode,
     });
     return {
       result: {
         ok: false,
         error: oom
           ? "The agent ran out of memory and stopped. Try again with a smaller slice of the work."
-          : "The agent hit a problem and stopped. Try again.",
+          : devAcceptanceProbesEnabled(this.env)
+            ? `The agent hit a problem and stopped. Try again. [diagnostic: executor.${failureCode}]`
+            : "The agent hit a problem and stopped. Try again.",
         checkpointPolicy: oom ? "preserve_prior" : "builder_fallback",
       },
       oom,
@@ -7699,6 +9171,8 @@ export class BuildSession extends DurableObject<Env> {
  */
 type OwnerPurgeRequest = {
   ownerId?: string;
+  /** Convex lifecycle generation; distinct from the external purge fence. */
+  ownerGeneration?: string;
   /** Issued by `/owners/purge/begin`; proves this owner is quiesced. */
   purgeGeneration?: string;
   /** Canonical workspace strings whose checkpoint + learned size must go. */
@@ -7707,6 +9181,8 @@ type OwnerPurgeRequest = {
   appSlugs?: string[];
   /** App/interior build artifactPrefix values in APP_BUILDS. */
   buildPrefixes?: string[];
+  /** Private browser profiles that must be confirmed gone before row drain. */
+  browserProfiles?: string[];
 };
 
 const ownerFenceStub = async (env: Env, ownerId: string) =>
@@ -9334,13 +10810,113 @@ export default {
       /^\/sessions\/([A-Za-z0-9._~-]{1,128})\/turn-broker$/,
     );
     if (publicTurnBrokerMatch) {
-      return await env.BUILD_SESSIONS.getByName(
-        publicTurnBrokerMatch[1]!,
+      const brokerSessionId = publicTurnBrokerMatch[1]!;
+      const response = await env.BUILD_SESSIONS.getByName(
+        brokerSessionId,
       ).fetch(new Request("https://build-session/turn-broker", request));
+      if (devAcceptanceProbesEnabled(env)) {
+        const diagnosticTarget = validateTurnBrokerTarget(
+          request.headers.get(TURN_BROKER_HEADERS.targetMethod),
+          request.headers.get(TURN_BROKER_HEADERS.targetPath),
+        );
+        // The outer Worker sees only the broker's already-scrubbed response.
+        // Record an allowlisted target kind and numeric status for preview
+        // acceptance without reading token-bearing data or the response body.
+        log("info", "turn_broker_public_response", {
+          threadId: brokerSessionId,
+          targetKind: diagnosticTarget?.kind ?? "rejected",
+          status: response.status,
+        });
+      }
+      return response;
     }
     // Everything past this check is server-to-server. Nothing may fall
     // through it without another explicit authentication boundary.
     if (!authorized(request, env)) return json({ error: "Unauthorized." }, 401);
+    if (
+      request.method === "POST" &&
+      [
+        "/internal/interactions/status",
+        "/internal/interactions/live-view",
+        "/internal/interactions/decision",
+        "/internal/owners/profile/reset",
+      ].includes(url.pathname)
+    ) {
+      if (!env.BROWSER_GATEWAY) {
+        return json(
+          { code: "unavailable", message: "Cloud browser is unavailable." },
+          503,
+        );
+      }
+      if (
+        !/^application\/json(?:\s*;|$)/iu.test(
+          request.headers.get("content-type") ?? "",
+        )
+      ) {
+        return json(
+          { code: "bad_request", message: "JSON request required." },
+          415,
+        );
+      }
+      const body = await request.arrayBuffer();
+      if (body.byteLength === 0 || body.byteLength > 64 * 1024) {
+        return json(
+          { code: "bad_request", message: "Malformed request." },
+          400,
+        );
+      }
+      try {
+        const upstream = await env.BROWSER_GATEWAY.fetch(
+          `https://browser-gateway${url.pathname}`,
+          {
+            method: "POST",
+            redirect: "manual",
+            headers: { "content-type": "application/json" },
+            body,
+          },
+        );
+        if (upstream.status >= 300 && upstream.status < 400) {
+          await upstream.body?.cancel().catch(() => undefined);
+          return json(
+            {
+              code: "upstream_failure",
+              message: "Cloud browser response was invalid.",
+            },
+            502,
+          );
+        }
+        const upstreamBody = await upstream.arrayBuffer();
+        if (upstreamBody.byteLength > 64 * 1024) {
+          return json(
+            {
+              code: "upstream_failure",
+              message: "Cloud browser response was invalid.",
+            },
+            502,
+          );
+        }
+        return new Response(upstreamBody, {
+          status: upstream.status,
+          headers: {
+            "cache-control": "no-store",
+            "content-type": "application/json; charset=utf-8",
+          },
+        });
+      } catch {
+        log("error", "browser_gateway_control_failed", {
+          requestId,
+          path: url.pathname,
+          errorCode: "BROWSER_GATEWAY_UPSTREAM_FAILURE",
+        });
+        return json(
+          {
+            code: "upstream_failure",
+            message: "Cloud browser request failed.",
+          },
+          502,
+        );
+      }
+    }
     if (url.pathname.startsWith("/internal/cloud-home/")) {
       const response = await handleInternalCloudHomeRoute({
         request,
@@ -10195,8 +11771,19 @@ export default {
     if (request.method === "POST" && url.pathname === "/owners/purge") {
       const body = (await request.json()) as OwnerPurgeRequest;
       const ownerId = typeof body.ownerId === "string" ? body.ownerId : "";
+      const browserProfiles = body.browserProfiles ?? [];
+      const ownerGeneration = normalizeOwnerGeneration(body.ownerGeneration);
       if (!ownerId || !body.purgeGeneration) {
         return json({ error: "ownerId and purgeGeneration required." }, 400);
+      }
+      if (
+        !Array.isArray(browserProfiles) ||
+        browserProfiles.length > 1 ||
+        browserProfiles.some((profile) => profile !== "default") ||
+        new Set(browserProfiles).size !== browserProfiles.length ||
+        (browserProfiles.length > 0 && !ownerGeneration)
+      ) {
+        return json({ error: "Malformed browser profile purge request." }, 400);
       }
       const fenced = await callOwnerFence(env, ownerId, "assert-blocked", {
         generation: body.purgeGeneration,
@@ -10245,14 +11832,62 @@ export default {
           message: errorMessage(error),
         });
       }
+      let browserProfilesDeleted = 0;
+      const browserProfilePending: string[] = [];
+      if (browserProfiles.includes("default")) {
+        const browserPurgeRequestId = crypto.randomUUID();
+        if (!env.BROWSER_GATEWAY) {
+          browserProfilePending.push("browser-profile:default");
+        } else {
+          try {
+            const browserPurge = await env.BROWSER_GATEWAY.fetch(
+              "https://browser-gateway/internal/owners/purge",
+              {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  schemaVersion: 1,
+                  ownerId,
+                  requestId: browserPurgeRequestId,
+                }),
+              },
+            );
+            const result = (await browserPurge.json().catch(() => null)) as {
+              schemaVersion?: unknown;
+              requestId?: unknown;
+              profileId?: unknown;
+              purged?: unknown;
+            } | null;
+            if (
+              !browserPurge.ok ||
+              result?.schemaVersion !== 1 ||
+              result.requestId !== browserPurgeRequestId ||
+              result.profileId !== "default" ||
+              result.purged !== true
+            ) {
+              browserProfilePending.push("browser-profile:default");
+            } else {
+              browserProfilesDeleted = 1;
+            }
+          } catch {
+            browserProfilePending.push("browser-profile:default");
+            log("error", "owner_storage_purge_step_failed", {
+              store: "browser-profile:default",
+              errorCode: "BROWSER_GATEWAY_UPSTREAM_FAILURE",
+            });
+          }
+        }
+      }
       const legacyReport = await purgeOwnerStorage(env, ownerId, body);
       const report: OwnerPurgeReport = {
         ok: true,
-        deleted: legacyReport.deleted + turnStateDeleted,
+        deleted:
+          legacyReport.deleted + turnStateDeleted + browserProfilesDeleted,
         pending: Array.from(
           new Set([
             ...legacyReport.pending,
             ...(turnStatePending ? ["turn-state"] : []),
+            ...browserProfilePending,
           ]),
         ),
       };

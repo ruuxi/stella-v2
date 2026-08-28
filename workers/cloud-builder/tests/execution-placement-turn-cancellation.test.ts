@@ -316,6 +316,79 @@ const buildSessionHarness = (values = new Map<string, unknown>()) => {
   };
 };
 
+const terminateCurrentAgentSandbox = async (
+  instance: BuildSession & Record<string, unknown>,
+  target: ReturnType<typeof agentTurn>,
+): Promise<void> => {
+  const terminate = (
+    BuildSession.prototype as unknown as Record<string, unknown>
+  )["terminateCurrentAgentSandbox"] as (
+    this: BuildSession & Record<string, unknown>,
+    turn: ReturnType<typeof agentTurn>,
+  ) => Promise<void>;
+  await terminate.call(instance, target);
+};
+
+describe("BuildSession sandbox termination", () => {
+  test("does not resolve the process RPC before an executor is admitted", async () => {
+    const harness = buildSessionHarness();
+    const current = { ...agentTurn("agent-provisioning"), workspace: "stella" };
+    const sandboxId = `agent-${current.turnId}`;
+    harness.values.set("turn", current);
+    harness.values.set("sandboxId", sandboxId);
+    harness.values.set("sandboxSize", "large");
+    let processKills = 0;
+    let destroys = 0;
+    harness.instance["sandbox"] = () => ({
+      killAllProcesses: async () => {
+        processKills += 1;
+      },
+      destroy: async () => {
+        destroys += 1;
+      },
+    });
+
+    await terminateCurrentAgentSandbox(harness.instance, current);
+
+    expect(processKills).toBe(0);
+    expect(destroys).toBe(1);
+  });
+
+  test("kills the exact process session after executor admission", async () => {
+    const harness = buildSessionHarness();
+    const current = { ...agentTurn("agent-admitted"), workspace: "stella" };
+    const sandboxId = `agent-${current.turnId}`;
+    harness.values.set("turn", current);
+    harness.values.set("sandboxId", sandboxId);
+    harness.values.set("sandboxSize", "large");
+    harness.values.set(`agentExecutionMarker:${current.turnId}:1`, {
+      schemaVersion: 1,
+      turnId: current.turnId,
+      attemptGeneration: 1,
+      sandboxId,
+      size: "large",
+      workspace: "stella",
+      workspaceRoot: "/workspace/stella",
+      startedAt: Date.now(),
+    });
+    let processKills = 0;
+    let destroys = 0;
+    harness.instance["sandbox"] = () => ({
+      killAllProcesses: async () => {
+        processKills += 1;
+      },
+      destroy: async () => {
+        destroys += 1;
+      },
+    });
+
+    await terminateCurrentAgentSandbox(harness.instance, current);
+
+    expect(processKills).toBe(1);
+    expect(destroys).toBe(1);
+  });
+});
+
 const cancelRequest = (body: unknown) =>
   new Request("https://orchestrator-session/cancel", {
     method: "POST",
@@ -1209,6 +1282,121 @@ describe("execution-placement exact cloud turn cancellation", () => {
     expect(harness.values.has("pendingTerminal")).toBe(false);
   });
 
+  test("a joined live cancel retires its execution marker and original workspace run lease", async () => {
+    const harness = buildSessionHarness();
+    const current = {
+      ...agentTurn("agent-live-cancel-cleanup"),
+      workspace: "stella",
+      ownerPurgeLeaseId: "run-lease:original",
+      ownerPurgeGeneration: "purge-generation-1",
+    };
+    harness.values.set("turn", current);
+    harness.values.set("turnId", current.turnId);
+    harness.values.set("terminal", false);
+    harness.values.set(`agentExecutionMarker:${current.turnId}:1`, {
+      schemaVersion: 1,
+      turnId: current.turnId,
+      attemptGeneration: 1,
+      sandboxId: `agent-${current.turnId}`,
+      size: "large",
+      workspace: "stella",
+      workspaceRoot: "/workspace/stella",
+      startedAt: Date.now(),
+    });
+
+    const activeWorkspaceRuns = new Map([
+      [current.ownerPurgeLeaseId, current.workspace],
+    ]);
+    const unregisteredLeaseIds: string[] = [];
+    harness.instance["registerTurn"] = async (
+      target: Record<string, unknown>,
+      freshLease = false,
+    ) => {
+      if (freshLease) {
+        target.ownerPurgeLeaseId = `aux-lease:${String(target.turnId)}`;
+        return "purge-generation-1";
+      }
+      const leaseId =
+        typeof target.ownerPurgeLeaseId === "string"
+          ? target.ownerPurgeLeaseId
+          : `run-lease:${String(target.turnId)}`;
+      const workspace = String(target.workspace ?? "");
+      if (
+        [...activeWorkspaceRuns].some(
+          ([activeLeaseId, activeWorkspace]) =>
+            activeLeaseId !== leaseId && activeWorkspace === workspace,
+        )
+      ) {
+        throw new Error("workspace_busy");
+      }
+      target.ownerPurgeLeaseId = leaseId;
+      activeWorkspaceRuns.set(leaseId, workspace);
+      return "purge-generation-1";
+    };
+    harness.instance["unregisterTurnLease"] = async (
+      _target: Record<string, unknown>,
+      leaseId: string,
+    ) => {
+      unregisteredLeaseIds.push(leaseId);
+      activeWorkspaceRuns.delete(leaseId);
+    };
+
+    let release!: () => void;
+    const running = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    (harness.instance["agentTurnExecutions"] as Map<string, unknown>).set(
+      current.turnId,
+      controlledExecution(running, async () => {
+        await (
+          harness.instance["terminateCurrentAgentSandbox"] as (
+            target: ReturnType<typeof agentTurn>,
+          ) => Promise<void>
+        )(current);
+      }),
+    );
+
+    const cancellation = harness.instance.fetch(
+      cancelRequest(request(current.turnId)),
+    );
+    while (harness.terminated.length === 0) await Promise.resolve();
+    release();
+
+    const response = await cancellation;
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      canceled: true,
+      turnId: current.turnId,
+      joined: true,
+    });
+    expect(harness.values.has("turn")).toBe(false);
+    expect(
+      harness.values.has(`agentExecutionMarker:${current.turnId}:1`),
+    ).toBe(false);
+    expect(unregisteredLeaseIds).toEqual(
+      expect.arrayContaining([
+        `aux-lease:${current.turnId}`,
+        "run-lease:original",
+      ]),
+    );
+    expect(activeWorkspaceRuns.size).toBe(0);
+    expect(await harness.ledger.matching(request(current.turnId))).toMatchObject(
+      { state: "acknowledged" },
+    );
+
+    const successor = {
+      ...agentTurn("agent-after-live-cancel"),
+      workspace: "stella",
+    };
+    await expect(
+      (
+        harness.instance["registerTurn"] as (
+          target: Record<string, unknown>,
+        ) => Promise<string>
+      )(successor),
+    ).resolves.toBe("purge-generation-1");
+  });
+
   test("a session created after Stop cannot admit executor work", async () => {
     const harness = buildSessionHarness();
     const current = agentTurn("agent-late-session");
@@ -1622,6 +1810,54 @@ describe("execution-placement exact cloud turn cancellation", () => {
     ]);
   });
 
+  test("an already-fired stale alarm cannot recover a newly admitted live agent", async () => {
+    const harness = buildSessionHarness();
+    const current = agentTurn("agent-stale-alarm-live-successor");
+    const watchdogDeadlineAt = Date.now() + 600_000;
+    harness.values.set("turn", current);
+    harness.values.set("turnId", current.turnId);
+    harness.values.set("terminal", false);
+    harness.values.set("agentWatchdogDeadlineAt", watchdogDeadlineAt);
+    (
+      harness.instance["agentTurnExecutions"] as Map<string, unknown>
+    ).set(current.turnId, {});
+    let alarmRecoveryCalls = 0;
+    harness.instance["runAlarmWithLease"] = async () => {
+      alarmRecoveryCalls += 1;
+    };
+
+    await harness.instance.alarm();
+
+    expect(alarmRecoveryCalls).toBe(0);
+    expect(await harness.storage.getAlarm()).toBe(watchdogDeadlineAt);
+    expect(harness.values.get("turn")).toEqual(current);
+    expect(harness.values.get("terminal")).toBe(false);
+  });
+
+  test("an intentional recovery alarm is not hidden by the live-fiber fence", async () => {
+    const harness = buildSessionHarness();
+    const current = agentTurn("agent-explicit-recovery-alarm");
+    harness.values.set("turn", current);
+    harness.values.set("turnId", current.turnId);
+    harness.values.set("terminal", false);
+    harness.values.set("agentWatchdogDeadlineAt", Date.now() + 600_000);
+    harness.values.set(
+      "agentRecoveryPending",
+      `${current.turnId}:${current.attemptGeneration}`,
+    );
+    (
+      harness.instance["agentTurnExecutions"] as Map<string, unknown>
+    ).set(current.turnId, {});
+    let alarmRecoveryCalls = 0;
+    harness.instance["runAlarmWithLease"] = async () => {
+      alarmRecoveryCalls += 1;
+    };
+
+    await harness.instance.alarm();
+
+    expect(alarmRecoveryCalls).toBe(1);
+  });
+
   test("a replacement agent DO fences an orphan exact replay and rejects conflicting input", async () => {
     const harness = buildSessionHarness();
     const persisted = {
@@ -1926,6 +2162,40 @@ describe("execution-placement exact cloud turn cancellation", () => {
       turnId: current.turnId,
       kind: "canceled",
       terminateSandbox: false,
+    });
+  });
+
+  test("a conflicting pause wakes an immutable pending terminal delivery", async () => {
+    const harness = buildSessionHarness();
+    const current = agentTurn("agent-terminal-delivery-wake");
+    harness.values.set("turn", current);
+    harness.values.set("turnId", current.turnId);
+    harness.values.set("terminal", true);
+    harness.values.set("pendingTerminal", {
+      turnId: current.turnId,
+      attemptGeneration: current.attemptGeneration,
+      kind: "failed",
+      payload: { message: "Already failed." },
+      threadError: "Already failed.",
+    });
+    const before = Date.now();
+
+    const response = await harness.instance.fetch(
+      cancelRequest(request(current.turnId)),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      canceled: false,
+      reason: "terminal_already_decided",
+      turnId: current.turnId,
+    });
+    const alarm = await harness.storage.getAlarm();
+    expect(alarm).toBeGreaterThanOrEqual(before);
+    expect(alarm).toBeLessThanOrEqual(Date.now());
+    expect(harness.values.get("pendingTerminal")).toMatchObject({
+      turnId: current.turnId,
+      kind: "failed",
     });
   });
 

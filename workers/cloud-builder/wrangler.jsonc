@@ -31,6 +31,14 @@
       "binding": "LOADER"
     }
   ],
+  "services": [
+    {
+      // Browser Run, reusable website state, and Live View capabilities stay
+      // behind a private Worker boundary. Builder receives only this fetcher.
+      "binding": "BROWSER_GATEWAY",
+      "service": "stella-v2-browser-gateway-dev"
+    }
+  ],
   "r2_buckets": [
     {
       "binding": "APP_BUILDS",
@@ -137,6 +145,12 @@
           "binding": "LOADER"
         }
       ],
+      "services": [
+        {
+          "binding": "BROWSER_GATEWAY",
+          "service": "stella-v2-browser-gateway-basic-nightingale-118"
+        }
+      ],
       "r2_buckets": [
         {
           "binding": "APP_BUILDS",
@@ -172,7 +186,7 @@
           "class_name": "SandboxSmall",
           "image": "./Dockerfile",
           "instance_type": "standard-2",
-          "max_instances": 1
+          "max_instances": 6
         }
       ],
       "durable_objects": {

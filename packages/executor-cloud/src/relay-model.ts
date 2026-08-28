@@ -3,6 +3,8 @@ import type {
   CloudExecutionSelection,
 } from "@stella/contracts/agent-engine";
 import {
+  isDeepSeekV4FlashModel,
+  isMuseSpark12ContributorModel,
   stellaCloudModelEndpointFromSiteUrl,
   stellaManagedRelayBaseUrlFromSiteUrl,
 } from "@stella/contracts/stella-api";
@@ -12,6 +14,12 @@ import type {
   Model,
   ModelThinkingLevel,
 } from "@stella/runtime/ai/types.js";
+import {
+  CLOUD_MODEL_DIAGNOSTIC_SENTINELS,
+  CLOUD_MODEL_PROXY_DIAGNOSTIC_CODES,
+  CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER,
+  type CloudModelDiagnosticCode,
+} from "@stella/contracts/cloud-model-diagnostic";
 import { findRegistryModel } from "@stella/runtime/kernel/model-routing-matching.js";
 import type { ThinkingLevel } from "@stella/runtime/kernel/agent-core/types.js";
 
@@ -36,10 +44,22 @@ const MANAGED_RELAY_PROVIDERS = [
   "openai",
   "google",
   "fireworks",
+  "deepseek",
+  "crof",
+  "wafer",
   "openrouter",
   "meta",
+  "xai",
 ] as const;
 type ManagedRelayProvider = (typeof MANAGED_RELAY_PROVIDERS)[number];
+
+const MANAGED_PROTOCOLS = [
+  "anthropic-messages",
+  "openai-responses",
+  "openai-completions",
+  "google-generative-ai",
+] as const satisfies readonly Api[];
+type ManagedProtocol = (typeof MANAGED_PROTOCOLS)[number];
 
 const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,191}$/;
 const ENGINE_MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,191}$/;
@@ -171,38 +191,53 @@ export const createResolvedManagedRelayModel = (args: {
   agentType: string;
   resolvedModelId: string;
   relayProvider: string;
+  api?: string;
 }): Model<Api> => {
   if (
     !MODEL_ID_PATTERN.test(args.resolvedModelId) ||
-    !(MANAGED_RELAY_PROVIDERS as readonly string[]).includes(args.relayProvider)
+    !(MANAGED_RELAY_PROVIDERS as readonly string[]).includes(
+      args.relayProvider,
+    ) ||
+    (args.api !== undefined &&
+      !(MANAGED_PROTOCOLS as readonly string[]).includes(args.api))
   ) {
     throw new Error(
       "The cloud model resolver returned invalid provider metadata.",
     );
   }
   const relayProvider = args.relayProvider as ManagedRelayProvider;
+  const directModelPrefix =
+    relayProvider === "xai" ? "x-ai/" : `${relayProvider}/`;
   const nativeModelId =
     (relayProvider === "anthropic" ||
       relayProvider === "openai" ||
       relayProvider === "google" ||
+      relayProvider === "deepseek" ||
+      relayProvider === "crof" ||
+      relayProvider === "wafer" ||
+      relayProvider === "xai" ||
       relayProvider === "meta") &&
-    args.resolvedModelId.startsWith(`${relayProvider}/`)
-      ? args.resolvedModelId.slice(relayProvider.length + 1)
+    args.resolvedModelId.startsWith(directModelPrefix)
+      ? args.resolvedModelId.slice(directModelPrefix.length)
       : args.resolvedModelId;
   const registryModel = findRegistryModel(relayProvider, [
     args.resolvedModelId,
     nativeModelId,
     nativeModelId.replace(/\./g, "-"),
   ]);
-  const api: Api =
-    registryModel?.api ??
-    (relayProvider === "anthropic"
+  const api: Api = args.api
+    ? (args.api as ManagedProtocol)
+    : relayProvider === "anthropic"
       ? "anthropic-messages"
       : relayProvider === "google"
         ? "google-generative-ai"
-        : relayProvider === "openrouter"
+        : relayProvider === "crof" || relayProvider === "wafer"
           ? "openai-completions"
-          : "openai-responses");
+          : relayProvider === "openrouter"
+            ? isMuseSpark12ContributorModel(args.resolvedModelId)
+              ? "openai-responses"
+              : "openai-completions"
+            : registryModel?.api ?? "openai-responses";
   const model = {
     ...(registryModel ?? {
       id: nativeModelId,
@@ -220,6 +255,38 @@ export const createResolvedManagedRelayModel = (args: {
     provider: registryModel?.provider ?? relayProvider,
     api,
     baseUrl: stellaManagedRelayBaseUrlFromSiteUrl(args.siteUrl),
+    ...(isDeepSeekV4FlashModel(args.resolvedModelId)
+      ? {
+          thinkingLevelMap: {
+            ...registryModel?.thinkingLevelMap,
+            ...(relayProvider === "crof" || relayProvider === "wafer"
+              ? {
+                  minimal: "low",
+                  low: "low",
+                  medium: "medium",
+                  high: "high",
+                  xhigh: "high",
+                  off: "none",
+                }
+              : {
+                  minimal: "low",
+                  low: "low",
+                  medium: "high",
+                  high: "max",
+                  xhigh: "max",
+                  off: "none",
+                }),
+          },
+        }
+      : {}),
+    ...(isMuseSpark12ContributorModel(args.resolvedModelId)
+      ? {
+          thinkingLevelMap: {
+            ...registryModel?.thinkingLevelMap,
+            xhigh: "xhigh",
+          } as NonNullable<Model<Api>["thinkingLevelMap"]>,
+        }
+      : {}),
     headers: {
       ...(registryModel?.headers ?? {}),
       "X-Stella-Agent-Type": args.agentType,
@@ -237,52 +304,124 @@ const managedRelayModel = async (args: {
   turnToken: string;
   agentType: string;
   signal?: AbortSignal;
+  loopbackStage?: () =>
+    | "idle"
+    | "entered"
+    | "broker_started"
+    | "broker_responded";
 }): Promise<Model<Api>> => {
   const timeoutSignal = AbortSignal.timeout(15_000);
-  const response = await fetch(
-    stellaCloudModelEndpointFromSiteUrl(args.siteUrl),
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        [CLOUD_TURN_TOKEN_HEADER]: args.turnToken,
+  let response: Response;
+  try {
+    response = await fetch(
+      stellaCloudModelEndpointFromSiteUrl(args.siteUrl),
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          [CLOUD_TURN_TOKEN_HEADER]: args.turnToken,
+        },
+        body: JSON.stringify({ model: args.execution.model }),
+        signal: args.signal
+          ? AbortSignal.any([args.signal, timeoutSignal])
+          : timeoutSignal,
       },
-      body: JSON.stringify({ model: args.execution.model }),
-      signal: args.signal
-        ? AbortSignal.any([args.signal, timeoutSignal])
-        : timeoutSignal,
-    },
-  );
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: unknown } | string;
-    } | null;
-    const detail =
-      typeof payload?.error === "string"
-        ? payload.error
-        : typeof payload?.error?.message === "string"
-          ? payload.error.message
-          : "";
+    );
+  } catch (error) {
+    // Preserve an explicit turn cancellation. Every other loopback failure is
+    // collapsed to a static sentinel; exception causes can contain transport
+    // or provider detail and must not enter Builder logs or acceptance output.
+    if (args.signal?.aborted) throw error;
+    const loopbackStage = args.loopbackStage?.() ?? "idle";
+    if (loopbackStage === "entered") {
+      throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_handler);
+    }
+    if (loopbackStage === "broker_started") {
+      throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_broker);
+    }
+    if (loopbackStage === "broker_responded") {
+      throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_response);
+    }
+    const transportCode = (() => {
+      if (!error || typeof error !== "object") return "";
+      const direct = Reflect.get(error, "code");
+      if (typeof direct === "string") return direct;
+      const cause = Reflect.get(error, "cause");
+      if (!cause || typeof cause !== "object") return "";
+      const nested = Reflect.get(cause, "code");
+      return typeof nested === "string" ? nested : "";
+    })();
+    if (
+      transportCode === "ConnectionRefused" ||
+      transportCode === "ECONNREFUSED"
+    ) {
+      throw new Error(
+        CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_refused,
+      );
+    }
+    if (transportCode === "Timeout" || transportCode === "ETIMEDOUT") {
+      throw new Error(
+        CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_timeout,
+      );
+    }
+    if (
+      transportCode === "NetworkUnreachable" ||
+      transportCode === "ENETUNREACH" ||
+      transportCode === "EHOSTUNREACH"
+    ) {
+      throw new Error(
+        CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_unreachable,
+      );
+    }
     throw new Error(
-      detail ||
-        `Managed cloud model "${args.execution.model}" is unavailable for this account.`,
+      CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_connect,
     );
   }
-  const resolution = (await response.json()) as {
+  if (!response.ok) {
+    const localDiagnostic = response.headers.get(
+      CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER,
+    );
+    await response.body?.cancel().catch(() => undefined);
+    if (
+      CLOUD_MODEL_PROXY_DIAGNOSTIC_CODES.includes(
+        localDiagnostic as (typeof CLOUD_MODEL_PROXY_DIAGNOSTIC_CODES)[number],
+      )
+    ) {
+      throw new Error(
+        CLOUD_MODEL_DIAGNOSTIC_SENTINELS[
+          localDiagnostic as CloudModelDiagnosticCode
+        ],
+      );
+    }
+    throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_http_failure);
+  }
+  let resolution: {
     resolvedModel?: unknown;
     relayProvider?: unknown;
+    api?: unknown;
   };
+  try {
+    resolution = (await response.json()) as typeof resolution;
+  } catch {
+    throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_response_invalid);
+  }
   if (
     typeof resolution.resolvedModel !== "string" ||
-    typeof resolution.relayProvider !== "string"
+    typeof resolution.relayProvider !== "string" ||
+    typeof resolution.api !== "string"
   ) {
-    throw new Error("The cloud model resolver returned an invalid response.");
+    throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_response_invalid);
   }
-  return createResolvedManagedRelayModel({
-    ...args,
-    resolvedModelId: resolution.resolvedModel,
-    relayProvider: resolution.relayProvider,
-  });
+  try {
+    return createResolvedManagedRelayModel({
+      ...args,
+      resolvedModelId: resolution.resolvedModel,
+      relayProvider: resolution.relayProvider,
+      api: resolution.api,
+    });
+  } catch {
+    throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_response_invalid);
+  }
 };
 
 /**
@@ -297,6 +436,12 @@ export const createCloudRelayModel = async (args: {
   execution: CloudExecutionSelection;
   /** Exact turn fiber cancellation; connected routes are synchronous/local. */
   signal?: AbortSignal;
+  /** Bounded local proxy progress, used only to classify a failed loopback. */
+  loopbackStage?: () =>
+    | "idle"
+    | "entered"
+    | "broker_started"
+    | "broker_responded";
 }): Promise<Model<Api>> => {
   const execution = validateCloudExecutionSelection(args.execution);
   return execution.engine === "stella"

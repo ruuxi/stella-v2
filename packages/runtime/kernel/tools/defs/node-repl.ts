@@ -6,6 +6,7 @@ import {
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { ToolDefinition } from "../types.js";
 import { CODE_TOOL_NAME } from "../code-tool.js";
+import { isAgentToolSuspendedError } from "../../agent-core/suspension.js";
 
 export type CodeToolOptions = NodeReplKernelManagerOptions & {
   registry?: NodeReplKernelRegistry;
@@ -106,9 +107,9 @@ export const createCodeTool = (options: CodeToolOptions): ToolDefinition => {
     name: CODE_TOOL_NAME,
     agentTypes: [AGENT_IDS.ORCHESTRATOR, AGENT_IDS.GENERAL],
     description:
-      'Run JavaScript with top-level await in Stella\'s persistent code runtime, or observe a previously yielded cell with cell_id; bindings persist within one generation (use var for reusable names). codeRuntime exposes write/emitImage/emitAudio/status/reset/help and cwd/home/tmp. Long cells yield with a generation-tagged cell ID; call code again with cell_id to receive only new output or terminate it. Observations use a monotonic cursor. frozen sky controls desktop apps; frozen browser controls owned browser tabs (it defaults to the in-app browser; use browser.use("external") only for the user\'s signed-in Chromium browser and browser.use("in-app") to switch back). frozen connect runs third-party integrations. immutable tools exposes allowed Stella tools and refreshes between cells. Use tools.$list() for exact names/access expressions; non-identifier names require bracket notation such as tools["mcp.server/tool"](...). Use tools.$search({ query: "<capability>" }) for ranked signatures, and tools.$describe(name) for a complete unfamiliar schema. Use Promise.all for independent calls. Nested tools retain permissions, cancellation, file changes, produced-file omissions, and route artifacts; tools requiring explicit approval are unavailable inside code and must be called directly. Unawaited calls are drained with a bounded deadline. Batch dependent browser/computer actions in one cell, pass state_id for UI-derived actions, and use sky.wait_for_change when a mutation must become observable.',
+      'Run JavaScript with top-level await in Stella\'s persistent code runtime, or observe a previously yielded cell with cell_id; bindings persist within one generation (use var for reusable names). Call the immutable globals directly: codeRuntime, sky, browser, connect, and tools. There is no frozen namespace or frozen.browser object. End with an expression to return its value, or call codeRuntime.write(...); console.log and process.stdout are not output channels. codeRuntime also exposes emitImage/emitAudio/status/reset/help and cwd/home/tmp. Long cells yield with a generation-tagged cell ID; call code again with cell_id to receive only new output or terminate it. Observations use a monotonic cursor. browser controls owned tabs and defaults to in-app; use browser.use("external") only for the user\'s signed-in Chromium browser and browser.use("in-app") to switch back. Basic navigation is: const tab = await browser.tabs.new("https://example.com"); await tab.playwright.locator("#id").waitFor({ state: "visible" });. In cloud, call browser.requestLoginTakeover({ allowedOrigins: [origin], displayOrigin: origin, startUrl?, displayTitle?, verification: { expectedOrigin: origin, authenticatedSelector, loggedOutSelector, resumeUrl } }) when private human credential entry is required. All origins and URLs must use that one exact HTTPS origin; both distinct selectors are required and may only be #id, .class, or exact [data-testid="..."]; never ask for or type the credential in code. browser.requestDeviceCodeFixture({ expiresInMs? }) exercises the separate public device-code suspension path without exposing provider secrets. tools exposes allowed Stella tools and refreshes between cells. Use tools.$list() for exact names/access expressions; non-identifier names require bracket notation such as tools["mcp.server/tool"](...). Use tools.$search({ query: "<capability>" }) for ranked signatures, and tools.$describe(name) for a complete unfamiliar schema. Use Promise.all for independent calls. Nested tools retain permissions, cancellation, file changes, produced-file omissions, and route artifacts; tools requiring explicit approval are unavailable inside code and must be called directly. Unawaited calls are drained with a bounded deadline. Batch dependent browser/computer actions in one cell, pass state_id for UI-derived actions, and use sky.wait_for_change when a mutation must become observable.',
     promptSnippet:
-      "Run persistent JavaScript, orchestrate allowed Stella tools, and control apps through frozen sky/browser/connect clients",
+      "Run persistent JavaScript, orchestrate allowed Stella tools, and control apps through the sky/browser/connect globals",
     parameters: {
       type: "object",
       properties: {
@@ -194,6 +195,7 @@ export const createCodeTool = (options: CodeToolOptions): ToolDefinition => {
             });
         return resultForObservation(observation, hasCellId);
       } catch (error) {
+        if (isAgentToolSuspendedError(error)) throw error;
         return {
           error: error instanceof Error ? error.message : String(error),
         };

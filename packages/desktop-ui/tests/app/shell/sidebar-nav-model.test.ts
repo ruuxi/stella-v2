@@ -14,6 +14,7 @@ import {
   SIDEBAR_SECTION_META,
 } from "@/shell/sidebar-sections/section-meta";
 import { displayTabs } from "@/features/workspace-display/tab-store";
+import { uiState } from "@/platform/ui-state";
 import { FileSidebarTabExistenceReconciler } from "@/shell/sidebar-sections/FileSidebarTabExistenceReconciler";
 
 describe("right-sidebar navigation model (browser-tab style)", () => {
@@ -32,6 +33,7 @@ describe("right-sidebar navigation model (browser-tab style)", () => {
       "files",
       "apps",
       "browser",
+      "takeover",
     ]);
     // Every section, Home included, now renders inside the panel body.
     expect(PANEL_SIDEBAR_SECTIONS).toContain("home");
@@ -49,6 +51,7 @@ describe("right-sidebar navigation model (browser-tab style)", () => {
     expect(SIDEBAR_SECTION_META.quickchat.label).toBe("Quick chat");
     expect(SIDEBAR_SECTION_META.files.label).toBe("Files");
     expect(SIDEBAR_SECTION_META.home.label).toBe("Home");
+    expect(HOME_LAUNCHER_SECTIONS).not.toContain("takeover");
   });
 
   it("keeps legacy ids mapping to Home", () => {
@@ -91,6 +94,18 @@ describe("right-sidebar navigation model (browser-tab style)", () => {
       .tabs.filter((tab) => tab.kind === "files");
     expect(fileTabs).toHaveLength(2);
     expect(fileTabs.map((tab) => tab.location)).toEqual(["file-a", "file-b"]);
+  });
+
+  it("keeps a takeover tab ephemeral and persists no interaction id", () => {
+    sidebarSections.openLocation("takeover", "interaction-secret-boundary");
+
+    expect(sidebarSections.getActiveTab()).toMatchObject({
+      kind: "takeover",
+      location: "interaction-secret-boundary",
+    });
+    const persisted = uiState.getItem("stella.sidebar.tabs") ?? "";
+    expect(persisted).not.toContain("takeover");
+    expect(persisted).not.toContain("interaction-secret-boundary");
   });
 
   it("opening an item from a NON-home tab creates a new tab (no morph)", () => {

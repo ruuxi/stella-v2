@@ -460,6 +460,13 @@ export type ToolHostOptions = {
    * depend on files materialized by the privileged process.
    */
   enableShellShims?: boolean;
+  /**
+   * Trusted cloud-only opt-in for the persistent code tool. It remains denied
+   * unless a private browser-session factory is supplied as well.
+   */
+  allowCloudCode?: boolean;
+  /** Privileged browser transport injected by a cloud executor. */
+  browserSessionFactory?: import("../browser-use/client.js").BrowserSessionFactory;
   stellaBrowserBinPath?: string;
   stellaOfficeBinPath?: string;
   stellaComputerCliPath?: string;

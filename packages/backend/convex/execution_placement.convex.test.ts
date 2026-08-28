@@ -5,6 +5,7 @@ import { register as registerRateLimiter } from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import { describe, expect, it, vi } from "vitest";
+import { ownershipMigrationSourceDigest } from "./lib/auth_migration_paths";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -2256,6 +2257,90 @@ describe("automatic execution placement", () => {
       ).toHaveLength(0);
     });
   });
+
+  it.each(["tombstone", "retained-dependency"] as const)(
+    "lets an exact source-owner delete purge quiesce placement behind a migration %s",
+    async (sourceFence) => {
+      const t = createTest();
+      const conversationId = await seedConversation(
+        t,
+        `conv-source-purge-${sourceFence}`,
+      );
+      await registerReadyDesktop(t);
+      const dispatch = await submitMobile(t, {
+        conversationId,
+        idempotencyKey: `mobile:source-purge-${sourceFence}`,
+      });
+      const operationId = `migrated-source-auth-delete:${sourceFence}`;
+      const purge = await t.mutation(refs.beginOwnerPurge, {
+        ownerId,
+        operationId,
+        mode: "delete",
+        now: Date.now(),
+      });
+
+      await t.run(async (ctx) => {
+        if (sourceFence === "tombstone") {
+          await ctx.db.insert("auth_owner_migration_tombstones", {
+            sourceOwnerDigest: await ownershipMigrationSourceDigest(ownerId),
+          });
+          return;
+        }
+        await ctx.db.insert("auth_owner_migrations", {
+          fromOwnerId: ownerId,
+          toOwnerId: "https://issuer.test|placement-destination",
+          status: "failed",
+          sourcePurgeDependency: {
+            sourceOperationId: operationId,
+            sourceGeneration: purge.generation,
+            destinationOperationId: "delete:placement-destination",
+            destinationGeneration: "destination-generation",
+          },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      });
+
+      await expect(
+        t.mutation(refs.quiesceOwnerPlacement, {
+          ownerId,
+          operationId,
+          generation: purge.generation,
+          now: Date.now(),
+        }),
+      ).resolves.toMatchObject({
+        ready: true,
+        pendingDispatches: 0,
+        terminalizedDispatches: 1,
+      });
+      await t.run(async (ctx) => {
+        const [storedDispatch, presence] = await Promise.all([
+          ctx.db
+            .query("execution_dispatches")
+            .withIndex("by_dispatchId", (q) =>
+              q.eq("dispatchId", dispatch.dispatchId),
+            )
+            .unique(),
+          ctx.db
+            .query("desktop_execution_presence")
+            .withIndex("by_ownerId_and_deviceId", (q) =>
+              q.eq("ownerId", ownerId).eq("deviceId", deviceId),
+            )
+            .unique(),
+        ]);
+        expect(storedDispatch).toMatchObject({
+          state: "canceled",
+          purgeOperationId: operationId,
+          purgeGeneration: purge.generation,
+        });
+        expect(presence).toMatchObject({
+          status: "draining",
+          purgeOperationId: operationId,
+          purgeGeneration: purge.generation,
+        });
+      });
+    },
+  );
 
   it("retains accepted control until a signed purge cancellation ACK", async () => {
     const t = createTest();

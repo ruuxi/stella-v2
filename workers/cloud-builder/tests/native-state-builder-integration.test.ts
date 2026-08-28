@@ -140,6 +140,10 @@ const builderHarness = async (
   options: {
     runCheckpoint?: () => Promise<void>;
     running?: boolean;
+    engine?: "anthropic" | "stella";
+    browserGateway?: {
+      fetch(input: string | Request, init?: RequestInit): Promise<Response>;
+    };
   } = {},
 ) => {
   const { values, storage } = mapStorage();
@@ -171,9 +175,10 @@ const builderHarness = async (
     workspace: "cloud",
     attemptGeneration,
     execution: {
-      engine: "anthropic",
-      provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      engine: options.engine ?? "anthropic",
+      provider: options.engine === "stella" ? "crof" : "anthropic",
+      model:
+        options.engine === "stella" ? "crof/stella" : "claude-sonnet-4-6",
       reasoningEffort: "medium",
     },
     turnBrokerRoute: {
@@ -214,6 +219,9 @@ const builderHarness = async (
         list: async () => ({ objects: [], truncated: false }),
         delete: async () => undefined,
       },
+      ...(options.browserGateway
+        ? { BROWSER_GATEWAY: options.browserGateway }
+        : {}),
     },
     exactTurnCancellations: ledger,
     agentTurnExecutions:
@@ -290,6 +298,28 @@ const brokerFetch =
     return intercept ? await intercept(request, run) : await run();
   };
 
+const gatewaySuspensionResponse = (
+  toolCallId: string,
+  interactionId = "interaction-1",
+) => ({
+  schemaVersion: 1 as const,
+  outcome: "suspended" as const,
+  suspension: {
+    schemaVersion: 1 as const,
+    outcome: "waiting_for_user" as const,
+    interactionId,
+    interactionRevision: 1,
+    interactionKind: "login_takeover" as const,
+    toolCallId,
+    requestDigest: "7".repeat(64),
+    profileId: "default" as const,
+    profileEpoch: 2,
+    displayOrigin: "https://example.test",
+    displayTitle: "Example",
+    expiresAt: Date.now() + 5 * 60_000,
+  },
+});
+
 describe("native state Builder integration", () => {
   test("routes a public broker capability to only its exact named BuildSession", async () => {
     const calls: Array<{ name: string; request: Request }> = [];
@@ -351,6 +381,122 @@ describe("native state Builder integration", () => {
     expect(forwarded?.headers.get("x-stella-turn-broker-endpoint")).toBe(
       `https://builder.example/sessions/${sessionId}/turn-broker`,
     );
+  });
+
+  test("durably observes an exact Browser Gateway wait before returning it", async () => {
+    const responses = new Map<string, ReturnType<typeof gatewaySuspensionResponse>>();
+    let gatewayCalls = 0;
+    const harness = await builderHarness({
+      engine: "stella",
+      browserGateway: {
+        fetch: async (input, init) => {
+          gatewayCalls += 1;
+          const forwarded =
+            input instanceof Request ? input : new Request(input, init);
+          const envelope = (await forwarded.json()) as {
+            command: { requestId: string };
+          };
+          let response = responses.get(envelope.command.requestId);
+          if (!response) {
+            response = gatewaySuspensionResponse(
+              envelope.command.requestId,
+              `interaction-${responses.size + 1}`,
+            );
+            responses.set(envelope.command.requestId, response);
+          }
+          return Response.json(response);
+        },
+      },
+    });
+    let replayResponse: Response | undefined;
+    const client = new TurnCredentialBrokerClient(
+      harness.handoff,
+      brokerFetch(harness.instance, async (request, run) => {
+        const duplicate = request.clone();
+        const first = await run();
+        expect(harness.values.get("observedBrowserSuspension")).toMatchObject({
+          schemaVersion: 1,
+          turnId,
+          attemptGeneration,
+          suspension: {
+            interactionId: "interaction-1",
+            toolCallId: "00000000-0000-4000-8000-000000000021",
+          },
+        });
+        replayResponse = await harness.instance.fetch(duplicate);
+        return first;
+      }),
+    );
+    const firstResponse = await client.postJson("/api/cloud/browser/command", {
+      schemaVersion: 1,
+      requestId: "00000000-0000-4000-8000-000000000021",
+      action: "browser.observe",
+      params: {},
+    });
+    expect(firstResponse.status).toBe(200);
+    expect(replayResponse?.status).toBe(200);
+    expect(gatewayCalls).toBe(2);
+    expect(
+      [...harness.values.keys()].filter(
+        (key) => key === "observedBrowserSuspension",
+      ),
+    ).toHaveLength(1);
+
+    const conflict = await client.postJson("/api/cloud/browser/command", {
+      schemaVersion: 1,
+      requestId: "00000000-0000-4000-8000-000000000022",
+      action: "browser.observe",
+      params: {},
+    });
+    expect(conflict.status).toBe(409);
+    expect(conflict.headers.get(TURN_BROKER_RESPONSE_HEADERS.denial)).toBe(
+      "1",
+    );
+    expect(harness.values.get("observedBrowserSuspension")).toMatchObject({
+      suspension: { interactionId: "interaction-1" },
+    });
+  });
+
+  test("rejects malformed and oversized Browser Gateway wait responses", async () => {
+    const command = {
+      schemaVersion: 1,
+      requestId: "00000000-0000-4000-8000-000000000031",
+      action: "browser.observe",
+      params: {},
+    };
+    const malformed = await builderHarness({
+      engine: "stella",
+      browserGateway: {
+        fetch: async () =>
+          Response.json({
+            schemaVersion: 1,
+            outcome: "suspended",
+            suspension: { interactionId: "incomplete" },
+          }),
+      },
+    });
+    const malformedResponse = await new TurnCredentialBrokerClient(
+      malformed.handoff,
+      brokerFetch(malformed.instance),
+    ).postJson("/api/cloud/browser/command", command);
+    expect(malformedResponse.status).toBe(502);
+    expect(malformed.values.has("observedBrowserSuspension")).toBe(false);
+
+    const oversized = await builderHarness({
+      engine: "stella",
+      browserGateway: {
+        fetch: async () => new Response("x".repeat(64 * 1024 + 1)),
+      },
+    });
+    const oversizedResponse = await new TurnCredentialBrokerClient(
+      oversized.handoff,
+      brokerFetch(oversized.instance),
+    ).postJson("/api/cloud/browser/command", {
+      ...command,
+      requestId: "00000000-0000-4000-8000-000000000032",
+    });
+    expect(oversizedResponse.status).toBe(502);
+    expect(oversized.values.has("observedBrowserSuspension")).toBe(false);
   });
 
   test("returns the atomic checkpoint receipt after a lost response without a second archive", async () => {

@@ -28,10 +28,16 @@ import { Agent } from "@stella/runtime/kernel/agent-core/agent.js";
 import type {
   AgentMessage,
   AgentTool,
+  AgentToolCall,
 } from "@stella/runtime/kernel/agent-core/types.js";
 import type { TSchema } from "@sinclair/typebox";
 import type { FileChangeRecord } from "@stella/contracts/file-changes";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import {
+  isCloudBrowserResumeReceipt,
+  type CloudBrowserResumeReceipt,
+  type CloudBrowserSuspension,
+} from "@stella/contracts/cloud-browser";
 import { createToolHost } from "@stella/runtime/kernel/tools/host.js";
 import type { ToolContext } from "@stella/runtime/kernel/tools/host.js";
 import {
@@ -98,6 +104,7 @@ import {
 } from "./agent-history.js";
 import type {
   TurnBrokerInput,
+  TurnBrokerTurnStateCheckpointRequest,
   TurnBrokerTurnStateCheckpointReceipt,
 } from "@stella/contracts/turn-credential-broker";
 import {
@@ -113,6 +120,11 @@ import {
   CLOUD_TOOL_PROCESS_IDENTITY,
   proveStrictCloudProcessIsolation,
 } from "./cloud-process-isolation.js";
+import {
+  isAgentToolSuspendedError,
+  type AgentToolSuspendedError,
+} from "@stella/runtime/kernel/agent-core/suspension.js";
+import { createTurnBrokerBrowserSessionFactory } from "./cloud-browser-session.js";
 
 export { CLOUD_TOOL_PROCESS_IDENTITY } from "./cloud-process-isolation.js";
 
@@ -142,6 +154,8 @@ export type AgentTurnInput = {
   turnBroker: TurnBrokerInput;
   /** Prior thread transcript rows, oldest first (send_input continuations). */
   history?: AgentHistoryRow[];
+  /** Safe approval receipt used to resume a previously suspended code call. */
+  browserResume?: CloudBrowserResumeReceipt;
   /** Canonical model route authorized for this turn at dispatch. */
   execution: CloudExecutionSelection;
   /** Clone/checkout inputs for a `project:<slug>` workspace. */
@@ -166,7 +180,15 @@ export type AgentTurnInput = {
   };
 };
 
-export type AgentTurnResult = {
+type AgentTurnProjectResult = {
+  mode: ProjectWorkspaceResult["mode"];
+  branch: string;
+  setupCommand?: string;
+  setupSource?: "provided" | "inferred";
+};
+
+export type AgentTurnTerminalResult = {
+  outcome?: "completed";
   ok: boolean;
   finalText: string;
   error?: string;
@@ -196,13 +218,125 @@ export type AgentTurnResult = {
    * inferred when the project had none recorded; the dispatcher persists it so
    * later turns stop re-deriving it.
    */
-  project?: {
-    mode: ProjectWorkspaceResult["mode"];
-    branch: string;
-    setupCommand?: string;
-    setupSource?: "provided" | "inferred";
+  project?: AgentTurnProjectResult;
+  suspension?: never;
+};
+
+export type AgentTurnSuspendedResult = {
+  outcome: "suspended";
+  ok: false;
+  finalText: "";
+  suspension: CloudBrowserSuspension;
+  usage: { inputTokens: number; outputTokens: number; llmCalls: number };
+  checkpointMs: number;
+  turnStateCheckpoint: TurnBrokerTurnStateCheckpointReceipt;
+};
+
+export type AgentTurnResult =
+  | AgentTurnTerminalResult
+  | AgentTurnSuspendedResult;
+
+const CLOUD_BROWSER_RESUME_KEYS = [
+  "schemaVersion",
+  "interactionId",
+  "interactionRevision",
+  "profileId",
+  "profileEpoch",
+  "toolCallId",
+  "requestDigest",
+  "result",
+  "safeMessage",
+] as const;
+
+/**
+ * Rebuild the one provider-visible result at the durable continuation seam.
+ * Extra input keys are rejected so a malformed dispatch cannot piggyback
+ * browser state into the transcript.
+ */
+export const createCloudBrowserResumeToolResult = (
+  history: readonly AgentMessage[],
+  receipt: CloudBrowserResumeReceipt,
+  timestamp = Date.now(),
+): AgentMessage => {
+  if (
+    !isCloudBrowserResumeReceipt(receipt) ||
+    Object.keys(receipt).sort().join(",") !==
+      [...CLOUD_BROWSER_RESUME_KEYS].sort().join(",")
+  ) {
+    throw new Error("Cloud browser resume receipt is invalid.");
+  }
+  if (
+    history.some(
+      (message) =>
+        message.role === "toolResult" &&
+        message.toolCallId === receipt.toolCallId,
+    )
+  ) {
+    throw new Error("Cloud browser resume was already appended.");
+  }
+
+  let toolName: string | undefined;
+  let assistantIndex = -1;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index];
+    if (message?.role !== "assistant") continue;
+    const matches = message.content.filter(
+      (part): part is AgentToolCall =>
+        part.type === "toolCall" && part.id === receipt.toolCallId,
+    );
+    if (matches.length === 1) {
+      toolName = matches[0]!.name;
+      assistantIndex = index;
+      break;
+    }
+  }
+  if (toolName !== "code" || assistantIndex < 0) {
+    throw new Error(
+      "Cloud browser resume does not match the canonical assistant tool call.",
+    );
+  }
+  if (
+    history
+      .slice(assistantIndex + 1)
+      .some((message) => message.role !== "toolResult")
+  ) {
+    throw new Error("Cloud browser resume history is not continuable.");
+  }
+  return {
+    role: "toolResult",
+    toolCallId: receipt.toolCallId,
+    toolName,
+    content: [{ type: "text", text: receipt.safeMessage }],
+    details: {
+      browserResume: {
+        schemaVersion: 1,
+        interactionId: receipt.interactionId,
+        interactionRevision: receipt.interactionRevision,
+        profileId: receipt.profileId,
+        profileEpoch: receipt.profileEpoch,
+        requestDigest: receipt.requestDigest,
+        result: receipt.result,
+      },
+    },
+    isError: receipt.result !== "approved",
+    timestamp,
   };
 };
+
+export const createSuspendedAgentTurnResult = (args: {
+  error: AgentToolSuspendedError;
+  usage: AgentTurnSuspendedResult["usage"];
+  checkpointMs: number;
+  turnStateCheckpoint: TurnBrokerTurnStateCheckpointReceipt;
+}): AgentTurnSuspendedResult => ({
+  outcome: "suspended",
+  ok: false,
+  finalText: "",
+  suspension: args.error.suspension,
+  usage: args.usage,
+  checkpointMs: args.checkpointMs,
+  turnStateCheckpoint: args.turnStateCheckpoint,
+});
 
 /**
  * Pinned in code, not read from agent-metadata: the sandbox image's home-seed
@@ -226,10 +360,58 @@ const CLOUD_GENERAL_TOOLS = [
   "Read",
 ] as const;
 
+const CLOUD_STELLA_TOOLS = [...CLOUD_GENERAL_TOOLS, "code"] as const;
+
 export const cloudGeneralToolNames = (
-  _engine: CloudExecutionSelection["engine"],
-): readonly (typeof CLOUD_GENERAL_TOOLS)[number][] =>
-  CLOUD_GENERAL_TOOLS;
+  engine: CloudExecutionSelection["engine"],
+): readonly string[] =>
+  engine === "stella" ? CLOUD_STELLA_TOOLS : CLOUD_GENERAL_TOOLS;
+
+export const checkpointCloudBrowserTurnBeforeTeardown = async (args: {
+  codeToolCallIds: readonly string[];
+  suspended: boolean;
+  endBrowserTurn: (
+    toolCallId: string,
+    behavior: "retain-tabs",
+  ) => Promise<void>;
+}): Promise<void> => {
+  if (args.suspended) return;
+  // A later Code cell might not touch the browser, so walk every call id
+  // newest-first; only the id held by a live browser session acts.
+  for (const toolCallId of [...args.codeToolCallIds].reverse()) {
+    await args.endBrowserTurn(toolCallId, "retain-tabs");
+  }
+};
+
+export const createBuilderFallbackAgentTurnResult = (args: {
+  finalText: string;
+  notice?: string;
+  error?: string;
+  usage: AgentTurnTerminalResult["usage"];
+  historyCursor: string;
+  messages: NonNullable<
+    AgentTurnTerminalResult["builderFallback"]
+  >["messages"];
+  nativeCheckpoint?: NonNullable<
+    AgentTurnTerminalResult["builderFallback"]
+  >["nativeCheckpoint"];
+  project?: AgentTurnProjectResult;
+}): AgentTurnTerminalResult => ({
+  ok: !args.error,
+  finalText:
+    `${args.finalText || (args.error ? "" : "The agent finished without a report.")}${args.notice ?? ""}`.trim(),
+  ...(args.error ? { error: args.error } : {}),
+  checkpointPolicy: "builder_fallback",
+  usage: args.usage,
+  builderFallback: {
+    historyCursor: args.historyCursor,
+    messages: args.messages,
+    ...(args.nativeCheckpoint
+      ? { nativeCheckpoint: args.nativeCheckpoint }
+      : {}),
+  },
+  ...(args.project ? { project: args.project } : {}),
+});
 
 /**
  * Make the restored workspace writable by the fixed tool account without ever
@@ -314,6 +496,7 @@ export const commitTurnStateBeforeTranscript = async (args: {
   nativeCheckpoint?: Awaited<
     ReturnType<typeof runNativeAgentTurn>
   >["nativeStateCheckpoint"];
+  suspensionTranscript?: TurnBrokerTurnStateCheckpointRequest["suspensionTranscript"];
   broker: Pick<TurnCredentialBrokerClient, "commitTurnStateCheckpoint">;
   appendTranscript: () => Promise<void>;
 }): Promise<TurnBrokerTurnStateCheckpointReceipt> => {
@@ -321,6 +504,9 @@ export const commitTurnStateBeforeTranscript = async (args: {
     historyCursor: args.historyCursor,
     ...(args.nativeCheckpoint
       ? { nativeCheckpoint: args.nativeCheckpoint }
+      : {}),
+    ...(args.suspensionTranscript
+      ? { suspensionTranscript: args.suspensionTranscript }
       : {}),
   });
   await args.appendTranscript();
@@ -553,6 +739,34 @@ export const runAgentTurn = (
           checkpointPolicy: "preserve_prior",
         };
       }
+      let browserResumeMessage: AgentMessage | undefined;
+      if (input.browserResume) {
+        if (input.execution.engine !== "stella") {
+          return {
+            ok: false,
+            finalText: "",
+            error: "Cloud browser resume requires the Stella engine.",
+            usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
+            checkpointPolicy: "preserve_prior",
+          };
+        }
+        try {
+          browserResumeMessage = createCloudBrowserResumeToolResult(
+            history,
+            input.browserResume,
+          );
+          history = [...history, browserResumeMessage];
+        } catch {
+          return {
+            ok: false,
+            finalText: "",
+            error:
+              "Stella couldn't validate this browser continuation. Try again.",
+            usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
+            checkpointPolicy: "preserve_prior",
+          };
+        }
+      }
       if (!/^[0-9a-f]{64}$/.test(input.nativeStateIntegrityKey)) {
         return {
           ok: false,
@@ -703,6 +917,13 @@ export const runAgentTurn = (
             stellaDataDir: CLOUD_HOST_STATE,
             recoverStaleSecrets: false,
             enableShellShims: false,
+            ...(input.execution.engine === "stella"
+              ? {
+                  allowCloudCode: true,
+                  browserSessionFactory:
+                    createTurnBrokerBrowserSessionFactory(broker),
+                }
+              : {}),
             ...(officeBinPath ? { stellaOfficeBinPath: officeBinPath } : {}),
             webSearch: async (query, options) => {
               const response = await postJson("/api/cloud/web-search", {
@@ -776,6 +997,7 @@ export const runAgentTurn = (
       // command that produced nothing. The agent is the only party that can
       // tell the user its files are sitting in the workspace.
       let runtimeWithheldFiles = 0;
+      const cloudCodeToolCallIds: string[] = [];
 
       const catalog = toolHost.getToolCatalog("general", {});
       const byName = new Map(catalog.map((tool) => [tool.name, tool]));
@@ -792,15 +1014,19 @@ export const runAgentTurn = (
         }
       };
       const executeCloudTool = async (
+        toolCallId: string,
         name: string,
         params: Record<string, unknown>,
         signal?: AbortSignal,
         onUpdate?: ToolUpdateCallback,
       ): Promise<ToolResult> => {
+        if (name === "code" && !cloudCodeToolCallIds.includes(toolCallId)) {
+          cloudCodeToolCallIds.push(toolCallId);
+        }
         const result = await toolHost.executeTool(
           name,
           params,
-          context,
+          { ...context, requestId: toolCallId },
           signal,
           onUpdate,
         );
@@ -813,8 +1039,9 @@ export const runAgentTurn = (
         ...(meta.workingText ? { workingText: meta.workingText } : {}),
         description: meta.description,
         parameters: meta.parameters as unknown as TSchema,
-        execute: async (_toolCallId, params, signal) => {
+        execute: async (toolCallId, params, signal) => {
           const result = await executeCloudTool(
+            toolCallId,
             meta.name,
             (params ?? {}) as Record<string, unknown>,
             signal,
@@ -866,13 +1093,14 @@ export const runAgentTurn = (
                 allowLegacyImagePathReopen: false,
                 getActiveTurn: () => ({
                   identityScope: `${input.threadId}:${input.turnId}`,
-                  executeTool: (
-                    _toolCallId,
-                    toolName,
-                    args,
-                    signal,
-                    onUpdate,
-                  ) => executeCloudTool(toolName, args, signal, onUpdate),
+                  executeTool: (toolCallId, toolName, args, signal, onUpdate) =>
+                    executeCloudTool(
+                      toolCallId,
+                      toolName,
+                      args,
+                      signal,
+                      onUpdate,
+                    ),
                 }),
               }),
             catch: asError,
@@ -898,6 +1126,7 @@ export const runAgentTurn = (
       let turnStateCheckpoint: TurnBrokerTurnStateCheckpointReceipt | undefined;
       let execution: { finalText: string; errorMessage?: string };
       let produced: AgentMessage[];
+      let suspendedError: AgentToolSuspendedError | undefined;
       let forceBuilderFallback = false;
       let nativeStateCheckpoint:
         | Awaited<
@@ -911,25 +1140,25 @@ export const runAgentTurn = (
             return {
               ok: true as const,
               value: await runNativeAgentTurn({
-              prompt: input.prompt,
-              systemPrompt: cloudSystemPrompt,
-              execution: nativeExecution,
-              callbackBase: credentialProxy.siteBaseUrl,
-              relayToken: credentialProxy.dummyToken,
-              workspace,
-              threadId: input.threadId,
-              turnId: input.turnId,
-              history,
-              authoritativeHistoryCursor: nativeHistoryCursorFromRows(
-                input.history ?? [],
-              ),
-              stateIntegrityKey: input.nativeStateIntegrityKey,
-              ...(claudeToolMcpHost
-                ? {
-                    claudeMcpServerConfig: claudeToolMcpHost.mcpServerConfig,
-                  }
-                : {}),
-              emitEvent,
+                prompt: input.prompt,
+                systemPrompt: cloudSystemPrompt,
+                execution: nativeExecution,
+                callbackBase: credentialProxy.siteBaseUrl,
+                relayToken: credentialProxy.dummyToken,
+                workspace,
+                threadId: input.threadId,
+                turnId: input.turnId,
+                history,
+                authoritativeHistoryCursor: nativeHistoryCursorFromRows(
+                  input.history ?? [],
+                ),
+                stateIntegrityKey: input.nativeStateIntegrityKey,
+                ...(claudeToolMcpHost
+                  ? {
+                      claudeMcpServerConfig: claudeToolMcpHost.mcpServerConfig,
+                    }
+                  : {}),
+                emitEvent,
               }),
             };
           } catch (error) {
@@ -977,6 +1206,7 @@ export const runAgentTurn = (
               turnToken: credentialProxy.dummyToken,
               agentType: "general",
               execution: input.execution,
+              loopbackStage: credentialProxy.modelResolutionStage,
             }),
           catch: asError,
         });
@@ -1032,7 +1262,11 @@ export const runAgentTurn = (
           }
         });
 
-        const before = agent.state.messages.length;
+        // A resume tool result belongs to this new physical turn even though
+        // it must already be present when Agent.continue() makes its provider
+        // request.
+        const before =
+          agent.state.messages.length - (browserResumeMessage ? 1 : 0);
         // The desktop runtime's transient ladder: a retryable provider or
         // transport failure resumes the same in-memory context instead of
         // failing the whole turn. The DO's watchdog still bounds the turn; a
@@ -1042,42 +1276,51 @@ export const runAgentTurn = (
             return {
               ok: true as const,
               value: await executeAgentRunWithRetry({
-              state: { attemptsUsed: 0, retriesUsed: 0 },
-              execute: async (resume) => {
-                if (resume) {
-                  await agent.continue();
-                } else {
-                  await agent.prompt(input.prompt);
-                }
-                const completion = getAgentCompletion(agent);
-                return {
-                  ...completion,
-                  finalText: completion.finalText.trim(),
-                };
-              },
-              prepareResume: (reason, classification) => {
-                const prepared = prepareTransientResumeTail(
-                  agent.state.messages,
-                  classification,
-                );
-                if (prepared) {
-                  console.error(
-                    `transient run retry (${classification.category}): ${reason}`,
+                state: { attemptsUsed: 0, retriesUsed: 0 },
+                initialResume: Boolean(browserResumeMessage),
+                execute: async (resume) => {
+                  if (resume) {
+                    await agent.continue();
+                  } else {
+                    await agent.prompt(input.prompt);
+                  }
+                  const completion = getAgentCompletion(agent);
+                  return {
+                    ...completion,
+                    finalText: completion.finalText.trim(),
+                  };
+                },
+                prepareResume: (reason, classification) => {
+                  const prepared = prepareTransientResumeTail(
+                    agent.state.messages,
+                    classification,
                   );
-                }
-                return prepared;
-              },
+                  if (prepared) {
+                    console.error(
+                      `transient run retry (${classification.category}): ${reason}`,
+                    );
+                  }
+                  return prepared;
+                },
               }),
             };
           } catch (error) {
-            return { ok: false as const, error: asError(error) };
+            return {
+              ok: false as const,
+              error: isAgentToolSuspendedError(error) ? error : asError(error),
+            };
           } finally {
             unsubscribe();
           }
         });
-        execution = runOutcome.ok
-          ? runOutcome.value
-          : { finalText: "", errorMessage: runOutcome.error.message };
+        if (!runOutcome.ok && isAgentToolSuspendedError(runOutcome.error)) {
+          suspendedError = runOutcome.error;
+          execution = { finalText: "" };
+        } else {
+          execution = runOutcome.ok
+            ? runOutcome.value
+            : { finalText: "", errorMessage: runOutcome.error.message };
+        }
         // Errored assistant messages have empty content; one empty assistant
         // row poisons every future Anthropic request for this thread.
         produced = agent.state.messages.slice(before).filter((message) => {
@@ -1090,6 +1333,11 @@ export const runAgentTurn = (
         });
       }
       if (produced.length === 0) {
+        if (suspendedError) {
+          throw new Error(
+            "Suspended cloud browser turn did not retain its assistant tool call.",
+          );
+        }
         // A tool-only/error path can still mutate the workspace before an
         // engine emits a transcript row. Give that physical turn an explicit
         // canonical row instead of silently dropping its durable state or
@@ -1156,8 +1404,8 @@ export const runAgentTurn = (
           return {
             ok: true as const,
             value: await toolHost.drainCompletedShellProducedFiles({
-            conversationId: context.conversationId,
-            ...(context.agentId ? { agentId: context.agentId } : {}),
+              conversationId: context.conversationId,
+              ...(context.agentId ? { agentId: context.agentId } : {}),
             }),
           };
         } catch (error) {
@@ -1307,6 +1555,25 @@ export const runAgentTurn = (
       }));
 
       // Freeze every model-controlled writer before the archive is built.
+      // A normal cloud Code turn checkpoints its Browser Run profile before
+      // the sandbox and its turn authority disappear. A suspended login/device
+      // handoff is still under human control and must receive no automation
+      // command here; the next physical turn resumes it from Convex instead.
+      const browserTurnFailure = yield* Effect.promise(async () => {
+        try {
+          await checkpointCloudBrowserTurnBeforeTeardown({
+            codeToolCallIds: cloudCodeToolCallIds,
+            suspended: Boolean(suspendedError),
+            endBrowserTurn: (toolCallId, behavior) =>
+              toolHost.endBrowserTurn(toolCallId, behavior),
+          });
+          return undefined;
+        } catch (error) {
+          return asError(error);
+        }
+      });
+
+      // Freeze every remaining model-controlled writer before the archive is built.
       // ToolHost shutdown is joined and idempotent; closing the Claude MCP
       // listener also prevents a surviving descendant from starting another
       // tool call after the workspace snapshot begins.
@@ -1315,9 +1582,12 @@ export const runAgentTurn = (
           toolHost.shutdown(),
           claudeToolMcpHost?.close() ?? Promise.resolve(),
         ]);
-        return results.flatMap((result) =>
-          result.status === "rejected" ? [asError(result.reason)] : [],
-        );
+        return [
+          ...(browserTurnFailure ? [browserTurnFailure] : []),
+          ...results.flatMap((result) =>
+            result.status === "rejected" ? [asError(result.reason)] : [],
+          ),
+        ];
       });
 
       if (forceBuilderFallback || shutdownFailures.length > 0) {
@@ -1326,22 +1596,19 @@ export const runAgentTurn = (
           execution.errorMessage ||
           shutdownReason ||
           "The executor could not prove that every workspace writer stopped.";
-        return {
-          ok: false,
-          finalText: `${execution.finalText}${outputs.notice}`.trim(),
+        return createBuilderFallbackAgentTurnResult({
+          finalText: execution.finalText,
+          notice: outputs.notice,
           error,
-          checkpointPolicy: "builder_fallback",
           usage: { inputTokens, outputTokens, llmCalls },
-          builderFallback: {
-            historyCursor,
-            messages: transcriptRows,
-            ...(nativeStateCheckpoint
-              ? { nativeCheckpoint: nativeStateCheckpoint }
-              : {}),
-          },
+          historyCursor,
+          messages: transcriptRows,
+          ...(nativeStateCheckpoint
+            ? { nativeCheckpoint: nativeStateCheckpoint }
+            : {}),
           ...(project
             ? {
-                project: {
+              project: {
                   mode: project.mode,
                   branch: project.branch,
                   ...(project.setupCommand
@@ -1353,7 +1620,7 @@ export const runAgentTurn = (
                 },
               }
             : {}),
-        } satisfies AgentTurnResult;
+        });
       }
 
       {
@@ -1362,12 +1629,16 @@ export const runAgentTurn = (
         // exact broker replay returns the already committed pair after a lost
         // response; it never uploads a second archive.
         const checkpointStarted = performance.now();
-        turnStateCheckpoint = yield* Effect.tryPromise({
-          try: () =>
-            commitTurnStateBeforeTranscript({
+        const checkpointAttempt = yield* Effect.promise(async () => {
+          try {
+            return {
+              receipt: await commitTurnStateBeforeTranscript({
               historyCursor,
               ...(nativeStateCheckpoint
                 ? { nativeCheckpoint: nativeStateCheckpoint }
+                : {}),
+              ...(suspendedError
+                ? { suspensionTranscript: transcriptRows }
                 : {}),
               broker,
               appendTranscript: async () => {
@@ -1392,14 +1663,58 @@ export const runAgentTurn = (
                   );
                 }
               },
-            }),
-          catch: asError,
+              }),
+            } as const;
+          } catch (error) {
+            return { error: asError(error) } as const;
+          }
         });
         checkpointMs = Math.round(performance.now() - checkpointStarted);
+        if ("error" in checkpointAttempt) {
+          // A lost checkpoint/transcript response does not erase the model's
+          // completed report. Hand the exact transcript to Builder, which
+          // quiesces the process tree and resumes the idempotent journal.
+          return createBuilderFallbackAgentTurnResult({
+            finalText: execution.finalText,
+            notice: outputs.notice,
+            ...(execution.errorMessage
+              ? { error: execution.errorMessage }
+              : {}),
+            usage: { inputTokens, outputTokens, llmCalls },
+            historyCursor,
+            messages: transcriptRows,
+            ...(nativeStateCheckpoint
+              ? { nativeCheckpoint: nativeStateCheckpoint }
+              : {}),
+            ...(project
+              ? {
+                  project: {
+                    mode: project.mode,
+                    branch: project.branch,
+                    ...(project.setupCommand
+                      ? { setupCommand: project.setupCommand }
+                      : {}),
+                    ...(project.setupSource
+                      ? { setupSource: project.setupSource }
+                      : {}),
+                  },
+                }
+              : {}),
+          });
+        }
+        turnStateCheckpoint = checkpointAttempt.receipt;
       }
 
       const finalText = execution.finalText;
       const error = execution.errorMessage;
+      if (suspendedError) {
+        return createSuspendedAgentTurnResult({
+          error: suspendedError,
+          usage: { inputTokens, outputTokens, llmCalls },
+          checkpointMs,
+          turnStateCheckpoint,
+        });
+      }
       return {
         ok: !error,
         finalText:

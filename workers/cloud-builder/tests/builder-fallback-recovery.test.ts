@@ -10,7 +10,10 @@ mock.module("@cloudflare/sandbox", () => ({
   getSandbox: () => ({}),
   Sandbox: class {},
 }));
-const { BuildSession } = await import("../src/index.js");
+const {
+  BuildSession,
+  bindObservedBrowserSuspensionToCanonicalCodeCall,
+} = await import("../src/index.js");
 mock.restore();
 
 const mapStorage = (values = new Map<string, unknown>()) => {
@@ -42,7 +45,17 @@ const mapStorage = (values = new Map<string, unknown>()) => {
           .slice(0, limit),
       ) as Map<string, T>,
     transaction: async <T>(operation: (transaction: unknown) => Promise<T>) =>
-      await operation({ get, put, delete: remove }),
+      await operation({
+        get,
+        put,
+        delete: remove,
+        setAlarm: async (value: number) => {
+          alarm = value;
+        },
+        deleteAlarm: async () => {
+          alarm = null;
+        },
+      }),
     setAlarm: async (value: number) => {
       alarm = value;
     },
@@ -81,7 +94,7 @@ const marker = {
   attemptGeneration: 1,
   sandboxId: "sandbox-1",
   size: "large" as const,
-  workspace: "cloud",
+  workspace: "drive",
   workspaceRoot: "/workspace/drive" as const,
   startedAt: 1,
 };
@@ -130,7 +143,114 @@ const rows = [
   },
 ];
 
+const browserRows = [
+  {
+    turnId: "turn-1",
+    ordinal: 0,
+    role: "user",
+    payloadJson: JSON.stringify({
+      role: "user",
+      content: [{ type: "text", text: "sign in" }],
+    }),
+  },
+  {
+    turnId: "turn-1",
+    ordinal: 1,
+    role: "assistant",
+    payloadJson: JSON.stringify({
+      role: "assistant",
+      content: [
+        {
+          type: "toolCall",
+          id: "outer-code-call",
+          name: "code",
+          arguments: { code: "await browser.requestLoginTakeover({})" },
+        },
+      ],
+    }),
+  },
+];
+
+const browserSuspension = (expiresAt = Date.now() + 60_000) => ({
+  schemaVersion: 1 as const,
+  outcome: "waiting_for_user" as const,
+  interactionId: "interaction-1",
+  interactionRevision: 1,
+  interactionKind: "login_takeover" as const,
+  toolCallId: "inner-gateway-request",
+  requestDigest: "4".repeat(64),
+  profileId: "default" as const,
+  profileEpoch: 2,
+  displayOrigin: "https://example.test",
+  displayTitle: "Example",
+  expiresAt,
+});
+
+const observedBrowserSuspension = (expiresAt = Date.now() + 60_000) => ({
+  schemaVersion: 1 as const,
+  turnId: "turn-1",
+  attemptGeneration: 1,
+  brokerRequestId: "broker-request-1",
+  requestBodySha256: "5".repeat(64),
+  responseBodySha256: "6".repeat(64),
+  suspension: browserSuspension(expiresAt),
+  observedAt: 1,
+});
+
 describe("Builder fallback recovery", () => {
+  test("binds an observed Gateway wait only to one canonical unresolved Code call", async () => {
+    const cursor = await nativeHistoryCursorFromRows(browserRows);
+    const checkpoint = receipt(cursor);
+    const bound =
+      await bindObservedBrowserSuspensionToCanonicalCodeCall({
+        observation: observedBrowserSuspension(),
+        turnId: "turn-1",
+        attemptGeneration: 1,
+        checkpoint,
+        rows: browserRows,
+      });
+    expect(bound).toMatchObject({
+      interactionId: "interaction-1",
+      toolCallId: "outer-code-call",
+    });
+
+    const ambiguousRows = structuredClone(browserRows);
+    const assistant = JSON.parse(ambiguousRows[1]!.payloadJson) as {
+      content: unknown[];
+    };
+    assistant.content.push({
+      type: "toolCall",
+      id: "second-unresolved-call",
+      name: "code",
+      arguments: {},
+    });
+    ambiguousRows[1]!.payloadJson = JSON.stringify({
+      role: "assistant",
+      content: assistant.content,
+    });
+    expect(
+      await bindObservedBrowserSuspensionToCanonicalCodeCall({
+        observation: observedBrowserSuspension(),
+        turnId: "turn-1",
+        attemptGeneration: 1,
+        checkpoint: receipt(
+          await nativeHistoryCursorFromRows(ambiguousRows),
+        ),
+        rows: ambiguousRows,
+      }),
+    ).toBeNull();
+    expect(
+      await bindObservedBrowserSuspensionToCanonicalCodeCall({
+        observation: observedBrowserSuspension(1),
+        turnId: "turn-1",
+        attemptGeneration: 1,
+        checkpoint,
+        rows: browserRows,
+        now: 2,
+      }),
+    ).toBeNull();
+  });
+
   test("reuses an already accepted broker checkpoint after stdout loss", async () => {
     const { instance, state, current } = harness();
     const cursor = await nativeHistoryCursorFromRows(rows);
@@ -171,6 +291,85 @@ describe("Builder fallback recovery", () => {
         key.startsWith("builderFallbackTranscript:"),
       ),
     ).toEqual([]);
+  });
+
+  test("replays a suspended checkpoint transcript before synthesizing fallback", async () => {
+    const { instance, state, current } = harness();
+    const cursor = await nativeHistoryCursorFromRows(browserRows);
+    const accepted = receipt(cursor);
+    const messages = browserRows.map(({ ordinal, role, payloadJson }) => ({
+      ordinal,
+      role,
+      payloadJson,
+    }));
+    state.values.set("observedBrowserSuspension", observedBrowserSuspension());
+    state.values.set("turnStateCheckpointOperation:req-browser", {
+      state: "succeeded",
+      turnId: current.turnId,
+      attemptGeneration: 1,
+      requestId: "req-browser",
+      requestFingerprint: "8".repeat(64),
+      createdAt: 1,
+      baseWorkspaceRevision: 0,
+      payload: {
+        schemaVersion: 1,
+        historyCursor: cursor,
+        suspensionTranscript: messages,
+      },
+      operationId: accepted.operationId,
+      receipt: accepted,
+    });
+    const canonical: typeof browserRows = [];
+    instance["fetchCanonicalAgentHistory"] = async () => canonical;
+    const calls: string[] = [];
+    instance["publishAgentTurnWorkspace"] = async () => {
+      calls.push("publish-original");
+      return {};
+    };
+    instance["abortUnpublishedTurnStateOperation"] = async () => {
+      throw new Error("original suspension checkpoint must not be aborted");
+    };
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as {
+        messages: typeof messages;
+      };
+      canonical.push(
+        ...body.messages.map((message) => ({
+          ...message,
+          turnId: current.turnId,
+        })),
+      );
+      calls.push("append-suspension-transcript");
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    try {
+      const result = await instance[
+        "reconcileAgentCheckpointAfterQuiescence"
+      ](current, marker, "executor lost after checkpoint");
+      expect(result).toEqual(accepted);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(calls).toEqual([
+      "append-suspension-transcript",
+      "publish-original",
+    ]);
+    expect(canonical).toEqual(browserRows);
+    expect(
+      state.values.get("builderFallbackTranscript:turn-1:1"),
+    ).toMatchObject({
+      requestId: "req-browser",
+      transcriptCommitted: true,
+      workspacePublished: true,
+      checkpointReceipt: accepted,
+    });
+    expect(
+      [...state.values.keys()].filter((key) =>
+        key.startsWith("turnStateCheckpointOperation:"),
+      ),
+    ).toEqual(["turnStateCheckpointOperation:req-browser"]);
   });
 
   test("finishes a pending checkpoint before aborting its noncanonical candidate", async () => {
@@ -249,6 +448,56 @@ describe("Builder fallback recovery", () => {
     expect(registrations).toEqual([false]);
   });
 
+  test("alarm recovery promotes a canonical observed wait instead of executor_recovered", async () => {
+    const { instance, state, current } = harness();
+    const cursor = await nativeHistoryCursorFromRows(browserRows);
+    const accepted = receipt(cursor);
+    state.values.set("agentExecutionMarker:turn-1:1", marker);
+    state.values.set(
+      "observedBrowserSuspension",
+      observedBrowserSuspension(),
+    );
+    instance["recoverAgentTurnAfterExecutorLoss"] = async () => accepted;
+    instance["fetchCanonicalAgentHistory"] = async () => browserRows;
+    instance["ownsExactTurn"] = async () => true;
+    const calls: string[] = [];
+    instance["terminateCurrentAgentSandbox"] = async () => {
+      calls.push("terminate");
+    };
+    let delivered: Record<string, unknown> | undefined;
+    instance["deliverBrowserSuspension"] = async (
+      _turn: unknown,
+      pending: Record<string, unknown>,
+    ) => {
+      calls.push("deliver-wait");
+      delivered = pending;
+      return true;
+    };
+    instance["settleAgentTransientBackup"] = async () => true;
+    instance["deleteTurnStoragePreservingExactCancellations"] = async () => {
+      calls.push("cleanup");
+    };
+    instance["claimTerminalDecision"] = async () => {
+      throw new Error("generic terminal recovery must not run");
+    };
+
+    await instance["runAlarm"](current);
+
+    expect(calls).toEqual(["terminate", "deliver-wait", "cleanup"]);
+    expect(delivered).toMatchObject({
+      suspension: {
+        interactionId: "interaction-1",
+        toolCallId: "outer-code-call",
+      },
+    });
+    expect(state.values.has("observedBrowserSuspension")).toBe(false);
+    expect(state.values.has("agentExecutionMarker:turn-1:1")).toBe(false);
+    expect(state.values.get("pendingBrowserSuspension")).toMatchObject({
+      turnId: "turn-1",
+      suspension: { toolCallId: "outer-code-call" },
+    });
+  });
+
   test("transcript and publication lost responses resume one durable journal", async () => {
     const { instance, state, current } = harness();
     const historyCursor = await nativeHistoryCursorFromRows(rows);
@@ -308,8 +557,12 @@ describe("Builder fallback recovery", () => {
 
     const originalFetch = globalThis.fetch;
     let transcriptCalls = 0;
-    globalThis.fetch = (async () => {
+    globalThis.fetch = (async (_input, init) => {
       transcriptCalls += 1;
+      expect(new Headers(init?.headers).get("x-stella-turn-token")).toBe(
+        current.turnToken,
+      );
+      expect(new Headers(init?.headers).get("authorization")).toBeNull();
       if (canonicalJournal.length === 0) {
         canonicalJournal.push(...structuredClone(rows));
         transcriptCommits += 1;

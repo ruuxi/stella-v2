@@ -1,8 +1,11 @@
 import { Effect } from "effect";
+import { writeFile } from "node:fs/promises";
 import { runStubTurn } from "./stub-turn.js";
 import { runAppTurn } from "./app-turn.js";
 import { runAgentTurn } from "./agent-turn.js";
+import { CLOUD_AGENT_TURN_RESULT_PATH } from "./agent-turn-result-file.js";
 
+const agentTurn = process.argv.includes("--agent-turn");
 const result = process.argv.includes("--stub")
   ? await Effect.runPromise(
       runStubTurn(process.env.STELLA_CLOUD_WORKSPACE_ROOT ?? "/workspace"),
@@ -11,7 +14,7 @@ const result = process.argv.includes("--stub")
     ? await Effect.runPromise(
         runAppTurn(process.env.STELLA_CLOUD_WORKSPACE_ROOT ?? "/workspace/app"),
       )
-    : process.argv.includes("--agent-turn")
+    : agentTurn
       ? await Effect.runPromise(
           runAgentTurn(
             process.env.STELLA_CLOUD_WORKSPACE_ROOT ?? "/workspace/drive",
@@ -20,10 +23,18 @@ const result = process.argv.includes("--stub")
       : (() => {
           throw new Error("executor-cloud requires a supported command.");
         })();
-// The result line IS the turn: the DO parses the last line of stdout and only
-// then checkpoints and reports a terminal state. An agent that left a shell
-// session (or anything else holding the event loop) alive would otherwise keep
-// this one-shot process running until the turn watchdog fires minutes later,
-// turning a finished turn into a timeout. The container is destroyed right
-// after this, so there is nothing left to wind down gracefully.
-process.stdout.write(`${JSON.stringify(result)}\n`, () => process.exit(0));
+const serialized = JSON.stringify(result);
+if (agentTurn) {
+  await writeFile(CLOUD_AGENT_TURN_RESULT_PATH, `${serialized}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+}
+// Keep stdout for compatibility and diagnostics, but never let a lost pipe ACK
+// hold the one-shot executor past Builder's durable-recovery alarm. Agent turns
+// already flushed the authoritative root-only result above.
+const forcedExit = setTimeout(() => process.exit(0), 1_000);
+process.stdout.write(`${serialized}\n`, () => {
+  clearTimeout(forcedExit);
+  process.exit(0);
+});

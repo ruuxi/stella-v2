@@ -79,6 +79,30 @@ export const getTokenIssuer = () => getRequiredEnv("CONVEX_SITE_URL");
 export const tokenIdentifierForBetterAuthUserId = (userId: string) =>
   `${getTokenIssuer()}|${userId}`;
 
+/**
+ * Service-route check for capabilities whose owner comes from a turn token,
+ * not the caller's current JWT. Missing/deleted Better Auth users and
+ * anonymous users both fail closed.
+ */
+export const isConnectedOwnerIdAction = async (
+  ctx: Pick<ActionCtx, "runQuery">,
+  ownerId: string,
+): Promise<boolean> => {
+  const separator = ownerId.lastIndexOf("|");
+  const userId = separator >= 0 ? ownerId.slice(separator + 1) : "";
+  if (!userId) return false;
+  const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+    model: "user",
+    where: [{ field: "_id", value: userId }],
+  })) as { _id?: string; isAnonymous?: boolean | null } | null;
+  return Boolean(
+    user &&
+      user._id === userId &&
+      user.isAnonymous !== true &&
+      ownerId === tokenIdentifierForBetterAuthUserId(userId),
+  );
+};
+
 export const getAuthBaseUrl = () =>
   getOptionalEnv("STELLA_AUTH_BASE_URL") ?? getRequiredEnv("CONVEX_SITE_URL");
 
@@ -1120,6 +1144,27 @@ export const requireSensitiveUserIdentityAction = async (ctx: ActionCtx) => {
   return identity;
 };
 
+/**
+ * Browser profile control is both account-only and session-sensitive. Keep
+ * this combined helper explicit so a new caller cannot accidentally accept an
+ * anonymous identity or skip the account-wide revocation marker.
+ */
+export const requireSensitiveConnectedUserIdentity = async (
+  ctx: QueryCtx | MutationCtx,
+) => {
+  const identity = await requireConnectedUserIdentity(ctx);
+  await assertSensitiveSessionPolicy(ctx, identity);
+  return identity;
+};
+
+export const requireSensitiveConnectedUserIdentityAction = async (
+  ctx: ActionCtx,
+) => {
+  const identity = await requireConnectedUserIdentityAction(ctx);
+  await assertSensitiveSessionPolicyAction(ctx, identity);
+  return identity;
+};
+
 export const requireSensitiveUserId = async (ctx: QueryCtx | MutationCtx) => {
   const identity = await requireSensitiveUserIdentity(ctx);
   return identity.tokenIdentifier;
@@ -1127,6 +1172,18 @@ export const requireSensitiveUserId = async (ctx: QueryCtx | MutationCtx) => {
 
 export const requireSensitiveUserIdAction = async (ctx: ActionCtx) => {
   const identity = await requireSensitiveUserIdentityAction(ctx);
+  return identity.tokenIdentifier;
+};
+
+export const requireSensitiveConnectedUserId = async (
+  ctx: QueryCtx | MutationCtx,
+) => {
+  const identity = await requireSensitiveConnectedUserIdentity(ctx);
+  return identity.tokenIdentifier;
+};
+
+export const requireSensitiveConnectedUserIdAction = async (ctx: ActionCtx) => {
+  const identity = await requireSensitiveConnectedUserIdentityAction(ctx);
   return identity.tokenIdentifier;
 };
 

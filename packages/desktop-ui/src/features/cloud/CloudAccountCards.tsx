@@ -1,6 +1,7 @@
 import { CloudEnginesCard } from "./CloudEnginesCard";
 import { CloudProjectsCard } from "./CloudProjectsCard";
 import { StellaInteriorCard } from "./StellaInteriorCard";
+import { CloudBrowserDataCard } from "./CloudBrowserDataCard";
 import { CloudBoundary } from "./CloudBoundary";
 import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
 
@@ -26,6 +27,9 @@ function AccountScopedCloudCards() {
       </CloudBoundary>
       <CloudBoundary fallback={unavailable("Stella interior")}>
         <StellaInteriorCard />
+      </CloudBoundary>
+      <CloudBoundary fallback={unavailable("Cloud browser data")}>
+        <CloudBrowserDataCard />
       </CloudBoundary>
     </>
   );

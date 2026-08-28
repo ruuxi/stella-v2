@@ -1,0 +1,79 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "stella-v2-browser-gateway-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "vars": {
+    "STELLA_DEPLOYMENT_IDENTITY": "dev",
+    "BROWSER_KEEP_ALIVE_MS": "600000",
+    "BROWSER_LIVE_VIEW_TTL_MS": "300000",
+    "BROWSER_HANDOFF_TIMEOUT_MS": "600000",
+  },
+  "browser": { "binding": "BROWSER" },
+  "r2_buckets": [
+    {
+      "binding": "BROWSER_PROFILES",
+      "bucket_name": "stella-v2-browser-profiles-dev",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BROWSER_PROFILE_SESSIONS",
+        "class_name": "BrowserProfileSession",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1-browser-profile-session",
+      "new_sqlite_classes": ["BrowserProfileSession"],
+    },
+  ],
+  "env": {
+    "bn118": {
+      "name": "stella-v2-browser-gateway-basic-nightingale-118",
+      "workers_dev": false,
+      "preview_urls": false,
+      "vars": {
+        "STELLA_DEPLOYMENT_IDENTITY": "basic-nightingale-118",
+        "BROWSER_KEEP_ALIVE_MS": "600000",
+        "BROWSER_LIVE_VIEW_TTL_MS": "300000",
+        "BROWSER_HANDOFF_TIMEOUT_MS": "600000",
+        "DEVICE_CODE_FIXTURE_ORIGIN": "https://stella-v2-device-code-fixture-basic-nightingale-118.lolruuxi.workers.dev",
+      },
+      "browser": { "binding": "BROWSER" },
+      "services": [
+        {
+          "binding": "DEVICE_CODE_FIXTURE",
+          "service": "stella-v2-device-code-fixture-basic-nightingale-118",
+          "entrypoint": "DeviceCodeFixtureService",
+        },
+      ],
+      "r2_buckets": [
+        {
+          "binding": "BROWSER_PROFILES",
+          "bucket_name": "stella-v2-browser-profiles-basic-nightingale-118",
+        },
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "BROWSER_PROFILE_SESSIONS",
+            "class_name": "BrowserProfileSession",
+          },
+        ],
+      },
+      "migrations": [
+        {
+          "tag": "v1-browser-profile-session",
+          "new_sqlite_classes": ["BrowserProfileSession"],
+        },
+      ],
+    },
+  },
+}

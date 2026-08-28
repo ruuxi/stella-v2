@@ -25,6 +25,7 @@ import {
 } from "react";
 import { ChevronDown } from "@/ui/icons";
 import { ConnectorConnectCard } from "./ConnectorConnectCard";
+import { CloudBrowserInterventionCard } from "@/features/cloud/CloudBrowserInterventionCard";
 import { ConversationEvents } from "./ConversationEvents";
 import { useChatMessages } from "@/context/use-chat-messages";
 import { Composer } from "./Composer";
@@ -388,6 +389,7 @@ export const ChatColumn = memo(function ChatColumn({
           {/* Inline connect offer (agent-initiated) pinned above the
               composer while the agent's turn waits on the answer. */}
           <ConnectorConnectCard conversationId={conversationId} />
+          <CloudBrowserInterventionCard conversationId={conversationId} />
 
           {/* Composer: normal flow below the scroll viewport */}
           <div

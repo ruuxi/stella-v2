@@ -141,7 +141,7 @@ export const matchSupportedLocale = (
 };
 
 export const resolveBestLocale = (
-  candidates: ReadonlyArray<string | null | undefined>,
+  candidates: readonly (string | null | undefined)[],
 ): Locale => {
   for (const candidate of candidates) {
     const matched = matchSupportedLocale(candidate ?? null);

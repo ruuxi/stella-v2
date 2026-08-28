@@ -1,4 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import {
+  loadVoiceTargetPreference,
+  reachabilityFromProbe,
+  resolveVoiceTarget,
+  setVoiceTargetPreference,
+} from "../voice-target";
 
 const memoryStore = new Map<string, string>();
 (globalThis as Record<string, unknown>).window = {
@@ -12,13 +18,6 @@ const memoryStore = new Map<string, string>();
     },
   },
 };
-
-import {
-  loadVoiceTargetPreference,
-  reachabilityFromProbe,
-  resolveVoiceTarget,
-  setVoiceTargetPreference,
-} from "../voice-target";
 
 describe("reachabilityFromProbe", () => {
   test("a completed probe yields its confirmed availability", () => {

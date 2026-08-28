@@ -50,7 +50,7 @@ export function DesktopTabAnimation() {
       -1,
       false,
     );
-  }, []);
+  }, [cursorVal, signalOffset]);
 
   const signalLineProps = useAnimatedProps(() => ({
     strokeDashoffset: signalOffset.value,

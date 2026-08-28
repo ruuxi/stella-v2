@@ -25,6 +25,7 @@ const loadWidget = (): Widget<StellaWidgetProps> | null => {
   }
   try {
 
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require("../../widgets/StellaWidget") as {
       default: Widget<StellaWidgetProps>;
     };

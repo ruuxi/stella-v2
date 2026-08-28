@@ -26,7 +26,6 @@ import {
   loadChatMessages,
   saveChatMessages,
 } from "../offline-chat-storage";
-
 const task = (overrides: Partial<MobileTask> = {}): MobileTask => ({
   id: "agent-1",
   title: "Do X in the background",

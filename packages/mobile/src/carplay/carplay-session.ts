@@ -1,4 +1,4 @@
-import { Image, Platform, Settings, type ImageSourcePropType } from "react-native";
+import { Image, NativeModules, Platform, Settings, type ImageSourcePropType } from "react-native";
 import {
   buildHome,
   flattenActions,
@@ -101,13 +101,11 @@ class CarPlaySession {
     if (this.rnc) return true;
     try {
 
-      const { NativeModules } = require("react-native") as {
-        NativeModules: Record<string, unknown>;
-      };
       carPlayLog(
         `NativeModules.RNCarPlay ${NativeModules.RNCarPlay ? "present" : "MISSING"}`,
       );
 
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const mod = require("react-native-carplay") as RNCarPlay;
       this.rnc = mod;
       this.CarPlay = mod.CarPlay;

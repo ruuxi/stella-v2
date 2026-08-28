@@ -147,4 +147,27 @@ describe("mobile_push.sendWalletSpendNotification", () => {
       }),
     ).resolves.toBeNull();
   });
+
+  it("accepts a missing amount as a generic approval ping", async () => {
+    const t = createTest();
+    const asOwner = t.withIdentity({
+      issuer: "https://issuer.test",
+      subject: "owner-1",
+      tokenIdentifier: OWNER,
+      sessionId: "session-owner-1",
+    });
+    await t.mutation(internal.mobile_push.upsertToken, {
+      ownerId: OWNER,
+      mobileDeviceId: DEVICE,
+      expoPushToken: TOKEN,
+      platform: "ios",
+      nowMs: 1_000_000,
+    });
+    await expect(
+      asOwner.action(api.mobile_push.sendWalletSpendNotification, {
+        merchantName: "  ",
+        amountCents: 0,
+      }),
+    ).resolves.toBeNull();
+  });
 });

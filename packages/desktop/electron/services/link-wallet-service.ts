@@ -150,6 +150,15 @@ export class LinkWalletService {
       current = { status: "disconnected" };
     }
     if (current.status === "connected") {
+      if (current.paymentMethods.length === 0) {
+        this.broadcastCard({
+          requestId: randomUUID(),
+          phase: "add_card",
+          ...(payload.conversationId
+            ? { conversationId: payload.conversationId }
+            : {}),
+        });
+      }
       return { ok: true, status: "already_connected", snapshot: current };
     }
 
@@ -216,9 +225,7 @@ export class LinkWalletService {
     }
     if (payload.action === "cancel") {
       meta.abort.abort(new Error("Connection cancelled."));
-      if (meta.state === "pending") {
-        this.settle(payload.requestId, { ok: false, reason: "cancelled" });
-      }
+      this.settle(payload.requestId, { ok: false, reason: "cancelled" });
       return { ok: true };
     }
     if (meta.state !== "pending") {
@@ -238,9 +245,7 @@ export class LinkWalletService {
     for (const [requestId, meta] of this.meta) {
       if (meta.offerId !== offerId) continue;
       meta.abort.abort(new Error("Connection cancelled."));
-      if (meta.state === "pending") {
-        this.settle(requestId, { ok: false, reason: "cancelled" });
-      }
+      this.settle(requestId, { ok: false, reason: "cancelled" });
       return { ok: true };
     }
     return { ok: false };
@@ -395,9 +400,12 @@ export class LinkWalletService {
       }
       return;
     }
+    const needsCard =
+      outcome.snapshot.status === "connected" &&
+      outcome.snapshot.paymentMethods.length === 0;
     this.broadcastCard({
       requestId,
-      phase: "connected",
+      phase: needsCard ? "add_card" : "connected",
       ...(meta?.conversationId ? { conversationId: meta.conversationId } : {}),
     });
   }

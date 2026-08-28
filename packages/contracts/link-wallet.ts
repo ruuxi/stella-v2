@@ -36,6 +36,7 @@ export type LinkWalletSnapshot =
 export type LinkWalletCardPhase =
   | "offer"
   | "pairing"
+  | "add_card"
   | "connected"
   | "awaiting_approval"
   | "error";

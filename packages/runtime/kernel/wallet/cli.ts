@@ -6,6 +6,7 @@ import { LINK_WALLET_CLIENT_NAME } from "@stella/contracts/link-wallet";
 
 import { linkWalletAuthFile, linkWalletDir } from "./paths.js";
 import {
+  extractLoginPrompts,
   parseAuthStatus,
   parseJsonObject,
   parseLoginPrompt,
@@ -118,6 +119,8 @@ export const createLinkCli = (options: {
     login: async (signal, onPrompt) => {
       await fs.mkdir(linkWalletDir(options.stellaDataDir), { recursive: true });
       let sawPrompt = false;
+      let buffer = "";
+      const seen = new Set<string>();
       await exec(
         [
           "auth",
@@ -132,8 +135,11 @@ export const createLinkCli = (options: {
         {
           signal,
           onStdout: (chunk) => {
-            const prompt = parseLoginPrompt(parseJsonObject(chunk));
-            if (prompt.verificationUrl || prompt.userCode) {
+            buffer += chunk;
+            for (const prompt of extractLoginPrompts(buffer)) {
+              const key = `${prompt.verificationUrl ?? ""}|${prompt.userCode ?? ""}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
               sawPrompt = true;
               onPrompt(prompt);
             }

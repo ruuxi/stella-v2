@@ -30,15 +30,15 @@ const summarizeSnapshot = (snapshot: LinkWalletSnapshot): string => {
   if (snapshot.status !== "connected") {
     return "Link is not connected.";
   }
-  const cards =
-    snapshot.paymentMethods.length === 0
-      ? "no cards on file"
-      : snapshot.paymentMethods
-          .map(
-            (method) =>
-              `${method.brand} •••• ${method.last4}${method.isDefault ? " (default)" : ""}`,
-          )
-          .join(", ");
+  if (snapshot.paymentMethods.length === 0) {
+    return "Link is connected, but there is no card yet. The user is being asked to add one in Link. Wait until they add a card before paying. Do not paste card numbers into chat.";
+  }
+  const cards = snapshot.paymentMethods
+    .map(
+      (method) =>
+        `${method.brand} •••• ${method.last4}${method.isDefault ? " (default)" : ""}`,
+    )
+    .join(", ");
   return `Link is connected. Cards: ${cards}. Spend history: ${snapshot.spends.length} item${snapshot.spends.length === 1 ? "" : "s"}. Pay with the link-wallet skill (\`npx --yes @stripe/link-cli\`) using \`--request-approval\`. Do not paste card numbers into chat.`;
 };
 

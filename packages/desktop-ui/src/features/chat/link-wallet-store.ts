@@ -87,3 +87,7 @@ export const respondToLinkWallet = (
 ) => {
   void getElectronApi()?.system.respondLinkWallet({ requestId, action });
 };
+
+export const dismissLinkWalletCard = (requestId: string) => {
+  removeRequest(requestId);
+};

@@ -5,6 +5,9 @@ import {
   TURN_BROKER_NATIVE_STATE_CHECKPOINT_PATH,
   type TurnBrokerHandoff,
 } from "@stella/contracts/turn-credential-broker";
+import {
+  CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER,
+} from "@stella/contracts/cloud-model-diagnostic";
 import { access, link, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -293,6 +296,67 @@ describe("executor turn credential broker", () => {
     );
   });
 
+  test("canonicalizes and bounds a suspended checkpoint transcript", async () => {
+    let captured: Record<string, unknown> | undefined;
+    let calls = 0;
+    const cursor = `v1:${"a".repeat(64)}`;
+    const client = new TurnCredentialBrokerClient(
+      handoff(),
+      async (_input, init) => {
+        calls += 1;
+        captured = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return Response.json({
+          schemaVersion: 1,
+          operationId: "b".repeat(64),
+          historyCursor: cursor,
+          workspaceSha256: "c".repeat(64),
+          receipt: "d".repeat(64),
+          replayed: false,
+        });
+      },
+    );
+    const suspensionTranscript = [
+      {
+        ordinal: 0,
+        role: "user",
+        payloadJson: JSON.stringify({ role: "user", content: [] }),
+      },
+      {
+        ordinal: 1,
+        role: "assistant",
+        payloadJson: JSON.stringify({ role: "assistant", content: [] }),
+      },
+    ];
+    await client.commitTurnStateCheckpoint({
+      historyCursor: cursor,
+      suspensionTranscript,
+    });
+    expect(captured).toEqual({
+      schemaVersion: 1,
+      historyCursor: cursor,
+      suspensionTranscript,
+    });
+    expect(calls).toBe(1);
+
+    const invalid = new TurnCredentialBrokerClient(handoff(), async () => {
+      calls += 1;
+      return new Response();
+    });
+    await expect(
+      invalid.commitTurnStateCheckpoint({
+        historyCursor: cursor,
+        suspensionTranscript: [
+          {
+            ordinal: 0,
+            role: "assistant",
+            payloadJson: JSON.stringify({ role: "user", content: [] }),
+          },
+        ],
+      }),
+    ).rejects.toThrow("transcript is invalid");
+    expect(calls).toBe(1);
+  });
+
   test("does not advance or reuse authority after an invalid checkpoint receipt", async () => {
     let calls = 0;
     const client = new TurnCredentialBrokerClient(handoff(), async () => {
@@ -318,6 +382,252 @@ describe("executor turn credential broker", () => {
     ).rejects.toThrow("ambiguous");
     expect(calls).toBe(1);
     expect(client.closed).toBe(true);
+  });
+
+  test("does not let an abandoned loopback request revoke turn authority", async () => {
+    let calls = 0;
+    let markStarted!: () => void;
+    let releaseFirst!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const firstReleased = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const client = new TurnCredentialBrokerClient(
+      handoff(),
+      async (_input, init) => {
+        calls += 1;
+        if (calls === 1) {
+          markStarted();
+          await new Promise<void>((resolve, reject) => {
+            const signal = init?.signal;
+            const onAbort = () => reject(signal?.reason);
+            if (signal?.aborted) {
+              onAbort();
+              return;
+            }
+            signal?.addEventListener("abort", onAbort, { once: true });
+            void firstReleased.then(() => {
+              signal?.removeEventListener("abort", onAbort);
+              resolve();
+            });
+          });
+        }
+        return Response.json({ ok: true });
+      },
+    );
+    const proxy = startTurnCredentialProxy(client);
+    try {
+      const abandonedController = new AbortController();
+      const abandoned = fetch(`${proxy.siteBaseUrl}/api/stella/cloud-model`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stella-turn-token": proxy.dummyToken,
+        },
+        body: JSON.stringify({ model: "stella/default" }),
+        signal: abandonedController.signal,
+      }).catch(() => null);
+      await firstStarted;
+      abandonedController.abort();
+      await Bun.sleep(5);
+      releaseFirst();
+      await abandoned;
+      await Bun.sleep(5);
+
+      expect(client.closed).toBe(false);
+      const next = await fetch(`${proxy.siteBaseUrl}/api/stella/cloud-model`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stella-turn-token": proxy.dummyToken,
+        },
+        body: JSON.stringify({ model: "stella/default" }),
+      });
+      expect(next.status).toBe(200);
+      expect(calls).toBe(2);
+    } finally {
+      releaseFirst();
+      proxy.close();
+    }
+  });
+
+  test("reports only bounded local proxy stages and strips upstream spoofing", async () => {
+    const secret = "credential-canary-never-return";
+    const successful = new TurnCredentialBrokerClient(
+      handoff(),
+      async () =>
+        Response.json(
+          { ok: true },
+          {
+            headers: {
+              [CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER]: "model_broker_closed",
+            },
+          },
+        ),
+    );
+    const successProxy = startTurnCredentialProxy(successful);
+    try {
+      const response = await fetch(
+        `${successProxy.siteBaseUrl}/api/stella/cloud-model`,
+        {
+          method: "POST",
+          headers: { "x-stella-turn-token": successProxy.dummyToken },
+          body: "{}",
+        },
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get(CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER)).toBeNull();
+      expect(successProxy.modelResolutionStage()).toBe("broker_responded");
+    } finally {
+      successProxy.close();
+    }
+
+    const decodedCompressedBody = new TurnCredentialBrokerClient(
+      handoff(),
+      async () =>
+        new Response('{"resolvedModel":"test","relayProvider":"openai"}', {
+          headers: {
+            "content-encoding": "gzip",
+            "content-length": "999",
+            "content-type": "application/json",
+          },
+        }),
+    );
+    const decodedCompressedBodyProxy = startTurnCredentialProxy(
+      decodedCompressedBody,
+    );
+    try {
+      const response = await fetch(
+        `${decodedCompressedBodyProxy.siteBaseUrl}/api/stella/cloud-model`,
+        {
+          method: "POST",
+          headers: {
+            "x-stella-turn-token": decodedCompressedBodyProxy.dummyToken,
+          },
+          body: "{}",
+        },
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-encoding")).toBeNull();
+      expect(response.headers.get("content-length")).not.toBe("999");
+      expect(await response.json()).toEqual({
+        resolvedModel: "test",
+        relayProvider: "openai",
+      });
+    } finally {
+      decodedCompressedBodyProxy.close();
+    }
+
+    const streamedText = "data: accepted\n\n".repeat(8_192);
+    const decodedCompressedStream = new TurnCredentialBrokerClient(
+      handoff(),
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode(streamedText));
+              controller.close();
+            },
+          }),
+          {
+            headers: {
+              [CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER]: "model_broker_closed",
+              "content-encoding": "gzip",
+              "content-length": "999",
+              "content-type": "text/event-stream",
+            },
+          },
+        ),
+    );
+    const decodedCompressedStreamProxy = startTurnCredentialProxy(
+      decodedCompressedStream,
+    );
+    try {
+      const response = await fetch(
+        `${decodedCompressedStreamProxy.relayBaseUrl}/v1/responses`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${decodedCompressedStreamProxy.dummyToken}`,
+          },
+          body: "{}",
+        },
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get(CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER)).toBeNull();
+      expect(response.headers.get("content-encoding")).toBeNull();
+      expect(response.headers.get("content-length")).not.toBe("999");
+      expect(await response.text()).toBe(streamedText);
+    } finally {
+      decodedCompressedStreamProxy.close();
+    }
+
+    const closed = new TurnCredentialBrokerClient(handoff());
+    const closedProxy = startTurnCredentialProxy(closed);
+    closed.close(new Error(secret));
+    try {
+      const response = await fetch(
+        `${closedProxy.siteBaseUrl}/api/stella/cloud-model`,
+        {
+          method: "POST",
+          headers: { "x-stella-turn-token": closedProxy.dummyToken },
+          body: "{}",
+        },
+      );
+      expect(response.status).toBe(503);
+      expect(response.headers.get(CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER)).toBe(
+        "model_broker_closed",
+      );
+      expect(await response.text()).not.toContain(secret);
+    } finally {
+      closedProxy.close();
+    }
+
+    const broken = new TurnCredentialBrokerClient(handoff(), async () => {
+      throw new Error(secret);
+    });
+    const brokenProxy = startTurnCredentialProxy(broken);
+    try {
+      const response = await fetch(
+        `${brokenProxy.siteBaseUrl}/api/stella/cloud-model`,
+        {
+          method: "POST",
+          headers: { "x-stella-turn-token": brokenProxy.dummyToken },
+          body: "{}",
+        },
+      );
+      expect(response.status).toBe(502);
+      expect(response.headers.get(CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER)).toBe(
+        "model_broker_transport",
+      );
+      expect(await response.text()).not.toContain(secret);
+    } finally {
+      brokenProxy.close();
+    }
+
+    const oversized = new TurnCredentialBrokerClient(
+      handoff(),
+      async () => new Response(new Uint8Array(64 * 1024 + 1)),
+    );
+    const oversizedProxy = startTurnCredentialProxy(oversized);
+    try {
+      const response = await fetch(
+        `${oversizedProxy.siteBaseUrl}/api/stella/cloud-model`,
+        {
+          method: "POST",
+          headers: { "x-stella-turn-token": oversizedProxy.dummyToken },
+          body: "{}",
+        },
+      );
+      expect(response.status).toBe(502);
+      expect(response.headers.get(CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER)).toBe(
+        "model_broker_transport",
+      );
+    } finally {
+      oversizedProxy.close();
+    }
   });
 
   test("a same-UID native child can use loopback without receiving broker or raw authority", async () => {
@@ -402,6 +712,71 @@ describe("executor turn credential broker", () => {
       );
       expect(builderCalls[0]?.headers.get("x-api-key")).toBeNull();
       expect(builderCalls[0]?.headers.get("x-stella-turn-token")).toBeNull();
+      expect(builderCalls[0]?.headers.get("host")).toBeNull();
+      expect(builderCalls[0]?.headers.get("connection")).toBeNull();
+      expect(builderCalls[0]?.headers.get("content-length")).toBeNull();
+      expect(builderCalls[0]?.headers.get("accept-encoding")).toBeNull();
+    } finally {
+      proxy.close();
+    }
+  });
+
+  test("bounds non-OK relay bodies while preserving retry timing", async () => {
+    let upstreamCanceled = false;
+    const stalledError = new TurnCredentialBrokerClient(
+      handoff(),
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode("upstream-private-error-body"),
+              );
+            },
+            cancel() {
+              upstreamCanceled = true;
+            },
+          }),
+          {
+            status: 429,
+            headers: {
+              "content-encoding": "gzip",
+              "content-length": "999",
+              "content-type": "text/event-stream",
+              "retry-after": "7",
+            },
+          },
+        ),
+    );
+    const proxy = startTurnCredentialProxy(stalledError);
+    try {
+      const response = await Promise.race([
+        fetch(`${proxy.relayBaseUrl}/v1/messages`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${proxy.dummyToken}` },
+          body: "{}",
+        }),
+        Bun.sleep(250).then(() => {
+          throw new Error("Non-OK relay response did not terminate promptly.");
+        }),
+      ]);
+
+      expect(response.status).toBe(429);
+      expect(response.headers.get("retry-after")).toBe("7");
+      expect(response.headers.get("content-encoding")).toBeNull();
+      expect(response.headers.get("content-length")).not.toBe("999");
+      expect(response.headers.get("content-type")).toContain(
+        "application/json",
+      );
+      expect(await response.json()).toEqual({
+        type: "error",
+        error: {
+          type: "rate_limit_error",
+          message: "Managed model relay returned HTTP 429.",
+        },
+      });
+      await Bun.sleep(0);
+      expect(upstreamCanceled).toBe(true);
     } finally {
       proxy.close();
     }

@@ -62,10 +62,22 @@ export type TurnBrokerNativeStateCheckpoint = {
   mac: string;
 };
 
+/**
+ * Secret-free provider transcript staged with a suspended turn checkpoint.
+ * Builder keeps it only so executor/finalizer loss cannot erase the canonical
+ * outer tool-call boundary needed to resume a human browser handoff.
+ */
+export type TurnBrokerCheckpointTranscriptRow = {
+  ordinal: number;
+  role: string;
+  payloadJson: string;
+};
+
 export type TurnBrokerTurnStateCheckpointRequest = {
   schemaVersion: 1;
   historyCursor: string;
   nativeCheckpoint?: TurnBrokerNativeStateCheckpoint;
+  suspensionTranscript?: TurnBrokerCheckpointTranscriptRow[];
 };
 
 export type TurnBrokerTurnStateCheckpointReceipt = {

@@ -77,6 +77,7 @@ const claim = async (
     live?: TurnBrokerLiveFence;
     now?: number;
     bodyBytes?: number;
+    bodySha256?: string;
   } = {},
 ) =>
   await claimTurnBrokerRequest({
@@ -85,7 +86,7 @@ const claim = async (
     headers: options.headers ?? headers(handoff),
     now: options.now ?? now + 1,
     bodyBytes: options.bodyBytes ?? 2,
-    bodySha256: await sha256Hex("{}"),
+    bodySha256: options.bodySha256 ?? (await sha256Hex("{}")),
   });
 
 describe("BuildSession turn credential broker", () => {
@@ -167,6 +168,53 @@ describe("BuildSession turn credential broker", () => {
       status: 409,
       code: "out_of_order",
     });
+  });
+
+  test("admits Browser Gateway only for the Stella engine", () => {
+    const target = validateTurnBrokerTarget(
+      "POST",
+      "/api/cloud/browser/command",
+    );
+    expect(target).toEqual({
+      kind: "browser-gateway",
+      method: "POST",
+      path: "/api/cloud/browser/command",
+      maxBodyBytes: 64 * 1024,
+    });
+    if (!target) throw new Error("Expected Browser Gateway target");
+    expect(turnBrokerTargetMatchesEngine(target, "stella")).toBe(true);
+    expect(turnBrokerTargetMatchesEngine(target, "anthropic")).toBe(false);
+    expect(turnBrokerTargetMatchesEngine(target, "openai-codex")).toBe(false);
+    expect(
+      validateTurnBrokerTarget("GET", "/api/cloud/browser/command"),
+    ).toBeNull();
+  });
+
+  test("replays a byte-identical Browser Gateway request for gateway deduplication", async () => {
+    const { handoff, record } = await issued();
+    const browserHeaders = headers(handoff, {
+      [TURN_BROKER_HEADERS.targetPath]: "/api/cloud/browser/command",
+    });
+    const first = await claim(record, handoff, { headers: browserHeaders });
+    expect(first).toMatchObject({
+      ok: true,
+      disposition: "claim",
+      target: { kind: "browser-gateway" },
+    });
+    if (!first.ok) throw new Error(first.code);
+    const replay = await claim(first.record, handoff, {
+      headers: browserHeaders,
+    });
+    expect(replay).toMatchObject({
+      ok: true,
+      disposition: "replay",
+      target: { kind: "browser-gateway" },
+    });
+    const changed = await claim(first.record, handoff, {
+      headers: browserHeaders,
+      bodySha256: await sha256Hex('{"changed":true}'),
+    });
+    expect(changed).toMatchObject({ ok: false, code: "replay" });
   });
 
   test("replays only a byte-identical committed-checkpoint claim", async () => {
@@ -462,6 +510,65 @@ describe("BuildSession turn credential broker", () => {
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(response.headers.get(TURN_BROKER_TURN_TOKEN_HEADER)).toBeNull();
     expect(await response.json()).toEqual({ ok: true });
+  });
+
+  test("terminates a non-OK upstream body before it crosses the service binding", async () => {
+    const target = validateTurnBrokerTarget(
+      "POST",
+      "/api/stella/relay/v1/messages",
+    );
+    if (!target) throw new Error("missing target");
+    let canceled = false;
+    const response = await forwardTurnBrokerRequest({
+      target,
+      body: new TextEncoder().encode("{}"),
+      incomingHeaders: new Headers({
+        authorization: "Bearer local-dummy",
+        "content-type": "application/json",
+      }),
+      convexCallbackBase: "https://tenant.convex.site",
+      expectedConvexOrigin: "https://tenant.convex.site",
+      rawTurnToken: "builder-only-authority",
+      engine: "anthropic",
+      signal: new AbortController().signal,
+      fetchImpl: (async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode("untrusted upstream prefix"),
+              );
+            },
+            cancel() {
+              canceled = true;
+            },
+          }),
+          {
+            status: 429,
+            headers: {
+              "content-encoding": "gzip",
+              "content-length": "999",
+              "content-type": "text/plain",
+              "retry-after": "7",
+              "set-cookie": "backend=secret",
+            },
+          },
+        )) as typeof fetch,
+    });
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("7");
+    expect(response.headers.get("content-encoding")).toBeNull();
+    expect(response.headers.get("content-length")).not.toBe("999");
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(await response.json()).toEqual({
+      type: "error",
+      error: {
+        type: "rate_limit_error",
+        message: "Managed model relay returned HTTP 429.",
+      },
+    });
+    await Promise.resolve();
+    expect(canceled).toBe(true);
   });
 
   test("never follows an upstream redirect carrying raw turn authority", async () => {

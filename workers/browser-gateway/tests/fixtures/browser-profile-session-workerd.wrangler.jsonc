@@ -1,0 +1,33 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "stella-browser-profile-session-workerd-fixture",
+  "main": "../../src/index.ts",
+  "compatibility_date": "2026-07-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "STELLA_DEPLOYMENT_IDENTITY": "workerd-fixture",
+    "BROWSER_KEEP_ALIVE_MS": "600000",
+    "BROWSER_LIVE_VIEW_TTL_MS": "300000",
+    "BROWSER_HANDOFF_TIMEOUT_MS": "600000",
+  },
+  "r2_buckets": [
+    {
+      "binding": "BROWSER_PROFILES",
+      "bucket_name": "stella-browser-profiles-workerd-fixture",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BROWSER_PROFILE_SESSIONS",
+        "class_name": "BrowserProfileSession",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1-browser-profile-session",
+      "new_sqlite_classes": ["BrowserProfileSession"],
+    },
+  ],
+}

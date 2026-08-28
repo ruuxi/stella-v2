@@ -31,6 +31,7 @@ import { executionPlacementSchema } from "./schema/execution_placement";
 import { cloudConversationEditsSchema } from "./schema/cloud_conversation_edits";
 import { accountExternalMediaSchema } from "./schema/account_external_media";
 import { c8CleanupSchema } from "./schema/c8_cleanup";
+import { cloudBrowserSchema } from "./schema/cloud_browser";
 
 export default defineSchema({
   ...conversationsSchema,
@@ -65,4 +66,5 @@ export default defineSchema({
   ...cloudConversationEditsSchema,
   ...accountExternalMediaSchema,
   ...c8CleanupSchema,
+  ...cloudBrowserSchema,
 });

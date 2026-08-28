@@ -1,12 +1,44 @@
 import type {
+  TurnBrokerCheckpointTranscriptRow,
   TurnBrokerNativeStateCheckpoint,
   TurnBrokerTurnStateCheckpointReceipt,
   TurnBrokerTurnStateCheckpointRequest,
 } from "@stella/contracts/turn-credential-broker";
 import type { TurnStateCandidate } from "./turn-state-registry.js";
 
+type TurnStateArchiveSessionFactory<TSession> = {
+  deleteSession: (sessionId: string) => Promise<unknown>;
+  createSession: (options: {
+    id: string;
+    cwd: string;
+    commandTimeoutMs: number;
+  }) => Promise<TSession>;
+};
+
+/**
+ * Replace only the deterministic checkpoint helper session.
+ *
+ * Sandbox processes are shared across sessions, so `killAllProcesses()` is
+ * intentionally forbidden here: it would also terminate the sessionless
+ * agent executor that is awaiting this checkpoint response.
+ */
+export const replaceTurnStateArchiveSession = async <TSession>(args: {
+  sandbox: TurnStateArchiveSessionFactory<TSession>;
+  sessionId: string;
+  commandTimeoutMs: number;
+}): Promise<TSession> => {
+  await args.sandbox.deleteSession(args.sessionId).catch(() => undefined);
+  return await args.sandbox.createSession({
+    id: args.sessionId,
+    cwd: "/opt/stella",
+    commandTimeoutMs: args.commandTimeoutMs,
+  });
+};
+
 const HISTORY_CURSOR = /^(?:v1:empty|v1:[0-9a-f]{64})$/u;
 const HEX_SHA256 = /^[0-9a-f]{64}$/u;
+const MAX_SUSPENSION_TRANSCRIPT_ROWS = 1_024;
+const MAX_SUSPENSION_TRANSCRIPT_BYTES = 4 * 1024 * 1024;
 
 const exactText = (value: unknown, max = 512): value is string =>
   typeof value === "string" &&
@@ -73,28 +105,96 @@ const parseNativeCheckpoint = (
   };
 };
 
+const parseSuspensionTranscript = (
+  value: unknown,
+): TurnBrokerCheckpointTranscriptRow[] | null => {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > MAX_SUSPENSION_TRANSCRIPT_ROWS
+  ) {
+    return null;
+  }
+  let bytes = 0;
+  const rows: TurnBrokerCheckpointTranscriptRow[] = [];
+  for (let ordinal = 0; ordinal < value.length; ordinal += 1) {
+    const entry = value[ordinal];
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return null;
+    }
+    const row = entry as Record<string, unknown>;
+    if (
+      !exactKeys(row, ["ordinal", "role", "payloadJson"]) ||
+      row.ordinal !== ordinal ||
+      typeof row.role !== "string" ||
+      !["user", "assistant", "toolResult"].includes(row.role) ||
+      typeof row.payloadJson !== "string"
+    ) {
+      return null;
+    }
+    bytes += new TextEncoder().encode(row.payloadJson).byteLength;
+    if (bytes > MAX_SUSPENSION_TRANSCRIPT_BYTES) return null;
+    try {
+      const payload = JSON.parse(row.payloadJson) as unknown;
+      if (
+        !payload ||
+        typeof payload !== "object" ||
+        Array.isArray(payload) ||
+        (payload as Record<string, unknown>).role !== row.role
+      ) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+    rows.push({
+      ordinal,
+      role: row.role,
+      payloadJson: row.payloadJson,
+    });
+  }
+  return rows;
+};
+
 export const parseTurnStateCheckpointRequest = (
   value: unknown,
 ): TurnBrokerTurnStateCheckpointRequest | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
   if (
-    !exactKeys(row, ["schemaVersion", "historyCursor"], ["nativeCheckpoint"]) ||
+    !exactKeys(
+      row,
+      ["schemaVersion", "historyCursor"],
+      ["nativeCheckpoint", "suspensionTranscript"],
+    ) ||
     row.schemaVersion !== 1 ||
     typeof row.historyCursor !== "string" ||
     !HISTORY_CURSOR.test(row.historyCursor)
   ) {
     return null;
   }
+  const suspensionTranscript = Object.hasOwn(row, "suspensionTranscript")
+    ? parseSuspensionTranscript(row.suspensionTranscript)
+    : undefined;
+  if (suspensionTranscript === null) return null;
   if (!Object.hasOwn(row, "nativeCheckpoint")) {
-    return { schemaVersion: 1, historyCursor: row.historyCursor };
+    return {
+      schemaVersion: 1,
+      historyCursor: row.historyCursor,
+      ...(suspensionTranscript ? { suspensionTranscript } : {}),
+    };
   }
   const nativeCheckpoint = parseNativeCheckpoint(
     row.nativeCheckpoint,
     row.historyCursor,
   );
   return nativeCheckpoint
-    ? { schemaVersion: 1, historyCursor: row.historyCursor, nativeCheckpoint }
+    ? {
+        schemaVersion: 1,
+        historyCursor: row.historyCursor,
+        nativeCheckpoint,
+        ...(suspensionTranscript ? { suspensionTranscript } : {}),
+      }
     : null;
 };
 

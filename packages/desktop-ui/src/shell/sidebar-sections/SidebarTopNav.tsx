@@ -53,6 +53,8 @@ export function SidebarTopNav() {
         return "Quick chat";
       case "browser":
         return "Browser";
+      case "takeover":
+        return "Sign in";
       case "home":
         return "Home";
       case "apps": {

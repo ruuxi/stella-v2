@@ -3,6 +3,7 @@ import { useT } from "@/shared/i18n";
 import { useLayoutEffect, useState } from "react";
 import { HomeSection } from "@/shell/sidebar-sections/HomeSection";
 import { useHasQualifyingActivity } from "@/shell/workspace/use-qualifying-activity";
+import { usePendingCloudBrowserInteractions } from "@/features/cloud/use-cloud-browser-interactions";
 import "./workspace-home-surface.css";
 
 type WorkspaceHomeSurfaceProps = {
@@ -28,19 +29,21 @@ export function WorkspaceHomeSurface({
   // latter stays > 0 after every row has auto-hidden, which reserved an empty
   // gutter here. Shared with WorkspaceSections so the strip and its list agree.
   const hasActivity = useHasQualifyingActivity();
-  const [settledHasActivity, setSettledHasActivity] = useState(hasActivity);
-  const activityAvailabilityChanging = settledHasActivity !== hasActivity;
+  const hasNeedsYou = usePendingCloudBrowserInteractions().length > 0;
+  const hasRightContent = hasActivity || hasNeedsYou;
+  const [settledHasActivity, setSettledHasActivity] = useState(hasRightContent);
+  const activityAvailabilityChanging = settledHasActivity !== hasRightContent;
 
   useLayoutEffect(() => {
     if (!activityAvailabilityChanging) return;
     const frame = window.requestAnimationFrame(() => {
-      setSettledHasActivity(hasActivity);
+      setSettledHasActivity(hasRightContent);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [activityAvailabilityChanging, hasActivity]);
+  }, [activityAvailabilityChanging, hasRightContent]);
   // The Models control now lives globally in the shell (GlobalModelsControl),
   // so this strip only exists to show ambient activity.
-  const surfaceHidden = hidden || !hasActivity;
+  const surfaceHidden = hidden || !hasRightContent;
   const resolvedPortalTarget =
     portalTarget ?? document.querySelector(".full-body") ?? document.body;
 

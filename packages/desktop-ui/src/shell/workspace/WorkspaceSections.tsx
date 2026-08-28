@@ -31,7 +31,7 @@ import {
 } from "@/app/apps/user-app-library";
 import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecycleStatusIcon";
 import { useChatRuntime } from "@/context/use-chat-runtime";
-import { useTPlural } from "@/shared/i18n";
+import { useT, useTPlural } from "@/shared/i18n";
 import { useUiState } from "@/context/ui-state";
 import {
   useConversationSchedules,
@@ -80,6 +80,8 @@ import {
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import { openAgentThreadTab } from "@/features/workspace-display/open-payload";
 import { useOpenConversationFile } from "@/features/cloud/use-cloud-drive-open";
+import { CloudBrowserNeedsYouList } from "@/features/cloud/CloudBrowserNeedsYouList";
+import { usePendingCloudBrowserInteractions } from "@/features/cloud/use-cloud-browser-interactions";
 import { displayTabKindForPayload } from "@/features/workspace-display/payload-kind";
 import { basenameOf } from "@/features/workspace-display/path-to-viewer";
 import { ScheduleDetailsDialog } from "@/global/schedule/ScheduleDetailsDialog";
@@ -648,6 +650,7 @@ export const WorkspaceSections = memo(function WorkspaceSections({
    *  dismiss itself. */
   onNavigate?: () => void;
 } = {}) {
+  const t = useT();
   const chat = useChatRuntime();
   const { state } = useUiState();
 
@@ -655,6 +658,7 @@ export const WorkspaceSections = memo(function WorkspaceSections({
   const activity = chat.conversation.activity;
   const allTasks = chat.conversation.tasks;
   const filesFeed = chat.conversation.files;
+  const pendingBrowserInteractions = usePendingCloudBrowserInteractions();
   const {
     hasOlder: activityHasOlder,
     isLoadingOlder: activityIsLoadingOlder,
@@ -677,6 +681,16 @@ export const WorkspaceSections = memo(function WorkspaceSections({
   const normalizedQuery = query.trim().toLowerCase();
   const searching = normalizedQuery.length > 0;
   const quickSearch = searching && searchMode === "quick";
+  const visibleBrowserInteractions = useMemo(
+    () =>
+      pendingBrowserInteractions.filter((interaction) => {
+        if (!searching) return true;
+        return `${interaction.displayTitle ?? ""} ${interaction.displayOrigin}`
+          .toLowerCase()
+          .includes(normalizedQuery);
+      }),
+    [normalizedQuery, pendingBrowserInteractions, searching],
+  );
   const caps = searching
     ? quickSearch
       ? QUICK_SEARCH_CAPS
@@ -1001,6 +1015,7 @@ export const WorkspaceSections = memo(function WorkspaceSections({
   const storePreview = storeItems.slice(0, caps.store);
 
   const hasActivity = visibleActivityRows.length > 0;
+  const hasNeedsYou = visibleBrowserInteractions.length > 0;
   const hasFiles = searching && visibleFiles.length > 0;
   const hasSchedule = upNext.length > 0;
   // Store is no longer listed by default — it only surfaces while searching.
@@ -1040,13 +1055,31 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     [conversationId, onNavigate],
   );
 
-  if (!hasActivity && !hasFiles && !hasSchedule && !hasStore && !hasUserApps) {
+  if (
+    !hasNeedsYou &&
+    !hasActivity &&
+    !hasFiles &&
+    !hasSchedule &&
+    !hasStore &&
+    !hasUserApps
+  ) {
     return renderEmpty ? <>{renderEmpty()}</> : null;
   }
 
   return (
     <>
       <div className="chat-workspace-strip__panel">
+        {hasNeedsYou ? (
+          <WorkspaceSection
+            title={t("cloudBrowser.needsYou.title")}
+            sectionId="needs-you"
+          >
+            <CloudBrowserNeedsYouList
+              interactions={visibleBrowserInteractions}
+              onNavigate={onNavigate}
+            />
+          </WorkspaceSection>
+        ) : null}
         {hasActivity && (
           <WorkspaceSection title="Activity" sectionId="activity" hideHeader>
             <TasksList

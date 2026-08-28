@@ -19,6 +19,54 @@
     "no": "Nu",
     "copy": "Copiază"
   },
+  "cloudBrowser": {
+    "errors": {
+      "decision": "Stella couldn't update this browser request. Try again.",
+      "verificationUrl": "Stella couldn't open that verification page.",
+      "expired": "This browser request has expired or is no longer available.",
+      "liveViewBoundary": "Stella refused an invalid private browser view.",
+      "liveView": "Stella couldn't open the private browser view. Try again."
+    },
+    "deviceCode": {
+      "title": "Finish signing in to {origin}",
+      "codeLabel": "Device code",
+      "body": "Copy this one-time code, open the verification page, and return here when you're finished.",
+      "copied": "Copied",
+      "copy": "Copy code",
+      "open": "Open page"
+    },
+    "takeover": {
+      "title": "Sign in to {origin}",
+      "checking": "Checking your sign-in to {origin}",
+      "body": "Continue in a private browser view. Stella cannot see what you type while you control it.",
+      "resumingBody": "Stella is securely resuming this task.",
+      "preparing": "Preparing a private browser view…",
+      "frameTitle": "Private sign-in for {origin}",
+      "privateNotice": "Private sign-in · Stella cannot see what you type"
+    },
+    "actions": {
+      "canceling": "Canceling…",
+      "finishing": "Finishing…",
+      "done": "Done"
+    },
+    "needsYou": {
+      "title": "Needs you",
+      "deviceCode": "Enter a device code for {origin}",
+      "signIn": "Sign in to {origin}",
+      "open": "Open"
+    },
+    "settings": {
+      "title": "Cloud browser data",
+      "defaultProfile": "Saved sign-ins",
+      "description": "Reset the private cloud browser profile Stella reuses for your account. This signs that browser out of websites.",
+      "resetComplete": "Cloud browser data was reset.",
+      "resetFailed": "Stella couldn't reset cloud browser data. Try again.",
+      "resetting": "Resetting…",
+      "reset": "Reset",
+      "confirmTitle": "Reset cloud browser data?",
+      "confirmBody": "This clears saved website sign-ins from Stella's private cloud browser. You will need to sign in again."
+    }
+  },
   "sidebar": {
     "signIn": "Conectează-te",
     "account": "Cont",

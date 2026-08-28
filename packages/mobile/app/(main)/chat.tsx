@@ -23,6 +23,7 @@ import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
 import { ChatPane } from "../../src/components/ChatPane";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
+import { CloudBrowserInterventionCard } from "../../src/components/CloudBrowserInterventionCard";
 import type { ChatArtifact } from "../../src/types";
 import { useT } from "../../src/i18n";
 
@@ -286,6 +287,13 @@ function ChatSurface(props: { guest: boolean; thread: ChatThread }) {
         realtimeVoiceSignInRequired={guest}
         onRealtimeVoiceAction={performRealtimeVoiceAction}
         placeholder={t("mobile.chat.composerPlaceholder")}
+        composerIntervention={
+          guest ? undefined : (
+            <CloudBrowserInterventionCard
+              conversationId={thread.conversationId}
+            />
+          )
+        }
         offline={offline}
         enableAttachments
         attachments={thread.attachments}

@@ -48,6 +48,7 @@ import type * as channels_connector_turn_payloads from "../channels/connector_tu
 import type * as channels_execution_policy from "../channels/execution_policy.js";
 import type * as cloud_agent_home from "../cloud_agent_home.js";
 import type * as cloud_apps from "../cloud_apps.js";
+import type * as cloud_browser from "../cloud_browser.js";
 import type * as cloud_conversation_edits from "../cloud_conversation_edits.js";
 import type * as cloud_deployments from "../cloud_deployments.js";
 import type * as cloud_dream from "../cloud_dream.js";
@@ -260,6 +261,7 @@ import type * as schema_c8_cleanup from "../schema/c8_cleanup.js";
 import type * as schema_canvas_shares from "../schema/canvas_shares.js";
 import type * as schema_cloud_agent_home from "../schema/cloud_agent_home.js";
 import type * as schema_cloud_apps from "../schema/cloud_apps.js";
+import type * as schema_cloud_browser from "../schema/cloud_browser.js";
 import type * as schema_cloud_conversation_edits from "../schema/cloud_conversation_edits.js";
 import type * as schema_cloud_drive from "../schema/cloud_drive.js";
 import type * as schema_cloud_engines from "../schema/cloud_engines.js";
@@ -366,6 +368,7 @@ declare const fullApi: ApiFromModules<{
   "channels/execution_policy": typeof channels_execution_policy;
   cloud_agent_home: typeof cloud_agent_home;
   cloud_apps: typeof cloud_apps;
+  cloud_browser: typeof cloud_browser;
   cloud_conversation_edits: typeof cloud_conversation_edits;
   cloud_deployments: typeof cloud_deployments;
   cloud_dream: typeof cloud_dream;
@@ -578,6 +581,7 @@ declare const fullApi: ApiFromModules<{
   "schema/canvas_shares": typeof schema_canvas_shares;
   "schema/cloud_agent_home": typeof schema_cloud_agent_home;
   "schema/cloud_apps": typeof schema_cloud_apps;
+  "schema/cloud_browser": typeof schema_cloud_browser;
   "schema/cloud_conversation_edits": typeof schema_cloud_conversation_edits;
   "schema/cloud_drive": typeof schema_cloud_drive;
   "schema/cloud_engines": typeof schema_cloud_engines;

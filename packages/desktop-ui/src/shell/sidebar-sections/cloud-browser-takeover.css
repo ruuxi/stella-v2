@@ -1,0 +1,113 @@
+.cloud-browser-takeover {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--text-base);
+}
+
+.cloud-browser-takeover__notice {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-weak);
+  background: color-mix(in oklch, var(--foreground) 3%, transparent);
+  color: var(--text-weak);
+  font-size: var(--font-size-xs);
+  text-align: center;
+}
+
+.cloud-browser-takeover__viewport {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  background: white;
+}
+
+.cloud-browser-takeover__frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: white;
+}
+
+.cloud-browser-takeover__status,
+.cloud-browser-takeover__device {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px 22px;
+  color: var(--text-weak);
+  text-align: center;
+  text-wrap: balance;
+}
+
+.cloud-browser-takeover__status strong,
+.cloud-browser-takeover__device h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--font-size-base);
+}
+
+.cloud-browser-takeover__device p {
+  max-width: 34ch;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.cloud-browser-takeover__device code {
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: color-mix(in oklch, var(--foreground) 7%, transparent);
+  color: var(--text-strong);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.1em;
+  user-select: all;
+}
+
+.cloud-browser-takeover__device-actions,
+.cloud-browser-takeover__controls > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.cloud-browser-takeover__device-actions .pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cloud-browser-takeover__controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--border-weak);
+  background: var(--background);
+}
+
+.cloud-browser-takeover__controls > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-weak);
+  font-size: var(--font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

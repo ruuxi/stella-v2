@@ -1,0 +1,104 @@
+.cloud-browser-intervention {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 16px 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent);
+  border-radius: 14px;
+  background: color-mix(in oklch, var(--surface-raised) 92%, transparent);
+  box-shadow: 0 8px 30px color-mix(in oklch, black 7%, transparent);
+  color: var(--text-base);
+}
+
+.cloud-browser-intervention--compact {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+  padding: 9px 10px;
+}
+
+.cloud-browser-intervention__icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--accent) 11%, transparent);
+  color: var(--text-strong);
+}
+
+.cloud-browser-intervention__body {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.cloud-browser-intervention__title,
+.cloud-browser-intervention__sub,
+.cloud-browser-intervention__device p {
+  margin: 0;
+}
+
+.cloud-browser-intervention__title {
+  color: var(--text-strong);
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-medium);
+}
+
+.cloud-browser-intervention__sub,
+.cloud-browser-intervention__device p {
+  margin-top: 3px;
+  color: var(--text-weak);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+}
+
+.cloud-browser-intervention__device code {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: color-mix(in oklch, var(--foreground) 7%, transparent);
+  color: var(--text-strong);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  user-select: all;
+}
+
+.cloud-browser-intervention__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cloud-browser-intervention__actions .pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cloud-browser-intervention__error {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-error);
+  font-size: var(--font-size-xs);
+}
+
+@media (max-width: 720px) {
+  .cloud-browser-intervention:not(.cloud-browser-intervention--compact) {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .cloud-browser-intervention__actions {
+    width: 100%;
+  }
+}

@@ -1627,6 +1627,106 @@ describe("owner purge adversarial invariants", () => {
     }
   });
 
+  it("retains browser interaction debt until the fenced Gateway profile purge succeeds", async () => {
+    vi.stubEnv("CLOUD_BUILDER_URL", "https://builder.example.test");
+    vi.stubEnv("BUILDER_SERVICE_SECRET", "test-secret");
+    const purgeBodies: Array<Record<string, unknown>> = [];
+    let purgeAttempt = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/owners/purge/begin")) {
+        return Response.json({
+          generation: "worker-browser-purge-generation",
+          rejoined: false,
+        });
+      }
+      if (url.endsWith("/owners/purge")) {
+        purgeBodies.push(
+          JSON.parse(String(init?.body)) as Record<string, unknown>,
+        );
+        purgeAttempt += 1;
+        return Response.json({
+          pending: purgeAttempt === 1 ? ["browser-profile:default"] : [],
+        });
+      }
+      throw new Error(`Unexpected purge request: ${url}`);
+    });
+    const t = createTest();
+    const fence = await beginAndClaim(
+      t,
+      "browser-profile-purge-owner",
+      "delete",
+      "cloud",
+    );
+    await t.run(async (ctx) => {
+      await seedReadyPurgeBackupSweep(ctx, {
+        ownerId: fence.ownerId,
+        operationId: fence.operationId,
+        generation: fence.generation,
+      });
+      await ctx.db.insert("cloud_browser_interactions", {
+        interactionId: "interaction:purge",
+        ownerId: fence.ownerId,
+        ownerGeneration: fence.generation,
+        conversationId: "conversation:purge",
+        threadId: "thread:purge",
+        turnId: "turn:purge",
+        attemptGeneration: 1,
+        toolCallId: "tool-call:purge",
+        requestDigest: "b".repeat(64),
+        profileId: "default",
+        profileEpoch: 3,
+        kind: "login_takeover",
+        state: "pending",
+        displayOrigin: "https://accounts.example",
+        revision: 1,
+        expiresAt: 60_000,
+        suspensionTokenHash: "c".repeat(64),
+        suspensionEventPayloadHash: "d".repeat(64),
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+
+    await expect(
+      t.action(purgeFunctions.cloud_purge.purgeOwnerCloudStack, fence),
+    ).rejects.toThrow("browser-profile:default");
+    await expect(
+      t.run(async (ctx) =>
+        ctx.db
+          .query("cloud_browser_interactions")
+          .withIndex("by_interactionId", (q) =>
+            q.eq("interactionId", "interaction:purge"),
+          )
+          .unique(),
+      ),
+    ).resolves.not.toBeNull();
+
+    await expect(
+      t.action(purgeFunctions.cloud_purge.purgeOwnerCloudStack, fence),
+    ).resolves.toEqual({ pending: [] });
+    await expect(
+      t.run(async (ctx) =>
+        ctx.db
+          .query("cloud_browser_interactions")
+          .withIndex("by_interactionId", (q) =>
+            q.eq("interactionId", "interaction:purge"),
+          )
+          .unique(),
+      ),
+    ).resolves.toBeNull();
+    expect(purgeBodies).toHaveLength(2);
+    for (const body of purgeBodies) {
+      expect(body).toMatchObject({
+        ownerId: fence.ownerId,
+        ownerGeneration: fence.generation,
+        purgeGeneration: "worker-browser-purge-generation",
+        browserProfiles: ["default"],
+      });
+      expect(body.ownerGeneration).not.toBe(body.purgeGeneration);
+    }
+  });
+
   it("retains a live Code integration dispatch receipt until its bounded lease expires", async () => {
     const t = createTest();
     const fence = await beginAndClaim(

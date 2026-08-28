@@ -1,0 +1,39 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "stella-v2-device-code-fixture-basic-nightingale-118",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": false },
+  "vars": {
+    "PUBLIC_ORIGIN": "https://stella-v2-device-code-fixture-basic-nightingale-118.lolruuxi.workers.dev",
+  },
+  "ratelimits": [
+    {
+      "name": "ACTIVATION_PAGE_RATE_LIMITER",
+      "namespace_id": "11801",
+      "simple": { "limit": 60, "period": 60 },
+    },
+    {
+      "name": "ACTIVATION_DECISION_RATE_LIMITER",
+      "namespace_id": "11802",
+      "simple": { "limit": 10, "period": 60 },
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DEVICE_AUTHORIZATIONS",
+        "class_name": "DeviceAuthorizationSession",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1-device-authorization-session",
+      "new_sqlite_classes": ["DeviceAuthorizationSession"],
+    },
+  ],
+}

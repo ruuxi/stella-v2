@@ -13,9 +13,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   chownTreeWithoutFollowingSymlinks,
+  checkpointCloudBrowserTurnBeforeTeardown,
   cloudGeneralToolNames,
   commitTurnStateBeforeTranscript,
+  createBuilderFallbackAgentTurnResult,
+  createCloudBrowserResumeToolResult,
+  createSuspendedAgentTurnResult,
 } from "./agent-turn.js";
+import { AgentToolSuspendedError } from "@stella/runtime/kernel/agent-core/suspension.js";
+import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
 
 const checkpoint = {
   engine: "anthropic" as const,
@@ -80,13 +86,227 @@ describe("cloud native-state containment", () => {
     expect(transcriptCalled).toBe(false);
   });
 
-  test("removes the unrestricted code REPL from every cloud engine", () => {
-    for (const engine of ["anthropic", "stella", "openai-codex"] as const) {
+  test("keeps a completed report recoverable when Builder must finish the checkpoint", () => {
+    const messages = [
+      {
+        ordinal: 0,
+        role: "assistant",
+        payloadJson: JSON.stringify({ role: "assistant", content: [] }),
+      },
+    ];
+    expect(
+      createBuilderFallbackAgentTurnResult({
+        finalText: "Finished report",
+        usage: { inputTokens: 3, outputTokens: 4, llmCalls: 1 },
+        historyCursor: checkpoint.cursor,
+        messages,
+      }),
+    ).toEqual({
+      ok: true,
+      finalText: "Finished report",
+      checkpointPolicy: "builder_fallback",
+      usage: { inputTokens: 3, outputTokens: 4, llmCalls: 1 },
+      builderFallback: {
+        historyCursor: checkpoint.cursor,
+        messages,
+      },
+    });
+    expect(
+      createBuilderFallbackAgentTurnResult({
+        finalText: "Partial report",
+        error: "model failed",
+        usage: { inputTokens: 3, outputTokens: 4, llmCalls: 1 },
+        historyCursor: checkpoint.cursor,
+        messages,
+      }),
+    ).toMatchObject({ ok: false, error: "model failed" });
+  });
+
+  test("stages the secret-free suspension transcript with its checkpoint", async () => {
+    const suspensionTranscript = [
+      {
+        ordinal: 0,
+        role: "user",
+        payloadJson: JSON.stringify({ role: "user", content: [] }),
+      },
+      {
+        ordinal: 1,
+        role: "assistant",
+        payloadJson: JSON.stringify({
+          role: "assistant",
+          content: [
+            { type: "toolCall", id: "outer-code-call", name: "code" },
+          ],
+        }),
+      },
+    ];
+    const calls: string[] = [];
+    await commitTurnStateBeforeTranscript({
+      historyCursor: "v1:suspension-cursor",
+      suspensionTranscript,
+      broker: {
+        commitTurnStateCheckpoint: async (value) => {
+          expect(value).toEqual({
+            historyCursor: "v1:suspension-cursor",
+            suspensionTranscript,
+          });
+          calls.push("checkpoint");
+          return {
+            schemaVersion: 1,
+            operationId: "a".repeat(64),
+            historyCursor: "v1:suspension-cursor",
+            workspaceSha256: "b".repeat(64),
+            receipt: "c".repeat(64),
+            replayed: false,
+          };
+        },
+      },
+      appendTranscript: async () => {
+        calls.push("transcript");
+      },
+    });
+    expect(calls).toEqual(["checkpoint", "transcript"]);
+  });
+
+  test("enables browser-backed code only for the Stella cloud engine", () => {
+    expect(cloudGeneralToolNames("stella")).toContain("code");
+    for (const engine of ["anthropic", "openai-codex"] as const) {
       expect(cloudGeneralToolNames(engine)).not.toContain("code");
       expect(cloudGeneralToolNames(engine)).toContain("exec_command");
       expect(cloudGeneralToolNames(engine)).not.toContain("Write");
       expect(cloudGeneralToolNames(engine)).not.toContain("Edit");
     }
+  });
+
+  test("joins browser profile checkpointing on completion and skips suspension", async () => {
+    const completedCalls: Array<[string, string]> = [];
+    await checkpointCloudBrowserTurnBeforeTeardown({
+      codeToolCallIds: ["code-call-1", "code-call-2"],
+      suspended: false,
+      endBrowserTurn: async (toolCallId, behavior) => {
+        completedCalls.push([toolCallId, behavior]);
+      },
+    });
+    expect(completedCalls).toEqual([
+      ["code-call-2", "retain-tabs"],
+      ["code-call-1", "retain-tabs"],
+    ]);
+
+    const suspendedCalls: string[] = [];
+    await checkpointCloudBrowserTurnBeforeTeardown({
+      codeToolCallIds: ["suspended-code-call"],
+      suspended: true,
+      endBrowserTurn: async (toolCallId) => {
+        suspendedCalls.push(toolCallId);
+      },
+    });
+    expect(suspendedCalls).toEqual([]);
+  });
+
+  test("appends exactly one safe tool result for a browser resume", () => {
+    const history = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "code-call-1",
+            name: "code",
+            arguments: { code: "await browser.command('url')" },
+          },
+        ],
+        api: "openai-completions",
+        provider: "test",
+        model: "test",
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 2,
+          cost: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 0,
+          },
+        },
+        stopReason: "toolUse",
+        timestamp: 1,
+      },
+    ] as AgentMessage[];
+    const receipt = {
+      schemaVersion: 1 as const,
+      interactionId: "interaction-1",
+      interactionRevision: 2,
+      profileId: "default",
+      profileEpoch: 4,
+      toolCallId: "code-call-1",
+      requestDigest: "d".repeat(64),
+      result: "approved" as const,
+      safeMessage: "Sign-in completed; continue the browser task.",
+    };
+    const resumed = createCloudBrowserResumeToolResult(history, receipt, 2);
+    expect(resumed).toMatchObject({
+      role: "toolResult",
+      toolCallId: "code-call-1",
+      toolName: "code",
+      content: [{ type: "text", text: receipt.safeMessage }],
+      isError: false,
+      timestamp: 2,
+    });
+    expect(JSON.stringify(resumed)).not.toContain("password");
+    expect(() =>
+      createCloudBrowserResumeToolResult([...history, resumed], receipt),
+    ).toThrow("already appended");
+    expect(() =>
+      createCloudBrowserResumeToolResult(history, {
+        ...receipt,
+        toolCallId: "wrong-call",
+      }),
+    ).toThrow("canonical assistant tool call");
+  });
+
+  test("builds the strict durable suspension result without a fallback policy", () => {
+    const suspension = {
+      schemaVersion: 1 as const,
+      outcome: "waiting_for_user" as const,
+      interactionId: "interaction-1",
+      interactionRevision: 1,
+      interactionKind: "device_code" as const,
+      toolCallId: "code-call-1",
+      requestDigest: "a".repeat(64),
+      profileId: "default",
+      profileEpoch: 1,
+      displayOrigin: "https://example.test",
+      expiresAt: Date.now() + 60_000,
+    };
+    const turnStateCheckpoint = {
+      schemaVersion: 1 as const,
+      operationId: "b".repeat(64),
+      historyCursor: "v1:empty",
+      workspaceSha256: "c".repeat(64),
+      receipt: "d".repeat(64),
+      replayed: false,
+    };
+    const result = createSuspendedAgentTurnResult({
+      error: new AgentToolSuspendedError(suspension),
+      usage: { inputTokens: 3, outputTokens: 4, llmCalls: 1 },
+      checkpointMs: 9,
+      turnStateCheckpoint,
+    });
+    expect(result).toEqual({
+      outcome: "suspended",
+      ok: false,
+      finalText: "",
+      suspension,
+      usage: { inputTokens: 3, outputTokens: 4, llmCalls: 1 },
+      checkpointMs: 9,
+      turnStateCheckpoint,
+    });
+    expect("checkpointPolicy" in result).toBe(false);
+    expect("builderFallback" in result).toBe(false);
   });
 
   test("changes workspace ownership without dereferencing its symlinks", async () => {

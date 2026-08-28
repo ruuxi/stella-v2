@@ -1,0 +1,23 @@
+import { describe, expect, test } from "bun:test";
+
+describe("bn118-only fixture configuration", () => {
+  test("has one public acceptance worker and no dev or production target", async () => {
+    const config = await Bun.file(
+      new URL("../wrangler.jsonc", import.meta.url),
+    ).text();
+    expect(config).toContain(
+      '"name": "stella-v2-device-code-fixture-basic-nightingale-118"',
+    );
+    expect(config).toContain('"workers_dev": true');
+    expect(config).toContain('"preview_urls": false');
+    expect(config).toContain('"class_name": "DeviceAuthorizationSession"');
+    expect(config).toContain('"ACTIVATION_DECISION_RATE_LIMITER"');
+    expect(config).toContain(
+      "https://stella-v2-device-code-fixture-basic-nightingale-118.lolruuxi.workers.dev",
+    );
+    expect(config).not.toContain('"env"');
+    expect(config).not.toContain('"name": "stella-v2-device-code-fixture-dev"');
+    expect(config).not.toContain("production");
+    expect(config).not.toContain("secret");
+  });
+});

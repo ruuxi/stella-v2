@@ -2663,6 +2663,9 @@ export type ChatPaneProps = {
   /** Visible placeholder when not transcribing. */
   placeholder: string;
 
+  /** Owner-approved intervention pinned immediately above the composer. */
+  composerIntervention?: ReactNode;
+
   /** Computed once per parent re-render; controls submit button enabled. */
   canSubmit: boolean;
   /** Triggered by the send button or `return` key. */
@@ -2802,6 +2805,7 @@ export function ChatPane({
   composerEnabled = true,
   composerModelPicker,
   placeholder,
+  composerIntervention,
   canSubmit,
   onSubmit,
   onStop,
@@ -4387,6 +4391,7 @@ export function ChatPane({
         <View
           style={[styles.composerWrap, { paddingBottom: composerBottomPad }]}
         >
+          {composerIntervention}
           {showQuoteStrip && (
             <View style={styles.quoteStrip}>
               {quoteChips.map((quote) => (

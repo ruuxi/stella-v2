@@ -24,6 +24,7 @@ export const SIDEBAR_SECTIONS = [
   "files",
   "apps",
   "browser",
+  "takeover",
 ] as const;
 // Kept for the sections that render inside the panel body. Home is a real
 // in-panel surface (the launcher) rather than an outside-the-panel activity
@@ -34,6 +35,7 @@ export const PANEL_SIDEBAR_SECTIONS = [
   "files",
   "apps",
   "browser",
+  "takeover",
 ] as const;
 
 export type SidebarSection = (typeof SIDEBAR_SECTIONS)[number];
@@ -69,7 +71,7 @@ export const resolveSidebarSection = (value: unknown): SidebarSection => {
 export type SidebarTab = {
   id: string;
   kind: SidebarSection;
-  /** files → display-tab id; apps → local slug or `cloud:<appId>`; otherwise null. */
+  /** files → display-tab id; apps → slug; takeover → safe interaction id. */
   location: string | null;
 };
 
@@ -162,6 +164,11 @@ const readPersistedState = (): PersistedState => {
             ) {
               continue;
             }
+            // Human-takeover tabs are deliberately ephemeral. They contain only
+            // a safe interaction id (never the capability URL), but restoring a
+            // stale sign-in surface after relaunch is still misleading and can
+            // accidentally mint fresh access without an explicit user action.
+            if (candidate.kind === "takeover") continue;
             tabs.push({
               id: candidate.id,
               kind: candidate.kind,
@@ -197,9 +204,14 @@ const listeners = new Set<Listener>();
 
 const persist = (next: SidebarSectionsSnapshot): void => {
   if (typeof window === "undefined") return;
+  const persistableTabs = next.tabs.filter((tab) => tab.kind !== "takeover");
+  const tabs = persistableTabs.length > 0 ? persistableTabs : defaultTabs();
   uiState.setItem(
     STORAGE_KEY_TABS,
-    JSON.stringify({ tabs: next.tabs, activeTabId: next.activeTabId }),
+    JSON.stringify({
+      tabs,
+      activeTabId: withActive(tabs, next.activeTabId),
+    }),
   );
 };
 

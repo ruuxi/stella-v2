@@ -100,13 +100,24 @@ There is no `blocked` / `awaiting_input` state anywhere. Task status is
   the chat immediately — no dependency on the orchestrator taking a turn — and it flows
   through `connector-connect-service.js` → `pending-request-store.ts`, so it inherits
   the escalation ladder for free. Guardrails: respect `connect-preferences.ts` declines,
-  dedupe to one card per connector per task, and mind the `node_repl` cell blocking on
-  the card for up to the card timeout (verify cell execution timeouts allow this).
+  dedupe to one card per connector per task. The repl cell blocks at most 60s (see the
+  cutover rule in §B); a later auth grant arrives via wake, not an in-cell retry.
 
 ### B. Escalation engine (desktop Electron main)
 
-- `pending-request-store.ts`: replace the single expiry `setTimeout` with staged timers +
-  an escalation callback; keep the final expiry.
+- **Blocking cap: 60 seconds, then detach — never give up.** The current timeouts
+  (5 min credential, 9.5 min connector card) lock the agent/orchestrator for their whole
+  duration, and a hard 60s expiry would kill the request before the ladder's later
+  stages fire. So the 60s mark is a *cutover*, not an expiry: the tool call returns
+  `{status: "pending", requestId}` and the agent is free to continue or park as
+  `blocked`, while the request stays alive in the pending-request store, the card/dialog
+  stays up, and the ladder keeps running. When the user resolves it — card, push, or
+  call — the result is delivered via the `[wake: …]` pattern and the agent resumes.
+  Consequence for the in-repl `connect.call()` path: the transparent
+  retry-inside-the-cell only works for responses within 60s; a late auth resolves via
+  wake ("X is now connected — retry the action") instead.
+- `pending-request-store.ts`: replace the single expiry `setTimeout` with the 60s
+  detach + staged escalation timers + a final expiry (hours, not minutes).
 - New `escalation-service.js` next to the other services: runs the ladder, checks
   `device_presence`, chooses desktop-voice vs. phone-call, records outcome, cancels
   remaining stages the moment the user responds anywhere.

@@ -274,10 +274,6 @@ export type PublicApiType = {
   "mobile_bridge": {
     "registerDesktopBridge": FunctionReference<'mutation', 'public', { platform?: string | undefined; desktopPublicKey?: string | undefined; deviceId: string; baseUrls: string[]; }, any, string | undefined>;
   };
-  "mobile_chat": {
-    "sendChat": FunctionReference<'action', 'public', { model?: string | undefined; message: string; desktopDeviceId: string; mobileDeviceId: string; pairSecret: string; }, any, string | undefined>;
-    "cancelChat": FunctionReference<'action', 'public', { requestId: string; desktopDeviceId: string; mobileDeviceId: string; pairSecret: string; }, any, string | undefined>;
-  };
   "mobile_push": {
     "sendActivityNotification": FunctionReference<'action', 'public', { kind: 'failed' | 'completed' | 'started'; }, any, string | undefined>;
   };

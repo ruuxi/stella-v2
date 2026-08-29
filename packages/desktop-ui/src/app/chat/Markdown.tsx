@@ -1,4 +1,8 @@
-import type { CSSProperties, ImgHTMLAttributes } from "react";
+import type {
+  AnchorHTMLAttributes,
+  CSSProperties,
+  ImgHTMLAttributes,
+} from "react";
 import { memo, useMemo, useRef } from "react";
 import {
   Streamdown,
@@ -11,6 +15,11 @@ import {
   STELLA_FILE_TAG,
   STELLA_FILE_TAG_ATTRIBUTES,
 } from "@/features/chat/lib/stella-file-links";
+import {
+  isUnmodifiedPrimaryClick,
+  normalizedHttpUrl,
+  openUrlInStellaBrowser,
+} from "@/features/chat/lib/stella-web-links";
 import { StellaFileLink } from "./StellaFileLink";
 import {
   hasCompleteEmojiSpritePack,
@@ -167,8 +176,45 @@ const MarkdownImage = ({
   );
 };
 
+type MarkdownLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
+  node?: unknown;
+};
+
+/*
+ * Unmodified primary clicks on an http(s) link land in the Stella browser
+ * rather than the OS one. `node` is Streamdown's mdast payload and must not
+ * reach the DOM. If the in-app browser can't take the URL we fall back to
+ * the external open so the click is never silently swallowed.
+ */
+const MarkdownLink = ({
+  href,
+  onClick,
+  node: _node,
+  ...rest
+}: MarkdownLinkProps) => (
+  <a
+    {...rest}
+    data-streamdown="link"
+    href={href}
+    onClick={(event) => {
+      onClick?.(event);
+      if (event.defaultPrevented || !isUnmodifiedPrimaryClick(event)) return;
+
+      const url = normalizedHttpUrl(event.currentTarget.href);
+      const api = window.electronAPI?.browserView;
+      if (!url || !api) return;
+
+      event.preventDefault();
+      void openUrlInStellaBrowser(url, api).catch(() => {
+        window.electronAPI?.system?.openExternal(url);
+      });
+    }}
+  />
+);
+
 const buildComponents = (hideHorizontalRules: boolean) => ({
   ...(hideHorizontalRules ? { hr: () => null } : {}),
+  a: MarkdownLink,
   img: MarkdownImage,
   [STELLA_FILE_TAG]: StellaFileLink,
 });

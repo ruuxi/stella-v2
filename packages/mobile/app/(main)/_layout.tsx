@@ -50,10 +50,6 @@ import {
   saveLastMainTab,
   type MainTabId,
 } from "../../src/lib/last-main-tab";
-import {
-  hasSeenComputerHint,
-  markComputerHintSeen,
-} from "../../src/lib/computer-hint";
 import { useT } from "../../src/i18n";
 
 type TabId = MainTabId;
@@ -72,12 +68,6 @@ const TABS: {
     href: "/chat",
   },
   {
-    id: "computer",
-    labelKey: "mobile.nav.computer",
-    icon: "monitor",
-    href: "/computer",
-  },
-  {
     id: "account",
     labelKey: "mobile.nav.settings",
     icon: "settings",
@@ -86,7 +76,7 @@ const TABS: {
 ];
 
 // Message search is built but hidden for now — flip to true to surface the
-// top-bar search button (chat + computer chat).
+// top-bar search button on the chat.
 const SHOW_SEARCH_BUTTON = false;
 
 const SIDEBAR_WIDTH = 320;
@@ -116,14 +106,12 @@ function Sidebar({
   colors,
   styles,
   tabs,
-  showComputerHint,
 }: {
   activeTab: TabId | null;
   onSelectTab: (tab: TabId) => void;
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
   tabs: typeof TABS;
-  showComputerHint: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const t = useT();
@@ -157,9 +145,6 @@ function Sidebar({
                   color={active ? colors.accent : colors.textMuted}
                   filled={active}
                 />
-                {tab.id === "computer" && showComputerHint && !active ? (
-                  <View style={styles.navHintDot} />
-                ) : null}
               </View>
               <Text style={[styles.navLabel, active && styles.navLabelActive]}>
                 {t(tab.labelKey)}
@@ -180,9 +165,6 @@ export default function MainLayout() {
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [consentVisible, setConsentVisible] = useState(false);
-  // First-time hint dot on the Computer icon, dismissed once the user opens
-  // the Computer tab.
-  const [showComputerHint, setShowComputerHint] = useState(false);
   const colors = useColors();
   const t = useT();
   const { isDark } = useTheme();
@@ -218,12 +200,11 @@ export default function MainLayout() {
   const drawerProgress = useSharedValue(0);
 
   const activeTab = readActiveTab(pathname);
-  const onComputer = pathname === "/computer";
-  const onChatSurface = pathname === "/chat" || pathname === "/computer";
+  const onChatSurface = pathname === "/chat";
 
   const search = useChatSearch();
-  // Collapse + clear search whenever the route changes (e.g. switching tabs or
-  // toggling between Chat and Computer) so search never leaks across surfaces.
+  // Collapse + clear search whenever the route changes (e.g. switching tabs) so
+  // search never leaks across surfaces.
   useEffect(() => {
     search.close();
     // `search.close` is stable; only react to route changes.
@@ -235,17 +216,6 @@ export default function MainLayout() {
       void saveLastMainTab(activeTab);
     }
   }, [activeTab]);
-
-  useEffect(() => {
-    void hasSeenComputerHint().then((seen) => setShowComputerHint(!seen));
-  }, []);
-
-  // Dismiss the hint the moment the user lands on the Computer tab.
-  useEffect(() => {
-    if (!onComputer || !showComputerHint) return;
-    setShowComputerHint(false);
-    void markComputerHintSeen();
-  }, [onComputer, showComputerHint]);
 
   const openSidebar = () => {
     Keyboard.dismiss();
@@ -398,7 +368,6 @@ export default function MainLayout() {
               colors={colors}
               styles={styles}
               tabs={TABS}
-              showComputerHint={showComputerHint}
             />
             <View style={styles.content}>
               <View style={styles.contentSlot}>
@@ -428,7 +397,6 @@ export default function MainLayout() {
               colors={colors}
               styles={styles}
               tabs={TABS}
-              showComputerHint={showComputerHint}
             />
           </Animated.View>
 
@@ -691,19 +659,6 @@ const makeStyles = (colors: Colors) =>
       alignItems: "center",
       justifyContent: "center",
       width: 20,
-    },
-    // First-time hint dot on the Computer nav item, pinned to the top-right of
-    // the 18px glyph.
-    navHintDot: {
-      backgroundColor: colors.danger,
-      borderColor: colors.background,
-      borderRadius: 4,
-      borderWidth: 1.5,
-      height: 8,
-      position: "absolute",
-      right: -1,
-      top: -1,
-      width: 8,
     },
     navLabel: {
       color: colors.text,

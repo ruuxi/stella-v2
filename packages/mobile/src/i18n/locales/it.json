@@ -1754,7 +1754,6 @@
       "delete": "Elimina",
       "done": "Fatto",
       "goBack": "Torna indietro",
-      "somethingWentWrong": "Qualcosa è andato storto.",
       "tryAgain": "Riprova"
     },
     "boot": {
@@ -1775,7 +1774,6 @@
     },
     "nav": {
       "chat": "Chat",
-      "computer": "Computer",
       "settings": "Impostazioni",
       "openLabel": "Apri la navigazione",
       "closeLabel": "Chiudi la navigazione"
@@ -1796,7 +1794,6 @@
       "connectTitle": "Il tuo computer, ovunque",
       "connectBodyGuest": "Accedi più tardi per associare Stella sul tuo computer, poi chiedi dal telefono di navigare, gestire file ed eseguire attività a casa.",
       "connectBodyPaired": "Associa una volta l'app desktop di Stella e il telefono potrà chiederle di navigare, gestire file ed eseguire attività, anche dall'altra parte della città.",
-      "pairComputer": "Associa il mio computer",
       "startChatting": "Inizia a chattare"
     },
     "login": {
@@ -1892,12 +1889,6 @@
     "computer": {
       "guestHeroTitle": "Il tuo computer a portata di mano",
       "guestHeroBody": "Chiedi a Stella di fare cose sul tuo computer: navigare sul web, gestire file, eseguire attività e altro ancora.",
-      "pairFirstTitle": "Prima associa il telefono",
-      "pairFirstBody": "Associa questo telefono a Stella sul desktop per chattare con lui ovunque tu sia. Basta farlo una volta sola.",
-      "pairPhone": "Associa telefono",
-      "pairThisPhoneLabel": "Associa questo telefono",
-      "emptyPrompt": "Chiedi qualsiasi cosa al tuo computer",
-      "composerPlaceholder": "Scrivi al tuo computer",
       "defaultDeviceLabel": "Il tuo computer",
       "statusChecking": "Controllo…",
       "statusWaking": "Risveglio…",
@@ -1905,13 +1896,7 @@
       "statusAsleep": "In sospensione",
       "connectingLabel": "Connessione al tuo computer",
       "connectedLabel": "Computer connesso",
-      "disconnectedLabel": "Computer disconnesso",
-      "unreachableTitle": "Computer irraggiungibile",
-      "unreachableBody": "Il tuo computer non è raggiungibile in questo momento. È stata inviata una richiesta di risveglio: riprova tra qualche secondo.",
-      "syncWaitingTitle": "Sincronizzazione in attesa",
-      "syncWaitingBody": "Un messaggio è ancora in invio. La sincronizzazione partirà appena avrà finito.",
-      "syncFailedTitle": "Sincronizzazione non riuscita",
-      "syncFailedBody": "Il tuo computer ha smesso di rispondere durante la sincronizzazione. Riprova."
+      "disconnectedLabel": "Computer disconnesso"
     },
     "desktop": {
       "pairTitle": "Associa il tuo telefono",
@@ -1956,16 +1941,8 @@
       "pushToggleLabel": "Consenti le notifiche push",
       "pushToggleSub": "Ricevi un avviso quando il tuo computer completa una richiesta.",
       "pushToggleA11y": "Attiva o disattiva le notifiche push",
-      "voiceSection": "Parla con Stella",
-      "voiceSectionHint": "Dove la voce a mani libere (come CarPlay) invia i tuoi messaggi. Auto sceglie la chat del computer quando è lì che ti eri fermato ed è raggiungibile, altrimenti la chat di questo telefono.",
-      "voiceTarget": {
-        "auto": "Auto",
-        "phone": "Telefono",
-        "computer": "Computer"
-      },
-      "voiceTargetLabel": "Invia i messaggi vocali a {name}",
       "pairedSection": "Computer associati",
-      "pairedEmpty": "Nessun computer associato. Associane uno dalla scheda Computer.",
+      "pairedEmpty": "Nessun computer associato.",
       "pairedOn": "Associato il {date}",
       "paired": {
         "unnamedComputer": "Computer · {id}"

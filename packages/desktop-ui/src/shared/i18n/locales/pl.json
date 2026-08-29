@@ -1772,7 +1772,6 @@
       "delete": "Usuń",
       "done": "Gotowe",
       "goBack": "Wróć",
-      "somethingWentWrong": "Coś poszło nie tak.",
       "tryAgain": "Spróbuj ponownie"
     },
     "boot": {
@@ -1793,7 +1792,6 @@
     },
     "nav": {
       "chat": "Czat",
-      "computer": "Komputer",
       "settings": "Ustawienia",
       "openLabel": "Otwórz nawigację",
       "closeLabel": "Zamknij nawigację"
@@ -1814,7 +1812,6 @@
       "connectTitle": "Twój komputer wszędzie",
       "connectBodyGuest": "Zaloguj się później, aby sparować Stellę na swoim komputerze — wtedy z telefonu poprosisz o przeglądanie sieci, zarządzanie plikami i uruchamianie zadań w domu.",
       "connectBodyPaired": "Sparuj raz z aplikacją Stella na komputerze, a twój telefon będzie mógł poprosić ją o przeglądanie sieci, zarządzanie plikami i uruchamianie zadań — nawet z drugiego końca miasta.",
-      "pairComputer": "Sparuj mój komputer",
       "startChatting": "Zacznij rozmowę"
     },
     "login": {
@@ -1911,12 +1908,6 @@
     "computer": {
       "guestHeroTitle": "Twój komputer w zasięgu ręki",
       "guestHeroBody": "Poproś Stellę, żeby zrobiła coś na twoim komputerze — przeglądała sieć, zarządzała plikami, uruchamiała zadania i nie tylko.",
-      "pairFirstTitle": "Najpierw sparuj telefon",
-      "pairFirstBody": "Sparuj ten telefon z aplikacją Stella na komputerze, aby rozmawiać z nią z dowolnego miejsca. Wystarczy zrobić to raz.",
-      "pairPhone": "Sparuj telefon",
-      "pairThisPhoneLabel": "Sparuj ten telefon",
-      "emptyPrompt": "Zapytaj swój komputer o cokolwiek",
-      "composerPlaceholder": "Napisz do swojego komputera",
       "defaultDeviceLabel": "Twój komputer",
       "statusChecking": "Sprawdzanie…",
       "statusWaking": "Budzenie…",
@@ -1924,13 +1915,7 @@
       "statusAsleep": "Uśpiony",
       "connectingLabel": "Łączenie z twoim komputerem",
       "connectedLabel": "Komputer połączony",
-      "disconnectedLabel": "Komputer rozłączony",
-      "unreachableTitle": "Komputer nieosiągalny",
-      "unreachableBody": "Twój komputer jest teraz nieosiągalny. Wysłaliśmy żądanie wybudzenia — spróbuj ponownie za kilka sekund.",
-      "syncWaitingTitle": "Synchronizacja czeka",
-      "syncWaitingBody": "Wiadomość jest wciąż wysyłana. Synchronizacja ruszy zaraz po jej zakończeniu.",
-      "syncFailedTitle": "Synchronizacja nie powiodła się",
-      "syncFailedBody": "Twój komputer przestał odpowiadać podczas synchronizacji. Spróbuj ponownie."
+      "disconnectedLabel": "Komputer rozłączony"
     },
     "desktop": {
       "pairTitle": "Sparuj swój telefon",
@@ -1975,16 +1960,8 @@
       "pushToggleLabel": "Zezwalaj na powiadomienia push",
       "pushToggleSub": "Otrzymasz powiadomienie, gdy twój komputer zakończy żądanie.",
       "pushToggleA11y": "Przełącz powiadomienia push",
-      "voiceSection": "Rozmawiaj ze Stellą",
-      "voiceSectionHint": "Dokąd głos bez użycia rąk (np. CarPlay) wysyła twoje wiadomości. Automatycznie wybiera czat na twoim komputerze, jeśli tam skończyłeś i jest osiągalny — w przeciwnym razie czat w tym telefonie.",
-      "voiceTarget": {
-        "auto": "Automatycznie",
-        "phone": "Telefon",
-        "computer": "Komputer"
-      },
-      "voiceTargetLabel": "Wysyłaj wiadomości głosowe do: {name}",
       "pairedSection": "Sparowane komputery",
-      "pairedEmpty": "Brak sparowanych komputerów. Sparuj na karcie Komputer.",
+      "pairedEmpty": "Brak sparowanych komputerów.",
       "pairedOn": "Sparowano {date}",
       "paired": {
         "unnamedComputer": "Komputer · {id}"

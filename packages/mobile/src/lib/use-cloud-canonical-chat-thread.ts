@@ -43,12 +43,19 @@ import {
   ensureAutomaticExecutionConversation,
   getAutomaticExecutionStatus,
 } from "./execution-placement";
+import { groupActivityArtifacts } from "./activity-hub-model";
 import {
   buildWorkingIndicatorState,
   IDLE_WORKING_ACTIVITY,
 } from "../components/working-indicator-state";
 import type { ChatArtifact, ChatMessage } from "../types";
-import { useChatThread, type ChatThread } from "./use-chat-thread";
+import type { ChatThreadId } from "./offline-chat-storage";
+import type { StoredPhoneAccess } from "./phone-access";
+import {
+  useChatThread,
+  type ChatThread,
+  type ChatTransport,
+} from "./use-chat-thread";
 
 const confirmIdentityRef = makeFunctionReference<
   "query",
@@ -242,8 +249,21 @@ const collectArtifacts = (messages: readonly ChatMessage[]): ChatArtifact[] =>
  */
 export const useCloudCanonicalChatThread = (
   authority: CloudConversationAuthority,
-  reloadAuthority?: () => void,
+  options?: {
+    reloadAuthority?: () => void;
+    /** Paired computer, when one exists, for the live activity overlay. */
+    access?: StoredPhoneAccess | null;
+    /**
+     * Which durable outbox the optimistic overlay queues into. Two surfaces on
+     * the same conversation (the Chat tab and the CarPlay loop) must not drain
+     * one queue, so each names its own.
+     */
+    threadId?: ChatThreadId;
+  },
 ): ChatThread => {
+  const reloadAuthority = options?.reloadAuthority;
+  const access = options?.access ?? null;
+  const threadId = options?.threadId ?? "cloud";
   const [dispatchBindings, setDispatchBindings] = useState<
     ReadonlyMap<string, string | null>
   >(() => new Map());
@@ -328,17 +348,17 @@ export const useCloudCanonicalChatThread = (
   const caughtUp =
     state.epoch !== null && (state.headSeq < 0 || lastSeq >= state.headSeq);
   const authorityReady = !placementIssue && state.status === "live" && caughtUp;
-  const transport = useMemo(
+  const transport = useMemo<ChatTransport>(
     () => ({
-      kind: "automatic" as const,
-      canonicalJournal: true as const,
       accountScope: authority.accountScope,
       ownerGeneration: authority.ownerGeneration,
       conversationId: authority.conversationId,
       authorityReady,
+      access,
       onAdmission,
     }),
     [
+      access,
       authority.accountScope,
       authority.conversationId,
       authority.ownerGeneration,
@@ -346,7 +366,7 @@ export const useCloudCanonicalChatThread = (
       onAdmission,
     ],
   );
-  const local = useChatThread({ threadId: "cloud", transport });
+  const local = useChatThread({ threadId, transport });
   const clientAuthorityReady = authorityReady && !local.authorityIssue;
 
   // A queued row restored from the durable outbox is operational state, not
@@ -568,6 +588,12 @@ export const useCloudCanonicalChatThread = (
     () => collectArtifacts(messages),
     [messages],
   );
+  // The activity hub groups files by owning task, and the journal projection —
+  // not the optimistic overlay — is what carries them.
+  const activityArtifactGroups = useMemo(
+    () => groupActivityArtifacts(messages, conversationArtifacts),
+    [conversationArtifacts, messages],
+  );
   const canonicalCancellationRef = useRef<{
     dispatchId: string;
     controller: AbortController;
@@ -637,12 +663,11 @@ export const useCloudCanonicalChatThread = (
     loadOlderMessages,
     loadNewerMessages,
     conversationArtifacts,
-    conversationOwnedArtifacts: conversationArtifacts,
+    activityArtifactsByTaskId: activityArtifactGroups.byTaskId,
+    conversationOwnedArtifacts: activityArtifactGroups.conversation,
     send,
     sendPrompt,
     stop,
     catchingUp: state.status === "connecting",
-    // A local truncation can never rewrite the DO journal.
-    rewindToMessage: () => undefined,
   };
 };

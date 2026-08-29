@@ -4,25 +4,19 @@
  * resolve) and stays mounted for the app's lifetime, but renders nothing.
  *
  * It deliberately reuses — never re-implements — the app's pipelines:
- *   • send + response  → {@link useChatThread}. The voice loop is
- *     target-aware: on the `phone` target it uses the cloud transport (the
- *     same `/api/mobile/offline-chat/stream` flow the Chat tab uses) on a
- *     dedicated "carplay" transcript; on the `computer` target it uses the
- *     desktop bridge transport (the same wake → sync → send flow the Computer
- *     tab uses) into the SAME canonical desktop conversation, on its own
- *     "carplay-computer" store so it never races the Computer tab's
- *     persistence.
+ *   • send + response  → {@link useCloudCanonicalChatThread}, i.e. the SAME
+ *     cloud conversation the Chat tab reads. A dictated turn therefore lands
+ *     in the one chat, and its execution placement (paired computer first,
+ *     cloud otherwise) is the server's decision exactly as on the phone. Only
+ *     the optimistic outbox is separate ("carplay"), so the always-mounted
+ *     bridge never races the tab's queue.
  *   • dictation        → {@link useDictation} (the same `/api/mobile/transcribe`
  *     push-to-talk recorder the composer mic uses).
  *   • text-to-speech   → {@link speakReply} from read-aloud (the same Inworld
  *     TTS the chat "read aloud" button uses), so replies sound identical.
  *
- * Target resolution (see {@link resolveVoiceTarget}): an explicit Phone /
- * Computer preference — set from Settings or the CarPlay "Send to" row — is
- * honored; Auto follows the chat the user last used, falling back to the
- * phone when the computer isn't reachable. A computer turn that fails still
- * produces a spoken "your computer is offline" reply, so a wrong guess is
- * never dead air.
+ * The chat is the signed-in cloud conversation, so a guest gets a sign-in row
+ * rather than a voice loop with nothing to talk to.
  *
  * The hands-free loop: tap → record → stop → transcribe → send → await reply →
  * auto-speak it → offer one-tap replay. {@link carPlaySession} owns the actual
@@ -33,23 +27,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform } from "react-native";
 import { isGuest } from "../lib/guest-mode";
 import {
-  getDesktopBridgeStatus,
-  getOrCreateMobileDeviceId,
-  getPreferredPhoneAccess,
-  type StoredPhoneAccess,
-} from "../lib/phone-access";
-import { loadLastMainTab } from "../lib/last-main-tab";
-import {
-  getVoiceTargetPreference,
-  loadVoiceTargetPreference,
-  reachabilityFromProbe,
-  resolveVoiceTarget,
-  setVoiceTargetPreference,
-  subscribeVoiceTargetPreference,
-  type VoiceTarget,
-  type VoiceTargetPreference,
-} from "../lib/voice-target";
-import { useChatThread, type ChatTransport } from "../lib/use-chat-thread";
+  useCloudCanonicalChatThread,
+  useCloudConversationAuthority,
+} from "../lib/use-cloud-canonical-chat-thread";
+import type { CloudConversationAuthority } from "../lib/cloud-conversation-authority";
 import { useDictation } from "../lib/dictation";
 import { speakReply, startAfterStoppingReadAloud, stopReadAloud, useReadAloudState } from "../lib/read-aloud";
 import { carPlayLog, carPlaySession, type CarPlayPhase } from "./carplay-session";
@@ -79,18 +60,13 @@ export function CarPlayBridge() {
 }
 
 /**
- * Owns the CarPlay session registration and the voice-target resolution, and
- * mounts the actual voice loop keyed by the resolved target so a switch gets
- * a clean loop (fresh refs, right transport) instead of mid-flight rewiring.
+ * Owns the CarPlay session registration and mounts the voice loop only while a
+ * head unit is attached, so the always-mounted bridge doesn't hold the cloud
+ * conversation's journal socket open for the app's whole lifetime.
  */
 function CarPlayBridgeIOS() {
   const guest = isGuest();
-  const [access, setAccess] = useState<StoredPhoneAccess | null>(null);
-  const [preference, setPreferenceState] = useState<VoiceTargetPreference>(
-    () => getVoiceTargetPreference(),
-  );
   const [connected, setConnected] = useState(false);
-  const [target, setTarget] = useState<VoiceTarget>("phone");
 
   useEffect(() => {
     // First [js] breadcrumb of a healthy run. If a diagnostics dump has native
@@ -106,116 +82,44 @@ function CarPlayBridgeIOS() {
   }, []);
 
   useEffect(() => {
-    if (guest) return;
-    void getPreferredPhoneAccess().then(setAccess);
+    carPlaySession.setSignedIn(!guest);
   }, [guest]);
 
-  useEffect(() => {
-    const unsubscribe = subscribeVoiceTargetPreference(setPreferenceState);
-    void loadVoiceTargetPreference();
-    return unsubscribe;
-  }, []);
+  if (guest || !connected) return null;
+  return <CarPlayCloudChatGate />;
+}
 
-  // Resolve the effective target whenever its inputs change. `connected` is a
-  // deliberate dependency: each CarPlay connect (drive start) re-runs Auto
-  // against the CURRENT last-used tab and bridge reachability.
-  useEffect(() => {
-    let cancelled = false;
-    const resolve = async () => {
-      const paired = Boolean(access);
-      let lastMainTab: string | null = null;
-      let computerReachable: boolean | null = null;
-      if (preference === "auto" && paired) {
-        lastMainTab = await loadLastMainTab();
-        if (cancelled) return;
-        if (lastMainTab === "computer" && access) {
-          // A FAILED probe is unknown (null), not "unreachable": Auto must
-          // only fall back to the phone on a confirmed negative — on a probe
-          // error the computer target stands and the send path wakes the
-          // desktop or fails audibly with the spoken offline reply.
-          computerReachable = reachabilityFromProbe(
-            await getDesktopBridgeStatus(access.desktopDeviceId).catch(
-              () => null,
-            ),
-          );
-          if (cancelled) return;
-        }
-      }
-      const next = resolveVoiceTarget({
-        preference,
-        paired,
-        lastMainTab,
-        computerReachable,
-      });
-      carPlayLog(
-        `voice target resolved -> ${next} (pref=${preference} paired=${paired} lastTab=${lastMainTab ?? "?"} reachable=${computerReachable ?? "?"})`,
-      );
-      setTarget(next);
-    };
-    void resolve();
-    return () => {
-      cancelled = true;
-    };
-  }, [preference, access, connected]);
-
-  // Reflect the resolved target on the head unit's "Send to" row.
-  useEffect(() => {
-    carPlaySession.setVoiceTarget(target, Boolean(access));
-  }, [target, access]);
-
-  // The CarPlay row toggles by pinning an explicit preference — a driver's
-  // tap is a deliberate choice that should survive the drive.
-  const onToggleVoiceTarget = useCallback(() => {
-    if (!access) return;
-    const next: VoiceTargetPreference =
-      target === "computer" ? "phone" : "computer";
-    carPlayLog(`voice target toggled from CarPlay -> ${next}`);
-    void setVoiceTargetPreference(next);
-  }, [access, target]);
-
-  // The desktop-bridge loop only mounts while a head unit is attached: the
-  // voice loop is dormant otherwise, and this keeps the always-mounted bridge
-  // from holding a live push socket to the computer around the clock.
-  const effectiveTarget: VoiceTarget =
-    target === "computer" && access && connected ? "computer" : "phone";
-
+/**
+ * Resolves the one signed-in cloud conversation the head unit talks to. Until
+ * it verifies, the home keeps its idle rows: a dictated turn has nowhere to go
+ * yet, and the loop's own send guard would reject it anyway.
+ */
+function CarPlayCloudChatGate() {
+  const authority = useCloudConversationAuthority();
+  if (authority.status !== "ready") return null;
   return (
     <CarPlayVoiceLoop
-      key={effectiveTarget}
-      target={effectiveTarget}
-      access={effectiveTarget === "computer" ? access : null}
-      guest={guest}
-      onToggleVoiceTarget={onToggleVoiceTarget}
+      key={`${authority.authority.accountScope}:${authority.authority.ownerGeneration}:${authority.authority.conversationId}`}
+      authority={authority.authority}
+      reloadAuthority={authority.retry}
     />
   );
 }
 
 function CarPlayVoiceLoop({
-  target,
-  access,
-  guest,
-  onToggleVoiceTarget,
+  authority,
+  reloadAuthority,
 }: {
-  target: VoiceTarget;
-  access: StoredPhoneAccess | null;
-  guest: boolean;
-  onToggleVoiceTarget: () => void;
+  authority: CloudConversationAuthority;
+  reloadAuthority: () => void;
 }) {
-  const [mobileDeviceId, setMobileDeviceId] = useState<string | null>(null);
-
-  const transport = useMemo<ChatTransport>(
-    () =>
-      target === "computer" && access
-        ? { kind: "automatic" as const, subject: "computer" as const, access }
-        : guest
-          ? { kind: "guest" as const }
-          : { kind: "automatic" as const },
-    [target, access, guest],
-  );
-  const threadId = target === "computer" ? "carplay-computer" : "carplay";
-  const thread = useChatThread({ threadId, transport });
-  const { setDraft, send, messages, sending, storageLoaded, runDesktopSync } =
-    thread;
+  // The head unit's own optimistic outbox, so a queued dictated turn is never
+  // drained twice by the Chat tab's copy of the same conversation.
+  const thread = useCloudCanonicalChatThread(authority, {
+    reloadAuthority,
+    threadId: "carplay",
+  });
+  const { setDraft, send, messages, sending, storageLoaded } = thread;
 
   const readAloud = useReadAloudState();
 
@@ -234,9 +138,9 @@ function CarPlayVoiceLoop({
   // the grace re-check only speaks a genuinely new reply, never a stale one.
   const priorReplyIdRef = useRef<string | null>(null);
   // Local id of the turn's optimistic user bubble (reported by `send()`), so
-  // the auto-speak picks THIS turn's reply structurally — on the computer
-  // target the pre-send sync can merge an older desktop reply the loop had
-  // never seen, and "newest reply that changed" would speak that instead.
+  // the auto-speak picks THIS turn's reply structurally — the journal can catch
+  // up with older replies the loop had never seen, and "newest reply that
+  // changed" would speak one of those instead.
   const sentUserMessageIdRef = useRef<string | null>(null);
   // While true, we're still watching `messages` for this turn's reply to land.
   const watchingReplyRef = useRef(false);
@@ -246,7 +150,7 @@ function CarPlayVoiceLoop({
   // Converse mode: while ON (the default — it preserves the v1 hands-free
   // loop), the reply to a dictated message auto-plays via TTS on arrival.
   // While OFF the reply row is just marked "New" for a later tap. Seeded from
-  // the session so a target-switch remount keeps the driver's choice.
+  // the session so a loop remount keeps the driver's choice.
   const converseOnRef = useRef(carPlaySession.getConverseMode());
   // First-seen timestamps for assistant replies whose rows predate the
   // `createdAt` field (legacy persisted transcripts) — keeps the relative
@@ -321,16 +225,6 @@ function CarPlayVoiceLoop({
     return true;
   }, [goPhase]);
 
-  useEffect(() => {
-    if (!guest) return;
-    void getOrCreateMobileDeviceId().then(setMobileDeviceId);
-  }, [guest]);
-
-  const dictationHeaders = useMemo(() => {
-    if (!guest || !mobileDeviceId) return undefined;
-    return { "X-Stella-Mobile-Device-Id": mobileDeviceId };
-  }, [guest, mobileDeviceId]);
-
   const onTranscript = useCallback(
     (text: string) => {
       const trimmed = text.trim();
@@ -348,8 +242,7 @@ function CarPlayVoiceLoop({
   );
 
   const dictation = useDictation({
-    anonymous: guest,
-    headers: dictationHeaders,
+    anonymous: false,
     onTranscript,
   });
 
@@ -415,28 +308,16 @@ function CarPlayVoiceLoop({
       onReadReply,
       onReadLatest,
       onToggleConverse,
-      onToggleVoiceTarget,
     });
-  }, [onTalk, onReadReply, onReadLatest, onToggleConverse, onToggleVoiceTarget]);
+  }, [onTalk, onReadReply, onReadLatest, onToggleConverse]);
 
   useEffect(() => {
-    carPlayLog(`voice loop mounted (target=${target})`);
-    // A target-switch remount starts a fresh loop: make sure the head unit
-    // isn't stuck showing the previous loop's phase.
+    carPlayLog("voice loop mounted");
+    // An authority remount starts a fresh loop: make sure the head unit isn't
+    // stuck showing the previous loop's phase.
     goPhase("idle");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Computer target: hydrate from the canonical desktop transcript on mount
-  // (this loop only mounts while CarPlay is attached), so the recent-reply
-  // rows and turn reconciliation start from the real conversation.
-  useEffect(() => {
-    if (target !== "computer") return;
-    if (!storageLoaded) return;
-    void runDesktopSync({ catchUp: true });
-    // Run once per loop mount, as soon as local storage has hydrated.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target, storageLoaded]);
 
   // Dispatch the parked transcript once the draft state reflects it.
   useEffect(() => {
@@ -528,8 +409,8 @@ function CarPlayVoiceLoop({
   }, [dictation.status, goPhase]);
 
   // Stop any in-flight speech if CarPlay drops mid-reply (or the loop remounts
-  // for a target switch), and clear pending timers so they can't fire against
-  // a torn-down component.
+  // for a new authority), and clear pending timers so they can't fire against a
+  // torn-down component.
   useEffect(() => {
     return () => {
       stopReadAloud();

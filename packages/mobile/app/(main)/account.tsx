@@ -34,13 +34,6 @@ import {
   setNotificationsMuted,
   subscribeNotificationsMuted,
 } from "../../src/lib/notifications-prefs";
-import {
-  getVoiceTargetPreference,
-  loadVoiceTargetPreference,
-  setVoiceTargetPreference,
-  subscribeVoiceTargetPreference,
-  type VoiceTargetPreference,
-} from "../../src/lib/voice-target";
 import { unregisterForPushNotifications } from "../../src/lib/notifications";
 import { type Colors } from "../../src/theme/colors";
 import {
@@ -61,15 +54,6 @@ const APPEARANCE_OPTIONS: { value: ThemePreference; labelKey: string }[] = [
 const GRADIENT_OPTIONS: { value: GradientMode; labelKey: string }[] = [
   { value: "soft", labelKey: "mobile.settings.background.soft" },
   { value: "flat", labelKey: "mobile.settings.background.flat" },
-];
-
-const VOICE_TARGET_OPTIONS: {
-  value: VoiceTargetPreference;
-  labelKey: string;
-}[] = [
-  { value: "auto", labelKey: "mobile.settings.voiceTarget.auto" },
-  { value: "phone", labelKey: "mobile.settings.voiceTarget.phone" },
-  { value: "computer", labelKey: "mobile.settings.voiceTarget.computer" },
 ];
 
 function maskEmail(email: string): string {
@@ -130,19 +114,6 @@ export default function AccountScreen() {
   const [emailRevealed, setEmailRevealed] = useState(false);
 
   useEffect(() => subscribeNotificationsMuted(setMutedLocal), []);
-
-  const [voiceTarget, setVoiceTargetLocal] = useState<VoiceTargetPreference>(
-    () => getVoiceTargetPreference(),
-  );
-  useEffect(() => {
-    const unsubscribe = subscribeVoiceTargetPreference(setVoiceTargetLocal);
-    void loadVoiceTargetPreference();
-    return unsubscribe;
-  }, []);
-  const chooseVoiceTarget = (value: VoiceTargetPreference) => {
-    setVoiceTargetLocal(value);
-    void setVoiceTargetPreference(value);
-  };
 
   const user = session.data?.user;
   const email = user?.email ?? "";
@@ -573,47 +544,6 @@ export default function AccountScreen() {
           accessibilityLabel={t("mobile.settings.pushToggleA11y")}
         />
       </View>
-
-      {pairedDesktops.length > 0 ? (
-        <>
-          <View style={styles.separator} />
-
-          <Text style={styles.sectionLabel}>
-            {t("mobile.settings.voiceSection")}
-          </Text>
-          <Text style={styles.emptyHint}>
-            {t("mobile.settings.voiceSectionHint")}
-          </Text>
-          <View style={styles.themeRow}>
-            {VOICE_TARGET_OPTIONS.map((opt) => (
-              <Pressable
-                key={opt.value}
-                onPress={() => {
-                  tapLight();
-                  chooseVoiceTarget(opt.value);
-                }}
-                accessibilityLabel={t("mobile.settings.voiceTargetLabel", {
-                  name: t(opt.labelKey),
-                })}
-                accessibilityState={{ selected: voiceTarget === opt.value }}
-                style={[
-                  styles.themeOption,
-                  voiceTarget === opt.value && styles.themeOptionActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.themeOptionText,
-                    voiceTarget === opt.value && styles.themeOptionTextActive,
-                  ]}
-                >
-                  {t(opt.labelKey)}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </>
-      ) : null}
 
       {isSignedIn ? (
         <>

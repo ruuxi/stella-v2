@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -33,10 +32,6 @@ type ComputerDeviceSheetProps = {
   /** Show the inline "Wake up" affordance (computer asleep and not waking). */
   showWake: boolean;
   onWake: () => void;
-  /** Manually trigger a desktop transcript sync (reconnect-or-pull) on demand. */
-  onForceSync: () => void;
-  /** A force sync is in flight — disable the row and show progress. */
-  syncing: boolean;
   /** Bubble a freshly-paired computer up so the chat re-targets it. */
   onRepaired: (access: StoredPhoneAccess) => void;
   modelSettings: ComputerModelSettings;
@@ -46,10 +41,10 @@ type ComputerDeviceSheetProps = {
 
 /**
  * The paired computer's device surface — status, wake, view-screen, and model
- * settings — presented as a top sheet from the Computer chat's gear button.
- * The conversation itself lives on the Computer tab; this sheet is the "how is
- * my computer configured" panel beside it. Artifacts moved to the activity
- * hub sheet (the floating pill left of the gear).
+ * settings — presented as a top sheet from the chat's gear button. The
+ * conversation itself is the chat; this sheet is the "how is my computer
+ * configured" panel beside it. Artifacts moved to the activity hub sheet (the
+ * floating pill left of the gear).
  */
 export function ComputerDeviceSheet({
   visible,
@@ -61,8 +56,6 @@ export function ComputerDeviceSheet({
   connecting,
   showWake,
   onWake,
-  onForceSync,
-  syncing,
   onRepaired,
   modelSettings,
   composerModelPinned,
@@ -176,31 +169,6 @@ export function ComputerDeviceSheet({
               <Icon name="chevron-right" size={15} color={colors.textMuted} />
             </Pressable>
           ))}
-
-          <Pressable
-            onPress={onForceSync}
-            disabled={syncing}
-            accessibilityLabel="Force sync"
-            accessibilityState={{ disabled: syncing, busy: syncing }}
-            style={({ pressed }) => [
-              styles.row,
-              styles.rowDivider,
-              pressed && !syncing && styles.rowPressed,
-            ]}
-          >
-            <Icon
-              name="refresh-cw"
-              size={18}
-              color={colors.textMuted}
-              style={styles.rowIcon}
-            />
-            <Text style={styles.rowLabel}>
-              {syncing ? "Syncing…" : "Force sync"}
-            </Text>
-            {syncing ? (
-              <ActivityIndicator size="small" color={colors.textMuted} />
-            ) : null}
-          </Pressable>
         </View>
       </ScrollView>
 

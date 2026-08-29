@@ -1716,7 +1716,6 @@
       "delete": "削除",
       "done": "完了",
       "goBack": "戻る",
-      "somethingWentWrong": "問題が発生しました。",
       "tryAgain": "もう一度試す"
     },
     "boot": {
@@ -1737,7 +1736,6 @@
     },
     "nav": {
       "chat": "チャット",
-      "computer": "コンピュータ",
       "settings": "設定",
       "openLabel": "ナビゲーションを開く",
       "closeLabel": "ナビゲーションを閉じる"
@@ -1758,7 +1756,6 @@
       "connectTitle": "どこにいてもあなたのコンピュータを",
       "connectBodyGuest": "後でサインインしてコンピュータの Stella とペアリングすると、外出先の携帯からブラウズやファイル整理、タスク実行を頼めます。",
       "connectBodyPaired": "Stella デスクトップアプリと一度ペアリングすれば、離れた場所からでも携帯でブラウズやファイル整理、タスク実行を頼めます。",
-      "pairComputer": "コンピュータをペアリング",
       "startChatting": "チャットを始める"
     },
     "login": {
@@ -1852,12 +1849,6 @@
     "computer": {
       "guestHeroTitle": "あなたのコンピュータを手元に",
       "guestHeroBody": "ウェブの閲覧、ファイル整理、タスク実行など、コンピュータでの操作を Stella に頼めます。",
-      "pairFirstTitle": "まず携帯をペアリング",
-      "pairFirstBody": "この携帯を Stella デスクトップとペアリングすると、どこからでもチャットできます。最初の一度だけで済みます。",
-      "pairPhone": "携帯をペアリング",
-      "pairThisPhoneLabel": "この携帯をペアリング",
-      "emptyPrompt": "コンピュータに何でも聞いてください",
-      "composerPlaceholder": "コンピュータにメッセージ",
       "defaultDeviceLabel": "あなたのコンピュータ",
       "statusChecking": "確認中…",
       "statusWaking": "起動中…",
@@ -1865,13 +1856,7 @@
       "statusAsleep": "スリープ中",
       "connectingLabel": "コンピュータに接続しています",
       "connectedLabel": "コンピュータに接続しました",
-      "disconnectedLabel": "コンピュータの接続が切れました",
-      "unreachableTitle": "コンピュータに接続できません",
-      "unreachableBody": "現在コンピュータに接続できません。起動リクエストを送信しました。数秒後にもう一度お試しください。",
-      "syncWaitingTitle": "同期を待機中",
-      "syncWaitingBody": "メッセージをまだ送信中です。送信が終わり次第、同期を実行します。",
-      "syncFailedTitle": "同期に失敗しました",
-      "syncFailedBody": "同期中にコンピュータが応答しなくなりました。もう一度お試しください。"
+      "disconnectedLabel": "コンピュータの接続が切れました"
     },
     "desktop": {
       "pairTitle": "携帯をペアリング",
@@ -1916,16 +1901,8 @@
       "pushToggleLabel": "プッシュ通知を許可",
       "pushToggleSub": "コンピュータがリクエストを完了したときに通知します。",
       "pushToggleA11y": "プッシュ通知を切り替える",
-      "voiceSection": "Stella と話す",
-      "voiceSectionHint": "ハンズフリー音声（CarPlay など）のメッセージの送信先です。自動では、前回の続きがコンピュータのチャットで、接続できる場合はそちらを選び、それ以外はこの携帯のチャットを使います。",
-      "voiceTarget": {
-        "auto": "自動",
-        "phone": "携帯",
-        "computer": "コンピュータ"
-      },
-      "voiceTargetLabel": "音声メッセージを {name} に送る",
       "pairedSection": "ペアリング済みのコンピュータ",
-      "pairedEmpty": "ペアリング済みのコンピュータはまだありません。コンピュータタブからペアリングしてください。",
+      "pairedEmpty": "ペアリング済みのコンピュータはまだありません。",
       "pairedOn": "{date} にペアリング",
       "paired": {
         "unnamedComputer": "コンピュータ · {id}"

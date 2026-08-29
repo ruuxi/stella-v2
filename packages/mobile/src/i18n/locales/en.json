@@ -1736,7 +1736,6 @@
       "delete": "Delete",
       "done": "Done",
       "goBack": "Go back",
-      "somethingWentWrong": "Something went wrong.",
       "tryAgain": "Try again"
     },
     "boot": {
@@ -1757,7 +1756,6 @@
     },
     "nav": {
       "chat": "Chat",
-      "computer": "Computer",
       "settings": "Settings",
       "openLabel": "Open navigation",
       "closeLabel": "Close navigation"
@@ -1778,7 +1776,6 @@
       "connectTitle": "Your computer, anywhere",
       "connectBodyGuest": "Sign in later to pair Stella on your computer — then ask your phone to browse, manage files, and run tasks at home.",
       "connectBodyPaired": "Pair once with the Stella desktop app and your phone can ask it to browse, manage files, and run tasks — even from across town.",
-      "pairComputer": "Pair my computer",
       "startChatting": "Start chatting"
     },
     "login": {
@@ -1873,12 +1870,6 @@
     "computer": {
       "guestHeroTitle": "Your computer, at your fingertips",
       "guestHeroBody": "Ask Stella to do things on your computer — browse the web, manage files, run tasks, and more.",
-      "pairFirstTitle": "Pair your phone first",
-      "pairFirstBody": "Pair this phone with your Stella desktop so you can chat with it from anywhere. You only need to do it once.",
-      "pairPhone": "Pair phone",
-      "pairThisPhoneLabel": "Pair this phone",
-      "emptyPrompt": "Ask your computer anything",
-      "composerPlaceholder": "Message your computer",
       "defaultDeviceLabel": "Your computer",
       "statusChecking": "Checking…",
       "statusWaking": "Waking up…",
@@ -1886,13 +1877,7 @@
       "statusAsleep": "Asleep",
       "connectingLabel": "Connecting to your computer",
       "connectedLabel": "Computer connected",
-      "disconnectedLabel": "Computer disconnected",
-      "unreachableTitle": "Computer unreachable",
-      "unreachableBody": "Your computer isn't reachable right now. A wake request was sent — try again in a few seconds.",
-      "syncWaitingTitle": "Sync waiting",
-      "syncWaitingBody": "A message is still being sent. The sync will run as soon as it finishes.",
-      "syncFailedTitle": "Sync failed",
-      "syncFailedBody": "Your computer stopped responding while syncing. Try again."
+      "disconnectedLabel": "Computer disconnected"
     },
     "desktop": {
       "pairTitle": "Pair your phone",
@@ -1937,16 +1922,8 @@
       "pushToggleLabel": "Allow push notifications",
       "pushToggleSub": "Get notified when your computer finishes a request.",
       "pushToggleA11y": "Toggle push notifications",
-      "voiceSection": "Talk to Stella",
-      "voiceSectionHint": "Where hands-free voice (like CarPlay) sends your messages. Auto picks your computer's chat when that's where you left off and it's reachable — otherwise this phone's chat.",
-      "voiceTarget": {
-        "auto": "Auto",
-        "phone": "Phone",
-        "computer": "Computer"
-      },
-      "voiceTargetLabel": "Send voice messages to {name}",
       "pairedSection": "Paired computers",
-      "pairedEmpty": "No computers paired yet. Pair from the Computer tab.",
+      "pairedEmpty": "No computers paired yet.",
       "pairedOn": "Paired {date}",
       "paired": {
         "unnamedComputer": "Computer · {id}"

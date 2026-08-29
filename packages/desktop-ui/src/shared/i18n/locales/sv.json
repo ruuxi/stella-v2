@@ -1736,7 +1736,6 @@
       "delete": "Radera",
       "done": "Klar",
       "goBack": "Gå tillbaka",
-      "somethingWentWrong": "Något gick fel.",
       "tryAgain": "Försök igen"
     },
     "boot": {
@@ -1757,7 +1756,6 @@
     },
     "nav": {
       "chat": "Chatt",
-      "computer": "Dator",
       "settings": "Inställningar",
       "openLabel": "Öppna navigeringen",
       "closeLabel": "Stäng navigeringen"
@@ -1778,7 +1776,6 @@
       "connectTitle": "Din dator, var du än är",
       "connectBodyGuest": "Logga in senare för att parkoppla Stella på din dator — be sedan från telefonen om att surfa, hantera filer och köra uppgifter hemma.",
       "connectBodyPaired": "Parkoppla en gång med Stellas datorapp, så kan telefonen be den surfa, hantera filer och köra uppgifter — även från andra sidan stan.",
-      "pairComputer": "Parkoppla min dator",
       "startChatting": "Börja chatta"
     },
     "login": {
@@ -1874,12 +1871,6 @@
     "computer": {
       "guestHeroTitle": "Din dator inom räckhåll",
       "guestHeroBody": "Be Stella göra saker på din dator — surfa på webben, hantera filer, köra uppgifter och mycket mer.",
-      "pairFirstTitle": "Parkoppla telefonen först",
-      "pairFirstBody": "Parkoppla den här telefonen med Stella på datorn så att du kan chatta med den var du än är. Det behöver bara göras en gång.",
-      "pairPhone": "Parkoppla telefon",
-      "pairThisPhoneLabel": "Parkoppla den här telefonen",
-      "emptyPrompt": "Fråga din dator vad som helst",
-      "composerPlaceholder": "Skriv till din dator",
       "defaultDeviceLabel": "Din dator",
       "statusChecking": "Kontrollerar…",
       "statusWaking": "Vaknar…",
@@ -1887,13 +1878,7 @@
       "statusAsleep": "I viloläge",
       "connectingLabel": "Ansluter till din dator",
       "connectedLabel": "Datorn ansluten",
-      "disconnectedLabel": "Datorn frånkopplad",
-      "unreachableTitle": "Datorn går inte att nå",
-      "unreachableBody": "Din dator går inte att nå just nu. En väckningsbegäran har skickats — försök igen om några sekunder.",
-      "syncWaitingTitle": "Synkronisering väntar",
-      "syncWaitingBody": "Ett meddelande skickas fortfarande. Synkroniseringen körs så snart det är klart.",
-      "syncFailedTitle": "Synkroniseringen misslyckades",
-      "syncFailedBody": "Din dator slutade svara under synkroniseringen. Försök igen."
+      "disconnectedLabel": "Datorn frånkopplad"
     },
     "desktop": {
       "pairTitle": "Parkoppla din telefon",
@@ -1938,16 +1923,8 @@
       "pushToggleLabel": "Tillåt push-aviseringar",
       "pushToggleSub": "Få en avisering när din dator blir klar med en förfrågan.",
       "pushToggleA11y": "Slå på eller av push-aviseringar",
-      "voiceSection": "Prata med Stella",
-      "voiceSectionHint": "Vart handsfree-rösten (som CarPlay) skickar dina meddelanden. Auto väljer chatten på din dator när det var där du slutade och den går att nå — annars chatten i den här telefonen.",
-      "voiceTarget": {
-        "auto": "Auto",
-        "phone": "Telefon",
-        "computer": "Dator"
-      },
-      "voiceTargetLabel": "Skicka röstmeddelanden till {name}",
       "pairedSection": "Parkopplade datorer",
-      "pairedEmpty": "Inga datorer parkopplade än. Parkoppla från fliken Dator.",
+      "pairedEmpty": "Inga datorer parkopplade än.",
       "pairedOn": "Parkopplad {date}",
       "paired": {
         "unnamedComputer": "Dator · {id}"

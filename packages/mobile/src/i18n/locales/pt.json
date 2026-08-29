@@ -1754,7 +1754,6 @@
       "delete": "Excluir",
       "done": "Concluído",
       "goBack": "Voltar",
-      "somethingWentWrong": "Algo deu errado.",
       "tryAgain": "Tentar novamente"
     },
     "boot": {
@@ -1775,7 +1774,6 @@
     },
     "nav": {
       "chat": "Chat",
-      "computer": "Computador",
       "settings": "Configurações",
       "openLabel": "Abrir a navegação",
       "closeLabel": "Fechar a navegação"
@@ -1796,7 +1794,6 @@
       "connectTitle": "Seu computador, em qualquer lugar",
       "connectBodyGuest": "Entre depois para parear a Stella no seu computador — então peça pelo celular para navegar, gerenciar arquivos e executar tarefas em casa.",
       "connectBodyPaired": "Pareie uma vez com o app de desktop da Stella e seu celular poderá pedir que ele navegue, gerencie arquivos e execute tarefas — mesmo do outro lado da cidade.",
-      "pairComputer": "Parear meu computador",
       "startChatting": "Começar a conversar"
     },
     "login": {
@@ -1892,12 +1889,6 @@
     "computer": {
       "guestHeroTitle": "Seu computador na palma da mão",
       "guestHeroBody": "Peça à Stella para fazer coisas no seu computador — navegar na web, gerenciar arquivos, executar tarefas e muito mais.",
-      "pairFirstTitle": "Primeiro pareie seu celular",
-      "pairFirstBody": "Pareie este celular com a Stella no desktop para conversar com ele de qualquer lugar. Você só precisa fazer isso uma vez.",
-      "pairPhone": "Parear celular",
-      "pairThisPhoneLabel": "Parear este celular",
-      "emptyPrompt": "Pergunte qualquer coisa ao seu computador",
-      "composerPlaceholder": "Escreva para o seu computador",
       "defaultDeviceLabel": "Seu computador",
       "statusChecking": "Verificando…",
       "statusWaking": "Acordando…",
@@ -1905,13 +1896,7 @@
       "statusAsleep": "Em repouso",
       "connectingLabel": "Conectando ao seu computador",
       "connectedLabel": "Computador conectado",
-      "disconnectedLabel": "Computador desconectado",
-      "unreachableTitle": "Computador inacessível",
-      "unreachableBody": "Seu computador não está acessível agora. Um pedido para acordá-lo foi enviado — tente de novo em alguns segundos.",
-      "syncWaitingTitle": "Sincronização aguardando",
-      "syncWaitingBody": "Uma mensagem ainda está sendo enviada. A sincronização acontece assim que ela terminar.",
-      "syncFailedTitle": "Falha na sincronização",
-      "syncFailedBody": "Seu computador parou de responder durante a sincronização. Tente novamente."
+      "disconnectedLabel": "Computador desconectado"
     },
     "desktop": {
       "pairTitle": "Pareie seu celular",
@@ -1956,16 +1941,8 @@
       "pushToggleLabel": "Permitir notificações push",
       "pushToggleSub": "Receba um aviso quando seu computador concluir um pedido.",
       "pushToggleA11y": "Ativar ou desativar as notificações push",
-      "voiceSection": "Fale com a Stella",
-      "voiceSectionHint": "Para onde a voz mãos-livres (como o CarPlay) envia suas mensagens. Auto escolhe o chat do seu computador quando foi ali que você parou e ele está acessível — caso contrário, o chat deste celular.",
-      "voiceTarget": {
-        "auto": "Auto",
-        "phone": "Celular",
-        "computer": "Computador"
-      },
-      "voiceTargetLabel": "Enviar mensagens de voz para {name}",
       "pairedSection": "Computadores pareados",
-      "pairedEmpty": "Nenhum computador pareado ainda. Pareie na aba Computador.",
+      "pairedEmpty": "Nenhum computador pareado ainda.",
       "pairedOn": "Pareado em {date}",
       "paired": {
         "unnamedComputer": "Computador · {id}"

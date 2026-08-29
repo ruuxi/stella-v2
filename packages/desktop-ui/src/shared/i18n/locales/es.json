@@ -1754,7 +1754,6 @@
       "delete": "Eliminar",
       "done": "Listo",
       "goBack": "Volver",
-      "somethingWentWrong": "Algo salió mal.",
       "tryAgain": "Intentar de nuevo"
     },
     "boot": {
@@ -1775,7 +1774,6 @@
     },
     "nav": {
       "chat": "Chat",
-      "computer": "Ordenador",
       "settings": "Ajustes",
       "openLabel": "Abrir la navegación",
       "closeLabel": "Cerrar la navegación"
@@ -1796,7 +1794,6 @@
       "connectTitle": "Tu ordenador, en cualquier lugar",
       "connectBodyGuest": "Inicia sesión más tarde para vincular Stella en tu ordenador y pedirle desde el móvil que navegue, gestione archivos y ejecute tareas en casa.",
       "connectBodyPaired": "Vincula una vez la app de escritorio de Stella y tu móvil podrá pedirle que navegue, gestione archivos y ejecute tareas, aunque estés al otro lado de la ciudad.",
-      "pairComputer": "Vincular mi ordenador",
       "startChatting": "Empezar a chatear"
     },
     "login": {
@@ -1892,12 +1889,6 @@
     "computer": {
       "guestHeroTitle": "Tu ordenador, al alcance de la mano",
       "guestHeroBody": "Pídele a Stella que haga cosas en tu ordenador: navegar por la web, gestionar archivos, ejecutar tareas y mucho más.",
-      "pairFirstTitle": "Primero vincula tu móvil",
-      "pairFirstBody": "Vincula este móvil con tu Stella de escritorio para chatear con él desde cualquier lugar. Solo hay que hacerlo una vez.",
-      "pairPhone": "Vincular móvil",
-      "pairThisPhoneLabel": "Vincular este móvil",
-      "emptyPrompt": "Pregúntale lo que sea a tu ordenador",
-      "composerPlaceholder": "Escribe a tu ordenador",
       "defaultDeviceLabel": "Tu ordenador",
       "statusChecking": "Comprobando…",
       "statusWaking": "Despertando…",
@@ -1905,13 +1896,7 @@
       "statusAsleep": "En reposo",
       "connectingLabel": "Conectando con tu ordenador",
       "connectedLabel": "Ordenador conectado",
-      "disconnectedLabel": "Ordenador desconectado",
-      "unreachableTitle": "Ordenador no disponible",
-      "unreachableBody": "Ahora mismo no se puede acceder a tu ordenador. Se envió una petición para despertarlo; inténtalo de nuevo en unos segundos.",
-      "syncWaitingTitle": "Sincronización en espera",
-      "syncWaitingBody": "Todavía se está enviando un mensaje. La sincronización se hará en cuanto termine.",
-      "syncFailedTitle": "Error de sincronización",
-      "syncFailedBody": "Tu ordenador dejó de responder durante la sincronización. Inténtalo de nuevo."
+      "disconnectedLabel": "Ordenador desconectado"
     },
     "desktop": {
       "pairTitle": "Vincula tu móvil",
@@ -1956,16 +1941,8 @@
       "pushToggleLabel": "Permitir notificaciones push",
       "pushToggleSub": "Recibe un aviso cuando tu ordenador termine una petición.",
       "pushToggleA11y": "Activar o desactivar las notificaciones push",
-      "voiceSection": "Habla con Stella",
-      "voiceSectionHint": "Adónde envía tus mensajes la voz manos libres (como CarPlay). Auto elige el chat de tu ordenador cuando fue ahí donde lo dejaste y está disponible; si no, el chat de este móvil.",
-      "voiceTarget": {
-        "auto": "Auto",
-        "phone": "Móvil",
-        "computer": "Ordenador"
-      },
-      "voiceTargetLabel": "Enviar los mensajes de voz a {name}",
       "pairedSection": "Ordenadores vinculados",
-      "pairedEmpty": "Todavía no hay ordenadores vinculados. Vincula uno desde la pestaña Ordenador.",
+      "pairedEmpty": "Todavía no hay ordenadores vinculados.",
       "pairedOn": "Vinculado el {date}",
       "paired": {
         "unnamedComputer": "Ordenador · {id}"

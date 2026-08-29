@@ -1754,7 +1754,6 @@
       "delete": "מחק",
       "done": "סיום",
       "goBack": "חזרה אחורה",
-      "somethingWentWrong": "משהו השתבש.",
       "tryAgain": "נסו שוב"
     },
     "boot": {
@@ -1775,7 +1774,6 @@
     },
     "nav": {
       "chat": "צ׳אט",
-      "computer": "מחשב",
       "settings": "הגדרות",
       "openLabel": "פתיחת הניווט",
       "closeLabel": "סגירת הניווט"
@@ -1796,7 +1794,6 @@
       "connectTitle": "המחשב שלכם, מכל מקום",
       "connectBodyGuest": "התחברו מאוחר יותר כדי לחבר את Stella במחשב שלכם — ואז תוכלו לבקש מהטלפון לגלוש, לנהל קבצים ולהריץ משימות בבית.",
       "connectBodyPaired": "חברו פעם אחת לאפליקציית Stella במחשב, ואז הטלפון יוכל לבקש ממנה לגלוש, לנהל קבצים ולהריץ משימות — אפילו מהצד השני של העיר.",
-      "pairComputer": "חיבור המחשב שלי",
       "startChatting": "התחילו לשוחח"
     },
     "login": {
@@ -1892,12 +1889,6 @@
     "computer": {
       "guestHeroTitle": "המחשב שלכם, בהישג יד",
       "guestHeroBody": "בקשו מ-Stella לעשות דברים במחשב שלכם — לגלוש ברשת, לנהל קבצים, להריץ משימות ועוד.",
-      "pairFirstTitle": "חברו קודם את הטלפון",
-      "pairFirstBody": "חברו את הטלפון הזה ל-Stella במחשב כדי לשוחח איתו מכל מקום. צריך לעשות זאת רק פעם אחת.",
-      "pairPhone": "חיבור טלפון",
-      "pairThisPhoneLabel": "חיבור הטלפון הזה",
-      "emptyPrompt": "שאלו את המחשב שלכם כל דבר",
-      "composerPlaceholder": "כתבו למחשב שלכם",
       "defaultDeviceLabel": "המחשב שלכם",
       "statusChecking": "בודק…",
       "statusWaking": "מעיר…",
@@ -1905,13 +1896,7 @@
       "statusAsleep": "במצב שינה",
       "connectingLabel": "מתחבר למחשב שלכם",
       "connectedLabel": "המחשב מחובר",
-      "disconnectedLabel": "המחשב מנותק",
-      "unreachableTitle": "אין גישה למחשב",
-      "unreachableBody": "אין כרגע גישה למחשב שלכם. נשלחה בקשת התעוררות — נסו שוב בעוד כמה שניות.",
-      "syncWaitingTitle": "הסנכרון ממתין",
-      "syncWaitingBody": "הודעה עדיין נשלחת. הסנכרון ירוץ מיד עם סיום השליחה.",
-      "syncFailedTitle": "הסנכרון נכשל",
-      "syncFailedBody": "המחשב שלכם הפסיק להגיב במהלך הסנכרון. נסו שוב."
+      "disconnectedLabel": "המחשב מנותק"
     },
     "desktop": {
       "pairTitle": "חברו את הטלפון שלכם",
@@ -1956,16 +1941,8 @@
       "pushToggleLabel": "אפשרו התראות דחיפה",
       "pushToggleSub": "קבלו התראה כשהמחשב שלכם מסיים בקשה.",
       "pushToggleA11y": "החלפת מצב התראות דחיפה",
-      "voiceSection": "דברו עם Stella",
-      "voiceSectionHint": "לאן שליטה קולית ללא ידיים (כמו CarPlay) שולחת את ההודעות שלכם. אוטומטי בוחר את הצ׳אט במחשב אם שם הפסקתם והוא זמין — אחרת את הצ׳אט בטלפון הזה.",
-      "voiceTarget": {
-        "auto": "אוטומטי",
-        "phone": "טלפון",
-        "computer": "מחשב"
-      },
-      "voiceTargetLabel": "שליחת הודעות קוליות אל {name}",
       "pairedSection": "מחשבים מחוברים",
-      "pairedEmpty": "עדיין אין מחשבים מחוברים. אפשר לחבר מלשונית המחשב.",
+      "pairedEmpty": "עדיין אין מחשבים מחוברים.",
       "pairedOn": "חובר ב-{date}",
       "paired": {
         "unnamedComputer": "מחשב · {id}"

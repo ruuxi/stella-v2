@@ -1736,7 +1736,6 @@
       "delete": "Törlés",
       "done": "Kész",
       "goBack": "Vissza",
-      "somethingWentWrong": "Valami hiba történt.",
       "tryAgain": "Újra"
     },
     "boot": {
@@ -1757,7 +1756,6 @@
     },
     "nav": {
       "chat": "Csevegés",
-      "computer": "Számítógép",
       "settings": "Beállítások",
       "openLabel": "Navigáció megnyitása",
       "closeLabel": "Navigáció bezárása"
@@ -1778,7 +1776,6 @@
       "connectTitle": "A számítógéped, bárhol",
       "connectBodyGuest": "Jelentkezz be később, hogy párosítsd a Stellát a számítógépeden — utána a telefonodról kérheted, hogy böngésszen, kezelje a fájlokat és futtasson feladatokat otthon.",
       "connectBodyPaired": "Párosítsd egyszer a Stella asztali alkalmazásával, és a telefonod kérheti tőle, hogy böngésszen, kezelje a fájlokat és futtasson feladatokat — akár a város másik végéről is.",
-      "pairComputer": "Számítógép párosítása",
       "startChatting": "Csevegés indítása"
     },
     "login": {
@@ -1873,12 +1870,6 @@
     "computer": {
       "guestHeroTitle": "A számítógéped kéznyújtásnyira",
       "guestHeroBody": "Kérd meg a Stellát, hogy csináljon dolgokat a számítógépeden — böngésszen, kezelje a fájlokat, futtasson feladatokat és még sok mást.",
-      "pairFirstTitle": "Előbb párosítsd a telefonod",
-      "pairFirstBody": "Párosítsd ezt a telefont a Stella asztali alkalmazásával, hogy bárhonnan cseveghess vele. Csak egyszer kell megtenned.",
-      "pairPhone": "Telefon párosítása",
-      "pairThisPhoneLabel": "Ennek a telefonnak a párosítása",
-      "emptyPrompt": "Kérdezz bármit a számítógépedtől",
-      "composerPlaceholder": "Írj a számítógépednek",
       "defaultDeviceLabel": "A számítógéped",
       "statusChecking": "Ellenőrzés…",
       "statusWaking": "Ébresztés…",
@@ -1886,13 +1877,7 @@
       "statusAsleep": "Alvó állapotban",
       "connectingLabel": "Csatlakozás a számítógépedhez",
       "connectedLabel": "Számítógép csatlakoztatva",
-      "disconnectedLabel": "Számítógép leválasztva",
-      "unreachableTitle": "A számítógép nem érhető el",
-      "unreachableBody": "A számítógéped most nem érhető el. Ébresztési kérést küldtünk — próbáld újra pár másodperc múlva.",
-      "syncWaitingTitle": "A szinkronizálás várakozik",
-      "syncWaitingBody": "Egy üzenet küldése még folyamatban van. A szinkronizálás azonnal lefut, amint befejeződik.",
-      "syncFailedTitle": "A szinkronizálás nem sikerült",
-      "syncFailedBody": "A számítógéped szinkronizálás közben nem válaszolt tovább. Próbáld újra."
+      "disconnectedLabel": "Számítógép leválasztva"
     },
     "desktop": {
       "pairTitle": "Párosítsd a telefonod",
@@ -1937,16 +1922,8 @@
       "pushToggleLabel": "Push-értesítések engedélyezése",
       "pushToggleSub": "Kapj értesítést, amikor a számítógéped végez egy kéréssel.",
       "pushToggleA11y": "Push-értesítések be- és kikapcsolása",
-      "voiceSection": "Beszélgetés a Stellával",
-      "voiceSectionHint": "Ide küldi az üzeneteidet a kihangosított hangvezérlés (például a CarPlay). Az Automatikus a számítógéped csevegését választja, ha ott hagytad abba és elérhető — különben ennek a telefonnak a csevegését.",
-      "voiceTarget": {
-        "auto": "Automatikus",
-        "phone": "Telefon",
-        "computer": "Számítógép"
-      },
-      "voiceTargetLabel": "Hangüzenetek küldése ide: {name}",
       "pairedSection": "Párosított számítógépek",
-      "pairedEmpty": "Még nincs párosított számítógép. Párosíts a Számítógép lapon.",
+      "pairedEmpty": "Még nincs párosított számítógép.",
       "pairedOn": "Párosítva: {date}",
       "paired": {
         "unnamedComputer": "Számítógép · {id}"

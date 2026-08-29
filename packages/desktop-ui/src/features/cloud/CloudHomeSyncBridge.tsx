@@ -131,7 +131,7 @@ export function CloudHomeSyncBridge() {
         scanLocal: () => cloudHome.scanLocal(scopeAtStart),
         readImportOwnership: cloudHome.getImportOwnership,
         readSkillHeads: async () =>
-          await convex.query(cloudHomeApi.listMySkills, {
+          await convex.query(cloudHomeApi.listMySkillHeads, {
             clientScope: scopeAtStart,
           }),
         cursorStore: uiState,

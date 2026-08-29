@@ -105,9 +105,6 @@ export type PublicApiType = {
     "promoteMyInteriorBuild": FunctionReference<'mutation', 'public', { buildId: string; expectedRouteRevision: number; }, any, string | undefined>;
     "rollbackMyInteriorBuild": FunctionReference<'mutation', 'public', { expectedRouteRevision: number; }, any, string | undefined>;
   };
-  "cloud_dream": {
-    "getMyDreamStatus": FunctionReference<'query', 'public', {}, any, string | undefined>;
-  };
   "cloud_drive": {
     "prepareDriveUpload": FunctionReference<'action', 'public', { contentType?: string | undefined; sizeBytes: number; path: string; }, any, string | undefined>;
     "finalizeDriveUpload": FunctionReference<'action', 'public', { source?: string | undefined; contentType?: string | undefined; path: string; uploadId: string; }, any, string | undefined>;
@@ -151,10 +148,7 @@ export type PublicApiType = {
     "listMyGithubRepositories": FunctionReference<'action', 'public', { installationId?: string | undefined; }, any, string | undefined>;
   };
   "cloud_skills": {
-    "authorizeMySkill": FunctionReference<'mutation', 'public', { versionId: string; skillId: string; allowedAgentTypes: ('orchestrator' | 'general')[]; allowedToolNames: string[]; expectedOwnerGeneration: string; expectedAuthorizationRevision: number; }, any, string | undefined>;
-    "revokeMySkill": FunctionReference<'mutation', 'public', { skillId: string; expectedOwnerGeneration: string; expectedAuthorizationRevision: number; }, any, string | undefined>;
-    "setMySkillEnabled": FunctionReference<'mutation', 'public', { enabled: boolean; skillId: string; expectedRevision: number; expectedOwnerGeneration: string; }, any, string | undefined>;
-    "listMySkills": FunctionReference<'query', 'public', { clientScope: string; }, any, string | undefined>;
+    "listMySkillHeads": FunctionReference<'query', 'public', { clientScope: string; }, any, string | undefined>;
   };
   "conversations": {
     "getOrCreateDefaultConversation": FunctionReference<'mutation', 'public', { title?: string | undefined; }, any, string | undefined>;

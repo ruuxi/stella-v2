@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { App } from "electron";
@@ -25,7 +32,7 @@ afterEach(async () => {
 });
 
 describe("ensureStellaDataDirSeeded", () => {
-  it("seeds one-shot entries and mirrors bundled skills into system/", async () => {
+  it("seeds one-shot entries and installs bundled skills into the canonical root", async () => {
     const stellaAppDir = await createTempDir("stella-seed-root-");
     const stellaDataDir = await createTempDir("stella-home-");
     const seedRoot = path.join(stellaAppDir, "packages", "home-seed");
@@ -45,7 +52,7 @@ describe("ensureStellaDataDirSeeded", () => {
     await writeFile(path.join(seedRoot, "memories", "MEMORY.md"), "old memory");
 
     const result = await ensureStellaDataDirSeeded(stellaAppDir, stellaDataDir);
-    expect(result.mirrored).toBe(true);
+    expect(result.synced).toBe(true);
 
     // Retained one-shot seeds land in user space.
     await expect(
@@ -62,33 +69,73 @@ describe("ensureStellaDataDirSeeded", () => {
       readFile(path.join(stellaDataDir, "memories", "MEMORY.md"), "utf-8"),
     ).rejects.toThrow();
 
-    // Bundled skills mirror under system/, never into the user dirs.
-    await expect(
-      readFile(
-        path.join(
-          stellaDataDir,
-          "system",
-          "skills",
-          "stella-desktop",
-          "SKILL.md",
-        ),
-        "utf-8",
-      ),
-    ).resolves.toBe("desktop skill");
+    // Bundled and user-created skills share the one canonical root.
     await expect(
       readFile(
         path.join(stellaDataDir, "skills", "stella-desktop", "SKILL.md"),
         "utf-8",
       ),
+    ).resolves.toBe("desktop skill");
+    await expect(
+      readFile(path.join(stellaDataDir, "system", "skills"), "utf-8"),
     ).rejects.toThrow();
     // System prompts live in the app bundle; nothing materializes here.
     await expect(
-      readFile(path.join(stellaDataDir, "system", "agents"), "utf-8"),
+      readFile(path.join(stellaDataDir, "agents"), "utf-8"),
     ).rejects.toThrow();
 
-    // A second run with unchanged sources is a no-op mirror.
+    // A second run with unchanged sources is an idempotent no-op.
     const again = await ensureStellaDataDirSeeded(stellaAppDir, stellaDataDir);
-    expect(again.mirrored).toBe(false);
+    expect(again.synced).toBe(false);
+  });
+
+  it("retires a legacy system mirror into the canonical root and the trash", async () => {
+    const stellaAppDir = await createTempDir("stella-seed-root-");
+    const stellaDataDir = await createTempDir("stella-home-");
+    const seedRoot = path.join(stellaAppDir, "packages", "home-seed");
+
+    await mkdir(path.join(seedRoot, "skills", "stella-desktop"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(seedRoot, "skills", "stella-desktop", "SKILL.md"),
+      "shipped desktop skill",
+    );
+
+    // The mirror held both a still-shipped skill and one the bundle retired.
+    const legacySkills = path.join(stellaDataDir, "system", "skills");
+    await mkdir(path.join(legacySkills, "stella-desktop"), { recursive: true });
+    await writeFile(
+      path.join(legacySkills, "stella-desktop", "SKILL.md"),
+      "stale mirrored desktop skill",
+    );
+    await mkdir(path.join(legacySkills, "retired-skill"), { recursive: true });
+    await writeFile(
+      path.join(legacySkills, "retired-skill", "SKILL.md"),
+      "retired skill",
+    );
+
+    await ensureStellaDataDirSeeded(stellaAppDir, stellaDataDir);
+
+    await expect(
+      readFile(
+        path.join(stellaDataDir, "skills", "stella-desktop", "SKILL.md"),
+        "utf-8",
+      ),
+    ).resolves.toBe("shipped desktop skill");
+    await expect(
+      readFile(
+        path.join(stellaDataDir, "skills", "retired-skill", "SKILL.md"),
+        "utf-8",
+      ),
+    ).resolves.toBe("retired skill");
+    await expect(
+      readdir(path.join(stellaDataDir, "system")),
+    ).rejects.toThrow();
+    const trashed = await readdir(path.join(stellaDataDir, ".trash"));
+    expect(
+      trashed.some((entry) => entry.startsWith("legacy-system-")),
+    ).toBe(true);
   });
 });
 

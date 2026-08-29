@@ -107,7 +107,7 @@ describe("migrateLegacyHomeLayout", () => {
 
     await migrateLegacyHomeLayout(home);
 
-    // Pristine entries are gone; the system mirror provides them now.
+    // Pristine entries are gone so the current bundled synchronizer can restore them.
     await expect(
       readFile(path.join(home, "agents", "general.md"), "utf-8"),
     ).rejects.toThrow();

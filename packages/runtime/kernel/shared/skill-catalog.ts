@@ -26,15 +26,14 @@ export type SkillCatalogRenderOptions = {
 };
 
 const SKILLS_DIR_NAME = "skills";
-const SYSTEM_DIR_NAME = "system";
 const SKILL_FILENAME = "SKILL.md";
 const PROGRAM_FILENAME = path.join("scripts", "program.ts");
 
 /**
- * Skills resolve from two roots: shipped skills mirrored under
- * `~/.stella/system/skills/` and user skills under `~/.stella/skills/`. A
- * user skill with the same id shadows the shipped one — that's the fork
- * mechanism for customizing a shipped skill.
+ * Every installed skill, shipped or user-created, resolves from the single
+ * `~/.stella/skills/` root. Shipped skills are reconciled into it by content
+ * hash (see `home/skills-sync.ts`); a collision or a local edit makes that
+ * skill user-owned, so there is no second root to shadow.
  */
 type SkillLocation = { id: string; dir: string; displayPath: string };
 
@@ -82,43 +81,21 @@ const listDirectoryNames = async (root: string): Promise<string[]> => {
 const listSkillLocations = async (
   stellaAppDir: string,
 ): Promise<SkillLocation[]> => {
-  const userRoot = path.join(stellaAppDir, SKILLS_DIR_NAME);
-  const systemRoot = path.join(
-    stellaAppDir,
-    SYSTEM_DIR_NAME,
-    SKILLS_DIR_NAME,
-  );
-  const [userIds, systemIds] = await Promise.all([
-    listDirectoryNames(userRoot),
-    listDirectoryNames(systemRoot),
-  ]);
-  const byId = new Map<string, SkillLocation>();
-  for (const id of systemIds) {
-    byId.set(id, {
+  const skillsRoot = path.join(stellaAppDir, SKILLS_DIR_NAME);
+  // Dot-prefixed entries are reconciliation staging/backup dirs, never skills.
+  return (await listDirectoryNames(skillsRoot))
+    .filter((id) => !id.startsWith("."))
+    .map((id) => ({
       id,
-      dir: path.join(systemRoot, id),
-      displayPath: path.posix.join(
-        "~/.stella",
-        SYSTEM_DIR_NAME,
-        SKILLS_DIR_NAME,
-        id,
-        SKILL_FILENAME,
-      ),
-    });
-  }
-  for (const id of userIds) {
-    byId.set(id, {
-      id,
-      dir: path.join(userRoot, id),
+      dir: path.join(skillsRoot, id),
       displayPath: path.posix.join(
         "~/.stella",
         SKILLS_DIR_NAME,
         id,
         SKILL_FILENAME,
       ),
-    });
-  }
-  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
 };
 
 const filterSkillLocations = (

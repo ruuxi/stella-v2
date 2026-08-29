@@ -767,7 +767,6 @@ const drainAgentHomeTable = async (
       ).map((row) => row._id) as Id<AgentHomeTable>[];
       break;
     case "cloud_skill_files":
-    case "cloud_skill_authorizations":
       ids = (
         await ctx.db
           .query(table)
@@ -1731,16 +1730,6 @@ export const remainingOwnerStoresInternal = internalQuery({
           await check(store, () =>
             ctx.db
               .query("cloud_skill_files")
-              .withIndex("by_ownerId_and_skillId", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
-        case "cloud_skill_authorizations":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_skill_authorizations")
               .withIndex("by_ownerId_and_skillId", (q) =>
                 q.eq("ownerId", ownerId),
               )

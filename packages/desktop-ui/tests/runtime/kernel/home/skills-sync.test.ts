@@ -75,6 +75,47 @@ describe("bundled skills seed", () => {
 });
 
 describe("reconcileBundledSkills", () => {
+  it("leaves a pre-existing collision user-owned and never overwrites it", async () => {
+    const seedSkillsDir = await tempDir("bundled-skills-seed-");
+    const homeSkillsDir = path.join(
+      await tempDir("bundled-skills-home-"),
+      "skills",
+    );
+    await mkdir(path.join(seedSkillsDir, "pdf"), { recursive: true });
+    await writeFile(path.join(seedSkillsDir, "pdf", "SKILL.md"), "pdf shipped");
+    // Shipped and user-created skills share one root, so the user can already
+    // own the id the bundle wants to seed.
+    await mkdir(path.join(homeSkillsDir, "pdf"), { recursive: true });
+    await writeFile(
+      path.join(homeSkillsDir, "pdf", "SKILL.md"),
+      "my own pdf skill",
+    );
+
+    const report = await reconcile(seedSkillsDir, homeSkillsDir);
+
+    expect(report.actions).toContainEqual({
+      type: "skip-user-modified",
+      id: "pdf",
+      reason: "no-manifest",
+    });
+    await expect(
+      readFile(path.join(homeSkillsDir, "pdf", "SKILL.md"), "utf-8"),
+    ).resolves.toBe("my own pdf skill");
+
+    const manifest = await readManifest(homeSkillsDir);
+    expect(manifest?.entries["pdf"]?.customized).toBe(true);
+
+    // A later shipped change still must not reclaim the id.
+    await writeFile(
+      path.join(seedSkillsDir, "pdf", "SKILL.md"),
+      "pdf shipped v2",
+    );
+    await reconcile(seedSkillsDir, homeSkillsDir);
+    await expect(
+      readFile(path.join(homeSkillsDir, "pdf", "SKILL.md"), "utf-8"),
+    ).resolves.toBe("my own pdf skill");
+  });
+
   it("retires removed defaults while preserving a user-modified copy", async () => {
     const seedSkillsDir = await tempDir("bundled-skills-seed-");
     const homeSkillsDir = path.join(

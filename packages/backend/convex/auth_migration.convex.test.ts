@@ -3893,7 +3893,6 @@ describe("crash-safe ownership migration lifecycle", () => {
         source: "cloud_created",
         availability: "both",
         revision: 0,
-        enabled: false,
         createdAt: 1,
         updatedAt: 1,
       });
@@ -3907,7 +3906,6 @@ describe("crash-safe ownership migration lifecycle", () => {
         availability: "both",
         activeVersionId: "skillver-source",
         revision: 1,
-        enabled: true,
         createdAt: 1,
         updatedAt: 2,
       });
@@ -3936,18 +3934,6 @@ describe("crash-safe ownership migration lifecycle", () => {
         sizeBytes: 10,
         contentType: "text/markdown",
         createdAt: 1,
-      });
-      await ctx.db.insert("cloud_skill_authorizations", {
-        ownerId: fromOwnerId,
-        skillId: "skill-source",
-        versionId: "skillver-source",
-        state: "active",
-        allowedAgentTypes: ["orchestrator", "general"],
-        allowedToolNames: ["calendar.list"],
-        authorizationRevision: 1,
-        approvedAt: 1,
-        createdAt: 1,
-        updatedAt: 1,
       });
       await ctx.db.insert("cloud_skill_write_intents", {
         intentId: "skillintent-source",
@@ -4082,11 +4068,6 @@ describe("crash-safe ownership migration lifecycle", () => {
       source: "owner_migration",
     });
     expect(state.skillFiles[0]?.ownerId).toBe(toOwnerId);
-    expect(state.skillAuthorizations[0]).toMatchObject({
-      ownerId: toOwnerId,
-      versionId: "skillver-source",
-      state: "active",
-    });
     expect(state.skillIntents).toEqual([]);
   });
 

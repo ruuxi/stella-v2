@@ -97,40 +97,11 @@ export const cloudHomeApi = {
     AuthorizeCloudMemoryReimportArgs,
     CloudMemoryWipeStatus
   >("cloud_memory_lifecycle:authorizeMyMemoryReimport"),
-  listMySkills: makeFunctionReference<
+  // The only cloud skill read the device needs: mirror heads to diff its
+  // canonical root against. There is no cloud-side skill write or edit call.
+  listMySkillHeads: makeFunctionReference<
     "query",
     { clientScope: string },
     CloudSkillHead[]
-  >("cloud_skills:listMySkills"),
-  authorizeMySkill: makeFunctionReference<
-    "mutation",
-    {
-      skillId: string;
-      versionId: string;
-      expectedOwnerGeneration: string;
-      expectedAuthorizationRevision: number;
-      allowedAgentTypes: Array<"orchestrator" | "general">;
-      allowedToolNames: string[];
-    },
-    { authorizationRevision: number }
-  >("cloud_skills:authorizeMySkill"),
-  revokeMySkill: makeFunctionReference<
-    "mutation",
-    {
-      skillId: string;
-      expectedOwnerGeneration: string;
-      expectedAuthorizationRevision: number;
-    },
-    { authorizationRevision: number }
-  >("cloud_skills:revokeMySkill"),
-  setMySkillEnabled: makeFunctionReference<
-    "mutation",
-    {
-      skillId: string;
-      enabled: boolean;
-      expectedOwnerGeneration: string;
-      expectedRevision: number;
-    },
-    { revision: number }
-  >("cloud_skills:setMySkillEnabled"),
+  >("cloud_skills:listMySkillHeads"),
 } as const;

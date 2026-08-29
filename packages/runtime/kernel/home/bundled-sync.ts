@@ -175,6 +175,28 @@ const writeManifest = async (
 };
 
 /**
+ * Ids the reconciler has ever seeded into `homeDir`, whether or not the user
+ * has since diverged from the shipped copy. This is how a caller tells a
+ * Stella-shipped entry apart from a purely user-authored one now that both
+ * live in the same directory.
+ */
+export const listTrackedBundledEntryIds = async (
+  homeDir: string,
+  options: Pick<
+    BundledSyncOptions,
+    "manifestFilename" | "legacyEntriesKey"
+  > = {},
+): Promise<string[]> => {
+  const manifest = await readManifest(
+    path.join(homeDir, options.manifestFilename ?? DEFAULT_MANIFEST_FILENAME),
+    options.legacyEntriesKey,
+  );
+  return Object.keys(manifest?.entries ?? {}).sort((a, b) =>
+    a.localeCompare(b),
+  );
+};
+
+/**
  * Reconcile bundled entries into a Stella home directory. Returns a report of
  * every decision so callers can log a summary. Effect-native core; the
  * exported Promise API below is a facade over the shared home runtime.

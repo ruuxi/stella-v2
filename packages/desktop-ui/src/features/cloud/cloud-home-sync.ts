@@ -435,7 +435,6 @@ const parseSkillHeads = (value: unknown): CloudSkillHead[] => {
       typeof row.availability !== "string" ||
       !Number.isSafeInteger(row.revision) ||
       (row.revision as number) < 0 ||
-      typeof row.enabled !== "boolean" ||
       typeof row.updatedAt !== "number" ||
       (row.treeSha256 !== undefined &&
         (typeof row.treeSha256 !== "string" ||

@@ -140,7 +140,6 @@ describe("dedicated cloud memory wipe lifecycle", () => {
         availability: "both",
         activeVersionId: "wipe-imported-skill-version",
         revision: 1,
-        enabled: true,
         createdAt: 1,
         updatedAt: 1,
       });
@@ -171,18 +170,6 @@ describe("dedicated cloud memory wipe lifecycle", () => {
         sizeBytes: 10,
         contentType: "text/markdown",
         createdAt: 1,
-      });
-      await ctx.db.insert("cloud_skill_authorizations", {
-        ownerId: OWNER_ID,
-        skillId: "wipe-imported-skill",
-        versionId: "wipe-imported-skill-version",
-        state: "active",
-        allowedAgentTypes: ["general"],
-        allowedToolNames: ["calendar.list"],
-        authorizationRevision: 1,
-        approvedAt: 1,
-        createdAt: 1,
-        updatedAt: 1,
       });
     });
 
@@ -293,7 +280,7 @@ describe("dedicated cloud memory wipe lifecycle", () => {
       }
     }
 
-    for (let storeIndex = 0; storeIndex < 6; storeIndex += 1) {
+    for (let storeIndex = 0; storeIndex < 3; storeIndex += 1) {
       const leaseId = `wipe-metadata-${storeIndex}`;
       await t.mutation(claimWipe, {
         ownerId: OWNER_ID,
@@ -373,12 +360,6 @@ describe("dedicated cloud memory wipe lifecycle", () => {
         {
           skillId: "wipe-imported-skill",
           path: "SKILL.md",
-        },
-      ],
-      skillAuthorizations: [
-        {
-          skillId: "wipe-imported-skill",
-          state: "active",
         },
       ],
     });

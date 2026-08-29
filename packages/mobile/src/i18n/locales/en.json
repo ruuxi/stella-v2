@@ -33,7 +33,8 @@
       "shortcuts": "Shortcuts",
       "backup": "Backups",
       "account": "Account & Legal",
-      "audio": "Audio"
+      "audio": "Audio",
+      "wallet": "Wallet"
     },
     "language": {
       "title": "Language",
@@ -51,10 +52,6 @@
     "developerPreviews": {
       "title": "Developer file previews",
       "description": "Show code changes in chat and open them in the side panel."
-    },
-    "developerMode": {
-      "title": "Developer mode",
-      "description": "Show advanced model, engine, and provider controls, including bring-your-own-key setup."
     },
     "nativeFontSmoothing": {
       "title": "Native font smoothing",
@@ -277,6 +274,28 @@
         "signInBeforeDelete": "Sign in before deleting your account."
       }
     },
+    "wallet": {
+      "title": "Wallet",
+      "description": "Connect Link to pay from Stella. You add a card in Link. Stella never stores card numbers.",
+      "statusDisconnected": "Not connected",
+      "statusConnecting": "Finish signing in to Link in your browser.",
+      "statusConnected": "Connected",
+      "connect": "Connect",
+      "disconnect": "Disconnect",
+      "cancel": "Cancel",
+      "pairingOpen": "We opened {url} in your browser.",
+      "cardsTitle": "Cards",
+      "cardsEmpty": "No cards yet. Add one in Link to pay from Stella.",
+      "cardDefault": "Default",
+      "addCard": "Add card",
+      "spendTitle": "Spend history",
+      "spendEmpty": "No spend history yet.",
+      "spendConnectHint": "Connect Link to see spend history here.",
+      "connectHint": "Connect Link to add a card and pay from chat.",
+      "connectFailed": "Could not connect Link.",
+      "disconnectFailed": "Could not disconnect Link.",
+      "addCardFailed": "Could not open Link to add a card."
+    },
     "audio": {
       "systemDefault": "System default",
       "microphoneDeviceFallback": "Microphone {index}",
@@ -359,7 +378,8 @@
         "microphone": "Pick your input device, enable wake word, dictation sounds, and on-device transcription.",
         "speaker": "Pick the speaker or headphones Stella's voice plays through.",
         "wakeWord": "Listen for “Hey Stella” and start a voice conversation.",
-        "onDeviceTranscription": "Use the local Parakeet model instead of cloud transcription."
+        "onDeviceTranscription": "Use the local Parakeet model instead of cloud transcription.",
+        "wallet": "Connect Link, add a card, and see spend history."
       }
     },
     "errors": {
@@ -377,7 +397,6 @@
       "workingModeUnavailable": "Orchestrator mode is unavailable in this window.",
       "loadMemory": "Failed to load memory setting.",
       "saveMemory": "Failed to update memory setting.",
-      "saveDeveloperMode": "Failed to update developer mode.",
       "memoryUnavailable": "Memory settings are unavailable in this window.",
       "loadPermissions": "Failed to load desktop permission status.",
       "savePermission": "Failed to update {kind} permission.",
@@ -923,6 +942,27 @@
         "titleOffer": "Connect {name}?",
         "titleOfferExtension": "Connect the {name}?",
         "titleWaiting": "Waiting for {name}"
+      },
+      "linkWallet": {
+        "cancel": "Cancel",
+        "connect": "Connect",
+        "notNow": "Not now",
+        "later": "Later",
+        "addCard": "Add card",
+        "titleOffer": "Connect Link to pay?",
+        "titlePairing": "Finish signing in to Link",
+        "titleAddCard": "Add a card",
+        "titleConnected": "Link connected",
+        "titleApproval": "Approve in the Link app",
+        "titleError": "Couldn't connect Link",
+        "offerBody": "Add a card in Link so Stella can pay. Stella never stores card numbers.",
+        "pairingBody": "Enter this phrase in your browser if asked.",
+        "pairingOpen": "We opened {url} in your browser.",
+        "addCardBody": "Link is connected. Add a card in Link to pay. Stella never stores the number.",
+        "connectedBody": "Link is connected. Stella can pay through Link.",
+        "approvalBody": "{amount} at {merchant}. Open the Link app to approve.",
+        "errorBody": "Could not connect Link.",
+        "merchantFallback": "a merchant"
       },
       "contextChips": {
         "activityFallback": "Activity",

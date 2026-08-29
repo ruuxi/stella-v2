@@ -153,8 +153,6 @@ beforeEach(() => {
   failGetKeyOnce = null;
 });
 
-=======
->>>>>>> 95dfea69b (fix(mobile): call ChatMessageRow hooks on every render)
 describe("chat storage round-trip", () => {
   test("replaces one canonical transcript without clearing another thread", async () => {
     await __setTranscriptDatabaseForTests(null);

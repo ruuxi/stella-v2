@@ -12,6 +12,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { STELLA_STAR_PATH } from "./geometry";
 import { MarkLayer } from "./MarkLayer";
+import { StellaFace } from "./StellaFace";
 import {
   BREATHE_AMPLITUDE,
   CLOCK_SPAN_MS,
@@ -23,9 +24,11 @@ import { useAppVisible } from "../../lib/use-app-visible";
 export function StellaMarkHero({
   size,
   energy,
+  faceColor,
 }: {
   size: number;
   energy?: SharedValue<number>;
+  faceColor?: string;
 }) {
   const reduceMotion = useReducedMotion();
   const appVisible = useAppVisible();
@@ -78,6 +81,13 @@ export function StellaMarkHero({
           size={size}
           gradientId={`${uid}-hero`}
         />
+        {faceColor ? (
+          <StellaFace
+            size={size}
+            color={faceColor}
+            active={appVisible && !reduceMotion}
+          />
+        ) : null}
       </Animated.View>
     </View>
   );

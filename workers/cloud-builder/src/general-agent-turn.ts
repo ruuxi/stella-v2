@@ -54,6 +54,7 @@ import type {
   GeneralAgentControlPlane,
 } from "./agent-control-plane.js";
 import { AgentTurnJournal } from "./agent-turn-journal.js";
+import type { SealedTurnTranscript } from "./agent-turn-journal.js";
 import type { TurnExecutionContext } from "./turn-cancellation.js";
 import { assertTurnExecutionActive } from "./turn-cancellation.js";
 
@@ -554,6 +555,62 @@ export const runNativeSandboxTurn = async (args: {
   };
 };
 
+export class GeneralAgentPlacementError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GeneralAgentPlacementError";
+  }
+}
+
+/**
+ * What running an admitted placement produced.
+ *
+ * Asymmetric because the two arms really are. A resident turn hands its
+ * envelope back so the caller can sequence finalization; the eager container
+ * path owns its own checkpoint validation, terminal delivery and fencing
+ * inline, and reports nothing. Saying so in the type is what keeps a caller
+ * from having to invent a result envelope the container path never produced.
+ */
+export type GeneralAgentTurnOutcome =
+  | Readonly<{ kind: "resident"; result: GeneralAgentTurnResult }>
+  | Readonly<{ kind: "native_finalized" }>;
+
+/**
+ * The single dispatch on an admitted placement.
+ *
+ * Both arms are supplied by `BuildSession`, which owns the sandbox, the
+ * archive and the terminal event. What this adds is the guard at the boundary:
+ * a resident arm that reports a workspace checkpoint without having attached
+ * is a wiring bug, and letting it through would mean a chat-only turn claiming
+ * an archive nobody uploaded.
+ */
+export const runGeneralAgentTurn = async (args: {
+  plan: GeneralAgentTurnPlan;
+  context: TurnExecutionContext;
+  resident: (
+    plan: Extract<GeneralAgentTurnPlan, { kind: "resident_stella" }>,
+  ) => Promise<GeneralAgentTurnResult>;
+  native: (
+    plan: Extract<GeneralAgentTurnPlan, { kind: "native_sandbox" }>,
+  ) => Promise<void>;
+}): Promise<GeneralAgentTurnOutcome> => {
+  args.context.assertActive();
+  if (args.plan.kind === "native_sandbox") {
+    await args.native(args.plan);
+    return { kind: "native_finalized" };
+  }
+  const result = await args.resident(args.plan);
+  if (
+    result.durability.kind === "workspace_checkpoint" &&
+    result.compute.kind !== "sandbox"
+  ) {
+    throw new GeneralAgentPlacementError(
+      "A resident turn claimed a workspace checkpoint without attaching.",
+    );
+  }
+  return { kind: "resident", result };
+};
+
 export type ResidentModelFactory = (args: {
   siteUrl: string;
   turnToken: string;
@@ -585,6 +642,23 @@ export type ResidentStellaLoopInput = Readonly<{
   createModel?: ResidentModelFactory;
   /** `Agent`'s own provider seam, forwarded so a test can script completions. */
   streamFn?: StreamFn;
+  /**
+   * Called with the running loop's own abort, so the DO's interrupt hooks can
+   * stop it. An `Agent` ignores an `AbortSignal`; this is the only handle.
+   */
+  onAgentStarted?: (abort: () => void) => void;
+  /**
+   * How the sealed transcript becomes durable.
+   *
+   * D6 requires an attached turn to commit its workspace archive *before* the
+   * transcript, so a canonical cursor can never name a workspace revision that
+   * was never uploaded. The loop cannot know whether a container attached
+   * during it, so the caller sequences the commit. Absent, the resident-only
+   * `transcript_only` commit below is what runs.
+   */
+  commit?: (
+    sealed: SealedTurnTranscript,
+  ) => Promise<Exclude<TurnDurability, { kind: "none" }>>;
 }>;
 
 /**
@@ -680,6 +754,7 @@ export const runResidentStellaLoop = async (
     providerRequestLimit: AGENT_RUN_MAX_ATTEMPTS,
     ...(input.streamFn ? { streamFn: input.streamFn } : {}),
   });
+  input.onAgentStarted?.(() => agent.abort());
 
   let inputTokens = 0;
   let outputTokens = 0;
@@ -742,12 +817,13 @@ export const runResidentStellaLoop = async (
   }
 
   const sealed = await journal.seal({ suspended: false });
-  const transcript = await control.appendAndVerifyTranscript(sealed);
+  const durability = input.commit
+    ? await input.commit(sealed)
+    : ({
+        kind: "transcript_only",
+        transcript: await control.appendAndVerifyTranscript(sealed),
+      } as const);
   journal.clearAfterCanonicalCommit();
-  const durability: Extract<TurnDurability, { kind: "transcript_only" }> = {
-    kind: "transcript_only",
-    transcript,
-  };
   return error
     ? {
         outcome: "failed",

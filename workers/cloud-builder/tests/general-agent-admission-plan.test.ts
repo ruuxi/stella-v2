@@ -149,18 +149,29 @@ const storedPlan = (
   );
 
 describe("agent turn admission records its placement", () => {
-  test("the kill switch defaults off, so a stella turn is admitted native and still mints its sandbox", async () => {
+  test("the kill switch defaults on, so a stella turn is admitted resident", async () => {
     const harness = admissionHarness();
 
     const response = await admit(harness, agentTurn());
 
     expect(response.status).toBe(202);
+    expect(storedPlan(harness, "turn-1", 1)).toMatchObject({
+      plan: { kind: "resident_stella" },
+      engine: "stella",
+      residentDisabled: false,
+      browserResume: false,
+    });
+  });
+
+  test("the kill switch demotes a stella turn to the container path", async () => {
+    const harness = admissionHarness({ RESIDENT_GENERAL_AGENT_TURNS: "0" });
+
+    await admit(harness, agentTurn());
+
     expect(harness.values.get("sandboxId")).toBe("agent-turn-1");
     expect(storedPlan(harness, "turn-1", 1)).toMatchObject({
       plan: { kind: "native_sandbox", reason: "resident_disabled" },
-      engine: "stella",
       residentDisabled: true,
-      browserResume: false,
     });
   });
 
@@ -179,7 +190,6 @@ describe("agent turn admission records its placement", () => {
 
   test("a resident placement reserves no container at admission", async () => {
     const harness = admissionHarness({ RESIDENT_GENERAL_AGENT_TURNS: "1" });
-    const beforeStart = new Map(harness.values);
 
     await admit(harness, agentTurn());
 
@@ -187,7 +197,11 @@ describe("agent turn admission records its placement", () => {
       plan: { kind: "resident_stella" },
       residentDisabled: false,
     });
-    expect(beforeStart.has("sandboxId")).toBe(false);
+    // Both cancellation sweeps destroy by this key. Its absence is what makes
+    // a Stop on a chat-only turn a true no-op instead of a lookup that boots a
+    // container to kill it.
+    expect(harness.values.has("sandboxId")).toBe(false);
+    expect(harness.started).toEqual([undefined]);
   });
 
   test("a turn dispatched without an engine selection records no plan", async () => {

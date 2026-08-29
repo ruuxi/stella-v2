@@ -85,6 +85,30 @@ describe("working indicator mark animation budget", () => {
     mark.destroy();
   });
 
+  it("still paints once when it mounts paused, then sleeps", () => {
+
+    const mark = createStellaMark(host, { size: 30, state: "working", paused: true });
+
+    expect(clock.pending).toBe(1);
+    clock.step();
+    expect(host.querySelector("path")?.getAttribute("d")).toMatch(/^M/);
+
+    expect(clock.pending).toBe(0);
+
+    mark.destroy();
+  });
+
+  it("still paints once when it mounts offscreen, then sleeps", () => {
+    const mark = createStellaMark(host, { size: 30, state: "working" });
+    setOnscreen(false);
+
+    clock.step();
+    expect(host.querySelector("path")?.getAttribute("d")).toMatch(/^M/);
+    expect(clock.pending).toBe(0);
+
+    mark.destroy();
+  });
+
   it("stops scheduling frames while paused, instead of ticking with no motion", () => {
     const mark = createStellaMark(host, { size: 30, state: "working" });
     clock.step();

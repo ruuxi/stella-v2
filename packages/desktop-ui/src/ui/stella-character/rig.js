@@ -255,8 +255,10 @@ export function createStellaMark(host, opts = {}) {
   const defs = document.createElementNS(SVGNS, "defs");
   const clip = document.createElementNS(SVGNS, "clipPath");
   clip.id = `${id}-clip`;
-  const clipPath = document.createElementNS(SVGNS, "path");
-  clip.appendChild(clipPath);
+
+  const clipUse = document.createElementNS(SVGNS, "use");
+  clipUse.setAttribute("href", `#${id}-body`);
+  clip.appendChild(clipUse);
   defs.appendChild(clip);
 
   const stops = INKS[o.ink] ?? null;
@@ -342,12 +344,17 @@ export function createStellaMark(host, opts = {}) {
 
   const bodyG = document.createElementNS(SVGNS, "g");
   const body = document.createElementNS(SVGNS, "path");
+  body.id = `${id}-body`;
   body.setAttribute("fill", inkFill);
   bodyG.appendChild(body);
-  let coreEl = null;
+
   if (o.core) {
-    coreEl = document.createElementNS(SVGNS, "path");
+    const coreEl = document.createElementNS(SVGNS, "rect");
+    coreEl.setAttribute("x", -BLEED); coreEl.setAttribute("y", -BLEED);
+    coreEl.setAttribute("width", C * 2 + BLEED * 2);
+    coreEl.setAttribute("height", C * 2 + BLEED * 2);
     coreEl.setAttribute("fill", `url(#${id}-core)`);
+    coreEl.setAttribute("clip-path", `url(#${id}-clip)`);
     bodyG.appendChild(coreEl);
   }
 
@@ -481,6 +488,7 @@ export function createStellaMark(host, opts = {}) {
   let pointer = null;
   let paused = o.paused;
   let onscreen = true;
+  let painted = false;
   let running = false, raf = 0, last = 0, clock = 0;
   let boxW = o.size ?? 28, measuredAt = -1e9;
   let lastPath = "";
@@ -724,9 +732,8 @@ export function createStellaMark(host, opts = {}) {
     }
     const d = toPath(finalRing, pathQuantum);
     if (d !== lastPath) {
+
       body.setAttribute("d", d);
-      clipPath.setAttribute("d", d);
-      coreEl?.setAttribute("d", d);
       lastPath = d;
     }
     if (warp) {
@@ -853,6 +860,7 @@ export function createStellaMark(host, opts = {}) {
       Math.abs(env.x - env.t) < 0.001 && Math.abs(env.v) < 0.001 &&
       poseMix >= 1 && blink.t === 1 && Math.abs(blink.x - 1) < 0.002 &&
       shapeMix.x > 0.999;
+    painted = true;
     if (suspended() || (reduced && settled)) { running = false; raf = 0; return; }
     raf = requestAnimationFrame(frame);
   }
@@ -1063,7 +1071,8 @@ export function createStellaMark(host, opts = {}) {
   }
 
   function wake() {
-    if (destroyed || running || suspended()) return;
+
+    if (destroyed || running || (suspended() && painted)) return;
     running = true; last = 0;
     raf = requestAnimationFrame(frame);
   }

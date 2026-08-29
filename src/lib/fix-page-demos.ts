@@ -331,6 +331,18 @@ export const FIX_PAGE_DEMOS: Record<string, StellaMiniChatExchange[]> = {
         "No reinstall. The runtime is repaired, the game reached its main menu, and the process is staying up.",
     },
   ],
+  "setup-dlss-5-one-click": [
+    {
+      user: "Set up this DLSS 5 build in my game, back up the current files, launch it, and roll back if it breaks.",
+      reply:
+        "I'll scan the package, check your game and GPU, and save the current DLSS files before replacing anything.",
+    },
+    {
+      user: "I got it from a leak. I still want to try it.",
+      reply:
+        "That's okay. I'll treat it as untrusted, verify what I can, install it reversibly, and test the game without bypassing any account or access control.",
+    },
+  ],
 };
 
 const missingDemos = FIX_PAGES.filter((page) => !FIX_PAGE_DEMOS[page.slug]).map(

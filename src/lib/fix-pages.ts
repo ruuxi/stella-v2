@@ -871,6 +871,36 @@ export const FIX_PAGES: FixPage[] = [
       "Stella fixes local launch failures it can observe: damaged files, runtimes, permissions, overlays, drivers, and configuration. It cannot fix a publisher outage, anti-cheat ban, unsupported hardware, or a broken game release. In those cases it identifies the real blocker and leaves your install intact.",
     ctaHeadline: "Turn Play into playing.",
   },
+  {
+    slug: "setup-dlss-5-one-click",
+    cluster: "Install and test DLSS 5 in PC games",
+    eyebrow: "Fix it with Stella · PC gaming",
+    metaTitle: "Set up DLSS 5 in one click for your PC games",
+    metaDescription:
+      "Give Stella the DLSS 5 build you already have. It checks compatibility, backs up the game files, installs the right components, launches the game, and can roll everything back.",
+    headline: "Set up DLSS 5.",
+    headlineAccent: "One click, then play.",
+    lede: "Got an early, leaked, or unofficial DLSS 5 build you want to try? Give Stella the files and pick a game. It checks the package, backs up what is already installed, puts every component in the right place, applies the right profile, and launches the game so you can see whether it actually works.",
+    symptoms: [
+      "how to install dlss 5",
+      "dlss 5 setup one click",
+      "add dlss 5 to game",
+      "replace dlss dll safely",
+      "dlss 5 leaked build install",
+      "test dlss 5 in unsupported game",
+    ],
+    prompt:
+      "Set up this DLSS 5 build in my game, back up the current files, launch it, and roll back if it breaks.",
+    steps: [
+      "Inspects the package and scans untrusted files before they touch your game",
+      "Checks the game, GPU, driver, renderer, and anti-cheat compatibility",
+      "Backs up the current DLSS files and applies the build and profile in the right locations",
+      "Launches the game, verifies the feature loads, and restores the backup if it fails",
+    ],
+    scope:
+      "You provide the DLSS build; Stella does not distribute NVIDIA's files or bypass a download, account, payment, license, anti-cheat, or other access control. Unofficial builds can be unstable or malicious, so Stella scans the package, shows you the plan, and keeps a rollback before changing the game. Some games and GPUs simply will not support the build.",
+    ctaHeadline: "Try DLSS 5 without wrecking your install.",
+  },
 ];
 
 export function getFixPage(slug: string): FixPage | undefined {

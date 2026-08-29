@@ -41,6 +41,10 @@ export interface CreateStellaMarkOptions {
   followPointer?: boolean;
   interactive?: boolean;
   paused?: boolean;
+
+  /** Suspend the loop while the mark is scrolled out of view. Off for marks
+   * whose host is never laid out normally, e.g. a transformed overlay. */
+  visibilityGate?: boolean;
 }
 
 export interface StellaMarkHandle {

@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, StyleSheet, View } from "react-native";
+import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 import { ShimmerText } from "./ShimmerText";
 import { StellaMarkIndicator } from "./stella-mark/StellaMarkIndicator";
 import { computeWorkingIndicatorStatus } from "./working-indicator-status";
@@ -16,8 +16,11 @@ const STATUS_MIN_VISIBLE_MS = 2000;
 const INDICATOR_PAD_TOP = 0;
 const INDICATOR_PAD_BOTTOM = 0;
 const INDICATOR_VIEWPORT_SIZE = 34;
+const BUBBLE_PAD_VERTICAL = 4;
+const TRAVEL_OVERHANG = 18;
 
-export const WORKING_INDICATOR_SLOT_HEIGHT = INDICATOR_VIEWPORT_SIZE;
+export const WORKING_INDICATOR_SLOT_HEIGHT =
+  INDICATOR_VIEWPORT_SIZE + BUBBLE_PAD_VERTICAL * 2 + 2;
 
 interface WorkingIndicatorProps {
 
@@ -118,6 +121,18 @@ function SwapText({
 
   return (
     <View style={styles.swapText}>
+      {
+        // Invisible sizer: the animated layers are absolutely positioned, so
+        // this gives the bubble its intrinsic width for the current label.
+      }
+      <Text
+        style={[styles.statusText, styles.swapSizer]}
+        numberOfLines={1}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        {current}
+      </Text>
       {previous ? (
         <Animated.View
           style={[styles.swapLayer, outStyle]}
@@ -239,17 +254,23 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     >
       {renderShell ? (
         <Animated.View style={[styles.row, shellStyle]} collapsable={false}>
-          <StellaMarkIndicator
-            active={active}
-            size={INDICATOR_VIEWPORT_SIZE}
-            mode={hasLabel ? "star" : "dots"}
-          />
-          <SwapText
-            text={displayStatus}
-            active={active}
-            colors={colors}
-            styles={styles}
-          />
+          <View style={[styles.bubble, !hasLabel && styles.bubbleDots]}>
+            <View style={hasLabel ? styles.markBox : styles.markBoxWide}>
+              <StellaMarkIndicator
+                active={active}
+                size={INDICATOR_VIEWPORT_SIZE}
+                mode={hasLabel ? "star" : "dots"}
+              />
+            </View>
+            {hasLabel ? (
+              <SwapText
+                text={displayStatus}
+                active={active}
+                colors={colors}
+                styles={styles}
+              />
+            ) : null}
+          </View>
         </Animated.View>
       ) : null}
     </View>
@@ -269,7 +290,6 @@ const makeStyles = (colors: Colors) =>
     row: {
       alignItems: "center",
       flexDirection: "row",
-      gap: 8,
       height: WORKING_INDICATOR_SLOT_HEIGHT,
       justifyContent: "flex-start",
       paddingBottom: INDICATOR_PAD_BOTTOM,
@@ -278,11 +298,43 @@ const makeStyles = (colors: Colors) =>
       paddingRight: 18,
       paddingTop: INDICATOR_PAD_TOP,
     },
+    bubble: {
+      alignItems: "center",
+      backgroundColor: colors.card,
+      borderColor: colors.border,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderRadius: 18,
+      borderBottomLeftRadius: 4,
+      flexDirection: "row",
+      flexShrink: 1,
+      gap: 8,
+      maxWidth: "100%",
+      paddingHorizontal: 13,
+      paddingVertical: BUBBLE_PAD_VERTICAL,
+    },
+    bubbleDots: {
+      paddingHorizontal: 8,
+    },
+    markBox: {
+      alignItems: "center",
+      height: INDICATOR_VIEWPORT_SIZE,
+      justifyContent: "center",
+      width: INDICATOR_VIEWPORT_SIZE,
+    },
+    markBoxWide: {
+      alignItems: "center",
+      height: INDICATOR_VIEWPORT_SIZE,
+      justifyContent: "center",
+      width: INDICATOR_VIEWPORT_SIZE + TRAVEL_OVERHANG * 2,
+    },
     swapText: {
-      flex: 1,
+      flexShrink: 1,
       height: 20,
       minWidth: 0,
       overflow: "hidden",
+    },
+    swapSizer: {
+      opacity: 0,
     },
     swapLayer: {
       bottom: 0,

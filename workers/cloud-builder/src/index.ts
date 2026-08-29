@@ -7807,33 +7807,33 @@ export class BuildSession extends DurableObject<Env> {
   }
 
   /**
-   * One sandbox attempt at an agent turn: boot, restore the workspace, hand
-   * the executor its input, run it. Kept separate from {@link runAgentTurn}
-   * so an OOM escalation can repeat it on a bigger instance without
-   * duplicating any of the turn's lifecycle or fencing.
+   * Bring a container up with this owner's world on disk: create the command
+   * session, restore the canonical archives (or seed a first world), verify
+   * the packaged renderer still matches, and confirm the restore with the
+   * owner fence.
+   *
+   * Shared by the eager container path and the compute ladder's lazy attach,
+   * which is the whole point: a mid-turn attach has to land on exactly the
+   * disk an eager boot would have produced, or the two placements would
+   * disagree about what a checkpoint means. It deliberately does not emit
+   * `sandbox_ready` — the eager path reports a boot, the ladder reports an
+   * attach, and the payloads differ.
    */
-  private async runAgentAttempt(args: {
+  private async attachAgentWorld(args: {
     turn: TurnRequest;
     execution: TurnExecutionContext;
     sandbox: ReturnType<BuildSession["sandbox"]>;
     size: InstanceSize;
-    /** The world's last checkpoint, or null on its first turn. */
     descriptor: DirectoryBackup | null;
-    /** Root-private Claude state selected by the canonical transcript. */
     nativeDescriptor: DirectoryBackup | null;
-    /** Latest canonical owner world archive, shared across all threads. */
     turnStateWorkspaceRestore?: TurnStateWorkspaceHead;
     turnStateWorkspaceRestoreConfirmationRequired: boolean;
-    /** Canonical transcript/native state for this exact thread only. */
     turnStateThreadRestore?: TurnStateCandidate;
     turnStateThreadRestoreConfirmationRequired: boolean;
     history: AgentHistoryRow[];
-    cloudSkillHome?: CloudHomeStore;
-    cloudSkillCatalog?: CloudSkillCatalogSnapshot;
     commandTimeoutMs: number;
   }): Promise<{
-    result: AgentExecutorResult;
-    oom: boolean;
+    session: ExecutionSession;
     coldContainerStartMs: number;
     restoreMs: number;
   }> {
@@ -7939,6 +7939,43 @@ export class BuildSession extends DurableObject<Env> {
       );
       turnExecution.assertActive();
     }
+    return { session, coldContainerStartMs, restoreMs };
+  }
+
+  /**
+   * One sandbox attempt at an agent turn: boot, restore the workspace, hand
+   * the executor its input, run it. Kept separate from {@link runAgentTurn}
+   * so an OOM escalation can repeat it on a bigger instance without
+   * duplicating any of the turn's lifecycle or fencing.
+   */
+  private async runAgentAttempt(args: {
+    turn: TurnRequest;
+    execution: TurnExecutionContext;
+    sandbox: ReturnType<BuildSession["sandbox"]>;
+    size: InstanceSize;
+    /** The world's last checkpoint, or null on its first turn. */
+    descriptor: DirectoryBackup | null;
+    /** Root-private Claude state selected by the canonical transcript. */
+    nativeDescriptor: DirectoryBackup | null;
+    /** Latest canonical owner world archive, shared across all threads. */
+    turnStateWorkspaceRestore?: TurnStateWorkspaceHead;
+    turnStateWorkspaceRestoreConfirmationRequired: boolean;
+    /** Canonical transcript/native state for this exact thread only. */
+    turnStateThreadRestore?: TurnStateCandidate;
+    turnStateThreadRestoreConfirmationRequired: boolean;
+    history: AgentHistoryRow[];
+    cloudSkillHome?: CloudHomeStore;
+    cloudSkillCatalog?: CloudSkillCatalogSnapshot;
+    commandTimeoutMs: number;
+  }): Promise<{
+    result: AgentExecutorResult;
+    oom: boolean;
+    coldContainerStartMs: number;
+    restoreMs: number;
+  }> {
+    const { turn, execution: turnExecution, sandbox, descriptor } = args;
+    const world = await this.attachAgentWorld(args);
+    const { session, coldContainerStartMs, restoreMs } = world;
     await this.event(
       turn,
       "auto",
@@ -7952,8 +7989,6 @@ export class BuildSession extends DurableObject<Env> {
       false,
       turnExecution.signal,
     );
-    turnExecution.assertActive();
-
     let cloudSkills:
       Awaited<ReturnType<typeof materializeCloudSkillSnapshot>> | undefined =
       undefined;

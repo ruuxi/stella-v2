@@ -1,4 +1,4 @@
-import { TAU, clamp, toPath, polyPath, pathQuantumFor, spanAt, profileMax } from "./geometry.js";
+import { TAU, clamp, toPath, polyPath, spanAt, profileMax } from "./geometry.js";
 import { N, C, BLEED, VIEWBOX, SHAPES, SPARKLE_PATH } from "./shapes.js";
 import { EYE_N, EYE_POSES, lerpPose } from "./eyes.js";
 
@@ -255,10 +255,8 @@ export function createStellaMark(host, opts = {}) {
   const defs = document.createElementNS(SVGNS, "defs");
   const clip = document.createElementNS(SVGNS, "clipPath");
   clip.id = `${id}-clip`;
-
-  const clipUse = document.createElementNS(SVGNS, "use");
-  clipUse.setAttribute("href", `#${id}-body`);
-  clip.appendChild(clipUse);
+  const clipPath = document.createElementNS(SVGNS, "path");
+  clip.appendChild(clipPath);
   defs.appendChild(clip);
 
   const stops = INKS[o.ink] ?? null;
@@ -344,17 +342,12 @@ export function createStellaMark(host, opts = {}) {
 
   const bodyG = document.createElementNS(SVGNS, "g");
   const body = document.createElementNS(SVGNS, "path");
-  body.id = `${id}-body`;
   body.setAttribute("fill", inkFill);
   bodyG.appendChild(body);
-
+  let coreEl = null;
   if (o.core) {
-    const coreEl = document.createElementNS(SVGNS, "rect");
-    coreEl.setAttribute("x", -BLEED); coreEl.setAttribute("y", -BLEED);
-    coreEl.setAttribute("width", C * 2 + BLEED * 2);
-    coreEl.setAttribute("height", C * 2 + BLEED * 2);
+    coreEl = document.createElementNS(SVGNS, "path");
     coreEl.setAttribute("fill", `url(#${id}-core)`);
-    coreEl.setAttribute("clip-path", `url(#${id}-clip)`);
     bodyG.appendChild(coreEl);
   }
 
@@ -492,7 +485,6 @@ export function createStellaMark(host, opts = {}) {
   let running = false, raf = 0, last = 0, clock = 0;
   let boxW = o.size ?? 28, measuredAt = -1e9;
   let lastPath = "";
-  let pathQuantum = pathQuantumFor(boxW);
   const lastEyePath = ["", ""];
   let decorHidden = false;
   let lastBodyAlpha = -1, lastGlowAlpha = -1;
@@ -730,10 +722,11 @@ export function createStellaMark(host, opts = {}) {
       }
       finalRing = warpedRing;
     }
-    const d = toPath(finalRing, pathQuantum);
+    const d = toPath(finalRing);
     if (d !== lastPath) {
-
       body.setAttribute("d", d);
+      clipPath.setAttribute("d", d);
+      coreEl?.setAttribute("d", d);
       lastPath = d;
     }
     if (warp) {
@@ -835,7 +828,7 @@ export function createStellaMark(host, opts = {}) {
           }
         }
 
-        const eyePath = polyPath(placed, pathQuantum, EYE_N);
+        const eyePath = polyPath(placed);
         if (eyePath !== lastEyePath[i]) {
           eyes[i].setAttribute("d", eyePath);
           lastEyePath[i] = eyePath;
@@ -1087,7 +1080,6 @@ export function createStellaMark(host, opts = {}) {
   const setBoxW = (w) => {
     if (!(w > 0) || Math.abs(w - boxW) < 0.5) return;
     boxW = w;
-    pathQuantum = pathQuantumFor(boxW);
     wake();
   };
 

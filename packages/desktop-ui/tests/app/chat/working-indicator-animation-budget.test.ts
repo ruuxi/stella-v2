@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createStellaMark } from "@/ui/stella-character/rig.js";
-import { pathQuantumFor } from "@/ui/stella-character/geometry.js";
 
 type FrameFn = (t: number) => void;
 
@@ -163,16 +162,28 @@ describe("working indicator mark animation budget", () => {
     clock.step();
     expect(clock.pending).toBe(0);
   });
-});
 
-describe("mark path precision", () => {
-  it("quantizes coordinates to stay sub-pixel at the rendered size", () => {
+  it("keeps the per-frame work allocation-free and skips unchanged writes", () => {
+    const source = createStellaMark.toString();
 
-    expect(pathQuantumFor(30)).toBe(10);
-    expect(pathQuantumFor(64)).toBe(10);
+    expect(source).not.toContain("workRing[i] = [");
+    expect(source).toContain("const workRing = Array.from");
+    expect(source).toContain("const eyeBuf = [");
 
-    expect(pathQuantumFor(200)).toBe(100);
+    expect(source).toContain("if (eyePath !== lastEyePath[i])");
+    expect(source).toContain("if (bodyAlphaQ !== lastBodyAlpha)");
+    expect(source).toContain("if (decorActive || !decorHidden)");
 
-    expect(pathQuantumFor(0)).toBe(100);
+    expect(source).toContain("if (!sizeObserver && now - measuredAt > 500)");
+  });
+
+  it("writes an eye path on the frames where the eye actually moves", () => {
+    const mark = createStellaMark(host, { size: 30, state: "working" });
+    clock.step();
+
+    const eye = host.querySelector("g[clip-path] path") as SVGPathElement;
+    expect(eye.getAttribute("d")).toMatch(/^M/);
+
+    mark.destroy();
   });
 });

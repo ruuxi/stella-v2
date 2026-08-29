@@ -27,7 +27,6 @@ import {
   loadOlderAsyncTranscriptRows,
   loadRecentAsyncTranscriptRows,
   saveAsyncTranscriptRows,
-  truncateAsyncTranscriptRows,
   type AsyncTranscriptPage,
 } from "./async-transcript-fallback";
 
@@ -102,14 +101,6 @@ export type ChatTranscriptPage = {
   newestCursor: ChatTranscriptCursor | null;
   hasOlder: boolean;
   hasNewer: boolean;
-};
-
-export const chatTranscriptCursorForMessage = (
-  thread: ChatThreadId,
-  messageId: string,
-): ChatTranscriptCursor | null => {
-  const orderKey = orderKeysByThread.get(thread)?.get(messageId);
-  return orderKey === undefined ? null : { orderKey, id: messageId };
 };
 
 type SQLiteResult = { changes: number; lastInsertRowId: number };
@@ -1244,53 +1235,6 @@ export async function saveChatMessages(
       touchCacheValue(priorSerialized, message.id, payload);
     }
     trimThreadCaches(thread);
-  });
-}
-
-export async function truncateChatMessagesFrom(
-  thread: ChatThreadId,
-  messageId: string,
-): Promise<void> {
-  invalidateTranscriptWrites(thread);
-  const db = await getTranscriptDb();
-  if (!db) {
-    await enqueueTranscriptWrite(async () => {
-      await ensureIncrementalFallback(thread);
-      await truncateAsyncTranscriptRows(thread, messageId);
-      orderKeysByThread.delete(thread);
-      serializedByThread.delete(thread);
-    });
-    return;
-  }
-  await migrateLegacyTranscript(db, thread);
-  await enqueueTranscriptWrite(async () => {
-    const anchor = await db.getFirstAsync<{ order_key: number }>(
-      `SELECT order_key FROM mobile_chat_messages
-        WHERE thread_id = ? AND message_id = ?`,
-      thread,
-      messageId,
-    );
-    if (!anchor) return;
-    await db.runAsync(
-      `DELETE FROM mobile_chat_messages
-        WHERE thread_id = ?
-          AND (order_key > ? OR (order_key = ? AND message_id >= ?))`,
-      thread,
-      anchor.order_key,
-      anchor.order_key,
-      messageId,
-    );
-    orderKeysByThread.get(thread)?.forEach((orderKey, id, map) => {
-      if (
-        orderKey > anchor.order_key ||
-        (orderKey === anchor.order_key && id >= messageId)
-      ) {
-        map.delete(id);
-      }
-    });
-    serializedByThread.get(thread)?.forEach((_payload, id, map) => {
-      if (!orderKeysByThread.get(thread)?.has(id)) map.delete(id);
-    });
   });
 }
 

@@ -1089,13 +1089,6 @@ const AssistantActions = memo(function AssistantActions({
 type MessageMenuRequest = { message: ChatMessage; anchor: AnchorRect };
 
 /**
- * Window after the first "Rewind here" tap during which a second tap commits the
- * destructive truncate. Mirrors the desktop MessageActions two-step confirm
- * (REWIND_CONFIRM_TIMEOUT_MS); the armed row auto-reverts once it elapses.
- */
-const REWIND_CONFIRM_TIMEOUT_MS = 3000;
-
-/**
  * User message body with collapse/expand for long text — the mobile analogue
  * of desktop's `UserMessageBody`. Collapsed by default when the rendered text
  * exceeds `USER_MESSAGE_COLLAPSE_LINES`; a tappable "Show more" / "Show less"
@@ -1486,9 +1479,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
     [lift],
   );
   const openMenu = (e: { nativeEvent: { pageX: number; pageY: number } }) => {
-    // Open for a message with text OR attachments — an attachment-only user
-    // message still gets the Rewind action (desktop parity). The popover hides
-    // itself when a message yields no applicable options.
+    // Open for a message with text OR attachments. The popover hides itself
+    // when a message yields no applicable options.
     if (!item.text.trim() && (item.thumbnailUris?.length ?? 0) === 0) return;
     // Medium impact for the "lift" moment; action taps then fire a light tap.
     tapMedium();
@@ -2092,14 +2084,6 @@ type PlusMenuOption = {
   onSelect: () => void;
   disabled?: boolean;
   selected?: boolean;
-  /** Tints the row as a destructive action (the armed Rewind confirm). */
-  destructive?: boolean;
-  /**
-   * Keep the menu open after `onSelect` instead of dismissing. Lets an option
-   * arm a two-step confirm inline: the first tap arms (menu stays open), the
-   * second tap runs the action and dismisses.
-   */
-  keepOpenOnSelect?: boolean;
   trailingLabel?: string;
   /** When set, tapping opens this list instead of calling `onSelect`. */
   submenu?: PlusMenuOption[];
@@ -2233,12 +2217,6 @@ function PlusMenuPopover({
           },
         ]);
         setMenuLayout(null);
-        return;
-      }
-      // An option arming a two-step confirm keeps the menu open (and its
-      // submenu context) so the second, committing tap lands on the same row.
-      if (option.keepOpenOnSelect) {
-        option.onSelect();
         return;
       }
       setSubmenuStack([]);
@@ -2409,13 +2387,7 @@ function PlusMenuPopover({
                   <Icon
                     name={option.icon}
                     size={large ? 20 : 16}
-                    color={
-                      option.disabled
-                        ? colors.textMuted
-                        : option.destructive
-                          ? colors.danger
-                          : colors.text
-                    }
+                    color={option.disabled ? colors.textMuted : colors.text}
                     style={
                       large ? styles.menuItemIconLarge : styles.menuItemIcon
                     }
@@ -2424,7 +2396,6 @@ function PlusMenuPopover({
                     style={[
                       styles.menuItemLabel,
                       large && styles.menuItemLabelLarge,
-                      option.destructive && styles.menuItemLabelDanger,
                       option.disabled && styles.menuItemLabelMuted,
                     ]}
                     numberOfLines={1}
@@ -2534,7 +2505,6 @@ const makePlusMenuStyles = (colors: Colors) =>
       letterSpacing: -0.2,
     },
     menuItemLabelMuted: { color: colors.textMuted },
-    menuItemLabelDanger: { color: colors.danger },
     menuItemTrailing: {
       color: colors.textMuted,
       fontFamily: fonts.sans.medium,
@@ -2814,14 +2784,6 @@ export type ChatPaneProps = {
    */
   catchingUp?: boolean;
 
-  /**
-   * Rewind a user message: truncate the transcript at it and reload its text +
-   * attachments into the composer. When provided, the user-message long-press
-   * menu gains a two-step "Rewind here" action. Only the cloud chat — which
-   * owns its transcript — wires this; the computer chat (a desktop mirror)
-   * omits it, so Rewind never appears where a sync would undo it.
-   */
-  onRewindMessage?: (messageId: string) => void;
 };
 
 export type ComposerModelPickerConfig = {
@@ -2888,7 +2850,6 @@ export function ChatPane({
   activityTasks,
   onOpenActivityHub,
   catchingUp = false,
-  onRewindMessage,
 }: ChatPaneProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -3726,53 +3687,9 @@ export function ChatPane({
   const stopSelectingMessage = useCallback(() => {
     setSelectingMessageId(null);
   }, []);
-  // Two-step confirm for the destructive Rewind action: the first tap arms (the
-  // menu stays open and the row becomes "Tap again to rewind"), the second tap
-  // within the window truncates. Mirrors the desktop MessageActions confirm;
-  // resets on timeout, on menu dismissal (tap-away / navigation), and whenever a
-  // turn starts streaming.
-  const [rewindArmed, setRewindArmed] = useState(false);
-  const rewindTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const disarmRewind = useCallback(() => {
-    if (rewindTimerRef.current) {
-      clearTimeout(rewindTimerRef.current);
-      rewindTimerRef.current = null;
-    }
-    setRewindArmed(false);
-  }, []);
   const dismissMessageMenu = useCallback(() => {
     setMessageMenu(null);
-    disarmRewind();
-  }, [disarmRewind]);
-  // A streaming turn writes into the rows Rewind would drop, so the action is
-  // hidden mid-stream; clear any armed state if a turn starts while it's open.
-  useEffect(() => {
-    if (streaming) disarmRewind();
-  }, [streaming, disarmRewind]);
-  useEffect(() => () => disarmRewind(), [disarmRewind]);
-
-  const handleRewindOption = useCallback(
-    (message: ChatMessage) => {
-      if (!onRewindMessage) return;
-      if (rewindTimerRef.current) {
-        clearTimeout(rewindTimerRef.current);
-        rewindTimerRef.current = null;
-      }
-      if (rewindArmed) {
-        // Second tap: the popover already dismissed (keepOpenOnSelect was false
-        // while armed), so just perform the truncate.
-        setRewindArmed(false);
-        onRewindMessage(message.id);
-        return;
-      }
-      setRewindArmed(true);
-      rewindTimerRef.current = setTimeout(() => {
-        rewindTimerRef.current = null;
-        setRewindArmed(false);
-      }, REWIND_CONFIRM_TIMEOUT_MS);
-    },
-    [onRewindMessage, rewindArmed],
-  );
+  }, []);
 
   // "Quote" a message: drop it into the composer as a removable quote chip (so
   // the input isn't stuffed with the paragraph), then focus so the reply is
@@ -3799,9 +3716,8 @@ export function ChatPane({
 
   // Long-press action menu for USER messages (assistant long-press does native
   // text selection instead). Copy / Select text / Share / Quote apply to any
-  // message with text; Rewind is destructive and offered only on a settled user
-  // message of an owned transcript. Each action fires a light tap on selection
-  // (the menu-open medium tap is in ChatMessageRow.openMenu).
+  // message with text. Each action fires a light tap on selection (the
+  // menu-open medium tap is in ChatMessageRow.openMenu).
   const messageMenuOptions = useMemo<PlusMenuOption[]>(() => {
     if (!messageMenu) return [];
     const message = messageMenu.message;
@@ -3849,29 +3765,8 @@ export function ChatPane({
         },
       );
     }
-    // Rewind is destructive and drops the streaming rows, so it's offered only
-    // on a settled user message of a transcript the surface owns outright.
-    if (onRewindMessage && message.role === "user" && !streaming) {
-      options.push({
-        id: "rewind",
-        label: rewindArmed ? "Tap again to rewind" : "Rewind here",
-        icon: "rotate-ccw",
-        destructive: rewindArmed,
-        // Arm on the first tap without closing; commit + dismiss on the second.
-        keepOpenOnSelect: !rewindArmed,
-        onSelect: () => handleRewindOption(message),
-      });
-    }
     return options;
-  }, [
-    messageMenu,
-    onRewindMessage,
-    streaming,
-    rewindArmed,
-    handleRewindOption,
-    quoteMessage,
-    startSelectingMessage,
-  ]);
+  }, [messageMenu, quoteMessage, startSelectingMessage]);
 
   const keyExtractor = useCallback((item: ChatMessage) => item.id, []);
   // The in-flight turn's reply row: appended empty on dispatch, then grown by
@@ -4694,9 +4589,9 @@ export function ChatPane({
         large
       />
       <PlusMenuPopover
-        // Guard against an empty menu: an attachment-only message on a surface
-        // without Rewind (e.g. the computer chat) yields no options, so the
-        // popover stays hidden rather than flashing a blank sheet.
+        // Guard against an empty menu: an attachment-only message yields no
+        // options, so the popover stays hidden rather than flashing a blank
+        // sheet.
         visible={Boolean(messageMenu) && messageMenuOptions.length > 0}
         anchor={messageMenu?.anchor ?? null}
         options={messageMenuOptions}

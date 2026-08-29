@@ -575,33 +575,6 @@ export async function findAsyncTranscriptCursor(
   return null;
 }
 
-export async function truncateAsyncTranscriptRows(
-  threadId: string,
-  messageId: string,
-): Promise<void> {
-  const cursor = await findAsyncTranscriptCursor(threadId, messageId);
-  if (!cursor) return;
-  const meta = await readMeta(threadId);
-  const dirtyPages = new Map<number, AsyncTranscriptRow[]>();
-  const removedIds = new Set<string>();
-  for (const descriptor of meta.pages) {
-    if (descriptor.maxOrderKey < cursor.orderKey) continue;
-    const rows = await readPage(threadId, descriptor.id);
-    const retained = rows.filter((row) => {
-      const remove =
-        row.orderKey > cursor.orderKey ||
-        (row.orderKey === cursor.orderKey &&
-          row.id.localeCompare(messageId) >= 0);
-      if (remove) removedIds.add(row.id);
-      return !remove;
-    });
-    if (retained.length !== rows.length) {
-      dirtyPages.set(descriptor.id, retained);
-    }
-  }
-  await commitDirtyPages({ threadId, meta, dirtyPages, removedIds });
-}
-
 export async function clearAsyncTranscriptRows(
   threadId: string,
 ): Promise<void> {

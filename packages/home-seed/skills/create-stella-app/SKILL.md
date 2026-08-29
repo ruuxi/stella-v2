@@ -74,12 +74,35 @@ Add packages from the app directory only:
 bun add <package>
 ```
 
-Stella's managed app runtime launches the project's local Vite installation on
-loopback and embeds its URL in the Apps sidebar. Stella discovers the app from
-`stella.app.json`; do not add it to a renderer registry. Source changes use
-Vite HMR; the built `dist/` directory is validation output, not the live
-discovery protocol. Do not start a second manual dev server unless you are
-explicitly debugging the project outside Stella.
+Stella's managed app runtime launches the project's ordinary local dev setup on
+loopback and embeds its frontend URL in the Apps sidebar. Standard frontend,
+backend, and worker package scripts are discovered and supervised
+automatically; app code does not need a Stella-specific process declaration.
+Stella discovers the app from `stella.app.json`; do not add it to a renderer
+registry. Source changes use Vite HMR; the built `dist/` directory is validation
+output, not the live discovery protocol. Do not start a second manual dev
+server unless you are explicitly debugging the project outside Stella.
+
+Use ordinary package-script conventions:
+
+- A single frontend uses `dev` (for example, `vite`).
+- Split projects can use `dev:web` or `dev:frontend` plus `dev:api`,
+  `dev:server`, and `dev:worker`. Stella starts each script once, waits for
+  network services, and treats workers as long-running processes.
+- Only `dev`- and `start`-named scripts are supervised. Lifecycle scripts such
+  as `build`, `check`, and `preview` are ignored even when they invoke the same
+  tools, so keep dev servers under a dev name.
+- An aggregate `dev` script may own all children with a standard process runner
+  or a `scripts/dev.mjs` entrypoint. Do not also start those children elsewhere.
+- Servers should honor `PORT` and bind to `127.0.0.1`; workers do not need a
+  port. Stella supplies stable ports, starts backends before the frontend,
+  rolls back partial launches, restarts failed process sets, and stops all
+  descendant processes with the app. Sibling addresses arrive as
+  `STELLA_APP_PORT_<PROCESS>` and `STELLA_APP_URL_<PROCESS>`.
+- At most eight processes are supervised for one app.
+
+Only unusual topologies that cannot be inferred safely need the optional
+`stella.app.json` runtime override. Do not add one to normal projects.
 
 ## Project boundaries
 

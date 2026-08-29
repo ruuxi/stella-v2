@@ -11,6 +11,10 @@ import { fonts } from "../theme/fonts";
 const ENTER_DURATION_MS = 320;
 const EXIT_HOLD_MS = 300;
 const EXIT_ANIMATION_MS = 480;
+// The assistant's message has already landed above us, so the bubble has to be
+// gone almost at once — a lingering indicator under a finished reply reads as
+// a bug. Matches the desktop handoff.
+const EXIT_HANDOFF_MS = 200;
 const SWAP_DURATION_MS = 240;
 const STATUS_MIN_VISIBLE_MS = 2000;
 const INDICATOR_PAD_TOP = 0;
@@ -218,18 +222,19 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     wasActiveRef.current = false;
     if (!renderShell) return clearTimers;
 
+    const exitMs = exitImmediately ? EXIT_HANDOFF_MS : EXIT_ANIMATION_MS;
     const startExit = () => {
       holdTimerRef.current = null;
       Animated.timing(shellProgress, {
         toValue: 0,
-        duration: EXIT_ANIMATION_MS,
+        duration: exitMs,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }).start();
       leaveTimerRef.current = setTimeout(() => {
         leaveTimerRef.current = null;
         setRenderShell(false);
-      }, EXIT_ANIMATION_MS);
+      }, exitMs);
     };
 
     if (exitImmediately) {
@@ -255,8 +260,13 @@ export const WorkingIndicator = memo(function WorkingIndicator({
         <Animated.View style={[styles.row, shellStyle]} collapsable={false}>
           <View style={[styles.bubble, !hasLabel && styles.bubbleDots]}>
             <View style={styles.markBox}>
+              {
+                // Kept active for as long as the shell is mounted: dropping it
+                // on the exit would run the dots→star morph backwards in full
+                // view while the bubble fades out.
+              }
               <StellaMarkIndicator
-                active={active}
+                active
                 size={INDICATOR_VIEWPORT_SIZE}
                 mode={hasLabel ? "star" : "dots"}
               />

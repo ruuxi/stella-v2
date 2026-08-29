@@ -1,8 +1,12 @@
 import { StyleSheet } from "react-native";
 import Svg, { Defs, LinearGradient, Path, Stop } from "react-native-svg";
-import { STELLA_MARK_CENTER, STELLA_MARK_VIEWBOX } from "./geometry";
+import {
+  STELLA_MARK_CENTER,
+  STELLA_MARK_VIEWBOX,
+  STELLA_MARK_VIEWBOX_SPAN,
+} from "./geometry";
 
-export const VIEWBOX_SPAN = 258.541;
+export const VIEWBOX_SPAN = STELLA_MARK_VIEWBOX_SPAN;
 export const VIEWBOX_MIN = -15;
 
 export function MarkLayer({

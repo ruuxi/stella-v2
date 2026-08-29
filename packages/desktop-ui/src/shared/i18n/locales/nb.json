@@ -1736,7 +1736,6 @@
       "delete": "Slett",
       "done": "Ferdig",
       "goBack": "Gå tilbake",
-      "somethingWentWrong": "Noe gikk galt.",
       "tryAgain": "Prøv igjen"
     },
     "boot": {
@@ -1757,7 +1756,6 @@
     },
     "nav": {
       "chat": "Chat",
-      "computer": "Datamaskin",
       "settings": "Innstillinger",
       "openLabel": "Åpne navigasjon",
       "closeLabel": "Lukk navigasjon"
@@ -1778,7 +1776,6 @@
       "connectTitle": "Datamaskinen din, overalt",
       "connectBodyGuest": "Logg inn senere for å koble Stella til datamaskinen din — da kan du be telefonen surfe på nettet, håndtere filer og kjøre oppgaver hjemme.",
       "connectBodyPaired": "Koble til Stella-skrivebordsappen én gang, så kan telefonen din be den surfe på nettet, håndtere filer og kjøre oppgaver — selv fra andre siden av byen.",
-      "pairComputer": "Koble til datamaskinen min",
       "startChatting": "Begynn å chatte"
     },
     "login": {
@@ -1874,12 +1871,6 @@
     "computer": {
       "guestHeroTitle": "Datamaskinen din, rett ved hånden",
       "guestHeroBody": "Be Stella gjøre ting på datamaskinen din — surfe på nettet, håndtere filer, kjøre oppgaver og mer.",
-      "pairFirstTitle": "Koble til telefonen først",
-      "pairFirstBody": "Koble denne telefonen til Stella på datamaskinen, så kan du chatte med den hvor som helst. Du trenger bare å gjøre det én gang.",
-      "pairPhone": "Koble til telefon",
-      "pairThisPhoneLabel": "Koble til denne telefonen",
-      "emptyPrompt": "Spør datamaskinen din om hva som helst",
-      "composerPlaceholder": "Skriv til datamaskinen din",
       "defaultDeviceLabel": "Datamaskinen din",
       "statusChecking": "Sjekker…",
       "statusWaking": "Vekker…",
@@ -1887,13 +1878,7 @@
       "statusAsleep": "Sover",
       "connectingLabel": "Kobler til datamaskinen din",
       "connectedLabel": "Datamaskin tilkoblet",
-      "disconnectedLabel": "Datamaskin frakoblet",
-      "unreachableTitle": "Får ikke kontakt med datamaskinen",
-      "unreachableBody": "Datamaskinen din er ikke tilgjengelig nå. En vekkeforespørsel er sendt — prøv igjen om noen sekunder.",
-      "syncWaitingTitle": "Synkronisering venter",
-      "syncWaitingBody": "En melding sendes fortsatt. Synkroniseringen kjøres så snart den er ferdig.",
-      "syncFailedTitle": "Synkroniseringen mislyktes",
-      "syncFailedBody": "Datamaskinen din sluttet å svare under synkroniseringen. Prøv igjen."
+      "disconnectedLabel": "Datamaskin frakoblet"
     },
     "desktop": {
       "pairTitle": "Koble til telefonen din",
@@ -1938,16 +1923,8 @@
       "pushToggleLabel": "Tillat push-varsler",
       "pushToggleSub": "Få varsel når datamaskinen din fullfører en forespørsel.",
       "pushToggleA11y": "Slå push-varsler av eller på",
-      "voiceSection": "Snakk med Stella",
-      "voiceSectionHint": "Hvor håndfri tale (som CarPlay) sender meldingene dine. Auto velger chatten på datamaskinen din når det var der du slapp og den er tilgjengelig — ellers chatten på denne telefonen.",
-      "voiceTarget": {
-        "auto": "Auto",
-        "phone": "Telefon",
-        "computer": "Datamaskin"
-      },
-      "voiceTargetLabel": "Send talemeldinger til {name}",
       "pairedSection": "Tilkoblede datamaskiner",
-      "pairedEmpty": "Ingen datamaskiner er koblet til ennå. Koble til fra Datamaskin-fanen.",
+      "pairedEmpty": "Ingen datamaskiner er koblet til ennå.",
       "pairedOn": "Tilkoblet {date}",
       "paired": {
         "unnamedComputer": "Datamaskin · {id}"

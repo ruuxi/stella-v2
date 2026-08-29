@@ -1736,7 +1736,6 @@
       "delete": "Poista",
       "done": "Valmis",
       "goBack": "Palaa takaisin",
-      "somethingWentWrong": "Jokin meni pieleen.",
       "tryAgain": "Yritä uudelleen"
     },
     "boot": {
@@ -1757,7 +1756,6 @@
     },
     "nav": {
       "chat": "Keskustelu",
-      "computer": "Tietokone",
       "settings": "Asetukset",
       "openLabel": "Avaa navigointi",
       "closeLabel": "Sulje navigointi"
@@ -1778,7 +1776,6 @@
       "connectTitle": "Tietokoneesi kaikkialla",
       "connectBodyGuest": "Kirjaudu sisään myöhemmin ja pariliitä Stella tietokoneellasi — sitten voit pyytää puhelinta selaamaan verkkoa, hallitsemaan tiedostoja ja suorittamaan tehtäviä kotona.",
       "connectBodyPaired": "Muodosta pariliitos Stellan työpöytäsovelluksen kanssa kerran, niin puhelimesi voi pyytää sitä selaamaan verkkoa, hallitsemaan tiedostoja ja suorittamaan tehtäviä — vaikka kaupungin toiselta laidalta.",
-      "pairComputer": "Pariliitä tietokoneeni",
       "startChatting": "Aloita keskustelu"
     },
     "login": {
@@ -1873,12 +1870,6 @@
     "computer": {
       "guestHeroTitle": "Tietokoneesi sormenpäissäsi",
       "guestHeroBody": "Pyydä Stellaa tekemään asioita tietokoneellasi — selaamaan verkkoa, hallitsemaan tiedostoja, suorittamaan tehtäviä ja paljon muuta.",
-      "pairFirstTitle": "Pariliitä puhelin ensin",
-      "pairFirstBody": "Pariliitä tämä puhelin Stellan työpöytäsovellukseen, niin voit keskustella sen kanssa mistä tahansa. Riittää, että teet sen kerran.",
-      "pairPhone": "Pariliitä puhelin",
-      "pairThisPhoneLabel": "Pariliitä tämä puhelin",
-      "emptyPrompt": "Kysy tietokoneeltasi mitä tahansa",
-      "composerPlaceholder": "Kirjoita tietokoneellesi",
       "defaultDeviceLabel": "Tietokoneesi",
       "statusChecking": "Tarkistetaan…",
       "statusWaking": "Herätetään…",
@@ -1886,13 +1877,7 @@
       "statusAsleep": "Lepotilassa",
       "connectingLabel": "Yhdistetään tietokoneeseesi",
       "connectedLabel": "Tietokone yhdistetty",
-      "disconnectedLabel": "Tietokoneen yhteys katkaistu",
-      "unreachableTitle": "Tietokonetta ei tavoiteta",
-      "unreachableBody": "Tietokoneeseesi ei saada yhteyttä juuri nyt. Herätyspyyntö lähetettiin — yritä uudelleen muutaman sekunnin kuluttua.",
-      "syncWaitingTitle": "Synkronointi odottaa",
-      "syncWaitingBody": "Viestiä lähetetään yhä. Synkronointi käynnistyy heti, kun se on valmis.",
-      "syncFailedTitle": "Synkronointi epäonnistui",
-      "syncFailedBody": "Tietokoneesi lakkasi vastaamasta synkronoinnin aikana. Yritä uudelleen."
+      "disconnectedLabel": "Tietokoneen yhteys katkaistu"
     },
     "desktop": {
       "pairTitle": "Pariliitä puhelimesi",
@@ -1937,16 +1922,8 @@
       "pushToggleLabel": "Salli push-ilmoitukset",
       "pushToggleSub": "Saat ilmoituksen, kun tietokoneesi saa pyynnön valmiiksi.",
       "pushToggleA11y": "Ota push-ilmoitukset käyttöön tai poista käytöstä",
-      "voiceSection": "Puhu Stellalle",
-      "voiceSectionHint": "Minne handsfree-puhe (kuten CarPlay) lähettää viestisi. Automaattinen valitsee tietokoneesi keskustelun, jos jäit siihen ja se on tavoitettavissa — muuten tämän puhelimen keskustelun.",
-      "voiceTarget": {
-        "auto": "Automaattinen",
-        "phone": "Puhelin",
-        "computer": "Tietokone"
-      },
-      "voiceTargetLabel": "Lähetä ääniviestit kohteeseen {name}",
       "pairedSection": "Pariliitetyt tietokoneet",
-      "pairedEmpty": "Yhtään tietokonetta ei ole vielä pariliitetty. Tee pariliitos Tietokone-välilehdeltä.",
+      "pairedEmpty": "Yhtään tietokonetta ei ole vielä pariliitetty.",
       "pairedOn": "Pariliitetty {date}",
       "paired": {
         "unnamedComputer": "Tietokone · {id}"

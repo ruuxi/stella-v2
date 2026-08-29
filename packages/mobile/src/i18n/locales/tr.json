@@ -1736,7 +1736,6 @@
       "delete": "Sil",
       "done": "Bitti",
       "goBack": "Geri dön",
-      "somethingWentWrong": "Bir şeyler ters gitti.",
       "tryAgain": "Tekrar dene"
     },
     "boot": {
@@ -1757,7 +1756,6 @@
     },
     "nav": {
       "chat": "Sohbet",
-      "computer": "Bilgisayar",
       "settings": "Ayarlar",
       "openLabel": "Gezinmeyi aç",
       "closeLabel": "Gezinmeyi kapat"
@@ -1778,7 +1776,6 @@
       "connectTitle": "Bilgisayarınız, her yerde",
       "connectBodyGuest": "Stella'yı bilgisayarınızla eşleştirmek için daha sonra giriş yapın — sonra telefonunuzdan web'de gezinmesini, dosyaları yönetmesini ve evdeki görevleri çalıştırmasını isteyebilirsiniz.",
       "connectBodyPaired": "Stella masaüstü uygulamasıyla bir kez eşleştirin; telefonunuz ondan web'de gezinmesini, dosyaları yönetmesini ve görevleri çalıştırmasını isteyebilir — şehrin öbür ucundan bile.",
-      "pairComputer": "Bilgisayarımı eşleştir",
       "startChatting": "Sohbete başla"
     },
     "login": {
@@ -1873,12 +1870,6 @@
     "computer": {
       "guestHeroTitle": "Bilgisayarınız parmaklarınızın ucunda",
       "guestHeroBody": "Stella'dan bilgisayarınızda işler yapmasını isteyin — web'de gezinsin, dosyaları yönetsin, görevleri çalıştırsın ve daha fazlası.",
-      "pairFirstTitle": "Önce telefonunuzu eşleştirin",
-      "pairFirstBody": "Her yerden sohbet edebilmek için bu telefonu bilgisayarınızdaki Stella ile eşleştirin. Bunu yalnızca bir kez yapmanız yeterli.",
-      "pairPhone": "Telefonu eşleştir",
-      "pairThisPhoneLabel": "Bu telefonu eşleştir",
-      "emptyPrompt": "Bilgisayarınıza istediğinizi sorun",
-      "composerPlaceholder": "Bilgisayarınıza mesaj yazın",
       "defaultDeviceLabel": "Bilgisayarınız",
       "statusChecking": "Denetleniyor…",
       "statusWaking": "Uyandırılıyor…",
@@ -1886,13 +1877,7 @@
       "statusAsleep": "Uykuda",
       "connectingLabel": "Bilgisayarınıza bağlanılıyor",
       "connectedLabel": "Bilgisayar bağlandı",
-      "disconnectedLabel": "Bilgisayar bağlantısı kesildi",
-      "unreachableTitle": "Bilgisayara ulaşılamıyor",
-      "unreachableBody": "Bilgisayarınıza şu anda ulaşılamıyor. Bir uyandırma isteği gönderildi — birkaç saniye sonra tekrar deneyin.",
-      "syncWaitingTitle": "Eşitleme bekliyor",
-      "syncWaitingBody": "Bir mesaj hâlâ gönderiliyor. Eşitleme, gönderim biter bitmez çalışacak.",
-      "syncFailedTitle": "Eşitleme başarısız oldu",
-      "syncFailedBody": "Bilgisayarınız eşitleme sırasında yanıt vermeyi bıraktı. Tekrar deneyin."
+      "disconnectedLabel": "Bilgisayar bağlantısı kesildi"
     },
     "desktop": {
       "pairTitle": "Telefonunuzu eşleştirin",
@@ -1937,16 +1922,8 @@
       "pushToggleLabel": "Anlık bildirimlere izin ver",
       "pushToggleSub": "Bilgisayarınız bir isteği tamamladığında bildirim alın.",
       "pushToggleA11y": "Anlık bildirimleri aç/kapat",
-      "voiceSection": "Stella ile konuşun",
-      "voiceSectionHint": "Eller serbest ses (örneğin CarPlay) mesajlarınızı nereye gönderir. Otomatik, en son orada kaldıysanız ve ulaşılabiliyorsa bilgisayarınızdaki sohbeti seçer — aksi hâlde bu telefondaki sohbeti.",
-      "voiceTarget": {
-        "auto": "Otomatik",
-        "phone": "Telefon",
-        "computer": "Bilgisayar"
-      },
-      "voiceTargetLabel": "Sesli mesajları şuraya gönder: {name}",
       "pairedSection": "Eşleştirilmiş bilgisayarlar",
-      "pairedEmpty": "Henüz eşleştirilmiş bilgisayar yok. Bilgisayar sekmesinden eşleştirin.",
+      "pairedEmpty": "Henüz eşleştirilmiş bilgisayar yok.",
       "pairedOn": "Eşleştirildi: {date}",
       "paired": {
         "unnamedComputer": "Bilgisayar · {id}"

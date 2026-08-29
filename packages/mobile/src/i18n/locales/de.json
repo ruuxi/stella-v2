@@ -1736,7 +1736,6 @@
       "delete": "Löschen",
       "done": "Fertig",
       "goBack": "Zurückgehen",
-      "somethingWentWrong": "Etwas ist schiefgelaufen.",
       "tryAgain": "Erneut versuchen"
     },
     "boot": {
@@ -1757,7 +1756,6 @@
     },
     "nav": {
       "chat": "Chat",
-      "computer": "Computer",
       "settings": "Einstellungen",
       "openLabel": "Navigation öffnen",
       "closeLabel": "Navigation schließen"
@@ -1778,7 +1776,6 @@
       "connectTitle": "Dein Computer, überall",
       "connectBodyGuest": "Melde dich später an, um Stella auf deinem Computer zu koppeln — und bitte sie dann vom Handy aus, zu surfen, Dateien zu verwalten und Aufgaben zu Hause zu erledigen.",
       "connectBodyPaired": "Koppel dich einmal mit der Stella-Desktop-App, und dein Handy kann sie bitten, zu surfen, Dateien zu verwalten und Aufgaben zu erledigen — selbst vom anderen Ende der Stadt.",
-      "pairComputer": "Meinen Computer koppeln",
       "startChatting": "Chat starten"
     },
     "login": {
@@ -1873,12 +1870,6 @@
     "computer": {
       "guestHeroTitle": "Dein Computer, immer griffbereit",
       "guestHeroBody": "Bitte Stella, Dinge auf deinem Computer zu erledigen — im Web surfen, Dateien verwalten, Aufgaben ausführen und mehr.",
-      "pairFirstTitle": "Koppel zuerst dein Handy",
-      "pairFirstBody": "Koppel dieses Handy mit deinem Stella-Desktop, um von überall mit ihm zu chatten. Das ist nur einmal nötig.",
-      "pairPhone": "Handy koppeln",
-      "pairThisPhoneLabel": "Dieses Handy koppeln",
-      "emptyPrompt": "Frag deinen Computer alles",
-      "composerPlaceholder": "Nachricht an deinen Computer",
       "defaultDeviceLabel": "Dein Computer",
       "statusChecking": "Wird geprüft…",
       "statusWaking": "Wacht auf…",
@@ -1886,13 +1877,7 @@
       "statusAsleep": "Im Ruhezustand",
       "connectingLabel": "Verbindung zu deinem Computer",
       "connectedLabel": "Computer verbunden",
-      "disconnectedLabel": "Computer getrennt",
-      "unreachableTitle": "Computer nicht erreichbar",
-      "unreachableBody": "Dein Computer ist gerade nicht erreichbar. Eine Weckanfrage wurde gesendet — versuche es in ein paar Sekunden erneut.",
-      "syncWaitingTitle": "Sync wartet",
-      "syncWaitingBody": "Eine Nachricht wird noch gesendet. Der Sync startet, sobald sie fertig ist.",
-      "syncFailedTitle": "Sync fehlgeschlagen",
-      "syncFailedBody": "Dein Computer hat beim Sync nicht mehr reagiert. Versuche es erneut."
+      "disconnectedLabel": "Computer getrennt"
     },
     "desktop": {
       "pairTitle": "Koppel dein Handy",
@@ -1937,16 +1922,8 @@
       "pushToggleLabel": "Push-Benachrichtigungen erlauben",
       "pushToggleSub": "Werde benachrichtigt, wenn dein Computer eine Anfrage abschließt.",
       "pushToggleA11y": "Push-Benachrichtigungen ein- oder ausschalten",
-      "voiceSection": "Mit Stella sprechen",
-      "voiceSectionHint": "Wohin die Freisprech-Stimme (z. B. CarPlay) deine Nachrichten schickt. Auto wählt den Chat auf deinem Computer, wenn du dort aufgehört hast und er erreichbar ist — sonst den Chat auf diesem Handy.",
-      "voiceTarget": {
-        "auto": "Auto",
-        "phone": "Handy",
-        "computer": "Computer"
-      },
-      "voiceTargetLabel": "Sprachnachrichten an {name} senden",
       "pairedSection": "Gekoppelte Computer",
-      "pairedEmpty": "Noch keine Computer gekoppelt. Koppel einen im Tab „Computer“.",
+      "pairedEmpty": "Noch keine Computer gekoppelt.",
       "pairedOn": "Gekoppelt am {date}",
       "paired": {
         "unnamedComputer": "Computer · {id}"

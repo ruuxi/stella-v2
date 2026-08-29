@@ -1716,7 +1716,6 @@
       "delete": "Xóa",
       "done": "Xong",
       "goBack": "Quay lại",
-      "somethingWentWrong": "Đã xảy ra lỗi.",
       "tryAgain": "Thử lại"
     },
     "boot": {
@@ -1737,7 +1736,6 @@
     },
     "nav": {
       "chat": "Trò chuyện",
-      "computer": "Máy tính",
       "settings": "Cài đặt",
       "openLabel": "Mở điều hướng",
       "closeLabel": "Đóng điều hướng"
@@ -1758,7 +1756,6 @@
       "connectTitle": "Máy tính của bạn, ở bất cứ đâu",
       "connectBodyGuest": "Đăng nhập sau để ghép nối Stella trên máy tính — rồi nhờ điện thoại duyệt web, quản lý tệp và chạy tác vụ ở nhà.",
       "connectBodyPaired": "Ghép nối một lần với ứng dụng Stella trên máy tính, rồi điện thoại có thể nhờ nó duyệt web, quản lý tệp và chạy tác vụ — kể cả khi bạn ở xa.",
-      "pairComputer": "Ghép nối máy tính",
       "startChatting": "Bắt đầu trò chuyện"
     },
     "login": {
@@ -1852,12 +1849,6 @@
     "computer": {
       "guestHeroTitle": "Máy tính của bạn, trong tầm tay",
       "guestHeroBody": "Nhờ Stella làm việc trên máy tính của bạn — duyệt web, quản lý tệp, chạy tác vụ và hơn thế nữa.",
-      "pairFirstTitle": "Ghép nối điện thoại trước",
-      "pairFirstBody": "Ghép nối điện thoại này với Stella trên máy tính để trò chuyện với nó từ bất cứ đâu. Bạn chỉ cần làm một lần.",
-      "pairPhone": "Ghép nối điện thoại",
-      "pairThisPhoneLabel": "Ghép nối điện thoại này",
-      "emptyPrompt": "Hỏi máy tính của bạn bất cứ điều gì",
-      "composerPlaceholder": "Nhắn cho máy tính của bạn",
       "defaultDeviceLabel": "Máy tính của bạn",
       "statusChecking": "Đang kiểm tra…",
       "statusWaking": "Đang đánh thức…",
@@ -1865,13 +1856,7 @@
       "statusAsleep": "Đang ngủ",
       "connectingLabel": "Đang kết nối tới máy tính của bạn",
       "connectedLabel": "Máy tính đã kết nối",
-      "disconnectedLabel": "Máy tính đã ngắt kết nối",
-      "unreachableTitle": "Không kết nối được máy tính",
-      "unreachableBody": "Hiện không kết nối được máy tính của bạn. Đã gửi yêu cầu đánh thức — hãy thử lại sau vài giây.",
-      "syncWaitingTitle": "Đang chờ đồng bộ",
-      "syncWaitingBody": "Một tin nhắn vẫn đang được gửi. Việc đồng bộ sẽ chạy ngay khi gửi xong.",
-      "syncFailedTitle": "Đồng bộ thất bại",
-      "syncFailedBody": "Máy tính của bạn ngừng phản hồi khi đang đồng bộ. Hãy thử lại."
+      "disconnectedLabel": "Máy tính đã ngắt kết nối"
     },
     "desktop": {
       "pairTitle": "Ghép nối điện thoại",
@@ -1916,16 +1901,8 @@
       "pushToggleLabel": "Cho phép thông báo đẩy",
       "pushToggleSub": "Được báo khi máy tính của bạn hoàn tất một yêu cầu.",
       "pushToggleA11y": "Bật/tắt thông báo đẩy",
-      "voiceSection": "Nói chuyện với Stella",
-      "voiceSectionHint": "Nơi giọng nói rảnh tay (như CarPlay) gửi tin nhắn của bạn. Tự động sẽ chọn cuộc trò chuyện trên máy tính nếu bạn đang dở ở đó và máy còn kết nối được — nếu không thì chọn cuộc trò chuyện trên điện thoại này.",
-      "voiceTarget": {
-        "auto": "Tự động",
-        "phone": "Điện thoại",
-        "computer": "Máy tính"
-      },
-      "voiceTargetLabel": "Gửi tin nhắn thoại tới {name}",
       "pairedSection": "Máy tính đã ghép nối",
-      "pairedEmpty": "Chưa ghép nối máy tính nào. Hãy ghép nối từ tab Máy tính.",
+      "pairedEmpty": "Chưa ghép nối máy tính nào.",
       "pairedOn": "Ghép nối {date}",
       "paired": {
         "unnamedComputer": "Máy tính · {id}"

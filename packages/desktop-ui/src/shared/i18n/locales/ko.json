@@ -1716,7 +1716,6 @@
       "delete": "삭제",
       "done": "완료",
       "goBack": "뒤로 가기",
-      "somethingWentWrong": "문제가 발생했습니다.",
       "tryAgain": "다시 시도"
     },
     "boot": {
@@ -1737,7 +1736,6 @@
     },
     "nav": {
       "chat": "채팅",
-      "computer": "컴퓨터",
       "settings": "설정",
       "openLabel": "탐색 열기",
       "closeLabel": "탐색 닫기"
@@ -1758,7 +1756,6 @@
       "connectTitle": "어디서나 내 컴퓨터를",
       "connectBodyGuest": "나중에 로그인해 컴퓨터의 Stella와 페어링하면, 휴대폰으로 웹 탐색과 파일 관리, 작업 실행을 집에 있는 컴퓨터에 맡길 수 있습니다.",
       "connectBodyPaired": "Stella 데스크톱 앱과 한 번만 페어링하면, 멀리 있어도 휴대폰으로 웹 탐색과 파일 관리, 작업 실행을 맡길 수 있습니다.",
-      "pairComputer": "내 컴퓨터 페어링",
       "startChatting": "채팅 시작"
     },
     "login": {
@@ -1852,12 +1849,6 @@
     "computer": {
       "guestHeroTitle": "내 컴퓨터를 손안에",
       "guestHeroBody": "웹 탐색, 파일 관리, 작업 실행 등 컴퓨터에서 할 일을 Stella에게 맡기세요.",
-      "pairFirstTitle": "먼저 휴대폰을 페어링하세요",
-      "pairFirstBody": "이 휴대폰을 Stella 데스크톱과 페어링하면 어디서나 대화할 수 있습니다. 처음 한 번만 하면 됩니다.",
-      "pairPhone": "휴대폰 페어링",
-      "pairThisPhoneLabel": "이 휴대폰 페어링",
-      "emptyPrompt": "컴퓨터에 무엇이든 물어보세요",
-      "composerPlaceholder": "컴퓨터에 메시지",
       "defaultDeviceLabel": "내 컴퓨터",
       "statusChecking": "확인 중…",
       "statusWaking": "깨우는 중…",
@@ -1865,13 +1856,7 @@
       "statusAsleep": "잠자기",
       "connectingLabel": "컴퓨터에 연결 중",
       "connectedLabel": "컴퓨터 연결됨",
-      "disconnectedLabel": "컴퓨터 연결 끊김",
-      "unreachableTitle": "컴퓨터에 연결할 수 없음",
-      "unreachableBody": "지금은 컴퓨터에 연결할 수 없습니다. 깨우기 요청을 보냈으니 몇 초 후에 다시 시도하세요.",
-      "syncWaitingTitle": "동기화 대기 중",
-      "syncWaitingBody": "메시지를 아직 보내는 중입니다. 전송이 끝나는 대로 동기화가 실행됩니다.",
-      "syncFailedTitle": "동기화 실패",
-      "syncFailedBody": "동기화 중에 컴퓨터가 응답을 멈췄습니다. 다시 시도하세요."
+      "disconnectedLabel": "컴퓨터 연결 끊김"
     },
     "desktop": {
       "pairTitle": "휴대폰 페어링",
@@ -1916,16 +1901,8 @@
       "pushToggleLabel": "푸시 알림 허용",
       "pushToggleSub": "컴퓨터가 요청을 끝내면 알려 줍니다.",
       "pushToggleA11y": "푸시 알림 전환",
-      "voiceSection": "Stella와 대화",
-      "voiceSectionHint": "핸즈프리 음성(예: CarPlay)이 메시지를 보낼 곳입니다. 자동은 마지막으로 사용한 곳이 컴퓨터 채팅이고 연결할 수 있으면 그곳을, 아니면 이 휴대폰의 채팅을 선택합니다.",
-      "voiceTarget": {
-        "auto": "자동",
-        "phone": "휴대폰",
-        "computer": "컴퓨터"
-      },
-      "voiceTargetLabel": "음성 메시지를 {name}(으)로 보내기",
       "pairedSection": "페어링된 컴퓨터",
-      "pairedEmpty": "아직 페어링된 컴퓨터가 없습니다. 컴퓨터 탭에서 페어링하세요.",
+      "pairedEmpty": "아직 페어링된 컴퓨터가 없습니다.",
       "pairedOn": "{date}에 페어링",
       "paired": {
         "unnamedComputer": "컴퓨터 · {id}"

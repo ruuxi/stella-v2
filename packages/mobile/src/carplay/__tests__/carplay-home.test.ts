@@ -17,8 +17,7 @@ const base: CarPlayHomeState = {
   replies: [],
   newReplyId: null,
   converseOn: true,
-  target: "phone",
-  targetSelectable: false,
+  signedIn: true,
   now: NOW,
 };
 
@@ -166,29 +165,24 @@ describe("converse mode row", () => {
   });
 });
 
-describe("voice target row (phone chat vs computer chat)", () => {
-  const targetRow = (state: CarPlayHomeState) =>
-    buildHome(state)[0].rows.find((r) => r.action.kind === "toggleTarget");
-
-  test("hidden when no computer is paired (no dead taps)", () => {
-    expect(targetRow(base) === undefined).toBe(true);
+describe("guest home", () => {
+  test("offers sign-in instead of a talk row that could never answer", () => {
+    const sections = buildHome({ ...base, signedIn: false });
+    expect(sections.length).toBe(1);
+    expect(sections[0].rows.length).toBe(1);
+    expect(sections[0].rows[0].item.text).toBe("Sign in to talk to Stella");
+    expect(flattenActions(sections)).toEqual([{ kind: "signInHint" }]);
   });
 
-  test("phone target invites switching to the computer", () => {
-    const row = targetRow({ ...base, targetSelectable: true });
-    expect(row !== undefined).toBe(true);
-    expect(row!.item.text).toBe("Send to: Phone");
-    expect(row!.item.detailText).toContain("tap to use your computer");
-  });
-
-  test("computer target names the computer chat and offers the phone", () => {
-    const row = targetRow({
+  test("a guest never sees replies from a previous signed-in drive", () => {
+    const sections = buildHome({
       ...base,
-      target: "computer",
-      targetSelectable: true,
+      signedIn: false,
+      replies: [{ id: "m2", text: "Newest.", at: NOW }],
     });
-    expect(row!.item.text).toBe("Send to: Computer");
-    expect(row!.item.detailText).toContain("tap to use this phone");
+    expect(flattenActions(sections).map((a) => a.kind)).toEqual([
+      "signInHint",
+    ]);
   });
 });
 
@@ -261,18 +255,15 @@ describe("buildHome / flattenActions", () => {
     ]);
   });
 
-  test("paired state adds the target row after converse mode", () => {
+  test("pairing changes nothing on the home: placement is invisible", () => {
     const sections = buildHome({
       ...base,
-      targetSelectable: true,
-      target: "computer",
       replies: [{ id: "m2", text: "Newest.", at: NOW }],
     });
     expect(flattenActions(sections).map((a) => a.kind)).toEqual([
       "talk",
       "readLatest",
       "toggleConverse",
-      "toggleTarget",
       "readReply",
     ]);
   });

@@ -1736,7 +1736,6 @@
       "delete": "Verwijderen",
       "done": "Klaar",
       "goBack": "Ga terug",
-      "somethingWentWrong": "Er ging iets mis.",
       "tryAgain": "Opnieuw proberen"
     },
     "boot": {
@@ -1757,7 +1756,6 @@
     },
     "nav": {
       "chat": "Chat",
-      "computer": "Computer",
       "settings": "Instellingen",
       "openLabel": "Navigatie openen",
       "closeLabel": "Navigatie sluiten"
@@ -1778,7 +1776,6 @@
       "connectTitle": "Je computer, overal",
       "connectBodyGuest": "Log later in om Stella op je computer te koppelen — vraag daarna vanaf je telefoon om te browsen, bestanden te beheren en taken thuis uit te voeren.",
       "connectBodyPaired": "Koppel één keer met de Stella-desktopapp en je telefoon kan hem vragen te browsen, bestanden te beheren en taken uit te voeren — zelfs vanaf de andere kant van de stad.",
-      "pairComputer": "Mijn computer koppelen",
       "startChatting": "Beginnen met chatten"
     },
     "login": {
@@ -1873,12 +1870,6 @@
     "computer": {
       "guestHeroTitle": "Je computer binnen handbereik",
       "guestHeroBody": "Vraag Stella om dingen te doen op je computer — het web verkennen, bestanden beheren, taken uitvoeren en meer.",
-      "pairFirstTitle": "Koppel eerst je telefoon",
-      "pairFirstBody": "Koppel deze telefoon met Stella op je desktop, zodat je er overal mee kunt chatten. Dit hoeft maar één keer.",
-      "pairPhone": "Telefoon koppelen",
-      "pairThisPhoneLabel": "Deze telefoon koppelen",
-      "emptyPrompt": "Vraag je computer wat je wilt",
-      "composerPlaceholder": "Bericht aan je computer",
       "defaultDeviceLabel": "Je computer",
       "statusChecking": "Controleren…",
       "statusWaking": "Wakker worden…",
@@ -1886,13 +1877,7 @@
       "statusAsleep": "In slaapstand",
       "connectingLabel": "Verbinden met je computer",
       "connectedLabel": "Computer verbonden",
-      "disconnectedLabel": "Computer niet verbonden",
-      "unreachableTitle": "Computer onbereikbaar",
-      "unreachableBody": "Je computer is nu niet bereikbaar. Er is een wekverzoek verstuurd — probeer het over een paar seconden opnieuw.",
-      "syncWaitingTitle": "Synchronisatie wacht",
-      "syncWaitingBody": "Er wordt nog een bericht verstuurd. De synchronisatie start zodra dat klaar is.",
-      "syncFailedTitle": "Synchronisatie mislukt",
-      "syncFailedBody": "Je computer reageerde niet meer tijdens het synchroniseren. Probeer het opnieuw."
+      "disconnectedLabel": "Computer niet verbonden"
     },
     "desktop": {
       "pairTitle": "Koppel je telefoon",
@@ -1937,16 +1922,8 @@
       "pushToggleLabel": "Pushmeldingen toestaan",
       "pushToggleSub": "Krijg bericht wanneer je computer een verzoek afrondt.",
       "pushToggleA11y": "Pushmeldingen aan- of uitzetten",
-      "voiceSection": "Praat met Stella",
-      "voiceSectionHint": "Waar handsfree spraak (zoals CarPlay) je berichten naartoe stuurt. Auto kiest de chat op je computer als je daar was gebleven en hij bereikbaar is — anders de chat op deze telefoon.",
-      "voiceTarget": {
-        "auto": "Auto",
-        "phone": "Telefoon",
-        "computer": "Computer"
-      },
-      "voiceTargetLabel": "Spraakberichten sturen naar {name}",
       "pairedSection": "Gekoppelde computers",
-      "pairedEmpty": "Nog geen computers gekoppeld. Koppel er een via het tabblad Computer.",
+      "pairedEmpty": "Nog geen computers gekoppeld.",
       "pairedOn": "Gekoppeld op {date}",
       "paired": {
         "unnamedComputer": "Computer · {id}"

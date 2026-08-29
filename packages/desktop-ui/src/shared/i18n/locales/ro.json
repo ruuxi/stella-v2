@@ -1754,7 +1754,6 @@
       "delete": "Șterge",
       "done": "Gata",
       "goBack": "Mergi înapoi",
-      "somethingWentWrong": "Ceva nu a mers.",
       "tryAgain": "Încearcă din nou"
     },
     "boot": {
@@ -1775,7 +1774,6 @@
     },
     "nav": {
       "chat": "Chat",
-      "computer": "Computer",
       "settings": "Setări",
       "openLabel": "Deschide navigarea",
       "closeLabel": "Închide navigarea"
@@ -1796,7 +1794,6 @@
       "connectTitle": "Computerul tău, oriunde",
       "connectBodyGuest": "Conectează-te mai târziu ca să asociezi Stella pe computerul tău — apoi cere-i de pe telefon să navigheze, să gestioneze fișiere și să ruleze sarcini acasă.",
       "connectBodyPaired": "Asociază o singură dată aplicația desktop Stella, iar telefonul tău îi poate cere să navigheze, să gestioneze fișiere și să ruleze sarcini — chiar și din celălalt capăt al orașului.",
-      "pairComputer": "Asociază computerul meu",
       "startChatting": "Începe conversația"
     },
     "login": {
@@ -1892,12 +1889,6 @@
     "computer": {
       "guestHeroTitle": "Computerul tău, la îndemână",
       "guestHeroBody": "Cere-i Stellei să facă lucruri pe computerul tău — să navigheze pe web, să gestioneze fișiere, să ruleze sarcini și multe altele.",
-      "pairFirstTitle": "Mai întâi asociază-ți telefonul",
-      "pairFirstBody": "Asociază acest telefon cu Stella de pe desktop ca să poți discuta cu ea de oriunde. Trebuie să faci asta o singură dată.",
-      "pairPhone": "Asociază telefonul",
-      "pairThisPhoneLabel": "Asociază acest telefon",
-      "emptyPrompt": "Întreabă computerul tău orice",
-      "composerPlaceholder": "Scrie-i computerului tău",
       "defaultDeviceLabel": "Computerul tău",
       "statusChecking": "Se verifică…",
       "statusWaking": "Se trezește…",
@@ -1905,13 +1896,7 @@
       "statusAsleep": "În repaus",
       "connectingLabel": "Se conectează la computerul tău",
       "connectedLabel": "Computer conectat",
-      "disconnectedLabel": "Computer deconectat",
-      "unreachableTitle": "Computer inaccesibil",
-      "unreachableBody": "Computerul tău nu este accesibil acum. A fost trimisă o cerere de trezire — încearcă din nou peste câteva secunde.",
-      "syncWaitingTitle": "Sincronizare în așteptare",
-      "syncWaitingBody": "Un mesaj este încă în curs de trimitere. Sincronizarea va porni imediat ce se termină.",
-      "syncFailedTitle": "Sincronizare eșuată",
-      "syncFailedBody": "Computerul tău a încetat să răspundă în timpul sincronizării. Încearcă din nou."
+      "disconnectedLabel": "Computer deconectat"
     },
     "desktop": {
       "pairTitle": "Asociază-ți telefonul",
@@ -1956,16 +1941,8 @@
       "pushToggleLabel": "Permite notificările push",
       "pushToggleSub": "Primești o notificare când computerul tău termină o cerere.",
       "pushToggleA11y": "Comută notificările push",
-      "voiceSection": "Vorbește cu Stella",
-      "voiceSectionHint": "Unde trimite mesajele tale vocea hands-free (precum CarPlay). Auto alege chatul de pe computerul tău atunci când acolo ai rămas și este accesibil — altfel, chatul acestui telefon.",
-      "voiceTarget": {
-        "auto": "Auto",
-        "phone": "Telefon",
-        "computer": "Computer"
-      },
-      "voiceTargetLabel": "Trimite mesajele vocale către {name}",
       "pairedSection": "Computere asociate",
-      "pairedEmpty": "Niciun computer asociat încă. Asociază unul din fila Computer.",
+      "pairedEmpty": "Niciun computer asociat încă.",
       "pairedOn": "Asociat pe {date}",
       "paired": {
         "unnamedComputer": "Computer · {id}"

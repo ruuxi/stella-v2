@@ -120,8 +120,6 @@ export type CarPlayActions = {
   onReadLatest: () => void;
   /** The converse-mode row was selected — flip auto-read on/off. */
   onToggleConverse: () => void;
-  /** The voice-target row was selected — switch phone chat ↔ computer chat. */
-  onToggleVoiceTarget: () => void;
 };
 
 // Stella-green glyphs (see assets/carplay/generate-icons.py). Carrying the
@@ -143,10 +141,8 @@ class CarPlaySession {
   private replies: RecentReply[] = [];
   private newReplyId: string | null = null;
   private converseOn = true;
-  /** Where dictated messages route; mirrored from the bridge's resolution. */
-  private voiceTarget: "phone" | "computer" = "phone";
-  /** Whether a computer is paired (renders the target row at all). */
-  private voiceTargetSelectable = false;
+  /** Whether an account is signed in; a guest gets the sign-in row instead. */
+  private signedIn = false;
   private timeRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
   private listTemplate: InstanceType<RNCarPlay["ListTemplate"]> | null = null;
@@ -458,8 +454,7 @@ class CarPlaySession {
       replies: this.replies,
       newReplyId: this.newReplyId,
       converseOn: this.converseOn,
-      target: this.voiceTarget,
-      targetSelectable: this.voiceTargetSelectable,
+      signedIn: this.signedIn,
       now: Date.now(),
     };
   }
@@ -499,8 +494,7 @@ class CarPlaySession {
       case "toggleConverse":
         this.actions?.onToggleConverse();
         break;
-      case "toggleTarget":
-        this.actions?.onToggleVoiceTarget();
+      case "signInHint":
         break;
     }
   }
@@ -539,24 +533,17 @@ class CarPlaySession {
   }
 
   /**
-   * Converse mode survives voice-loop remounts (the bridge remounts its loop
-   * when the target switches); the fresh loop re-adopts the session's state
-   * instead of resetting the driver's choice.
+   * Converse mode survives voice-loop remounts; a fresh loop re-adopts the
+   * session's state instead of resetting the driver's choice.
    */
   getConverseMode(): boolean {
     return this.converseOn;
   }
 
-  /** Reflect the resolved voice target (and pairing) on the target row. */
-  setVoiceTarget(target: "phone" | "computer", selectable: boolean) {
-    if (
-      this.voiceTarget === target &&
-      this.voiceTargetSelectable === selectable
-    ) {
-      return;
-    }
-    this.voiceTarget = target;
-    this.voiceTargetSelectable = selectable;
+  /** Whether an account is signed in — a guest gets the sign-in row instead. */
+  setSignedIn(signedIn: boolean) {
+    if (this.signedIn === signedIn) return;
+    this.signedIn = signedIn;
     this.render();
   }
 

@@ -1716,7 +1716,6 @@
       "delete": "Hapus",
       "done": "Selesai",
       "goBack": "Kembali",
-      "somethingWentWrong": "Terjadi kesalahan.",
       "tryAgain": "Coba lagi"
     },
     "boot": {
@@ -1737,7 +1736,6 @@
     },
     "nav": {
       "chat": "Obrolan",
-      "computer": "Komputer",
       "settings": "Pengaturan",
       "openLabel": "Buka navigasi",
       "closeLabel": "Tutup navigasi"
@@ -1758,7 +1756,6 @@
       "connectTitle": "Komputer Anda, di mana saja",
       "connectBodyGuest": "Masuk nanti untuk memasangkan Stella di komputer Anda — lalu minta ponsel Anda menjelajah web, mengelola berkas, dan menjalankan tugas di rumah.",
       "connectBodyPaired": "Pasangkan sekali dengan aplikasi desktop Stella, dan ponsel Anda bisa memintanya menjelajah web, mengelola berkas, dan menjalankan tugas — bahkan dari seberang kota.",
-      "pairComputer": "Pasangkan komputer saya",
       "startChatting": "Mulai mengobrol"
     },
     "login": {
@@ -1852,12 +1849,6 @@
     "computer": {
       "guestHeroTitle": "Komputer Anda, dalam genggaman",
       "guestHeroBody": "Minta Stella melakukan berbagai hal di komputer Anda — menjelajah web, mengelola berkas, menjalankan tugas, dan lainnya.",
-      "pairFirstTitle": "Pasangkan ponsel Anda dulu",
-      "pairFirstBody": "Pasangkan ponsel ini dengan Stella desktop Anda supaya bisa mengobrol dengannya dari mana saja. Cukup sekali saja.",
-      "pairPhone": "Pasangkan ponsel",
-      "pairThisPhoneLabel": "Pasangkan ponsel ini",
-      "emptyPrompt": "Tanya komputer Anda apa saja",
-      "composerPlaceholder": "Pesan untuk komputer Anda",
       "defaultDeviceLabel": "Komputer Anda",
       "statusChecking": "Memeriksa…",
       "statusWaking": "Membangunkan…",
@@ -1865,13 +1856,7 @@
       "statusAsleep": "Tidur",
       "connectingLabel": "Menghubungkan ke komputer Anda",
       "connectedLabel": "Komputer terhubung",
-      "disconnectedLabel": "Komputer terputus",
-      "unreachableTitle": "Komputer tidak terjangkau",
-      "unreachableBody": "Komputer Anda tidak terjangkau saat ini. Permintaan bangun sudah dikirim — coba lagi beberapa detik lagi.",
-      "syncWaitingTitle": "Sinkronisasi menunggu",
-      "syncWaitingBody": "Sebuah pesan masih dikirim. Sinkronisasi akan berjalan begitu pengiriman selesai.",
-      "syncFailedTitle": "Sinkronisasi gagal",
-      "syncFailedBody": "Komputer Anda berhenti merespons saat menyinkronkan. Coba lagi."
+      "disconnectedLabel": "Komputer terputus"
     },
     "desktop": {
       "pairTitle": "Pasangkan ponsel Anda",
@@ -1916,16 +1901,8 @@
       "pushToggleLabel": "Izinkan notifikasi push",
       "pushToggleSub": "Dapat pemberitahuan saat komputer Anda menyelesaikan permintaan.",
       "pushToggleA11y": "Alihkan notifikasi push",
-      "voiceSection": "Bicara dengan Stella",
-      "voiceSectionHint": "Ke mana suara bebas-genggam (seperti CarPlay) mengirim pesan Anda. Otomatis memilih obrolan di komputer jika Anda terakhir berhenti di sana dan komputernya terjangkau — jika tidak, obrolan di ponsel ini.",
-      "voiceTarget": {
-        "auto": "Otomatis",
-        "phone": "Ponsel",
-        "computer": "Komputer"
-      },
-      "voiceTargetLabel": "Kirim pesan suara ke {name}",
       "pairedSection": "Komputer terpasang",
-      "pairedEmpty": "Belum ada komputer yang dipasangkan. Pasangkan dari tab Komputer.",
+      "pairedEmpty": "Belum ada komputer yang dipasangkan.",
       "pairedOn": "Dipasangkan {date}",
       "paired": {
         "unnamedComputer": "Komputer · {id}"

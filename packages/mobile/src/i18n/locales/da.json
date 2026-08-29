@@ -1736,7 +1736,6 @@
       "delete": "Slet",
       "done": "Færdig",
       "goBack": "Gå tilbage",
-      "somethingWentWrong": "Noget gik galt.",
       "tryAgain": "Prøv igen"
     },
     "boot": {
@@ -1757,7 +1756,6 @@
     },
     "nav": {
       "chat": "Chat",
-      "computer": "Computer",
       "settings": "Indstillinger",
       "openLabel": "Åbn navigationen",
       "closeLabel": "Luk navigationen"
@@ -1778,7 +1776,6 @@
       "connectTitle": "Din computer, overalt",
       "connectBodyGuest": "Log ind senere for at parre Stella på din computer — og bed så fra telefonen om at browse, håndtere filer og køre opgaver derhjemme.",
       "connectBodyPaired": "Par én gang med Stella-appen til computeren, så kan din telefon bede den om at browse, håndtere filer og køre opgaver — selv fra den anden ende af byen.",
-      "pairComputer": "Par min computer",
       "startChatting": "Begynd at chatte"
     },
     "login": {
@@ -1874,12 +1871,6 @@
     "computer": {
       "guestHeroTitle": "Din computer lige ved hånden",
       "guestHeroBody": "Bed Stella om at gøre ting på din computer — browse på nettet, håndtere filer, køre opgaver og meget mere.",
-      "pairFirstTitle": "Par din telefon først",
-      "pairFirstBody": "Par denne telefon med Stella på computeren, så du kan chatte med den hvor som helst fra. Du skal kun gøre det én gang.",
-      "pairPhone": "Par telefon",
-      "pairThisPhoneLabel": "Par denne telefon",
-      "emptyPrompt": "Spørg din computer om hvad som helst",
-      "composerPlaceholder": "Skriv til din computer",
       "defaultDeviceLabel": "Din computer",
       "statusChecking": "Tjekker…",
       "statusWaking": "Vågner…",
@@ -1887,13 +1878,7 @@
       "statusAsleep": "På vågeblus",
       "connectingLabel": "Opretter forbindelse til din computer",
       "connectedLabel": "Computer tilsluttet",
-      "disconnectedLabel": "Computer afbrudt",
-      "unreachableTitle": "Computeren kan ikke nås",
-      "unreachableBody": "Din computer kan ikke nås lige nu. Der er sendt en vækning — prøv igen om et par sekunder.",
-      "syncWaitingTitle": "Synkronisering venter",
-      "syncWaitingBody": "En besked er stadig ved at blive sendt. Synkroniseringen kører, så snart den er færdig.",
-      "syncFailedTitle": "Synkronisering mislykkedes",
-      "syncFailedBody": "Din computer holdt op med at svare under synkroniseringen. Prøv igen."
+      "disconnectedLabel": "Computer afbrudt"
     },
     "desktop": {
       "pairTitle": "Par din telefon",
@@ -1938,16 +1923,8 @@
       "pushToggleLabel": "Tillad push-notifikationer",
       "pushToggleSub": "Få besked, når din computer er færdig med en forespørgsel.",
       "pushToggleA11y": "Slå push-notifikationer til eller fra",
-      "voiceSection": "Tal med Stella",
-      "voiceSectionHint": "Hvor håndfri stemme (som CarPlay) sender dine beskeder hen. Auto vælger chatten på din computer, når det var der, du slap, og den kan nås — ellers chatten på denne telefon.",
-      "voiceTarget": {
-        "auto": "Auto",
-        "phone": "Telefon",
-        "computer": "Computer"
-      },
-      "voiceTargetLabel": "Send talebeskeder til {name}",
       "pairedSection": "Parrede computere",
-      "pairedEmpty": "Ingen computere parret endnu. Par en fra fanen Computer.",
+      "pairedEmpty": "Ingen computere parret endnu.",
       "pairedOn": "Parret {date}",
       "paired": {
         "unnamedComputer": "Computer · {id}"

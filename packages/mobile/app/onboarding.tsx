@@ -61,14 +61,13 @@ export default function OnboardingScreen() {
     [progress],
   );
 
-  const finish = useCallback(
-    (destination: "/chat" | "/computer") => {
-      tapLight();
-      void markOnboardingSeen();
-      router.replace(destination);
-    },
-    [router],
-  );
+  // Every exit lands on the chat: it is the only surface, and pairing a
+  // computer is offered from its own device sheet rather than a separate tab.
+  const finish = useCallback(() => {
+    tapLight();
+    void markOnboardingSeen();
+    router.replace("/chat");
+  }, [router]);
 
   const stepStyle = useMemo(
     () => ({
@@ -97,7 +96,7 @@ export default function OnboardingScreen() {
         <View style={styles.skipRow}>
           {step < STEP_COUNT - 1 ? (
             <Pressable
-              onPress={() => finish("/chat")}
+              onPress={finish}
               hitSlop={10}
               accessibilityLabel={t("mobile.onboarding.skipLabel")}
               style={({ pressed }) => pressed && styles.pressed}
@@ -140,39 +139,18 @@ export default function OnboardingScreen() {
               </Text>
             </Pressable>
           ) : (
-            <>
-              {!guest ? (
-                <Pressable
-                  onPress={() => finish("/computer")}
-                  accessibilityLabel={t("mobile.onboarding.pairComputer")}
-                  style={({ pressed }) => [
-                    styles.primaryButton,
-                    pressed && styles.primaryButtonPressed,
-                  ]}
-                >
-                  <Text style={styles.primaryButtonText}>
-                    {t("mobile.onboarding.pairComputer")}
-                  </Text>
-                </Pressable>
-              ) : null}
-              <Pressable
-                onPress={() => finish("/chat")}
-                accessibilityLabel={t("mobile.onboarding.startChatting")}
-                style={({ pressed }) => [
-                  guest ? styles.primaryButton : styles.secondaryButton,
-                  pressed &&
-                    (guest ? styles.primaryButtonPressed : styles.pressed),
-                ]}
-              >
-                <Text
-                  style={
-                    guest ? styles.primaryButtonText : styles.secondaryText
-                  }
-                >
-                  {t("mobile.onboarding.startChatting")}
-                </Text>
-              </Pressable>
-            </>
+            <Pressable
+              onPress={finish}
+              accessibilityLabel={t("mobile.onboarding.startChatting")}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                pressed && styles.primaryButtonPressed,
+              ]}
+            >
+              <Text style={styles.primaryButtonText}>
+                {t("mobile.onboarding.startChatting")}
+              </Text>
+            </Pressable>
           )}
         </View>
       </View>

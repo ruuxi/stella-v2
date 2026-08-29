@@ -1772,7 +1772,6 @@
       "delete": "Smazat",
       "done": "Hotovo",
       "goBack": "Přejít zpět",
-      "somethingWentWrong": "Něco se pokazilo.",
       "tryAgain": "Zkusit znovu"
     },
     "boot": {
@@ -1793,7 +1792,6 @@
     },
     "nav": {
       "chat": "Chat",
-      "computer": "Počítač",
       "settings": "Nastavení",
       "openLabel": "Otevřít navigaci",
       "closeLabel": "Zavřít navigaci"
@@ -1814,7 +1812,6 @@
       "connectTitle": "Váš počítač kdekoli",
       "connectBodyGuest": "Přihlaste se později a spárujte Stellu na svém počítači — pak můžete z telefonu požádat o prohlížení webu, správu souborů a spouštění úloh doma.",
       "connectBodyPaired": "Stačí se jednou spárovat s desktopovou aplikací Stella a váš telefon ji může požádat o prohlížení webu, správu souborů i spouštění úloh — třeba z druhého konce města.",
-      "pairComputer": "Spárovat můj počítač",
       "startChatting": "Začít chatovat"
     },
     "login": {
@@ -1910,12 +1907,6 @@
     "computer": {
       "guestHeroTitle": "Váš počítač na dosah ruky",
       "guestHeroBody": "Požádejte Stellu, aby na vašem počítači něco udělala — prohlížela web, spravovala soubory, spouštěla úlohy a další.",
-      "pairFirstTitle": "Nejdřív spárujte telefon",
-      "pairFirstBody": "Spárujte tento telefon s desktopovou aplikací Stella, abyste s ní mohli chatovat odkudkoli. Stačí to udělat jednou.",
-      "pairPhone": "Spárovat telefon",
-      "pairThisPhoneLabel": "Spárovat tento telefon",
-      "emptyPrompt": "Zeptejte se svého počítače na cokoli",
-      "composerPlaceholder": "Napište svému počítači",
       "defaultDeviceLabel": "Váš počítač",
       "statusChecking": "Kontrola…",
       "statusWaking": "Probouzení…",
@@ -1923,13 +1914,7 @@
       "statusAsleep": "Spí",
       "connectingLabel": "Připojování k vašemu počítači",
       "connectedLabel": "Počítač připojen",
-      "disconnectedLabel": "Počítač odpojen",
-      "unreachableTitle": "Počítač je nedostupný",
-      "unreachableBody": "Váš počítač teď není dostupný. Odeslali jsme požadavek na probuzení — zkuste to za pár sekund znovu.",
-      "syncWaitingTitle": "Synchronizace čeká",
-      "syncWaitingBody": "Zpráva se stále odesílá. Synchronizace proběhne hned, jak se odeslání dokončí.",
-      "syncFailedTitle": "Synchronizace selhala",
-      "syncFailedBody": "Váš počítač během synchronizace přestal odpovídat. Zkuste to znovu."
+      "disconnectedLabel": "Počítač odpojen"
     },
     "desktop": {
       "pairTitle": "Spárujte svůj telefon",
@@ -1974,16 +1959,8 @@
       "pushToggleLabel": "Povolit push oznámení",
       "pushToggleSub": "Dostanete upozornění, až váš počítač dokončí požadavek.",
       "pushToggleA11y": "Přepnout push oznámení",
-      "voiceSection": "Mluvte se Stellou",
-      "voiceSectionHint": "Kam hlasové ovládání bez rukou (třeba CarPlay) posílá vaše zprávy. Automaticky zvolí chat na vašem počítači, pokud jste u něj skončili a je dostupný — jinak chat v tomto telefonu.",
-      "voiceTarget": {
-        "auto": "Automaticky",
-        "phone": "Telefon",
-        "computer": "Počítač"
-      },
-      "voiceTargetLabel": "Posílat hlasové zprávy do: {name}",
       "pairedSection": "Spárované počítače",
-      "pairedEmpty": "Zatím není spárovaný žádný počítač. Spárujte ho na kartě Počítač.",
+      "pairedEmpty": "Zatím není spárovaný žádný počítač.",
       "pairedOn": "Spárováno {date}",
       "paired": {
         "unnamedComputer": "Počítač · {id}"

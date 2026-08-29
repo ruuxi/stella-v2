@@ -1716,7 +1716,6 @@
       "delete": "删除",
       "done": "完成",
       "goBack": "返回",
-      "somethingWentWrong": "出了点问题。",
       "tryAgain": "重试"
     },
     "boot": {
@@ -1737,7 +1736,6 @@
     },
     "nav": {
       "chat": "聊天",
-      "computer": "电脑",
       "settings": "设置",
       "openLabel": "打开导航",
       "closeLabel": "关闭导航"
@@ -1758,7 +1756,6 @@
       "connectTitle": "随时随地用您的电脑",
       "connectBodyGuest": "稍后登录即可与电脑上的 Stella 配对，之后就能用手机让家里的电脑浏览网页、整理文件和执行任务。",
       "connectBodyPaired": "与 Stella 桌面应用配对一次，手机就能让它浏览网页、整理文件和执行任务 —— 哪怕您在城市另一头。",
-      "pairComputer": "配对我的电脑",
       "startChatting": "开始聊天"
     },
     "login": {
@@ -1852,12 +1849,6 @@
     "computer": {
       "guestHeroTitle": "您的电脑，触手可及",
       "guestHeroBody": "让 Stella 在您的电脑上做事 —— 浏览网页、整理文件、执行任务等等。",
-      "pairFirstTitle": "先配对您的手机",
-      "pairFirstBody": "把这台手机与您的 Stella 桌面端配对，就能随时随地与它聊天。只需配对一次。",
-      "pairPhone": "配对手机",
-      "pairThisPhoneLabel": "配对这台手机",
-      "emptyPrompt": "随便问您的电脑",
-      "composerPlaceholder": "给您的电脑发消息",
       "defaultDeviceLabel": "您的电脑",
       "statusChecking": "检查中…",
       "statusWaking": "唤醒中…",
@@ -1865,13 +1856,7 @@
       "statusAsleep": "已休眠",
       "connectingLabel": "正在连接您的电脑",
       "connectedLabel": "电脑已连接",
-      "disconnectedLabel": "电脑已断开连接",
-      "unreachableTitle": "无法连接电脑",
-      "unreachableBody": "目前无法连接到您的电脑。已发送唤醒请求 —— 请几秒后重试。",
-      "syncWaitingTitle": "同步等待中",
-      "syncWaitingBody": "有一条消息仍在发送。发送完成后会立即同步。",
-      "syncFailedTitle": "同步失败",
-      "syncFailedBody": "同步时您的电脑停止了响应。请重试。"
+      "disconnectedLabel": "电脑已断开连接"
     },
     "desktop": {
       "pairTitle": "配对您的手机",
@@ -1916,16 +1901,8 @@
       "pushToggleLabel": "允许推送通知",
       "pushToggleSub": "电脑完成请求时通知您。",
       "pushToggleA11y": "切换推送通知",
-      "voiceSection": "与 Stella 对话",
-      "voiceSectionHint": "免提语音（如 CarPlay）会把您的消息发送到这里。自动模式会在您上次停在电脑聊天且电脑可连接时选择电脑，否则选择这台手机的聊天。",
-      "voiceTarget": {
-        "auto": "自动",
-        "phone": "手机",
-        "computer": "电脑"
-      },
-      "voiceTargetLabel": "将语音消息发送到{name}",
       "pairedSection": "已配对的电脑",
-      "pairedEmpty": "尚未配对任何电脑。请在“电脑”标签页中配对。",
+      "pairedEmpty": "尚未配对任何电脑。",
       "pairedOn": "配对于 {date}",
       "paired": {
         "unnamedComputer": "电脑 · {id}"

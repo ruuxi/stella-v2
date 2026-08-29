@@ -1716,7 +1716,6 @@
       "delete": "刪除",
       "done": "完成",
       "goBack": "返回",
-      "somethingWentWrong": "發生了一些問題。",
       "tryAgain": "重試"
     },
     "boot": {
@@ -1737,7 +1736,6 @@
     },
     "nav": {
       "chat": "聊天",
-      "computer": "電腦",
       "settings": "設定",
       "openLabel": "開啟導覽",
       "closeLabel": "關閉導覽"
@@ -1758,7 +1756,6 @@
       "connectTitle": "隨時隨地使用您的電腦",
       "connectBodyGuest": "稍後登入即可與電腦上的 Stella 配對，之後就能用手機請家中的電腦瀏覽網頁、管理檔案和執行工作。",
       "connectBodyPaired": "與 Stella 桌面應用程式配對一次，手機就能請它瀏覽網頁、管理檔案和執行工作 —— 即使您人在城市的另一頭。",
-      "pairComputer": "配對我的電腦",
       "startChatting": "開始聊天"
     },
     "login": {
@@ -1852,12 +1849,6 @@
     "computer": {
       "guestHeroTitle": "您的電腦，隨手可用",
       "guestHeroBody": "請 Stella 在您的電腦上做事 —— 瀏覽網頁、管理檔案、執行工作等等。",
-      "pairFirstTitle": "請先配對您的手機",
-      "pairFirstBody": "將這支手機與您的 Stella 桌面版配對，就能隨時隨地與它聊天。只需配對一次。",
-      "pairPhone": "配對手機",
-      "pairThisPhoneLabel": "配對這支手機",
-      "emptyPrompt": "什麼都可以問您的電腦",
-      "composerPlaceholder": "傳訊息給您的電腦",
       "defaultDeviceLabel": "您的電腦",
       "statusChecking": "檢查中…",
       "statusWaking": "喚醒中…",
@@ -1865,13 +1856,7 @@
       "statusAsleep": "睡眠中",
       "connectingLabel": "正在連線到您的電腦",
       "connectedLabel": "電腦已連線",
-      "disconnectedLabel": "電腦已中斷連線",
-      "unreachableTitle": "無法連線到電腦",
-      "unreachableBody": "目前無法連線到您的電腦。已送出喚醒要求 —— 請幾秒後再試一次。",
-      "syncWaitingTitle": "等待同步",
-      "syncWaitingBody": "有一則訊息仍在傳送。傳送完成後就會立即同步。",
-      "syncFailedTitle": "同步失敗",
-      "syncFailedBody": "同步時您的電腦停止回應。請再試一次。"
+      "disconnectedLabel": "電腦已中斷連線"
     },
     "desktop": {
       "pairTitle": "配對您的手機",
@@ -1916,16 +1901,8 @@
       "pushToggleLabel": "允許推播通知",
       "pushToggleSub": "電腦完成要求時通知您。",
       "pushToggleA11y": "切換推播通知",
-      "voiceSection": "與 Stella 對話",
-      "voiceSectionHint": "免持語音（例如 CarPlay）會把您的訊息送到這裡。自動模式會在您上次停在電腦的聊天且電腦可連線時選擇電腦，否則選擇這支手機的聊天。",
-      "voiceTarget": {
-        "auto": "自動",
-        "phone": "手機",
-        "computer": "電腦"
-      },
-      "voiceTargetLabel": "將語音訊息傳送到{name}",
       "pairedSection": "已配對的電腦",
-      "pairedEmpty": "尚未配對任何電腦。請從「電腦」分頁配對。",
+      "pairedEmpty": "尚未配對任何電腦。",
       "pairedOn": "配對於 {date}",
       "paired": {
         "unnamedComputer": "電腦 · {id}"

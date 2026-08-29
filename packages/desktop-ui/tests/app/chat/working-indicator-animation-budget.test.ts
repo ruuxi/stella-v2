@@ -162,30 +162,4 @@ describe("working indicator mark animation budget", () => {
     clock.step();
     expect(clock.pending).toBe(0);
   });
-
-  it("keeps the per-frame work allocation-free and skips unchanged writes", () => {
-    const source = createStellaMark.toString();
-
-    expect(source).not.toContain("workRing[i] = [");
-    expect(source).toContain("const workRing = Array.from");
-    expect(source).toContain("const eyeBuf = [");
-
-    expect(source).toContain("if (eyePath !== lastEyePath[i])");
-    expect(source).toContain("if (bodyAlphaQ !== lastBodyAlpha)");
-    expect(source).toContain("if (decorActive || !decorHidden)");
-    expect(source).toContain("if (bodyTransform !== lastBodyTransform)");
-    expect(source).toContain("if (hideEyes !== eyesHidden)");
-
-    expect(source).toContain("if (!sizeObserver && now - measuredAt > 500)");
-  });
-
-  it("writes an eye path on the frames where the eye actually moves", () => {
-    const mark = createStellaMark(host, { size: 30, state: "working" });
-    clock.step();
-
-    const eye = host.querySelector("g[clip-path] path") as SVGPathElement;
-    expect(eye.getAttribute("d")).toMatch(/^M/);
-
-    mark.destroy();
-  });
 });

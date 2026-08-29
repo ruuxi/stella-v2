@@ -3136,7 +3136,7 @@ const electronCloudTurn = async (
       return {
         receipt,
         ready: events.find((event) => event.type === "ready")?.ready ?? null,
-        streamEventCount: events.filter((event) => event.type === "delta" || event.type === "tool").length,
+        liveEventCount: events.filter((event) => event.type === "records" || event.type === "tool").length,
         records,
         statusEvents: events.filter((event) => event.type === "status")
       };
@@ -3150,7 +3150,7 @@ const electronCloudTurn = async (
     "Electron turn switched conversations.",
   );
   const turnId = requireUuid(receipt.turnId, "Electron cloud turn id");
-  requireInteger(result.streamEventCount, "Electron stream event count", 2);
+  requireInteger(result.liveEventCount, "Electron live socket event count", 2);
   assert(
     Array.isArray(result.records),
     "Electron cloud turn omitted socket records.",
@@ -3170,7 +3170,7 @@ const electronCloudTurn = async (
       outcome: terminal[0].phase,
       resourceIdSha256: sha256(turnId),
       responseSha256: sha256(canonicalJson(result.records)),
-      count: result.streamEventCount,
+      count: result.liveEventCount,
     }),
   );
   return { ...result, turnId };
@@ -6126,8 +6126,8 @@ const stepLocalRuntimeLifecycle = async ({
     continuationTurnId: continuation.runId,
     childTurnId: requireString(childCompleted.agentId, "Local child id", 256),
     providerRequestIdSha256: completedLifecycle.requestIdSha256,
-    providerStreamEventCount: initial.events.filter(
-      (event) => event?.type === "stream",
+    assistantMessageEventCount: initial.events.filter(
+      (event) => event?.type === "assistant-message",
     ).length,
     providerLifecyclePhases: completedLifecycle.phases,
     providerPhysicalAttempt: completedLifecycle.physicalAttempt,
@@ -6554,7 +6554,7 @@ const stepElectronRealStream = async ({ context, secrets, state, rawLog }) => {
     durableObjectIdSha256: probe.durableObjectIdSha256,
     journalEpoch: String(journal.head.epoch),
     turnId: rendered.turnId,
-    streamEventCount: 2,
+    liveEventCount: 2,
     journalHeadSeq: journal.head.headSeq,
     finalTextSha256: sha256(finalText),
     profileDir: electron.root,
@@ -7687,8 +7687,9 @@ const electronCancelCloudTurn = async (
       while (Date.now() < deadline) {
         const records = events.filter((event) => event.type === "records").flatMap((event) => event.records);
         const streamActivity = events.filter((event) =>
-          event.turnId === receipt.turnId &&
-          (event.type === "delta" || event.type === "tool")
+          event.turnId === receipt.turnId && event.type === "tool"
+        ).concat(
+          records.filter((record) => record.turnId === receipt.turnId)
         );
         if (streamActivity.length > 0) {
           socket.stop();

@@ -115,7 +115,6 @@ import {
   INBOX_MAX_BYTES,
   INBOX_MAX_ROWS,
   INITIAL_WINDOW_RECORDS,
-  LIVE_PARTIAL_MAX_CHARS,
   MAX_ROW_BYTES,
   TOOL_ARGS_PREVIEW_MAX,
   createConversationHub,
@@ -4010,39 +4009,16 @@ export class OrchestratorSession extends DurableObject<Env> {
     },
   ): void {
     switch (event.type) {
+      // Assistant text is delivered whole: the model's deltas are never
+      // broadcast, and the committed `message` record is the only thing that
+      // carries reply text to a client. The stream id is still allocated
+      // because it is a durable field of that record — it identifies which
+      // generation produced the row.
       case "message_start": {
         if ((event.message as { role?: string }).role !== "assistant") break;
         const id = newStreamId();
         cursor.setStreamId(id);
-        if (this.live) {
-          this.live.streamId = id;
-          this.live.partialText = "";
-        }
-        break;
-      }
-      case "message_update": {
-        const delta = event.assistantMessageEvent;
-        if (delta.type !== "text_delta" && delta.type !== "thinking_delta")
-          break;
-        let id = cursor.streamId();
-        if (!id) {
-          id = newStreamId();
-          cursor.setStreamId(id);
-          if (this.live) this.live.streamId = id;
-        }
-        if (delta.type === "text_delta" && this.live) {
-          // Bounded: a runaway generation must not grow the DO's memory, and
-          // the committed row carries the full text regardless.
-          this.live.partialText = (this.live.partialText + delta.delta).slice(
-            -LIVE_PARTIAL_MAX_CHARS,
-          );
-        }
-        this.hub.broadcastDelta({
-          turnId: turn.turnId,
-          streamId: id,
-          kind: delta.type === "text_delta" ? "text" : "thinking",
-          text: delta.delta,
-        });
+        if (this.live) this.live.streamId = id;
         break;
       }
       case "message_end": {
@@ -4050,10 +4026,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         this.persistProduced(turn, event.message, index, cursor.streamId());
         if ((event.message as { role?: string }).role === "assistant") {
           cursor.setStreamId(null);
-          if (this.live) {
-            this.live.streamId = null;
-            this.live.partialText = "";
-          }
+          if (this.live) this.live.streamId = null;
         }
         break;
       }

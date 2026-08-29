@@ -81,16 +81,9 @@
   backface-visibility: hidden;
 }
 
-/* Start / auth stay interactive, but the Stella creature itself lives above
- * the dialogue so clicks on the visible creature always trigger its flash. */
 .onboarding-moment--start {
   position: relative;
   z-index: 13;
-}
-
-/* Initial Start Stella: nudge below vertical center so it sits under the creature */
-.onboarding-moment--start {
-  margin-top: min(14vh, 110px);
 }
 
 @keyframes momentFadeIn {
@@ -988,7 +981,7 @@
   --onboarding-collapse-gap: 16px;
   box-sizing: border-box;
   font-size: var(--font-size-base);
-  font-weight: var(--weight-light);
+  font-weight: var(--weight-regular);
   letter-spacing: 0.02em;
   color: var(--foreground);
   line-height: 1.4;
@@ -1009,7 +1002,7 @@
 .onboarding-voice-description[data-visible="true"] {
   height: auto;
   margin-top: 0;
-  opacity: 0.5;
+  opacity: 0.85;
   pointer-events: auto;
 }
 

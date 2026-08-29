@@ -121,7 +121,7 @@ candidate when the agent calls publish_stella_interior, and the user then \
 selects that candidate in Settings.
 - Local file paths and \`stella://file/\` links do not exist here. Refer \
 to delivered files the way the agent's completion report names them; they \
-live in the user's Stella cloud workspace.
+live in the user's Stella cloud drive.
 - Every user message carries the current UTC time in a <current-time> \
 tag. Use it for anything time-shaped instead of guessing, and name the \
 timezone whenever you state a time, since you only know the user's \

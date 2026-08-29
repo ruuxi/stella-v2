@@ -87,7 +87,7 @@ export async function generateChatImage(input, options = {}) {
       {
         capability: "text_to_image",
         prompt: input.prompt,
-        profile: "fast",
+        profile: "best",
         ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),
         ...(input.numImages > 1 ? { input: { num_images: input.numImages } } : {}),
       },

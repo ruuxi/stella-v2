@@ -163,16 +163,16 @@ export const nativeBearerClient = ({ scheme }: NativeAuthClientOptions) => {
             idToken?: unknown;
           }
         | undefined;
-      const isNativeIdToken = body?.idToken !== undefined;
       const headers = toHeaderRecord(options.headers as HeadersInit | undefined);
       const bearerToken = readBearerToken();
       if (bearerToken && !headers.authorization) {
         headers.authorization = `Bearer ${bearerToken}`;
       }
       headers["x-skip-oauth-proxy"] = "true";
-      if (!isNativeIdToken) {
-        headers["expo-origin"] = Linking.createURL("", { scheme });
-      }
+
+      // Every native request must carry expo-origin: the server derives the
+      // CSRF origin from it, and idToken sign-ins have no other origin source.
+      headers["expo-origin"] = Linking.createURL("", { scheme });
 
       const rewriteCallback = (value: unknown) =>
         typeof value === "string" && value.startsWith("/")

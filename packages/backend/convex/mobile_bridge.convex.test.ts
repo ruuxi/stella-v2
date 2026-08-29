@@ -241,6 +241,19 @@ describe("desktop bridge registration", () => {
     expect(storedAfterDuplicate?.updatedAt).toBe(
       first.leaseExpiresAt - MOBILE_BRIDGE_LEASE_MS,
     );
+    const stableDevice = await t.run(async (ctx) =>
+      ctx.db
+        .query("devices")
+        .withIndex("by_ownerId_and_deviceId", (q) =>
+          q.eq("ownerId", ownerId).eq("deviceId", desktopDeviceId),
+        )
+        .unique(),
+    );
+    expect(stableDevice).toMatchObject({
+      ownerId,
+      deviceId: desktopDeviceId,
+      platform: "macOS",
+    });
 
     const rotatedUrl = "https://rotated-bridge-test.example.com";
     const updated = await owner.mutation(

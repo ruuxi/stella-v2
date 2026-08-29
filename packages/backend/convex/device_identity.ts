@@ -188,19 +188,6 @@ export const adoptDeviceIdentitySuccession = mutation({
       "Too many device identity rotations. Please wait and try again.",
     );
 
-    const successorProfile = await ctx.db
-      .query("devices")
-      .withIndex("by_ownerId_and_deviceId", (q) =>
-        q.eq("ownerId", ownerId).eq("deviceId", deviceId),
-      )
-      .unique();
-    if (!successorProfile) {
-      throw new ConvexError({
-        code: "NOT_FOUND",
-        message: "Register the new device identity before claiming succession.",
-      });
-    }
-
     const existing = await loadSuccessor(ctx, ownerId, previousDeviceId);
     if (existing) {
       if (existing.deviceId === deviceId) {

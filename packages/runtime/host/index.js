@@ -1,6 +1,5 @@
 import { EventEmitter } from "node:events";
 import { existsSync, promises as fs, readFileSync, watch, } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { ConvexClient } from "convex/browser";
 import { anyApi } from "convex/server";
@@ -10,7 +9,7 @@ import { getFileLogger } from "../observability/file-logger.js";
 import { LocalSchedulerService } from "../kernel/local-scheduler-service.js";
 import { createScheduleScriptAuthEnv } from "../kernel/shared/schedule-scripts.js";
 import { createRemoteTurnBridge } from "../kernel/remote-turn-bridge.js";
-import { getConvexErrorCode, isConvexDeviceKeyMismatchError, isConvexUnauthenticatedError, shouldStopRemoteTurnForAuthFailure, } from "../kernel/runner/remote-turn-auth.js";
+import { getConvexErrorCode, isConvexUnauthenticatedError, shouldStopRemoteTurnForAuthFailure, } from "../kernel/runner/remote-turn-auth.js";
 import { AGENT_RECORDER_SEQ_CEILING, AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { resolveConnectorFollowupAction } from "./connector-followup.js";
 import { METHOD_NAMES, NOTIFICATION_NAMES, STELLA_RUNTIME_PROTOCOL_VERSION, } from "@stella/contracts/protocol";
@@ -22,7 +21,6 @@ import { resolveRuntimePaths } from "../worker/runtime-paths.js";
 import { computeRuntimeBuildStamp, RUNTIME_BUILD_STAMP_UNAVAILABLE, } from "../worker/runtime-build-stamp.js";
 const AGENT_EVENT_BUFFER_LIMIT = 1_000;
 const AGENT_EVENT_BUFFER_TTL_MS = 10 * 60 * 1_000;
-const DEVICE_HEARTBEAT_INTERVAL_MS = 30_000;
 export { retireDetachedWorkerRoot };
 const SYNTHETIC_RUN_EVENT_SEQ_FLOOR = AGENT_RECORDER_SEQ_CEILING;
 const parseDisplayUpdateParams = (params) => {
@@ -100,13 +98,9 @@ export class StellaRuntimeHost {
     hostConvexClientUrl = null;
     hostConvexClientAuthToken = null;
     hostRemoteTurnBridge = null;
-    hostDeviceRegistered = false;
-    hostDeviceRegistering = false;
-    hostHeartbeatTimer = null;
     hostRemoteTurnAuthWindowStartedAt = 0;
     hostRemoteTurnUnauthenticatedFailures = 0;
     hostRemoteTurnAuthRecoveryPromise = null;
-    hostDeviceIdentityRecoveryPromise = null;
     pendingRunEventAcks = new Map();
     runEventAckTimer = null;
 
@@ -416,24 +410,10 @@ export class StellaRuntimeHost {
     getConfiguredHostConvexUrl() {
         return readConfiguredConvexUrl(this.configCache.convexUrl ?? null);
     }
-    getHostDeviceName() {
-        const hostname = os.hostname().trim();
-        if (hostname) {
-            return hostname;
-        }
-        const fallbackDeviceId = this.deviceIdentity?.deviceId ?? "unknown";
-        return `${process.platform}-${fallbackDeviceId.slice(0, 6)}`;
-    }
     async getActiveLocalConversationId() {
         const activeConversationId = (await this.options.hostHandlers.getActiveConversationId?.())?.trim() ??
             "";
         return (activeConversationId || (await this.getOrCreateDefaultConversationId()));
-    }
-    stopHostHeartbeatLoop() {
-        if (this.hostHeartbeatTimer) {
-            clearInterval(this.hostHeartbeatTimer);
-            this.hostHeartbeatTimer = null;
-        }
     }
     resetHostRemoteTurnAuthTracking() {
         this.hostRemoteTurnAuthWindowStartedAt = Date.now();
@@ -486,11 +466,8 @@ export class StellaRuntimeHost {
         })) {
             return { handled: true, stopped: false };
         }
-        this.stopHostHeartbeatLoop();
         this.stopHostRemoteTurnCancelSubscription();
         this.hostRemoteTurnBridge?.stop();
-        this.hostDeviceRegistered = false;
-        this.hostDeviceRegistering = false;
         this.hostRemoteTurnUnauthenticatedFailures = 0;
         console.warn(`[remote-turn] ${source} auth failed; stopping host remote turn sync until auth changes.`, error);
         return { handled: true, stopped: true };
@@ -531,140 +508,12 @@ export class StellaRuntimeHost {
         })();
         return await this.hostRemoteTurnAuthRecoveryPromise;
     }
-    async markHostDeviceOffline(deviceId) {
-        if (!this.getConfiguredHostAuthToken() ||
-            !this.getConfiguredHostConvexUrl()) {
-            return;
-        }
-        const client = this.ensureHostConvexClient();
-        if (!client) {
-            return;
-        }
-        await client.mutation(anyApi.agent.device_resolver.goOffline, { deviceId });
-    }
-    async recoverHostDeviceIdentityFromKeyMismatch(error) {
-        const resetDeviceIdentity = this.options.hostHandlers.resetDeviceIdentity;
-        if (!resetDeviceIdentity) {
-            console.warn("[remote-turn] Host device key mismatch cannot be recovered because identity reset is unavailable.", error);
-            return false;
-        }
-        if (this.hostDeviceIdentityRecoveryPromise) {
-            return await this.hostDeviceIdentityRecoveryPromise;
-        }
-        this.hostDeviceIdentityRecoveryPromise = (async () => {
-            const previousDeviceId = this.deviceIdentity?.deviceId ?? null;
-            console.warn("[remote-turn] Host device key mismatch; rotating local device identity.", error);
-            this.stopHostHeartbeatLoop();
-            this.stopHostRemoteTurnCancelSubscription();
-            this.hostRemoteTurnBridge?.stop();
-            this.hostRemoteTurnBridge = null;
-            this.hostDeviceRegistered = false;
-            this.hostDeviceRegistering = false;
-            if (previousDeviceId) {
-                await this.markHostDeviceOffline(previousDeviceId).catch(() => undefined);
-            }
-            this.deviceIdentity = await resetDeviceIdentity();
-            this.workerHealthCache = null;
-            this.ensureHostRemoteTurnBridge();
-            this.ensureHostRemoteTurnCancelSubscription();
-            const remoteTurnBridge = this.hostRemoteTurnBridge;
-            remoteTurnBridge?.start();
-            remoteTurnBridge?.kick();
-            await this.registerHostDevice();
-            this.startHostHeartbeatLoop();
-            setTimeout(() => {
-                void this.sendHostHeartbeat();
-            }, 0);
-            const activeRun = await this.getActiveRun().catch(() => null);
-            if (!activeRun) {
-                void this.scheduleRuntimeReload();
-            }
-            this.events.emit("runtime-ready", await this.health());
-            return true;
-        })();
-        try {
-            return await this.hostDeviceIdentityRecoveryPromise;
-        }
-        finally {
-            this.hostDeviceIdentityRecoveryPromise = null;
-        }
-    }
-    async sendHostHeartbeat(retryOnAuthFailure = true) {
-        if (this.hostDeviceIdentityRecoveryPromise) {
-            return;
-        }
-        const authToken = this.getConfiguredHostAuthToken();
-        if (!authToken || !this.configCache.hasConnectedAccount) {
-            return;
-        }
-        const deviceId = this.deviceIdentity?.deviceId;
-        if (!deviceId) {
-            return;
-        }
-        const client = this.ensureHostConvexClient();
-        if (!client) {
-            return;
-        }
-        try {
-            const signedAtMs = Date.now();
-            const { publicKey, signature } = await this.options.hostHandlers.signHeartbeatPayload(signedAtMs);
-            if (this.deviceIdentity?.deviceId !== deviceId) {
-                return;
-            }
-            await client.mutation(anyApi.agent.device_resolver.heartbeat, {
-                deviceId,
-                deviceName: this.getHostDeviceName(),
-                platform: process.platform,
-                signedAtMs,
-                signature,
-                publicKey,
-            });
-            this.hostDeviceRegistered = true;
-            this.noteHostRemoteTurnAuthHealthy();
-
-            void this.claimDeviceIdentitySuccession();
-        }
-        catch (error) {
-            if (isConvexDeviceKeyMismatchError(error)) {
-                await this.recoverHostDeviceIdentityFromKeyMismatch(error);
-                return;
-            }
-
-            if (retryOnAuthFailure && isConvexUnauthenticatedError(error)) {
-                const recovered = await this.recoverHostRemoteTurnAuth("heartbeat");
-                if (recovered) {
-                    await this.sendHostHeartbeat(false);
-                    return;
-                }
-
-            }
-            const authFailure = this.handleHostRemoteTurnAuthFailure("heartbeat", error);
-            if (authFailure.stopped) {
-                void this.recoverHostRemoteTurnAuth("heartbeat");
-                return;
-            }
-            if (authFailure.handled) {
-                return;
-            }
-            console.warn("[remote-turn] Host heartbeat failed:", error);
-        }
-    }
-    startHostHeartbeatLoop() {
-        if (this.hostHeartbeatTimer) {
-            return;
-        }
-        this.hostHeartbeatTimer = setInterval(() => {
-            void this.sendHostHeartbeat();
-        }, DEVICE_HEARTBEAT_INTERVAL_MS);
-    }
-
     async claimDeviceIdentitySuccession() {
         const previousDeviceId = this.deviceIdentity?.supersededDeviceId;
         const deviceId = this.deviceIdentity?.deviceId;
         if (!previousDeviceId || !deviceId || previousDeviceId === deviceId) {
             return;
         }
-
         if (this.deviceSuccessionClaimPromise) {
             return await this.deviceSuccessionClaimPromise;
         }
@@ -698,89 +547,6 @@ export class StellaRuntimeHost {
         await this.options.hostHandlers.clearSupersededDeviceId?.().catch(() => undefined);
         if (this.deviceIdentity) {
             delete this.deviceIdentity.supersededDeviceId;
-        }
-    }
-    async registerHostDevice(attempt = 0) {
-        if (this.hostDeviceRegistered || this.hostDeviceRegistering) {
-            return;
-        }
-        const authToken = this.getConfiguredHostAuthToken();
-        if (!authToken || !this.configCache.hasConnectedAccount) {
-            return;
-        }
-        const deviceId = this.deviceIdentity?.deviceId;
-        if (!deviceId) {
-            return;
-        }
-        const client = this.ensureHostConvexClient();
-        if (!client) {
-            return;
-        }
-        this.hostDeviceRegistering = true;
-        if (attempt === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 1_500));
-        }
-        if (this.deviceIdentity?.deviceId !== deviceId) {
-            this.hostDeviceRegistering = false;
-            return;
-        }
-        if (this.hostDeviceRegistered) {
-            this.hostDeviceRegistering = false;
-            return;
-        }
-        try {
-            await client.mutation(anyApi.agent.device_resolver.registerDevice, {
-                deviceId,
-                deviceName: this.getHostDeviceName(),
-                platform: process.platform,
-            });
-            if (this.deviceIdentity?.deviceId === deviceId) {
-                this.hostDeviceRegistered = true;
-                this.noteHostRemoteTurnAuthHealthy();
-            }
-
-            await this.claimDeviceIdentitySuccession();
-        }
-        catch (error) {
-            const authFailure = this.handleHostRemoteTurnAuthFailure("register", error);
-            if (authFailure.stopped) {
-                void this.recoverHostRemoteTurnAuth("register");
-                this.hostDeviceRegistering = false;
-                return;
-            }
-            if (authFailure.handled) {
-                this.hostDeviceRegistering = false;
-                return;
-            }
-            if (attempt < 3) {
-                await new Promise((resolve) => setTimeout(resolve, 2_000));
-                this.hostDeviceRegistering = false;
-                return await this.registerHostDevice(attempt + 1);
-            }
-        }
-        this.hostDeviceRegistering = false;
-    }
-    async sendHostGoOffline() {
-        this.stopHostHeartbeatLoop();
-        if (!this.hostDeviceRegistered) {
-            return;
-        }
-        if (!this.getConfiguredHostAuthToken() ||
-            !this.getConfiguredHostConvexUrl()) {
-            this.hostDeviceRegistered = false;
-            return;
-        }
-        const deviceId = this.deviceIdentity?.deviceId;
-        if (!deviceId) {
-            this.hostDeviceRegistered = false;
-            return;
-        }
-        try {
-            await this.markHostDeviceOffline(deviceId);
-            this.hostDeviceRegistered = false;
-        }
-        catch {
-
         }
     }
     ensureHostRemoteTurnBridge() {
@@ -978,32 +744,23 @@ export class StellaRuntimeHost {
     }
     syncHostRemoteTurnBridge() {
         if (!this.started || !this.hostReady) {
-            this.stopHostHeartbeatLoop();
             this.stopHostRemoteTurnCancelSubscription();
             this.hostRemoteTurnBridge?.stop();
-            void this.sendHostGoOffline().finally(() => {
-                this.disposeHostConvexClient();
-            });
+            this.disposeHostConvexClient();
             return;
         }
         const authToken = this.getConfiguredHostAuthToken();
         const convexUrl = this.getConfiguredHostConvexUrl();
         if (!authToken || !convexUrl) {
-            this.stopHostHeartbeatLoop();
             this.stopHostRemoteTurnCancelSubscription();
             this.hostRemoteTurnBridge?.stop();
-            this.hostDeviceRegistered = false;
-            this.hostDeviceRegistering = false;
             this.disposeHostConvexClient();
             return;
         }
         if (!this.configCache.hasConnectedAccount) {
-            this.stopHostHeartbeatLoop();
             this.stopHostRemoteTurnCancelSubscription();
             this.hostRemoteTurnBridge?.stop();
-            void this.sendHostGoOffline().finally(() => {
-                this.disposeHostConvexClient();
-            });
+            this.disposeHostConvexClient();
             return;
         }
         this.ensureHostRemoteTurnBridge();
@@ -1011,9 +768,7 @@ export class StellaRuntimeHost {
             return;
         }
         this.resetHostRemoteTurnAuthTracking();
-        void this.registerHostDevice();
-        this.startHostHeartbeatLoop();
-        void this.sendHostHeartbeat();
+        void this.claimDeviceIdentitySuccession();
         this.hostRemoteTurnBridge.start();
         this.hostRemoteTurnBridge.kick();
         this.ensureHostRemoteTurnCancelSubscription();
@@ -1442,12 +1197,8 @@ export class StellaRuntimeHost {
     async stopHostServices() {
         this.stopHostRemoteTurnCancelSubscription();
         this.hostRemoteTurnBridge?.stop();
-        await this.sendHostGoOffline().catch(() => undefined);
         this.hostRemoteTurnBridge = null;
-        this.stopHostHeartbeatLoop();
         this.disposeHostConvexClient();
-        this.hostDeviceRegistered = false;
-        this.hostDeviceRegistering = false;
         this.hostRemoteTurnAuthWindowStartedAt = 0;
         this.hostRemoteTurnUnauthenticatedFailures = 0;
         this.hostRemoteTurnAuthRecoveryPromise = null;
@@ -1523,15 +1274,6 @@ export class StellaRuntimeHost {
                     await this.options.hostHandlers.getDeviceIdentity();
             }
             return this.deviceIdentity;
-        });
-        peer.registerRequestHandler(METHOD_NAMES.HOST_DEVICE_HEARTBEAT_SIGN, async (params) => {
-            const signedAtMs = params && typeof params === "object" && "signedAtMs" in params
-                ? Number(params.signedAtMs)
-                : Number.NaN;
-            if (!Number.isFinite(signedAtMs)) {
-                throw new Error("Invalid host heartbeat signing payload.");
-            }
-            return await this.options.hostHandlers.signHeartbeatPayload(signedAtMs);
         });
         peer.registerRequestHandler(METHOD_NAMES.HOST_RUNTIME_AUTH_REFRESH, async (params) => {
             return ((await this.options.hostHandlers.requestRuntimeAuthRefresh?.(params)) ?? {

@@ -1,6 +1,6 @@
 import crypto, { generateKeyPairSync } from "node:crypto";
 import path from "node:path";
-import { signDeviceHeartbeat, type DeviceIdentity } from "../kernel/home/device.js";
+import type { DeviceIdentity } from "../kernel/home/device.js";
 import {
   getLocalLlmCredential,
   listLocalLlmCredentials,
@@ -64,10 +64,6 @@ export const createHeadlessHostHandlers = (
   });
   return {
     getDeviceIdentity: async () => publicIdentity(),
-    signHeartbeatPayload: async (signedAtMs: number) => ({
-      publicKey: identity.publicKey,
-      signature: signDeviceHeartbeat(identity, signedAtMs),
-    }),
     requestRuntimeAuthRefresh: async () => {
       const token = auth.authToken?.trim() || null;
       return {

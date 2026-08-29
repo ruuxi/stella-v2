@@ -441,38 +441,14 @@ export const migrateDevicesForAccountLink = internalMutation({
   },
   returns: v.object({ hasMore: v.boolean() }),
   handler: async (ctx, args) => {
-
     const deviceRows = await ctx.db
       .query("devices")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
       .take(BATCH_SIZE);
 
-    if (deviceRows.length > 0) {
-      for (const row of deviceRows) {
-        const existing = await ctx.db
-          .query("devices")
-          .withIndex("by_ownerId_and_deviceId", (q) =>
-            q.eq("ownerId", args.toOwnerId).eq("deviceId", row.deviceId),
-          )
-          .unique();
-
-        if (existing) {
-          await ctx.db.delete(row._id);
-        } else {
-          await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
-        }
-      }
-      return { hasMore: deviceRows.length === BATCH_SIZE };
-    }
-
-    const presenceRows = await ctx.db
-      .query("device_presence")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-      .take(BATCH_SIZE);
-
-    for (const row of presenceRows) {
+    for (const row of deviceRows) {
       const existing = await ctx.db
-        .query("device_presence")
+        .query("devices")
         .withIndex("by_ownerId_and_deviceId", (q) =>
           q.eq("ownerId", args.toOwnerId).eq("deviceId", row.deviceId),
         )
@@ -484,6 +460,6 @@ export const migrateDevicesForAccountLink = internalMutation({
         await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
       }
     }
-    return { hasMore: presenceRows.length === BATCH_SIZE };
+    return { hasMore: deviceRows.length === BATCH_SIZE };
   },
 });

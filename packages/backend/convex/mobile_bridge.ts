@@ -241,6 +241,21 @@ const upsertRegistrationRecord = async (
   const desktopPublicKey = sanitizeOptionalDesktopPublicKey(
     args.desktopPublicKey,
   );
+  const device = await ctx.db
+    .query("devices")
+    .withIndex("by_ownerId_and_deviceId", (q) =>
+      q.eq("ownerId", args.ownerId).eq("deviceId", deviceId),
+    )
+    .unique();
+  if (!device) {
+    await ctx.db.insert("devices", {
+      ownerId: args.ownerId,
+      deviceId,
+      ...(platform !== undefined ? { platform } : {}),
+    });
+  } else if (platform !== undefined && platform !== device.platform) {
+    await ctx.db.patch(device._id, { platform });
+  }
   const existing = await ctx.db
     .query("mobile_bridge_registrations")
     .withIndex("by_ownerId_and_deviceId", (q) =>
@@ -249,7 +264,6 @@ const upsertRegistrationRecord = async (
     .unique();
 
   if (existing) {
-
     const baseUrlsUnchanged =
       existing.baseUrls.length === sanitizedBaseUrls.length &&
       existing.baseUrls.every((url, i) => url === sanitizedBaseUrls[i]);

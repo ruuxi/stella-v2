@@ -17,7 +17,6 @@ const CONVERSATION_PAGE = 200;
 const OWNER_TABLES = [
   ["user_preferences", "by_ownerId_and_key"],
   ["devices", "by_ownerId"],
-  ["device_presence", "by_ownerId"],
   ["cloudflare_tunnels", "by_ownerId"],
   ["auth_revoked_sessions", "by_ownerId_and_sessionId"],
   ["usage_logs", "by_ownerId_and_createdAt"],
@@ -205,7 +204,6 @@ export const _deleteConversationBatch = internalMutation({
 const ownerTableValidator = v.union(
   v.literal("user_preferences"),
   v.literal("devices"),
-  v.literal("device_presence"),
   v.literal("cloudflare_tunnels"),
   v.literal("auth_revoked_sessions"),
   v.literal("usage_logs"),
@@ -257,14 +255,6 @@ async function deleteOneOwnerTableBatch(
     case "devices": {
       const rows = await ctx.db
         .query("devices")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((r) => r._id) as Id<OwnerTable>[];
-      break;
-    }
-    case "device_presence": {
-      const rows = await ctx.db
-        .query("device_presence")
         .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
         .take(BATCH);
       ids = rows.map((r) => r._id) as Id<OwnerTable>[];

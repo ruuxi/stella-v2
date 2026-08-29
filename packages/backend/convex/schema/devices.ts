@@ -13,18 +13,6 @@ export const devicesSchema = {
     .index("by_ownerId", ["ownerId"])
     .index("by_ownerId_and_deviceId", ["ownerId", "deviceId"]),
 
-  device_presence: defineTable({
-    ownerId: v.string(),
-    deviceId: v.string(),
-    lastHeartbeatAt: v.optional(v.number()),
-    lastSignedAtMs: v.optional(v.number()),
-    online: v.boolean(),
-    updatedAt: v.number(),
-  })
-    .index("by_ownerId_and_deviceId", ["ownerId", "deviceId"])
-    .index("by_ownerId", ["ownerId"])
-    .index("by_online_and_lastSignedAtMs", ["online", "lastSignedAtMs"]),
-
   device_identity_successors: defineTable({
     ownerId: v.string(),
     previousDeviceId: v.string(),

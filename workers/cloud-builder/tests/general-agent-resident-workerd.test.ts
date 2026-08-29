@@ -9,16 +9,19 @@ import { NO_WORKSPACE_ATTACHED_MESSAGE } from "../src/general-agent-tools.js";
 const packageRoot = new URL("..", import.meta.url);
 const port = 20_000 + Math.floor(Math.random() * 1_000);
 const origin = `http://127.0.0.1:${port}`;
+const wiredPort = port + 1_000;
+const wiredOrigin = `http://127.0.0.1:${wiredPort}`;
 
 const pause = async (delayMs: number): Promise<void> => {
   await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 };
 
-const requestJson = async (
+const requestJsonFrom = async (
+  base: string,
   path: string,
   body?: Record<string, unknown>,
 ): Promise<{ status: number; body: Record<string, any> }> => {
-  const response = await fetch(`${origin}${path}`, {
+  const response = await fetch(`${base}${path}`, {
     method: body ? "POST" : "GET",
     ...(body
       ? {
@@ -33,6 +36,75 @@ const requestJson = async (
   };
 };
 
+const requestJson = async (
+  path: string,
+  body?: Record<string, unknown>,
+): Promise<{ status: number; body: Record<string, any> }> =>
+  await requestJsonFrom(origin, path, body);
+
+const spawnWorkerd = (
+  config: string,
+  listenPort: number,
+  persistTo: string,
+  observe: (chunk: unknown) => void,
+): ChildProcess => {
+  const child = spawn(
+    process.execPath,
+    [
+      "x",
+      "wrangler",
+      "dev",
+      "--config",
+      config,
+      "--ip",
+      "127.0.0.1",
+      "--port",
+      String(listenPort),
+      "--local",
+      "--persist-to",
+      persistTo,
+      "--show-interactive-dev-session=false",
+    ],
+    { cwd: packageRoot, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  child.stdout?.on("data", observe);
+  child.stderr?.on("data", observe);
+  return child;
+};
+
+const awaitReady = async (
+  child: ChildProcess,
+  base: string,
+  describeOutput: () => string,
+): Promise<void> => {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(
+        `wrangler exited before readiness:\n${describeOutput()}`,
+      );
+    }
+    try {
+      const response = await fetch(`${base}/`);
+      if (response.ok) return;
+    } catch {
+      // Workerd is still starting.
+    }
+    await pause(50);
+  }
+  throw new Error(`workerd did not become ready:\n${describeOutput()}`);
+};
+
+const stopChild = async (child: ChildProcess | null): Promise<void> => {
+  if (!child || child.exitCode !== null) return;
+  child.kill("SIGTERM");
+  await Promise.race([once(child, "exit"), pause(5_000)]);
+  if (child.exitCode === null) {
+    child.kill("SIGKILL");
+    await once(child, "exit");
+  }
+};
+
 describe("resident general-agent turn in workerd", () => {
   let persistencePath = "";
   let workerd: ChildProcess | null = null;
@@ -40,58 +112,22 @@ describe("resident general-agent turn in workerd", () => {
 
   const startWorkerd = async (): Promise<void> => {
     workerdOutput = "";
-    const child = spawn(
-      process.execPath,
-      [
-        "x",
-        "wrangler",
-        "dev",
-        "--config",
-        "tests/fixtures/general-agent-resident-workerd.wrangler.jsonc",
-        "--ip",
-        "127.0.0.1",
-        "--port",
-        String(port),
-        "--local",
-        "--persist-to",
-        persistencePath,
-        "--show-interactive-dev-session=false",
-      ],
-      { cwd: packageRoot, stdio: ["ignore", "pipe", "pipe"] },
+    const child = spawnWorkerd(
+      "tests/fixtures/general-agent-resident-workerd.wrangler.jsonc",
+      port,
+      persistencePath,
+      (chunk) => {
+        workerdOutput += String(chunk);
+      },
     );
     workerd = child;
-    const observe = (chunk: unknown): void => {
-      workerdOutput += String(chunk);
-    };
-    child.stdout?.on("data", observe);
-    child.stderr?.on("data", observe);
-
-    const deadline = Date.now() + 60_000;
-    while (Date.now() < deadline) {
-      if (child.exitCode !== null) {
-        throw new Error(`wrangler exited before readiness:\n${workerdOutput}`);
-      }
-      try {
-        const response = await fetch(`${origin}/`);
-        if (response.ok) return;
-      } catch {
-        // Workerd is still starting.
-      }
-      await pause(50);
-    }
-    throw new Error(`workerd did not become ready:\n${workerdOutput}`);
+    await awaitReady(child, origin, () => workerdOutput);
   };
 
   const stopWorkerd = async (): Promise<void> => {
     const child = workerd;
     workerd = null;
-    if (!child || child.exitCode !== null) return;
-    child.kill("SIGTERM");
-    await Promise.race([once(child, "exit"), pause(5_000)]);
-    if (child.exitCode === null) {
-      child.kill("SIGKILL");
-      await once(child, "exit");
-    }
+    await stopChild(child);
   };
 
   beforeAll(async () => {
@@ -189,5 +225,56 @@ describe("resident general-agent turn in workerd", () => {
     expect(staged.body.rows[0].payloadJson).toContain(
       "staged before the restart",
     );
+  }, 120_000);
+});
+
+describe("wired resident general-agent turn in workerd", () => {
+  let persistencePath = "";
+  let workerd: ChildProcess | null = null;
+  let output = "";
+
+  beforeAll(async () => {
+    persistencePath = await mkdtemp(
+      join(tmpdir(), "stella-wired-turn-workerd-"),
+    );
+    workerd = spawnWorkerd(
+      "tests/fixtures/general-agent-wired-workerd.wrangler.jsonc",
+      wiredPort,
+      persistencePath,
+      (chunk) => {
+        output += String(chunk);
+      },
+    );
+    await awaitReady(workerd, wiredOrigin, () => output);
+  });
+
+  afterAll(async () => {
+    await stopChild(workerd);
+    workerd = null;
+    if (persistencePath.includes("stella-wired-turn-workerd-")) {
+      await rm(persistencePath, { recursive: true, force: true });
+    }
+  });
+
+  test("admits and runs a stella turn resident without asking for a container", async () => {
+    const wired = await requestJsonFrom(wiredOrigin, "/wired");
+
+    expect(wired.status).toBe(200);
+    expect(wired.body.acceptedStatus).toBe(202);
+    expect(wired.body.sandboxCalls).toBe(0);
+    expect(wired.body.nativeDispatches).toBe(0);
+    expect(wired.body.residentDispatches).toBe(1);
+    expect(wired.body.turnError).toBeNull();
+    expect(wired.body.reservedSandboxId).toBeNull();
+    expect(wired.body.plan).toMatchObject({
+      plan: { kind: "resident_stella" },
+      engine: "stella",
+      residentDisabled: false,
+    });
+    expect(wired.body.transcript.rows.map((row: { role: string }) => row.role)).toEqual([
+      "user",
+      "assistant",
+    ]);
+    expect(wired.body.residualJournalRows).toBe(0);
   }, 120_000);
 });

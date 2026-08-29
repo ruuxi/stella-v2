@@ -252,10 +252,6 @@ export type PublicApiType = {
   "feedback": {
     "submitFeedback": FunctionReference<'mutation', 'public', { platform?: string | undefined; appVersion?: string | undefined; message: string; }, any, string | undefined>;
   };
-  "http_routes": {
-  };
-  "lib": {
-  };
   "local_agent_threads": {
     "startMyComputerAgentThread": FunctionReference<'mutation', 'public', { conversationId: string; threadId: string; ownerGeneration: string; description: string; agentType: string; attemptGeneration: number; originDeviceId: string; }, any, string | undefined>;
     "completeMyComputerAgentThread": FunctionReference<'mutation', 'public', { error?: string | undefined; result?: string | undefined; threadId: string; ownerGeneration: string; status: 'failed' | 'completed' | 'canceled'; attemptGeneration: number; originDeviceId: string; }, any, string | undefined>;
@@ -284,8 +280,6 @@ export type PublicApiType = {
   "mobile_push": {
     "sendActivityNotification": FunctionReference<'action', 'public', { kind: 'failed' | 'completed' | 'started'; }, any, string | undefined>;
   };
-  "prompts": {
-  };
   "r2_files": {
     "generateUploadUrl": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
     "syncMetadata": FunctionReference<'mutation', 'public', { key: string; }, any, string | undefined>;
@@ -297,10 +291,6 @@ export type PublicApiType = {
     "cron_jobs": {
       "completeCronTurnResult": FunctionReference<'mutation', 'public', { conversationId: Id<'conversations'>; text: string; deviceId: string; requestId: string; attemptId: string; }, any, string | undefined>;
     };
-  };
-  "schema": {
-  };
-  "social": {
   };
   "stella_models": {
     "getModelCatalogUpdatedAt": FunctionReference<'query', 'public', {}, any, string | undefined>;

@@ -71,11 +71,11 @@ export type AssistantRowViewModel = {
     livePinsPending?: boolean;
   };
   /**
-   * Set when this row is sourced from a live `StreamingAssistantOverlay`
-   * (text still growing). Scroll follow uses `data-scroll-follow-key`
-   * + runtime signals from `useLocalAgentStream`.
+   * Set for one paint on the reply that just entered the timeline, so it
+   * can play its arrival animation. A reply arrives whole, so this is a
+   * one-shot marker rather than a "still growing" flag.
    */
-  isStreaming?: boolean;
+  justArrived?: boolean;
   /** True for a pre-tool assistant segment within a still-running turn. */
   isIntraTurn?: boolean;
   responseTarget?: AgentResponseTarget;

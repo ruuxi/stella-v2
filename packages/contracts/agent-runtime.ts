@@ -313,12 +313,6 @@ export const getAgentFollowUpMode = (
 export const AGENT_STREAM_EVENT_TYPES = {
   RUN_STARTED: "run-started",
   RUN_FINISHED: "run-finished",
-  /**
-   * Retired: assistant text is delivered whole on `ASSISTANT_MESSAGE` and no
-   * runtime path emits this any more. The member stays declared while desktop
-   * and mobile still carry the handler that reads it.
-   */
-  STREAM: "stream",
   STATUS: "status",
   AGENT_REASONING: "agent-reasoning",
   TOOL_START: "tool-start",

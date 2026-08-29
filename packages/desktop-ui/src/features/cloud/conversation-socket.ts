@@ -62,9 +62,7 @@ export type ConversationSocketEvent =
     }
   | { type: "reset"; reason: string }
   | { type: "gap"; fromSeq: number; toSeq: number }
-  | Extract<ServerFrame, { type: "delta" }>
   | Extract<ServerFrame, { type: "tool" }>
-  | Extract<ServerFrame, { type: "deltas_dropped" }>
   | SocketStatusEvent;
 
 export type ConversationSocketOptions = {
@@ -570,9 +568,7 @@ export class ConversationSocket {
       case "reset":
         this.resetStream(frame.reason);
         return;
-      case "delta":
       case "tool":
-      case "deltas_dropped":
         this.options.onEvent(frame);
         return;
       case "auth.expiring":

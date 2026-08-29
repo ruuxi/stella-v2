@@ -31,7 +31,6 @@ import { useChatMessages } from "@/context/use-chat-messages";
 import { Composer } from "./Composer";
 import { HomeContent } from "@/app/home/HomeContent";
 import { buildInlineWorkingIndicatorProps } from "@/features/chat/working-indicator-state";
-import { prewarmAurora } from "@/shell/aurora/renderer-pool";
 import { useFileDrop } from "@/features/chat/hooks/use-file-drop";
 import { useReadAloud } from "@/features/voice/services/read-aloud/use-read-aloud";
 import type { ChatColumnProps } from "@/features/chat/chat-column-types";
@@ -186,67 +185,28 @@ export const ChatColumn = memo(function ChatColumn({
 
   useReadAloud(messages);
 
-  // Pre-warm the working-indicator aurora's WebGL context during idle, so
-  // the first message send doesn't pay the cold ~200ms GL spin-up (context +
-  // shader compile) on the main thread. Matches the indicator's exact spec
-  // (see WorkingIndicator: the spinning star at 10x7.15, rendered into a 30x30
-  // CSS footprint at maxDpr 1) so the pooled renderer's key lines up and the
-  // real mount reuses it. The variant is part of that key, so it has to be
-  // named here too. Runs once per chat surface.
-  useEffect(() => {
-    const scheduleIdle =
-      window.requestIdleCallback ??
-      ((callback: IdleRequestCallback) =>
-        window.setTimeout(
-          () => callback({ didTimeout: false, timeRemaining: () => 0 }),
-          200,
-        ));
-    const cancelIdle =
-      window.cancelIdleCallback ??
-      ((handle: number) => window.clearTimeout(handle));
-    const handle = scheduleIdle(() =>
-      prewarmAurora({
-        variant: "star-spin",
-        width: 10,
-        height: 7.15,
-        displayWidth: 30,
-        displayHeight: 30,
-        maxDpr: 1,
-      }),
-    );
-    return () => cancelIdle(handle as number);
-  }, []);
-  // Before tool results, the indicator hands off on the assistant's first
-  // visible provider delta. A completed tool keeps its newest friendly
-  // one-line receipt visible until the turn ends.
-  // Memoize over the primitive streaming inputs so the indicator mount
-  // props keep a stable object identity across streaming re-renders
-  // driven by streaming text growth. Without this, a fresh object every
-  // render invalidates `ChatTimeline`'s `ListFooter` useMemo and forces the
-  // whole working-indicator subtree (WorkingIndicator -> SwapText ->
-  // StellaAnimation wrapper) to reconcile on every provider chunk.
+  // The indicator hands off to the reply once the run's final assistant
+  // message lands; a preamble followed by a tool keeps it up.
+  // Memoize over the primitive streaming inputs so the mount props keep a
+  // stable object identity across the run's re-renders. Without this, a fresh
+  // object every render invalidates `ChatTimeline`'s `ListFooter` useMemo and
+  // reconciles the whole working-indicator subtree.
   const indicatorProps = useMemo(
     () =>
       buildInlineWorkingIndicatorProps({
         isStreaming: Boolean(conversation.streaming.isStreaming),
-        isStreamingResponseText: Boolean(
-          conversation.streaming.isStreamingResponseText,
-        ),
         isToolActive: Boolean(conversation.streaming.isToolActive),
-        hasToolActivity: Boolean(conversation.streaming.hasToolActivity),
+        answerLanded: Boolean(conversation.streaming.answerLanded),
         activeToolName: conversation.streaming.activeToolName,
         activeToolCallId: conversation.streaming.activeToolCallId,
-        latestCompletedTool: conversation.streaming.latestCompletedTool,
         runtimeStatusText: conversation.streaming.runtimeStatusText,
       }),
     [
       conversation.streaming.isStreaming,
-      conversation.streaming.isStreamingResponseText,
       conversation.streaming.isToolActive,
-      conversation.streaming.hasToolActivity,
+      conversation.streaming.answerLanded,
       conversation.streaming.activeToolName,
       conversation.streaming.activeToolCallId,
-      conversation.streaming.latestCompletedTool,
       conversation.streaming.runtimeStatusText,
     ],
   );

@@ -1,9 +1,9 @@
 /**
  * Star glyph for the minimal in-chat agent activity rows.
  *
- * A lightweight static echo of the working-indicator's aurora star — a soft
- * four-pointed sparkle with concave curved edges, drawn as plain SVG in
- * `currentColor`. No WebGL, no animation; while a row is running the title
+ * A lightweight static echo of the working indicator's character mark — a
+ * soft four-pointed sparkle with concave curved edges, drawn as plain SVG in
+ * `currentColor`. No animation; while a row is running the title
  * shimmer carries the motion, the star just sits quietly in the leading
  * slot.
  *

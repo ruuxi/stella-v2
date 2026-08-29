@@ -25,6 +25,7 @@ import {
   getTaskDecoration,
 } from "@/features/chat/streaming/task-decoration-store";
 import {
+  buildInlineWorkingIndicatorProps,
   getInlineWorkingIndicatorActive,
   getWorkingIndicatorDisplayStatus,
 } from "@/features/chat/working-indicator-state";
@@ -225,7 +226,6 @@ const runToolStatusIntegration = async (
   });
   const activeBeforeTool = getInlineWorkingIndicatorActive({
     isStreaming: true,
-    isStreamingResponseText: false,
     isToolActive: Boolean(
       Object.keys(state.runsById[runId]?.activeToolCalls ?? {}).length,
     ),
@@ -252,7 +252,6 @@ const runToolStatusIntegration = async (
   const toolActiveRun = state.runsById[runId];
   const activeDuringTool = getInlineWorkingIndicatorActive({
     isStreaming: true,
-    isStreamingResponseText: false,
     isToolActive: Boolean(
       Object.keys(toolActiveRun?.activeToolCalls ?? {}).length,
     ),
@@ -275,7 +274,6 @@ const runToolStatusIntegration = async (
   const toolEndedRun = state.runsById[runId];
   const activeAfterToolBeforeAnswer = getInlineWorkingIndicatorActive({
     isStreaming: true,
-    isStreamingResponseText: false,
     isToolActive: Boolean(
       Object.keys(toolEndedRun?.activeToolCalls ?? {}).length,
     ),
@@ -416,20 +414,18 @@ describe("subscribeRuntimeAgentEvents", () => {
     const activeFor = (current: typeof state) =>
       getInlineWorkingIndicatorActive({
         isStreaming: true,
-        isStreamingResponseText: Boolean(
-          current.runsById[runId]?.isStreamingText,
-        ),
         isToolActive: Boolean(
           Object.keys(current.runsById[runId]?.activeToolCalls ?? {}).length,
         ),
+        answerLanded: Boolean(current.runsById[runId]?.answerLanded),
       });
 
     // Pre-tool thinking: the orchestrator line is active.
     expect(activeFor(state)).toBe(true);
 
     // A spawned sub-agent starts working. The orchestrator's own indicator
-    // must STAY up — it only hands off on the assistant's first visible
-    // provider delta, regardless of background/spawned work.
+    // must STAY up — it only hands off on the run's own final assistant
+    // message, regardless of background/spawned work.
     state = streamStoreReducer(state, {
       type: "task-upsert",
       runId,
@@ -464,25 +460,27 @@ describe("subscribeRuntimeAgentEvents", () => {
     });
     expect(activeFor(state)).toBe(true);
 
-    // Only the first visible provider delta hands off.
-    state = streamStoreReducer(state, { type: "mark-streaming-text", runId });
+    // Only the run's own final answer hands off.
+    state = streamStoreReducer(state, {
+      type: "assistant-message-boundary",
+      runId,
+      followedByToolCall: false,
+    });
     expect(activeFor(state)).toBe(false);
   });
 
   it("keeps the working indicator alive in reasoning gaps after an interim/preamble message", () => {
     const runId = "run-preamble";
     const conversationId = "conversation-1";
-    // Derive the indicator gate the same way the renderer does: the
-    // streaming-text flag lives on the run record.
+    // Derive the indicator gate the same way the renderer does: the landed
+    // flag lives on the run record, set by the boundary no tool follows.
     const activeFor = (current: typeof state) =>
       getInlineWorkingIndicatorActive({
         isStreaming: !current.runsById[runId]?.terminal,
-        isStreamingResponseText: Boolean(
-          current.runsById[runId]?.isStreamingText,
-        ),
         isToolActive: Boolean(
           Object.keys(current.runsById[runId]?.activeToolCalls ?? {}).length,
         ),
+        answerLanded: Boolean(current.runsById[runId]?.answerLanded),
       });
 
     let state = streamStoreReducer(initialStoreState, {
@@ -491,16 +489,21 @@ describe("subscribeRuntimeAgentEvents", () => {
       conversationId,
       userMessageId: "user-1",
     });
-    // Pre-text thinking shows the indicator.
-    expect(state.runsById[runId]?.isStreamingText).toBe(false);
+    // Pre-message thinking shows the indicator.
+    expect(state.runsById[runId]?.answerLanded).toBe(false);
     expect(activeFor(state)).toBe(true);
 
-    // Model streams a preamble ("Let me check…") — indicator steps aside.
-    state = streamStoreReducer(state, { type: "mark-streaming-text", runId });
-    expect(state.runsById[runId]?.isStreamingText).toBe(true);
-    expect(activeFor(state)).toBe(false);
+    // A preamble ("Let me check…") lands whole and is followed by a tool, so
+    // the run is not answered: the indicator stays up over the preamble.
+    state = streamStoreReducer(state, {
+      type: "assistant-message-boundary",
+      runId,
+      followedByToolCall: true,
+    });
+    expect(state.runsById[runId]?.answerLanded).toBe(false);
+    expect(activeFor(state)).toBe(true);
 
-    // A tool starts: the streaming-text flag resets and the tool label shows.
+    // The tool starts: the label switches, the indicator stays.
     state = streamStoreReducer(state, {
       type: "tool-start",
       runId,
@@ -508,7 +511,7 @@ describe("subscribeRuntimeAgentEvents", () => {
       toolCallId: "call-1",
       toolName: "web",
     });
-    expect(state.runsById[runId]?.isStreamingText).toBe(false);
+    expect(state.runsById[runId]?.answerLanded).toBe(false);
     expect(activeFor(state)).toBe(true);
 
     // Tool ends — this is the hole: with the old "any text this run" signal
@@ -519,26 +522,29 @@ describe("subscribeRuntimeAgentEvents", () => {
       toolCallId: "call-1",
       toolName: "web",
     });
-    expect(state.runsById[runId]?.isStreamingText).toBe(false);
+    expect(state.runsById[runId]?.answerLanded).toBe(false);
     expect(activeFor(state)).toBe(true);
 
-    // Final answer streams — indicator steps aside again.
-    state = streamStoreReducer(state, { type: "mark-streaming-text", runId });
+    // The post-tool answer lands — indicator hands off to it.
+    state = streamStoreReducer(state, {
+      type: "assistant-message-boundary",
+      runId,
+      followedByToolCall: false,
+    });
+    expect(state.runsById[runId]?.answerLanded).toBe(true);
     expect(activeFor(state)).toBe(false);
   });
 
-  it("re-arms the working indicator at a preamble→tool-call boundary before the tool starts", () => {
+  it("keeps the working indicator up at a preamble→tool-call boundary before the tool starts", () => {
     const runId = "run-preamble-boundary";
     const conversationId = "conversation-1";
     const activeFor = (current: typeof state) =>
       getInlineWorkingIndicatorActive({
         isStreaming: !current.runsById[runId]?.terminal,
-        isStreamingResponseText: Boolean(
-          current.runsById[runId]?.isStreamingText,
-        ),
         isToolActive: Boolean(
           Object.keys(current.runsById[runId]?.activeToolCalls ?? {}).length,
         ),
+        answerLanded: Boolean(current.runsById[runId]?.answerLanded),
       });
 
     let state = streamStoreReducer(initialStoreState, {
@@ -548,23 +554,16 @@ describe("subscribeRuntimeAgentEvents", () => {
       userMessageId: "user-1",
     });
 
-    // Model streams a preamble ("Let me check…") — indicator steps aside as
-    // the visible streamed text takes over.
-    state = streamStoreReducer(state, { type: "mark-streaming-text", runId });
-    expect(state.runsById[runId]?.isStreamingText).toBe(true);
-    expect(activeFor(state)).toBe(false);
-
-    // The preamble message finalizes and it ends with a tool call. Without
-    // the re-arm the indicator would stay dismissed over the visible
-    // preamble until `tool-start` lands (a visible gap where nothing shows).
-    // The boundary clears the streaming-text flag so the indicator returns
-    // immediately.
+    // The preamble finalizes and it ends with a tool call. Nothing is running
+    // yet — `tool-start` has not landed — so this gap is exactly where the
+    // indicator would go blank if the boundary were read as the answer.
     state = streamStoreReducer(state, {
       type: "assistant-message-boundary",
       runId,
       followedByToolCall: true,
     });
-    expect(state.runsById[runId]?.isStreamingText).toBe(false);
+    expect(state.runsById[runId]?.answerLanded).toBe(false);
+    expect(state.runsById[runId]?.pendingToolAfterPreamble).toBe(true);
     expect(activeFor(state)).toBe(true);
 
     // The tool then starts (redundant reset — indicator already showing).
@@ -578,18 +577,16 @@ describe("subscribeRuntimeAgentEvents", () => {
     expect(activeFor(state)).toBe(true);
   });
 
-  it("rejects a stale response marker after the preamble boundary", () => {
+  it("lets a tool start correct a preamble boundary that claimed to be the answer", () => {
     const runId = "run-preamble-race";
     const conversationId = "conversation-1";
     const activeFor = (current: typeof state) =>
       getInlineWorkingIndicatorActive({
         isStreaming: !current.runsById[runId]?.terminal,
-        isStreamingResponseText: Boolean(
-          current.runsById[runId]?.isStreamingText,
-        ),
         isToolActive: Boolean(
           Object.keys(current.runsById[runId]?.activeToolCalls ?? {}).length,
         ),
+        answerLanded: Boolean(current.runsById[runId]?.answerLanded),
       });
 
     let state = streamStoreReducer(initialStoreState, {
@@ -599,23 +596,18 @@ describe("subscribeRuntimeAgentEvents", () => {
       userMessageId: "user-1",
     });
 
-    // The preamble-to-tool boundary re-arms the indicator.
+    // The boundary arrives without knowing a tool call follows it, so the run
+    // briefly reads as answered.
     state = streamStoreReducer(state, {
       type: "assistant-message-boundary",
       runId,
-      followedByToolCall: true,
+      followedByToolCall: false,
     });
-    expect(state.runsById[runId]?.isStreamingText).toBe(false);
-    expect(activeFor(state)).toBe(true);
+    expect(state.runsById[runId]?.answerLanded).toBe(true);
 
-    // A stale marker for the finalized preamble must NOT
-    // re-suppress the indicator (that would reopen the dead gap before the
-    // tool starts).
-    state = streamStoreReducer(state, { type: "mark-streaming-text", runId });
-    expect(state.runsById[runId]?.isStreamingText).toBe(false);
-    expect(activeFor(state)).toBe(true);
-
-    // Tool starts: still up. The stale-marker suppression is held.
+    // The tool start it raced ahead of lands and corrects the record: the run
+    // is not done answering, so the indicator comes back rather than leaving
+    // a preamble sitting alone while work continues.
     state = streamStoreReducer(state, {
       type: "tool-start",
       runId,
@@ -623,10 +615,10 @@ describe("subscribeRuntimeAgentEvents", () => {
       toolCallId: "call-1",
       toolName: "spawn_agent",
     });
+    expect(state.runsById[runId]?.answerLanded).toBe(false);
     expect(activeFor(state)).toBe(true);
 
-    // Tool ends: still thinking, still up. The suppression is released now
-    // that the tool phase is over.
+    // Tool ends: still thinking, still up.
     state = streamStoreReducer(state, {
       type: "tool-end",
       runId,
@@ -635,38 +627,25 @@ describe("subscribeRuntimeAgentEvents", () => {
     });
     expect(activeFor(state)).toBe(true);
 
-    // The post-tool answer's first visible delta hands off normally.
-    state = streamStoreReducer(state, { type: "mark-streaming-text", runId });
-    expect(state.runsById[runId]?.isStreamingText).toBe(true);
+    // The post-tool answer hands off normally.
+    state = streamStoreReducer(state, {
+      type: "assistant-message-boundary",
+      runId,
+      followedByToolCall: false,
+    });
+    expect(state.runsById[runId]?.answerLanded).toBe(true);
     expect(activeFor(state)).toBe(false);
   });
 
-  it("keeps the indicator up when a stale preamble marker arrives after tool-start", () => {
-    const runId = "run-preamble-marker-after-tool-start";
+  it("outranks a landed answer with a tool that is still in flight", () => {
+    const runId = "run-boundary-during-tool";
     const conversationId = "conversation-1";
-    const activeFor = (current: typeof state) =>
-      getInlineWorkingIndicatorActive({
-        isStreaming: !current.runsById[runId]?.terminal,
-        isStreamingResponseText: Boolean(
-          current.runsById[runId]?.isStreamingText,
-        ),
-        isToolActive: Boolean(
-          Object.keys(current.runsById[runId]?.activeToolCalls ?? {}).length,
-        ),
-      });
 
     let state = streamStoreReducer(initialStoreState, {
       type: "run-started",
       runId,
       conversationId,
       userMessageId: "user-1",
-    });
-
-    // Boundary and tool-start complete before the stale marker arrives.
-    state = streamStoreReducer(state, {
-      type: "assistant-message-boundary",
-      runId,
-      followedByToolCall: true,
     });
     state = streamStoreReducer(state, {
       type: "tool-start",
@@ -675,44 +654,38 @@ describe("subscribeRuntimeAgentEvents", () => {
       toolCallId: "call-1",
       toolName: "spawn_agent",
     });
-    expect(activeFor(state)).toBe(true);
-
-    // The finalized preamble's stale marker lands after tool-start.
-    // It must NOT set `isStreamingText`, or the flag sticks true through the
-    // whole tool and blanks the indicator once the tool ends (dead air).
-    state = streamStoreReducer(state, { type: "mark-streaming-text", runId });
-    expect(state.runsById[runId]?.isStreamingText).toBe(false);
-    expect(activeFor(state)).toBe(true);
-
-    // Tool ends: the post-tool reasoning gap must still show the indicator —
-    // this is the exact window that was going dead after spawn_agent.
     state = streamStoreReducer(state, {
-      type: "tool-end",
+      type: "assistant-message-boundary",
       runId,
-      toolCallId: "call-1",
-      toolName: "spawn_agent",
+      followedByToolCall: false,
     });
-    expect(state.runsById[runId]?.isStreamingText).toBe(false);
-    expect(activeFor(state)).toBe(true);
+    expect(state.runsById[runId]?.answerLanded).toBe(true);
 
-    // Only the post-tool answer's own visible delta hands off.
-    state = streamStoreReducer(state, { type: "mark-streaming-text", runId });
-    expect(state.runsById[runId]?.isStreamingText).toBe(true);
-    expect(activeFor(state)).toBe(false);
+    // The store honestly records the boundary, but the props layer refuses to
+    // hand off while a tool is running: the mount would otherwise exit and
+    // immediately re-enter when the next tool label arrives.
+    const props = buildInlineWorkingIndicatorProps({
+      isStreaming: true,
+      isToolActive: true,
+      answerLanded: true,
+      activeToolName: "spawn_agent",
+      activeToolCallId: "call-1",
+    });
+    expect(props.active).toBe(true);
+    expect(props.handoff).toBeUndefined();
+    expect(props.runningTool).toBe("spawn_agent");
   });
 
-  it("holds stale preamble-marker suppression across parallel tools", () => {
+  it("holds the preamble flag across parallel tools", () => {
     const runId = "run-preamble-parallel-tools";
     const conversationId = "conversation-1";
     const activeFor = (current: typeof state) =>
       getInlineWorkingIndicatorActive({
         isStreaming: !current.runsById[runId]?.terminal,
-        isStreamingResponseText: Boolean(
-          current.runsById[runId]?.isStreamingText,
-        ),
         isToolActive: Boolean(
           Object.keys(current.runsById[runId]?.activeToolCalls ?? {}).length,
         ),
+        answerLanded: Boolean(current.runsById[runId]?.answerLanded),
       });
 
     let state = streamStoreReducer(initialStoreState, {
@@ -741,8 +714,8 @@ describe("subscribeRuntimeAgentEvents", () => {
       toolName: "web",
     });
 
-    // First tool ends while the second is still in flight — the suppression
-    // must survive, so a stale preamble marker is still swallowed.
+    // First tool ends while the second is still in flight — the preamble's
+    // pending-tool flag must survive until the tool phase is actually over.
     state = streamStoreReducer(state, {
       type: "tool-end",
       runId,
@@ -750,10 +723,8 @@ describe("subscribeRuntimeAgentEvents", () => {
       toolName: "web",
     });
     expect(state.runsById[runId]?.pendingToolAfterPreamble).toBe(true);
-    state = streamStoreReducer(state, { type: "mark-streaming-text", runId });
-    expect(state.runsById[runId]?.isStreamingText).toBe(false);
 
-    // Last tool ends: suppression released, post-tool gap still shows up.
+    // Last tool ends: flag released, post-tool gap still shows the indicator.
     state = streamStoreReducer(state, {
       type: "tool-end",
       runId,
@@ -773,16 +744,15 @@ describe("subscribeRuntimeAgentEvents", () => {
       conversationId,
       userMessageId: "user-1",
     });
-    state = streamStoreReducer(state, { type: "mark-streaming-text", runId });
-    expect(state.runsById[runId]?.isStreamingText).toBe(true);
 
-    // A plain boundary (the message did not end with a tool call) must not
-    // re-arm the indicator — the run's answer is on screen and handed off.
+    // A plain boundary (the message did not end with a tool call) is the
+    // run's answer: it hands the row over instead of keeping the indicator.
     state = streamStoreReducer(state, {
       type: "assistant-message-boundary",
       runId,
     });
-    expect(state.runsById[runId]?.isStreamingText).toBe(true);
+    expect(state.runsById[runId]?.answerLanded).toBe(true);
+    expect(state.runsById[runId]?.pendingToolAfterPreamble).toBe(false);
   });
 
   it("clears the in-flight tool even when tool-end is keyed differently than tool-start", () => {

@@ -169,49 +169,6 @@ function generateScale(seed: HexColor, isDark: boolean): HexColor[] {
 }
 
 /**
- * Generate the five aurora ramp stops (see shell/aurora) from a theme's
- * seed colors. The ramp follows the brand aurora's lightness/chroma
- * profile (bright airy low stops, a saturated dip, a bright top) but
- * takes its hues from the theme: it starts below the interactive hue and
- * sweeps toward the accent hue when the accent is chromatic and far
- * enough away to read as a second color; otherwise it fans a synthetic
- * spread around the interactive hue alone.
- */
-export function generateAuroraStops(
-  interactive: string,
-  accent: string,
-  isDark: boolean,
-): [string, string, string, string, string] {
-  const p = hexToOklch(interactive);
-  const a = hexToOklch(accent);
-
-  // Shortest signed hue arc from interactive to accent.
-  let delta = ((a.h - p.h + 540) % 360) - 180;
-  const accentIsDistinct = a.c >= 0.05 && Math.abs(delta) >= 50;
-  if (!accentIsDistinct) delta = 75;
-
-  const hues = accentIsDistinct
-    ? [p.h - 30, p.h - 12, p.h, p.h + delta * 0.55, p.h + delta]
-    : [p.h - 40, p.h - 18, p.h, p.h + 32, p.h + delta];
-
-  // Lightness/chroma profile measured from the brand teal→rose ramp.
-  const lightness = [0.74, 0.7, 0.65, 0.58, 0.67];
-  const chromaMul = [0.9, 0.85, 1.0, 1.15, 1.0];
-  const cBase = Math.min(Math.max(p.c, 0.05), 0.16);
-  // Alpha compositing washes the ramp out over light backgrounds; sit the
-  // stops slightly darker there so the waves keep their color.
-  const lightnessShift = isDark ? 0 : -0.06;
-
-  return hues.map((h, i) =>
-    oklchToHex({
-      l: lightness[i] + lightnessShift,
-      c: cBase * chromaMul[i],
-      h: ((h % 360) + 360) % 360,
-    }),
-  ) as [string, string, string, string, string];
-}
-
-/**
  * Generate derived gradient tokens from theme seed colors.
  * Matches Aura's token generation for consistent gradient appearance.
  */

@@ -23,7 +23,6 @@ import {
 import { buildActivityTasks } from "@/features/chat/lib/event-transforms";
 import { useCapturedChatContext } from "./use-captured-chat-context";
 import { useChatScrollManagement } from "./use-chat-scroll-management";
-import { getAssistantScrollFollowKey } from "./chat-scroll-follow";
 import { useChatHomeSurface } from "./use-chat-home-surface";
 import { useAgentInputRouting } from "./use-agent-input-routing";
 import { useConversationModelSelection } from "./use-conversation-model-selection";
@@ -47,6 +46,7 @@ const MAX_RETAINED_TAB_STATE = 20;
  */
 const OPEN_BOTTOM_SETTLE_MS = 600;
 const NO_NEWER_CLOUD_MESSAGES = () => false;
+const EMPTY_STREAMING_ASSISTANTS = [];
 const setBoundedTabMemory = (memory, conversationId, value) => {
   memory.delete(conversationId);
   memory.set(conversationId, value);
@@ -225,7 +225,7 @@ export function useFullShellChat({
     reasoningText: localReasoningText,
     streamingAssistants: localStreamingAssistants,
     isStreaming: localIsStreaming,
-    isStreamingResponseText: localIsStreamingResponseText,
+    answerLanded: localAnswerLanded,
     pendingUserMessageId: localPendingUserMessageId,
     queuedUserMessages: localQueuedUserMessages,
     removeQueuedUserMessage: localRemoveQueuedUserMessage,
@@ -260,8 +260,10 @@ export function useFullShellChat({
   const optimisticEvents = cloudChat.isWebShell
     ? cloudChat.optimisticEvents
     : localOptimisticEvents;
+  // The web shell has no in-memory overlay: a cloud reply becomes visible when
+  // its journal row commits, not before.
   const streamingAssistants = cloudChat.isWebShell
-    ? cloudChat.streamingAssistants
+    ? EMPTY_STREAMING_ASSISTANTS
     : localStreamingAssistants;
   const runtimeStatusText = cloudChat.isWebShell
     ? cloudChat.runtimeStatusText
@@ -283,9 +285,10 @@ export function useFullShellChat({
   const isStreaming = cloudChat.isWebShell
     ? cloudChat.isStreaming
     : localIsStreaming;
-  const isStreamingResponseText = cloudChat.isWebShell
-    ? cloudChat.isStreamingResponseText
-    : localIsStreamingResponseText;
+  // The web shell has no per-message landing signal: a cloud turn ends at the
+  // moment its reply row commits, so the indicator exits on `isStreaming`
+  // rather than handing off to a reply that is still arriving.
+  const answerLanded = cloudChat.isWebShell ? false : localAnswerLanded;
   const pendingUserMessageId = cloudChat.isWebShell
     ? cloudChat.pendingUserMessageId
     : localPendingUserMessageId;
@@ -517,7 +520,6 @@ export function useFullShellChat({
       getShouldPlaceLatestTurn();
     const shouldNudgeAfterSend = !isStreaming && shouldKeepTailFramed;
     const submittedConversationId = activeConversationId;
-    const followKeyBeforeSend = getAssistantScrollFollowKey();
     const accepted = await sendMessage({
       text: latestMessageRef.current,
       selectedText,
@@ -566,7 +568,7 @@ export function useFullShellChat({
       // Places the newest user turn near the top of the readable area,
       // above the (now settled) response spacer. The gentle loop keeps
       // that reframe continuous with the assistant stream-follow.
-      nudgeAfterSend(followKeyBeforeSend);
+      nudgeAfterSend();
     } else {
       releaseFollow();
     }
@@ -871,7 +873,7 @@ export function useFullShellChat({
       streaming: {
         reasoningText,
         isStreaming,
-        isStreamingResponseText,
+        answerLanded,
         runtimeStatusText,
         activeToolCallId,
         activeToolName,
@@ -917,7 +919,7 @@ export function useFullShellChat({
       reasoningText,
       runtimeStatusText,
       isStreaming,
-      isStreamingResponseText,
+      answerLanded,
       isToolActive,
     ],
   );

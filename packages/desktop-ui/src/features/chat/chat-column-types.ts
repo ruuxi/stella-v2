@@ -59,8 +59,6 @@ export type ChatColumnConversation = {
   streaming: {
     reasoningText: string;
     isStreaming: boolean;
-    /** True once the in-flight run has streamed any visible assistant text. */
-    isStreamingResponseText: boolean;
     runtimeStatusText?: string | null;
     activeToolCallId?: string | null;
     activeToolName?: string | null;
@@ -71,6 +69,12 @@ export type ChatColumnConversation = {
     } | null;
     hasToolActivity?: boolean;
     isToolActive?: boolean;
+    /**
+     * The run's final assistant message has landed. Set on the message
+     * boundary that no tool follows, so the indicator can hand off to the
+     * reply instead of lingering behind it.
+     */
+    answerLanded?: boolean;
     pendingUserMessageId: string | null;
     queuedUserMessages: QueuedUserMessage[];
     /**

@@ -1,11 +1,14 @@
 /**
- * Imperative assistant-row scroll-follow signals.
+ * Imperative chat content-growth signal.
  *
- * Streaming lifecycle (`useLocalAgentStream`) calls `begin` / `end` /
- * `clear` with stable keys (`assistantScrollFollowKey`) that match
- * `data-scroll-follow-key` on assistant rows. Each
- * `useChatScrollManagement` instance subscribes and follows the keyed
- * row via ResizeObserver — no `.event-row--streaming` heuristics.
+ * Chat rows used to grow continuously as text streamed in, so scroll-follow
+ * needed a keyed channel telling it which row to track. Replies arrive whole
+ * now, so a row's height is settled the moment it mounts and there is nothing
+ * to track: what remains is late growth from content that resolves after its
+ * row lands — an inline image finishing its load, an agent completion card
+ * mounting, the working indicator taking its slot. Those all say the same
+ * thing ("the tail got taller"), so they share one channel and each scroll
+ * surface decides for itself whether to act.
  */
 import { assistantScrollFollowKey } from '@/features/chat/streaming/streaming-types'
 
@@ -13,67 +16,20 @@ export { assistantScrollFollowKey }
 
 type ScrollFollowSubscriber = () => void
 
-const subscribers = new Set<ScrollFollowSubscriber>()
-
-let activeFollowKey: string | null = null
-
-const notify = () => {
-  for (const subscriber of subscribers) {
-    subscriber()
-  }
-}
-
-export const getAssistantScrollFollowKey = (): string | null => activeFollowKey
-
-export const beginAssistantScrollFollow = (key: string): void => {
-  if (activeFollowKey === key) return
-  activeFollowKey = key
-  notify()
-}
-
-export const endAssistantScrollFollow = (key?: string): void => {
-  if (key !== undefined && activeFollowKey !== key) return
-  if (activeFollowKey === null) return
-  activeFollowKey = null
-  notify()
-}
-
-/**
- * `expectedKey` makes the clear conditional: the caller passes the key it
- * observed before an async hop (send acceptance), so a stream that started
- * in the meantime keeps its follow instead of being cancelled.
- */
-export const clearAssistantScrollFollow = (
-  expectedKey?: string | null,
-): void => {
-  if (expectedKey !== undefined && activeFollowKey !== expectedKey) return
-  if (activeFollowKey === null) return
-  activeFollowKey = null
-  notify()
-}
-
-/** Row subtree grew (e.g. inline image loaded) — re-run follow targeting. */
-export const notifyAssistantScrollFollowLayoutChange = (): void => {
-  if (activeFollowKey === null) return
-  notify()
-}
-
 const growthSubscribers = new Set<ScrollFollowSubscriber>()
 
-/**
- * Inline content outside the streaming text grew — an agent spawn/completion
- * card mounted in a row. Unlike `notifyAssistantScrollFollowLayoutChange`,
- * this fires even with no active follow key: agent completion cards land
- * after the run settled (background agent finished while the chat is idle),
- * and the viewport should still keep them in frame when the user is parked
- * at the bottom. Subscribers decide how (streaming rows keep the keyed
- * follow; idle surfaces settle toward the new end).
- */
 export const notifyChatContentGrowth = (): void => {
   for (const subscriber of growthSubscribers) {
     subscriber()
   }
 }
+
+/**
+ * Kept as a name for the row-local case (an image inside a row finished
+ * loading) even though it is the same signal — the call sites read better for
+ * it, and the distinction may matter again.
+ */
+export const notifyAssistantScrollFollowLayoutChange = notifyChatContentGrowth
 
 export const subscribeChatContentGrowth = (
   subscriber: ScrollFollowSubscriber,
@@ -81,14 +37,5 @@ export const subscribeChatContentGrowth = (
   growthSubscribers.add(subscriber)
   return () => {
     growthSubscribers.delete(subscriber)
-  }
-}
-
-export const subscribeAssistantScrollFollow = (
-  subscriber: ScrollFollowSubscriber,
-): (() => void) => {
-  subscribers.add(subscriber)
-  return () => {
-    subscribers.delete(subscriber)
   }
 }

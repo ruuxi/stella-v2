@@ -6,25 +6,22 @@
  * the streaming/last assistant message and above any queued user messages.
  *
  * Behavior:
- *  - While the assistant is reasoning (no answer text yet) it shows a
- *    rotating thinking label ("Thinking", "Mulling it over", …) seeded
- *    per turn; while a tool is running it shows that tool's friendly
- *    status. It ordinarily stays up until the assistant's first visible
- *    provider delta arrives (the streaming-text hand-off), then deactivates.
- *    After a tool result, its newest friendly receipt stays visible until the
- *    turn finishes, then exits immediately.
- *    through the `MIN_VISIBLE_MS` floor. Because deactivation always runs
- *    through that floor (no immediate-exit shortcut), on a fast (sub-2s)
- *    turn the indicator briefly lingers over the start of the streaming
- *    answer rather than vanishing the instant text appears.
+ *  - While the assistant is thinking it shows the mark alone; while a tool is
+ *    running it shows that tool's friendly status. A run passes through both
+ *    repeatedly — preamble, tool, answer — and the indicator stays up across
+ *    the whole of it.
  *  - Long-running agent task presence lives in the composer's task chip; this
  *    inline indicator only follows the orchestrator's thinking/tool lifecycle.
- *  - When the work finishes (`active` flips false) the indicator stays visible
- *    for at least `MIN_VISIBLE_MS`, then plays a short grow-out/fade for
- *    `EXIT_ANIMATION_MS` showing its last-known label. The parent mounts the
- *    indicator unconditionally and toggles `active` so React doesn't rip
- *    the node out before the exit animation runs. If `active` flips back
- *    true mid-exit, the exit is canceled and live updates resume.
+ *  - There are three ways out, and which one runs is the caller's call:
+ *    the ordinary grow-out after the `MIN_VISIBLE_MS` floor; an immediate
+ *    exit (`exitImmediately`) when the run went terminal without answering,
+ *    e.g. a cancel; and the handoff exit (`handoff`) when the run's final
+ *    message landed, which keeps the row's height while it clears so the
+ *    reply drops into the line the indicator was holding.
+ *  - The parent mounts the indicator unconditionally and toggles `active` so
+ *    React doesn't rip the node out before the exit animation runs. If
+ *    `active` flips back true mid-exit, the exit is canceled and live updates
+ *    resume.
  *  - Once fully exited, the inner content is removed (`--vacated`); the
  *    timeline wrapper's `:has(--vacated)` rule then collapses the slot so an
  *    idle chat carries no ghost gutter.
@@ -54,9 +51,14 @@ const EXIT_ANIMATION_MS = 240;
 const ENTER_ANIMATION_MS = 320;
 const MIN_VISIBLE_MS = INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS;
 
+function newReasoningSeed(): string {
+  return `${Date.now()}-${Math.random()}`;
+}
+
 export function InlineWorkingIndicator({
   active,
   exitImmediately,
+  handoff,
   runningTool,
   runningToolId,
   status,
@@ -87,11 +89,20 @@ export function InlineWorkingIndicator({
   const exitTimerRef = useRef<number | null>(null);
   const activatedAtRef = useRef<number | null>(active ? Date.now() : null);
   const wasActiveRef = useRef(active);
-  // Per-activation seed so the reasoning label ("Thinking" / "Mulling it
-  // over" / …) varies across turns but stays stable within one.
-  const [reasoningSeed, setReasoningSeed] = useState(() =>
-    String(Date.now()),
-  );
+  const showingThinking = active && !runningTool;
+  const wasShowingThinkingRef = useRef(showingThinking);
+  // Seeds the reasoning label ("Thinking" / "Mulling it over" / …). It rerolls
+  // on every entry into thinking, not once per turn: a run returns to thinking
+  // after each tool, and repeating the turn's first label there would read as
+  // if nothing had moved.
+  const [reasoningSeed, setReasoningSeed] = useState(newReasoningSeed);
+
+  useEffect(() => {
+    if (showingThinking && !wasShowingThinkingRef.current) {
+      setReasoningSeed(newReasoningSeed());
+    }
+    wasShowingThinkingRef.current = showingThinking;
+  }, [showingThinking]);
 
   useEffect(() => {
     if (!entering) return;
@@ -116,7 +127,6 @@ export function InlineWorkingIndicator({
       const isReactivation = !wasActiveRef.current;
       if (isReactivation) {
         activatedAtRef.current = Date.now();
-        setReasoningSeed(String(Date.now()));
       }
       wasActiveRef.current = true;
       if (!renderShell) {
@@ -141,15 +151,18 @@ export function InlineWorkingIndicator({
         setLeaving(false);
       }, EXIT_ANIMATION_MS);
     };
-    // A visible answer handoff or terminal run must not leave a stale row
-    // behind — skip the minimum-visible hold and exit now.
-    const remainingMs = exitImmediately
-      ? 0
-      : getInlineWorkingIndicatorExitDelayMs({
-          activatedAtMs: activatedAtRef.current ?? Date.now(),
-          nowMs: Date.now(),
-          minVisibleMs: MIN_VISIBLE_MS,
-        });
+    // Neither a landed answer nor a terminal run may leave a stale row behind,
+    // so both skip the minimum-visible hold. The handoff in particular is
+    // timed against the reply's own hold upstream: stretching it here would
+    // make the reply arrive under a still-clearing indicator.
+    const remainingMs =
+      exitImmediately || handoff
+        ? 0
+        : getInlineWorkingIndicatorExitDelayMs({
+            activatedAtMs: activatedAtRef.current ?? Date.now(),
+            nowMs: Date.now(),
+            minVisibleMs: MIN_VISIBLE_MS,
+          });
     if (remainingMs > 0) {
       exitTimerRef.current = window.setTimeout(startExit, remainingMs);
     } else {
@@ -159,7 +172,7 @@ export function InlineWorkingIndicator({
     return () => {
       clearTimer();
     };
-  }, [active, renderShell, exitImmediately]);
+  }, [active, renderShell, exitImmediately, handoff]);
 
   // The wrapper itself is always rendered with a fixed height once the
   // indicator has appeared — `renderShell` only gates the inner content,
@@ -181,7 +194,7 @@ export function InlineWorkingIndicator({
 
   return (
     <div
-      className={`inline-working-indicator${entering ? " inline-working-indicator--entering" : ""}${leaving ? " inline-working-indicator--leaving" : ""}${showInner ? "" : " inline-working-indicator--vacated"}`}
+      className={`inline-working-indicator${entering ? " inline-working-indicator--entering" : ""}${leaving ? " inline-working-indicator--leaving" : ""}${leaving && handoff ? " inline-working-indicator--handoff" : ""}${showInner ? "" : " inline-working-indicator--vacated"}`}
       aria-live="polite"
     >
       {showInner && (

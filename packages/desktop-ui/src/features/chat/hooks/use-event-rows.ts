@@ -47,13 +47,6 @@ import {
   type AgentResponseTarget,
 } from "@/features/chat/streaming/streaming-types";
 
-/**
- * Synthetic `_id` prefix carried by `StreamingAssistantOverlay` rows
- * merged into `displayMessages` by `useConversationDisplayMessages`.
- * The row builder uses this prefix to tag rows as `isStreaming: true`.
- */
-const STREAMING_OVERLAY_ID_PREFIX = "stream-overlay:";
-
 const getMessagePayload = (
   event?: EventRecord | MessageRecord,
 ): MessagePayload | null => {
@@ -298,7 +291,6 @@ export const assistantRowHasNonBackgroundContent = (
   row: AssistantRowViewModel,
 ): boolean =>
   row.text.trim().length > 0 ||
-  Boolean(row.isStreaming) ||
   Boolean(row.officePreviewRef) ||
   Boolean(row.resourcePayload) ||
   (row.inlineImagePayloads?.length ?? 0) > 0 ||
@@ -745,23 +737,29 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         // metadata. It was previously precomputed into a per-render
         // `Map<_id, responseTarget>` and looked up here by `message._id` — but
         // that lookup is always THIS same message, so the map was a redundant
-        // O(messages) pass + allocation on every streamed delta. Inlining it
-        // (it folds into the per-message projection cache for finalized rows;
-        // only the live overlay reads it fresh) removes that whole pass.
+        // O(messages) pass + allocation on every render. Inlining it folds it
+        // into the per-message projection cache.
         const runtimeMetadata = (
           payload?.metadata as
             | {
                 runtime?: {
-                  isStreaming?: boolean;
                   responseTarget?: AgentResponseTarget;
                   followedByToolCall?: boolean;
                   turnComplete?: boolean;
+                  heldForHandoff?: boolean;
                 };
               }
             | undefined
         )?.runtime;
+        // The reply is complete but the indicator is still playing its exit.
+        // Skipping the row keeps it out of the timeline until the hold
+        // releases, so the answer lands where the indicator was instead of
+        // appearing below it.
+        if (runtimeMetadata?.heldForHandoff === true) {
+          continue;
+        }
         const responseTarget = runtimeMetadata?.responseTarget;
-        // Unified key for both live-streaming overlays (synthetic
+        // Unified key for both in-memory overlays (synthetic
         // `_id`s) and the eventual persisted rows for the same
         // `(userMessageId, indexInTurn)` slot. The display merge
         // ensures only one source is present at a time, so the count
@@ -792,20 +790,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           toolEvents,
           lifecycleIndex,
         );
-        const isStreamingOverlay =
-          message._id.startsWith(STREAMING_OVERLAY_ID_PREFIX) &&
-          runtimeMetadata?.isStreaming !== false;
         const isIntraTurn = isIntraTurnAssistantRuntime(runtimeMetadata);
-        // Inline artifact cards (generated images, html/canvas + tool-output
-        // resource previews, office files, source diffs, and the web-search
-        // image strip) only render once their owning
-        // assistant message is finalized — never on the live in-progress
-        // overlay row while the turn is still streaming / thinking / running
-        // tools. The same tool events resurface on the persisted (terminal)
-        // row once the overlay locks or clears, so the cards appear there.
-        // Non-artifact receipts (voice-session summary, schedule receipt,
-        // self-mod notice, background-work card) keep rendering live.
-        const showInlineArtifacts = !isStreamingOverlay;
         const row: AssistantRowViewModel = {
           kind: "assistant",
           id: stableKey,
@@ -822,28 +807,15 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           ...(message.toolEventSummary
             ? { toolEventSummary: message.toolEventSummary }
             : {}),
-          ...(isStreamingOverlay ? { isStreaming: true } : {}),
           ...(isIntraTurn ? { isIntraTurn: true } : {}),
           ...(responseTarget ? { responseTarget } : {}),
           ...(replyToUserMessageId ? { replyToUserMessageId } : {}),
-          ...(showInlineArtifacts && officePreviewRef
-            ? { officePreviewRef }
-            : {}),
-          ...(showInlineArtifacts && resourcePayload
-            ? { resourcePayload }
-            : {}),
-          ...(showInlineArtifacts && inlineImagePayloads.length > 0
-            ? { inlineImagePayloads }
-            : {}),
-          ...(showInlineArtifacts && webSearchResults.length > 0
-            ? { webSearchResults }
-            : {}),
-          ...(showInlineArtifacts && mapArtifacts.length > 0
-            ? { mapArtifacts }
-            : {}),
-          ...(showInlineArtifacts && sourceDiffPayloads.length > 0
-            ? { sourceDiffPayloads }
-            : {}),
+          ...(officePreviewRef ? { officePreviewRef } : {}),
+          ...(resourcePayload ? { resourcePayload } : {}),
+          ...(inlineImagePayloads.length > 0 ? { inlineImagePayloads } : {}),
+          ...(webSearchResults.length > 0 ? { webSearchResults } : {}),
+          ...(mapArtifacts.length > 0 ? { mapArtifacts } : {}),
+          ...(sourceDiffPayloads.length > 0 ? { sourceDiffPayloads } : {}),
           ...(voiceSession ? { voiceSession } : {}),
           ...(backgroundWork ? { backgroundWork } : {}),
           ...(agentCompletionSections.length > 0

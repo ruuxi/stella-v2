@@ -10,7 +10,7 @@
  *   - Maintain a scheduled-end timestamp so consecutive chunks queue with
  *     zero gap.
  *   - Expose an AnalyserNode tap for output-level visualisation (so the
- *     echo guard and the StellaAnimation can read assistant audio levels
+ *     echo guard and the character mark can read assistant audio levels
  *     the same way they do over WebRTC).
  *   - Emit speaking-start / speaking-end callbacks when the queue
  *     transitions from idle → playing → idle, since xAI doesn't emit the

@@ -7,8 +7,7 @@
  * `useLocalAgentStream` without duplicating the reducer's source of
  * truth. Per-thread task decoration writes go straight to the module
  * `task-decoration-store`, not through the reducer. The slot-management callbacks (`beginStreamingRun`,
- * `acceptStreamChunk`, `finalizeMessageBoundary`,
- * `finalizeRunOnFinish`) own the in-memory
+ * `finalizeMessageBoundary`, `finalizeRunOnFinish`) own the in-memory
  * `streamingAssistants` overlay array — see `useLocalAgentStream` for
  * the lifecycle, and `useConversationDisplayMessages` for the merge
  * with persisted SQLite-backed messages.
@@ -70,26 +69,22 @@ type UseAgentEventHandlerOptions = {
      * exactly one of these so the in-memory `streamingAssistants`
      * array stays consistent with the runtime's view of the world:
      *
-     *   - RUN_STARTED  → beginStreamingRun
-     *   - STREAM       → acceptStreamChunk
-     *   - ASSISTANT_MESSAGE boundary → finalizeMessageBoundary
-     *   - RUN_FINISHED → finalizeRunOnFinish
+     *   - RUN_STARTED       → beginStreamingRun
+     *   - ASSISTANT_MESSAGE → finalizeMessageBoundary (the whole message,
+     *                         so the same event opens and closes its slot)
+     *   - RUN_FINISHED      → finalizeRunOnFinish
      */
     beginStreamingRun: (args: {
       runId: string
       userMessageId: string | null
     }) => void
-    acceptStreamChunk: (args: {
-      runId: string
-      userMessageId: string | null
-      responseTarget?: AgentResponseTarget | null
-      chunk: string
-    }) => void
     finalizeMessageBoundary: (args: {
       runId: string
       userMessageId: string | null
+      responseTarget?: AgentResponseTarget | null
       canonicalMessageId?: string
       canonicalText?: string
+      followedByToolCall?: boolean
     }) => void
     finalizeRunOnFinish: (args: { runId: string }) => void
   }
@@ -174,7 +169,6 @@ export function useAgentEventHandler({
   const {
     setPendingUserMessageId,
     beginStreamingRun,
-    acceptStreamChunk,
     finalizeMessageBoundary,
     finalizeRunOnFinish,
   } = streaming
@@ -344,7 +338,10 @@ export function useAgentEventHandler({
           }
           break
         }
-        case AGENT_STREAM_EVENT_TYPES.STREAM: {
+        case AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE: {
+          // The whole message is here, so this event both opens and closes the
+          // slot it occupies. A run emits several of these — preamble, then
+          // the post-tool answer — each with its own persisted row.
           const isReactivation =
             !isPrimaryRun &&
             isOrchestratorEvent &&
@@ -369,62 +366,30 @@ export function useAgentEventHandler({
             runId: event.runId,
             statusText: null,
           })
-          if (
-            (isPrimaryRun || isReactivation) &&
-            isOrchestratorEvent &&
-            isActiveConversation &&
-            event.chunk
-          ) {
-            acceptStreamChunk({
+
+          if ((isPrimaryRun || isOrchestratorEvent) && isActiveConversation) {
+            finalizeMessageBoundary({
               runId: event.runId,
               userMessageId: event.userMessageId ?? null,
               ...(event.responseTarget
                 ? { responseTarget: event.responseTarget }
                 : {}),
-              chunk: event.chunk,
-            })
-            // The first accepted text delta starts the visual stream; its
-            // first animation frame follows immediately after this handoff.
-            if (/\S/.test(event.chunk)) {
-              dispatch({ type: 'mark-streaming-text', runId: event.runId })
-            }
-          }
-          break
-        }
-        case AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE: {
-          // Boundary between two assistant messages within the same run
-          // (e.g. preamble finalized → post-tool answer about to stream).
-          // Lock the current overlay slot's text and advance the
-          // per-turn slot index so the next chunk lands on a fresh
-          // slot. The locked slot stays visible in the chat even after
-          // its persisted counterpart lands; the display merge masks
-          // the persisted twin and borrows its metadata.
-          if (
-            (isPrimaryRun || isOrchestratorEvent) &&
-            conversationId === activeConversationIdRef.current
-          ) {
-            finalizeMessageBoundary({
-              runId: event.runId,
-              userMessageId: event.userMessageId ?? null,
               ...(event.assistantMessageEventId
                 ? { canonicalMessageId: event.assistantMessageEventId }
                 : {}),
               ...(event.assistantMessageText !== undefined
                 ? { canonicalText: event.assistantMessageText }
                 : {}),
+              followedByToolCall: Boolean(event.followedByToolCall),
             })
-            // Preamble → tool-call handoff: if this finalized message ends
-            // with a tool call, clear the streaming-text flag now so the
-            // working indicator re-appears at the boundary and stays up
-            // across the gap until `tool-start` arrives, instead of
-            // lingering dismissed over the visible preamble text.
-            if (event.followedByToolCall) {
-              dispatch({
-                type: 'assistant-message-boundary',
-                runId: event.runId,
-                followedByToolCall: true,
-              })
-            }
+            // The store needs the boundary too: only it knows whether this was
+            // the run's answer or a preamble, which decides whether the
+            // indicator hands off or stays up for the tool that follows.
+            dispatch({
+              type: 'assistant-message-boundary',
+              runId: event.runId,
+              followedByToolCall: Boolean(event.followedByToolCall),
+            })
           }
           break
         }
@@ -585,8 +550,7 @@ export function useAgentEventHandler({
       }
     },
     [
-      acceptStreamChunk,
-      activeConversationIdRef,
+        activeConversationIdRef,
       activeRunIdByConversationRef,
       beginStreamingRun,
       discardPendingReasoningChunks,

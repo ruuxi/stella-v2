@@ -11,9 +11,14 @@
  * once the outgoing layer is unmounted. In the sticky footer the
  * surrounding flex container absorbs that final size change without
  * shifting layout.
+ *
+ * Deciding *which* values are worth showing is not this component's job: it
+ * animates whatever it is handed. Callers that need a legibility floor hold
+ * their value through `useMinimumVisibleValue` first.
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useMinimumVisibleValue } from "@/shared/hooks/use-minimum-visible-value";
 import { TextShimmer } from "./TextShimmer";
 
 interface SwapTextProps {
@@ -30,57 +35,6 @@ interface SwapTextProps {
 
 const SWAP_DURATION_MS = 240;
 
-function useMinimumVisibleText(text: string, minimumVisibleMs: number): string {
-  const [visibleText, setVisibleText] = useState(text);
-  const visibleTextRef = useRef(text);
-  const visibleSinceRef = useRef(Date.now());
-  const pendingTextRef = useRef(text);
-  const holdTimerRef = useRef<number | null>(null);
-  useEffect(() => {
-    pendingTextRef.current = text;
-    const clearTimer = () => {
-      if (holdTimerRef.current !== null) {
-        window.clearTimeout(holdTimerRef.current);
-        holdTimerRef.current = null;
-      }
-    };
-    const showText = (nextText: string) => {
-      if (nextText === visibleTextRef.current) return;
-      visibleTextRef.current = nextText;
-      visibleSinceRef.current = Date.now();
-      setVisibleText(nextText);
-    };
-    if (text === visibleTextRef.current) {
-      clearTimer();
-      return;
-    }
-    const remainingMs = Math.max(
-      0,
-      minimumVisibleMs - (Date.now() - visibleSinceRef.current),
-    );
-    if (remainingMs === 0) {
-      clearTimer();
-      showText(text);
-      return;
-    }
-    if (holdTimerRef.current === null) {
-      holdTimerRef.current = window.setTimeout(() => {
-        holdTimerRef.current = null;
-        showText(pendingTextRef.current);
-      }, remainingMs);
-    }
-  }, [minimumVisibleMs, text]);
-  useEffect(
-    () => () => {
-      if (holdTimerRef.current !== null) {
-        window.clearTimeout(holdTimerRef.current);
-      }
-    },
-    [],
-  );
-  return visibleText;
-}
-
 export function SwapText({
   text,
   active = true,
@@ -90,7 +44,7 @@ export function SwapText({
   shimmerGroup,
   shimmerPriority,
 }: SwapTextProps) {
-  const visibleText = useMinimumVisibleText(text, minimumVisibleMs);
+  const visibleText = useMinimumVisibleValue(text, minimumVisibleMs);
   const [current, setCurrent] = useState(visibleText);
   const [previous, setPrevious] = useState<string | null>(null);
   const [hasChanged, setHasChanged] = useState(false);

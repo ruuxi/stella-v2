@@ -28,10 +28,8 @@ export const assistantRowHasVisibleContent = (row) => row.text.trim().length > 0
     (row.agentCompletion?.sections.length ?? 0) > 0;
 /**
  * Whether a timeline row produces a rendered box at all. User rows always
- * render; assistant rows render when they have visible content, or while
- * streaming pre-first-token (the placeholder that gives scroll-follow its
- * `[data-scroll-follow-key]` target).
+ * render; assistant rows render when they have visible content. A reply
+ * arrives whole, so there is no empty pre-text row to reserve space for.
  */
 export const eventRowRendersContent = (row) => row.kind !== "assistant" ||
-    Boolean(row.isStreaming) ||
     assistantRowHasVisibleContent(row);

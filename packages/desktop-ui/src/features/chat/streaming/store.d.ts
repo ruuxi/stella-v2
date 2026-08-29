@@ -17,19 +17,15 @@ export type RunRecord = {
     outcome?: 'completed' | 'error' | 'canceled';
     statusText: string | null;
     hasToolActivity: boolean;
-    /**
-     * `true` while the orchestrator is actively emitting visible answer
-     * text. Set on each visible STREAM chunk; reset when a tool starts (the
-     * model has stopped talking to do work) and on run start. Drives the
-     * inline working indicator's "Thinking → gone" handoff. Tracked at the
-     * run level (not derived from the overlay array) so reasoning gaps
-     * *after* an interim/preamble message still show the indicator, and so
-     * runs without a user-message anchor (proactive / non-`user_turn`) get
-     * the same handoff even though they never create a streaming overlay.
-     */
-    isStreamingText: boolean;
     /** Rejects any out-of-order response marker for a finalized preamble. */
     pendingToolAfterPreamble: boolean;
+    /**
+     * The run's final assistant message has landed. Tracked at the run level
+     * rather than derived from the overlay array so runs with no user-message
+     * anchor (proactive / non-`user_turn`) get the same handoff even though
+     * they never create an overlay.
+     */
+    answerLanded: boolean;
     activeToolCalls: Record<string, {
         toolName: string;
         statusText: string | null;
@@ -59,17 +55,13 @@ export type StreamStoreAction = {
     runId: string;
     statusText: string | null;
 } | {
-    type: 'mark-streaming-text';
-    runId: string;
-} | {
     type: 'assistant-message-boundary';
     runId: string;
     /**
-     * True when the message that just finalized ends with a tool call
-     * (an interim preamble, not the run's final answer). Re-arms the
-     * working indicator by clearing `isStreamingText` at the boundary so
-     * it stays up across the gap until the tool starts — rather than
-     * lingering dismissed over the visible preamble text.
+     * True when the message that just finalized ends with a tool call — an
+     * interim preamble, not the run's final answer. Keeps the working
+     * indicator up across the gap until the tool starts, rather than letting
+     * it hand off over a preamble the run is not finished with.
      */
     followedByToolCall?: boolean;
 } | {

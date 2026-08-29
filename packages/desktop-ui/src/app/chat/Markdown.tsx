@@ -4,11 +4,7 @@ import type {
   ImgHTMLAttributes,
 } from "react";
 import { memo, useMemo, useRef } from "react";
-import {
-  Streamdown,
-  defaultRemarkPlugins,
-  type AnimateOptions,
-} from "streamdown";
+import { Streamdown, defaultRemarkPlugins } from "streamdown";
 import { cn } from "@/shared/lib/utils";
 import {
   remarkStellaFileLinks,
@@ -26,7 +22,6 @@ import {
   useActiveEmojiPack,
 } from "./emoji-sprites/active-emoji-pack";
 import { remarkEmojiSprites } from "./emoji-sprites/remark-emoji-sprites";
-import { shouldUseStreamingMarkdownPlaintext } from "@/features/chat/streaming/use-stream-text-animation";
 import { shouldUseBoundedMarkdownPlaintext } from "@/features/chat/streaming/markdown-chunks";
 import {
   cellToRowCol,
@@ -39,10 +34,6 @@ interface MarkdownProps {
   text: string;
   cacheKey?: string;
   className?: string;
-  /** Settled content skips Streamdown's live-block transition machinery. */
-  mode?: "static" | "streaming";
-  /** Opt in only while this row owns genuinely live assistant text. */
-  animateStreamingWords?: boolean;
   /** Suppress GFM horizontal rules (`---`). Used in chat bubbles where
    *  models often append a trailing rule that reads as a message divider. */
   hideHorizontalRules?: boolean;
@@ -113,27 +104,6 @@ const LINK_SAFETY = { enabled: false } as const;
 // existing unbounded chat layout instead of introducing nested scrolling.
 const UNBOUNDED_STREAMDOWN_HEIGHT = Number.POSITIVE_INFINITY;
 
-const STREAMDOWN_WORD_ANIMATION: AnimateOptions = {
-  animation: "blurIn",
-  duration: 190,
-  easing: "ease-out",
-  sep: "word",
-  stagger: 20,
-  // Keep Streamdown's 320ms backlog compression for fast provider bursts.
-};
-
-const streamingMotionAllowed = (): boolean => {
-  if (typeof document === "undefined") return false;
-  // The root attribute includes Stella's explicit on/off override. Global CSS
-  // stops an in-flight animation immediately; the next text commit also drops
-  // Streamdown's wrappers by making `animateWords` false.
-  const preference = document.documentElement.dataset.reduceMotion;
-  if (preference) return preference !== "reduce";
-  return (
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches !== true
-  );
-};
-
 const areMarkdownPropsEqual = (
   prev: MarkdownProps,
   next: MarkdownProps,
@@ -141,8 +111,6 @@ const areMarkdownPropsEqual = (
   prev.text === next.text &&
   prev.cacheKey === next.cacheKey &&
   prev.className === next.className &&
-  prev.mode === next.mode &&
-  Boolean(prev.animateStreamingWords) === Boolean(next.animateStreamingWords) &&
   Boolean(prev.hideHorizontalRules) === Boolean(next.hideHorizontalRules);
 
 const MarkdownImage = ({
@@ -225,8 +193,6 @@ export const Markdown = memo(function Markdown({
   text,
   cacheKey,
   className,
-  mode = "static",
-  animateStreamingWords = false,
   hideHorizontalRules = false,
 }: MarkdownProps) {
   /*
@@ -270,28 +236,22 @@ export const Markdown = memo(function Markdown({
     ) as CSSProperties;
   }, [activeEmojiPack, emojiSpritesEnabled]);
   const streamdownKey = `${effectiveCacheKey}:${emojiSpritesEnabled ? "emoji" : "plain"}`;
-  const useStreamingPlaintext = shouldUseStreamingMarkdownPlaintext(
-    mode,
-    text.length,
-  );
   // Streamdown parsing is intentionally a hard-bounded main-thread task.
   // Parsing separate fragments changes document-level Markdown semantics
   // (references, lists), while one pathological paragraph or fence defeats
   // blank-line chunking. Preserve the complete authored text as plaintext
   // once the bounded parser budget is exceeded.
   const useBoundedPlaintext = shouldUseBoundedMarkdownPlaintext(text.length);
-  const animateWords =
-    mode === "streaming" && animateStreamingWords && streamingMotionAllowed();
   return (
     <div style={emojiVars}>
-      {useStreamingPlaintext || useBoundedPlaintext ? (
+      {useBoundedPlaintext ? (
         <div className={cn("markdown markdown--streaming-plaintext", className)}>
           {text}
         </div>
       ) : (
         <Streamdown
           key={streamdownKey}
-          mode={mode}
+          mode="static"
           codeBlockMaxHeight={UNBOUNDED_STREAMDOWN_HEIGHT}
           tableMaxHeight={UNBOUNDED_STREAMDOWN_HEIGHT}
           className={cn("markdown", className)}
@@ -299,12 +259,6 @@ export const Markdown = memo(function Markdown({
           components={components}
           allowedTags={ALLOWED_TAGS}
           linkSafety={LINK_SAFETY}
-          {...(animateWords
-            ? {
-                animated: STREAMDOWN_WORD_ANIMATION,
-                isAnimating: true,
-              }
-            : {})}
         >
           {text}
         </Streamdown>

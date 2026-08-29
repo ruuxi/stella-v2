@@ -5,6 +5,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 const store = new Map<string, string>();
 
 mock.module("expo-secure-store", () => ({
+  getItem: (key: string) => store.get(key) ?? null,
+  setItem: (key: string, value: string) => {
+    store.set(key, value);
+  },
   getItemAsync: async (key: string) => store.get(key) ?? null,
   setItemAsync: async (key: string, value: string) => {
     store.set(key, value);

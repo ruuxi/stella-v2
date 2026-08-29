@@ -26,7 +26,6 @@ const turn = {
   turnId: "turn-1",
   attemptGeneration: 1,
   threadId: "thread-1",
-  workspace: "stella",
   prompt: "prompt",
   turnToken: "token",
   convexCallbackBase: "https://convex.example",
@@ -91,8 +90,6 @@ const gateHarness = (
     return await gate.call(instance, {
       turn,
       sandbox: {},
-      sourceWorkspace: "stella",
-      workspaceRoot: "/workspace/stella",
       commandTimeoutMs: 120_000,
       turnExecution: {
         signal: new AbortController().signal,

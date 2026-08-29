@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import {
+  WORLD_REGISTRY_SEGMENT,
   TURN_STATE_OBJECT_FORMAT,
   TURN_STATE_SCHEMA_VERSION,
   assertTurnStateTransferSourceEmpty,
@@ -747,7 +748,7 @@ describe("strong turn state registry", () => {
     });
     const second = await prepareTurnStateOperation(storage, nextArgs);
     await uploadAndMark(storage, r2, second, "workspace");
-    const workspaceRecordKey = `turn-state:v1:workspace:${digest("drive")}`;
+    const workspaceRecordKey = `turn-state:v1:workspace:${digest(WORLD_REGISTRY_SEGMENT)}`;
     storage.setRaw(workspaceRecordKey, {
       ...(await storage.get<Record<string, unknown>>(workspaceRecordKey)),
       ownerGeneration: "owner-generation-2",

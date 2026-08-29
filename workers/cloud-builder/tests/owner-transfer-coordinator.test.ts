@@ -142,26 +142,41 @@ describe("durable owner-transfer coordinator", () => {
     });
     const observation = {
       workspacePlanId: hash("b"),
-      transfer: { from: "drive", to: "drive" },
       sourceHasState: true,
       sourceStateMarker: "sha256:source",
-      requestedDestinationMarker: "absent",
-      expectedRequestedMarker: "sha256:expected",
+      destinationMarker: "absent",
+      expectedDestinationMarker: "sha256:expected",
     };
     const plan = claimWorkspacePlan(state, observation);
-    expect(plan.resolution.resolvedTo).toBe("drive");
+    expect(plan.state).toBe("planned");
     expect(
       claimWorkspacePlan(state, {
         ...observation,
-        requestedDestinationMarker: "sha256:expected",
+        destinationMarker: "sha256:expected",
       }),
     ).toBe(plan);
     expect(() =>
       claimWorkspacePlan(state, {
         ...observation,
-        requestedDestinationMarker: "sha256:unrelated",
+        destinationMarker: "sha256:unrelated",
       }),
     ).toThrow(/destination checkpoint changed/i);
+  });
+
+  test("refuses to move a world onto an account that already has one", () => {
+    const state = createCoordinatorState(attempt(), 1, {
+      source: "source-reservation",
+      destination: "destination-reservation",
+    });
+    expect(() =>
+      claimWorkspacePlan(state, {
+        workspacePlanId: hash("c"),
+        sourceHasState: true,
+        sourceStateMarker: "sha256:source",
+        destinationMarker: "sha256:occupied",
+        expectedDestinationMarker: "sha256:occupied",
+      }),
+    ).toThrow(/already has a world of its own/i);
   });
 
   test("distinguishes retryable purge and contention from permanent purge", () => {
@@ -173,9 +188,13 @@ describe("durable owner-transfer coordinator", () => {
       retryable: true,
       code: "owner_purge_temporary",
     });
-    expect(classifyOwnerFenceRejection("workspace_busy")).toEqual({
+    expect(classifyOwnerFenceRejection("transfer_busy")).toEqual({
       retryable: true,
       code: "transfer_busy",
+    });
+    expect(classifyOwnerFenceRejection(undefined)).toEqual({
+      retryable: true,
+      code: "transfer_unavailable",
     });
   });
 });

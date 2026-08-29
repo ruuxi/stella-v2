@@ -18,6 +18,7 @@ import {
   breatheScale,
   voiceScale,
 } from "./motion";
+import { useAppVisible } from "../../lib/use-app-visible";
 
 export function StellaMarkHero({
   size,
@@ -27,6 +28,7 @@ export function StellaMarkHero({
   energy?: SharedValue<number>;
 }) {
   const reduceMotion = useReducedMotion();
+  const appVisible = useAppVisible();
   const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
 
   const clock = useSharedValue(0);
@@ -40,6 +42,7 @@ export function StellaMarkHero({
       clock.value = 0;
       return;
     }
+    if (!appVisible) return;
     clock.value = 0;
     clock.value = withRepeat(
       withTiming(CLOCK_SPAN_MS, {
@@ -50,7 +53,7 @@ export function StellaMarkHero({
       false,
     );
     return () => cancelAnimation(clock);
-  }, [clock, reduceMotion]);
+  }, [appVisible, clock, reduceMotion]);
 
   const stageStyle = useAnimatedStyle(() => {
     if (reduceMotion) {

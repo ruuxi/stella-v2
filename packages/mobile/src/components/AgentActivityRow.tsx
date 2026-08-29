@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { useReducedMotion } from "react-native-reanimated";
 import { Icon } from "./Icon";
 import { ShimmerText } from "./ShimmerText";
 import { StellaStarGlyph } from "./AgentActivityGlyph";
@@ -32,8 +31,6 @@ export function AgentActivityRow({
 }) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const reduceMotion = useReducedMotion();
-  const shimmerActive = working && !reduceMotion;
   return (
     <Pressable
       accessibilityRole={onPress ? "button" : "text"}
@@ -59,7 +56,7 @@ export function AgentActivityRow({
       <View style={styles.titleWrap}>
         <ShimmerText
           text={title}
-          active={shimmerActive}
+          active={working}
           variant="highlight"
 
           color={colors.textStrong}

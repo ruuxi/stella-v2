@@ -13,7 +13,7 @@
   gap: 4px;
   min-width: 0;
   height: 100%;
-  -webkit-app-region: no-drag;
+  -webkit-app-region: drag;
 }
 
 .sidebar-top-nav__plus {

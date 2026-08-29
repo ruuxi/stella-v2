@@ -6,7 +6,7 @@
   max-width: 100%;
   height: var(--shell-topbar-height, 38px);
   gap: 4px;
-  -webkit-app-region: no-drag;
+  -webkit-app-region: drag;
 }
 
 .conversation-topbar__history,
@@ -65,6 +65,7 @@
   min-width: 28px;
   height: var(--shell-topbar-height, 38px);
   overflow: hidden;
+  -webkit-app-region: drag;
 }
 
 .conversation-topbar__viewport::before,
@@ -106,6 +107,7 @@
   overflow-y: hidden;
   scrollbar-width: none;
   overscroll-behavior-x: contain;
+  -webkit-app-region: no-drag;
 }
 
 .conversation-topbar__tabs::-webkit-scrollbar {
@@ -150,6 +152,7 @@
   color: var(--text-muted);
   background: color-mix(in oklch, var(--foreground) 7%, transparent);
   container-type: inline-size;
+  -webkit-app-region: no-drag;
 }
 
 .conversation-topbar__tab:first-child {

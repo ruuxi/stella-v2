@@ -15,11 +15,7 @@ const result = process.argv.includes("--stub")
         runAppTurn(process.env.STELLA_CLOUD_WORKSPACE_ROOT ?? "/workspace/app"),
       )
     : agentTurn
-      ? await Effect.runPromise(
-          runAgentTurn(
-            process.env.STELLA_CLOUD_WORKSPACE_ROOT ?? "/workspace/drive",
-          ),
-        )
+      ? await Effect.runPromise(runAgentTurn())
       : (() => {
           throw new Error("executor-cloud requires a supported command.");
         })();

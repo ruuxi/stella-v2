@@ -16,6 +16,13 @@ export const WORLD_ROOT = "/workspace/world";
 export const WORLD_STELLA_ROOT = `${WORLD_ROOT}/stella`;
 
 /**
+ * Where the user's drive is hydrated and where deliverables are collected
+ * from. A file anywhere else in the world is the agent's working material,
+ * not something the user receives.
+ */
+export const WORLD_DRIVE_ROOT = `${WORLD_ROOT}/drive`;
+
+/**
  * Where the tool host keeps its private state (shell state, deferred-delete
  * logs, office sessions).
  *

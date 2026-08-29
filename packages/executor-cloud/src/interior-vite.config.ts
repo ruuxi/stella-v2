@@ -1,7 +1,7 @@
 /**
- * Production-only config for a cloud `workspace: "stella"` build.
+ * Production-only config for a Stella interior build.
  *
- * The editable workspace contains the renderer source, while this config and
+ * The editable world contains the renderer source, while this config and
  * all build tooling come from the immutable sandbox image. That separation is
  * intentional: an agent may change Stella's web interior, but it cannot
  * redefine what the candidate builder reads, where it writes, or which entry
@@ -14,7 +14,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const workspaceRoot = path.resolve(
-  process.env.STELLA_INTERIOR_SOURCE_ROOT ?? "/workspace/stella",
+  process.env.STELLA_INTERIOR_SOURCE_ROOT ?? "/workspace/world/stella",
 );
 const outputRoot = path.resolve(
   process.env.STELLA_INTERIOR_OUTPUT_ROOT ??

@@ -6,23 +6,12 @@ import {
   cloudPinnedWorkspaceTools,
   requestStellaInteriorBuild,
 } from "./agent-turn.js";
-import type { WorkspaceIdentity } from "./workspace-paths.js";
-
-const stellaWorkspace: WorkspaceIdentity = {
-  kind: "stella",
-  workspace: "stella",
-  slug: "",
-  root: "/workspace/stella",
-};
 
 describe("stella interior publish tool", () => {
-  test("is pinned only for a Stella-interior workspace", () => {
-    expect(
-      cloudPinnedWorkspaceTools("stella").map((tool) => tool.name),
-    ).toEqual([PUBLISH_STELLA_INTERIOR_TOOL]);
-    for (const kind of ["drive", "project", "app"] as const) {
-      expect(cloudPinnedWorkspaceTools(kind)).toEqual([]);
-    }
+  test("is pinned on every cloud agent turn", () => {
+    expect(cloudPinnedWorkspaceTools().map((tool) => tool.name)).toEqual([
+      PUBLISH_STELLA_INTERIOR_TOOL,
+    ]);
   });
 
   test("posts the broker command and acknowledges the deferred build", async () => {
@@ -71,10 +60,7 @@ describe("stella interior publish tool", () => {
   });
 
   test("tells the agent the build is opt-in and the user still selects it", () => {
-    const prompt = CLOUD_GENERAL_PROMPT({
-      workspace: stellaWorkspace,
-      office: false,
-    });
+    const prompt = CLOUD_GENERAL_PROMPT({ office: false });
     expect(prompt).toContain(PUBLISH_STELLA_INTERIOR_TOOL);
     expect(prompt).toContain("Nothing is built or published unless you ask");
     expect(prompt).toContain("selects that candidate in Settings");

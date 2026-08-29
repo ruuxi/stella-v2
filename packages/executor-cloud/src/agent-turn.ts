@@ -81,17 +81,9 @@ import {
   type ProducedFileReport,
 } from "./produced-files.js";
 import {
-  prepareProjectWorkspace,
-  scrubRemoteUrl,
-  takeProjectCredentials,
-  type ProjectTurnInput,
-  type ProjectWorkspaceResult,
-} from "./project-workspace.js";
-import {
-  drivePrefixFor,
-  resolveWorkspace,
-  toolStateDirFor,
-  type WorkspaceIdentity,
+  WORLD_DRIVE_ROOT,
+  WORLD_ROOT,
+  toolStateDir,
 } from "./workspace-paths.js";
 import {
   nativeHistoryCursorFromMessages,
@@ -147,8 +139,7 @@ export type AgentTurnInput = {
   turnId: string;
   attemptGeneration: number;
   prompt: string;
-  workspace: string;
-  /** Builder-owned fact: this attempt restored a durable workspace backup. */
+  /** Builder-owned fact: this attempt restored a durable world backup. */
   workspaceRestored: boolean;
   /** Builder-derived HMAC key; consumed before any model/tool process exists. */
   nativeStateIntegrityKey: string;
@@ -160,8 +151,6 @@ export type AgentTurnInput = {
   browserResume?: CloudBrowserResumeReceipt;
   /** Canonical model route authorized for this turn at dispatch. */
   execution: CloudExecutionSelection;
-  /** Clone/checkout inputs for a `project:<slug>` workspace. */
-  project?: ProjectTurnInput;
   /**
    * Version-pinned, owner-authorized skill packages materialized by the
    * worker into this sandbox's ephemeral filesystem. Contains no R2 keys.
@@ -180,13 +169,6 @@ export type AgentTurnInput = {
       allowedToolNames: string[];
     }>;
   };
-};
-
-type AgentTurnProjectResult = {
-  mode: ProjectWorkspaceResult["mode"];
-  branch: string;
-  setupCommand?: string;
-  setupSource?: "provided" | "inferred";
 };
 
 export type AgentTurnTerminalResult = {
@@ -215,12 +197,6 @@ export type AgentTurnTerminalResult = {
       ReturnType<typeof runNativeAgentTurn>
     >["nativeStateCheckpoint"];
   };
-  /**
-   * Resolved project workspace facts. `setupCommand` is the command this turn
-   * inferred when the project had none recorded; the dispatcher persists it so
-   * later turns stop re-deriving it.
-   */
-  project?: AgentTurnProjectResult;
   suspension?: never;
 };
 
@@ -397,13 +373,12 @@ const PUBLISH_STELLA_INTERIOR_METADATA: ToolMetadata = {
 };
 
 /**
- * Pinned only for a Stella-interior workspace. Every other workspace kind has
- * no interior to build, so the name must not exist in its catalog at all.
+ * Every cloud agent turn can reach the interior source at `world/stella`, so
+ * the request tool is always in the catalog.
  */
-export const cloudPinnedWorkspaceTools = (
-  workspaceKind: WorkspaceIdentity["kind"],
-): readonly ToolMetadata[] =>
-  workspaceKind === "stella" ? [PUBLISH_STELLA_INTERIOR_METADATA] : [];
+export const cloudPinnedWorkspaceTools = (): readonly ToolMetadata[] => [
+  PUBLISH_STELLA_INTERIOR_METADATA,
+];
 
 export const requestStellaInteriorBuild = async (args: {
   post: (route: string, body: unknown) => Promise<Response>;
@@ -462,7 +437,6 @@ export const createBuilderFallbackAgentTurnResult = (args: {
   nativeCheckpoint?: NonNullable<
     AgentTurnTerminalResult["builderFallback"]
   >["nativeCheckpoint"];
-  project?: AgentTurnProjectResult;
 }): AgentTurnTerminalResult => ({
   ok: !args.error,
   finalText:
@@ -477,7 +451,6 @@ export const createBuilderFallbackAgentTurnResult = (args: {
       ? { nativeCheckpoint: args.nativeCheckpoint }
       : {}),
   },
-  ...(args.project ? { project: args.project } : {}),
 });
 
 /**
@@ -601,20 +574,17 @@ const resolveOfficeBinPath = (): string | undefined => {
  * them that had never been rendered.
  */
 export const CLOUD_GENERAL_PROMPT = (options: {
-  workspace: WorkspaceIdentity;
   office: boolean;
-  project?: { result: ProjectWorkspaceResult; remoteUrl: string };
   drive?: DriveSyncResult;
   skills?: AgentTurnInput["skills"];
 }) => {
-  const { workspace, project } = options;
-  // The workspace IS the drive, so the agent has to know that the files in it
-  // are the user's own — a file it does not recognize is not scratch, and a
-  // name already taken is a file to open rather than recreate.
+  // `drive/` holds the user's own files, so the agent has to know that a file
+  // it does not recognize is not scratch, and a name already taken is a file
+  // to open rather than recreate.
   const driveSentences: string[] = [];
   if (options.drive) {
     const loaded = options.drive.materialized.length;
-    driveSentences.push("This workspace is the user's drive.");
+    driveSentences.push(`${WORLD_ROOT}/drive is the user's drive.`);
     if (loaded > 0) {
       driveSentences.push(
         `The ${loaded} ${loaded === 1 ? "file" : "files"} in it — everything the user uploaded and everything earlier turns produced — ${loaded === 1 ? "is" : "are"} already on disk at the drive ${loaded === 1 ? "path" : "paths"} the user knows ${loaded === 1 ? "it" : "them"} by.`,
@@ -658,7 +628,7 @@ export const CLOUD_GENERAL_PROMPT = (options: {
       .map((entry) => entry.path);
     if (diverged.length > 0) {
       driveSentences.push(
-        `These changed in the drive and in this workspace since the workspace last read them, so the copy on disk is neither the user's current version nor saved anywhere: ${diverged.slice(0, 10).join(", ")}${diverged.length > 10 ? ", …" : ""}.`,
+        `These changed in the drive and on disk since this world last read them, so the copy on disk is neither the user's current version nor saved anywhere: ${diverged.slice(0, 10).join(", ")}${diverged.length > 10 ? ", …" : ""}.`,
         "Tell the user which one you used before you use it, and expect a version you save to be filed beside the drive's copy rather than over it.",
       );
     }
@@ -675,31 +645,16 @@ sandbox — do not plan around them.`
     : `PDFs: \`pdftotext\`, \`pdfinfo\`, \`pdftoppm\`, \`pdfimages\`. Audio and \
 video: \`mediainfo\`. There is no LibreOffice, ffmpeg or Python in this \
 sandbox — do not plan around them.`;
-  const projectLines = project
-    ? `\n\nThis workspace is the repository ${project.remoteUrl}, \
-${project.result.mode === "cloned" ? "freshly cloned" : "restored from its last checkpoint"} \
-on branch ${project.result.branch}. git is authenticated for this repository: \
-fetch, pull, commit, and push work like they would for a person at a clone. \
-Commit and push the work the user asked for; if a push is rejected because the \
-remote moved, fetch and rebase, resolve, and push again.${
-        project.result.notes.length > 0
-          ? `\n${project.result.notes.map((note) => `- ${note}`).join("\n")}`
-          : ""
-      }`
-    : "";
-  const stellaLines =
-    workspace.kind === "stella"
-      ? `\n\nThis workspace is the editable source tree for the user's Stella web interior. \
-Change the existing renderer source in place; do not replace it with a new app, \
-do not edit generated build output, and do not attempt to deploy it yourself. \
-Nothing is built or published unless you ask for it. When your changes are \
-complete and you would stand behind them, call \`publish_stella_interior\` \
+  const stellaLines = `\n\n${WORLD_ROOT}/stella is the editable source tree for \
+the user's Stella web interior. Change the existing renderer source in place; \
+do not replace it with a new app, do not edit generated build output, and do \
+not attempt to deploy it yourself. Nothing is built or published unless you ask \
+for it. Only when the user asked you to change their interior, and your changes \
+are complete and you would stand behind them, call \`publish_stella_interior\` \
 once; Stella then runs the immutable production builder after this turn and \
 records a candidate. The user still selects that candidate in Settings, so it \
 never switches their interior on its own. A build failure prevents a candidate \
-but does not discard the source changes. If you are not calling \
-\`publish_stella_interior\`, say so in your report and why.`
-      : "";
+but does not discard the source changes.`;
   const skillLines = (() => {
     const entries = options.skills?.entries ?? [];
     if (entries.length === 0) return "";
@@ -735,17 +690,19 @@ to the orchestrator as your report, so make it a concise, self-contained \
 summary of what you did and found, including exact file paths for anything \
 you created or changed.
 
-Your workspace is "${workspace.workspace}" mounted at ${workspace.root}, which \
-is the current working directory. Everything you write inside it is \
-checkpointed and persists across turns; anything outside it is discarded when \
-the sandbox stops. Files you create or change there are delivered to the user \
-automatically, so save deliverables in the workspace under the name the user \
-should see — up to 25 of them per turn, so bundle a larger set into one \
-archive. You have bun, node, and git available via exec_command.
+${WORLD_ROOT} is the user's whole world and your current working directory. \
+Everything you write inside it is checkpointed and persists across turns; \
+anything outside it is discarded when the sandbox stops. It holds \`drive/\` \
+(the user's files), \`projects/<slug>/\` (repository checkouts), \`apps/<slug>/\` \
+(hosted app sources), and \`stella/\` (the user's Stella interior source). Put \
+new work where it belongs among those; deliverables the user should receive go \
+in \`drive/\` under the name they should see — up to 25 of them per turn, so \
+bundle a larger set into one archive. You have bun, node, and git available via \
+exec_command.
 
 ${documents}
 
-You cannot spawn other agents and you cannot reach the user directly.${driveLines}${projectLines}${stellaLines}${skillLines}`;
+You cannot spawn other agents and you cannot reach the user directly.${driveLines}${stellaLines}${skillLines}`;
 };
 
 const asError = (error: unknown): Error =>
@@ -765,9 +722,7 @@ export const hydrateDriveForAgentTurn = async (
   }
 };
 
-export const runAgentTurn = (
-  fallbackWorkspaceRoot = "/workspace/drive",
-): Effect.Effect<AgentTurnResult, Error> =>
+export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
   Effect.scoped(
     Effect.gen(function* () {
       const input = yield* Effect.tryPromise({
@@ -848,27 +803,15 @@ export const runAgentTurn = (
           checkpointPolicy: "preserve_prior",
         };
       }
-      // The one credential the turn input only points at. Taken here, at the
-      // top of the turn, so it is off the filesystem long before the tool host
-      // — and therefore any shell the agent can run — exists.
-      const projectHandoff = input.project;
-      const projectToken = projectHandoff
-        ? yield* Effect.promise(() => takeProjectCredentials(projectHandoff))
-        : undefined;
-      const workspace = yield* Effect.try({
-        try: () => resolveWorkspace(input.workspace, fallbackWorkspaceRoot),
-        catch: asError,
-      });
-      const workspaceRoot = workspace.root;
-      const workspaceStateDir =
-        workspace.kind === "drive" ? toolStateDirFor(workspace) : undefined;
-      const stateDir = workspaceStateDir ?? CLOUD_TOOL_HOME;
+      const workspaceRoot = WORLD_ROOT;
+      const workspaceStateDir = toolStateDir(workspaceRoot);
+      const stateDir = workspaceStateDir;
       const toolHome = CLOUD_TOOL_HOME;
       yield* Effect.tryPromise({
         try: () =>
           prepareCloudToolFilesystem({
             workspaceRoot,
-            ...(workspaceStateDir ? { workspaceStateDir } : {}),
+            workspaceStateDir,
             toolHome,
           }),
         catch: asError,
@@ -898,88 +841,44 @@ export const runAgentTurn = (
           });
       };
 
-      // A project clone needs an empty directory, so it runs before anything
-      // else seeds the workspace.
-      let project: ProjectWorkspaceResult | undefined;
-      if (workspace.kind === "project" && projectHandoff) {
-        project = yield* Effect.tryPromise({
-          try: () =>
-            prepareProjectWorkspace(
-              workspaceRoot,
-              projectHandoff,
-              (message) => emitEvent("progress", { message }),
-              projectToken,
-              {
-                ...CLOUD_TOOL_PROCESS_IDENTITY,
-                home: toolHome,
-              },
-            ),
-          catch: asError,
-        });
-        // Give the agent's shells the same git credentials workspace prep
-        // used: every `exec_command` inherits this process's env, so from here
-        // on plain `git fetch/pull/push` in the workspace just works. The
-        // askpass helper holds the repo-scoped, ~1h token in its body — this
-        // env carries only its path (see createGitCredentialEnv).
-        if (project.gitEnv) {
-          Object.assign(process.env, project.gitEnv);
-        }
-      }
-
-      // Created before hydration, not after: the hydration ledger lives here,
-      // and it is what lets a turn skip re-downloading a drive it already has.
-      // Bring the drive into the workspace before any agent tool exists. Only
-      // the `drive` kind: its root IS the drive namespace, whereas a project
-      // or app root is a checkout whose drive folder is an output mirror —
-      // writing that mirror back into the tree would resurrect files the agent
-      // deleted and dirty a branch the user is about to review.
-      let driveSync = emptyDriveSync();
-      if (workspace.kind === "drive") {
-        const hydration = yield* Effect.promise(async () => {
-          try {
-            return {
-              ok: true as const,
-              value: await hydrateDriveForAgentTurn({
-                turnId: input.turnId,
-                prompt: input.prompt,
-                workspaceRoot,
-                workspaceRestored: input.workspaceRestored,
-                stateDir,
-                owner: CLOUD_TOOL_PROCESS_IDENTITY,
-                post: postJson,
-                onProgress: (message) => emitEvent("progress", { message }),
-              }),
-            };
-          } catch (error) {
-            return { ok: false as const, error: asError(error) };
-          }
-        });
-        if (!hydration.ok) {
+      // Bring the drive into `world/drive` before any agent tool exists. The
+      // hydration ledger lives in the tool state directory created above, and
+      // it is what lets a turn skip re-downloading a drive it already has.
+      const hydration = yield* Effect.promise(async () => {
+        try {
           return {
-            ok: false,
-            finalText: "",
-            error: hydration.error.message,
-            usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
-            checkpointPolicy: "preserve_prior",
+            ok: true as const,
+            value: await hydrateDriveForAgentTurn({
+              turnId: input.turnId,
+              prompt: input.prompt,
+              workspaceRoot: WORLD_DRIVE_ROOT,
+              workspaceRestored: input.workspaceRestored,
+              stateDir,
+              owner: CLOUD_TOOL_PROCESS_IDENTITY,
+              post: postJson,
+              onProgress: (message) => emitEvent("progress", { message }),
+            }),
           };
+        } catch (error) {
+          return { ok: false as const, error: asError(error) };
         }
-        driveSync = hydration.value;
+      });
+      if (!hydration.ok) {
+        return {
+          ok: false,
+          finalText: "",
+          error: hydration.error.message,
+          usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
+          checkpointPolicy: "preserve_prior",
+        };
       }
+      const driveSync = hydration.value;
 
       const officeBinPath = resolveOfficeBinPath();
       const cloudSystemPrompt = CLOUD_GENERAL_PROMPT({
-        workspace,
         office: Boolean(officeBinPath),
         ...(input.skills ? { skills: input.skills } : {}),
-        ...(workspace.kind === "drive" ? { drive: driveSync } : {}),
-        ...(project && projectHandoff
-          ? {
-              project: {
-                result: project,
-                remoteUrl: scrubRemoteUrl(projectHandoff.remoteUrl),
-              },
-            }
-          : {}),
+        drive: driveSync,
       });
       const toolHost = yield* Effect.acquireRelease(
         Effect.sync(() =>
@@ -1076,7 +975,7 @@ export const runAgentTurn = (
         ...cloudGeneralToolNames(input.execution.engine)
           .map((name) => byName.get(name))
           .filter((tool): tool is ToolMetadata => Boolean(tool)),
-        ...cloudPinnedWorkspaceTools(workspace.kind),
+        ...cloudPinnedWorkspaceTools(),
       ];
       const recordToolResult = (result: ToolResult): void => {
         if (result.fileChanges) editedFiles.push(...result.fileChanges);
@@ -1225,7 +1124,6 @@ export const runAgentTurn = (
                 execution: nativeExecution,
                 callbackBase: credentialProxy.siteBaseUrl,
                 relayToken: credentialProxy.dummyToken,
-                workspace,
                 threadId: input.threadId,
                 turnId: input.turnId,
                 history,
@@ -1515,11 +1413,11 @@ export const runAgentTurn = (
           notice: string;
         }> => {
           const collected = await collectProducedFiles({
-            workspaceRoot,
+            workspaceRoot: WORLD_DRIVE_ROOT,
             edited: editedFiles,
             detected: detectedFiles,
-            gitAware: workspace.kind === "project",
-            drivePrefix: drivePrefixFor(workspace),
+            gitAware: false,
+            drivePrefix: "",
             processIdentity: {
               ...CLOUD_TOOL_PROCESS_IDENTITY,
               home: toolHome,
@@ -1686,20 +1584,6 @@ export const runAgentTurn = (
           ...(nativeStateCheckpoint
             ? { nativeCheckpoint: nativeStateCheckpoint }
             : {}),
-          ...(project
-            ? {
-              project: {
-                  mode: project.mode,
-                  branch: project.branch,
-                  ...(project.setupCommand
-                    ? { setupCommand: project.setupCommand }
-                    : {}),
-                  ...(project.setupSource
-                    ? { setupSource: project.setupSource }
-                    : {}),
-                },
-              }
-            : {}),
         });
       }
 
@@ -1766,20 +1650,6 @@ export const runAgentTurn = (
             ...(nativeStateCheckpoint
               ? { nativeCheckpoint: nativeStateCheckpoint }
               : {}),
-            ...(project
-              ? {
-                  project: {
-                    mode: project.mode,
-                    branch: project.branch,
-                    ...(project.setupCommand
-                      ? { setupCommand: project.setupCommand }
-                      : {}),
-                    ...(project.setupSource
-                      ? { setupSource: project.setupSource }
-                      : {}),
-                  },
-                }
-              : {}),
           });
         }
         turnStateCheckpoint = checkpointAttempt.receipt;
@@ -1803,20 +1673,6 @@ export const runAgentTurn = (
         usage: { inputTokens, outputTokens, llmCalls },
         checkpointMs,
         ...(turnStateCheckpoint ? { turnStateCheckpoint } : {}),
-        ...(project
-          ? {
-              project: {
-                mode: project.mode,
-                branch: project.branch,
-                ...(project.setupCommand
-                  ? { setupCommand: project.setupCommand }
-                  : {}),
-                ...(project.setupSource
-                  ? { setupSource: project.setupSource }
-                  : {}),
-              },
-            }
-          : {}),
       } satisfies AgentTurnResult;
     }),
   );

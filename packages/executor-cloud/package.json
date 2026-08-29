@@ -7,7 +7,9 @@
     ".": "./src/index.ts",
     "./agent-turn-result-file": "./src/agent-turn-result-file.ts",
     "./relay-model": "./src/relay-model.ts",
-    "./prune-history": "./src/prune-history.ts"
+    "./prune-history": "./src/prune-history.ts",
+    "./agent-history": "./src/agent-history.ts",
+    "./general-agent-prompt": "./src/general-agent-prompt.ts"
   },
   "scripts": {
     "stub": "bun src/cli.ts --stub",

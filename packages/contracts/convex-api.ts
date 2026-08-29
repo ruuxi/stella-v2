@@ -69,7 +69,7 @@ export type PublicApiType = {
     "getMyCloudLimits": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "startCloudChat": FunctionReference<'mutation', 'public', { attachments?: string[] | undefined; execution?: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; } | undefined; conversationId?: string | undefined; appId?: string | undefined; clientMsgId?: string | undefined; locale?: string | undefined; prompt: string; expectedOwnerGeneration: string; }, any, string | undefined>;
     "deleteMyConversation": FunctionReference<'action', 'public', { conversationId: string; }, any, string | undefined>;
-    "spawnCloudAgentFromDesktop": FunctionReference<'mutation', 'public', { execution?: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; } | undefined; conversationId?: string | undefined; originDeviceId?: string | undefined; originConversationId?: string | undefined; ownerGeneration: string; description: string; prompt: string; workspace: string; clientMsgId: string; }, any, string | undefined>;
+    "spawnCloudAgentFromDesktop": FunctionReference<'mutation', 'public', { execution?: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; } | undefined; conversationId?: string | undefined; originDeviceId?: string | undefined; originConversationId?: string | undefined; ownerGeneration: string; description: string; prompt: string; clientMsgId: string; }, any, string | undefined>;
     "continueMyCloudAgentFromDesktop": FunctionReference<'mutation', 'public', { threadId: string; ownerGeneration: string; description: string; prompt: string; originDeviceId: string; originConversationId: string; expectedAttemptGeneration: number; expectedTerminalUpdatedAt: number; controlRequestId: string; }, any, string | undefined>;
     "getMyCloudAgentThreadControl": FunctionReference<'query', 'public', { threadId: string; ownerGeneration: string; originDeviceId: string; originConversationId: string; }, any, string | undefined>;
     "cancelMyCloudAgentThread": FunctionReference<'action', 'public', { threadId: string; ownerGeneration: string; originDeviceId: string; originConversationId: string; expectedAttemptGeneration: number; controlRequestId: string; expectedThreadUpdatedAt: number; }, any, string | undefined>;
@@ -85,6 +85,13 @@ export type PublicApiType = {
     "listPendingOpInvocations": FunctionReference<'query', 'public', { appId: string; }, any, string | undefined>;
     "claimOpInvocation": FunctionReference<'mutation', 'public', { invocationId: string; }, any, string | undefined>;
     "completeOpInvocation": FunctionReference<'mutation', 'public', { resultJson?: string | undefined; errorMessage?: string | undefined; invocationId: string; ok: boolean; }, any, string | undefined>;
+  };
+  "cloud_browser": {
+    "listMyPendingBrowserInteractions": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "getMyBrowserInteraction": FunctionReference<'action', 'public', { interactionId: string; }, any, string | undefined>;
+    "mintMyBrowserLiveViewCapability": FunctionReference<'action', 'public', { interactionId: string; expectedRevision: number; }, any, string | undefined>;
+    "decideMyBrowserInteraction": FunctionReference<'action', 'public', { requestId: string; interactionId: string; decision: 'done' | 'cancel'; expectedRevision: number; }, any, string | undefined>;
+    "resetMyBrowserProfile": FunctionReference<'action', 'public', { requestId: string; }, any, string | undefined>;
   };
   "cloud_conversation_edits": {
     "forkMyConversation": FunctionReference<'action', 'public', { requestId: string; sourceConversationId: string; throughSeq: number; expectedEpoch: number; expectedLastSeq: number; }, any, string | undefined>;
@@ -288,7 +295,7 @@ export type PublicApiType = {
     "isRemoteTurnClaimed": FunctionReference<'query', 'public', { requestId: string; }, any, string | undefined>;
   };
   "execution_placement": {
-    "submitMyBrowserExecution": FunctionReference<'mutation', 'public', { threadId?: string | undefined; workspace?: string | undefined; parentTurnId?: string | undefined; conversationId: string; kind: 'agent' | 'chat'; idempotencyKey: string; subject: 'cloud' | 'portable' | 'computer'; payloadJson: string; payloadHash: string; requiredCapabilities: ('agent' | 'chat' | 'computer-use' | 'local-files' | 'local-apps')[]; expectedOwnerGeneration: string; }, any, string | undefined>;
+    "submitMyBrowserExecution": FunctionReference<'mutation', 'public', { threadId?: string | undefined; parentTurnId?: string | undefined; conversationId: string; kind: 'agent' | 'chat'; idempotencyKey: string; subject: 'computer' | 'cloud' | 'portable'; payloadJson: string; payloadHash: string; requiredCapabilities: ('agent' | 'chat' | 'computer-use' | 'local-files' | 'local-apps')[]; expectedOwnerGeneration: string; }, any, string | undefined>;
     "getMyExecutionPlacementIdentity": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "registerMyExecutionPresence": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; status: 'ready' | 'draining'; devicePublicKey: string; protocolVersion: number; appVersion: string; sequence: number; presenceSessionId: string; capabilities: ('agent' | 'chat' | 'computer-use' | 'local-files' | 'local-apps')[]; chatSlotCapacity: number; agentSlotCapacity: number; availableChatSlots: number; availableAgentSlots: number; bodyHash: string; signature: string; }, any, string | undefined>;
     "heartbeatMyExecutionPresence": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; status: 'ready' | 'draining'; sequence: number; presenceSessionId: string; chatSlotCapacity: number; agentSlotCapacity: number; availableChatSlots: number; availableAgentSlots: number; bodyHash: string; signature: string; }, any, string | undefined>;

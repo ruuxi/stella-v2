@@ -14,10 +14,8 @@ const readSource = (relativePath: string) =>
 describe("chat scroll performance contract", () => {
   it("does not enable Legend's forced-geometry onScroll adapter", () => {
     const timeline = readSource("src/app/chat/ChatTimeline.tsx");
-    const social = readSource("src/app/social/SocialChatPane.tsx");
 
     expect(timeline).not.toContain("onScroll={onListScroll}");
-    expect(social).not.toContain("onScroll={socialScroll.onListScroll}");
     expect(readSource("src/app/chat/ChatColumn.tsx")).toContain(
       "list.scrollToOffset({ offset: next, animated: false })",
     );

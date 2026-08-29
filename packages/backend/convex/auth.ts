@@ -566,23 +566,6 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       skipStateCookieCheck: true,
     },
     databaseHooks: {
-      user: {
-        create: {
-          after: async (user) => {
-            // Anonymous identities cannot use the connected-only social
-            // surface. A profile here would become permanent migration residue.
-            if (user.isAnonymous === true) return;
-            const actionCtx = requireActionCtx(ctx);
-            await actionCtx.scheduler.runAfter(
-              0,
-              internal.social.profiles.ensureProfileForOwnerInternal,
-              {
-                ownerId: tokenIdentifierForBetterAuthUserId(user.id),
-              },
-            );
-          },
-        },
-      },
       session: {
         create: {
           before: async (session) => {

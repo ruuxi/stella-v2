@@ -13,7 +13,6 @@ import { createScheduleScriptAuthEnv } from "../kernel/shared/schedule-scripts.j
 import { createRemoteTurnBridge } from "../kernel/remote-turn-bridge.js";
 import { remoteTurnWorkerRunId } from "../kernel/remote-turn-attempt.js";
 import { getConvexErrorCode, isConvexUnauthenticatedError, shouldStopRemoteTurnForAuthFailure, } from "../kernel/runner/remote-turn-auth.js";
-import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
 import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { connectorLocalFollowupDeliveryId, resolveConnectorFollowupAction, resolveConnectorTerminalFollowup, } from "./connector-followup.js";
 import { ConnectorFollowupOutbox } from "./connector-followup-outbox.js";
@@ -1866,18 +1865,6 @@ export class StellaRuntimeHost {
     async setLocalChatSyncCheckpoint(payload) {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_LOCAL_CHAT_SET_SYNC_CHECKPOINT, payload, { ensureWorker: true, recordActivity: false });
     }
-    async listStorePackages() {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_LIST_STORE_PACKAGES, undefined, { ensureWorker: true, recordActivity: true });
-    }
-    async getStorePackage(packageId) {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_GET_STORE_PACKAGE, { packageId }, { ensureWorker: true, recordActivity: true });
-    }
-    async listStorePackageReleases(packageId) {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_LIST_STORE_RELEASES, { packageId }, { ensureWorker: true, recordActivity: true });
-    }
-    async getStorePackageRelease(packageId, releaseNumber) {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_GET_STORE_RELEASE, { packageId, releaseNumber }, { ensureWorker: true, recordActivity: true });
-    }
     async listCronJobs() {
         return this.ensureScheduler().listCronJobs();
     }
@@ -1912,25 +1899,6 @@ export class StellaRuntimeHost {
     }
     async getConversationEventCount(payload) {
         return this.ensureScheduler().getConversationEventCount(payload.conversationId);
-    }
-    async createSocialSession(payload) {
-        this.workerHealthCache = null;
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_SOCIAL_SESSIONS_CREATE, payload, { ensureWorker: true, recordActivity: true });
-    }
-    async updateSocialSessionStatus(payload) {
-        this.workerHealthCache = null;
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_SOCIAL_SESSIONS_UPDATE_STATUS, payload, {
-            ensureWorker: true,
-            recordActivity: true,
-        });
-    }
-    async queueSocialSessionTurn(payload) {
-        this.workerHealthCache = null;
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_SOCIAL_SESSIONS_QUEUE_TURN, payload, { ensureWorker: true, recordActivity: true });
-    }
-    async getSocialSessionStatus() {
-        const health = await this.getWorkerHealth({ ensureWorker: false });
-        return health?.socialSessions ?? createEmptySocialSessionServiceSnapshot();
     }
     async listProjects() {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_PROJECTS_LIST, undefined, { ensureWorker: true, recordActivity: false });

@@ -20,20 +20,12 @@ describe("paid managed callsite receipt inventory", () => {
     expect(source).not.toContain("const billingOwnerId = !isAnonymousIdentity");
   });
 
-  it("joins Store metadata image bodies and model usage before provider-attempt settlement", () => {
-    const source = read("./data/store_asset_metadata.ts");
+  it("joins asset metadata image bodies and model usage before provider-attempt settlement", () => {
+    const source = read("./data/asset_metadata.ts");
     expect(source).toContain("runManagedDispatchAttempt({");
     expect(source).toContain("fetch(url, { signal })");
     expect(source).toContain("billing: await createAssetMetadataBilling");
     expect(source).not.toContain("scheduleManagedUsage");
     expect(source).not.toContain("usageSummaryFromAssistant");
-  });
-
-  it("bills every Store security/image-review primary and failover attempt from its own receipt", () => {
-    const source = read("./lib/store_release_reviews.ts");
-    expect(source).toContain("billing: await createStoreReviewBilling");
-    expect(source).toContain("withModelFailoverAsync(");
-    expect(source).not.toContain("scheduleManagedUsage");
-    expect(source).not.toContain("logStoreReviewUsage");
   });
 });

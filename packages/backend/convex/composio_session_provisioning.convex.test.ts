@@ -135,15 +135,11 @@ const exactAttemptArgs = (args: ReturnType<typeof attemptArgs>) => ({
 const withEmptyCloudBuilder = async <T>(run: () => Promise<T>): Promise<T> => {
   const previousUrl = process.env.CLOUD_BUILDER_URL;
   const previousSecret = process.env.BUILDER_SERVICE_SECRET;
-  const previousPetsBucket = process.env.R2_PETS_BUCKET;
   const previousEmojiBucket = process.env.R2_EMOJI_BUCKET;
-  const previousPetsPublicBase = process.env.R2_PETS_PUBLIC_BASE_URL;
   const previousEmojiPublicBase = process.env.R2_EMOJI_PUBLIC_BASE_URL;
   process.env.CLOUD_BUILDER_URL = "https://builder.example.test";
   process.env.BUILDER_SERVICE_SECRET = "test-secret";
-  process.env.R2_PETS_BUCKET = "stella-pets-dev";
   process.env.R2_EMOJI_BUCKET = "stella-emoji-dev";
-  process.env.R2_PETS_PUBLIC_BASE_URL = "https://pets.test";
   process.env.R2_EMOJI_PUBLIC_BASE_URL = "https://emoji.test";
   const fetchMock = vi
     .spyOn(globalThis, "fetch")
@@ -179,13 +175,8 @@ const withEmptyCloudBuilder = async <T>(run: () => Promise<T>): Promise<T> => {
     else process.env.CLOUD_BUILDER_URL = previousUrl;
     if (previousSecret === undefined) delete process.env.BUILDER_SERVICE_SECRET;
     else process.env.BUILDER_SERVICE_SECRET = previousSecret;
-    if (previousPetsBucket === undefined) delete process.env.R2_PETS_BUCKET;
-    else process.env.R2_PETS_BUCKET = previousPetsBucket;
     if (previousEmojiBucket === undefined) delete process.env.R2_EMOJI_BUCKET;
     else process.env.R2_EMOJI_BUCKET = previousEmojiBucket;
-    if (previousPetsPublicBase === undefined)
-      delete process.env.R2_PETS_PUBLIC_BASE_URL;
-    else process.env.R2_PETS_PUBLIC_BASE_URL = previousPetsPublicBase;
     if (previousEmojiPublicBase === undefined)
       delete process.env.R2_EMOJI_PUBLIC_BASE_URL;
     else process.env.R2_EMOJI_PUBLIC_BASE_URL = previousEmojiPublicBase;

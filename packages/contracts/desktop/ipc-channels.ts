@@ -52,8 +52,6 @@ export const IPC_APP_SET_READY = "app:setReady" as const;
 export const IPC_APP_RELOAD = "app:reload" as const;
 export const IPC_APP_RELAUNCH = "app:relaunch" as const;
 export const IPC_APP_HARD_RESET = "app:hardResetLocalState" as const;
-export const IPC_MORPH_START = "morph:start" as const;
-export const IPC_MORPH_COMPLETE = "morph:complete" as const;
 
 // ── Packaged desktop updates (electron-updater) ────────────────────────────
 
@@ -90,13 +88,7 @@ export const IPC_OVERLAY_SHOW_MINI = "overlay:showMini" as const;
 export const IPC_OVERLAY_HIDE_MINI = "overlay:hideMini" as const;
 export const IPC_OVERLAY_RESTORE_MINI = "overlay:restoreMini" as const;
 export const IPC_OVERLAY_DISPLAY_CHANGE = "overlay:displayChange" as const;
-export const IPC_OVERLAY_MORPH_FORWARD = "overlay:morphForward" as const;
-export const IPC_OVERLAY_MORPH_BOUNDS = "overlay:morphBounds" as const;
-export const IPC_OVERLAY_MORPH_HANDOFF = "overlay:morphHandoff" as const;
-export const IPC_OVERLAY_MORPH_END = "overlay:morphEnd" as const;
-export const IPC_OVERLAY_MORPH_STATE = "overlay:morphState" as const;
-export const IPC_OVERLAY_MORPH_READY = "overlay:morphReady" as const;
-export const IPC_OVERLAY_MORPH_DONE = "overlay:morphDone" as const;
+
 export const IPC_OVERLAY_WINDOW_HIGHLIGHT = "overlay:windowHighlight" as const;
 export const IPC_OVERLAY_SHOW_WINDOW_HIGHLIGHT =
   "overlay:showWindowHighlight" as const;
@@ -117,6 +109,10 @@ export const IPC_MINI_BRIDGE_READY = "miniBridge:ready" as const;
 // ── Theme ───────────────────────────────────────────────────────────────────
 
 export const IPC_THEME_LIST_INSTALLED = "theme:listInstalled" as const;
+
+// ── Website ─────────────────────────────────────────────────────────────────
+
+export const IPC_WEBSITE_GET_BASE_URL = "website:getBaseUrl" as const;
 
 // ── Voice ───────────────────────────────────────────────────────────────────
 
@@ -193,12 +189,7 @@ export const IPC_AUTH_GET_CONVEX_TOKEN = "auth:getConvexToken" as const;
 export const IPC_HOST_SET_CLOUD_SYNC = "host:setCloudSyncEnabled" as const;
 export const IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT =
   "host:setModelCatalogUpdatedAt" as const;
-// Social invite deep links (`stella://join/<code>`,
-// `stella://add-friend/<username>`) — broadcast plus a cold-boot pull, because
-// the renderer's listener is not mounted when a cold-boot link arrives.
-export const IPC_SOCIAL_INVITE = "social:invite" as const;
-export const IPC_SOCIAL_CONSUME_PENDING_INVITE =
-  "social:consumePendingInvite" as const;
+
 // Main revoked this device's session on its own (the stored bearer was
 // rejected). Push-only: nothing the renderer did triggers it.
 export const IPC_AUTH_SESSION_INVALIDATED = "auth:sessionInvalidated" as const;
@@ -372,12 +363,6 @@ export const IPC_SCHEDULE_UPDATED = "schedule:updated" as const;
 export const IPC_SCHEDULE_UPDATE_CRON_JOB = "schedule:updateCronJob" as const;
 export const IPC_SCHEDULE_REMOVE_CRON_JOB = "schedule:removeCronJob" as const;
 
-// ── Store ───────────────────────────────────────────────────────────────────
-
-export const IPC_STORE_LIST_PACKAGES = "store:listPackages" as const;
-export const IPC_STORE_GET_PACKAGE = "store:getPackage" as const;
-export const IPC_STORE_LIST_RELEASES = "store:listReleases" as const;
-export const IPC_STORE_GET_RELEASE = "store:getRelease" as const;
 // ── Fashion ─────────────────────────────────────────────────────────────────
 //
 // The body photo intentionally does NOT round-trip through Convex storage —
@@ -464,16 +449,6 @@ export const IPC_CLOUD_CONVERSATION_CACHE_REPLACE =
   "cloudConversationCache:replace" as const;
 export const IPC_CLOUD_CONVERSATION_CACHE_PURGE_CONVERSATION =
   "cloudConversationCache:purgeConversation" as const;
-
-// ── Social Sessions ─────────────────────────────────────────────────────────
-
-export const IPC_SOCIAL_SESSIONS_CREATE = "socialSessions:create" as const;
-export const IPC_SOCIAL_SESSIONS_UPDATE_STATUS =
-  "socialSessions:updateStatus" as const;
-export const IPC_SOCIAL_SESSIONS_QUEUE_TURN =
-  "socialSessions:queueTurn" as const;
-export const IPC_SOCIAL_SESSIONS_GET_STATUS =
-  "socialSessions:getStatus" as const;
 
 // ── Local user apps ────────────────────────────────────────────────────────
 

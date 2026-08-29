@@ -15,35 +15,6 @@ const runnerNow = Effect.flatMap(
 );
 
 export const runnerOpsHandlers: WorkerRpcHandlers = {
-  [METHOD_NAMES.INTERNAL_WORKER_LIST_STORE_PACKAGES]: () =>
-    Effect.flatMap(runnerNow, (runner) =>
-      fromPromise(() => runner.listStorePackages()),
-    ),
-
-  [METHOD_NAMES.INTERNAL_WORKER_GET_STORE_PACKAGE]: (params) =>
-    Effect.flatMap(runnerNow, (runner) =>
-      fromPromise(() =>
-        runner.getStorePackage((params as { packageId: string }).packageId),
-      ),
-    ),
-
-  [METHOD_NAMES.INTERNAL_WORKER_LIST_STORE_RELEASES]: (params) =>
-    Effect.flatMap(runnerNow, (runner) =>
-      fromPromise(() =>
-        runner.listStorePackageReleases(
-          (params as { packageId: string }).packageId,
-        ),
-      ),
-    ),
-
-  [METHOD_NAMES.INTERNAL_WORKER_GET_STORE_RELEASE]: (params) =>
-    Effect.flatMap(runnerNow, (runner) => {
-      const payload = params as { packageId: string; releaseNumber: number };
-      return fromPromise(() =>
-        runner.getStorePackageRelease(payload.packageId, payload.releaseNumber),
-      );
-    }),
-
   [METHOD_NAMES.INTERNAL_WORKER_KILL_ALL_SHELLS]: () =>
     Effect.map(runnerNow, (runner) => {
       runner.killAllShells();

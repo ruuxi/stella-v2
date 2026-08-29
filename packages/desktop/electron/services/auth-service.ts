@@ -17,8 +17,6 @@ import {
   unprotectValue,
 } from "@stella/runtime/kernel/shared/protected-storage";
 import type { HostRuntimeAuthRefreshResult } from "@stella/contracts/protocol";
-import { isSocialInviteDeepLink } from "./social-deep-links.js";
-
 /** Mint a replacement Convex JWT this long before the cached one expires. */
 const HOST_AUTH_TOKEN_REFRESH_MARGIN_MS = 60_000;
 /**
@@ -67,13 +65,6 @@ type AuthServiceOptions = {
   sessionPartition: string;
   runnerTarget: PiRunnerTarget;
   onAuthCallback: (url: string) => void;
-  /**
-   * Social invite deep link (`stella://join/<code>`,
-   * `stella://add-friend/<username>`) arrived while the app was running.
-   * Cold-boot links sit in the pending buffer until the renderer pulls
-   * `social:consumePendingInvite`.
-   */
-  onSocialInvite?: (url: string) => void;
   onSecondInstanceFocus: () => void;
   /**
    * The stored bearer was rejected by the server, so this device is signed
@@ -84,7 +75,6 @@ type AuthServiceOptions = {
 };
 
 export class AuthService {
-  private pendingSocialInvite: string | null = null;
   private pendingConvexUrl: string | null = null;
   private pendingConvexSiteUrl: string | null = null;
   private hostAuthAuthenticated = false;
@@ -521,31 +511,6 @@ export class AuthService {
     }
   }
 
-  /**
-   * `stella://join/<inviteCode>`, `stella://add-friend/<username>`, or
-   * `stella://store/<handle>/<packageId>` — the social/store deep links.
-   * Classification lives in `social-deep-links.ts` so the shapes are unit
-   * tested; anything unrecognized stays untrusted.
-   */
-  private isSocialInviteUrl(value: string) {
-    return isSocialInviteDeepLink(value, this.options.authProtocol);
-  }
-
-  private handleSocialInvite(url: string) {
-    // Buffer always: the renderer-side handler pulls on mount (cold boot) and
-    // also listens live.
-    this.pendingSocialInvite = url;
-    if (app.isReady()) {
-      this.options.onSocialInvite?.(url);
-    }
-  }
-
-  consumePendingSocialInvite() {
-    const invite = this.pendingSocialInvite;
-    this.pendingSocialInvite = null;
-    return invite;
-  }
-
   stopAuthRefreshLoop() {
     const runner = this.options.runnerTarget.getRunner();
     this.invalidateCredentialEpoch();
@@ -595,21 +560,11 @@ export class AuthService {
     if (!initialAuthUrl) {
       return;
     }
-    // Social invites get their own buffer because the renderer pulls them
-    // after mount; a cold-boot invite must survive until then.
-    if (this.isSocialInviteUrl(initialAuthUrl)) {
-      this.pendingSocialInvite = initialAuthUrl;
-      return;
-    }
     this.handleAuthCallback(initialAuthUrl);
   }
 
   handleAuthCallback(url: string) {
     if (!url) {
-      return;
-    }
-    if (this.isSocialInviteUrl(url)) {
-      this.handleSocialInvite(url);
       return;
     }
     if (!this.isTrustedAuthCallbackUrl(url)) {

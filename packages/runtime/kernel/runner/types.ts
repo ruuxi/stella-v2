@@ -43,10 +43,7 @@ import type {
   RuntimeStore,
   TranscriptSearchHit,
 } from "../storage/runtime-store.js";
-import type {
-  StorePackageRecord,
-  StorePackageReleaseRecord,
-} from "@stella/contracts";
+import type {} from "@stella/contracts";
 import type {
   HostAppBrowserContextSnapshot,
   HostRuntimeAuthRefreshResult,
@@ -450,18 +447,6 @@ export type RunnerContext = {
   };
 };
 
-export type StoreOperations = {
-  listStorePackages: () => Promise<StorePackageRecord[]>;
-  getStorePackage: (packageId: string) => Promise<StorePackageRecord | null>;
-  listStorePackageReleases: (
-    packageId: string,
-  ) => Promise<StorePackageReleaseRecord[]>;
-  getStorePackageRelease: (
-    packageId: string,
-    releaseNumber: number,
-  ) => Promise<StorePackageReleaseRecord | null>;
-};
-
 export type RunnerPublicApi = {
   deviceId: string;
   hookEmitter: HookEmitter;
@@ -508,10 +493,6 @@ export type RunnerPublicApi = {
     text: string;
     results: Array<{ title: string; url: string; snippet: string }>;
   }>;
-  listStorePackages: StoreOperations["listStorePackages"];
-  getStorePackage: StoreOperations["getStorePackage"];
-  listStorePackageReleases: StoreOperations["listStorePackageReleases"];
-  getStorePackageRelease: StoreOperations["getStorePackageRelease"];
   handleLocalChat: (
     payload: ChatPayload,
     callbacks: AgentCallbacks,

@@ -3,11 +3,6 @@ import type {
   LocalCronJobRecord,
   LocalHeartbeatConfigRecord,
   ScheduledConversationEvent,
-  SocialSessionRuntimeRecord,
-  SocialSessionServiceSnapshot,
-  StorePackageRecord,
-  StorePackageReleaseRecord,
-  StoreReleaseGitArtifact,
 } from "@stella/contracts";
 import type {
   AgentRunFinishOutcome,
@@ -28,11 +23,6 @@ export type {
   LocalCronJobRecord,
   LocalHeartbeatConfigRecord,
   ScheduledConversationEvent,
-  SocialSessionRuntimeRecord,
-  SocialSessionServiceSnapshot,
-  StorePackageRecord,
-  StorePackageReleaseRecord,
-  StoreReleaseGitArtifact,
   RuntimeListModelsRequest,
   RuntimeModelCatalogModel,
   RuntimeModelCatalogSnapshot,
@@ -115,15 +105,10 @@ export const METHOD_NAMES = {
   LOCAL_CHAT_LIST_SYNC_MESSAGES: "localChat.listSyncMessages",
   LOCAL_CHAT_GET_SYNC_CHECKPOINT: "localChat.getSyncCheckpoint",
   LOCAL_CHAT_SET_SYNC_CHECKPOINT: "localChat.setSyncCheckpoint",
-  STORE_LIST_PACKAGES: "store.listPackages",
-  STORE_GET_PACKAGE: "store.getPackage",
-  STORE_LIST_RELEASES: "store.listReleases",
-  STORE_GET_RELEASE: "store.getRelease",
   SCHEDULE_LIST_CRON_JOBS: "schedule.listCronJobs",
   SCHEDULE_LIST_HEARTBEATS: "schedule.listHeartbeats",
   SCHEDULE_LIST_EVENTS: "schedule.listConversationEvents",
   SCHEDULE_GET_EVENT_COUNT: "schedule.getConversationEventCount",
-  SOCIAL_SESSIONS_GET_STATUS: "socialSessions.getStatus",
   PROJECTS_LIST: "projects.list",
   PROJECTS_REGISTER_DIRECTORY: "projects.registerDirectory",
   PROJECTS_START: "projects.start",
@@ -209,10 +194,6 @@ export const METHOD_NAMES = {
     "internal.worker.voice.orchestratorConfig",
   INTERNAL_WORKER_VOICE_EXECUTE_TOOL: "internal.worker.voice.executeTool",
   INTERNAL_WORKER_VOICE_WEB_SEARCH: "internal.worker.voice.webSearch",
-  INTERNAL_WORKER_LIST_STORE_PACKAGES: "internal.worker.listStorePackages",
-  INTERNAL_WORKER_GET_STORE_PACKAGE: "internal.worker.getStorePackage",
-  INTERNAL_WORKER_LIST_STORE_RELEASES: "internal.worker.listStoreReleases",
-  INTERNAL_WORKER_GET_STORE_RELEASE: "internal.worker.getStoreRelease",
   INTERNAL_WORKER_KILL_ALL_SHELLS: "internal.worker.killAllShells",
   INTERNAL_WORKER_KILL_SHELL_BY_PORT: "internal.worker.killShellByPort",
   INTERNAL_WORKER_LOCAL_CHAT_GET_OR_CREATE_DEFAULT:
@@ -243,14 +224,6 @@ export const METHOD_NAMES = {
     "internal.worker.schedule.listConversationEvents",
   INTERNAL_WORKER_SCHEDULE_GET_EVENT_COUNT:
     "internal.worker.schedule.getConversationEventCount",
-  INTERNAL_WORKER_SOCIAL_SESSIONS_CREATE:
-    "internal.worker.socialSessions.create",
-  INTERNAL_WORKER_SOCIAL_SESSIONS_UPDATE_STATUS:
-    "internal.worker.socialSessions.updateStatus",
-  INTERNAL_WORKER_SOCIAL_SESSIONS_QUEUE_TURN:
-    "internal.worker.socialSessions.queueTurn",
-  INTERNAL_WORKER_SOCIAL_SESSIONS_GET_STATUS:
-    "internal.worker.socialSessions.getStatus",
   INTERNAL_WORKER_PROJECTS_LIST: "internal.worker.projects.list",
   INTERNAL_WORKER_PROJECTS_REGISTER_DIRECTORY:
     "internal.worker.projects.registerDirectory",
@@ -790,16 +763,6 @@ export type HostAppBrowserContextSnapshot = {
   activeBrowserTab: HostActiveBrowserTab | null;
 };
 
-export type RuntimeStoreApi = {
-  listPackages: () => Promise<StorePackageRecord[]>;
-  getPackage: (packageId: string) => Promise<StorePackageRecord | null>;
-  listReleases: (packageId: string) => Promise<StorePackageReleaseRecord[]>;
-  getRelease: (
-    packageId: string,
-    releaseNumber: number,
-  ) => Promise<StorePackageReleaseRecord | null>;
-};
-
 export type RuntimeScheduleApi = {
   listCronJobs: () => Promise<LocalCronJobRecord[]>;
   listHeartbeats: () => Promise<LocalHeartbeatConfigRecord[]>;
@@ -810,26 +773,6 @@ export type RuntimeScheduleApi = {
   getConversationEventCount: (args: {
     conversationId: string;
   }) => Promise<number>;
-};
-
-export type RuntimeSocialSessionStatus = "active" | "paused" | "ended";
-
-export type RuntimeSocialSessionApi = {
-  createSession: (args: {
-    roomId: string;
-    workspaceLabel?: string;
-  }) => Promise<{ sessionId: string }>;
-  updateSessionStatus: (args: {
-    sessionId: string;
-    status: RuntimeSocialSessionStatus;
-  }) => Promise<{ sessionId: string; status: RuntimeSocialSessionStatus }>;
-  queueTurn: (args: {
-    sessionId: string;
-    prompt: string;
-    agentType?: string;
-    clientTurnId?: string;
-  }) => Promise<{ turnId: string }>;
-  getStatus: () => Promise<SocialSessionServiceSnapshot>;
 };
 
 export type RuntimeHealthApi = {

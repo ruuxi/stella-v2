@@ -2109,13 +2109,13 @@ export const purgeOwnerCloudData = internalAction({
       }
       // TTS owns its exact provider-attempt receipt. Quiesce/settle that
       // authority before any general billing teardown can remove audit rows.
-      const ttsSocial = await ctx.runAction(
-        internal.account_tts_social_purge.purgeOwnerTtsSocialInternal,
+      const tts = await ctx.runAction(
+        internal.account_tts_purge.purgeOwnerTtsInternal,
         { ...fence, leaseId },
       );
-      if (!ttsSocial.ready) {
+      if (!tts.ready) {
         throw new Error(
-          `Account deletion is waiting for TTS/social cleanup: ${ttsSocial.pending.join(", ")}`,
+          `Account deletion is waiting for TTS cleanup: ${tts.pending.join(", ")}`,
         );
       }
       const billing = await ctx.runAction(
@@ -2299,7 +2299,7 @@ export const purgeOwnerCloudData = internalAction({
           { ownerId },
         ),
         ctx.runQuery(
-          internal.account_tts_social_purge.remainingOwnerTtsSocialInternal,
+          internal.account_tts_purge.remainingOwnerTtsDeleteInternal,
           { ownerId },
         ),
         ctx.runQuery(

@@ -743,18 +743,6 @@ export class RuntimeHostAdapter {
     onProjectsUpdated(listener) {
         return this.host.on("projects-updated", listener);
     }
-    createSocialSession(payload) {
-        return this.host.createSocialSession(payload);
-    }
-    updateSocialSessionStatus(payload) {
-        return this.host.updateSocialSessionStatus(payload);
-    }
-    queueSocialSessionTurn(payload) {
-        return this.host.queueSocialSessionTurn(payload);
-    }
-    getSocialSessionStatus() {
-        return this.host.getSocialSessionStatus();
-    }
     listProjects() {
         return this.host.listProjects();
     }

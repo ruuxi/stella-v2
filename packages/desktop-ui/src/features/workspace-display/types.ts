@@ -32,8 +32,7 @@ export type DisplayTabKind =
   | "model3d"
   | "download"
   | "text"
-  | "trash"
-  | "store";
+  | "trash";
 
 /**
  * Stable, dedup-able description of what a tab represents. Two specs with
@@ -58,7 +57,7 @@ export type DisplayTabSpec = {
   render: () => ReactNode;
   /**
    * Optional opaque metadata used for dedup-by-resource and analytics.
-   * Currently unused by the store but kept on the spec so the chat surface
+   * Currently unused by the tab manager but kept on the spec so the chat surface
    * can know "is there already a tab for this exact file path?"
    */
   metadata?: Record<string, unknown>;

@@ -397,7 +397,7 @@ export const createGeneratedPack = internalMutation({
     });
     await ctx.scheduler.runAfter(
       0,
-      internal.data.store_asset_metadata.enrichEmojiPack,
+      internal.data.asset_metadata.enrichEmojiPack,
       {
         packId: id,
         ownerId,

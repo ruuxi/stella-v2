@@ -448,12 +448,6 @@ const getLockedComputerUseStatus = async (stellaAppDir) => {
         warnings: [],
     };
 };
-const createStoppedSocialSessionSnapshot = () => ({
-    enabled: false,
-    status: "stopped",
-    sessionCount: 0,
-    sessions: [],
-});
 const sanitizeOptionalHttpUrl = (value, fieldName) => {
     const normalized = asTrimmedString(value);
     if (!normalized) {
@@ -470,12 +464,6 @@ const sanitizeOptionalHttpUrl = (value, fieldName) => {
         throw new Error(`Invalid ${fieldName}.`);
     }
     return parsed.toString();
-};
-const asSocialSessionStatus = (value) => {
-    if (value === "active" || value === "paused" || value === "ended") {
-        return value;
-    }
-    throw new Error("Invalid social session status.");
 };
 export const registerSystemHandlers = (options) => {
     const activeOAuthLogins = new Map();
@@ -507,65 +495,6 @@ export const registerSystemHandlers = (options) => {
             throw new Error("Blocked untrusted phoneAccess:stopSession request.");
         }
         return await options.stopPhoneAccessSession();
-    });
-    ipcMain.handle(IPC_SOCIAL_SESSIONS_CREATE, async (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_SOCIAL_SESSIONS_CREATE)) {
-            throw new Error("Blocked untrusted socialSessions:create request.");
-        }
-        const runner = await waitForConnectedRunner(options.getStellaHostRunner, {
-            timeoutMs: 2_000,
-            onRunnerChanged: options.onStellaHostRunnerChanged,
-        });
-        return await runner.createSocialSession({
-            roomId: asTrimmedString(payload?.roomId),
-            workspaceLabel: asTrimmedString(payload?.workspaceLabel) || undefined,
-        });
-    });
-    ipcMain.handle(IPC_SOCIAL_SESSIONS_UPDATE_STATUS, async (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_SOCIAL_SESSIONS_UPDATE_STATUS)) {
-            throw new Error("Blocked untrusted socialSessions:updateStatus request.");
-        }
-        const runner = await waitForConnectedRunner(options.getStellaHostRunner, {
-            timeoutMs: 2_000,
-            onRunnerChanged: options.onStellaHostRunnerChanged,
-        });
-        return await runner.updateSocialSessionStatus({
-            sessionId: asTrimmedString(payload?.sessionId),
-            status: asSocialSessionStatus(payload?.status),
-        });
-    });
-    ipcMain.handle(IPC_SOCIAL_SESSIONS_QUEUE_TURN, async (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_SOCIAL_SESSIONS_QUEUE_TURN)) {
-            throw new Error("Blocked untrusted socialSessions:queueTurn request.");
-        }
-        const runner = await waitForConnectedRunner(options.getStellaHostRunner, {
-            timeoutMs: 2_000,
-            onRunnerChanged: options.onStellaHostRunnerChanged,
-        });
-        return await runner.queueSocialSessionTurn({
-            sessionId: asTrimmedString(payload?.sessionId),
-            prompt: asTrimmedString(payload?.prompt),
-            agentType: asTrimmedString(payload?.agentType) || undefined,
-            clientTurnId: asTrimmedString(payload?.clientTurnId) || undefined,
-        });
-    });
-    ipcMain.handle(IPC_SOCIAL_SESSIONS_GET_STATUS, async (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_SOCIAL_SESSIONS_GET_STATUS)) {
-            throw new Error("Blocked untrusted socialSessions:getStatus request.");
-        }
-        try {
-            const runner = await waitForConnectedRunner(options.getStellaHostRunner, {
-                timeoutMs: 2_000,
-                onRunnerChanged: options.onStellaHostRunnerChanged,
-            });
-            return await runner.getSocialSessionStatus();
-        }
-        catch (error) {
-            if (isRuntimeUnavailableError(error)) {
-                return createStoppedSocialSessionSnapshot();
-            }
-            throw error;
-        }
     });
     ipcMain.handle(IPC_USER_APPS_LIST, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_USER_APPS_LIST)) {
@@ -656,13 +585,6 @@ export const registerSystemHandlers = (options) => {
             throw new Error("Blocked untrusted Convex token request.");
         }
         return await options.authService.getConvexAuthToken();
-    });
-    // Renderer-pull for cold-boot social invite deep links
-    // (`stella://join/<code>`, `stella://add-friend/<username>`). Main captures
-    // the URL from argv before any window exists, and `did-finish-load` fires
-    // before React's `useEffect`s flush, so a live broadcast alone is racy.
-    ipcMain.handle(IPC_SOCIAL_CONSUME_PENDING_INVITE, () => {
-        return options.authService.consumePendingSocialInvite();
     });
     ipcMain.handle("host:setCloudSyncEnabled", (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "host:setCloudSyncEnabled")) {

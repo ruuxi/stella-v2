@@ -106,13 +106,6 @@ const NavItem = ({
   );
 };
 
-/**
- * Deliberately unlinked from every bar: Store and Social are being reworked
- * and are not navigable from the UI for now. Their routes stay registered —
- * share cards and the social invite layer still deep-link into them.
- */
-const UNLINKED_NAV_IDS: readonly string[] = ["store", "social"];
-
 type ShellTopBarPrimaryNavProps = {
   /**
    * Nav entry ids to suppress. The full-window bar omits surfaces owned by
@@ -132,7 +125,6 @@ export const ShellTopBarPrimaryNav = ({
         (a) =>
           !a.hideFromSidebar &&
           a.slot === "top" &&
-          !UNLINKED_NAV_IDS.includes(a.id) &&
           !(omitIds?.includes(a.id) ?? false),
       ),
     [allApps, omitIds],
@@ -155,10 +147,6 @@ export const ShellTopBarPrimaryNav = ({
     }
   }, [newAppsHint.active, onAppsRoute]);
 
-  // No per-app badges while Social is unlinked. The old social unread badge
-  // kept `listRooms` + friend-request live queries warm from this always-
-  // mounted bar even though the badge was never rendered; re-add a badge
-  // source here (e.g. `useSocialBadges`) if the Social tab returns.
   const hintFor = useCallback(
     (app: AppMetadata) => {
       if (app.id === "apps") return newAppsHint.active;

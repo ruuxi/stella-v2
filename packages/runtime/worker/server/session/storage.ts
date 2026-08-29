@@ -9,7 +9,6 @@ import type {
   LocalChatEventRecord,
   SqliteDatabase,
 } from "../../../kernel/storage/shared.js";
-import { SocialSessionStore } from "../../social-sessions/store.js";
 import * as HostBus from "../host-bus.js";
 import * as SessionConfig from "./config.js";
 
@@ -25,7 +24,6 @@ export interface Interface {
   readonly db: SqliteDatabase;
   readonly chatStore: ChatStore;
   readonly runtimeStore: RuntimeStore;
-  readonly socialSessionStore: SocialSessionStore;
   readonly runEventLog: RunEventLog;
   /**
    * LOCAL_CHAT_UPDATED fan-out, exactly as the old top-level
@@ -63,7 +61,6 @@ export const layer = Layer.effect(
       },
     });
     const runtimeStore = chatStore as RuntimeStore;
-    const socialSessionStore = new SocialSessionStore(db);
     const runEventLog = new RunEventLog(db);
 
     yield* Effect.addFinalizer(() =>
@@ -99,7 +96,6 @@ export const layer = Layer.effect(
       db,
       chatStore,
       runtimeStore,
-      socialSessionStore,
       runEventLog,
       notifyLocalChatUpdated,
       appendChatEventAndNotify,

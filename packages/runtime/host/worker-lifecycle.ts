@@ -7,7 +7,6 @@ import {
 import type {
   AgentHealth,
   RuntimeActiveRun,
-  SocialSessionServiceSnapshot,
 } from "@stella/contracts/protocol";
 import { hostRuntime, runHostEffect } from "./effect-runtime.js";
 
@@ -36,7 +35,6 @@ export type WorkerHealthSnapshot = {
   deviceId: string | null;
   voiceBusy?: boolean;
   pendingVoiceRequestCount?: number;
-  socialSessions?: SocialSessionServiceSnapshot;
 };
 
 /**

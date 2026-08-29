@@ -11,8 +11,5 @@
     "types": ["node"],
     "emitDeclarationOnly": false
   },
-  "include": [
-    "electron/preload.ts",
-    "electron/store-web-preload.ts"
-  ]
+  "include": ["electron/preload.ts"]
 }

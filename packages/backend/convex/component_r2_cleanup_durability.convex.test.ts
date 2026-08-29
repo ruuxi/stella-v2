@@ -30,22 +30,6 @@ const deleteRelayedMedia = makeFunctionReference<
   null
 >("channels/connector_media:deleteRelayedMedia");
 
-const deleteRejectedStoreDiff = makeFunctionReference<
-  "action",
-  {
-    ownerId: string;
-    packageId: string;
-    ref: {
-      kind: "r2";
-      r2Key: string;
-      sha256: string;
-      sizeBytes: number;
-    };
-    attempt?: number;
-  },
-  null
->("data/store_git_artifacts:deleteDiffRef");
-
 const stubComponentR2Env = () => {
   vi.stubEnv("R2_ACCESS_KEY_ID", "cleanup-test-access");
   vi.stubEnv("R2_SECRET_ACCESS_KEY", "cleanup-test-secret");
@@ -125,42 +109,6 @@ describe("durable component-R2 cleanup chains", () => {
 
     await t.finishAllScheduledFunctions(vi.runAllTimers, 10);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(metadataSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not delete a rejected Store diff until its presigned PUT authority expires", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(300_000));
-    const t = createTest();
-    const ownerId = "store-diff-owner";
-    const packageId = "private-package";
-    const r2Key = `store/git-diffs/${ownerId}/${packageId}/upload-private.diff`;
-    stubComponentR2Env();
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(null, { status: 404 }));
-    const metadataSpy = vi
-      .spyOn(r2, "deleteObject")
-      .mockResolvedValue(undefined);
-
-    await expect(
-      t.action(deleteRejectedStoreDiff, {
-        ownerId,
-        packageId,
-        ref: {
-          kind: "r2",
-          r2Key,
-          sha256: `sha256:${"a".repeat(64)}`,
-          sizeBytes: 1,
-        },
-      }),
-    ).resolves.toBeNull();
-    expect(fetchSpy).not.toHaveBeenCalled();
-    expect(metadataSpy).not.toHaveBeenCalled();
-    expect(await scheduledWithKey(t, r2Key)).toHaveLength(1);
-
-    await t.finishAllScheduledFunctions(vi.runAllTimers, 10);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(metadataSpy).toHaveBeenCalledTimes(1);
   });
 });

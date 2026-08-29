@@ -254,10 +254,9 @@ export const generatePack = action({
         message: "Media generation is not configured yet.",
       });
     }
-    const { bucket, publicBase } = requireConfiguredRawR2MediaTarget({
-      bucketEnv: "R2_EMOJI_BUCKET",
-      purpose: "Emoji pack generation",
-    });
+    const { bucket, publicBase } = requireConfiguredRawR2MediaTarget(
+      "Emoji pack generation",
+    );
     const r2 = {
       accessKeyId: requireEnv("R2_ACCESS_KEY_ID"),
       secretAccessKey: requireEnv("R2_SECRET_ACCESS_KEY"),

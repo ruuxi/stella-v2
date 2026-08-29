@@ -9,7 +9,7 @@ import { hasMacPermission } from './utils/macos-permissions.js';
 const WINDOW_INFO_HELPER = 'window_info';
 export const STELLA_CAPTURE_EXCLUDED_TITLE_PREFIXES = ['Stella Overlay'];
 // Coalesce read-only "window at point" probes. The capture window-highlight
-// preview and the morph-visibility fallback can fire many near-identical point
+// preview can fire many near-identical point
 // queries in quick succession; on Windows each one is a `CreateProcess`, so a
 // short TTL + in-flight dedup collapses a burst into a single spawn. The window
 // under a screen point is stable over this window, so the staleness is benign.
@@ -141,7 +141,7 @@ export const getWindowInfoAtPoint = (x, y, options) => {
  * per input point (null where no window matched), or `null` when the helper
  * is unavailable / too old to support batch mode / returns an unexpected
  * shape — callers should fall back to per-point `getWindowInfoAtPoint` in
- * that case. Lets the morph-visibility gate probe its sample grid with one
+ * that case. Lets a caller probe a whole sample grid with one
  * process spawn instead of one per point (far cheaper on Windows, where each
  * spawn is a full CreateProcess).
  */

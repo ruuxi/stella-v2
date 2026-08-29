@@ -4,7 +4,6 @@ import {
   STELLA_RUNTIME_PROTOCOL_VERSION,
   type AgentHealth,
 } from "@stella/contracts/protocol";
-import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
 import * as ModelCatalog from "../model-catalog.js";
 import * as WorkerSessions from "../sessions.js";
 import { fromPromise, type WorkerRpcHandlers } from "../rpc.js";
@@ -43,9 +42,6 @@ export const lifecycleHandlers: WorkerRpcHandlers = {
             ? { reason: runnerReadyError }
             : { reason: "Stella runtime is still initializing" }),
         } satisfies AgentHealth);
-      const socialSessions =
-        session?.social.getSnapshot() ??
-        createEmptySocialSessionServiceSnapshot();
       const activeRun =
         runner?.getActiveOrchestratorRun() ??
         runner?.listActiveAgentRuns()[0] ??
@@ -60,7 +56,6 @@ export const lifecycleHandlers: WorkerRpcHandlers = {
         voiceBusy: session?.voice.isBusy() ?? false,
         pendingVoiceRequestCount:
           session?.voice.getPendingRequestCount() ?? 0,
-        socialSessions,
       };
     }),
 

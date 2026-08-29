@@ -4,10 +4,8 @@ import {
   STELLA_RUNTIME_PROTOCOL_VERSION,
   type HostDeviceIdentity,
 } from "@stella/contracts/protocol";
-import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
 import { getFileLogger } from "../../observability/file-logger.js";
 import { forkDelayed } from "../effect-runtime.js";
-import type { SocialSessionService } from "../social-sessions/service.js";
 import type { UserAppProjectService } from "../user-apps/project-service.js";
 import type { VoiceRuntimeService } from "../voice/service.js";
 import { ProtocolMismatchError } from "./errors.js";
@@ -21,7 +19,6 @@ import * as CliBridge from "./session/cli-bridge.js";
 import * as RunnerCell from "./session/runner-cell.js";
 import * as RunnerHandle from "./session/runner.js";
 import * as AgentRuns from "./session/agent-runs.js";
-import * as SocialSessions from "./session/social.js";
 import * as UserAppProjects from "./session/user-apps.js";
 import * as VoiceRuntime from "./session/voice.js";
 import type { WorkerInitializationState } from "./types.js";
@@ -35,7 +32,6 @@ export type SessionServices =
   | RunnerCell.Service
   | RunnerHandle.Service
   | AgentRuns.Service
-  | SocialSessions.Service
   | UserAppProjects.Service
   | VoiceRuntime.Service;
 
@@ -44,12 +40,12 @@ export type SessionServices =
  * `Layer.provideMerge` builds dependencies bottom-up (SessionConfig first,
  * UserAppProjects last) and scope finalizers run LIFO, reproducing the old
  * `stopWorkerServices` teardown order EXACTLY: user app projects shutdown →
- * social.stop → voice → runner (await in-flight build, stop, drain
+ * voice → runner (await in-flight build, stop, drain
  * compactions) → runEventLog.stop → cli bridge stop → credential brokers
  * cleared → db.close.
  *
- * Service-graph evaluation (M5 phase 4): 14 services across two tiers
- * (worker: ModelCatalog/HostBus/WorkerSessions; session: the eleven below).
+ * Service-graph evaluation (M5 phase 4): 13 services across two tiers
+ * (worker: ModelCatalog/HostBus/WorkerSessions; session: the ten below).
  * A LayerNode-style DAG compiler was considered and REJECTED — one
  * hand-ordered chain per tier stays readable and the finalizer order is
  * documented here in one place. Revisit only if a tier
@@ -57,7 +53,6 @@ export type SessionServices =
  */
 const sessionLayer = (init: WorkerInitializationState, deviceId: string) =>
   UserAppProjects.layer.pipe(
-    Layer.provideMerge(SocialSessions.layer),
     Layer.provideMerge(VoiceRuntime.layer),
     Layer.provideMerge(AgentRuns.layer),
     Layer.provideMerge(RunnerHandle.layer),
@@ -87,7 +82,6 @@ export type OpenSession = {
   readonly runnerCell: RunnerCell.Interface;
   readonly runner: RunnerHandle.Interface;
   readonly agentRuns: AgentRuns.Interface;
-  readonly social: SocialSessionService;
   readonly userApps: UserAppProjectService;
   readonly voice: VoiceRuntimeService;
 };
@@ -150,14 +144,12 @@ export const layer = Layer.effect(
       const runner = session.runnerCell.get();
       if (patch.convexUrl !== undefined) {
         runner?.setConvexUrl(patch.convexUrl);
-        session.social.setConvexUrl(patch.convexUrl);
       }
       if (patch.convexSiteUrl !== undefined) {
         runner?.setConvexSiteUrl(patch.convexSiteUrl);
       }
       if (patch.authToken !== undefined) {
         runner?.setAuthToken(patch.authToken);
-        session.social.setAuthToken(patch.authToken);
       }
       if (patch.hasConnectedAccount !== undefined) {
         runner?.setHasConnectedAccount(patch.hasConnectedAccount);
@@ -261,7 +253,6 @@ export const layer = Layer.effect(
               runnerCell: Context.get(context, RunnerCell.Service),
               runner: Context.get(context, RunnerHandle.Service),
               agentRuns: Context.get(context, AgentRuns.Service),
-              social: Context.get(context, SocialSessions.Service).service,
               userApps: Context.get(context, UserAppProjects.Service).service,
               voice: Context.get(context, VoiceRuntime.Service).service,
             };
@@ -337,12 +328,6 @@ export const layer = Layer.effect(
       // Keep this in sync with host-side shouldKeepWorkerAlive plus
       // worker-only work that the host cannot observe after disconnect.
       const session = currentSession;
-      const socialSessions =
-        session?.social.getSnapshot() ??
-        createEmptySocialSessionServiceSnapshot();
-      const socialPinned =
-        socialSessions.sessionCount > 0 ||
-        Boolean(socialSessions.processingTurnId);
       const voicePinned =
         (session?.voice.isBusy() ?? false) ||
         (session?.voice.getPendingRequestCount() ?? 0) > 0;
@@ -353,7 +338,6 @@ export const layer = Layer.effect(
         runner?.getActiveOrchestratorRun() ||
           (runner?.getActiveAgentCount() ?? 0) > 0 ||
           requestPinned ||
-          socialPinned ||
           voicePinned ||
           userAppPinned,
       );

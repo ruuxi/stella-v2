@@ -33,7 +33,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("durable pet and emoji media generation", () => {
+describe("durable emoji media generation", () => {
   it("reconciles response-lost submissions by webhook and commits canonical billing before lease release", async () => {
     const t = createTest();
     const ownerId = "durable-product-media-owner";
@@ -46,16 +46,7 @@ describe("durable pet and emoji media generation", () => {
       }
       throw new Error(`Unexpected fetch: ${String(input)}`);
     });
-    const pet = await t.action(
-      internal.data.user_pet_generation.reservePetGenerationJob,
-      {
-        ownerId,
-        ownerGeneration,
-        uploadId: "pet-upload-durable",
-        prompt: "a tiny comet fox",
-      },
-    );
-    const emoji = await t.action(
+    const firstSheet = await t.action(
       internal.data.emoji_pack_generation.reserveEmojiSheetGenerationJob,
       {
         ownerId,
@@ -65,27 +56,32 @@ describe("durable pet and emoji media generation", () => {
         prompt: "neon clay party",
       },
     );
-    expect(pet?.jobId).toMatch(/^user_pet_generation_/u);
-    expect(emoji?.jobId).toMatch(/^emoji_pack_generation_/u);
+    const secondSheet = await t.action(
+      internal.data.emoji_pack_generation.reserveEmojiSheetGenerationJob,
+      {
+        ownerId,
+        ownerGeneration,
+        uploadId: "emoji-upload-durable",
+        sheetIndex: 1,
+        prompt: "neon clay party",
+      },
+    );
+    expect(firstSheet?.jobId).toMatch(/^emoji_pack_generation_/u);
+    expect(secondSheet?.jobId).toMatch(/^emoji_pack_generation_/u);
+    expect(firstSheet!.jobId).not.toBe(secondSheet!.jobId);
     await vi.waitFor(() => expect(submissions).toBe(2));
 
     const reserved = await t.run(async (ctx) => ({
-      pet: await ctx.db
+      first: await ctx.db
         .query("media_jobs")
-        .withIndex("by_jobId", (q) => q.eq("jobId", pet!.jobId))
+        .withIndex("by_jobId", (q) => q.eq("jobId", firstSheet!.jobId))
         .unique(),
-      emoji: await ctx.db
+      second: await ctx.db
         .query("media_jobs")
-        .withIndex("by_jobId", (q) => q.eq("jobId", emoji!.jobId))
+        .withIndex("by_jobId", (q) => q.eq("jobId", secondSheet!.jobId))
         .unique(),
     }));
-    expect(reserved.pet).toMatchObject({
-      capability: "text_to_image",
-      profile: "best",
-      endpointId: "openai/gpt-image-2",
-      submissionState: "unknown",
-    });
-    expect(reserved.emoji).toMatchObject({
+    expect(reserved.first).toMatchObject({
       capability: "image_edit",
       profile: "default",
       endpointId: "openai/gpt-image-2/edit",
@@ -94,8 +90,17 @@ describe("durable pet and emoji media generation", () => {
         input: { image_urls: ["[embedded emoji reference sheet 0]"] },
       },
     });
+    expect(reserved.second).toMatchObject({
+      capability: "image_edit",
+      profile: "default",
+      endpointId: "openai/gpt-image-2/edit",
+      submissionState: "unknown",
+      request: {
+        input: { image_urls: ["[embedded emoji reference sheet 1]"] },
+      },
+    });
 
-    for (const jobId of [pet!.jobId, emoji!.jobId]) {
+    for (const jobId of [firstSheet!.jobId, secondSheet!.jobId]) {
       await t.action(
         internal.media_image_submission.submitReservedImageJob,
         { jobId, ownerGeneration },
@@ -105,7 +110,7 @@ describe("durable pet and emoji media generation", () => {
 
     const jobs = await t.run(async (ctx) =>
       Promise.all(
-        [pet!.jobId, emoji!.jobId].map(async (jobId) =>
+        [firstSheet!.jobId, secondSheet!.jobId].map(async (jobId) =>
           ctx.db
             .query("media_jobs")
             .withIndex("by_jobId", (q) => q.eq("jobId", jobId))
@@ -118,7 +123,7 @@ describe("durable pet and emoji media generation", () => {
     };
     let expectedCost = 0;
     for (const [index, job] of jobs.entries()) {
-      if (!job) throw new Error("missing durable product media job");
+      if (!job) throw new Error("missing durable emoji media job");
       const billing = meterCompletedMediaJob({
         endpointId: job.endpointId,
         request: job.request,
@@ -155,11 +160,11 @@ describe("durable pet and emoji media generation", () => {
     expect(disposition.receipts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          jobId: pet!.jobId,
-          endpointId: "openai/gpt-image-2",
+          jobId: firstSheet!.jobId,
+          endpointId: "openai/gpt-image-2/edit",
         }),
         expect.objectContaining({
-          jobId: emoji!.jobId,
+          jobId: secondSheet!.jobId,
           endpointId: "openai/gpt-image-2/edit",
         }),
       ]),

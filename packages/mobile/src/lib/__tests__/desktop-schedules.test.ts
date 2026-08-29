@@ -1,16 +1,16 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 
-import {
-  parseMobileSchedules,
-  scheduleCadence,
-  scheduleRowBadge,
-  type MobileSchedule,
-} from "../desktop-schedules";
+// Namespace import so the request-shape tests can spy on the module's own
+// `listPairedAccess` seam. `mock.module("../phone-access")` would replace that
+// module for the rest of the bun process and leak into later suites.
+import * as schedules from "../desktop-schedules";
 import {
   formatNextRun,
   parseStoredSchedule,
   summarizeSchedule,
 } from "../schedule-format";
+
+type MobileSchedule = schedules.MobileSchedule;
 
 const cronRow = (overrides: Record<string, unknown> = {}) => ({
   id: "cron:abc",
@@ -39,7 +39,7 @@ const heartbeatRow = (overrides: Record<string, unknown> = {}) => ({
 describe("parseMobileSchedules", () => {
   test("merges crons + heartbeats, active first then by next run", () => {
     const now = Date.now();
-    const parsed = parseMobileSchedules({
+    const parsed = schedules.parseMobileSchedules({
       cronJobs: [
         cronRow({ id: "cron:far", nextRunAtMs: now + 5_000_000 }),
         cronRow({ id: "cron:soon", nextRunAtMs: now + 100 }),
@@ -54,7 +54,7 @@ describe("parseMobileSchedules", () => {
   });
 
   test("sinks paused rows below active ones", () => {
-    const parsed = parseMobileSchedules({
+    const parsed = schedules.parseMobileSchedules({
       cronJobs: [
         cronRow({ id: "cron:paused", enabled: false }),
         cronRow({ id: "cron:active" }),
@@ -66,7 +66,7 @@ describe("parseMobileSchedules", () => {
   });
 
   test("drops malformed rows instead of failing the list", () => {
-    const parsed = parseMobileSchedules({
+    const parsed = schedules.parseMobileSchedules({
       cronJobs: [
         cronRow(),
         { id: "" },
@@ -82,14 +82,14 @@ describe("parseMobileSchedules", () => {
   });
 
   test("handles a missing / non-array payload defensively", () => {
-    expect(parseMobileSchedules({})).toEqual([]);
-    expect(parseMobileSchedules({ cronJobs: "nope", heartbeats: 42 })).toEqual(
-      [],
-    );
+    expect(schedules.parseMobileSchedules({})).toEqual([]);
+    expect(
+      schedules.parseMobileSchedules({ cronJobs: "nope", heartbeats: 42 }),
+    ).toEqual([]);
   });
 
   test("deduplicates rows by kind:id", () => {
-    const parsed = parseMobileSchedules({
+    const parsed = schedules.parseMobileSchedules({
       cronJobs: [cronRow(), cronRow({ name: "Second copy" })],
       heartbeats: [],
     });
@@ -97,7 +97,7 @@ describe("parseMobileSchedules", () => {
   });
 
   test("serializes structured schedules back to JSON for the formatter", () => {
-    const parsed = parseMobileSchedules({
+    const parsed = schedules.parseMobileSchedules({
       cronJobs: [cronRow()],
       heartbeats: [],
     });
@@ -108,7 +108,7 @@ describe("parseMobileSchedules", () => {
   });
 
   test("heartbeat titles truncate long prompts like the desktop dialog", () => {
-    const parsed = parseMobileSchedules({
+    const parsed = schedules.parseMobileSchedules({
       cronJobs: [],
       heartbeats: [
         heartbeatRow({
@@ -122,32 +122,35 @@ describe("parseMobileSchedules", () => {
   });
 });
 
+// Undo the module replacements and spies above after every test so a stub
+// cannot answer for the real module in a later suite of the same bun run.
+afterEach(() => {
+  mock.restore();
+});
+
+/**
+ * Stand in for the paired-desktop record so the bridge resolves without
+ * native secure storage. Spying on the module's own `listPairedAccess` keeps
+ * `../phone-access` itself untouched.
+ */
+const stubPairedDesktop = () => {
+  spyOn(schedules, "listPairedAccess").mockResolvedValue([
+    {
+      desktopDeviceId: "desktop-1",
+      mobileDeviceId: "mobile-1",
+      pairSecret: "pair-secret",
+      approvedAt: 1,
+    },
+  ]);
+};
+
 describe("fetchMobileSchedules (request shape)", () => {
   test("requests both bridge list channels against the paired computer", async () => {
     // Expo's module setup runs on import and expects the RN global.
     (globalThis as Record<string, unknown>).__DEV__ = false;
-    const { mock } = await import("bun:test");
+    stubPairedDesktop();
 
-    // Stand in for the paired-desktop record so the bridge resolves without
-    // native secure storage, and capture the channels the module requests.
-    const store = new Map<string, string>();
-    mock.module("expo-secure-store", () => ({
-      getItemAsync: async (key: string) => store.get(key) ?? null,
-      setItemAsync: async (key: string, value: string) => {
-        store.set(key, value);
-      },
-      deleteItemAsync: async (key: string) => {
-        store.delete(key);
-      },
-    }));
-    mock.module("react-native", () => ({ Platform: { OS: "ios" } }));
-    mock.module("../phone-access", () => ({
-      listStoredPairedPhoneAccess: async () => [
-        { desktopDeviceId: "desktop-1", mobileDeviceId: "mobile-1" },
-      ],
-      getDesktopBridgeStatus: async () => ({ available: false }),
-    }));
-
+    // Capture the channels the module requests.
     const channels: string[] = [];
     mock.module("../desktop-bridge-chat", () => ({
       resolveDesktopBridge: async () => ({ desktopDeviceId: "desktop-1" }),
@@ -162,10 +165,7 @@ describe("fetchMobileSchedules (request shape)", () => {
       },
     }));
 
-    const { fetchMobileSchedules: fetchSchedules } = await import(
-      "../desktop-schedules"
-    );
-    const rows = await fetchSchedules();
+    const rows = await schedules.fetchMobileSchedules();
     expect(channels).toEqual([
       "schedule:listCronJobs",
       "schedule:listHeartbeats",
@@ -177,25 +177,7 @@ describe("fetchMobileSchedules (request shape)", () => {
 describe("mutateMobileSchedule (request shape)", () => {
   test("pause/resume send the narrowed enabled patch; remove sends the bare id", async () => {
     (globalThis as Record<string, unknown>).__DEV__ = false;
-    const { mock } = await import("bun:test");
-
-    const store = new Map<string, string>();
-    mock.module("expo-secure-store", () => ({
-      getItemAsync: async (key: string) => store.get(key) ?? null,
-      setItemAsync: async (key: string, value: string) => {
-        store.set(key, value);
-      },
-      deleteItemAsync: async (key: string) => {
-        store.delete(key);
-      },
-    }));
-    mock.module("react-native", () => ({ Platform: { OS: "ios" } }));
-    mock.module("../phone-access", () => ({
-      listStoredPairedPhoneAccess: async () => [
-        { desktopDeviceId: "desktop-1", mobileDeviceId: "mobile-1" },
-      ],
-      getDesktopBridgeStatus: async () => ({ available: false }),
-    }));
+    stubPairedDesktop();
 
     const calls: { channel: string; args: unknown }[] = [];
     mock.module("../desktop-bridge-chat", () => ({
@@ -210,13 +192,10 @@ describe("mutateMobileSchedule (request shape)", () => {
       },
     }));
 
-    const { mutateMobileSchedule: mutate } = await import(
-      "../desktop-schedules"
-    );
     const cron = shape();
-    await mutate("pause", cron);
-    await mutate("resume", cron);
-    await mutate("remove", cron);
+    await schedules.mutateMobileSchedule("pause", cron);
+    await schedules.mutateMobileSchedule("resume", cron);
+    await schedules.mutateMobileSchedule("remove", cron);
     // This is the exact wire shape the desktop's mobile-bridge invoke guard
     // allowlists ({ jobId, patch: { enabled } } / { jobId }) — anything
     // wider is rejected desktop-side, so this test pins both halves of the
@@ -238,12 +217,12 @@ describe("mutateMobileSchedule (request shape)", () => {
   });
 
   test("heartbeats are refused before any bridge call", async () => {
-    const { mutateMobileSchedule: mutate } = await import(
-      "../desktop-schedules"
-    );
     let message = "";
     try {
-      await mutate("pause", shape({ kind: "heartbeat", id: "hb-1" }));
+      await schedules.mutateMobileSchedule(
+        "pause",
+        shape({ kind: "heartbeat", id: "hb-1" }),
+      );
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
     }
@@ -304,22 +283,27 @@ describe("row rendering inputs", () => {
     const now = Date.UTC(2026, 6, 20, 12, 0);
     // Paused wins even with an imminent nextRunAtMs still on the record.
     expect(
-      scheduleRowBadge(shape({ enabled: false, nextRunAtMs: now + 60_000 }), now),
+      schedules.scheduleRowBadge(
+        shape({ enabled: false, nextRunAtMs: now + 60_000 }),
+        now,
+      ),
     ).toEqual({ kind: "paused" });
     expect(
-      scheduleRowBadge(shape({ nextRunAtMs: now + 5 * 60_000 }), now),
+      schedules.scheduleRowBadge(shape({ nextRunAtMs: now + 5 * 60_000 }), now),
     ).toEqual({ kind: "next", label: "in 5m" });
   });
 
   test("cadence line composes stored schedule JSON / heartbeat interval", () => {
     expect(
-      scheduleCadence({
+      schedules.scheduleCadence({
         scheduleJson: JSON.stringify({ kind: "cron", expr: "0 9 * * *" }),
       }),
     ).toBe("Daily 09:00");
-    expect(scheduleCadence({ intervalMs: 30 * 60_000 })).toBe("Every 30 min");
+    expect(schedules.scheduleCadence({ intervalMs: 30 * 60_000 })).toBe(
+      "Every 30 min",
+    );
     // Corrupt stored JSON yields "" — the UI's localized fallback takes over.
-    expect(scheduleCadence({ scheduleJson: "{corrupt" })).toBe("");
-    expect(scheduleCadence({})).toBe("");
+    expect(schedules.scheduleCadence({ scheduleJson: "{corrupt" })).toBe("");
+    expect(schedules.scheduleCadence({})).toBe("");
   });
 });

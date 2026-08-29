@@ -105,7 +105,7 @@ export const IPC_PAYLOAD_CONTRACT = {
     "discovery:writeKnowledge": { kind: "passthrough" },
     "display:listCanvasHtml": { kind: "none" },
     "display:openSharedCanvas": { kind: "passthrough" },
-    "display:readFile": { kind: "object", fields: ["filePath", "conversationId"] },
+    "display:readFile": { kind: "object", fields: ["filePath", "conversationId", "maxBytes"] },
     "displayTrash:forceDelete": { kind: "passthrough" },
     "displayTrash:list": { kind: "none" },
     "fashion:deleteBodyPhoto": { kind: "none" },

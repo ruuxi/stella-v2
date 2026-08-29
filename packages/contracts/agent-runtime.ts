@@ -337,6 +337,32 @@ export const AGENT_STREAM_EVENT_TYPES = {
 export type AgentStreamEventType =
   (typeof AGENT_STREAM_EVENT_TYPES)[keyof typeof AGENT_STREAM_EVENT_TYPES];
 
+/**
+ * Worker run-event recorder seqs are a per-run counter (1, 2, 3…). Hidden-run
+ * mirrors and similar paths stamp `Date.now()`-scale synthetics, and a few
+ * terminals use `Number.MAX_SAFE_INTEGER`. Anything at or above this ceiling
+ * is not a recorder cursor and must not be fed to `resumeAfter`.
+ */
+export const AGENT_RECORDER_SEQ_CEILING = 10_000_000_000;
+
+export const isAgentRecorderSeq = (seq: unknown): seq is number =>
+  typeof seq === "number" &&
+  Number.isFinite(seq) &&
+  seq > 0 &&
+  seq < AGENT_RECORDER_SEQ_CEILING;
+
+export const nextAgentRecorderSeqCursor = (
+  previous: number,
+  event: { seq?: number; sourceSeq?: number },
+): number => {
+  const candidate = isAgentRecorderSeq(event.sourceSeq)
+    ? event.sourceSeq
+    : isAgentRecorderSeq(event.seq)
+      ? event.seq
+      : previous;
+  return candidate > previous ? candidate : previous;
+};
+
 // Per-agent lifecycle (subset of AGENT_STREAM_EVENT_TYPES). Tracks one
 // subagent task from spawn to terminal state.
 export const TASK_LIFECYCLE_EVENT_TYPES = [

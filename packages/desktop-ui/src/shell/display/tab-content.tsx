@@ -19,6 +19,12 @@ import { openExternalUrl } from "@/platform/electron/open-external";
 import { useFilePreviewActions } from "@/features/chat/hooks/use-file-preview-actions";
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import {
+  DELIMITED_PREVIEW_MAX_BYTES,
+  DELIMITED_PREVIEW_MAX_ROWS,
+  parseDelimitedRows,
+  rowsForDelimitedPreview,
+} from "@/shell/display/parse-delimited-rows";
+import {
   sourceDiffBatches,
   useSourceDiffBatches,
   type SourceDiffBatch,
@@ -195,51 +201,6 @@ export const OfficeFileTabContent = ({
 
 const textDecoder = new TextDecoder("utf-8");
 
-const parseDelimitedRows = (
-  text: string,
-  delimiter: "," | "\t",
-): string[][] => {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = "";
-  let quoted = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index]!;
-    const next = text[index + 1];
-    if (quoted) {
-      if (char === '"' && next === '"') {
-        cell += '"';
-        index += 1;
-      } else if (char === '"') {
-        quoted = false;
-      } else {
-        cell += char;
-      }
-      continue;
-    }
-    if (char === '"') {
-      quoted = true;
-    } else if (char === delimiter) {
-      row.push(cell);
-      cell = "";
-    } else if (char === "\n") {
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = "";
-    } else if (char !== "\r") {
-      cell += char;
-    }
-  }
-
-  if (cell.length > 0 || row.length > 0) {
-    row.push(cell);
-    rows.push(row);
-  }
-  return rows;
-};
-
 export const DelimitedTableTabContent = ({
   filePath,
   title,
@@ -248,18 +209,25 @@ export const DelimitedTableTabContent = ({
   title?: string;
 }) => {
   const t = useT();
-  const { bytes, error, loading } = useDisplayFileBytes(
+  const { bytes, error, loading, truncated } = useDisplayFileBytes(
     filePath,
     t("shell.display.spreadsheet.desktopRequired"),
+    undefined,
+    undefined,
+    DELIMITED_PREVIEW_MAX_BYTES,
   );
   const delimiter = filePath.toLowerCase().endsWith(".tsv") ? "\t" : ",";
   const rows = useMemo(() => {
     if (!bytes) return [];
-    return parseDelimitedRows(textDecoder.decode(bytes), delimiter).slice(
-      0,
-      1_000,
+    return rowsForDelimitedPreview(
+      parseDelimitedRows(
+        textDecoder.decode(bytes),
+        delimiter,
+        DELIMITED_PREVIEW_MAX_ROWS,
+      ),
+      truncated,
     );
-  }, [bytes, delimiter]);
+  }, [bytes, delimiter, truncated]);
   const columnCount = rows.reduce((max, row) => Math.max(max, row.length), 0);
   const header = rows[0] ?? [];
   const body = rows.slice(1);

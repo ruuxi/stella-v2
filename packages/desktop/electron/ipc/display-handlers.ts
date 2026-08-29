@@ -25,6 +25,7 @@ import {
   type FileChangeRecord,
 } from "@stella/contracts/file-changes";
 import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
+import { planDisplayFileRead } from "./display-read-limit.js";
 
 type DisplayHandlersOptions = {
   getStellaAppDir: () => string | null;
@@ -36,7 +37,6 @@ type DisplayHandlersOptions = {
   ) => boolean;
 };
 
-const MAX_DISPLAY_FILE_BYTES = 200 * 1024 * 1024;
 export const MOBILE_BRIDGE_SENDER_URL = "stella-mobile-bridge://mobile";
 
 const MIME_BY_EXTENSION: Record<string, string> = {
@@ -239,7 +239,11 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     IPC_DISPLAY_READ_FILE,
     async (
       event,
-      payload?: { filePath?: unknown; conversationId?: unknown },
+      payload?: {
+        filePath?: unknown;
+        conversationId?: unknown;
+        maxBytes?: unknown;
+      },
     ) => {
       if (!options.assertPrivilegedSender(event, IPC_DISPLAY_READ_FILE)) {
         throw new Error(`Blocked untrusted ${IPC_DISPLAY_READ_FILE} request.`);
@@ -316,13 +320,26 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
       if (!stats.isFile()) {
         throw new Error(`display:readFile target is not a file: ${resolved}`);
       }
-      if (stats.size > MAX_DISPLAY_FILE_BYTES) {
-        throw new Error(
-          `File too large to display (${stats.size} bytes, limit ${MAX_DISPLAY_FILE_BYTES}).`,
-        );
+      const plan = planDisplayFileRead(stats.size, payload?.maxBytes);
+      if (!plan.ok) {
+        throw new Error(plan.error);
       }
 
-      const buffer = await fs.readFile(resolved);
+      let buffer: Buffer;
+      if (plan.readBytes === stats.size) {
+        buffer = await fs.readFile(resolved);
+      } else {
+        const handle = await fs.open(resolved, "r");
+        try {
+          buffer = Buffer.alloc(plan.readBytes);
+          const { bytesRead } = await handle.read(buffer, 0, plan.readBytes, 0);
+          if (bytesRead < plan.readBytes) {
+            buffer = buffer.subarray(0, bytesRead);
+          }
+        } finally {
+          await handle.close();
+        }
+      }
       // Return the raw bytes; Electron's structured-clone IPC transport
       // ships `Uint8Array` directly without the +33% base64 overhead and
       // without forcing the renderer to spin a JS loop to decode it.
@@ -335,6 +352,7 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
         bytes,
         sizeBytes: stats.size,
         mimeType,
+        truncated: buffer.byteLength < stats.size,
         missing: false as const,
       };
     },

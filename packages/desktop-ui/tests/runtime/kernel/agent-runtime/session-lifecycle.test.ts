@@ -90,7 +90,6 @@ const createOptions = (
     recordRunEvent: vi.fn(),
   } as never,
   callbacks: {
-    onStream: vi.fn(),
     onToolStart: vi.fn(),
     onToolEnd: vi.fn(),
     onError: vi.fn(),

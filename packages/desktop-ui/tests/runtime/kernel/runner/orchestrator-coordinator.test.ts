@@ -42,7 +42,6 @@ const createContext = (runId = "run-1") => {
 };
 
 const createCallbacks = () => ({
-  onStream: vi.fn(),
   onToolStart: vi.fn(),
   onToolEnd: vi.fn(),
   onError: vi.fn(),

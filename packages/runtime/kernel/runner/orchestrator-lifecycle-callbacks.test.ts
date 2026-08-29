@@ -35,7 +35,6 @@ describe("detached lifecycle callbacks", () => {
     );
 
     const existing: AgentCallbacks = {
-      onStream: () => {},
       onToolStart: () => {},
       onToolEnd: () => {},
       onError: () => {},

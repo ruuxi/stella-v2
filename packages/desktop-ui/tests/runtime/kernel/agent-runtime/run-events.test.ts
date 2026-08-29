@@ -930,18 +930,42 @@ describe("subscribeRuntimeAgentEvents", () => {
       getResponseTarget: () => ({ type: "user_turn" }),
     });
 
-    recorder.recordStream("Hello ");
+    recorder.noteAssistantTextChunk("Hello ");
     const event = recorder.recordAssistantTextEnd(" Hello from Claude Code. ");
 
     expect(event).toEqual(
       expect.objectContaining({
         runId: "run-claude",
         agentType: "orchestrator",
-        seq: 2,
+        // A delta consumes no seq: the segment's own event is the run's first.
+        seq: 1,
         userMessageId: "user-1",
         text: "Hello from Claude Code.",
         responseTarget: { type: "user_turn" },
       }),
+    );
+    expect(typeof event?.firstTextAtMs).toBe("number");
+    expect(store.recordRunEvent).not.toHaveBeenCalled();
+  });
+
+  it("stamps the first-text anchor once per segment and clears it on flush", () => {
+    const store = { recordRunEvent: vi.fn() };
+    const recorder = createRunEventRecorder({
+      store: store as never,
+      runId: "run-anchor",
+      conversationId: "conversation-1",
+      agentType: "orchestrator",
+      userMessageId: "user-1",
+    });
+
+    recorder.noteAssistantTextChunk("first");
+    const firstAnchor = recorder.recordAssistantTextEnd("first")?.firstTextAtMs;
+    expect(typeof firstAnchor).toBe("number");
+
+    // No delta before this flush: the next segment must not inherit the
+    // previous segment's anchor.
+    expect(recorder.recordAssistantTextEnd("second")?.firstTextAtMs).toBe(
+      undefined,
     );
   });
 
@@ -1020,8 +1044,10 @@ describe("subscribeRuntimeAgentEvents", () => {
     ).toEqual(["assistant", "toolResult", "toolResult"]);
   });
 
-  it("routes provider thinking_delta to onReasoning (NOT onStream) and skips thinking_end", () => {
-    // Reasoning deltas feed the per-agent reasoning UI, not the visible chat stream.
+  it("routes thinking_delta to onReasoning, skips thinking_end, and emits no event for a text delta", () => {
+    // Reasoning deltas feed the per-agent reasoning UI. Assistant text is
+    // delivered whole on `assistant-message`, so a text delta emits nothing
+    // and only feeds `onProgress` and the segment's first-text anchor.
     let listener: ((event: AgentEvent) => void) | undefined;
     const agent = {
       state: { messages: [] },
@@ -1032,7 +1058,8 @@ describe("subscribeRuntimeAgentEvents", () => {
     };
     const store = { recordRunEvent: vi.fn() };
     const onReasoning = vi.fn();
-    const onStream = vi.fn();
+    const onAssistantMessage = vi.fn();
+    const onProgress = vi.fn();
 
     subscribeRuntimeAgentEvents({
       agent,
@@ -1045,9 +1072,10 @@ describe("subscribeRuntimeAgentEvents", () => {
         agentType: "general",
         userMessageId: "user-1",
       }),
+      onProgress,
       callbacks: {
         onReasoning,
-        onStream,
+        onAssistantMessage,
       },
     });
 
@@ -1095,10 +1123,14 @@ describe("subscribeRuntimeAgentEvents", () => {
     expect(onReasoning).not.toHaveBeenCalledWith(
       expect.objectContaining({ chunk: "" }),
     );
-    expect(onStream).toHaveBeenCalledTimes(1);
-    expect(onStream).toHaveBeenCalledWith(
-      expect.objectContaining({ chunk: "Done." }),
-    );
+    expect(onProgress).toHaveBeenCalledTimes(1);
+    expect(onProgress).toHaveBeenCalledWith("Done.");
+    expect(onAssistantMessage).not.toHaveBeenCalled();
+    expect(
+      store.recordRunEvent.mock.calls.map(
+        ([entry]: [{ type: string }]) => entry.type,
+      ),
+    ).not.toContain("stream");
   });
 
   it("skips empty thinking_delta chunks", () => {
@@ -1165,7 +1197,8 @@ describe("queued user steer visibility", () => {
       uiVisibility: "visible",
     });
     expect(onStart).toHaveBeenCalledOnce();
-    expect(recorder.recordStream("reply")).toMatchObject({
+    recorder.noteAssistantTextChunk("reply");
+    expect(recorder.recordAssistantTextEnd("reply")).toMatchObject({
       userMessageId: "user-steer",
       uiVisibility: "visible",
     });

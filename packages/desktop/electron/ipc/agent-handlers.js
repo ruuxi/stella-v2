@@ -28,7 +28,11 @@ const requestIdForClientSend = (clientRequestId) => `req:client:${crypto.createH
  * stretches are legitimate: a slow first token, a multi-minute shell/tool
  * call, or context compaction (worst on the Claude Code / Codex engines, but
  * possible on the default engine too) can all run well past 45s without
- * emitting a stream event. While a user-visible run is active we broadcast a
+ * emitting any event. Since assistant text is delivered whole (one
+ * `assistant-message` event per finished segment instead of a token stream),
+ * even an ordinary long answer now produces no traffic while it generates,
+ * which makes this ticker the only thing keeping mobile's inactivity timer
+ * alive through it. While a user-visible run is active we broadcast a
  * lightweight keepalive to mobile so its inactivity timer keeps resetting
  * instead of tearing down a healthy run. The interval sits comfortably below
  * the mobile window so a couple of keepalives land before it would fire.
@@ -401,12 +405,6 @@ export const registerAgentHandlers = (options) => {
                         ...(ev.agentType ? { agentType: ev.agentType } : {}),
                     }, senderWebContentsId);
                 },
-                onStream: (ev) => emitAgentEvent({
-                    ...ev,
-                    type: AGENT_STREAM_EVENT_TYPES.STREAM,
-                    conversationId,
-                    requestId,
-                }, senderWebContentsId),
                 onAssistantMessage: (ev) => emitAgentEvent({
                     ...ev,
                     type: AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE,
@@ -648,12 +646,6 @@ export const registerAgentHandlers = (options) => {
                     stellaHostRunner.cancelLocalChat(ev.runId);
                 }
             },
-            onStream: (ev) => emitAgentEvent({
-                ...ev,
-                type: AGENT_STREAM_EVENT_TYPES.STREAM,
-                conversationId,
-                requestId,
-            }, senderWebContentsId),
             onAssistantMessage: (ev) => emitAgentEvent({
                 ...ev,
                 type: AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE,

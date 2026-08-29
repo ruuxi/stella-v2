@@ -911,7 +911,6 @@ export const createAgentOrchestration = (
         callbacks: {
           ...(runnerCallbacks
             ? {
-                onStream: (event) => runnerCallbacks.onStream(event),
                 onReasoning: (event) => {
                   if (!agentId) {
                     return;

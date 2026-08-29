@@ -51,6 +51,7 @@ import {
   LEGACY_OWNER_GENERATION,
 } from "./owner_lifecycle";
 import { hashSha256Hex } from "./lib/crypto_utils";
+import { normalizeChatAttachmentPaths } from "./lib/chat_attachments";
 import { createManagedUsageDispatchGuard } from "./lib/managed_billing";
 import { runManagedDispatchAttempt } from "./runtime_ai/managed";
 import {
@@ -722,21 +723,6 @@ const normalizeLocale = (value: string | undefined): string | undefined => {
   return trimmed && LOCALE_PATTERN.test(trimmed) ? trimmed : undefined;
 };
 
-// Drive-relative POSIX paths, same shape the drive index stores. Junk is
-// dropped rather than rejected — an attachment is a hint, never a reason to
-// fail the send. The attachment route re-validates against the actual rows.
-const normalizeChatAttachments = (paths: readonly string[]): string[] =>
-  paths
-    .filter(
-      (path): path is string =>
-        typeof path === "string" &&
-        path.length > 0 &&
-        path.length <= 512 &&
-        !path.startsWith("/") &&
-        !path.split("/").includes(".."),
-    )
-    .slice(0, 4);
-
 const startChatTurn = async (
   ctx: MutationCtx,
   args: {
@@ -1329,6 +1315,8 @@ export const startCloudChatTurnInternal = internalMutation({
     hiddenTurn: v.optional(v.boolean()),
     source: v.optional(v.string()),
     clientMsgId: v.optional(v.string()),
+    /** Drive paths of the turn's attachments; the DO hydrates them. */
+    attachments: v.optional(v.array(v.string())),
     placementAttempt: v.optional(executionPlacementAttemptValidator),
     execution: v.optional(cloudExecutionSelectionValidator),
     ownerGeneration: v.string(),
@@ -1354,6 +1342,9 @@ export const startCloudChatTurnInternal = internalMutation({
     const requestedExecution = args.execution
       ? normalizeCloudExecutionSelection(args.execution)
       : undefined;
+    const normalizedAttachments = normalizeChatAttachmentPaths(
+      args.attachments ?? [],
+    );
     const intentFingerprint = clientMsgId
       ? await chatIntentFingerprint({
           authority: args.placementAttempt ? "chat-placement" : "chat-internal",
@@ -1362,6 +1353,7 @@ export const startCloudChatTurnInternal = internalMutation({
           source: args.source,
           hiddenMessage,
           hiddenTurn,
+          attachments: normalizedAttachments,
           execution: requestedExecution,
         })
       : undefined;
@@ -1432,6 +1424,9 @@ export const startCloudChatTurnInternal = internalMutation({
       hiddenMessage,
       hiddenTurn,
       ...(clientMsgId ? { clientMsgId } : {}),
+      ...(normalizedAttachments.length
+        ? { attachments: normalizedAttachments }
+        : {}),
       ...(requestedExecution ? { execution: requestedExecution } : {}),
       ownerGeneration: lifecycle.generation,
       ...(intentFingerprint
@@ -1885,7 +1880,7 @@ const startCloudComposerTurn = async (
   await assertOwnerMigrationWriteAllowed(ctx, ownerId, lifecycle.generation);
   const clientMsgId = normalizeClientMsgId(args.clientMsgId);
   const normalizedLocale = normalizeLocale(args.locale);
-  const normalizedAttachments = normalizeChatAttachments(
+  const normalizedAttachments = normalizeChatAttachmentPaths(
     args.attachments ?? [],
   );
   const requestedExecution = args.execution

@@ -33,6 +33,10 @@ export const executionCapabilityValidator = v.union(
   v.literal("computer-use"),
   v.literal("local-files"),
   v.literal("local-apps"),
+  // A build that can resolve the dispatch payload's drive-path attachments.
+  // Gating on a capability rather than a protocol bump keeps a desktop that
+  // predates attachments eligible for every turn that has none.
+  v.literal("attachments"),
 );
 
 export const executionPresenceStatusValidator = v.union(

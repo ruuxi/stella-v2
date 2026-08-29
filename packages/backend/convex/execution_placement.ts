@@ -40,6 +40,7 @@ import {
   normalizeCloudExecutionSelection,
   type CloudExecutionSelection,
 } from "./lib/cloud_execution";
+import { parseChatAttachmentPaths } from "./lib/chat_attachments";
 
 export const EXECUTION_PRESENCE_LEASE_MS = 75_000;
 export const EXECUTION_OFFER_WINDOW_MS = 4_000;
@@ -74,7 +75,8 @@ type ExecutionCapability =
   | "agent"
   | "computer-use"
   | "local-files"
-  | "local-apps";
+  | "local-apps"
+  | "attachments";
 type NoEligibleComputerAction = "cloud" | "blocked";
 type DeviceProofOperation =
   | "presence-register"
@@ -3374,6 +3376,7 @@ const startCloudChatRef = makeFunctionReference<
     conversationId: string;
     prompt: string;
     source: string;
+    attachments?: string[];
     clientMsgId: string;
     placementAttempt: {
       dispatchId: string;
@@ -3507,11 +3510,22 @@ type CloudExecutionInput = {
   payloadJson: string;
 };
 
+/**
+ * "attachments" is a capability the cloud sandbox has by construction — the
+ * drive it hydrates from is the same drive the reference names — so it names a
+ * requirement a computer may lack, never one that makes a turn cloud-ineligible.
+ */
+const CLOUD_PROVIDED_CAPABILITIES: ReadonlySet<ExecutionCapability> = new Set([
+  "chat",
+  "agent",
+  "attachments",
+]);
+
 const cloudUnsupportedDeviceCapabilities = (
   input: CloudExecutionInput,
 ): ExecutionCapability[] =>
   input.requiredCapabilities.filter(
-    (capability) => capability !== "chat" && capability !== "agent",
+    (capability) => !CLOUD_PROVIDED_CAPABILITIES.has(capability),
   );
 
 const cloudPlacementSource = (input: CloudExecutionInput): string =>
@@ -3580,18 +3594,17 @@ const parseCloudPayload = (input: CloudExecutionInput) => {
         : typeof parsed.locale === "string" && parsed.locale.length <= 64
           ? parsed.locale
           : invalid("Cloud chat locale is invalid.");
-    const attachments =
-      parsed.attachments === undefined
-        ? undefined
-        : Array.isArray(parsed.attachments) &&
-            parsed.attachments.every((entry) => typeof entry === "string")
-          ? parsed.attachments
-          : invalid("Cloud chat attachments are invalid.");
+    // Strict, not truncating: the payload hash covers this exact array, so a
+    // quietly shortened one executes a materially different request than the
+    // one the user sent and the one the fence signed.
+    const parsedAttachments = parseChatAttachmentPaths(parsed.attachments);
+    if (!parsedAttachments.ok) invalid(parsedAttachments.message);
+    const attachments = parsedAttachments.paths;
     const execution = parseCloudExecutionSelection(parsed.execution);
     return {
       prompt,
       ...(locale ? { locale } : {}),
-      ...(attachments ? { attachments } : {}),
+      ...(attachments.length ? { attachments } : {}),
       ...(execution ? { execution } : {}),
     };
   }
@@ -3654,12 +3667,12 @@ export const executeCloudCommittedDispatchInternal = internalAction({
             ownerGeneration: input.ownerGeneration,
             conversationId: input.conversationId,
             prompt: chatPayload.prompt,
+            ...(chatPayload.attachments
+              ? { attachments: chatPayload.attachments }
+              : {}),
             ...(input.ingress === "browser"
               ? {
                   ...(chatPayload.locale ? { locale: chatPayload.locale } : {}),
-                  ...(chatPayload.attachments
-                    ? { attachments: chatPayload.attachments }
-                    : {}),
                   ...(chatPayload.execution
                     ? { execution: chatPayload.execution }
                     : {}),

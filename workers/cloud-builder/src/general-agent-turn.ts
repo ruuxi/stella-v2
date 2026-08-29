@@ -348,30 +348,198 @@ export const selectGeneralAgentTurnPlan = (args: {
   return { kind: "resident_stella", execution: args.execution };
 };
 
+/**
+ * Flat facts rather than a request object: admission holds `index.ts`'s
+ * `TurnRequest`, the runner holds a parsed `GeneralAgentTurnRequest`, and both
+ * have to reach the same decision. Passing the facts is what keeps that from
+ * becoming two assembled records that can disagree.
+ */
 export const turnComputePlan = (args: {
-  turn: GeneralAgentTurnRequest;
+  turnId: string;
+  attemptGeneration: number;
+  execution: CloudExecutionSelection;
+  browserResume: boolean;
   residentDisabled: boolean;
   now: number;
 }): TurnComputePlan => ({
   schemaVersion: 1,
-  turnId: args.turn.identity.turnId,
-  attemptGeneration: args.turn.identity.attemptGeneration,
+  turnId: args.turnId,
+  attemptGeneration: args.attemptGeneration,
   plan: selectGeneralAgentTurnPlan({
-    execution: args.turn.execution,
-    browserResume: args.turn.browserResume !== undefined,
+    execution: args.execution,
+    browserResume: args.browserResume,
     residentDisabled: args.residentDisabled,
   }),
-  engine: args.turn.execution.engine,
-  browserResume: args.turn.browserResume !== undefined,
+  engine: args.execution.engine,
+  browserResume: args.browserResume,
   residentDisabled: args.residentDisabled,
   decidedAt: args.now,
 });
+
+const isTurnComputePlanRecord = (
+  value: unknown,
+): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+/**
+ * Read back an admitted placement. The exact turn and attempt have to match:
+ * a plan left by a predecessor attempt describes a container this attempt
+ * never reserved, and acting on it would tear down or trust the wrong one.
+ */
+export const parseTurnComputePlan = (
+  value: unknown,
+  identity: Readonly<{ turnId: string; attemptGeneration: number }>,
+): TurnComputePlan | null => {
+  if (!isTurnComputePlanRecord(value)) return null;
+  if (
+    value.schemaVersion !== 1 ||
+    value.turnId !== identity.turnId ||
+    value.attemptGeneration !== identity.attemptGeneration ||
+    typeof value.browserResume !== "boolean" ||
+    typeof value.residentDisabled !== "boolean" ||
+    !Number.isSafeInteger(value.decidedAt) ||
+    !isTurnComputePlanRecord(value.plan)
+  ) {
+    return null;
+  }
+  const plan = value.plan;
+  if (plan.kind === "resident_stella") {
+    return value as unknown as TurnComputePlan;
+  }
+  if (
+    plan.kind !== "native_sandbox" ||
+    (plan.reason !== "native_engine" &&
+      plan.reason !== "browser_resume" &&
+      plan.reason !== "resident_disabled")
+  ) {
+    return null;
+  }
+  return value as unknown as TurnComputePlan;
+};
 
 const RESIDENT_COMPUTE: TurnComputeUse = { kind: "resident" };
 const EMPTY_USAGE: TurnUsage = {
   inputTokens: 0,
   outputTokens: 0,
   llmCalls: 0,
+};
+
+/**
+ * What the container executor reported, reduced to the fields a turn envelope
+ * is built from. `index.ts` already parses the executor's result file into
+ * this shape; the adapter below re-states it rather than importing the Worker,
+ * which would drag the whole container module graph into the resident bundle.
+ */
+export type NativeSandboxExecutorOutcome = Readonly<{
+  ok: boolean;
+  outcome?: "completed" | "suspended";
+  finalText?: string;
+  error?: string;
+  usage?: TurnUsage;
+  suspension?: CloudBrowserSuspension;
+}>;
+
+/**
+ * One `runAgentAttempt` call, plus the durability its caller committed.
+ *
+ * Durability is an input rather than something the adapter derives. The
+ * container path's checkpoint is committed through the turn broker by code
+ * that owns the archive; asking the adapter to guess from a receipt would let
+ * it claim a checkpoint the turn never uploaded.
+ */
+export type NativeSandboxAttempt = Readonly<{
+  result: NativeSandboxExecutorOutcome;
+  durability: TurnDurability;
+  instanceSize: "small" | "large";
+  coldStartMs: number;
+  restoreMs: number;
+}>;
+
+export class NativeSandboxDurabilityError extends Error {
+  constructor(outcome: string, durability: TurnDurability["kind"]) {
+    super(
+      `A native sandbox turn ended ${outcome} with ${durability} durability.`,
+    );
+    this.name = "NativeSandboxDurabilityError";
+  }
+}
+
+const nativeCompute = (attempt: NativeSandboxAttempt): TurnComputeUse => ({
+  kind: "sandbox",
+  reason: "native_engine",
+  instanceSize: attempt.instanceSize,
+  coldStartMs: attempt.coldStartMs,
+  restoreMs: attempt.restoreMs,
+});
+
+/**
+ * The `native_sandbox` arm of the selector.
+ *
+ * It runs the existing eager-container attempt untouched and projects what it
+ * reported into the one envelope both plans return. Everything a native turn
+ * does differently — the executor process, the broker file handoff, archive
+ * ordering — stays inside `runAttempt`, so this arm adds no second control
+ * path and cannot silently accept a resident plan.
+ */
+export const runNativeSandboxTurn = async (args: {
+  plan: Extract<GeneralAgentTurnPlan, { kind: "native_sandbox" }>;
+  context: TurnExecutionContext;
+  runAttempt: () => Promise<NativeSandboxAttempt>;
+}): Promise<GeneralAgentTurnResult> => {
+  args.context.assertActive();
+  const attempt = await args.runAttempt();
+  const compute = nativeCompute(attempt);
+  const usage = attempt.result.usage ?? EMPTY_USAGE;
+
+  if (attempt.result.outcome === "suspended") {
+    const suspension = attempt.result.suspension;
+    if (!suspension) {
+      throw new NativeSandboxDurabilityError(
+        "suspended",
+        attempt.durability.kind,
+      );
+    }
+    if (attempt.durability.kind === "none") {
+      throw new NativeSandboxDurabilityError(
+        "suspended",
+        attempt.durability.kind,
+      );
+    }
+    return {
+      outcome: "suspended",
+      ok: false,
+      suspension,
+      usage,
+      compute,
+      durability: attempt.durability,
+    };
+  }
+
+  if (!attempt.result.ok) {
+    return {
+      outcome: "failed",
+      ok: false,
+      error: attempt.result.error ?? "The agent hit a problem and stopped.",
+      usage,
+      compute,
+      durability: attempt.durability,
+    };
+  }
+
+  if (attempt.durability.kind === "none") {
+    throw new NativeSandboxDurabilityError(
+      "completed",
+      attempt.durability.kind,
+    );
+  }
+  return {
+    outcome: "completed",
+    ok: true,
+    finalText: attempt.result.finalText ?? "",
+    usage,
+    compute,
+    durability: attempt.durability,
+  };
 };
 
 export type ResidentModelFactory = (args: {

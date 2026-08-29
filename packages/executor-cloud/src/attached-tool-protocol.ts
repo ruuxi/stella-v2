@@ -53,6 +53,17 @@ export const isAttachedToolName = (value: unknown): value is AttachedToolName =>
 
 export const ATTACHED_TOOL_PROTOCOL_VERSION = 1;
 
+/**
+ * Everything the bridge touches lives here, outside the world root. The world
+ * is owned by the unprivileged tool account; this directory is root-owned, so
+ * a tool the agent ran cannot read a frame or plant one.
+ */
+export const ATTACHED_TOOL_DIR = "/workspace/attached";
+export const ATTACHED_TOOL_SOCKET_PATH = `${ATTACHED_TOOL_DIR}/tool-host.sock`;
+export const ATTACHED_TOOL_HOST_INPUT_PATH = `${ATTACHED_TOOL_DIR}/host-input.json`;
+export const ATTACHED_TOOL_REQUEST_PATH = `${ATTACHED_TOOL_DIR}/request.json`;
+export const ATTACHED_TOOL_RESULT_PATH = `${ATTACHED_TOOL_DIR}/result.json`;
+
 /** One framed request, including its identity envelope. */
 export const ATTACHED_TOOL_REQUEST_MAX_BYTES = 1024 * 1024;
 

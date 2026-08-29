@@ -1,9 +1,36 @@
 import { Effect } from "effect";
-import { writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { runStubTurn } from "./stub-turn.js";
 import { runAppTurn } from "./app-turn.js";
 import { runAgentTurn } from "./agent-turn.js";
 import { CLOUD_AGENT_TURN_RESULT_PATH } from "./agent-turn-result-file.js";
+import { ATTACHED_TOOL_HOST_INPUT_PATH } from "./attached-tool-protocol.js";
+import {
+  parseAttachedToolHostInput,
+  runAttachedToolHost,
+} from "./attached-tool-host.js";
+import {
+  attachedToolClientPaths,
+  runAttachedToolClient,
+} from "./attached-tool-client.js";
+
+// The daemon and the one-call client never produce a turn result, so they exit
+// before the turn-result plumbing below.
+if (process.argv.includes("--attached-tool-host")) {
+  const raw = await readFile(ATTACHED_TOOL_HOST_INPUT_PATH, "utf8");
+  await rm(ATTACHED_TOOL_HOST_INPUT_PATH, { force: true });
+  const report = await Effect.runPromise(
+    runAttachedToolHost(parseAttachedToolHostInput(JSON.parse(raw) as unknown)),
+  );
+  process.stdout.write(`${JSON.stringify(report)}\n`);
+  process.exit(0);
+}
+if (process.argv.includes("--attached-tool-client")) {
+  await Effect.runPromise(
+    runAttachedToolClient(attachedToolClientPaths(process.argv)),
+  );
+  process.exit(0);
+}
 
 const agentTurn = process.argv.includes("--agent-turn");
 const result = process.argv.includes("--stub")

@@ -126,6 +126,14 @@ const driveSection = (drive: DriveSyncResult | undefined): string => {
   return driveSentences.length > 0 ? `\n\n${driveSentences.join(" ")}` : "";
 };
 
+/**
+ * The same drive sentences the materialized prompt renders, for a resident
+ * turn that only learns them when the container attaches mid-turn. One
+ * renderer, so the two paths cannot describe one drive two different ways.
+ */
+export const driveHydrationNotice = (drive: DriveSyncResult): string =>
+  driveSection(drive).trim();
+
 const skillSection = (skills: GeneralAgentPromptSkills | undefined): string => {
   const entries = skills?.entries ?? [];
   if (entries.length === 0) return "";

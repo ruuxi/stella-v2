@@ -138,12 +138,6 @@ export const CANONICAL_PROMPT_SOURCES = Object.freeze([
       "packages/runtime/extensions/stella-runtime/agent-metadata/fashion.md",
   }),
   Object.freeze({
-    id: "agents/social_session.md",
-    kind: "agent-metadata",
-    relativePath:
-      "packages/runtime/extensions/stella-runtime/agent-metadata/social_session.md",
-  }),
-  Object.freeze({
     id: "agents/explore.md",
     kind: "agent-metadata",
     relativePath:
@@ -168,16 +162,10 @@ export const CANONICAL_PROMPT_SOURCES = Object.freeze([
       "packages/runtime/extensions/stella-runtime/prompts/fallback-subagent.md",
   }),
   Object.freeze({
-    id: "prompts/personality-stella.md",
+    id: "prompts/personality.md",
     kind: "prompt",
     relativePath:
-      "packages/runtime/extensions/stella-runtime/prompts/personality-stella.md",
-  }),
-  Object.freeze({
-    id: "prompts/personality-professional.md",
-    kind: "prompt",
-    relativePath:
-      "packages/runtime/extensions/stella-runtime/prompts/personality-professional.md",
+      "packages/runtime/extensions/stella-runtime/prompts/personality.md",
   }),
 ]);
 export const CANONICAL_PROMPT_IDS = Object.freeze(

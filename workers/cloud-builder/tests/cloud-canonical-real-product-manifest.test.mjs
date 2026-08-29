@@ -87,11 +87,6 @@ const EXPECTED_CANONICAL_PROMPT_SOURCES = [
   ],
   ["agents/general.md", "agent-metadata", "agent-metadata/general.md"],
   ["agents/fashion.md", "agent-metadata", "agent-metadata/fashion.md"],
-  [
-    "agents/social_session.md",
-    "agent-metadata",
-    "agent-metadata/social_session.md",
-  ],
   ["agents/explore.md", "agent-metadata", "agent-metadata/explore.md"],
   ["prompts/thread-compaction.md", "prompt", "prompts/thread-compaction.md"],
   [
@@ -100,12 +95,7 @@ const EXPECTED_CANONICAL_PROMPT_SOURCES = [
     "prompts/fallback-orchestrator.md",
   ],
   ["prompts/fallback-subagent.md", "prompt", "prompts/fallback-subagent.md"],
-  ["prompts/personality-stella.md", "prompt", "prompts/personality-stella.md"],
-  [
-    "prompts/personality-professional.md",
-    "prompt",
-    "prompts/personality-professional.md",
-  ],
+  ["prompts/personality.md", "prompt", "prompts/personality.md"],
 ].map(([id, kind, suffix]) => ({
   id,
   kind,

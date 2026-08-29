@@ -5,13 +5,11 @@ export const STELLA_PROMPT_IDS = [
   "agents/orchestrator.md",
   "agents/general.md",
   "agents/fashion.md",
-  "agents/social_session.md",
   "agents/explore.md",
   "prompts/thread-compaction.md",
   "prompts/fallback-orchestrator.md",
   "prompts/fallback-subagent.md",
-  "prompts/personality-stella.md",
-  "prompts/personality-professional.md",
+  "prompts/personality.md",
 ] as const;
 
 export const STELLA_PROMPT_COUNT = STELLA_PROMPT_IDS.length;

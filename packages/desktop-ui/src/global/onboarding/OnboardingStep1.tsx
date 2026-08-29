@@ -35,7 +35,6 @@ import { OnboardingPermissions } from "./OnboardingPermissions";
 import { OnboardingExtensionPhase } from "./OnboardingExtensionPhase";
 import { OnboardingBrowserPhase } from "./OnboardingBrowserPhase";
 import { OnboardingThemePhase } from "./OnboardingThemePhase";
-import { OnboardingPersonalityPhase } from "./OnboardingPersonalityPhase";
 import { OnboardingVoicePhase } from "./OnboardingVoicePhase";
 import { OnboardingMemoryPhase } from "./OnboardingMemoryPhase";
 import { OnboardingEnterPhase } from "./OnboardingEnterPhase";
@@ -52,7 +51,6 @@ const STEP_TITLE_KEYS: Partial<Record<Phase, string>> = {
   extension: "onboarding.stepTitles.extension",
   browser: "onboarding.stepTitles.browser",
   theme: "onboarding.stepTitles.theme",
-  personality: "onboarding.stepTitles.personality",
   voice: "onboarding.stepTitles.voice",
   memory: "settings.memory.title",
   enter: "onboarding.stepTitles.enter",
@@ -293,17 +291,6 @@ export const OnboardingStep1 = ({
             onSelectTheme={appearance.selectTheme}
             onThemePreviewEnter={appearance.previewTheme}
             onThemePreviewLeave={appearance.cancelThemePreview}
-          />
-        );
-      case "personality":
-        return (
-          <OnboardingPersonalityPhase
-            personalityOptions={appearance.personalityOptions}
-            personalityVoiceId={appearance.personalityVoiceId}
-            defaultPersonalityVoiceId={appearance.defaultPersonalityVoiceId}
-            splitTransitionActive={leaving}
-            onFinish={nextSplitStep}
-            onSelectVoice={appearance.selectPersonalityVoice}
           />
         );
       case "voice":

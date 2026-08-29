@@ -39,10 +39,6 @@ import {
   type AgentRuntimeEngine,
   type CodexServiceTier,
 } from "@stella/contracts/agent-engine";
-import {
-  isKnownPersonalityId,
-  type PersonalityId,
-} from "@stella/contracts/personality";
 
 type AgentEngine = AgentRuntimeEngine;
 export { DEFAULT_CODEX_MODEL } from "@stella/contracts/agent-engine";
@@ -171,12 +167,6 @@ export type LocalPreferences = {
   onboardingCompleted: boolean;
   /** Wake-word detection threshold (0–1). Higher = stricter. */
   wakeWordThreshold: number;
-  /**
-   * Selected personality preset id (see PERSONALITY_OPTIONS). Drives which
-   * preset seeds `~/.stella/PERSONALITY.md`. Undefined falls back to the
-   * Stella default.
-   */
-  personalityVoiceId?: PersonalityId;
   /** `{ <agentId>: <presetId> }` user prompt-preset picks; "default" is implicit. */
   promptPresetSelections: Record<string, string>;
 };
@@ -241,7 +231,6 @@ const DEFAULT_PREFERENCES: LocalPreferences = {
   readAloudEnabled: false,
   chronicleEnabled: false,
   chroniclePendingEnable: false,
-  personalityVoiceId: undefined,
   promptPresetSelections: {},
 };
 
@@ -365,9 +354,6 @@ const normalizeStoredPreferences = (
   chronicleEnabled: parsed.chronicleEnabled === true,
   chroniclePendingEnable:
     parsed.chronicleEnabled !== true && parsed.chroniclePendingEnable === true,
-  personalityVoiceId: isKnownPersonalityId(parsed.personalityVoiceId)
-    ? parsed.personalityVoiceId
-    : DEFAULT_PREFERENCES.personalityVoiceId,
   promptPresetSelections: normalizePromptPresetSelections(
     parsed.promptPresetSelections,
   ),
@@ -383,10 +369,10 @@ type CacheEntry = {
 /**
  * The effectful core: mtime-cached load and private-file save. Everything
  * else in this module is a pure projection over these two operations.
- * Exported so sibling kernel services (e.g. the Personality service) can
- * compose the layer directly instead of round-tripping through the sync
- * facade. The cache is mtime-keyed, so multiple runtimes holding their own
- * cache entry converge on the file's content.
+ * Exported so sibling kernel services can compose the layer directly instead
+ * of round-tripping through the sync facade. The cache is mtime-keyed, so
+ * multiple runtimes holding their own cache entry converge on the file's
+ * content.
  */
 export interface Interface {
   readonly load: (stellaDataDir: string) => Effect.Effect<LocalPreferences>;
@@ -781,19 +767,6 @@ export const setChronicleMemoryPreference = (
     chroniclePendingEnable:
       value.enabled === true ? false : value.pendingEnable === true,
   });
-};
-
-export const getPersonalityVoiceId = (
-  stellaDataDir: string,
-): PersonalityId | undefined =>
-  loadLocalPreferences(stellaDataDir).personalityVoiceId;
-
-export const setPersonalityVoiceId = (
-  stellaDataDir: string,
-  id: PersonalityId,
-): void => {
-  const prefs = loadLocalPreferences(stellaDataDir);
-  saveLocalPreferences(stellaDataDir, { ...prefs, personalityVoiceId: id });
 };
 
 export const getOnboardingCompleted = (stellaDataDir: string): boolean =>

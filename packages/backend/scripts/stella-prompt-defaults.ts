@@ -42,14 +42,6 @@ export const STELLA_PROMPT_SOURCE_ENTRIES = [
     },
   },
   {
-    id: "agents/social_session.md",
-    runtimeSource: {
-      kind: "agent-metadata",
-      relativePath:
-        "packages/runtime/extensions/stella-runtime/agent-metadata/social_session.md",
-    },
-  },
-  {
     id: "agents/explore.md",
     runtimeSource: {
       kind: "agent-metadata",
@@ -82,19 +74,11 @@ export const STELLA_PROMPT_SOURCE_ENTRIES = [
     },
   },
   {
-    id: "prompts/personality-stella.md",
+    id: "prompts/personality.md",
     runtimeSource: {
       kind: "prompt",
       relativePath:
-        "packages/runtime/extensions/stella-runtime/prompts/personality-stella.md",
-    },
-  },
-  {
-    id: "prompts/personality-professional.md",
-    runtimeSource: {
-      kind: "prompt",
-      relativePath:
-        "packages/runtime/extensions/stella-runtime/prompts/personality-professional.md",
+        "packages/runtime/extensions/stella-runtime/prompts/personality.md",
     },
   },
 ] as const satisfies readonly StellaPromptSourceEntry[];

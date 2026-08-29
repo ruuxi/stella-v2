@@ -79,7 +79,7 @@ describe("canonical cloud prompts", () => {
       fetchedAt: 2_000,
     });
     expect(snapshot.promptDigests).toHaveLength(PROMPT_IDS.length);
-    expect(PROMPT_IDS).toHaveLength(10);
+    expect(PROMPT_IDS).toHaveLength(8);
     expect(PROMPT_IDS).not.toContain("agents/orchestrator-orchestrated.md");
     expect(PROMPT_IDS).not.toContain("agents/manager.md");
     expect(snapshot.orchestratorBody).toBe(

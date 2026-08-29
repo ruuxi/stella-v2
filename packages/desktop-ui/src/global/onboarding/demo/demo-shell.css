@@ -173,8 +173,7 @@
 
 /* ── Messages ─────────────────────────────────────────────────────
  * User turns are solid accent bubbles pinned right; assistant turns are
- * plain full-width text with no bubble at all — exactly as `.event-item`
- * renders them. */
+ * quieter bubbles pinned left — the same pairing `.event-item` renders. */
 
 .odemo-bubble {
   font-size: var(--font-size-sm);
@@ -203,10 +202,14 @@
 }
 
 .odemo-bubble[data-role="assistant"] {
-  align-self: stretch;
-  max-width: 100%;
-  padding: 0 2px;
-  color: var(--text-base);
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: var(--radius-3xl);
+  border-bottom-left-radius: 4px;
+  background: var(--chat-assistant-bubble-fill);
+  color: var(--chat-assistant-bubble-text);
 }
 
 /* ── Working indicator (inline, Claude-style) ─────────────────────── */

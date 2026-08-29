@@ -310,6 +310,11 @@
     calc(c * 0.12)
     h
   );
+  /* Incoming messages reuse the composer's fill exactly. The user bubble
+     owns the saturated color; assistant messages read as the same quiet
+     material as the input surface. */
+  --chat-assistant-bubble-fill: var(--panel-surface-bg-gradient);
+  --chat-assistant-bubble-text: var(--text-strong);
 
   /* ── Type scale (fixed px — native, never viewport-scaled). ── */
   --font-size-2xs: 10px; /* micro labels, badge counts, mono timestamps */
@@ -346,6 +351,14 @@
 
   /* One canonical focus ring: offset background gap + ring. */
   --focus-ring: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
+}
+
+/* Default is a flat theme, so the composer's translucent fill resolves into
+   the page behind it. Assistant bubbles need a real neutral surface there.
+   Custom starts as an invisible overlay of Default, hence the base selector. */
+:root[data-theme="default"],
+:root[data-base-theme="default"] {
+  --chat-assistant-bubble-fill: var(--muted);
 }
 
 .dark {

@@ -58,19 +58,14 @@ const WorkspaceHomeSurface = lazy(() =>
     default: m.WorkspaceHomeSurface,
   })),
 );
-// These dialogs are rarely seen on first interaction (onboarding welcome,
-// nickname prompt, post-OAuth confirmation, billing upgrade) and each already
+// These dialogs are rarely seen on first interaction (nickname prompt,
+// post-OAuth confirmation, billing upgrade) and each already
 // renders null until its own open/visibility state flips. In a dev-server-in-prod
 // app every static import is a separate first-paint transform, so they are
 // lazy-loaded — wrapped in <Suspense fallback={null}> at their conditional mount
 // sites — to keep them off the always-eager shell's first-paint graph. Behavior
 // is unchanged: each dialog still renders null until its own state opens, so
 // nothing visual depends on the deferred chunk and there is no fallback flash.
-const WelcomeDialog = lazy(() =>
-  import("@/global/onboarding/WelcomeDialog").then((m) => ({
-    default: m.WelcomeDialog,
-  })),
-);
 const NicknameDialog = lazy(() =>
   import("@/global/auth/NicknameDialog").then((m) => ({
     default: m.NicknameDialog,
@@ -1129,14 +1124,6 @@ function RootChrome({ conversationId }: { conversationId: string | null }) {
       {/* Suspense fallback={null} mirrors the lazy RightSidebar above: the
           deferred chunk stays off the first-paint graph, and each dialog still
           renders null until its own open state flips — no flash, no behavior change. */}
-      <Suspense fallback={null}>
-        <WelcomeDialog
-          conversationId={conversationId}
-          onConnect={showConnectDialog}
-          onSignIn={showAuthDialog}
-        />
-      </Suspense>
-
       <Suspense fallback={null}>
         <NicknameDialog />
       </Suspense>

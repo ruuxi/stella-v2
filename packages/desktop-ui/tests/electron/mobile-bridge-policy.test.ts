@@ -72,10 +72,9 @@ describe("mobile bridge policy", () => {
     ).toBe(true);
   });
 
-  it("bootstraps welcome dialog state into the mobile WebView", () => {
+  it("bootstraps allowed localStorage keys into the mobile WebView", () => {
     expect(
       buildMobileBridgeBootstrap({
-        "stella-welcome-dialog-seen": "true",
         "stella:post-onboarding-hints":
           '{"seededAt":1,"active":{"connect":true}}',
         "stella.home.ideasSeen.v2.default": '{"Ideas":"abcd"}',
@@ -90,7 +89,6 @@ describe("mobile bridge policy", () => {
       }),
     ).toMatchObject({
       localStorage: {
-        "stella-welcome-dialog-seen": "true",
         "stella:post-onboarding-hints":
           '{"seededAt":1,"active":{"connect":true}}',
         "stella.home.ideasSeen.v2.default": '{"Ideas":"abcd"}',

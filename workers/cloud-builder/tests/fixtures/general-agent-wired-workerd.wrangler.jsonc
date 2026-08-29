@@ -1,0 +1,20 @@
+{
+  "name": "stella-general-agent-wired-workerd-acceptance",
+  "main": "./general-agent-wired-workerd-worker.ts",
+  "compatibility_date": "2026-07-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "WIRED_TURNS",
+        "class_name": "WiredTurnHarness",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["WiredTurnHarness"],
+    },
+  ],
+}

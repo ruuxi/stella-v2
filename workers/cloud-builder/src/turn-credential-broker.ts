@@ -419,7 +419,7 @@ export const turnBrokerTargetMatchesEngine = (
   if (
     target.kind === "callback" ||
     target.kind === "builder-callback" ||
-    // Builder gates this one on the turn's workspace kind, not its engine.
+    // The agent asks for an interior build; the engine it ran on is irrelevant.
     target.kind === "interior-build-request"
   ) {
     return true;

@@ -8,8 +8,8 @@
 .pet-overlay-root {
   position: absolute;
   /* The dedicated pet `BrowserWindow` is 280x240 (see `pet-window.ts`).
-   * The sprite is anchored to the bottom-right of that window so the
-   * bubble floats above the sprite — inside the window's bounds. */
+   * The mark is anchored to the bottom-right of that window so the
+   * bubble floats above it — inside the window's bounds. */
   right: 20px;
   bottom: 20px;
   padding: 4px;
@@ -38,23 +38,23 @@ html[data-stella-window="pet"] #root {
 }
 
 .pet-overlay-bubble {
-  /* Anchored above the sprite (its parent `.pet-overlay-mascot` is
+  /* Anchored above the mark (its parent `.pet-overlay-mascot` is
    * `position: relative`) so the bubble's horizontal position tracks
-   * the sprite even though the sprite-hit-zone root is much wider. */
+   * the mark even though the hit-zone root is much wider. */
   position: absolute;
   bottom: calc(100% + 6px);
   right: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  /* Bubble is right-anchored to the sprite (which itself sits 20px
+  /* Bubble is right-anchored to the mark (which itself sits 20px
    * from the window's right edge). The dedicated pet window is 280px
    * wide while the composer is closed, so the bubble can extend at
    * most ~244px leftward before its left edge clips against the
    * window's left edge. Capping max-width here lets the message
    * truncate cleanly inside the bubble (`text-overflow: ellipsis`
    * below) instead of being cut off by the OS-level window bounds. */
-  /* Right-anchored to the sprite, so the bubble shrinks from the left
+  /* Right-anchored to the mark, so the bubble shrinks from the left
    * to fit short messages and grows leftward (capped at 244px) for
    * long ones, which then ellipsize. */
   width: fit-content;
@@ -166,4 +166,11 @@ html[data-stella-window="pet"] #root {
 
 .pet-overlay-context-item-danger {
   color: var(--destructive);
+}
+
+/* The rig draws its own glow past its box; keep it out of the drag/hit
+   geometry, which the mascot wrapper already owns. */
+.pet-overlay-character {
+  display: block;
+  pointer-events: none;
 }

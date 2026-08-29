@@ -2,7 +2,7 @@
  * Voice phase — two lightweight, one-shot demos instead of static cards.
  *
  * Left: the wake-word conversation beat ("Hey Stella" → listening →
- * reply → "Bye") plays once around the pet sprite.
+ * reply → "Bye") plays once around the character mark.
  * Right: dictation actually happens — the key is held, the recording
  * pill pops over a mail draft, and the sentence types itself into the
  * body before the pill confirms away. Both run once on the shared
@@ -10,10 +10,7 @@
  */
 import { Check, X } from "@/ui/icons";
 import { getPlatform } from "@/platform/electron/platform";
-import { DEFAULT_PET_ID } from "@/shell/pet/built-in-pets";
-import { useSelectedPet } from "@/shell/pet/pet-catalog-context";
-import { useSelectedPetId } from "@/shell/pet/pet-preferences";
-import { PetSprite } from "@/shell/pet/PetSprite";
+import { StellaCharacter } from "@/ui/stella-character/StellaCharacter";
 import { Keychord } from "./Keychord";
 import { useChoreography, useTypedText, } from "./demo/use-choreography";
 import "./OnboardingVoicePhase.css";
@@ -50,8 +47,6 @@ const TALK_CUES = [
 export function OnboardingVoicePhase({ splitTransitionActive, onContinue, }) {
     const platform = getPlatform();
     const dictateKey = DICTATE_KEY_BY_PLATFORM[platform] ?? DICTATE_KEY_BY_PLATFORM.darwin;
-    const [selectedPetId] = useSelectedPetId(DEFAULT_PET_ID);
-    const pet = useSelectedPet(selectedPetId);
     const talk = useChoreography({ cues: TALK_CUES, active: true }).has;
     const dictate = useChoreography({ cues: DICTATE_CUES, active: true }).has;
     const typed = useTypedText(DICTATED_SENTENCE, dictate("type"), {
@@ -77,7 +72,7 @@ export function OnboardingVoicePhase({ splitTransitionActive, onContinue, }) {
               <div className="ovoice-talk__sprite" data-listening={listening || undefined}>
                 <span className="ovoice-talk__ring"/>
                 <span className="ovoice-talk__ring" data-late=""/>
-                {pet ? (<PetSprite spritesheetUrl={pet.spritesheetUrl} state="waving" size={128}/>) : null}
+                <StellaCharacter size={128} shape="star" ink="aurora" glow state={listening ? "listening" : "happy"}/>
               </div>
 
               <div className="ovoice-talk__exchange">

@@ -2,7 +2,7 @@
  * Hook half of the onboarding overlay module.
  *
  * Lives in its own file so it can be statically imported by FullShell
- * without pulling the heavy view tree (StellaAnimation, all phase
+ * without pulling the heavy view tree (the character mark, all phase
  * components, mock windows, capabilities scenes, legal dialog) into the
  * main bundle. The view tree lives in OnboardingOverlay.tsx and is
  * loaded lazily as the "onboarding chunk".
@@ -19,9 +19,7 @@ import {
   useOnboardingState,
 } from "@/global/onboarding/use-onboarding-state";
 import { SPLIT_PHASES, type Phase } from "@/global/onboarding/onboarding-flow";
-import type { StellaAnimationHandle } from "@/shell/aurora/StellaAnimation";
-
-export const CREATURE_INITIAL_SIZE = 0.22;
+import type { StellaMarkHandle } from "@/ui/stella-character/rig";
 
 const deleteIndexedDatabase = (name: string) =>
   new Promise<void>((resolve) => {
@@ -125,7 +123,7 @@ export function useOnboardingOverlay() {
   const splitEnterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [onboardingExiting, setOnboardingExiting] = useState(false);
   const [onboardingKey, setOnboardingKey] = useState(0);
-  const stellaAnimationRef = useRef<StellaAnimationHandle | null>(null);
+  const stellaAnimationRef = useRef<StellaMarkHandle | null>(null);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // While onboarding is active, expand the main window to cover the current
   // display. Trigger the restore at the START of the exit phase
@@ -141,7 +139,7 @@ export function useOnboardingOverlay() {
   }, [onboardingDone, onboardingExiting]);
 
   const triggerFlash = useCallback(() => {
-    stellaAnimationRef.current?.triggerFlash();
+    stellaAnimationRef.current?.sparkle();
   }, []);
 
   const enterSplit = useCallback(() => {
@@ -156,8 +154,8 @@ export function useOnboardingOverlay() {
     }, 400);
   }, []);
 
-  // "Start Stella" opens the split flow directly. The aurora mounts after
-  // this handoff (the entry screen has no creature), already at full birth.
+  // "Start Stella" opens the split flow directly. The mark mounts after this
+  // handoff; the entry screen is copy and the language switch.
   const startOnboarding = useCallback(() => {
     setHasStarted(true);
     setHasExpanded(true);
@@ -197,7 +195,6 @@ export function useOnboardingOverlay() {
     setSplitMode(false);
     setOnboardingExiting(false);
     setOnboardingKey((k) => k + 1);
-    stellaAnimationRef.current?.reset(CREATURE_INITIAL_SIZE);
     resetOnboarding();
 
     const finishLocalReset = async () => {

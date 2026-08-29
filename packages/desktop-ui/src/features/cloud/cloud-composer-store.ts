@@ -3,9 +3,9 @@
  *
  * There is no destination setting: a turn runs where its subject lives. The
  * web/mobile interior has no local runtime, so its turns run in the cloud;
- * desktop chats with its local runtime and reaches cloud workspaces through
- * the spawn `workspace` argument, which the model picks from what the work is
- * about. Routing is a property of the request, never a mode the user holds.
+ * desktop chats with its local runtime and reaches the owner's cloud world
+ * through a spawn placed there. Routing is a property of the request, never a
+ * mode the user holds.
  */
 import { useSyncExternalStore } from "react";
 

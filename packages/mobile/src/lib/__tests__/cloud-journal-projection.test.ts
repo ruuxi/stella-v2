@@ -37,7 +37,6 @@ describe("cloud journal projection", () => {
     const projected = projectCloudConversationMessages({
       conversationId: "conversation",
       records,
-      live: null,
     });
     const bindings = new Map<string, string | null>([
       ["mobile-local-1", "exec:server-1"],
@@ -85,7 +84,7 @@ describe("cloud journal projection", () => {
       ["mobile-live", "exec:live"],
     ]);
     const canonical = rebindCanonicalCloudMessages(
-      projectCloudConversationMessages({ records, live: null }),
+      projectCloudConversationMessages({ records }),
       bindings,
     );
     const merged = mergeCanonicalCloudMessages({
@@ -130,7 +129,6 @@ describe("cloud journal projection", () => {
     ];
     const before = projectCloudConversationMessages({
       records: partial,
-      live: null,
       hasOlder: true,
     });
     const after = projectCloudConversationMessages({
@@ -145,7 +143,6 @@ describe("cloud journal projection", () => {
         }),
         ...partial,
       ],
-      live: null,
       hasOlder: false,
     });
 
@@ -185,7 +182,6 @@ describe("cloud journal projection", () => {
     ];
     const projected = projectCloudConversationMessages({
       records: rows,
-      live: null,
     });
     expect(projected.map((row) => row.sequence)).toEqual([1, 3]);
     expect(new Set(projected.map((row) => row.id)).size).toBe(projected.length);

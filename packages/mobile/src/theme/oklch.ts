@@ -126,8 +126,8 @@ export function soften(hex: string, bg: string, alpha: number): string {
 }
 
 /**
- * Generate the five aurora ramp stops (see components/stella-animation) from a
- * theme's seed colors. Ported from desktop/src/shared/theme/color.ts — keep the
+ * Generate the five aurora ramp stops from a theme's seed colors. Ported from
+ * desktop/src/shared/theme/color.ts — keep the
  * two in step or the same theme renders a different creature per platform.
  *
  * The ramp follows the brand aurora's lightness/chroma profile (bright airy low

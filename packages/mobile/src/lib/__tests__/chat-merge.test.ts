@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ChatMessage } from "../../types";
 import {
   collapseLinkedDuplicates,
-  finalizeStreamedAssistantText,
+  finalizeAssistantTurnText,
   linkOptimisticTurnToCanonical,
   mergeMessagesById,
   reconcileSentDesktopTurn,
@@ -699,11 +699,12 @@ describe("collapseLinkedDuplicates", () => {
   });
 });
 
-describe("interrupted streaming snapshots (orphaned partial assistant rows)", () => {
+describe("interrupted partial turns (orphaned partial assistant rows)", () => {
   const FULL_TEXT =
     "Here's the plan. Acknowledges their Jul 8 answer (the pricing one) and builds on your existing thread with a concrete follow-up.";
-  // Each interruption strands a snapshot cut off mid-word by the stream
-  // smoother — a strict prefix of the full reply.
+  // Each interruption strands a snapshot holding only what had landed — in
+  // practice a segment boundary, but the sweep is prefix-based, so these
+  // mid-word cuts also cover any partial a legacy transcript still carries.
   const PARTIAL_1 = "Here's the plan. Acknowledges their Jul 8 answer (";
   const PARTIAL_2 =
     "Here's the plan. Acknowledges their Jul 8 answer (the pricing one) and builds on your existing th";
@@ -1147,30 +1148,30 @@ describe("retargetOptimisticReplyToUser (rapid mobile steering)", () => {
   });
 });
 
-describe("streamed reply finalizes in place (no rewrite, no remount)", () => {
-  test("finalizeStreamedAssistantText keeps the streamed string when only whitespace differs", () => {
+describe("assistant turn finalizes in place (no rewrite, no remount)", () => {
+  test("finalizeAssistantTurnText keeps the assembled string when only whitespace differs", () => {
     const streamed = "Hello **world**.\n\nAll done.\n";
     // The bridge's final text is trimmed/normalized — same content.
-    expect(finalizeStreamedAssistantText(streamed, "Hello **world**.\n\nAll done.")).toBe(
+    expect(finalizeAssistantTurnText(streamed, "Hello **world**.\n\nAll done.")).toBe(
       streamed,
     );
-    expect(finalizeStreamedAssistantText(streamed, streamed)).toBe(streamed);
+    expect(finalizeAssistantTurnText(streamed, streamed)).toBe(streamed);
   });
 
-  test("finalizeStreamedAssistantText keeps the whole streamed turn when the final text is its last message", () => {
+  test("finalizeAssistantTurnText keeps the whole assembled turn when the final text is its last segment", () => {
     const streamed = "Let me check that.\n\nThe answer is 42.";
-    expect(finalizeStreamedAssistantText(streamed, "The answer is 42.")).toBe(
+    expect(finalizeAssistantTurnText(streamed, "The answer is 42.")).toBe(
       streamed,
     );
   });
 
-  test("finalizeStreamedAssistantText falls back to the final text when the stream missed content", () => {
-    expect(finalizeStreamedAssistantText("", "The answer is 42.")).toBe(
+  test("finalizeAssistantTurnText falls back to the final text when delivery missed content", () => {
+    expect(finalizeAssistantTurnText("", "The answer is 42.")).toBe(
       "The answer is 42.",
     );
-    // Stream died mid-word; the final text carries the full reply.
+    // Delivery was cut short; the final text carries the full reply.
     expect(
-      finalizeStreamedAssistantText("The answ", "The answer is 42."),
+      finalizeAssistantTurnText("The answ", "The answer is 42."),
     ).toBe("The answer is 42.");
   });
 

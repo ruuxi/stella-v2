@@ -32,8 +32,6 @@ export const SOCKET_STALE_MS = 90_000;
 export const RE_AUTH_LEAD_MS = 60_000;
 /** Server's per-socket backfill budget. The client stays under it locally. */
 export const RATE_BACKFILL_PER_MIN = 20;
-/** Longest a live (uncommitted) assistant bubble is allowed to grow. */
-export const LIVE_PARTIAL_MAX_CHARS = 32_000;
 
 /**
  * How many journal records one conversation view keeps in memory. Scrollback
@@ -106,8 +104,6 @@ export type JournalMessageRecord = JournalRecordBase & {
   role: MessageRole;
   /** Render flag: no bubble. The row is still model context. */
   hidden: boolean;
-  /** Ties a committed assistant row to the deltas that streamed it. */
-  streamId?: string;
   /** Echo-resolution key for a prompt this client optimistically rendered. */
   clientMsgId?: string;
   payload: Record<string, unknown>;
@@ -149,16 +145,19 @@ export type SkippedJournalRecord = JournalRecordBase & {
 
 export type JournalRecord = KnownJournalRecord | SkippedJournalRecord;
 
-/** The turn that is streaming right now, as `ready` describes it. */
+/**
+ * The turn that is running right now, as `ready` describes it.
+ *
+ * There is no partial reply here. Assistant text is delivered whole on a
+ * committed `record`, so a mid-turn joiner gets the working indicator from the
+ * turn's `started` phase and then the finished reply.
+ *
+ * The hub still writes the retired stream fields on the wire — an empty
+ * `partialText` here and a `streamId` on each message row. This decoder names
+ * neither, so the mobile client carries no notion of a provider stream at all.
+ */
 export type LiveTurnSnapshot = {
   turnId: string;
-  /**
-   * Synthesised when the server has no stream id yet — a turn can be running
-   * with tool activity and no assistant text, and dropping the snapshot for
-   * want of a key would lose the whole live state on reconnect.
-   */
-  streamId: string;
-  partialText: string;
   tools: {
     toolCallId: string;
     name: string;
@@ -199,14 +198,6 @@ export type ServerFrame =
   | { type: "gap"; fromSeq: number; toSeq: number; reason: string }
   | { type: "reset"; reason: "epoch" | "window" }
   | {
-      type: "delta";
-      turnId: string;
-      streamId: string;
-      ordinal: number;
-      kind: "text" | "thinking";
-      text: string;
-    }
-  | {
       type: "tool";
       turnId: string;
       toolCallId: string;
@@ -216,7 +207,6 @@ export type ServerFrame =
       argsPreview?: string;
       isError?: boolean;
     }
-  | { type: "deltas_dropped"; turnId: string; streamId: string }
   | { type: "auth.expiring"; atMs: number }
   | {
       type: "error";
@@ -285,7 +275,6 @@ export const decodeRecord = (value: unknown): KnownJournalRecord | null => {
       createdAtMs,
       role: role as MessageRole,
       hidden: raw.hidden === true,
-      ...(str(raw.streamId) ? { streamId: str(raw.streamId) as string } : {}),
       ...(str(raw.clientMsgId)
         ? { clientMsgId: str(raw.clientMsgId) as string }
         : {}),
@@ -474,20 +463,6 @@ export const decodeServerFrame = (data: string): ServerFrame | null => {
         type: "reset",
         reason: raw.reason === "epoch" ? "epoch" : "window",
       };
-    case "delta": {
-      const turnId = str(raw.turnId);
-      const streamId = str(raw.streamId);
-      const text = str(raw.text);
-      if (!turnId || !streamId || text === undefined) return null;
-      return {
-        type: "delta",
-        turnId,
-        streamId,
-        ordinal: num(raw.ordinal) ?? 0,
-        kind: raw.kind === "thinking" ? "thinking" : "text",
-        text,
-      };
-    }
     case "tool": {
       const turnId = str(raw.turnId);
       const toolCallId = str(raw.toolCallId);
@@ -505,12 +480,6 @@ export const decodeServerFrame = (data: string): ServerFrame | null => {
           : {}),
         ...(raw.isError === true ? { isError: true } : {}),
       };
-    }
-    case "deltas_dropped": {
-      const turnId = str(raw.turnId);
-      const streamId = str(raw.streamId);
-      if (!turnId || !streamId) return null;
-      return { type: "deltas_dropped", turnId, streamId };
     }
     case "auth.expiring":
       return { type: "auth.expiring", atMs: num(raw.atMs) ?? 0 };
@@ -531,10 +500,6 @@ const decodeLive = (value: unknown): LiveTurnSnapshot | null => {
   const raw = asRecord(value);
   const turnId = str(raw?.turnId);
   if (!raw || !turnId) return null;
-  // The server sends `streamId: null` for a turn that is running but has not
-  // produced assistant text yet. That snapshot still carries the tool state
-  // the working label reads, so it gets a synthetic key rather than a drop.
-  const streamId = str(raw.streamId) ?? `live:${turnId}`;
   const tools: LiveTurnSnapshot["tools"] = [];
   if (Array.isArray(raw.tools)) {
     for (const entry of raw.tools) {
@@ -551,12 +516,7 @@ const decodeLive = (value: unknown): LiveTurnSnapshot | null => {
       });
     }
   }
-  return {
-    turnId,
-    streamId,
-    partialText: (str(raw.partialText) ?? "").slice(0, LIVE_PARTIAL_MAX_CHARS),
-    tools,
-  };
+  return { turnId, tools };
 };
 
 /**

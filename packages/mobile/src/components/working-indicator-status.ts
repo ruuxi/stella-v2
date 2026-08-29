@@ -9,32 +9,6 @@
  * flicker on re-renders) but feels different across calls.
  */
 
-const IDLE_VARIATIONS: readonly string[] = [
-  "Thinking",
-  "Mulling it over",
-  "Figuring it out",
-  "Working it out",
-  "Putting it together",
-  "Lining things up",
-  "Weighing options",
-  "Settling on a plan",
-  "Sorting it out",
-  "Considering",
-];
-
-const REASONING_VARIATIONS: readonly string[] = [
-  "Thinking",
-  "Mulling it over",
-  "Working through it",
-  "Turning it over",
-  "Reasoning",
-  "Chewing on this",
-  "Connecting the dots",
-  "Sitting with it",
-  "Untangling it",
-  "Piecing it together",
-];
-
 /**
  * Stella always presents as a single assistant — never expose that
  * `spawn_agent`, `send_input`, `pause_agent` orchestrate other agents under
@@ -607,16 +581,22 @@ export function normalizeDisplayStatusText(
   return trimmed;
 }
 
+/**
+ * The label beside the mark, or `""` when there is nothing worth saying.
+ *
+ * Only tool work and explicit run statuses get words. Plain thinking returns
+ * empty on purpose: the indicator renders bare bouncing dots for it, matching
+ * the desktop label rule, so a generic "Thinking" phrase never competes with
+ * the mark for the user's attention.
+ */
 export function computeWorkingIndicatorStatus({
   status,
   toolName,
   seed,
-  isReasoning,
 }: {
   status?: string;
   toolName?: string;
   seed?: string;
-  isReasoning?: boolean;
 } = {}): string {
   if (status) {
     return normalizeDisplayStatusText(status) ?? status;
@@ -631,7 +611,5 @@ export function computeWorkingIndicatorStatus({
     return pickVariation(FALLBACK_VARIATIONS, seed ?? normalizedToolName);
   }
 
-  if (isReasoning) return pickVariation(REASONING_VARIATIONS, seed);
-
-  return pickVariation(IDLE_VARIATIONS, seed);
+  return "";
 }

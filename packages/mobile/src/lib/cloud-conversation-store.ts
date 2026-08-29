@@ -8,7 +8,6 @@
 
 import {
   BACKFILL_BATCH_RECORDS,
-  LIVE_PARTIAL_MAX_CHARS,
   MAX_CLIENT_RECORDS,
   type JournalRecord,
 } from "./cloud-conversation-protocol";
@@ -26,15 +25,16 @@ export const setCloudConversationAppActive = (active: boolean): void => {
   for (const store of stores.values()) store.wake();
 };
 
-export type LiveStream = {
+/**
+ * The turn running right now. There is no partial reply to hold: assistant
+ * text arrives whole on a committed record, so all a running turn contributes
+ * to the view is its identity and the tool it is currently inside.
+ */
+export type LiveTurn = {
   turnId: string;
-  streamId: string;
-  text: string;
   /** The tool currently running, for the working label. */
   toolName: string | null;
   toolLabel: string | null;
-  /** True once the server stopped sending deltas for this turn. */
-  dropped: boolean;
 };
 
 export type ConversationState = {
@@ -48,7 +48,7 @@ export type ConversationState = {
   headSeq: number;
   /** Ascending by `seq`, contiguous. */
   records: readonly JournalRecord[];
-  live: LiveStream | null;
+  live: LiveTurn | null;
   title: string;
   /** Lowest seq that still exists. Nothing below it is ever fetchable. */
   floorSeq: number;
@@ -329,11 +329,8 @@ class ConversationStore {
           live: live
             ? {
                 turnId: live.turnId,
-                streamId: live.streamId,
-                text: live.partialText,
                 toolName: live.tools.at(-1)?.name ?? null,
                 toolLabel: live.tools.at(-1)?.label ?? null,
-                dropped: false,
               }
             : null,
         });
@@ -366,16 +363,8 @@ class ConversationStore {
           hasOlder: true,
         });
         return;
-      case "delta":
-        this.applyDelta(event.turnId, event.streamId, event.kind, event.text);
-        return;
       case "tool":
         this.applyTool(event.turnId, event.name, event.label, event.phase);
-        return;
-      case "deltas_dropped":
-        if (this.state.live?.streamId === event.streamId) {
-          this.patch({ live: { ...this.state.live, dropped: true } });
-        }
         return;
     }
   }
@@ -400,19 +389,11 @@ class ConversationStore {
     let live = this.state.live;
     for (const record of fresh) {
       if (!live) continue;
-      // The committed row replaces its provisional bubble wholesale. Matching
-      // on `turnId` as well as `streamId` is deliberate: a committed assistant
-      // row for the live turn supersedes whatever partial we were showing even
-      // if the server did not stamp a stream id, and the next delta opens a
-      // fresh bubble. Without it the partial would render beside its own
-      // committed copy.
+      // Only the turn's own terminal record retires it. A committed assistant
+      // row no longer means the turn is over: the run can answer, then reach
+      // for another tool, and clearing here would blink the working indicator
+      // out mid-turn.
       if (
-        record.kind === "message" &&
-        record.role === "assistant" &&
-        (record.streamId === live.streamId || record.turnId === live.turnId)
-      ) {
-        live = null;
-      } else if (
         record.kind === "turn" &&
         record.turnId === live.turnId &&
         record.phase !== "started"
@@ -478,41 +459,6 @@ class ConversationStore {
     });
   }
 
-  private applyDelta(
-    turnId: string,
-    streamId: string,
-    kind: "text" | "thinking",
-    text: string,
-  ): void {
-    // Thinking is not rendered in this surface; it still proves the turn is
-    // alive, which the working label reads off `live` being present.
-    const current =
-      this.state.live && this.state.live.streamId === streamId
-        ? this.state.live
-        : {
-            turnId,
-            streamId,
-            text: "",
-            toolName: null,
-            toolLabel: null,
-            dropped: false,
-          };
-    if (kind !== "text") {
-      if (current !== this.state.live) this.patch({ live: current });
-      return;
-    }
-    const joined = current.text + text;
-    this.patch({
-      live: {
-        ...current,
-        text:
-          joined.length > LIVE_PARTIAL_MAX_CHARS
-            ? joined.slice(joined.length - LIVE_PARTIAL_MAX_CHARS)
-            : joined,
-      },
-    });
-  }
-
   private applyTool(
     turnId: string,
     name: string,
@@ -522,14 +468,7 @@ class ConversationStore {
     const current =
       this.state.live && this.state.live.turnId === turnId
         ? this.state.live
-        : {
-            turnId,
-            streamId: `tool:${turnId}`,
-            text: "",
-            toolName: null,
-            toolLabel: null,
-            dropped: false,
-          };
+        : { turnId, toolName: null, toolLabel: null };
     this.patch({
       live: {
         ...current,

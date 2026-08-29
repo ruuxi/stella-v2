@@ -12,6 +12,7 @@ import {
   Alert,
   Animated,
   Dimensions,
+  Easing,
   Keyboard,
   LayoutChangeEvent,
   LayoutAnimation,
@@ -43,6 +44,7 @@ import { appendOfflineChatAttachments } from "../lib/offline-chat-request";
 import Reanimated, {
   useAnimatedKeyboard,
   useAnimatedStyle,
+  useReducedMotion,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon, type IconName } from "./Icon";
@@ -236,6 +238,9 @@ const FOLLOW_GENTLE_LERP_FACTOR = 0.12;
  */
 const POST_SEND_REANCHOR_WINDOW_MS = 1500;
 
+/** One-shot landing entrance for a just-arrived assistant message bubble. */
+const ASSISTANT_BUBBLE_ENTRANCE_MS = 300;
+
 const EDGE_FADE = 48;
 const MESSAGE_LIST_GAP = 20;
 /**
@@ -345,7 +350,7 @@ function useChatScroll(
   const followTargetOffsetRef = useRef<number | null>(null);
   const followRafRef = useRef(0);
   const followAnimatingUntilMsRef = useRef(0);
-  const streamingAssistantHeightRef = useRef(0);
+  const activeAssistantHeightRef = useRef(0);
   const latestUserLayoutRef = useRef<{ id: string; height: number } | null>(
     null,
   );
@@ -494,7 +499,7 @@ function useChatScroll(
     // assistant row may arrive while the user is reading history; only an
     // explicit tail action may re-arm that released latch.
     assistantLayoutBaselineRef.current = null;
-    streamingAssistantHeightRef.current = 0;
+    activeAssistantHeightRef.current = 0;
     stopFollowLoop();
   }, [stopFollowLoop]);
 
@@ -700,7 +705,7 @@ function useChatScroll(
   );
 
   const followActiveAssistantRow = useCallback(() => {
-    const assistantHeight = streamingAssistantHeightRef.current;
+    const assistantHeight = activeAssistantHeightRef.current;
     if (assistantHeight <= 0) return;
 
     const { layoutHeight } = metricsRef.current;
@@ -714,16 +719,16 @@ function useChatScroll(
     setFollowTarget(Math.min(pinnedTop, desiredScrollTop));
   }, [listTrailingSlackPx, setFollowTarget]);
 
-  const onStreamingAssistantLayout = useCallback(
+  const onActiveAssistantLayout = useCallback(
     (event: LayoutChangeEvent) => {
-      streamingAssistantHeightRef.current = event.nativeEvent.layout.height;
+      activeAssistantHeightRef.current = event.nativeEvent.layout.height;
       followActiveAssistantRow();
     },
     [followActiveAssistantRow],
   );
 
-  const clearStreamingAssistantLayout = useCallback(() => {
-    streamingAssistantHeightRef.current = 0;
+  const clearActiveAssistantLayout = useCallback(() => {
+    activeAssistantHeightRef.current = 0;
     assistantLayoutBaselineRef.current = null;
     stopFollowLoop();
   }, [stopFollowLoop]);
@@ -740,7 +745,7 @@ function useChatScroll(
       }
 
       assistantLayoutBaselineRef.current = null;
-      if (streamingAssistantHeightRef.current > 0) {
+      if (activeAssistantHeightRef.current > 0) {
         followActiveAssistantRow();
       } else {
         setFollowTarget(metricsRef.current.offsetY + height - baseline);
@@ -873,8 +878,8 @@ function useChatScroll(
     listRef,
     onScroll,
     onListContentSizeChange,
-    onStreamingAssistantLayout,
-    clearStreamingAssistantLayout,
+    onActiveAssistantLayout,
+    clearActiveAssistantLayout,
     scrollToBottom,
     resetAssistantAutoScroll,
     prepareAssistantLayoutFollow,
@@ -1355,11 +1360,66 @@ const generatedImageStyles = StyleSheet.create({
   tile: { borderRadius: 14, maxWidth: 320, overflow: "hidden", width: "100%" },
 });
 
+/**
+ * Left-aligned surface the assistant's message text sits on — the mirror of the
+ * user bubble, with the tightened corner on the bottom LEFT so the two read as
+ * one conversation grammar. Only message TEXT lives inside: artifacts, agent
+ * cards, tool traces and the row's actions stay outside at full width.
+ *
+ * `animate` runs a one-shot landing entrance (opacity + rise) — the assistant
+ * counterpart of the user bubble's send affordance. It is passed only when this
+ * row was still empty when it mounted, i.e. the message just arrived; hydrated
+ * history renders settled. Reduced motion parks it fully visible.
+ */
+function AssistantBubble({
+  children,
+  styles,
+  animate,
+}: {
+  children: ReactNode;
+  styles: ChatStyles;
+  animate: boolean;
+}) {
+  const reduceMotion = useReducedMotion();
+  const shouldAnimate = animate && !reduceMotion;
+  const entrance = useRef(new Animated.Value(shouldAnimate ? 0 : 1)).current;
+
+  useEffect(() => {
+    if (!shouldAnimate) return;
+    Animated.timing(entrance, {
+      toValue: 1,
+      duration: ASSISTANT_BUBBLE_ENTRANCE_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [entrance, shouldAnimate]);
+
+  const entranceStyle = useMemo(
+    () => ({
+      opacity: entrance,
+      transform: [
+        {
+          translateY: entrance.interpolate({
+            inputRange: [0, 1],
+            outputRange: [6, 0],
+          }),
+        },
+      ],
+    }),
+    [entrance],
+  );
+
+  return (
+    <Animated.View style={[styles.assistantBubble, entranceStyle]}>
+      {children}
+    </Animated.View>
+  );
+}
+
 const ChatMessageRow = memo(function ChatMessageRow({
   item,
   styles,
   colors,
-  isStreaming,
   menuActive,
   isSelecting,
   anySelecting,
@@ -1373,8 +1433,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
   item: ChatMessage;
   styles: ChatStyles;
   colors: Colors;
-  /** True for the trailing assistant message while a reply is mid-stream. */
-  isStreaming: boolean;
   /** True while this row's long-press menu is open — drives the focus lift. */
   menuActive: boolean;
   /** True while this row is in native text-selection mode. */
@@ -1446,9 +1504,9 @@ const ChatMessageRow = memo(function ChatMessageRow({
   };
 
   // Keyed on the stable sub-objects: the trailing assistant row's `item` is
-  // replaced on every streamed append, but its artifacts/toolSteps keep their
-  // identity, so these derivations must not re-run (and mint fresh objects
-  // that defeat child memoization) once per frame.
+  // replaced whenever a message segment lands or a tool step updates, but its
+  // artifacts/toolSteps keep their identity, so these derivations must not
+  // re-run and mint fresh objects that defeat child memoization.
   const consolidated = useMemo(
     () => consolidateRowArtifacts(item.artifacts ?? [], item.tasks ?? []),
     [item.artifacts, item.tasks],
@@ -1560,6 +1618,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
     );
   }
   const hasText = item.text.trim().length > 0;
+  // The reply row is appended empty when the turn dispatches and gains its text
+  // when the message lands, so "mounted empty" is exactly "this message arrived
+  // while the user was watching" — the cue for the landing entrance. Rows
+  // restored from history mount with their text and render settled.
+  const mountedEmptyRef = useRef(!hasText);
   // Desktop-parity consolidation: agent lifecycle cards are expanded per
   // agent, noise writes are filtered and declared deliverables lead. The
   // minimal agent rows no longer surface file pills — agent-produced files
@@ -1570,20 +1633,12 @@ const ChatMessageRow = memo(function ChatMessageRow({
     looseFiles,
   } = consolidated;
   const isStandIn = isStandInArtifactRow(item);
-  // Agent-work is non-openable status UI, so it can mount as soon as the bridge
-  // knows about the background task — including while the answer text is still
-  // streaming. File artifacts stay conservative: only show them once the
-  // assistant row has finalized so tapping never races a partial artifact.
+  // Assistant text no longer streams, so there is no partial-render window to
+  // protect: every card mounts as soon as its artifact reaches the row.
   const showAgentWork = !isStandIn && agentWorkArtifacts.length > 0;
-  // Map cards are self-contained payloads (no file to race), but wait for the
-  // row to finalize so the card doesn't pop in mid-stream.
-  const showMapArtifacts =
-    !isStreaming && !isStandIn && mapArtifacts.length > 0;
+  const showMapArtifacts = !isStandIn && mapArtifacts.length > 0;
   const showFileArtifacts =
-    !isStreaming &&
-    !isStandIn &&
-    Boolean(onOpenArtifact) &&
-    looseFiles.length > 0;
+    !isStandIn && Boolean(onOpenArtifact) && looseFiles.length > 0;
   const generatedImages = looseFiles.filter(
     (artifact) =>
       artifact.payload.kind === "media" &&
@@ -1608,8 +1663,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
       <AssistantMarkdown
         text={text}
         colors={colors}
-        isStreaming={isStreaming}
-        selectable={!isStreaming}
+        selectable
+        fill={false}
         onStellaFileLink={onOpenStellaFile}
       />
     );
@@ -1624,7 +1679,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
   };
   return (
     <View style={styles.assistantRow}>
-      {hasText ? renderAssistantMarkdown(item.text) : null}
+      {hasText ? (
+        <AssistantBubble styles={styles} animate={mountedEmptyRef.current}>
+          {renderAssistantMarkdown(item.text)}
+        </AssistantBubble>
+      ) : null}
       {toolActivity ? (
         <ToolActivityTrace group={toolActivity} colors={colors} />
       ) : null}
@@ -1716,7 +1775,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
           Stopped
         </Text>
       ) : null}
-      {item.cloudFallback && !isStreaming ? (
+      {item.cloudFallback ? (
         <Text
           style={styles.cloudTag}
           maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
@@ -1724,14 +1783,12 @@ const ChatMessageRow = memo(function ChatMessageRow({
           Answered while your computer was offline
         </Text>
       ) : null}
-      {!isStreaming ? (
-        <AssistantActions
-          text={item.text}
-          messageId={item.id}
-          styles={styles}
-          colors={colors}
-        />
-      ) : null}
+      <AssistantActions
+        text={item.text}
+        messageId={item.id}
+        styles={styles}
+        colors={colors}
+      />
     </View>
   );
 });
@@ -2963,7 +3020,7 @@ export function ChatPane({
 
   const [unread, setUnread] = useState(false);
   const prevLenRef = useRef(0);
-  const wasStreamingRef = useRef(false);
+  const sawTurnRef = useRef(false);
   const spokenAssistantIdsRef = useRef<Set<string>>(new Set());
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
 
@@ -3091,19 +3148,31 @@ export function ChatPane({
     if (!scroll.awayFromBottom) setUnread(false);
   }, [scroll.awayFromBottom]);
 
+  // Read aloud now fires when the assistant MESSAGE arrives rather than on the
+  // falling edge of a stream: there is no stream to end. `sawTurnRef` keeps the
+  // original behaviour's boundary — only a reply produced by a turn this pane
+  // watched is spoken, never a transcript restored from history or pulled by a
+  // background sync. It is armed while a turn is in flight and consumed by the
+  // first assistant text that lands after it.
   useEffect(() => {
     if (!readAloud.enabled) {
-      // Drop the latch, or a stream that ended while read-aloud was off would
+      // Drop the latch, or a turn that landed while read-aloud was off would
       // speak a stale reply the moment the preference is re-enabled.
-      wasStreamingRef.current = false;
+      sawTurnRef.current = false;
       return;
     }
-    if (streaming) {
-      wasStreamingRef.current = true;
-      return;
+    if (streaming && !sawTurnRef.current) {
+      // Rising edge of a turn: every reply already on screen predates it, so
+      // mark them handled. Only a message that lands from here on is eligible,
+      // which is what the old stream-end latch effectively guaranteed.
+      for (const message of visibleMessages) {
+        if (message.role === "assistant" && message.text.trim()) {
+          spokenAssistantIdsRef.current.add(message.id);
+        }
+      }
+      sawTurnRef.current = true;
     }
-    if (!wasStreamingRef.current) return;
-    wasStreamingRef.current = false;
+    if (!sawTurnRef.current) return;
     const latestAssistant = [...visibleMessages]
       .reverse()
       .find((message) => message.role === "assistant" && message.text.trim());
@@ -3113,6 +3182,10 @@ export function ChatPane({
     ) {
       return;
     }
+    // A landed message consumes the latch: a multi-segment turn speaks its
+    // first segment as it arrives, exactly as the old stream-end latch spoke
+    // the one reply the turn produced.
+    sawTurnRef.current = false;
     spokenAssistantIdsRef.current.add(latestAssistant.id);
     void speakReply(latestAssistant.text, latestAssistant.id);
   }, [visibleMessages, readAloud.enabled, streaming]);
@@ -3801,19 +3874,19 @@ export function ChatPane({
   ]);
 
   const keyExtractor = useCallback((item: ChatMessage) => item.id, []);
-  // Stream fade is driven per-row: only the trailing assistant message
-  // animates while `streaming` is true. AssistantMarkdown itself latches
-  // this flag for the row's lifetime, so the per-phrase fade keeps running
-  // through the brief render where `streaming` flips false at end-of-turn.
-  const streamingAssistantId =
+  // The in-flight turn's reply row: appended empty on dispatch, then grown by
+  // whole message segments. It owns the autoscroll follow so a landing message
+  // scrolls itself into view; nothing else about it is per-row state now that
+  // text arrives complete.
+  const activeAssistantId =
     streaming && lastMessage?.role === "assistant" ? lastMessage.id : null;
   const latestUserMessageId =
     lastMessage?.role === "user" ? lastMessage.id : null;
   useEffect(() => {
-    if (!streamingAssistantId) {
-      scroll.clearStreamingAssistantLayout();
+    if (!activeAssistantId) {
+      scroll.clearActiveAssistantLayout();
     }
-  }, [streamingAssistantId, scroll.clearStreamingAssistantLayout]);
+  }, [activeAssistantId, scroll.clearActiveAssistantLayout]);
 
   const activeMenuMessageId = messageMenu?.message.id ?? null;
   // Tapped `stella://file/<path>` links in assistant markdown resolve into
@@ -3828,7 +3901,7 @@ export function ChatPane({
   );
   const renderItem = useCallback(
     ({ item }: LegendListRenderItemProps<ChatMessage>) => {
-      const isStreamingAssistant = item.id === streamingAssistantId;
+      const isActiveAssistant = item.id === activeAssistantId;
       const isLatestUser = item.id === latestUserMessageId;
       const animate = shouldAnimateMessageEntry(
         seenMessageIdsRef.current,
@@ -3839,8 +3912,8 @@ export function ChatPane({
           key={item.id}
           animate={animate}
           onLayout={
-            isStreamingAssistant
-              ? scroll.onStreamingAssistantLayout
+            isActiveAssistant
+              ? scroll.onActiveAssistantLayout
               : isLatestUser
                 ? (event) => scroll.onLatestUserLayout(item.id, event)
                 : undefined
@@ -3850,7 +3923,6 @@ export function ChatPane({
             item={item}
             styles={styles}
             colors={colors}
-            isStreaming={isStreamingAssistant}
             menuActive={item.id === activeMenuMessageId}
             isSelecting={item.id === selectingMessageId}
             anySelecting={selectingMessageId != null}
@@ -3871,8 +3943,8 @@ export function ChatPane({
       onOpenStellaFile,
       latestUserMessageId,
       scroll.onLatestUserLayout,
-      scroll.onStreamingAssistantLayout,
-      streamingAssistantId,
+      scroll.onActiveAssistantLayout,
+      activeAssistantId,
       activeMenuMessageId,
       selectingMessageId,
       startSelectingMessage,
@@ -3905,7 +3977,6 @@ export function ChatPane({
           status={workingIndicator?.status}
           toolName={workingIndicator?.toolName}
           toolCallId={workingIndicator?.toolCallId}
-          isReasoning={workingIndicator?.isReasoning ?? true}
         />
       </View>
     ),
@@ -4987,6 +5058,30 @@ const makeStyles = (colors: Colors) =>
     },
 
     assistantRow: { paddingVertical: 4 },
+    /**
+     * Mirror of `userBubble`, flipped: same radius family with the tightened
+     * corner on the bottom LEFT, the quieter elevated surface (`card`) instead
+     * of the accent tint, and a hairline `border` rather than `borderStrong` so
+     * the assistant reads as the calmer of the two speakers.
+     *
+     * Vertical padding is asymmetric on purpose: markdown blocks carry their
+     * own trailing margin (a paragraph's is 10 — see `buildNodeStyles` in
+     * AssistantMarkdown), so a small `paddingBottom` plus that margin lands at
+     * the same ~10-12pt optical inset as the top, with no negative margins that
+     * could clip a trailing code block.
+     */
+    assistantBubble: {
+      alignSelf: "flex-start",
+      backgroundColor: colors.card,
+      borderColor: colors.border,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderRadius: 18,
+      borderBottomLeftRadius: 4,
+      maxWidth: "100%",
+      paddingBottom: 2,
+      paddingHorizontal: 13,
+      paddingTop: 10,
+    },
     // Schedule tool receipt — a plain text line in the conversation flow
     // (desktop parity: no chip or card), slightly quieter than reply prose.
     scheduleReceipt: {

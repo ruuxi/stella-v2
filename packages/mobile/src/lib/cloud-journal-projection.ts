@@ -1,11 +1,12 @@
 import type { ChatArtifact, ChatMessage, MobileDisplayPayload } from "../types";
 import type { ToolStep } from "./tool-activity";
 import {
+  hasToolCalls,
   messageText,
   type JournalMessageRecord,
   type JournalRecord,
 } from "./cloud-conversation-protocol";
-import type { LiveStream } from "./cloud-conversation-store";
+import type { LiveTurn } from "./cloud-conversation-store";
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value)
@@ -62,11 +63,14 @@ const completeWindow = (
 /**
  * Projects the DO journal into the existing native timeline shape.
  * Canonical sequence order is retained; no local transcript is consulted.
+ *
+ * Committed records are the only source of assistant text. A turn in flight
+ * contributes nothing to the transcript — the working indicator stands in for
+ * it until the reply's row commits whole.
  */
 export const projectCloudConversationMessages = (args: {
   conversationId?: string;
   records: readonly JournalRecord[];
-  live: LiveStream | null;
   hasOlder?: boolean;
 }): ChatMessage[] => {
   const records = completeWindow(args.records, args.hasOlder === true);
@@ -78,7 +82,6 @@ export const projectCloudConversationMessages = (args: {
   }
 
   const messages: ChatMessage[] = [];
-  const userIdsByTurn = new Map<string, string>();
   for (const [turnId, turn] of byTurn) {
     let userMessageId = `cloud:${turnId}:user`;
     let terminal: Extract<JournalRecord, { kind: "turn" }> | undefined;
@@ -102,7 +105,6 @@ export const projectCloudConversationMessages = (args: {
       if (record.role === "user") {
         userMessageId =
           record.clientMsgId ?? `cloud:${turnId}:message:${record.seq}`;
-        userIdsByTurn.set(turnId, userMessageId);
         if (record.hidden) continue;
         messages.push({
           id: userMessageId,
@@ -241,30 +243,12 @@ export const projectCloudConversationMessages = (args: {
     }
   }
 
-  if (args.live?.text) {
-    const hasCommittedLive = messages.some(
-      (message) =>
-        message.role === "assistant" &&
-        message.id.startsWith(`cloud:${args.live!.turnId}:message:`),
-    );
-    if (!hasCommittedLive) {
-      const owner =
-        userIdsByTurn.get(args.live.turnId) ?? `cloud:${args.live.turnId}:user`;
-      messages.push({
-        id: `cloud:${args.live.turnId}:live:${args.live.streamId}`,
-        requestId: owner,
-        role: "assistant",
-        text: args.live.text,
-        createdAt: Date.now(),
-      });
-    }
-  }
   return messages;
 };
 
 export const activeCloudTurnId = (
   records: readonly JournalRecord[],
-  live: LiveStream | null,
+  live: LiveTurn | null,
 ): string | null => {
   if (live) return live.turnId;
   const phases = new Map<string, string>();
@@ -275,6 +259,47 @@ export const activeCloudTurnId = (
     if (phase === "started") return turnId;
   }
   return null;
+};
+
+/** What the journal can prove about a running turn for the working indicator. */
+export type CloudTurnActivity = {
+  /**
+   * True once this turn committed an assistant reply that is not on its way
+   * into another tool. Assistant text lands whole, so this flips exactly once
+   * per answer and lets the indicator step aside rather than fade over a reply
+   * the user is already reading.
+   */
+  answerLanded: boolean;
+  /** True once any tool ran this turn. Gates the pre-tool think label. */
+  hasToolActivity: boolean;
+};
+
+export const cloudTurnActivity = (
+  records: readonly JournalRecord[],
+  turnId: string | null,
+): CloudTurnActivity => {
+  if (!turnId) return { answerLanded: false, hasToolActivity: false };
+  let answerLanded = false;
+  let hasToolActivity = false;
+  let sawLatestAssistant = false;
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const record = records[index]!;
+    if (record.turnId !== turnId || record.kind !== "message") continue;
+    if (record.role === "toolResult") {
+      hasToolActivity = true;
+      continue;
+    }
+    if (record.role !== "assistant") continue;
+    if (hasToolCalls(record.payload)) hasToolActivity = true;
+    // Only the turn's newest assistant row decides whether the answer landed:
+    // an earlier one was a preamble the run already moved past.
+    if (!sawLatestAssistant) {
+      sawLatestAssistant = true;
+      answerLanded =
+        !hasToolCalls(record.payload) && messageText(record.payload).length > 0;
+    }
+  }
+  return { answerLanded, hasToolActivity };
 };
 
 /** Server placement dispatch echoed by the canonical prompt for one turn. */

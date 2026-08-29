@@ -32,6 +32,7 @@ import {
   activeCloudTurnId,
   canonicalCloudDispatchIdForTurn,
   canonicalCloudDispatchIds,
+  cloudTurnActivity,
   mergeCanonicalCloudMessages,
   projectCloudConversationMessages,
   rebindCanonicalCloudMessages,
@@ -380,10 +381,9 @@ export const useCloudCanonicalChatThread = (
       projectCloudConversationMessages({
         conversationId: authority.conversationId,
         records: state.records,
-        live: state.live,
         hasOlder: state.hasOlder,
       }),
-    [authority.conversationId, state.hasOlder, state.live, state.records],
+    [authority.conversationId, state.hasOlder, state.records],
   );
   const acknowledgedDispatchIds = useMemo(
     () => canonicalCloudDispatchIds(state.records),
@@ -392,16 +392,6 @@ export const useCloudCanonicalChatThread = (
   const canonical = useMemo(
     () => rebindCanonicalCloudMessages(projected, dispatchBindings),
     [dispatchBindings, projected],
-  );
-  const committedCacheMessages = useMemo(
-    () =>
-      projectCloudConversationMessages({
-        conversationId: authority.conversationId,
-        records: state.records,
-        live: null,
-        hasOlder: state.hasOlder,
-      }),
-    [authority.conversationId, state.hasOlder, state.records],
   );
   const messages = useMemo(
     () =>
@@ -434,7 +424,9 @@ export const useCloudCanonicalChatThread = (
       .then(() =>
         rebuildMobileCloudConversationCache({
           metadata,
-          messages: committedCacheMessages,
+          // The projection is committed records only, so the cache never
+          // persists anything the journal has not durably accepted.
+          messages: projected,
           isCurrent: () => generation === cacheWriteGenerationRef.current,
         }),
       );
@@ -444,7 +436,7 @@ export const useCloudCanonicalChatThread = (
     authority.ownerGeneration,
     authority.socketOrigin,
     authorityReady,
-    committedCacheMessages,
+    projected,
     state.epoch,
     state.floorSeq,
     state.headSeq,
@@ -544,27 +536,34 @@ export const useCloudCanonicalChatThread = (
     runningTurnId,
   );
   const sending = local.sending || Boolean(runningTurnId);
-  const workingIndicator = useMemo(
-    () =>
-      local.sending
-        ? local.workingIndicator
-        : buildWorkingIndicatorState({
-            sending: Boolean(runningTurnId),
-            activity: state.live
-              ? {
-                  ...(state.live.toolName
-                    ? { toolName: state.live.toolName }
-                    : {}),
-                  ...(state.live.toolLabel
-                    ? { statusText: state.live.toolLabel }
-                    : {}),
-                  isStreamingText: Boolean(state.live.text),
-                  hasToolActivity: Boolean(state.live.toolName),
-                }
-              : IDLE_WORKING_ACTIVITY,
-          }),
-    [local.sending, local.workingIndicator, runningTurnId, state.live],
-  );
+  const workingIndicator = useMemo(() => {
+    if (local.sending) return local.workingIndicator;
+    if (!runningTurnId) {
+      return buildWorkingIndicatorState({
+        sending: false,
+        activity: IDLE_WORKING_ACTIVITY,
+      });
+    }
+    // Committed records carry the answer/tool history; the live snapshot only
+    // knows which tool is open right now.
+    const journal = cloudTurnActivity(state.records, runningTurnId);
+    return buildWorkingIndicatorState({
+      sending: true,
+      activity: {
+        ...(state.live?.toolName ? { toolName: state.live.toolName } : {}),
+        ...(state.live?.toolLabel ? { statusText: state.live.toolLabel } : {}),
+        answerLanded: journal.answerLanded,
+        hasToolActivity:
+          journal.hasToolActivity || Boolean(state.live?.toolName),
+      },
+    });
+  }, [
+    local.sending,
+    local.workingIndicator,
+    runningTurnId,
+    state.live,
+    state.records,
+  ]);
   const conversationArtifacts = useMemo(
     () => collectArtifacts(messages),
     [messages],

@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet, View } from "react-native";
 import { ShimmerText } from "./ShimmerText";
-import { WorkingStarSkia } from "./WorkingStarSkia";
+import { StellaMarkIndicator } from "./stella-mark/StellaMarkIndicator";
 import { computeWorkingIndicatorStatus } from "./working-indicator-status";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
@@ -27,11 +27,10 @@ interface WorkingIndicatorProps {
   status?: string;
   toolName?: string;
   toolCallId?: string;
-  isReasoning?: boolean;
   /**
-   * Skip the brief exit hold when deactivating. Set once answer text starts
-   * streaming so the indicator gets out of the way immediately instead of
-   * trailing the growing reply (mirrors the desktop handoff).
+   * Skip the brief exit hold when deactivating. Set once this turn's answer
+   * message has landed so the indicator gets out of the way immediately
+   * instead of trailing the delivered reply (mirrors the desktop handoff).
    */
   exitImmediately?: boolean;
 }
@@ -164,7 +163,6 @@ export const WorkingIndicator = memo(function WorkingIndicator({
   status,
   toolName,
   toolCallId,
-  isReasoning = true,
   exitImmediately = false,
 }: WorkingIndicatorProps) {
   const colors = useColors();
@@ -178,7 +176,6 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     status,
     toolName,
     seed: toolCallId ?? reasoningSeed,
-    isReasoning,
   });
   // Snapshot the label while active so the exit animation shows a stable
   // last-known phrase even though the upstream activity clears the moment
@@ -186,6 +183,9 @@ export const WorkingIndicator = memo(function WorkingIndicator({
   const frozenStatusRef = useRef(liveStatus);
   if (active) frozenStatusRef.current = liveStatus;
   const displayStatus = active ? liveStatus : frozenStatusRef.current;
+  // With no label there is nothing to read, so the mark itself carries the
+  // state as the thinking bounce; a tool label gets the resting star beside it.
+  const hasLabel = displayStatus.length > 0;
   const [renderShell, setRenderShell] = useState(active);
   const shellProgress = useRef(new Animated.Value(active ? 1 : 0)).current;
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -258,7 +258,11 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     >
       {renderShell ? (
         <Animated.View style={[styles.row, shellStyle]} collapsable={false}>
-          <WorkingStarSkia active={active} size={INDICATOR_VIEWPORT_SIZE} />
+          <StellaMarkIndicator
+            active={active}
+            size={INDICATOR_VIEWPORT_SIZE}
+            mode={hasLabel ? "star" : "dots"}
+          />
           <SwapText
             text={displayStatus}
             active={active}

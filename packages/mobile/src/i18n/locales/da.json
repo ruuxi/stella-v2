@@ -95,10 +95,6 @@
       "title": "Filforhåndsvisninger for udviklere",
       "description": "Vis kodeændringer i chatten, og åbn dem i sidepanelet."
     },
-    "developerMode": {
-      "title": "Udviklertilstand",
-      "description": "Vis avancerede indstillinger for modeller, motorer og udbydere, herunder opsætning af din egen API-nøgle."
-    },
     "nativeFontSmoothing": {
       "title": "Indbygget skriftudjævning",
       "description": "Gengiver tekst, som macOS-apps gør, med kantudjævning i gråtoner."
@@ -475,7 +471,6 @@
       "voiceUnavailable": "Stemmeindstillinger er ikke tilgængelige i dette vindue.",
       "loadMemory": "Kunne ikke indlæse hukommelsesindstillingen.",
       "saveMemory": "Kunne ikke opdatere hukommelsesindstillingen.",
-      "saveDeveloperMode": "Kunne ikke opdatere udviklertilstand.",
       "memoryUnavailable": "Hukommelsesindstillinger er ikke tilgængelige i dette vindue.",
       "loadPermissions": "Kunne ikke indlæse tilladelsesstatus for skrivebordet.",
       "savePermission": "Kunne ikke opdatere tilladelsen {kind}.",

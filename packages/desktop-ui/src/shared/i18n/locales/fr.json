@@ -96,10 +96,6 @@
       "title": "Aperçus de fichiers pour développeurs",
       "description": "Affiche les modifications de code dans le chat et ouvre-les dans le panneau latéral."
     },
-    "developerMode": {
-      "title": "Mode développeur",
-      "description": "Affiche les contrôles avancés des modèles, moteurs et fournisseurs, y compris la configuration de votre propre clé d'API."
-    },
     "nativeFontSmoothing": {
       "title": "Lissage des polices natif",
       "description": "Affiche le texte comme les apps macOS, avec un anticrénelage en niveaux de gris."
@@ -476,7 +472,6 @@
       "voiceUnavailable": "Les réglages de la voix ne sont pas disponibles dans cette fenêtre.",
       "loadMemory": "Échec du chargement du réglage de mémoire.",
       "saveMemory": "Échec de la mise à jour du réglage de mémoire.",
-      "saveDeveloperMode": "Impossible de mettre à jour le mode développeur.",
       "memoryUnavailable": "Les réglages de mémoire ne sont pas disponibles dans cette fenêtre.",
       "loadPermissions": "Échec du chargement de l'état des autorisations du bureau.",
       "savePermission": "Échec de la mise à jour de l'autorisation {kind}.",

@@ -95,10 +95,6 @@
       "title": "Developer file previews",
       "description": "Show code changes in chat and open them in the side panel."
     },
-    "developerMode": {
-      "title": "Developer mode",
-      "description": "Show advanced model, engine, and provider controls, including bring-your-own-key setup."
-    },
     "nativeFontSmoothing": {
       "title": "Native font smoothing",
       "description": "Render text the way macOS apps do, with grayscale anti-aliasing."
@@ -475,7 +471,6 @@
       "voiceUnavailable": "Voice settings are unavailable in this window.",
       "loadMemory": "Failed to load memory setting.",
       "saveMemory": "Failed to update memory setting.",
-      "saveDeveloperMode": "Failed to update developer mode.",
       "memoryUnavailable": "Memory settings are unavailable in this window.",
       "loadPermissions": "Failed to load desktop permission status.",
       "savePermission": "Failed to update {kind} permission.",

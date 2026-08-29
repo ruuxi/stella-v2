@@ -96,10 +96,6 @@
       "title": "Kehittäjän tiedostojen esikatselut",
       "description": "Näytä koodimuutokset chatissa ja avaa ne sivupaneelissa."
     },
-    "developerMode": {
-      "title": "Kehittäjätila",
-      "description": "Näytä mallien, moottorien ja palveluntarjoajien lisäasetukset, mukaan lukien oman API-avaimen määritys."
-    },
     "nativeFontSmoothing": {
       "title": "Natiivi fonttien pehmennys",
       "description": "Piirtää tekstin kuten macOS-sovellukset, harmaasävyreunanpehmennyksellä."
@@ -476,7 +472,6 @@
       "voiceUnavailable": "Ääniasetukset eivät ole käytettävissä tässä ikkunassa.",
       "loadMemory": "Muistiasetuksen lataaminen epäonnistui.",
       "saveMemory": "Muistiasetuksen päivitys epäonnistui.",
-      "saveDeveloperMode": "Kehittäjätilan päivitys epäonnistui.",
       "memoryUnavailable": "Muistiasetukset eivät ole käytettävissä tässä ikkunassa.",
       "loadPermissions": "Työpöydän käyttöoikeustilan lataaminen epäonnistui.",
       "savePermission": "Käyttöoikeuden {kind} päivitys epäonnistui.",

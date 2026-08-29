@@ -95,10 +95,6 @@
       "title": "開發者檔案預覽",
       "description": "在聊天中顯示程式碼變更，並在側邊面板中開啟它們。"
     },
-    "developerMode": {
-      "title": "開發者模式",
-      "description": "顯示進階的模型、引擎與供應商控制項，包括自備 API 金鑰的設定。"
-    },
     "nativeFontSmoothing": {
       "title": "原生字體平滑",
       "description": "像 macOS App 那樣算繪文字，使用灰階反鋸齒。"
@@ -475,7 +471,6 @@
       "voiceUnavailable": "此視窗中無法使用語音設定。",
       "loadMemory": "載入記憶設定失敗。",
       "saveMemory": "更新記憶設定失敗。",
-      "saveDeveloperMode": "無法更新開發者模式。",
       "memoryUnavailable": "此視窗中無法使用記憶設定。",
       "loadPermissions": "載入桌面權限狀態失敗。",
       "savePermission": "更新「{kind}」權限失敗。",

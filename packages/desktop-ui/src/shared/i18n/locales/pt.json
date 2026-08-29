@@ -96,10 +96,6 @@
       "title": "Pré-visualizações de arquivos para desenvolvedores",
       "description": "Mostra as alterações de código no chat e abre-as no painel lateral."
     },
-    "developerMode": {
-      "title": "Modo de desenvolvedor",
-      "description": "Mostra controles avançados de modelos, mecanismos e provedores, incluindo a configuração da sua própria chave de API."
-    },
     "nativeFontSmoothing": {
       "title": "Suavização de fontes nativa",
       "description": "Renderiza o texto como os apps do macOS, com suavização em escala de cinza."
@@ -476,7 +472,6 @@
       "voiceUnavailable": "As configurações de voz não estão disponíveis nesta janela.",
       "loadMemory": "Falha ao carregar a configuração de memória.",
       "saveMemory": "Falha ao atualizar a configuração de memória.",
-      "saveDeveloperMode": "Falha ao atualizar o modo de desenvolvedor.",
       "memoryUnavailable": "As configurações de memória não estão disponíveis nesta janela.",
       "loadPermissions": "Falha ao carregar o status das permissões do desktop.",
       "savePermission": "Falha ao atualizar a permissão de {kind}.",

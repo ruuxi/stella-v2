@@ -95,10 +95,6 @@
       "title": "Xem trước tệp dành cho nhà phát triển",
       "description": "Hiển thị thay đổi mã trong trò chuyện và mở chúng trong bảng bên."
     },
-    "developerMode": {
-      "title": "Chế độ nhà phát triển",
-      "description": "Hiển thị các tùy chọn nâng cao về mô hình, engine và nhà cung cấp, bao gồm thiết lập khóa API của riêng bạn."
-    },
     "nativeFontSmoothing": {
       "title": "Làm mịn phông chữ gốc",
       "description": "Hiển thị văn bản như các ứng dụng macOS, với khử răng cưa thang độ xám."
@@ -475,7 +471,6 @@
       "voiceUnavailable": "Cài đặt giọng nói không khả dụng trong cửa sổ này.",
       "loadMemory": "Không tải được cài đặt bộ nhớ.",
       "saveMemory": "Không cập nhật được cài đặt bộ nhớ.",
-      "saveDeveloperMode": "Không thể cập nhật chế độ nhà phát triển.",
       "memoryUnavailable": "Cài đặt bộ nhớ không khả dụng trong cửa sổ này.",
       "loadPermissions": "Không tải được trạng thái quyền trên máy tính để bàn.",
       "savePermission": "Không cập nhật được quyền {kind}.",

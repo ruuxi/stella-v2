@@ -96,10 +96,6 @@
       "title": "개발자 파일 미리보기",
       "description": "코드 변경 사항을 채팅에 표시하고 사이드 패널에서 엽니다."
     },
-    "developerMode": {
-      "title": "개발자 모드",
-      "description": "모델, 엔진, 제공업체의 고급 설정을 표시합니다. 자체 API 키 설정도 포함됩니다."
-    },
     "nativeFontSmoothing": {
       "title": "네이티브 글꼴 매끄럽게 처리",
       "description": "macOS 앱처럼 회색조 안티앨리어싱으로 텍스트를 렌더링합니다."
@@ -476,7 +472,6 @@
       "voiceUnavailable": "이 창에서는 음성 설정을 사용할 수 없습니다.",
       "loadMemory": "메모리 설정을 불러오지 못했습니다.",
       "saveMemory": "메모리 설정을 업데이트하지 못했습니다.",
-      "saveDeveloperMode": "개발자 모드를 업데이트하지 못했습니다.",
       "memoryUnavailable": "이 창에서는 메모리 설정을 사용할 수 없습니다.",
       "loadPermissions": "데스크탑 권한 상태를 불러오지 못했습니다.",
       "savePermission": "{kind} 권한을 업데이트하지 못했습니다.",

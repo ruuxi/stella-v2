@@ -96,10 +96,6 @@
       "title": "Filförhandsvisningar för utvecklare",
       "description": "Visa kodändringar i chatten och öppna dem i sidopanelen."
     },
-    "developerMode": {
-      "title": "Utvecklarläge",
-      "description": "Visa avancerade kontroller för modeller, motorer och leverantörer, inklusive konfiguration av din egen API-nyckel."
-    },
     "nativeFontSmoothing": {
       "title": "Inbyggd teckenutjämning",
       "description": "Renderar text som macOS-appar gör, med kantutjämning i gråskala."
@@ -476,7 +472,6 @@
       "voiceUnavailable": "Röstinställningar är inte tillgängliga i det här fönstret.",
       "loadMemory": "Det gick inte att läsa in minnesinställningen.",
       "saveMemory": "Det gick inte att uppdatera minnesinställningen.",
-      "saveDeveloperMode": "Det gick inte att uppdatera utvecklarläget.",
       "memoryUnavailable": "Minnesinställningar är inte tillgängliga i det här fönstret.",
       "loadPermissions": "Det gick inte att läsa in behörighetsstatus för skrivbordet.",
       "savePermission": "Det gick inte att uppdatera behörigheten {kind}.",

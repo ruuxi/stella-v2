@@ -96,10 +96,6 @@
       "title": "Anteprime file per sviluppatori",
       "description": "Mostra le modifiche al codice nella chat e aprile nel pannello laterale."
     },
-    "developerMode": {
-      "title": "Modalità sviluppatore",
-      "description": "Mostra i controlli avanzati di modelli, motori e provider, inclusa la configurazione della tua chiave API."
-    },
     "nativeFontSmoothing": {
       "title": "Smussatura caratteri nativa",
       "description": "Mostra il testo come fanno le app di macOS, con antialiasing in scala di grigi."
@@ -476,7 +472,6 @@
       "voiceUnavailable": "Le impostazioni della voce non sono disponibili in questa finestra.",
       "loadMemory": "Impossibile caricare l'impostazione di memoria.",
       "saveMemory": "Impossibile aggiornare l'impostazione di memoria.",
-      "saveDeveloperMode": "Impossibile aggiornare la modalità sviluppatore.",
       "memoryUnavailable": "Le impostazioni di memoria non sono disponibili in questa finestra.",
       "loadPermissions": "Impossibile caricare lo stato delle autorizzazioni del desktop.",
       "savePermission": "Impossibile aggiornare l'autorizzazione {kind}.",

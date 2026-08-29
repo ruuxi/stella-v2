@@ -96,10 +96,6 @@
       "title": "Geliştirici dosya önizlemeleri",
       "description": "Kod değişikliklerini sohbette gösterir ve yan panelde açar."
     },
-    "developerMode": {
-      "title": "Geliştirici modu",
-      "description": "Kendi API anahtarınızı ekleme dahil olmak üzere gelişmiş model, motor ve sağlayıcı denetimlerini gösterir."
-    },
     "nativeFontSmoothing": {
       "title": "Yerel yazı tipi yumuşatma",
       "description": "Metni macOS uygulamaları gibi, gri tonlamalı kenar yumuşatmayla işler."
@@ -476,7 +472,6 @@
       "voiceUnavailable": "Ses ayarları bu pencerede kullanılamıyor.",
       "loadMemory": "Bellek ayarı yüklenemedi.",
       "saveMemory": "Bellek ayarı güncellenemedi.",
-      "saveDeveloperMode": "Geliştirici modu güncellenemedi.",
       "memoryUnavailable": "Bellek ayarları bu pencerede kullanılamıyor.",
       "loadPermissions": "Masaüstü izin durumu yüklenemedi.",
       "savePermission": "{kind} izni güncellenemedi.",

@@ -9,6 +9,7 @@ import {
   displayTabs,
   useDisplayPanelExpanded,
 } from "@/features/workspace-display/tab-store";
+import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
 import { engineOverlay } from "./engine-overlay-store";
 import {
   CHAT_DISPLAY_TAB_ID,
@@ -135,11 +136,16 @@ export function openTrashDisplayTab(): void {
 }
 
 /**
- * Open the Models picker. It is a footer popover now, anchored by whichever
- * footer is on screen, so this only flips the shared store — it deliberately
- * does not move or open the right sidebar.
+ * Open the Models picker. The popover is anchored by the global control, which
+ * is only on screen while the display panel shows a main-conversation surface —
+ * so bring that surface up first, leaving Quick chat for Home.
  */
 export function openModelPicker(): void {
+  if (sidebarSections.getActiveTab()?.kind === "quickchat") {
+    sidebarSections.selectSection("home");
+  } else {
+    displayTabs.setPanelOpen(true);
+  }
   engineOverlay.setOpen(true);
 }
 

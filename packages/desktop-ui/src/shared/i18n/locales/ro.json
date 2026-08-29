@@ -96,10 +96,6 @@
       "title": "Previzualizări de fișiere pentru dezvoltatori",
       "description": "Afișează modificările de cod în chat și le deschide în panoul lateral."
     },
-    "developerMode": {
-      "title": "Mod dezvoltator",
-      "description": "Afișează controale avansate pentru modele, motoare și furnizori, inclusiv configurarea propriei chei API."
-    },
     "nativeFontSmoothing": {
       "title": "Netezire nativă a fonturilor",
       "description": "Redă textul așa cum o fac aplicațiile macOS, cu anti-aliasing în tonuri de gri."
@@ -476,7 +472,6 @@
       "voiceUnavailable": "Setările de voce nu sunt disponibile în această fereastră.",
       "loadMemory": "Nu s-a putut încărca setarea de memorie.",
       "saveMemory": "Nu s-a putut actualiza setarea de memorie.",
-      "saveDeveloperMode": "Actualizarea modului dezvoltator a eșuat.",
       "memoryUnavailable": "Setările de memorie nu sunt disponibile în această fereastră.",
       "loadPermissions": "Nu s-a putut încărca starea permisiunilor desktopului.",
       "savePermission": "Nu s-a putut actualiza permisiunea {kind}.",

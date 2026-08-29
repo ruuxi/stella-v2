@@ -96,10 +96,6 @@
       "title": "Bestandsvoorbeelden voor ontwikkelaars",
       "description": "Toon codewijzigingen in de chat en open ze in het zijpaneel."
     },
-    "developerMode": {
-      "title": "Ontwikkelaarsmodus",
-      "description": "Toon geavanceerde instellingen voor modellen, engines en providers, inclusief het instellen van je eigen API-sleutel."
-    },
     "nativeFontSmoothing": {
       "title": "Native lettertype-afronding",
       "description": "Geeft tekst weer zoals macOS-apps, met antialiasing in grijswaarden."
@@ -476,7 +472,6 @@
       "voiceUnavailable": "Steminstellingen zijn niet beschikbaar in dit venster.",
       "loadMemory": "Geheugeninstelling laden mislukt.",
       "saveMemory": "Geheugeninstelling bijwerken mislukt.",
-      "saveDeveloperMode": "Ontwikkelaarsmodus kon niet worden bijgewerkt.",
       "memoryUnavailable": "Geheugeninstellingen zijn niet beschikbaar in dit venster.",
       "loadPermissions": "Machtigingsstatus van bureaublad laden mislukt.",
       "savePermission": "Machtiging {kind} bijwerken mislukt.",

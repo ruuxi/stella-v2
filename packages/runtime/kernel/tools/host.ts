@@ -55,11 +55,7 @@ import {
   registerExtensionToolHandlers,
 } from "./registry.js";
 import { buildBuiltinTools } from "./defs/index.js";
-import {
-  AGENT_ORCHESTRATION_TOOL_NAMES,
-  withoutSpawnAgentModelParam,
-} from "./defs/task.js";
-import { getDeveloperModeEnabled } from "../preferences/local-preferences.js";
+import { AGENT_ORCHESTRATION_TOOL_NAMES } from "./defs/task.js";
 import { isAgentToolSuspendedError } from "../agent-core/suspension.js";
 import type { ToolDefinition as BuiltinToolDefinition } from "./types.js";
 import { sanitizeToolError, sanitizeToolResult } from "./safety.js";
@@ -228,16 +224,6 @@ export const createToolHost = ({
   contextProvider,
 }: ToolHostOptions) => {
   const stateRoot = stellaDataDir ?? stellaAppDir;
-
-  // Developer-mode assembly gate: with the flag off, spawn_agent is served
-  // without its `model` property so the model never sees an engine/model
-  // override parameter. Read per call (mtime-cached preferences) so toggling
-  // applies on the next turn without a host rebuild. Dev mode ON serves the
-  // untouched definitions — byte-for-byte today's behavior.
-  const applyDeveloperModeToolGate = (tool: ToolMetadata): ToolMetadata =>
-    getDeveloperModeEnabled(stateRoot)
-      ? tool
-      : (withoutSpawnAgentModelParam(tool) as ToolMetadata);
   const toolCatalog = new Map<string, ToolMetadata>();
 
   const shellState: ShellState = createShellState(stateRoot, {
@@ -312,16 +298,15 @@ export const createToolHost = ({
     // same REPL (see collectReplSearchableTools).
     searchTools: (query, context, limit) =>
       searchToolCatalog(
-        collectReplSearchableTools(toolCatalog.values(), context).map((tool) =>
-          applyDeveloperModeToolGate(tool),
-        ),
+        collectReplSearchableTools(toolCatalog.values(), context),
         query,
         limit,
       ),
     describeTool: (name, context, cursor) => {
-      const tool = collectReplSearchableTools(toolCatalog.values(), context)
-        .map((entry) => applyDeveloperModeToolGate(entry))
-        .find((entry) => entry.name === name);
+      const tool = collectReplSearchableTools(
+        toolCatalog.values(),
+        context,
+      ).find((entry) => entry.name === name);
       if (!tool) {
         throw new Error(
           `Tool "${name}" is unknown or not available to describe in this context.`,
@@ -656,37 +641,35 @@ export const createToolHost = ({
       model: options?.model,
       agentEngine: options?.agentEngine,
     });
-    return Array.from(toolCatalog.values())
-      .filter((tool) => {
-        // A tool's `agentTypes` is the single audience gate: a tool with no
-        // `agentTypes` is available to every agent, and the per-agent
-        // frontmatter `tools:` allowlist (applied downstream in
-        // tool-adapters) decides what each agent is actually offered.
-        if (!isAgentAllowedForTool(tool, agentType)) return false;
-        if (isOrchestrationToolWithheld(tool.name, options?.parentOwned)) {
-          return false;
-        }
-        // Demoted tools stay in the catalog: the runtime adapter
-        // (`createPiTools`) decides per turn whether they surface directly or
-        // only through code's catalog. Voice and other realtime surfaces
-        // filter them out explicitly.
-        // Swap the file-edit tool family to the agent's engine: Claude Code
-        // wants Write/Edit, Stella wants apply_patch.
-        if (
-          fileEditToolFamily === "write_edit" &&
-          tool.name === APPLY_PATCH_TOOL_NAME
-        ) {
-          return false;
-        }
-        if (
-          fileEditToolFamily === "apply_patch" &&
-          (tool.name === WRITE_TOOL_NAME || tool.name === EDIT_TOOL_NAME)
-        ) {
-          return false;
-        }
-        return true;
-      })
-      .map((tool) => applyDeveloperModeToolGate(tool));
+    return Array.from(toolCatalog.values()).filter((tool) => {
+      // A tool's `agentTypes` is the single audience gate: a tool with no
+      // `agentTypes` is available to every agent, and the per-agent
+      // frontmatter `tools:` allowlist (applied downstream in
+      // tool-adapters) decides what each agent is actually offered.
+      if (!isAgentAllowedForTool(tool, agentType)) return false;
+      if (isOrchestrationToolWithheld(tool.name, options?.parentOwned)) {
+        return false;
+      }
+      // Demoted tools stay in the catalog: the runtime adapter
+      // (`createPiTools`) decides per turn whether they surface directly or
+      // only through code's catalog. Voice and other realtime surfaces
+      // filter them out explicitly.
+      // Swap the file-edit tool family to the agent's engine: Claude Code
+      // wants Write/Edit, Stella wants apply_patch.
+      if (
+        fileEditToolFamily === "write_edit" &&
+        tool.name === APPLY_PATCH_TOOL_NAME
+      ) {
+        return false;
+      }
+      if (
+        fileEditToolFamily === "apply_patch" &&
+        (tool.name === WRITE_TOOL_NAME || tool.name === EDIT_TOOL_NAME)
+      ) {
+        return false;
+      }
+      return true;
+    });
   };
 
   // Track tool names that came from user-installable extensions so a

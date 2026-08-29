@@ -777,10 +777,13 @@ export function useChatScrollManagement({
    * sits below it — not just a fixed ~48px bump that leaves tall bubbles
    * clipped at the top while empty space exists off-screen below.
    */
-  const nudgeAfterSend = useCallback(() => {
+  const nudgeAfterSend = useCallback((followKeyBeforeSend?: string | null) => {
     responseSpacerExpandedRef.current = true;
     setFollow(true);
-    clearAssistantScrollFollow();
+    // Send acceptance is async, so a fast first stream can already own the
+    // follow key by the time placement runs. Only drop the key this caller
+    // saw before the send.
+    clearAssistantScrollFollow(followKeyBeforeSend);
     followApi.current?.activateResponseSpacer();
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {

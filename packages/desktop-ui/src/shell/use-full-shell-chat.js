@@ -23,6 +23,7 @@ import {
 import { buildActivityTasks } from "@/features/chat/lib/event-transforms";
 import { useCapturedChatContext } from "./use-captured-chat-context";
 import { useChatScrollManagement } from "./use-chat-scroll-management";
+import { getAssistantScrollFollowKey } from "./chat-scroll-follow";
 import { useChatHomeSurface } from "./use-chat-home-surface";
 import { useAgentInputRouting } from "./use-agent-input-routing";
 import { useConversationModelSelection } from "./use-conversation-model-selection";
@@ -516,6 +517,7 @@ export function useFullShellChat({
       getShouldPlaceLatestTurn();
     const shouldNudgeAfterSend = !isStreaming && shouldKeepTailFramed;
     const submittedConversationId = activeConversationId;
+    const followKeyBeforeSend = getAssistantScrollFollowKey();
     const accepted = await sendMessage({
       text: latestMessageRef.current,
       selectedText,
@@ -564,7 +566,7 @@ export function useFullShellChat({
       // Places the newest user turn near the top of the readable area,
       // above the (now settled) response spacer. The gentle loop keeps
       // that reframe continuous with the assistant stream-follow.
-      nudgeAfterSend();
+      nudgeAfterSend(followKeyBeforeSend);
     } else {
       releaseFollow();
     }

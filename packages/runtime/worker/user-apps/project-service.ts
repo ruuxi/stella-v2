@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { createSocket } from "node:dgram";
 import { watch, type Dirent, type FSWatcher } from "node:fs";
 import { promises as fs } from "node:fs";
 import net from "node:net";
@@ -14,40 +15,79 @@ import type {
 } from "@stella/contracts/user-app-projects";
 
 const SLUG_RE = /^[a-z][a-z0-9-]{0,31}$/;
+const PROCESS_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
+// Port map keys are either a bare slug (the frontend) or `slug:<qualifier>`.
+const PORT_MAP_KEY_RE = /^[a-z][a-z0-9-]{0,31}(?::[a-z][a-z0-9-]{0,64})?$/;
 const MANIFEST_FILE = "stella.app.json";
 const PACKAGE_FILE = "package.json";
 const PORT_MAP_FILE = ".stella-app-ports.json";
 const PORT_RANGE_START = 41_000;
 const PORT_RANGE_SIZE = 20_000;
 const INSTALL_TIMEOUT_MS = 120_000;
-const URL_TIMEOUT_MS = 30_000;
+const READINESS_TIMEOUT_MS = 30_000;
+const PROCESS_READINESS_DELAY_MS = 250;
 const STOP_GRACE_MS = 1_500;
 const RESTART_BACKOFF_MS = 2_000;
 const WATCH_DEBOUNCE_MS = 100;
-const URL_RE =
-  /Local:\s+https?:\/\/(?:127\.0\.0\.1|localhost):([0-9]{1,5})(?:\/[^\s]*)?/i;
+const MAX_SUPERVISED_PROCESSES = 8;
+
+type ProjectProcessReadiness =
+  | { type: "http"; path: string; timeoutMs: number }
+  | { type: "tcp"; timeoutMs: number }
+  | { type: "process"; delayMs: number };
+
+type ProjectProcess = {
+  id: string;
+  command: string;
+  args: string[];
+  port: "auto" | null;
+  ports: Array<{ id: string; protocol: "tcp" | "udp" }>;
+  readiness: ProjectProcessReadiness;
+};
+
+type ProjectRuntime = {
+  frontend: string;
+  processes: ProjectProcess[];
+};
+
+type ProjectPackage = {
+  scripts: Record<string, string>;
+  dependencyNames: Set<string>;
+};
 
 type ProjectManifest = {
   schemaVersion: 1;
   slug: string;
   name: string;
   createdAt: string;
+  runtime: ProjectRuntime | null;
 };
 
 type DiscoveredProject = UserAppProjectDescriptor & {
   projectPath: string;
+  runtime: ProjectRuntime | null;
+  package: ProjectPackage;
 };
 
 type RuntimeEntry = {
   project: DiscoveredProject;
-  child: ChildProcess | null;
+  children: Map<string, ChildProcess>;
+  installChild: ChildProcess | null;
   status: UserAppProjectStatus;
   url: string | null;
   error: string | null;
   desiredRunning: boolean;
   startPromise: Promise<UserAppProjectStartResult> | null;
   stopPromise: Promise<void> | null;
+  recoveryPromise: Promise<void> | null;
   restartTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Bumped on every launch, stop, and crash recovery. A supervised process set
+   * outlives the async step that started it, so exits from an abandoned
+   * generation must not tear down the set that replaced it. The generation
+   * captured at launch is the only way to tell the two apart.
+   */
+  generation: number;
 };
 
 export type UserAppProjectServiceOptions = {
@@ -55,6 +95,12 @@ export type UserAppProjectServiceOptions = {
   onChanged?: () => void;
   executablePath?: string;
 };
+
+const sleep = (durationMs: number) =>
+  new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, durationMs);
+    timer.unref?.();
+  });
 
 const isPathInside = (root: string, candidate: string) => {
   const relative = path.relative(root, candidate);
@@ -70,6 +116,178 @@ const readRegularFile = async (filePath: string): Promise<string> => {
   }
   return await fs.readFile(filePath, "utf8");
 };
+
+const readinessSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("http"),
+    path: z
+      .string()
+      .regex(
+        /^\/(?!\/)[^\s\\]*$/,
+        "HTTP readiness path must be a loopback-relative path.",
+      )
+      .default("/"),
+    timeoutMs: z
+      .number()
+      .int()
+      .min(1_000)
+      .max(120_000)
+      .default(READINESS_TIMEOUT_MS),
+  }),
+  z.object({
+    type: z.literal("tcp"),
+    timeoutMs: z
+      .number()
+      .int()
+      .min(1_000)
+      .max(120_000)
+      .default(READINESS_TIMEOUT_MS),
+  }),
+  z.object({
+    type: z.literal("process"),
+    delayMs: z
+      .number()
+      .int()
+      .min(50)
+      .max(10_000)
+      .default(PROCESS_READINESS_DELAY_MS),
+  }),
+]);
+
+const processSchema = z
+  .object({
+    id: z.string().regex(PROCESS_ID_RE, "Process id must be a lowercase slug."),
+    command: z
+      .string()
+      .trim()
+      .min(1)
+      .max(512)
+      .refine((value) => !value.includes("\0"), {
+        message: "Process command must not contain NUL bytes.",
+      }),
+    args: z
+      .array(
+        z
+          .string()
+          .max(4_096)
+          .refine((value) => !value.includes("\0"), {
+            message: "Process arguments must not contain NUL bytes.",
+          }),
+      )
+      .max(128)
+      .default([]),
+    port: z.literal("auto").optional(),
+    ports: z
+      .array(
+        z.object({
+          id: z
+            .string()
+            .regex(PROCESS_ID_RE, "Named port id must be a lowercase slug."),
+          protocol: z.enum(["tcp", "udp"]),
+        }),
+      )
+      .max(MAX_SUPERVISED_PROCESSES)
+      .default([]),
+    readiness: readinessSchema.optional(),
+  })
+  .superRefine((process, context) => {
+    const portIds = new Set<string>();
+    for (const [index, port] of process.ports.entries()) {
+      if (portIds.has(port.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["ports", index, "id"],
+          message: `Named port id ${port.id} is duplicated.`,
+        });
+      }
+      portIds.add(port.id);
+    }
+    if (
+      process.readiness &&
+      process.readiness.type !== "process" &&
+      process.port !== "auto"
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["port"],
+        message: "HTTP and TCP readiness require port to be auto.",
+      });
+    }
+  });
+
+const runtimeSchema = z
+  .object({
+    frontend: z
+      .string()
+      .regex(PROCESS_ID_RE, "Runtime frontend must name a process id."),
+    processes: z.array(processSchema).min(1).max(MAX_SUPERVISED_PROCESSES),
+  })
+  .superRefine((runtime, context) => {
+    const ids = new Set<string>();
+    // Two processes whose ids differ only by `-` versus `_` would publish
+    // their ports under one environment name and silently shadow each other,
+    // so the collision is rejected at parse time rather than at spawn time.
+    const portEnvironmentNames = new Set<string>();
+    for (const [index, process] of runtime.processes.entries()) {
+      if (ids.has(process.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["processes", index, "id"],
+          message: `Runtime process id ${process.id} is duplicated.`,
+        });
+      }
+      ids.add(process.id);
+      if (process.port === "auto") {
+        const environmentName = process.id.toUpperCase().replaceAll("-", "_");
+        if (portEnvironmentNames.has(environmentName)) {
+          context.addIssue({
+            code: "custom",
+            path: ["processes", index, "port"],
+            message: `Runtime ports produce a duplicate environment name: STELLA_APP_PORT_${environmentName}.`,
+          });
+        }
+        portEnvironmentNames.add(environmentName);
+      }
+      for (const port of process.ports) {
+        const environmentName = `${process.id}_${port.id}`
+          .toUpperCase()
+          .replaceAll("-", "_");
+        if (portEnvironmentNames.has(environmentName)) {
+          context.addIssue({
+            code: "custom",
+            path: ["processes", index, "ports"],
+            message: `Runtime ports produce a duplicate environment name: STELLA_APP_PORT_${environmentName}.`,
+          });
+        }
+        portEnvironmentNames.add(environmentName);
+      }
+    }
+    const frontend = runtime.processes.find(
+      (process) => process.id === runtime.frontend,
+    );
+    if (!frontend) {
+      context.addIssue({
+        code: "custom",
+        path: ["frontend"],
+        message: "Runtime frontend must name one declared process.",
+      });
+    } else if (frontend.port !== "auto") {
+      context.addIssue({
+        code: "custom",
+        path: ["processes"],
+        message: "Runtime frontend process must declare port as auto.",
+      });
+    } else if (frontend.readiness?.type === "process") {
+      // The frontend's port is embedded in the Apps sidebar the moment the
+      // launch resolves, so a delay-only readiness check would hand the
+      // renderer a URL that nothing is listening on yet.
+      context.addIssue({
+        code: "custom",
+        path: ["processes"],
+        message: "Runtime frontend process must use HTTP or TCP readiness.",
+      });
+    }
+  });
 
 const buildManifestSchema = (expectedSlug: string) =>
   z.object(
@@ -94,6 +312,7 @@ const buildManifestSchema = (expectedSlug: string) =>
           (value) => Number.isFinite(Date.parse(value)),
           `${MANIFEST_FILE} createdAt must be an ISO date string.`,
         ),
+      runtime: runtimeSchema.optional(),
     },
     { error: `${MANIFEST_FILE} schemaVersion must be 1.` },
   );
@@ -119,12 +338,261 @@ const parseManifest = (raw: string, expectedSlug: string): ProjectManifest => {
     slug: expectedSlug,
     name: parsed.data.name,
     createdAt: parsed.data.createdAt,
+    runtime: parsed.data.runtime
+      ? {
+          frontend: parsed.data.runtime.frontend,
+          processes: parsed.data.runtime.processes.map((process) => ({
+            id: process.id,
+            command: process.command,
+            args: process.args,
+            port: process.port ?? null,
+            ports: process.ports,
+            readiness:
+              process.readiness ??
+              (process.port === "auto"
+                ? { type: "tcp" as const, timeoutMs: READINESS_TIMEOUT_MS }
+                : {
+                    type: "process" as const,
+                    delayMs: PROCESS_READINESS_DELAY_MS,
+                  }),
+          })),
+        }
+      : null,
   };
+};
+
+const FRONTEND_COMMAND_RE =
+  /(?:^|[\s"'])(?:bunx\s+|bun\s+x\s+|npx\s+)?(?:vite|next(?:\s+dev)?|astro\s+dev|remix\s+dev|webpack(?:-dev-server)?|react-scripts\s+start)(?=$|[\s"'])/i;
+const FRONTEND_SCRIPT_RE = /(?:^|:)(?:web|frontend|client|ui)(?:$|:)/i;
+/**
+ * Only dev-server scripts are candidates for the frontend process. Lifecycle
+ * scripts invoke the same tools (`"build": "tsc --noEmit && vite build"`,
+ * `"preview": "vite preview"`) and would otherwise read as a second frontend,
+ * which makes even the default scaffold ambiguous against its own dev script.
+ */
+const DEV_SCRIPT_RE = /^(?:dev|start)(?:[:-]|$)|[:-](?:dev|start)$/i;
+const SIBLING_SCRIPT_RE =
+  /^(?:dev|start):(?:api|server|backend|worker|workers|job|jobs|queue|livekit|realtime|socket|db|database)(?::|$)|^(?:api|server|backend|worker|workers|job|jobs|queue|livekit|realtime|socket|db|database):(?:dev|start)$/i;
+const WORKER_SCRIPT_RE = /(?:^|:)(?:worker|workers|job|jobs|queue)(?:$|:)/i;
+const AGGREGATE_COMMAND_RE =
+  /(?:^|[\s"'])(?:concurrently|npm-run-all|run-p|turbo\s+dev|nx\s+(?:run-many|affected)|bun\s+run\s+--parallel)(?=$|[\s"'])|(?:^|[\s"'])(?:node|bun)\s+(?:\.\/)?scripts\/(?:dev|start)\.[cm]?[jt]s(?=$|[\s"'])/i;
+const BACKEND_COMMAND_RE =
+  /(?:^|[\s"'])(?:(?:node|bun|tsx?|nodemon)\b[^\n]*\b(?:api|backend|server)[./_\w-]*|(?:convex|wrangler)\s+dev)(?=$|[\s"'])/i;
+
+const escapeRegExp = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const referencesScript = (command: string, scriptName: string) =>
+  new RegExp(
+    `(?:bun|npm|pnpm|yarn)\\s+(?:run\\s+)?${escapeRegExp(scriptName)}(?=$|[\\s"'])`,
+    "i",
+  ).test(command);
+
+const automaticScriptProcess = (
+  scriptName: string,
+  id: string,
+  kind: "frontend" | "server" | "worker",
+  scriptCommand: string,
+  aggregate = false,
+): ProjectProcess => ({
+  id,
+  command: "bun",
+  // A bare Vite dev server picks its own port and host, so the allocated port
+  // is forced through. An aggregate script forwards nothing, and a non-Vite
+  // frontend has its own flags, so both are left to read PORT instead.
+  args:
+    kind === "frontend" &&
+    !aggregate &&
+    /(?:^|\s)vite(?:\s|$)/i.test(scriptCommand)
+      ? [
+          "run",
+          scriptName,
+          "--",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "${PORT}",
+          "--strictPort",
+        ]
+      : ["run", scriptName],
+  port: kind === "worker" ? null : "auto",
+  ports: [],
+  readiness:
+    kind === "worker"
+      ? { type: "process", delayMs: PROCESS_READINESS_DELAY_MS }
+      : { type: "tcp", timeoutMs: READINESS_TIMEOUT_MS },
+});
+
+const processIdForScript = (scriptName: string): string => {
+  const normalized = scriptName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return (
+    normalized.match(/^[a-z]/) ? normalized : `process-${normalized}`
+  ).slice(0, 32);
+};
+
+/**
+ * Derive the supervised process set from ordinary package scripts, so an app
+ * only needs a Stella-specific `runtime` declaration for a topology that
+ * cannot be read off its own conventions.
+ */
+export const detectUserAppRuntime = (
+  scripts: Record<string, string>,
+  dependencyNames: ReadonlySet<string> = new Set(),
+): ProjectRuntime => {
+  const entries = Object.entries(scripts).filter(
+    ([name, command]) =>
+      name.length > 0 && typeof command === "string" && command.trim(),
+  );
+  if (entries.length === 0) {
+    if (dependencyNames.size > 0 && !dependencyNames.has("vite")) {
+      throw new Error(
+        "No standard frontend dev script was found. Add an ordinary package.json dev script.",
+      );
+    }
+    return {
+      frontend: "frontend",
+      processes: [
+        {
+          id: "frontend",
+          command: "bun",
+          args: [
+            "x",
+            "vite",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "${PORT}",
+            "--strictPort",
+          ],
+          port: "auto",
+          ports: [],
+          readiness: { type: "tcp", timeoutMs: READINESS_TIMEOUT_MS },
+        },
+      ],
+    };
+  }
+
+  const devCommand = scripts.dev?.trim();
+  const siblingNames = entries
+    .map(([name]) => name)
+    .filter((name) => name !== "dev" && SIBLING_SCRIPT_RE.test(name));
+  const namedFrontendCandidates = entries
+    .filter(
+      ([name, command]) =>
+        name !== "dev" &&
+        DEV_SCRIPT_RE.test(name) &&
+        (FRONTEND_SCRIPT_RE.test(name) || FRONTEND_COMMAND_RE.test(command)),
+    )
+    .map(([name]) => name);
+  const referencedNames = devCommand
+    ? entries
+        .map(([name]) => name)
+        .filter((name) => name !== "dev" && referencesScript(devCommand, name))
+    : [];
+  // A dev script that merely fans out to scripts we can identify is worth
+  // splitting: supervising the children individually gives per-process
+  // readiness and a real process tree to stop. An aggregate we cannot see
+  // through stays a single opaque child instead, or its children would run
+  // twice.
+  const splitAggregate =
+    namedFrontendCandidates.length === 1 &&
+    siblingNames.length > 0 &&
+    referencedNames.includes(namedFrontendCandidates[0]!) &&
+    siblingNames.every((name) => referencedNames.includes(name));
+  const aggregate =
+    !!devCommand &&
+    !splitAggregate &&
+    (AGGREGATE_COMMAND_RE.test(devCommand) ||
+      siblingNames.some((name) => referencesScript(devCommand, name)));
+  if (aggregate) {
+    return {
+      frontend: "frontend",
+      processes: [
+        automaticScriptProcess("dev", "frontend", "frontend", devCommand, true),
+      ],
+    };
+  }
+
+  let frontendScript: string;
+  let devIsBackend = false;
+  if (devCommand && FRONTEND_COMMAND_RE.test(devCommand)) {
+    if (namedFrontendCandidates.length > 0) {
+      throw new Error(
+        `Frontend discovery is ambiguous between dev and ${namedFrontendCandidates.join(", ")}. Make dev own the full process set or use the optional manifest runtime override.`,
+      );
+    }
+    frontendScript = "dev";
+  } else if (devCommand && splitAggregate) {
+    frontendScript = namedFrontendCandidates[0]!;
+  } else if (devCommand) {
+    if (
+      namedFrontendCandidates.length === 1 &&
+      BACKEND_COMMAND_RE.test(devCommand)
+    ) {
+      devIsBackend = true;
+      frontendScript = namedFrontendCandidates[0]!;
+    } else if (namedFrontendCandidates.length > 0) {
+      throw new Error(
+        `The dev script does not clearly own frontend script ${namedFrontendCandidates.join(", ")}. Make dev the ordinary aggregate command or use the optional manifest runtime override.`,
+      );
+    } else {
+      frontendScript = "dev";
+    }
+  } else if (namedFrontendCandidates.length === 1) {
+    frontendScript = namedFrontendCandidates[0]!;
+  } else if (namedFrontendCandidates.length === 0) {
+    throw new Error(
+      "No usable frontend dev script was found. Add a standard dev, dev:web, or dev:frontend package script.",
+    );
+  } else {
+    throw new Error(
+      `Frontend discovery is ambiguous between ${namedFrontendCandidates.join(", ")}. Add one ordinary aggregate dev script or use the optional manifest runtime override.`,
+    );
+  }
+
+  const auxiliaryNames = [
+    ...(devIsBackend ? ["dev"] : []),
+    ...siblingNames.filter((name) => name !== frontendScript),
+  ];
+  const ids = new Set<string>(["frontend"]);
+  // Auxiliaries come first so the frontend starts against listening backends.
+  const processes = auxiliaryNames.map((scriptName) => {
+    const id = processIdForScript(scriptName);
+    if (ids.has(id)) {
+      throw new Error(
+        `Process discovery produced duplicate id ${id}. Rename the package scripts or use the optional manifest runtime override.`,
+      );
+    }
+    ids.add(id);
+    return automaticScriptProcess(
+      scriptName,
+      id,
+      WORKER_SCRIPT_RE.test(scriptName) ? "worker" : "server",
+      scripts[scriptName]!,
+    );
+  });
+  processes.push(
+    automaticScriptProcess(
+      frontendScript,
+      "frontend",
+      "frontend",
+      scripts[frontendScript]!,
+    ),
+  );
+  if (processes.length > MAX_SUPERVISED_PROCESSES) {
+    throw new Error(
+      `Process discovery found ${processes.length} dev scripts, above the ${MAX_SUPERVISED_PROCESSES} process limit. Use the optional manifest runtime override.`,
+    );
+  }
+  return { frontend: "frontend", processes };
 };
 
 const killProcessTree = async (child: ChildProcess): Promise<void> => {
   const pid = child.pid;
-  if (!pid || child.exitCode !== null || child.signalCode !== null) return;
+  if (!pid) return;
   if (process.platform === "win32") {
     await new Promise<void>((resolve) => {
       const killer = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], {
@@ -136,39 +604,37 @@ const killProcessTree = async (child: ChildProcess): Promise<void> => {
     });
     return;
   }
-  await new Promise<void>((resolve) => {
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      child.removeListener("exit", finish);
-      resolve();
-    };
-
-    child.once("exit", finish);
-    timer = setTimeout(() => {
-      try {
-        process.kill(-pid, "SIGKILL");
-      } catch {
-        // Already exited.
-      }
-      finish();
-    }, STOP_GRACE_MS);
-    timer.unref?.();
-
+  // Signalling the group rather than the child is what reaches grandchildren
+  // (a dev script's own spawned tools), and the group outliving the direct
+  // child is why liveness is polled instead of awaiting its exit event.
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    if (child.exitCode !== null || child.signalCode !== null) return;
     try {
-      process.kill(-pid, "SIGTERM");
+      child.kill("SIGTERM");
     } catch {
-      try {
-        child.kill("SIGTERM");
-      } catch {
-        finish();
-        return;
-      }
+      return;
     }
-  });
+  }
+  const groupExists = () => {
+    try {
+      process.kill(-pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const deadline = Date.now() + STOP_GRACE_MS;
+  while (groupExists() && Date.now() < deadline) {
+    await sleep(25);
+  }
+  if (!groupExists()) return;
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // The process group exited after the final check.
+  }
 };
 
 export class UserAppProjectService {
@@ -188,16 +654,17 @@ export class UserAppProjectService {
   }
 
   /**
-   * User apps are hosted by child Vite processes owned by this worker. Keep the
-   * worker alive while one is starting, running, stopping, or awaiting a
-   * scheduled restart; otherwise detached-worker idle shutdown tears down a
-   * healthy app moments after the start RPC returns.
+   * User apps are hosted by child processes owned by this worker. Keep the
+   * worker alive while one is starting, running, stopping, recovering, or
+   * awaiting a scheduled restart; otherwise detached-worker idle shutdown
+   * tears down a healthy app moments after the start RPC returns.
    */
   hasActiveWork(): boolean {
     for (const entry of this.entries.values()) {
       if (
         entry.startPromise ||
         entry.stopPromise ||
+        entry.recoveryPromise ||
         entry.restartTimer ||
         entry.status === "installing" ||
         entry.status === "starting" ||
@@ -284,18 +751,25 @@ export class UserAppProjectService {
       await existing.stopPromise;
       return await this.startProject(slug);
     }
+    if (existing?.recoveryPromise) {
+      await existing.recoveryPromise;
+      return await this.startProject(slug);
+    }
     if (existing?.startPromise) return await existing.startPromise;
 
     const entry: RuntimeEntry = existing ?? {
       project,
-      child: null,
+      children: new Map(),
+      installChild: null,
       status: "stopped",
       url: null,
       error: null,
       desiredRunning: true,
       startPromise: null,
       stopPromise: null,
+      recoveryPromise: null,
       restartTimer: null,
+      generation: 0,
     };
     entry.project = project;
     entry.desiredRunning = true;
@@ -421,18 +895,37 @@ export class UserAppProjectService {
     const packageRaw = await readRegularFile(
       path.join(projectReal, PACKAGE_FILE),
     );
+    let packageJson: Record<string, unknown>;
     try {
-      const packageJson = JSON.parse(packageRaw);
-      if (!packageJson || typeof packageJson !== "object") {
+      const parsed: unknown = JSON.parse(packageRaw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         throw new Error();
       }
+      packageJson = parsed as Record<string, unknown>;
     } catch {
       throw new Error(`${PACKAGE_FILE} must contain a JSON object.`);
+    }
+    const scripts = Object.fromEntries(
+      Object.entries(
+        packageJson.scripts && typeof packageJson.scripts === "object"
+          ? packageJson.scripts
+          : {},
+      ).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    );
+    const dependencyNames = new Set<string>();
+    for (const field of ["dependencies", "devDependencies"] as const) {
+      const dependencies = packageJson[field];
+      if (!dependencies || typeof dependencies !== "object") continue;
+      for (const name of Object.keys(dependencies)) dependencyNames.add(name);
     }
     return {
       slug,
       projectPath: projectReal,
       meta: { label: manifest.name, createdAt: manifest.createdAt },
+      runtime: manifest.runtime,
+      package: { scripts, dependencyNames },
     };
   }
 
@@ -440,10 +933,11 @@ export class UserAppProjectService {
     entry: RuntimeEntry,
   ): Promise<UserAppProjectStartResult> {
     const slug = entry.project.slug;
+    const generation = ++entry.generation;
     try {
       entry.status = "installing";
       this.options.onChanged?.();
-      if (!(await this.dependenciesReady(entry.project.projectPath))) {
+      if (!(await this.dependenciesReady(entry.project))) {
         const installed = await this.installDependencies(entry);
         if (!installed)
           throw new Error(entry.error || "Dependency installation failed.");
@@ -453,49 +947,129 @@ export class UserAppProjectService {
       }
       entry.status = "starting";
       this.options.onChanged?.();
-      const port = await this.portForSlug(slug);
+      const runtime = this.runtimeForProject(entry.project);
+      const processes = runtime.processes;
+      // Every port is claimed before anything spawns, so each process can be
+      // told where its siblings will be even though they start in sequence.
+      const ports = new Map<string, number>();
+      const namedPorts = new Map<string, number>();
+      for (const process of processes) {
+        if (process.port === "auto") {
+          ports.set(
+            process.id,
+            await this.portForProcess(
+              slug,
+              process.id,
+              process.id === runtime.frontend,
+            ),
+          );
+        }
+        for (const namedPort of process.ports) {
+          namedPorts.set(
+            `${process.id}:${namedPort.id}`,
+            await this.portForProcess(
+              slug,
+              process.id,
+              false,
+              namedPort.id,
+              namedPort.protocol,
+            ),
+          );
+        }
+      }
       if (
         !entry.desiredRunning ||
         this.shuttingDown ||
-        this.entries.get(slug) !== entry
+        this.entries.get(slug) !== entry ||
+        entry.generation !== generation
       ) {
         return { slug, url: null, status: "stopped" };
       }
-      const child = spawn(
-        this.options.executablePath ?? process.execPath,
-        [
-          "x",
-          "vite",
-          "--host",
-          "127.0.0.1",
-          "--port",
-          String(port),
-          "--strictPort",
-        ],
-        {
+
+      const sharedEnv = this.processEnvironment(slug, ports, namedPorts);
+      for (const processDefinition of processes) {
+        if (
+          !entry.desiredRunning ||
+          this.shuttingDown ||
+          this.entries.get(slug) !== entry ||
+          entry.generation !== generation
+        ) {
+          await this.stopProcesses(entry);
+          return { slug, url: null, status: "stopped" };
+        }
+        const ownPort = ports.get(processDefinition.id) ?? null;
+        const childEnv: NodeJS.ProcessEnv = {
+          ...process.env,
+          ...sharedEnv,
+          BROWSER: "none",
+          FORCE_COLOR: "0",
+          STELLA_APP_PROCESS_ID: processDefinition.id,
+          ...(ownPort
+            ? { PORT: String(ownPort), STELLA_APP_PORT: String(ownPort) }
+            : {}),
+        };
+        for (const namedPort of processDefinition.ports) {
+          childEnv[`STELLA_APP_PORT_${this.environmentSuffix(namedPort.id)}`] =
+            String(namedPorts.get(`${processDefinition.id}:${namedPort.id}`));
+        }
+        // `bun` is the only command Stella resolves itself; a manifest command
+        // runs as written so an app can name its own tool.
+        const executable =
+          processDefinition.command === "bun"
+            ? (this.options.executablePath ?? process.execPath)
+            : processDefinition.command;
+        const args = processDefinition.args.map((argument) =>
+          this.expandProcessArgument(argument, childEnv),
+        );
+        const child = spawn(executable, args, {
           cwd: entry.project.projectPath,
-          env: { ...process.env, BROWSER: "none", FORCE_COLOR: "0" },
+          env: childEnv,
           stdio: ["ignore", "pipe", "pipe"],
           windowsHide: true,
           detached: process.platform !== "win32",
-        },
-      );
-      entry.child = child;
-      const url = await this.waitForUrl(entry, child, port);
-      if (!url)
-        throw new Error(entry.error || "Vite did not report a loopback URL.");
+        });
+        // Piped output with no reader fills its buffer and stalls the child.
+        child.stdout?.resume();
+        child.stderr?.resume();
+        entry.children.set(processDefinition.id, child);
+        this.observeProcess(entry, processDefinition.id, child, generation);
+        await this.waitForProcessReady(processDefinition, child, ownPort);
+      }
+
+      if (
+        processes.some((processDefinition) => {
+          const child = entry.children.get(processDefinition.id);
+          return !child || child.exitCode !== null || child.signalCode !== null;
+        })
+      ) {
+        throw new Error("An app process exited during startup.");
+      }
+      const frontendPort = ports.get(runtime.frontend);
+      if (!frontendPort)
+        throw new Error("The frontend process did not receive a port.");
+      const url = `http://127.0.0.1:${frontendPort}/`;
       entry.status = "running";
       entry.url = url;
       entry.error = null;
       this.options.onChanged?.();
       return { slug, url, status: "running" };
     } catch (error) {
-      entry.status = entry.desiredRunning ? "error" : "stopped";
+      // A partially started set is rolled back whole: a lone surviving backend
+      // would hold its port and mislead the next launch.
       entry.url = null;
-      entry.error = error instanceof Error ? error.message : String(error);
-      if (entry.child)
-        await killProcessTree(entry.child).catch(() => undefined);
-      entry.child = null;
+      await this.stopProcesses(entry);
+      if (
+        !entry.desiredRunning ||
+        this.shuttingDown ||
+        this.entries.get(slug) !== entry ||
+        entry.generation !== generation
+      ) {
+        entry.status = "stopped";
+        entry.error = null;
+      } else {
+        entry.status = "error";
+        entry.error = error instanceof Error ? error.message : String(error);
+      }
       this.options.onChanged?.();
       return {
         slug,
@@ -506,12 +1080,78 @@ export class UserAppProjectService {
     }
   }
 
-  private async dependenciesReady(projectPath: string): Promise<boolean> {
+  private runtimeForProject(project: DiscoveredProject): ProjectRuntime {
+    return (
+      project.runtime ??
+      detectUserAppRuntime(
+        project.package.scripts,
+        project.package.dependencyNames,
+      )
+    );
+  }
+
+  /**
+   * Sibling addresses every process receives, so app code can reach a backend
+   * by name (`STELLA_APP_PORT_API`) without knowing the allocation order.
+   */
+  private processEnvironment(
+    slug: string,
+    ports: Map<string, number>,
+    namedPorts: Map<string, number>,
+  ): NodeJS.ProcessEnv {
+    const environment: NodeJS.ProcessEnv = { STELLA_APP_SLUG: slug };
+    for (const [processId, port] of ports) {
+      const suffix = this.environmentSuffix(processId);
+      environment[`STELLA_APP_PORT_${suffix}`] = String(port);
+      environment[`STELLA_APP_URL_${suffix}`] = `http://127.0.0.1:${port}`;
+    }
+    for (const [key, port] of namedPorts) {
+      const [processId, portId] = key.split(":");
+      const suffix = `${this.environmentSuffix(processId!)}_${this.environmentSuffix(portId!)}`;
+      environment[`STELLA_APP_PORT_${suffix}`] = String(port);
+    }
+    return environment;
+  }
+
+  private environmentSuffix(value: string): string {
+    return value.toUpperCase().replaceAll("-", "_");
+  }
+
+  /**
+   * Process arguments are passed to `spawn` without a shell, so `${PORT}` is
+   * expanded here rather than being left for a shell that never runs.
+   */
+  private expandProcessArgument(
+    argument: string,
+    environment: NodeJS.ProcessEnv,
+  ): string {
+    return argument.replace(
+      /\$\{([A-Z][A-Z0-9_]*)\}/g,
+      (_match, name: string) => {
+        const value = environment[name];
+        if (value === undefined) {
+          throw new Error(
+            `Process argument references unknown environment variable ${name}.`,
+          );
+        }
+        return value;
+      },
+    );
+  }
+
+  private async dependenciesReady(
+    project: DiscoveredProject,
+  ): Promise<boolean> {
     try {
-      const viteStat = await fs.stat(
-        path.join(projectPath, "node_modules", "vite"),
+      // A scripted project can depend on anything, so only the install root
+      // is checked; a script-less project is always the scaffold's bare Vite
+      // app, where Vite itself is the sentinel that survives a partial install.
+      const dependencyStat = await fs.stat(
+        project.runtime || Object.keys(project.package.scripts).length > 0
+          ? path.join(project.projectPath, "node_modules")
+          : path.join(project.projectPath, "node_modules", "vite"),
       );
-      return viteStat.isDirectory();
+      return dependencyStat.isDirectory();
     } catch {
       return false;
     }
@@ -529,7 +1169,7 @@ export class UserAppProjectService {
         detached: process.platform !== "win32",
       },
     );
-    entry.child = child;
+    entry.installChild = child;
     let output = "";
     const append = (chunk: Buffer | string) => {
       output += chunk.toString();
@@ -553,120 +1193,146 @@ export class UserAppProjectService {
         resolve(null);
       });
     });
-    if (entry.child === child) entry.child = null;
+    if (entry.installChild === child) entry.installChild = null;
     if (code === 0) return true;
     entry.error ||= output.trim() || "Dependency installation failed.";
     return false;
   }
 
-  private async waitForUrl(
-    entry: RuntimeEntry,
+  /**
+   * Dev-server console output is not a runtime contract and has changed across
+   * tool versions, so readiness is taken from the bound loopback port instead
+   * of parsed from stdout.
+   */
+  private async waitForProcessReady(
+    processDefinition: ProjectProcess,
     child: ChildProcess,
-    expectedPort: number,
-  ): Promise<string | null> {
-    let buffer = "";
-    return await new Promise<string | null>((resolve) => {
+    port: number | null,
+  ): Promise<void> {
+    const readiness = processDefinition.readiness;
+    // A failed spawn reports through the error event, not a throw, so yield
+    // once before reading the pid.
+    await sleep(0);
+    if (!child.pid) {
+      throw new Error(`Process ${processDefinition.id} could not be launched.`);
+    }
+    if (readiness.type === "process") {
+      await sleep(readiness.delayMs);
+      if (child.exitCode !== null || child.signalCode !== null) {
+        throw new Error(
+          `Process ${processDefinition.id} exited before it was ready.`,
+        );
+      }
+      return;
+    }
+    if (!port)
+      throw new Error(`Process ${processDefinition.id} has no readiness port.`);
+    const deadline = Date.now() + readiness.timeoutMs;
+    let consecutiveReadyProbes = 0;
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        throw new Error(
+          `Process ${processDefinition.id} exited before it was ready.`,
+        );
+      }
+      const ready =
+        readiness.type === "http"
+          ? await this.probeHttp(port, readiness.path)
+          : await this.probeTcp(port);
+      consecutiveReadyProbes = ready ? consecutiveReadyProbes + 1 : 0;
+      // Two successful probes keep a pre-existing listener from being mistaken
+      // for this child during the brief strict-port failure window.
+      if (consecutiveReadyProbes >= 2) return;
+      await sleep(ready ? 100 : 50);
+    }
+    throw new Error(`Process ${processDefinition.id} readiness timed out.`);
+  }
+
+  private async probeTcp(port: number): Promise<boolean> {
+    return await new Promise<boolean>((resolve) => {
+      const socket = net.createConnection({ host: "127.0.0.1", port });
       let settled = false;
-      let probeTimer: ReturnType<typeof setTimeout> | null = null;
-      let probeSocket: net.Socket | null = null;
-      let consecutiveReadyProbes = 0;
-      const finish = (value: string | null) => {
+      const finish = (ready: boolean) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timeout);
-        if (probeTimer) clearTimeout(probeTimer);
-        probeTimer = null;
-        probeSocket?.destroy();
-        probeSocket = null;
-        resolve(value);
+        socket.destroy();
+        resolve(ready);
       };
-      const probeLoopback = () => {
-        if (settled || probeSocket) return;
-        const socket = net.createConnection({
-          host: "127.0.0.1",
-          port: expectedPort,
-        });
-        probeSocket = socket;
-        let probeSettled = false;
-        const finishProbe = (ready: boolean) => {
-          if (probeSettled) return;
-          probeSettled = true;
-          socket.destroy();
-          if (probeSocket === socket) probeSocket = null;
-          if (settled) return;
-          if (ready) {
-            consecutiveReadyProbes += 1;
-            // Two successful probes keep a pre-existing listener from being
-            // mistaken for this child during the brief strict-port failure
-            // window.
-            if (
-              consecutiveReadyProbes >= 2 &&
-              child.exitCode === null &&
-              child.signalCode === null
-            ) {
-              finish(`http://127.0.0.1:${expectedPort}/`);
-              return;
-            }
-          } else {
-            consecutiveReadyProbes = 0;
-          }
-          probeTimer = setTimeout(probeLoopback, ready ? 100 : 50);
-          probeTimer.unref?.();
-        };
-        socket.setTimeout(250);
-        socket.once("connect", () => finishProbe(true));
-        socket.once("error", () => finishProbe(false));
-        socket.once("timeout", () => finishProbe(false));
-      };
-      const timeout = setTimeout(() => {
-        entry.error = "Vite startup timed out.";
-        void killProcessTree(child).finally(() => finish(null));
-      }, URL_TIMEOUT_MS);
-      timeout.unref?.();
-      // Vite's console format is not a runtime contract and has changed across
-      // versions. Keep parsing it as a fast path, but treat the actual bound
-      // loopback port as the source of truth for readiness.
-      probeLoopback();
-      const onData = (chunk: Buffer | string) => {
-        buffer = `${buffer}${chunk.toString()}`.slice(-8_000);
-        const match = buffer.match(URL_RE);
-        if (!match) return;
-        const port = Number(match[1]);
-        if (!Number.isInteger(port) || port < 1 || port > 65_535) return;
-        if (port !== expectedPort) {
-          entry.error = "Vite reported an unexpected port.";
-          void killProcessTree(child).finally(() => finish(null));
-          return;
-        }
-        finish(`http://127.0.0.1:${port}/`);
-      };
-      child.stdout?.on("data", onData);
-      child.stderr?.on("data", onData);
-      child.once("error", (error) => {
-        entry.error = error.message;
-        finish(null);
-      });
-      child.once("exit", (code) => {
-        const wasRunning = entry.status === "running";
-        if (!settled) {
-          entry.error ||= `Vite exited before startup${code == null ? "" : ` (code ${code})`}.`;
-          finish(null);
-        }
-        if (entry.child === child) entry.child = null;
-        entry.url = null;
-        if (
-          !entry.desiredRunning ||
-          entry.status === "stopping" ||
-          this.shuttingDown
-        ) {
-          entry.status = "stopped";
-        } else {
-          entry.status = "error";
-          if (wasRunning) this.scheduleRestart(entry);
-        }
-        this.options.onChanged?.();
-      });
+      socket.setTimeout(250);
+      socket.once("connect", () => finish(true));
+      socket.once("error", () => finish(false));
+      socket.once("timeout", () => finish(false));
     });
+  }
+
+  private async probeHttp(
+    port: number,
+    readinessPath: string,
+  ): Promise<boolean> {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}${readinessPath}`, {
+        signal: AbortSignal.timeout(500),
+      });
+      return response.status >= 200 && response.status < 400;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * A process set is supervised as a unit: one member exiting takes the whole
+   * set down and schedules a restart, because a surviving sibling holds ports
+   * and serves stale state the frontend can no longer reach.
+   */
+  private observeProcess(
+    entry: RuntimeEntry,
+    processId: string,
+    child: ChildProcess,
+    generation: number,
+  ) {
+    const onFailure = (detail: string) => {
+      if (entry.generation !== generation) return;
+      // During startup `launch` already rolls the set back; recording the
+      // detail lets it report which process failed.
+      if (entry.status === "starting") {
+        entry.error ||= detail;
+        return;
+      }
+      if (
+        entry.status !== "running" ||
+        !entry.desiredRunning ||
+        this.shuttingDown
+      ) {
+        return;
+      }
+      entry.generation += 1;
+      entry.status = "error";
+      entry.url = null;
+      entry.error = detail;
+      this.options.onChanged?.();
+      const recovery = this.stopProcesses(entry);
+      entry.recoveryPromise = recovery;
+      void recovery.finally(() => {
+        if (entry.recoveryPromise === recovery) entry.recoveryPromise = null;
+        this.scheduleRestart(entry);
+      });
+    };
+    child.once("error", (error) =>
+      onFailure(`Process ${processId} failed: ${error.message}`),
+    );
+    child.once("exit", (code, signal) =>
+      onFailure(
+        `Process ${processId} exited${code == null ? "" : ` with code ${code}`}${signal ? ` (${signal})` : ""}.`,
+      ),
+    );
+  }
+
+  private async stopProcesses(entry: RuntimeEntry): Promise<void> {
+    const children = [...entry.children.values()];
+    entry.children.clear();
+    await Promise.all(
+      children.map((child) => killProcessTree(child).catch(() => undefined)),
+    );
   }
 
   private scheduleRestart(entry: RuntimeEntry) {
@@ -703,9 +1369,9 @@ export class UserAppProjectService {
         return;
       }
       const claimed = new Set<number>();
-      for (const [slug, value] of Object.entries(parsed.ports)) {
+      for (const [key, value] of Object.entries(parsed.ports)) {
         if (
-          !SLUG_RE.test(slug) ||
+          !PORT_MAP_KEY_RE.test(key) ||
           !Number.isInteger(value) ||
           (value as number) < PORT_RANGE_START ||
           (value as number) >= PORT_RANGE_START + PORT_RANGE_SIZE ||
@@ -714,7 +1380,7 @@ export class UserAppProjectService {
           continue;
         }
         claimed.add(value as number);
-        this.portMap.set(slug, value as number);
+        this.portMap.set(key, value as number);
       }
     } catch {
       // Missing or malformed mappings are rebuilt on first start.
@@ -730,7 +1396,25 @@ export class UserAppProjectService {
     return hash >>> 0;
   }
 
-  private async isPortAvailable(port: number): Promise<boolean> {
+  private async isPortAvailable(
+    port: number,
+    protocol: "tcp" | "udp" = "tcp",
+  ): Promise<boolean> {
+    if (protocol === "udp") {
+      return await new Promise<boolean>((resolve) => {
+        const socket = createSocket("udp4");
+        socket.unref();
+        socket.once("error", () => {
+          try {
+            socket.close();
+          } catch {
+            // The socket is already closed after a bind error.
+          }
+          resolve(false);
+        });
+        socket.bind(port, "127.0.0.1", () => socket.close(() => resolve(true)));
+      });
+    }
     return await new Promise<boolean>((resolve) => {
       const server = net.createServer();
       server.unref();
@@ -741,10 +1425,23 @@ export class UserAppProjectService {
     });
   }
 
-  private async portForSlug(slug: string): Promise<number> {
+  /**
+   * The frontend keeps the bare slug as its port-map key so port maps written
+   * before multi-process support stay valid; siblings are qualified below it.
+   * A pinned port that something else now holds is re-drawn rather than
+   * handed out, since strict-port processes would just fail to bind.
+   */
+  private async portForProcess(
+    slug: string,
+    processId: string,
+    frontend: boolean,
+    portId?: string,
+    protocol: "tcp" | "udp" = "tcp",
+  ): Promise<number> {
+    const key = frontend
+      ? slug
+      : `${slug}:${processId}${portId ? `-${portId}` : ""}`;
     await this.loadPortMap();
-    const existing = this.portMap.get(slug);
-    if (existing) return existing;
     let resolveQueue = () => {};
     const previous = this.portAllocationQueue;
     this.portAllocationQueue = new Promise<void>((resolve) => {
@@ -752,19 +1449,26 @@ export class UserAppProjectService {
     });
     await previous;
     try {
-      const racedExisting = this.portMap.get(slug);
-      if (racedExisting) return racedExisting;
+      const racedExisting = this.portMap.get(key);
+      if (
+        racedExisting &&
+        (await this.isPortAvailable(racedExisting, protocol))
+      ) {
+        return racedExisting;
+      }
+      if (racedExisting) this.portMap.delete(key);
       const claimed = new Set(this.portMap.values());
-      const startOffset = this.hashSlug(slug) % PORT_RANGE_SIZE;
+      const startOffset = this.hashSlug(key) % PORT_RANGE_SIZE;
       for (let offset = 0; offset < PORT_RANGE_SIZE; offset += 1) {
         const port =
           PORT_RANGE_START + ((startOffset + offset) % PORT_RANGE_SIZE);
-        if (claimed.has(port) || !(await this.isPortAvailable(port))) continue;
-        this.portMap.set(slug, port);
+        if (claimed.has(port) || !(await this.isPortAvailable(port, protocol)))
+          continue;
+        this.portMap.set(key, port);
         try {
           await this.persistPortMap();
         } catch (error) {
-          this.portMap.delete(slug);
+          this.portMap.delete(key);
           throw error;
         }
         return port;
@@ -798,15 +1502,20 @@ export class UserAppProjectService {
     const entry = this.entries.get(slug);
     if (!entry) return;
     entry.desiredRunning = false;
+    entry.generation += 1;
     if (entry.restartTimer) clearTimeout(entry.restartTimer);
     entry.restartTimer = null;
     if (entry.stopPromise) return await entry.stopPromise;
     entry.status = "stopping";
     this.options.onChanged?.();
     const promise = (async () => {
-      if (entry.child)
-        await killProcessTree(entry.child).catch(() => undefined);
-      entry.child = null;
+      if (entry.installChild)
+        await killProcessTree(entry.installChild).catch(() => undefined);
+      entry.installChild = null;
+      // An in-flight crash recovery is already killing this set; waiting for
+      // it keeps the two teardowns from racing over the same children.
+      if (entry.recoveryPromise) await entry.recoveryPromise;
+      await this.stopProcesses(entry);
       entry.url = null;
       entry.status = "stopped";
       entry.error = null;

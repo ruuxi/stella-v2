@@ -3,9 +3,7 @@ import type { ChatThreadId } from "./offline-chat-storage";
 
 const LOCAL_CHAT_THREAD_IDS: ReadonlySet<string> = new Set<ChatThreadId>([
   "cloud",
-  "computer",
   "carplay",
-  "carplay-computer",
 ]);
 
 /**

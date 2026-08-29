@@ -40,7 +40,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import MaskedView from "@react-native-masked-view/masked-view";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
-import { appendOfflineChatAttachments } from "../lib/offline-chat-request";
+import { appendChatAttachments } from "../lib/image-attachments";
 import Reanimated, {
   useAnimatedKeyboard,
   useAnimatedStyle,
@@ -3432,7 +3432,7 @@ export function ChatPane({
     if (!result.canceled && result.assets.length > 0) {
       tapLight();
       const current = attachments ?? [];
-      const next = appendOfflineChatAttachments(
+      const next = appendChatAttachments(
         current,
         result.assets,
         maxAttachments ?? Number.MAX_SAFE_INTEGER,
@@ -3466,7 +3466,7 @@ export function ChatPane({
     if (!result.canceled && result.assets.length > 0) {
       tapLight();
       const current = attachments ?? [];
-      const next = appendOfflineChatAttachments(
+      const next = appendChatAttachments(
         current,
         result.assets,
         maxAttachments ?? Number.MAX_SAFE_INTEGER,

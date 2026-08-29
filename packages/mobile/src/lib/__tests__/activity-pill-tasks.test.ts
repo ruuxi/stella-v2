@@ -116,7 +116,7 @@ describe("activity pill task derivation under push-connected sync", () => {
       parentAgentId: "orchestrator",
       createdAt: Date.now(),
     });
-    await saveChatMessages("computer", [
+    await saveChatMessages("carplay", [
       {
         id: "a1",
         role: "assistant",
@@ -125,7 +125,7 @@ describe("activity pill task derivation under push-connected sync", () => {
         tasks: [fresh],
       },
     ]);
-    const loaded = await loadChatMessages("computer");
+    const loaded = await loadChatMessages("carplay");
     expect(loaded).toHaveLength(1);
     expect(loaded[0]?.tasks).toHaveLength(1);
     expect(loaded[0]?.tasks?.[0]?.status).toBe("running");
@@ -136,7 +136,7 @@ describe("activity pill task derivation under push-connected sync", () => {
 
   test("a stale persisted running task loads as settled (no forever-shimmer)", async () => {
     const stale = task({ createdAt: Date.now() - 10 * 60_000 });
-    await saveChatMessages("computer", [
+    await saveChatMessages("carplay", [
       {
         id: "a1",
         role: "assistant",
@@ -145,7 +145,7 @@ describe("activity pill task derivation under push-connected sync", () => {
         tasks: [stale],
       },
     ]);
-    const loaded = await loadChatMessages("computer");
+    const loaded = await loadChatMessages("carplay");
     expect(loaded[0]?.tasks?.[0]?.status).toBe("completed");
     expect(runningCount(loaded)).toBe(0);
   });
@@ -154,7 +154,7 @@ describe("activity pill task derivation under push-connected sync", () => {
     // Simulate a store written by a different (older/newer) code version:
     // valid rows interleaved with shapes parseRow was never taught about.
     memoryStore.set(
-      "stella-mobile-computer-chat-v1",
+      "stella-mobile-carplay-chat-v1",
       JSON.stringify([
         null,
         42,
@@ -170,7 +170,7 @@ describe("activity pill task derivation under push-connected sync", () => {
         },
       ]),
     );
-    const loaded = await loadChatMessages("computer");
+    const loaded = await loadChatMessages("carplay");
     expect(loaded.map((m) => m.id)).toEqual(["bad-tasks", "good"]);
     expect(loaded[1]?.tasks).toHaveLength(1);
   });

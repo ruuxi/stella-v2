@@ -6,10 +6,6 @@ import {
   waitForDesktopChatOutboxWrites,
 } from "./desktop-chat-outbox";
 import {
-  CHAT_CHECKPOINT_STORAGE_KEY,
-  CHAT_MEMORY_STORAGE_KEY,
-} from "./chat-storage-keys";
-import {
   finalizeAccountChatCleanup,
   loadAccountChatCleanupIntent,
   loadAccountChatCleanupProgress,
@@ -36,41 +32,22 @@ import {
 } from "./async-transcript-fallback";
 
 /**
- * The independent chat transcripts. The cloud thread keeps the original key
- * (it was the cloud-only store before chat unification) so existing local
- * history stays put; the computer thread gets its own key and re-hydrates from
- * the desktop bridge on mount. The carplay thread is the hands-free voice loop
- * driven from CarPlay — it rides the same cloud send pipeline but keeps its own
- * short transcript so the always-mounted CarPlay bridge never races the Chat
- * tab's "cloud" store. The carplay-computer thread is that same voice loop
- * when it targets the paired desktop: it converses with the SAME canonical
- * desktop conversation as the computer thread, but keeps its own local store
- * and sync cursor so the two mounted surfaces never race each other's
- * persistence.
+ * The local stores behind the one cloud conversation. Both threads read and
+ * write the SAME conversation; they are separate only so the two surfaces that
+ * can be mounted at once never drain one another's queue. `cloud` is the chat
+ * surface (and keeps its original key, from when it was the cloud-only store).
+ * `carplay` is the hands-free voice loop driven from a head unit.
  */
-export type ChatThreadId =
-  | "cloud"
-  | "computer"
-  | "carplay"
-  | "carplay-computer";
-const CHAT_THREAD_IDS: ChatThreadId[] = [
-  "cloud",
-  "computer",
-  "carplay",
-  "carplay-computer",
-];
+export type ChatThreadId = "cloud" | "carplay";
+const CHAT_THREAD_IDS: ChatThreadId[] = ["cloud", "carplay"];
 
 const MESSAGES_KEY: Record<ChatThreadId, string> = {
   cloud: "stella-mobile-offline-chat-v1",
-  computer: "stella-mobile-computer-chat-v1",
   carplay: "stella-mobile-carplay-chat-v1",
-  "carplay-computer": "stella-mobile-carplay-computer-chat-v1",
 };
 const SYNC_STATE_KEY: Record<ChatThreadId, string> = {
   cloud: "stella-mobile-chat-sync-state-v1",
-  computer: "stella-mobile-computer-sync-state-v1",
   carplay: "stella-mobile-carplay-sync-state-v1",
-  "carplay-computer": "stella-mobile-carplay-computer-sync-state-v1",
 };
 
 const TRANSCRIPT_DB_NAME = "stella-mobile-transcripts.db";
@@ -237,8 +214,6 @@ const allAccountChatStorageKeys = (): string[] => [
   ...Object.values(MESSAGES_KEY),
   ...Object.values(SYNC_STATE_KEY),
   ...desktopChatOutboxStorageKeys(),
-  CHAT_CHECKPOINT_STORAGE_KEY,
-  CHAT_MEMORY_STORAGE_KEY,
 ];
 
 async function cleanupRequired(): Promise<boolean> {

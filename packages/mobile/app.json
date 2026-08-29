@@ -4,6 +4,9 @@
     "name": "Stella",
     "slug": "stella-mobile",
     "version": "1.0.38",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
     "updates": {
       "url": "https://u.expo.dev/892d4162-8a4f-40e8-a0d5-b24516cb7537"
     },
@@ -36,13 +39,10 @@
         "NSPrivacyAccessedAPITypes": [
           {
             "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
-            "NSPrivacyAccessedAPITypeReasons": [
-              "CA92.1"
-            ]
+            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
           }
         ]
-      },
-      "runtimeVersion": "3040a8be5a5dc89e9688313df3de29eed7ee7437"
+      }
     },
     "android": {
       "package": "com.fromyou.stella",
@@ -52,8 +52,7 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false,
-      "runtimeVersion": "e9d13d74a0f016f9eb346d71aaa58eb61a57cb6a"
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -92,13 +91,8 @@
             "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
             "NSExtensionActivationSupportsImageWithMaxCount": 5
           },
-          "androidIntentFilters": [
-            "text/*",
-            "image/*"
-          ],
-          "androidMultiIntentFilters": [
-            "image/*"
-          ]
+          "androidIntentFilters": ["text/*", "image/*"],
+          "androidMultiIntentFilters": ["image/*"]
         }
       ],
       "expo-font",
@@ -115,10 +109,7 @@
               "name": "StellaWidget",
               "displayName": "Stella",
               "description": "Ask Stella and see your computer at a glance.",
-              "supportedFamilies": [
-                "systemSmall",
-                "systemMedium"
-              ]
+              "supportedFamilies": ["systemSmall", "systemMedium"]
             }
           ]
         }

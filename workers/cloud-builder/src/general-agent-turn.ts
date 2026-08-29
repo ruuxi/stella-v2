@@ -407,25 +407,6 @@ export type ResidentStellaLoopInput = Readonly<{
   streamFn?: StreamFn;
 }>;
 
-const assistantUsage = (
-  message: AgentMessage,
-): { input: number; output: number } => {
-  const usage = (
-    message as {
-      usage?: {
-        input?: number;
-        output?: number;
-        inputTokens?: number;
-        outputTokens?: number;
-      };
-    }
-  ).usage;
-  return {
-    input: usage?.inputTokens ?? usage?.input ?? 0,
-    output: usage?.outputTokens ?? usage?.output ?? 0,
-  };
-};
-
 /**
  * The resident Stella agent loop.
  *
@@ -537,9 +518,8 @@ export const runResidentStellaLoop = async (
     }
     if (event.message.role !== "assistant") return;
     llmCalls += 1;
-    const usage = assistantUsage(event.message);
-    inputTokens += usage.input;
-    outputTokens += usage.output;
+    inputTokens += event.message.usage.input;
+    outputTokens += event.message.usage.output;
   });
 
   let finalText = "";

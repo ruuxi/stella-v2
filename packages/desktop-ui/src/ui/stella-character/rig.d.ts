@@ -37,6 +37,8 @@ export interface CreateStellaMarkOptions {
   followPointer?: boolean;
   interactive?: boolean;
   paused?: boolean;
+
+  visibilityGate?: boolean;
 }
 
 export interface StellaMarkHandle {

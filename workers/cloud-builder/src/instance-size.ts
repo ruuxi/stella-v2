@@ -45,24 +45,17 @@ const HEAVY_STACK_PATTERN =
   /\b(docker|kubernetes|ffmpeg|transcod\w*|puppeteer|playwright|chromium|headless browser|webpack|next\s?build|gradle|maven|xcode|cargo build|rustc|cmake|\.tar\.gz|torch|pytorch|tensorflow|cuda|llama\.cpp|pandas|numpy|monorepo|npm install|bun install|pnpm install|yarn install|type ?check the (whole|entire)|build the (whole|entire))\b/i;
 
 /**
- * Where a turn starts on the ladder. A cold repository has to clone and
- * install its dependencies, which is the expensive part of project work, so it
- * starts large; once the workspace is checkpointed the turn is ordinary work
- * again and is sized by what it was asked to do. Everything else starts small
- * and escalates only if it actually runs out of memory.
+ * Where a turn starts on the ladder. A world with no checkpoint has to build
+ * itself from nothing, which is the expensive part, so it starts large; once
+ * it is checkpointed the turn is ordinary work again and is sized by what it
+ * was asked to do, escalating only if it actually runs out of memory.
  */
 export const initialInstanceSize = (args: {
-  workspaceKind: string;
   prompt: string;
-  /** A checkpoint exists, so this turn restores instead of cloning. */
+  /** A checkpoint exists, so this turn restores instead of building cold. */
   restored?: boolean;
 }): InstanceSize => {
-  if (
-    !args.restored &&
-    (args.workspaceKind === "project" || args.workspaceKind === "stella")
-  ) {
-    return "large";
-  }
+  if (!args.restored) return "large";
   return HEAVY_STACK_PATTERN.test(args.prompt) ? "large" : "small";
 };
 

@@ -34,8 +34,18 @@ declare module "bun:test" {
   export const expect: (value: unknown) => Matchers;
   export const beforeEach: (fn: () => void | Promise<void>) => void;
   export const afterEach: (fn: () => void | Promise<void>) => void;
-  /** Only `mock.module` is used here — to stand in for native Expo modules. */
+  /**
+   * `mock.module` stands in for native Expo modules; `mock.restore` undoes
+   * both those module replacements and any `spyOn` patches, so a stub cannot
+   * leak into later tests in the same bun process.
+   */
   export const mock: {
     module: (specifier: string, factory: () => unknown) => void;
+    restore: () => void;
   };
+
+  export function spyOn<T extends object, K extends keyof T>(
+    object: T,
+    method: K,
+  ): { mockResolvedValue: (value: unknown) => unknown };
 }

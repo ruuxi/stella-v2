@@ -37,9 +37,7 @@ import {
   type AutomaticExecutionTurnControl,
 } from "./execution-placement";
 import {
-  closeDesktopBridgeSendBatch,
   fetchDesktopBridgeThreadTasks,
-  type DesktopBridgeSendBatch,
   type DesktopTaskDecoration,
 } from "./desktop-bridge-chat";
 import {
@@ -71,22 +69,6 @@ import type {
   ComposerQuote,
   MobileTask,
 } from "../types";
-
-/** What a `runDesktopSync` call actually did, so callers can be honest. */
-export type DesktopSyncOutcome = {
-  /** The desktop was confirmed unreachable. */
-  offline: boolean;
-  /** The mid-send gate deferred the pull to the post-send flush. */
-  deferred?: boolean;
-  /** Rows the desktop returned (pre-merge); present on a completed pull. */
-  rows?: number;
-  /** Canonical user identities observed in this pull. */
-  acceptedUserMessageIds?: string[];
-  /** Bridge/conversation/socket seed shared by a serialized replay batch. */
-  preparedSend?: DesktopBridgeSendBatch;
-  /** Failure message when the pull errored (offline or otherwise). */
-  error?: string;
-};
 
 const AUTOMATIC_RETRY_MS = 1_500;
 const waitForAutomaticRetry = (signal?: AbortSignal) =>
@@ -455,21 +437,9 @@ export function useChatThread(opts: {
   } | null>(null);
   const dispatchGenerationRef = useRef(0);
   const pendingEnqueueRef = useRef<Set<string>>(new Set());
-  const steerPumpPromiseRef = useRef<Promise<unknown> | null>(null);
-  const steerPumpGenerationRef = useRef(0);
+  // The conversation the paired computer's activity pushes must match before
+  // they are folded in, so a push for another conversation is ignored.
   const syncConversationIdRef = useRef<string | null>(null);
-  const desktopSendBatchRef = useRef<DesktopBridgeSendBatch | null>(null);
-  // Bumped whenever the paired computer changes or the surface unmounts, so an
-  // in-flight sync started for the previous computer can't persist its cursor
-  // or merge its transcript into the new one.
-  // The just-completed desktop turn's background reconcile (optimistic rows →
-  // canonical ids + cursor advance). It runs fire-and-forget after a turn, but
-  // the next sync MUST wait for it: when a queued send drains immediately on
-  // turn completion, the next turn's wake→sync would otherwise re-pull the
-  // previous turn's rows before they were linked, and `mergeMessagesById` —
-  // matching only by id/`canonicalId` — would append them as duplicates of the
-  // previous user+assistant messages. Resolves (never rejects) when settled.
-  const pendingReconcileRef = useRef<Promise<void> | null>(null);
   const drainQueueRef = useRef<(() => void) | null>(null);
   // The dispatch fn closes over `transport`; keep the latest in a ref so the
   // stable queue/drain machinery never dispatches against a stale destination.
@@ -625,7 +595,6 @@ export function useChatThread(opts: {
         // in-flight dispatch cannot repopulate cleared data.
         historyPageGenerationRef.current += 1;
         dispatchGenerationRef.current += 1;
-        pendingReconcileRef.current = null;
         queueRef.current = [];
         for (const id of pendingEnqueueRef.current) {
           stoppedDispatchIdsRef.current.add(id);
@@ -803,32 +772,13 @@ export function useChatThread(opts: {
     };
   }, [desktopAccess, refreshDesktopThreadTasks]);
 
-  /**
-   * Append one whole assistant text block to the optimistic reply. Assistant
-   * text is never streamed, so each call carries a complete segment; separate
-   * segments of the same turn (preamble → tool → answer) read as paragraphs.
-   */
-
   const finishDispatch = useCallback(() => {
-    const settle = async () => {
-      // A root terminal can race the lightweight durable-acceptance pump. Let
-      // the current ACK finish before deciding whether the queue still needs a
-      // fresh turn; stable ids prevent duplicate persistence, but without this
-      // gate the UI could attach two observers to the same logical send.
-      while (steerPumpPromiseRef.current) {
-        await steerPumpPromiseRef.current;
-      }
-      activeDispatchRef.current = null;
-      markSending(false);
-      setWorkingActivity(IDLE_WORKING_ACTIVITY);
-      if (queueRef.current.length > 0 && appActive) {
-        drainQueueRef.current?.();
-      } else {
-        closeDesktopBridgeSendBatch(desktopSendBatchRef.current);
-        desktopSendBatchRef.current = null;
-      }
-    };
-    void settle();
+    activeDispatchRef.current = null;
+    markSending(false);
+    setWorkingActivity(IDLE_WORKING_ACTIVITY);
+    if (queueRef.current.length > 0 && appActive) {
+      drainQueueRef.current?.();
+    }
   }, [appActive, markSending]);
 
   // ─── Server-owned automatic placement ───────────────────────────────────
@@ -1345,7 +1295,6 @@ export function useChatThread(opts: {
   const stop = useCallback(() => {
     // Cancel queued messages first so the in-flight finally-handler doesn't
     // pick them up after the abort.
-    steerPumpGenerationRef.current += 1;
     const cancelledIds = [
       ...new Set([
         ...queueRef.current.map((q) => q.userMessageId),

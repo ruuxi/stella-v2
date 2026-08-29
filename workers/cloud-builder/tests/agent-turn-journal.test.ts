@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
 import {
   AgentTurnJournal,
@@ -7,36 +6,21 @@ import {
   type SyntheticTerminalRow,
 } from "../src/agent-turn-journal.js";
 import { nativeHistoryCursorFromRows } from "../src/native-state-checkpoint.js";
+import {
+  openSqlStorageFake,
+  type SqlStorageFake,
+} from "./fixtures/sql-storage.js";
 
-const databases: Database[] = [];
+const opened: SqlStorageFake[] = [];
 
 afterEach(() => {
-  while (databases.length) databases.pop()?.close();
+  while (opened.length) opened.pop()?.close();
 });
 
 const openSql = (): SqlStorage => {
-  const database = new Database(":memory:");
-  databases.push(database);
-  return {
-    get databaseSize() {
-      return 0;
-    },
-    exec<T>(statement: string, ...bindings: unknown[]) {
-      const query = statement.trim();
-      const rows = /^(SELECT|PRAGMA|WITH)\b/iu.test(query)
-        ? (database.query(query).all(...bindings) as T[])
-        : (database.run(query, bindings), []);
-      return {
-        toArray: () => rows,
-        one: () => {
-          if (rows.length !== 1) {
-            throw new Error(`Expected one row, received ${rows.length}.`);
-          }
-          return rows[0]!;
-        },
-      };
-    },
-  } as unknown as SqlStorage;
+  const fake = openSqlStorageFake();
+  opened.push(fake);
+  return fake.sql;
 };
 
 const IDENTITY = { turnId: "turn-1", attemptGeneration: 3 } as const;

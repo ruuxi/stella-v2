@@ -17,22 +17,6 @@ import {
 } from "../lib/browser_auth_callback";
 import { decideAnonymousLinkBinding } from "../lib/mobile_auth_link";
 import { encryptHandoffToken } from "../lib/handoff_crypto";
-import { AGENT_IDS } from "../lib/agent_constants";
-import { MANAGED_GATEWAY } from "../agent/model";
-import {
-  resolveFallbackConfig,
-  resolveModelConfig,
-  type ResolvedModelConfig,
-} from "../agent/model_resolver";
-import {
-  buildOfflineChatContext,
-  modelSupportsOfflineImages,
-  offlineImageCapabilityError,
-  parseOfflineImages,
-  type OfflineChatImage,
-} from "../mobile_chat_images";
-import { OFFLINE_RESPONDER_SYSTEM_PROMPT } from "../prompts/offline_responder";
-import { getResponseLanguageSystemPrompt } from "../prompts/system_assembly";
 import {
   errorResponse,
   jsonResponse,
@@ -46,13 +30,8 @@ import {
   rateLimitResponse,
 } from "../http_shared/webhook_controls";
 import { readJsonBody } from "../http_shared/request";
-import { encodeSseData, sseResponse } from "../http_shared/sse";
-import { createAssistantTextFramer } from "../http_shared/assistant_text_frames";
 import { dollarsToMicroCents } from "../lib/billing_money";
-import {
-  estimateManagedModelFallbackCostMicroCents,
-  MANAGED_USAGE_BILLING_KIND,
-} from "../lib/managed_dispatch";
+import { MANAGED_USAGE_BILLING_KIND } from "../lib/managed_dispatch";
 import { getClientAddressKey } from "../lib/http_utils";
 import {
   bindManagedProviderRequest,
@@ -60,13 +39,8 @@ import {
   resolveManagedModelAccess,
 } from "../lib/managed_billing";
 import {
-  assistantText,
-  completeManagedChat,
-  estimateManagedContextInputTokens,
   runManagedDispatchAttempt,
-  streamManagedChat,
   type ManagedDispatchOutcome,
-  type ManagedModelBillingContext,
 } from "../runtime_ai/managed";
 import { isRetryableProviderError } from "../runtime_ai/retry";
 import {
@@ -83,14 +57,6 @@ import {
   verifyPairedMobileSecret,
 } from "../mobile_access";
 
-const OFFLINE_CHAT_RATE_LIMIT = 12;
-const OFFLINE_CHAT_RATE_WINDOW_MS = 60_000;
-/**
- * Secondary per-IP cap for anonymous guests. The anonymous owner id is
- * derived from the client-supplied device-id header, which an attacker can
- * rotate freely — the IP cap bounds total unauthenticated LLM spend.
- */
-const OFFLINE_CHAT_ANON_IP_RATE_LIMIT = 30;
 /** Per-owner cap on the mobile and CarPlay transcription endpoint. */
 const TRANSCRIBE_RATE_LIMIT = 30;
 const TRANSCRIBE_RATE_WINDOW_MS = 60_000;
@@ -114,8 +80,6 @@ const MAX_DEVICE_ID_LENGTH = 256;
 const MAX_BRIDGE_CHALLENGE_LENGTH = 512;
 const MAX_BRIDGE_PUBLIC_KEY_LENGTH = 128;
 const MOBILE_BRIDGE_PAIR_PROOF_MAX_SKEW_MS = 5 * 60_000;
-const MAX_OFFLINE_HISTORY_ITEMS = 40;
-const MAX_OFFLINE_MESSAGE_CHARS = 12_000;
 
 /** Per-owner cap for the desktop bridge endpoints (cheap reads/writes). */
 const MOBILE_BRIDGE_RATE_LIMIT = 60;
@@ -199,32 +163,6 @@ const cancelMobileExecutionRef = makeFunctionReference<
   },
   MobileExecutionDispatchResult
 >("execution_placement:cancelExecutionDispatchForOwnerInternal");
-
-const parseOfflineHistory = (
-  raw: unknown,
-): Array<{ role: "user" | "assistant"; text: string }> => {
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-  const out: Array<{ role: "user" | "assistant"; text: string }> = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object") {
-      continue;
-    }
-    const record = item as { role?: unknown; text?: unknown };
-    const role = record.role;
-    const text =
-      typeof record.text === "string"
-        ? record.text.slice(0, MAX_OFFLINE_MESSAGE_CHARS)
-        : "";
-    const trimmed = text.trim();
-    if (!trimmed || (role !== "user" && role !== "assistant")) {
-      continue;
-    }
-    out.push({ role, text: trimmed });
-  }
-  return out.slice(-MAX_OFFLINE_HISTORY_ITEMS);
-};
 
 const MAGIC_LINK_RATE_LIMIT = 3;
 /** Per-IP cap on magic-link sends so one caller can't spam many addresses. */
@@ -478,7 +416,7 @@ const requireMobileAccountOwner = async (
 const ANONYMOUS_OWNER_PREFIX = "anon:mobile:";
 
 /**
- * For offline-chat endpoints: authenticate if possible, fall back to
+ * For guest-reachable endpoints: authenticate if possible, fall back to
  * anonymous guest access keyed by a stable mobile device id when available,
  * with IP fallback for older clients.
  */
@@ -504,10 +442,10 @@ const resolveMobileOwnerOrGuest = async (
     try {
       await assertSensitiveSessionPolicyAction(ctx, identity);
     } catch (error) {
-      // Offline mobile chat is available without an account, so stale or revoked
+      // Composer dictation is available without an account, so stale or revoked
       // auth should not block guest access for these endpoints.
       console.warn(
-        "[mobile/offline-chat] Falling back to anonymous access after auth check failed:",
+        "[mobile/guest-access] Falling back to anonymous access after auth check failed:",
         readConvexErrorMessage(error, "Unauthorized"),
       );
       return anonymousOwner;
@@ -713,310 +651,12 @@ const requirePairedMobileCredentials = async (
   return { mobileDeviceId };
 };
 
-const createOfflineChatBilling = async (args: {
-  ctx: ActionCtx;
-  ownerId: string;
-  ownerGeneration: string;
-  requestId: string;
-  context: ReturnType<typeof buildOfflineChatContext>;
-  configs: readonly ResolvedModelConfig[];
-}): Promise<ManagedModelBillingContext> => {
-  const inputTokens = estimateManagedContextInputTokens(args.context);
-  const fallbackCostMicroCentsByModel = Object.fromEntries(
-    args.configs.map((config) => [
-      config.model,
-      estimateManagedModelFallbackCostMicroCents({
-        model: config.model,
-        inputTokens,
-        maxOutputTokens: config.maxOutputTokens ?? 32_768,
-      }),
-    ]),
-  );
-  const binding = await bindManagedProviderRequest(args.ctx, {
-    ownerId: args.ownerId,
-    ownerGeneration: args.ownerGeneration,
-    route: "mobile_offline_chat",
-    requestId: args.requestId,
-    canonicalBody: JSON.stringify({
-      version: 1,
-      context: args.context,
-      configs: args.configs,
-    }),
-  });
-  if (binding.replayed) {
-    throw new ConvexError({
-      code: "REQUEST_ALREADY_ACCEPTED",
-      message: "This mobile request was already accepted.",
-    });
-  }
-  return {
-    requestFingerprint: binding.requestFingerprint,
-    agentType: "service:offline_chat",
-    fallbackCostMicroCents: Math.max(
-      ...Object.values(fallbackCostMicroCentsByModel),
-    ),
-    fallbackCostMicroCentsByModel,
-  };
-};
-
-const generateOfflineReply = async (args: {
-  ctx: ActionCtx;
-  ownerId: string;
-  userName?: string;
-  message: string;
-  isAnonymous: boolean;
-  history: Array<{ role: "user" | "assistant"; text: string }>;
-  images: OfflineChatImage[];
-  model?: string | null;
-  requestId: string;
-  signal?: AbortSignal;
-}) => {
-  const modelAccess = await resolveManagedModelAccess(args.ctx, args.ownerId, {
-    isAnonymous: args.isAnonymous,
-  });
-  if (!modelAccess.allowed) {
-    throw new ConvexError({
-      code: "USAGE_LIMIT_REACHED",
-      message: modelAccess.message,
-    });
-  }
-
-  const primaryConfig = await resolveModelConfig(
-    args.ctx,
-    AGENT_IDS.OFFLINE_RESPONDER,
-    args.ownerId,
-    { access: modelAccess, modelOverride: args.model },
-  );
-  const fallbackConfig = await resolveFallbackConfig(
-    args.ctx,
-    AGENT_IDS.OFFLINE_RESPONDER,
-    args.ownerId,
-    { access: modelAccess },
-  );
-  const capabilityError = offlineImageCapabilityError(
-    primaryConfig,
-    args.images,
-  );
-  if (capabilityError) {
-    throw new ConvexError({
-      code: "UNSUPPORTED_INPUT_MODALITY",
-      message: capabilityError,
-    });
-  }
-
-  const responderLocaleDirective = getResponseLanguageSystemPrompt(
-    await args.ctx.runQuery(internal.data.preferences.getLocaleForOwner, {
-      ownerId: args.ownerId,
-    }),
-  );
-
-  const systemPrompt = [
-    OFFLINE_RESPONDER_SYSTEM_PROMPT,
-    "You are replying inside Stella's mobile offline chat.",
-    "Answer in plain text and keep the response practical and concise.",
-    "Use prior messages in this conversation for context when relevant.",
-    responderLocaleDirective || null,
-    args.userName ? `The user's name is ${args.userName}.` : null,
-  ]
-    .filter((value): value is string => Boolean(value))
-    .join("\n\n");
-
-  const context = buildOfflineChatContext({
-    systemPrompt,
-    history: args.history,
-    message: args.message,
-    images: args.images,
-  });
-  const usableFallback =
-    fallbackConfig &&
-    (args.images.length === 0 || modelSupportsOfflineImages(fallbackConfig))
-      ? fallbackConfig
-      : undefined;
-  const billing = await createOfflineChatBilling({
-    ctx: args.ctx,
-    ownerId: args.ownerId,
-    ownerGeneration: modelAccess.ownerGeneration,
-    requestId: args.requestId,
-    context,
-    configs: usableFallback
-      ? [primaryConfig, usableFallback]
-      : [primaryConfig],
-  });
-  const dispatchGuard = createManagedUsageDispatchGuard(args.ctx, {
-    ownerId: args.ownerId,
-    ownerGeneration: modelAccess.ownerGeneration,
-    spanExecution: true,
-  });
-  let outcome: ManagedDispatchOutcome = "failed";
-  try {
-    const result = await completeManagedChat({
-      config: primaryConfig,
-      fallbackConfig: usableFallback,
-      context,
-      request: { signal: args.signal },
-      billing,
-      dispatchGuard,
-    });
-    const text = assistantText(result);
-    outcome = "succeeded";
-    return text || "I'm here, but I couldn't generate a reply right now.";
-  } catch (error) {
-    outcome = dispatchGuard.signal.aborted ? "aborted" : "failed";
-    throw error;
-  } finally {
-    await dispatchGuard.finishExecution?.(outcome);
-  }
-};
-
-const streamOfflineReply = async (args: {
-  ctx: ActionCtx;
-  ownerId: string;
-  userName?: string;
-  message: string;
-  isAnonymous: boolean;
-  history: Array<{ role: "user" | "assistant"; text: string }>;
-  images: OfflineChatImage[];
-  model?: string | null;
-  requestId: string;
-  origin: string | null;
-  signal?: AbortSignal;
-}): Promise<Response> => {
-  const modelAccess = await resolveManagedModelAccess(args.ctx, args.ownerId, {
-    isAnonymous: args.isAnonymous,
-  });
-
-  if (!modelAccess.allowed) {
-    return errorResponse(429, modelAccess.message, args.origin);
-  }
-
-  const config = await resolveModelConfig(
-    args.ctx,
-    AGENT_IDS.OFFLINE_RESPONDER,
-    args.ownerId,
-    { access: modelAccess, modelOverride: args.model },
-  );
-  const capabilityError = offlineImageCapabilityError(config, args.images);
-  if (capabilityError) {
-    return errorResponse(422, capabilityError, args.origin);
-  }
-  const fallbackConfig = await resolveFallbackConfig(
-    args.ctx,
-    AGENT_IDS.OFFLINE_RESPONDER,
-    args.ownerId,
-    { access: modelAccess },
-  );
-  const usableFallback =
-    fallbackConfig &&
-    (args.images.length === 0 || modelSupportsOfflineImages(fallbackConfig))
-      ? fallbackConfig
-      : undefined;
-
-  const responderLocaleDirective = getResponseLanguageSystemPrompt(
-    await args.ctx.runQuery(internal.data.preferences.getLocaleForOwner, {
-      ownerId: args.ownerId,
-    }),
-  );
-
-  const systemPrompt = [
-    OFFLINE_RESPONDER_SYSTEM_PROMPT,
-    "You are replying inside Stella's mobile offline chat.",
-    "Answer in plain text and keep the response practical and concise.",
-    "Use prior messages in this conversation for context when relevant.",
-    responderLocaleDirective || null,
-    args.userName ? `The user's name is ${args.userName}.` : null,
-  ]
-    .filter((value): value is string => Boolean(value))
-    .join("\n\n");
-
-  const context = buildOfflineChatContext({
-    systemPrompt,
-    history: args.history,
-    message: args.message,
-    images: args.images,
-  });
-  const billing = await createOfflineChatBilling({
-    ctx: args.ctx,
-    ownerId: args.ownerId,
-    ownerGeneration: modelAccess.ownerGeneration,
-    requestId: args.requestId,
-    context,
-    configs: usableFallback ? [config, usableFallback] : [config],
-  });
-
-  const dispatchGuard = createManagedUsageDispatchGuard(args.ctx, {
-    ownerId: args.ownerId,
-    ownerGeneration: modelAccess.ownerGeneration,
-    spanExecution: true,
-  });
-  const readable = new ReadableStream({
-    async start(controller) {
-      let outcome: ManagedDispatchOutcome = "failed";
-      let closed = false;
-      let sawProviderError = false;
-      const enqueue = (value: Uint8Array) => {
-        if (closed) return;
-        try {
-          controller.enqueue(value);
-        } catch {
-          closed = true;
-        }
-      };
-      try {
-        const eventStream = streamManagedChat({
-          config,
-          fallbackConfig: usableFallback,
-          context,
-          request: { signal: args.signal },
-          billing,
-          dispatchGuard,
-        });
-        // Assistant text is delivered whole: deltas buffer here and leave as
-        // one `{ t }` frame per text block once the block closes. `done` needs
-        // no branch of its own — exact provider usage is captured by the
-        // physical receipt before that event leaves the managed stream.
-        const textFramer = createAssistantTextFramer();
-        for await (const event of eventStream) {
-          for (const segment of textFramer.accept(event)) {
-            enqueue(encodeSseData({ t: segment }));
-          }
-          if (event.type === "error") {
-            sawProviderError = true;
-            enqueue(encodeSseData({ error: "Stream failed" }));
-          }
-        }
-        outcome = sawProviderError ? "failed" : "succeeded";
-        enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
-      } catch (error) {
-        outcome = dispatchGuard.signal.aborted ? "aborted" : "failed";
-        console.error("[mobile/offline-chat-stream] Error:", error);
-        enqueue(encodeSseData({ error: "Stream failed" }));
-        enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
-      } finally {
-        if (!closed) {
-          try {
-            controller.close();
-          } catch {
-            // Client cancellation already closed the response body.
-          }
-          closed = true;
-        }
-        await dispatchGuard.finishExecution?.(outcome);
-      }
-    },
-  });
-
-  return sseResponse(readable, args.origin);
-};
-
 export const registerMobileRoutes = (http: HttpRouter) => {
   registerCorsOptions(http, [
-    "/api/mobile/offline-chat",
-    "/api/mobile/offline-chat/stream",
     "/api/mobile/execution/submit",
     "/api/mobile/execution/status",
     "/api/mobile/execution/cancel",
     "/api/mobile/transcribe",
-    "/api/mobile/chat",
     "/api/mobile/pairing/complete",
     "/api/mobile/push-token",
     "/api/mobile/push-token/unregister",
@@ -1319,212 +959,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
   });
 
   http.route({
-    path: "/api/mobile/offline-chat",
-    method: "POST",
-    handler: httpAction(async (ctx, request) =>
-      handleCorsRequest(request, async (origin) => {
-        const owner = await resolveMobileOwnerOrGuest(ctx, request, origin);
-        if ("response" in owner) {
-          return owner.response;
-        }
-
-        const apiKey = process.env[MANAGED_GATEWAY.apiKeyEnvVar];
-        if (!apiKey) {
-          console.error(
-            `[mobile/offline-chat] Missing ${MANAGED_GATEWAY.apiKeyEnvVar}`,
-          );
-          return errorResponse(500, "Server configuration error", origin);
-        }
-
-        const rateLimitResponse = await enforceHttpRateLimit(ctx, origin, {
-          scope: "mobile_offline_chat",
-          key: owner.ownerId,
-          limit: OFFLINE_CHAT_RATE_LIMIT,
-          windowMs: OFFLINE_CHAT_RATE_WINDOW_MS,
-          blockMs: OFFLINE_CHAT_RATE_WINDOW_MS,
-        });
-        if (rateLimitResponse) return rateLimitResponse;
-
-        if (owner.isAnonymous) {
-          const ipKey = getClientAddressKey(request);
-          if (ipKey) {
-            const ipLimitResponse = await enforceHttpRateLimit(ctx, origin, {
-              scope: "mobile_offline_chat_ip",
-              key: ipKey,
-              limit: OFFLINE_CHAT_ANON_IP_RATE_LIMIT,
-              windowMs: OFFLINE_CHAT_RATE_WINDOW_MS,
-              blockMs: OFFLINE_CHAT_RATE_WINDOW_MS,
-            });
-            if (ipLimitResponse) return ipLimitResponse;
-          }
-        }
-
-        const bodyResult = await readJsonBody<{
-          requestId?: unknown;
-          message?: unknown;
-          history?: unknown;
-          images?: unknown;
-          model?: unknown;
-        }>(request, origin, "Invalid request body");
-        if (!bodyResult.ok) return bodyResult.response;
-        const body = bodyResult.body;
-        const requestId =
-          typeof body?.requestId === "string" ? body.requestId.trim() : "";
-        if (!MANAGED_PROVIDER_REQUEST_ID_PATTERN.test(requestId)) {
-          return errorResponse(400, "A valid requestId is required", origin);
-        }
-
-        const message =
-          typeof body?.message === "string"
-            ? body.message.slice(0, MAX_OFFLINE_MESSAGE_CHARS).trim()
-            : "";
-        const history = parseOfflineHistory(body?.history);
-        const imageResult = parseOfflineImages(body?.images);
-        if (!imageResult.ok) {
-          return errorResponse(400, imageResult.error, origin);
-        }
-        const images = imageResult.images;
-        const model = typeof body?.model === "string" ? body.model : null;
-
-        if (!message && images.length === 0) {
-          return errorResponse(400, "Message or image required", origin);
-        }
-
-        try {
-          const text = await generateOfflineReply({
-            ctx,
-            ownerId: owner.ownerId,
-            userName: owner.name,
-            message,
-            isAnonymous: owner.isAnonymous,
-            history,
-            images,
-            model,
-            requestId,
-            signal: request.signal,
-          });
-          return jsonResponse({ text }, 200, origin);
-        } catch (error) {
-          console.error("[mobile/offline-chat] Error:", error);
-          const code = readConvexErrorCode(error);
-          const status =
-            code === "USAGE_LIMIT_REACHED"
-              ? 429
-              : code === "IDEMPOTENCY_CONFLICT" ||
-                  code === "REQUEST_ALREADY_ACCEPTED"
-                ? 409
-              : code === "UNSUPPORTED_INPUT_MODALITY"
-                ? 422
-                : 500;
-          return errorResponse(
-            status,
-            readConvexErrorMessage(error, "Could not send your message"),
-            origin,
-          );
-        }
-      }),
-    ),
-  });
-
-  http.route({
-    path: "/api/mobile/offline-chat/stream",
-    method: "POST",
-    handler: httpAction(async (ctx, request) =>
-      handleCorsRequest(request, async (origin) => {
-        const owner = await resolveMobileOwnerOrGuest(ctx, request, origin);
-        if ("response" in owner) {
-          return owner.response;
-        }
-
-        const apiKey = process.env[MANAGED_GATEWAY.apiKeyEnvVar];
-        if (!apiKey) {
-          return errorResponse(500, "Server configuration error", origin);
-        }
-
-        const rateLimitResponse = await enforceHttpRateLimit(ctx, origin, {
-          scope: "mobile_offline_chat",
-          key: owner.ownerId,
-          limit: OFFLINE_CHAT_RATE_LIMIT,
-          windowMs: OFFLINE_CHAT_RATE_WINDOW_MS,
-          blockMs: OFFLINE_CHAT_RATE_WINDOW_MS,
-        });
-        if (rateLimitResponse) return rateLimitResponse;
-
-        if (owner.isAnonymous) {
-          const ipKey = getClientAddressKey(request);
-          if (ipKey) {
-            const ipLimitResponse = await enforceHttpRateLimit(ctx, origin, {
-              scope: "mobile_offline_chat_ip",
-              key: ipKey,
-              limit: OFFLINE_CHAT_ANON_IP_RATE_LIMIT,
-              windowMs: OFFLINE_CHAT_RATE_WINDOW_MS,
-              blockMs: OFFLINE_CHAT_RATE_WINDOW_MS,
-            });
-            if (ipLimitResponse) return ipLimitResponse;
-          }
-        }
-
-        const bodyResult = await readJsonBody<{
-          requestId?: unknown;
-          message?: unknown;
-          history?: unknown;
-          images?: unknown;
-          model?: unknown;
-        }>(request, origin, "Invalid request body");
-        if (!bodyResult.ok) return bodyResult.response;
-        const body = bodyResult.body;
-        const requestId =
-          typeof body.requestId === "string" ? body.requestId.trim() : "";
-        if (!MANAGED_PROVIDER_REQUEST_ID_PATTERN.test(requestId)) {
-          return errorResponse(400, "A valid requestId is required", origin);
-        }
-
-        const message =
-          typeof body.message === "string"
-            ? body.message.slice(0, MAX_OFFLINE_MESSAGE_CHARS).trim()
-            : "";
-        const history = parseOfflineHistory(body.history);
-        const imageResult = parseOfflineImages(body.images);
-        if (!imageResult.ok) {
-          return errorResponse(400, imageResult.error, origin);
-        }
-        const images = imageResult.images;
-        const model = typeof body.model === "string" ? body.model : null;
-
-        if (!message && images.length === 0) {
-          return errorResponse(400, "Message or image required", origin);
-        }
-
-        try {
-          return await streamOfflineReply({
-            ctx,
-            ownerId: owner.ownerId,
-            userName: owner.name,
-            message,
-            isAnonymous: owner.isAnonymous,
-            history,
-            images,
-            model,
-            requestId,
-            origin,
-            signal: request.signal,
-          });
-        } catch (error) {
-          const code = readConvexErrorCode(error);
-          return errorResponse(
-            code === "IDEMPOTENCY_CONFLICT" ||
-              code === "REQUEST_ALREADY_ACCEPTED"
-              ? 409
-              : 500,
-            readConvexErrorMessage(error, "Could not send your message"),
-            origin,
-          );
-        }
-      }),
-    ),
-  });
-
-  http.route({
     path: "/api/mobile/transcribe",
     method: "POST",
     handler: httpAction(async (ctx, request) =>
@@ -1769,34 +1203,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         } finally {
           await dispatchGuard.finishExecution?.(executionOutcome);
         }
-      }),
-    ),
-  });
-
-  http.route({
-    path: "/api/mobile/chat",
-    method: "POST",
-    handler: httpAction(async (ctx, request) =>
-      handleCorsRequest(request, async (origin) => {
-        const owner = await requireMobileAccountOwner(ctx, origin);
-        if ("response" in owner) {
-          return owner.response;
-        }
-
-        const rateLimitResponse = await enforceHttpRateLimit(ctx, origin, {
-          scope: "mobile_offline_chat",
-          key: owner.ownerId,
-          limit: OFFLINE_CHAT_RATE_LIMIT,
-          windowMs: OFFLINE_CHAT_RATE_WINDOW_MS,
-          blockMs: OFFLINE_CHAT_RATE_WINDOW_MS,
-        });
-        if (rateLimitResponse) return rateLimitResponse;
-
-        return errorResponse(
-          410,
-          "Update Stella mobile to message your paired desktop.",
-          origin,
-        );
       }),
     ),
   });

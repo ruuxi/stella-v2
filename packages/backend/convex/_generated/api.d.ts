@@ -202,8 +202,6 @@ import type * as media_openrouter_stt from "../media_openrouter_stt.js";
 import type * as mobile_access from "../mobile_access.js";
 import type * as mobile_auth from "../mobile_auth.js";
 import type * as mobile_bridge from "../mobile_bridge.js";
-import type * as mobile_chat from "../mobile_chat.js";
-import type * as mobile_chat_images from "../mobile_chat_images.js";
 import type * as mobile_push from "../mobile_push.js";
 import type * as node_native_integration_schemas from "../node/native_integration_schemas.js";
 import type * as owner_lifecycle from "../owner_lifecycle.js";
@@ -495,8 +493,6 @@ declare const fullApi: ApiFromModules<{
   mobile_access: typeof mobile_access;
   mobile_auth: typeof mobile_auth;
   mobile_bridge: typeof mobile_bridge;
-  mobile_chat: typeof mobile_chat;
-  mobile_chat_images: typeof mobile_chat_images;
   mobile_push: typeof mobile_push;
   "node/native_integration_schemas": typeof node_native_integration_schemas;
   owner_lifecycle: typeof owner_lifecycle;

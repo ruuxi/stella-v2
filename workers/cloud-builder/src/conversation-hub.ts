@@ -20,14 +20,15 @@
  * 3. BACKPRESSURE IS BOUNDED AT THE SOURCE. `bufferedAmount` does not exist on
  *    workerd's WebSocket, and client acks would be incoming frames (billed
  *    20:1 against a transport chosen because outgoing is free). So the agent
- *    loop never awaits a send, and delta volume is a function of turn duration
- *    — coalesced at DELTA_FLUSH_MS and capped by DELTA_BUDGET_BYTES per turn —
- *    not of listener count or model speed. A slow client cannot stall the loop.
+ *    loop never awaits a send, and outgoing volume is a function of how many
+ *    rows a turn commits and how many tool calls it makes, not of listener
+ *    count or model speed. A slow client cannot stall the loop.
  *
  * The durability rule the frames encode: a frame carrying `seq` is replayable,
- * a frame without one is advisory and may be dropped at any time. Losing every
- * `delta` for a turn costs a live preview; the committed `record` still carries
- * the full text.
+ * a frame without one is advisory and may be dropped at any time. Assistant
+ * text is delivered whole, so the committed `record` is the ONLY thing that
+ * ever carries it — the hub broadcasts no per-token `delta` frames. `tool` is
+ * the one remaining advisory frame, and losing it costs a live tool chip.
  */
 
 import {
@@ -44,12 +45,8 @@ import {
   CLOSE_RATE_LIMITED,
   CLOSE_TOO_MANY_SOCKETS,
   CLOSE_UNAUTHENTICATED,
-  DELTA_BUDGET_BYTES,
-  DELTA_FLUSH_BYTES,
-  DELTA_FLUSH_MS,
   HEADER_ISSUER,
   INITIAL_WINDOW_RECORDS,
-  LIVE_PARTIAL_MAX_CHARS,
   MAX_INCOMING_FRAME_BYTES,
   MAX_RESUME_RECORDS,
   MAX_SOCKETS_PER_CONVERSATION,
@@ -65,7 +62,6 @@ import {
   utf8Length,
   type ConversationHub,
   type ConversationHubDeps,
-  type DeltaInput,
   type JournalHead,
   type JournalRecord,
   type LiveTurnSnapshot,
@@ -119,6 +115,11 @@ export type GapFrame = {
 
 export type ResetFrame = { type: "reset"; reason: "epoch" | "window" };
 
+/**
+ * Retired: assistant text is delivered whole on `record`, and nothing on the
+ * server constructs this any more. The shape stays declared because clients
+ * still parse it defensively while their own delta handling is retired.
+ */
 export type DeltaFrame = {
   type: "delta";
   turnId: string;
@@ -130,6 +131,7 @@ export type DeltaFrame = {
 
 export type ToolFrame = { type: "tool" } & ToolInput;
 
+/** Retired alongside `DeltaFrame`; declared for the same reason. */
 export type DeltasDroppedFrame = {
   type: "deltas_dropped";
   turnId: string;
@@ -333,33 +335,20 @@ const rollRateWindow = (attachment: SocketAttachment, nowMs: number): void => {
 };
 
 // ---------------------------------------------------------------------------
-// Live streaming state (in-memory, advisory, never durable)
+// Live tool state (in-memory, advisory, never durable)
 // ---------------------------------------------------------------------------
 
 const MAX_TRACKED_TURNS = 4;
-const MAX_TRACKED_STREAMS = 32;
 const MAX_TRACKED_TOOLS = 16;
 
-type StreamState = {
+/**
+ * The open tool calls of one turn. This is all the live state the hub keeps
+ * now: assistant text is delivered whole on the committed `record`, so there
+ * is no partial reply to buffer, coalesce, budget or replay.
+ */
+type TurnToolState = {
   turnId: string;
-  streamId: string;
-  kind: "text" | "thinking";
-  ordinal: number;
-  pending: string;
-  pendingBytes: number;
-  timer: ReturnType<typeof setTimeout> | null;
-  /** Replayed to a client that joins mid-turn. Capped; never grows past it. */
-  live: string;
-  liveTruncated: boolean;
-};
-
-type TurnStreamState = {
-  turnId: string;
-  spentBytes: number;
-  dropped: boolean;
-  streamIds: Set<string>;
   tools: Map<string, ToolInput>;
-  latestStreamId: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -367,8 +356,7 @@ type TurnStreamState = {
 // ---------------------------------------------------------------------------
 
 class ConversationHubImpl implements ConversationHub {
-  private readonly streams = new Map<string, StreamState>();
-  private readonly turns = new Map<string, TurnStreamState>();
+  private readonly turns = new Map<string, TurnToolState>();
   /**
    * Which expiry we have already warned a socket about. Weak on purpose: after
    * an eviction the socket object is new, the entry is gone, and the worst
@@ -754,7 +742,7 @@ class ConversationHubImpl implements ConversationHub {
     this.rawSend(ws, payload);
   }
 
-  /** Serialized once, not once per listener: a delta frame is up to 2 KB. */
+  /** Serialized once, not once per listener. */
   private broadcast(frame: ServerFrame): void {
     const sockets = this.deps.ctx.getWebSockets();
     if (sockets.length === 0) return;
@@ -766,19 +754,13 @@ class ConversationHubImpl implements ConversationHub {
 
   broadcastRecord(record: JournalRecord): void {
     try {
-      // The committed row supersedes whatever was previewed for its stream:
-      // drop the pending deltas rather than racing them against it.
-      if (record.kind === "message" && record.streamId) {
-        this.discardStream(record.streamId);
-      }
       if (record.kind === "turn" && record.phase === "started") {
         this.turnState(record.turnId);
       }
       this.broadcast({ type: "record", ...record });
       // Storage also calls endTurn explicitly. Doing it here as well costs
       // nothing (it is idempotent) and means a missed call upstream leaks a
-      // delta budget and a timer rather than being invisible until a long
-      // conversation starts dropping previews for no apparent reason.
+      // tool map rather than being invisible.
       if (record.kind === "turn" && record.phase !== "started") {
         this.endTurn(record.turnId);
       }
@@ -791,51 +773,7 @@ class ConversationHubImpl implements ConversationHub {
     }
   }
 
-  // ── Deltas ───────────────────────────────────────────────────────────────
-
-  broadcastDelta(delta: DeltaInput): void {
-    try {
-      const turn = this.turnState(delta.turnId);
-      const stream = this.streamState(delta);
-      turn.latestStreamId = delta.streamId;
-      this.appendLive(stream, delta.text);
-
-      // Nobody is watching: keep the preview for a future joiner, but never
-      // arm a timer or buffer bytes for an audience that does not exist.
-      if (this.deps.ctx.getWebSockets().length === 0) return;
-
-      if (turn.dropped) return;
-      const bytes = utf8Length(delta.text);
-      if (turn.spentBytes + bytes > DELTA_BUDGET_BYTES) {
-        turn.dropped = true;
-        this.flushStream(stream);
-        this.broadcast({
-          type: "deltas_dropped",
-          turnId: delta.turnId,
-          streamId: delta.streamId,
-        });
-        return;
-      }
-      turn.spentBytes += bytes;
-      stream.pending += delta.text;
-      stream.pendingBytes += bytes;
-      if (stream.pendingBytes >= DELTA_FLUSH_BYTES) {
-        this.flushStream(stream);
-        return;
-      }
-      if (stream.timer === null) {
-        stream.timer = setTimeout(() => {
-          stream.timer = null;
-          this.flushStream(stream);
-        }, DELTA_FLUSH_MS);
-      }
-    } catch (error) {
-      this.deps.log("error", "conversation_delta_failed", {
-        turnId: delta.turnId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
+  // ── Tools ────────────────────────────────────────────────────────────────
 
   broadcastTool(tool: ToolInput): void {
     try {
@@ -859,16 +797,13 @@ class ConversationHubImpl implements ConversationHub {
 
   endTurn(turnId: string): void {
     try {
-      const turn = this.turns.get(turnId);
-      if (!turn) return;
-      for (const streamId of turn.streamIds) this.discardStream(streamId);
       this.turns.delete(turnId);
     } catch {
       // Teardown of advisory state can never be allowed to fail a turn.
     }
   }
 
-  private turnState(turnId: string): TurnStreamState {
+  private turnState(turnId: string): TurnToolState {
     const existing = this.turns.get(turnId);
     if (existing) return existing;
     while (this.turns.size >= MAX_TRACKED_TURNS) {
@@ -876,109 +811,33 @@ class ConversationHubImpl implements ConversationHub {
       if (oldest.done) break;
       this.endTurn(oldest.value);
     }
-    const created: TurnStreamState = {
-      turnId,
-      spentBytes: 0,
-      dropped: false,
-      streamIds: new Set(),
-      tools: new Map(),
-      latestStreamId: null,
-    };
+    const created: TurnToolState = { turnId, tools: new Map() };
     this.turns.set(turnId, created);
     return created;
   }
 
-  private streamState(delta: DeltaInput): StreamState {
-    const existing = this.streams.get(delta.streamId);
-    if (existing) return existing;
-    while (this.streams.size >= MAX_TRACKED_STREAMS) {
-      const oldest = this.streams.keys().next();
-      if (oldest.done) break;
-      this.discardStream(oldest.value);
-    }
-    const created: StreamState = {
-      turnId: delta.turnId,
-      streamId: delta.streamId,
-      kind: delta.kind,
-      ordinal: 0,
-      pending: "",
-      pendingBytes: 0,
-      timer: null,
-      live: "",
-      liveTruncated: false,
-    };
-    this.streams.set(delta.streamId, created);
-    this.turnState(delta.turnId).streamIds.add(delta.streamId);
-    return created;
-  }
-
-  /**
-   * Keeps the HEAD of the reply rather than the tail: a mid-turn joiner reads
-   * a preview from the beginning, and the committed record — which carries the
-   * whole thing — is what replaces it moments later.
-   */
-  private appendLive(stream: StreamState, text: string): void {
-    if (stream.liveTruncated) return;
-    const room = LIVE_PARTIAL_MAX_CHARS - stream.live.length;
-    if (room <= 0) {
-      stream.liveTruncated = true;
-      return;
-    }
-    if (text.length <= room) {
-      stream.live += text;
-      return;
-    }
-    stream.live += text.slice(0, room);
-    stream.liveTruncated = true;
-  }
-
-  private flushStream(stream: StreamState): void {
-    if (stream.timer !== null) {
-      clearTimeout(stream.timer);
-      stream.timer = null;
-    }
-    if (stream.pending.length === 0) return;
-    const text = stream.pending;
-    stream.pending = "";
-    stream.pendingBytes = 0;
-    stream.ordinal += 1;
-    this.broadcast({
-      type: "delta",
-      turnId: stream.turnId,
-      streamId: stream.streamId,
-      ordinal: stream.ordinal,
-      kind: stream.kind,
-      text,
-    });
-  }
-
-  private discardStream(streamId: string): void {
-    const stream = this.streams.get(streamId);
-    if (!stream) return;
-    if (stream.timer !== null) {
-      clearTimeout(stream.timer);
-      stream.timer = null;
-    }
-    this.streams.delete(streamId);
-    this.turns.get(stream.turnId)?.streamIds.delete(streamId);
-  }
-
   /**
    * Storage is authoritative for whether a turn is live. The hub only fills in
-   * what storage cannot know across an eviction: the streamed preview and the
-   * open tool calls, both of which are in-memory by design.
+   * what storage cannot know across an eviction: the open tool calls, which
+   * are in-memory by design.
+   *
+   * `partialText` is always empty. A mid-turn joiner sees the working
+   * indicator (driven by the turn record's `started` phase) and then the
+   * finished reply when its row commits; there is no partial reply to preview
+   * any more, and inventing one would put half a message on screen.
    */
   private liveSnapshot(): LiveTurnSnapshot | null {
     const live = this.deps.reader.liveTurn();
     if (!live) return null;
     const turn = this.turns.get(live.turnId);
-    const streamId = live.streamId ?? turn?.latestStreamId ?? null;
-    const stream = streamId ? this.streams.get(streamId) : undefined;
-    const partialText =
-      live.partialText || (stream ? stream.live + stream.pending : "");
     const tools =
       live.tools.length > 0 ? live.tools : [...(turn?.tools.values() ?? [])];
-    return { turnId: live.turnId, streamId, partialText, tools };
+    return {
+      turnId: live.turnId,
+      streamId: live.streamId,
+      partialText: "",
+      tools,
+    };
   }
 
   // ── Incoming ─────────────────────────────────────────────────────────────
@@ -1313,9 +1172,6 @@ class ConversationHubImpl implements ConversationHub {
           ? "This conversation was deleted."
           : "This connection was closed.",
       );
-    }
-    for (const streamId of [...this.streams.keys()]) {
-      this.discardStream(streamId);
     }
     this.turns.clear();
   }

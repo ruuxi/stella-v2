@@ -72,14 +72,9 @@ export const RATE_AUTH_PER_MIN = 10;
 export const RATE_TOTAL_PER_MIN = 60;
 
 // ---------------------------------------------------------------------------
-// Streaming
+// Live turn state
 // ---------------------------------------------------------------------------
 
-export const DELTA_FLUSH_MS = 100;
-export const DELTA_FLUSH_BYTES = 2_048;
-/** Per turn. Past this the hub emits `deltas_dropped` once and goes quiet. */
-export const DELTA_BUDGET_BYTES = 262_144;
-export const LIVE_PARTIAL_MAX_CHARS = 32_000;
 /** Tool argument preview length on the advisory `tool` frame. */
 export const TOOL_ARGS_PREVIEW_MAX = 400;
 
@@ -249,6 +244,12 @@ export type JournalRange = {
 export type LiveTurnSnapshot = {
   turnId: string;
   streamId: string | null;
+  /**
+   * Always empty. Assistant text is delivered whole on the committed record,
+   * so a turn in flight has no partial reply to hand a mid-turn joiner. The
+   * field stays on the wire while clients still read it; it is retired with
+   * their delta handling.
+   */
   partialText: string;
   tools: Array<{
     toolCallId: string;
@@ -334,14 +335,6 @@ export const parseSocketIdentity = (
   };
 };
 
-/** What storage hands the hub per delta; the hub coalesces and numbers them. */
-export type DeltaInput = {
-  turnId: string;
-  streamId: string;
-  kind: "text" | "thinking";
-  text: string;
-};
-
 export type ToolInput = {
   turnId: string;
   toolCallId: string;
@@ -364,11 +357,13 @@ export interface ConversationHub {
   onError(ws: WebSocket, error: unknown): Promise<void>;
   /** Called after every committed journal append. Must never throw. */
   broadcastRecord(record: JournalRecord): void;
-  /** Advisory, lossy, never persisted. Must never throw and never await. */
-  broadcastDelta(delta: DeltaInput): void;
-  /** Advisory tool lifecycle. Same rules as broadcastDelta. */
+  /**
+   * Advisory tool lifecycle: lossy, never persisted, must never throw and
+   * never await. The only advisory frame left — assistant text reaches
+   * clients whole on `broadcastRecord`, never as deltas.
+   */
   broadcastTool(tool: ToolInput): void;
-  /** A turn reached a terminal phase: drop any retained delta budget/state. */
+  /** A turn reached a terminal phase: drop any retained live state. */
   endTurn(turnId: string): void;
   closeAll(code: number): void;
 }
@@ -420,7 +415,6 @@ export class NullConversationHub implements ConversationHub {
   async onClose(): Promise<void> {}
   async onError(): Promise<void> {}
   broadcastRecord(): void {}
-  broadcastDelta(): void {}
   broadcastTool(): void {}
   endTurn(): void {}
   closeAll(): void {}

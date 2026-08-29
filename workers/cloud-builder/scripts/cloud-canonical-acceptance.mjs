@@ -1563,10 +1563,13 @@ const validators = {
       continuationTurnId,
       childTurnId,
       providerRequestIdSha256: completedProviderLifecycle.requestIdSha256,
-      providerStreamEventCount: finiteInteger(
-        observation.providerStreamEventCount,
-        "providerStreamEventCount",
-        2,
+      // Assistant text is delivered whole, so the floor is one event per
+      // turn — not the many per-token stream events this used to count. A
+      // turn that calls a tool emits more (preamble, then the answer).
+      assistantMessageEventCount: finiteInteger(
+        observation.assistantMessageEventCount,
+        "assistantMessageEventCount",
+        1,
       ),
       providerLifecyclePhases: completedProviderLifecycle.phases,
       providerPhysicalAttempt: completedProviderLifecycle.physicalAttempt,
@@ -1696,9 +1699,12 @@ const validators = {
       ),
       journalEpoch: boundedIdentifier(observation.journalEpoch, "journalEpoch"),
       turnId: nonEmptyString(observation.turnId, "turnId"),
-      streamEventCount: finiteInteger(
-        observation.streamEventCount,
-        "streamEventCount",
+      // Committed `record` frames plus advisory `tool` frames. Per-token
+      // `delta` frames no longer exist, so this counts live socket traffic
+      // rather than streaming volume.
+      liveEventCount: finiteInteger(
+        observation.liveEventCount,
+        "liveEventCount",
         2,
       ),
       journalHeadSeq: finiteInteger(

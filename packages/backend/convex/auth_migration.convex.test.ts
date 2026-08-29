@@ -207,11 +207,6 @@ const migrationInternal = (
           transferOperationId: string;
           transferPlanFingerprint: string;
           transferStage: string;
-          importedProjects: Array<{
-            projectId: string;
-            workspace: string;
-            name: string;
-          }>;
         },
         { hasMore: boolean; progressed: boolean }
       >;
@@ -4176,7 +4171,6 @@ describe("crash-safe ownership migration lifecycle", () => {
       transferOperationId: "d".repeat(64),
       transferPlanFingerprint: "e".repeat(64),
       transferStage: "owner-namespaces",
-      importedProjects: [],
     };
     let complete = false;
     for (let pass = 0; pass < 20; pass += 1) {
@@ -4345,7 +4339,6 @@ describe("crash-safe ownership migration lifecycle", () => {
       transferOperationId: "c".repeat(64),
       transferPlanFingerprint: "d".repeat(64),
       transferStage: "owner-namespaces",
-      importedProjects: [],
     };
     for (let pass = 0; pass < 4; pass += 1) {
       const result = await t.mutation(
@@ -4403,7 +4396,6 @@ describe("crash-safe ownership migration lifecycle", () => {
       transferOperationId: "c".repeat(64),
       transferPlanFingerprint: "d".repeat(64),
       transferStage: "owner-namespaces",
-      importedProjects: [],
     };
 
     await expect(
@@ -4525,7 +4517,6 @@ describe("crash-safe ownership migration lifecycle", () => {
         transferOperationId: "c".repeat(64),
         transferPlanFingerprint: "d".repeat(64),
         transferStage: "owner-namespaces",
-        importedProjects: [],
       }),
     ).rejects.toThrow("conflicting Memory preferences");
   });

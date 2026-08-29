@@ -605,7 +605,7 @@ describe("automatic execution placement", () => {
         .collect();
       expect(turns).toHaveLength(1);
       expect(turns[0]).toMatchObject({
-        source: "execution-placement:mobile:computer:computer",
+        source: "execution-placement:mobile:computer",
       });
       const scheduled = await ctx.db.system
         .query("_scheduled_functions")
@@ -615,7 +615,7 @@ describe("automatic execution placement", () => {
           entry.name.includes("runOrchestratorTurnInternal"),
         )?.args[0],
       ).toMatchObject({
-        source: "execution-placement:mobile:computer:computer",
+        source: "execution-placement:mobile:computer",
       });
     });
   });

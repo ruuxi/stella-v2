@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   TURN_BROKER_AUTH_SCHEME,
   TURN_BROKER_HEADERS,
+  TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH,
   TURN_BROKER_NATIVE_STATE_CHECKPOINT_PATH,
   TURN_BROKER_TURN_TOKEN_HEADER,
   type TurnBrokerHandoff,
@@ -188,6 +189,62 @@ describe("BuildSession turn credential broker", () => {
     expect(
       validateTurnBrokerTarget("GET", "/api/cloud/browser/command"),
     ).toBeNull();
+  });
+
+  test("admits the interior build request as a Builder-local target on any engine", async () => {
+    const target = validateTurnBrokerTarget(
+      "POST",
+      TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH,
+    );
+    expect(target).toEqual({
+      kind: "interior-build-request",
+      method: "POST",
+      path: TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH,
+      maxBodyBytes: 64 * 1024,
+    });
+    if (!target) throw new Error("Expected interior build request target");
+    for (const engine of ["stella", "anthropic", "openai-codex"] as const) {
+      expect(turnBrokerTargetMatchesEngine(target, engine)).toBe(true);
+    }
+    expect(
+      validateTurnBrokerTarget("GET", TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH),
+    ).toBeNull();
+    expect(() =>
+      turnBrokerUpstreamUrl(
+        "https://convex.example/",
+        "https://convex.example/",
+        target,
+      ),
+    ).toThrow("no upstream URL");
+    await expect(
+      forwardTurnBrokerRequest({
+        target,
+        body: new Uint8Array(),
+        incomingHeaders: new Headers(),
+        convexCallbackBase: "https://convex.example/",
+        expectedConvexOrigin: "https://convex.example/",
+        rawTurnToken: "turn-token",
+        engine: "stella",
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow("cannot be forwarded to Convex");
+  });
+
+  test("never replays an interior build request claim", async () => {
+    const { handoff, record } = await issued();
+    const requestHeaders = headers(handoff, {
+      [TURN_BROKER_HEADERS.targetPath]: TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH,
+    });
+    const first = await claim(record, handoff, { headers: requestHeaders });
+    expect(first).toMatchObject({
+      ok: true,
+      disposition: "claim",
+      target: { kind: "interior-build-request" },
+    });
+    if (!first.ok) throw new Error(first.code);
+    expect(
+      await claim(first.record, handoff, { headers: requestHeaders }),
+    ).toMatchObject({ ok: false, status: 409, code: "replay" });
   });
 
   test("replays a byte-identical Browser Gateway request for gateway deduplication", async () => {

@@ -227,6 +227,21 @@ describe("execution placement runtime bridge", () => {
     );
   });
 
+  test("carries the dispatch id itself as the placed turn's user message id", () => {
+    const source = readFileSync(new URL("./index.js", import.meta.url), "utf8");
+    const bridgeStart = source.indexOf("async syncHostExecutionPlacement() {");
+    const bridgeEnd = source.indexOf(
+      "async sendConnectorFollowup(args)",
+      bridgeStart,
+    );
+    const placementSource = source.slice(bridgeStart, bridgeEnd);
+    expect(placementSource).toContain(
+      "const userMessageEventId = dispatch.dispatchId;",
+    );
+    expect(placementSource).not.toContain("`placement-user:${");
+    expect(placementSource).toContain("userMessageEventId,");
+  });
+
   test("joins a crash-owned exact run before signing a restarted presence", async () => {
     const database = new Database(":memory:");
     const sql = database as unknown as SqliteDatabase;

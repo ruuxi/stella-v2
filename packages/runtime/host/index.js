@@ -1258,7 +1258,10 @@ export class StellaRuntimeHost {
                         error: "The accepted execution payload did not contain a prompt.",
                     };
                 }
-                const userMessageEventId = `placement-user:${dispatch.dispatchId}`;
+                // The cloud journal echoes this id as the turn's clientMsgId, and
+                // mobile binds its optimistic bubble to the dispatch id, so the
+                // two must be the same string or the phone shows the user row twice.
+                const userMessageEventId = dispatch.dispatchId;
                 await this.appendLocalChatEvent({
                     conversationId: dispatch.conversationId,
                     eventId: userMessageEventId,

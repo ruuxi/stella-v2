@@ -21,7 +21,6 @@ export {
   automaticExecutionConversationClientCreateId,
   bindAutomaticExecutionAdmission,
   buildAutomaticExecutionAdmission,
-  executionSubjectForMobileWorkspace,
   isAutomaticExecutionTerminal,
   isAutomaticExecutionPairCredentialRejection,
   requestAutomaticExecutionCancellation,

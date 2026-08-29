@@ -75,7 +75,7 @@ describe("desktop cloud execution selection", () => {
     const result = await handleSpawnAgent(
       state,
       {
-        workspace: "cloud",
+        placement: "cloud",
         description: "Research",
         prompt: "Research this subject.",
       },
@@ -85,7 +85,6 @@ describe("desktop cloud execution selection", () => {
     expect(resolutions).toEqual([{}]);
     expect(dispatches).toEqual([
       {
-        workspace: "cloud",
         conversationId: "local-conversation",
         requestId: "request-1",
         description: "Research",
@@ -132,7 +131,7 @@ describe("desktop cloud execution selection", () => {
     await handleSpawnAgent(
       state,
       {
-        workspace: "cloud",
+        placement: "cloud",
         description: "Implement",
         prompt: "Implement the change.",
         model: "claude-code/claude-opus-4-6:high",
@@ -178,7 +177,7 @@ describe("desktop cloud execution selection", () => {
     await handleSpawnAgent(
       state,
       {
-        workspace: "cloud",
+        placement: "cloud",
         description: "Analyze",
         prompt: "Analyze the issue.",
         model: "stella/openai/gpt-5.6",
@@ -218,7 +217,7 @@ describe("desktop cloud execution selection", () => {
     await handleSpawnAgent(
       state,
       {
-        workspace: "cloud",
+        placement: "cloud",
         description: "Review",
         prompt: "Review the implementation.",
         model: "codex/gpt-5.6-sol:xhigh",
@@ -298,7 +297,6 @@ describe("desktop cloud execution selection", () => {
     });
 
     await dispatch({
-      workspace: "cloud",
       conversationId: "local-conversation",
       requestId: "spawn-request-1",
       description: "Research",
@@ -312,7 +310,6 @@ describe("desktop cloud execution selection", () => {
         args: {
           ownerGeneration: "owner-generation-1",
           clientMsgId: "spawn-request-1",
-          workspace: "cloud",
           description: "Research",
           prompt: "Research this subject.",
           originDeviceId: "device-1",
@@ -349,7 +346,6 @@ describe("desktop cloud execution selection", () => {
       isSignedIn: () => signedIn,
     };
     const request = {
-      workspace: "cloud",
       conversationId: "local-conversation",
       requestId: "spawn-lost-response-1",
       description: "Research",

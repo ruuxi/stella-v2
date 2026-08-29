@@ -132,6 +132,116 @@ describe("conversation display message merge", () => {
     ).toHaveLength(1);
   });
 
+  it("drops locked streaming overlays whose owning user message was truncated", () => {
+    const keptUser = message({
+      _id: "u1",
+      type: "user_message",
+      timestamp: 1,
+      payload: { text: "first" },
+    });
+    const keptAssistant = message({
+      _id: "a1",
+      timestamp: 2,
+      payload: { text: "answer to first", userMessageId: "u1" },
+    });
+    const truncatedOverlay = overlay({
+      _id: "stream-overlay:u2:1",
+      userMessageId: "u2",
+      text: "answer to second",
+      locked: true,
+      timestamp: 4,
+    });
+
+    const merged = mergeConversationDisplayMessageSources({
+      persistedMessages: [keptUser, keptAssistant],
+      overlayMessages: [overlayToMessageRecord(truncatedOverlay)],
+      streamingAssistants: [truncatedOverlay],
+      persistedAssistantSlots: getPersistedAssistantSlots([
+        keptUser,
+        keptAssistant,
+      ]),
+    });
+
+    expect(merged.map((item) => item._id)).toEqual(["u1", "a1"]);
+    expect(
+      merged.some((item) => item.payload?.text === "answer to second"),
+    ).toBe(false);
+  });
+
+  it("keeps remaining-turn overlays while dropping truncated-turn overlays", () => {
+    const keptUser = message({
+      _id: "u1",
+      type: "user_message",
+      timestamp: 1,
+      payload: { text: "first" },
+    });
+    const keptPersisted = message({
+      _id: "a1",
+      timestamp: 2,
+      payload: { text: "stored first", userMessageId: "u1" },
+    });
+    const keptLive = overlay({
+      _id: "stream-overlay:u1:1",
+      userMessageId: "u1",
+      text: "streamed first",
+      locked: true,
+      timestamp: 2,
+    });
+    const truncatedOverlay = overlay({
+      _id: "stream-overlay:u2:1",
+      userMessageId: "u2",
+      text: "answer to second",
+      locked: true,
+      timestamp: 4,
+    });
+
+    const merged = mergeConversationDisplayMessageSources({
+      persistedMessages: [keptUser, keptPersisted],
+      overlayMessages: [
+        overlayToMessageRecord(keptLive, keptPersisted),
+        overlayToMessageRecord(truncatedOverlay),
+      ],
+      streamingAssistants: [keptLive, truncatedOverlay],
+      persistedAssistantSlots: getPersistedAssistantSlots([
+        keptUser,
+        keptPersisted,
+      ]),
+    });
+
+    expect(merged.map((item) => item._id)).toEqual([
+      "u1",
+      "stream-overlay:u1:1",
+    ]);
+    expect(merged[1]!.payload?.text).toBe("stored first");
+  });
+
+  it("keeps a live overlay when its owning user is an optimistic overlay", () => {
+    const optimisticUser = message({
+      _id: "u-new",
+      type: "user_message",
+      timestamp: 1,
+      payload: { text: "just sent" },
+    });
+    const live = overlay({
+      _id: "stream-overlay:u-new:1",
+      userMessageId: "u-new",
+      text: "streaming",
+      timestamp: 2,
+    });
+
+    const merged = mergeConversationDisplayMessageSources({
+      persistedMessages: [],
+      overlayMessages: [optimisticUser, overlayToMessageRecord(live)],
+      streamingAssistants: [live],
+      persistedAssistantSlots: getPersistedAssistantSlots([]),
+    });
+
+    expect(merged.map((item) => item._id)).toEqual([
+      "u-new",
+      "stream-overlay:u-new:1",
+    ]);
+  });
+
   it("keeps a queued user send after an assistant that was visible first on cold load", () => {
     const assistant = message({
       _id: "assistant-before-queue",
@@ -723,6 +833,72 @@ describe("conversation display merge — structural-sharing fast path", () => {
     // Persisted-winner positions reuse the cached (stable) objects.
     const reusedUser = reused!.find((m) => m._id === "u1");
     expect(reusedUser).toBe(first.persistedMessages[0]);
+  });
+
+  it("reuse still omits a truncated-turn overlay while its text grows", () => {
+    // An orphaned locked overlay lingers in renderer memory after a rewind
+    // dropped its user turn. It must stay out of both the full merge and the
+    // cached-order reuse, even as the live overlay keeps streaming.
+    const orphan = overlay({
+      _id: "stream-overlay:u-gone:1",
+      userMessageId: "u-gone",
+      text: "answer to a rewound turn",
+      locked: true,
+      timestamp: 4,
+    });
+    const withOrphan = (overlayText: string) => {
+      const scene = buildScene(overlayText);
+      return {
+        ...scene,
+        overlayMessages: [
+          ...scene.overlayMessages,
+          overlayToMessageRecord(orphan),
+        ],
+        streamingAssistants: [...scene.streamingAssistants, orphan],
+      };
+    };
+
+    const first = withOrphan("strea");
+    const fullFirst = mergeConversationDisplayMessageSources(first);
+    const winners = findOverlayWinnerIndices(fullFirst, first.overlayMessages);
+    expect(fullFirst.map((m) => m._id)).toEqual([
+      "u1",
+      "assistant-msg-prior",
+      "stream-overlay:u1:1",
+    ]);
+
+    const second = {
+      ...first,
+      persistedMessages: first.persistedMessages,
+      persistedAssistantSlots: first.persistedAssistantSlots,
+      overlayMessages: [
+        overlayToMessageRecord(
+          overlay({ text: "streamed text", timestamp: 2 }),
+          first.persistedMessages[2]!,
+        ),
+        overlayToMessageRecord(orphan),
+      ],
+    };
+
+    expect(
+      overlayMergeShapeUnchanged(first.overlayMessages, second.overlayMessages),
+    ).toBe(true);
+
+    const reused = rebuildDisplayMessagesFromCachedOrder(
+      fullFirst,
+      winners,
+      second.overlayMessages,
+    );
+    const fullSecond = mergeConversationDisplayMessageSources(second);
+
+    expect(reused).not.toBeNull();
+    expect(reused!.map((m) => m._id)).toEqual(fullSecond.map((m) => m._id));
+    expect(
+      reused!.some((m) => m.payload?.text === "answer to a rewound turn"),
+    ).toBe(false);
+    expect(
+      reused!.find((m) => m._id === "stream-overlay:u1:1")!.payload?.text,
+    ).toBe("streamed text");
   });
 
   it("only the overlay positions are swapped; persisted refs are preserved", () => {

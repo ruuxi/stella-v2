@@ -304,6 +304,36 @@ describe("agent compute ladder", () => {
     expect(events[0]?.payload).toMatchObject({ reason: "interior_build" });
   });
 
+  test("a stop landing mid-boot still destroys the reserved instance", async () => {
+    let release: (() => void) | null = null;
+    let entered: (() => void) | null = null;
+    const stalled = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const booting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const { ladder, journal } = harness({
+      boot: async () => {
+        entered?.();
+        await stalled;
+        return { coldStartMs: 100, restoreMs: 10 };
+      },
+    });
+
+    const running = ladder.execute(call("call-1"));
+    await booting;
+    // The boot has not returned, so nothing has told the ladder an instance
+    // exists. The durable record written before it is the only thing a sweep
+    // arriving now can act on.
+    expect(journal.phases).toEqual(["attaching"]);
+    await ladder.teardown();
+    expect(journal.calls).toContain(`destroy:${SANDBOX_ID}`);
+
+    release?.();
+    await running;
+  });
+
   test("teardown destroys exactly what attached, and only that", async () => {
     const resident = harness();
     await resident.ladder.teardown();

@@ -8,7 +8,6 @@ import {
 import { requireUserId } from "./auth";
 import {
   cloudAgentSandboxLeaseExpiresAt,
-  COMPUTER_AGENT_WORKSPACE,
   shouldApplyComputerAgentTerminal,
 } from "./lib/computer_agent_thread";
 import { enforceMutationRateLimit, RATE_HOT_PATH } from "./lib/rate_limits";
@@ -128,7 +127,7 @@ const requireOwnedComputerThread = async (
     !thread ||
     thread.ownerId !== args.ownerId ||
     thread.ownerGeneration !== args.ownerGeneration ||
-    thread.workspace !== COMPUTER_AGENT_WORKSPACE ||
+    thread.placement !== "computer" ||
     thread.originDeviceId !== args.originDeviceId
   ) {
     throw new ConvexError("Agent thread not found.");
@@ -205,7 +204,7 @@ export const startMyComputerAgentThread = mutation({
       if (
         existing.ownerId !== ownerId ||
         existing.ownerGeneration !== ownerGeneration ||
-        existing.workspace !== COMPUTER_AGENT_WORKSPACE ||
+        existing.placement !== "computer" ||
         existing.originDeviceId !== originDeviceId ||
         existing.conversationId !== conversationId
       ) {
@@ -250,10 +249,7 @@ export const startMyComputerAgentThread = mutation({
         // device's recovery subscription.
         originDeliveryAckAt: undefined,
         attemptGeneration,
-        sandboxLeaseExpiresAt: cloudAgentSandboxLeaseExpiresAt(
-          COMPUTER_AGENT_WORKSPACE,
-          now,
-        ),
+        sandboxLeaseExpiresAt: cloudAgentSandboxLeaseExpiresAt("computer", now),
         updatedAt: now,
       });
       return { agentId: threadId };
@@ -276,13 +272,10 @@ export const startMyComputerAgentThread = mutation({
       // terminal row, and the originating device ACKs only after the exact
       // generation/revision has reached its durable orchestrator transcript.
       description,
-      workspace: COMPUTER_AGENT_WORKSPACE,
+      placement: "computer",
       agentType,
       attemptGeneration,
-      sandboxLeaseExpiresAt: cloudAgentSandboxLeaseExpiresAt(
-        COMPUTER_AGENT_WORKSPACE,
-        now,
-      ),
+      sandboxLeaseExpiresAt: cloudAgentSandboxLeaseExpiresAt("computer", now),
       status: "running",
       createdAt: now,
       updatedAt: now,
@@ -392,7 +385,7 @@ export const getMyComputerAgentThread = query({
       !thread ||
       thread.ownerId !== ownerId ||
       thread.ownerGeneration !== ownerGeneration ||
-      thread.workspace !== COMPUTER_AGENT_WORKSPACE ||
+      thread.placement !== "computer" ||
       thread.originDeviceId !== originDeviceId
     ) {
       return null;

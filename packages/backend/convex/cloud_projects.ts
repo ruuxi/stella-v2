@@ -98,7 +98,6 @@ const cloudProjectRowValidator = v.object({
 const publicProjectValidator = v.object({
   projectId: v.string(),
   slug: v.string(),
-  workspace: v.string(),
   name: v.string(),
   provider: v.string(),
   remoteUrl: v.optional(v.string()),
@@ -145,9 +144,6 @@ const slugify = (value: string): string =>
     .replace(/^-+/, "")
     .slice(0, 64)
     .replace(/-+$/, "");
-
-/** `project:<slug>` is the workspace form; the slug alone is the identity. */
-export const projectWorkspace = (slug: string): string => `project:${slug}`;
 
 const assertSlug = (value: string): string => {
   const slug = slugify(value);
@@ -882,7 +878,6 @@ const publicProject = (project: {
 }) => ({
   projectId: project.projectId,
   slug: project.slug,
-  workspace: projectWorkspace(project.slug),
   name: project.name,
   provider: project.provider,
   remoteUrl: project.remoteUrl,
@@ -936,7 +931,7 @@ export const getMyProject = query({
 /**
  * Create a project. With `remoteUrl` this is the create-from-remote flow
  * (provider "github", credentials brokered through the App installation);
- * without one it is a Stella-hosted project whose R2-backed workspace is its
+ * without one it is a Stella-hosted project whose R2-backed tree is its
  * own git home.
  */
 const createProject = async (
@@ -1062,7 +1057,7 @@ export const createProjectProbeInternal = internalMutation({
 });
 
 /**
- * Rename the display name only. The slug is the workspace identity behind the
+ * Rename the display name only. The slug is the durable identity behind the
  * sandbox checkpoint key, so changing it would orphan the project's work.
  */
 export const renameMyProject = mutation({
@@ -1122,35 +1117,25 @@ export const setMyProjectRemote = mutation({
 });
 
 /**
- * Delete a project row. The caller gets the workspace string back so the
- * builder can drop the matching sandbox checkpoint — otherwise a later project
- * reusing the slug would restore the deleted one's files.
+ * Delete a project row. The project's own directory lives inside the owner's
+ * one world, so there is no separate checkpoint to drop: marking the row
+ * `deleting` first keeps the slug reserved until the row is actually gone.
  */
 export const deleteMyProject = action({
   args: { projectId: v.string() },
-  returns: v.object({ ok: v.boolean(), workspace: v.string() }),
-  handler: async (ctx, args): Promise<{ ok: boolean; workspace: string }> => {
+  returns: v.object({ ok: v.boolean() }),
+  handler: async (ctx, args): Promise<{ ok: boolean }> => {
     const ownerId = await requireOwnerId(ctx);
     const { generation } = await assertOwnerDataAccessActive(ctx, ownerId);
-    const deletion: { workspace: string } = await ctx.runMutation(
+    await ctx.runMutation(
       internal.cloud_projects.beginProjectDeletionInternal,
       { ownerId, ownerGeneration: generation, projectId: args.projectId },
     );
-    const { workspace } = deletion;
-    await ctx.runAction(
-      internal.cloud_projects.purgeProjectCheckpointInternal,
-      { ownerId, ownerGeneration: generation, workspace },
-    );
     await ctx.runMutation(
       internal.cloud_projects.finishProjectDeletionInternal,
-      {
-        ownerId,
-        ownerGeneration: generation,
-        projectId: args.projectId,
-        workspace,
-      },
+      { ownerId, ownerGeneration: generation, projectId: args.projectId },
     );
-    return { ok: true, workspace };
+    return { ok: true };
   },
 });
 
@@ -1160,7 +1145,7 @@ export const beginProjectDeletionInternal = internalMutation({
     ownerGeneration: v.string(),
     projectId: v.string(),
   },
-  returns: v.object({ workspace: v.string() }),
+  returns: v.null(),
   handler: async (ctx, args) => {
     await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
     const project = await requireOwnedProject(
@@ -1168,22 +1153,21 @@ export const beginProjectDeletionInternal = internalMutation({
       args.ownerId,
       args.projectId,
     );
-    const workspace = projectWorkspace(project.slug);
-    // This is an existence fact about one exact workspace, not a recent-row
-    // sample. Unrelated newer threads must never hide a still-running project
-    // agent and let its checkpoint be deleted underneath it.
+    // An existence fact, not a recent-row sample. A running cloud agent owns
+    // the whole world this project lives in, so deleting the row underneath it
+    // races that agent's own view of the tree.
     const running = await ctx.db
       .query("cloud_agent_threads")
-      .withIndex("by_ownerId_and_workspace_and_status", (q) =>
+      .withIndex("by_ownerId_and_placement_and_status", (q) =>
         q
           .eq("ownerId", args.ownerId)
-          .eq("workspace", workspace)
+          .eq("placement", "cloud")
           .eq("status", "running"),
       )
       .first();
     if (running) {
       throw new ConvexError(
-        "An agent is still working in that project. Wait for it to finish, then delete it.",
+        "An agent is still working in your cloud. Wait for it to finish, then delete this project.",
       );
     }
     if (project.status !== "deleting") {
@@ -1192,7 +1176,7 @@ export const beginProjectDeletionInternal = internalMutation({
         updatedAt: Date.now(),
       });
     }
-    return { workspace };
+    return null;
   },
 });
 
@@ -1201,7 +1185,6 @@ export const finishProjectDeletionInternal = internalMutation({
     ownerId: v.string(),
     ownerGeneration: v.string(),
     projectId: v.string(),
-    workspace: v.string(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -1211,57 +1194,10 @@ export const finishProjectDeletionInternal = internalMutation({
       args.ownerId,
       args.projectId,
     );
-    if (
-      project.status !== "deleting" ||
-      projectWorkspace(project.slug) !== args.workspace
-    ) {
+    if (project.status !== "deleting") {
       throw new ConvexError("Project deletion state changed. Try again.");
     }
     await ctx.db.delete(project._id);
-    return null;
-  },
-});
-
-// Bytes first, row last. Any failure leaves the `deleting` project row as the
-// retry key and prevents the slug/workspace from being reused.
-export const purgeProjectCheckpointInternal = internalAction({
-  args: {
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    workspace: v.string(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    await assertExpectedOwnerGenerationActive(
-      ctx,
-      args.ownerId,
-      args.ownerGeneration,
-    );
-    const builderUrl = process.env.CLOUD_BUILDER_URL?.trim();
-    const secret = process.env.BUILDER_SERVICE_SECRET?.trim();
-    if (!builderUrl || !secret) {
-      throw new Error("Cloud builder is not configured for project deletion.");
-    }
-    const response = await fetch(
-      `${builderUrl.replace(/\/+$/, "")}/workspaces/purge`,
-      {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${secret}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          ownerId: args.ownerId,
-          ownerGeneration: args.ownerGeneration,
-          workspace: args.workspace,
-        }),
-      },
-    );
-    if (!response.ok) {
-      throw new Error(
-        `Project checkpoint purge failed (${response.status}); the project remains retryable.`,
-      );
-    }
     return null;
   },
 });
@@ -1534,9 +1470,8 @@ export const listMyGithubRepositories = action({
 // --- Internal surface ------------------------------------------------------
 
 /**
- * The workspace gate's lookup: `project:<slug>` is dispatchable only when this
- * returns a row. Slugs are stored kebab-lowercase; an exact miss falls back to
- * the slugified form so `project:My_Project` still resolves.
+ * Slug lookup. Slugs are stored kebab-lowercase; an exact miss falls back to
+ * the slugified form so `My_Project` still resolves.
  */
 export const getProjectBySlugInternal = internalQuery({
   args: { ownerId: v.string(), slug: v.string() },
@@ -1572,7 +1507,6 @@ export const resolveProjectInternal = internalQuery({
     ownerId: v.string(),
     projectId: v.optional(v.string()),
     slug: v.optional(v.string()),
-    workspace: v.optional(v.string()),
   },
   returns: v.union(cloudProjectRowValidator, v.null()),
   handler: async (ctx, args) => {
@@ -1587,9 +1521,7 @@ export const resolveProjectInternal = internalQuery({
         ? project
         : null;
     }
-    const slug = (
-      args.slug ?? args.workspace?.replace(/^project:/, "")
-    )?.trim();
+    const slug = args.slug?.trim();
     if (!slug) return null;
     const exact = await findProjectBySlug(ctx, args.ownerId, slug);
     if (exact) return exact.status !== "deleting" ? exact : null;
@@ -1703,7 +1635,7 @@ export const mintInstallationTokenInternal = internalAction({
     }
     if (project.provider !== "github" || !project.remoteUrl) {
       throw new ConvexError(
-        "That project has no GitHub remote — it uses its Stella-hosted workspace as its git home.",
+        "That project has no GitHub remote — it uses its Stella-hosted directory as its git home.",
       );
     }
     if (!project.installationId) {

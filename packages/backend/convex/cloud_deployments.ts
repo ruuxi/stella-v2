@@ -689,12 +689,10 @@ export const recordInteriorBuildInternal = internalMutation({
       !thread ||
       turn.ownerId !== ownerId ||
       thread.ownerId !== ownerId ||
-      turn.threadId !== threadId ||
-      turn.workspace !== "stella" ||
-      thread.workspace !== "stella"
+      turn.threadId !== threadId
     ) {
       throw new ConvexError(
-        "Interior candidate does not belong to a Stella workspace turn.",
+        "Interior candidate does not belong to a cloud agent turn of this owner.",
       );
     }
 

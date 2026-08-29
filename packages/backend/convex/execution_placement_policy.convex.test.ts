@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   decideExecutionPlacement,
   deriveExecutionSubject,
-  executionSubjectForWorkspace,
+  ingressMayClaimComputerSubject,
   mayFallbackToCloud,
   type ExecutionIngress,
   type ExecutionSubject,
@@ -63,31 +63,35 @@ describe("automatic execution placement policy", () => {
     }
   });
 
-  it("treats workspace as subject, not placement", () => {
-    expect(executionSubjectForWorkspace(undefined)).toBe("portable");
-    expect(executionSubjectForWorkspace("computer")).toBe("computer");
-    expect(executionSubjectForWorkspace("cloud")).toBe("cloud");
-    expect(executionSubjectForWorkspace("project:stella")).toBe("cloud");
-    expect(executionSubjectForWorkspace("app:calendar")).toBe("cloud");
+  it("lets only device-backed ingress claim the computer", () => {
+    expect(ingressMayClaimComputerSubject("desktop")).toBe(true);
+    expect(ingressMayClaimComputerSubject("mobile")).toBe(true);
+    expect(ingressMayClaimComputerSubject("browser")).toBe(false);
+    expect(ingressMayClaimComputerSubject("cloud")).toBe(false);
+    expect(ingressMayClaimComputerSubject("schedule")).toBe(false);
   });
 
-  it("derives subject from trusted ingress and an authorized workspace", () => {
+  it("keeps the subject a device-backed caller named", () => {
     expect(deriveExecutionSubject({ ingress: "mobile" })).toBe("portable");
     expect(
-      deriveExecutionSubject({ ingress: "mobile", workspace: "computer" }),
+      deriveExecutionSubject({ ingress: "mobile", subject: "computer" }),
     ).toBe("computer");
     expect(
-      deriveExecutionSubject({
-        ingress: "desktop",
-        workspace: "project:stella",
-      }),
+      deriveExecutionSubject({ ingress: "desktop", subject: "cloud" }),
     ).toBe("cloud");
-    expect(
-      deriveExecutionSubject({ ingress: "browser", workspace: undefined }),
-    ).toBe("cloud");
-    expect(
-      deriveExecutionSubject({ ingress: "schedule", workspace: "drive" }),
-    ).toBe("cloud");
+  });
+
+  it("never lets a deviceless ingress claim a computer subject", () => {
+    for (const ingress of ["browser", "cloud", "schedule"] as const) {
+      for (const subject of [
+        undefined,
+        "portable",
+        "computer",
+        "cloud",
+      ] as const) {
+        expect(deriveExecutionSubject({ ingress, subject })).toBe("cloud");
+      }
+    }
   });
 
   it("forbids fallback after durable computer acceptance", () => {

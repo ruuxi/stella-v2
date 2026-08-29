@@ -8,11 +8,9 @@ import {
   driveObjectKey,
   driveProducedObjectKey,
   driveRevisionPath,
-  driveWritePrefixForWorkspace,
   normalizeDriveFileReport,
   putDriveObject,
   reconcileDriveObject,
-  turnHydratesDrive,
   type DriveFileReport,
   type NormalizedDriveFile,
 } from "../cloud_drive";
@@ -351,7 +349,7 @@ export function registerCloudDriveRoutes(http: HttpRouter) {
         return json({ error: "Forbidden" }, 403);
       }
       const turn = await ctx.runQuery(
-        internal.cloud_drive.getTurnWorkspaceInternal,
+        internal.cloud_drive.getTurnDriveIdentityInternal,
         { turnId: token.turnId },
       );
       if (!turn || turn.ownerId !== token.ownerId) {
@@ -380,13 +378,13 @@ export function registerCloudDriveRoutes(http: HttpRouter) {
       } catch {
         return json({ error: "Cloud turn is no longer active." }, 409);
       }
-      // Same prefix the write boundary uses: hydration must not hand a turn
-      // reach it does not already have.
+      // The owner's whole drive, which is exactly what the turn token already
+      // reaches: one owner, one drive, one world to hydrate it into.
       const manifest = await buildDriveSyncManifest(
         ctx,
         turn.ownerId,
         token.ownerGeneration,
-        driveWritePrefixForWorkspace(turn.workspace),
+        "",
         include,
         since,
         have,
@@ -456,49 +454,23 @@ export function registerCloudDriveRoutes(http: HttpRouter) {
         );
       }
 
-      // A turn writes into its own workspace's drive folder and nowhere else.
-      // The executor already namespaces the paths it reports; without this the
-      // namespacing is a convention an injected agent can simply not follow,
-      // and its turn token reaches the owner's whole drive.
       const skipped: DriveSkip[] = [];
       // Whether this write comes from a turn that was shown the drive before
-      // it ran. A service write is nobody's turn and reads nothing; the
-      // per-turn answer is `turnHydratesDrive`. It decides one thing only:
-      // whether `replaced` can mean anything here (see below).
+      // it ran. A service write is nobody's turn and reads nothing. It decides
+      // one thing only: whether `replaced` can mean anything here (see below).
       let hydrated = false;
       if (token) {
+        // The turn-token to turn join is the write boundary: the token proves
+        // which turn is writing, and this proves that turn belongs to the
+        // owner whose drive is about to change.
         const turn = await ctx.runQuery(
-          internal.cloud_drive.getTurnWorkspaceInternal,
+          internal.cloud_drive.getTurnDriveIdentityInternal,
           { turnId: token.turnId },
         );
         if (!turn || turn.ownerId !== ownerId) {
           return json({ error: "Forbidden" }, 403);
         }
-        hydrated = turnHydratesDrive(turn);
-        const prefix = driveWritePrefixForWorkspace(turn.workspace);
-        if (prefix) {
-          const inScope = files.filter((file) => file.path.startsWith(prefix));
-          if (inScope.length !== files.length) {
-            for (const file of files) {
-              if (file.path.startsWith(prefix)) continue;
-              skipped.push({
-                path: file.path,
-                reason: `${file.path} is outside this turn's workspace folder (${prefix}).`,
-              });
-            }
-            console.error(
-              JSON.stringify({
-                service: "convex-cloud-drive",
-                event: "drive_write_outside_workspace",
-                turnId: token.turnId,
-                workspace: turn.workspace ?? "",
-                prefix,
-                paths: skipped.map((entry) => entry.path),
-              }),
-            );
-          }
-          files = inScope;
-        }
+        hydrated = turn.hydratesDrive;
       }
 
       // Non-destructive before quota: a file diverted here is a different

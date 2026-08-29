@@ -1,5 +1,5 @@
 import { defineTable } from "convex/server";
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 
 export const executionIngressValidator = v.union(
   v.literal("desktop"),
@@ -24,6 +24,8 @@ export const executionPlacementValidator = v.union(
   v.literal("computer"),
   v.literal("cloud"),
 );
+
+export type ExecutionPlacement = Infer<typeof executionPlacementValidator>;
 
 export const executionCapabilityValidator = v.union(
   v.literal("chat"),
@@ -144,7 +146,6 @@ export const executionPlacementSchema = {
     threadId: v.optional(v.string()),
     requestingDeviceId: v.optional(v.string()),
     pairGrantDeviceId: v.optional(v.string()),
-    workspace: v.optional(v.string()),
     requiredCapabilities: v.array(executionCapabilityValidator),
     routingPolicyVersion: v.number(),
     onNoEligibleComputer: noEligibleComputerActionValidator,

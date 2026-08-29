@@ -1,6 +1,7 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
 import { cloudBrowserResumeReceiptValidator } from "./cloud_browser";
+import { executionPlacementValidator } from "./execution_placement";
 import { cloudExecutionSelectionValidator } from "../lib/cloud_execution";
 
 export const cloudAppsSchema = {
@@ -257,9 +258,8 @@ export const cloudAppsSchema = {
     // "agent" (spawned general agent in a sandbox). Absent on legacy rows.
     kind: v.optional(v.string()),
     agentType: v.optional(v.string()),
-    // Spawn placement for kind "agent" turns: cloud | app:<slug> |
-    // project:<name> | stella | computer.
-    workspace: v.optional(v.string()),
+    // Where a kind "agent" turn runs. Absent on turns of other kinds.
+    placement: v.optional(executionPlacementValidator),
     threadId: v.optional(v.string()),
     /** Immutable generation of this concrete spawned-agent attempt. */
     attemptGeneration: v.optional(v.number()),
@@ -467,7 +467,7 @@ export const cloudAppsSchema = {
     // reactive recovery query across disconnects and process restarts.
     originDeliveryAckAt: v.optional(v.number()),
     description: v.string(),
-    workspace: v.string(),
+    placement: executionPlacementValidator,
     agentType: v.string(),
     /**
      * Thread-level inheritance snapshot. Continuations keep this exact route;
@@ -521,9 +521,9 @@ export const cloudAppsSchema = {
       "originDeliveryAckAt",
       "updatedAt",
     ])
-    .index("by_ownerId_and_workspace_and_status", [
+    .index("by_ownerId_and_placement_and_status", [
       "ownerId",
-      "workspace",
+      "placement",
       "status",
     ])
     .index("by_owner_status_lease_updatedAt", [

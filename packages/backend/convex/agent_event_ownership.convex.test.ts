@@ -91,7 +91,7 @@ const insertThread = async (
       ownerId: args.ownerId,
       conversationId: "conversation-1",
       description: "test",
-      workspace: "computer",
+      placement: "computer",
       agentType: "general",
       status: "running",
       createdAt: args.createdAt ?? 1,

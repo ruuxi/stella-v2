@@ -19,6 +19,7 @@ import {
   resolveExternalCliPath,
 } from "./external-cli-resolution.js";
 import { createClaudeCodeToolMcpHost } from "./claude-code-tool-mcp-host.js";
+import { forkCancelableTimeout } from "./effect-runtime.js";
 const CLAUDE_CODE_MODEL_PREFIX = "claude-code/";
 /**
  * Model the fable fallback policy switches a turn to after the configured
@@ -95,6 +96,13 @@ const DEFAULT_STEP_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 // leaked tracking.)
 const DEFAULT_STEP_TOOL_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
 const DEFAULT_CONTROL_REQUEST_TIMEOUT_MS = 60 * 1000;
+// A steering interrupt must not inherit the ordinary control-request budget.
+// Some CLI builds acknowledge `interrupt` and then never emit the turn's
+// terminal `result`, so both the ACK and the post-ACK result wait are held to
+// a short bound; past it we fail the pending turn ourselves and reset the
+// stream so the steered input can start a fresh query.
+const DEFAULT_STEERING_CONTROL_TIMEOUT_MS = 2 * 1000;
+const DEFAULT_STEERING_RESULT_TIMEOUT_MS = 2 * 1000;
 const CLAUDE_CODE_COMPACTING_TEXT = "Compacting context";
 const CLAUDE_CODE_RUNNING_TEXT = "Working";
 /**
@@ -2207,7 +2215,9 @@ class ClaudeCodeSessionRuntime {
         new ClaudeCodeProcessEndedError(message, code),
       );
     });
-    if (mcpHost && request.tools.some((tool) => tool.name === "image_gen")) {
+    // Claude accepts stdin before it has discovered the private MCP catalog.
+    // Do not let the first tool-bearing prompt race that discovery.
+    if (mcpHost && request.tools.length > 0) {
       await mcpHost.waitForClientReady(request.abortSignal);
     }
     return processState;
@@ -2305,9 +2315,14 @@ class ClaudeCodeSessionRuntime {
                 return await pending.steeringInterruptPromise;
               }
               pending.steeringInterrupted = true;
-              pending.steeringInterruptPromise = this.sendControlRequest(
+              pending.steeringSettledPromise = new Promise((resolve) => {
+                pending.resolveSteeringSettled = resolve;
+              });
+              pending.steeringInterruptPromise = this.interruptPendingTurn(
+                session,
+                request.sessionKey,
                 processState,
-                { subtype: "interrupt" },
+                pending,
               );
               return await pending.steeringInterruptPromise;
             },
@@ -2331,16 +2346,93 @@ class ClaudeCodeSessionRuntime {
     }
     pending.detachTurnControl?.();
     pending.detachTurnControl = undefined;
+    // Whoever is waiting on the steering interrupt learns here that this turn
+    // reached a terminal state, whether by `result`, abort, or process death.
+    pending.resolveSteeringSettled?.();
+    pending.resolveSteeringSettled = undefined;
   }
-  async sendControlRequest(processState, request) {
+  /**
+   * Interrupt the in-flight turn on behalf of steering input and guarantee the
+   * pending turn reaches a terminal state within a bounded window. A CLI that
+   * ACKs the interrupt but never emits `result` would otherwise leave the
+   * steered turn waiting forever on a stream nobody will finish.
+   */
+  async interruptPendingTurn(session, sessionKey, processState, pending) {
+    const controlTimeoutMs = configuredTimeoutMs(
+      "STELLA_CLAUDE_CODE_STEERING_CONTROL_TIMEOUT_MS",
+      configuredTimeoutMs(
+        "STELLA_CLAUDE_CODE_CONTROL_TIMEOUT_MS",
+        DEFAULT_STEERING_CONTROL_TIMEOUT_MS,
+      ),
+    );
+    try {
+      await this.sendControlRequest(
+        processState,
+        { subtype: "interrupt" },
+        controlTimeoutMs,
+      );
+    } catch (error) {
+      this.failSteeringTurn(sessionKey, session, processState, pending);
+      throw error;
+    }
+    if (!processState.pending.includes(pending)) {
+      return;
+    }
+    const resultTimeoutMs = configuredTimeoutMs(
+      "STELLA_CLAUDE_CODE_STEERING_RESULT_TIMEOUT_MS",
+      DEFAULT_STEERING_RESULT_TIMEOUT_MS,
+    );
+    let cancelResultTimeout;
+    const resultArrived = await Promise.race([
+      pending.steeringSettledPromise.then(() => true),
+      new Promise((resolve) => {
+        cancelResultTimeout = forkCancelableTimeout(resultTimeoutMs, () => {
+          resolve(false);
+        });
+      }),
+    ]);
+    cancelResultTimeout?.();
+    if (!resultArrived && processState.pending.includes(pending)) {
+      this.failSteeringTurn(sessionKey, session, processState, pending);
+    }
+  }
+  /**
+   * Terminal path for a steering interrupt the CLI never completed: drop the
+   * pending turn, tear down the streaming process so the next prompt starts a
+   * clean query, and reject with the control-flow steering error so the caller
+   * treats it as steering rather than a malformed step.
+   */
+  failSteeringTurn(sessionKey, session, processState, pending) {
+    const index = processState.pending.indexOf(pending);
+    if (index >= 0) {
+      processState.pending.splice(index, 1);
+      this.detachAbortListener(pending);
+    }
+    if (session.process === processState) {
+      processState.closed = true;
+      this.resetStreamingProcess(sessionKey, session);
+    }
+    if (index >= 0) {
+      pending.reject(
+        new ClaudeCodeSteeringInterruptError(
+          pending.fileChanges,
+          pending.mcpCalls,
+        ),
+      );
+    }
+  }
+  async sendControlRequest(
+    processState,
+    request,
+    timeoutMs = configuredTimeoutMs(
+      "STELLA_CLAUDE_CODE_CONTROL_TIMEOUT_MS",
+      DEFAULT_CONTROL_REQUEST_TIMEOUT_MS,
+    ),
+  ) {
     if (processState.closed || processState.child.stdin.destroyed) {
       throw new ClaudeCodeProcessEndedError("Claude Code stream is closed.");
     }
     const requestId = `stella_${crypto.randomUUID()}`;
-    const timeoutMs = configuredTimeoutMs(
-      "STELLA_CLAUDE_CODE_CONTROL_TIMEOUT_MS",
-      DEFAULT_CONTROL_REQUEST_TIMEOUT_MS,
-    );
     const response = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         processState.pendingControlRequests.delete(requestId);

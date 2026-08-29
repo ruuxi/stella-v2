@@ -627,20 +627,29 @@ describe("claude-code-session-runtime", () => {
     }
   });
 
-  it("uses private native MCP and returns one clean natural final by default", async () => {
+  it("waits for private native MCP before sending the first prompt", async () => {
     const dir = fs.mkdtempSync(
       path.join(os.tmpdir(), "stella-fake-claude-native-mcp-"),
     );
     const binDir = path.join(dir, "bin");
+    const helperPath = path.join(dir, "fake-claude.mjs");
     const logPath = path.join(dir, "prompts.log");
     fs.mkdirSync(binDir, { recursive: true });
+    fs.symlinkSync(
+      path.resolve(process.cwd(), "../../node_modules"),
+      path.join(dir, "node_modules"),
+      "dir",
+    );
     const fakeClaude = path.join(binDir, "claude");
     fs.writeFileSync(
-      fakeClaude,
+      helperPath,
       [
-        "#!/usr/bin/env node",
-        "const fs = require('node:fs');",
+        "import fs from 'node:fs';",
+        "import { Client } from '@modelcontextprotocol/sdk/client/index.js';",
+        "import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';",
         "let buffer = '';",
+        "let catalogRequested = false;",
+        "const argv = process.argv.slice(2);",
         "function emit(payload) { process.stdout.write(JSON.stringify(payload) + '\\n'); }",
         "function handle(line) {",
         "  const parsed = JSON.parse(line);",
@@ -655,6 +664,11 @@ describe("claude-code-session-runtime", () => {
         "}",
         "process.stdin.on('data', chunk => {",
         "  buffer += chunk.toString('utf8');",
+        "  if (!catalogRequested) {",
+        "    buffer = '';",
+        "    emit({ type: 'result', session_id: 'native-session', is_error: false, result: 'Prompt arrived before MCP catalog.' });",
+        "    return;",
+        "  }",
         "  for (;;) {",
         "    const idx = buffer.indexOf('\\n');",
         "    if (idx === -1) break;",
@@ -663,12 +677,26 @@ describe("claude-code-session-runtime", () => {
         "    if (line) handle(line);",
         "  }",
         "});",
+        "await new Promise(resolve => setTimeout(resolve, 100));",
+        "const configPath = argv[argv.indexOf('--mcp-config') + 1];",
+        "const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
+        "const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
+        "const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
+        "await client.connect(transport);",
+        "catalogRequested = true;",
+        "await client.listTools();",
       ].join("\n"),
+    );
+    fs.writeFileSync(
+      fakeClaude,
+      '#!/bin/sh\nexec node "$STELLA_FAKE_CLAUDE_HELPER" "$@"\n',
     );
     fs.chmodSync(fakeClaude, 0o755);
     const previousPath = process.env.PATH;
+    const previousHelper = process.env.STELLA_FAKE_CLAUDE_HELPER;
     const previousLogPath = process.env.STELLA_FAKE_CLAUDE_LOG;
     process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    process.env.STELLA_FAKE_CLAUDE_HELPER = helperPath;
     process.env.STELLA_FAKE_CLAUDE_LOG = logPath;
     try {
       const chunks: string[] = [];
@@ -689,13 +717,13 @@ describe("claude-code-session-runtime", () => {
         executeTool,
       });
 
+      expect(result.text).toBe("Clean answer.");
       const records = fs
         .readFileSync(logPath, "utf8")
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line) as { argv: string[]; content: string });
       expect(records).toHaveLength(1);
-      expect(result.text).toBe("Clean answer.");
       expect(chunks.join("")).toBe("Clean answer.");
       expect(`${result.text}${chunks.join("")}`).not.toContain("court");
       expect(executeTool).not.toHaveBeenCalled();
@@ -740,6 +768,11 @@ describe("claude-code-session-runtime", () => {
     } finally {
       shutdownClaudeCodeRuntime();
       process.env.PATH = previousPath;
+      if (previousHelper === undefined) {
+        delete process.env.STELLA_FAKE_CLAUDE_HELPER;
+      } else {
+        process.env.STELLA_FAKE_CLAUDE_HELPER = previousHelper;
+      }
       if (previousLogPath === undefined) {
         delete process.env.STELLA_FAKE_CLAUDE_LOG;
       } else {
@@ -769,12 +802,13 @@ describe("claude-code-session-runtime", () => {
         "import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';",
         "let buffer = '';",
         "const argv = process.argv.slice(2);",
+        "const configPath = argv[argv.indexOf('--mcp-config') + 1];",
+        "const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
+        "const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
+        "const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
+        "await client.connect(transport);",
+        "await client.listTools();",
         "async function handle() {",
-        "  const configPath = argv[argv.indexOf('--mcp-config') + 1];",
-        "  const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
-        "  const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
-        "  const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
-        "  await client.connect(transport);",
         "  const toolResult = await client.callTool({ name: 'NoResponse', arguments: {} });",
         "  if (toolResult.isError) throw new Error('NoResponse failed');",
         "  await client.close();",
@@ -851,15 +885,16 @@ describe("claude-code-session-runtime", () => {
         "const argv = process.argv.slice(2);",
         "const logPath = process.env.STELLA_FAKE_CLAUDE_LOG;",
         "const spawnCount = (fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8').trim().split('\\n').filter(Boolean).length : 0) + 1;",
+        "const configPath = argv[argv.indexOf('--mcp-config') + 1];",
+        "const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
+        "const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
+        "const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
+        "await client.connect(transport);",
+        "await client.listTools();",
         "async function handle(line) {",
         "  const parsed = JSON.parse(line);",
         "  fs.appendFileSync(logPath, JSON.stringify({ spawnCount, content: parsed.message.content }) + '\\n');",
         "  if (spawnCount === 1) {",
-        "    const configPath = argv[argv.indexOf('--mcp-config') + 1];",
-        "    const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
-        "    const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
-        "    const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
-        "    await client.connect(transport);",
         "    const toolResult = await client.callTool({ name: 'mutate_once', arguments: { value: 1 } });",
         "    if (toolResult.isError) throw new Error('mutation failed');",
         "    await client.close();",
@@ -961,16 +996,17 @@ describe("claude-code-session-runtime", () => {
         "let buffer = '';",
         "let promptCount = 0;",
         "const argv = process.argv.slice(2);",
+        "const configPath = argv[argv.indexOf('--mcp-config') + 1];",
+        "const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
+        "const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
+        "const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
+        "await client.connect(transport);",
+        "await client.listTools();",
         "async function handle(line) {",
         "  promptCount += 1;",
         "  const parsed = JSON.parse(line);",
         "  fs.appendFileSync(process.env.STELLA_FAKE_CLAUDE_LOG, JSON.stringify({ promptCount, content: parsed.message.content }) + '\\n');",
         "  if (promptCount === 1) {",
-        "    const configPath = argv[argv.indexOf('--mcp-config') + 1];",
-        "    const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
-        "    const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
-        "    const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
-        "    await client.connect(transport);",
         "    const toolResult = await client.callTool({ name: 'charge_once', arguments: { cents: 25 } });",
         "    if (toolResult.isError) throw new Error('charge failed');",
         "    await client.close();",
@@ -2192,6 +2228,136 @@ describe("claude-code-session-runtime", () => {
     }
   });
 
+  it("restarts and resumes when Claude acknowledges steering without ending the query", async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "stella-fake-claude-ack-only-steer-"),
+    );
+    const binDir = path.join(dir, "bin");
+    const logPath = path.join(dir, "steer.jsonl");
+    fs.mkdirSync(binDir, { recursive: true });
+    const fakeClaude = path.join(binDir, "claude");
+    fs.writeFileSync(
+      fakeClaude,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('node:fs');",
+        "const logPath = process.env.STELLA_FAKE_CLAUDE_LOG;",
+        "const resumed = process.argv.includes('--resume');",
+        "fs.appendFileSync(logPath, JSON.stringify({ type: 'spawn', resumed }) + '\\n');",
+        "let buffer = '';",
+        "const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');",
+        "process.stdin.on('data', chunk => {",
+        "  buffer += chunk.toString('utf8');",
+        "  while (true) {",
+        "    const idx = buffer.indexOf('\\n');",
+        "    if (idx === -1) break;",
+        "    const line = buffer.slice(0, idx).trim();",
+        "    buffer = buffer.slice(idx + 1);",
+        "    if (!line) continue;",
+        "    const parsed = JSON.parse(line);",
+        "    fs.appendFileSync(logPath, JSON.stringify(parsed) + '\\n');",
+        "    if (parsed.type === 'user') {",
+        "      send({ type: 'system', subtype: 'init', session_id: 'ack-only-session', capabilities: ['interrupt_receipt_v1'] });",
+        "      if (resumed) send({ type: 'result', session_id: 'ack-only-session', is_error: false, result: 'Continued after restart.', usage: { input_tokens: 1, output_tokens: 1 } });",
+        "      continue;",
+        "    }",
+        "    if (parsed.type === 'control_request' && parsed.request?.subtype === 'interrupt') {",
+        "      send({ type: 'control_response', response: { subtype: 'success', request_id: parsed.request_id, response: {} } });",
+        "    }",
+        "  }",
+        "});",
+        "setInterval(() => {}, 1000);",
+      ].join("\n"),
+    );
+    fs.chmodSync(fakeClaude, 0o755);
+    const previousPath = process.env.PATH;
+    const previousLogPath = process.env.STELLA_FAKE_CLAUDE_LOG;
+    const previousResultTimeout =
+      process.env.STELLA_CLAUDE_CODE_STEERING_RESULT_TIMEOUT_MS;
+    process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    process.env.STELLA_FAKE_CLAUDE_LOG = logPath;
+    process.env.STELLA_CLAUDE_CODE_STEERING_RESULT_TIMEOUT_MS = "50";
+    let activeControl:
+      | {
+          interrupt: () => Promise<void>;
+        }
+      | undefined;
+    let markControlReady: (() => void) | undefined;
+    const controlReady = new Promise<void>((resolve) => {
+      markControlReady = resolve;
+    });
+
+    try {
+      const sessionKey = `test:ack-only-steer:${Date.now()}`;
+      const firstTurn = runClaudeCodeTurn({
+        runId: "run-ack-only-steer-1",
+        sessionKey,
+        prompt: "Start the original request.",
+        modelId: "claude-code/default",
+        tools: [],
+        executeTool: async () => ({ result: "unused" }),
+        onTurnControl: (control) => {
+          activeControl = control;
+          markControlReady?.();
+          return () => undefined;
+        },
+      });
+      const firstOutcome = firstTurn.then(
+        () => ({ status: "resolved" as const }),
+        (error: unknown) => ({ status: "rejected" as const, error }),
+      );
+
+      await controlReady;
+      const interrupt = activeControl?.interrupt();
+      const outcome = await Promise.race([
+        firstOutcome,
+        new Promise<{ status: "timed-out" }>((resolve) =>
+          setTimeout(() => resolve({ status: "timed-out" }), 500),
+        ),
+      ]);
+      expect(outcome.status).toBe("rejected");
+      expect(
+        outcome.status === "rejected" ? outcome.error : undefined,
+      ).toBeInstanceOf(ClaudeCodeSteeringInterruptError);
+      await interrupt;
+
+      const redirected = await runClaudeCodeTurn({
+        runId: "run-ack-only-steer-2",
+        sessionKey,
+        prompt: "Handle the redirected request.",
+        modelId: "claude-code/default",
+        tools: [],
+        executeTool: async () => ({ result: "unused" }),
+      });
+      const records = fs
+        .readFileSync(logPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+      expect(redirected.text).toBe("Continued after restart.");
+      expect(records.filter((record) => record.type === "spawn")).toEqual([
+        { type: "spawn", resumed: false },
+        { type: "spawn", resumed: true },
+      ]);
+    } finally {
+      shutdownClaudeCodeRuntime();
+      process.env.PATH = previousPath;
+      if (previousLogPath === undefined) {
+        delete process.env.STELLA_FAKE_CLAUDE_LOG;
+      } else {
+        process.env.STELLA_FAKE_CLAUDE_LOG = previousLogPath;
+      }
+      if (previousResultTimeout === undefined) {
+        delete process.env.STELLA_CLAUDE_CODE_STEERING_RESULT_TIMEOUT_MS;
+      } else {
+        process.env.STELLA_CLAUDE_CODE_STEERING_RESULT_TIMEOUT_MS =
+          previousResultTimeout;
+      }
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("fails a silent Claude Code process instead of hanging", async () => {
     const dir = fs.mkdtempSync(
       path.join(os.tmpdir(), "stella-fake-claude-silent-"),
@@ -2629,7 +2795,13 @@ describe("claude native tool-use integrity gate", () => {
 
   const streamToolUse = (
     correlator: ReturnType<typeof createClaudeNativeToolUseCorrelator>,
-    args: { id: string; name: string; json: string; stop?: boolean; index?: number },
+    args: {
+      id: string;
+      name: string;
+      json: string;
+      stop?: boolean;
+      index?: number;
+    },
   ) => {
     const index = args.index ?? 1;
     correlator.observeStreamEvent({
@@ -2637,7 +2809,12 @@ describe("claude native tool-use integrity gate", () => {
       event: {
         type: "content_block_start",
         index,
-        content_block: { type: "tool_use", id: args.id, name: args.name, input: {} },
+        content_block: {
+          type: "tool_use",
+          id: args.id,
+          name: args.name,
+          input: {},
+        },
       },
     });
     for (let i = 0; i < args.json.length; i += 512) {
@@ -2646,7 +2823,10 @@ describe("claude native tool-use integrity gate", () => {
         event: {
           type: "content_block_delta",
           index,
-          delta: { type: "input_json_delta", partial_json: args.json.slice(i, i + 512) },
+          delta: {
+            type: "input_json_delta",
+            partial_json: args.json.slice(i, i + 512),
+          },
         },
       });
     }
@@ -2659,11 +2839,15 @@ describe("claude native tool-use integrity gate", () => {
   };
 
   it("repairs a partial string argument the way the CLI does", () => {
-    expect(repairPartialToolInputJson('{"description":"Fix","prompt":"cut mid-wo')).toEqual({
+    expect(
+      repairPartialToolInputJson('{"description":"Fix","prompt":"cut mid-wo'),
+    ).toEqual({
       description: "Fix",
       prompt: "cut mid-wo",
     });
-    expect(repairPartialToolInputJson('{"prompt":"whole"}')).toEqual({ prompt: "whole" });
+    expect(repairPartialToolInputJson('{"prompt":"whole"}')).toEqual({
+      prompt: "whole",
+    });
     expect(repairPartialToolInputJson('{"nested":{"list":["a","b')).toEqual({
       nested: { list: ["a", "b"] },
     });
@@ -2682,7 +2866,12 @@ describe("claude native tool-use integrity gate", () => {
       message: {
         stop_reason: "end_turn",
         content: [
-          { type: "tool_use", id: "toolu_full", name: "mcp__stella__spawn_agent", input: toolArgs },
+          {
+            type: "tool_use",
+            id: "toolu_full",
+            name: "mcp__stella__spawn_agent",
+            input: toolArgs,
+          },
         ],
       },
     });
@@ -2703,7 +2892,12 @@ describe("claude native tool-use integrity gate", () => {
       message: {
         stop_reason: "max_tokens",
         content: [
-          { type: "tool_use", id: "toolu_cut", name: "mcp__stella__spawn_agent", input: clipped },
+          {
+            type: "tool_use",
+            id: "toolu_cut",
+            name: "mcp__stella__spawn_agent",
+            input: clipped,
+          },
         ],
       },
     });
@@ -2718,7 +2912,10 @@ describe("claude native tool-use integrity gate", () => {
 
   it("refuses a call whose args match the repair of an interrupted stream", async () => {
     const correlator = createClaudeNativeToolUseCorrelator();
-    const fullJson = JSON.stringify({ description: "Fix the runtime", prompt: longPrompt });
+    const fullJson = JSON.stringify({
+      description: "Fix the runtime",
+      prompt: longPrompt,
+    });
     const cut = fullJson.slice(0, 900); // mid prompt string, no stop event
     streamToolUse(correlator, {
       id: "toolu_interrupted",
@@ -2740,7 +2937,11 @@ describe("claude native tool-use integrity gate", () => {
 
   it("refuses a call whose block stopped with unparseable accumulated JSON", async () => {
     const correlator = createClaudeNativeToolUseCorrelator();
-    const fullJson = JSON.stringify({ thread_id: "thr-1", description: "d", message: longPrompt });
+    const fullJson = JSON.stringify({
+      thread_id: "thr-1",
+      description: "d",
+      message: longPrompt,
+    });
     const cut = fullJson.slice(0, 1000);
     streamToolUse(correlator, {
       id: "toolu_stop_cut",

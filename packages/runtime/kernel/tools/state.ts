@@ -66,6 +66,9 @@ const toOptionalString = (value: unknown): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
+const isSpawnPlacement = (value: string): value is "cloud" | "computer" =>
+  value === "cloud" || value === "computer";
+
 const isGenericAgentDescription = (value: string): boolean =>
   /^(task|agent|work|help|do this|follow up)$/i.test(value.trim());
 
@@ -588,31 +591,20 @@ export const handleSpawnAgent = async (
     };
   }
 
-  const requestedWorkspace = toOptionalString(args.workspace);
-  if (
-    requestedWorkspace &&
-    !/^(computer|cloud|drive|project:[A-Za-z0-9._-]{1,64}|app:[a-z0-9-]{1,64})$/.test(
-      requestedWorkspace,
-    )
-  ) {
-    return {
-      error:
-        "workspace must be one of computer, cloud, project:<name>, app:<slug>.",
-    };
+  // Not exposed on the spawn schema. The placement router, or a cloud
+  // AgentToolApi implementation, sets it; a model-issued spawn stays on the
+  // computer it is already running on.
+  const requestedPlacement = toOptionalString(args.placement);
+  if (requestedPlacement && !isSpawnPlacement(requestedPlacement)) {
+    return { error: 'placement must be either "cloud" or "computer".' };
   }
-  // `drive` is a rolling-client compatibility alias. New calls, dispatch
-  // results, and model-facing text use `cloud`.
-  const workspace =
-    requestedWorkspace === "drive" ? "cloud" : requestedWorkspace;
-  // Non-computer placements name a subject that does not live on this
-  // machine, so they leave the device instead of running through
+  // A cloud placement leaves the device instead of running through
   // LocalAgentManager. Without a dispatch capability there is nowhere honest
   // to put the work — refuse rather than silently run it in the wrong place.
-  const cloudWorkspace =
-    workspace && workspace !== "computer" ? workspace : undefined;
-  if (cloudWorkspace && !ctx.agentApi?.cloudDispatch) {
+  const cloudPlacement = requestedPlacement === "cloud";
+  if (cloudPlacement && !ctx.agentApi?.cloudDispatch) {
     return {
-      error: `The ${cloudWorkspace} workspace runs in Stella's cloud, and this runtime has no cloud connection. Use workspace "computer" to run it on this machine instead.`,
+      error: `A cloud placement runs in Stella's cloud, and this runtime has no cloud connection. Use placement "computer" to run it on this machine instead.`,
     };
   }
   let modelSelection: SpawnModelSelection;
@@ -667,20 +659,20 @@ export const handleSpawnAgent = async (
     return { error: "description is required" };
   }
   const description = deriveAgentDescription(rawDescription, prompt);
-  if (cloudWorkspace) {
+  if (cloudPlacement) {
     // Re-read the capability rather than falling through: a cloud placement
     // that reached the local branch would run off-device work on the user's
     // machine, which is the one outcome worse than refusing.
     const cloudDispatch = ctx.agentApi?.cloudDispatch;
     if (!cloudDispatch) {
       return {
-        error: `The ${cloudWorkspace} workspace runs in Stella's cloud, and this runtime has no cloud connection. Use workspace "computer" to run it on this machine instead.`,
+        error: `A cloud placement runs in Stella's cloud, and this runtime has no cloud connection. Use placement "computer" to run it on this machine instead.`,
       };
     }
     const resolveExecution = ctx.resolveCloudExecutionSelection;
     if (!resolveExecution) {
       return {
-        error: `The ${cloudWorkspace} workspace cannot resolve this agent's cloud model selection in the current runtime.`,
+        error: `A cloud placement cannot resolve this agent's cloud model selection in the current runtime.`,
       };
     }
     let execution: CloudExecutionSelection;
@@ -705,7 +697,6 @@ export const handleSpawnAgent = async (
     let dispatched: Awaited<ReturnType<typeof cloudDispatch>>;
     try {
       dispatched = await cloudDispatch({
-        workspace: cloudWorkspace,
         conversationId: context.conversationId,
         requestId: context.requestId,
         ...(context.ownerGeneration
@@ -723,7 +714,6 @@ export const handleSpawnAgent = async (
         thread_id: dispatched.threadId,
         created: true,
         running_in_background: true,
-        workspace: cloudWorkspace,
         placement: "cloud",
         cloud_conversation_id: dispatched.conversationId,
         attempt_generation: dispatched.attemptGeneration,
@@ -794,7 +784,6 @@ export const handleSpawnAgent = async (
           : modelSelection.kind === "default" && context.modelConfigSnapshot
             ? { modelConfigSnapshot: context.modelConfigSnapshot }
             : {}),
-        ...(workspace ? { workspace } : {}),
         rootRunId: context.rootRunId,
         agentDepth: nextAgentDepth,
         ...(typeof maxAgentDepth === "number" ? { maxAgentDepth } : {}),

@@ -70,7 +70,6 @@ export type CloudSpawnDispatcherOptions = {
 type StoredSpawnRequest = {
   ownerGeneration: string;
   clientMsgId: string;
-  workspace: string;
   description: string;
   prompt: string;
   originDeviceId: string;
@@ -180,13 +179,13 @@ const readConvexErrorText = (error: unknown): string => {
   return (uncaught?.[1] ?? message).trim();
 };
 
-const withTimeout = <T>(promise: Promise<T>, workspace: string): Promise<T> =>
+const withTimeout = <T>(promise: Promise<T>): Promise<T> =>
   raceWithTimeoutError(
     promise,
     CLOUD_SPAWN_TIMEOUT_MS,
     () =>
       new Error(
-        `Stella's cloud did not accept the ${workspace} agent within 30s — this device may be offline. Check the running agents before retrying so the same work does not start twice.`,
+        `Stella's cloud did not accept the agent within 30s — this device may be offline. Check the running agents before retrying so the same work does not start twice.`,
       ),
   );
 
@@ -409,7 +408,6 @@ export const createCloudSpawnDispatcher = (
   ): Promise<CloudDispatchResult> => {
     const fingerprint = operationFingerprint({
       kind: "spawn",
-      workspace: request.workspace,
       originConversationId: request.conversationId,
       description: request.description,
       prompt: request.prompt,
@@ -433,7 +431,7 @@ export const createCloudSpawnDispatcher = (
       : null;
     if (!operation?.resultJson && !options.isSignedIn()) {
       throw new Error(
-        `The ${request.workspace} workspace runs in your Stella cloud, and this device is signed out. Sign in, or use workspace "computer" to run the work here.`,
+        'This spawn runs in your Stella cloud, and this device is signed out. Sign in, or use placement "computer" to run the work here.',
       );
     }
     operation ??= await beginOperation(options, {
@@ -450,7 +448,6 @@ export const createCloudSpawnDispatcher = (
         return {
           ownerGeneration,
           clientMsgId: request.requestId,
-          workspace: request.workspace,
           description: request.description,
           prompt: request.prompt,
           originDeviceId: options.deviceId,
@@ -479,10 +476,7 @@ export const createCloudSpawnDispatcher = (
     let requestArgs = parseJsonRecord(requestJson, "spawn request");
     const send = async () =>
       parseRunningResult(
-        await withTimeout(
-          options.mutation(ref, requestArgs),
-          request.workspace,
-        ),
+        await withTimeout(options.mutation(ref, requestArgs)),
         operation.ownerGeneration,
       );
     let result: CloudDispatchResult;

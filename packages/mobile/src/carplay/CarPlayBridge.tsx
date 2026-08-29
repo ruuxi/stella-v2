@@ -206,7 +206,7 @@ function CarPlayVoiceLoop({
   const transport = useMemo<ChatTransport>(
     () =>
       target === "computer" && access
-        ? { kind: "automatic" as const, workspace: "computer", access }
+        ? { kind: "automatic" as const, subject: "computer" as const, access }
         : guest
           ? { kind: "guest" as const }
           : { kind: "automatic" as const },

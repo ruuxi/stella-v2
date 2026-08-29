@@ -5,7 +5,6 @@ import {
   automaticExecutionConversationClientCreateId,
   bindAutomaticExecutionAdmission,
   buildAutomaticExecutionAdmission,
-  executionSubjectForMobileWorkspace,
   isAutomaticExecutionPairCredentialRejection,
   readAutomaticExecutionDispatch,
   requestAutomaticExecutionCancellation,
@@ -13,11 +12,15 @@ import {
 } from "../execution-placement-core";
 
 describe("automatic mobile execution admission", () => {
-  test("workspace remains the subject instead of becoming a placement toggle", () => {
-    expect(executionSubjectForMobileWorkspace(undefined)).toBe("portable");
-    expect(executionSubjectForMobileWorkspace("computer")).toBe("computer");
-    expect(executionSubjectForMobileWorkspace("cloud")).toBe("cloud");
-    expect(executionSubjectForMobileWorkspace("project:stella")).toBe("cloud");
+  test("defaults an unstated subject to portable work", () => {
+    const admission = buildAutomaticExecutionAdmission({
+      idempotencyKey: "msg:01JDEFAULT",
+      conversationId: "conv:default",
+      kind: "chat",
+      prompt: "what is on my calendar",
+    });
+    expect(admission.body.subject).toBe("portable");
+    expect("workspace" in admission.body).toBe(false);
   });
 
   test("hashes the exact payload bytes into the pair-proof challenge", () => {
@@ -44,16 +47,18 @@ describe("automatic mobile execution admission", () => {
     expect("desktopDeviceId" in admission.body).toBe(false);
   });
 
-  test("computer-only intent is inferred from workspace", () => {
+  test("carries an explicit computer subject and binds it into the challenge", () => {
     const admission = buildAutomaticExecutionAdmission({
       idempotencyKey: "agent:01JPLACEMENT",
       conversationId: "conv:two",
       kind: "agent",
       prompt: "organize my desktop",
-      workspace: "computer",
+      subject: "computer",
       requiredCapabilities: ["computer-use", "local-files"],
     });
     expect(admission.body.subject).toBe("computer");
+    expect("workspace" in admission.body).toBe(false);
+    expect(admission.challenge.endsWith(":agent:computer")).toBe(true);
     expect(admission.body.requiredCapabilities).toEqual([
       "agent",
       "computer-use",
@@ -276,7 +281,7 @@ describe("automatic mobile execution admission", () => {
         conversationId: "conv:computer",
         kind: "chat",
         prompt: "computer work",
-        workspace: "computer",
+        subject: "computer",
       }).body.subject,
     ).toBe("computer");
   });

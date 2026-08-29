@@ -136,7 +136,6 @@ type MobileExecutionDispatchResult = {
   kind: "chat" | "agent";
   ingress: "mobile";
   subject: "portable" | "computer" | "cloud";
-  workspace?: string;
   conversationId: string;
   parentTurnId?: string;
   threadId?: string;
@@ -173,7 +172,6 @@ const submitMobileExecutionRef = makeFunctionReference<
     threadId?: string;
     requestingDeviceId?: string;
     pairGrantDeviceId?: string;
-    workspace?: string;
     requiredCapabilities: Array<
       "chat" | "agent" | "computer-use" | "local-files" | "local-apps"
     >;
@@ -1065,15 +1063,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             ? body.conversationId.trim()
             : "";
         const kind = body.kind;
-        const workspace =
-          typeof body.workspace === "string" && body.workspace.trim()
-            ? body.workspace.trim().toLowerCase().slice(0, 128)
-            : undefined;
-        const subject = !workspace
-          ? "portable"
-          : workspace === "computer"
-            ? "computer"
-            : "cloud";
+        const subject = body.subject;
         if (
           (desktopGrantWasSupplied && !desktopDeviceId) ||
           !/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey) ||
@@ -1081,11 +1071,13 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           !/^[a-f0-9]{64}$/.test(payloadHash) ||
           !conversationId ||
           (kind !== "chat" && kind !== "agent") ||
-          body.subject !== subject
+          (subject !== "portable" &&
+            subject !== "computer" &&
+            subject !== "cloud")
         ) {
           return errorResponse(
             400,
-            "A valid optional desktop grant, idempotency key, payload, conversation, kind, and server-derived subject are required.",
+            "A valid optional desktop grant, idempotency key, payload, conversation, kind, and execution subject are required.",
             origin,
           );
         }
@@ -1184,7 +1176,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
                   pairGrantDeviceId: desktopDeviceId,
                 }
               : {}),
-            ...(workspace ? { workspace } : {}),
             requiredCapabilities,
             now: Date.now(),
           });

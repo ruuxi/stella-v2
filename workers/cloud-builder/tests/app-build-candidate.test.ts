@@ -41,7 +41,6 @@ const methodBody = (name: string): string => {
   throw new Error(`Unbalanced braces in BuildSession method: ${name}`);
 };
 
-/** A guard on the guard: the scan must really be reading `runTurn`'s body. */
 const APP_TURN_BODY = methodBody("runTurn");
 
 describe("app build lane", () => {

@@ -9,6 +9,7 @@ import { ConnectorConnectService } from "../services/connector-connect-service.j
 import { ExternalLinkService } from "../services/external-link-service.js";
 import { readConfiguredCanvasShareBaseUrl, resolveSharedCanvasPayload, } from "../services/canvas-share-service.js";
 import { isCanvasShareUrl } from "@stella/contracts/canvas-share";
+import { IPC_AUTH_SESSION_INVALIDATED } from "@stella/contracts/desktop/ipc-channels";
 import { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 import { SecurityPolicyService } from "../services/security-policy-service.js";
 import { UiStateService } from "../services/ui-state-service.js";
@@ -81,13 +82,13 @@ export const createBootstrapServices = (options) => {
         sessionPartition: config.sessionPartition,
         runnerTarget: lifecycle,
         onAuthCallback: (url) => {
-            // External connector OAuth callbacks (`stella://oauth/callback/...`)
-            // belong to the connector credential flow, not app sign-in.
+            // The only deep link that still reaches here is an external
+            // connector OAuth callback (`stella://oauth/callback/...`). App
+            // sign-in is claimed over HTTPS, not handed back by deep link.
             if (connectorCredentialService?.handleExternalOAuthCallback(url)) {
                 return;
             }
-            state.windowManager?.showWindow();
-            options.onAuthCallback(url);
+            console.warn("[security] Rejected unhandled protocol callback URL.");
         },
         onSocialInvite: (url) => {
             // An invite click means the user is heading for the app — surface it
@@ -97,6 +98,13 @@ export const createBootstrapServices = (options) => {
         },
         onSecondInstanceFocus: () => {
             state.windowManager?.getFullWindow()?.focus();
+        },
+        onSessionInvalidated: () => {
+            for (const window of options.getAllWindows()) {
+                if (!window.isDestroyed()) {
+                    window.webContents.send(IPC_AUTH_SESSION_INVALIDATED, null);
+                }
+            }
         },
     });
     const credentialService = new CredentialService({

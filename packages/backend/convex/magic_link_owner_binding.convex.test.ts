@@ -17,6 +17,9 @@ const createTestWithBetterAuth = () => {
   return t;
 };
 
+/** base64url(SHA-256(...)) shape the route requires: 43 unpadded chars. */
+const CLAIM_HASH = "A".repeat(43);
+
 const linkRequest = (authorization?: string) =>
   ({
     method: "POST",
@@ -27,6 +30,7 @@ const linkRequest = (authorization?: string) =>
     body: JSON.stringify({
       email: "owner@example.com",
       requireAnonymousOwner: true,
+      claimHash: CLAIM_HASH,
     }),
   }) satisfies RequestInit;
 
@@ -51,6 +55,28 @@ describe("POST /api/auth/link/send owner proof", () => {
         "An authenticated anonymous session is required to preserve this conversation.",
     });
     await expectNoPendingLink(t);
+  });
+
+  it("rejects a link send that carries no usable claim hash", async () => {
+    const t = convexTest(schema, modules);
+
+    for (const claimHash of [undefined, "", "too-short", `${CLAIM_HASH}=`]) {
+      const response = await t.fetch("/api/auth/link/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "owner@example.com",
+          requireAnonymousOwner: true,
+          ...(claimHash === undefined ? {} : { claimHash }),
+        }),
+      });
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: "A valid claimHash is required",
+      });
+      await expectNoPendingLink(t);
+    }
   });
 
   it("rejects malformed and unverifiable Authorization values", async () => {
@@ -92,7 +118,7 @@ describe("POST /api/auth/link/send owner proof", () => {
     await expectNoPendingLink(t);
   });
 
-  it("marks session-cookie polling responses as non-cacheable", async () => {
+  it("marks handoff polling responses as non-cacheable", async () => {
     const t = convexTest(schema, modules);
     registerRateLimiter(t);
     const requestId = "00000000-0000-4000-8000-000000000000";
@@ -103,7 +129,7 @@ describe("POST /api/auth/link/send owner proof", () => {
         status: "completed",
         toOwnerId: "https://issuer.test|connected-owner",
         toOwnerGeneration: "legacy",
-        sessionCookie: "better-auth.session_token=connected",
+        tokenEnc: "enc:connected-bearer",
         expiresAt: Date.now() + 60_000,
         createdAt: Date.now(),
       });

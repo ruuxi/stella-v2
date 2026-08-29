@@ -10,7 +10,6 @@ import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-ho
 import { createStellaHostRunner, } from "../stella-host-runner.js";
 import { broadcastLocalChatUpdated, broadcastThreadActivityUpdated, broadcastScheduleUpdated, broadcastUserAppsUpdated, broadcastToWindows, } from "./context.js";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
-import { IPC_AUTH_RUNTIME_REFRESH_REQUESTED } from "@stella/contracts/desktop/ipc-channels";
 import { showStellaNotification } from "../services/notification-service.js";
 import { getActiveBrowserTabForBundleId } from "../active-browser-tab.js";
 import { listRecentApps } from "../recent-apps.js";
@@ -130,9 +129,7 @@ export const createHostRunnerHandlers = (context, options) => ({
     clearSupersededDeviceId: async () => {
         await options.clearSupersededDeviceId();
     },
-    requestRuntimeAuthRefresh: async ({ source }) => await context.services.authService.requestRuntimeAuthRefresh(source, (payload) => {
-        broadcastToWindows(context, IPC_AUTH_RUNTIME_REFRESH_REQUESTED, payload);
-    }),
+    requestRuntimeAuthRefresh: async () => await context.services.authService.refreshRuntimeAuth(),
     getScheduleScriptAuth: async () => await context.services.authService.getScheduleScriptAuth(),
     getAppBrowserContext: async () => {
         const apps = (await listRecentApps(3)) ?? [];

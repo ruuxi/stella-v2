@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { hashesMatch } from "./lib/handoff_crypto";
 import { internalMutation, internalQuery } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { prepareOwnershipMigrationForOwners } from "./auth_migration";
@@ -6,6 +7,12 @@ import { assertOwnerDataWriteAllowed } from "./owner_lifecycle";
 import { tokenIdentifierForBetterAuthUserId } from "./auth";
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{32,64}$/;
+
+/** How long after completion a handoff may still be claimed. */
+const CLAIM_WINDOW_MS = 3 * 60_000;
+/** Wrong-secret attempts before the row is destroyed. */
+const MAX_CLAIM_ATTEMPTS = 5;
+
 const migrationStatusValidator = v.union(
   v.literal("pending"),
   v.literal("running"),
@@ -133,6 +140,7 @@ export const createPendingLinkRequest = internalMutation({
     fromAuthUserId: v.optional(v.string()),
     expiresAt: v.number(),
     createdAt: v.number(),
+    claimHash: v.string(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -156,6 +164,7 @@ export const createPendingLinkRequest = internalMutation({
         ? { fromAuthUserId: args.fromAuthUserId }
         : {}),
       ...(fromOwnerGeneration ? { fromOwnerGeneration } : {}),
+      claimHash: args.claimHash,
       expiresAt: args.expiresAt,
       createdAt: args.createdAt,
     });
@@ -177,9 +186,11 @@ export const getLinkRequestStatus = internalQuery({
     v.null(),
     v.object({ status: v.literal("expired") }),
     v.object({ status: v.literal("pending") }),
+    // Deliberately credential-free. A completed handoff is exchanged for its
+    // bearer token at `/api/auth/link/claim`, which requires the claim secret
+    // the client generated. Holding the `requestId` is not enough.
     v.object({
       status: v.literal("completed"),
-      sessionCookie: v.optional(v.string()),
       migrationStatus: v.optional(migrationStatusValidator),
       migrationError: v.optional(v.string()),
     }),
@@ -227,9 +238,6 @@ export const getLinkRequestStatus = internalQuery({
         : undefined;
       return {
         status: "completed" as const,
-        ...(record.sessionCookie
-          ? { sessionCookie: record.sessionCookie }
-          : {}),
         ...(migrationStatus ? { migrationStatus } : {}),
         ...(migration?.lastError
           ? { migrationError: migration.lastError }
@@ -248,7 +256,8 @@ export const getLinkRequestStatus = internalQuery({
 export const completeLinkRequest = internalMutation({
   args: {
     requestId: v.string(),
-    sessionCookie: v.string(),
+    /** AES-GCM(bearer token). The plaintext never reaches this mutation. */
+    tokenEnc: v.string(),
     toOwnerId: v.string(),
   },
   returns: v.union(
@@ -332,8 +341,8 @@ export const completeLinkRequest = internalMutation({
     if (record.fromOwnerId) {
       // This helper publishes the canonical owner-lifecycle generation fence,
       // creates or reuses the single source-bound migration, and schedules its
-      // worker in this same transaction. The connected cookie is not visible
-      // to polling unless that complete owner binding commits successfully.
+      // worker in this same transaction. The connected bearer token is not
+      // claimable unless that complete owner binding commits successfully.
       ownershipMigrationId = await prepareOwnershipMigrationForOwners(ctx, {
         fromOwnerId: record.fromOwnerId,
         toOwnerId: args.toOwnerId,
@@ -350,7 +359,8 @@ export const completeLinkRequest = internalMutation({
 
     await ctx.db.patch(record._id, {
       status: "completed",
-      sessionCookie: args.sessionCookie,
+      tokenEnc: args.tokenEnc,
+      completedAt: Date.now(),
       toOwnerId: args.toOwnerId,
       toOwnerGeneration,
       ...(ownershipMigrationId ? { ownershipMigrationId } : {}),
@@ -360,6 +370,92 @@ export const completeLinkRequest = internalMutation({
       replayed: false,
       ...(migrationStatus ? { migrationStatus } : {}),
     };
+  },
+});
+
+/**
+ * Atomically verify the claim secret and consume the handoff.
+ *
+ * Single-use: the row is deleted on success, and destroyed after too many
+ * wrong attempts. Returns the encrypted token for the caller to decrypt —
+ * this mutation never sees plaintext.
+ *
+ * The owner-lifecycle fences from `getLinkRequestStatus` are repeated here
+ * rather than assumed: a client can call `/link/claim` without ever polling
+ * `/link/status`, and an anonymous -> connected transfer whose migration
+ * binding is no longer valid must not release a connected credential.
+ */
+export const claimLinkRequest = internalMutation({
+  args: {
+    requestId: v.string(),
+    claimHash: v.string(),
+    nowMs: v.number(),
+  },
+  returns: v.union(
+    v.object({ ok: v.literal(true), tokenEnc: v.string() }),
+    v.object({ ok: v.literal(false) }),
+  ),
+  handler: async (ctx, args) => {
+    if (!REQUEST_ID_PATTERN.test(args.requestId)) {
+      return { ok: false as const };
+    }
+    const record = await ctx.db
+      .query("auth_link_requests")
+      .withIndex("by_requestId", (q) => q.eq("requestId", args.requestId))
+      .unique();
+    if (!record) {
+      return { ok: false as const };
+    }
+
+    const attempts = (record.claimAttempts ?? 0) + 1;
+    if (attempts > MAX_CLAIM_ATTEMPTS) {
+      await ctx.db.delete(record._id);
+      return { ok: false as const };
+    }
+
+    const fresh =
+      record.status === "completed" &&
+      record.completedAt !== undefined &&
+      args.nowMs <= record.completedAt + CLAIM_WINDOW_MS &&
+      args.nowMs <= record.expiresAt;
+    // A row written before `claimHash` existed can never be claimed.
+    const matches =
+      record.claimHash !== undefined &&
+      hashesMatch(record.claimHash, args.claimHash);
+
+    if (!fresh || !matches || !record.tokenEnc) {
+      await ctx.db.patch(record._id, { claimAttempts: attempts });
+      return { ok: false as const };
+    }
+
+    if (!record.toOwnerId || !record.toOwnerGeneration) {
+      await ctx.db.patch(record._id, { claimAttempts: attempts });
+      return { ok: false as const };
+    }
+    try {
+      await assertOwnerDataWriteAllowed(
+        ctx,
+        record.toOwnerId,
+        record.toOwnerGeneration,
+      );
+      if (record.fromOwnerId) {
+        if (!record.fromOwnerGeneration) {
+          throw new Error("Source owner generation is missing.");
+        }
+        await assertOwnerDataWriteAllowed(
+          ctx,
+          record.fromOwnerId,
+          record.fromOwnerGeneration,
+        );
+      }
+    } catch {
+      await ctx.db.patch(record._id, { claimAttempts: attempts });
+      return { ok: false as const };
+    }
+
+    // Single use: the handoff dies with the claim.
+    await ctx.db.delete(record._id);
+    return { ok: true as const, tokenEnc: record.tokenEnc };
   },
 });
 

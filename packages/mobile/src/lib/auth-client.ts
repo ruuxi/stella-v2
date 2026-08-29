@@ -1,45 +1,43 @@
-import { expoClient } from "@better-auth/expo/client";
 import { convexClient } from "@convex-dev/better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { jwtClient, magicLinkClient } from "better-auth/client/plugins";
-import type { BetterFetchPlugin } from "@better-fetch/fetch";
-import * as SecureStore from "expo-secure-store";
 import { env } from "../config/env";
 import { assert } from "./assert";
+import { nativeBearerClient } from "./native-auth-client";
 
+export {
+  clearMobileAuthStorage,
+  MOBILE_SESSION_TOKEN_KEY,
+} from "./native-auth-client";
+
+// `nativeBearerClient` replaces `expoClient`. React Native has no cookie jar,
+// so the Expo plugin emulated one in SecureStore and mirrored `Set-Cookie`
+// through a custom header. The bearer plugin on the backend returns one opaque
+// signed token in `set-auth-token` instead, and this plugin is what stores it
+// and attaches `Authorization: Bearer` (including the `origin` header the
+// backend's trusted-origin check needs, via `expo-origin`).
 const plugins = [
-  expoClient({
+  nativeBearerClient({
     scheme: env.mobileScheme,
-    storage: SecureStore,
-    storagePrefix: "stella-mobile",
   }),
   convexClient(),
   magicLinkClient(),
   jwtClient(),
-  {
-    id: "rn-origin",
-    fetchPlugins: [{
-      id: "rn-origin",
-      name: "RN Origin",
-      async init(url, options) {
-        const headers = (options?.headers ?? {}) as Record<string, string>;
-        return {
-          url,
-          options: { ...options, headers: { ...headers, origin: env.convexSiteUrl } },
-        };
-      },
-    } satisfies BetterFetchPlugin],
-  },
 ];
 
-type AuthClient = ReturnType<typeof createAuthClient<{ plugins: typeof plugins }>>;
+type AuthClient = ReturnType<
+  typeof createAuthClient<{ plugins: typeof plugins }>
+>;
 
 let instance: AuthClient | null = null;
 
 export const authClient = new Proxy({} as AuthClient, {
   get(_target, prop, receiver) {
     if (!instance) {
-      assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
+      assert(
+        env.convexSiteUrl,
+        "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.",
+      );
       instance = createAuthClient({
         baseURL: env.convexSiteUrl,
         plugins,

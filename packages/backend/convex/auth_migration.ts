@@ -401,23 +401,28 @@ export const migrateAuthSessionPoliciesBatch = internalMutation({
   handler: async (ctx: MutationCtx, args) => {
     await requireActiveOwnershipMigrationLease(ctx, args);
     const rows = await ctx.db
-      .query("auth_session_policies")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
+      .query("auth_revoked_sessions")
+      .withIndex("by_ownerId_and_sessionId", (q) =>
+        q.eq("ownerId", args.fromOwnerId),
+      )
       .take(BATCH_SIZE);
-    // `getSessionPolicyFromDb` reads this table with `.unique()` per owner;
-    // if the target owner already has a policy row, merge (strictest
-    // revocation marker wins) and drop the source row instead of creating a
-    // duplicate that would make every sensitive-session check throw.
+    // Tombstones are unique per (ownerId, sessionId) and
+    // `isSessionRevokedInDb` reads them with `.unique()`. If the target owner
+    // already carries a tombstone for the same session, keep the stronger
+    // (later-expiring) one and drop the source row rather than creating a
+    // duplicate that would make the lookup throw.
     for (const row of rows) {
       const existing = await ctx.db
-        .query("auth_session_policies")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", args.toOwnerId))
+        .query("auth_revoked_sessions")
+        .withIndex("by_ownerId_and_sessionId", (q) =>
+          q.eq("ownerId", args.toOwnerId).eq("sessionId", row.sessionId),
+        )
         .unique();
       if (existing) {
-        if (row.minIssuedAtSec > existing.minIssuedAtSec) {
+        if (row.expiresAt > existing.expiresAt) {
           await ctx.db.patch(existing._id, {
-            minIssuedAtSec: row.minIssuedAtSec,
-            updatedAt: Math.max(existing.updatedAt, row.updatedAt),
+            expiresAt: row.expiresAt,
+            revokedAt: Math.max(existing.revokedAt, row.revokedAt),
           });
         }
         await ctx.db.delete(row._id);
@@ -9287,10 +9292,10 @@ export const auditOwnershipMigrationResidue = internalQuery({
           .take(1),
       ],
       [
-        "auth_session_policies",
+        "auth_revoked_sessions",
         await ctx.db
-          .query("auth_session_policies")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+          .query("auth_revoked_sessions")
+          .withIndex("by_ownerId_and_sessionId", (q) => q.eq("ownerId", ownerId))
           .take(1),
       ],
       [

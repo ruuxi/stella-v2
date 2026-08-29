@@ -1913,7 +1913,7 @@ describe("crash-safe ownership migration lifecycle", () => {
         toOwnerId,
         toOwnerGeneration: "legacy",
         ownershipMigrationId: id,
-        sessionCookie: "live-replay-cookie",
+        tokenEnc: "enc:live-replay-bearer",
         expiresAt: Date.now() + 60_000,
         createdAt: completedAt,
       });
@@ -1967,7 +1967,7 @@ describe("crash-safe ownership migration lifecycle", () => {
         toOwnerId,
         toOwnerGeneration: "legacy",
         ownershipMigrationId: migration!._id,
-        sessionCookie: "sensitive-session-cookie",
+        tokenEnc: "enc:sensitive-bearer",
         expiresAt: 100_000,
         createdAt: 1,
       });
@@ -2170,7 +2170,7 @@ describe("crash-safe ownership migration lifecycle", () => {
         status: "completed",
         toOwnerId,
         toOwnerGeneration: "legacy",
-        sessionCookie: "destination-sensitive-session-cookie",
+        tokenEnc: "enc:destination-sensitive-bearer",
         expiresAt: 100_000,
         createdAt: 2,
       });

@@ -1,7 +1,10 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { configurePiRuntime } from "@/platform/electron/device";
 import { authClient } from "@/global/auth/lib/auth-client";
-import { ensureBrowserAuthBootstrapCookie } from "./auth-storage";
+import {
+  clearBrowserSessionToken,
+  readBrowserSessionToken,
+} from "./auth-storage";
 import {
   consumeBrowserAuthHandoffToken,
   type BrowserAuthHandoffResult,
@@ -213,14 +216,16 @@ const redeemPendingBrowserAuthHandoff =
     }
 
     try {
-      ensureBrowserAuthBootstrapCookie();
-      const result = await authClient.crossDomain.oneTimeToken.verify({
+      const result = await authClient.oneTimeToken.verify({
         token: handoff.token,
       });
       if (result.error) {
         throw new Error("Browser auth handoff verification failed.");
       }
-      if (!authClient.getCookie().includes("session_token=")) {
+      // The `bearer` plugin returns the session credential in
+      // `set-auth-token`, which the client's success hook has already written
+      // to local storage. Its absence means the exchange produced no session.
+      if (!readBrowserSessionToken()) {
         throw new Error("Browser auth handoff did not establish a session.");
       }
       authClient.updateSession();
@@ -240,7 +245,7 @@ const redeemPendingBrowserAuthHandoff =
 
 // Module initialization starts this before React mounts. Automatic anonymous
 // bootstrap awaits the same promise, so it cannot race or overwrite a valid
-// cross-domain session handoff.
+// one-time-token session handoff.
 const browserAuthHandoffPromise = redeemPendingBrowserAuthHandoff();
 
 export const waitForBrowserAuthHandoff =
@@ -248,16 +253,15 @@ export const waitForBrowserAuthHandoff =
 
 export const signInAnonymous = async () => {
   if (!window.electronAPI) {
-    ensureBrowserAuthBootstrapCookie();
     const result = await authClient.signIn.anonymous();
     if (result.error) {
       throw new Error(
         result.error.message ?? "Could not start a browser session.",
       );
     }
-    if (!authClient.getCookie().includes("session_token=")) {
+    if (!readBrowserSessionToken()) {
       throw new Error(
-        "The browser session cookie was not mirrored by the auth service.",
+        "The browser session token was not returned by the auth service.",
       );
     }
     await refreshAuthSession();
@@ -278,7 +282,11 @@ export const signInAnonymous = async () => {
 
 export const signOutAuthSession = async () => {
   if (!window.electronAPI) {
+    // Send the credential first so the server can revoke the session row, then
+    // drop the local copy. Reversing the order would leave a live session with
+    // no client able to sign it out.
     await authClient.signOut();
+    clearBrowserSessionToken();
   } else {
     if (!window.electronAPI.system.signOutAuth) {
       throw new Error("Desktop sign-out is unavailable.");
@@ -295,6 +303,7 @@ export const signOutAuthSession = async () => {
 export const deleteAuthUser = async () => {
   if (!window.electronAPI) {
     await authClient.deleteUser();
+    clearBrowserSessionToken();
   } else {
     if (!window.electronAPI.system.deleteAuthUser) {
       throw new Error("Desktop account deletion is unavailable.");

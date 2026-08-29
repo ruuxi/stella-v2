@@ -3,6 +3,7 @@ import {
   createElement,
   useContext,
   useEffect,
+  useRef,
   useState,
   type Dispatch,
   type FormEvent,
@@ -10,9 +11,14 @@ import {
   type SetStateAction,
 } from "react";
 import {
-  applyAndVerifyAccountSessionCookie,
+  applyAndVerifyAccountSessionToken,
   buildMagicLinkSendRequest,
 } from "@/global/auth/services/account-connection";
+import {
+  claimSessionToken,
+  generateClaimSecret,
+  hashClaimSecret,
+} from "@/global/auth/lib/claim-secret";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { useT, useTPlural } from "@/shared/i18n";
 
@@ -96,6 +102,9 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
   const [requestId, setRequestId] = useState<string | null>(null);
   const [sentToEmail, setSentToEmail] = useState<string | null>(null);
   const [cooldownUntil, setCooldownUntil] = useState<number>(0);
+  // The claim secret for the in-flight handoff. A ref, not state: it must not
+  // trigger a re-render and must never be persisted anywhere.
+  const claimSecretRef = useRef<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [isResending, setIsResending] = useState(false);
 
@@ -115,10 +124,17 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
         // which anonymous owner is being upgraded before it emails a link.
         throw new MagicLinkKeyError("global.auth.signInIncomplete");
       }
+      // Held in memory for this attempt only; the server stores just the hash
+      // and returns nothing usable from /link/status.
+      const claimSecret = generateClaimSecret();
+      claimSecretRef.current = claimSecret;
       const response = await fetch(`${convexSiteUrl}/api/auth/link/send`, {
         method: "POST",
         headers: sendRequest.headers,
-        body: JSON.stringify(sendRequest.body),
+        body: JSON.stringify({
+          ...sendRequest.body,
+          claimHash: await hashClaimSecret(claimSecret),
+        }),
       });
 
       if (response.status === 429) {
@@ -214,29 +230,28 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
             `${convexSiteUrl}/api/auth/link/status?requestId=${encodeURIComponent(requestId)}`,
           );
           if (!res.ok) continue;
-          const data = (await res.json()) as {
-            status: string;
-            sessionCookie?: string;
-          };
+          const data = (await res.json()) as { status: string };
 
-          if (data.status === "completed" && data.sessionCookie) {
+          if (data.status === "completed") {
             if (cancelled) return;
             setStatus("verifying");
             try {
-              await applyAndVerifyAccountSessionCookie(data.sessionCookie);
+              // /link/status carries no credential. Exchange the secret this
+              // shell generated, which is the only thing that can claim it.
+              const secret = claimSecretRef.current;
+              const token = secret
+                ? await claimSessionToken(convexSiteUrl, requestId, secret)
+                : null;
+              if (!token) {
+                throw new Error("Handoff could not be claimed.");
+              }
+              claimSecretRef.current = null;
+              await applyAndVerifyAccountSessionToken(token);
             } catch {
               setStatus("error");
               setError({ kind: "key", key: "global.auth.finishFailed" });
               setRequestId(null);
             }
-            return;
-          }
-
-          if (data.status === "completed") {
-            if (cancelled) return;
-            setStatus("error");
-            setError({ kind: "key", key: "global.auth.signInIncomplete" });
-            setRequestId(null);
             return;
           }
 

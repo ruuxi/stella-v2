@@ -12,9 +12,14 @@ import { MagicLinkAuthFlow } from "./MagicLinkAuthFlow";
 import { authClient } from "./lib/auth-client";
 import { useAuthSessionState } from "./hooks/use-auth-session-state";
 import {
-  applyAndVerifyAccountSessionCookie,
+  applyAndVerifyAccountSessionToken,
   startBrowserGoogleSignIn,
 } from "./services/account-connection";
+import {
+  claimSessionToken,
+  generateClaimSecret,
+  hashClaimSecret,
+} from "@/global/auth/lib/claim-secret";
 import { openExternalUrl } from "@/platform/electron/open-external";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { useT } from "@/shared/i18n";
@@ -57,12 +62,17 @@ type Translate = ReturnType<typeof useT>;
 
 const startDesktopSocialAuth = async (t: Translate) => {
   const convexSiteUrl = getConvexSiteUrl();
+  // Held in memory for this attempt only; the server stores just the hash.
+  const claimSecret = generateClaimSecret();
   const response = await fetch(
     `${convexSiteUrl}/api/auth/desktop-social/start`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider: "google" }),
+      body: JSON.stringify({
+        provider: "google",
+        claimHash: await hashClaimSecret(claimSecret),
+      }),
     },
   );
   const data = (await response.json().catch(() => null)) as {
@@ -77,12 +87,14 @@ const startDesktopSocialAuth = async (t: Translate) => {
     convexSiteUrl,
     requestId: data.requestId,
     callbackURL: data.callbackURL,
+    claimSecret,
   };
 };
 
 const pollDesktopSocialAuth = async (
   convexSiteUrl: string,
   requestId: string,
+  claimSecret: string,
   t: Translate,
 ) => {
   const deadline = Date.now() + SOCIAL_AUTH_TIMEOUT_MS;
@@ -96,14 +108,20 @@ const pollDesktopSocialAuth = async (
     }
     const data = (await response.json().catch(() => null)) as {
       status?: string;
-      sessionCookie?: string;
     } | null;
-    if (data?.status === "completed" && data.sessionCookie) {
-      await applyAndVerifyAccountSessionCookie(data.sessionCookie);
-      return;
-    }
     if (data?.status === "completed") {
-      throw new Error(t("global.auth.googleNoSession"));
+      // The credential is never returned by /link/status. Exchange the secret
+      // for it.
+      const token = await claimSessionToken(
+        convexSiteUrl,
+        requestId,
+        claimSecret,
+      );
+      if (!token) {
+        throw new Error(t("global.auth.googleNoSession"));
+      }
+      await applyAndVerifyAccountSessionToken(token);
+      return;
     }
     if (data?.status === "expired") {
       throw new Error(t("global.auth.googleExpired"));
@@ -202,7 +220,7 @@ function GoogleAuthButton() {
         return;
       }
 
-      const { convexSiteUrl, requestId, callbackURL } =
+      const { convexSiteUrl, requestId, callbackURL, claimSecret } =
         await startDesktopSocialAuth(t);
       const result = (await authClient.signIn.social({
         provider: "google",
@@ -221,7 +239,7 @@ function GoogleAuthButton() {
       }
 
       openExternalUrl(url);
-      await pollDesktopSocialAuth(convexSiteUrl, requestId, t);
+      await pollDesktopSocialAuth(convexSiteUrl, requestId, claimSecret, t);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : t("global.auth.googleStartFailed"),

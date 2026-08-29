@@ -665,40 +665,21 @@ export type ElectronSystemApi = {
     convexUrl?: string;
     convexSiteUrl?: string;
   }) => Promise<{ deviceId: string | null }>;
-  setAuthState: (payload: {
-    authenticated: boolean;
-    token?: string;
-    hasConnectedAccount?: boolean;
-  }) => Promise<{ ok: boolean }>;
   getAuthSession: () => Promise<unknown | null>;
   signInAnonymous: () => Promise<unknown>;
   signOutAuth: () => Promise<{ ok: boolean }>;
   deleteAuthUser: () => Promise<{ ok: boolean }>;
-  verifyAuthCallbackUrl: (url: string) => Promise<{ ok: boolean }>;
-  applyAuthSessionCookie: (sessionCookie: string) => Promise<{ ok: boolean }>;
+  applyAuthSessionToken: (sessionToken: string) => Promise<{ ok: boolean }>;
   getConvexAuthToken: () => Promise<string | null>;
-  completeRuntimeAuthRefresh: (payload: {
-    requestId: string;
-    authenticated: boolean;
-    token?: string;
-    hasConnectedAccount?: boolean;
-  }) => Promise<{ ok: boolean; accepted?: boolean }>;
   setCloudSyncEnabled: (payload: {
     enabled: boolean;
   }) => Promise<{ ok: boolean }>;
   setModelCatalogUpdatedAt: (payload: {
     updatedAt: number | null;
   }) => Promise<{ ok: boolean }>;
-  onAuthCallback: (callback: (data: { url: string }) => void) => () => void;
   onSocialInvite: (callback: (data: { url: string }) => void) => () => void;
   consumePendingSocialInvite: () => Promise<string | null>;
-  consumePendingAuthCallback: () => Promise<string | null>;
-  onRuntimeAuthRefreshRequested: (
-    callback: (data: {
-      requestId: string;
-      source: "heartbeat" | "subscription" | "register";
-    }) => void,
-  ) => () => void;
+  onAuthSessionInvalidated: (callback: () => void) => () => void;
   quitForRestart: () => Promise<{ ok: boolean }>;
   openFullDiskAccess: () => void;
   getPermissionStatus: () => Promise<{

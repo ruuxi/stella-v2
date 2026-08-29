@@ -40,7 +40,7 @@ export const browserAuthHandoffHtml = (): string => `<!doctype html>
 
 export const browserAuthHandoffScript = (config: AppsHostConfig): string => {
   const verifyUrl = new URL(
-    "/api/auth/cross-domain/one-time-token/verify",
+    "/api/auth/one-time-token/verify",
     config.convexSiteOrigin,
   ).toString();
   return `(() => {
@@ -48,13 +48,11 @@ export const browserAuthHandoffScript = (config: AppsHostConfig): string => {
 
   const VERIFY_URL = ${JSON.stringify(verifyUrl)};
   const TOKEN_PATTERN = /^[A-Za-z0-9._~-]{8,2048}$/;
-  const COOKIE_KEY = "better-auth_cookie";
-  const SESSION_DATA_KEY = "better-auth_session_data";
-  const COOKIE_NAME_PATTERN = /^[A-Za-z0-9!#$%&'*+\\-.^_|~]{1,256}$/;
-  const COOKIE_VALUE_PATTERN = /^[\\x21\\x23-\\x2B\\x2D-\\x3A\\x3C-\\x5B\\x5D-\\x7E]{1,4096}$/;
-  const MAX_COOKIE_STORAGE_BYTES = 65536;
-  const MAX_COOKIE_HEADER_BYTES = 16384;
-  const MAX_COOKIE_COUNT = 64;
+  const SESSION_TOKEN_KEY = "better-auth_session_token";
+  // Written by the retired cross-domain cookie mirror. Cleared on every
+  // handoff so a stale mirrored session cannot outlive its transport.
+  const LEGACY_KEYS = ["better-auth_cookie", "better-auth_session_data"];
+  const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9._~+/=-]{8,4096}$/;
   const root = document.getElementById("handoff");
   const title = document.getElementById("title");
   const message = document.getElementById("message");
@@ -69,138 +67,13 @@ export const browserAuthHandoffScript = (config: AppsHostConfig): string => {
     retry.hidden = !canRetry;
   };
 
-  const isStoredCookie = (name, record) =>
-    COOKIE_NAME_PATTERN.test(name) &&
-    record &&
-    typeof record === "object" &&
-    typeof record.value === "string" &&
-    COOKIE_VALUE_PATTERN.test(record.value) &&
-    (record.expires === null ||
-      record.expires === undefined ||
-      typeof record.expires === "string");
-
-  const readStoredCookies = () => {
-    const raw = localStorage.getItem(COOKIE_KEY);
-    const clean = Object.create(null);
-    if (!raw || raw.length > MAX_COOKIE_STORAGE_BYTES) return clean;
-    try {
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        return clean;
-      }
-      for (const [name, record] of Object.entries(parsed).slice(0, MAX_COOKIE_COUNT)) {
-        if (isStoredCookie(name, record)) clean[name] = record;
-      }
-      return clean;
-    } catch {
-      return clean;
-    }
-  };
-
-  const cookieHeader = (cookies) => {
-    const now = Date.now();
-    const header = Object.entries(cookies)
-      .filter(([name, record]) => {
-        if (!isStoredCookie(name, record)) return false;
-        if (!record.expires) return true;
-        const expiry = Date.parse(record.expires);
-        return Number.isFinite(expiry) && expiry >= now;
-      })
-      .map(([name, record]) => name + "=" + record.value)
-      .join("; ");
-    if (header.length > MAX_COOKIE_HEADER_BYTES) {
-      throw new Error("stored cookie header too large");
-    }
-    return header;
-  };
-
-  const isSessionTokenName = (name) =>
-    name === "better-auth.session_token" ||
-    name === "__Secure-better-auth.session_token";
-
-  const mergeSetCookie = (header, previous) => {
-    if (!header || header.length > MAX_COOKIE_STORAGE_BYTES) {
-      throw new Error("session cookie header invalid");
-    }
-    const next = Object.assign(Object.create(null), previous);
-    const cookies = header.split(
-      /,(?=\\s*[A-Za-z0-9!#$%&'*+\\-.^_|~]+=)/g,
-    );
-    if (cookies.length > MAX_COOKIE_COUNT) {
-      throw new Error("too many session cookies");
-    }
-    let wroteLiveSessionToken = false;
-    for (const cookie of cookies) {
-      const parts = cookie.split(";").map((part) => part.trim());
-      const first = parts.shift() || "";
-      const separator = first.indexOf("=");
-      if (separator <= 0) continue;
-      const name = first.slice(0, separator).trim();
-      const value = first.slice(separator + 1);
-      if (!COOKIE_NAME_PATTERN.test(name)) continue;
-      let expiresAt = null;
-      let maxAgeSeconds = null;
-      for (const attribute of parts) {
-        const attributeSeparator = attribute.indexOf("=");
-        const attributeName = (
-          attributeSeparator < 0
-            ? attribute
-            : attribute.slice(0, attributeSeparator)
-        ).trim().toLowerCase();
-        const attributeValue =
-          attributeSeparator < 0
-            ? ""
-            : attribute.slice(attributeSeparator + 1).trim();
-        if (attributeName === "max-age") {
-          const seconds = Number(attributeValue);
-          if (Number.isFinite(seconds)) maxAgeSeconds = seconds;
-        } else if (attributeName === "expires") {
-          const timestamp = Date.parse(attributeValue);
-          if (Number.isFinite(timestamp)) expiresAt = timestamp;
-        }
-      }
-      const expired =
-        (maxAgeSeconds !== null && maxAgeSeconds <= 0) ||
-        (expiresAt !== null && expiresAt < Date.now());
-      if (expired) {
-        delete next[name];
-        continue;
-      }
-      if (!COOKIE_VALUE_PATTERN.test(value)) continue;
-      const expires =
-        expiresAt === null
-          ? maxAgeSeconds === null
-            ? null
-            : new Date(Date.now() + maxAgeSeconds * 1000).toISOString()
-          : new Date(expiresAt).toISOString();
-      next[name] = { value, expires };
-      if (isSessionTokenName(name)) wroteLiveSessionToken = true;
-    }
-    return { cookies: next, wroteLiveSessionToken };
-  };
-
-  const hasLiveSessionToken = (cookies) => {
-    const now = Date.now();
-    return Object.entries(cookies).some(([name, record]) => {
-      if (!isSessionTokenName(name) || !isStoredCookie(name, record)) {
-        return false;
-      }
-      if (!record.expires) return true;
-      const expiry = Date.parse(record.expires);
-      return Number.isFinite(expiry) && expiry >= now;
-    });
-  };
-
   const verify = async () => {
     if (!token || verifying) return;
     verifying = true;
     root.dataset.state = "loading";
     title.textContent = "Opening Stella";
-    message.textContent = "Finishing your secure sign-in…";
+    message.textContent = "Finishing your secure sign-in\u2026";
     try {
-      const stored = readStoredCookies();
-      stored.stella_auth_bootstrap = { value: "1", expires: null };
-      localStorage.setItem(COOKIE_KEY, JSON.stringify(stored));
       const response = await fetch(VERIFY_URL, {
         method: "POST",
         credentials: "omit",
@@ -209,31 +82,24 @@ export const browserAuthHandoffScript = (config: AppsHostConfig): string => {
         headers: {
           "accept": "application/json",
           "content-type": "application/json",
-          "Better-Auth-Cookie": cookieHeader(stored),
         },
         body: JSON.stringify({ token }),
       });
       if (!response.ok) throw new Error("verification rejected");
-      const setCookie = response.headers.get("set-better-auth-cookie");
-      if (!setCookie) throw new Error("session cookie missing");
-      const mirrored = mergeSetCookie(setCookie, stored);
-      if (
-        !mirrored.wroteLiveSessionToken ||
-        !hasLiveSessionToken(mirrored.cookies)
-      ) {
-        throw new Error("session cookie invalid");
+      // Better Auth's bearer plugin returns the signed session token here.
+      // Nothing else in the exchange carries a credential, so its absence is
+      // a failed handoff rather than a session with no token.
+      const sessionToken = (response.headers.get("set-auth-token") || "").trim();
+      if (!SESSION_TOKEN_PATTERN.test(sessionToken)) {
+        throw new Error("session token missing");
       }
-      const serialized = JSON.stringify(mirrored.cookies);
-      if (serialized.length > MAX_COOKIE_STORAGE_BYTES) {
-        throw new Error("session cookie storage too large");
-      }
-      localStorage.setItem(COOKIE_KEY, serialized);
-      localStorage.removeItem(SESSION_DATA_KEY);
+      localStorage.setItem(SESSION_TOKEN_KEY, sessionToken);
+      for (const key of LEGACY_KEYS) localStorage.removeItem(key);
       const destination = location.pathname.replace(/\\/auth\\/?$/, "/");
       location.replace(destination);
     } catch {
       showError(
-        "We couldn’t complete the secure handoff. Retry, or return to stella.sh/chat for a new link.",
+        "We couldn\u2019t complete the secure handoff. Retry, or return to stella.sh/chat for a new link.",
         true,
       );
     } finally {

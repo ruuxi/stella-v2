@@ -769,7 +769,7 @@ describe("rendered client path and browser ownership fences", () => {
 describe("hash-only CDP transport evidence", () => {
   test("keeps anonymous identity opt-in limited to an explicit secondary", async () => {
     const authentication = {
-      sessionCookie: "in-memory-only-cookie",
+      sessionToken: "in-memory-only-token",
       convexUrl: REQUIRED_CONVEX.cloudUrl,
       convexSiteUrl: REQUIRED_CONVEX.siteUrl,
     };
@@ -789,7 +789,7 @@ describe("hash-only CDP transport evidence", () => {
       identityClass: "anonymous-secondary",
       identitySha256: sha256("anonymous-secondary"),
     });
-    expect(JSON.stringify(accepted)).not.toContain("in-memory-only-cookie");
+    expect(JSON.stringify(accepted)).not.toContain("in-memory-only-token");
   });
 
   test("verifies an existing anonymous Electron profile without returning credentials", async () => {
@@ -813,7 +813,7 @@ describe("hash-only CDP transport evidence", () => {
     expect(firstClient.lastExpression).toContain("getConvexAuthToken");
     for (const forbiddenKey of [
       "token",
-      "sessionCookie",
+      "sessionToken",
       "subject",
       "sessionId",
     ]) {
@@ -878,9 +878,7 @@ describe("hash-only CDP transport evidence", () => {
       credentialMaterialReturned: false,
     });
     expect(browser.lastExpression).toContain("getConvexToken");
-    expect(browser.lastExpression).not.toContain(
-      "applyBrowserAuthSessionCookie",
-    );
+    expect(browser.lastExpression).not.toContain("writeBrowserSessionToken");
 
     const electron = new FakeExistingPrimaryRenderedClient({
       surface: "electron-cdp",
@@ -900,7 +898,7 @@ describe("hash-only CDP transport evidence", () => {
     for (const forbidden of [
       "primary-a",
       "primary-session",
-      "sessionCookie",
+      "sessionToken",
       "jwt:primary-session",
     ]) {
       expect(JSON.stringify(browserAuthority)).not.toContain(forbidden);

@@ -202,6 +202,12 @@ import {
   type InteriorBuildRequestRecord,
 } from "./interior-build-request.js";
 import {
+  parseTurnComputePlan,
+  turnComputePlan,
+  turnComputePlanKey,
+  type TurnComputePlan,
+} from "./general-agent-turn.js";
+import {
   EMPTY_NATIVE_HISTORY_CURSOR,
   NATIVE_STATE_DIRECTORY,
   emptyNativeStateCheckpointRecord,
@@ -264,6 +270,13 @@ type Env = {
   /** Dev-only proof surface; production deployments omit or disable it. */
   ENABLE_DEV_ACCEPTANCE_PROBES?: string;
   STELLA_DEPLOYMENT_IDENTITY?: string;
+  /**
+   * Set to `"1"` to let a Stella turn run its agent loop in this Durable
+   * Object. Absent means every turn takes the eager-container path, which is
+   * why the placement is recorded at admission rather than re-derived later:
+   * flipping this must not re-place a turn that is already running.
+   */
+  RESIDENT_GENERAL_AGENT_TURNS?: string;
 };
 
 /**
@@ -6678,6 +6691,40 @@ export class BuildSession extends DurableObject<Env> {
   // mid-turn transport failure makes Convex mark a still-running turn (and
   // its thread) failed while the agent goes on to finish. Outcomes reach
   // Convex only through events/threads-complete callbacks.
+  /**
+   * The placement this turn is admitted under, decided once and stored beside
+   * it. A turn dispatched without an engine selection has nothing to place, so
+   * it records nothing and keeps the container path it has always had.
+   */
+  private admittedComputePlan(turn: TurnRequest): TurnComputePlan | undefined {
+    if (!turn.execution || !Number.isSafeInteger(turn.attemptGeneration)) {
+      return undefined;
+    }
+    return turnComputePlan({
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+      execution: turn.execution,
+      browserResume: turn.browserResume !== undefined,
+      residentDisabled: this.env.RESIDENT_GENERAL_AGENT_TURNS !== "1",
+      now: Date.now(),
+    });
+  }
+
+  /**
+   * Reserve the container a resident-planned turn did not reserve at
+   * admission. The resident runner is not wired into admission yet, so such a
+   * turn still runs the container path, and its reservation has to be durable
+   * before any container work starts: both cancellation sweeps destroy by this
+   * exact id.
+   */
+  private async reserveAgentTurnSandbox(turn: TurnRequest): Promise<string> {
+    const sandboxId = sessionName(`agent-${turn.turnId}`);
+    await this.mutateExactTurn(turn, async (txn) => {
+      await txn.put("sandboxId", sandboxId);
+    });
+    return sandboxId;
+  }
+
   private async acceptAgentTurn(turn: TurnRequest): Promise<Response> {
     type Admission =
       | { response: Response }
@@ -6688,7 +6735,7 @@ export class BuildSession extends DurableObject<Env> {
         }
       | {
           kind: "start";
-          sandboxId: string;
+          sandboxId?: string;
           orphan?: PendingTerminal;
           orphanTurn?: TurnRequest;
         };
@@ -6796,7 +6843,14 @@ export class BuildSession extends DurableObject<Env> {
             ownsStorage,
           };
         }
-        const sandboxId = sessionName(`agent-${turn.turnId}`);
+        const computePlan = this.admittedComputePlan(turn);
+        const resident = computePlan?.plan.kind === "resident_stella";
+        // A resident turn reserves no container, so it mints no id. Every
+        // other turn keeps today's exact name; the id is what both
+        // cancellation sweeps destroy.
+        const sandboxId = resident
+          ? undefined
+          : sessionName(`agent-${turn.turnId}`);
         // A predecessor whose terminal state never reached Convex left it
         // here. Taking over the DO takes the alarm with it, so this is its last
         // chance; the stale delivery below cannot mutate this successor.
@@ -6806,7 +6860,13 @@ export class BuildSession extends DurableObject<Env> {
           ? await this.ctx.storage.get<TurnRequest>("turn")
           : undefined;
         await this.ctx.storage.put({
-          sandboxId,
+          ...(sandboxId ? { sandboxId } : {}),
+          ...(computePlan
+            ? {
+                [turnComputePlanKey(turn.turnId, turn.attemptGeneration!)]:
+                  computePlan,
+              }
+            : {}),
           turn,
           turnId: turn.turnId,
           terminal: false,
@@ -6820,7 +6880,12 @@ export class BuildSession extends DurableObject<Env> {
           OBSERVED_BROWSER_SUSPENSION_KEY,
           AGENT_RECOVERY_PENDING_KEY,
         ]);
-        return { kind: "start", sandboxId, orphan, orphanTurn };
+        return {
+          kind: "start",
+          ...(sandboxId ? { sandboxId } : {}),
+          orphan,
+          orphanTurn,
+        };
       },
     );
     if ("response" in admission) {
@@ -6871,7 +6936,9 @@ export class BuildSession extends DurableObject<Env> {
         202,
       );
     }
-    const { sandboxId, orphan, orphanTurn } = admission;
+    const { orphan, orphanTurn } = admission;
+    const sandboxId =
+      admission.sandboxId ?? (await this.reserveAgentTurnSandbox(turn));
     if (
       orphan &&
       orphanTurn &&

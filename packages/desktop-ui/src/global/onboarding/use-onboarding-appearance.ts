@@ -1,39 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { useTheme, useThemeControl } from "@/context/theme-context";
 import { isHiddenOverlay } from "@/shared/theme/themes";
-import {
-  DEFAULT_PERSONALITY_ID,
-  PERSONALITY_OPTIONS,
-  isKnownPersonalityId,
-  type PersonalityId,
-  type PersonalityOption,
-} from "@stella/contracts/personality";
 
 export function useOnboardingAppearance() {
-  const [personalityVoiceId, setPersonalityVoiceIdState] =
-    useState<PersonalityId | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const current =
-          (await window.electronAPI?.system?.getPersonalityVoice?.()) ?? null;
-        if (!cancelled) {
-          setPersonalityVoiceIdState(
-            isKnownPersonalityId(current) ? current : null,
-          );
-        }
-      } catch {
-        // Preference load is best-effort; fall back to null (no selection yet).
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const { selectedThemeId, themes, colorMode, gradientMode, gradientColor, forcedMode } =
     useTheme();
   // While Custom is unpopulated the user is always on it; surface the stock
@@ -68,32 +37,15 @@ export function useOnboardingAppearance() {
     [cancelPreview, setTheme],
   );
 
-  const selectPersonalityVoice = useCallback((voiceId: PersonalityId) => {
-    setPersonalityVoiceIdState(voiceId);
-    const api = window.electronAPI?.system;
-    if (!api?.setPersonalityVoice) return;
-    void api.setPersonalityVoice(voiceId).catch(() => {
-      // Swallow — preference save is best-effort; the next orchestrator turn
-      // will re-seed from whatever is on disk.
-    });
-  }, []);
-
-  const personalityOptions =
-    useMemo<readonly PersonalityOption[]>(() => PERSONALITY_OPTIONS, []);
-
   return {
     colorMode,
     gradientColor,
     gradientMode,
     isForcedTheme,
-    personalityVoiceId,
-    personalityOptions,
-    defaultPersonalityVoiceId: DEFAULT_PERSONALITY_ID,
     sortedThemes,
     themeId,
     cancelThemePreview,
     previewTheme,
-    selectPersonalityVoice,
     selectTheme,
     setColorMode,
     setGradientColor,

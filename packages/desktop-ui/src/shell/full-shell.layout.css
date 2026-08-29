@@ -779,8 +779,6 @@ body[data-display-expanding="true"] .shell-topbar-tablist {
 .new-session-view:has(.onboarding-dialogue[data-phase="extension"])
   .onboarding-stella-animation[data-split="true"],
 .new-session-view:has(.onboarding-dialogue[data-phase="theme"])
-  .onboarding-stella-animation[data-split="true"],
-.new-session-view:has(.onboarding-dialogue[data-phase="personality"])
   .onboarding-stella-animation[data-split="true"] {
   opacity: 1;
   pointer-events: auto;

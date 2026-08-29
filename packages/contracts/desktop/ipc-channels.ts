@@ -250,10 +250,6 @@ export const IPC_DIAGNOSTICS_RECORD_HEAP_TRACE =
   "diagnostics:recordHeapTrace" as const;
 export const IPC_DIAGNOSTICS_REPORT_ERROR = "diagnostics:reportError" as const;
 export const IPC_DIAGNOSTICS_OPEN_LOGS = "diagnostics:openLogs" as const;
-export const IPC_PREFERENCES_GET_PERSONALITY_VOICE =
-  "preferences:getPersonalityVoice" as const;
-export const IPC_PREFERENCES_SET_PERSONALITY_VOICE =
-  "preferences:setPersonalityVoice" as const;
 export const IPC_PROMPT_PRESETS_LIST = "promptPresets:list" as const;
 export const IPC_PROMPT_PRESETS_READ = "promptPresets:read" as const;
 export const IPC_PROMPT_PRESETS_SAVE = "promptPresets:save" as const;

@@ -21,7 +21,7 @@ import { buildStartupDocBlock } from "./agent-home.js";
 import { sha256Hex } from "./hash.js";
 
 export const CANONICAL_ORCHESTRATOR_PROMPT_ID = "agents/orchestrator.md";
-export const CANONICAL_PERSONALITY_PROMPT_ID = "prompts/personality-stella.md";
+export const CANONICAL_PERSONALITY_PROMPT_ID = "prompts/personality.md";
 
 const PROMPT_REFRESH_INTERVAL_MS = 5 * 60_000;
 const PROMPT_LKG_MAX_AGE_MS = 24 * 60 * 60_000;

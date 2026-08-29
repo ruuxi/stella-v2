@@ -203,21 +203,20 @@ arguments above, and the reachable-mobile scenario needs the isolated desktop
 process to remain paired and reachable. The driver verifies the active Worker
 version, remote Convex function manifest, and the deployed
 `/api/stella/prompts` publication against every digest in the reviewed
-canonical 10-prompt source roster under
+canonical 8-prompt source roster under
 `packages/runtime/extensions/stella-runtime/`. For agent metadata it removes
 exactly the leading frontmatter fence plus its single required blank separator
 line and compares every remaining body byte without trimming or normalization.
 It also verifies R2 objects, owner
 generation, and conversation/turn identities before accepting evidence.
 
-The Convex preview deployment must also have four explicit raw-media
-authority variables: `R2_PETS_BUCKET`, `R2_PETS_PUBLIC_BASE_URL`,
-`R2_EMOJI_BUCKET`, and `R2_EMOJI_PUBLIC_BASE_URL`. The two buckets must be
-distinct, explicitly non-production buckets; the two public bases must be
-distinct HTTPS non-production origins that are verified against those exact
-buckets before they are installed. The legacy shared `R2_PUBLIC_BASE_URL` is
-not an accepted fallback for pet or emoji writes. Never reuse `stella-files`,
-`stella-emotes`, or either bucket's public origin for this preview proof.
+The Convex preview deployment must also have two explicit raw-media
+authority variables: `R2_EMOJI_BUCKET` and `R2_EMOJI_PUBLIC_BASE_URL`. The
+bucket must be an explicitly non-production bucket; the public base must be an
+HTTPS non-production origin that is verified against that exact bucket before
+it is installed. The legacy shared `R2_PUBLIC_BASE_URL` is not an accepted
+fallback for emoji writes. Never reuse `stella-files`, `stella-emotes`, or the
+bucket's public origin for this preview proof.
 
 Generating or checking the manifest, running unit/Workerd tests, or compiling
 the driver does not produce acceptance evidence. No infrastructure deployment

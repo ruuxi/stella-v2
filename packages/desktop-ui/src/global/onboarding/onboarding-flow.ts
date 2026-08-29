@@ -4,7 +4,6 @@ export type Phase =
   | "capabilities"
   | "shapeshift"
   | "theme"
-  | "personality"
   | "permissions"
   | "browser"
   | "extension"
@@ -18,7 +17,6 @@ export type Phase =
 export const SPLIT_PHASES = new Set<Phase>([
   "capabilities",
   "theme",
-  "personality",
   "permissions",
   "browser",
   "extension",
@@ -32,7 +30,7 @@ export const SPLIT_PHASES = new Set<Phase>([
  * The onboarding story, told in five acts:
  *
  *   Discover      — what Stella can do
- *   Make it yours — theme and personality
+ *   Make it yours — theme
  *   Connect       — permissions, browser discovery, extension, engine
  *   Your flow     — voice and memory
  *   Ready         — the final gate
@@ -44,7 +42,6 @@ export const SPLIT_PHASES = new Set<Phase>([
 export const SPLIT_STEP_ORDER: Phase[] = [
   "capabilities",
   "theme",
-  "personality",
   "permissions",
   "browser",
   "extension",
@@ -64,7 +61,6 @@ export type OnboardingAct =
 export const PHASE_ACTS: Partial<Record<Phase, OnboardingAct>> = {
   capabilities: "discover",
   theme: "personalize",
-  personality: "personalize",
   permissions: "connect",
   browser: "connect",
   extension: "connect",

@@ -1,6 +1,6 @@
 /* ===== Onboarding — 3-phase flow ===== */
 /* Phase 1: Center (start) */
-/* Phase 2: Split (capabilities, theme, personality, permissions,
+/* Phase 2: Split (capabilities, theme, permissions,
  *          browser, extension, engine, voice,
  *          memory, enter) */
 /* Phase 3: Complete */
@@ -295,7 +295,7 @@
   display: flex;
   flex-direction: column;
   /* Vertical-center the stage inside the right pane so non-mock phases
-   * (permissions, theme, browser, personality) read as balanced instead of
+   * (permissions, theme, browser) read as balanced instead of
    * floating near the top with empty space below. `safe center` keeps the
    * stage scrollable from the top if its content ever exceeds the pane.
    * Full-stage demo phases (capabilities, memory)
@@ -323,22 +323,8 @@
 
 .onboarding-dialogue[data-phase="permissions"] .onboarding-split-right,
 .onboarding-dialogue[data-phase="browser"] .onboarding-split-right,
-.onboarding-dialogue[data-phase="theme"] .onboarding-split-right,
-.onboarding-dialogue[data-phase="personality"] .onboarding-split-right {
+.onboarding-dialogue[data-phase="theme"] .onboarding-split-right {
   transform: translateX(clamp(-200px, -9vw, -120px));
-}
-
-.onboarding-dialogue[data-phase="personality"] .onboarding-split-right {
-  justify-content: center;
-  align-items: center;
-}
-
-.onboarding-dialogue[data-phase="personality"] .onboarding-split-stage {
-  align-items: center;
-}
-
-.onboarding-dialogue[data-phase="personality"] .onboarding-split-title {
-  text-align: center;
 }
 
 /* The split-right pane has its own `translateX(...)` positioning per
@@ -977,35 +963,6 @@
   transform: none;
 }
 
-.onboarding-voice-description {
-  --onboarding-collapse-gap: 16px;
-  box-sizing: border-box;
-  font-size: var(--font-size-base);
-  font-weight: var(--weight-regular);
-  letter-spacing: 0.02em;
-  color: var(--foreground);
-  line-height: 1.4;
-  margin: 0;
-  padding: 0 4px;
-  text-align: center;
-  height: 0;
-  margin-top: calc(-1 * var(--onboarding-collapse-gap));
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    height var(--onboarding-duration-enter) var(--onboarding-ease-soft),
-    margin-top var(--onboarding-duration-enter) var(--onboarding-ease-soft),
-    opacity var(--onboarding-duration-enter) var(--onboarding-ease-soft);
-}
-
-.onboarding-voice-description[data-visible="true"] {
-  height: auto;
-  margin-top: 0;
-  opacity: 0.85;
-  pointer-events: auto;
-}
-
 /* ═══ Browser expanded — CSS grid reveal (no layout shift) ═══ */
 
 .onboarding-reveal {
@@ -1314,8 +1271,7 @@
 .onboarding-dialogue[data-phase="theme"] .onboarding-theme-row .onboarding-pill,
 .onboarding-dialogue[data-phase="theme"]
   .onboarding-theme-grid
-  .onboarding-pill,
-.onboarding-dialogue[data-phase="personality"] .onboarding-pill {
+  .onboarding-pill {
   padding: 10px 18px;
   font-size: var(--font-size-lg);
 }

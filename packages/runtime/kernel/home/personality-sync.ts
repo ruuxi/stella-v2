@@ -5,11 +5,6 @@ import path from "node:path";
 
 import { Effect } from "effect";
 
-import {
-  coercePersonalityId,
-  type PersonalityId,
-} from "@stella/contracts/personality";
-import { getPersonalityVoiceId } from "../preferences/local-preferences.js";
 import { readRuntimePrompt } from "../prompts/home-prompts.js";
 import {
   ensurePrivateDir,
@@ -40,18 +35,12 @@ const sha256 = (content: string): string =>
 
 const normalizeTemplate = (content: string): string => `${content.trim()}\n`;
 
-export const resolvePersonalityPresetContent = (
-  stellaDataDir: string,
-  id: PersonalityId,
-): string => {
-  const content = readRuntimePrompt(`personality-${id}`) ?? "";
+const bundledPersonalityContent = (): string => {
+  const content = readRuntimePrompt("personality") ?? "";
   return content ? normalizeTemplate(content) : "";
 };
 
-const readPresetSourceRevision = (
-  stellaDataDir: string,
-  id: PersonalityId,
-): string => {
+const readBundledSourceRevision = (stellaDataDir: string): string => {
   try {
     const parsed = JSON.parse(
       fs.readFileSync(
@@ -61,7 +50,7 @@ const readPresetSourceRevision = (
     ) as {
       entries?: Record<string, Partial<BundledManifestEntry>>;
     };
-    const revision = parsed.entries?.[`personality-${id}`]?.sourceRevision;
+    const revision = parsed.entries?.personality?.sourceRevision;
     return typeof revision === "string" && revision.trim()
       ? revision
       : "local-existing";
@@ -70,18 +59,14 @@ const readPresetSourceRevision = (
   }
 };
 
-const metadataContent = (
-  stellaDataDir: string,
-  id: PersonalityId,
-  content: string,
-): string =>
+const metadataContent = (stellaDataDir: string, content: string): string =>
   `${JSON.stringify(
     {
       version: 2,
       entries: {
         [PERSONALITY_ENTRY_ID]: {
           lastSyncedHash: sha256(content),
-          sourceRevision: readPresetSourceRevision(stellaDataDir, id),
+          sourceRevision: readBundledSourceRevision(stellaDataDir),
           customized: false,
         },
       },
@@ -124,18 +109,16 @@ const restoreFileSync = (filePath: string, content: string | null): void => {
 
 export const writePersonalitySyncMetadata = (
   stellaDataDir: string,
-  id: PersonalityId,
   content: string,
 ): void => {
   atomicReplaceSync(
     path.join(stellaDataDir, PERSONALITY_MANIFEST_FILENAME),
-    metadataContent(stellaDataDir, id, content),
+    metadataContent(stellaDataDir, content),
   );
 };
 
 export const writePersonalityTransaction = (
   stellaDataDir: string,
-  id: PersonalityId,
   content: string,
 ): void => {
   intentionalWriteGeneration += 1;
@@ -145,10 +128,7 @@ export const writePersonalityTransaction = (
   const previousManifest = readFileIfPresentSync(manifestPath);
   try {
     atomicReplaceSync(personalityPath, content);
-    atomicReplaceSync(
-      manifestPath,
-      metadataContent(stellaDataDir, id, content),
-    );
+    atomicReplaceSync(manifestPath, metadataContent(stellaDataDir, content));
   } catch (error) {
     try {
       restoreFileSync(personalityPath, previousPersonality);
@@ -156,7 +136,7 @@ export const writePersonalityTransaction = (
     } catch (rollbackError) {
       throw new AggregateError(
         [error, rollbackError],
-        "Could not write or roll back personality preset",
+        "Could not write or roll back the personality doc",
       );
     }
     throw error;
@@ -372,21 +352,17 @@ export const replacePersonalityIfHomeHashMatches = (args: {
 const tryIO = <A>(f: () => Promise<A>): Effect.Effect<A, unknown> =>
   Effect.tryPromise({ try: f, catch: (error) => error });
 
-const reconcileSelectedPersonalityAttemptEffect = (
+const reconcilePersonalityAttemptEffect = (
   stellaDataDir: string,
   sourceRevision: string,
 ): Effect.Effect<{ report: BundledSyncReport; stable: boolean }, unknown> =>
   Effect.gen(function* () {
     yield* tryIO(() => seedLegacyPersonalityMetadata(stellaDataDir));
-    const { selectedId, generation, content } = yield* Effect.sync(() => {
-      const id = coercePersonalityId(getPersonalityVoiceId(stellaDataDir));
-      return {
-        selectedId: id,
-        generation: intentionalWriteGeneration,
-        content: resolvePersonalityPresetContent(stellaDataDir, id),
-      };
-    });
-    const sourceKey = `personality:${selectedId}:${sourceRevision}`;
+    const { generation, content } = yield* Effect.sync(() => ({
+      generation: intentionalWriteGeneration,
+      content: bundledPersonalityContent(),
+    }));
+    const sourceKey = `personality:${sourceRevision}`;
     let expectedHomeHash: string | null | undefined;
     let directEditDetected = false;
     const adapter: BundledEntryAdapter = {
@@ -418,11 +394,7 @@ const reconcileSelectedPersonalityAttemptEffect = (
         const target = path.join(dest, PERSONALITY_FILENAME);
         const temp = `${target}.tmp-${process.pid}-${Date.now()}`;
         await fsp.writeFile(temp, content, { encoding: "utf-8", mode: 0o600 });
-        if (
-          generation !== intentionalWriteGeneration ||
-          coercePersonalityId(getPersonalityVoiceId(stellaDataDir)) !==
-            selectedId
-        ) {
+        if (generation !== intentionalWriteGeneration) {
           await fsp.rm(temp, { force: true });
           return;
         }
@@ -453,27 +425,23 @@ const reconcileSelectedPersonalityAttemptEffect = (
       },
     );
     const stable = yield* Effect.sync(
-      () =>
-        !directEditDetected &&
-        generation === intentionalWriteGeneration &&
-        coercePersonalityId(getPersonalityVoiceId(stellaDataDir)) ===
-          selectedId,
+      () => !directEditDetected && generation === intentionalWriteGeneration,
     );
     return { report, stable };
   });
 
 /**
- * Reconcile the selected personality preset into `PERSONALITY.md`. The
- * pre-Effect `for` loop over attempts is now `Effect.repeat`: up to
+ * Reconcile the bundled personality doc into `PERSONALITY.md`. The pre-Effect
+ * `for` loop over attempts is now `Effect.repeat`: up to
  * `MAX_RECONCILE_RETRIES` total attempts, stopping early once an attempt
- * observed no concurrent intentional write, selection change, or direct
- * edit — and returning the last attempt's report either way.
+ * observed no concurrent intentional write and no direct edit — and returning
+ * the last attempt's report either way.
  */
-export const reconcileSelectedPersonalityEffect = (
+export const reconcilePersonalityEffect = (
   stellaDataDir: string,
   sourceRevision: string,
 ): Effect.Effect<BundledSyncReport, unknown> =>
-  reconcileSelectedPersonalityAttemptEffect(stellaDataDir, sourceRevision).pipe(
+  reconcilePersonalityAttemptEffect(stellaDataDir, sourceRevision).pipe(
     Effect.repeat({
       times: MAX_RECONCILE_RETRIES - 1,
       until: (result) => result.stable,
@@ -481,8 +449,8 @@ export const reconcileSelectedPersonalityEffect = (
     Effect.map((result) => result.report),
   );
 
-export const reconcileSelectedPersonality = (
+export const reconcilePersonality = (
   stellaDataDir: string,
   sourceRevision: string,
 ): Promise<BundledSyncReport> =>
-  runHomeEffect(reconcileSelectedPersonalityEffect(stellaDataDir, sourceRevision));
+  runHomeEffect(reconcilePersonalityEffect(stellaDataDir, sourceRevision));

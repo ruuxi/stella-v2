@@ -11,7 +11,7 @@ import {
   reconcileBundledExtensionsEffect,
   type ExtensionsSyncReport,
 } from "./extensions-sync.js";
-import { reconcileSelectedPersonalityEffect } from "./personality-sync.js";
+import { reconcilePersonalityEffect } from "./personality-sync.js";
 import {
   applyPromptManifestIfCurrentEffect,
   reconcileRemotePromptManifestEffect,
@@ -75,7 +75,7 @@ export interface Interface {
     bundledExtensionsDir: string,
     homeExtensionsDir: string,
   ) => Effect.Effect<ExtensionsSyncReport, unknown>;
-  readonly reconcileSelectedPersonality: (
+  readonly reconcilePersonality: (
     stellaDataDir: string,
     sourceRevision: string,
   ) => Effect.Effect<BundledSyncReport, unknown>;
@@ -170,14 +170,11 @@ const make = (): Interface => ({
       homeExtensionsDir,
     );
   }),
-  reconcileSelectedPersonality: Effect.fn(
-    "HomeService.reconcileSelectedPersonality",
-  )(function* (stellaDataDir: string, sourceRevision: string) {
-    return yield* reconcileSelectedPersonalityEffect(
-      stellaDataDir,
-      sourceRevision,
-    );
-  }),
+  reconcilePersonality: Effect.fn("HomeService.reconcilePersonality")(
+    function* (stellaDataDir: string, sourceRevision: string) {
+      return yield* reconcilePersonalityEffect(stellaDataDir, sourceRevision);
+    },
+  ),
   resolvePromptManifest: Effect.fn("HomeService.resolvePromptManifest")(
     function* (args: Parameters<typeof resolvePromptManifestEffect>[0]) {
       return yield* resolvePromptManifestEffect(args);

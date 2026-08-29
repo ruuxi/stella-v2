@@ -19,7 +19,7 @@ import {
   resolvePromptManifestEffect,
   type PromptManifestResolution,
 } from "./prompt-manifest-sync.js";
-import { reconcileSelectedPersonalityEffect } from "./personality-sync.js";
+import { reconcilePersonalityEffect } from "./personality-sync.js";
 import { PromptEndpointMissingError } from "./errors.js";
 import { withHome } from "./home-runtime.js";
 import {
@@ -156,7 +156,7 @@ export const ensureStellaDataDirSeededEffect = (
               stellaDataDir,
               resolveBundledAgentMetadataDir(stellaAppDir),
             );
-            personalitySync = yield* reconcileSelectedPersonalityEffect(
+            personalitySync = yield* reconcilePersonalityEffect(
               stellaDataDir,
               resolution.manifest!.revision,
             );
@@ -218,7 +218,7 @@ export const syncStellaPromptSnapshotEffect = (
             stellaDataDir,
             resolveBundledAgentMetadataDir(stellaAppDir),
           );
-          yield* reconcileSelectedPersonalityEffect(
+          yield* reconcilePersonalityEffect(
             stellaDataDir,
             resolution.manifest!.revision,
           );

@@ -133,12 +133,6 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   },
   {
     tab: "general",
-    titleKey: "settings.voice.personality.label",
-    descriptionKey: "settings.search.descriptions.voice",
-    keywords: ["personality", "tone", "professional", "stella voice", "voice"],
-  },
-  {
-    tab: "general",
     titleKey: "settings.notifications.title",
     descriptionKey: "settings.notifications.description",
     keywords: [

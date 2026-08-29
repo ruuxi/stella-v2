@@ -130,8 +130,6 @@ import {
   IPC_PROMPT_PRESETS_SAVE,
   IPC_PROMPT_PRESETS_DELETE,
   IPC_PROMPT_PRESETS_SELECT,
-  IPC_PREFERENCES_GET_PERSONALITY_VOICE,
-  IPC_PREFERENCES_SET_PERSONALITY_VOICE,
   IPC_SHELL_SAVE_FILE_AS,
   IPC_SHELL_LIST_OPENERS,
   IPC_SHELL_OPEN_WITH,
@@ -1244,15 +1242,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke(IPC_PREFERENCES_SET_WAKE_WORD, enabled) as Promise<{
         enabled: boolean;
       }>,
-    getPersonalityVoice: () =>
-      ipcRenderer.invoke(IPC_PREFERENCES_GET_PERSONALITY_VOICE) as Promise<
-        string | null
-      >,
-    setPersonalityVoice: (voiceId: string) =>
-      ipcRenderer.invoke(
-        IPC_PREFERENCES_SET_PERSONALITY_VOICE,
-        voiceId,
-      ) as Promise<{ ok: boolean; voiceId: string }>,
     listPromptPresets: (agentId: string) =>
       ipcRenderer.invoke(IPC_PROMPT_PRESETS_LIST, agentId) as Promise<{
         presets: Array<{ id: string; name: string; agentId: string }>;

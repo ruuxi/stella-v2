@@ -57,9 +57,7 @@ describe("full-area agent model picker layout", () => {
     expect(picker).toContain('role="radiogroup"');
 
     expect(picker).toContain("selectedRowExtra={reasoningControl}");
-    expect(picker).toContain(
-      "selectedRowExtra={claudeCodeSelectionControls}",
-    );
+    expect(picker).toContain("selectedRowExtra={claudeCodeSelectionControls}");
     expect(picker).toContain("selectedRowExtra={chatGptSelectionControls}");
     expect(picker).not.toContain("agent-model-picker-footer");
     expect(picker).toContain("oauthPendingProvider");
@@ -115,11 +113,9 @@ describe("full-area agent model picker layout", () => {
   it("keeps Codex discovery native-only, inline, and out of the toast", () => {
     const picker = readSource("global/settings/AgentModelPicker.tsx");
     const miniPicker = readSource("app/chat/MiniModelPicker.jsx");
-    const toastEffectStart = picker.indexOf(
-      "const lastToastedErrorRef =",
-    );
+    const toastEffectStart = picker.indexOf("const lastToastedErrorRef =");
     const toastEffectEnd = picker.indexOf(
-      "// Check the ChatGPT OAuth session",
+      "void validateOAuth(OPENAI_CODEX_PROVIDER)",
       toastEffectStart,
     );
 

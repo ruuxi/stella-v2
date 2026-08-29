@@ -57,7 +57,11 @@ import {
 import { canReuseDesktopSendBatch } from "./desktop-send-batch-policy";
 import { parseThreadActivityTasks } from "./desktop-thread-activity";
 import { probeDesktopBridgeStatus } from "./desktop-bridge-discovery";
-import { desktopBridgeEventMatchesActiveRun } from "./desktop-chat-event-policy";
+import {
+  admitBridgeEvent,
+  createBridgeReplayCursor,
+  desktopBridgeEventMatchesActiveRun,
+} from "./desktop-chat-event-policy";
 import {
   fetchDesktopHistoryBeforePage,
   type DesktopHistoryPage,
@@ -134,17 +138,35 @@ export type DesktopBridgeAttachment = {
 };
 
 /**
- * Live working-indicator inputs derived from the run's agent events, mirroring
- * the desktop streaming store. Emitted on every tool-start / tool-end / status
- * / first answer-text chunk so the mobile indicator can reflect the current
- * activity and step aside once the reply starts streaming.
+ * Live working-indicator inputs derived from the run's agent events. Emitted on
+ * every tool-start / tool-end / status / assistant-message so the mobile
+ * indicator can reflect the current activity and step aside once this turn's
+ * answer message has actually landed.
  */
 export type DesktopBridgeActivity = {
   toolName?: string;
   toolCallId?: string;
   statusText?: string;
-  isStreamingText: boolean;
+  /**
+   * True once an assistant message arrived that is NOT followed by more tool
+   * work — i.e. the answer the user is waiting for is on screen.
+   */
+  answerLanded: boolean;
   hasToolActivity: boolean;
+};
+
+/**
+ * One completed assistant message segment, delivered whole. The desktop
+ * persists a row per segment (preamble → tool → answer), and the bridge emits
+ * exactly one `assistant-message` event per row with its full canonical text.
+ */
+export type DesktopBridgeAssistantSegment = {
+  /** Persisted desktop row id for this segment (also the replay dedupe key). */
+  eventId: string;
+  /** The segment's full canonical text. */
+  text: string;
+  /** True when the runtime went straight on to a tool call after this text. */
+  followedByToolCall: boolean;
 };
 
 type DesktopBridgeChatArgs = {
@@ -166,7 +188,11 @@ type DesktopBridgeChatArgs = {
   attachments?: DesktopBridgeAttachment[];
   signal?: AbortSignal;
   onStatus?: (status: DesktopBridgeSendStatus) => void;
-  onTextDelta?: (delta: string) => void;
+  /**
+   * Fired once per completed assistant message segment with its full text.
+   * Assistant text is never streamed: a segment arrives whole or not at all.
+   */
+  onAssistantSegment?: (segment: DesktopBridgeAssistantSegment) => void;
   onActivity?: (activity: DesktopBridgeActivity) => void;
   onArtifacts?: (artifacts: ChatArtifact[]) => void;
   /**
@@ -1902,7 +1928,7 @@ export async function sendDesktopBridgeChat({
   attachments,
   signal,
   onStatus,
-  onTextDelta,
+  onAssistantSegment,
   onActivity,
   onArtifacts,
   onUserMessageId,
@@ -1949,7 +1975,7 @@ export async function sendDesktopBridgeChat({
   });
 
   // ── Run state shared across reconnect attempts ──────────────────────────
-  let lastSeq = 0;
+  const replayCursor = createBridgeReplayCursor();
   let runId = "";
   let requestId = "";
   let submittedUserMessageId = "";
@@ -1981,18 +2007,23 @@ export async function sendDesktopBridgeChat({
     }
   };
 
-  // ── Live working-indicator activity (mirrors the desktop streaming store) ─
+  // ── Live working-indicator activity (mirrors the desktop store) ──────────
   // `activeToolCalls` is insertion-ordered so the "last" entry is the most
   // recent in-flight tool, matching the desktop's `Object.entries(...).at(-1)`.
   const activeToolCalls = new Map<string, { toolName: string }>();
   let activityStatusText: string | undefined;
-  let activityStreamingText = false;
+  let activityAnswerLanded = false;
   let activityHasToolActivity = false;
-  // Total assistant text streamed so far this run (seq-gated, so a reconnect
+  // Total assistant text delivered so far this run (seq-gated, so a reconnect
   // replay never double-counts). Captured as chronology metadata for live
   // artifacts and agent occurrences. ChatPane keeps the assistant markdown
   // cohesive and renders those cards at the message boundary.
   let streamedChars = 0;
+  // Persisted row ids of the assistant messages already delivered this run.
+  // `agent:resume` replays assistant-message events, and a replayed frame can
+  // carry a fresh seq, so the row id is the authoritative idempotency key —
+  // without it a reconnect would append the same segment twice.
+  const deliveredAssistantMessageIds = new Set<string>();
 
   const emitActivity = () => {
     const lastEntry = [...activeToolCalls.entries()].at(-1);
@@ -2000,7 +2031,7 @@ export async function sendDesktopBridgeChat({
       ...(lastEntry ? { toolName: lastEntry[1].toolName } : {}),
       ...(lastEntry ? { toolCallId: lastEntry[0] } : {}),
       ...(activityStatusText ? { statusText: activityStatusText } : {}),
-      isStreamingText: activityStreamingText,
+      answerLanded: activityAnswerLanded,
       hasToolActivity: activityHasToolActivity,
     });
   };
@@ -2281,11 +2312,13 @@ export async function sendDesktopBridgeChat({
     }
     if (eventRunId) runStarted = true;
 
-    const seq = typeof event.seq === "number" ? event.seq : null;
-    if (seq !== null) {
-      if (seq <= lastSeq) return false;
-      lastSeq = seq;
-    }
+    const admitted = admitBridgeEvent(replayCursor, {
+      runId: eventRunId,
+      type: asString(event.type),
+      seq: typeof event.seq === "number" ? event.seq : null,
+      sourceSeq: typeof event.sourceSeq === "number" ? event.sourceSeq : null,
+    });
+    if (!admitted) return false;
 
     if (event.type === "run-started") {
       const boundaryUserMessageId = eventUserMessageId.trim();
@@ -2410,20 +2443,27 @@ export async function sendDesktopBridgeChat({
       return false;
     }
 
-    if (event.type === "stream") {
-      const chunk = asString(event.chunk);
-      if (chunk) {
-        streamedChars += chunk.length;
-        onTextDelta?.(chunk);
-        // Mark the run as streaming answer text so the indicator steps aside,
-        // and clear any lingering run-level status (mirrors the desktop
-        // `run-status: null` on STREAM).
-        if (/\S/.test(chunk)) {
-          activityStreamingText = true;
-          activityStatusText = undefined;
-          emitActivity();
-        }
+    if (event.type === "assistant-message") {
+      const text = asString(event.assistantMessageText);
+      const eventId = asString(event.assistantMessageEventId).trim();
+      const followedByToolCall = event.followedByToolCall === true;
+      // Replay-safe: `agent:resume` re-delivers assistant-message events, and
+      // the persisted row id is stable across those replays even when the
+      // envelope seq is not.
+      if (eventId) {
+        if (deliveredAssistantMessageIds.has(eventId)) return false;
+        deliveredAssistantMessageIds.add(eventId);
       }
+      if (text) {
+        streamedChars += text.length;
+        onAssistantSegment?.({ eventId, text, followedByToolCall });
+      }
+      // Clear any lingering run-level status (mirrors the desktop's
+      // `run-status: null` when assistant text lands). A segment that hands off
+      // to a tool leaves the indicator up: the answer has not arrived yet.
+      activityStatusText = undefined;
+      if (!followedByToolCall && /\S/.test(text)) activityAnswerLanded = true;
+      emitActivity();
       return false;
     }
     if (event.type === "tool-start") {
@@ -2432,9 +2472,9 @@ export async function sendDesktopBridgeChat({
       const statusText = asString(event.statusText).trim();
       const key = toolCallId || toolName;
       activityHasToolActivity = true;
-      // The model stopped emitting text to run a tool; clear the streaming-text
-      // flag so the post-tool reasoning gap shows the indicator again.
-      activityStreamingText = false;
+      // A tool starting means the previous assistant text was not the answer
+      // after all, so re-arm the indicator for the post-tool reply.
+      activityAnswerLanded = false;
       if (statusText) activityStatusText = statusText;
       activeToolCalls.set(key, { toolName });
       if (toolName === "image_gen") {
@@ -2694,7 +2734,8 @@ export async function sendDesktopBridgeChat({
                   [
                     {
                       conversationId,
-                      lastSeq,
+                      lastSeq: replayCursor.wireSeq,
+                      lastSourceSeq: replayCursor.sourceSeq,
                       maxEvents: BRIDGE_RESUME_PAGE_EVENTS,
                     },
                   ],

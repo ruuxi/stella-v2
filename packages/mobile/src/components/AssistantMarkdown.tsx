@@ -1,37 +1,19 @@
 /**
  * Renders assistant message text with markdown formatting.
  *
- * Uses `react-native-nitro-markdown` — a native md4c parser bridged via
- * JSI. Streaming messages flow through a `MarkdownSession`: every text
- * update computes the delta and pushes it via `session.append(delta)`.
- * The native parser handles incremental updates and unclosed fences
- * correctly (per CommonMark spec), so we don't need the string-level
- * shimming the previous markdown-it-based renderer required.
- *
- * The mobile chat dispatcher (`chat.tsx`) smooths raw provider deltas into
- * small cadence-based text updates, so parser work stays bounded and visible
- * text does not inherit upstream token burst timing.
- *
- * Stream fade reveal lives in `StreamingMarkdownText.tsx` as a custom
- * `text` renderer; we attach it only for messages that ever streamed in
- * this instance (latched via `hasStreamedRef`).
+ * Uses `react-native-nitro-markdown` — a native md4c parser bridged via JSI.
+ * Assistant messages arrive whole (iMessage-style: one delivery per completed
+ * message segment), so this is a single one-shot parse of a settled string —
+ * no incremental `MarkdownSession`, no per-token reveal, no re-parse cadence to
+ * manage. A message's text only changes if the turn's canonical row later
+ * replaces it, which is a normal re-render.
  */
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  type ReactNode,
-} from "react";
+import { memo, useCallback, useMemo, type ReactNode } from "react";
 import { Alert, Linking, Platform, StyleSheet, View } from "react-native";
 import {
   Markdown,
-  MarkdownStream,
-  createMarkdownSession,
   type CustomRenderers,
   type CustomRendererProps,
-  type MarkdownSession,
   type NodeStyleOverrides,
   type PartialMarkdownTheme,
 } from "react-native-nitro-markdown";
@@ -40,7 +22,6 @@ import { parseStellaFileUrl } from "../lib/stella-file-links";
 import { fadeHex } from "../theme/oklch";
 import { fonts } from "../theme/fonts";
 import type { Colors } from "../theme/colors";
-import { streamingTextRenderers } from "./StreamingMarkdownText";
 import { AssistantMarkdownTable } from "./AssistantMarkdownTable";
 
 const BASE_FONT_SIZE = 17;
@@ -172,26 +153,29 @@ const containerStyle = StyleSheet.create({
   // The wrapping View lets the parent Pressable still receive long-press —
   // markdown children render as Text/Views that don't intercept it.
   wrapper: { width: "100%" },
+  // Hugging variant: no width, so the wrapper measures to its widest child and
+  // an enclosing bubble can size to the text instead of always filling its
+  // max-width. Block children still stretch to whatever width that yields.
+  hug: {},
 });
 
 export const AssistantMarkdown = memo(function AssistantMarkdown({
   text,
   colors,
-  isStreaming = false,
   selectable = false,
+  fill = true,
   onStellaFileLink,
 }: {
   text: string;
   colors: Colors;
-  /**
-   * True while this message is mid-stream. Latched true for the row's
-   * lifetime once it flips on — finishing the stream keeps the same
-   * session-backed component so in-flight word fades complete instead
-   * of snapping when the renderer would otherwise swap.
-   */
-  isStreaming?: boolean;
   /** Enables native selection on the rendered markdown text nodes. */
   selectable?: boolean;
+  /**
+   * Stretch to the parent's width (documents, artifact bodies). Pass `false`
+   * inside a chat bubble so the bubble hugs the text rather than always
+   * rendering at its max width.
+   */
+  fill?: boolean;
   /**
    * Tap handler for `stella://file/<path>` links — the assistant's way of
    * pointing at a local file. When provided, such links open the in-app
@@ -203,56 +187,8 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
   const theme = useMemo(() => buildTheme(colors), [colors]);
   const nodeStyles = useMemo(() => buildNodeStyles(colors), [colors]);
 
-  const hasStreamedRef = useRef(false);
-  if (isStreaming) hasStreamedRef.current = true;
-  const useStreamingMode = hasStreamedRef.current;
-
-  // Latest text via ref so the session-creation memo can prime
-  // synchronously without listing `text` as a dep (which would
-  // recreate the session on every token).
-  const textRef = useRef(text);
-  textRef.current = text;
-
-  const session = useMemo<MarkdownSession | null>(() => {
-    if (!useStreamingMode) return null;
-    const s = createMarkdownSession();
-    if (textRef.current.length > 0) s.reset(textRef.current);
-    return s;
-  }, [useStreamingMode]);
-
-  // Push monotonic deltas into the session. Reset on any non-prefix
-  // change (e.g. an error path that overwrites the text wholesale).
-  const lastSyncedRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!session) return;
-    if (lastSyncedRef.current === null) {
-      // First effect run — session was already primed in useMemo.
-      lastSyncedRef.current = text;
-      return;
-    }
-    const prev = lastSyncedRef.current;
-    if (text === prev) return;
-    if (text.startsWith(prev)) {
-      const delta = text.slice(prev.length);
-      if (delta.length > 0) session.append(delta);
-    } else if (text.trim() !== prev.trim()) {
-      session.reset(text);
-    }
-    // A whitespace-only rewrite (end-of-turn normalization trimming the
-    // streamed text) skips the reset: resetting re-parses the whole message
-    // and replays the stream fade over text the user already watched arrive.
-    lastSyncedRef.current = text;
-  }, [session, text]);
-
-  useEffect(() => {
-    return () => {
-      session?.dispose();
-    };
-  }, [session]);
-
   const renderers = useMemo<CustomRenderers>(
     () => ({
-      ...(useStreamingMode ? streamingTextRenderers : {}),
       table: ({ node, Renderer }: CustomRendererProps) => (
         <AssistantMarkdownTable
           node={node}
@@ -262,7 +198,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         />
       ),
     }),
-    [colors, selectable, useStreamingMode],
+    [colors, selectable],
   );
 
   const onLinkPress = useCallback(
@@ -287,36 +223,23 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
     [onStellaFileLink],
   );
 
-  let content: ReactNode;
-  if (session) {
-    content = (
-      <MarkdownStream
-        session={session}
-        options={PARSER_OPTIONS}
-        theme={theme}
-        styles={nodeStyles}
-        stylingStrategy="minimal"
-        renderers={renderers}
-        onLinkPress={onLinkPress}
-        selectable={selectable}
-        updateStrategy="raf"
-      />
-    );
-  } else {
-    content = (
-      <Markdown
-        options={PARSER_OPTIONS}
-        theme={theme}
-        styles={nodeStyles}
-        stylingStrategy="minimal"
-        renderers={renderers}
-        onLinkPress={onLinkPress}
-        selectable={selectable}
-      >
-        {text}
-      </Markdown>
-    );
-  }
+  const content: ReactNode = (
+    <Markdown
+      options={PARSER_OPTIONS}
+      theme={theme}
+      styles={nodeStyles}
+      stylingStrategy="minimal"
+      renderers={renderers}
+      onLinkPress={onLinkPress}
+      selectable={selectable}
+    >
+      {text}
+    </Markdown>
+  );
 
-  return <View style={containerStyle.wrapper}>{content}</View>;
+  return (
+    <View style={fill ? containerStyle.wrapper : containerStyle.hug}>
+      {content}
+    </View>
+  );
 });

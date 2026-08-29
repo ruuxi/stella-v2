@@ -739,7 +739,6 @@ export const runMobileCanonicalRealAcceptance = async (): Promise<unknown> => {
     const projected = projectCloudConversationMessages({
       conversationId: authority.conversationId,
       records: hydrated.records,
-      live: null,
       hasOlder: hydrated.ready.windowStartSeq > hydrated.ready.floorSeq,
     });
     const projectedUser = projected.find(
@@ -1005,7 +1004,6 @@ export const runMobileCanonicalRealAcceptance = async (): Promise<unknown> => {
   const projected = projectCloudConversationMessages({
     conversationId: authority.conversationId,
     records: cleanHydration.records,
-    live: null,
     hasOlder:
       cleanHydration.ready.windowStartSeq > cleanHydration.ready.floorSeq,
   });

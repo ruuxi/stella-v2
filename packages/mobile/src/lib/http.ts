@@ -214,10 +214,21 @@ export const postText = async (
   }
 };
 
+/**
+ * Drive the offline-chat SSE lane.
+ *
+ * The transport is unchanged, but the payload contract is: a `{"t": …}` frame
+ * now arrives exactly ONCE per completed assistant text segment and carries
+ * that segment's full text (tool-loop interleaving preserved). So `onSegment`
+ * fires per whole message segment, not per token — there is nothing to smooth
+ * or reassemble on this side. The only buffering left is at the LINE level:
+ * progress events fire on arbitrary network-buffer boundaries, so a frame can
+ * still arrive split in two.
+ */
 function executeStream(
   path: string,
   body: unknown,
-  onDelta: (text: string) => void,
+  onSegment: (text: string) => void,
   authHeader: string | null,
   options?: StreamRequestOptions,
 ): Promise<void> {
@@ -271,17 +282,16 @@ function executeStream(
           xhr.abort();
           return false;
         }
-        if (parsed.t) onDelta(parsed.t);
+        if (parsed.t) onSegment(parsed.t);
       } catch {
         // skip malformed lines
       }
       return true;
     };
 
-    // Progress events fire on arbitrary network-buffer boundaries, so a frame
-    // can arrive split across two events. Only complete lines are parseable:
-    // hold the trailing partial line until the next chunk (or the final flush
-    // in onload), otherwise its delta is silently lost.
+    // Only complete lines are parseable: hold the trailing partial line until
+    // the next chunk (or the final flush in onload), otherwise its segment is
+    // silently lost.
     const consume = (flush: boolean) => {
       if (finished) return;
       pending += xhr.responseText.slice(processed);
@@ -342,19 +352,19 @@ function executeStream(
 export function postStream(
   path: string,
   body: unknown,
-  onDelta: (text: string) => void,
+  onSegment: (text: string) => void,
   options?: StreamRequestOptions,
 ): Promise<void> {
   return getConvexToken().then((token) =>
-    executeStream(path, body, onDelta, `Bearer ${token}`, options),
+    executeStream(path, body, onSegment, `Bearer ${token}`, options),
   );
 }
 
 export function postStreamAnonymous(
   path: string,
   body: unknown,
-  onDelta: (text: string) => void,
+  onSegment: (text: string) => void,
   options?: StreamRequestOptions,
 ): Promise<void> {
-  return executeStream(path, body, onDelta, null, options);
+  return executeStream(path, body, onSegment, null, options);
 }

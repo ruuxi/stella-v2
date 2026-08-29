@@ -1,0 +1,97 @@
+import { useEffect, useId, useMemo } from "react";
+import { StyleSheet, View } from "react-native";
+import Animated, {
+  Easing,
+  cancelAnimation,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
+import { STELLA_STAR_PATH } from "./geometry";
+import { MarkLayer } from "./MarkLayer";
+import {
+  BREATHE_AMPLITUDE,
+  CLOCK_SPAN_MS,
+  breatheScale,
+  voiceScale,
+} from "./motion";
+
+/**
+ * The character mark at hero size: onboarding's welcome step and the realtime
+ * voice overlay.
+ *
+ * With no `energy` it simply breathes. Passing a shared value hands the scale
+ * over to live mic/output level, so the same rig serves as the voice
+ * visualizer. `energy` stays a `SharedValue` rather than a prop so the audio
+ * meter can drive it on the UI thread without re-rendering React at frame rate.
+ */
+export function StellaMarkHero({
+  size,
+  energy,
+}: {
+  size: number;
+  energy?: SharedValue<number>;
+}) {
+  const reduceMotion = useReducedMotion();
+  // Gradient ids are per-instance: two marks sharing an id make the second
+  // resolve against the first one's gradient (see StellaMark.tsx).
+  const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
+
+  const clock = useSharedValue(0);
+  const fallbackEnergy = useSharedValue(0);
+  const level = energy ?? fallbackEnergy;
+  const driven = energy !== undefined;
+
+  useEffect(() => {
+    cancelAnimation(clock);
+    if (reduceMotion) {
+      clock.value = 0;
+      return;
+    }
+    clock.value = 0;
+    clock.value = withRepeat(
+      withTiming(CLOCK_SPAN_MS, {
+        duration: CLOCK_SPAN_MS,
+        easing: Easing.linear,
+      }),
+      -1,
+      false,
+    );
+    return () => cancelAnimation(clock);
+  }, [clock, reduceMotion]);
+
+  const stageStyle = useAnimatedStyle(() => {
+    if (reduceMotion) {
+      return { transform: [{ scale: 1 }] };
+    }
+    const scale = driven
+      ? voiceScale(level.value, clock.value)
+      : breatheScale(clock.value, BREATHE_AMPLITUDE);
+    return { transform: [{ scale }] };
+  });
+
+  const viewport = useMemo(
+    () => [styles.viewport, { width: size, height: size }],
+    [size],
+  );
+
+  return (
+    <View style={viewport} pointerEvents="none">
+      <Animated.View style={[styles.stage, stageStyle]}>
+        <MarkLayer
+          d={STELLA_STAR_PATH}
+          size={size}
+          gradientId={`${uid}-hero`}
+        />
+      </Animated.View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  stage: { ...StyleSheet.absoluteFillObject },
+  viewport: { alignItems: "center", justifyContent: "center" },
+});

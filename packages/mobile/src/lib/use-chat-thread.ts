@@ -75,7 +75,7 @@ import {
 } from "../components/working-indicator-state";
 import {
   collapseLinkedDuplicates,
-  finalizeStreamedAssistantText,
+  finalizeAssistantTurnText,
   linkOptimisticTurnToCanonical,
   mergeMessagesById,
   reconcileSentDesktopTurn,
@@ -116,7 +116,6 @@ import {
   type OfflineChatImagePayload,
 } from "./offline-chat-request";
 import { admitSend } from "./send-admission";
-import { createStreamTextSmoother } from "./stream-text-smoother";
 import { shouldReuseQueuedReplayBatch } from "./desktop-send-batch-policy";
 import {
   createSerializedChatPersistenceQueue,
@@ -2101,13 +2100,26 @@ export function useChatThread(opts: {
     };
   }, [appActive, sending, storageLoaded, runDesktopSync]);
 
-  const appendAssistantText = useCallback((replyId: string, chunk: string) => {
-    updateMessages((m) =>
-      m.map((msg) =>
-        msg.id === replyId ? { ...msg, text: msg.text + chunk } : msg,
-      ),
-    );
-  }, []);
+  /**
+   * Append one whole assistant text block to the optimistic reply. Assistant
+   * text is never streamed, so each call carries a complete segment; separate
+   * segments of the same turn (preamble → tool → answer) read as paragraphs.
+   */
+  const appendAssistantSegment = useCallback(
+    (replyId: string, segment: string) => {
+      if (!segment) return;
+      updateMessages((m) =>
+        m.map((msg) => {
+          if (msg.id !== replyId) return msg;
+          const text = msg.text
+            ? `${msg.text.replace(/\s+$/, "")}\n\n${segment}`
+            : segment;
+          return { ...msg, text };
+        }),
+      );
+    },
+    [],
+  );
 
   const finishDispatch = useCallback(() => {
     const settle = async () => {
@@ -2305,10 +2317,6 @@ export function useChatThread(opts: {
         flushPersistNow();
         return;
       }
-
-      const textSmoother = createStreamTextSmoother({
-        appendText: (chunk) => appendAssistantText(replyId, chunk),
-      });
 
       const ensureFallbackReply = () => {
         updateMessages((m) =>
@@ -2546,7 +2554,7 @@ export function useChatThread(opts: {
 
       try {
         if (!toolsEnabled) {
-          // Lean path: plain streamed text, no memory/tools/compaction.
+          // Lean path: whole reply blocks, no memory/tools/compaction.
           await streamFn(
             OFFLINE_CHAT_STREAM_PATH,
             buildOfflineChatRequest({
@@ -2556,13 +2564,12 @@ export function useChatThread(opts: {
               history: baseHistory,
               images: imagesPayload,
             }),
-            (delta) => {
-              if (/\S/.test(delta)) patchActivity({ isStreamingText: true });
-              textSmoother.push(delta);
+            (segment) => {
+              appendAssistantSegment(replyId, segment);
+              if (/\S/.test(segment)) patchActivity({ answerLanded: true });
             },
             streamOptions,
           );
-          await textSmoother.drain();
           ensureFallbackReply();
           notifySuccess();
           return;
@@ -2716,7 +2723,12 @@ export function useChatThread(opts: {
         let toolTimelineOffset = 0;
         for (let round = 0; round < MAX_OFFLINE_TOOL_ROUNDS; round += 1) {
           const filter = createToolBlockFilter();
-          let roundVisibleChars = 0;
+          // The filter holds back a few characters that could still open the
+          // trailing tool block, so it splits one whole reply across `feed`
+          // and `finalize`. Buffer the round and append it once: the round IS
+          // the assistant text block, and appending twice would insert a
+          // paragraph break inside it.
+          let roundText = "";
           await streamFn(
             OFFLINE_CHAT_STREAM_PATH,
             buildOfflineChatRequest({
@@ -2726,21 +2738,17 @@ export function useChatThread(opts: {
               history: primedHistory,
               images: roundImages,
             }),
-            (delta) => {
-              // Hide the trailing tool block while the answer streams.
-              const visible = filter.feed(delta);
-              if (!visible) return;
-              roundVisibleChars += visible.length;
-              if (/\S/.test(visible)) patchActivity({ isStreamingText: true });
-              textSmoother.push(visible);
+            (segment) => {
+              // Keep the trailing tool block out of the visible reply.
+              roundText += filter.feed(segment);
             },
             streamOptions,
           );
-          const tail = filter.finalize();
-          if (tail) {
-            roundVisibleChars += tail.length;
-            if (/\S/.test(tail)) patchActivity({ isStreamingText: true });
-            textSmoother.push(tail);
+          roundText += filter.finalize();
+          const roundVisibleChars = roundText.length;
+          if (roundText) {
+            appendAssistantSegment(replyId, roundText);
+            if (/\S/.test(roundText)) patchActivity({ answerLanded: true });
           }
 
           const { calls } = parseToolBlock(filter.raw());
@@ -2878,11 +2886,9 @@ export function useChatThread(opts: {
           roundImages = [];
         }
 
-        await textSmoother.drain();
         ensureFallbackReply();
         const toolErrors = [...mapErrors, ...pdfErrors];
         if (toolErrors.length > 0) {
-          // Append after the drain so the note follows the streamed answer.
           const note = toolErrors.join("\n");
           updateMessages((m) =>
             m.map((msg) => {
@@ -2897,14 +2903,12 @@ export function useChatThread(opts: {
         notifySuccess();
       } catch (e) {
         if (e instanceof StreamAbortError) {
-          textSmoother.cancel();
           updateMessages((m) =>
             m.map((msg) =>
               msg.id === replyId ? { ...msg, stopped: true } : msg,
             ),
           );
         } else {
-          textSmoother.flushNow();
           updateMessages((m) =>
             m.map((msg) =>
               msg.id === replyId
@@ -2914,7 +2918,6 @@ export function useChatThread(opts: {
           );
         }
       } finally {
-        textSmoother.cancel();
         acknowledgeDesktopSendIds([item.dispatchId, item.userMessageId]);
         if (activeDispatchRef.current?.replyId === replyId) {
           activeDispatchRef.current = null;
@@ -2926,7 +2929,7 @@ export function useChatThread(opts: {
       }
     },
     [
-      appendAssistantText,
+      appendAssistantSegment,
       acknowledgeDesktopSendIds,
       finishDispatch,
       flushPersistNow,
@@ -3181,10 +3184,7 @@ export function useChatThread(opts: {
       abort: AbortController,
       access: StoredPhoneAccess,
     ) => {
-      const textSmoother = createStreamTextSmoother({
-        appendText: (chunk) => appendAssistantText(replyId, chunk),
-      });
-      let sawDelta = false;
+      let sawAssistantSegment = false;
       // Canonical desktop id of the submitted user message, reported by the
       // bridge as soon as the desktop persists the row (before the run
       // settles). Captured so the error path below can link the optimistic
@@ -3293,12 +3293,12 @@ export function useChatThread(opts: {
           onStatus: (status) => {
             if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
             // Connection/wake copy is a run-level status; merge it without
-            // disturbing the live tool/streaming flags.
+            // disturbing the live tool flags.
             patchActivity({ statusText: WAKE_STATUS_COPY[status] });
           },
           onActivity: (activity: DesktopBridgeActivity) => {
             if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
-            // The bridge already folded the tool/stream events into a settled
+            // The bridge already folded the tool/message events into a settled
             // snapshot; adopt it wholesale so the indicator tracks the run.
             // Falsy fields collapse to `undefined` so an absent tool compares
             // equal across snapshots and the bail-out can hold.
@@ -3306,14 +3306,14 @@ export function useChatThread(opts: {
               toolName: activity.toolName || undefined,
               toolCallId: activity.toolCallId || undefined,
               statusText: activity.statusText || undefined,
-              isStreamingText: activity.isStreamingText,
+              answerLanded: activity.answerLanded,
               hasToolActivity: activity.hasToolActivity,
             });
           },
-          onTextDelta: (delta) => {
+          onAssistantSegment: (segment) => {
             if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
-            sawDelta = true;
-            textSmoother.push(delta);
+            sawAssistantSegment = true;
+            appendAssistantSegment(replyId, segment.text);
           },
           onArtifacts: (artifacts) => {
             const stopped = stoppedDispatchIdsRef.current.has(item.dispatchId);
@@ -3347,7 +3347,6 @@ export function useChatThread(opts: {
           markSending(false);
           return;
         }
-        await textSmoother.drain();
         // Link the turn to its canonical desktop ids immediately (not just in
         // the background reconcile below, whose delta may race the desktop
         // persisting the rows): the user bubble adopts the canonical id the
@@ -3367,7 +3366,7 @@ export function useChatThread(opts: {
               // reference) whenever it already covers the turn's final text,
               // so the reply that just streamed doesn't get rewritten — and
               // its markdown re-rendered/re-animated — at end of turn.
-              const text = finalizeStreamedAssistantText(msg.text, result.text);
+              const text = finalizeAssistantTurnText(msg.text, result.text);
               const requestId = canonicalUserMessageId || msg.requestId;
               const artifacts =
                 result.artifacts.length > 0 ? result.artifacts : msg.artifacts;
@@ -3465,10 +3464,9 @@ export function useChatThread(opts: {
         notifySuccess();
         finishDispatch();
       } catch (e) {
-        textSmoother.cancel();
         if (stoppedDispatchIdsRef.current.has(item.dispatchId)) {
           activeDispatchRef.current = null;
-          // The user stopped this turn mid-stream (the abort surfaced here).
+          // The user stopped this turn mid-run (the abort surfaced here).
           // The desktop persisted the turn's canonical user row at run start,
           // so link the optimistic bubble to it now — otherwise the next send's
           // wake→sync re-merges that canonical row as a duplicate of this user
@@ -3487,7 +3485,7 @@ export function useChatThread(opts: {
         // to the cloud. Surface an offline reply the user can act on (wake the
         // computer and retry).
         const message =
-          e instanceof DesktopOfflineError && !sawDelta
+          e instanceof DesktopOfflineError && !sawAssistantSegment
             ? "Your computer is offline. Wake it from the menu, then try again."
             : userFacingError(e);
         // The desktop persists the turn's canonical user row (and, if it got
@@ -3544,12 +3542,10 @@ export function useChatThread(opts: {
           closeDesktopBridgeSendBatch(desktopSendBatchRef.current);
           desktopSendBatchRef.current = null;
         }
-      } finally {
-        textSmoother.cancel();
       }
     },
     [
-      appendAssistantText,
+      appendAssistantSegment,
       acknowledgeDesktopSendIds,
       finishDispatch,
       markSending,

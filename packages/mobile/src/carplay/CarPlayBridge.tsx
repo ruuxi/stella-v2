@@ -258,9 +258,9 @@ function CarPlayVoiceLoop({
   }, [messages]);
 
   // Surface the newest assistant replies (newest first) as home-list rows.
-  // Skipped while a turn is in flight: the streaming reply's text grows on
-  // every smoother frame (~60Hz), and pushing each growth into the session
-  // would rebuild the native CarPlay template per animation frame. When
+  // Skipped while a turn is in flight: the reply row is appended empty and
+  // then grows as each message segment lands, and pushing every intermediate
+  // state would rebuild the native CarPlay template repeatedly mid-turn. When
   // `sending` flips false this effect re-runs and pushes the settled
   // transcript once.
   useEffect(() => {

@@ -71,7 +71,6 @@ import {
   ownershipMigrationSourceDigest,
   ownershipMigrationTransientStateDisposition,
   shouldAdvanceOwnerNamespaceStage,
-  workspaceTransferResolutionsMatch,
 } from "./lib/auth_migration_paths";
 import {
   assertOwnerDataAccessActive,
@@ -4280,28 +4279,17 @@ export const clearReadyExternalTransferAck = internalMutation({
 });
 
 const cloudProductWorkReturn = v.union(
-  v.object({
-    kind: v.literal("owner-namespaces"),
-    driveImportedWorkspace: v.string(),
-    driveImportedProjectId: v.string(),
-    stellaImportedWorkspace: v.string(),
-    stellaImportedProjectId: v.string(),
-  }),
+  v.object({ kind: v.literal("owner-namespaces") }),
   v.object({
     kind: v.literal("app"),
     appId: v.string(),
     slug: v.string(),
-    importedWorkspace: v.string(),
-    importedProjectId: v.string(),
   }),
   v.object({ kind: v.literal("interior") }),
   v.object({
     kind: v.literal("project"),
     projectId: v.string(),
-    fromWorkspace: v.string(),
-    toWorkspace: v.string(),
     targetSlug: v.string(),
-    importedWorkspace: v.string(),
   }),
   v.object({
     kind: v.literal("advance"),
@@ -4311,46 +4299,6 @@ const cloudProductWorkReturn = v.union(
   v.object({ kind: v.literal("core") }),
   v.object({ kind: v.literal("complete") }),
 );
-
-const importedWorkspacePlan = async (
-  ctx: Pick<QueryCtx, "db">,
-  args: {
-    fromOwnerId: string;
-    toOwnerId: string;
-    sourceWorkspace: string;
-    baseSlug: string;
-    reuseProjectId?: string;
-  },
-): Promise<{ workspace: string; projectId: string }> => {
-  const identity = await hashSha256Hex(
-    `${args.fromOwnerId}:${args.sourceWorkspace}`,
-  );
-  const projectId =
-    args.reuseProjectId ?? `prj-import-${identity.slice(0, 16)}`;
-  if (!args.reuseProjectId) {
-    const existing = await ctx.db
-      .query("cloud_projects")
-      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .unique();
-    if (existing) {
-      if (existing.ownerId !== args.toOwnerId) {
-        throw new Error("Imported workspace project identity is already used.");
-      }
-      return { workspace: `project:${existing.slug}`, projectId };
-    }
-  }
-  for (let attempt = 0; attempt < 32; attempt += 1) {
-    const slug = importedProjectSlug(args.baseSlug, identity, attempt);
-    const occupied = await ctx.db
-      .query("cloud_projects")
-      .withIndex("by_ownerId_and_slug", (q) =>
-        q.eq("ownerId", args.toOwnerId).eq("slug", slug),
-      )
-      .unique();
-    if (!occupied) return { workspace: `project:${slug}`, projectId };
-  }
-  throw new Error("No collision-safe imported project workspace is available.");
-};
 
 /**
  * One bounded cloud-product unit per action pass. The migration row is the
@@ -4369,25 +4317,7 @@ export const getCloudProductTransferWork = internalQuery({
     const stage: CloudProductStage =
       migration?.cloudProductStage ?? "owner-namespaces";
     if (stage === "owner-namespaces") {
-      const [driveImport, stellaImport] = await Promise.all([
-        importedWorkspacePlan(ctx, {
-          ...args,
-          sourceWorkspace: "drive",
-          baseSlug: "anonymous-drive",
-        }),
-        importedWorkspacePlan(ctx, {
-          ...args,
-          sourceWorkspace: "stella",
-          baseSlug: "anonymous-stella",
-        }),
-      ]);
-      return {
-        kind: "owner-namespaces",
-        driveImportedWorkspace: driveImport.workspace,
-        driveImportedProjectId: driveImport.projectId,
-        stellaImportedWorkspace: stellaImport.workspace,
-        stellaImportedProjectId: stellaImport.projectId,
-      } as const;
+      return { kind: "owner-namespaces" } as const;
     }
     if (stage === "apps") {
       const app = (
@@ -4399,18 +4329,7 @@ export const getCloudProductTransferWork = internalQuery({
           .take(1)
       )[0];
       if (app) {
-        const imported = await importedWorkspacePlan(ctx, {
-          ...args,
-          sourceWorkspace: `app:${app.slug}`,
-          baseSlug: `${app.slug}-workspace`,
-        });
-        return {
-          kind: "app",
-          appId: app.appId,
-          slug: app.slug,
-          importedWorkspace: imported.workspace,
-          importedProjectId: imported.projectId,
-        } as const;
+        return { kind: "app", appId: app.appId, slug: app.slug } as const;
       }
       return {
         kind: "advance",
@@ -4488,19 +4407,10 @@ export const getCloudProductTransferWork = internalQuery({
         }
         targetSlug = available;
       }
-      const imported = await importedWorkspacePlan(ctx, {
-        ...args,
-        sourceWorkspace: `project:${project.slug}`,
-        baseSlug: `${targetSlug}-checkpoint`,
-        reuseProjectId: project.projectId,
-      });
       return {
         kind: "project",
         projectId: project.projectId,
-        fromWorkspace: `project:${project.slug}`,
-        toWorkspace: `project:${targetSlug}`,
         targetSlug,
-        importedWorkspace: imported.workspace,
       } as const;
     }
     if (stage === "core") return { kind: "core" } as const;
@@ -6471,17 +6381,6 @@ const transferCloudAppStorageRow = async (
   await ctx.db.patch(row._id, { ownerId, userId });
 };
 
-const importedWorkspaceProjectValidator = v.object({
-  projectId: v.string(),
-  workspace: v.string(),
-  name: v.string(),
-});
-type ImportedWorkspaceProject = {
-  projectId: string;
-  workspace: string;
-  name: string;
-};
-
 const sameExactKeys = (value: Record<string, unknown>, expected: string[]) =>
   Object.keys(value).length === expected.length &&
   expected.every((key) => Object.prototype.hasOwnProperty.call(value, key));
@@ -6617,61 +6516,12 @@ const rewriteOwnedArtifactManifest = async (
   };
 };
 
-const ensureImportedWorkspaceProject = async (
-  ctx: MutationCtx,
-  ownerId: string,
-  imported: ImportedWorkspaceProject,
-): Promise<void> => {
-  const slug = imported.workspace.startsWith("project:")
-    ? imported.workspace.slice("project:".length)
-    : "";
-  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(slug)) {
-    blockOwnershipMigration("Worker returned an invalid imported workspace.");
-  }
-  const byId = await ctx.db
-    .query("cloud_projects")
-    .withIndex("by_projectId", (q) => q.eq("projectId", imported.projectId))
-    .unique();
-  if (byId) {
-    if (byId.ownerId !== ownerId || byId.slug !== slug) {
-      blockOwnershipMigration(
-        "Imported workspace project identity changed during account linking.",
-      );
-    }
-    return;
-  }
-  const bySlug = await ctx.db
-    .query("cloud_projects")
-    .withIndex("by_ownerId_and_slug", (q) =>
-      q.eq("ownerId", ownerId).eq("slug", slug),
-    )
-    .unique();
-  if (bySlug) {
-    blockOwnershipMigration(
-      "Imported workspace project slug changed during account linking.",
-    );
-  }
-  const now = Date.now();
-  await ctx.db.insert("cloud_projects", {
-    projectId: imported.projectId,
-    ownerId,
-    slug,
-    name: imported.name.slice(0, 80),
-    provider: "stella",
-    defaultBranch: "main",
-    status: "active",
-    createdAt: now,
-    updatedAt: now,
-  });
-};
-
 export const commitOwnerNamespaceTransfer = internalMutation({
   args: {
     ...leasedOwnerArgs,
     fromOwnerHash: v.string(),
     toOwnerHash: v.string(),
     ...externalTransferReceiptArgs,
-    importedProjects: v.array(importedWorkspaceProjectValidator),
   },
   returns: cloudProductBatchReturn,
   handler: async (ctx, args) => {
@@ -6719,10 +6569,6 @@ export const commitOwnerNamespaceTransfer = internalMutation({
     };
     const progressed = async () =>
       await finish({ hasMore: true, progressed: true });
-
-    for (const imported of args.importedProjects) {
-      await ensureImportedWorkspaceProject(ctx, args.toOwnerId, imported);
-    }
 
     // A completed wipe job is an operational replay receipt, not product
     // state. Remove the source receipt instead of transferring it. An existing
@@ -7145,7 +6991,6 @@ export const commitCloudAppTransferBatch = internalMutation({
     appId: v.string(),
     fromOwnerHash: v.string(),
     toOwnerHash: v.string(),
-    importedProject: v.optional(importedWorkspaceProjectValidator),
     ...externalTransferReceiptArgs,
   },
   returns: cloudProductBatchReturn,
@@ -7179,13 +7024,6 @@ export const commitCloudAppTransferBatch = internalMutation({
     }
     if (app.ownerId !== args.fromOwnerId) {
       throw new Error("Cloud app ownership changed unexpectedly.");
-    }
-    if (args.importedProject) {
-      await ensureImportedWorkspaceProject(
-        ctx,
-        args.toOwnerId,
-        args.importedProject,
-      );
     }
     const sourceBuild = (
       await ctx.db
@@ -9904,15 +9742,8 @@ type CloudProductTransferPayload = {
   planRevision: number;
   agentHome: boolean;
   interiors: boolean;
-  workspaces: Array<{ from: string; to: string; importedTo?: string }>;
+  world: boolean;
   appSlugs: string[];
-};
-
-type WorkspaceTransferResolution = {
-  from: string;
-  requestedTo: string;
-  resolvedTo: string;
-  imported: boolean;
 };
 
 const requestCloudProductOwnerTransfer = async (
@@ -9924,7 +9755,6 @@ const requestCloudProductOwnerTransfer = async (
       transferPlanFingerprint: string;
       fromOwnerHash: string;
       toOwnerHash: string;
-      workspaceResolutions: WorkspaceTransferResolution[];
     }
   | { kind: "retry"; reason: string; retryAfterMs: number }
   | { kind: "permanent"; reason: string }
@@ -9958,7 +9788,6 @@ const requestCloudProductOwnerTransfer = async (
           transferPlanFingerprint?: unknown;
           fromOwnerHash?: unknown;
           toOwnerHash?: unknown;
-          workspaceResolutions?: unknown;
           code?: unknown;
           message?: unknown;
           retryAfterMs?: unknown;
@@ -9978,54 +9807,20 @@ const requestCloudProductOwnerTransfer = async (
       response.ok &&
       receipt &&
       typeof body?.fromOwnerHash === "string" &&
-      typeof body.toOwnerHash === "string" &&
-      Array.isArray(body.workspaceResolutions)
+      typeof body.toOwnerHash === "string"
     ) {
-      const workspaceResolutions: WorkspaceTransferResolution[] = [];
-      for (const raw of body.workspaceResolutions) {
-        if (!raw || typeof raw !== "object") {
-          return {
-            kind: "retry",
-            reason: "Cloud product transfer returned an invalid workspace map.",
-            retryAfterMs: 5_000,
-          };
-        }
-        const entry = raw as Record<string, unknown>;
-        if (
-          typeof entry.from !== "string" ||
-          typeof entry.requestedTo !== "string" ||
-          typeof entry.resolvedTo !== "string" ||
-          typeof entry.imported !== "boolean"
-        ) {
-          return {
-            kind: "retry",
-            reason: "Cloud product transfer returned an invalid workspace map.",
-            retryAfterMs: 5_000,
-          };
-        }
-        workspaceResolutions.push({
-          from: entry.from,
-          requestedTo: entry.requestedTo,
-          resolvedTo: entry.resolvedTo,
-          imported: entry.imported,
-        });
-      }
       const [expectedFromOwnerHash, expectedToOwnerHash] = await Promise.all([
         hashSha256Hex(args.fromOwnerId),
         hashSha256Hex(args.toOwnerId),
       ]);
       if (
         body.fromOwnerHash !== expectedFromOwnerHash ||
-        body.toOwnerHash !== expectedToOwnerHash ||
-        !workspaceTransferResolutionsMatch(
-          args.workspaces,
-          workspaceResolutions,
-        )
+        body.toOwnerHash !== expectedToOwnerHash
       ) {
         return {
           kind: "retry",
           reason:
-            "Cloud product transfer returned a workspace mapping that does not match the requested import plan.",
+            "Cloud product transfer returned owner hashes that do not match the requested plan.",
           retryAfterMs: 60_000,
         };
       }
@@ -10034,7 +9829,6 @@ const requestCloudProductOwnerTransfer = async (
         ...receipt,
         fromOwnerHash: body.fromOwnerHash,
         toOwnerHash: body.toOwnerHash,
-        workspaceResolutions,
       };
     }
     const code = typeof body?.code === "string" ? body.code : "";
@@ -10794,37 +10588,7 @@ export const migrateOwnership = internalAction({
             planRevision,
             agentHome: work.kind === "owner-namespaces",
             interiors: work.kind === "interior",
-            workspaces:
-              work.kind === "owner-namespaces"
-                ? [
-                    {
-                      from: "drive",
-                      to: "drive",
-                      importedTo: work.driveImportedWorkspace,
-                    },
-                    {
-                      from: "stella",
-                      to: "stella",
-                      importedTo: work.stellaImportedWorkspace,
-                    },
-                  ]
-                : work.kind === "app"
-                  ? [
-                      {
-                        from: `app:${work.slug}`,
-                        to: `app:${work.slug}`,
-                        importedTo: work.importedWorkspace,
-                      },
-                    ]
-                  : work.kind === "project"
-                    ? [
-                        {
-                          from: work.fromWorkspace,
-                          to: work.toWorkspace,
-                          importedTo: work.importedWorkspace,
-                        },
-                      ]
-                    : [],
+            world: work.kind === "owner-namespaces",
             appSlugs: work.kind === "app" ? [work.slug] : [],
           };
           const heldLeases: CloudOwnerActivityLease[] = [];
@@ -10877,34 +10641,12 @@ export const migrateOwnership = internalAction({
                 migrationError = verdict.reason;
                 retryAfterMs = verdict.retryAfterMs;
               } else if (work.kind === "owner-namespaces") {
-                const importedProjects: ImportedWorkspaceProject[] = [];
-                const driveResolution = verdict.workspaceResolutions.find(
-                  (entry) => entry.from === "drive",
-                );
-                if (driveResolution?.imported) {
-                  importedProjects.push({
-                    projectId: work.driveImportedProjectId,
-                    workspace: driveResolution.resolvedTo,
-                    name: "Anonymous Drive workspace (imported)",
-                  });
-                }
-                const stellaResolution = verdict.workspaceResolutions.find(
-                  (entry) => entry.from === "stella",
-                );
-                if (stellaResolution?.imported) {
-                  importedProjects.push({
-                    projectId: work.stellaImportedProjectId,
-                    workspace: stellaResolution.resolvedTo,
-                    name: "Anonymous Stella workspace (imported)",
-                  });
-                }
                 await ctx.runMutation(
                   internal.auth_migration.commitOwnerNamespaceTransfer,
                   {
                     ...leaseForCommit(),
                     fromOwnerHash: verdict.fromOwnerHash,
                     toOwnerHash: verdict.toOwnerHash,
-                    importedProjects,
                     transferOperationId: verdict.transferOperationId,
                     transferPlanFingerprint: verdict.transferPlanFingerprint,
                     transferStage: work.kind,
@@ -10912,9 +10654,6 @@ export const migrateOwnership = internalAction({
                 );
                 retryAfterMs = 1_000;
               } else if (work.kind === "app") {
-                const resolution = verdict.workspaceResolutions.find(
-                  (entry) => entry.from === `app:${work.slug}`,
-                );
                 await ctx.runMutation(
                   internal.auth_migration.commitCloudAppTransferBatch,
                   {
@@ -10925,15 +10664,6 @@ export const migrateOwnership = internalAction({
                     transferOperationId: verdict.transferOperationId,
                     transferPlanFingerprint: verdict.transferPlanFingerprint,
                     transferStage: work.kind,
-                    ...(resolution?.imported
-                      ? {
-                          importedProject: {
-                            projectId: work.importedProjectId,
-                            workspace: resolution.resolvedTo,
-                            name: `${work.slug} app workspace (imported)`,
-                          },
-                        }
-                      : {}),
                   },
                 );
                 retryAfterMs = 1_000;
@@ -10951,39 +10681,23 @@ export const migrateOwnership = internalAction({
                 );
                 retryAfterMs = 1_000;
               } else {
-                const resolution = verdict.workspaceResolutions.find(
-                  (entry) => entry.from === work.fromWorkspace,
+                const committed = await ctx.runMutation(
+                  internal.auth_migration.commitCloudProjectTransfer,
+                  {
+                    ...leaseForCommit(),
+                    projectId: work.projectId,
+                    targetSlug: work.targetSlug,
+                    transferOperationId: verdict.transferOperationId,
+                    transferPlanFingerprint: verdict.transferPlanFingerprint,
+                    transferStage: work.kind,
+                  },
                 );
-                const resolvedWorkspace =
-                  resolution?.resolvedTo ?? work.toWorkspace;
-                const resolvedTargetSlug = resolvedWorkspace.startsWith(
-                  "project:",
-                )
-                  ? resolvedWorkspace.slice("project:".length)
-                  : "";
-                if (!resolvedTargetSlug) {
+                if (!committed) {
                   outcome = "failed";
                   migrationError =
-                    "The worker returned an invalid project workspace mapping.";
+                    "The destination project slug changed during ownership transfer.";
                 } else {
-                  const committed = await ctx.runMutation(
-                    internal.auth_migration.commitCloudProjectTransfer,
-                    {
-                      ...leaseForCommit(),
-                      projectId: work.projectId,
-                      targetSlug: resolvedTargetSlug,
-                      transferOperationId: verdict.transferOperationId,
-                      transferPlanFingerprint: verdict.transferPlanFingerprint,
-                      transferStage: work.kind,
-                    },
-                  );
-                  if (!committed) {
-                    outcome = "failed";
-                    migrationError =
-                      "The destination project slug changed during ownership transfer.";
-                  } else {
-                    retryAfterMs = 1_000;
-                  }
+                  retryAfterMs = 1_000;
                 }
               }
             }

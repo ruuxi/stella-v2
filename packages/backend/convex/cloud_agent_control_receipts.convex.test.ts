@@ -65,7 +65,6 @@ describe("cloud agent control receipts", () => {
     const request = {
       ownerGeneration: desktopOwnerGeneration,
       clientMsgId: "spawn:desktop-lost-response",
-      placement: "cloud",
       description: "Durable desktop spawn",
       prompt: "Complete the durable desktop task.",
       originDeviceId: desktopOriginDeviceId,
@@ -137,7 +136,6 @@ describe("cloud agent control receipts", () => {
     const first = await asDesktopOwner(t).mutation(spawnFromDesktop, {
       ownerGeneration: desktopOwnerGeneration,
       clientMsgId: "spawn:desktop-before-continuation",
-      placement: "cloud",
       description: "Initial desktop attempt",
       prompt: "Finish the first attempt.",
       conversationId,

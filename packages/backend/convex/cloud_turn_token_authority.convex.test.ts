@@ -683,7 +683,6 @@ describe("cloud turn-token authority", () => {
       threadId: THREAD_ID,
       turnId: TURN_ID,
       prompt: "Keep this transcript trustworthy",
-      placement: "cloud",
       turnToken: TOKEN_A,
       attemptGeneration: 1,
       execution: {

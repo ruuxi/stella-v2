@@ -19,7 +19,6 @@ import {
   ownershipMigrationTransientStateDisposition,
   scheduleOwnershipClaimAllowed,
   shouldAdvanceOwnerNamespaceStage,
-  workspaceTransferResolutionsMatch,
 } from "./auth_migration_paths";
 
 describe("anonymous owner collision paths", () => {
@@ -172,45 +171,6 @@ describe("anonymous owner collision paths", () => {
     assert.deepEqual(
       canceledPendingUploadCleanupDelays(5_000, 1_000),
       [0, 60_000],
-    );
-  });
-
-  test("accepts only the worker's exact canonical or imported workspace map", () => {
-    const requests = [
-      {
-        from: "drive",
-        to: "drive",
-        importedTo: "project:anonymous-drive-imported",
-      },
-      { from: "project:notes", to: "project:notes-imported" },
-    ];
-    assert.equal(
-      workspaceTransferResolutionsMatch(requests, [
-        {
-          from: "project:notes",
-          requestedTo: "project:notes-imported",
-          resolvedTo: "project:notes-imported",
-          imported: false,
-        },
-        {
-          from: "drive",
-          requestedTo: "drive",
-          resolvedTo: "project:anonymous-drive-imported",
-          imported: true,
-        },
-      ]),
-      true,
-    );
-    assert.equal(
-      workspaceTransferResolutionsMatch(requests, [
-        {
-          from: "drive",
-          requestedTo: "drive",
-          resolvedTo: "project:worker-selected-something-else",
-          imported: true,
-        },
-      ]),
-      false,
     );
   });
 

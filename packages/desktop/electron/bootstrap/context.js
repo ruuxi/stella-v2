@@ -39,9 +39,6 @@ const broadcastToWindowsAndMobile = (context, channel, payload, mobilePayload = 
     broadcastToWindows(context, channel, payload);
     getMobileBroadcast(context)?.(channel, mobilePayload);
 };
-export const broadcastAuthCallback = (context, url) => {
-    broadcastToWindowsAndMobile(context, "auth:callback", { url });
-};
 export const broadcastSocialInvite = (context, url) => {
     broadcastToWindows(context, "social:invite", { url });
 };
@@ -103,9 +100,6 @@ export const createBootstrapContext = (config) => {
         state,
         getAllWindows: () => getAllWindows(context),
         getMobileBroadcast: () => getMobileBroadcast(context),
-        onAuthCallback: (url) => {
-            broadcastAuthCallback(context, url);
-        },
         onSocialInvite: (url) => {
             broadcastSocialInvite(context, url);
         },

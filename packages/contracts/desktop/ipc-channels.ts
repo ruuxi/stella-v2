@@ -184,30 +184,24 @@ export const IPC_DEVICE_GET_ID = "device:getId" as const;
 export const IPC_PHONE_ACCESS_START = "phoneAccess:startSession" as const;
 export const IPC_PHONE_ACCESS_STOP = "phoneAccess:stopSession" as const;
 export const IPC_HOST_CONFIGURE_RUNTIME = "host:configurePiRuntime" as const;
-export const IPC_AUTH_SET_STATE = "auth:setState" as const;
 export const IPC_AUTH_GET_SESSION = "auth:getSession" as const;
 export const IPC_AUTH_SIGN_IN_ANONYMOUS = "auth:signInAnonymous" as const;
 export const IPC_AUTH_SIGN_OUT = "auth:signOut" as const;
 export const IPC_AUTH_DELETE_USER = "auth:deleteUser" as const;
-export const IPC_AUTH_VERIFY_CALLBACK_URL = "auth:verifyCallbackUrl" as const;
-export const IPC_AUTH_APPLY_SESSION_COOKIE = "auth:applySessionCookie" as const;
+export const IPC_AUTH_APPLY_SESSION_TOKEN = "auth:applySessionToken" as const;
 export const IPC_AUTH_GET_CONVEX_TOKEN = "auth:getConvexToken" as const;
 export const IPC_HOST_SET_CLOUD_SYNC = "host:setCloudSyncEnabled" as const;
 export const IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT =
   "host:setModelCatalogUpdatedAt" as const;
-export const IPC_AUTH_CALLBACK = "auth:callback" as const;
-export const IPC_AUTH_CONSUME_PENDING_CALLBACK =
-  "auth:consumePendingCallback" as const;
 // Social invite deep links (`stella://join/<code>`,
-// `stella://add-friend/<username>`) — broadcast + cold-boot pull, mirroring
-// the auth callback pair above.
+// `stella://add-friend/<username>`) — broadcast plus a cold-boot pull, because
+// the renderer's listener is not mounted when a cold-boot link arrives.
 export const IPC_SOCIAL_INVITE = "social:invite" as const;
 export const IPC_SOCIAL_CONSUME_PENDING_INVITE =
   "social:consumePendingInvite" as const;
-export const IPC_AUTH_RUNTIME_REFRESH_REQUESTED =
-  "auth:runtimeRefreshRequested" as const;
-export const IPC_AUTH_RUNTIME_REFRESH_COMPLETE =
-  "auth:runtimeRefreshComplete" as const;
+// Main revoked this device's session on its own (the stored bearer was
+// rejected). Push-only: nothing the renderer did triggers it.
+export const IPC_AUTH_SESSION_INVALIDATED = "auth:sessionInvalidated" as const;
 export const IPC_APP_QUIT_FOR_RESTART = "app:quitForRestart" as const;
 export const IPC_SYSTEM_OPEN_FDA = "system:openFullDiskAccess" as const;
 export const IPC_PERMISSIONS_GET_STATUS = "permissions:getStatus" as const;

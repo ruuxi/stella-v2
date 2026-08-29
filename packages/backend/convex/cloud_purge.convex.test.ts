@@ -1914,10 +1914,11 @@ describe("owner purge adversarial invariants", () => {
     const t = createTest();
     const ownerId = "account-core-orphan-owner";
     await t.run(async (ctx) => {
-      await ctx.db.insert("auth_session_policies", {
+      await ctx.db.insert("auth_revoked_sessions", {
         ownerId,
-        minIssuedAtSec: 20,
-        updatedAt: 1,
+        sessionId: "orphan-session",
+        revokedAt: 1,
+        expiresAt: 20_000,
       });
       await ctx.db.insert("media_private_payload_chunks", {
         ownerId,
@@ -1934,7 +1935,7 @@ describe("owner purge adversarial invariants", () => {
         purgeFunctions.account_deletion.remainingOwnerAccountCoreStoresInternal,
         { ownerId },
       ),
-    ).toEqual(["auth_session_policies", "media_private_payload_chunks"]);
+    ).toEqual(["auth_revoked_sessions", "media_private_payload_chunks"]);
   });
 
   it("includes ephemeral browser handoffs in the fenced core drain", async () => {
@@ -2097,7 +2098,7 @@ describe("owner purge adversarial invariants", () => {
           status: "completed",
           toOwnerId: fence.ownerId,
           toOwnerGeneration: fence.generation,
-          sessionCookie: "secret-cookie",
+          tokenEnc: "enc:secret-bearer",
           expiresAt: 50_000,
           createdAt: 2,
         }),
@@ -2107,10 +2108,11 @@ describe("owner purge adversarial invariants", () => {
           deviceId: "new-device",
           rotatedAt: 3,
         }),
-        policy: await ctx.db.insert("auth_session_policies", {
+        policy: await ctx.db.insert("auth_revoked_sessions", {
           ownerId: fence.ownerId,
-          minIssuedAtSec: 10,
-          updatedAt: 4,
+          sessionId: "fenced-session",
+          revokedAt: 4,
+          expiresAt: 50_000,
         }),
         billingWindow: await ctx.db.insert("billing_usage_windows", {
           ownerId: fence.ownerId,

@@ -84,6 +84,7 @@ describe("mobile bridge policy", () => {
         "stella-dictation-local": "true",
         "stella.displayPanel.width": "480",
         "better-auth_cookie": "secret",
+        "better-auth_session_token": "secret",
         "stella-onboarding-complete": "true",
         "unrelated-key": "ignored",
       }),

@@ -144,7 +144,6 @@ function RootStack() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
-      <Stack.Screen name="auth" />
       <Stack.Screen name="(auth)" />
       <Stack.Screen name="onboarding" />
       <Stack.Screen name="(main)" />
@@ -195,18 +194,15 @@ function AuthenticatedLayout() {
       return;
     }
 
-    const onAuthCallback =
-      pathname === "/auth" || pathname.startsWith("/auth/");
     const onLogin = pathname === "/login";
     const onIndex = pathname === "/" || pathname === "";
     const onOnboarding = pathname === "/onboarding";
     const onMain =
       pathname.startsWith("/chat") ||
       pathname.startsWith("/computer") ||
-      pathname.startsWith("/stella") ||
       pathname.startsWith("/account");
 
-    if (onAuthCallback || onOnboarding) {
+    if (onOnboarding) {
       return;
     }
 

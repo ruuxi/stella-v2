@@ -334,4 +334,11 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "purge expired revoked-session tombstones",
+  { hours: 1 },
+  internal.auth.purgeExpiredRevokedSessions,
+  { batchSize: 500 },
+);
+
 export default crons;

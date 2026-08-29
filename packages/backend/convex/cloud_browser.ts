@@ -564,16 +564,10 @@ export const projectCloudBrowserSuspension = async (
   if (existingForTurn.length > 0) {
     throw new ConvexError("That hosted turn is already waiting for a browser.");
   }
-  const [authorityTokenRows, sessionPolicy] = await Promise.all([
-    ctx.db
-      .query("cloud_turn_tokens")
-      .withIndex("by_tokenHash", (q) => q.eq("tokenHash", args.tokenHash))
-      .take(2),
-    ctx.db
-      .query("auth_session_policies")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", turn.ownerId))
-      .unique(),
-  ]);
+  const authorityTokenRows = await ctx.db
+    .query("cloud_turn_tokens")
+    .withIndex("by_tokenHash", (q) => q.eq("tokenHash", args.tokenHash))
+    .take(2);
   const token =
     authorityTokenRows.length === 1 ? authorityTokenRows[0] : undefined;
   if (
@@ -588,10 +582,24 @@ export const projectCloudBrowserSuspension = async (
   // through the executor's service route rather than a live user JWT. Bind it
   // to the time the turn capability was minted so revokeActiveSessions also
   // fences an executor that was already running when the user revoked access.
-  if (
-    sessionPolicy &&
-    Math.floor(token.createdAt / 1000) < sessionPolicy.minIssuedAtSec
-  ) {
+  //
+  // Turn tokens carry no `sessionId`, so the per-session tombstone lookup used
+  // for user JWTs cannot apply here. The equivalent predicate is "a revocation
+  // landed after this capability was minted". A tombstone's `expiresAt` is
+  // `revokedAt + JWT_EXPIRATION_SECONDS` (30 min) and `TURN_TOKEN_TTL_MS` is
+  // also 30 min, so a live tombstone always outlives every turn token it needs
+  // to fence.
+  const revocationAfterMint = await ctx.db
+    .query("auth_revoked_sessions")
+    .withIndex("by_ownerId_and_sessionId", (q) => q.eq("ownerId", turn.ownerId))
+    .filter((q) =>
+      q.and(
+        q.gt(q.field("expiresAt"), args.now),
+        q.gt(q.field("revokedAt"), token.createdAt),
+      ),
+    )
+    .first();
+  if (revocationAfterMint) {
     throw new ConvexError({
       code: "UNAUTHENTICATED",
       message: "Session has been revoked. Please sign in again.",

@@ -1602,7 +1602,7 @@ const pageInteractiveHelper = `(element) => {
   return hit === element || element.contains(hit);
 }`;
 
-const browserAuthExpression = ({ sessionCookie, convexUrl, convexSiteUrl }) =>
+const browserAuthExpression = ({ sessionToken, convexUrl, convexSiteUrl }) =>
   `(async () => {
     try {
       if (window.electronAPI) throw new Error("wrong surface");
@@ -1612,9 +1612,9 @@ const browserAuthExpression = ({ sessionCookie, convexUrl, convexSiteUrl }) =>
       if (observedTarget.convexUrl !== ${JSON.stringify(convexUrl)} || observedTarget.convexSiteUrl !== ${JSON.stringify(convexSiteUrl)}) {
         throw new Error("renderer target mismatch");
       }
-      const { applyBrowserAuthSessionCookie } = await import("/src/global/auth/services/auth-storage.ts");
+      const { writeBrowserSessionToken } = await import("/src/global/auth/services/auth-storage.ts");
       const { refreshAuthSession, getAuthSessionSnapshot } = await import("/src/global/auth/services/auth-session.ts");
-      applyBrowserAuthSessionCookie(${JSON.stringify(sessionCookie)});
+      writeBrowserSessionToken(${JSON.stringify(sessionToken)});
       await refreshAuthSession();
       const snapshot = getAuthSessionSnapshot();
       const user = snapshot.data?.user;
@@ -1634,7 +1634,7 @@ const browserAuthExpression = ({ sessionCookie, convexUrl, convexSiteUrl }) =>
     }
   })()`;
 
-const electronAuthExpression = ({ sessionCookie, convexUrl, convexSiteUrl }) =>
+const electronAuthExpression = ({ sessionToken, convexUrl, convexSiteUrl }) =>
   `(async () => {
     try {
       if (!window.electronAPI?.system) throw new Error("wrong surface");
@@ -1643,8 +1643,8 @@ const electronAuthExpression = ({ sessionCookie, convexUrl, convexSiteUrl }) =>
       if (observedTarget.convexUrl !== ${JSON.stringify(convexUrl)} || observedTarget.convexSiteUrl !== ${JSON.stringify(convexSiteUrl)}) {
         throw new Error("renderer target mismatch");
       }
-      const applied = await window.electronAPI.system.applyAuthSessionCookie(${JSON.stringify(sessionCookie)});
-      if (!applied?.ok) throw new Error("cookie rejected");
+      const applied = await window.electronAPI.system.applyAuthSessionToken(${JSON.stringify(sessionToken)});
+      if (!applied?.ok) throw new Error("session token rejected");
       await window.electronAPI.system.configurePiRuntime({
         convexUrl: observedTarget.convexUrl,
         convexSiteUrl: observedTarget.convexSiteUrl
@@ -2043,15 +2043,15 @@ const verifyExistingRenderedAuthorityProfile = async (
 export const authenticateRenderedClient = async (
   client,
   {
-    sessionCookie,
+    sessionToken,
     convexUrl,
     convexSiteUrl,
     expectedIdentityClass = "non-anonymous",
   },
 ) => {
   assert(
-    typeof sessionCookie === "string" && sessionCookie.length > 0,
-    "Rendered-client session cookie is required.",
+    typeof sessionToken === "string" && sessionToken.length > 0,
+    "Rendered-client session token is required.",
   );
   assert(
     convexUrl === REQUIRED_CONVEX.cloudUrl &&
@@ -2071,8 +2071,8 @@ export const authenticateRenderedClient = async (
   client.authSetupUseCount += 1;
   const expression =
     client.surface === "browser-cdp"
-      ? browserAuthExpression({ sessionCookie, convexUrl, convexSiteUrl })
-      : electronAuthExpression({ sessionCookie, convexUrl, convexSiteUrl });
+      ? browserAuthExpression({ sessionToken, convexUrl, convexSiteUrl })
+      : electronAuthExpression({ sessionToken, convexUrl, convexSiteUrl });
   const result = await client.evaluate(
     expression,
     `authenticate ${client.surface}`,

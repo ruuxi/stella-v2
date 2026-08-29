@@ -3,8 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  applyBrowserAuthSessionCookie: vi.fn(),
-  assertBetterAuthSessionCookie: vi.fn(),
+  writeBrowserSessionToken: vi.fn(),
   getConvexToken: vi.fn(),
   getAuthSessionSnapshot: vi.fn(),
   refreshAuthSession: vi.fn(),
@@ -26,8 +25,7 @@ vi.mock("@/global/auth/services/auth-session", () => ({
 }));
 
 vi.mock("@/global/auth/services/auth-storage", () => ({
-  applyBrowserAuthSessionCookie: mocks.applyBrowserAuthSessionCookie,
-  assertBetterAuthSessionCookie: mocks.assertBetterAuthSessionCookie,
+  writeBrowserSessionToken: mocks.writeBrowserSessionToken,
 }));
 
 vi.mock("@/global/auth/services/auth-token", () => ({
@@ -39,7 +37,7 @@ vi.mock("@/shared/lib/convex-urls", () => ({
 }));
 
 import {
-  applyAndVerifyAccountSessionCookie,
+  applyAndVerifyAccountSessionToken,
   buildMagicLinkSendRequest,
   getBrowserSocialCallbackUrl,
   startBrowserGoogleSignIn,
@@ -179,20 +177,17 @@ describe("account connection renderer boundaries", () => {
     expect(mocks.getConvexToken).toHaveBeenCalledWith({ forceRefresh: true });
   });
 
-  it("mirrors a browser cookie and accepts it only after a connected owner revalidates", async () => {
-    await applyAndVerifyAccountSessionCookie("session_token=account-cookie");
+  it("stores a browser bearer and accepts it only after a connected owner revalidates", async () => {
+    await applyAndVerifyAccountSessionToken("account.bearer.token");
 
-    expect(mocks.applyBrowserAuthSessionCookie).toHaveBeenCalledWith(
-      "session_token=account-cookie",
-    );
-    expect(mocks.assertBetterAuthSessionCookie).toHaveBeenCalledWith(
-      "session_token=account-cookie",
+    expect(mocks.writeBrowserSessionToken).toHaveBeenCalledWith(
+      "account.bearer.token",
     );
     expect(mocks.updateSession).toHaveBeenCalledTimes(1);
     expect(mocks.refreshAuthSession).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects an applied cookie when revalidation still resolves to an anonymous owner", async () => {
+  it("rejects an applied bearer when revalidation still resolves to an anonymous owner", async () => {
     mocks.getAuthSessionSnapshot.mockReturnValue({
       data: { user: { id: "anonymous-owner", isAnonymous: true } },
       isPending: false,
@@ -201,25 +196,23 @@ describe("account connection renderer boundaries", () => {
     });
 
     await expect(
-      applyAndVerifyAccountSessionCookie("session_token=ambiguous-cookie"),
+      applyAndVerifyAccountSessionToken("ambiguous.bearer.token"),
     ).rejects.toThrow("could not be verified");
   });
 
-  it("keeps cookie persistence host-owned in Electron and checks the host result", async () => {
-    const applyAuthSessionCookie = vi.fn().mockResolvedValue({ ok: true });
-    setElectronApi({ system: { applyAuthSessionCookie } });
+  it("keeps bearer persistence host-owned in Electron and checks the host result", async () => {
+    const applyAuthSessionToken = vi.fn().mockResolvedValue({ ok: true });
+    setElectronApi({ system: { applyAuthSessionToken } });
 
-    await applyAndVerifyAccountSessionCookie("session_token=desktop-cookie");
+    await applyAndVerifyAccountSessionToken("desktop.bearer.token");
 
-    expect(applyAuthSessionCookie).toHaveBeenCalledWith(
-      "session_token=desktop-cookie",
-    );
-    expect(mocks.applyBrowserAuthSessionCookie).not.toHaveBeenCalled();
+    expect(applyAuthSessionToken).toHaveBeenCalledWith("desktop.bearer.token");
+    expect(mocks.writeBrowserSessionToken).not.toHaveBeenCalled();
     expect(mocks.updateSession).not.toHaveBeenCalled();
 
-    applyAuthSessionCookie.mockResolvedValueOnce({ ok: false });
+    applyAuthSessionToken.mockResolvedValueOnce({ ok: false });
     await expect(
-      applyAndVerifyAccountSessionCookie("session_token=rejected-cookie"),
-    ).rejects.toThrow("rejected the cookie");
+      applyAndVerifyAccountSessionToken("rejected.bearer.token"),
+    ).rejects.toThrow("rejected the token");
   });
 });

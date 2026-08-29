@@ -30,7 +30,7 @@ export type PublicApiType = {
   "auth": {
     "getAuthUser": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "getCurrentUser": FunctionReference<'query', 'public', {}, any, string | undefined>;
-    "revokeActiveSessions": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
+    "revokeActiveSessions": FunctionReference<'action', 'public', {}, any, string | undefined>;
   };
   "auth_migration": {
     "getMyOwnershipMigrationStatus": FunctionReference<'query', 'public', {}, any, string | undefined>;

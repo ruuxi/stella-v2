@@ -28,7 +28,7 @@ const OWNER_TABLES = [
   "user_preferences",
   "devices",
   "device_identity_successors",
-  "auth_session_policies",
+  "auth_revoked_sessions",
   "auth_link_requests",
   "auth_browser_handoffs",
   "user_counters",
@@ -705,10 +705,12 @@ export const remainingOwnerAccountCoreStoresInternal = internalQuery({
   returns: v.array(v.string()),
   handler: async (ctx: QueryCtx, { ownerId }) => {
     const checks = await Promise.all([
-      accountResidueCheck("auth_session_policies", () =>
+      accountResidueCheck("auth_revoked_sessions", () =>
         ctx.db
-          .query("auth_session_policies")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+          .query("auth_revoked_sessions")
+          .withIndex("by_ownerId_and_sessionId", (q) =>
+            q.eq("ownerId", ownerId),
+          )
           .take(1),
       ),
       accountResidueCheck("mobile_pairing_sessions", () =>

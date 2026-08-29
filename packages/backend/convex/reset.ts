@@ -106,7 +106,7 @@ const OWNER_TABLES = [
   ],
   ["mobile_push_tokens", "by_ownerId"],
   ["device_identity_successors", "by_ownerId_and_previousDeviceId"],
-  ["auth_session_policies", "by_ownerId"],
+  ["auth_revoked_sessions", "by_ownerId_and_sessionId"],
   ["auth_link_requests", "by_fromOwnerId_and_createdAt"],
   ["auth_browser_handoffs", "by_fromOwnerId"],
   ["user_counters", "by_ownerId"],
@@ -120,13 +120,13 @@ type OwnerTable = (typeof OWNER_TABLES)[number][0];
 /**
  * Reset rotates the owner's data generation, but it must not erase account
  * security or commercial entitlement state. In particular, deleting the
- * session-revocation watermark could make an old token valid again, while
+ * session-revocation tombstones could make a revoked token valid again, while
  * deleting billing history/windows/profiles could grant fresh quota or sever
  * Stripe reconciliation. Billing is deliberately outside this generic table
  * registry; account deletion delegates it to `account_billing_purge.ts`.
  */
 const RESET_OWNER_TABLES = OWNER_TABLES.filter(
-  ([table]) => table !== "auth_session_policies",
+  ([table]) => table !== "auth_revoked_sessions",
 );
 
 type OwnerPurgeFence = {
@@ -1010,7 +1010,7 @@ const ownerTableValidator = v.union(
   v.literal("mobile_bridge_sessions"),
   v.literal("mobile_push_tokens"),
   v.literal("device_identity_successors"),
-  v.literal("auth_session_policies"),
+  v.literal("auth_revoked_sessions"),
   v.literal("auth_link_requests"),
   v.literal("auth_browser_handoffs"),
   v.literal("user_counters"),
@@ -1157,10 +1157,12 @@ async function deleteOneOwnerTableBatch(
       ids = rows.map((r) => r._id) as Id<OwnerTable>[];
       break;
     }
-    case "auth_session_policies": {
+    case "auth_revoked_sessions": {
       const rows = await ctx.db
-        .query("auth_session_policies")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+        .query("auth_revoked_sessions")
+        .withIndex("by_ownerId_and_sessionId", (q) =>
+          q.eq("ownerId", ownerId),
+        )
         .take(BATCH);
       ids = rows.map((r) => r._id) as Id<OwnerTable>[];
       break;

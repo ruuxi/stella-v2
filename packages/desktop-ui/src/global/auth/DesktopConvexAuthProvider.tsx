@@ -16,21 +16,15 @@ import {
 } from "@/global/auth/services/auth-token";
 import {
   getAuthSessionSnapshot,
+  refreshAuthSession,
   signInAnonymous,
   useDesktopAuthSession,
   waitForBrowserAuthHandoff,
 } from "@/global/auth/services/auth-session";
 import { convexClient } from "@/platform/convex/convex-client";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
-import { getJwtExpMs } from "@/shared/lib/jwt";
 import { decideAutomaticAnonymousBootstrap } from "./browser-auth-handoff";
 
-const TOKEN_BOOTSTRAP_RETRY_BASE_MS = 3_000;
-const TOKEN_BOOTSTRAP_RETRY_MAX_MS = 60_000;
-const TOKEN_BOOTSTRAP_MAX_ATTEMPTS = 10;
-const TOKEN_REFRESH_FALLBACK_MS = 3 * 60 * 1000;
-const TOKEN_REFRESH_MARGIN_MS = 90_000;
-const TOKEN_MIN_REFRESH_MS = 15_000;
 const CONVEX_TOKEN_ISSUER = readConfiguredConvexSiteUrl(
   import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
 );
@@ -42,18 +36,9 @@ const expectedConvexTokenSubject = (userId: string | null): string | null => {
     : null;
 };
 
-const getTokenBootstrapRetryDelayMs = (attempt: number) => {
-  const exponent = Math.max(0, attempt - 1);
-  return Math.min(
-    TOKEN_BOOTSTRAP_RETRY_MAX_MS,
-    TOKEN_BOOTSTRAP_RETRY_BASE_MS * 2 ** exponent,
-  );
-};
-
 export type AuthBootstrapStatus =
   | "loading_session"
   | "creating_anonymous_session"
-  | "syncing_runtime_token"
   | "ready"
   | "failed";
 
@@ -77,17 +62,6 @@ const AuthBootstrapContext = createContext<AuthBootstrapContextValue>({
 export function useAuthBootstrapState() {
   return useContext(AuthBootstrapContext);
 }
-
-const getHostTokenRefreshDelayMs = (token: string): number => {
-  try {
-    return Math.max(
-      TOKEN_MIN_REFRESH_MS,
-      getJwtExpMs(token) - Date.now() - TOKEN_REFRESH_MARGIN_MS,
-    );
-  } catch {
-    return TOKEN_REFRESH_FALLBACK_MS;
-  }
-};
 
 /**
  * `useAuth` hook for `ConvexProviderWithAuth`. Exported so secondary
@@ -178,26 +152,6 @@ function DesktopAuthRuntimeEffects({
   const session = useDesktopAuthSession();
   const attemptedAnonAuthRef = useRef(false);
   const lastRetryAttemptRef = useRef(retryAttempt);
-  const runtimeAuthRefreshHandlerRef = useRef<
-    | ((args?: {
-        forceRefreshToken?: boolean;
-        requestId?: string;
-      }) => Promise<void>)
-    | null
-  >(null);
-  const sessionUser = (
-    session.data as
-      | { user?: { id?: string | null; isAnonymous?: boolean | null } }
-      | null
-      | undefined
-  )?.user;
-  const sessionUserId = sessionUser?.id ?? null;
-  const sessionIsAnonymous = sessionUser?.isAnonymous === true;
-  const sessionIdentityRevision = session.identityRevision;
-  const expectedTokenSubject = expectedConvexTokenSubject(sessionUserId);
-  const hasSession = Boolean(session.data);
-  const hasConnectedAccount = hasSession && !sessionIsAnonymous;
-  const isSessionPending = Boolean(session.isPending);
 
   useEffect(() => {
     if (lastRetryAttemptRef.current !== retryAttempt) {
@@ -238,11 +192,11 @@ function DesktopAuthRuntimeEffects({
           return;
         }
         attemptedAnonAuthRef.current = false;
-        // Browser shells have no desktop runtime token to synchronize. Their
-        // ConvexProviderWithAuth exchange is the remaining authority barrier.
-        if (!window.electronAPI) {
-          setAuthBootstrapState({ status: "ready", error: null });
-        }
+        // A verified session identity is the whole barrier now. Electron main
+        // owns Convex token minting and refresh, and a browser shell mints
+        // through `ConvexProviderWithAuth`; neither needs the renderer to
+        // hand a token anywhere before the shell may open.
+        setAuthBootstrapState({ status: "ready", error: null });
         return;
       }
 
@@ -283,226 +237,19 @@ function DesktopAuthRuntimeEffects({
     void systemApi.setCloudSyncEnabled({ enabled: true });
   }, []);
 
+  // Main pushes this when it discovers the stored bearer is gone or rejected
+  // (local sign-out, revoked session). Drop the cached Convex JWT and re-read
+  // the session so the shell converges instead of holding a dead identity.
   useEffect(() => {
     const systemApi = window.electronAPI?.system;
-    if (
-      !systemApi?.onRuntimeAuthRefreshRequested ||
-      !systemApi.completeRuntimeAuthRefresh
-    ) {
+    if (!systemApi?.onAuthSessionInvalidated) {
       return;
     }
 
-    return systemApi.onRuntimeAuthRefreshRequested(({ requestId }) => {
-      const syncToken = runtimeAuthRefreshHandlerRef.current;
-      if (syncToken) {
-        void syncToken({ forceRefreshToken: true, requestId });
-        return;
-      }
-      void systemApi.completeRuntimeAuthRefresh({
-        requestId,
-        authenticated: false,
-        hasConnectedAccount: false,
-      });
+    return systemApi.onAuthSessionInvalidated(() => {
+      clearCachedToken();
+      void refreshAuthSession({ silent: true });
     });
-  }, []);
-
-  useEffect(() => {
-    const systemApi = window.electronAPI?.system;
-    if (!systemApi?.setAuthState) {
-      runtimeAuthRefreshHandlerRef.current = null;
-      // Browser shells authenticate Convex directly. They have no desktop
-      // runtime process to synchronize, so absence of this IPC method is
-      // expected rather than an auth bootstrap failure.
-      if (!window.electronAPI) return;
-      setAuthBootstrapState({
-        status: "failed",
-        error: "Stella could not connect auth to the desktop runtime.",
-      });
-      return;
-    }
-
-    if (isSessionPending) {
-      runtimeAuthRefreshHandlerRef.current = null;
-      setAuthBootstrapState({ status: "loading_session", error: null });
-      return;
-    }
-
-    if (!hasSession) {
-      runtimeAuthRefreshHandlerRef.current = null;
-      setAuthBootstrapState({
-        status: "creating_anonymous_session",
-        error: null,
-      });
-      void systemApi.setAuthState({
-        authenticated: false,
-        hasConnectedAccount: false,
-      });
-      return;
-    }
-
-    if (!sessionUserId?.trim() || !expectedTokenSubject) {
-      runtimeAuthRefreshHandlerRef.current = null;
-      void systemApi.setAuthState({
-        authenticated: false,
-        hasConnectedAccount: false,
-      });
-      setAuthBootstrapState({
-        status: "failed",
-        error: "Stella could not verify the signed-in identity.",
-      });
-      return;
-    }
-
-    setAuthBootstrapState({
-      status: "syncing_runtime_token",
-      error: null,
-    });
-
-    let cancelled = false;
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    let bootstrapAttempts = 0;
-
-    const clearTimers = () => {
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-        refreshTimer = null;
-      }
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-        retryTimer = null;
-      }
-    };
-
-    const scheduleRefresh = (token: string) => {
-      if (cancelled) {
-        return;
-      }
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-      }
-      refreshTimer = setTimeout(() => {
-        refreshTimer = null;
-        void syncToken({ forceRefreshToken: true });
-      }, getHostTokenRefreshDelayMs(token));
-    };
-
-    const syncToken = async ({
-      forceRefreshToken = false,
-      requestId,
-    }: { forceRefreshToken?: boolean; requestId?: string } = {}) => {
-      let token: string | undefined;
-      try {
-        token =
-          (await getConvexTokenForIdentity(
-            expectedTokenSubject,
-            sessionIsAnonymous,
-            {
-              forceRefresh: forceRefreshToken,
-              identityRevision: sessionIdentityRevision,
-            },
-          )) ?? undefined;
-      } catch {
-        token = undefined;
-      }
-      if (cancelled) return;
-
-      if (token) {
-        const nextState = {
-          authenticated: true,
-          token,
-          hasConnectedAccount,
-        } as const;
-        if (retryTimer) {
-          clearTimeout(retryTimer);
-          retryTimer = null;
-        }
-        bootstrapAttempts = 0;
-        void systemApi.setAuthState(nextState);
-        if (requestId && systemApi.completeRuntimeAuthRefresh) {
-          void systemApi.completeRuntimeAuthRefresh({
-            requestId,
-            ...nextState,
-          });
-        }
-        scheduleRefresh(token);
-        setAuthBootstrapState({ status: "ready", error: null });
-        return;
-      }
-
-      const nextState = {
-        authenticated: false,
-        hasConnectedAccount: false,
-      } as const;
-      void systemApi.setAuthState(nextState);
-      if (requestId && systemApi.completeRuntimeAuthRefresh) {
-        void systemApi.completeRuntimeAuthRefresh({
-          requestId,
-          ...nextState,
-        });
-      }
-      // A live refresh request (heartbeat/subscription) is not part of the
-      // initial bootstrap loop — it can fail without poisoning startup.
-      if (requestId) {
-        return;
-      }
-      if (retryTimer) {
-        return;
-      }
-      bootstrapAttempts += 1;
-      if (bootstrapAttempts >= TOKEN_BOOTSTRAP_MAX_ATTEMPTS) {
-        setAuthBootstrapState({
-          status: "failed",
-          error:
-            "Stella couldn't reach the auth runtime. Check your connection and try again.",
-        });
-        return;
-      }
-      setAuthBootstrapState({
-        status: "syncing_runtime_token",
-        error: null,
-      });
-      retryTimer = setTimeout(() => {
-        retryTimer = null;
-        void syncToken();
-      }, getTokenBootstrapRetryDelayMs(bootstrapAttempts));
-    };
-
-    runtimeAuthRefreshHandlerRef.current = syncToken;
-    // The identity-aware helper invalidates the generic cache synchronously on
-    // a new identity. Do not clear it from this passive effect: that can race a
-    // fresh token already fetched by ConvexProviderWithAuth.
-    void syncToken();
-
-    return () => {
-      cancelled = true;
-      runtimeAuthRefreshHandlerRef.current = null;
-      clearTimers();
-    };
-  }, [
-    expectedTokenSubject,
-    hasConnectedAccount,
-    hasSession,
-    isSessionPending,
-    sessionIsAnonymous,
-    sessionIdentityRevision,
-    sessionUserId,
-    setAuthBootstrapState,
-    retryAttempt,
-  ]);
-
-  useEffect(() => {
-    const systemApi = window.electronAPI?.system;
-    if (!systemApi?.setAuthState) {
-      return;
-    }
-
-    return () => {
-      void systemApi.setAuthState({
-        authenticated: false,
-        hasConnectedAccount: false,
-      });
-    };
   }, []);
 
   return null;

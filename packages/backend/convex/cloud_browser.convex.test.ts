@@ -236,11 +236,14 @@ describe("cloud browser control projection", () => {
   it("rejects a new browser wait from a turn capability invalidated by session revocation", async () => {
     const t = createTest();
     await seedActiveTurn(t);
+    // A turn token carries no `sessionId` claim, so its authority is voided by
+    // any revocation the owner performed after the token was minted.
     await t.run(async (ctx) => {
-      await ctx.db.insert("auth_session_policies", {
+      await ctx.db.insert("auth_revoked_sessions", {
         ownerId: OWNER_ID,
-        minIssuedAtSec: Math.floor(NOW / 1000) + 1,
-        updatedAt: NOW + 1,
+        sessionId: "session-browser-revoked",
+        revokedAt: NOW + 1,
+        expiresAt: NOW + 60_000,
       });
     });
 
@@ -531,7 +534,7 @@ describe("cloud browser control projection", () => {
       issuer: "https://issuer.test",
       subject: "browser-owner",
       tokenIdentifier: OWNER_ID,
-      iat: 200,
+      sessionId: "session-browser-live",
     });
     expect(
       await connected.query(api.cloud_browser.listMyPendingBrowserInteractions),
@@ -542,17 +545,20 @@ describe("cloud browser control projection", () => {
       subject: "browser-owner",
       tokenIdentifier: OWNER_ID,
       isAnonymous: true,
-      iat: 200,
+      sessionId: "session-browser-live",
     });
     await expect(
       anonymous.query(api.cloud_browser.listMyPendingBrowserInteractions),
     ).rejects.toThrow("Sign in with an account");
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("auth_session_policies", {
+      // Query-side revocation is checked against wall-clock time, not the
+      // fixture's `NOW`, so the tombstone has to still be live right now.
+      await ctx.db.insert("auth_revoked_sessions", {
         ownerId: OWNER_ID,
-        minIssuedAtSec: 300,
-        updatedAt: NOW,
+        sessionId: "session-browser-live",
+        revokedAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
       });
     });
     await expect(

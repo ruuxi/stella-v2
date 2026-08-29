@@ -19,12 +19,15 @@ const createTest = () => {
   registerRateLimiter(t);
   return t;
 };
-const asOwner = (t: ReturnType<typeof createTest>, issuedAt = 1_000) =>
+const asOwner = (
+  t: ReturnType<typeof createTest>,
+  sessionId = "session-bridge-live",
+) =>
   t.withIdentity({
     issuer: "https://issuer.test",
     subject: "bridge-owner",
     tokenIdentifier: ownerId,
-    iat: issuedAt,
+    sessionId,
   });
 
 const registrationArgs = {
@@ -59,19 +62,29 @@ describe("desktop bridge registration", () => {
   it("enforces the sensitive-session revocation policy", async () => {
     const t = createTest();
     await t.run(async (ctx) => {
-      await ctx.db.insert("auth_session_policies", {
+      await ctx.db.insert("auth_revoked_sessions", {
         ownerId,
-        minIssuedAtSec: 2_000,
-        updatedAt: Date.now(),
+        sessionId: "session-bridge-revoked",
+        revokedAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
       });
     });
 
     await expect(
-      asOwner(t, 1_000).mutation(
+      asOwner(t, "session-bridge-revoked").mutation(
         api.mobile_bridge.registerDesktopBridge,
         registrationArgs,
       ),
     ).rejects.toThrow("Session has been revoked");
+
+    // A different session under the same owner keeps working: revocation is
+    // per-session, not per-account.
+    await expect(
+      asOwner(t).mutation(
+        api.mobile_bridge.registerDesktopBridge,
+        registrationArgs,
+      ),
+    ).resolves.toMatchObject({ ok: true });
   });
 
   it("allows 60 registrations per owner and rejects the 61st", async () => {

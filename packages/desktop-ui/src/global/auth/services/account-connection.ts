@@ -3,10 +3,7 @@ import {
   getAuthSessionSnapshot,
   refreshAuthSession,
 } from "@/global/auth/services/auth-session";
-import {
-  applyBrowserAuthSessionCookie,
-  assertBetterAuthSessionCookie,
-} from "@/global/auth/services/auth-storage";
+import { writeBrowserSessionToken } from "@/global/auth/services/auth-storage";
 import { getConvexToken } from "@/global/auth/services/auth-token";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 
@@ -148,30 +145,34 @@ const readConnectedAccountOwnerId = (): string | null => {
 };
 
 /**
- * Apply the raw Better Auth Set-Cookie value in the renderer-specific storage,
- * then perform an authoritative session read. A completed poll without a
+ * Install a claimed bearer token in whichever store owns credentials for this
+ * shell, then perform an authoritative session read. A completed poll without a
  * verifiable connected-account owner is treated as a failed link.
+ *
+ * Electron hands the token to main, which is the only token authority there.
+ * A browser shell writes it to its own local store. Either way the link
+ * finishes in the shell the user started it from, so no path asks them to sign
+ * in twice.
  */
-export const applyAndVerifyAccountSessionCookie = async (
-  sessionCookie: string,
+export const applyAndVerifyAccountSessionToken = async (
+  sessionToken: string,
 ): Promise<void> => {
-  const normalized = sessionCookie.trim();
+  const normalized = sessionToken.trim();
   if (!normalized) {
-    throw new Error("Missing account session cookie.");
+    throw new Error("Missing account session token.");
   }
-  assertBetterAuthSessionCookie(normalized);
 
   if (window.electronAPI) {
-    const applySessionCookie = window.electronAPI.system.applyAuthSessionCookie;
-    if (!applySessionCookie) {
+    const applySessionToken = window.electronAPI.system.applyAuthSessionToken;
+    if (!applySessionToken) {
       throw new Error("Desktop account session storage is unavailable.");
     }
-    const result = await applySessionCookie(normalized);
+    const result = await applySessionToken(normalized);
     if (!result?.ok) {
-      throw new Error("Desktop account session storage rejected the cookie.");
+      throw new Error("Desktop account session storage rejected the token.");
     }
   } else {
-    applyBrowserAuthSessionCookie(normalized);
+    writeBrowserSessionToken(normalized);
     authClient.updateSession();
   }
 

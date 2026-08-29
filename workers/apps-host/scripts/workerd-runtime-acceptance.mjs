@@ -657,8 +657,12 @@ export const runAppsHostWorkerdAcceptance = async ({
       "Auth handoff omitted its reviewed script.",
     );
     assert(
-      handoffJs.includes("/api/auth/cross-domain/one-time-token/verify"),
+      handoffJs.includes("/api/auth/one-time-token/verify"),
       "Auth handoff omitted one-time verification.",
+    );
+    assert(
+      handoffJs.includes("set-auth-token"),
+      "Auth handoff omitted bearer token capture.",
     );
     assert(
       handoff.headers["cache-control"] === "no-store",

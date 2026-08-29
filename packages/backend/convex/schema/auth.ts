@@ -35,17 +35,28 @@ export const authSchema = {
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
     .index("by_secretId_and_createdAt", ["secretId", "createdAt"]),
 
-  // Per-account session-revocation marker. A row exists only after the user
-  // calls `revokeActiveSessions`; absence means "no revocations on file".
-  // `assertSensitiveSessionPolicy` rejects any JWT whose `iat` claim is older
-  // than `minIssuedAtSec`. This is the only mechanism for invalidating
-  // outstanding tokens — by design we don't carry a separate version counter
-  // since `iat`/`minIssuedAtSec` already covers the same semantics.
-  auth_session_policies: defineTable({
+  // Tombstones for Better Auth sessions killed by `revokeActiveSessions`.
+  //
+  // Real revocation is the deletion of the Better Auth `session` row: once it
+  // is gone, `/api/auth/convex/token` stops minting and the holder is locked
+  // out. But Convex verifies a JWT against JWKS alone, so a token already
+  // minted stays cryptographically valid until it expires. These rows cover
+  // exactly that in-flight window and are pruned once `expiresAt` passes.
+  //
+  // Keyed on `sessionId` and NOT on the `iat` claim: Convex's `customJwt`
+  // provider decodes with biscuit, whose `RegisteredClaims` consumes `iat`
+  // before custom claims are extracted, so `iat` never reaches
+  // `UserIdentity`. `sessionId` is a non-registered claim and does survive.
+  auth_revoked_sessions: defineTable({
     ownerId: v.string(),
-    minIssuedAtSec: v.number(),
-    updatedAt: v.number(),
-  }).index("by_ownerId", ["ownerId"]),
+    sessionId: v.string(),
+    revokedAt: v.number(),
+    // Wall-clock ms after which this tombstone is worthless: any JWT naming
+    // this session has expired on its own by then.
+    expiresAt: v.number(),
+  })
+    .index("by_ownerId_and_sessionId", ["ownerId", "sessionId"])
+    .index("by_expiresAt", ["expiresAt"]),
 
   auth_link_requests: defineTable({
     email: v.string(),
@@ -66,9 +77,23 @@ export const authSchema = {
     /** Lifecycle generation captured when the destination cookie is bound. */
     toOwnerGeneration: v.optional(v.string()),
     ownershipMigrationId: v.optional(v.id("auth_owner_migrations")),
-    /** Rolling compatibility only; new completions never persist the OTT. */
-    ott: v.optional(v.string()),
-    sessionCookie: v.optional(v.string()),
+    /**
+     * base64url(SHA-256(claimSecret)). The client generates `claimSecret`,
+     * keeps it in memory, and must present it to /api/auth/link/claim.
+     * Knowing `requestId` alone is therefore not enough to take the session.
+     *
+     * Optional only so in-flight rows written before this migration still
+     * validate. `claimLinkRequest` treats an absent hash as unclaimable, so a
+     * legacy row can never yield a credential.
+     */
+    claimHash: v.optional(v.string()),
+    /**
+     * AES-GCM(bearer token) under `BETTER_AUTH_SECRET`. Never plaintext at
+     * rest, and deleted on the first successful claim.
+     */
+    tokenEnc: v.optional(v.string()),
+    completedAt: v.optional(v.number()),
+    claimAttempts: v.optional(v.number()),
     expiresAt: v.number(),
     createdAt: v.number(),
   })

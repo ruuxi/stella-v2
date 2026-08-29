@@ -20,6 +20,7 @@ const mobileAuth = (
           fromOwnerId?: string;
           expiresAt: number;
           createdAt: number;
+          claimHash: string;
         },
         null
       >;
@@ -28,7 +29,7 @@ const mobileAuth = (
         "internal",
         {
           requestId: string;
-          sessionCookie: string;
+          tokenEnc: string;
           toOwnerId: string;
         },
         | {
@@ -45,6 +46,12 @@ const mobileAuth = (
               | "owner_fenced";
           }
       >;
+      claimLinkRequest: FunctionReference<
+        "mutation",
+        "internal",
+        { requestId: string; claimHash: string; nowMs: number },
+        { ok: true; tokenEnc: string } | { ok: false }
+      >;
       getLinkRequestStatus: FunctionReference<
         "query",
         "internal",
@@ -53,7 +60,6 @@ const mobileAuth = (
         | { status: "expired" | "pending" }
         | {
             status: "completed";
-            sessionCookie?: string;
             migrationStatus?: "pending" | "running" | "failed" | "complete";
             migrationError?: string;
           }
@@ -65,6 +71,8 @@ const mobileAuth = (
 const requestId = "request_12345678901234567890123456789012";
 const fromOwnerId = "https://issuer.test|anonymous-owner";
 const toOwnerId = "https://issuer.test|connected-owner";
+const claimHash = "Zm9yLXRoZS10ZXN0LWNsYWltLXNlY3JldC1oYXNo";
+const tokenEnc = "enc:connected-bearer";
 
 describe("magic-link owner transfer", () => {
   it("persists the bearer-derived source owner before sending the link", async () => {
@@ -76,6 +84,7 @@ describe("magic-link owner transfer", () => {
         requestId,
         fromOwnerId,
         createdAt: 1,
+        claimHash,
         expiresAt: Date.now() + 60_000,
       }),
     ).resolves.toBeNull();
@@ -89,6 +98,7 @@ describe("magic-link owner transfer", () => {
     expect(row).toMatchObject({
       requestId,
       fromOwnerId,
+      claimHash,
       status: "pending",
     });
   });
@@ -100,13 +110,14 @@ describe("magic-link owner transfer", () => {
       requestId,
       fromOwnerId,
       createdAt: 1,
+      claimHash,
       expiresAt: Date.now() + 60_000,
     });
 
     await expect(
       t.mutation(mobileAuth.completeLinkRequest, {
         requestId,
-        sessionCookie: "better-auth.session_token=connected",
+        tokenEnc,
         toOwnerId,
       }),
     ).resolves.toEqual({
@@ -146,10 +157,108 @@ describe("magic-link owner transfer", () => {
     });
     expect(pollResult).toMatchObject({
       status: "completed",
-      sessionCookie: "better-auth.session_token=connected",
       migrationStatus: "pending",
     });
+    // Polling with only the requestId must never surface a credential.
     expect(pollResult).not.toHaveProperty("ott");
+    expect(pollResult).not.toHaveProperty("sessionCookie");
+    expect(pollResult).not.toHaveProperty("tokenEnc");
+  });
+
+  it("releases the bearer token once, to the holder of the claim secret", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(mobileAuth.createPendingLinkRequest, {
+      email: "owner@example.com",
+      requestId,
+      createdAt: 1,
+      claimHash,
+      expiresAt: Date.now() + 60_000,
+    });
+    await t.mutation(mobileAuth.completeLinkRequest, {
+      requestId,
+      tokenEnc,
+      toOwnerId,
+    });
+
+    await expect(
+      t.mutation(mobileAuth.claimLinkRequest, {
+        requestId,
+        claimHash: "d3JvbmctY2xhaW0taGFzaA",
+        nowMs: Date.now(),
+      }),
+    ).resolves.toEqual({ ok: false });
+
+    await expect(
+      t.mutation(mobileAuth.claimLinkRequest, {
+        requestId,
+        claimHash,
+        nowMs: Date.now(),
+      }),
+    ).resolves.toEqual({ ok: true, tokenEnc });
+
+    await expect(
+      t.mutation(mobileAuth.claimLinkRequest, {
+        requestId,
+        claimHash,
+        nowMs: Date.now(),
+      }),
+    ).resolves.toEqual({ ok: false });
+  });
+
+  it("refuses a claim after the three-minute window closes", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(mobileAuth.createPendingLinkRequest, {
+      email: "owner@example.com",
+      requestId,
+      createdAt: 1,
+      claimHash,
+      expiresAt: Date.now() + 60 * 60_000,
+    });
+    await t.mutation(mobileAuth.completeLinkRequest, {
+      requestId,
+      tokenEnc,
+      toOwnerId,
+    });
+
+    await expect(
+      t.mutation(mobileAuth.claimLinkRequest, {
+        requestId,
+        claimHash,
+        nowMs: Date.now() + 4 * 60_000,
+      }),
+    ).resolves.toEqual({ ok: false });
+  });
+
+  it("destroys the handoff after too many wrong claim secrets", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(mobileAuth.createPendingLinkRequest, {
+      email: "owner@example.com",
+      requestId,
+      createdAt: 1,
+      claimHash,
+      expiresAt: Date.now() + 60_000,
+    });
+    await t.mutation(mobileAuth.completeLinkRequest, {
+      requestId,
+      tokenEnc,
+      toOwnerId,
+    });
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      await t.mutation(mobileAuth.claimLinkRequest, {
+        requestId,
+        claimHash: "d3JvbmctY2xhaW0taGFzaA",
+        nowMs: Date.now(),
+      });
+    }
+
+    const row = await t.run(async (ctx) =>
+      ctx.db
+        .query("auth_link_requests")
+        .withIndex("by_requestId", (q) => q.eq("requestId", requestId))
+        .unique(),
+    );
+    expect(row).toBeNull();
   });
 
   it("replays only for the same verified destination identity", async () => {
@@ -159,18 +268,19 @@ describe("magic-link owner transfer", () => {
       requestId,
       fromOwnerId,
       createdAt: 1,
+      claimHash,
       expiresAt: Date.now() + 60_000,
     });
     await t.mutation(mobileAuth.completeLinkRequest, {
       requestId,
-      sessionCookie: "better-auth.session_token=connected",
+      tokenEnc,
       toOwnerId,
     });
 
     await expect(
       t.mutation(mobileAuth.completeLinkRequest, {
         requestId,
-        sessionCookie: "better-auth.session_token=attacker",
+        tokenEnc: "enc:attacker-bearer",
         toOwnerId: "https://issuer.test|different-account",
       }),
     ).resolves.toEqual({ ok: false, reason: "identity_mismatch" });
@@ -183,9 +293,10 @@ describe("magic-link owner transfer", () => {
     );
     expect(row).toMatchObject({
       toOwnerId,
-      sessionCookie: "better-auth.session_token=connected",
+      tokenEnc,
     });
     expect(row).not.toHaveProperty("ott");
+    expect(row).not.toHaveProperty("sessionCookie");
   });
 
   it("fails closed when a completed owner binding loses its migration marker", async () => {
@@ -195,11 +306,12 @@ describe("magic-link owner transfer", () => {
       requestId,
       fromOwnerId,
       createdAt: 1,
+      claimHash,
       expiresAt: Date.now() + 60_000,
     });
     await t.mutation(mobileAuth.completeLinkRequest, {
       requestId,
-      sessionCookie: "better-auth.session_token=connected",
+      tokenEnc,
       toOwnerId,
     });
     await t.run(async (ctx) => {
@@ -216,19 +328,20 @@ describe("magic-link owner transfer", () => {
     await expect(
       t.mutation(mobileAuth.completeLinkRequest, {
         requestId,
-        sessionCookie: "better-auth.session_token=connected",
+        tokenEnc,
         toOwnerId,
       }),
     ).resolves.toEqual({ ok: false, reason: "identity_mismatch" });
   });
 
-  it("cannot publish a session cookie after the source owner deletion fence", async () => {
+  it("cannot publish a bearer token after the source owner deletion fence", async () => {
     const t = convexTest(schema, modules);
     await t.mutation(mobileAuth.createPendingLinkRequest, {
       email: "owner@example.com",
       requestId,
       fromOwnerId,
       createdAt: 1,
+      claimHash,
       expiresAt: Date.now() + 60_000,
     });
     await t.mutation(internal.owner_lifecycle.beginOwnerDataPurgeInternal, {
@@ -241,7 +354,7 @@ describe("magic-link owner transfer", () => {
     await expect(
       t.mutation(mobileAuth.completeLinkRequest, {
         requestId,
-        sessionCookie: "better-auth.session_token=must-not-publish",
+        tokenEnc: "enc:must-not-publish",
         toOwnerId,
       }),
     ).resolves.toEqual({ ok: false, reason: "owner_fenced" });
@@ -253,7 +366,7 @@ describe("magic-link owner transfer", () => {
         .unique(),
     );
     expect(row).toMatchObject({ status: "pending", fromOwnerId });
-    expect(row).not.toHaveProperty("sessionCookie");
+    expect(row).not.toHaveProperty("tokenEnc");
     expect(row).not.toHaveProperty("toOwnerId");
   });
 });

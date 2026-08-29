@@ -23,8 +23,17 @@ const includeLocalUpdateVerification = process.argv.includes(
   "--local-update-verification",
 );
 const verifyIdentifiers = process.argv.includes("--verify-identifiers");
-const runtimeStaticAssetRoots = [
-  "packages/runtime/extensions/stella-runtime/agent-metadata",
+export const packagedOAuthProviderCatalogRelativePath =
+  "runtime/kernel/connectors/oauth-provider-catalog.json";
+export const packagedRuntimeAssetCopies = [
+  {
+    from: "packages/runtime/extensions/stella-runtime/agent-metadata",
+    to: "runtime/extensions/stella-runtime/agent-metadata",
+  },
+  {
+    from: "packages/runtime/kernel/connectors/oauth-provider-catalog.json",
+    to: packagedOAuthProviderCatalogRelativePath,
+  },
 ];
 
 const electronStaticAssetCopies = [
@@ -226,31 +235,76 @@ const writeOutputIfChanged = (absPath, contents) => {
   return true;
 };
 
-const copyRuntimeStaticAssets = async () => {
+export const copyPackagedRuntimeAssets = async ({
+  sourceRoot = repoRootDir,
+  outputRoot = path.join(desktopDir, outdir),
+  copies = packagedRuntimeAssetCopies,
+} = {}) => {
   await Promise.all(
-    runtimeStaticAssetRoots.map(async (rootRelativePath) => {
-      const sourceDir = path.join(repoRootDir, rootRelativePath);
-      const targetDir = path.join(
-        desktopDir,
-        outdir,
-        rootRelativePath.replace(/^packages\/runtime/, "runtime"),
-      );
+    copies.map(async ({ from, to }) => {
+      const sourcePath = path.join(sourceRoot, from);
+      const targetPath = path.join(outputRoot, to);
       try {
-        await fsPromises.rm(targetDir, {
+        await fsPromises.rm(targetPath, {
           force: true,
           recursive: true,
         });
-        await fsPromises.cp(sourceDir, targetDir, {
+        await fsPromises.mkdir(path.dirname(targetPath), { recursive: true });
+        await fsPromises.cp(sourcePath, targetPath, {
           recursive: true,
           force: true,
         });
       } catch (error) {
-        if (error?.code !== "ENOENT") {
-          throw error;
-        }
+        throw new Error(
+          `Failed to copy required packaged runtime asset from ${sourcePath} to ${targetPath}: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
+        );
       }
     }),
   );
+};
+
+export const verifyPackagedOAuthProviderCatalog = async ({
+  outputRoot = path.join(desktopDir, outdir),
+} = {}) => {
+  const catalogPath = path.join(
+    outputRoot,
+    packagedOAuthProviderCatalogRelativePath,
+  );
+  let raw;
+  try {
+    raw = await fsPromises.readFile(catalogPath, "utf8");
+  } catch (error) {
+    throw new Error(
+      `Required packaged OAuth provider catalog is missing at ${catalogPath}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+  let catalog;
+  try {
+    catalog = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `Required packaged OAuth provider catalog is invalid JSON at ${catalogPath}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+  if (
+    !Array.isArray(catalog) ||
+    catalog.length === 0 ||
+    catalog.some(
+      (entry) =>
+        !entry ||
+        typeof entry !== "object" ||
+        typeof entry.id !== "string" ||
+        !Array.isArray(entry.tools),
+    )
+  ) {
+    throw new Error(
+      `Required packaged OAuth provider catalog has an invalid provider shape at ${catalogPath}.`,
+    );
+  }
+  return { catalogPath, providerCount: catalog.length };
 };
 
 const copyElectronStaticAssets = async () => {
@@ -296,7 +350,8 @@ export const buildElectronBundles = async () => {
         }
       }
     }
-    await copyRuntimeStaticAssets();
+    await copyPackagedRuntimeAssets();
+    await verifyPackagedOAuthProviderCatalog();
     await copyElectronStaticAssets();
     return changedOutputs;
   } finally {
@@ -390,10 +445,11 @@ const writeBundleFingerprint = (fingerprint) => {
 };
 
 export const requiredOutputsExist = () => {
-  const outBase = path.join(desktopDir, outdir, "electron");
+  const outBase = path.join(desktopDir, outdir);
   return (
-    existsSync(path.join(outBase, "main.js")) &&
-    existsSync(path.join(outBase, "preload.js"))
+    existsSync(path.join(outBase, "electron", "main.js")) &&
+    existsSync(path.join(outBase, "electron", "preload.js")) &&
+    existsSync(path.join(outBase, packagedOAuthProviderCatalogRelativePath))
   );
 };
 

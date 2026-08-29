@@ -138,4 +138,65 @@ describe("pinned resident catalog", () => {
       /missing its publish_stella_interior implementation/u,
     );
   });
+
+  test("routes each bridged tool through the ladder when one is supplied", async () => {
+    const seen: string[] = [];
+    const catalog = createResidentGeneralAgentTools(doLocalStubs(), {
+      execute: async (request) => {
+        seen.push(`${request.toolName}:${request.toolCallId}`);
+        return {
+          outcome: { kind: "ok", text: "from the workspace" },
+          details: null,
+        };
+      },
+    });
+
+    for (const name of ["exec_command", "write_stdin", "Read", "apply_patch"]) {
+      const tool = catalog.find((entry) => entry.name === name);
+      const result = await tool!.execute("call-1", {});
+      expect(result.isError).toBeUndefined();
+      expect(result.content).toEqual([
+        { type: "text", text: "from the workspace" },
+      ]);
+    }
+    expect(seen).toEqual([
+      "exec_command:call-1",
+      "write_stdin:call-1",
+      "Read:call-1",
+      "apply_patch:call-1",
+    ]);
+  });
+
+  test("keeps code refused even with a ladder, because the daemon cannot serve it", async () => {
+    const catalog = createResidentGeneralAgentTools(doLocalStubs(), {
+      execute: async () => {
+        throw new Error("the ladder should never see code");
+      },
+    });
+
+    const result = await catalog
+      .find((entry) => entry.name === "code")!
+      .execute("call-1", {});
+
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toContain(
+      NO_WORKSPACE_ATTACHED_MESSAGE,
+    );
+  });
+
+  test("carries a bridged tool's failure back as a model-visible error", async () => {
+    const catalog = createResidentGeneralAgentTools(doLocalStubs(), {
+      execute: async () => ({
+        outcome: { kind: "error", message: "exit 1" },
+        details: null,
+      }),
+    });
+
+    const result = await catalog
+      .find((entry) => entry.name === "exec_command")!
+      .execute("call-1", {});
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([{ type: "text", text: "exit 1" }]);
+  });
 });

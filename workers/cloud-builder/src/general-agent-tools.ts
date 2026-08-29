@@ -214,10 +214,9 @@ export const NO_WORKSPACE_ATTACHED_MESSAGE =
   "This turn has no workspace attached yet";
 
 /**
- * Stage 4 replaces this with the attached tool-host bridge. Until then a
- * container tool returns a model-visible tool error rather than throwing: a
- * throw fails the turn, while an error result lets the model answer from the
- * conversation or tell the user why it cannot.
+ * With no ladder supplied, a container tool returns a model-visible tool error
+ * rather than throwing: a throw fails the turn, while an error result lets the
+ * model answer from the conversation or tell the user why it cannot.
  */
 const refusalStub = (descriptor: GeneralAgentToolDescriptor): AgentTool => ({
   name: descriptor.name,
@@ -238,17 +237,82 @@ const refusalStub = (descriptor: GeneralAgentToolDescriptor): AgentTool => ({
 });
 
 /**
+ * What a container tool needs to actually run: the ladder that attaches the
+ * sandbox on the first such call and bridges every later one to its daemon.
+ */
+export type GeneralAgentComputeBridge = Readonly<{
+  execute(call: {
+    toolCallId: string;
+    toolName: string;
+    params: Record<string, unknown>;
+  }): Promise<{
+    outcome:
+      | Readonly<{ kind: "ok"; text: string }>
+      | Readonly<{ kind: "error"; message: string }>;
+    details: unknown;
+  }>;
+}>;
+
+/**
+ * The tools the ladder can serve. A container tool outside this set keeps the
+ * refusal stub even when a ladder is supplied, because the daemon has no
+ * handler for it and a bridged call would fail with a protocol error the model
+ * cannot act on. `code` is the one that matters here: it needs the browser
+ * session factory and the end-of-turn suspension path the tool host cannot
+ * supply on its own.
+ */
+const BRIDGED_TOOL_NAMES: ReadonlySet<string> = new Set([
+  EXEC_COMMAND_TOOL_NAME,
+  WRITE_STDIN_TOOL_NAME,
+  READ_TOOL_NAME,
+  APPLY_PATCH_TOOL_NAME,
+]);
+
+const bridgedTool = (
+  descriptor: GeneralAgentToolDescriptor,
+  compute: GeneralAgentComputeBridge,
+): AgentTool => ({
+  name: descriptor.name,
+  label: descriptor.label,
+  ...(descriptor.workingText ? { workingText: descriptor.workingText } : {}),
+  description: descriptor.description,
+  parameters: descriptor.parameters as unknown as TSchema,
+  execute: async (toolCallId, params): Promise<AgentToolResult<unknown>> => {
+    const result = await compute.execute({
+      toolCallId,
+      toolName: descriptor.name,
+      params: (params ?? {}) as Record<string, unknown>,
+    });
+    if (result.outcome.kind === "error") {
+      return {
+        content: [{ type: "text", text: result.outcome.message }],
+        details: result.details ?? null,
+        isError: true,
+      };
+    }
+    return {
+      content: [{ type: "text", text: result.outcome.text || "(no output)" }],
+      details: result.details ?? null,
+    };
+  },
+});
+
+/**
  * The resident catalog: one entry per descriptor, in descriptor order. The
- * caller supplies the do-local tools it executes itself; every container tool
- * gets the refusal stub, so no tool leaves the model's list merely because its
- * execution path is not wired yet.
+ * caller supplies the do-local tools it executes itself. A container tool the
+ * ladder can serve is bridged to it; every other one keeps the refusal stub,
+ * so no tool leaves the model's list merely because its execution path is not
+ * wired yet.
  */
 export const createResidentGeneralAgentTools = (
   doLocal: ReadonlyMap<string, AgentTool>,
+  compute?: GeneralAgentComputeBridge,
 ): readonly AgentTool[] =>
   GENERAL_AGENT_TOOL_DESCRIPTORS.map((descriptor) => {
     if (computeForTool(descriptor.name) === "container") {
-      return refusalStub(descriptor);
+      return compute && BRIDGED_TOOL_NAMES.has(descriptor.name)
+        ? bridgedTool(descriptor, compute)
+        : refusalStub(descriptor);
     }
     const tool = doLocal.get(descriptor.name);
     if (!tool) {

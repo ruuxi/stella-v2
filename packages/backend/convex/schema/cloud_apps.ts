@@ -158,9 +158,8 @@ export const cloudAppsSchema = {
     previewUrl: v.optional(v.string()),
     slug: v.optional(v.string()),
     metricsJson: v.optional(v.string()),
-    // Immutable callback fields used to distinguish an exact delivery replay
+    // Immutable callback field used to distinguish an exact delivery replay
     // from a second payload reusing the same build id.
-    callbackAutoActivate: v.optional(v.boolean()),
     callbackTitle: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),

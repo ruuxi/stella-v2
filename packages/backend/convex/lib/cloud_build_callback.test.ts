@@ -13,7 +13,6 @@ const valid = () => ({
   previewUrl: "https://apps.example.test/apps/orbit/",
   metrics: { wallClockMs: 42 },
   slug: "orbit",
-  autoActivate: false,
 });
 
 describe("parseCloudBuildCallback", () => {
@@ -46,15 +45,18 @@ describe("parseCloudBuildCallback", () => {
     ).toThrow(/ownerGeneration/);
   });
 
-  it("rejects malformed booleans and oversized metrics", () => {
-    expect(() =>
-      parseCloudBuildCallback({ ...valid(), autoActivate: "true" }),
-    ).toThrow(/boolean/);
+  it("rejects oversized metrics", () => {
     expect(() =>
       parseCloudBuildCallback({
         ...valid(),
         metrics: { payload: "x".repeat(70_000) },
       }),
     ).toThrow(/too large/);
+  });
+
+  it("carries no activation decision for the build to obey", () => {
+    expect(parseCloudBuildCallback({ ...valid(), autoActivate: true })).not.toHaveProperty(
+      "autoActivate",
+    );
   });
 });

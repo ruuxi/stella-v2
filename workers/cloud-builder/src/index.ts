@@ -359,7 +359,6 @@ type TurnRequest = {
   prompt: string;
   turnToken: string;
   convexCallbackBase: string;
-  autoActivate?: boolean;
   preflightDelayMs?: number;
   watchdogMs?: number;
   /** Trusted control-plane continuation of a suspended browser tool call. */
@@ -446,15 +445,6 @@ type OwnerPurgeFence = {
       expiresAt?: number;
     }
   >;
-};
-
-type TransientAppBuildRoute = {
-  key: string;
-  ownerId: string;
-  appId: string;
-  buildId: string;
-  artifactPrefix: string;
-  previousRoute?: Record<string, unknown>;
 };
 
 type PendingAppBuildPublication = {
@@ -1548,8 +1538,6 @@ const nativeStateIntegrityKeyFor = async (
       turn.threadId,
     ].join("\u0000"),
   );
-const transientBuildRouteKey = (turnId: string): string =>
-  `transientBuildRoute:${turnId}`;
 const AGENT_WATCHDOG_DEADLINE_KEY = "agentWatchdogDeadlineAt";
 const AGENT_RECOVERY_PENDING_KEY = "agentRecoveryPending";
 const agentRecoveryIdentity = (turn: TurnRequest): string =>
@@ -3169,9 +3157,6 @@ export class BuildSession extends DurableObject<Env> {
       nativeTransientBackupKey(turn.turnId),
     );
     const buildPrefix = await this.ctx.storage.get<string>(buildKey);
-    const routeKey = transientBuildRouteKey(turn.turnId);
-    const transientRoute =
-      await this.ctx.storage.get<TransientAppBuildRoute>(routeKey);
     if (backupId) {
       const swept = await sweepR2Prefix(
         this.env.BACKUP_BUCKET,
@@ -3198,41 +3183,14 @@ export class BuildSession extends DurableObject<Env> {
       await this.ctx.storage.delete(nativeTransientBackupKey(turn.turnId));
     }
     if (buildPrefix) {
-      if (transientRoute) {
-        const route = await this.env.APP_ROUTES.get<Record<string, unknown>>(
-          transientRoute.key,
-          "json",
-        );
-        if (
-          route?.ownerId === transientRoute.ownerId &&
-          route.appId === transientRoute.appId &&
-          route.buildId === transientRoute.buildId &&
-          route.artifactPrefix === transientRoute.artifactPrefix
-        ) {
-          const previous = transientRoute.previousRoute;
-          if (
-            previous?.ownerId === transientRoute.ownerId &&
-            previous.appId === transientRoute.appId
-          ) {
-            await this.env.APP_ROUTES.put(
-              transientRoute.key,
-              JSON.stringify(previous),
-            );
-          } else {
-            await this.env.APP_ROUTES.delete(transientRoute.key);
-          }
-        }
-      }
       const retired = await retireTransientAppBuild({
         sweep: async () =>
           await sweepR2Prefix(this.env.APP_BUILDS, `${buildPrefix}/`),
         clearRecovery: async () => {
-          await this.ctx.storage.delete([buildKey, routeKey]);
+          await this.ctx.storage.delete(buildKey);
         },
       });
       if (!retired) throw new Error("Transient build cleanup was truncated.");
-    } else if (transientRoute) {
-      await this.ctx.storage.delete(routeKey);
     }
   }
 
@@ -4689,7 +4647,6 @@ export class BuildSession extends DurableObject<Env> {
         await txn.delete([
           pendingAppBuildPublicationKey(turn.turnId),
           `transientBuild:${turn.turnId}`,
-          transientBuildRouteKey(turn.turnId),
           "appBuildPublicationAttempts",
         ]);
         await txn.put({ terminal: true, terminalDelivered: true });
@@ -8744,7 +8701,6 @@ export class BuildSession extends DurableObject<Env> {
       turnId: turn.turnId,
       appId: turn.appId,
       sessionId: this.ctx.id.toString(),
-      autoActivate: turn.autoActivate !== false,
     });
     try {
       await this.assertAppExecutionActive(turn, turnExecution);
@@ -8995,66 +8951,6 @@ export class BuildSession extends DurableObject<Env> {
         throw error;
       }
       const previewUrl = `${this.env.APPS_HOST_BASE_URL.replace(/\/+$/, "")}/apps/${slug}/`;
-      if (turn.autoActivate !== false) {
-        await this.assertAppExecutionActive(turn, turnExecution);
-        const previousRoute = await this.env.APP_ROUTES.get<
-          Record<string, unknown>
-        >(`app:${slug}`, "json");
-        turnExecution.assertActive();
-        if (
-          previousRoute &&
-          (previousRoute.ownerId !== turn.ownerId ||
-            previousRoute.appId !== turn.appId)
-        ) {
-          throw new Error("The hosted app route belongs to another app.");
-        }
-        await this.ctx.storage.put<TransientAppBuildRoute>(
-          transientBuildRouteKey(turn.turnId),
-          {
-            key: `app:${slug}`,
-            ownerId: turn.ownerId,
-            appId: turn.appId,
-            buildId,
-            artifactPrefix,
-            ...(previousRoute ? { previousRoute } : {}),
-          },
-        );
-        turnExecution.assertActive();
-        await this.env.APP_ROUTES.put(
-          `app:${slug}`,
-          JSON.stringify({
-            appId: turn.appId,
-            ownerId: turn.ownerId,
-            buildId,
-            artifactPrefix,
-            suspended: false,
-            updatedAt: Date.now(),
-          }),
-        );
-        try {
-          await this.assertAppExecutionActive(turn, turnExecution);
-        } catch (error) {
-          const currentRoute = await this.env.APP_ROUTES.get<
-            Record<string, unknown>
-          >(`app:${slug}`, "json");
-          if (
-            currentRoute?.ownerId === turn.ownerId &&
-            currentRoute.appId === turn.appId &&
-            currentRoute.buildId === buildId &&
-            currentRoute.artifactPrefix === artifactPrefix
-          ) {
-            if (previousRoute) {
-              await this.env.APP_ROUTES.put(
-                `app:${slug}`,
-                JSON.stringify(previousRoute),
-              );
-            } else {
-              await this.env.APP_ROUTES.delete(`app:${slug}`);
-            }
-          }
-          throw error;
-        }
-      }
       const metrics = {
         coldContainerStartMs,
         backupRestoreMs: 0,
@@ -9081,7 +8977,6 @@ export class BuildSession extends DurableObject<Env> {
         previewUrl,
         metrics,
         slug,
-        autoActivate: turn.autoActivate !== false,
         title: appTitle,
       };
       const result = {

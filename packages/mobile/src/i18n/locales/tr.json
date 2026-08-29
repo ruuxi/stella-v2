@@ -333,35 +333,6 @@
           "blocked": "Aktarma engellendi",
           "sync": "Şimdi eşitle"
         }
-      },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Bulut becerileri yükleniyor…",
-        "unavailable": "Hesap verileri taşınırken, sıfırlanırken veya silinirken Cloud Skills kullanılamaz.",
-        "empty": "Henüz özel bir bulut becerisi yüklenmedi.",
-        "saved": "Kaydedildi. Tam bulut sürümü artık güncel.",
-        "saveError": "Beceri değişti veya hesap kullanılamıyor. Yeniden yüklenen bulut durumu kullanılacak; inceledikten sonra tekrar deneyin.",
-        "versionStatus": "{description} Sürüm: {version}. Durum: {status}.",
-        "notPublished": "yayımlanmadı",
-        "status": {
-          "disabled": "devre dışı",
-          "authorized": "yetkilendirildi",
-          "notAuthorized": "bu sürüm için yetkilendirilmedi"
-        },
-        "agentScope": "Aracı kapsamı:",
-        "agentType": {
-          "orchestrator": "Orkestratör",
-          "general": "Genel"
-        },
-        "allowedTools": "İzin verilen araç adları (isteğe bağlı, virgülle ayrılmış; bu işlem araç eklemez)",
-        "invalidTools": "Araç adlarında yalnızca harf, sayı, nokta, alt çizgi, iki nokta veya kısa çizgi kullanılabilir (en fazla 64).",
-        "actions": {
-          "saving": "Kaydediliyor…",
-          "revoke": "Yetkiyi kaldır",
-          "authorize": "Sürümü yetkilendir",
-          "disable": "Devre dışı bırak",
-          "enable": "Etkinleştir"
-        }
       }
     },
     "audio": {

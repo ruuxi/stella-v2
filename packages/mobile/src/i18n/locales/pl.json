@@ -295,35 +295,6 @@
           "sync": "Synchronizuj teraz"
         }
       },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Ładowanie umiejętności z chmury…",
-        "unavailable": "Usługa Cloud Skills jest niedostępna podczas przenoszenia, resetowania lub usuwania danych konta.",
-        "empty": "Nie zainstalowano jeszcze żadnych niestandardowych umiejętności z chmury.",
-        "saved": "Zapisano. Dokładna wersja w chmurze jest teraz aktualna.",
-        "saveError": "Umiejętność uległa zmianie lub konto jest niedostępne. Zostanie użyty ponownie wczytany stan chmury; po jego sprawdzeniu spróbuj ponownie.",
-        "versionStatus": "{description} Wersja: {version}. Status: {status}.",
-        "notPublished": "nie opublikowano",
-        "status": {
-          "disabled": "wyłączona",
-          "authorized": "autoryzowana",
-          "notAuthorized": "brak autoryzacji dla tej wersji"
-        },
-        "agentScope": "Zakres agenta:",
-        "agentType": {
-          "orchestrator": "Orkiestrator",
-          "general": "Ogólny"
-        },
-        "allowedTools": "Dozwolone nazwy narzędzi (opcjonalnie, rozdzielone przecinkami; to nigdy nie dodaje narzędzi)",
-        "invalidTools": "Nazwy narzędzi mogą zawierać tylko litery, cyfry, kropkę, podkreślenie, dwukropek lub łącznik (maksymalnie 64 znaki).",
-        "actions": {
-          "saving": "Zapisywanie…",
-          "revoke": "Unieważnij",
-          "authorize": "Autoryzuj wersję",
-          "disable": "Wyłącz",
-          "enable": "Włącz"
-        }
-      },
       "signOut": {
         "label": "Wyloguj się",
         "description": "Wyloguj się ze Stelli na tym urządzeniu.",

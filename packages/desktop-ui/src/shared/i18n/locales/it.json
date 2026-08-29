@@ -295,35 +295,6 @@
           "sync": "Sincronizza ora"
         }
       },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Caricamento di Cloud Skills…",
-        "unavailable": "Cloud Skills non è disponibile mentre i dati dell’account vengono spostati, reimpostati o eliminati.",
-        "empty": "Non è ancora installata alcuna skill cloud personalizzata.",
-        "saved": "Salvato. La versione cloud esatta è ora aggiornata.",
-        "saveError": "La skill è cambiata o l’account non è disponibile. Verrà usato lo stato cloud ricaricato; riprova dopo averlo controllato.",
-        "versionStatus": "{description} Versione: {version}. Stato: {status}.",
-        "notPublished": "non pubblicata",
-        "status": {
-          "disabled": "disattivata",
-          "authorized": "autorizzata",
-          "notAuthorized": "non autorizzata per questa versione"
-        },
-        "agentScope": "Ambito dell’agente:",
-        "agentType": {
-          "orchestrator": "Orchestratore",
-          "general": "Generale"
-        },
-        "allowedTools": "Nomi degli strumenti consentiti (facoltativo, separati da virgole; questo non aggiunge mai strumenti)",
-        "invalidTools": "I nomi degli strumenti possono contenere solo lettere, numeri, punti, trattini bassi, due punti o trattini (massimo 64 caratteri).",
-        "actions": {
-          "saving": "Salvataggio…",
-          "revoke": "Revoca",
-          "authorize": "Autorizza versione",
-          "disable": "Disattiva",
-          "enable": "Attiva"
-        }
-      },
       "signOut": {
         "label": "Esci",
         "description": "Esci da Stella su questo dispositivo.",

@@ -333,35 +333,6 @@
           "blocked": "匯入已被封鎖",
           "sync": "立即同步"
         }
-      },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "正在載入雲端技能…",
-        "unavailable": "移動、重設或刪除帳號資料時，Cloud Skills 無法使用。",
-        "empty": "尚未安裝自訂雲端技能。",
-        "saved": "已儲存。目前使用確切的雲端版本。",
-        "saveError": "技能已變更或帳號無法使用。將使用重新載入的雲端狀態；請檢查後再試一次。",
-        "versionStatus": "{description} 版本：{version}。狀態：{status}。",
-        "notPublished": "未發佈",
-        "status": {
-          "disabled": "已停用",
-          "authorized": "已授權",
-          "notAuthorized": "此版本未授權"
-        },
-        "agentScope": "代理範圍：",
-        "agentType": {
-          "orchestrator": "協調代理",
-          "general": "一般代理"
-        },
-        "allowedTools": "允許的工具名稱（選填，以逗號分隔；此設定不會新增工具）",
-        "invalidTools": "工具名稱只能使用字母、數字、句點、底線、冒號或連字號（最多 64 個）。",
-        "actions": {
-          "saving": "正在儲存…",
-          "revoke": "撤銷授權",
-          "authorize": "授權此版本",
-          "disable": "停用",
-          "enable": "啟用"
-        }
       }
     },
     "audio": {

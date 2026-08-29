@@ -333,35 +333,6 @@
           "blocked": "インポートはブロックされています",
           "sync": "今すぐ同期"
         }
-      },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Cloud Skills を読み込んでいます…",
-        "unavailable": "アカウントデータの移行、リセット、削除中は Cloud Skills を利用できません。",
-        "empty": "カスタムクラウドスキルはまだインストールされていません。",
-        "saved": "保存しました。クラウド上の正確なバージョンが最新になりました。",
-        "saveError": "スキルが変更されたか、アカウントを利用できません。再読み込みしたクラウドの状態を使用します。内容を確認してからもう一度お試しください。",
-        "versionStatus": "{description} バージョン：{version}。ステータス：{status}。",
-        "notPublished": "未公開",
-        "status": {
-          "disabled": "無効",
-          "authorized": "承認済み",
-          "notAuthorized": "このバージョンは未承認"
-        },
-        "agentScope": "エージェントのスコープ：",
-        "agentType": {
-          "orchestrator": "オーケストレーター",
-          "general": "一般"
-        },
-        "allowedTools": "許可するツール名（任意、カンマ区切り。ここでツールが追加されることはありません）",
-        "invalidTools": "ツール名に使用できるのは、英字、数字、ピリオド、アンダースコア、コロン、ダッシュのみです（最大64文字）。",
-        "actions": {
-          "saving": "保存中…",
-          "revoke": "承認を取り消す",
-          "authorize": "バージョンを承認",
-          "disable": "無効にする",
-          "enable": "有効にする"
-        }
       }
     },
     "audio": {

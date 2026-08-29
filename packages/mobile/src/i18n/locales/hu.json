@@ -295,35 +295,6 @@
           "sync": "Szinkronizálás most"
         }
       },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "A felhőbeli készségek betöltése…",
-        "unavailable": "A Cloud Skills nem érhető el a fiókadatok áthelyezése, alaphelyzetbe állítása vagy törlése közben.",
-        "empty": "Még nincsenek egyéni felhőbeli készségek telepítve.",
-        "saved": "Mentve. Mostantól a pontos felhőbeli verzió az aktuális.",
-        "saveError": "A készség megváltozott, vagy a fiók nem érhető el. A rendszer az újratöltött felhőbeli állapotot használja; tekintsd át, majd próbáld újra.",
-        "versionStatus": "{description} Verzió: {version}. Állapot: {status}.",
-        "notPublished": "nincs közzétéve",
-        "status": {
-          "disabled": "letiltva",
-          "authorized": "engedélyezve",
-          "notAuthorized": "nincs engedélyezve ehhez a verzióhoz"
-        },
-        "agentScope": "Ügynök hatóköre:",
-        "agentType": {
-          "orchestrator": "Orkesztrátor",
-          "general": "Általános"
-        },
-        "allowedTools": "Engedélyezett eszköznevek (opcionális, vesszővel elválasztva; ez soha nem ad hozzá eszközöket)",
-        "invalidTools": "Az eszköznevek csak betűket, számokat, pontot, aláhúzásjelet, kettőspontot vagy kötőjelet tartalmazhatnak (legfeljebb 64 karakter).",
-        "actions": {
-          "saving": "Mentés…",
-          "revoke": "Engedély visszavonása",
-          "authorize": "Verzió engedélyezése",
-          "disable": "Letiltás",
-          "enable": "Engedélyezés"
-        }
-      },
       "signOut": {
         "label": "Kijelentkezés",
         "description": "Jelentkezz ki a Stellából ezen az eszközön.",

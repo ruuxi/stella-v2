@@ -295,35 +295,6 @@
           "sync": "Synchronizovat nyní"
         }
       },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Načítají se cloudové dovednosti…",
-        "unavailable": "Cloud Skills nejsou dostupné během přesouvání, resetování nebo mazání dat účtu.",
-        "empty": "Zatím nejsou nainstalovány žádné vlastní cloudové dovednosti.",
-        "saved": "Uloženo. Přesná cloudová verze je nyní aktuální.",
-        "saveError": "Dovednost se změnila nebo účet není dostupný. Použije se znovu načtený stav cloudu; po jeho kontrole to zkuste znovu.",
-        "versionStatus": "{description} Verze: {version}. Stav: {status}.",
-        "notPublished": "nepublikováno",
-        "status": {
-          "disabled": "zakázáno",
-          "authorized": "autorizováno",
-          "notAuthorized": "pro tuto verzi neautorizováno"
-        },
-        "agentScope": "Rozsah agenta:",
-        "agentType": {
-          "orchestrator": "Orchestrátor",
-          "general": "Obecný"
-        },
-        "allowedTools": "Povolené názvy nástrojů (volitelné, oddělené čárkami; tímto se nikdy nepřidávají nástroje)",
-        "invalidTools": "Názvy nástrojů mohou obsahovat pouze písmena, číslice, tečku, podtržítko, dvojtečku nebo pomlčku (maximálně 64 znaků).",
-        "actions": {
-          "saving": "Ukládání…",
-          "revoke": "Odvolat",
-          "authorize": "Autorizovat verzi",
-          "disable": "Zakázat",
-          "enable": "Povolit"
-        }
-      },
       "signOut": {
         "label": "Odhlásit se",
         "description": "Odhlaste se ze Stelly na tomto zařízení.",

@@ -295,35 +295,6 @@
           "sync": "Synkronisera nu"
         }
       },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Läser in molnfärdigheter…",
-        "unavailable": "Cloud Skills är inte tillgängliga medan kontodata flyttas, återställs eller raderas.",
-        "empty": "Inga anpassade molnfärdigheter har installerats ännu.",
-        "saved": "Sparat. Den exakta molnversionen är nu uppdaterad.",
-        "saveError": "Färdigheten har ändrats eller kontot är inte tillgängligt. Det återinlästa molntillståndet används; försök igen efter att du har granskat det.",
-        "versionStatus": "{description} Version: {version}. Status: {status}.",
-        "notPublished": "inte publicerad",
-        "status": {
-          "disabled": "inaktiverad",
-          "authorized": "auktoriserad",
-          "notAuthorized": "inte auktoriserad för den här versionen"
-        },
-        "agentScope": "Agentens omfattning:",
-        "agentType": {
-          "orchestrator": "Orkestrerare",
-          "general": "Allmän"
-        },
-        "allowedTools": "Tillåtna verktygsnamn (valfritt, kommaseparerade; detta lägger aldrig till verktyg)",
-        "invalidTools": "Verktygsnamn får endast innehålla bokstäver, siffror, punkt, understreck, kolon eller bindestreck (högst 64 tecken).",
-        "actions": {
-          "saving": "Sparar…",
-          "revoke": "Återkalla",
-          "authorize": "Auktorisera version",
-          "disable": "Inaktivera",
-          "enable": "Aktivera"
-        }
-      },
       "signOut": {
         "label": "Logga ut",
         "description": "Logga ut från Stella på den här enheten.",

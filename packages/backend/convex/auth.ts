@@ -3,7 +3,14 @@ import { convex } from "@convex-dev/better-auth/plugins";
 import { requireActionCtx } from "@convex-dev/better-auth/utils";
 import { Resend } from "@convex-dev/resend";
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal";
-import { anonymous, bearer, magicLink, oneTimeToken } from "better-auth/plugins";
+import {
+  anonymous,
+  bearer,
+  generateExportedKeyPair,
+  magicLink,
+  oneTimeToken,
+} from "better-auth/plugins";
+import { symmetricEncrypt } from "better-auth/crypto";
 import {
   action,
   internalAction,
@@ -411,12 +418,82 @@ export const getCurrentUser = query({
   },
 });
 
+type JwksRow = {
+  id: string;
+  createdAt: Date | number;
+  expiresAt?: Date | number | null;
+};
+
+const jwksTimeMs = (value: Date | number | null | undefined): number | null =>
+  value instanceof Date ? value.getTime()
+  : typeof value === "number" ? value
+  : null;
+
 export const rotateKeys = internalAction({
   args: {},
   handler: async (ctx) => {
+    if (process.env.JWKS?.trim()) {
+      throw new Error(
+        "JWKS env var is set (static keyset mode): published keys come from the env var, not the database, so a graceful database rotation would sign with a key verifiers never see. Unset JWKS to rotate database-backed keys.",
+      );
+    }
     const auth = createAuth(ctx);
-    await auth.api.rotateKeys();
-    return null;
+    const authContext = await auth.$context;
+    const adapter = authContext.adapter;
+
+    const newestRows = await adapter.findMany<JwksRow>({
+      model: "jwks",
+      sortBy: { field: "createdAt", direction: "desc" },
+      limit: 1,
+    });
+    const previous = newestRows[0] ?? null;
+
+    const { publicWebKey, privateWebKey } = await generateExportedKeyPair({
+      jwks: { keyPairConfig: { alg: "RS256" } },
+    });
+    const encryptedPrivateKey = JSON.stringify(
+      await symmetricEncrypt({
+        key: authContext.secretConfig,
+        data: JSON.stringify(privateWebKey),
+      }),
+    );
+
+    let createdAt = new Date();
+    const previousCreatedAtMs = jwksTimeMs(previous?.createdAt);
+    if (previousCreatedAtMs !== null && previousCreatedAtMs >= createdAt.getTime()) {
+      createdAt = new Date(previousCreatedAtMs + 1);
+    }
+
+    const created = await adapter.create<{
+      id: string;
+      publicKey: string;
+      privateKey: string;
+      createdAt: Date;
+    }>({
+      model: "jwks",
+      data: {
+        publicKey: JSON.stringify(publicWebKey),
+        privateKey: encryptedPrivateKey,
+        createdAt,
+      },
+    });
+
+    // Overlap invariant: the new row (newest createdAt) signs immediately;
+    // stamping expiresAt on the previous signer keeps it published for the
+    // grace period so outstanding tokens still verify.
+    if (previous && jwksTimeMs(previous.expiresAt) === null) {
+      await adapter.update({
+        model: "jwks",
+        where: [{ field: "id", value: previous.id }],
+        update: { expiresAt: new Date() },
+      });
+    }
+
+    return {
+      rotated: true,
+      newKeyId: created.id,
+      previousKeyId: previous?.id ?? null,
+    };
   },
 });
 

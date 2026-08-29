@@ -7,16 +7,10 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import type {
-  PetAnimationState,
-  PetOverlayState,
-  PetOverlayStatus,
-} from "@stella/contracts/desktop/pet";
+import type { PetOverlayStatus } from "@stella/contracts/desktop/pet";
 import type { VoiceRuntimeSnapshot } from "@/shared/types/electron";
-import { DEFAULT_PET_ID } from "./built-in-pets";
-import { useSelectedPet } from "./pet-catalog-context";
-import { useSelectedPetId } from "./pet-preferences";
-import { PetSprite } from "./PetSprite";
+import { StellaCharacter } from "@/ui/stella-character/StellaCharacter";
+import { getPetCharacterState, type PetVoiceMode } from "./pet-character-state";
 import "./pet-overlay.css";
 
 /** How big the rendered mascot is, in CSS pixels. */
@@ -24,15 +18,16 @@ const MASCOT_SIZE = 76;
 /** Pointer drag threshold below which a release leaves the pet in place. */
 const DRAG_THRESHOLD_PX = 4;
 
-type VoicePetMode = "idle" | "listening" | "speaking";
+/** The overlay wears the character mark now, so it has one name. */
+const PET_DISPLAY_NAME = "Stella";
 
 const VOICE_OUTPUT_LEVEL_THRESHOLD = 0.02;
 const ASSISTANT_BUBBLE_VISIBLE_MS = 4_000;
 
-const deriveVoicePetMode = (
+const derivePetVoiceMode = (
   state: VoiceRuntimeSnapshot | null | undefined,
   voiceActive: boolean,
-): VoicePetMode => {
+): PetVoiceMode => {
   // With wake-word pre-warm the session can be `isConnected: true`
   // even when voice mode is off — connection stays open, mic is
   // gated. Treat the listening / speaking modes as gated on
@@ -45,30 +40,6 @@ const deriveVoicePetMode = (
     return "speaking";
   }
   return "listening";
-};
-
-/**
- * Map the high-level mood broadcast by the chat surface to the actual
- * sprite-sheet animation row to play. We deliberately keep this map
- * small and explicit instead of tying the pet to chat internals; this
- * is the only thing the pet needs to know about the orchestrator.
- */
-const mapStateToAnimation = (state: PetOverlayState): PetAnimationState => {
-  switch (state) {
-    case "running":
-      return "running";
-    case "waiting":
-      return "waiting";
-    case "review":
-      return "review";
-    case "failed":
-      return "failed";
-    case "waving":
-      return "waving";
-    case "idle":
-    default:
-      return "idle";
-  }
 };
 
 export type PetOverlayProps = {
@@ -131,7 +102,7 @@ const PetBubbleMessage = ({ message }: { message: string }) => {
  * Composition:
  *   - Status bubble (title + latest message + streaming spinner) above
  *     the mascot, mirroring how the working indicator reads in the chat.
- *   - Mascot sprite sheet driven by `mapStateToAnimation(status.state)`.
+ *   - The character mark, posed by `getPetCharacterState(status.state)`.
  *   - Right-click context menu with Close pet.
  *   - Pointer drag to reposition the entire window via the
  *     `pet:moveWindow` IPC.
@@ -146,26 +117,24 @@ export const PetOverlay = ({
   onClose,
 }: PetOverlayProps) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [selectedPetId] = useSelectedPetId(DEFAULT_PET_ID);
-  const pet = useSelectedPet(selectedPetId);
 
   const [hover, setHover] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   /** Voice (RTC) state. The pet has replaced the standalone voice
-   *  creature overlay: when voice is active, the sprite animates
+   *  creature overlay: when voice is active, the mark poses as
    *  listening / speaking based on the broadcast `voice:runtimeState`,
    *  and the bubble reads "Stella is listening" / "Stella is
    *  speaking". The mic action button is dictation now (voice is
    *  wake-word driven), so we only need to track active state for
    *  the bubble + animation precedence below. */
   const voiceActiveRef = useRef(false);
-  const [voiceMode, setVoiceMode] = useState<VoicePetMode>("idle");
+  const [voiceMode, setVoiceMode] = useState<PetVoiceMode>("idle");
   const [assistantBubbleVisible, setAssistantBubbleVisible] = useState(true);
 
   // Subscribe to the central UI state for `isVoiceRtcActive` and the
   // voice runtime state for listening / speaking transitions, which
-  // drive the sprite animation override.
+  // drive the mark's pose override.
   useEffect(() => {
     const cleanups: Array<() => void> = [];
     const applyVoiceActive = (nextActive: boolean) => {
@@ -181,7 +150,7 @@ export const PetOverlay = ({
     const applyRuntimeState = (
       state: VoiceRuntimeSnapshot | null | undefined,
     ) => {
-      setVoiceMode(deriveVoicePetMode(state, voiceActiveRef.current));
+      setVoiceMode(derivePetVoiceMode(state, voiceActiveRef.current));
     };
     const ui = window.electronAPI?.ui;
     if (ui?.onState) {
@@ -208,7 +177,7 @@ export const PetOverlay = ({
 
   // Mouse-passthrough hit testing. The pet `BrowserWindow` sits with
   // `setIgnoreMouseEvents(true, { forward: true })` by default so the
-  // empty pixels around the sprite stop blocking clicks to whatever app
+  // empty pixels around the mark stop blocking clicks to whatever app
   // is below. We listen to the forwarded mousemove events (they keep
   // arriving even while the window is ignored thanks to `forward:
   // true`) and flip the window into interactive mode whenever the
@@ -230,7 +199,7 @@ export const PetOverlay = ({
       if (!root) return false;
       const ownerDoc = root.ownerDocument ?? document;
       // `elementsFromPoint` walks the stacking order; any element along
-      // the way that wants clicks (sprite, bubble, context menu, …) is
+      // the way that wants clicks (mark, bubble, context menu, …) is
       // tagged with `data-pet-hit`.
       const stack = ownerDoc.elementsFromPoint(clientX, clientY);
       for (const node of stack) {
@@ -453,33 +422,16 @@ export const PetOverlay = ({
     window.electronAPI?.pet?.setOpen?.(false);
   }, [onClose]);
 
-  if (!open || !pet) {
+  if (!open) {
     return null;
   }
 
-  // Animation precedence (highest-priority first):
-  //   1. Drag — physically moving the sprite, plays "jumping".
-  //   2. Voice mode — when realtime voice is active, the sprite stands
-  //      in for the (now-removed) voice creature overlay. Speaking →
-  //      "waving" (animated, expressive). Listening → "waiting"
-  //      (calm, attentive).
-  //   3. Hover — only wins on top of an otherwise-idle agent so we
-  //      don't paper over running/waiting/failed states with a wave.
-  //   4. Otherwise the agent-driven mood (`status.state`).
-  const baseAnimation = mapStateToAnimation(status.state);
-  const voiceAnimation: PetAnimationState | null =
-    voiceMode === "speaking"
-      ? "waving"
-      : voiceMode === "listening"
-        ? "waiting"
-        : null;
-  const animationState: PetAnimationState = dragging
-    ? "jumping"
-    : voiceAnimation
-      ? voiceAnimation
-      : hover && baseAnimation === "idle"
-        ? "waving"
-        : baseAnimation;
+  const characterState = getPetCharacterState({
+    state: status.state,
+    voiceMode,
+    dragging,
+    hover,
+  });
   const hasBubbleContent =
     Boolean(status.message?.trim()) || Boolean(status.title?.trim());
   const showBubble =
@@ -502,7 +454,7 @@ export const PetOverlay = ({
         onPointerUp={finishDrag}
         onPointerCancel={finishDrag}
         onContextMenu={handleContextMenu}
-        title={pet.displayName}
+        title={PET_DISPLAY_NAME}
       >
         {/* Always mounted so the fade transitions in the CSS run on
          *  every show / hide. The bubble cross-fades its inner message
@@ -516,11 +468,14 @@ export const PetOverlay = ({
         >
           <PetBubbleMessage message={status.message} />
         </div>
-        <PetSprite
-          spritesheetUrl={pet.spritesheetUrl}
-          state={animationState}
-          continuous={voiceAnimation != null}
+        <StellaCharacter
+          className="pet-overlay-character"
           size={MASCOT_SIZE}
+          state={characterState}
+          shape="star"
+          ink="aurora"
+          glow
+          followPointer
         />
       </div>
 

@@ -85,9 +85,9 @@ export function reportGoogleAdsDownload(url: string) {
 /**
  * Report the Google Ads "Sign-up" conversion. Called wherever a sign-in /
  * sign-up observably completes on the website: the magic-link flow finishing,
- * the social-OAuth return token verifying, and the /auth/callback page that
- * email links land on. Deduped per browser so returning sign-ins don't
- * re-count.
+ * the social-OAuth return token verifying, and the terminal
+ * `/auth/callback?done=true` page. Deduped per browser so returning sign-ins
+ * don't re-count.
  */
 export function reportGoogleAdsSignup() {
   if (typeof window === "undefined") return;

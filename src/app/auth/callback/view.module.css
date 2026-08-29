@@ -48,82 +48,6 @@
   letter-spacing: -0.02em;
 }
 
-.card {
-  display: grid;
-  gap: 0.9rem;
-  padding: 1rem 1.05rem;
-  border: 1px solid rgba(82, 104, 134, 0.12);
-  background: rgba(255, 255, 255, 0.68);
-}
-
-.cardRow {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.cardLabel {
-  color: var(--page-muted);
-  font-size: 0.86rem;
-}
-
-.cardValue {
-  text-align: right;
-  font-family: var(--font-mono), monospace;
-  font-size: 0.82rem;
-  color: var(--page-foreground);
-}
-
-.actions {
-  display: grid;
-  gap: 0.85rem;
-}
-
-.button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.55rem;
-  min-height: 3rem;
-  padding: 0.9rem 1.15rem;
-  border: 1px solid transparent;
-  text-decoration: none;
-  transition:
-    transform 150ms ease,
-    background-color 150ms ease,
-    border-color 150ms ease;
-}
-
-.button:hover {
-  transform: translateY(-1px);
-}
-
-.buttonPrimary {
-  background: var(--page-accent);
-  color: var(--page-accent-foreground);
-}
-
-.buttonPrimary:hover {
-  background: var(--page-accent-hover);
-}
-
-.buttonSecondary {
-  border-color: rgba(82, 104, 134, 0.16);
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--page-foreground);
-}
-
-.buttonSecondary:hover {
-  background: rgba(255, 255, 255, 0.92);
-}
-
-.note {
-  margin: 0;
-  color: var(--page-muted);
-  font-size: 0.88rem;
-  line-height: 1.5;
-}
-
 .homeLink {
   width: fit-content;
   color: var(--page-foreground);
@@ -134,15 +58,4 @@
 
 .homeLink:hover {
   color: var(--page-accent-hover);
-}
-
-@media (max-width: 640px) {
-  .cardRow {
-    flex-direction: column;
-    gap: 0.2rem;
-  }
-
-  .cardValue {
-    text-align: left;
-  }
 }

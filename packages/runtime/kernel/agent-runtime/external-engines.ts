@@ -1492,10 +1492,16 @@ const runClaudeHostedTurn = async (args: {
         throw error;
       }
     }
-    // Attach a rejection handler immediately above; do not delay the next
-    // prompt on a stale/missing control acknowledgement. The queued message
-    // remains a safe post-turn fallback if native interruption is unavailable.
-    void nativeInterrupt;
+    // Settle the native interrupt before this turn's durable write or the next
+    // prompt. The session runtime bounds both the acknowledgement and the
+    // post-ACK wait for the terminal result, so this cannot stall the loop, and
+    // it guarantees any stream reset it performs happens before we resume. The
+    // interrupt promise is already rejection-handled above, so it never throws
+    // here; the queued message stays a safe fallback if the CLI has no native
+    // interrupt at all.
+    if (nativeInterrupt) {
+      await nativeInterrupt;
+    }
 
     if (completedThisTurn && finalResult) {
       // Persist this turn's reply before draining follow-ups so a stale

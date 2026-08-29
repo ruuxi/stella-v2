@@ -20,10 +20,10 @@ import type {
 } from "@stella/contracts/agent-engine";
 import { stellaManagedRelayBaseUrlFromSiteUrl } from "@stella/contracts/stella-api";
 import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
-import type { WorkspaceIdentity } from "./workspace-paths.js";
 import { isolateToolProcessLaunch } from "@stella/runtime/kernel/tools/process-isolation.js";
 import type { ToolProcessIdentity } from "@stella/runtime/kernel/tools/types.js";
 import { CLOUD_TOOL_PROCESS_IDENTITY } from "./cloud-process-isolation.js";
+import { WORLD_ROOT } from "./workspace-paths.js";
 import {
   assertFreshNativeState,
   assertNativeState,
@@ -467,7 +467,6 @@ const runClaude = async (options: {
   execution: Extract<CloudExecutionSelection, { engine: "anthropic" }>;
   callbackBase: string;
   relayToken: string;
-  workspace: WorkspaceIdentity;
   stateRoot: string;
   threadId: string;
   mcpServerConfig: CloudClaudeMcpServerConfig;
@@ -511,7 +510,7 @@ const runClaude = async (options: {
     const result = await runJsonLines({
       command: "claude",
       args,
-      cwd: options.workspace.root,
+      cwd: WORLD_ROOT,
       env: childEnv,
       onJson: (event) => {
         const type = event.type;
@@ -632,7 +631,6 @@ type CodexTurnOptions = {
   execution: Extract<CloudExecutionSelection, { engine: "openai-codex" }>;
   callbackBase: string;
   relayToken: string;
-  workspace: WorkspaceIdentity;
   threadId: string;
   emitEvent: NativeEvent;
 };
@@ -689,7 +687,7 @@ const runCodexInEphemeralState = async (
   );
   const args = buildStatelessCodexExecArgs({
     model: options.execution.model,
-    workspaceRoot: options.workspace.root,
+    workspaceRoot: WORLD_ROOT,
     inputPrompt: buildStatelessCodexPrompt({
       history: options.history,
       prompt: options.inputPrompt,
@@ -704,7 +702,7 @@ const runCodexInEphemeralState = async (
   const result = await runJsonLines({
     command: "codex",
     args,
-    cwd: options.workspace.root,
+    cwd: WORLD_ROOT,
     env: {
       ...process.env,
       CODEX_HOME: stateRoot,
@@ -828,7 +826,6 @@ export const runNativeAgentTurn = async (options: {
   callbackBase: string;
   /** Loopback-only sentinel; never a Convex or Builder capability. */
   relayToken: string;
-  workspace: WorkspaceIdentity;
   threadId: string;
   turnId: string;
   history: AgentMessage[];
@@ -845,10 +842,7 @@ export const runNativeAgentTurn = async (options: {
       throw new Error("Stella's Claude tool bridge is unavailable.");
     }
     const stateRoot = options.nativeStateRoot ?? CLOUD_NATIVE_STATE_ROOT;
-    const relativeToWorkspace = path.relative(
-      options.workspace.root,
-      stateRoot,
-    );
+    const relativeToWorkspace = path.relative(WORLD_ROOT, stateRoot);
     if (
       !path.isAbsolute(stateRoot) ||
       relativeToWorkspace === "" ||
@@ -872,7 +866,6 @@ export const runNativeAgentTurn = async (options: {
       execution: options.execution,
       callbackBase: options.callbackBase,
       relayToken: options.relayToken,
-      workspace: options.workspace,
       stateRoot,
       threadId: options.threadId,
       mcpServerConfig,
@@ -914,7 +907,7 @@ export const runNativeAgentTurn = async (options: {
   }
   // Native Codex keeps its normal tool surface, so a workspace snapshot is
   // still the authoritative way to discover changes made by that process.
-  const before = await snapshotFiles(options.workspace.root);
+  const before = await snapshotFiles(WORLD_ROOT);
   const result = await runCodex({
     inputPrompt: options.prompt,
     history: options.history,
@@ -922,11 +915,10 @@ export const runNativeAgentTurn = async (options: {
     execution: options.execution,
     callbackBase: options.callbackBase,
     relayToken: options.relayToken,
-    workspace: options.workspace,
     threadId: options.threadId,
     emitEvent: options.emitEvent,
   });
-  const after = await snapshotFiles(options.workspace.root);
+  const after = await snapshotFiles(WORLD_ROOT);
   const messages = transcript({
     prompt: options.prompt,
     finalText: result.finalText || result.error || "",

@@ -192,9 +192,17 @@ import type {
   TurnStateWorkspaceHead,
 } from "./turn-state-registry.js";
 import type {
+  TurnBrokerInteriorBuildRequestReceipt,
   TurnBrokerTurnStateCheckpointReceipt,
   TurnBrokerTurnStateCheckpointRequest,
 } from "@stella/contracts/turn-credential-broker";
+import {
+  exactInteriorBuildRequested,
+  interiorBuildRequestKey,
+  interiorBuildRequestRecord,
+  parseInteriorBuildRequest,
+  type InteriorBuildRequestRecord,
+} from "./interior-build-request.js";
 import {
   EMPTY_NATIVE_HISTORY_CURSOR,
   NATIVE_STATE_DIRECTORY,
@@ -4417,6 +4425,106 @@ export class BuildSession extends DurableObject<Env> {
     }
   }
 
+  /**
+   * Interior builds are opt-in: the agent asks for one through the turn broker
+   * during the turn, and this runs after the executor is gone because
+   * `publishInteriorCandidate` quiesces the session it would still be using.
+   */
+  private async publishRequestedInteriorCandidate(args: {
+    turn: TurnRequest;
+    sandbox: ReturnType<BuildSession["sandbox"]>;
+    sourceWorkspace: string;
+    workspaceRoot: string;
+    commandTimeoutMs: number;
+    turnExecution: TurnExecutionContext;
+  }): Promise<
+    | { outcome: "not_requested" }
+    | { outcome: "abandoned" }
+    | { outcome: "failed"; error: string }
+    | {
+        outcome: "published";
+        candidate: Awaited<
+          ReturnType<BuildSession["publishInteriorCandidate"]>
+        >;
+      }
+  > {
+    const { turn, turnExecution } = args;
+    const requested = await this.ctx.storage.get<InteriorBuildRequestRecord>(
+      interiorBuildRequestKey(turn.turnId, turn.attemptGeneration!),
+    );
+    if (
+      !exactInteriorBuildRequested(
+        requested,
+        turn.turnId,
+        turn.attemptGeneration!,
+      )
+    ) {
+      return { outcome: "not_requested" };
+    }
+    await this.event(
+      turn,
+      "auto",
+      "interior_build_started",
+      { sourceWorkspace: args.sourceWorkspace },
+      false,
+      turnExecution.signal,
+    ).catch(() => undefined);
+    try {
+      const candidate = await this.publishInteriorCandidate(
+        turn,
+        args.sandbox,
+        args.workspaceRoot,
+        args.commandTimeoutMs,
+        turnExecution,
+      );
+      await this.event(
+        turn,
+        "auto",
+        "interior_candidate_created",
+        {
+          buildId: candidate.buildId,
+          previewUrl: candidate.previewUrl,
+          digest: candidate.digest,
+          size: candidate.size,
+          sourceRevision: candidate.sourceRevision,
+          baseRevision: candidate.baseRevision,
+          activated: false,
+        },
+        false,
+        turnExecution.signal,
+      ).catch(() => undefined);
+      return { outcome: "published", candidate };
+    } catch (error) {
+      if (
+        !(await this.ownsExactTurn(turn)) ||
+        (await this.ctx.storage.get<boolean>("terminal"))
+      ) {
+        return { outcome: "abandoned" };
+      }
+      log("error", "interior_candidate_failed", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        message: errorMessage(error),
+      });
+      await this.event(
+        turn,
+        "auto",
+        "interior_build_failed",
+        {
+          message:
+            "The updated Stella interior did not pass its production build.",
+        },
+        false,
+        turnExecution.signal,
+      ).catch(() => undefined);
+      return {
+        outcome: "failed",
+        error:
+          "The agent's source changes were kept, but the updated Stella interior did not pass its production build, so no candidate was created.",
+      };
+    }
+  }
+
   private async callback(
     turn: TurnRequest,
     path: string,
@@ -6048,6 +6156,7 @@ export class BuildSession extends DurableObject<Env> {
       decoded = undefined;
     }
     const payload = parseTurnStateCheckpointRequest(decoded);
+    const interiorRequest = parseInteriorBuildRequest(decoded);
 
     const admission = await this.ctx.blockConcurrencyWhile(async () => {
       const [
@@ -6105,6 +6214,23 @@ export class BuildSession extends DurableObject<Env> {
         bodySha256: requestFingerprint,
       });
       if (!claimed.ok) return { kind: "denied" as const, claimed };
+      if (claimed.target.kind === "interior-build-request") {
+        if (workspace.kind !== "stella") {
+          return { kind: "wrong-workspace" as const };
+        }
+        if (!interiorRequest) return { kind: "malformed" as const };
+        await this.ctx.storage.put({
+          [recordKey]: claimed.record,
+          [interiorBuildRequestKey(turn.turnId, turn.attemptGeneration!)]:
+            interiorBuildRequestRecord({
+              request: interiorRequest,
+              turnId: turn.turnId,
+              attemptGeneration: turn.attemptGeneration!,
+              now: Date.now(),
+            }),
+        });
+        return { kind: "interior-build-request" as const };
+      }
       if (claimed.disposition === "replay") {
         if (claimed.target.kind === "browser-gateway") {
           return {
@@ -6153,6 +6279,17 @@ export class BuildSession extends DurableObject<Env> {
     if (admission.kind === "missing-base") return this.brokerFailure(409);
     if (admission.kind === "denied") {
       return turnBrokerDenialResponse(admission.claimed);
+    }
+    if (admission.kind === "wrong-workspace") return this.brokerFailure(403);
+    if (admission.kind === "malformed") return this.brokerFailure(400);
+    if (admission.kind === "interior-build-request") {
+      return Response.json(
+        {
+          schemaVersion: 1,
+          requested: true,
+        } satisfies TurnBrokerInteriorBuildRequestReceipt,
+        { headers: { "cache-control": "no-store" } },
+      );
     }
     if (admission.kind === "forward") {
       if (admission.target.kind === "browser-gateway") {
@@ -7421,69 +7558,23 @@ export class BuildSession extends DurableObject<Env> {
       }
 
       if (result.ok && workspace.kind === "stella") {
-        await this.event(
+        const interior = await this.publishRequestedInteriorCandidate({
           turn,
-          "auto",
-          "interior_build_started",
-          { sourceWorkspace: workspace.canonical },
-          false,
-          execution.signal,
-        ).catch(() => undefined);
-        try {
-          interiorCandidate = await this.publishInteriorCandidate(
-            turn,
-            sandbox,
-            workspaceRoot,
-            commandTimeoutMs,
-            execution,
-          );
-          await this.event(
-            turn,
-            "auto",
-            "interior_candidate_created",
-            {
-              buildId: interiorCandidate.buildId,
-              previewUrl: interiorCandidate.previewUrl,
-              digest: interiorCandidate.digest,
-              size: interiorCandidate.size,
-              sourceRevision: interiorCandidate.sourceRevision,
-              baseRevision: interiorCandidate.baseRevision,
-              activated: false,
-            },
-            false,
-            execution.signal,
-          ).catch(() => undefined);
-        } catch (error) {
-          if (
-            !(await this.ownsExactTurn(turn)) ||
-            (await this.ctx.storage.get<boolean>("terminal"))
-          ) {
-            await sandbox.destroy().catch(() => undefined);
-            return;
-          }
-          const buildError = errorMessage(error);
-          log("error", "interior_candidate_failed", {
-            turnId: turn.turnId,
-            threadId: turn.threadId,
-            message: buildError,
-          });
-          await this.event(
-            turn,
-            "auto",
-            "interior_build_failed",
-            {
-              message:
-                "The updated Stella interior did not pass its production build.",
-            },
-            false,
-            execution.signal,
-          ).catch(() => undefined);
-          result = {
-            ...result,
-            ok: false,
-            error:
-              "The agent's source changes were kept, but the updated Stella interior did not pass its production build, so no candidate was created.",
-          };
+          sandbox,
+          sourceWorkspace: workspace.canonical,
+          workspaceRoot,
+          commandTimeoutMs,
+          turnExecution: execution,
+        });
+        if (interior.outcome === "abandoned") {
+          await sandbox.destroy().catch(() => undefined);
+          return;
+        }
+        if (interior.outcome === "published") {
+          interiorCandidate = interior.candidate;
+        }
+        if (interior.outcome === "failed") {
+          result = { ...result, ok: false, error: interior.error };
         }
       }
 

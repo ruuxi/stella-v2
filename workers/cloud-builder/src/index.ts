@@ -204,10 +204,27 @@ import {
 import {
   parseTurnComputePlan,
   requiresExactThreadCandidate,
+  runGeneralAgentTurn,
+  runResidentStellaLoop,
   turnComputePlan,
   turnComputePlanKey,
+  type GeneralAgentTurnPlan,
+  type GeneralAgentTurnResult,
+  type NativeExecution,
   type TurnComputePlan,
+  type TurnDurability,
 } from "./general-agent-turn.js";
+import {
+  agentComputeKey,
+  createAgentComputeLadder,
+  parsePersistedAgentCompute,
+  type PersistedAgentCompute,
+} from "./agent-compute-ladder.js";
+import { createAgentSandboxAttachment } from "./agent-sandbox-attachment.js";
+import type { SealedTurnTranscript } from "./agent-turn-journal.js";
+import { createAgentControlPlane } from "./agent-control-plane.js";
+import { createGeneralAgentDoLocalTools } from "./general-agent-do-local-tools.js";
+import { createResidentGeneralAgentTools } from "./general-agent-tools.js";
 import {
   EMPTY_NATIVE_HISTORY_CURSOR,
   NATIVE_STATE_DIRECTORY,
@@ -1524,6 +1541,12 @@ export class BuildSession extends DurableObject<Env> {
    * session, and leave the sandbox mounted for the trusted fallback archiver.
    */
   private readonly builderFallbackRecoveries = new Set<string>();
+  /**
+   * Resident agent loops by turn id, so Stop can stop the loop itself rather
+   * than only the container it may not have. An `Agent` ignores an
+   * `AbortSignal`; the only way to stop one is to call its own `abort`.
+   */
+  private readonly residentAgentAborts = new Map<string, () => void>();
   /** Exact replay joins one in-flight archive build instead of racing scratch. */
   private readonly turnStateCheckpointRuns = new Map<
     string,
@@ -1588,7 +1611,10 @@ export class BuildSession extends DurableObject<Env> {
     return tracked;
   }
 
-  private startAgentTurn(turn: TurnRequest, sandboxId: string): Promise<void> {
+  private startAgentTurn(
+    turn: TurnRequest,
+    sandboxId: string | undefined,
+  ): Promise<void> {
     const existing = this.agentTurnExecutions.get(turn.turnId);
     if (existing) return existing.settled;
     const execution = startTurnExecution({
@@ -1596,17 +1622,26 @@ export class BuildSession extends DurableObject<Env> {
       // Cleanup is part of fiber interruption and is bounded by the Effect
       // facade. A Stop ACK therefore means the exact command session and
       // container teardown completed (or the cancellation failed visibly).
-      onInterrupt: () =>
-        this.builderFallbackRecoveries.has(turn.turnId)
+      //
+      // The resident loop is aborted first, the way `OrchestratorSession`
+      // stops its own: the sweeps below cannot make an in-flight provider call
+      // or tool return, and leaving the Agent running would let it start
+      // container work behind a teardown that already ran.
+      onInterrupt: () => {
+        this.abortResidentAgent(turn);
+        return this.builderFallbackRecoveries.has(turn.turnId)
           ? this.quiesceCurrentAgentSession(turn)
-          : this.terminateCurrentAgentSandbox(turn),
+          : this.terminateCurrentAgentSandbox(turn);
+      },
       // createSession() may ignore AbortSignal and resolve after the immediate
       // destroy. Sweep again after the underlying turn promise has unwound so
       // Stop can never ACK while that late session/container remains live.
-      afterInterrupt: () =>
-        this.builderFallbackRecoveries.has(turn.turnId)
+      afterInterrupt: () => {
+        this.abortResidentAgent(turn);
+        return this.builderFallbackRecoveries.has(turn.turnId)
           ? this.quiesceCurrentAgentSession(turn)
-          : this.terminateCurrentAgentSandbox(turn),
+          : this.terminateCurrentAgentSandbox(turn);
+      },
     });
     this.agentTurnExecutions.set(turn.turnId, execution);
     const tracked = this.trackTurn(turn.turnId, execution.settled);
@@ -1617,6 +1652,24 @@ export class BuildSession extends DurableObject<Env> {
     };
     void tracked.then(clear, clear);
     return tracked;
+  }
+
+  /**
+   * Stop the resident loop before either sweep runs. A turn with no resident
+   * loop registered has nothing here, which is what makes this safe to call
+   * unconditionally from both interrupt hooks.
+   */
+  private abortResidentAgent(turn: TurnRequest): void {
+    const abort = this.residentAgentAborts.get(turn.turnId);
+    if (!abort) return;
+    try {
+      abort();
+    } catch (error) {
+      log("error", "resident_agent_abort_failed", {
+        turnId: turn.turnId,
+        message: errorMessage(error),
+      });
+    }
   }
 
   private startAppTurn(turn: TurnRequest): Promise<Response> {
@@ -6685,24 +6738,12 @@ export class BuildSession extends DurableObject<Env> {
       attemptGeneration: turn.attemptGeneration!,
       execution: turn.execution,
       browserResume: turn.browserResume !== undefined,
-      residentDisabled: this.env.RESIDENT_GENERAL_AGENT_TURNS !== "1",
+      // D1: resident is the default for Stella. An operator turns the ladder
+      // off by setting this to "0", which demotes every Stella turn to the
+      // eager container path without touching the loop.
+      residentDisabled: this.env.RESIDENT_GENERAL_AGENT_TURNS === "0",
       now: Date.now(),
     });
-  }
-
-  /**
-   * Reserve the container a resident-planned turn did not reserve at
-   * admission. The resident runner is not wired into admission yet, so such a
-   * turn still runs the container path, and its reservation has to be durable
-   * before any container work starts: both cancellation sweeps destroy by this
-   * exact id.
-   */
-  private async reserveAgentTurnSandbox(turn: TurnRequest): Promise<string> {
-    const sandboxId = sessionName(`agent-${turn.turnId}`);
-    await this.mutateExactTurn(turn, async (txn) => {
-      await txn.put("sandboxId", sandboxId);
-    });
-    return sandboxId;
   }
 
   private async acceptAgentTurn(turn: TurnRequest): Promise<Response> {
@@ -6917,8 +6958,7 @@ export class BuildSession extends DurableObject<Env> {
       );
     }
     const { orphan, orphanTurn } = admission;
-    const sandboxId =
-      admission.sandboxId ?? (await this.reserveAgentTurnSandbox(turn));
+    const { sandboxId } = admission;
     if (
       orphan &&
       orphanTurn &&
@@ -6987,7 +7027,542 @@ export class BuildSession extends DurableObject<Env> {
   // streams its own progress events with the turn token; this method owns
   // workspace persistence and the terminal event. Runs detached from the
   // dispatch request (see acceptAgentTurn).
+  /**
+   * The one place a turn's admitted placement is acted on.
+   *
+   * The plan is read back rather than re-derived: a config flip between
+   * admission and here would otherwise re-place a turn whose container was
+   * (or was not) already reserved, and both cancellation sweeps destroy by
+   * that reservation.
+   */
   private async runAgentTurn(
+    turn: TurnRequest,
+    sandboxId: string | undefined,
+    execution: TurnExecutionContext,
+  ): Promise<void> {
+    const identity = {
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration ?? 0,
+    };
+    const admitted = parseTurnComputePlan(
+      await this.ctx.storage.get(
+        turnComputePlanKey(identity.turnId, identity.attemptGeneration),
+      ),
+      identity,
+    );
+    await runGeneralAgentTurn({
+      plan:
+        admitted?.plan ??
+        ({
+          kind: "native_sandbox",
+          execution: turn.execution as NativeExecution,
+          reason: "native_engine",
+        } as const),
+      context: execution,
+      resident: (plan) => this.runResidentAgentTurn(turn, plan, execution),
+      native: async () => {
+        // Admission mints the id for every plan that keeps the container
+        // path, so an absent one here means this isolate is running a turn
+        // whose reservation another attempt owns.
+        if (!sandboxId) throw new AgentTurnAuthorityLostError();
+        await this.runContainerAgentTurn(turn, sandboxId, execution);
+      },
+    });
+  }
+
+  /**
+   * Resolve what a lazy attach has to put on disk.
+   *
+   * The container path does this before it boots. A resident turn cannot: the
+   * whole point is that a chat-only turn never pays for it. So it runs at
+   * attach time instead, against the same owner fence and with the same
+   * refusal when a predecessor's publication is still being repaired.
+   */
+  private async resolveAgentWorldRestore(
+    turn: TurnRequest,
+    execution: TurnExecutionContext,
+    history: AgentHistoryRow[],
+  ): Promise<{
+    turnStateWorkspaceRestore?: TurnStateWorkspaceHead;
+    turnStateWorkspaceRestoreConfirmationRequired: boolean;
+    turnStateThreadRestore?: TurnStateCandidate;
+    turnStateThreadRestoreConfirmationRequired: boolean;
+    descriptor: DirectoryBackup | null;
+  }> {
+    const canonicalHistoryCursor = await nativeHistoryCursorFromRows(history);
+    let resolved = await this.resolveAgentTurnState(
+      turn,
+      canonicalHistoryCursor,
+    );
+    execution.assertActive();
+    if (resolved.workspacePublication) {
+      if (!resolved.workspacePublication.publishable) {
+        throw new AgentTurnError(
+          "This workspace is still recovering a previous agent turn. Try again shortly.",
+        );
+      }
+      await this.assertConvexAgentTurnAuthority(turn);
+      await this.publishAgentTurnWorkspace(
+        turn,
+        canonicalHistoryCursor,
+        resolved.workspacePublication.operationId,
+      );
+      execution.assertActive();
+      resolved = await this.resolveAgentTurnState(turn, canonicalHistoryCursor);
+      execution.assertActive();
+      if (resolved.workspacePublication) {
+        throw new AgentTurnError(
+          "This workspace is still recovering a previous agent turn. Try again shortly.",
+        );
+      }
+    }
+    if (resolved.registryPresent && !resolved.workspace) {
+      throw new AgentTurnError(
+        "This workspace's saved state is incomplete. Try again after Stella finishes recovering it.",
+      );
+    }
+    await this.ctx.storage.put(
+      turnStateBaseWorkspaceRevisionKey(turn.turnId, turn.attemptGeneration!),
+      resolved.baseWorkspaceRevision,
+    );
+    execution.assertActive();
+    let descriptor: DirectoryBackup | null = null;
+    if (!resolved.workspace) {
+      const raw = await this.env.APP_ROUTES.get<unknown>(
+        await checkpointKey(turn.ownerId),
+        "json",
+      );
+      if (raw) {
+        descriptor = parseLegacyWorkspaceBackup(raw, WORLD_ROOT);
+        if (!descriptor) {
+          throw new AgentTurnError(
+            "Stella couldn't validate this workspace's legacy checkpoint. Try again.",
+          );
+        }
+      }
+    }
+    return {
+      ...(resolved.workspace
+        ? { turnStateWorkspaceRestore: resolved.workspace }
+        : {}),
+      turnStateWorkspaceRestoreConfirmationRequired:
+        resolved.workspaceConfirmationRequired,
+      ...(resolved.restore ? { turnStateThreadRestore: resolved.restore } : {}),
+      turnStateThreadRestoreConfirmationRequired:
+        resolved.confirmationRequired,
+      descriptor,
+    };
+  }
+
+  /**
+   * Issue the daemon's broker capability exactly the way the container
+   * executor gets it: a root-owned file above the world root, with the durable
+   * record written before the container can present it. The raw turn token
+   * never crosses this boundary.
+   */
+  private async prepareAgentBrokerHandoff(args: {
+    turn: TurnRequest;
+    session: ExecutionSession;
+    commandTimeoutMs: number;
+    workspaceRestored: boolean;
+  }): Promise<{
+    turnId: string;
+    attemptGeneration: number;
+    threadId: string;
+    prompt: string;
+    workspaceRestored: boolean;
+    turnBroker: { credentialsPath: string };
+  }> {
+    const { turn } = args;
+    if (!turn.turnBrokerRoute || !turn.threadId) {
+      throw new AgentTurnAuthorityLostError();
+    }
+    const brokerIdentity = {
+      sessionId: turn.turnBrokerRoute.sessionId,
+      ownerId: turn.ownerId,
+      ownerGeneration: turn.ownerGeneration,
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+    };
+    const issued = await issueTurnBrokerCredential({
+      identity: brokerIdentity,
+      endpoint: turn.turnBrokerRoute.endpoint,
+      now: Date.now(),
+      ttlMs: Math.max(
+        1,
+        Math.min(TURN_BROKER_MAX_TTL_MS, args.commandTimeoutMs),
+      ),
+    });
+    await this.ctx.storage.put(
+      turnBrokerStorageKey(brokerIdentity),
+      issued.record,
+    );
+    const credentialsPath = turnBrokerCredentialsPath();
+    await args.session.writeFile(
+      credentialsPath,
+      JSON.stringify(issued.handoff),
+    );
+    const protectedHandoff = await args.session.exec(
+      `chmod 600 ${credentialsPath}`,
+    );
+    if (!protectedHandoff.success) {
+      throw new Error("Turn broker handoff could not be protected.");
+    }
+    return {
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+      threadId: turn.threadId,
+      prompt: turn.prompt,
+      workspaceRestored: args.workspaceRestored,
+      turnBroker: { credentialsPath },
+    };
+  }
+
+  /**
+   * A Stella turn whose agent loop runs right here.
+   *
+   * No container exists until a tool needs one. What that buys is on the
+   * turn's critical path: a chat-only reply costs one Convex history read and
+   * the model call, with no cold start, no squashfs restore, and nothing to
+   * tear down when the user stops it.
+   */
+  private async runResidentAgentTurn(
+    turn: TurnRequest,
+    plan: Extract<GeneralAgentTurnPlan, { kind: "resident_stella" }>,
+    execution: TurnExecutionContext,
+  ): Promise<GeneralAgentTurnResult> {
+    const requestStarted = performance.now();
+    const commandTimeoutMs = Number(this.env.TURN_TIMEOUT_MS);
+    await this.assertAgentExecutionActive(turn, execution);
+    if (!turn.threadId || !turn.turnBrokerRoute) {
+      throw new AgentTurnAuthorityLostError();
+    }
+    const attemptGeneration = turn.attemptGeneration!;
+    const identity = { turnId: turn.turnId, attemptGeneration };
+    await this.event(
+      turn,
+      "auto",
+      "started",
+      { threadId: turn.threadId },
+      false,
+      execution.signal,
+    );
+    execution.assertActive();
+
+    const control = createAgentControlPlane({
+      convexCallbackBase: turn.convexCallbackBase,
+      serviceSecret: this.env.BUILDER_SERVICE_SECRET,
+      turnToken: turn.turnToken,
+      identity: {
+        ownerId: turn.ownerId,
+        ownerGeneration: turn.ownerGeneration,
+        threadId: turn.threadId,
+        turnId: turn.turnId,
+        attemptGeneration,
+        sessionId: turn.turnBrokerRoute.sessionId,
+      },
+      storage: this.ctx.storage,
+    });
+
+    // The same name the container path would have minted, so every teardown,
+    // archive and recovery path keyed on it works without a second scheme.
+    const sandboxId = sessionName(`agent-${turn.turnId}`);
+    const workspaceKey = await checkpointKey(turn.ownerId);
+    const remembered = asInstanceSize(
+      await this.env.APP_ROUTES.get(instanceSizeKey(workspaceKey)),
+    );
+    execution.assertActive();
+    const instanceSize: InstanceSize = !this.env.SANDBOX_SMALL
+      ? "large"
+      : (remembered ??
+        initialInstanceSize({ prompt: turn.prompt, restored: true }));
+
+    let attachedWorkspaceRestore: TurnStateWorkspaceHead | undefined;
+    let residentHistory: AgentHistoryRow[] = [];
+    const attachment = createAgentSandboxAttachment({
+      context: execution,
+      attachWorld: async ({ instanceSize: size }) => {
+        await this.ctx.storage.put({ sandboxId, sandboxSize: size });
+        const restore = await this.resolveAgentWorldRestore(
+          turn,
+          execution,
+          residentHistory,
+        );
+        attachedWorkspaceRestore = restore.turnStateWorkspaceRestore;
+        return await this.attachAgentWorld({
+          turn,
+          execution,
+          sandbox: this.sandbox(sandboxId, size),
+          size,
+          nativeDescriptor: null,
+          history: residentHistory,
+          commandTimeoutMs,
+          ...restore,
+        });
+      },
+      prepareBrokerHandoff: async ({ session }) =>
+        await this.prepareAgentBrokerHandoff({
+          turn,
+          session,
+          commandTimeoutMs,
+          workspaceRestored: Boolean(attachedWorkspaceRestore),
+        }),
+      destroy: async () => {
+        await this.terminateCurrentAgentSandbox(turn);
+      },
+    });
+
+    const ladder = createAgentComputeLadder({
+      ...identity,
+      sandboxId,
+      initialInstanceSize: instanceSize,
+      store: {
+        read: async () =>
+          parsePersistedAgentCompute(
+            await this.ctx.storage.get(
+              agentComputeKey(turn.turnId, attemptGeneration),
+            ),
+            identity,
+          ),
+        write: async (record: PersistedAgentCompute) => {
+          await this.ctx.storage.put(
+            agentComputeKey(turn.turnId, attemptGeneration),
+            record,
+          );
+        },
+      },
+      attachment,
+      context: execution,
+      emitEvent: (kind, payload) => {
+        void this.event(turn, "auto", kind, payload, false, execution.signal)
+          .catch(() => undefined);
+      },
+    });
+
+    const doLocal = createGeneralAgentDoLocalTools({
+      control,
+      requestInteriorBuild: () => ladder.requestInteriorBuild(),
+      now: () => Date.now(),
+      signal: execution.signal,
+    });
+
+    try {
+      const result = await runResidentStellaLoop({
+        turn: {
+          kind: "agent",
+          identity: {
+            ownerId: turn.ownerId,
+            ownerGeneration: turn.ownerGeneration,
+            threadId: turn.threadId,
+            turnId: turn.turnId,
+            attemptGeneration,
+          },
+          prompt: turn.prompt,
+          turnToken: turn.turnToken,
+          convexCallbackBase: turn.convexCallbackBase,
+          brokerRoute: turn.turnBrokerRoute,
+          execution: plan.execution,
+          watchdogMs: turn.watchdogMs ?? 15 * 60_000,
+        },
+        execution: plan.execution,
+        context: execution,
+        control,
+        sql: this.ctx.storage.sql,
+        tools: createResidentGeneralAgentTools(doLocal, ladder),
+        workspacePrompt: { office: false },
+        now: () => Date.now(),
+        onAgentStarted: (abort) => {
+          this.residentAgentAborts.set(turn.turnId, abort);
+        },
+        commit: async (sealed) =>
+          await this.commitResidentTurnDurability({
+            turn,
+            execution,
+            ladder,
+            sealed,
+            control,
+            commandTimeoutMs,
+          }),
+      });
+      await this.deliverResidentTerminal(turn, result, requestStarted);
+      return result;
+    } finally {
+      this.residentAgentAborts.delete(turn.turnId);
+      await ladder.teardown().catch(() => undefined);
+    }
+  }
+
+  /**
+   * D6, sequenced by the code that owns `turn-state-archive`.
+   *
+   * A turn that never attached commits its transcript and nothing else. One
+   * that did — including a resident turn that asked for the interior build and
+   * so attaches after the loop — commits the archive first, because a
+   * canonical cursor must never name a workspace revision that was never
+   * uploaded.
+   */
+  private async commitResidentTurnDurability(args: {
+    turn: TurnRequest;
+    execution: TurnExecutionContext;
+    ladder: ReturnType<typeof createAgentComputeLadder>;
+    sealed: SealedTurnTranscript;
+    control: ReturnType<typeof createAgentControlPlane>;
+    commandTimeoutMs: number;
+  }): Promise<Exclude<TurnDurability, { kind: "none" }>> {
+    const { turn, execution, ladder, sealed, control } = args;
+    await ladder.attachForInteriorBuild();
+    execution.assertActive();
+    if (!ladder.attached()) {
+      return {
+        kind: "transcript_only",
+        transcript: await control.appendAndVerifyTranscript(sealed),
+      };
+    }
+    const sandbox = await this.currentSandbox();
+    if (!sandbox) throw new AgentTurnAuthorityLostError();
+    const interior = await this.publishRequestedInteriorCandidate({
+      turn,
+      sandbox,
+      commandTimeoutMs: args.commandTimeoutMs,
+      turnExecution: execution,
+    });
+    if (interior.outcome === "failed") {
+      throw new AgentTurnError(interior.error);
+    }
+    await ladder.quiesce();
+    execution.assertActive();
+    const checkpoint = await this.runResidentTurnStateCheckpoint({
+      turn,
+      historyCursor: sealed.historyCursor,
+    });
+    const transcript = await control.appendAndVerifyTranscript(sealed);
+    return { kind: "workspace_checkpoint", transcript, checkpoint };
+  }
+
+  /**
+   * Run the deterministic turn-state operation for an attached resident turn.
+   *
+   * The container path reaches the same code through a broker request, whose
+   * id makes a replay idempotent. A resident turn is its own requester, so the
+   * id is derived from the exact attempt instead: an alarm replay resumes this
+   * operation rather than manufacturing a second archive.
+   */
+  private async runResidentTurnStateCheckpoint(args: {
+    turn: TurnRequest;
+    historyCursor: string;
+  }): Promise<TurnBrokerTurnStateCheckpointReceipt> {
+    const { turn } = args;
+    const attemptGeneration = turn.attemptGeneration!;
+    const requestId = await sha256Hex(
+      `resident-turn-state:${turn.turnId}:${attemptGeneration}`,
+    );
+    const operationKey = turnStateCheckpointOperationKey(requestId);
+    const baseWorkspaceRevision = await this.ctx.storage.get<number>(
+      turnStateBaseWorkspaceRevisionKey(turn.turnId, attemptGeneration),
+    );
+    if (!Number.isSafeInteger(baseWorkspaceRevision)) {
+      throw new AgentTurnError(
+        "Stella could not establish this workspace's revision for the turn. Try again.",
+      );
+    }
+    const existing =
+      await this.ctx.storage.get<TurnStateCheckpointOperation>(operationKey);
+    if (existing?.state === "succeeded") return existing.receipt;
+    const payload: TurnBrokerTurnStateCheckpointRequest = {
+      schemaVersion: 1,
+      historyCursor: args.historyCursor,
+    };
+    const operation: Extract<
+      TurnStateCheckpointOperation,
+      { state: "pending" }
+    > & { payload: TurnBrokerTurnStateCheckpointRequest } = {
+      state: "pending",
+      turnId: turn.turnId,
+      attemptGeneration,
+      requestId,
+      requestFingerprint: await sha256Hex(JSON.stringify(payload)),
+      createdAt: existing?.createdAt ?? Date.now(),
+      baseWorkspaceRevision: baseWorkspaceRevision!,
+      payload,
+    };
+    await this.ctx.storage.put(operationKey, operation);
+    const inFlight = this.turnStateCheckpointRuns.get(requestId);
+    if (inFlight) return await inFlight;
+    const run = this.executeTurnStateCheckpoint({
+      turn,
+      operationKey,
+      operation,
+    });
+    this.turnStateCheckpointRuns.set(requestId, run);
+    try {
+      return await run;
+    } finally {
+      this.turnStateCheckpointRuns.delete(requestId);
+    }
+  }
+
+  /**
+   * The resident arm's terminal event. Same envelope the container path
+   * delivers, minus the fields a resident turn genuinely does not have: there
+   * is no cold start and no restore to report when nothing booted.
+   */
+  private async deliverResidentTerminal(
+    turn: TurnRequest,
+    result: GeneralAgentTurnResult,
+    requestStarted: number,
+  ): Promise<void> {
+    const wallClockMs = Math.round(performance.now() - requestStarted);
+    const compute = result.compute;
+    const shared = {
+      usage: {
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+        llmCalls: result.usage.llmCalls,
+      },
+      coldContainerStartMs:
+        compute.kind === "sandbox" ? compute.coldStartMs : 0,
+      restoreMs: compute.kind === "sandbox" ? compute.restoreMs : 0,
+      checkpointMs: 0,
+      wallClockMs,
+      ...(compute.kind === "sandbox"
+        ? { instanceType: INSTANCE_TIERS[compute.instanceSize].instanceType }
+        : {}),
+    };
+    const pending: PendingTerminal = result.ok
+      ? {
+          turnId: turn.turnId,
+          attemptGeneration: turn.attemptGeneration!,
+          kind: "completed",
+          payload: { finalText: result.finalText, ...shared },
+        }
+      : {
+          turnId: turn.turnId,
+          attemptGeneration: turn.attemptGeneration!,
+          kind: "failed",
+          payload: {
+            message:
+              result.outcome === "failed"
+                ? result.error
+                : "The agent stopped and could not continue.",
+          },
+          threadError:
+            result.outcome === "failed"
+              ? result.error
+              : "The agent stopped and could not continue.",
+        };
+    const delivered = await this.deliverTerminal(turn, pending);
+    if (delivered && (await this.ownsExactTurn(turn))) {
+      await this.deleteTurnStoragePreservingExactCancellations(turn, true);
+    }
+    log("info", "agent_turn_finished", {
+      turnId: turn.turnId,
+      threadId: turn.threadId,
+      ok: result.ok,
+      wallClockMs,
+    });
+  }
+
+  private async runContainerAgentTurn(
     turn: TurnRequest,
     sandboxId: string,
     execution: TurnExecutionContext,

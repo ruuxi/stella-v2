@@ -221,7 +221,10 @@ import {
   type PersistedAgentCompute,
 } from "./agent-compute-ladder.js";
 import { createAgentSandboxAttachment } from "./agent-sandbox-attachment.js";
-import type { SealedTurnTranscript } from "./agent-turn-journal.js";
+import {
+  AgentTurnJournal,
+  type SealedTurnTranscript,
+} from "./agent-turn-journal.js";
 import { createAgentControlPlane } from "./agent-control-plane.js";
 import { createGeneralAgentDoLocalTools } from "./general-agent-do-local-tools.js";
 import { createResidentGeneralAgentTools } from "./general-agent-tools.js";
@@ -522,6 +525,18 @@ type AgentExecutionMarker = {
   sandboxId: string;
   size: InstanceSize;
   startedAt: number;
+};
+
+/**
+ * What recovery already knows about a lost turn, if anything. The container
+ * path recovers a transcript the executor handed up before it died; a resident
+ * turn recovers one from its own journal. Absent both, the fallback synthesizes
+ * the two rows a thread needs to stay readable.
+ */
+type BuilderFallbackInput = {
+  historyCursor?: string;
+  messages?: Array<{ ordinal: number; role: string; payloadJson: string }>;
+  nativeCheckpoint?: TurnBrokerTurnStateCheckpointRequest["nativeCheckpoint"];
 };
 
 class OwnerPurgeFenceError extends Error {
@@ -2323,22 +2338,151 @@ export class BuildSession extends DurableObject<Env> {
     });
   }
 
+  /** Whether this exact attempt was admitted to the resident arm. */
+  private async admittedResidentPlacement(turn: TurnRequest): Promise<boolean> {
+    if (
+      turn.kind !== "agent" ||
+      !Number.isSafeInteger(turn.attemptGeneration) ||
+      turn.attemptGeneration! < 1
+    ) {
+      return false;
+    }
+    const identity = {
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+    };
+    const admitted = parseTurnComputePlan(
+      await this.ctx.storage.get(
+        turnComputePlanKey(identity.turnId, identity.attemptGeneration),
+      ),
+      identity,
+    );
+    return admitted?.plan.kind === "resident_stella";
+  }
+
+  /**
+   * D9. Turn what a lost isolate left in the journal into rows a thread can
+   * read.
+   *
+   * A call in the interrupted tail is answered, never replayed. Its receipt
+   * lives only in the daemon process the archive below is about to kill, and
+   * the interrupted result says exactly that much: the effect is unknown.
+   */
+  private async repairedResidentJournal(
+    turn: TurnRequest,
+    message: string,
+  ): Promise<SealedTurnTranscript> {
+    const now = Date.now();
+    const journal = AgentTurnJournal.open({
+      sql: this.ctx.storage.sql,
+      identity: {
+        turnId: turn.turnId,
+        attemptGeneration: turn.attemptGeneration!,
+      },
+      terminal: {
+        prompt: turn.prompt,
+        provider: turn.execution?.provider ?? "stella",
+        model: turn.execution?.model ?? "unknown",
+        finalText: "",
+        error: message,
+        timestamp: now,
+      },
+      now,
+    });
+    return await journal.repairInterruptedTail({
+      resolveInterruptedCall: async () => "interrupted",
+      terminalMessage: message,
+    });
+  }
+
+  /**
+   * D9's resident arm. Nothing was ever attached, so there is no disk to
+   * archive and no fallback publication to advance: the journal is the whole
+   * durable record of the turn, and the thread is owed a repaired transcript
+   * followed by a failure.
+   */
+  private async recoverResidentAgentTurn(turn: TurnRequest): Promise<void> {
+    const message =
+      "The agent stopped unexpectedly before it finished. Its reply was not completed.";
+    if (!turn.threadId || !turn.turnBrokerRoute) return;
+    // The journal cannot be sealed under a loop that is still appending to it.
+    // A replacement isolate has nothing here, which is the common case.
+    const running = this.agentTurnExecutions.get(turn.turnId);
+    if (running) {
+      await running.interrupt(new Error(message)).catch(() => undefined);
+    }
+    const recoveredPending: PendingTerminal = {
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+      kind: "failed",
+      payload: { message, reason: "resident_recovered" },
+      threadError: message,
+    };
+    try {
+      const repaired = await this.repairedResidentJournal(turn, message);
+      await createAgentControlPlane({
+        convexCallbackBase: turn.convexCallbackBase,
+        serviceSecret: this.env.BUILDER_SERVICE_SECRET,
+        turnToken: turn.turnToken,
+        identity: {
+          ownerId: turn.ownerId,
+          ownerGeneration: turn.ownerGeneration,
+          threadId: turn.threadId,
+          turnId: turn.turnId,
+          attemptGeneration: turn.attemptGeneration!,
+          sessionId: turn.turnBrokerRoute.sessionId,
+        },
+        storage: this.ctx.storage,
+      }).appendAndVerifyTranscript(repaired);
+    } catch (error) {
+      log("error", "resident_agent_recovery_retry", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        message: errorMessage(error),
+      });
+      await this.setExactTurnAlarm(turn, Date.now() + 30_000);
+      return;
+    }
+    if (
+      !(await this.claimTerminalDecision(
+        turn,
+        recoveredPending,
+        Date.now() + 30_000,
+      ))
+    ) {
+      await this.setExactTurnAlarm(turn, Date.now() + 1_000);
+      return;
+    }
+    if (
+      (await this.deliverTerminal(turn, recoveredPending)) &&
+      (await this.ownsExactTurn(turn))
+    ) {
+      await this.deleteTurnStoragePreservingExactCancellations(turn, true);
+    }
+    log("info", "resident_agent_turn_recovered", {
+      turnId: turn.turnId,
+      threadId: turn.threadId,
+    });
+  }
+
+  /**
+   * `resolveInput` runs after quiescence, never before. A resident turn's rows
+   * come from a journal the loop is still appending to until the interrupt
+   * above has unwound it, and sealing that journal early would fail the very
+   * loop whose rows recovery is trying to keep.
+   */
   private async recoverAgentTurnAfterExecutorLoss(
     turn: TurnRequest,
     marker: AgentExecutionMarker,
     error: string,
-    input?: {
-      historyCursor?: string;
-      messages?: Array<{ ordinal: number; role: string; payloadJson: string }>;
-      nativeCheckpoint?: TurnBrokerTurnStateCheckpointRequest["nativeCheckpoint"];
-    },
+    resolveInput?: () => Promise<BuilderFallbackInput>,
   ): Promise<TurnBrokerTurnStateCheckpointReceipt> {
     await this.interruptAgentForBuilderFallback(turn);
     return await this.reconcileAgentCheckpointAfterQuiescence(
       turn,
       marker,
       error,
-      input,
+      await resolveInput?.(),
     );
   }
 
@@ -2346,11 +2490,7 @@ export class BuildSession extends DurableObject<Env> {
     turn: TurnRequest,
     marker: AgentExecutionMarker,
     error: string,
-    input?: {
-      historyCursor?: string;
-      messages?: Array<{ ordinal: number; role: string; payloadJson: string }>;
-      nativeCheckpoint?: TurnBrokerTurnStateCheckpointRequest["nativeCheckpoint"];
-    },
+    input?: BuilderFallbackInput,
   ): Promise<TurnBrokerTurnStateCheckpointReceipt> {
     await this.assertTurnWritable(turn);
     await this.assertConvexAgentTurnAuthority(turn);
@@ -2519,12 +2659,7 @@ export class BuildSession extends DurableObject<Env> {
 
   private async ensureBuilderFallbackTranscript(
     turn: TurnRequest,
-    input?: {
-      historyCursor?: string;
-      messages?: Array<{ ordinal: number; role: string; payloadJson: string }>;
-      nativeCheckpoint?: TurnBrokerTurnStateCheckpointRequest["nativeCheckpoint"];
-      error?: string;
-    },
+    input?: BuilderFallbackInput & { error?: string },
   ): Promise<BuilderFallbackTranscript> {
     const key = builderFallbackTranscriptKey(
       turn.turnId,
@@ -5196,6 +5331,7 @@ export class BuildSession extends DurableObject<Env> {
       }
     }
     if (turn.kind === "agent") {
+      const resident = await this.admittedResidentPlacement(turn);
       let marker: AgentExecutionMarker | undefined;
       try {
         marker = await this.exactAgentExecutionMarker(turn);
@@ -5208,12 +5344,27 @@ export class BuildSession extends DurableObject<Env> {
         return;
       }
       if (marker) {
+        const lost =
+          "The agent stopped unexpectedly. Its workspace changes were saved, but its report could not be recovered.";
         let recoveredCheckpoint: TurnBrokerTurnStateCheckpointReceipt;
         try {
           recoveredCheckpoint = await this.recoverAgentTurnAfterExecutorLoss(
             turn,
             marker,
-            "The agent stopped unexpectedly. Its workspace changes were saved, but its report could not be recovered.",
+            lost,
+            resident
+              ? async () => {
+                  const sealed = await this.repairedResidentJournal(turn, lost);
+                  return {
+                    historyCursor: sealed.historyCursor,
+                    messages: sealed.rows.map((row) => ({
+                      ordinal: row.ordinal,
+                      role: row.role,
+                      payloadJson: row.payloadJson,
+                    })),
+                  };
+                }
+              : undefined,
           );
         } catch (error) {
           log("error", "agent_builder_fallback_alarm_retry", {
@@ -5345,6 +5496,10 @@ export class BuildSession extends DurableObject<Env> {
             await this.setExactTurnAlarm(turn, Date.now() + 30_000);
           }
         }
+        return;
+      }
+      if (resident) {
+        await this.recoverResidentAgentTurn(turn);
         return;
       }
     }
@@ -7338,7 +7493,7 @@ export class BuildSession extends DurableObject<Env> {
           residentHistory,
         );
         attachedWorkspaceRestore = restore.turnStateWorkspaceRestore;
-        return await this.attachAgentWorld({
+        const attached = await this.attachAgentWorld({
           turn,
           execution,
           sandbox: this.sandbox(sandboxId, size),
@@ -7348,6 +7503,22 @@ export class BuildSession extends DurableObject<Env> {
           commandTimeoutMs,
           ...restore,
         });
+        // D9's fork. Only a confirmed world is worth archiving, so the marker
+        // lands after the restore: an eviction before this point recovers by
+        // destroying the reservation, and one after it recovers by archiving
+        // the disk the way a lost container executor already does.
+        await this.ctx.storage.put(
+          agentExecutionMarkerKey(turn.turnId, attemptGeneration),
+          {
+            schemaVersion: 1,
+            turnId: turn.turnId,
+            attemptGeneration,
+            sandboxId,
+            size,
+            startedAt: Date.now(),
+          } satisfies AgentExecutionMarker,
+        );
+        return attached;
       },
       prepareBrokerHandoff: async ({ session }) =>
         await this.prepareAgentBrokerHandoff({

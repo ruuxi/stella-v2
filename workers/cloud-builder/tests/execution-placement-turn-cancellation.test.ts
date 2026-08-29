@@ -5,9 +5,17 @@ import {
   parseExactTurnCancellationRequest,
   type ExactTurnCancellationRequest,
 } from "../src/execution-placement-turn-cancellation.js";
+import { agentComputeKey } from "../src/agent-compute-ladder.js";
+import {
+  turnComputePlan,
+  turnComputePlanKey,
+} from "../src/general-agent-turn.js";
 import { sha256Hex } from "../src/hash.js";
 import { localClientMessageFingerprintSource } from "../src/local-turn-protocol.js";
-import { startTurnExecution } from "../src/turn-cancellation.js";
+import {
+  startTurnExecution,
+  type TurnExecutionContext,
+} from "../src/turn-cancellation.js";
 
 mock.module("cloudflare:workers", () => ({
   DurableObject: class {},
@@ -302,6 +310,8 @@ const buildSessionHarness = (values = new Map<string, unknown>()) => {
       runAgentTurnCalls += 1;
     },
     settleTerminalTransientWrites: async () => true,
+    residentAgentAborts: new Map<string, () => void>(),
+    builderFallbackRecoveries: new Set<string>(),
   });
   return {
     instance,
@@ -3834,5 +3844,224 @@ describe("execution-placement exact cloud turn cancellation", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+const STELLA_EXECUTION = {
+  engine: "stella",
+  provider: "stella",
+  model: "stella/default",
+  reasoningEffort: "default",
+} as const;
+
+const ladderTurn = (turnId: string) => ({
+  ...agentTurn(turnId),
+  execution: STELLA_EXECUTION,
+  turnBrokerRoute: {
+    sessionId: `broker:${turnId}`,
+    endpoint: "https://broker.example",
+  },
+});
+
+const residentPlanRecord = (turnId: string) =>
+  turnComputePlan({
+    turnId,
+    attemptGeneration: 1,
+    execution: STELLA_EXECUTION,
+    browserResume: false,
+    residentDisabled: false,
+    now: 1_700_000_000_000,
+  });
+
+type SandboxCall = { sandboxId: string; size: string };
+
+/**
+ * Drive one exact Stop against a real `startAgentTurn`, with a resident loop
+ * that can only unwind because the resident abort ran. A hook that forgot to
+ * abort the Agent would hang here rather than pass.
+ */
+const residentStopHarness = (turnId: string) => {
+  const harness = buildSessionHarness();
+  const current = ladderTurn(turnId);
+  harness.values.set("turn", current);
+  harness.values.set("turnId", current.turnId);
+  harness.values.set("terminal", false);
+  harness.values.set(
+    turnComputePlanKey(current.turnId, 1),
+    residentPlanRecord(current.turnId),
+  );
+  delete harness.instance["terminateCurrentAgentSandbox"];
+  const order: string[] = [];
+  const destroyed: SandboxCall[] = [];
+  const killed: string[] = [];
+  let sandboxCalls = 0;
+  harness.instance["sandbox"] = (sandboxId: string, size: string) => {
+    sandboxCalls += 1;
+    return {
+      killAllProcesses: async (sessionId: string) => {
+        killed.push(sessionId);
+      },
+      destroy: async () => {
+        destroyed.push({ sandboxId, size });
+      },
+    };
+  };
+  harness.instance["runAgentTurn"] = async (
+    _turn: unknown,
+    _sandboxId: unknown,
+    context: TurnExecutionContext,
+  ) => {
+    let unwind!: () => void;
+    const aborted = new Promise<void>((resolve) => {
+      unwind = resolve;
+    });
+    (harness.instance["residentAgentAborts"] as Map<string, () => void>).set(
+      current.turnId,
+      () => {
+        order.push("resident_abort");
+        unwind();
+      },
+    );
+    context.assertActive();
+    await aborted;
+    order.push("loop_unwound");
+  };
+  const running = (
+    harness.instance["startAgentTurn"] as (
+      turn: unknown,
+      sandboxId: string | undefined,
+    ) => Promise<void>
+  )(current, undefined);
+  return { harness, current, order, destroyed, killed, running, sandboxCalls: () => sandboxCalls };
+};
+
+describe("resident placement exact Stop", () => {
+  test("a resident Stop touches no container and still ACKs truthfully", async () => {
+    const driven = residentStopHarness("agent-resident-stop");
+    driven.harness.values.set(agentComputeKey(driven.current.turnId, 1), {
+      schemaVersion: 1,
+      turnId: driven.current.turnId,
+      attemptGeneration: 1,
+      phase: "resident",
+      instanceSize: "large",
+    });
+
+    const response = await driven.harness.instance.fetch(
+      cancelRequest(request(driven.current.turnId)),
+    );
+    await driven.running.catch(() => undefined);
+
+    expect(driven.sandboxCalls()).toBe(0);
+    expect(driven.destroyed).toEqual([]);
+    expect(driven.killed).toEqual([]);
+    expect(driven.order).toEqual([
+      "resident_abort",
+      "loop_unwound",
+      "resident_abort",
+    ]);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      canceled: true,
+      turnId: driven.current.turnId,
+      joined: true,
+    });
+    expect(
+      await driven.harness.ledger.matching(request(driven.current.turnId)),
+    ).toMatchObject({ state: "acknowledged" });
+    expect(driven.harness.values.has("pendingTerminal")).toBe(false);
+  });
+
+  test("a Stop during attach destroys the exact reserved instance", async () => {
+    const driven = residentStopHarness("agent-resident-attaching");
+    // The ladder records the reservation before the platform has an instance to
+    // name, so the shared `sandboxId` key is deliberately absent here.
+    driven.harness.values.set(agentComputeKey(driven.current.turnId, 1), {
+      schemaVersion: 1,
+      turnId: driven.current.turnId,
+      attemptGeneration: 1,
+      phase: "attaching",
+      instanceSize: "small",
+      sandboxId: `agent-${driven.current.turnId}`,
+    });
+
+    const response = await driven.harness.instance.fetch(
+      cancelRequest(request(driven.current.turnId)),
+    );
+    await driven.running.catch(() => undefined);
+
+    expect(driven.destroyed).toEqual([
+      { sandboxId: `agent-${driven.current.turnId}`, size: "small" },
+      { sandboxId: `agent-${driven.current.turnId}`, size: "small" },
+    ]);
+    expect(driven.killed).toEqual([]);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      canceled: true,
+      turnId: driven.current.turnId,
+      joined: true,
+    });
+    expect(
+      await driven.harness.ledger.matching(request(driven.current.turnId)),
+    ).toMatchObject({ state: "acknowledged" });
+  });
+
+  test("an attached Stop keeps the exact two-sweep ACK contract", async () => {
+    const driven = residentStopHarness("agent-resident-attached");
+    const sandboxId = `agent-${driven.current.turnId}`;
+    driven.harness.values.set("sandboxId", sandboxId);
+    driven.harness.values.set("sandboxSize", "large");
+    driven.harness.values.set(
+      `agentExecutionMarker:${driven.current.turnId}:1`,
+      {
+        schemaVersion: 1,
+        turnId: driven.current.turnId,
+        attemptGeneration: 1,
+        sandboxId,
+        size: "large",
+        startedAt: 1_700_000_000_000,
+      },
+    );
+    driven.harness.values.set(agentComputeKey(driven.current.turnId, 1), {
+      schemaVersion: 1,
+      turnId: driven.current.turnId,
+      attemptGeneration: 1,
+      phase: "attached",
+      instanceSize: "large",
+      sandboxId,
+    });
+
+    let settled = false;
+    const cancellation = driven.harness.instance
+      .fetch(cancelRequest(request(driven.current.turnId)))
+      .then((response) => {
+        settled = true;
+        return response;
+      });
+    while (driven.destroyed.length === 0) await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(driven.harness.values.get("pendingTerminal")).toMatchObject({
+      turnId: driven.current.turnId,
+      kind: "canceled",
+      terminateSandbox: true,
+    });
+
+    const response = await cancellation;
+    await driven.running.catch(() => undefined);
+
+    expect(driven.destroyed).toEqual([
+      { sandboxId, size: "large" },
+      { sandboxId, size: "large" },
+    ]);
+    expect(driven.killed).toEqual([
+      `agent-run-${driven.current.turnId}-large`,
+      `agent-run-${driven.current.turnId}-large`,
+    ]);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      canceled: true,
+      turnId: driven.current.turnId,
+      joined: true,
+    });
+    expect(driven.harness.values.has("pendingTerminal")).toBe(false);
   });
 });

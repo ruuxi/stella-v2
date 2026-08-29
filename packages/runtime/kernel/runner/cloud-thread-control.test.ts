@@ -69,16 +69,18 @@ describe("desktop cloud thread controls", () => {
       state,
       {
         thread_id: "thr-cloud",
-        description: "Continue report",
         message: "Add the appendix.",
       },
       { ...toolContext, ownerGeneration: OWNER_GENERATION },
     );
 
+    // `send_input` no longer takes a description, but the cloud continuation
+    // mutation still requires a non-empty one, so the label comes from the
+    // follow-up itself rather than re-titling the thread from the caller.
     expect(requests).toEqual([
       {
         threadId: "thr-cloud",
-        description: "Continue report",
+        description: "Add the appendix.",
         message: "Add the appendix.",
         conversationId: "local-conversation",
         requestId: "request-1",

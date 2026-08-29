@@ -504,14 +504,12 @@ describe("buildActivityTasks", () => {
     expect(done?.reasoningText).toBeUndefined();
   });
 
-  it("shows the row's own description: a send_input follow-up that re-described the thread just shows the new text", () => {
-    // The regression this architecture removes: the folded sidebar row kept
-    // the original spawn description after a follow-up. Rows carry the
-    // runtime's current description, so there is nothing to reconcile.
-    const tasks = buildActivityTasks([
-      record({ description: "Search for the itinerary email" }),
-    ]);
-    expect(tasks[0]?.description).toBe("Search for the itinerary email");
+  it("shows the durable spawn description after a send_input follow-up", () => {
+    // Rows carry the runtime's own description verbatim. A follow-up no
+    // longer re-describes the thread, so the spawn's domain name is what the
+    // folded sidebar row keeps showing.
+    const tasks = buildActivityTasks([record({ description: "Travel" })]);
+    expect(tasks[0]?.description).toBe("Travel");
   });
 
   it("keeps the durable task description when a newer live attempt reports tool status", () => {

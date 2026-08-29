@@ -126,7 +126,7 @@ describe("LocalAgentManager pause_agent cancellation", () => {
     expect(progressCount).toBe(2);
   });
 
-  it("emits the send_input description as lifecycle status text when it interrupts a running agent", async () => {
+  it("reuses the spawn description as lifecycle status text when send_input interrupts a running agent", async () => {
     const lifecycleEvents: AgentLifecycleEvent[] = [];
     let started: (() => void) | null = null;
     let finishRun: (() => void) | null = null;
@@ -175,21 +175,18 @@ describe("LocalAgentManager pause_agent cancellation", () => {
     });
 
     await startedPromise;
-    await manager.sendAgentMessage(created.threadId, "now", "orchestrator", {
-      description: "Apply latest settings",
-    });
+    await manager.sendAgentMessage(created.threadId, "now", "orchestrator");
 
     expect(
       lifecycleEvents.some(
         (event) =>
-          event.type === "agent-progress" &&
-          event.statusText === "Apply latest settings",
+          event.type === "agent-progress" && event.statusText === "demo",
       ),
     ).toBe(true);
     const progressTexts = lifecycleEvents
       .filter((event) => event.type === "agent-progress")
       .map((event) => event.statusText);
-    expect(progressTexts).toEqual(["Apply latest settings"]);
+    expect(progressTexts).toEqual(["demo"]);
 
     finishRun?.();
     await waitForAgentSettled(manager, created.threadId);
@@ -265,7 +262,7 @@ describe("LocalAgentManager pause_agent cancellation", () => {
     });
   });
 
-  it("uses the send_input description as start status when resuming a completed agent", async () => {
+  it("uses the spawn description as start status when resuming a completed agent", async () => {
     const lifecycleEvents: AgentLifecycleEvent[] = [];
     const prompts: string[] = [];
 
@@ -303,7 +300,6 @@ describe("LocalAgentManager pause_agent cancellation", () => {
       created.threadId,
       "check the new settings",
       "orchestrator",
-      { description: "Check settings update" },
     );
     await waitFor(
       () => prompts.length === 2,
@@ -312,16 +308,14 @@ describe("LocalAgentManager pause_agent cancellation", () => {
     await waitForAgentSettled(manager, created.threadId);
 
     const resumedStart = lifecycleEvents.find(
-      (event) =>
-        event.type === "agent-started" &&
-        event.statusText === "Check settings update",
+      (event) => event.type === "agent-started" && event.statusText === "demo",
     );
     expect(resumedStart).toBeTruthy();
 
     const progressTexts = lifecycleEvents
       .filter((event) => event.type === "agent-progress")
       .map((event) => event.statusText);
-    expect(progressTexts).toContain("Check settings update");
+    expect(progressTexts).toContain("demo");
     expect(progressTexts).not.toContain("Updating");
   });
 });

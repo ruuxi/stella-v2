@@ -37,6 +37,10 @@ import {
   type AutomaticExecutionTurnControl,
 } from "./execution-placement";
 import {
+  unifiedChatPlacementAdmission,
+  unifiedChatPlacementStatusText,
+} from "./unified-chat-placement";
+import {
   fetchDesktopBridgeThreadTasks,
   type DesktopTaskDecoration,
 } from "./desktop-bridge-chat";
@@ -93,27 +97,6 @@ const isPermanentAutomaticAdmissionError = (error: unknown) => {
   return /authentication required|sign in|signed-in account|ownership_migrated|linked to (?:an|another) account|being linked|owner generation|account data is currently|invalid|unsupported|not found|conflict|payload|conversation|malformed|different (?:dispatch|message) identity/i.test(
     message,
   );
-};
-
-const automaticPlacementStatus = (dispatch: AutomaticExecutionDispatch) => {
-  switch (dispatch.state) {
-    case "queued":
-    case "offering":
-    case "computer_claimed":
-      return "Choosing where to run";
-    case "computer_accepted":
-    case "computer_running":
-      return "Running on your computer";
-    case "cloud_committed":
-    case "cloud_running":
-      return "Running in Stella Cloud";
-    case "cancel_pending":
-      return "Stopping";
-    case "reconciliation_required":
-      return "Reconnecting to your computer";
-    default:
-      return undefined;
-  }
 };
 
 let lastLocalIdOrder = 0;
@@ -845,19 +828,12 @@ export function useChatThread(opts: {
               assertAuthorityLease();
               continue;
             }
-            // Subject "computer" asks the placement service to offer the turn
-            // to the paired desktop first; a mobile ingress always keeps the
-            // cloud fallback, so this is a preference, not a requirement. The
-            // capability list stays "chat" for the same reason: a desktop that
-            // advertises no computer-use (any non-macOS/Windows host) must
-            // still be offered ordinary chat work.
             admitted = await submitAutomaticExecution({
-              idempotencyKey: item.dispatchId,
-              conversationId: placementConversationId,
-              kind: "chat",
-              prompt: item.text,
-              subject: "computer",
-              requiredCapabilities: ["chat"],
+              ...unifiedChatPlacementAdmission({
+                dispatchId: item.dispatchId,
+                conversationId: placementConversationId,
+                prompt: item.text,
+              }),
               ...(access ? { access } : {}),
             });
             assertAuthorityLease();
@@ -966,7 +942,7 @@ export function useChatThread(opts: {
             if (!canonicalAuthorityLeaseCurrent(item.canonicalAuthorityLease)) {
               return;
             }
-            const statusText = automaticPlacementStatus(dispatch);
+            const statusText = unifiedChatPlacementStatusText(dispatch);
             if (statusText) patchActivity({ statusText });
           },
         });

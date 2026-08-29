@@ -173,6 +173,8 @@ describe("working indicator mark animation budget", () => {
     expect(source).toContain("if (eyePath !== lastEyePath[i])");
     expect(source).toContain("if (bodyAlphaQ !== lastBodyAlpha)");
     expect(source).toContain("if (decorActive || !decorHidden)");
+    expect(source).toContain("if (bodyTransform !== lastBodyTransform)");
+    expect(source).toContain("if (hideEyes !== eyesHidden)");
 
     expect(source).toContain("if (!sizeObserver && now - measuredAt > 500)");
   });

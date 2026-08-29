@@ -487,6 +487,8 @@ export function createStellaMark(host, opts = {}) {
   let lastPath = "";
   const lastEyePath = ["", ""];
   let decorHidden = false;
+  let sweepShown = false, eyesHidden = false;
+  let lastBodyTransform = "", lastGlowTransform = "";
   let lastBodyAlpha = -1, lastGlowAlpha = -1;
   let squeezeStart = 0;
   let particles = [];
@@ -731,12 +733,13 @@ export function createStellaMark(host, opts = {}) {
 
       const y = C + (band - SQ_LEAD * 0.5) * C;
       const h = SQ_SIGMA * C * 1.5;
-      sweepG.style.display = "";
+      if (!sweepShown) { sweepG.style.display = ""; sweepShown = true; }
       sweepG.style.opacity = wSqueeze.toFixed(3);
       sweepGrad.setAttribute("y1", (y - h).toFixed(1));
       sweepGrad.setAttribute("y2", (y + h).toFixed(1));
-    } else {
+    } else if (sweepShown) {
       sweepG.style.display = "none";
+      sweepShown = false;
     }
 
     const spin = updateSpinner(wSpinner, t, dt);
@@ -774,9 +777,13 @@ export function createStellaMark(host, opts = {}) {
     if (wStandby > 0.004) bodyAlpha *= 1 - (0.3 + 0.18 * Math.sin(t * 0.0016)) * wStandby;
     if (wProgress > 0.004 || wOrbit > 0.004) rot += Math.sin(t * 0.0009) * 3 * (wProgress + wOrbit);
 
-    bodyG.setAttribute("transform",
+    const bodyTransform =
       `translate(${tx.toFixed(2)} ${ty.toFixed(2)}) rotate(${rot.toFixed(2)}) ` +
-      `scale(${scaleX.toFixed(4)} ${scaleY.toFixed(4)}) translate(${-C} ${-C})`);
+      `scale(${scaleX.toFixed(4)} ${scaleY.toFixed(4)}) translate(${-C} ${-C})`;
+    if (bodyTransform !== lastBodyTransform) {
+      bodyG.setAttribute("transform", bodyTransform);
+      lastBodyTransform = bodyTransform;
+    }
     const bodyAlphaQ = Math.round(bodyAlpha * 1000) / 1000;
     if (bodyAlphaQ !== lastBodyAlpha) {
       bodyG.style.opacity = bodyAlphaQ.toFixed(3);
@@ -785,8 +792,12 @@ export function createStellaMark(host, opts = {}) {
 
     if (glowEl) {
       const gl = (rest * breathe.x + act * (bodyR / C)) * shrink * (1 + 0.05 * Math.sin(t * 0.0011));
-      glowEl.setAttribute("transform",
-        `translate(${tx.toFixed(2)} ${ty.toFixed(2)}) scale(${gl.toFixed(4)}) translate(${-C} ${-C})`);
+      const glowTransform =
+        `translate(${tx.toFixed(2)} ${ty.toFixed(2)}) scale(${gl.toFixed(4)}) translate(${-C} ${-C})`;
+      if (glowTransform !== lastGlowTransform) {
+        glowEl.setAttribute("transform", glowTransform);
+        lastGlowTransform = glowTransform;
+      }
       const glowAlphaQ = Math.round((0.55 + 0.45 * wTwinkle) * (1 - wSpinner) * 1000) / 1000;
       if (glowAlphaQ !== lastGlowAlpha) {
         glowEl.style.opacity = glowAlphaQ.toFixed(3);
@@ -797,7 +808,10 @@ export function createStellaMark(host, opts = {}) {
     const face = shape.face;
     const [fSize, fGap, fHeight] = FACE_TUNE[state] ?? FACE_DEFAULT;
     const hideEyes = wSpinner > 0.5;
-    eyeG.style.display = hideEyes ? "none" : "";
+    if (hideEyes !== eyesHidden) {
+      eyeG.style.display = hideEyes ? "none" : "";
+      eyesHidden = hideEyes;
+    }
     if (!hideEyes) {
       const pts = currentPosePoints();
       const socketX = C + face.dx;

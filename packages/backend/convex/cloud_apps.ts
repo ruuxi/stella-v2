@@ -3502,8 +3502,8 @@ export const getConversationOwnerInternal = internalQuery({
 });
 
 /**
- * Cards are journal rows, so they survive scrollback — an "Open app" card used
- * to exist only while its event row was inside the tail's take(100). Convex
+ * Cards are journal rows, so they survive scrollback. A build card used to
+ * exist only while its event row was inside the tail's take(100). Convex
  * writes them because Convex is where the build, operation, and thread
  * outcomes land; the DO orders them.
  *
@@ -3531,7 +3531,7 @@ export const postConversationCardInternal = internalAction({
       // 429 means the DO is mid-reply and its inbox is full. The writer key is
       // `card:<sourceTurnId>:<type>`, so re-posting is exactly-once — retry a
       // couple of times rather than silently dropping a receipt the user is
-      // waiting to see ("Open app" is the whole payoff of a build).
+      // waiting to see (the card is the whole payoff of a build).
       let response: Response | null = null;
       for (let attempt = 0; attempt < 3; attempt += 1) {
         response = await fetch(

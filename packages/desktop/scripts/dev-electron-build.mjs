@@ -49,8 +49,26 @@ const includeLocalUpdateVerification = process.argv.includes(
   "--local-update-verification",
 );
 const verifyIdentifiers = process.argv.includes("--verify-identifiers");
-const runtimeStaticAssetRoots = [
-  "packages/runtime/extensions/stella-runtime/agent-metadata",
+/**
+ * Runtime data files that are read from disk at runtime rather than bundled.
+ * electron-builder ships `dist-electron/runtime/` into the packaged app's
+ * Resources tree (see `build.extraResources` in the root package.json), so
+ * anything the runtime resolves through `resolveRuntimeSourceAsset` has to be
+ * assembled here first — a packaged build has no `packages/runtime/` source
+ * tree to fall back to. Missing sources are a hard failure: shipping without
+ * the OAuth catalog silently breaks every connector in the packaged app.
+ */
+export const packagedOAuthProviderCatalogRelativePath =
+  "runtime/kernel/connectors/oauth-provider-catalog.json";
+export const packagedRuntimeAssetCopies = [
+  {
+    from: "packages/runtime/extensions/stella-runtime/agent-metadata",
+    to: "runtime/extensions/stella-runtime/agent-metadata",
+  },
+  {
+    from: "packages/runtime/kernel/connectors/oauth-provider-catalog.json",
+    to: packagedOAuthProviderCatalogRelativePath,
+  },
 ];
 /**
  * Static assets copied next to the compiled electron-main bundle. The
@@ -313,31 +331,90 @@ const writeOutputIfChanged = (absPath, contents) => {
   return true;
 };
 
-const copyRuntimeStaticAssets = async () => {
+/**
+ * Copy the packaged runtime data assets into `dist-electron/`. Both files and
+ * directories are supported; the destination's parent is created first so a
+ * single-file copy into a fresh tree works. Roots are overridable so the
+ * verification gate can exercise this against a temp fixture.
+ */
+export const copyPackagedRuntimeAssets = async ({
+  sourceRoot = repoRootDir,
+  outputRoot = path.join(desktopDir, outdir),
+  copies = packagedRuntimeAssetCopies,
+} = {}) => {
   await Promise.all(
-    runtimeStaticAssetRoots.map(async (rootRelativePath) => {
-      const sourceDir = path.join(repoRootDir, rootRelativePath);
-      const targetDir = path.join(
-        desktopDir,
-        outdir,
-        rootRelativePath.replace(/^packages\/runtime/, "runtime"),
-      );
+    copies.map(async ({ from, to }) => {
+      const sourcePath = path.join(sourceRoot, from);
+      const targetPath = path.join(outputRoot, to);
       try {
-        await fsPromises.rm(targetDir, {
+        await fsPromises.rm(targetPath, {
           force: true,
           recursive: true,
         });
-        await fsPromises.cp(sourceDir, targetDir, {
+        await fsPromises.mkdir(path.dirname(targetPath), { recursive: true });
+        await fsPromises.cp(sourcePath, targetPath, {
           recursive: true,
           force: true,
         });
       } catch (error) {
-        if (error?.code !== "ENOENT") {
-          throw error;
-        }
+        // Previously ENOENT was swallowed here, which let a renamed or moved
+        // source silently drop out of every packaged build.
+        throw new Error(
+          `Failed to copy required packaged runtime asset from ${sourcePath} to ${targetPath}: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
+        );
       }
     }),
   );
+};
+
+/**
+ * Post-copy gate on the OAuth provider catalog: the packaged app resolves it
+ * lazily at first connector use, so a missing or truncated copy would only
+ * surface as a runtime failure in a shipped build. Assert here that it landed
+ * and still parses as a non-empty array of providers.
+ */
+export const verifyPackagedOAuthProviderCatalog = async ({
+  outputRoot = path.join(desktopDir, outdir),
+} = {}) => {
+  const catalogPath = path.join(
+    outputRoot,
+    packagedOAuthProviderCatalogRelativePath,
+  );
+  let raw;
+  try {
+    raw = await fsPromises.readFile(catalogPath, "utf8");
+  } catch (error) {
+    throw new Error(
+      `Required packaged OAuth provider catalog is missing at ${catalogPath}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+  let catalog;
+  try {
+    catalog = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `Required packaged OAuth provider catalog is invalid JSON at ${catalogPath}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+  if (
+    !Array.isArray(catalog) ||
+    catalog.length === 0 ||
+    catalog.some(
+      (entry) =>
+        !entry ||
+        typeof entry !== "object" ||
+        typeof entry.id !== "string" ||
+        !Array.isArray(entry.tools),
+    )
+  ) {
+    throw new Error(
+      `Required packaged OAuth provider catalog has an invalid provider shape at ${catalogPath}.`,
+    );
+  }
+  return { catalogPath, providerCount: catalog.length };
 };
 
 const copyElectronStaticAssets = async () => {
@@ -390,7 +467,8 @@ export const buildElectronBundles = async () => {
         }
       }
     }
-    await copyRuntimeStaticAssets();
+    await copyPackagedRuntimeAssets();
+    await verifyPackagedOAuthProviderCatalog();
     await copyElectronStaticAssets();
     return changedOutputs;
   } finally {
@@ -484,10 +562,13 @@ const writeBundleFingerprint = (fingerprint) => {
 };
 
 export const requiredOutputsExist = () => {
-  const outBase = path.join(desktopDir, outdir, "electron");
+  const outBase = path.join(desktopDir, outdir);
   return (
-    existsSync(path.join(outBase, "main.js")) &&
-    existsSync(path.join(outBase, "preload.js"))
+    existsSync(path.join(outBase, "electron", "main.js")) &&
+    existsSync(path.join(outBase, "electron", "preload.js")) &&
+    // A tree built before the catalog copy existed looks otherwise complete,
+    // so treat its absence as a cold start rather than a warm skip.
+    existsSync(path.join(outBase, packagedOAuthProviderCatalogRelativePath))
   );
 };
 

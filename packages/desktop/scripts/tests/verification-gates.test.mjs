@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,7 +12,13 @@ import {
   findUndeclaredIdentifiers,
 } from "../verify-packaged-identifiers.mjs";
 import { collectRootAbsoluteRendererAssetReferences } from "../verify-renderer-asset-paths.mjs";
-import { smokeTestNodeCliEntry } from "../dev-electron-build.mjs";
+import {
+  copyPackagedRuntimeAssets,
+  packagedOAuthProviderCatalogRelativePath,
+  packagedRuntimeAssetCopies,
+  smokeTestNodeCliEntry,
+  verifyPackagedOAuthProviderCatalog,
+} from "../dev-electron-build.mjs";
 
 test("renderer asset gate catches file-root paths without rejecting relative or remote assets", () => {
   const tempDir = mkdtempSync(
@@ -234,5 +240,73 @@ test("Node CLI smoke gate rejects duplicate bundle-banner bindings", () => {
   assert.throws(
     () => smokeTestNodeCliEntry(invalidCli),
     /Node CLI smoke test failed[\s\S]*__dirname/,
+  );
+});
+
+test("packaged runtime asset contract copies and validates the OAuth catalog", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "stella-runtime-assets-"));
+  const sourceRoot = path.join(tempDir, "source");
+  const outputRoot = path.join(tempDir, "output");
+  const catalogCopy = packagedRuntimeAssetCopies.find(
+    ({ to }) => to === packagedOAuthProviderCatalogRelativePath,
+  );
+
+  // Pins the source/destination pair: `build.extraResources` maps
+  // dist-electron/runtime -> Resources/runtime, which is exactly where
+  // resolveRuntimeSourceAsset looks in a packaged app.
+  assert.deepEqual(catalogCopy, {
+    from: "packages/runtime/kernel/connectors/oauth-provider-catalog.json",
+    to: "runtime/kernel/connectors/oauth-provider-catalog.json",
+  });
+
+  for (const { from } of packagedRuntimeAssetCopies) {
+    const sourcePath = path.join(sourceRoot, from);
+    if (from.endsWith(".json")) {
+      mkdirSync(path.dirname(sourcePath), { recursive: true });
+      writeFileSync(sourcePath, JSON.stringify([{ id: "gmail", tools: [] }]));
+    } else {
+      mkdirSync(sourcePath, { recursive: true });
+      writeFileSync(path.join(sourcePath, "README.md"), "metadata");
+    }
+  }
+
+  await copyPackagedRuntimeAssets({ sourceRoot, outputRoot });
+  const verified = await verifyPackagedOAuthProviderCatalog({ outputRoot });
+
+  assert.equal(verified.providerCount, 1);
+  assert.deepEqual(
+    JSON.parse(
+      readFileSync(
+        path.join(outputRoot, packagedOAuthProviderCatalogRelativePath),
+        "utf8",
+      ),
+    ),
+    [{ id: "gmail", tools: [] }],
+  );
+});
+
+test("electron-builder ships the assembled runtime tree beside app.asar", () => {
+  const rootPackage = JSON.parse(
+    readFileSync(new URL("../../../../package.json", import.meta.url), "utf8"),
+  );
+
+  assert.ok(
+    rootPackage.build.extraResources.some(
+      (entry) =>
+        entry.from === "packages/desktop/dist-electron/runtime" &&
+        entry.to === "runtime" &&
+        entry.filter?.includes("**/*"),
+    ),
+  );
+});
+
+test("packaged runtime verification fails clearly when the OAuth catalog is missing", async () => {
+  const outputRoot = mkdtempSync(
+    path.join(os.tmpdir(), "stella-runtime-assets-missing-"),
+  );
+
+  await assert.rejects(
+    verifyPackagedOAuthProviderCatalog({ outputRoot }),
+    /Required packaged OAuth provider catalog is missing.*runtime[\\/]kernel[\\/]connectors[\\/]oauth-provider-catalog\.json/,
   );
 });

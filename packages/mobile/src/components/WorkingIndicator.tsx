@@ -15,9 +15,8 @@ const SWAP_DURATION_MS = 240;
 const STATUS_MIN_VISIBLE_MS = 2000;
 const INDICATOR_PAD_TOP = 0;
 const INDICATOR_PAD_BOTTOM = 0;
-const INDICATOR_VIEWPORT_SIZE = 34;
+const INDICATOR_VIEWPORT_SIZE = 28;
 const BUBBLE_PAD_VERTICAL = 4;
-const TRAVEL_OVERHANG = 18;
 
 export const WORKING_INDICATOR_SLOT_HEIGHT =
   INDICATOR_VIEWPORT_SIZE + BUBBLE_PAD_VERTICAL * 2 + 2;
@@ -255,7 +254,7 @@ export const WorkingIndicator = memo(function WorkingIndicator({
       {renderShell ? (
         <Animated.View style={[styles.row, shellStyle]} collapsable={false}>
           <View style={[styles.bubble, !hasLabel && styles.bubbleDots]}>
-            <View style={hasLabel ? styles.markBox : styles.markBoxWide}>
+            <View style={styles.markBox}>
               <StellaMarkIndicator
                 active={active}
                 size={INDICATOR_VIEWPORT_SIZE}
@@ -320,12 +319,6 @@ const makeStyles = (colors: Colors) =>
       height: INDICATOR_VIEWPORT_SIZE,
       justifyContent: "center",
       width: INDICATOR_VIEWPORT_SIZE,
-    },
-    markBoxWide: {
-      alignItems: "center",
-      height: INDICATOR_VIEWPORT_SIZE,
-      justifyContent: "center",
-      width: INDICATOR_VIEWPORT_SIZE + TRAVEL_OVERHANG * 2,
     },
     swapText: {
       flexShrink: 1,

@@ -10,6 +10,8 @@
  */
 
 export * as generalAgentTools from "../../src/general-agent-tools.js";
+export * as agentComputeLadder from "../../src/agent-compute-ladder.js";
+export * as attachedToolProtocol from "@stella/executor-cloud/attached-tool-protocol";
 export * as generalAgentPrompt from "@stella/executor-cloud/general-agent-prompt";
 export * as agentHistory from "@stella/executor-cloud/agent-history";
 export * as pruneHistory from "@stella/executor-cloud/prune-history";

@@ -8,8 +8,11 @@ import {
 } from "react-native";
 import MaskedView from "@react-native-masked-view/masked-view";
 import { LinearGradient } from "expo-linear-gradient";
+import { useReducedMotion } from "react-native-reanimated";
 import { fadeHex } from "../theme/oklch";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
+import { shouldRunContinuousAnimation } from "../lib/continuous-animation";
+import { useAppVisible } from "../lib/use-app-visible";
 
 const DEFAULT_DURATION_MS = 1600;
 
@@ -39,13 +42,21 @@ export function ShimmerText({
 }) {
   const shimmer = useRef(new Animated.Value(0)).current;
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const reduceMotion = useReducedMotion();
+  const appVisible = useAppVisible();
+
+  const animating = shouldRunContinuousAnimation({
+    logicalActive: active,
+    appVisible,
+    reducedMotion: reduceMotion,
+  });
 
   useEffect(() => {
     setSize({ width: 0, height: 0 });
   }, [text]);
 
   useEffect(() => {
-    if (!active || size.width === 0) {
+    if (!animating || size.width === 0) {
       shimmer.stopAnimation();
       shimmer.setValue(0);
       return;
@@ -60,7 +71,7 @@ export function ShimmerText({
     );
     loop.start();
     return () => loop.stop();
-  }, [active, durationMs, shimmer, size.width]);
+  }, [animating, durationMs, shimmer, size.width]);
 
   const gradientWidth = Math.max(1, size.width * GRADIENT_MULTIPLIER);
 
@@ -73,7 +84,7 @@ export function ShimmerText({
     [gradientWidth, shimmer, size.width],
   );
 
-  if (!active) {
+  if (!active || reduceMotion) {
     return (
       <Text style={textStyle} numberOfLines={1} maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}>
         {text}

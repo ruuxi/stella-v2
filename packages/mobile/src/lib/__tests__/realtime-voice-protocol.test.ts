@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildComputerVoiceInstructions,
   buildMobileRealtimeSessionUpdate,
-  buildNormalChatVoiceInstructions,
+  buildAttachedChatVoiceInstructions,
   findVoiceActionCompletion,
   managedVoiceConversationId,
   mergeComputerVoiceTools,
@@ -18,8 +18,8 @@ describe("realtime voice protocol", () => {
     );
   });
 
-  test("carries only the latest 16 attached normal-chat messages", () => {
-    const instructions = buildNormalChatVoiceInstructions(
+  test("carries only the latest 16 attached chat messages", () => {
+    const instructions = buildAttachedChatVoiceInstructions(
       Array.from({ length: 18 }, (_, index) => ({
         id: `m${index}`,
         role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
@@ -31,7 +31,7 @@ describe("realtime voice protocol", () => {
     expect(instructions.includes("Stella: message 1\n")).toBe(false);
     expect(instructions).toContain("message 2");
     expect(instructions).toContain("message 17");
-    expect(instructions).toContain("attached normal Stella chat");
+    expect(instructions).toContain("attached Stella chat");
   });
 
   test("wraps the connected desktop orchestrator context and tools", () => {

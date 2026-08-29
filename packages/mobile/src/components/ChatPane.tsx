@@ -2726,7 +2726,7 @@ export type ChatPaneProps = {
   onChangeAttachments?: (next: ImagePicker.ImagePickerAsset[]) => void;
   /**
    * Optional overall cap for this transport. Picker-level limits reset per
-   * launch, so normal chat supplies its backend request limit here.
+   * launch, so the chat supplies its backend request limit here.
    */
   maxAttachments?: number;
 

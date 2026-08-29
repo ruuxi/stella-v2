@@ -339,41 +339,22 @@ export const driveProducedObjectKey = async (
   `drive/${await hashSha256Hex(ownerId)}/writes/${await hashSha256Hex(writeId)}/${path}`;
 
 /**
- * Drive folder a turn's workspace is allowed to write into — the server half
- * of `drivePrefixFor` in packages/executor-cloud/src/workspace-paths.ts. The
- * executor namespaces the paths it reports; this is what makes that
- * namespacing a boundary rather than a convention, so a turn in `app:orbit`
- * cannot reach `contracts/` with the turn token it already holds.
+ * Who a turn token speaks for, and whether that turn read the drive before it
+ * ran. Lives here rather than in cloud_apps because the drive route is its
+ * only reader.
  *
- * An absent workspace is an orchestrator chat or legacy build turn, which maps
- * to the drive root exactly as `resolveWorkspace`'s fallback does.
+ * `kind` is what tells "the agent overwrote a row it was never shown" apart
+ * from "the agent wrote its own output again", which is the entire content of
+ * the `replaced` notice: every cloud agent turn hydrates the drive into its
+ * world, and no other kind of turn reads it at all.
  */
-export const driveWritePrefixForWorkspace = (
-  workspace: string | undefined,
-): string => {
-  const value = (workspace ?? "").trim();
-  if (value === "stella") return "stella/";
-  for (const kind of ["project", "app"] as const) {
-    if (value.startsWith(`${kind}:`)) {
-      const slug = value.slice(kind.length + 1).trim();
-      if (slug) return `${kind}s/${slug}/`;
-    }
-  }
-  return "";
-};
-
-/**
- * The workspace a turn token speaks for. Lives here rather than in cloud_apps
- * because the drive route is its only reader.
- */
-export const getTurnWorkspaceInternal = internalQuery({
+export const getTurnDriveIdentityInternal = internalQuery({
   args: { turnId: v.string() },
   returns: v.union(
     v.null(),
     v.object({
       ownerId: v.string(),
-      workspace: v.optional(v.string()),
-      kind: v.optional(v.string()),
+      hydratesDrive: v.boolean(),
     }),
   ),
   handler: async (ctx, args) => {
@@ -382,30 +363,9 @@ export const getTurnWorkspaceInternal = internalQuery({
       .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
       .unique();
     if (!turn) return null;
-    return {
-      ownerId: turn.ownerId,
-      ...(turn.workspace ? { workspace: turn.workspace } : {}),
-      ...(turn.kind ? { kind: turn.kind } : {}),
-    };
+    return { ownerId: turn.ownerId, hydratesDrive: turn.kind === "agent" };
   },
 });
-
-/**
- * Does this turn read the drive before it runs? Only a spawned agent in the
- * `drive` workspace does: `materializeDriveFiles` is gated on that in
- * packages/executor-cloud/src/agent-turn.ts, because a `project:`, `app:` or
- * `stella` root is a checkout whose drive folder is an output mirror, and a
- * chat turn has no workspace at all.
- *
- * It is what tells "the agent overwrote a row it was never shown" apart from
- * "the agent wrote its own output again", which is the entire content of the
- * `replaced` notice.
- */
-export const turnHydratesDrive = (turn: {
-  workspace?: string;
-  kind?: string;
-}): boolean =>
-  turn.kind === "agent" && driveWritePrefixForWorkspace(turn.workspace) === "";
 
 // --- Row + usage helpers ---------------------------------------------------
 
@@ -2840,9 +2800,8 @@ export const cleanupCanceledPendingUploadInternal = internalAction({
 // user just attached is a turn that will helpfully write a new one over it.
 //
 // This is the read half of the loop. Read scope is the same folder the write
-// boundary allows (`driveWritePrefixForWorkspace`), so hydration never widens
-// what a turn token reaches — a turn in `app:orbit` still cannot see
-// `contracts/`.
+// boundary allows: the owner's whole drive, hydrated into the one world their
+// cloud turns run in.
 
 export type DriveSyncEntry = {
   path: string;
@@ -2963,8 +2922,7 @@ export const buildDriveSyncManifest = async (
     updatedAt: number;
   }>;
   signal?.throwIfAborted();
-  // Prefix-scoped whatever route the row arrived by: `paths` is caller data,
-  // and a turn in `app:orbit` may not reach `contracts/`.
+  // Prefix-scoped whatever route the row arrived by: `paths` is caller data.
   const inScope = rows.filter((row) => row.path.startsWith(prefix));
   const files: DriveSyncEntry[] = [];
   const skipped: DriveSyncManifest["skipped"] = [];
@@ -3046,9 +3004,8 @@ export const buildDriveSyncManifest = async (
   // path beyond the per-sync bound is left unanswered, which the caller reads
   // as "keep it".
   //
-  // Scoped to the same prefix as the rest of the answer: `absent` is an
-  // existence oracle, and a turn in `app:orbit` may not ask it about
-  // `contracts/`.
+  // Scoped to the same prefix as the rest of the answer, because `absent` is
+  // an existence oracle.
   const listed = new Set<string>([
     ...files.map((entry) => entry.path),
     ...skipped.map((entry) => entry.path),

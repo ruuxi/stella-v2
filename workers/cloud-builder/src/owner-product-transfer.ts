@@ -1,5 +1,4 @@
 import { sha256Hex } from "./hash.js";
-import { resolveWorkspace } from "./workspace.js";
 import {
   parseOwnerTransferControl,
   type OwnerTransferControl,
@@ -10,23 +9,13 @@ export const OWNER_PRODUCT_TRANSFER_LEASE_MS = 9 * 60_000;
 /** One HTTP request may retire at most this many source R2 objects. */
 export const OWNER_TRANSFER_OBJECT_LIMIT = 200;
 
-export type OwnerWorkspaceTransfer = {
-  from: string;
-  to: string;
-  /**
-   * Product-visible fallback when `to` already owns a checkpoint. It is
-   * always a normal cloud-project workspace, so the preserved source can be
-   * opened through the ordinary project restore path.
-   */
-  importedTo?: string;
-};
-
 export type OwnerProductTransferRequest = OwnerTransferControl & {
   fromOwnerId: string;
   toOwnerId: string;
   agentHome: boolean;
   interiors: boolean;
-  workspaces: OwnerWorkspaceTransfer[];
+  /** Move the source owner's world onto the destination owner. */
+  world: boolean;
   appSlugs: string[];
 };
 
@@ -61,50 +50,11 @@ export const parseOwnerProductTransferRequest = (
   if (
     typeof value.agentHome !== "boolean" ||
     typeof value.interiors !== "boolean" ||
-    !Array.isArray(value.workspaces) ||
+    typeof value.world !== "boolean" ||
     !Array.isArray(value.appSlugs) ||
-    value.workspaces.length > 4 ||
     value.appSlugs.length > 4
   ) {
     return null;
-  }
-  const workspaces: OwnerWorkspaceTransfer[] = [];
-  for (const raw of value.workspaces) {
-    if (!raw || typeof raw !== "object") return null;
-    const row = raw as Record<string, unknown>;
-    if (
-      typeof row.from !== "string" ||
-      typeof row.to !== "string" ||
-      (row.importedTo !== undefined && typeof row.importedTo !== "string")
-    ) {
-      return null;
-    }
-    const from = resolveWorkspace(row.from);
-    const to = resolveWorkspace(row.to);
-    const importedTo =
-      typeof row.importedTo === "string"
-        ? resolveWorkspace(row.importedTo)
-        : null;
-    if (
-      !from ||
-      !to ||
-      from.kind === "computer" ||
-      to.kind === "computer" ||
-      from.kind !== to.kind
-    ) {
-      return null;
-    }
-    if (
-      row.importedTo !== undefined &&
-      (!importedTo || importedTo.kind !== "project")
-    ) {
-      return null;
-    }
-    workspaces.push({
-      from: from.canonical,
-      to: to.canonical,
-      ...(importedTo ? { importedTo: importedTo.canonical } : {}),
-    });
   }
   const appSlugs: string[] = [];
   for (const raw of value.appSlugs) {
@@ -117,41 +67,8 @@ export const parseOwnerProductTransferRequest = (
     toOwnerId,
     agentHome: value.agentHome,
     interiors: value.interiors,
-    workspaces,
+    world: value.world,
     appSlugs,
-  };
-};
-
-export type WorkspaceTransferResolution = {
-  from: string;
-  requestedTo: string;
-  resolvedTo: string;
-  imported: boolean;
-};
-
-/**
- * A checkpoint collision never shares the destination workspace. The source
- * moves to the caller-selected project fallback, which makes both checkpoints
- * independently restorable through normal product paths.
- */
-export const resolveWorkspaceTransfer = (
-  transfer: OwnerWorkspaceTransfer,
-  destinationHasCheckpoint: boolean,
-): WorkspaceTransferResolution | null => {
-  if (!destinationHasCheckpoint) {
-    return {
-      from: transfer.from,
-      requestedTo: transfer.to,
-      resolvedTo: transfer.to,
-      imported: false,
-    };
-  }
-  if (!transfer.importedTo) return null;
-  return {
-    from: transfer.from,
-    requestedTo: transfer.to,
-    resolvedTo: transfer.importedTo,
-    imported: true,
   };
 };
 

@@ -4,26 +4,27 @@
  * Accepts a single `input` string with the full
  * `*** Begin Patch` ... `*** End Patch` envelope. File paths in the envelope
  * MUST be absolute; the file tools do not resolve relative to any cwd.
+ *
+ * The model-visible surface (name, description, parameters) lives in
+ * `apply-patch-def.ts` so workerd hosts expose the identical tool; this file
+ * adds the executable handler for tool-host consumers.
  */
 
 import { handleApplyPatch } from "../apply-patch.js";
 import type { ToolDefinition } from "../types.js";
+import {
+  APPLY_PATCH_TOOL_DESCRIPTION,
+  APPLY_PATCH_TOOL_NAME,
+  APPLY_PATCH_TOOL_PARAMETERS,
+  APPLY_PATCH_TOOL_PROMPT_SNIPPET,
+} from "./apply-patch-def.js";
+
+export { APPLY_PATCH_TOOL_PARAMETERS } from "./apply-patch-def.js";
 
 export const applyPatchTool: ToolDefinition = {
-  name: "apply_patch",
-  description:
-    "Edit files via a *** Begin Patch / *** End Patch envelope. Supports Add File, Update File (with optional Move to), Delete File. Each Update File hunk is anchored by 3 lines of context above and below the change. File paths in the envelope MUST be absolute (e.g. /Users/you/projects/foo/bar.ts); relative paths are rejected and the file tools do NOT follow the shell's cwd. Required: input (the full patch text).",
-  promptSnippet: "Edit files with patch envelopes",
-  parameters: {
-    type: "object",
-    properties: {
-      input: {
-        type: "string",
-        description:
-          "The entire contents of the apply_patch envelope. All file paths inside must be absolute.",
-      },
-    },
-    required: ["input"],
-  },
+  name: APPLY_PATCH_TOOL_NAME,
+  description: APPLY_PATCH_TOOL_DESCRIPTION,
+  promptSnippet: APPLY_PATCH_TOOL_PROMPT_SNIPPET,
+  parameters: APPLY_PATCH_TOOL_PARAMETERS,
   execute: (args, context) => handleApplyPatch(args, context),
 };

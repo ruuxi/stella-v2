@@ -9,10 +9,12 @@ import {
 import { OrchestratorSession } from "./orchestrator-session.js";
 import { sha256BytesHex, sha256Hex } from "./hash.js";
 import {
+  APP_BUILD_ROOT,
+  WORLD_ROOT,
+  WORLD_STELLA_ROOT,
   checkpointBackupName,
   checkpointKey,
   instanceSizeKey,
-  resolveWorkspace,
 } from "./workspace.js";
 import {
   INSTANCE_TIERS,
@@ -63,13 +65,10 @@ import {
   ownerTransferLeaseConflicts,
   parseOwnerProductTransferRequest,
   replaceOwnerPrefix,
-  resolveWorkspaceTransfer,
   takeOwnerTransferBatch,
   transferredBackupId,
   type OwnerProductTransferRequest,
   type OwnerTransferBudget,
-  type OwnerWorkspaceTransfer,
-  type WorkspaceTransferResolution,
 } from "./owner-product-transfer.js";
 import {
   OWNER_TRANSFER_OPERATION_ID_PATTERN,
@@ -176,7 +175,6 @@ import {
 import {
   restoreTurnStateArchive,
   uploadTurnStateArchive,
-  type TurnStateWorkspaceRoot,
 } from "./turn-state-archive.js";
 import {
   parseTurnStateCheckpointRequest,
@@ -191,9 +189,43 @@ import type {
   TurnStateWorkspaceHead,
 } from "./turn-state-registry.js";
 import type {
+  TurnBrokerInteriorBuildRequestReceipt,
   TurnBrokerTurnStateCheckpointReceipt,
   TurnBrokerTurnStateCheckpointRequest,
 } from "@stella/contracts/turn-credential-broker";
+import {
+  exactInteriorBuildRequested,
+  interiorBuildRequestKey,
+  interiorBuildRequestRecord,
+  parseInteriorBuildRequest,
+  type InteriorBuildRequestRecord,
+} from "./interior-build-request.js";
+import {
+  parseTurnComputePlan,
+  requiresExactThreadCandidate,
+  runGeneralAgentTurn,
+  runResidentStellaLoop,
+  turnComputePlan,
+  turnComputePlanKey,
+  type GeneralAgentTurnPlan,
+  type GeneralAgentTurnResult,
+  type TurnComputePlan,
+  type TurnDurability,
+} from "./general-agent-turn.js";
+import {
+  agentComputeKey,
+  createAgentComputeLadder,
+  parsePersistedAgentCompute,
+  type PersistedAgentCompute,
+} from "./agent-compute-ladder.js";
+import { createAgentSandboxAttachment } from "./agent-sandbox-attachment.js";
+import {
+  AgentTurnJournal,
+  type SealedTurnTranscript,
+} from "./agent-turn-journal.js";
+import { createAgentControlPlane } from "./agent-control-plane.js";
+import { createGeneralAgentDoLocalTools } from "./general-agent-do-local-tools.js";
+import { createResidentGeneralAgentTools } from "./general-agent-tools.js";
 import {
   EMPTY_NATIVE_HISTORY_CURSOR,
   NATIVE_STATE_DIRECTORY,
@@ -257,41 +289,25 @@ type Env = {
   /** Dev-only proof surface; production deployments omit or disable it. */
   ENABLE_DEV_ACCEPTANCE_PROBES?: string;
   STELLA_DEPLOYMENT_IDENTITY?: string;
+  /**
+   * Set to `"1"` to let a Stella turn run its agent loop in this Durable
+   * Object. Absent means every turn takes the eager-container path, which is
+   * why the placement is recorded at admission rather than re-derived later:
+   * flipping this must not re-place a turn that is already running.
+   */
+  RESIDENT_GENERAL_AGENT_TURNS?: string;
 };
 
 /**
- * Clone credentials for a `project:` workspace, fetched fresh at turn start.
- * The token is a short-lived GitHub App installation token and is held in a
- * local for the length of one attempt: never a log line, never DO storage,
- * never an event payload — and never the turn-input file the agent can read
- * (see {@link projectCredentialsPath}).
- */
-type ProjectHandoff = {
-  remoteUrl: string;
-  token?: string;
-  defaultBranch: string;
-  branch: string;
-  setupScript?: string;
-  /** Commit identity: the GitHub user who connected the installation. */
-  authorName?: string;
-  authorEmail?: string;
-};
-
-/**
- * Where the installation token is handed to the executor: a one-shot file the
- * executor reads and unlinks before it builds the agent's tool host, so no
- * agent tool ever runs while it exists. It sits above the workspace root
- * (`/workspace/<kind>`) so it is outside the checkpointed directory, and the
- * name is random so nothing can be waiting on a known path.
+ * Where the broker credential is handed to the executor: a one-shot file that
+ * sits in `/workspace`, above the checkpointed world, with a random name so
+ * nothing can be waiting on a known path.
  *
  * Deliberately not an env var on the exec session: the executor's own
  * environment is inherited by every shell the agent spawns, and `unsetenv`
  * does not scrub `/proc/<pid>/environ`, so an env handoff stays readable for
  * the whole turn — which is the defect this avoids.
  */
-const projectCredentialsPath = (): string =>
-  `/workspace/.project-credentials-${crypto.randomUUID()}.json`;
-
 const turnBrokerCredentialsPath = (): string =>
   `/workspace/.turn-broker-${crypto.randomUUID()}.json`;
 
@@ -350,7 +366,6 @@ type TurnRequest = {
   prompt: string;
   turnToken: string;
   convexCallbackBase: string;
-  autoActivate?: boolean;
   preflightDelayMs?: number;
   watchdogMs?: number;
   /** Trusted control-plane continuation of a suspended browser tool call. */
@@ -439,15 +454,6 @@ type OwnerPurgeFence = {
   >;
 };
 
-type TransientAppBuildRoute = {
-  key: string;
-  ownerId: string;
-  appId: string;
-  buildId: string;
-  artifactPrefix: string;
-  previousRoute?: Record<string, unknown>;
-};
-
 type PendingAppBuildPublication = {
   turnId: string;
   phase: "callback" | "cleanup";
@@ -516,9 +522,19 @@ type AgentExecutionMarker = {
   attemptGeneration: number;
   sandboxId: string;
   size: InstanceSize;
-  workspace: string;
-  workspaceRoot: TurnStateWorkspaceRoot;
   startedAt: number;
+};
+
+/**
+ * What recovery already knows about a lost turn, if anything. The container
+ * path recovers a transcript the executor handed up before it died; a resident
+ * turn recovers one from its own journal. Absent both, the fallback synthesizes
+ * the two rows a thread needs to stay readable.
+ */
+type BuilderFallbackInput = {
+  historyCursor?: string;
+  messages?: Array<{ ordinal: number; role: string; payloadJson: string }>;
+  nativeCheckpoint?: TurnBrokerTurnStateCheckpointRequest["nativeCheckpoint"];
 };
 
 class OwnerPurgeFenceError extends Error {
@@ -549,14 +565,6 @@ type AgentExecutorResult = {
     historyCursor: string;
     messages: Array<{ ordinal: number; role: string; payloadJson: string }>;
     nativeCheckpoint?: TurnBrokerTurnStateCheckpointRequest["nativeCheckpoint"];
-  };
-  // Present on `project:` turns: what the executor did with the repository,
-  // plus the setup command it had to infer because the project had none.
-  project?: {
-    mode?: string;
-    branch?: string;
-    setupCommand?: string;
-    setupSource?: string;
   };
 };
 
@@ -954,12 +962,12 @@ const sessionName = (value: string): string =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 56);
 
-const TOOL_WORKSPACE_ROOTS = new Set([
-  "/workspace/drive",
-  "/workspace/project",
-  "/workspace/app",
-  "/workspace/stella",
-]);
+/**
+ * The two directories a model-shaped process may own. `world` is the owner's
+ * checkpointed tree; `app` is the throwaway build root of the legacy app-build
+ * turn, which is never checkpointed.
+ */
+const TOOL_WORKSPACE_ROOTS = new Set([WORLD_ROOT, APP_BUILD_ROOT]);
 
 /** Establish the post-mount fixed boundary before any model-shaped process. */
 export const normalizeToolWorkspaceRoot = async (
@@ -994,12 +1002,12 @@ export const normalizeToolWorkspaceRoot = async (
 };
 
 /**
- * Seed the first Stella interior, then re-establish the directory boundary.
+ * Seed `world/stella` on first use, then re-establish the directory boundary.
  *
  * GNU `cp -a source/. destination/` preserves the source directory's mode on
  * the existing destination. The immutable renderer source is 0755, while a
  * cloud workspace root must remain 0750, so the copy can otherwise make the
- * executor and its fallback checkpoint reject the freshly seeded workspace.
+ * executor and its fallback checkpoint reject the freshly seeded world.
  */
 export const seedFirstStellaToolWorkspace = async (
   session: Pick<ExecutionSession, "exec">,
@@ -1007,12 +1015,12 @@ export const seedFirstStellaToolWorkspace = async (
   const seeded = await strictSessionExec(session, [
     "/bin/sh",
     "-lc",
-    "set -eu; cp -a /opt/stella/packages/desktop-ui/. /workspace/stella/; ln -s /opt/stella/node_modules /workspace/stella/node_modules; mkdir /workspace/stella/.stella; cp /opt/stella/interior-seed.json /workspace/stella/.stella/interior-source.json",
+    `set -eu; test ! -e '${WORLD_STELLA_ROOT}'; mkdir '${WORLD_STELLA_ROOT}'; cp -a /opt/stella/packages/desktop-ui/. '${WORLD_STELLA_ROOT}/'; ln -s /opt/stella/node_modules '${WORLD_STELLA_ROOT}/node_modules'; mkdir '${WORLD_STELLA_ROOT}/.stella'; cp /opt/stella/interior-seed.json '${WORLD_STELLA_ROOT}/.stella/interior-source.json'; chown -R 42424:42424 '${WORLD_STELLA_ROOT}'; chmod 0750 '${WORLD_STELLA_ROOT}'`,
   ]);
   if (!seeded.success) {
     throw new Error("The Stella interior source seed could not be created.");
   }
-  await normalizeToolWorkspaceRoot(session, "/workspace/stella");
+  await normalizeToolWorkspaceRoot(session, WORLD_ROOT);
 };
 
 const contentType = (path: string): string => {
@@ -1079,22 +1087,9 @@ const turnStateBaseWorkspaceRevisionKey = (
   turnId: string,
   attemptGeneration: number,
 ): string => `turnStateBaseWorkspaceRevision:${turnId}:${attemptGeneration}`;
-const asTurnStateWorkspaceRoot = (
-  value: string | undefined,
-): TurnStateWorkspaceRoot | null => {
-  switch (value) {
-    case "/workspace/drive":
-    case "/workspace/project":
-    case "/workspace/app":
-    case "/workspace/stella":
-      return value;
-    default:
-      return null;
-  }
-};
 const parseLegacyWorkspaceBackup = (
   value: unknown,
-  expectedDirectory: TurnStateWorkspaceRoot,
+  expectedDirectory: string,
 ): DirectoryBackup | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
@@ -1327,7 +1322,6 @@ export const parseAgentExecutorResult = (
     "turnStateCheckpoint",
     "suspension",
     "builderFallback",
-    "project",
   ]);
   const boundedOutput = (candidate: unknown): candidate is string =>
     typeof candidate === "string" &&
@@ -1367,27 +1361,6 @@ export const parseAgentExecutorResult = (
     }
   } else if (result.suspension !== undefined) {
     return null;
-  }
-
-  if (result.project !== undefined) {
-    if (
-      !result.project ||
-      typeof result.project !== "object" ||
-      Array.isArray(result.project)
-    ) {
-      return null;
-    }
-    const project = result.project as Record<string, unknown>;
-    if (
-      !Object.keys(project).every((key) =>
-        ["mode", "branch", "setupCommand", "setupSource"].includes(key),
-      ) ||
-      Object.values(project).some(
-        (entry) => entry !== undefined && typeof entry !== "string",
-      )
-    ) {
-      return null;
-    }
   }
 
   if (result.checkpointPolicy === "builder_fallback") {
@@ -1459,7 +1432,8 @@ export const waitForCloudAgentTurnResultText = async (
   session: Pick<ExecutionSession, "readFile">,
   signals: readonly AbortSignal[],
 ): Promise<string> => {
-  const aborted = (): unknown => signals.find((signal) => signal.aborted)?.reason;
+  const aborted = (): unknown =>
+    signals.find((signal) => signal.aborted)?.reason;
   while (true) {
     const reason = aborted();
     if (reason !== undefined) {
@@ -1539,8 +1513,6 @@ const nativeStateIntegrityKeyFor = async (
       turn.threadId,
     ].join("\u0000"),
   );
-const transientBuildRouteKey = (turnId: string): string =>
-  `transientBuildRoute:${turnId}`;
 const AGENT_WATCHDOG_DEADLINE_KEY = "agentWatchdogDeadlineAt";
 const AGENT_RECOVERY_PENDING_KEY = "agentRecoveryPending";
 const agentRecoveryIdentity = (turn: TurnRequest): string =>
@@ -1582,6 +1554,12 @@ export class BuildSession extends DurableObject<Env> {
    * session, and leave the sandbox mounted for the trusted fallback archiver.
    */
   private readonly builderFallbackRecoveries = new Set<string>();
+  /**
+   * Resident agent loops by turn id, so Stop can stop the loop itself rather
+   * than only the container it may not have. An `Agent` ignores an
+   * `AbortSignal`; the only way to stop one is to call its own `abort`.
+   */
+  private readonly residentAgentAborts = new Map<string, () => void>();
   /** Exact replay joins one in-flight archive build instead of racing scratch. */
   private readonly turnStateCheckpointRuns = new Map<
     string,
@@ -1646,7 +1624,10 @@ export class BuildSession extends DurableObject<Env> {
     return tracked;
   }
 
-  private startAgentTurn(turn: TurnRequest, sandboxId: string): Promise<void> {
+  private startAgentTurn(
+    turn: TurnRequest,
+    sandboxId: string | undefined,
+  ): Promise<void> {
     const existing = this.agentTurnExecutions.get(turn.turnId);
     if (existing) return existing.settled;
     const execution = startTurnExecution({
@@ -1654,17 +1635,26 @@ export class BuildSession extends DurableObject<Env> {
       // Cleanup is part of fiber interruption and is bounded by the Effect
       // facade. A Stop ACK therefore means the exact command session and
       // container teardown completed (or the cancellation failed visibly).
-      onInterrupt: () =>
-        this.builderFallbackRecoveries.has(turn.turnId)
+      //
+      // The resident loop is aborted first, the way `OrchestratorSession`
+      // stops its own: the sweeps below cannot make an in-flight provider call
+      // or tool return, and leaving the Agent running would let it start
+      // container work behind a teardown that already ran.
+      onInterrupt: () => {
+        this.abortResidentAgent(turn);
+        return this.builderFallbackRecoveries.has(turn.turnId)
           ? this.quiesceCurrentAgentSession(turn)
-          : this.terminateCurrentAgentSandbox(turn),
+          : this.terminateCurrentAgentSandbox(turn);
+      },
       // createSession() may ignore AbortSignal and resolve after the immediate
       // destroy. Sweep again after the underlying turn promise has unwound so
       // Stop can never ACK while that late session/container remains live.
-      afterInterrupt: () =>
-        this.builderFallbackRecoveries.has(turn.turnId)
+      afterInterrupt: () => {
+        this.abortResidentAgent(turn);
+        return this.builderFallbackRecoveries.has(turn.turnId)
           ? this.quiesceCurrentAgentSession(turn)
-          : this.terminateCurrentAgentSandbox(turn),
+          : this.terminateCurrentAgentSandbox(turn);
+      },
     });
     this.agentTurnExecutions.set(turn.turnId, execution);
     const tracked = this.trackTurn(turn.turnId, execution.settled);
@@ -1675,6 +1665,24 @@ export class BuildSession extends DurableObject<Env> {
     };
     void tracked.then(clear, clear);
     return tracked;
+  }
+
+  /**
+   * Stop the resident loop before either sweep runs. A turn with no resident
+   * loop registered has nothing here, which is what makes this safe to call
+   * unconditionally from both interrupt hooks.
+   */
+  private abortResidentAgent(turn: TurnRequest): void {
+    const abort = this.residentAgentAborts.get(turn.turnId);
+    if (!abort) return;
+    try {
+      abort();
+    } catch (error) {
+      log("error", "resident_agent_abort_failed", {
+        turnId: turn.turnId,
+        message: errorMessage(error),
+      });
+    }
   }
 
   private startAppTurn(turn: TurnRequest): Promise<Response> {
@@ -1783,7 +1791,6 @@ export class BuildSession extends DurableObject<Env> {
 
   private async resolveAgentTurnState(
     turn: TurnRequest,
-    workspace: string,
     canonicalHistoryCursor: string,
     options: { allowMissingNative?: boolean } = {},
   ): Promise<ResolvedTurnState> {
@@ -1791,7 +1798,6 @@ export class BuildSession extends DurableObject<Env> {
       turn,
       "resolve",
       {
-        workspace,
         threadId: turn.threadId,
         canonicalHistoryCursor,
         // Builder validates the engine-specific native half below. Keeping the
@@ -1893,7 +1899,6 @@ export class BuildSession extends DurableObject<Env> {
 
   private async publishAgentTurnWorkspace(
     turn: TurnRequest,
-    workspace: string,
     canonicalHistoryCursor: string,
     operationId: string,
   ): Promise<TurnStateWorkspaceHead> {
@@ -1902,7 +1907,6 @@ export class BuildSession extends DurableObject<Env> {
       publicationReceipt?: unknown;
       replayed?: unknown;
     }>(turn, "publish-workspace", {
-      workspace,
       threadId: turn.threadId,
       canonicalHistoryCursor,
       operationId,
@@ -1929,7 +1933,6 @@ export class BuildSession extends DurableObject<Env> {
 
   private async confirmAgentTurnStateRestore(
     turn: TurnRequest,
-    workspace: string,
     canonicalHistoryCursor: string,
     workspaceHead: TurnStateWorkspaceHead | undefined,
     workspaceConfirmationRequired: boolean,
@@ -1950,7 +1953,6 @@ export class BuildSession extends DurableObject<Env> {
         };
         confirmationReceipt?: unknown;
       }>(turn, "confirm-restore", {
-        workspace,
         threadId: turn.threadId,
         canonicalHistoryCursor,
         ...(workspaceConfirmationRequired && workspaceHead
@@ -1985,10 +1987,7 @@ export class BuildSession extends DurableObject<Env> {
     // Deletion begins only after both archives were restored and verified and
     // the exact candidate was atomically promoted. A lost drain response is
     // safe: retirement rows remain authoritative until DELETE+HEAD succeeds.
-    await this.callOwnerTurnState(turn, "drain", {
-      workspace,
-      limit: 32,
-    });
+    await this.callOwnerTurnState(turn, "drain", { limit: 32 });
   }
 
   private async quiesceCurrentAgentSession(turn: TurnRequest): Promise<void> {
@@ -2018,15 +2017,10 @@ export class BuildSession extends DurableObject<Env> {
       agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!),
     );
     if (!marker) return undefined;
-    const workspace = resolveWorkspace(turn.workspace);
     if (
       marker.schemaVersion !== 1 ||
       marker.turnId !== turn.turnId ||
       marker.attemptGeneration !== turn.attemptGeneration ||
-      !workspace ||
-      marker.workspace !== workspace.canonical ||
-      marker.workspaceRoot !== workspace.mountPath ||
-      !asTurnStateWorkspaceRoot(marker.workspaceRoot) ||
       !Number.isSafeInteger(marker.startedAt) ||
       marker.startedAt < 0 ||
       !marker.sandboxId ||
@@ -2077,7 +2071,6 @@ export class BuildSession extends DurableObject<Env> {
 
   private async abortUnpublishedTurnStateOperation(
     turn: TurnRequest,
-    workspace: string,
     operation: TurnStateCheckpointOperation,
     canonicalHistoryCursor: string,
   ): Promise<void> {
@@ -2103,7 +2096,6 @@ export class BuildSession extends DurableObject<Env> {
           turn,
           "prepare",
           {
-            workspace,
             threadId: turn.threadId,
             attemptGeneration: turn.attemptGeneration,
             requestFingerprint: operation.requestFingerprint,
@@ -2149,7 +2141,6 @@ export class BuildSession extends DurableObject<Env> {
       abortReceipt?: unknown;
       replayed?: unknown;
     }>(turn, "abort-unpublished", {
-      workspace,
       threadId: turn.threadId,
       operationId,
       baseWorkspaceRevision: operation.baseWorkspaceRevision,
@@ -2171,10 +2162,9 @@ export class BuildSession extends DurableObject<Env> {
     checkpoint: TurnBrokerTurnStateCheckpointReceipt,
     signal?: AbortSignal,
   ): Promise<CloudBrowserSuspension | null> {
-    const observation =
-      await this.ctx.storage.get<ObservedBrowserSuspension>(
-        OBSERVED_BROWSER_SUSPENSION_KEY,
-      );
+    const observation = await this.ctx.storage.get<ObservedBrowserSuspension>(
+      OBSERVED_BROWSER_SUSPENSION_KEY,
+    );
     if (!observation) return null;
     const rows = await this.fetchCanonicalAgentHistory(turn, {
       excludeCurrentTurn: false,
@@ -2199,12 +2189,8 @@ export class BuildSession extends DurableObject<Env> {
           txn.get<TurnRequest>("turn"),
           txn.get<boolean>("terminal"),
           txn.get<PendingTerminal>("pendingTerminal"),
-          txn.get<PendingBrowserSuspension>(
-            PENDING_BROWSER_SUSPENSION_KEY,
-          ),
-          txn.get<ObservedBrowserSuspension>(
-            OBSERVED_BROWSER_SUSPENSION_KEY,
-          ),
+          txn.get<PendingBrowserSuspension>(PENDING_BROWSER_SUSPENSION_KEY),
+          txn.get<ObservedBrowserSuspension>(OBSERVED_BROWSER_SUSPENSION_KEY),
         ]);
       if (
         !exactTurnIdentityMatches(current, turn) ||
@@ -2247,10 +2233,9 @@ export class BuildSession extends DurableObject<Env> {
     turn: TurnRequest,
     operations: TurnStateCheckpointOperation[],
   ): Promise<BuilderFallbackTranscript | null> {
-    const observation =
-      await this.ctx.storage.get<ObservedBrowserSuspension>(
-        OBSERVED_BROWSER_SUSPENSION_KEY,
-      );
+    const observation = await this.ctx.storage.get<ObservedBrowserSuspension>(
+      OBSERVED_BROWSER_SUSPENSION_KEY,
+    );
     if (!observation) return null;
     const candidates: Array<{
       operation: Extract<TurnStateCheckpointOperation, { state: "succeeded" }>;
@@ -2266,17 +2251,16 @@ export class BuildSession extends DurableObject<Env> {
         continue;
       }
       const messages = operation.payload.suspensionTranscript;
-      const bound =
-        await bindObservedBrowserSuspensionToCanonicalCodeCall({
-          observation,
+      const bound = await bindObservedBrowserSuspensionToCanonicalCodeCall({
+        observation,
+        turnId: turn.turnId,
+        attemptGeneration: turn.attemptGeneration!,
+        checkpoint: operation.receipt,
+        rows: messages.map((message) => ({
+          ...message,
           turnId: turn.turnId,
-          attemptGeneration: turn.attemptGeneration!,
-          checkpoint: operation.receipt,
-          rows: messages.map((message) => ({
-            ...message,
-            turnId: turn.turnId,
-          })),
-        });
+        })),
+      });
       if (bound) candidates.push({ operation, messages });
     }
     if (candidates.length > 1) {
@@ -2325,7 +2309,8 @@ export class BuildSession extends DurableObject<Env> {
         if (
           existing.requestId !== fallback.requestId ||
           existing.requestFingerprint !== fallback.requestFingerprint ||
-          JSON.stringify(existing.messages) !== JSON.stringify(fallback.messages)
+          JSON.stringify(existing.messages) !==
+            JSON.stringify(fallback.messages)
         ) {
           throw new Error("Browser suspension recovery journal conflicted.");
         }
@@ -2334,10 +2319,8 @@ export class BuildSession extends DurableObject<Env> {
       if (
         !currentObserved ||
         currentObserved.turnId !== observation.turnId ||
-        currentObserved.attemptGeneration !==
-          observation.attemptGeneration ||
-        currentObserved.responseBodySha256 !==
-          observation.responseBodySha256 ||
+        currentObserved.attemptGeneration !== observation.attemptGeneration ||
+        currentObserved.responseBodySha256 !== observation.responseBodySha256 ||
         !currentOperation ||
         currentOperation.state !== "succeeded" ||
         currentOperation.requestFingerprint !== operation.requestFingerprint ||
@@ -2353,22 +2336,151 @@ export class BuildSession extends DurableObject<Env> {
     });
   }
 
+  /** Whether this exact attempt was admitted to the resident arm. */
+  private async admittedResidentPlacement(turn: TurnRequest): Promise<boolean> {
+    if (
+      turn.kind !== "agent" ||
+      !Number.isSafeInteger(turn.attemptGeneration) ||
+      turn.attemptGeneration! < 1
+    ) {
+      return false;
+    }
+    const identity = {
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+    };
+    const admitted = parseTurnComputePlan(
+      await this.ctx.storage.get(
+        turnComputePlanKey(identity.turnId, identity.attemptGeneration),
+      ),
+      identity,
+    );
+    return admitted?.plan.kind === "resident_stella";
+  }
+
+  /**
+   * D9. Turn what a lost isolate left in the journal into rows a thread can
+   * read.
+   *
+   * A call in the interrupted tail is answered, never replayed. Its receipt
+   * lives only in the daemon process the archive below is about to kill, and
+   * the interrupted result says exactly that much: the effect is unknown.
+   */
+  private async repairedResidentJournal(
+    turn: TurnRequest,
+    message: string,
+  ): Promise<SealedTurnTranscript> {
+    const now = Date.now();
+    const journal = AgentTurnJournal.open({
+      sql: this.ctx.storage.sql,
+      identity: {
+        turnId: turn.turnId,
+        attemptGeneration: turn.attemptGeneration!,
+      },
+      terminal: {
+        prompt: turn.prompt,
+        provider: turn.execution?.provider ?? "stella",
+        model: turn.execution?.model ?? "unknown",
+        finalText: "",
+        error: message,
+        timestamp: now,
+      },
+      now,
+    });
+    return await journal.repairInterruptedTail({
+      resolveInterruptedCall: async () => "interrupted",
+      terminalMessage: message,
+    });
+  }
+
+  /**
+   * D9's resident arm. Nothing was ever attached, so there is no disk to
+   * archive and no fallback publication to advance: the journal is the whole
+   * durable record of the turn, and the thread is owed a repaired transcript
+   * followed by a failure.
+   */
+  private async recoverResidentAgentTurn(turn: TurnRequest): Promise<void> {
+    const message =
+      "The agent stopped unexpectedly before it finished. Its reply was not completed.";
+    if (!turn.threadId || !turn.turnBrokerRoute) return;
+    // The journal cannot be sealed under a loop that is still appending to it.
+    // A replacement isolate has nothing here, which is the common case.
+    const running = this.agentTurnExecutions.get(turn.turnId);
+    if (running) {
+      await running.interrupt(new Error(message)).catch(() => undefined);
+    }
+    const recoveredPending: PendingTerminal = {
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+      kind: "failed",
+      payload: { message, reason: "resident_recovered" },
+      threadError: message,
+    };
+    try {
+      const repaired = await this.repairedResidentJournal(turn, message);
+      await createAgentControlPlane({
+        convexCallbackBase: turn.convexCallbackBase,
+        serviceSecret: this.env.BUILDER_SERVICE_SECRET,
+        turnToken: turn.turnToken,
+        identity: {
+          ownerId: turn.ownerId,
+          ownerGeneration: turn.ownerGeneration,
+          threadId: turn.threadId,
+          turnId: turn.turnId,
+          attemptGeneration: turn.attemptGeneration!,
+          sessionId: turn.turnBrokerRoute.sessionId,
+        },
+        storage: this.ctx.storage,
+      }).appendAndVerifyTranscript(repaired);
+    } catch (error) {
+      log("error", "resident_agent_recovery_retry", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        message: errorMessage(error),
+      });
+      await this.setExactTurnAlarm(turn, Date.now() + 30_000);
+      return;
+    }
+    if (
+      !(await this.claimTerminalDecision(
+        turn,
+        recoveredPending,
+        Date.now() + 30_000,
+      ))
+    ) {
+      await this.setExactTurnAlarm(turn, Date.now() + 1_000);
+      return;
+    }
+    if (
+      (await this.deliverTerminal(turn, recoveredPending)) &&
+      (await this.ownsExactTurn(turn))
+    ) {
+      await this.deleteTurnStoragePreservingExactCancellations(turn, true);
+    }
+    log("info", "resident_agent_turn_recovered", {
+      turnId: turn.turnId,
+      threadId: turn.threadId,
+    });
+  }
+
+  /**
+   * `resolveInput` runs after quiescence, never before. A resident turn's rows
+   * come from a journal the loop is still appending to until the interrupt
+   * above has unwound it, and sealing that journal early would fail the very
+   * loop whose rows recovery is trying to keep.
+   */
   private async recoverAgentTurnAfterExecutorLoss(
     turn: TurnRequest,
     marker: AgentExecutionMarker,
     error: string,
-    input?: {
-      historyCursor?: string;
-      messages?: Array<{ ordinal: number; role: string; payloadJson: string }>;
-      nativeCheckpoint?: TurnBrokerTurnStateCheckpointRequest["nativeCheckpoint"];
-    },
+    resolveInput?: () => Promise<BuilderFallbackInput>,
   ): Promise<TurnBrokerTurnStateCheckpointReceipt> {
     await this.interruptAgentForBuilderFallback(turn);
     return await this.reconcileAgentCheckpointAfterQuiescence(
       turn,
       marker,
       error,
-      input,
+      await resolveInput?.(),
     );
   }
 
@@ -2376,11 +2488,7 @@ export class BuildSession extends DurableObject<Env> {
     turn: TurnRequest,
     marker: AgentExecutionMarker,
     error: string,
-    input?: {
-      historyCursor?: string;
-      messages?: Array<{ ordinal: number; role: string; payloadJson: string }>;
-      nativeCheckpoint?: TurnBrokerTurnStateCheckpointRequest["nativeCheckpoint"];
-    },
+    input?: BuilderFallbackInput,
   ): Promise<TurnBrokerTurnStateCheckpointReceipt> {
     await this.assertTurnWritable(turn);
     await this.assertConvexAgentTurnAuthority(turn);
@@ -2392,12 +2500,7 @@ export class BuildSession extends DurableObject<Env> {
     const existingFallback =
       await this.ctx.storage.get<BuilderFallbackTranscript>(fallbackKey);
     if (existingFallback) {
-      return await this.advanceBuilderFallback(
-        turn,
-        marker.workspace,
-        marker.workspaceRoot,
-        existingFallback,
-      );
+      return await this.advanceBuilderFallback(turn, existingFallback);
     }
 
     const canonicalRows = await this.fetchCanonicalAgentHistory(turn, {
@@ -2461,8 +2564,6 @@ export class BuildSession extends DurableObject<Env> {
       if (pending) {
         await this.executeTurnStateCheckpoint({
           turn,
-          workspace: marker.workspace,
-          workspaceRoot: marker.workspaceRoot,
           operationKey: turnStateCheckpointOperationKey(pending.requestId),
           operation: pending,
         });
@@ -2485,7 +2586,6 @@ export class BuildSession extends DurableObject<Env> {
     if (accepted[0]) {
       await this.publishAgentTurnWorkspace(
         turn,
-        marker.workspace,
         canonicalCursor,
         accepted[0].operationId,
       );
@@ -2504,12 +2604,7 @@ export class BuildSession extends DurableObject<Env> {
         operations,
       );
     if (browserRecovery) {
-      return await this.advanceBuilderFallback(
-        turn,
-        marker.workspace,
-        marker.workspaceRoot,
-        browserRecovery,
-      );
+      return await this.advanceBuilderFallback(turn, browserRecovery);
     }
 
     // A checkpoint whose transcript never became canonical must remain
@@ -2519,7 +2614,6 @@ export class BuildSession extends DurableObject<Env> {
     for (const operation of operations) {
       await this.abortUnpublishedTurnStateOperation(
         turn,
-        marker.workspace,
         operation,
         canonicalCursor,
       );
@@ -2528,12 +2622,7 @@ export class BuildSession extends DurableObject<Env> {
       ...(input ?? {}),
       error,
     });
-    return await this.advanceBuilderFallback(
-      turn,
-      marker.workspace,
-      marker.workspaceRoot,
-      fallback,
-    );
+    return await this.advanceBuilderFallback(turn, fallback);
   }
 
   private syntheticBuilderFallbackMessages(
@@ -2568,12 +2657,7 @@ export class BuildSession extends DurableObject<Env> {
 
   private async ensureBuilderFallbackTranscript(
     turn: TurnRequest,
-    input?: {
-      historyCursor?: string;
-      messages?: Array<{ ordinal: number; role: string; payloadJson: string }>;
-      nativeCheckpoint?: TurnBrokerTurnStateCheckpointRequest["nativeCheckpoint"];
-      error?: string;
-    },
+    input?: BuilderFallbackInput & { error?: string },
   ): Promise<BuilderFallbackTranscript> {
     const key = builderFallbackTranscriptKey(
       turn.turnId,
@@ -2702,8 +2786,6 @@ export class BuildSession extends DurableObject<Env> {
 
   private async advanceBuilderFallback(
     turn: TurnRequest,
-    workspace: string,
-    workspaceRoot: TurnStateWorkspaceRoot,
     fallback: BuilderFallbackTranscript,
   ): Promise<TurnBrokerTurnStateCheckpointReceipt> {
     const fallbackKey = builderFallbackTranscriptKey(
@@ -2770,8 +2852,6 @@ export class BuildSession extends DurableObject<Env> {
       } else {
         receipt = await this.executeTurnStateCheckpoint({
           turn,
-          workspace,
-          workspaceRoot,
           operationKey,
           operation: {
             ...operation,
@@ -2825,7 +2905,6 @@ export class BuildSession extends DurableObject<Env> {
     if (!fallback.workspacePublished) {
       await this.publishAgentTurnWorkspace(
         turn,
-        workspace,
         fallback.payload.historyCursor,
         receipt.operationId,
       );
@@ -2844,17 +2923,12 @@ export class BuildSession extends DurableObject<Env> {
     if (freshLease || !turn.ownerPurgeLeaseId) {
       turn.ownerPurgeLeaseId = crypto.randomUUID();
     }
-    const leasedWorkspace =
-      !freshLease && turn.kind === "agent"
-        ? resolveWorkspace(turn.workspace)?.canonical
-        : undefined;
     const response = await this.callOwnerFence(turn.ownerId, "register", {
       leaseId: turn.ownerPurgeLeaseId,
       sessionId: this.ctx.id.toString(),
       turnId: turn.turnId,
       ownerGeneration: turn.ownerGeneration,
       role: freshLease ? "aux" : "run",
-      ...(leasedWorkspace ? { workspace: leasedWorkspace } : {}),
       ...(turn.ownerPurgeGeneration
         ? { generation: turn.ownerPurgeGeneration }
         : {}),
@@ -2867,7 +2941,6 @@ export class BuildSession extends DurableObject<Env> {
       const code = [
         "owner_purge_permanent",
         "owner_purge_temporary",
-        "workspace_busy",
         "transfer_busy",
         "bad_request",
       ].includes(rawCode)
@@ -3160,9 +3233,6 @@ export class BuildSession extends DurableObject<Env> {
       nativeTransientBackupKey(turn.turnId),
     );
     const buildPrefix = await this.ctx.storage.get<string>(buildKey);
-    const routeKey = transientBuildRouteKey(turn.turnId);
-    const transientRoute =
-      await this.ctx.storage.get<TransientAppBuildRoute>(routeKey);
     if (backupId) {
       const swept = await sweepR2Prefix(
         this.env.BACKUP_BUCKET,
@@ -3189,41 +3259,14 @@ export class BuildSession extends DurableObject<Env> {
       await this.ctx.storage.delete(nativeTransientBackupKey(turn.turnId));
     }
     if (buildPrefix) {
-      if (transientRoute) {
-        const route = await this.env.APP_ROUTES.get<Record<string, unknown>>(
-          transientRoute.key,
-          "json",
-        );
-        if (
-          route?.ownerId === transientRoute.ownerId &&
-          route.appId === transientRoute.appId &&
-          route.buildId === transientRoute.buildId &&
-          route.artifactPrefix === transientRoute.artifactPrefix
-        ) {
-          const previous = transientRoute.previousRoute;
-          if (
-            previous?.ownerId === transientRoute.ownerId &&
-            previous.appId === transientRoute.appId
-          ) {
-            await this.env.APP_ROUTES.put(
-              transientRoute.key,
-              JSON.stringify(previous),
-            );
-          } else {
-            await this.env.APP_ROUTES.delete(transientRoute.key);
-          }
-        }
-      }
       const retired = await retireTransientAppBuild({
         sweep: async () =>
           await sweepR2Prefix(this.env.APP_BUILDS, `${buildPrefix}/`),
         clearRecovery: async () => {
-          await this.ctx.storage.delete([buildKey, routeKey]);
+          await this.ctx.storage.delete(buildKey);
         },
       });
       if (!retired) throw new Error("Transient build cleanup was truncated.");
-    } else if (transientRoute) {
-      await this.ctx.storage.delete(routeKey);
     }
   }
 
@@ -3722,15 +3765,6 @@ export class BuildSession extends DurableObject<Env> {
     if (path === "register") {
       const ownerGeneration = normalizeOwnerGeneration(body.ownerGeneration);
       const activeLeases = Object.values(current.active);
-      const workspaceBusy =
-        body.role === "run" &&
-        body.workspace &&
-        activeLeases.some(
-          (lease) =>
-            lease.role === "run" &&
-            lease.workspace === body.workspace &&
-            lease.leaseId !== body.leaseId,
-        );
       const isTransferControlActivity =
         body.role === "activity" &&
         (body.turnId?.startsWith("owner-product-transfer:") ||
@@ -3766,12 +3800,9 @@ export class BuildSession extends DurableObject<Env> {
           409,
         );
       }
-      if (workspaceBusy || transferBusy) {
+      if (transferBusy) {
         return json(
-          {
-            code: workspaceBusy ? "workspace_busy" : "transfer_busy",
-            error: "Owner activity is busy.",
-          },
+          { code: "transfer_busy", error: "Owner activity is busy." },
           409,
         );
       }
@@ -3811,7 +3842,6 @@ export class BuildSession extends DurableObject<Env> {
                 : body.role === "activity"
                   ? "activity"
                   : "aux",
-        ...(body.workspace ? { workspace: body.workspace } : {}),
         ...(typeof body.expiresAt === "number" &&
         Number.isFinite(body.expiresAt) &&
         body.expiresAt > now
@@ -3844,10 +3874,10 @@ export class BuildSession extends DurableObject<Env> {
         body.generation === current.generation &&
         Boolean(
           body.leaseId &&
-            ownerGenerationMatches(
-              current.active[body.leaseId]?.ownerGeneration,
-              body.ownerGeneration,
-            ),
+          ownerGenerationMatches(
+            current.active[body.leaseId]?.ownerGeneration,
+            body.ownerGeneration,
+          ),
         )
         ? json({ ok: true })
         : json({ error: "Owner purge fence changed." }, 409);
@@ -3997,7 +4027,16 @@ export class BuildSession extends DurableObject<Env> {
         turn.attemptGeneration! >= 1
           ? agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!)
           : undefined;
-      const [current, sandboxId, storedSize, executionMarker] =
+      const computeIdentity =
+        turn.kind === "agent" &&
+        Number.isSafeInteger(turn.attemptGeneration) &&
+        turn.attemptGeneration! >= 1
+          ? {
+              turnId: turn.turnId,
+              attemptGeneration: turn.attemptGeneration!,
+            }
+          : undefined;
+      const [current, storedSandboxId, storedSize, executionMarker, compute] =
         await Promise.all([
           txn.get<TurnRequest>("turn"),
           txn.get<string>("sandboxId"),
@@ -4005,11 +4044,28 @@ export class BuildSession extends DurableObject<Env> {
           markerKey
             ? txn.get<AgentExecutionMarker>(markerKey)
             : Promise.resolve(undefined),
+          computeIdentity
+            ? txn
+                .get(
+                  agentComputeKey(
+                    computeIdentity.turnId,
+                    computeIdentity.attemptGeneration,
+                  ),
+                )
+                .then((value) =>
+                  parsePersistedAgentCompute(value, computeIdentity),
+                )
+            : Promise.resolve(null),
         ]);
+      // The ladder's record names the instance before it exists, so a Stop
+      // arriving mid boot destroys the exact reservation instead of skipping
+      // teardown because the shared key was not written yet. A record still in
+      // `resident` names nothing, which is what keeps a chat-only Stop free.
+      const sandboxId = storedSandboxId ?? compute?.sandboxId;
       if (!sandboxId || !exactTurnIdentityMatches(current, turn)) {
         return undefined;
       }
-      const size = storedSize ?? ("large" as const);
+      const size = storedSize ?? compute?.instanceSize ?? ("large" as const);
       return {
         sandboxId,
         size,
@@ -4058,7 +4114,6 @@ export class BuildSession extends DurableObject<Env> {
   private async publishInteriorCandidate(
     turn: TurnRequest,
     sandbox: ReturnType<BuildSession["sandbox"]>,
-    workspaceRoot: string,
     commandTimeoutMs: number,
     turnExecution: TurnExecutionContext,
   ): Promise<{
@@ -4071,7 +4126,7 @@ export class BuildSession extends DurableObject<Env> {
     baseRevision?: string;
   }> {
     await this.assertAgentExecutionActive(turn, turnExecution);
-    if (workspaceRoot !== "/workspace/stella" || !turn.threadId) {
+    if (!turn.threadId) {
       throw new Error("Invalid Stella interior build context.");
     }
     let unrecordedArtifactPrefix: string | undefined;
@@ -4084,7 +4139,7 @@ export class BuildSession extends DurableObject<Env> {
       cwd: "/opt/stella",
       commandTimeoutMs,
       env: {
-        STELLA_INTERIOR_SOURCE_ROOT: workspaceRoot,
+        STELLA_INTERIOR_SOURCE_ROOT: WORLD_STELLA_ROOT,
         STELLA_INTERIOR_OUTPUT_ROOT: outputRoot,
         VITE_CONVEX_URL: requirePublicOrigin(
           this.env.STELLA_CONVEX_CLOUD_URL,
@@ -4371,7 +4426,7 @@ export class BuildSession extends DurableObject<Env> {
       // from the next source digest. It supplies the next candidate's explicit
       // baseRevision, including across sandbox destruction/restoration.
       await session.writeFile(
-        `${workspaceRoot}/.stella/interior-source.json`,
+        `${WORLD_STELLA_ROOT}/.stella/interior-source.json`,
         `${JSON.stringify({
           schemaVersion: 1,
           sourceRevision: output.sourceRevision,
@@ -4413,6 +4468,103 @@ export class BuildSession extends DurableObject<Env> {
         .exec("rm -rf /workspace/.stella-interior-build")
         .catch(() => undefined);
       await sandbox.deleteSession(session.id).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Interior builds are opt-in: the agent asks for one through the turn broker
+   * during the turn, and this runs after the executor is gone because
+   * `publishInteriorCandidate` quiesces the session it would still be using.
+   */
+  private async publishRequestedInteriorCandidate(args: {
+    turn: TurnRequest;
+    sandbox: ReturnType<BuildSession["sandbox"]>;
+    commandTimeoutMs: number;
+    turnExecution: TurnExecutionContext;
+  }): Promise<
+    | { outcome: "not_requested" }
+    | { outcome: "abandoned" }
+    | { outcome: "failed"; error: string }
+    | {
+        outcome: "published";
+        candidate: Awaited<
+          ReturnType<BuildSession["publishInteriorCandidate"]>
+        >;
+      }
+  > {
+    const { turn, turnExecution } = args;
+    const requested = await this.ctx.storage.get<InteriorBuildRequestRecord>(
+      interiorBuildRequestKey(turn.turnId, turn.attemptGeneration!),
+    );
+    if (
+      !exactInteriorBuildRequested(
+        requested,
+        turn.turnId,
+        turn.attemptGeneration!,
+      )
+    ) {
+      return { outcome: "not_requested" };
+    }
+    await this.event(
+      turn,
+      "auto",
+      "interior_build_started",
+      {},
+      false,
+      turnExecution.signal,
+    ).catch(() => undefined);
+    try {
+      const candidate = await this.publishInteriorCandidate(
+        turn,
+        args.sandbox,
+        args.commandTimeoutMs,
+        turnExecution,
+      );
+      await this.event(
+        turn,
+        "auto",
+        "interior_candidate_created",
+        {
+          buildId: candidate.buildId,
+          previewUrl: candidate.previewUrl,
+          digest: candidate.digest,
+          size: candidate.size,
+          sourceRevision: candidate.sourceRevision,
+          baseRevision: candidate.baseRevision,
+          activated: false,
+        },
+        false,
+        turnExecution.signal,
+      ).catch(() => undefined);
+      return { outcome: "published", candidate };
+    } catch (error) {
+      if (
+        !(await this.ownsExactTurn(turn)) ||
+        (await this.ctx.storage.get<boolean>("terminal"))
+      ) {
+        return { outcome: "abandoned" };
+      }
+      log("error", "interior_candidate_failed", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        message: errorMessage(error),
+      });
+      await this.event(
+        turn,
+        "auto",
+        "interior_build_failed",
+        {
+          message:
+            "The updated Stella interior did not pass its production build.",
+        },
+        false,
+        turnExecution.signal,
+      ).catch(() => undefined);
+      return {
+        outcome: "failed",
+        error:
+          "The agent's source changes were kept, but the updated Stella interior did not pass its production build, so no candidate was created.",
+      };
     }
   }
 
@@ -4580,7 +4732,6 @@ export class BuildSession extends DurableObject<Env> {
         await txn.delete([
           pendingAppBuildPublicationKey(turn.turnId),
           `transientBuild:${turn.turnId}`,
-          transientBuildRouteKey(turn.turnId),
           "appBuildPublicationAttempts",
         ]);
         await txn.put({ terminal: true, terminalDelivered: true });
@@ -5178,6 +5329,7 @@ export class BuildSession extends DurableObject<Env> {
       }
     }
     if (turn.kind === "agent") {
+      const resident = await this.admittedResidentPlacement(turn);
       let marker: AgentExecutionMarker | undefined;
       try {
         marker = await this.exactAgentExecutionMarker(turn);
@@ -5190,12 +5342,27 @@ export class BuildSession extends DurableObject<Env> {
         return;
       }
       if (marker) {
+        const lost =
+          "The agent stopped unexpectedly. Its workspace changes were saved, but its report could not be recovered.";
         let recoveredCheckpoint: TurnBrokerTurnStateCheckpointReceipt;
         try {
           recoveredCheckpoint = await this.recoverAgentTurnAfterExecutorLoss(
             turn,
             marker,
-            "The agent stopped unexpectedly. Its workspace changes were saved, but its report could not be recovered.",
+            lost,
+            resident
+              ? async () => {
+                  const sealed = await this.repairedResidentJournal(turn, lost);
+                  return {
+                    historyCursor: sealed.historyCursor,
+                    messages: sealed.rows.map((row) => ({
+                      ordinal: row.ordinal,
+                      role: row.role,
+                      payloadJson: row.payloadJson,
+                    })),
+                  };
+                }
+              : undefined,
           );
         } catch (error) {
           log("error", "agent_builder_fallback_alarm_retry", {
@@ -5208,11 +5375,10 @@ export class BuildSession extends DurableObject<Env> {
         }
         let recoveredSuspension: CloudBrowserSuspension | null;
         try {
-          recoveredSuspension =
-            await this.recoverObservedBrowserSuspension(
-              turn,
-              recoveredCheckpoint,
-            );
+          recoveredSuspension = await this.recoverObservedBrowserSuspension(
+            turn,
+            recoveredCheckpoint,
+          );
         } catch (error) {
           log("error", "browser_suspension_recovery_retry", {
             turnId: turn.turnId,
@@ -5328,6 +5494,10 @@ export class BuildSession extends DurableObject<Env> {
             await this.setExactTurnAlarm(turn, Date.now() + 30_000);
           }
         }
+        return;
+      }
+      if (resident) {
+        await this.recoverResidentAgentTurn(turn);
         return;
       }
     }
@@ -5741,14 +5911,12 @@ export class BuildSession extends DurableObject<Env> {
 
   private async executeTurnStateCheckpoint(args: {
     turn: TurnRequest;
-    workspace: string;
-    workspaceRoot: TurnStateWorkspaceRoot;
     operationKey: string;
     operation: Extract<TurnStateCheckpointOperation, { state: "pending" }> & {
       payload: TurnBrokerTurnStateCheckpointRequest;
     };
   }): Promise<TurnBrokerTurnStateCheckpointReceipt> {
-    const { turn, workspace, workspaceRoot, operationKey, operation } = args;
+    const { turn, operationKey, operation } = args;
     await this.assertTurnWritable(turn);
     await this.assertConvexAgentTurnAuthority(turn);
 
@@ -5756,7 +5924,6 @@ export class BuildSession extends DurableObject<Env> {
       turn,
       "prepare",
       {
-        workspace,
         threadId: turn.threadId,
         attemptGeneration: turn.attemptGeneration,
         requestFingerprint: operation.requestFingerprint,
@@ -5824,7 +5991,7 @@ export class BuildSession extends DurableObject<Env> {
         session,
         bucket: this.env.BACKUP_BUCKET,
         key: prepared.objectKeys.workspace,
-        target: { kind: "workspace", workspaceRoot },
+        target: { kind: "workspace" },
       });
       await this.assertTurnWritable(turn);
       await this.assertConvexAgentTurnAuthority(turn);
@@ -5834,8 +6001,7 @@ export class BuildSession extends DurableObject<Env> {
       });
 
       let nativeUpload:
-        | Awaited<ReturnType<typeof uploadTurnStateArchive>>
-        | undefined;
+        Awaited<ReturnType<typeof uploadTurnStateArchive>> | undefined;
       if (prepared.objectKeys.native) {
         nativeUpload = await uploadTurnStateArchive({
           session,
@@ -5937,12 +6103,8 @@ export class BuildSession extends DurableObject<Env> {
           txn.get<TurnRequest>("turn"),
           txn.get<boolean>("terminal"),
           txn.get<PendingTerminal>("pendingTerminal"),
-          txn.get<PendingBrowserSuspension>(
-            PENDING_BROWSER_SUSPENSION_KEY,
-          ),
-          txn.get<ObservedBrowserSuspension>(
-            OBSERVED_BROWSER_SUSPENSION_KEY,
-          ),
+          txn.get<PendingBrowserSuspension>(PENDING_BROWSER_SUSPENSION_KEY),
+          txn.get<ObservedBrowserSuspension>(OBSERVED_BROWSER_SUSPENSION_KEY),
         ]);
       if (
         !exactTurnIdentityMatches(current, turn) ||
@@ -6029,12 +6191,6 @@ export class BuildSession extends DurableObject<Env> {
       return this.brokerFailure(410);
     }
 
-    const workspace = resolveWorkspace(turn.workspace);
-    if (!workspace || workspace.kind === "computer") {
-      return this.brokerFailure(403);
-    }
-    const workspaceRoot = asTurnStateWorkspaceRoot(workspace.mountPath);
-    if (!workspaceRoot) return this.brokerFailure(403);
     const operationKey = turnStateCheckpointOperationKey(preflight.requestId);
     let decoded: unknown;
     try {
@@ -6047,6 +6203,7 @@ export class BuildSession extends DurableObject<Env> {
       decoded = undefined;
     }
     const payload = parseTurnStateCheckpointRequest(decoded);
+    const interiorRequest = parseInteriorBuildRequest(decoded);
 
     const admission = await this.ctx.blockConcurrencyWhile(async () => {
       const [
@@ -6055,6 +6212,8 @@ export class BuildSession extends DurableObject<Env> {
         terminal,
         cancellation,
         sandboxId,
+        computePlan,
+        computeRecord,
         baseWorkspaceRevision,
       ] = await Promise.all([
         this.ctx.storage.get<TurnRequest>("turn"),
@@ -6067,6 +6226,12 @@ export class BuildSession extends DurableObject<Env> {
           attemptGeneration: turn.attemptGeneration,
         }),
         this.ctx.storage.get<string>("sandboxId"),
+        this.ctx.storage.get(
+          turnComputePlanKey(turn.turnId, turn.attemptGeneration!),
+        ),
+        this.ctx.storage.get(
+          agentComputeKey(turn.turnId, turn.attemptGeneration!),
+        ),
         this.ctx.storage.get<number>(
           turnStateBaseWorkspaceRevisionKey(
             turn.turnId,
@@ -6082,6 +6247,21 @@ export class BuildSession extends DurableObject<Env> {
         return { kind: "missing-base" as const };
       }
       const running = this.agentTurnExecutions.get(turn.turnId);
+      const identity = {
+        turnId: turn.turnId,
+        attemptGeneration: turn.attemptGeneration!,
+      };
+      // A ladder turn's container is described by the compute record, which is
+      // scoped to this exact attempt. The bare `sandboxId` key is not: a
+      // predecessor attempt's leftover value would read as a live container
+      // this attempt never reserved. Native turns keep reading that key, so
+      // their fence is unchanged.
+      const laddered =
+        parseTurnComputePlan(computePlan, identity)?.plan.kind ===
+        "resident_stella";
+      const attachedSandbox = laddered
+        ? parsePersistedAgentCompute(computeRecord, identity)?.sandboxId
+        : sandboxId;
       const live: TurnBrokerLiveFence = {
         sessionId: turn.turnBrokerRoute!.sessionId,
         ownerId: turn.ownerId,
@@ -6090,7 +6270,7 @@ export class BuildSession extends DurableObject<Env> {
         attemptGeneration: turn.attemptGeneration!,
         active:
           exactTurnIdentityMatches(current, turn) &&
-          Boolean(sandboxId) &&
+          Boolean(attachedSandbox) &&
           running?.cancellation.aborted === false,
         canceled: Boolean(cancellation),
         terminal: terminal === true,
@@ -6104,6 +6284,20 @@ export class BuildSession extends DurableObject<Env> {
         bodySha256: requestFingerprint,
       });
       if (!claimed.ok) return { kind: "denied" as const, claimed };
+      if (claimed.target.kind === "interior-build-request") {
+        if (!interiorRequest) return { kind: "malformed" as const };
+        await this.ctx.storage.put({
+          [recordKey]: claimed.record,
+          [interiorBuildRequestKey(turn.turnId, turn.attemptGeneration!)]:
+            interiorBuildRequestRecord({
+              request: interiorRequest,
+              turnId: turn.turnId,
+              attemptGeneration: turn.attemptGeneration!,
+              now: Date.now(),
+            }),
+        });
+        return { kind: "interior-build-request" as const };
+      }
       if (claimed.disposition === "replay") {
         if (claimed.target.kind === "browser-gateway") {
           return {
@@ -6153,15 +6347,21 @@ export class BuildSession extends DurableObject<Env> {
     if (admission.kind === "denied") {
       return turnBrokerDenialResponse(admission.claimed);
     }
+    if (admission.kind === "malformed") return this.brokerFailure(400);
+    if (admission.kind === "interior-build-request") {
+      return Response.json(
+        {
+          schemaVersion: 1,
+          requested: true,
+        } satisfies TurnBrokerInteriorBuildRequestReceipt,
+        { headers: { "cache-control": "no-store" } },
+      );
+    }
     if (admission.kind === "forward") {
       if (admission.target.kind === "browser-gateway") {
         if (!this.env.BROWSER_GATEWAY) return this.brokerFailure(503);
         const command = decoded;
-        if (
-          !command ||
-          typeof command !== "object" ||
-          Array.isArray(command)
-        ) {
+        if (!command || typeof command !== "object" || Array.isArray(command)) {
           return this.brokerFailure(400);
         }
         try {
@@ -6209,13 +6409,9 @@ export class BuildSession extends DurableObject<Env> {
             responsePayload &&
             typeof responsePayload === "object" &&
             !Array.isArray(responsePayload) &&
-            (responsePayload as Record<string, unknown>).outcome ===
-              "suspended"
+            (responsePayload as Record<string, unknown>).outcome === "suspended"
           ) {
-            const responseRecord = responsePayload as Record<
-              string,
-              unknown
-            >;
+            const responseRecord = responsePayload as Record<string, unknown>;
             const commandRecord = command as Record<string, unknown>;
             const suspension = responseRecord.suspension;
             const commandRequestId = commandRecord.requestId;
@@ -6398,8 +6594,6 @@ export class BuildSession extends DurableObject<Env> {
     if (!run) {
       run = this.executeTurnStateCheckpoint({
         turn,
-        workspace: workspace.canonical,
-        workspaceRoot,
         operationKey,
         operation: exactOperation,
       });
@@ -6732,6 +6926,28 @@ export class BuildSession extends DurableObject<Env> {
   // mid-turn transport failure makes Convex mark a still-running turn (and
   // its thread) failed while the agent goes on to finish. Outcomes reach
   // Convex only through events/threads-complete callbacks.
+  /**
+   * The placement this turn is admitted under, decided once and stored beside
+   * it. A turn dispatched without an engine selection has nothing to place, so
+   * it records nothing and keeps the container path it has always had.
+   */
+  private admittedComputePlan(turn: TurnRequest): TurnComputePlan | undefined {
+    if (!turn.execution || !Number.isSafeInteger(turn.attemptGeneration)) {
+      return undefined;
+    }
+    return turnComputePlan({
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+      execution: turn.execution,
+      browserResume: turn.browserResume !== undefined,
+      // D1: resident is the default for Stella. An operator turns the ladder
+      // off by setting this to "0", which demotes every Stella turn to the
+      // eager container path without touching the loop.
+      residentDisabled: this.env.RESIDENT_GENERAL_AGENT_TURNS === "0",
+      now: Date.now(),
+    });
+  }
+
   private async acceptAgentTurn(turn: TurnRequest): Promise<Response> {
     type Admission =
       | { response: Response }
@@ -6742,7 +6958,7 @@ export class BuildSession extends DurableObject<Env> {
         }
       | {
           kind: "start";
-          sandboxId: string;
+          sandboxId?: string;
           orphan?: PendingTerminal;
           orphanTurn?: TurnRequest;
         };
@@ -6850,7 +7066,14 @@ export class BuildSession extends DurableObject<Env> {
             ownsStorage,
           };
         }
-        const sandboxId = sessionName(`agent-${turn.turnId}`);
+        const computePlan = this.admittedComputePlan(turn);
+        const resident = computePlan?.plan.kind === "resident_stella";
+        // A resident turn reserves no container, so it mints no id. Every
+        // other turn keeps today's exact name; the id is what both
+        // cancellation sweeps destroy.
+        const sandboxId = resident
+          ? undefined
+          : sessionName(`agent-${turn.turnId}`);
         // A predecessor whose terminal state never reached Convex left it
         // here. Taking over the DO takes the alarm with it, so this is its last
         // chance; the stale delivery below cannot mutate this successor.
@@ -6860,7 +7083,13 @@ export class BuildSession extends DurableObject<Env> {
           ? await this.ctx.storage.get<TurnRequest>("turn")
           : undefined;
         await this.ctx.storage.put({
-          sandboxId,
+          ...(sandboxId ? { sandboxId } : {}),
+          ...(computePlan
+            ? {
+                [turnComputePlanKey(turn.turnId, turn.attemptGeneration!)]:
+                  computePlan,
+              }
+            : {}),
           turn,
           turnId: turn.turnId,
           terminal: false,
@@ -6874,7 +7103,12 @@ export class BuildSession extends DurableObject<Env> {
           OBSERVED_BROWSER_SUSPENSION_KEY,
           AGENT_RECOVERY_PENDING_KEY,
         ]);
-        return { kind: "start", sandboxId, orphan, orphanTurn };
+        return {
+          kind: "start",
+          ...(sandboxId ? { sandboxId } : {}),
+          orphan,
+          orphanTurn,
+        };
       },
     );
     if ("response" in admission) {
@@ -6925,7 +7159,8 @@ export class BuildSession extends DurableObject<Env> {
         202,
       );
     }
-    const { sandboxId, orphan, orphanTurn } = admission;
+    const { orphan, orphanTurn } = admission;
+    const { sandboxId } = admission;
     if (
       orphan &&
       orphanTurn &&
@@ -6994,49 +7229,579 @@ export class BuildSession extends DurableObject<Env> {
   // streams its own progress events with the turn token; this method owns
   // workspace persistence and the terminal event. Runs detached from the
   // dispatch request (see acceptAgentTurn).
+  /**
+   * The one place a turn's admitted placement is acted on.
+   *
+   * The plan is read back rather than re-derived: a config flip between
+   * admission and here would otherwise re-place a turn whose container was
+   * (or was not) already reserved, and both cancellation sweeps destroy by
+   * that reservation.
+   */
   private async runAgentTurn(
+    turn: TurnRequest,
+    sandboxId: string | undefined,
+    execution: TurnExecutionContext,
+  ): Promise<void> {
+    const identity = {
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration ?? 0,
+    };
+    const admitted = parseTurnComputePlan(
+      await this.ctx.storage.get(
+        turnComputePlanKey(identity.turnId, identity.attemptGeneration),
+      ),
+      identity,
+    );
+    await runGeneralAgentTurn({
+      plan:
+        admitted?.plan ??
+        ({
+          kind: "native_sandbox",
+          ...(turn.execution ? { execution: turn.execution } : {}),
+          reason: "unplaced",
+        } as const),
+      context: execution,
+      resident: (plan) => this.runResidentAgentTurn(turn, plan, execution),
+      native: async () => {
+        // Admission mints the id for every plan that keeps the container
+        // path, so an absent one here means this isolate is running a turn
+        // whose reservation another attempt owns.
+        if (!sandboxId) throw new AgentTurnAuthorityLostError();
+        await this.runContainerAgentTurn(turn, sandboxId, execution);
+      },
+    });
+  }
+
+  /**
+   * Resolve what a lazy attach has to put on disk.
+   *
+   * The container path does this before it boots. A resident turn cannot: the
+   * whole point is that a chat-only turn never pays for it. So it runs at
+   * attach time instead, against the same owner fence and with the same
+   * refusal when a predecessor's publication is still being repaired.
+   */
+  private async resolveAgentWorldRestore(
+    turn: TurnRequest,
+    execution: TurnExecutionContext,
+    history: AgentHistoryRow[],
+  ): Promise<{
+    turnStateWorkspaceRestore?: TurnStateWorkspaceHead;
+    turnStateWorkspaceRestoreConfirmationRequired: boolean;
+    turnStateThreadRestore?: TurnStateCandidate;
+    turnStateThreadRestoreConfirmationRequired: boolean;
+    descriptor: DirectoryBackup | null;
+  }> {
+    const canonicalHistoryCursor = await nativeHistoryCursorFromRows(history);
+    let resolved = await this.resolveAgentTurnState(
+      turn,
+      canonicalHistoryCursor,
+    );
+    execution.assertActive();
+    if (resolved.workspacePublication) {
+      if (!resolved.workspacePublication.publishable) {
+        throw new AgentTurnError(
+          "This workspace is still recovering a previous agent turn. Try again shortly.",
+        );
+      }
+      await this.assertConvexAgentTurnAuthority(turn);
+      await this.publishAgentTurnWorkspace(
+        turn,
+        canonicalHistoryCursor,
+        resolved.workspacePublication.operationId,
+      );
+      execution.assertActive();
+      resolved = await this.resolveAgentTurnState(turn, canonicalHistoryCursor);
+      execution.assertActive();
+      if (resolved.workspacePublication) {
+        throw new AgentTurnError(
+          "This workspace is still recovering a previous agent turn. Try again shortly.",
+        );
+      }
+    }
+    if (resolved.registryPresent && !resolved.workspace) {
+      throw new AgentTurnError(
+        "This workspace's saved state is incomplete. Try again after Stella finishes recovering it.",
+      );
+    }
+    await this.ctx.storage.put(
+      turnStateBaseWorkspaceRevisionKey(turn.turnId, turn.attemptGeneration!),
+      resolved.baseWorkspaceRevision,
+    );
+    execution.assertActive();
+    let descriptor: DirectoryBackup | null = null;
+    if (!resolved.workspace) {
+      const raw = await this.env.APP_ROUTES.get<unknown>(
+        await checkpointKey(turn.ownerId),
+        "json",
+      );
+      if (raw) {
+        descriptor = parseLegacyWorkspaceBackup(raw, WORLD_ROOT);
+        if (!descriptor) {
+          throw new AgentTurnError(
+            "Stella couldn't validate this workspace's legacy checkpoint. Try again.",
+          );
+        }
+      }
+    }
+    return {
+      ...(resolved.workspace
+        ? { turnStateWorkspaceRestore: resolved.workspace }
+        : {}),
+      turnStateWorkspaceRestoreConfirmationRequired:
+        resolved.workspaceConfirmationRequired,
+      ...(resolved.restore ? { turnStateThreadRestore: resolved.restore } : {}),
+      turnStateThreadRestoreConfirmationRequired:
+        resolved.confirmationRequired,
+      descriptor,
+    };
+  }
+
+  /**
+   * Issue the daemon's broker capability exactly the way the container
+   * executor gets it: a root-owned file above the world root, with the durable
+   * record written before the container can present it. The raw turn token
+   * never crosses this boundary.
+   */
+  private async prepareAgentBrokerHandoff(args: {
+    turn: TurnRequest;
+    session: ExecutionSession;
+    commandTimeoutMs: number;
+    workspaceRestored: boolean;
+  }): Promise<{
+    turnId: string;
+    attemptGeneration: number;
+    threadId: string;
+    prompt: string;
+    workspaceRestored: boolean;
+    turnBroker: { credentialsPath: string };
+  }> {
+    const { turn } = args;
+    if (!turn.turnBrokerRoute || !turn.threadId) {
+      throw new AgentTurnAuthorityLostError();
+    }
+    const brokerIdentity = {
+      sessionId: turn.turnBrokerRoute.sessionId,
+      ownerId: turn.ownerId,
+      ownerGeneration: turn.ownerGeneration,
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+    };
+    const issued = await issueTurnBrokerCredential({
+      identity: brokerIdentity,
+      endpoint: turn.turnBrokerRoute.endpoint,
+      now: Date.now(),
+      ttlMs: Math.max(
+        1,
+        Math.min(TURN_BROKER_MAX_TTL_MS, args.commandTimeoutMs),
+      ),
+    });
+    await this.ctx.storage.put(
+      turnBrokerStorageKey(brokerIdentity),
+      issued.record,
+    );
+    const credentialsPath = turnBrokerCredentialsPath();
+    await args.session.writeFile(
+      credentialsPath,
+      JSON.stringify(issued.handoff),
+    );
+    const protectedHandoff = await args.session.exec(
+      `chmod 600 ${credentialsPath}`,
+    );
+    if (!protectedHandoff.success) {
+      throw new Error("Turn broker handoff could not be protected.");
+    }
+    return {
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+      threadId: turn.threadId,
+      prompt: turn.prompt,
+      workspaceRestored: args.workspaceRestored,
+      turnBroker: { credentialsPath },
+    };
+  }
+
+  /**
+   * A Stella turn whose agent loop runs right here.
+   *
+   * No container exists until a tool needs one. What that buys is on the
+   * turn's critical path: a chat-only reply costs one Convex history read and
+   * the model call, with no cold start, no squashfs restore, and nothing to
+   * tear down when the user stops it.
+   */
+  private async runResidentAgentTurn(
+    turn: TurnRequest,
+    plan: Extract<GeneralAgentTurnPlan, { kind: "resident_stella" }>,
+    execution: TurnExecutionContext,
+  ): Promise<GeneralAgentTurnResult> {
+    const requestStarted = performance.now();
+    const commandTimeoutMs = Number(this.env.TURN_TIMEOUT_MS);
+    await this.assertAgentExecutionActive(turn, execution);
+    if (!turn.threadId || !turn.turnBrokerRoute) {
+      throw new AgentTurnAuthorityLostError();
+    }
+    const attemptGeneration = turn.attemptGeneration!;
+    const identity = { turnId: turn.turnId, attemptGeneration };
+    await this.event(
+      turn,
+      "auto",
+      "started",
+      { threadId: turn.threadId },
+      false,
+      execution.signal,
+    );
+    execution.assertActive();
+
+    const control = createAgentControlPlane({
+      convexCallbackBase: turn.convexCallbackBase,
+      serviceSecret: this.env.BUILDER_SERVICE_SECRET,
+      turnToken: turn.turnToken,
+      identity: {
+        ownerId: turn.ownerId,
+        ownerGeneration: turn.ownerGeneration,
+        threadId: turn.threadId,
+        turnId: turn.turnId,
+        attemptGeneration,
+        sessionId: turn.turnBrokerRoute.sessionId,
+      },
+      storage: this.ctx.storage,
+    });
+
+    // The same name the container path would have minted, so every teardown,
+    // archive and recovery path keyed on it works without a second scheme.
+    const sandboxId = sessionName(`agent-${turn.turnId}`);
+    const workspaceKey = await checkpointKey(turn.ownerId);
+    const remembered = asInstanceSize(
+      await this.env.APP_ROUTES.get(instanceSizeKey(workspaceKey)),
+    );
+    execution.assertActive();
+    const instanceSize: InstanceSize = !this.env.SANDBOX_SMALL
+      ? "large"
+      : (remembered ??
+        initialInstanceSize({ prompt: turn.prompt, restored: true }));
+
+    let attachedWorkspaceRestore: TurnStateWorkspaceHead | undefined;
+    let residentHistory: AgentHistoryRow[] = [];
+    const attachment = createAgentSandboxAttachment({
+      context: execution,
+      attachWorld: async ({ instanceSize: size }) => {
+        await this.ctx.storage.put({ sandboxId, sandboxSize: size });
+        const restore = await this.resolveAgentWorldRestore(
+          turn,
+          execution,
+          residentHistory,
+        );
+        attachedWorkspaceRestore = restore.turnStateWorkspaceRestore;
+        const attached = await this.attachAgentWorld({
+          turn,
+          execution,
+          sandbox: this.sandbox(sandboxId, size),
+          size,
+          nativeDescriptor: null,
+          history: residentHistory,
+          commandTimeoutMs,
+          ...restore,
+        });
+        // D9's fork. Only a confirmed world is worth archiving, so the marker
+        // lands after the restore: an eviction before this point recovers by
+        // destroying the reservation, and one after it recovers by archiving
+        // the disk the way a lost container executor already does.
+        await this.ctx.storage.put(
+          agentExecutionMarkerKey(turn.turnId, attemptGeneration),
+          {
+            schemaVersion: 1,
+            turnId: turn.turnId,
+            attemptGeneration,
+            sandboxId,
+            size,
+            startedAt: Date.now(),
+          } satisfies AgentExecutionMarker,
+        );
+        return attached;
+      },
+      prepareBrokerHandoff: async ({ session }) =>
+        await this.prepareAgentBrokerHandoff({
+          turn,
+          session,
+          commandTimeoutMs,
+          workspaceRestored: Boolean(attachedWorkspaceRestore),
+        }),
+      destroy: async () => {
+        await this.terminateCurrentAgentSandbox(turn);
+      },
+    });
+
+    const ladder = createAgentComputeLadder({
+      ...identity,
+      sandboxId,
+      initialInstanceSize: instanceSize,
+      store: {
+        read: async () =>
+          parsePersistedAgentCompute(
+            await this.ctx.storage.get(
+              agentComputeKey(turn.turnId, attemptGeneration),
+            ),
+            identity,
+          ),
+        write: async (record: PersistedAgentCompute) => {
+          await this.ctx.storage.put(
+            agentComputeKey(turn.turnId, attemptGeneration),
+            record,
+          );
+        },
+      },
+      attachment,
+      context: execution,
+      emitEvent: (kind, payload) => {
+        void this.event(turn, "auto", kind, payload, false, execution.signal)
+          .catch(() => undefined);
+      },
+    });
+
+    const doLocal = createGeneralAgentDoLocalTools({
+      control,
+      requestInteriorBuild: () => ladder.requestInteriorBuild(),
+      now: () => Date.now(),
+      signal: execution.signal,
+    });
+
+    try {
+      const result = await runResidentStellaLoop({
+        turn: {
+          kind: "agent",
+          identity: {
+            ownerId: turn.ownerId,
+            ownerGeneration: turn.ownerGeneration,
+            threadId: turn.threadId,
+            turnId: turn.turnId,
+            attemptGeneration,
+          },
+          prompt: turn.prompt,
+          turnToken: turn.turnToken,
+          convexCallbackBase: turn.convexCallbackBase,
+          brokerRoute: turn.turnBrokerRoute,
+          execution: plan.execution,
+          watchdogMs: turn.watchdogMs ?? 15 * 60_000,
+        },
+        execution: plan.execution,
+        context: execution,
+        control,
+        sql: this.ctx.storage.sql,
+        tools: createResidentGeneralAgentTools(doLocal, ladder),
+        workspacePrompt: { office: false },
+        now: () => Date.now(),
+        onAgentStarted: (abort) => {
+          this.residentAgentAborts.set(turn.turnId, abort);
+        },
+        commit: async (sealed) =>
+          await this.commitResidentTurnDurability({
+            turn,
+            execution,
+            ladder,
+            sealed,
+            control,
+            commandTimeoutMs,
+          }),
+      });
+      await this.deliverResidentTerminal(turn, result, requestStarted);
+      return result;
+    } finally {
+      this.residentAgentAborts.delete(turn.turnId);
+      await ladder.teardown().catch(() => undefined);
+    }
+  }
+
+  /**
+   * D6, sequenced by the code that owns `turn-state-archive`.
+   *
+   * A turn that never attached commits its transcript and nothing else. One
+   * that did — including a resident turn that asked for the interior build and
+   * so attaches after the loop — commits the archive first, because a
+   * canonical cursor must never name a workspace revision that was never
+   * uploaded.
+   */
+  private async commitResidentTurnDurability(args: {
+    turn: TurnRequest;
+    execution: TurnExecutionContext;
+    ladder: ReturnType<typeof createAgentComputeLadder>;
+    sealed: SealedTurnTranscript;
+    control: ReturnType<typeof createAgentControlPlane>;
+    commandTimeoutMs: number;
+  }): Promise<Exclude<TurnDurability, { kind: "none" }>> {
+    const { turn, execution, ladder, sealed, control } = args;
+    await ladder.attachForInteriorBuild();
+    execution.assertActive();
+    if (!ladder.attached()) {
+      return {
+        kind: "transcript_only",
+        transcript: await control.appendAndVerifyTranscript(sealed),
+      };
+    }
+    const sandbox = await this.currentSandbox();
+    if (!sandbox) throw new AgentTurnAuthorityLostError();
+    const interior = await this.publishRequestedInteriorCandidate({
+      turn,
+      sandbox,
+      commandTimeoutMs: args.commandTimeoutMs,
+      turnExecution: execution,
+    });
+    if (interior.outcome === "failed") {
+      throw new AgentTurnError(interior.error);
+    }
+    await ladder.quiesce();
+    execution.assertActive();
+    const checkpoint = await this.runResidentTurnStateCheckpoint({
+      turn,
+      historyCursor: sealed.historyCursor,
+    });
+    const transcript = await control.appendAndVerifyTranscript(sealed);
+    return { kind: "workspace_checkpoint", transcript, checkpoint };
+  }
+
+  /**
+   * Run the deterministic turn-state operation for an attached resident turn.
+   *
+   * The container path reaches the same code through a broker request, whose
+   * id makes a replay idempotent. A resident turn is its own requester, so the
+   * id is derived from the exact attempt instead: an alarm replay resumes this
+   * operation rather than manufacturing a second archive.
+   */
+  private async runResidentTurnStateCheckpoint(args: {
+    turn: TurnRequest;
+    historyCursor: string;
+  }): Promise<TurnBrokerTurnStateCheckpointReceipt> {
+    const { turn } = args;
+    const attemptGeneration = turn.attemptGeneration!;
+    const requestId = await sha256Hex(
+      `resident-turn-state:${turn.turnId}:${attemptGeneration}`,
+    );
+    const operationKey = turnStateCheckpointOperationKey(requestId);
+    const baseWorkspaceRevision = await this.ctx.storage.get<number>(
+      turnStateBaseWorkspaceRevisionKey(turn.turnId, attemptGeneration),
+    );
+    if (!Number.isSafeInteger(baseWorkspaceRevision)) {
+      throw new AgentTurnError(
+        "Stella could not establish this workspace's revision for the turn. Try again.",
+      );
+    }
+    const existing =
+      await this.ctx.storage.get<TurnStateCheckpointOperation>(operationKey);
+    if (existing?.state === "succeeded") return existing.receipt;
+    const payload: TurnBrokerTurnStateCheckpointRequest = {
+      schemaVersion: 1,
+      historyCursor: args.historyCursor,
+    };
+    const operation: Extract<
+      TurnStateCheckpointOperation,
+      { state: "pending" }
+    > & { payload: TurnBrokerTurnStateCheckpointRequest } = {
+      state: "pending",
+      turnId: turn.turnId,
+      attemptGeneration,
+      requestId,
+      requestFingerprint: await sha256Hex(JSON.stringify(payload)),
+      createdAt: existing?.createdAt ?? Date.now(),
+      baseWorkspaceRevision: baseWorkspaceRevision!,
+      payload,
+    };
+    await this.ctx.storage.put(operationKey, operation);
+    const inFlight = this.turnStateCheckpointRuns.get(requestId);
+    if (inFlight) return await inFlight;
+    const run = this.executeTurnStateCheckpoint({
+      turn,
+      operationKey,
+      operation,
+    });
+    this.turnStateCheckpointRuns.set(requestId, run);
+    try {
+      return await run;
+    } finally {
+      this.turnStateCheckpointRuns.delete(requestId);
+    }
+  }
+
+  /**
+   * The resident arm's terminal event. Same envelope the container path
+   * delivers, minus the fields a resident turn genuinely does not have: there
+   * is no cold start and no restore to report when nothing booted.
+   */
+  private async deliverResidentTerminal(
+    turn: TurnRequest,
+    result: GeneralAgentTurnResult,
+    requestStarted: number,
+  ): Promise<void> {
+    const wallClockMs = Math.round(performance.now() - requestStarted);
+    const compute = result.compute;
+    const shared = {
+      usage: {
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+        llmCalls: result.usage.llmCalls,
+      },
+      coldContainerStartMs:
+        compute.kind === "sandbox" ? compute.coldStartMs : 0,
+      restoreMs: compute.kind === "sandbox" ? compute.restoreMs : 0,
+      checkpointMs: 0,
+      wallClockMs,
+      ...(compute.kind === "sandbox"
+        ? { instanceType: INSTANCE_TIERS[compute.instanceSize].instanceType }
+        : {}),
+    };
+    const pending: PendingTerminal = result.ok
+      ? {
+          turnId: turn.turnId,
+          attemptGeneration: turn.attemptGeneration!,
+          kind: "completed",
+          payload: { finalText: result.finalText, ...shared },
+        }
+      : {
+          turnId: turn.turnId,
+          attemptGeneration: turn.attemptGeneration!,
+          kind: "failed",
+          payload: {
+            message:
+              result.outcome === "failed"
+                ? result.error
+                : "The agent stopped and could not continue.",
+          },
+          threadError:
+            result.outcome === "failed"
+              ? result.error
+              : "The agent stopped and could not continue.",
+        };
+    const delivered = await this.deliverTerminal(turn, pending);
+    if (delivered && (await this.ownsExactTurn(turn))) {
+      await this.deleteTurnStoragePreservingExactCancellations(turn, true);
+    }
+    log("info", "agent_turn_finished", {
+      turnId: turn.turnId,
+      threadId: turn.threadId,
+      ok: result.ok,
+      wallClockMs,
+    });
+  }
+
+  private async runContainerAgentTurn(
     turn: TurnRequest,
     sandboxId: string,
     execution: TurnExecutionContext,
   ): Promise<void> {
     const commandTimeoutMs = Number(this.env.TURN_TIMEOUT_MS);
-    const workspace = resolveWorkspace(turn.workspace);
     const requestStarted = performance.now();
     let sandbox = this.sandbox(sandboxId);
     log("info", "agent_turn_started", {
       turnId: turn.turnId,
       threadId: turn.threadId,
-      workspace: workspace?.canonical ?? turn.workspace,
       sessionId: this.ctx.id.toString(),
     });
     try {
       await this.assertAgentExecutionActive(turn, execution);
-      if (!workspace || !workspace.mountPath) {
-        throw new AgentTurnError(
-          workspace?.kind === "computer"
-            ? "The user's computer isn't reachable from the cloud. This has to run on their own machine."
-            : `Stella doesn't recognize the workspace "${turn.workspace ?? ""}", so there was nothing to work in.`,
-        );
-      }
-      const workspaceRoot = asTurnStateWorkspaceRoot(workspace.mountPath);
-      if (!workspaceRoot) {
-        throw new AgentTurnError(
-          "Stella couldn't validate this cloud workspace mount. Try again.",
-        );
-      }
-      const workspaceKey = await checkpointKey(
-        turn.ownerId,
-        workspace.canonical,
-      );
+      const workspaceKey = await checkpointKey(turn.ownerId);
       execution.assertActive();
       await this.event(
         turn,
         "auto",
         "started",
-        {
-          threadId: turn.threadId,
-          workspace: workspace.canonical,
-        },
+        { threadId: turn.threadId },
         false,
         execution.signal,
       );
@@ -7055,7 +7820,6 @@ export class BuildSession extends DurableObject<Env> {
       const canonicalHistoryCursor = await nativeHistoryCursorFromRows(history);
       let resolvedTurnState = await this.resolveAgentTurnState(
         turn,
-        workspace.canonical,
         canonicalHistoryCursor,
       );
       execution.assertActive();
@@ -7068,14 +7832,12 @@ export class BuildSession extends DurableObject<Env> {
         await this.assertConvexAgentTurnAuthority(turn);
         await this.publishAgentTurnWorkspace(
           turn,
-          workspace.canonical,
           canonicalHistoryCursor,
           resolvedTurnState.workspacePublication.operationId,
         );
         execution.assertActive();
         resolvedTurnState = await this.resolveAgentTurnState(
           turn,
-          workspace.canonical,
           canonicalHistoryCursor,
         );
         execution.assertActive();
@@ -7092,7 +7854,11 @@ export class BuildSession extends DurableObject<Env> {
           "This workspace's saved state is incomplete. Try again after Stella finishes recovering it.",
         );
       }
-      if (resolvedTurnState.threadRegistryPresent && !turnStateThreadRestore) {
+      if (
+        resolvedTurnState.threadRegistryPresent &&
+        !turnStateThreadRestore &&
+        requiresExactThreadCandidate(turn.execution)
+      ) {
         throw new AgentTurnError(
           "This agent's saved session no longer matches its cloud conversation. Start a new agent thread to continue safely.",
         );
@@ -7117,7 +7883,7 @@ export class BuildSession extends DurableObject<Env> {
         if (rawLegacyWorkspace) {
           legacyWorkspaceDescriptor = parseLegacyWorkspaceBackup(
             rawLegacyWorkspace,
-            workspaceRoot,
+            WORLD_ROOT,
           );
           if (!legacyWorkspaceDescriptor) {
             throw new AgentTurnError(
@@ -7168,20 +7934,6 @@ export class BuildSession extends DurableObject<Env> {
         execution.assertActive();
       }
 
-      // Clone credentials are minted per turn and expire on their own; they
-      // are held in this local only and handed to the executor through a
-      // one-shot file it deletes before the agent can run.
-      const projectContext =
-        workspace.kind === "project" && workspace.slug
-          ? await this.fetchProjectCredentials(
-              turn,
-              workspace.slug,
-              execution.signal,
-            )
-          : undefined;
-      execution.assertActive();
-      const project = projectContext?.handoff;
-
       // The mirror snapshot is pinned once for the logical turn, before either
       // sandbox attempt. An OOM retry therefore cannot silently pick up a
       // device-side skill edit that landed halfway through the turn.
@@ -7209,17 +7961,14 @@ export class BuildSession extends DurableObject<Env> {
       // workspace that has already been seen to need more memory overrides the
       // heuristic — that memory is what stops the OOM-escalate cycle from
       // repeating on every turn.
-      const remembered =
-        asInstanceSize(projectContext?.instanceSize) ??
-        asInstanceSize(
-          await this.env.APP_ROUTES.get(instanceSizeKey(workspaceKey)),
-        );
+      const remembered = asInstanceSize(
+        await this.env.APP_ROUTES.get(instanceSizeKey(workspaceKey)),
+      );
       execution.assertActive();
       let size: InstanceSize = !this.env.SANDBOX_SMALL
         ? "large"
         : (remembered ??
           initialInstanceSize({
-            workspaceKind: workspace.kind,
             prompt: turn.prompt,
             restored: Boolean(turnStateWorkspaceRestore || descriptor),
           }));
@@ -7232,7 +7981,6 @@ export class BuildSession extends DurableObject<Env> {
         execution,
         sandbox,
         size,
-        workspaceRoot,
         descriptor,
         nativeDescriptor: legacyNativeDescriptor,
         turnStateWorkspaceRestore,
@@ -7242,7 +7990,6 @@ export class BuildSession extends DurableObject<Env> {
         turnStateThreadRestoreConfirmationRequired:
           resolvedTurnState.confirmationRequired,
         history,
-        project,
         cloudSkillHome,
         cloudSkillCatalog,
         commandTimeoutMs,
@@ -7273,10 +8020,8 @@ export class BuildSession extends DurableObject<Env> {
         });
         execution.assertActive();
         // What this turn just learned, written before the retry so it survives
-        // however the retry ends: this workspace does not fit on the small
-        // rung. Every workspace kind learns here — `project:` additionally
-        // records it in Convex below, where the user can see it. The TTL lets
-        // a workspace that has since become light drift back down.
+        // however the retry ends: this world does not fit on the small rung.
+        // The TTL lets a world that has since become light drift back down.
         await this.assertAgentExecutionActive(turn, execution);
         const sizeKey = instanceSizeKey(workspaceKey);
         await this.env.APP_ROUTES.put(sizeKey, size, {
@@ -7322,7 +8067,6 @@ export class BuildSession extends DurableObject<Env> {
           execution,
           sandbox,
           size,
-          workspaceRoot,
           descriptor,
           nativeDescriptor: legacyNativeDescriptor,
           turnStateWorkspaceRestore,
@@ -7332,7 +8076,6 @@ export class BuildSession extends DurableObject<Env> {
           turnStateThreadRestoreConfirmationRequired:
             resolvedTurnState.confirmationRequired,
           history,
-          project,
           cloudSkillHome,
           cloudSkillCatalog,
           commandTimeoutMs,
@@ -7419,70 +8162,22 @@ export class BuildSession extends DurableObject<Env> {
         }
       }
 
-      if (result.ok && workspace.kind === "stella") {
-        await this.event(
+      if (result.ok) {
+        const interior = await this.publishRequestedInteriorCandidate({
           turn,
-          "auto",
-          "interior_build_started",
-          { sourceWorkspace: workspace.canonical },
-          false,
-          execution.signal,
-        ).catch(() => undefined);
-        try {
-          interiorCandidate = await this.publishInteriorCandidate(
-            turn,
-            sandbox,
-            workspaceRoot,
-            commandTimeoutMs,
-            execution,
-          );
-          await this.event(
-            turn,
-            "auto",
-            "interior_candidate_created",
-            {
-              buildId: interiorCandidate.buildId,
-              previewUrl: interiorCandidate.previewUrl,
-              digest: interiorCandidate.digest,
-              size: interiorCandidate.size,
-              sourceRevision: interiorCandidate.sourceRevision,
-              baseRevision: interiorCandidate.baseRevision,
-              activated: false,
-            },
-            false,
-            execution.signal,
-          ).catch(() => undefined);
-        } catch (error) {
-          if (
-            !(await this.ownsExactTurn(turn)) ||
-            (await this.ctx.storage.get<boolean>("terminal"))
-          ) {
-            await sandbox.destroy().catch(() => undefined);
-            return;
-          }
-          const buildError = errorMessage(error);
-          log("error", "interior_candidate_failed", {
-            turnId: turn.turnId,
-            threadId: turn.threadId,
-            message: buildError,
-          });
-          await this.event(
-            turn,
-            "auto",
-            "interior_build_failed",
-            {
-              message:
-                "The updated Stella interior did not pass its production build.",
-            },
-            false,
-            execution.signal,
-          ).catch(() => undefined);
-          result = {
-            ...result,
-            ok: false,
-            error:
-              "The agent's source changes were kept, but the updated Stella interior did not pass its production build, so no candidate was created.",
-          };
+          sandbox,
+          commandTimeoutMs,
+          turnExecution: execution,
+        });
+        if (interior.outcome === "abandoned") {
+          await sandbox.destroy().catch(() => undefined);
+          return;
+        }
+        if (interior.outcome === "published") {
+          interiorCandidate = interior.candidate;
+        }
+        if (interior.outcome === "failed") {
+          result = { ...result, ok: false, error: interior.error };
         }
       }
 
@@ -7525,14 +8220,12 @@ export class BuildSession extends DurableObject<Env> {
             }
             await this.publishAgentTurnWorkspace(
               turn,
-              workspace.canonical,
               checkpoint.historyCursor,
               checkpoint.operationId,
             );
             execution.assertActive();
             const published = await this.resolveAgentTurnState(
               turn,
-              workspace.canonical,
               checkpoint.historyCursor,
               { allowMissingNative: builderFallbackUsed },
             );
@@ -7627,12 +8320,11 @@ export class BuildSession extends DurableObject<Env> {
         result.suspension &&
         validTurnStateCheckpointReceipt(result.turnStateCheckpoint)
       ) {
-        const verifiedSuspension =
-          await this.recoverObservedBrowserSuspension(
-            turn,
-            result.turnStateCheckpoint,
-            execution.signal,
-          );
+        const verifiedSuspension = await this.recoverObservedBrowserSuspension(
+          turn,
+          result.turnStateCheckpoint,
+          execution.signal,
+        );
         if (
           !verifiedSuspension ||
           cloudBrowserSuspensionMarker(verifiedSuspension) !==
@@ -7738,25 +8430,6 @@ export class BuildSession extends DurableObject<Env> {
         };
       }
       const delivered = await this.deliverTerminal(turn, pending);
-      // What this turn learned about the project: the setup command it had to
-      // infer, and the instance size it actually needed. Recording them is
-      // what stops the next turn from rediscovering both the slow way.
-      if (workspace.kind === "project") {
-        const setupScript =
-          result.project?.setupSource === "inferred"
-            ? result.project.setupCommand
-            : undefined;
-        if (setupScript || escalated || !checkpointError) {
-          await this.callback(turn, "/api/cloud/projects/setup", {
-            ownerId: turn.ownerId,
-            slug: workspace.slug,
-            workspace: workspace.canonical,
-            ...(setupScript ? { setupScript } : {}),
-            ...(escalated ? { instanceSize: size } : {}),
-            ...(checkpointError ? {} : { checkpointedAt: Date.now() }),
-          }).catch(() => undefined);
-        }
-      }
       await sandbox.destroy().catch(() => undefined);
       // Storage is the redelivery's only memory: clear it once the terminal
       // state is in Convex, and leave it — with the alarm deliverTerminal
@@ -7927,52 +8600,44 @@ export class BuildSession extends DurableObject<Env> {
   }
 
   /**
-   * One sandbox attempt at an agent turn: boot, restore the workspace, hand
-   * the executor its input, run it. Kept separate from {@link runAgentTurn}
-   * so an OOM escalation can repeat it on a bigger instance without
-   * duplicating any of the turn's lifecycle or fencing.
+   * Bring a container up with this owner's world on disk: create the command
+   * session, restore the canonical archives (or seed a first world), verify
+   * the packaged renderer still matches, and confirm the restore with the
+   * owner fence.
+   *
+   * Shared by the eager container path and the compute ladder's lazy attach,
+   * which is the whole point: a mid-turn attach has to land on exactly the
+   * disk an eager boot would have produced, or the two placements would
+   * disagree about what a checkpoint means. It deliberately does not emit
+   * `sandbox_ready` — the eager path reports a boot, the ladder reports an
+   * attach, and the payloads differ.
    */
-  private async runAgentAttempt(args: {
+  private async attachAgentWorld(args: {
     turn: TurnRequest;
     execution: TurnExecutionContext;
     sandbox: ReturnType<BuildSession["sandbox"]>;
     size: InstanceSize;
-    workspaceRoot: TurnStateWorkspaceRoot;
-    /** The workspace's last checkpoint, or null on its first turn. */
     descriptor: DirectoryBackup | null;
-    /** Root-private Claude state selected by the canonical transcript. */
     nativeDescriptor: DirectoryBackup | null;
-    /** Latest canonical owner/workspace archive, shared across all threads. */
     turnStateWorkspaceRestore?: TurnStateWorkspaceHead;
     turnStateWorkspaceRestoreConfirmationRequired: boolean;
-    /** Canonical transcript/native state for this exact thread only. */
     turnStateThreadRestore?: TurnStateCandidate;
     turnStateThreadRestoreConfirmationRequired: boolean;
     history: AgentHistoryRow[];
-    project?: ProjectHandoff;
-    cloudSkillHome?: CloudHomeStore;
-    cloudSkillCatalog?: CloudSkillCatalogSnapshot;
     commandTimeoutMs: number;
   }): Promise<{
-    result: AgentExecutorResult;
-    oom: boolean;
+    session: ExecutionSession;
     coldContainerStartMs: number;
     restoreMs: number;
   }> {
-    const {
-      turn,
-      execution: turnExecution,
-      sandbox,
-      workspaceRoot,
-      descriptor,
-    } = args;
+    const { turn, execution: turnExecution, sandbox, descriptor } = args;
     const coldStarted = performance.now();
     await this.assertAgentExecutionActive(turn, turnExecution);
     const session = await sandbox.createSession({
       id: sessionName(`agent-run-${turn.turnId}-${args.size}`),
       cwd: "/opt/stella",
       commandTimeoutMs: args.commandTimeoutMs,
-      env: executorSessionEnvironment(workspaceRoot),
+      env: executorSessionEnvironment(),
     });
     turnExecution.assertActive();
     const coldContainerStartMs = Math.round(performance.now() - coldStarted);
@@ -7987,61 +8652,53 @@ export class BuildSession extends DurableObject<Env> {
         session,
         bucket: this.env.BACKUP_BUCKET,
         archive: args.turnStateWorkspaceRestore.archive,
-        target: { kind: "workspace", workspaceRoot },
+        target: { kind: "workspace" },
       });
       turnExecution.assertActive();
       restoreMs = Math.round(performance.now() - restoreStarted);
-      await normalizeToolWorkspaceRoot(session, workspaceRoot);
-      turnExecution.assertActive();
     } else if (descriptor) {
       const restoreStarted = performance.now();
       turnExecution.assertActive();
       await sandbox.restoreBackup(descriptor);
       turnExecution.assertActive();
       restoreMs = Math.round(performance.now() - restoreStarted);
-      await normalizeToolWorkspaceRoot(session, workspaceRoot);
-      turnExecution.assertActive();
-    } else if (workspaceRoot === "/workspace/stella") {
-      // A first Stella workspace is a real, buildable renderer checkout from
-      // the immutable image—not an empty directory the model has to invent.
-      // All paths are fixed image/mount contract constants; no user value is
-      // interpolated into this seeding command.
-      turnExecution.assertActive();
-      await normalizeToolWorkspaceRoot(session, workspaceRoot);
+    }
+    await normalizeToolWorkspaceRoot(session, WORLD_ROOT);
+    turnExecution.assertActive();
+
+    // `world/stella` is a real, buildable renderer checkout from the immutable
+    // image, never an empty directory the model has to invent. Once it exists
+    // its recorded seed has to still match the image, or a self-update would
+    // be built on top of a renderer Stella no longer ships.
+    const stellaPresent = await session.exec(`test -d '${WORLD_STELLA_ROOT}'`);
+    turnExecution.assertActive();
+    if (!stellaPresent.success) {
       await seedFirstStellaToolWorkspace(session);
       turnExecution.assertActive();
     } else {
-      turnExecution.assertActive();
-      await normalizeToolWorkspaceRoot(session, workspaceRoot);
-      turnExecution.assertActive();
-    }
-    if (
-      workspaceRoot === "/workspace/stella" &&
-      (args.turnStateWorkspaceRestore || descriptor)
-    ) {
       const readJson = async (filePath: string) => {
         const read = await session.readFile(filePath, { encoding: "base64" });
         turnExecution.assertActive();
         return JSON.parse(atob(read.content)) as Record<string, unknown>;
       };
-      const [workspaceState, imageSeed] = await Promise.all([
-        readJson("/workspace/stella/.stella/interior-source.json"),
+      const [interiorState, imageSeed] = await Promise.all([
+        readJson(`${WORLD_STELLA_ROOT}/.stella/interior-source.json`),
         readJson("/opt/stella/interior-seed.json"),
       ]);
-      const workspaceSeedRevision =
-        typeof workspaceState.upstreamSeedRevision === "string"
-          ? workspaceState.upstreamSeedRevision
-          : workspaceState.buildId === undefined &&
-              typeof workspaceState.sourceRevision === "string"
-            ? workspaceState.sourceRevision
+      const interiorSeedRevision =
+        typeof interiorState.upstreamSeedRevision === "string"
+          ? interiorState.upstreamSeedRevision
+          : interiorState.buildId === undefined &&
+              typeof interiorState.sourceRevision === "string"
+            ? interiorState.sourceRevision
             : null;
       if (
-        !workspaceSeedRevision ||
+        !interiorSeedRevision ||
         typeof imageSeed.sourceRevision !== "string" ||
-        workspaceSeedRevision !== imageSeed.sourceRevision
+        interiorSeedRevision !== imageSeed.sourceRevision
       ) {
         throw new AgentTurnError(
-          "Stella's packaged renderer changed since this cloud workspace was created. Its existing customizations need an upstream migration before another self-update can be built.",
+          "Stella's packaged renderer changed since this world was created. Its existing customizations need an upstream migration before another self-update can be built.",
         );
       }
     }
@@ -8067,7 +8724,6 @@ export class BuildSession extends DurableObject<Env> {
     if (args.turnStateWorkspaceRestore || args.turnStateThreadRestore) {
       await this.confirmAgentTurnStateRestore(
         turn,
-        resolveWorkspace(turn.workspace)!.canonical,
         await nativeHistoryCursorFromRows(args.history),
         args.turnStateWorkspaceRestore,
         args.turnStateWorkspaceRestoreConfirmationRequired,
@@ -8076,6 +8732,43 @@ export class BuildSession extends DurableObject<Env> {
       );
       turnExecution.assertActive();
     }
+    return { session, coldContainerStartMs, restoreMs };
+  }
+
+  /**
+   * One sandbox attempt at an agent turn: boot, restore the workspace, hand
+   * the executor its input, run it. Kept separate from {@link runAgentTurn}
+   * so an OOM escalation can repeat it on a bigger instance without
+   * duplicating any of the turn's lifecycle or fencing.
+   */
+  private async runAgentAttempt(args: {
+    turn: TurnRequest;
+    execution: TurnExecutionContext;
+    sandbox: ReturnType<BuildSession["sandbox"]>;
+    size: InstanceSize;
+    /** The world's last checkpoint, or null on its first turn. */
+    descriptor: DirectoryBackup | null;
+    /** Root-private Claude state selected by the canonical transcript. */
+    nativeDescriptor: DirectoryBackup | null;
+    /** Latest canonical owner world archive, shared across all threads. */
+    turnStateWorkspaceRestore?: TurnStateWorkspaceHead;
+    turnStateWorkspaceRestoreConfirmationRequired: boolean;
+    /** Canonical transcript/native state for this exact thread only. */
+    turnStateThreadRestore?: TurnStateCandidate;
+    turnStateThreadRestoreConfirmationRequired: boolean;
+    history: AgentHistoryRow[];
+    cloudSkillHome?: CloudHomeStore;
+    cloudSkillCatalog?: CloudSkillCatalogSnapshot;
+    commandTimeoutMs: number;
+  }): Promise<{
+    result: AgentExecutorResult;
+    oom: boolean;
+    coldContainerStartMs: number;
+    restoreMs: number;
+  }> {
+    const { turn, execution: turnExecution, sandbox, descriptor } = args;
+    const world = await this.attachAgentWorld(args);
+    const { session, coldContainerStartMs, restoreMs } = world;
     await this.event(
       turn,
       "auto",
@@ -8089,11 +8782,9 @@ export class BuildSession extends DurableObject<Env> {
       false,
       turnExecution.signal,
     );
-    turnExecution.assertActive();
-
     let cloudSkills:
-      | Awaited<ReturnType<typeof materializeCloudSkillSnapshot>>
-      | undefined = undefined;
+      Awaited<ReturnType<typeof materializeCloudSkillSnapshot>> | undefined =
+      undefined;
     if (args.cloudSkillHome && args.cloudSkillCatalog) {
       turnExecution.assertActive();
       cloudSkills = await materializeCloudSkillSnapshot({
@@ -8156,24 +8847,7 @@ export class BuildSession extends DurableObject<Env> {
       }
       turnExecution.assertActive();
 
-      // The installation token is the one thing that does not go into
-      // turn-input.json: that file survives the whole turn one directory above
-      // the agent's cwd, so anything in it is one `cat ../turn-input.json` away
-      // from a prompt-injected agent. It gets its own file instead, and the
-      // executor deletes that file before it builds the agent's tool host.
-      if (args.project) {
-        const { token, ...handoff } = args.project;
-        projectInput = handoff;
-        if (token) {
-          credentialsPath = projectCredentialsPath();
-          turnExecution.assertActive();
-          await session.writeFile(credentialsPath, JSON.stringify({ token }));
-          turnExecution.assertActive();
-          projectInput = { ...handoff, credentialsPath };
-        }
-      }
-
-      // turn-input.json sits above the workspace root on purpose: the
+      // turn-input.json sits above the world root on purpose: the
       // checkpoint only covers the root, so nothing here reaches a durable
       // backup.
       turnExecution.assertActive();
@@ -8188,7 +8862,6 @@ export class BuildSession extends DurableObject<Env> {
           turnId: turn.turnId,
           attemptGeneration: turn.attemptGeneration,
           prompt: turn.prompt,
-          workspace: turn.workspace ?? "cloud",
           workspaceRestored: Boolean(
             args.turnStateWorkspaceRestore || descriptor,
           ),
@@ -8197,7 +8870,6 @@ export class BuildSession extends DurableObject<Env> {
           history: args.history,
           ...(turn.browserResume ? { browserResume: turn.browserResume } : {}),
           ...(cloudSkills ? { skills: cloudSkills } : {}),
-          ...(projectInput ? { project: projectInput } : {}),
           ...(turn.execution ? { execution: turn.execution } : {}),
         }),
       );
@@ -8229,7 +8901,7 @@ export class BuildSession extends DurableObject<Env> {
         args.commandTimeoutMs,
         {
           cwd: "/opt/stella",
-          env: executorSessionEnvironment(workspaceRoot),
+          env: executorSessionEnvironment(),
           // The root-only result file is authoritative. Bound the optional
           // stdout transfer well below the durable execution-marker alarm so
           // this invocation can recover the file before alarm fallback runs.
@@ -8324,18 +8996,13 @@ export class BuildSession extends DurableObject<Env> {
                   attemptGeneration: turn.attemptGeneration!,
                   sandboxId: currentSandboxId,
                   size: args.size,
-                  workspace: resolveWorkspace(turn.workspace)!.canonical,
-                  workspaceRoot,
                   startedAt: Date.now(),
                 };
                 await transaction.put(markerKey, value);
                 return value;
               },
             );
-            if (
-              marker.workspaceRoot !== workspaceRoot ||
-              marker.turnId !== turn.turnId
-            ) {
+            if (marker.turnId !== turn.turnId) {
               throw new AgentTurnAuthorityLostError();
             }
             turnExecution.assertActive();
@@ -8359,8 +9026,7 @@ export class BuildSession extends DurableObject<Env> {
         resultPollController.signal,
         turnExecution.signal,
       ]).then(
-        (resultText) =>
-          ({ kind: "result_file" as const, resultText }) as const,
+        (resultText) => ({ kind: "result_file" as const, resultText }) as const,
         (error: unknown) =>
           ({ kind: "result_file_error" as const, error }) as const,
       );
@@ -8395,8 +9061,9 @@ export class BuildSession extends DurableObject<Env> {
         } else if (captureAfterFile.kind === "execution_error") {
           capturedExecutionError = captureAfterFile.error;
           recordedResultProcessQuiesced =
-            !(captureAfterFile.error instanceof CapturedSessionAbandonedError) ||
-            captureAfterFile.error.disposition === "session_quiesced";
+            !(
+              captureAfterFile.error instanceof CapturedSessionAbandonedError
+            ) || captureAfterFile.error.disposition === "session_quiesced";
         } else {
           // The executor writes this file only after its checkpoint and
           // transcript work has completed. If Cloudflare's process registry is
@@ -8529,97 +9196,6 @@ export class BuildSession extends DurableObject<Env> {
     };
   }
 
-  /**
-   * Short-lived clone credentials for a `project:` workspace. The response is
-   * never logged and never persisted: it is read into the caller's local and
-   * handed straight to the sandbox.
-   */
-  private async fetchProjectCredentials(
-    turn: TurnRequest,
-    slug: string,
-    executionSignal?: AbortSignal,
-  ): Promise<{ handoff?: ProjectHandoff; instanceSize?: string }> {
-    let payload: {
-      provider?: string;
-      remoteUrl?: string | null;
-      token?: string | null;
-      defaultBranch?: string;
-      setupScript?: string;
-      instanceSize?: string;
-      authorName?: string;
-      authorEmail?: string;
-      error?: string;
-    };
-    try {
-      const response = await fetch(
-        `${turn.convexCallbackBase.replace(/\/+$/, "")}/api/cloud/projects/credentials`,
-        {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${this.env.BUILDER_SERVICE_SECRET}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            ownerId: turn.ownerId,
-            ownerGeneration: turn.ownerGeneration,
-            slug,
-            threadId: turn.threadId,
-          }),
-          signal: executionSignal
-            ? AbortSignal.any([executionSignal, AbortSignal.timeout(30_000)])
-            : AbortSignal.timeout(30_000),
-        },
-      );
-      if (!response.ok) {
-        log("error", "project_credentials_failed", {
-          turnId: turn.turnId,
-          slug,
-          status: response.status,
-        });
-        throw new AgentTurnError(
-          "Stella couldn't get access to that project's repository. Reconnect the project and try again.",
-        );
-      }
-      payload = (await response.json()) as typeof payload;
-    } catch (error) {
-      if (error instanceof AgentTurnError) throw error;
-      throw new AgentTurnError(
-        "Stella couldn't reach that project's repository. Try again in a moment.",
-      );
-    }
-    const instanceSize = payload.instanceSize?.trim();
-    // Stella-hosted projects have no remote at all: the restored workspace is
-    // the git home, so there is nothing to clone and no token to hand over.
-    if (payload.provider === "stella" || !payload.remoteUrl) {
-      return { ...(instanceSize ? { instanceSize } : {}) };
-    }
-    if (!payload.token) {
-      throw new AgentTurnError(
-        "That project's repository isn't connected to Stella's GitHub app yet, so the agent can't reach it.",
-      );
-    }
-    const defaultBranch = payload.defaultBranch?.trim() || "main";
-    return {
-      handoff: {
-        remoteUrl: payload.remoteUrl,
-        token: payload.token,
-        defaultBranch,
-        // Agents work directly on the default branch, like a person at a
-        // clone: each turn's sandbox is its own working copy, and the remote
-        // reconciles concurrent work through ordinary fetch/rebase/push.
-        branch: defaultBranch,
-        ...(payload.setupScript ? { setupScript: payload.setupScript } : {}),
-        ...(payload.authorName && payload.authorEmail
-          ? {
-              authorName: payload.authorName,
-              authorEmail: payload.authorEmail,
-            }
-          : {}),
-      },
-      ...(instanceSize ? { instanceSize } : {}),
-    };
-  }
-
   private async runTurn(
     turn: TurnRequest,
     turnExecution: TurnExecutionContext,
@@ -8652,7 +9228,6 @@ export class BuildSession extends DurableObject<Env> {
       turnId: turn.turnId,
       appId: turn.appId,
       sessionId: this.ctx.id.toString(),
-      autoActivate: turn.autoActivate !== false,
     });
     try {
       await this.assertAppExecutionActive(turn, turnExecution);
@@ -8903,66 +9478,6 @@ export class BuildSession extends DurableObject<Env> {
         throw error;
       }
       const previewUrl = `${this.env.APPS_HOST_BASE_URL.replace(/\/+$/, "")}/apps/${slug}/`;
-      if (turn.autoActivate !== false) {
-        await this.assertAppExecutionActive(turn, turnExecution);
-        const previousRoute = await this.env.APP_ROUTES.get<
-          Record<string, unknown>
-        >(`app:${slug}`, "json");
-        turnExecution.assertActive();
-        if (
-          previousRoute &&
-          (previousRoute.ownerId !== turn.ownerId ||
-            previousRoute.appId !== turn.appId)
-        ) {
-          throw new Error("The hosted app route belongs to another app.");
-        }
-        await this.ctx.storage.put<TransientAppBuildRoute>(
-          transientBuildRouteKey(turn.turnId),
-          {
-            key: `app:${slug}`,
-            ownerId: turn.ownerId,
-            appId: turn.appId,
-            buildId,
-            artifactPrefix,
-            ...(previousRoute ? { previousRoute } : {}),
-          },
-        );
-        turnExecution.assertActive();
-        await this.env.APP_ROUTES.put(
-          `app:${slug}`,
-          JSON.stringify({
-            appId: turn.appId,
-            ownerId: turn.ownerId,
-            buildId,
-            artifactPrefix,
-            suspended: false,
-            updatedAt: Date.now(),
-          }),
-        );
-        try {
-          await this.assertAppExecutionActive(turn, turnExecution);
-        } catch (error) {
-          const currentRoute = await this.env.APP_ROUTES.get<
-            Record<string, unknown>
-          >(`app:${slug}`, "json");
-          if (
-            currentRoute?.ownerId === turn.ownerId &&
-            currentRoute.appId === turn.appId &&
-            currentRoute.buildId === buildId &&
-            currentRoute.artifactPrefix === artifactPrefix
-          ) {
-            if (previousRoute) {
-              await this.env.APP_ROUTES.put(
-                `app:${slug}`,
-                JSON.stringify(previousRoute),
-              );
-            } else {
-              await this.env.APP_ROUTES.delete(`app:${slug}`);
-            }
-          }
-          throw error;
-        }
-      }
       const metrics = {
         coldContainerStartMs,
         backupRestoreMs: 0,
@@ -8989,7 +9504,6 @@ export class BuildSession extends DurableObject<Env> {
         previewUrl,
         metrics,
         slug,
-        autoActivate: turn.autoActivate !== false,
         title: appTitle,
       };
       const result = {
@@ -9174,8 +9688,6 @@ type OwnerPurgeRequest = {
   ownerGeneration?: string;
   /** Issued by `/owners/purge/begin`; proves this owner is quiesced. */
   purgeGeneration?: string;
-  /** Canonical workspace strings whose checkpoint + learned size must go. */
-  workspaces?: string[];
   /** App slugs whose hosted route row must go. */
   appSlugs?: string[];
   /** App/interior build artifactPrefix values in APP_BUILDS. */
@@ -9211,13 +9723,12 @@ const withOwnerActivityLease = async <T>(
   ownerGeneration: string,
   activityId: string,
   operation: (generation: string, leaseId: string) => Promise<T>,
-  workspace?: string,
 ): Promise<T> => {
   const sessionId = `activity-${activityId}`;
   const turnId = activityId;
   const leaseId = crypto.randomUUID();
   // Activity leases cannot be canceled by owner purge, so every one needs a
-  // durable crash expiry. Thirty minutes leaves ample room for large workspace
+  // durable crash expiry. Thirty minutes leaves ample room for large world
   // operations while guaranteeing an evicted isolate cannot wedge the owner.
   const expiresAt = Date.now() + 30 * 60_000;
   const registered = await callOwnerFence(env, ownerId, "register", {
@@ -9226,9 +9737,8 @@ const withOwnerActivityLease = async <T>(
     turnId,
     ownerGeneration,
     namespace: "activity",
-    role: workspace ? "run" : "activity",
+    role: "activity",
     expiresAt,
-    ...(workspace ? { workspace } : {}),
   });
   const registration = (await registered.json().catch(() => null)) as {
     generation?: string;
@@ -9472,7 +9982,7 @@ type OwnerPurgeReport = {
 const R2_SWEEP_MAX_PAGES = 10_000;
 /** `crypto.randomUUID()` in the sandbox SDK; anything else is not a backup. */
 const BACKUP_ID_PATTERN = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
-/** The slug an app route is keyed by; same shape `resolveWorkspace` accepts. */
+/** The slug a hosted app route is keyed by. */
 const APP_SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 /**
  * A caller-supplied R2 prefix is a bucket-wipe primitive, so it is matched
@@ -9667,8 +10177,6 @@ const turnStateTransferIdentity = (args: {
   fromOwnerGeneration: string;
   toOwnerId: string;
   toOwnerGeneration: string;
-  sourceWorkspace: string;
-  destinationWorkspace: string;
   side: "source" | "destination";
 }): Record<string, unknown> => {
   const reservation = requireTransferReservation(args.coordinator);
@@ -9690,8 +10198,6 @@ const turnStateTransferIdentity = (args: {
     fromOwnerGeneration: args.fromOwnerGeneration,
     toOwnerId: args.toOwnerId,
     toOwnerGeneration: args.toOwnerGeneration,
-    sourceWorkspace: args.sourceWorkspace,
-    destinationWorkspace: args.destinationWorkspace,
   };
 };
 
@@ -9702,8 +10208,6 @@ const callTurnStateTransferRoute = async <T>(args: {
   fromOwnerGeneration: string;
   toOwnerId: string;
   toOwnerGeneration: string;
-  sourceWorkspace: string;
-  destinationWorkspace: string;
   side: "source" | "destination";
   path:
     | "transfer-status"
@@ -9905,8 +10409,6 @@ const advanceTurnStateWorkspaceTransfer = async (args: {
     fromOwnerGeneration: args.fromOwnerGeneration,
     toOwnerId: args.toOwnerId,
     toOwnerGeneration: args.toOwnerGeneration,
-    sourceWorkspace: args.plan.resolution.from,
-    destinationWorkspace: args.plan.resolution.resolvedTo,
   };
   try {
     return await advanceDurableTurnStateWorkspaceTransfer({
@@ -9972,24 +10474,17 @@ const advanceTurnStateWorkspaceTransfer = async (args: {
   }
 };
 
-const moveWorkspaceCheckpoint = async (
+const moveWorldCheckpoint = async (
   env: Env,
   fromOwnerId: string,
   toOwnerId: string,
-  transfer: OwnerWorkspaceTransfer,
   budget: OwnerTransferBudget,
   coordinator: OwnerTransferCoordinatorContext,
-): Promise<{
-  complete: boolean;
-  resolution?: WorkspaceTransferResolution;
-}> => {
-  const fromKey = await checkpointKey(fromOwnerId, transfer.from);
-  const toKey = await checkpointKey(toOwnerId, transfer.to);
-  const importedKey = transfer.importedTo
-    ? await checkpointKey(toOwnerId, transfer.importedTo)
-    : undefined;
+): Promise<{ complete: boolean }> => {
+  const fromKey = await checkpointKey(fromOwnerId);
+  const toKey = await checkpointKey(toOwnerId);
   const workspacePlanId = await sha256Hex(
-    `workspace-owner-transfer-v1\0${fromKey}\0${toKey}\0${importedKey ?? ""}`,
+    `world-owner-transfer-v1\0${fromKey}\0${toKey}`,
   );
   const existingPlan = await coordinatorWorkspacePlan(
     coordinator,
@@ -10019,10 +10514,9 @@ const moveWorkspaceCheckpoint = async (
           backupIds: [...state.debt.backupIds].sort(),
           size: state.size,
         });
-  const [sourceState, requestedState, importedState] = await Promise.all([
+  const [sourceState, destinationState] = await Promise.all([
     readState(fromKey),
     readState(toKey),
-    importedKey ? readState(importedKey) : Promise.resolve(undefined),
   ]);
   const fromDescriptor = sourceState.descriptor;
   const fromDebt = sourceState.debt;
@@ -10049,8 +10543,6 @@ const moveWorkspaceCheckpoint = async (
         fromOwnerGeneration: coordinator.attempt.fromOwnerGeneration,
         toOwnerId,
         toOwnerGeneration: coordinator.attempt.toOwnerGeneration,
-        sourceWorkspace: transfer.from,
-        destinationWorkspace: transfer.to,
         side: "source",
         path: "transfer-export",
         body: { cursor: 0, limit: 1 },
@@ -10061,38 +10553,25 @@ const moveWorkspaceCheckpoint = async (
       ? sourceProbe.manifest.fingerprint
       : null;
   }
-  const destinationTurnStateStatus = async (
-    destinationWorkspace: string,
-  ): Promise<TurnStateTransferDestinationStatus> =>
-    (
-      await callTurnStateTransferRoute<TurnStateTransferDestinationStatus>({
-        env,
-        coordinator,
-        fromOwnerId,
-        fromOwnerGeneration: coordinator.attempt.fromOwnerGeneration,
-        toOwnerId,
-        toOwnerGeneration: coordinator.attempt.toOwnerGeneration,
-        sourceWorkspace: transfer.from,
-        destinationWorkspace,
-        side: "destination",
-        path: "transfer-status",
-      })
-    ).body;
-  const [requestedTurnState, importedTurnState] = await Promise.all([
-    destinationTurnStateStatus(transfer.to),
-    transfer.importedTo
-      ? destinationTurnStateStatus(transfer.importedTo)
-      : Promise.resolve(undefined),
-  ]);
+  const destinationTurnState = (
+    await callTurnStateTransferRoute<TurnStateTransferDestinationStatus>({
+      env,
+      coordinator,
+      fromOwnerId,
+      fromOwnerGeneration: coordinator.attempt.fromOwnerGeneration,
+      toOwnerId,
+      toOwnerGeneration: coordinator.attempt.toOwnerGeneration,
+      side: "destination",
+      path: "transfer-status",
+    })
+  ).body;
   const destinationStateMarker = (
     legacyMarker: string,
-    destinationWorkspace: string,
-    status: TurnStateTransferDestinationStatus | undefined,
+    status: TurnStateTransferDestinationStatus,
   ): string => {
-    if (!status || status.state === "empty") return legacyMarker;
+    if (status.state === "empty") return legacyMarker;
     const exactOwned =
       existingPlan?.turnState !== undefined &&
-      existingPlan.resolution.resolvedTo === destinationWorkspace &&
       (status.state === "staging" || status.state === "activated");
     return exactOwned ? legacyMarker : `strong:${status.state}`;
   };
@@ -10126,15 +10605,9 @@ const moveWorkspaceCheckpoint = async (
       size: destination.size ?? sourceSize,
     };
   };
-  const [expectedRequestedState, expectedImportedState] = await Promise.all([
-    expectedState(toKey, requestedState),
-    importedKey && importedState
-      ? expectedState(importedKey, importedState)
-      : Promise.resolve(undefined),
-  ]);
+  const expectedDestinationState = await expectedState(toKey, destinationState);
   const observation: WorkspacePlanObservation = {
     workspacePlanId,
-    transfer,
     sourceHasState: hasSourceState || sourceTurnStatePresent,
     sourceStateMarker:
       existingPlan?.sourceStateMarker ??
@@ -10142,24 +10615,11 @@ const moveWorkspaceCheckpoint = async (
         legacy: await stateMarker(sourceState),
         turnState: sourceTurnStateFingerprint,
       })),
-    requestedDestinationMarker: destinationStateMarker(
-      await stateMarker(requestedState),
-      transfer.to,
-      requestedTurnState,
+    destinationMarker: destinationStateMarker(
+      await stateMarker(destinationState),
+      destinationTurnState,
     ),
-    ...(importedState
-      ? {
-          importedDestinationMarker: destinationStateMarker(
-            await stateMarker(importedState),
-            transfer.importedTo!,
-            importedTurnState,
-          ),
-        }
-      : {}),
-    expectedRequestedMarker: await stateMarker(expectedRequestedState),
-    ...(expectedImportedState
-      ? { expectedImportedMarker: await stateMarker(expectedImportedState) }
-      : {}),
+    expectedDestinationMarker: await stateMarker(expectedDestinationState),
   };
   const planResponse = await callTransferCoordinator(
     coordinator,
@@ -10171,32 +10631,21 @@ const moveWorkspaceCheckpoint = async (
     code?: string;
     message?: string;
   } | null;
-  const resolution = planBody?.plan?.resolution;
-  if (!planResponse.ok || !resolution || !planBody?.plan?.state) {
+  if (!planResponse.ok || !planBody?.plan?.state) {
     throw new OwnerProductTransferConflictError(
       planBody?.message ?? "The durable workspace transfer plan was rejected.",
       planBody?.code === "destination_checkpoint_changed" ||
-      planBody?.code === "owner_purge_permanent" ||
-      planBody?.code === "owner_purge_temporary" ||
-      planBody?.code === "transfer_busy"
+        planBody?.code === "owner_purge_permanent" ||
+        planBody?.code === "owner_purge_temporary" ||
+        planBody?.code === "transfer_busy"
         ? planBody.code
         : "owner_transfer_conflict",
     );
   }
-  if (planBody.plan.state === "retired") {
-    return { complete: true, resolution };
-  }
+  if (planBody.plan.state === "retired") return { complete: true };
   let durablePlan = planBody.plan;
-  const resolvedKey = resolution.imported ? importedKey : toKey;
-  const resolvedState = resolution.imported ? importedState : requestedState;
-  const resolvedExpectedState = resolution.imported
-    ? expectedImportedState
-    : expectedRequestedState;
-  if (!resolvedKey || !resolvedState || !resolvedExpectedState) {
-    throw new OwnerProductTransferConflictError(
-      "The durable workspace transfer selected an invalid destination.",
-    );
-  }
+  const resolvedKey = toKey;
+  const resolvedExpectedState = expectedDestinationState;
   const destinationName = checkpointBackupName(resolvedKey);
 
   const turnStateProgress = await advanceTurnStateWorkspaceTransfer({
@@ -10299,8 +10748,6 @@ const moveWorkspaceCheckpoint = async (
         fromOwnerGeneration: coordinator.attempt.fromOwnerGeneration,
         toOwnerId,
         toOwnerGeneration: coordinator.attempt.toOwnerGeneration,
-        sourceWorkspace: resolution.from,
-        destinationWorkspace: resolution.resolvedTo,
         side: "source",
         path: "transfer-retire",
         body: {
@@ -10348,7 +10795,7 @@ const moveWorkspaceCheckpoint = async (
       "The durable workspace retirement receipt was not committed.",
     );
   }
-  return { complete: true, resolution };
+  return { complete: true };
 };
 
 const transferOwnerProductStorage = async (
@@ -10356,12 +10803,7 @@ const transferOwnerProductStorage = async (
   request: OwnerProductTransferRequest,
   coordinator: OwnerTransferCoordinatorContext,
 ): Promise<
-  | {
-      complete: true;
-      fromOwnerHash: string;
-      toOwnerHash: string;
-      workspaceResolutions: WorkspaceTransferResolution[];
-    }
+  | { complete: true; fromOwnerHash: string; toOwnerHash: string }
   | { complete: false }
 > => {
   const budget = createOwnerTransferBudget();
@@ -10428,18 +10870,15 @@ const transferOwnerProductStorage = async (
     budget,
   );
   if (!buildsComplete) return { complete: false };
-  const workspaceResolutions: WorkspaceTransferResolution[] = [];
-  for (const workspace of request.workspaces) {
-    const result = await moveWorkspaceCheckpoint(
+  if (request.world) {
+    const moved = await moveWorldCheckpoint(
       env,
       request.fromOwnerId,
       request.toOwnerId,
-      workspace,
       budget,
       coordinator,
     );
-    if (!result.complete) return { complete: false };
-    if (result.resolution) workspaceResolutions.push(result.resolution);
+    if (!moved.complete) return { complete: false };
   }
   for (const slug of request.appSlugs) {
     const key = `app:${slug}`;
@@ -10474,12 +10913,7 @@ const transferOwnerProductStorage = async (
       );
     }
   }
-  return {
-    complete: true,
-    fromOwnerHash,
-    toOwnerHash,
-    workspaceResolutions,
-  };
+  return { complete: true, fromOwnerHash, toOwnerHash };
 };
 
 const purgeOwnerStorage = async (
@@ -10542,24 +10976,14 @@ const purgeOwnerStorage = async (
     }
   }
 
-  // Workspace checkpoints. The archive is named only by the descriptor, so the
+  // The world checkpoint. The archive is named only by the descriptor, so the
   // descriptor is deleted last: a crash between the two leaves a KV key
   // pointing at bytes that are already gone (harmless — restore fails and the
-  // workspace starts cold), never bytes with nothing left that names them.
-  for (const raw of request.workspaces ?? []) {
-    const workspace = resolveWorkspace(raw);
-    // `computer` runs on the user's own machine and has no checkpoint here.
-    if (workspace?.kind === "computer") continue;
-    // Anything else this worker cannot parse is reported, never skipped: a
-    // silently dropped name is a checkpoint that survives deletion while the
-    // purge reports success, which is the exact failure this route guards.
-    if (!workspace) {
-      pending.push("checkpoint:unparseable");
-      continue;
-    }
-    const store = `checkpoint:${workspace.canonical}`;
+  // world starts cold), never bytes with nothing left that names them.
+  await (async (): Promise<void> => {
+    const store = "checkpoint:world";
     try {
-      const key = await checkpointKey(ownerId, workspace.canonical);
+      const key = await checkpointKey(ownerId);
       const nativePurge = await purgeNativeStateForWorkspace(env, key);
       deleted += nativePurge.deleted + nativePurge.keys;
       const descriptor = await env.APP_ROUTES.get<DirectoryBackup>(key, "json");
@@ -10602,7 +11026,7 @@ const purgeOwnerStorage = async (
           backupSweepFailed = true;
         }
       }
-      if (backupSweepFailed) continue;
+      if (backupSweepFailed) return;
       let historicalSweepFailed = false;
       for (const historicalName of recovery.historicalBackupNames) {
         const historical = await sweepBackupsByName(
@@ -10615,22 +11039,22 @@ const purgeOwnerStorage = async (
           historicalSweepFailed = true;
         }
       }
-      if (historicalSweepFailed) continue;
+      if (historicalSweepFailed) return;
       await env.APP_ROUTES.delete(key);
       await env.APP_ROUTES.delete(debtKey);
       await env.APP_ROUTES.delete(importsKey);
       await env.APP_ROUTES.delete(workspaceTransferReceiptsKey(key));
-      // The learned instance size describes the deleted workspace's work, not
-      // whatever reuses the slug next.
+      // The learned instance size describes the deleted world's work, not
+      // whatever the account builds next.
       await env.APP_ROUTES.delete(instanceSizeKey(key));
       // Counted only when there was something to delete: `deleted` is read off
       // the log to see how much an account actually held, and a fixed number
-      // of unconditional KV deletes per workspace would drown that.
+      // of unconditional KV deletes would drown that.
       if (descriptor) deleted += 1;
     } catch (error) {
       fail(store, error);
     }
-  }
+  })();
 
   // Hosted app routes. Deleting the row is strictly stronger than suspending
   // it, and the ownership check keeps a slug that has since been reissued to
@@ -11185,14 +11609,14 @@ export default {
         operationScope: `product:${await stableValueMarker({
           agentHome: transfer.agentHome,
           interiors: transfer.interiors,
-          workspaces: transfer.workspaces,
+          world: transfer.world,
           appSlugs: transfer.appSlugs,
         })}`,
         plan: {
           kind: "product",
           agentHome: transfer.agentHome,
           interiors: transfer.interiors,
-          workspaces: transfer.workspaces,
+          world: transfer.world,
           appSlugs: transfer.appSlugs,
         },
       });
@@ -11489,135 +11913,6 @@ export default {
         },
       );
     }
-    // Deleting a workspace deletes its checkpoint. Without this a new
-    // project reusing a deleted project's slug hashes to the same key and
-    // restores the deleted project's files on its first turn.
-    if (request.method === "POST" && url.pathname === "/workspaces/purge") {
-      const body = (await request.json()) as {
-        ownerId?: string;
-        ownerGeneration?: string;
-        workspace?: string;
-      };
-      const workspace = resolveWorkspace(body.workspace);
-      if (
-        !body.ownerId ||
-        !body.ownerGeneration ||
-        !workspace ||
-        workspace.kind === "computer"
-      ) {
-        return json(
-          {
-            error: "ownerId, ownerGeneration, and a cloud workspace required.",
-          },
-          400,
-        );
-      }
-      const key = await checkpointKey(body.ownerId, workspace.canonical);
-      try {
-        await withOwnerActivityLease(
-          env,
-          body.ownerId,
-          body.ownerGeneration,
-          requestId,
-          async (generation, leaseId) => {
-            const turnStatePurge = await callOwnerFence(
-              env,
-              body.ownerId!,
-              "turn-state/purge-workspace",
-              {
-                schemaVersion: 1,
-                ownerGeneration: body.ownerGeneration,
-                generation,
-                leaseId,
-                sessionId: `activity-${requestId}`,
-                turnId: requestId,
-                workspace: workspace.canonical,
-              },
-            );
-            const turnStateResult = (await turnStatePurge
-              .clone()
-              .json()
-              .catch(() => null)) as { pending?: unknown } | null;
-            if (!turnStatePurge.ok || turnStateResult?.pending !== false) {
-              throw new Error("Atomic workspace purge is still pending.");
-            }
-            await purgeNativeStateForWorkspace(env, key);
-            const descriptor = await env.APP_ROUTES.get<DirectoryBackup>(
-              key,
-              "json",
-            );
-            const debtKey = backupDebtKey(key);
-            const debt = await env.APP_ROUTES.get<WorkspaceBackupDebt>(
-              debtKey,
-              "json",
-            );
-            const importsKey = checkpointImportsKey(key);
-            const imports =
-              await env.APP_ROUTES.get<WorkspaceCheckpointImports>(
-                importsKey,
-                "json",
-              );
-            const recovery = collectCheckpointRecoveryReferences({
-              ...(descriptor?.id ? { descriptorId: descriptor.id } : {}),
-              debtBackupIds: debt?.backupIds,
-              historicalBackupName: checkpointBackupName(key),
-              imports: (imports?.imports ?? []).map((imported) => ({
-                ...(imported.descriptor?.id
-                  ? { descriptorId: imported.descriptor.id }
-                  : {}),
-                backupIds: imported.backupIds,
-                historicalBackupName: imported.historicalBackupName,
-              })),
-            });
-            for (const backupId of recovery.backupIds) {
-              if (!BACKUP_ID_PATTERN.test(backupId)) {
-                throw new Error("Workspace backup descriptor is invalid.");
-              }
-              const swept = await sweepR2Prefix(
-                env.BACKUP_BUCKET,
-                `backups/${backupId}/`,
-              );
-              if (!swept.done) {
-                throw new Error("Workspace backup purge was truncated.");
-              }
-            }
-            for (const historicalName of recovery.historicalBackupNames) {
-              const historical = await sweepBackupsByName(
-                env.BACKUP_BUCKET,
-                historicalName,
-              );
-              if (!historical.done) {
-                throw new Error(
-                  "Historical workspace backup scan was truncated.",
-                );
-              }
-            }
-            // Bytes first; these keys are the only recovery names.
-            await env.APP_ROUTES.delete(key);
-            await env.APP_ROUTES.delete(debtKey);
-            await env.APP_ROUTES.delete(importsKey);
-            await env.APP_ROUTES.delete(workspaceTransferReceiptsKey(key));
-            await env.APP_ROUTES.delete(instanceSizeKey(key));
-          },
-          workspace.canonical,
-        );
-      } catch (error) {
-        if (error instanceof OwnerPurgeFenceError) {
-          return json({ error: "Owner cloud activity is being purged." }, 409);
-        }
-        log("error", "workspace_checkpoint_purge_failed", {
-          requestId,
-          workspace: workspace.canonical,
-          message: errorMessage(error),
-        });
-        return json({ error: "Workspace checkpoint purge failed." }, 502);
-      }
-      log("info", "workspace_checkpoint_purged", {
-        requestId,
-        workspace: workspace.canonical,
-      });
-      return json({ ok: true });
-    }
     // Owner-level object storage sweep, the storage half of account deletion.
     // Convex holds no credential for any bucket here and cannot enumerate this
     // worker's KV, so everything outside Convex is reached from this one route.
@@ -11629,7 +11924,7 @@ export default {
     //   - It never reports success it did not achieve: anything it could not
     //     finish comes back in `pending`, and the caller keeps the Convex rows
     //     that name those bytes until a later pass returns `pending: []`.
-    //   - The named stores (`workspaces`, `appSlugs`, and legacy/interior
+    //   - The named stores (`appSlugs` and legacy/interior
     //     `buildPrefixes`) cannot all be derived from the owner id, so Convex
     //     reads them off the rows and sends them here BEFORE deleting those
     //     rows. New app builds are additionally swept by their owner-hash root

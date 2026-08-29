@@ -100,8 +100,8 @@ export type CloudAgentThread = {
   /** Absent when the desktop dispatched the agent — no cloud turn above it. */
   parentTurnId?: string;
   description: string;
-  /** C2 workspace identity: drive | project:<slug> | app:<slug> | stella. */
-  workspace: string;
+  /** Where the thread runs: "cloud" or "computer". */
+  placement: string;
   agentType: string;
   // "running" | "completed" | "failed" | "canceled".
   status: string;
@@ -126,8 +126,6 @@ export type CloudDriveFile = {
 export type CloudProject = {
   projectId: string;
   slug: string;
-  /** C2 workspace identity, `project:<slug>`. */
-  workspace: string;
   name: string;
   remoteUrl?: string;
   provider: string;

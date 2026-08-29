@@ -94,7 +94,6 @@ const dispatchSummaryFields = {
   kind: executionRequestKindValidator,
   ingress: executionIngressValidator,
   subject: executionSubjectValidator,
-  workspace: v.optional(v.string()),
   conversationId: v.string(),
   parentTurnId: v.optional(v.string()),
   threadId: v.optional(v.string()),
@@ -157,7 +156,6 @@ const projectDispatch = (row: Doc<"execution_dispatches">) => ({
   kind: row.kind,
   ingress: row.ingress,
   subject: row.subject,
-  ...(row.workspace !== undefined ? { workspace: row.workspace } : {}),
   conversationId: row.conversationId,
   ...(row.parentTurnId !== undefined ? { parentTurnId: row.parentTurnId } : {}),
   ...(row.threadId !== undefined ? { threadId: row.threadId } : {}),
@@ -228,7 +226,6 @@ const requireBrowserPlacementOwner = async (
   args: {
     kind: ExecutionKind;
     subject: ExecutionSubject;
-    workspace?: string;
     requiredCapabilities: readonly ExecutionCapability[];
   },
 ) => {
@@ -240,7 +237,6 @@ const requireBrowserPlacementOwner = async (
     if (
       args.kind !== "chat" ||
       args.subject !== "cloud" ||
-      args.workspace !== undefined ||
       capabilities.length !== 1 ||
       capabilities[0] !== "chat"
     ) {
@@ -373,71 +369,25 @@ const normalizeIdempotencyKey = (value: string) => {
   return normalized;
 };
 
-const normalizeExecutionWorkspace = (
-  value: string | undefined,
-): string | undefined => {
-  const normalized = value?.trim().toLowerCase();
-  if (!normalized) return undefined;
-  if (
-    normalized === "computer" ||
-    normalized === "cloud" ||
-    normalized === "drive" ||
-    normalized === "stella" ||
-    /^project:[a-z0-9._-]{1,64}$/.test(normalized) ||
-    /^app:[a-z0-9-]{1,64}$/.test(normalized)
-  ) {
-    return normalized;
-  }
-  invalid("Workspace is not a recognized execution subject.");
-};
-
-const deriveServerExecutionSubject = (args: {
+/**
+ * The subject arrives on the wire, so it is a claim until this runs. Browser,
+ * cloud, and schedule callers have no device behind them and may never name
+ * the computer; anything else they send collapses to the hosted subject.
+ */
+const assertExecutionSubjectAuthority = (args: {
   ingress: ExecutionIngress;
-  workspace?: string;
-}): ExecutionSubject => {
+  subject: ExecutionSubject;
+}) => {
   if (
     args.ingress === "browser" ||
     args.ingress === "cloud" ||
     args.ingress === "schedule"
   ) {
-    if (args.workspace === "computer") {
+    if (args.subject !== "cloud") {
       invalid(
-        "Computer-only work is unavailable from browser, cloud, or schedule ingress.",
+        "Browser, cloud, and schedule ingress may only submit hosted execution.",
       );
     }
-    return "cloud";
-  }
-  if (!args.workspace) return "portable";
-  return args.workspace === "computer" ? "computer" : "cloud";
-};
-
-const assertExecutionWorkspaceAuthority = async (
-  ctx: QueryCtx,
-  args: { ownerId: string; workspace?: string },
-) => {
-  if (!args.workspace || !args.workspace.includes(":")) return;
-  if (args.workspace.startsWith("project:")) {
-    const slug = args.workspace.slice("project:".length);
-    const project = await ctx.db
-      .query("cloud_projects")
-      .withIndex("by_ownerId_and_slug", (q) =>
-        q.eq("ownerId", args.ownerId).eq("slug", slug),
-      )
-      .unique();
-    if (!project || project.status === "deleting") {
-      forbidden(
-        "Execution project workspace is not available to this account.",
-      );
-    }
-    return;
-  }
-  const slug = args.workspace.slice("app:".length);
-  const candidates = await ctx.db
-    .query("cloud_apps")
-    .withIndex("by_slug", (q) => q.eq("slug", slug))
-    .take(5);
-  if (!candidates.some((app) => app.ownerId === args.ownerId)) {
-    forbidden("Execution app workspace is not available to this account.");
   }
 };
 
@@ -824,7 +774,6 @@ type SubmitDispatchArgs = {
   threadId?: string;
   requestingDeviceId?: string;
   pairGrantDeviceId?: string;
-  workspace?: string;
   requiredCapabilities: ExecutionCapability[];
   now: number;
 };
@@ -921,7 +870,8 @@ const submitExecutionDispatchCore = async (
     "conversationId",
     256,
   );
-  let workspace = normalizeExecutionWorkspace(raw.workspace);
+  const subject = raw.subject;
+  assertExecutionSubjectAuthority({ ingress: raw.ingress, subject });
   const parentTurnId = raw.parentTurnId?.trim() || undefined;
   const threadId = raw.threadId?.trim() || undefined;
   const requestingDeviceId = raw.requestingDeviceId?.trim() || undefined;
@@ -935,10 +885,9 @@ const submitExecutionDispatchCore = async (
     raw.payloadHash,
   );
 
-  // A durable cloud thread is authoritative for its workspace. A caller may
-  // repeat that value, but cannot retarget the thread by changing a label in
-  // an admission payload. Local-only thread ids simply have no cloud row and
-  // continue through the normal workspace authority checks below.
+  // A durable thread is authoritative for where its work runs. A caller may
+  // repeat that placement, but cannot retarget the thread by relabelling an
+  // admission payload. Local-only thread ids simply have no cloud row.
   if (threadId) {
     const thread = await ctx.db
       .query("cloud_agent_threads")
@@ -951,23 +900,12 @@ const submitExecutionDispatchCore = async (
       ) {
         forbidden("Execution thread is not owned by this conversation.");
       }
-      const authoritativeWorkspace = normalizeExecutionWorkspace(
-        thread.workspace,
-      );
-      if (workspace && workspace !== authoritativeWorkspace) {
-        conflict("Execution workspace does not match the durable thread.");
+      const threadSubject: ExecutionSubject =
+        thread.placement === "computer" ? "computer" : "cloud";
+      if (subject !== threadSubject) {
+        conflict("Execution subject does not match the durable thread.");
       }
-      workspace = authoritativeWorkspace;
     }
-  }
-  const subject = deriveServerExecutionSubject({
-    ingress: raw.ingress,
-    workspace,
-  });
-  if (raw.subject !== subject) {
-    invalid(
-      "Execution subject is derived by the server and does not match this ingress and workspace.",
-    );
   }
 
   const existing = await ctx.db
@@ -984,7 +922,6 @@ const submitExecutionDispatchCore = async (
       existing.ingress === raw.ingress &&
       existing.subject === subject &&
       existing.conversationId === conversationId &&
-      existing.workspace === workspace &&
       existing.parentTurnId === parentTurnId &&
       existing.threadId === threadId &&
       existing.requestingDeviceId === requestingDeviceId &&
@@ -1012,10 +949,6 @@ const submitExecutionDispatchCore = async (
   ) {
     forbidden("Execution conversation is not owned by this account.");
   }
-  await assertExecutionWorkspaceAuthority(ctx, {
-    ownerId: raw.ownerId,
-    workspace,
-  });
 
   const decision = decideServerExecutionPlacement({
     ingress: raw.ingress,
@@ -1100,7 +1033,6 @@ const submitExecutionDispatchCore = async (
     ...(threadId ? { threadId } : {}),
     ...(requestingDeviceId ? { requestingDeviceId } : {}),
     ...(pairGrantDeviceId ? { pairGrantDeviceId } : {}),
-    ...(workspace ? { workspace } : {}),
     requiredCapabilities,
     routingPolicyVersion: EXECUTION_ROUTING_POLICY_VERSION,
     onNoEligibleComputer,
@@ -1173,7 +1105,6 @@ const submitArgsValidator = {
   threadId: v.optional(v.string()),
   requestingDeviceId: v.optional(v.string()),
   pairGrantDeviceId: v.optional(v.string()),
-  workspace: v.optional(v.string()),
   requiredCapabilities: v.array(executionCapabilityValidator),
   now: v.number(),
 };
@@ -1196,7 +1127,6 @@ export const submitMyBrowserExecution = mutation({
     conversationId: v.string(),
     parentTurnId: v.optional(v.string()),
     threadId: v.optional(v.string()),
-    workspace: v.optional(v.string()),
     requiredCapabilities: v.array(executionCapabilityValidator),
   },
   returns: dispatchSummaryValidator,
@@ -3385,7 +3315,6 @@ const cloudExecutionInputValidator = v.union(
     conversationId: v.string(),
     parentTurnId: v.optional(v.string()),
     threadId: v.optional(v.string()),
-    workspace: v.optional(v.string()),
     requiredCapabilities: v.array(executionCapabilityValidator),
     payloadJson: v.string(),
   }),
@@ -3431,7 +3360,6 @@ export const getCloudExecutionInputInternal = internalQuery({
       conversationId: dispatch.conversationId,
       ...(dispatch.parentTurnId ? { parentTurnId: dispatch.parentTurnId } : {}),
       ...(dispatch.threadId ? { threadId: dispatch.threadId } : {}),
-      ...(dispatch.workspace ? { workspace: dispatch.workspace } : {}),
       requiredCapabilities: dispatch.requiredCapabilities,
       payloadJson: payload.payloadJson,
     };
@@ -3487,7 +3415,6 @@ const spawnCloudAgentRef = makeFunctionReference<
     parentTurnId?: string;
     description: string;
     prompt: string;
-    workspace: string;
     threadId?: string;
     source: string;
     clientMsgId: string;
@@ -3559,7 +3486,6 @@ const getCloudInputRef = makeFunctionReference<
     conversationId: string;
     parentTurnId?: string;
     threadId?: string;
-    workspace?: string;
     requiredCapabilities: ExecutionCapability[];
     payloadJson: string;
   } | null
@@ -3577,7 +3503,6 @@ type CloudExecutionInput = {
   conversationId: string;
   parentTurnId?: string;
   threadId?: string;
-  workspace?: string;
   requiredCapabilities: ExecutionCapability[];
   payloadJson: string;
 };
@@ -3590,9 +3515,7 @@ const cloudUnsupportedDeviceCapabilities = (
   );
 
 const cloudPlacementSource = (input: CloudExecutionInput): string =>
-  ["execution-placement", input.ingress, input.subject, input.workspace]
-    .filter((part): part is string => Boolean(part))
-    .join(":");
+  ["execution-placement", input.ingress, input.subject].join(":");
 
 const parseCloudExecutionSelection = (
   value: unknown,
@@ -3768,7 +3691,6 @@ export const executeCloudCommittedDispatchInternal = internalAction({
         ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
         description: agentPayload.description,
         prompt: agentPayload.prompt,
-        workspace: input.workspace || "cloud",
         ...(input.threadId ? { threadId: input.threadId } : {}),
         source: "execution-placement",
         clientMsgId: input.dispatchId,

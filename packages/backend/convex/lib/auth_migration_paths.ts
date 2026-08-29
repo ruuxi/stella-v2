@@ -166,52 +166,6 @@ export const canceledPendingUploadCleanupDelays = (
   Math.max(0, Math.floor(expiresAt) - Math.floor(now)) + 60_000,
 ];
 
-type WorkspaceTransferRequest = {
-  from: string;
-  to: string;
-  importedTo?: string;
-};
-
-type WorkspaceTransferResolution = {
-  from: string;
-  requestedTo: string;
-  resolvedTo: string;
-  imported: boolean;
-};
-
-/**
- * The worker may choose only the requested canonical workspace or its exact
- * precomputed imported project. Enforcing a one-to-one map makes the returned
- * project metadata and the checkpoint destination one idempotent decision.
- */
-export const workspaceTransferResolutionsMatch = (
-  requests: readonly WorkspaceTransferRequest[],
-  resolutions: readonly WorkspaceTransferResolution[],
-): boolean => {
-  if (requests.length !== resolutions.length) return false;
-  const remaining = [...resolutions];
-  for (const request of requests) {
-    const matches = remaining
-      .map((resolution, index) => ({ resolution, index }))
-      .filter(
-        ({ resolution }) =>
-          resolution.from === request.from &&
-          resolution.requestedTo === request.to,
-      );
-    if (matches.length !== 1) return false;
-    const { resolution, index } = matches[0]!;
-    if (
-      resolution.imported
-        ? !request.importedTo || resolution.resolvedTo !== request.importedTo
-        : resolution.resolvedTo !== request.to
-    ) {
-      return false;
-    }
-    remaining.splice(index, 1);
-  }
-  return remaining.length === 0;
-};
-
 /**
  * Drive bytes live in the @convex-dev/r2 component, not the cloud-builder
  * worker's R2 bindings. Owner migration therefore re-owns metadata in place

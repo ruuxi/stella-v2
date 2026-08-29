@@ -742,11 +742,6 @@ const SPAWN_AGENT_PARAMETERS = {
       description:
         "Detailed instructions for the sub-agent. This is the agent's only context.",
     },
-    workspace: {
-      type: "string",
-      description:
-        'Where the work runs, chosen by what the task operates on: "cloud" (the user\'s general Stella cloud workspace — the default), "computer" (their local machine), "project:<name>", "stella", or "app:<slug>". Omit for work with no file subject.',
-    },
     model: {
       type: "string",
       description:
@@ -7859,17 +7854,8 @@ export class OrchestratorSession extends DurableObject<Env> {
           const args = params as {
             description: string;
             prompt: string;
-            workspace?: string;
             model?: string;
           };
-          const requestedWorkspace = args.workspace?.trim() || "cloud";
-          const workspace =
-            requestedWorkspace === "drive" ? "cloud" : requestedWorkspace;
-          if (workspace === "computer") {
-            throw new Error(
-              "The user's computer isn't reachable from cloud chat yet. Run this on their machine from the desktop app, or use workspace \"cloud\" for hosted work.",
-            );
-          }
           const model = args.model?.trim();
           if (model && model !== "default" && !isValidCloudSpawnModel(model)) {
             throw new Error(
@@ -7879,7 +7865,6 @@ export class OrchestratorSession extends DurableObject<Env> {
           const fingerprint = await toolFingerprint("spawn_agent", {
             description: args.description,
             prompt: args.prompt,
-            workspace,
             model: model && model !== "default" ? model : null,
           });
           let outcome = await this.readCloudAgentToolOutcome(
@@ -7894,7 +7879,6 @@ export class OrchestratorSession extends DurableObject<Env> {
                 action: "spawn",
                 description: args.description,
                 prompt: args.prompt,
-                workspace,
                 ...(model && model !== "default" ? { model } : {}),
               },
               toolCallId,
@@ -7913,12 +7897,11 @@ export class OrchestratorSession extends DurableObject<Env> {
             content: [
               {
                 type: "text",
-                text: `Spawned agent ${control.threadId} ("${args.description}") in workspace ${workspace}. It is not finished yet — an [Agent completed] message will arrive with its report.`,
+                text: `Spawned agent ${control.threadId} ("${args.description}"). It is not finished yet — an [Agent completed] message will arrive with its report.`,
               },
             ],
             details: {
               thread_id: control.threadId,
-              workspace,
               attempt_generation: control.attemptGeneration,
               thread_updated_at: control.threadUpdatedAt,
             },
@@ -7929,7 +7912,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         name: "send_input",
         label: "Send input",
         description:
-          "Send a follow-up message to an existing sub-agent thread after it has finished. The thread's workspace and conversation history are restored.",
+          "Send a follow-up message to an existing sub-agent thread after it has finished. The thread's conversation history is restored.",
         parameters: {
           type: "object",
           properties: {
@@ -7980,7 +7963,6 @@ export class OrchestratorSession extends DurableObject<Env> {
                 expectedThreadUpdatedAt: prior.threadUpdatedAt,
                 description: args.description,
                 prompt: args.message,
-                workspace: "cloud",
               },
               toolCallId,
               signal,

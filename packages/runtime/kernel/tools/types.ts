@@ -248,13 +248,6 @@ export type AgentToolRequest = {
   spawnEngine?: SpawnEngineSelection;
   /** Per-spawn reasoning override parsed from model's `:<effort>` suffix. */
   spawnReasoningEffort?: SpawnReasoningEffort;
-  /**
-   * Subject-shaped placement: `computer`, `cloud`, `project:<name>`, or
-   * `app:<slug>`. Not exposed on the spawn schema — the placement router
-   * (or a cloud AgentToolApi implementation) sets it. The local runtime
-   * only ever forwards `computer` (or nothing).
-   */
-  workspace?: string;
   /** Durable effective route inherited by a subagent from its Orchestrator. */
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   toolWorkspaceRoot?: string;
@@ -269,12 +262,10 @@ export type AgentToolRequest = {
 };
 
 /**
- * A spawn whose subject lives off this device. `computer` and an omitted
- * workspace never produce one of these: those stay local by construction.
+ * A spawn the caller placed in the cloud. A computer placement, and an
+ * omitted one, never produce these: those stay local by construction.
  */
 export type CloudDispatchRequest = {
-  /** `cloud`, `stella`, `project:<name>`, or `app:<slug>`. */
-  workspace: string;
   /** Local conversation the spawn came from, used to keep cloud threads together. */
   conversationId: string;
   /** Stable tool-call identity used as the cloud mutation's replay key. */

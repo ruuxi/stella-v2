@@ -16,6 +16,7 @@ import {
   type WorkspacePlanObservation,
 } from "./owner-transfer-coordinator.js";
 import { sha256Hex } from "./hash.js";
+import { WORLD_REGISTRY_SEGMENT } from "./turn-state-registry.js";
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const MAX_TURN_STATE_TRANSFER_ENTRIES = 512;
@@ -107,43 +108,21 @@ const parseAttempt = async (
 const parseObservation = (value: unknown): WorkspacePlanObservation | null => {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
-  const transfer = row.transfer as Record<string, unknown> | undefined;
   if (
     !HASH_PATTERN.test(String(row.workspacePlanId ?? "")) ||
-    typeof transfer?.from !== "string" ||
-    typeof transfer.to !== "string" ||
-    (transfer.importedTo !== undefined &&
-      typeof transfer.importedTo !== "string") ||
     typeof row.sourceHasState !== "boolean" ||
     typeof row.sourceStateMarker !== "string" ||
-    typeof row.requestedDestinationMarker !== "string" ||
-    (row.importedDestinationMarker !== undefined &&
-      typeof row.importedDestinationMarker !== "string") ||
-    typeof row.expectedRequestedMarker !== "string" ||
-    (row.expectedImportedMarker !== undefined &&
-      typeof row.expectedImportedMarker !== "string")
+    typeof row.destinationMarker !== "string" ||
+    typeof row.expectedDestinationMarker !== "string"
   ) {
     return null;
   }
   return {
     workspacePlanId: row.workspacePlanId as string,
-    transfer: {
-      from: transfer.from,
-      to: transfer.to,
-      ...(typeof transfer.importedTo === "string"
-        ? { importedTo: transfer.importedTo }
-        : {}),
-    },
     sourceHasState: row.sourceHasState,
     sourceStateMarker: row.sourceStateMarker,
-    requestedDestinationMarker: row.requestedDestinationMarker,
-    ...(typeof row.importedDestinationMarker === "string"
-      ? { importedDestinationMarker: row.importedDestinationMarker }
-      : {}),
-    expectedRequestedMarker: row.expectedRequestedMarker,
-    ...(typeof row.expectedImportedMarker === "string"
-      ? { expectedImportedMarker: row.expectedImportedMarker }
-      : {}),
+    destinationMarker: row.destinationMarker,
+    expectedDestinationMarker: row.expectedDestinationMarker,
   };
 };
 
@@ -636,19 +615,15 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
           409,
         );
       }
-      const [sourceWorkspaceHash, destinationWorkspaceHash] =
-        await Promise.all([
-          sha256Hex(plan.resolution.from),
-          sha256Hex(plan.resolution.resolvedTo),
-        ]);
+      const worldHash = await sha256Hex(WORLD_REGISTRY_SEGMENT);
       if (
         manifest.transferOperationId !== state.operationId ||
         manifest.sourceOwnerHash !== state.fromOwnerHash ||
         manifest.sourceOwnerGeneration !== state.fromOwnerGeneration ||
-        manifest.sourceWorkspaceHash !== sourceWorkspaceHash ||
+        manifest.sourceWorkspaceHash !== worldHash ||
         manifest.destinationOwnerHash !== state.toOwnerHash ||
         manifest.destinationOwnerGeneration !== state.toOwnerGeneration ||
-        manifest.destinationWorkspaceHash !== destinationWorkspaceHash
+        manifest.destinationWorkspaceHash !== worldHash
       ) {
         return json(
           {

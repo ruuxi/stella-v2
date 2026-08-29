@@ -8,7 +8,6 @@ export type CloudBuildCallback = {
   previewUrl: string;
   metricsJson: string;
   slug: string;
-  autoActivate: boolean;
   title?: string;
 };
 
@@ -67,9 +66,6 @@ export const parseCloudBuildCallback = (value: unknown): CloudBuildCallback => {
     throw new Error("previewUrl is invalid.");
   }
   const slug = requiredString(body, "slug", SLUG_PATTERN);
-  if (typeof body.autoActivate !== "boolean") {
-    throw new Error("autoActivate must be a boolean.");
-  }
   const metricsJson = JSON.stringify(body.metrics ?? null);
   if (new TextEncoder().encode(metricsJson).byteLength > MAX_METRICS_BYTES) {
     throw new Error("metrics is too large.");
@@ -88,7 +84,6 @@ export const parseCloudBuildCallback = (value: unknown): CloudBuildCallback => {
     previewUrl,
     metricsJson,
     slug,
-    autoActivate: body.autoActivate,
     ...(title ? { title } : {}),
   };
 };

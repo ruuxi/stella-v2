@@ -1,75 +1,36 @@
 /**
- * Workspace identity for cloud turns.
+ * The one world an owner's cloud turns operate on.
  *
- * A workspace is what a turn operates on, and it decides three things that
- * must never drift apart: the sandbox mount path, the KV key its checkpoint
- * lives under, and whether the turn is dispatchable from the cloud at all.
- * Mount paths are fixed per kind — the checkpoint restored into
- * `/workspace/project` on one turn must land at the same path on the next,
- * or every absolute path the agent wrote down becomes a lie.
+ * Every owner has a single checkpointed tree mounted at `/workspace/world`.
+ * The mount path is fixed: the checkpoint restored into `/workspace/world` on
+ * one turn must land at the same path on the next, or every absolute path the
+ * agent wrote down becomes a lie. `/workspace` itself stays outside the
+ * checkpoint and holds per-turn files the agent never owns.
  */
 
 import { sha256Hex } from "./hash.js";
 
-export type WorkspaceKind = "drive" | "project" | "app" | "stella" | "computer";
+/** The single checkpointed mount every cloud turn runs in. */
+export const WORLD_ROOT = "/workspace/world";
 
-export type ResolvedWorkspace = {
-  kind: WorkspaceKind;
-  /** Normalized workspace string; the value hashed into the checkpoint key. */
-  canonical: string;
-  /** Slug for `project:` and `app:` workspaces. */
-  slug?: string;
-  /** Fixed sandbox mount path. Absent for `computer`. */
-  mountPath?: string;
-};
-
-const MOUNT_PATHS: Record<Exclude<WorkspaceKind, "computer">, string> = {
-  drive: "/workspace/drive",
-  project: "/workspace/project",
-  app: "/workspace/app",
-  stella: "/workspace/stella",
-};
-
-// Matches the ceiling Convex accepts (64 characters) so a slug that survived
-// the spawn gate can never be rejected here as an unknown workspace.
-const SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
-
-export const resolveWorkspace = (
-  raw: string | undefined,
-): ResolvedWorkspace | null => {
-  const requested = (raw ?? "cloud").trim().toLowerCase();
-  const value = requested === "cloud" ? "drive" : requested;
-  if (!value) return null;
-  if (value === "drive" || value === "stella") {
-    return { kind: value, canonical: value, mountPath: MOUNT_PATHS[value] };
-  }
-  if (value === "computer") return { kind: "computer", canonical: value };
-  const separator = value.indexOf(":");
-  if (separator === -1) return null;
-  const prefix = value.slice(0, separator);
-  const slug = value.slice(separator + 1);
-  if (prefix !== "project" && prefix !== "app") return null;
-  if (!SLUG_PATTERN.test(slug)) return null;
-  return {
-    kind: prefix,
-    canonical: `${prefix}:${slug}`,
-    slug,
-    mountPath: MOUNT_PATHS[prefix],
-  };
-};
+/** Stella's own editable renderer source, a plain directory inside the world. */
+export const WORLD_STELLA_ROOT = `${WORLD_ROOT}/stella`;
 
 /**
- * KV key for a workspace's directory backup descriptor. Owner-scoped so two
- * users' `project:orbit` never share a checkpoint.
+ * Scratch root for the legacy app-build turn. Outside the world on purpose:
+ * an app build is rebuilt from its sources every time and is never restored.
  */
-export const checkpointKey = async (
-  ownerId: string,
-  canonicalWorkspace: string,
-): Promise<string> =>
-  `ws:${await sha256Hex(`${ownerId}:${canonicalWorkspace}`)}`;
+export const APP_BUILD_ROOT = "/workspace/app";
 
 /**
- * KV key for the instance size a workspace has been observed to need. Derived
+ * KV key for an owner's world checkpoint descriptor. Owner-scoped: two users
+ * never share a checkpoint, and one user never has two.
+ */
+export const checkpointKey = async (ownerId: string): Promise<string> =>
+  `ws:${await sha256Hex(ownerId)}`;
+
+/**
+ * KV key for the instance size the world has been observed to need. Derived
  * from the checkpoint key so the two are purged together, and so the learning
  * is owner-scoped exactly like the checkpoint it belongs to.
  */

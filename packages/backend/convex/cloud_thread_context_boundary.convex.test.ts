@@ -34,7 +34,7 @@ const seedThread = async () => {
       attemptGeneration: 1,
       conversationId: "conversation:cloud-thread-context-boundary",
       description: "Context boundary regression thread",
-      workspace: "cloud",
+      placement: "cloud",
       agentType: "general",
       status: "idle",
       createdAt: 1,

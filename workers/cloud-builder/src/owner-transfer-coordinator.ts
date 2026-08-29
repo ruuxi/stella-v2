@@ -33,13 +33,6 @@ export type OwnerTransferCoordinatorAttempt = {
   passIdHash?: string;
 };
 
-export type WorkspaceTransferResolution = {
-  from: string;
-  requestedTo: string;
-  resolvedTo: string;
-  imported: boolean;
-};
-
 export type DurableTurnStateTransferManifest = {
   schemaVersion: 1;
   transferOperationId: string;
@@ -63,22 +56,14 @@ export type DurableTurnStateWorkspaceTransfer = {
 
 export type WorkspacePlanObservation = {
   workspacePlanId: string;
-  transfer: {
-    from: string;
-    to: string;
-    importedTo?: string;
-  };
   sourceHasState: boolean;
   sourceStateMarker: string;
-  requestedDestinationMarker: string;
-  importedDestinationMarker?: string;
-  expectedRequestedMarker: string;
-  expectedImportedMarker?: string;
+  destinationMarker: string;
+  expectedDestinationMarker: string;
 };
 
 export type DurableWorkspaceTransferPlan = {
   workspacePlanId: string;
-  resolution: WorkspaceTransferResolution;
   sourceStateMarker: string;
   initialResolvedDestinationMarker: string;
   expectedResolvedDestinationMarker: string;
@@ -376,59 +361,11 @@ export const releaseCoordinatorPass = (
   }
 };
 
-const selectWorkspaceResolution = (
-  observation: WorkspacePlanObservation,
-): {
-  resolution: WorkspaceTransferResolution;
-  initialMarker: string;
-  expectedMarker: string;
-} => {
-  const collision =
-    observation.sourceHasState &&
-    observation.requestedDestinationMarker !== "absent";
-  if (!collision) {
-    return {
-      resolution: {
-        from: observation.transfer.from,
-        requestedTo: observation.transfer.to,
-        resolvedTo: observation.transfer.to,
-        imported: false,
-      },
-      initialMarker: observation.requestedDestinationMarker,
-      expectedMarker: observation.expectedRequestedMarker,
-    };
-  }
-  if (
-    !observation.transfer.importedTo ||
-    observation.importedDestinationMarker === undefined ||
-    observation.expectedImportedMarker === undefined
-  ) {
-    throw new OwnerTransferCoordinatorConflictError(
-      "destination_checkpoint_changed",
-      "The destination workspace already has a checkpoint and no imported workspace was reserved.",
-    );
-  }
-  if (observation.importedDestinationMarker !== "absent") {
-    throw new OwnerTransferCoordinatorConflictError(
-      "destination_checkpoint_changed",
-      "The imported destination workspace already has unrelated checkpoint data.",
-    );
-  }
-  return {
-    resolution: {
-      from: observation.transfer.from,
-      requestedTo: observation.transfer.to,
-      resolvedTo: observation.transfer.importedTo,
-      imported: true,
-    },
-    initialMarker: observation.importedDestinationMarker,
-    expectedMarker: observation.expectedImportedMarker,
-  };
-};
-
 /**
- * The workspace resolution lives in the strongly consistent coordinator, not
- * KV. Re-observing a destination is allowed only when it is byte-for-byte the
+ * The destination's world is the only place a transferred world can land, so
+ * a destination that already holds one is a conflict rather than something to
+ * resolve. The decision lives in the strongly consistent coordinator, not KV:
+ * re-observing a destination is allowed only when it is byte-for-byte the
  * initial object or the exact descriptor this operation was expected to write.
  */
 export const claimWorkspacePlan = (
@@ -446,12 +383,11 @@ export const claimWorkspacePlan = (
         "The source checkpoint changed during ownership transfer.",
       );
     }
-    const observedResolvedMarker = existing.resolution.imported
-      ? observation.importedDestinationMarker
-      : observation.requestedDestinationMarker;
     if (
-      observedResolvedMarker !== existing.initialResolvedDestinationMarker &&
-      observedResolvedMarker !== existing.expectedResolvedDestinationMarker
+      observation.destinationMarker !==
+        existing.initialResolvedDestinationMarker &&
+      observation.destinationMarker !==
+        existing.expectedResolvedDestinationMarker
     ) {
       throw new OwnerTransferCoordinatorConflictError(
         "destination_checkpoint_changed",
@@ -460,13 +396,17 @@ export const claimWorkspacePlan = (
     }
     return existing;
   }
-  const selected = selectWorkspaceResolution(observation);
+  if (observation.sourceHasState && observation.destinationMarker !== "absent") {
+    throw new OwnerTransferCoordinatorConflictError(
+      "destination_checkpoint_changed",
+      "The destination account already has a world of its own.",
+    );
+  }
   const plan: DurableWorkspaceTransferPlan = {
     workspacePlanId: observation.workspacePlanId,
-    resolution: selected.resolution,
     sourceStateMarker: observation.sourceStateMarker,
-    initialResolvedDestinationMarker: selected.initialMarker,
-    expectedResolvedDestinationMarker: selected.expectedMarker,
+    initialResolvedDestinationMarker: observation.destinationMarker,
+    expectedResolvedDestinationMarker: observation.expectedDestinationMarker,
     state: "planned",
   };
   state.workspacePlans[observation.workspacePlanId] = plan;
@@ -484,9 +424,6 @@ export const classifyOwnerFenceRejection = (
   }
   return {
     retryable: true,
-    code:
-      code === "transfer_busy" || code === "workspace_busy"
-        ? "transfer_busy"
-        : "transfer_unavailable",
+    code: code === "transfer_busy" ? "transfer_busy" : "transfer_unavailable",
   };
 };

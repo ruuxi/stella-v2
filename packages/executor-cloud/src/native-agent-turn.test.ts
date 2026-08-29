@@ -303,12 +303,6 @@ describe("native engine reasoning selection", () => {
         },
         callbackBase: "https://example.convex.site",
         relayToken: "loopback-relay-sentinel",
-        workspace: {
-          workspace: "project:missing",
-          kind: "project",
-          slug: "missing",
-          root: "/definitely/not/a/workspace",
-        },
         threadId: "thread",
         turnId: "turn",
         history: [],

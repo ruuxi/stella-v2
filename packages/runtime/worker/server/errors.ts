@@ -44,15 +44,6 @@ export class VoiceUnavailableError extends Schema.TaggedErrorClass<VoiceUnavaila
   }
 }
 
-export class SocialSessionsUnavailableError extends Schema.TaggedErrorClass<SocialSessionsUnavailableError>()(
-  "@stella/runtime/worker/SocialSessionsUnavailableError",
-  {},
-) {
-  override get message() {
-    return "Social session service is unavailable.";
-  }
-}
-
 export class UserAppProjectsUnavailableError extends Schema.TaggedErrorClass<UserAppProjectsUnavailableError>()(
   "@stella/runtime/worker/UserAppProjectsUnavailableError",
   {},
@@ -83,7 +74,6 @@ export type SessionMissingError =
   | RunnerUnavailableError
   | ChatStoreUnavailableError
   | VoiceUnavailableError
-  | SocialSessionsUnavailableError
   | UserAppProjectsUnavailableError;
 
 /**

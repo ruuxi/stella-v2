@@ -174,26 +174,27 @@ describe("managed usage generation fencing", () => {
     });
   });
 
-  it("rejects a delayed Store asset enrichment admitted before reset without provider I/O", async () => {
+  it("rejects a delayed asset enrichment admitted before reset without provider I/O", async () => {
     const t = createTest();
-    const ownerId = "store-metadata-generation-owner";
+    const ownerId = "asset-metadata-generation-owner";
     const admitted = await t.mutation(
       internal.lib.gate_and_meter.enforceManagedGate,
       { ownerId, order: ["usage"], usage: {} },
     );
     expect(admitted.ok).toBe(true);
     if (!admitted.ok) throw new Error("managed gate unexpectedly denied");
-    const petId = await t.run(
+    const packId = await t.run(
       async (ctx) =>
-        await ctx.db.insert("user_pets", {
+        await ctx.db.insert("emoji_packs", {
           ownerId,
-          petId: "stale-metadata-pet",
-          displayName: "Stale metadata pet",
-          description: "A test pet",
+          packId: "stale-metadata-pack",
+          displayName: "Stale metadata pack",
+          description: "A test pack",
           tags: [],
-          spritesheetUrl: "https://assets.invalid/pet.png",
+          coverEmoji: "\u2b50",
+          sheetUrls: ["https://assets.invalid/pack.png"],
           visibility: "private",
-          searchText: "stale metadata pet",
+          searchText: "stale metadata pack",
           installCount: 0,
           createdAt: 1,
           updatedAt: 1,
@@ -205,8 +206,8 @@ describe("managed usage generation fencing", () => {
       .mockRejectedValue(new Error("provider I/O must not run"));
 
     await expect(
-      t.action(internal.data.store_asset_metadata.enrichUserPet, {
-        petId,
+      t.action(internal.data.asset_metadata.enrichEmojiPack, {
+        packId,
         ownerId,
         ownerGeneration: admitted.ownerGeneration,
       }),
@@ -214,32 +215,33 @@ describe("managed usage generation fencing", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("rejects a delayed Store asset enrichment after source-owner migration fencing", async () => {
+  it("rejects a delayed asset enrichment after source-owner migration fencing", async () => {
     const t = createTest();
-    const ownerId = "store-metadata-migration-source";
+    const ownerId = "asset-metadata-migration-source";
     const admitted = await t.mutation(
       internal.lib.gate_and_meter.enforceManagedGate,
       { ownerId, order: ["usage"], usage: {} },
     );
     expect(admitted.ok).toBe(true);
     if (!admitted.ok) throw new Error("managed gate unexpectedly denied");
-    const petId = await t.run(async (ctx) => {
-      const id = await ctx.db.insert("user_pets", {
+    const packId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("emoji_packs", {
         ownerId,
-        petId: "migration-fenced-metadata-pet",
-        displayName: "Migration fenced metadata pet",
-        description: "A test pet",
+        packId: "migration-fenced-metadata-pack",
+        displayName: "Migration fenced metadata pack",
+        description: "A test pack",
         tags: [],
-        spritesheetUrl: "https://assets.invalid/pet.png",
+        coverEmoji: "\u2b50",
+        sheetUrls: ["https://assets.invalid/pack.png"],
         visibility: "private",
-        searchText: "migration fenced metadata pet",
+        searchText: "migration fenced metadata pack",
         installCount: 0,
         createdAt: 1,
         updatedAt: 1,
       });
       await ctx.db.insert("auth_owner_migrations", {
         fromOwnerId: ownerId,
-        toOwnerId: "store-metadata-migration-target",
+        toOwnerId: "asset-metadata-migration-target",
         status: "pending",
         leaseGeneration: 0,
         fromOwnerGeneration: admitted.ownerGeneration,
@@ -255,8 +257,8 @@ describe("managed usage generation fencing", () => {
       .mockRejectedValue(new Error("provider I/O must not run"));
 
     await expect(
-      t.action(internal.data.store_asset_metadata.enrichUserPet, {
-        petId,
+      t.action(internal.data.asset_metadata.enrichEmojiPack, {
+        packId,
         ownerId,
         ownerGeneration: admitted.ownerGeneration,
       }),
@@ -266,24 +268,25 @@ describe("managed usage generation fencing", () => {
 
   it("rejects destination-owner provider I/O and metering while migration is active", async () => {
     const t = createTest();
-    const sourceOwnerId = "store-metadata-incoming-source";
-    const ownerId = "store-metadata-incoming-target";
+    const sourceOwnerId = "asset-metadata-incoming-source";
+    const ownerId = "asset-metadata-incoming-target";
     const admitted = await t.mutation(
       internal.lib.gate_and_meter.enforceManagedGate,
       { ownerId, order: ["usage"], usage: {} },
     );
     expect(admitted.ok).toBe(true);
     if (!admitted.ok) throw new Error("managed gate unexpectedly denied");
-    const petId = await t.run(async (ctx) => {
-      const id = await ctx.db.insert("user_pets", {
+    const packId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("emoji_packs", {
         ownerId,
-        petId: "incoming-migration-fenced-metadata-pet",
-        displayName: "Incoming migration fenced metadata pet",
-        description: "A test pet",
+        packId: "incoming-migration-fenced-metadata-pack",
+        displayName: "Incoming migration fenced metadata pack",
+        description: "A test pack",
         tags: [],
-        spritesheetUrl: "https://assets.invalid/pet.png",
+        coverEmoji: "\u2b50",
+        sheetUrls: ["https://assets.invalid/pack.png"],
         visibility: "private",
-        searchText: "incoming migration fenced metadata pet",
+        searchText: "incoming migration fenced metadata pack",
         installCount: 0,
         createdAt: 1,
         updatedAt: 1,
@@ -306,8 +309,8 @@ describe("managed usage generation fencing", () => {
       .mockRejectedValue(new Error("provider I/O must not run"));
 
     await expect(
-      t.action(internal.data.store_asset_metadata.enrichUserPet, {
-        petId,
+      t.action(internal.data.asset_metadata.enrichEmojiPack, {
+        packId,
         ownerId,
         ownerGeneration: admitted.ownerGeneration,
       }),
@@ -317,7 +320,7 @@ describe("managed usage generation fencing", () => {
       t.mutation(internal.billing.logManagedUsage, {
         ownerId,
         ownerGeneration: admitted.ownerGeneration,
-        agentType: "store-metadata",
+        agentType: "asset-metadata",
         model: "openai/gpt-5-mini",
         durationMs: 1,
         success: true,
@@ -331,44 +334,45 @@ describe("managed usage generation fencing", () => {
     });
   });
 
-  it("does not recapture a migrated Store asset row under its new owner", async () => {
+  it("does not recapture a migrated asset row under its new owner", async () => {
     const t = createTest();
-    const sourceOwnerId = "store-metadata-source-owner";
-    const targetOwnerId = "store-metadata-target-owner";
-    const petId = await t.run(
+    const sourceOwnerId = "asset-metadata-source-owner";
+    const targetOwnerId = "asset-metadata-target-owner";
+    const packId = await t.run(
       async (ctx) =>
-        await ctx.db.insert("user_pets", {
+        await ctx.db.insert("emoji_packs", {
           ownerId: sourceOwnerId,
-          petId: "migrated-metadata-pet",
-          displayName: "Migrated metadata pet",
-          description: "A test pet",
+          packId: "migrated-metadata-pack",
+          displayName: "Migrated metadata pack",
+          description: "A test pack",
           tags: [],
-          spritesheetUrl: "https://assets.invalid/pet.png",
+          coverEmoji: "\u2b50",
+          sheetUrls: ["https://assets.invalid/pack.png"],
           visibility: "private",
-          searchText: "migrated metadata pet",
+          searchText: "migrated metadata pack",
           installCount: 0,
           createdAt: 1,
           updatedAt: 1,
         }),
     );
     await t.run(async (ctx) => {
-      await ctx.db.patch(petId, { ownerId: targetOwnerId });
+      await ctx.db.patch(packId, { ownerId: targetOwnerId });
     });
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("provider I/O must not run"));
 
     expect(
-      await t.action(internal.data.store_asset_metadata.enrichUserPet, {
-        petId,
+      await t.action(internal.data.asset_metadata.enrichEmojiPack, {
+        packId,
         ownerId: sourceOwnerId,
         ownerGeneration: "legacy",
       }),
     ).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(
-      await t.mutation(internal.data.user_pets.patchGeneratedMetadata, {
-        petId,
+      await t.mutation(internal.data.emoji_packs.patchGeneratedMetadata, {
+        packId,
         ownerId: sourceOwnerId,
         ownerGeneration: "legacy",
         metadata: {
@@ -381,7 +385,7 @@ describe("managed usage generation fencing", () => {
       }),
     ).toBeNull();
     expect(
-      await t.run(async (ctx) => (await ctx.db.get(petId))?.displayName),
-    ).toBe("Migrated metadata pet");
+      await t.run(async (ctx) => (await ctx.db.get(packId))?.displayName),
+    ).toBe("Migrated metadata pack");
   });
 });

@@ -9,7 +9,6 @@ import { chatHandlers } from "./handlers/chat.js";
 import { runsHandlers } from "./handlers/runs.js";
 import { localChatHandlers } from "./handlers/local-chat.js";
 import { voiceHandlers } from "./handlers/voice.js";
-import { socialHandlers } from "./handlers/social.js";
 import { runnerOpsHandlers } from "./handlers/runner-ops.js";
 import { projectsHandlers } from "./handlers/projects.js";
 import { discoveryHandlers } from "./handlers/discovery.js";
@@ -20,7 +19,7 @@ import { discoveryHandlers } from "./handlers/discovery.js";
  *
  * Base (process-lifetime) services build once into a ManagedRuntime; the
  * per-initialize session graph (storage, brokers, cli bridge, runner, agent
- * runs, social, voice) is scope-managed by WorkerSessions — see
+ * runs, voice) is scope-managed by WorkerSessions — see
  * docs/effect-architecture.md.
  *
  * Signature-compatible with the old monolithic server.ts: same peer wiring,
@@ -44,7 +43,6 @@ export const createRuntimeWorkerServer = (
     ...runsHandlers,
     ...localChatHandlers,
     ...voiceHandlers,
-    ...socialHandlers,
     ...runnerOpsHandlers,
     ...projectsHandlers,
     ...discoveryHandlers,

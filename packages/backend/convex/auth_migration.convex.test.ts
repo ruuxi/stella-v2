@@ -181,12 +181,6 @@ const migrationInternal = (
         LeaseArgs,
         { hasMore: boolean }
       >;
-      migrateLegacyAnonymousSocialProfileBatch: FunctionReference<
-        "mutation",
-        "internal",
-        LeaseArgs,
-        { hasMore: boolean }
-      >;
       commitCloudConversationTransferBatch: FunctionReference<
         "mutation",
         "internal",
@@ -240,12 +234,6 @@ const migrationInternal = (
         { hasMore: boolean; progressed: boolean }
       >;
       migrateAccountExternalMediaContentBatch: FunctionReference<
-        "mutation",
-        "internal",
-        LeaseArgs,
-        { hasMore: boolean }
-      >;
-      migrateStoreContentBatch: FunctionReference<
         "mutation",
         "internal",
         LeaseArgs,
@@ -3282,44 +3270,6 @@ describe("crash-safe ownership migration lifecycle", () => {
     expect(sourceRows).toEqual([]);
   });
 
-  it("removes only a plain legacy anonymous social profile on collision", async () => {
-    const t = createTest();
-    await t.mutation(migrationInternal.prepareOwnershipMigration, ownerArgs);
-    await t.mutation(migrationInternal.claimOwnershipMigration, {
-      ...ownerArgs,
-      leaseId: "social-lease",
-      now: 1_000,
-    });
-    await t.run(async (ctx) => {
-      await ctx.db.insert("social_profiles", {
-        ownerId: fromOwnerId,
-        username: "anonymous-legacy",
-        createdAt: 1,
-        updatedAt: 1,
-      });
-      await ctx.db.insert("social_profiles", {
-        ownerId: toOwnerId,
-        username: "connected-user",
-        createdAt: 2,
-        updatedAt: 2,
-      });
-    });
-
-    await t.mutation(
-      migrationInternal.migrateLegacyAnonymousSocialProfileBatch,
-      {
-        ...ownerArgs,
-        leaseId: "social-lease",
-        leaseGeneration: 1,
-        leaseNow: 1_001,
-      },
-    );
-    const profiles = await t.run(async (ctx) =>
-      ctx.db.query("social_profiles").collect(),
-    );
-    expect(profiles.map((profile) => profile.ownerId)).toEqual([toOwnerId]);
-  });
-
   it("retains the exact external receipt across a crash after projection commit", async () => {
     const t = createTest();
     await t.mutation(migrationInternal.prepareOwnershipMigration, ownerArgs);
@@ -3605,36 +3555,6 @@ describe("crash-safe ownership migration lifecycle", () => {
     ).rejects.toThrow("no longer owns the migration lease");
 
     await t.run(async (ctx) => {
-      const petId = await ctx.db.insert("user_pets", {
-        ownerId: fromOwnerId,
-        petId: "pet-source",
-        displayName: "Source pet",
-        description: "Migrated pet",
-        tags: ["test"],
-        spritesheetUrl: "https://media.test/pet.png",
-        visibility: "private",
-        searchText: "source pet",
-        createdAt: 1,
-        updatedAt: 1,
-      });
-      await ctx.db.insert("account_external_media_objects", {
-        ownerId: fromOwnerId,
-        ownerGeneration: "legacy",
-        uploadId: "pet-upload",
-        objectRole: "spritesheet",
-        storageKind: "raw-r2",
-        bucket: "pets",
-        r2Key: "user-pets/source/pet.png",
-        payloadSha256: "pet-sha",
-        publicUrl: "https://media.test/pet.png",
-        state: "committed",
-        uploadExpiresAt: 0,
-        sourceKind: "user_pet",
-        sourceId: String(petId),
-        sourceKey: `user_pet:${String(petId)}`,
-        createdAt: 1,
-        updatedAt: 1,
-      });
       const packId = await ctx.db.insert("emoji_packs", {
         ownerId: fromOwnerId,
         packId: "pack-source",
@@ -3665,47 +3585,6 @@ describe("crash-safe ownership migration lifecycle", () => {
         createdAt: 1,
         updatedAt: 1,
       });
-      const packageRef = await ctx.db.insert("store_packages", {
-        ownerId: fromOwnerId,
-        packageId: "package-source",
-        displayName: "Source package",
-        searchText: "source package",
-        latestReleaseNumber: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      });
-      const releaseId = await ctx.db.insert("store_package_releases", {
-        ownerId: fromOwnerId,
-        packageRef,
-        packageId: "package-source",
-        releaseNumber: 1,
-        manifest: {},
-        blueprintMarkdown: "# Source",
-        diffRef: {
-          kind: "r2",
-          r2Key: "store/source/diff.json",
-          sha256: "store-sha",
-          sizeBytes: 10,
-        },
-        createdAt: 1,
-      });
-      await ctx.db.patch(packageRef, { latestReleaseId: releaseId });
-      await ctx.db.insert("account_external_media_objects", {
-        ownerId: fromOwnerId,
-        ownerGeneration: "legacy",
-        uploadId: "store-upload",
-        objectRole: "diff",
-        storageKind: "component-r2",
-        r2Key: "store/source/diff.json",
-        payloadSha256: "store-sha",
-        state: "committed",
-        uploadExpiresAt: 0,
-        sourceKind: "store_release",
-        sourceId: String(releaseId),
-        sourceKey: `store_release:${String(releaseId)}`,
-        createdAt: 1,
-        updatedAt: 1,
-      });
     });
 
     const lease = {
@@ -3720,38 +3599,20 @@ describe("crash-safe ownership migration lifecycle", () => {
         lease,
       ),
     ).resolves.toEqual({ hasMore: true });
-    await expect(
-      t.mutation(migrationInternal.migrateAccountExternalMediaContentBatch, {
-        ...lease,
-        leaseNow: 1_003,
-      }),
-    ).resolves.toEqual({ hasMore: true });
-    await expect(
-      t.mutation(migrationInternal.migrateStoreContentBatch, {
-        ...lease,
-        leaseNow: 1_004,
-      }),
-    ).resolves.toEqual({ hasMore: true });
 
     const state = await t.run(async (ctx) => ({
-      pets: await ctx.db.query("user_pets").collect(),
       packs: await ctx.db.query("emoji_packs").collect(),
-      releases: await ctx.db.query("store_package_releases").collect(),
       locators: await ctx.db.query("account_external_media_objects").collect(),
     }));
-    expect(state.pets[0]?.ownerId).toBe(toOwnerId);
     expect(state.packs[0]?.ownerId).toBe(toOwnerId);
-    expect(state.releases[0]?.ownerId).toBe(toOwnerId);
-    expect(state.locators).toHaveLength(3);
+    expect(state.locators).toHaveLength(1);
     expect(
       state.locators.every(
         (row) => row.ownerId === toOwnerId && row.ownerGeneration === "legacy",
       ),
     ).toBe(true);
-    expect(state.locators.map((row) => row.r2Key).sort()).toEqual([
+    expect(state.locators.map((row) => row.r2Key)).toEqual([
       "emoji-packs/source/sheet.png",
-      "store/source/diff.json",
-      "user-pets/source/pet.png",
     ]);
   });
 

@@ -274,7 +274,7 @@ const runOwnerReset = async (
       );
     }
     const tts = await ctx.runAction(
-      internal.account_tts_social_purge.purgeOwnerTtsResetInternal,
+      internal.account_tts_purge.purgeOwnerTtsResetInternal,
       { ...fence, leaseId },
     );
     if (!tts.ready) {
@@ -393,7 +393,7 @@ const runOwnerReset = async (
         ownerId: fence.ownerId,
       }),
       ctx.runQuery(
-        internal.account_tts_social_purge.remainingOwnerTtsInternal,
+        internal.account_tts_purge.remainingOwnerTtsInternal,
         { ownerId: fence.ownerId },
       ),
       ctx.runQuery(

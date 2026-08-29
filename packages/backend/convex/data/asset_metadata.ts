@@ -5,9 +5,7 @@ import { internal } from "../_generated/api";
 import { internalAction, type ActionCtx } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
 import { resolveManagedModelConfigs } from "../agent/model_resolver";
-import {
-  createManagedUsageDispatchGuard,
-} from "../lib/managed_billing";
+import { createManagedUsageDispatchGuard } from "../lib/managed_billing";
 import {
   createManagedDispatchRequestFingerprint,
   estimateManagedModelFallbackCostMicroCents,
@@ -22,7 +20,6 @@ import {
 } from "../runtime_ai/managed";
 import { requireBoundedString } from "../shared_validators";
 import { isBlockedContentTag } from "../lib/content_tags";
-import { assertC8RetiredSurfaceUnavailable } from "../lib/c8_retired_surface";
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_TAGS = 8;
@@ -37,11 +34,11 @@ type GeneratedAssetMetadata = {
 };
 
 const ASSET_METADATA_SYSTEM_PROMPT = [
-  "You name and categorize Stella Store visual assets.",
+  "You name and categorize Stella visual assets.",
   "Study the attached generated image(s) and the creator's prompt/context.",
   "Return only JSON. No markdown.",
-  "Prefer short, friendly names. Descriptions should be one Store-card sentence.",
-  "Tags should be lowercase, user-facing filter labels like cute, pixel, animal, cozy, fantasy, food, robot, spooky, pastel, neon, object, emoji, pet.",
+  "Prefer short, friendly names. Descriptions should be one card-length sentence.",
+  "Tags should be lowercase, user-facing filter labels like cute, pixel, animal, cozy, fantasy, food, robot, spooky, pastel, neon, object, emoji.",
   "Never use nsfw as a tag or category.",
 ].join("\n");
 
@@ -49,7 +46,7 @@ const ASSET_METADATA_OUTPUT_INSTRUCTIONS = [
   "Return this JSON object:",
   "{",
   '  "displayName": "2-5 words, Title Case",',
-  '  "description": "80-160 character Store description",',
+  '  "description": "80-160 character description",',
   '  "tags": ["3-6 lowercase tags"]',
   "}",
 ].join("\n");
@@ -145,7 +142,7 @@ const fetchImage = async (
     await response.body?.cancel().catch(() => undefined);
     throw new ConvexError({
       code: "METADATA_IMAGE_FETCH_FAILED",
-      message: "Could not inspect the generated Store image.",
+      message: "Could not inspect the generated image.",
     });
   }
   const mimeType =
@@ -154,7 +151,7 @@ const fetchImage = async (
   if (bytes.byteLength > MAX_IMAGE_BYTES) {
     throw new ConvexError({
       code: "METADATA_IMAGE_TOO_LARGE",
-      message: "Generated Store image is too large to inspect.",
+      message: "Generated image is too large to inspect.",
     });
   }
   return {
@@ -166,7 +163,7 @@ const fetchImage = async (
 const createAssetMetadataBilling = async (args: {
   ownerId: string;
   ownerGeneration: string;
-  assetKind: "pet" | "emoji_pack";
+  assetKind: "emoji_pack";
   userText: string;
   imageUrls: string[];
   images: Array<{ data: string }>;
@@ -199,7 +196,7 @@ const createAssetMetadataBilling = async (args: {
     : undefined;
   return {
     requestFingerprint: await createManagedDispatchRequestFingerprint(
-      "store-asset-metadata",
+      "asset-metadata",
       [
         args.ownerId,
         args.ownerGeneration,
@@ -208,7 +205,7 @@ const createAssetMetadataBilling = async (args: {
         ...args.imageUrls,
       ].join("\0"),
     ),
-    agentType: "service:store_asset_metadata",
+    agentType: "service:asset_metadata",
     fallbackCostMicroCents: Math.max(
       primaryEstimate,
       fallbackEstimate ?? primaryEstimate,
@@ -226,7 +223,7 @@ const generateMetadata = async (
   ctx: Pick<ActionCtx, "runMutation" | "runQuery">,
   args: {
     ownerId: string;
-    assetKind: "pet" | "emoji_pack";
+    assetKind: "emoji_pack";
     prompt?: string;
     currentDisplayName?: string;
     currentDescription?: string;
@@ -249,14 +246,14 @@ const generateMetadata = async (
   await assertDispatch();
   const { access, config, fallbackConfig } = await resolveManagedModelConfigs(
     ctx,
-    "store_asset_metadata",
+    "asset_metadata",
     args.ownerId,
   );
   if (access.ownerGeneration !== args.ownerGeneration) {
     throw new ConvexError({
       code: "OWNER_DATA_GENERATION_STALE",
       message:
-        "This Store asset metadata job started before the account data changed.",
+        "This asset metadata job started before the account data changed.",
     });
   }
   const images = await Promise.all(
@@ -332,54 +329,6 @@ const generateMetadata = async (
     ownerGeneration: args.ownerGeneration,
   };
 };
-
-export const enrichUserPet = internalAction({
-  args: {
-    petId: v.id("user_pets"),
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    assertC8RetiredSurfaceUnavailable("Custom pet metadata");
-    const row: Doc<"user_pets"> | null = await ctx.runQuery(
-      internal.data.user_pets.getByIdInternal,
-      { petId: args.petId },
-    );
-    if (!row || row.ownerId !== args.ownerId) return null;
-    const generated = await generateMetadata(ctx, {
-      ownerId: args.ownerId,
-      ownerGeneration: args.ownerGeneration,
-      assetKind: "pet",
-      currentDisplayName: row.displayName,
-      currentDescription: row.description,
-      prompt: row.prompt,
-      imageUrls: [row.previewUrl ?? row.spritesheetUrl],
-    });
-    const { metadata } = generated;
-    const displayName = metadata.displayName ?? row.displayName;
-    const description = metadata.description ?? row.description;
-    await ctx.runMutation(internal.data.user_pets.patchGeneratedMetadata, {
-      petId: args.petId,
-      ownerId: args.ownerId,
-      ownerGeneration: generated.ownerGeneration,
-      metadata: {
-        displayName,
-        description,
-        tags: metadata.tags,
-        searchText: buildSearchText({
-          displayName,
-          description,
-          prompt: row.prompt,
-          authorUsername: row.authorUsername,
-          tags: metadata.tags,
-        }),
-        updatedAt: Date.now(),
-      },
-    });
-    return null;
-  },
-});
 
 export const enrichEmojiPack = internalAction({
   args: {

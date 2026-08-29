@@ -7,16 +7,12 @@ import { devicesSchema } from "./schema/devices";
 import { usersSchema } from "./schema/users";
 import { telemetrySchema } from "./schema/telemetry";
 import { billingSchema } from "./schema/billing";
-import { storeSchema } from "./schema/store";
 import { mediaSchema } from "./schema/media";
-import { socialSchema } from "./schema/social";
 import { backupsSchema } from "./schema/backups";
 import { fashionSchema } from "./schema/fashion";
 import { feedbackSchema } from "./schema/feedback";
 import { desktopReleasesSchema } from "./schema/desktop_releases";
-import { petsSchema } from "./schema/pets";
 import { emojiPacksSchema } from "./schema/emoji_packs";
-import { userPetsSchema } from "./schema/user_pets";
 import { canvasSharesSchema } from "./schema/canvas_shares";
 import { promptsSchema } from "./schema/prompts";
 import { relayResumeSchema } from "./schema/relay_resume";
@@ -30,7 +26,6 @@ import { ownerLifecycleSchema } from "./schema/owner_lifecycle";
 import { executionPlacementSchema } from "./schema/execution_placement";
 import { cloudConversationEditsSchema } from "./schema/cloud_conversation_edits";
 import { accountExternalMediaSchema } from "./schema/account_external_media";
-import { c8CleanupSchema } from "./schema/c8_cleanup";
 import { cloudBrowserSchema } from "./schema/cloud_browser";
 
 export default defineSchema({
@@ -42,16 +37,12 @@ export default defineSchema({
   ...usersSchema,
   ...telemetrySchema,
   ...billingSchema,
-  ...storeSchema,
   ...mediaSchema,
-  ...socialSchema,
   ...backupsSchema,
   ...fashionSchema,
   ...feedbackSchema,
   ...desktopReleasesSchema,
-  ...petsSchema,
   ...emojiPacksSchema,
-  ...userPetsSchema,
   ...canvasSharesSchema,
   ...promptsSchema,
   ...relayResumeSchema,
@@ -65,6 +56,5 @@ export default defineSchema({
   ...executionPlacementSchema,
   ...cloudConversationEditsSchema,
   ...accountExternalMediaSchema,
-  ...c8CleanupSchema,
   ...cloudBrowserSchema,
 });

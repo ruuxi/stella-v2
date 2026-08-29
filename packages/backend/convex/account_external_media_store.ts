@@ -14,35 +14,16 @@ import {
   accountExternalMediaSourceKindValidator,
   accountExternalMediaStorageKindValidator,
 } from "./schema/account_external_media";
-import { store_release_diff_ref_validator } from "./schema/store";
-import { requireConfiguredRawR2MediaTargets } from "./lib/raw_r2_media_target";
-import { getC8WriterCutoverStatus } from "./lib/c8_retired_surface";
+import { requireConfiguredRawR2MediaTarget } from "./lib/raw_r2_media_target";
 
 const MAX_OBJECTS_PER_UPLOAD = 8;
 const MAX_OBJECTS_PER_SOURCE = 8;
 const MAX_DELETE_BATCH = 24;
 const MATERIALIZE_PER_KIND = 8;
-const DEFAULT_PET_PREFIX = "user-pets";
 const DEFAULT_EMOJI_PREFIX = "emoji-packs";
 
 export const EXTERNAL_MEDIA_PRESIGNED_BARRIER_MS = 20 * 60_000;
 export const EXTERNAL_MEDIA_SERVER_WRITE_BARRIER_MS = 2 * 60_000;
-
-const isC8RetiredCutoverActive = (): boolean => {
-  const status = getC8WriterCutoverStatus(process.env);
-  return (
-    status.cloudUrlMatches &&
-    status.siteUrlMatches &&
-    status.retiredWritesDisabled
-  );
-};
-
-const isC8RetiredExternalMediaRow = (
-  row: Doc<"account_external_media_objects">,
-): boolean =>
-  row.sourceKind === "store_release" ||
-  row.sourceKind === "user_pet" ||
-  (row.objectRole === "store-diff" && row.sourceKind === undefined);
 
 const externalObjectInputValidator = v.object({
   objectRole: v.string(),
@@ -66,10 +47,6 @@ export type ExternalMediaObjectInput = Infer<
 export type ExternalMediaSourceKind = Infer<
   typeof accountExternalMediaSourceKindValidator
 >;
-export type StoreReleaseDiffRef = Infer<
-  typeof store_release_diff_ref_validator
->;
-
 const sourceKey = (kind: ExternalMediaSourceKind, id: string): string =>
   `${kind}:${id}`;
 
@@ -77,19 +54,15 @@ const normalizePrefix = (value: string | undefined, fallback: string): string =>
   (value?.trim() || fallback).replace(/^\/+|\/+$/g, "");
 
 const requireLegacyRawR2Target = (): {
-  petPublicBase: URL;
   emojiPublicBase: URL;
-  petBucket: string;
   emojiBucket: string;
 } => {
-  const targets = requireConfiguredRawR2MediaTargets(
+  const target = requireConfiguredRawR2MediaTarget(
     "Legacy external-media cleanup",
   );
   return {
-    petPublicBase: new URL(targets.pets.publicBase),
-    emojiPublicBase: new URL(targets.emoji.publicBase),
-    petBucket: targets.pets.bucket,
-    emojiBucket: targets.emoji.bucket,
+    emojiPublicBase: new URL(target.publicBase),
+    emojiBucket: target.bucket,
   };
 };
 
@@ -452,7 +425,7 @@ export const commitExternalMediaUploadByUrls = async (
     ownerId: string;
     ownerGeneration: string;
     uploadId: string;
-    sourceKind: "user_pet" | "emoji_pack";
+    sourceKind: "emoji_pack";
     sourceId: string;
     objects: Array<{ objectRole: string; publicUrl: string }>;
     now: number;
@@ -504,65 +477,6 @@ export const commitExternalMediaUploadByUrls = async (
     await ctx.db.patch(row._id, {
       state: "committed",
       sourceKind: args.sourceKind,
-      sourceId: args.sourceId,
-      sourceKey: key,
-      updatedAt: args.now,
-    });
-  }
-};
-
-export const commitStoreReleaseDiffRefs = async (
-  ctx: MutationCtx,
-  args: {
-    ownerId: string;
-    ownerGeneration: string;
-    sourceId: string;
-    refs: StoreReleaseDiffRef[];
-    now: number;
-  },
-): Promise<void> => {
-  await assertOwnerMigrationWriteAllowed(
-    ctx,
-    args.ownerId,
-    args.ownerGeneration,
-  );
-  const uniqueKeys = new Set(args.refs.map((ref) => ref.r2Key));
-  if (uniqueKeys.size !== args.refs.length) {
-    throw new ConvexError({
-      code: "INVALID_ARGUMENT",
-      message:
-        "Store release diff references must use distinct immutable keys.",
-    });
-  }
-  const rows: Doc<"account_external_media_objects">[] = [];
-  for (const ref of args.refs) {
-    const candidates = await ctx.db
-      .query("account_external_media_objects")
-      .withIndex("by_ownerId_and_r2Key", (q) =>
-        q.eq("ownerId", args.ownerId).eq("r2Key", ref.r2Key),
-      )
-      .take(2);
-    const row = candidates.find(
-      (candidate) =>
-        candidate.storageKind === "component-r2" &&
-        candidate.ownerGeneration === args.ownerGeneration &&
-        candidate.state === "reserved" &&
-        candidate.payloadSha256 === ref.sha256 &&
-        candidate.uploadExpiresAt > args.now,
-    );
-    if (!row || candidates.length !== 1) {
-      throw new ConvexError({
-        code: "EXTERNAL_MEDIA_UPLOAD_STALE",
-        message: "A Store diff reference has no exact live upload reservation.",
-      });
-    }
-    rows.push(row);
-  }
-  const key = sourceKey("store_release", args.sourceId);
-  for (const row of rows) {
-    await ctx.db.patch(row._id, {
-      state: "committed",
-      sourceKind: "store_release",
       sourceId: args.sourceId,
       sourceKey: key,
       updatedAt: args.now,
@@ -660,21 +574,10 @@ const deleteSourceRow = async (
   kind: ExternalMediaSourceKind,
   id: string,
 ): Promise<void> => {
-  if (kind === "user_pet") {
-    const normalized = ctx.db.normalizeId("user_pets", id);
-    const row = normalized ? await ctx.db.get(normalized) : null;
-    if (row?.ownerId === ownerId) await ctx.db.delete(row._id);
-    return;
-  }
-  if (kind === "emoji_pack") {
-    const normalized = ctx.db.normalizeId("emoji_packs", id);
-    const row = normalized ? await ctx.db.get(normalized) : null;
-    if (row?.ownerId === ownerId) await deleteEmojiPackRow(ctx, row);
-    return;
-  }
-  const normalized = ctx.db.normalizeId("store_package_releases", id);
+  if (kind !== "emoji_pack") return;
+  const normalized = ctx.db.normalizeId("emoji_packs", id);
   const row = normalized ? await ctx.db.get(normalized) : null;
-  if (row?.ownerId === ownerId) await ctx.db.delete(row._id);
+  if (row?.ownerId === ownerId) await deleteEmojiPackRow(ctx, row);
 };
 
 const materializeRawRefs = async (
@@ -682,7 +585,7 @@ const materializeRawRefs = async (
   args: {
     ownerId: string;
     ownerKey: string;
-    sourceKind: "user_pet" | "emoji_pack";
+    sourceKind: "emoji_pack";
     sourceId: string;
     refs: Array<{ role: string; url: string }>;
     prefix: string;
@@ -745,61 +648,15 @@ export const materializeLegacyExternalMediaInternal = internalMutation({
     // Never infer an authority target from a production-looking default. A
     // dev/preview deployment with missing configuration must stop before it
     // reads legacy URLs, materializes deletion locators, or deletes rows.
-    const { petPublicBase, emojiPublicBase, petBucket, emojiBucket } =
-      requireLegacyRawR2Target();
+    const { emojiPublicBase, emojiBucket } = requireLegacyRawR2Target();
     const now = Date.now();
     const ownerKey = await sha256Prefix(args.ownerId);
-    const petPrefix = normalizePrefix(
-      process.env.R2_PETS_PREFIX,
-      DEFAULT_PET_PREFIX,
-    );
     const emojiPrefix = normalizePrefix(
       process.env.R2_EMOJI_PREFIX,
       DEFAULT_EMOJI_PREFIX,
     );
     let materialized = 0;
     let deletedEmpty = 0;
-
-    const retiredCutoverActive = isC8RetiredCutoverActive();
-    const pets = retiredCutoverActive
-      ? []
-      : await ctx.db
-          .query("user_pets")
-          .withIndex("by_ownerId_and_updatedAt", (q) =>
-            q.eq("ownerId", args.ownerId),
-          )
-          .take(MATERIALIZE_PER_KIND);
-    for (const pet of pets) {
-      const key = sourceKey("user_pet", pet._id);
-      const existing = await ctx.db
-        .query("account_external_media_objects")
-        .withIndex("by_ownerId_and_sourceKey", (q) =>
-          q.eq("ownerId", args.ownerId).eq("sourceKey", key),
-        )
-        .first();
-      if (existing) continue;
-      const refs = [
-        { role: "spritesheet", url: pet.spritesheetUrl },
-        ...(pet.previewUrl ? [{ role: "preview", url: pet.previewUrl }] : []),
-      ];
-      const inserted = await materializeRawRefs(ctx, {
-        ownerId: args.ownerId,
-        ownerKey,
-        sourceKind: "user_pet",
-        sourceId: pet._id,
-        refs,
-        prefix: petPrefix,
-        fallbackPrefix: DEFAULT_PET_PREFIX,
-        bucket: petBucket,
-        publicBase: petPublicBase,
-        now,
-      });
-      materialized += inserted;
-      if (inserted === 0) {
-        await ctx.db.delete(pet._id);
-        deletedEmpty += 1;
-      }
-    }
 
     const packs = await ctx.db
       .query("emoji_packs")
@@ -838,69 +695,6 @@ export const materializeLegacyExternalMediaInternal = internalMutation({
       materialized += inserted;
       if (inserted === 0) {
         await deleteEmojiPackRow(ctx, pack);
-        deletedEmpty += 1;
-      }
-    }
-
-    const releases = retiredCutoverActive
-      ? []
-      : await ctx.db
-          .query("store_package_releases")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", args.ownerId),
-          )
-          .take(MATERIALIZE_PER_KIND);
-    for (const release of releases) {
-      const key = sourceKey("store_release", release._id);
-      const existing = await ctx.db
-        .query("account_external_media_objects")
-        .withIndex("by_ownerId_and_sourceKey", (q) =>
-          q.eq("ownerId", args.ownerId).eq("sourceKey", key),
-        )
-        .first();
-      if (existing) continue;
-      const refs = [
-        ...(release.diffRef ? [{ role: "diff", ref: release.diffRef }] : []),
-        ...(release.commitsDiffRef
-          ? [{ role: "commits-diff", ref: release.commitsDiffRef }]
-          : []),
-      ];
-      for (const entry of refs) {
-        await insertLegacyLocator(ctx, {
-          ownerId: args.ownerId,
-          sourceKind: "store_release",
-          sourceId: release._id,
-          role: entry.role,
-          storageKind: "component-r2",
-          r2Key: entry.ref.r2Key,
-          payloadSha256: entry.ref.sha256,
-          now,
-        });
-        materialized += 1;
-      }
-      if (refs.length === 0) {
-        await ctx.db.delete(release._id);
-        deletedEmpty += 1;
-      }
-    }
-
-    const packages = retiredCutoverActive
-      ? []
-      : await ctx.db
-          .query("store_packages")
-          .withIndex("by_ownerId_and_updatedAt", (q) =>
-            q.eq("ownerId", args.ownerId),
-          )
-          .take(MATERIALIZE_PER_KIND);
-    for (const pkg of packages) {
-      const release = await ctx.db
-        .query("store_package_releases")
-        .withIndex("by_packageRef_and_releaseNumber", (q) =>
-          q.eq("packageRef", pkg._id),
-        )
-        .first();
-      if (!release) {
-        await ctx.db.delete(pkg._id);
         deletedEmpty += 1;
       }
     }
@@ -966,9 +760,7 @@ export const getOwnerExternalMediaPurgeBatchInternal = internalQuery({
           left.uploadExpiresAt - right.uploadExpiresAt ||
           left._creationTime - right._creationTime,
       )[0];
-    const targets = [...expired, ...committed].filter(
-      (row) => !isC8RetiredCutoverActive() || !isC8RetiredExternalMediaRow(row),
-    );
+    const targets = [...expired, ...committed];
     return {
       targets: targets.map((row) => ({
         id: row._id,
@@ -1034,12 +826,8 @@ export const getOwnerExternalMediaMigrationCleanupBatchInternal = internalQuery(
             left.uploadExpiresAt - right.uploadExpiresAt ||
             left._creationTime - right._creationTime,
         )[0];
-      const safeTargets = targets.filter(
-        (row) =>
-          !isC8RetiredCutoverActive() || !isC8RetiredExternalMediaRow(row),
-      );
       return {
-        targets: safeTargets.map((row) => ({
+        targets: targets.map((row) => ({
           id: row._id,
           storageKind: row.storageKind,
           ...(row.bucket ? { bucket: row.bucket } : {}),
@@ -1244,27 +1032,9 @@ export const remainingOwnerExternalMediaRowsInternal = internalQuery({
   args: { ownerId: v.string() },
   returns: v.array(v.string()),
   handler: async (ctx, args) => {
-    const [pet, pack, release, pkg, locator] = await Promise.all([
-      ctx.db
-        .query("user_pets")
-        .withIndex("by_ownerId_and_updatedAt", (q) =>
-          q.eq("ownerId", args.ownerId),
-        )
-        .first(),
+    const [pack, locator] = await Promise.all([
       ctx.db
         .query("emoji_packs")
-        .withIndex("by_ownerId_and_updatedAt", (q) =>
-          q.eq("ownerId", args.ownerId),
-        )
-        .first(),
-      ctx.db
-        .query("store_package_releases")
-        .withIndex("by_ownerId_and_createdAt", (q) =>
-          q.eq("ownerId", args.ownerId),
-        )
-        .first(),
-      ctx.db
-        .query("store_packages")
         .withIndex("by_ownerId_and_updatedAt", (q) =>
           q.eq("ownerId", args.ownerId),
         )
@@ -1277,12 +1047,7 @@ export const remainingOwnerExternalMediaRowsInternal = internalQuery({
         .first(),
     ]);
     return [
-      ...(pet ? [`user_pet:${pet.petId}`] : []),
       ...(pack ? [`emoji_pack:${pack.packId}`] : []),
-      ...(release
-        ? [`store_release:${release.packageId}:${release.releaseNumber}`]
-        : []),
-      ...(pkg ? [`store_package:${pkg.packageId}`] : []),
       ...(locator
         ? [
             `external_media_${locator.state}:${locator.uploadId}:${locator.objectRole}`,

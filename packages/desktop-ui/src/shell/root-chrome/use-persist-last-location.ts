@@ -6,7 +6,7 @@ type Router = ReturnType<typeof useRouter>;
 
 /**
  * Persist every router resolution to the shared UI state store so a
- * fresh launch can restore which *route* the user was on (store / social /
+ * fresh launch can restore which *route* the user was on (apps /
  * settings / …). We deliberately don't round-trip this through IPC.
  *
  * This intentionally does NOT carry the chat conversation id: the durable

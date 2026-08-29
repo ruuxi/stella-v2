@@ -12,6 +12,13 @@ export const accountExternalMediaStateValidator = v.union(
   v.literal("external_deleted"),
 );
 
+/**
+ * Only `emoji_pack` is still written. `user_pet` and `store_release` stay
+ * readable because deployed rows still carry them and Convex validates a
+ * document against this union on read: narrowing the union before those rows
+ * are purged would make an owner's remaining media locators unreadable, which
+ * is exactly the inventory account deletion needs to walk.
+ */
 export const accountExternalMediaSourceKindValidator = v.union(
   v.literal("user_pet"),
   v.literal("emoji_pack"),

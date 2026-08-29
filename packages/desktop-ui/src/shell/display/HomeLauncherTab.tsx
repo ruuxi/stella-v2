@@ -4,7 +4,7 @@
  *
  * Home itself IS the chat, so this surface never hosts a duplicate
  * conversation. Instead it's a quiet launcher of the other display surfaces
- * the user might want (Files, Store, Trash) — click one and that surface
+ * the user might want (Files, Trash) — click one and that surface
  * takes over. Models lives in the sidebar footer rather than here.
  */
 import type { ReactNode } from "react";
@@ -12,7 +12,7 @@ import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import type { DisplayTabKind } from "@/features/workspace-display/types";
 import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
 import { useT } from "@/shared/i18n";
-import { openStoreDisplayTab, openTrashDisplayTab } from "./default-tabs";
+import { openTrashDisplayTab } from "./default-tabs";
 import "./chat-home-overview.css";
 
 type LauncherEntry = {
@@ -32,13 +32,6 @@ const ENTRIES: ReadonlyArray<LauncherEntry> = [
     // A launcher entry is a jump to the top of a surface, so this lands on
     // the list rather than on whichever file the section was last showing.
     onSelect: () => sidebarSections.openLocation("files", null),
-  },
-  {
-    id: "store",
-    labelKey: "shell.display.homeLauncher.store.label",
-    descriptionKey: "shell.display.homeLauncher.store.description",
-    kind: "store",
-    onSelect: openStoreDisplayTab,
   },
   {
     id: "trash",

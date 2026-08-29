@@ -9,27 +9,14 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as StoreRouteImport } from './routes/store'
-import { Route as SocialRouteImport } from './routes/social'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as BillingRouteImport } from './routes/billing'
 import { Route as AppsRouteImport } from './routes/apps'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppsIndexRouteImport } from './routes/apps.index'
-import { Route as CHandleRouteImport } from './routes/c.$handle'
 import { Route as AppsSlugRouteImport } from './routes/apps.$slug'
 
-const StoreRoute = StoreRouteImport.update({
-  id: '/store',
-  path: '/store',
-  getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/store.lazy').then((d) => d.Route))
-const SocialRoute = SocialRouteImport.update({
-  id: '/social',
-  path: '/social',
-  getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/social.lazy').then((d) => d.Route))
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -60,11 +47,6 @@ const AppsIndexRoute = AppsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppsRoute,
 } as any).lazy(() => import('./routes/apps.index.lazy').then((d) => d.Route))
-const CHandleRoute = CHandleRouteImport.update({
-  id: '/c/$handle',
-  path: '/c/$handle',
-  getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/c.$handle.lazy').then((d) => d.Route))
 const AppsSlugRoute = AppsSlugRouteImport.update({
   id: '/$slug',
   path: '/$slug',
@@ -77,10 +59,7 @@ export interface FileRoutesByFullPath {
   '/billing': typeof BillingRoute
   '/chat': typeof ChatRoute
   '/settings': typeof SettingsRoute
-  '/social': typeof SocialRoute
-  '/store': typeof StoreRoute
   '/apps/$slug': typeof AppsSlugRoute
-  '/c/$handle': typeof CHandleRoute
   '/apps/': typeof AppsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -88,10 +67,7 @@ export interface FileRoutesByTo {
   '/billing': typeof BillingRoute
   '/chat': typeof ChatRoute
   '/settings': typeof SettingsRoute
-  '/social': typeof SocialRoute
-  '/store': typeof StoreRoute
   '/apps/$slug': typeof AppsSlugRoute
-  '/c/$handle': typeof CHandleRoute
   '/apps': typeof AppsIndexRoute
 }
 export interface FileRoutesById {
@@ -101,10 +77,7 @@ export interface FileRoutesById {
   '/billing': typeof BillingRoute
   '/chat': typeof ChatRoute
   '/settings': typeof SettingsRoute
-  '/social': typeof SocialRoute
-  '/store': typeof StoreRoute
   '/apps/$slug': typeof AppsSlugRoute
-  '/c/$handle': typeof CHandleRoute
   '/apps/': typeof AppsIndexRoute
 }
 export interface FileRouteTypes {
@@ -115,22 +88,10 @@ export interface FileRouteTypes {
     | '/billing'
     | '/chat'
     | '/settings'
-    | '/social'
-    | '/store'
     | '/apps/$slug'
-    | '/c/$handle'
     | '/apps/'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/billing'
-    | '/chat'
-    | '/settings'
-    | '/social'
-    | '/store'
-    | '/apps/$slug'
-    | '/c/$handle'
-    | '/apps'
+  to: '/' | '/billing' | '/chat' | '/settings' | '/apps/$slug' | '/apps'
   id:
     | '__root__'
     | '/'
@@ -138,10 +99,7 @@ export interface FileRouteTypes {
     | '/billing'
     | '/chat'
     | '/settings'
-    | '/social'
-    | '/store'
     | '/apps/$slug'
-    | '/c/$handle'
     | '/apps/'
   fileRoutesById: FileRoutesById
 }
@@ -151,27 +109,10 @@ export interface RootRouteChildren {
   BillingRoute: typeof BillingRoute
   ChatRoute: typeof ChatRoute
   SettingsRoute: typeof SettingsRoute
-  SocialRoute: typeof SocialRoute
-  StoreRoute: typeof StoreRoute
-  CHandleRoute: typeof CHandleRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/store': {
-      id: '/store'
-      path: '/store'
-      fullPath: '/store'
-      preLoaderRoute: typeof StoreRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/social': {
-      id: '/social'
-      path: '/social'
-      fullPath: '/social'
-      preLoaderRoute: typeof SocialRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -214,13 +155,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppsIndexRouteImport
       parentRoute: typeof AppsRoute
     }
-    '/c/$handle': {
-      id: '/c/$handle'
-      path: '/c/$handle'
-      fullPath: '/c/$handle'
-      preLoaderRoute: typeof CHandleRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/apps/$slug': {
       id: '/apps/$slug'
       path: '/$slug'
@@ -249,9 +183,6 @@ const rootRouteChildren: RootRouteChildren = {
   BillingRoute: BillingRoute,
   ChatRoute: ChatRoute,
   SettingsRoute: SettingsRoute,
-  SocialRoute: SocialRoute,
-  StoreRoute: StoreRoute,
-  CHandleRoute: CHandleRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

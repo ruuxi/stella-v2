@@ -9,7 +9,7 @@ import * as SessionConfig from "./config.js";
  * `<workspace>/apps`) as a session-scoped resource. Built at the TOP of the
  * session chain so its finalizer (`shutdown()`, which stops project dev
  * servers) runs FIRST on teardown — the old `stopWorkerServices` stopped
- * user app projects before the social/voice/runner services.
+ * user app projects before the voice/runner services.
  */
 export interface Interface {
   readonly service: UserAppProjectService;

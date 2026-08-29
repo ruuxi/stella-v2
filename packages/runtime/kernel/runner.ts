@@ -12,7 +12,6 @@ import {
 import { createConvexSession } from "./runner/convex-session.js";
 import { createOrchestratorController } from "./runner/orchestrator.js";
 import { createRuntimeInitialization } from "./runner/runtime-initialization.js";
-import { createStoreOperations } from "./runner/store-operations.js";
 import { createAgentOrchestration } from "./runner/agent-orchestration.js";
 import { createCloudAgentLifecycleMonitor } from "./runner/cloud-agent-lifecycle.js";
 import { createComputerAgentCloudRecords } from "./runner/computer-agent-cloud-records.js";
@@ -287,9 +286,6 @@ export const createStellaHostRunner = (
   resumeLegacyChatCloudImport = legacyChatCloudImporter.resume;
   legacyChatCloudImporter.resume();
 
-  const storeOperations = createStoreOperations(context, {
-    ensureStoreClient: convexSession.ensureStoreClient,
-  });
   const computerAgentCloudRecords = createComputerAgentCloudRecords({
     convexApi: context.convexApi,
     deviceId: context.deviceId,
@@ -605,10 +601,6 @@ export const createStellaHostRunner = (
       }
     },
     webSearch: convexSession.webSearch,
-    listStorePackages: storeOperations.listStorePackages,
-    getStorePackage: storeOperations.getStorePackage,
-    listStorePackageReleases: storeOperations.listStorePackageReleases,
-    getStorePackageRelease: storeOperations.getStorePackageRelease,
     handleLocalChat: orchestratorController.handleLocalChat,
     sendMessage: orchestratorController.sendMessage,
     sendUserMessage: orchestratorController.sendUserMessage,

@@ -22,7 +22,6 @@ import type {
   LocalChatToolEventPage,
 } from "@stella/contracts/local-chat";
 import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
-import type { MorphVisualTiming } from "@stella/contracts/morph-timing";
 import type {
   ChatContext as SharedChatContext,
   ChatContextFile as SharedChatContextFile,
@@ -39,9 +38,6 @@ import type {
   DiscoveredApp as SharedDiscoveredApp,
   AllUserSignals as SharedAllUserSignals,
   AllUserSignalsResult as SharedAllUserSignalsResult,
-  StoreReleaseManifest as SharedStoreReleaseManifest,
-  StorePackageRecord as SharedStorePackageRecord,
-  StorePackageReleaseRecord as SharedStorePackageReleaseRecord,
   AgentHealth as SharedAgentHealth,
   LocalLlmCredentialSummary as SharedLocalLlmCredentialSummary,
   LocalCronSchedule as SharedLocalCronSchedule,
@@ -53,8 +49,6 @@ import type {
   LocalHeartbeatUpsertInput as SharedLocalHeartbeatUpsertInput,
   ScheduledConversationEvent as SharedScheduledConversationEvent,
   VoiceRuntimeSnapshot as SharedVoiceRuntimeSnapshot,
-  SocialSessionRuntimeRecord as SharedSocialSessionRuntimeRecord,
-  SocialSessionServiceSnapshot as SharedSocialSessionServiceSnapshot,
 } from "@stella/contracts";
 import type {
   DiscoveryCategory,
@@ -67,7 +61,6 @@ import type {
   OnboardingWelcomeHtmlResponse,
 } from "@stella/contracts/onboarding";
 import type {
-  RuntimeSocialSessionStatus,
   RuntimeVoiceOrchestratorConfig,
   RuntimeVoiceToolCallPayload,
   RuntimeVoiceToolCallResult,
@@ -142,9 +135,6 @@ export type DiscoveredApp = SharedDiscoveredApp;
 export type AllUserSignals = SharedAllUserSignals;
 export type AllUserSignalsResult = SharedAllUserSignalsResult;
 export type AgentStreamIpcEvent = AgentStreamEvent;
-export type StoreReleaseManifest = SharedStoreReleaseManifest;
-export type StorePackageRecord = SharedStorePackageRecord;
-export type StorePackageReleaseRecord = SharedStorePackageReleaseRecord;
 export type AgentHealth = SharedAgentHealth;
 export type LocalLlmCredentialSummary = SharedLocalLlmCredentialSummary;
 export type LocalLlmOAuthProviderSummary = {
@@ -160,8 +150,6 @@ export type LocalHeartbeatConfigRecord = SharedLocalHeartbeatConfigRecord;
 export type LocalHeartbeatUpsertInput = SharedLocalHeartbeatUpsertInput;
 export type ScheduledConversationEvent = SharedScheduledConversationEvent;
 export type VoiceRuntimeSnapshot = SharedVoiceRuntimeSnapshot;
-export type SocialSessionRuntimeRecord = SharedSocialSessionRuntimeRecord;
-export type SocialSessionServiceSnapshot = SharedSocialSessionServiceSnapshot;
 export type OfficePreviewRef = SharedOfficePreviewRef;
 export type OfficePreviewSnapshot = SharedOfficePreviewSnapshot;
 export type BackupNowResult = SharedBackupNowResult;
@@ -197,12 +185,6 @@ export type ElectronUiApi = {
   reload: () => void;
   relaunch: () => void;
   hardReset: () => Promise<{ ok: boolean }>;
-  morphStart: (payload?: {
-    rect?: { x: number; y: number; width: number; height: number };
-  }) => Promise<{ ok: boolean }>;
-  morphComplete: (payload?: {
-    rect?: { x: number; y: number; width: number; height: number };
-  }) => Promise<{ ok: boolean }>;
   setOnboardingPresentation: (active: boolean) => Promise<{ ok: boolean }>;
 };
 
@@ -356,45 +338,16 @@ export type ElectronOverlayApi = {
       bounds: { x: number; y: number; width: number; height: number };
     }) => void,
   ) => () => void;
-  onMorphForward: (
-    callback: (data: {
-      transitionId: string;
-      screenshotDataUrl: string;
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-      flavor?: "hmr" | "onboarding";
-      timing?: MorphVisualTiming | null;
-    }) => void,
-  ) => () => void;
-  onMorphBounds: (
-    callback: (data: {
-      transitionId: string;
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    }) => void,
-  ) => () => void;
-  onMorphHandoff: (
-    callback: (data: {
-      transitionId: string;
-      screenshotDataUrl: string;
-      requiresFullReload: boolean;
-      flavor?: "hmr" | "onboarding";
-      timing?: MorphVisualTiming | null;
-    }) => void,
-  ) => () => void;
-  onMorphEnd: (
-    callback: (payload: { transitionId: string }) => void,
-  ) => () => void;
-  morphReady: (transitionId: string) => void;
-  morphDone: (transitionId: string) => void;
 };
 
 export type ElectronThemeApi = {
   listInstalled: () => Promise<Theme[]>;
+};
+
+/** Origin of the marketing/billing site, so Stripe return URLs and other
+ *  outbound links honour the STELLA_WEB_URL override in dev. */
+export type ElectronWebsiteApi = {
+  getBaseUrl: () => Promise<string>;
 };
 
 /**
@@ -677,8 +630,6 @@ export type ElectronSystemApi = {
   setModelCatalogUpdatedAt: (payload: {
     updatedAt: number | null;
   }) => Promise<{ ok: boolean }>;
-  onSocialInvite: (callback: (data: { url: string }) => void) => () => void;
-  consumePendingSocialInvite: () => Promise<string | null>;
   onAuthSessionInvalidated: (callback: () => void) => () => void;
   quitForRestart: () => Promise<{ ok: boolean }>;
   openFullDiskAccess: () => void;
@@ -1267,52 +1218,6 @@ export type ElectronScheduleApi = {
   onUpdated: (callback: () => void) => () => void;
 };
 
-export type ElectronStoreApi = {
-  listPackages: () => Promise<StorePackageRecord[]>;
-  getPackage: (packageId: string) => Promise<StorePackageRecord | null>;
-  listPackageReleases: (
-    packageId: string,
-  ) => Promise<StorePackageReleaseRecord[]>;
-  getPackageRelease: (payload: {
-    packageId: string;
-    releaseNumber: number;
-  }) => Promise<StorePackageReleaseRecord | null>;
-};
-
-export type EmbeddedWebsiteTheme = {
-  mode?: "light" | "dark";
-  foreground?: string;
-  foregroundWeak?: string;
-  border?: string;
-  primary?: string;
-  surface?: string;
-  background?: string;
-};
-
-/** Everything the renderer needs to mount the Store/Billing `<webview>`.
- *  Mirrors `WindowManager.getStoreWebEmbedConfig` in the main process. */
-export type StoreWebEmbedConfig = {
-  baseUrl: string;
-  partition: string;
-  preloadUrl: string;
-};
-
-export type ElectronStoreWebApi = {
-  getEmbedConfig: () => Promise<StoreWebEmbedConfig | null>;
-};
-
-export type ElectronStoreWebLocalApi = {
-  onAction: (
-    callback: (payload: { requestId: string; action: unknown }) => void,
-  ) => () => void;
-  reply: (payload: {
-    requestId: string;
-    ok: boolean;
-    result?: unknown;
-    error?: string;
-  }) => void;
-};
-
 export type FashionBodyPhotoInfo = {
   hasBodyPhoto: boolean;
   absolutePath?: string;
@@ -1351,24 +1256,6 @@ export type ElectronFashionApi = {
     imagePaths: string[];
     imageUrls: string[];
   }>;
-};
-
-export type ElectronSocialSessionsApi = {
-  create: (payload: {
-    roomId: string;
-    workspaceLabel?: string;
-  }) => Promise<{ sessionId: string }>;
-  updateStatus: (payload: {
-    sessionId: string;
-    status: RuntimeSocialSessionStatus;
-  }) => Promise<{ sessionId: string; status: RuntimeSocialSessionStatus }>;
-  queueTurn: (payload: {
-    sessionId: string;
-    prompt: string;
-    agentType?: string;
-    clientTurnId?: string;
-  }) => Promise<{ turnId: string }>;
-  getStatus: () => Promise<SocialSessionServiceSnapshot>;
 };
 
 export type ElectronUserAppsApi = {
@@ -1876,6 +1763,7 @@ export type ElectronApi = {
   overlay: ElectronOverlayApi;
   screenGuide: ElectronScreenGuideApi;
   theme: ElectronThemeApi;
+  website: ElectronWebsiteApi;
   uiState: ElectronUiStateKvApi;
   voice: ElectronVoiceApi;
   dictation: ElectronDictationApi;
@@ -1886,8 +1774,6 @@ export type ElectronApi = {
   discovery: ElectronDiscoveryApi;
   browser: ElectronBrowserApi;
   browserView: ElectronBrowserViewApi;
-  storeWeb: ElectronStoreWebApi;
-  storeWebLocal: ElectronStoreWebLocalApi;
   media: {
     saveOutput: (
       url: string,
@@ -1948,9 +1834,7 @@ export type ElectronApi = {
     openFolder: (payload?: { sessionId?: string }) => Promise<{ ok: boolean }>;
   };
   schedule: ElectronScheduleApi;
-  store: ElectronStoreApi;
   fashion: ElectronFashionApi;
-  socialSessions: ElectronSocialSessionsApi;
   userApps: ElectronUserAppsApi;
   localChat: ElectronLocalChatApi;
   nativeIntegrations: ElectronNativeIntegrationsApi;

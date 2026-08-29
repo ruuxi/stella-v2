@@ -106,10 +106,8 @@ export const createUploadUrl = action({
     const accessKeyId = requireEnv("R2_ACCESS_KEY_ID");
     const secretAccessKey = requireEnv("R2_SECRET_ACCESS_KEY");
     const endpoint = requireEnv("R2_ENDPOINT");
-    const { bucket, publicBase } = requireConfiguredRawR2MediaTarget({
-      bucketEnv: "R2_EMOJI_BUCKET",
-      purpose: "Emoji pack uploads",
-    });
+    const { bucket, publicBase } =
+      requireConfiguredRawR2MediaTarget("Emoji pack uploads");
     const prefix = normalizePrefix(process.env.R2_EMOJI_PREFIX);
     const uploadId = randomUUID();
     const ownerKey = sha256Hex(ownerId).slice(0, 24);

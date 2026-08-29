@@ -53,9 +53,6 @@ const claimOwnershipMigration = makeFunctionReference<"mutation">(
 const migrateExternalMedia = makeFunctionReference<"mutation">(
   "auth_migration:migrateAccountExternalMediaContentBatch",
 );
-const migrateStoreContent = makeFunctionReference<"mutation">(
-  "auth_migration:migrateStoreContentBatch",
-);
 
 const rawObject = (role: string, key: string) => ({
   objectRole: role,
@@ -67,8 +64,6 @@ const rawObject = (role: string, key: string) => ({
 });
 
 const RAW_MEDIA_ENV = {
-  R2_PETS_BUCKET: "stella-v2-pets-dev",
-  R2_PETS_PUBLIC_BASE_URL: "https://pets.dev.example.test",
   R2_EMOJI_BUCKET: "stella-v2-emoji-dev",
   R2_EMOJI_PUBLIC_BASE_URL: "https://emoji.dev.example.test",
   R2_ACCESS_KEY_ID: "test-access-key",
@@ -151,45 +146,45 @@ describe("account external-media durability", () => {
     expect(
       rawR2KeyFromOwnedPublicUrl({
         value:
-          "https://media.example.test/assets/user-pets/abc123/pet/upload/sheet.webp",
+          "https://media.example.test/assets/emoji-packs/abc123/pack/upload/sheet-1.webp",
         publicBase,
-        acceptedPrefixes: ["user-pets"],
+        acceptedPrefixes: ["emoji-packs"],
         ownerKey: "abc123",
       }),
-    ).toBe("user-pets/abc123/pet/upload/sheet.webp");
+    ).toBe("emoji-packs/abc123/pack/upload/sheet-1.webp");
     expect(
       rawR2KeyFromOwnedPublicUrl({
         value:
-          "https://media.example.test/assets/user-pets/someone-else/pet/upload/sheet.webp",
+          "https://media.example.test/assets/emoji-packs/someone-else/pack/upload/sheet-1.webp",
         publicBase,
-        acceptedPrefixes: ["user-pets"],
+        acceptedPrefixes: ["emoji-packs"],
         ownerKey: "abc123",
       }),
     ).toBeNull();
     expect(
       rawR2KeyFromOwnedPublicUrl({
         value:
-          "https://attacker.example.test/assets/user-pets/abc123/pet/upload/sheet.webp",
+          "https://attacker.example.test/assets/emoji-packs/abc123/pack/upload/sheet-1.webp",
         publicBase,
-        acceptedPrefixes: ["user-pets"],
+        acceptedPrefixes: ["emoji-packs"],
         ownerKey: "abc123",
       }),
     ).toBeNull();
 
     for (const value of [
-      "https://media.example.test/assets/user-pets/abc123/%2F..%2F..%2F..%2Fuser-pets%2Fvictim%2Fpet%2Fupload%2Fsheet.webp",
-      "https://media.example.test/assets/user-pets/abc123/%2F..%2F..%2F..%2F..%2Femoji-dev%2Fvictim%2Fsheet.webp",
-      "https://media.example.test/assets/user-pets/abc123/%5C..%5Cvictim%5Csheet.webp",
-      "https://media.example.test/assets/user-pets/abc123/%252F..%252Fvictim%252Fsheet.webp",
-      "https://media.example.test/assets/user-pets/abc123/%ZZ",
-      "https://media.example.test/assets/user-pets/abc123//sheet.webp",
-      "https://media.example.test/assets/user-pets/abc123/../victim/sheet.webp",
+      "https://media.example.test/assets/emoji-packs/abc123/%2F..%2F..%2F..%2Femoji-packs%2Fvictim%2Fpack%2Fupload%2Fsheet-1.webp",
+      "https://media.example.test/assets/emoji-packs/abc123/%2F..%2F..%2F..%2F..%2Fstella-files%2Fvictim%2Fsheet-1.webp",
+      "https://media.example.test/assets/emoji-packs/abc123/%5C..%5Cvictim%5Csheet-1.webp",
+      "https://media.example.test/assets/emoji-packs/abc123/%252F..%252Fvictim%252Fsheet-1.webp",
+      "https://media.example.test/assets/emoji-packs/abc123/%ZZ",
+      "https://media.example.test/assets/emoji-packs/abc123//sheet-1.webp",
+      "https://media.example.test/assets/emoji-packs/abc123/../victim/sheet-1.webp",
     ]) {
       expect(
         rawR2KeyFromOwnedPublicUrl({
           value,
           publicBase,
-          acceptedPrefixes: ["user-pets"],
+          acceptedPrefixes: ["emoji-packs"],
           ownerKey: "abc123",
         }),
       ).toBeNull();
@@ -199,30 +194,33 @@ describe("account external-media durability", () => {
   it.each([
     [
       "cross-owner",
-      "%2F..%2F..%2F..%2Fuser-pets%2Fvictim%2Fpet%2Fupload%2Fsheet.webp",
+      "%2F..%2F..%2F..%2Femoji-packs%2Fvictim%2Fpack%2Fupload%2Fsheet-1.webp",
     ],
     [
       "cross-bucket",
-      "%2F..%2F..%2F..%2F..%2Fstella-v2-emoji-dev%2Femoji-packs%2Fvictim%2Fsheet.webp",
+      "%2F..%2F..%2F..%2F..%2Fstella-files%2Femoji-packs%2Fvictim%2Fsheet-1.webp",
     ],
   ])(
-    "retains a legacy pet and rolls back locators for a malformed %s reference",
+    "retains a legacy emoji pack and rolls back locators for a malformed %s reference",
     async (_case, encodedAttack) => {
       const t = createTest();
       const ownerId = `owner-malformed-${_case}`;
       const ownerKey = await ownerKeyFor(ownerId);
       const now = Date.now();
-      const petId = await t.run(async (ctx) =>
-        ctx.db.insert("user_pets", {
+      const packId = await t.run(async (ctx) =>
+        ctx.db.insert("emoji_packs", {
           ownerId,
-          petId: `malformed-${_case}-pet`,
-          displayName: "Malformed legacy pet",
+          packId: `malformed-${_case}-pack`,
+          displayName: "Malformed legacy pack",
           description: "test",
           tags: [],
-          spritesheetUrl: `https://pets.dev.example.test/user-pets/${ownerKey}/pet/upload/sheet.webp`,
-          previewUrl: `https://pets.dev.example.test/user-pets/${ownerKey}/${encodedAttack}`,
+          coverEmoji: "star",
+          sheetUrls: [
+            `https://emoji.dev.example.test/emoji-packs/${ownerKey}/pack/upload/sheet-1.webp`,
+          ],
+          coverUrl: `https://emoji.dev.example.test/emoji-packs/${ownerKey}/${encodedAttack}`,
           visibility: "private",
-          searchText: "malformed legacy pet",
+          searchText: "malformed legacy pack",
           createdAt: now,
           updatedAt: now,
         }),
@@ -238,7 +236,7 @@ describe("account external-media durability", () => {
         );
         expect(fetchSpy).not.toHaveBeenCalled();
         const snapshot = await t.run(async (ctx) => ({
-          pet: await ctx.db.get(petId),
+          pack: await ctx.db.get(packId),
           locators: await ctx.db
             .query("account_external_media_objects")
             .withIndex("by_ownerId_and_uploadId", (q) =>
@@ -246,7 +244,7 @@ describe("account external-media durability", () => {
             )
             .take(8),
         }));
-        expect(snapshot.pet).not.toBeNull();
+        expect(snapshot.pack).not.toBeNull();
         expect(snapshot.locators).toEqual([]);
       } finally {
         fetchSpy.mockRestore();
@@ -260,23 +258,24 @@ describe("account external-media durability", () => {
     const ownerId = "owner-malicious-materialized-locators";
     const now = Date.now();
     const crossOwner =
-      "user-pets/attacker//../../../user-pets/victim/pet/upload/sheet.webp";
+      "emoji-packs/attacker//../../../emoji-packs/victim/pack/upload/sheet-1.webp";
     const crossBucket =
-      "user-pets/attacker//../../../../stella-v2-emoji-dev/emoji-packs/victim/sheet.webp";
-    const { petId, locatorIds } = await t.run(async (ctx) => {
-      const petId = await ctx.db.insert("user_pets", {
+      "emoji-packs/attacker//../../../../stella-files/emoji-packs/victim/sheet-1.webp";
+    const { packRowId, locatorIds } = await t.run(async (ctx) => {
+      const packRowId = await ctx.db.insert("emoji_packs", {
         ownerId,
-        petId: "malicious-materialized-pet",
-        displayName: "Malicious materialized pet",
+        packId: "malicious-materialized-pack",
+        displayName: "Malicious materialized pack",
         description: "test",
         tags: [],
-        spritesheetUrl: "https://pets.dev.example.test/legacy.webp",
+        coverEmoji: "star",
+        sheetUrls: ["https://emoji.dev.example.test/legacy.webp"],
         visibility: "private",
-        searchText: "malicious materialized pet",
+        searchText: "malicious materialized pack",
         createdAt: now,
         updatedAt: now,
       });
-      const sourceKey = `user_pet:${petId}`;
+      const sourceKey = `emoji_pack:${packRowId}`;
       const locatorIds: Id<"account_external_media_objects">[] = [];
       for (const [index, r2Key] of [crossOwner, crossBucket].entries()) {
         locatorIds.push(
@@ -286,20 +285,20 @@ describe("account external-media durability", () => {
             uploadId: `legacy:${sourceKey}`,
             objectRole: index === 0 ? "cross-owner" : "cross-bucket",
             storageKind: "raw-r2",
-            bucket: "stella-v2-pets-dev",
+            bucket: "stella-v2-emoji-dev",
             r2Key,
             payloadSha256: "legacy-unknown",
             state: "committed",
             uploadExpiresAt: 0,
-            sourceKind: "user_pet",
-            sourceId: petId,
+            sourceKind: "emoji_pack",
+            sourceId: packRowId,
             sourceKey,
             createdAt: now,
             updatedAt: now,
           }),
         );
       }
-      return { petId, locatorIds };
+      return { packRowId, locatorIds };
     });
     const fence = await beginDeleteLease(t, ownerId, now + 1);
     stubRawMediaEnv();
@@ -325,182 +324,13 @@ describe("account external-media durability", () => {
       );
       expect(fetchSpy).not.toHaveBeenCalled();
       const snapshot = await t.run(async (ctx) => ({
-        pet: await ctx.db.get(petId),
+        pack: await ctx.db.get(packRowId),
         locators: await Promise.all(locatorIds.map((id) => ctx.db.get(id))),
       }));
-      expect(snapshot.pet).not.toBeNull();
+      expect(snapshot.pack).not.toBeNull();
       expect(snapshot.locators.every((row) => row?.state === "committed")).toBe(
         true,
       );
-    } finally {
-      fetchSpy.mockRestore();
-      vi.unstubAllEnvs();
-    }
-  });
-
-  it("leaves C8-retired pet and Store media to the exact global cleanup owner", async () => {
-    const t = createTest();
-    const ownerId = "owner-c8-global-media-cleanup";
-    const ownerKey = await ownerKeyFor(ownerId);
-    const now = Date.now();
-    const seeded = await t.run(async (ctx) => {
-      const petId = await ctx.db.insert("user_pets", {
-        ownerId,
-        petId: "c8-retired-pet",
-        displayName: "C8 retired pet",
-        description: "global cleanup owns this row",
-        tags: [],
-        spritesheetUrl: `https://pets.dev.example.test/user-pets/${ownerKey}/pet/upload/sheet.webp`,
-        visibility: "private",
-        searchText: "c8 retired pet",
-        createdAt: now,
-        updatedAt: now,
-      });
-      const packId = await ctx.db.insert("emoji_packs", {
-        ownerId,
-        packId: "c8-emoji-pack",
-        displayName: "C8 emoji pack",
-        tags: [],
-        coverEmoji: "star",
-        sheetUrls: [
-          `https://emoji.dev.example.test/emoji-packs/${ownerKey}/pack/sheet.webp`,
-        ],
-        visibility: "private",
-        searchText: "c8 emoji pack",
-        createdAt: now,
-        updatedAt: now,
-      });
-      const packageId = await ctx.db.insert("store_packages", {
-        ownerId,
-        packageId: "c8-retired-package",
-        displayName: "C8 retired package",
-        searchText: "c8 retired package",
-        latestReleaseNumber: 1,
-        createdAt: now,
-        updatedAt: now,
-      });
-      const releaseId = await ctx.db.insert("store_package_releases", {
-        ownerId,
-        packageRef: packageId,
-        packageId: "c8-retired-package",
-        releaseNumber: 1,
-        manifest: {},
-        blueprintMarkdown: "# C8 retired release",
-        diffRef: {
-          kind: "r2",
-          r2Key: "store/c8/shared-release.diff",
-          sha256: "c8-store-release-sha",
-          sizeBytes: 10,
-        },
-        createdAt: now,
-      });
-      await ctx.db.patch(packageId, { latestReleaseId: releaseId });
-      return { petId, packId, packageId, releaseId };
-    });
-    const fence = await beginDeleteLease(t, ownerId, now + 1);
-    stubRawMediaEnv();
-    vi.stubEnv("CONVEX_CLOUD_URL", "https://impartial-crab-34.convex.cloud");
-    vi.stubEnv("CONVEX_SITE_URL", "https://impartial-crab-34.convex.site");
-    vi.stubEnv("STELLA_C8_RETIRED_WRITES_DISABLED", "1");
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockRejectedValue(new Error("C8 media must not use account deletion"));
-    try {
-      await expect(t.mutation(materializeLegacy, fence)).resolves.toEqual({
-        materialized: 1,
-        deletedEmpty: 0,
-      });
-      const afterMaterialize = await t.run(async (ctx) => ({
-        pet: await ctx.db.get(seeded.petId),
-        pack: await ctx.db.get(seeded.packId),
-        pkg: await ctx.db.get(seeded.packageId),
-        release: await ctx.db.get(seeded.releaseId),
-        locators: await ctx.db
-          .query("account_external_media_objects")
-          .withIndex("by_ownerId_and_state_and_uploadExpiresAt", (q) =>
-            q.eq("ownerId", ownerId).eq("state", "committed"),
-          )
-          .take(8),
-      }));
-      expect(afterMaterialize.pet).not.toBeNull();
-      expect(afterMaterialize.pack).not.toBeNull();
-      expect(afterMaterialize.pkg).not.toBeNull();
-      expect(afterMaterialize.release).not.toBeNull();
-      expect(afterMaterialize.locators).toHaveLength(1);
-      expect(afterMaterialize.locators[0]?.sourceKind).toBe("emoji_pack");
-      expect(
-        afterMaterialize.locators.some(
-          (row) =>
-            row.sourceKind === "user_pet" || row.sourceKind === "store_release",
-        ),
-      ).toBe(false);
-
-      const retiredLocatorIds = await t.run(async (ctx) => {
-        for (const locator of afterMaterialize.locators) {
-          await ctx.db.delete(locator._id);
-        }
-        await ctx.db.delete(seeded.packId);
-        const common = {
-          ownerId,
-          ownerGeneration: "legacy",
-          uploadId: "c8-retired-upload",
-          payloadSha256: "c8-retired-sha",
-          state: "committed" as const,
-          uploadExpiresAt: 0,
-          createdAt: now,
-          updatedAt: now,
-        };
-        return await Promise.all([
-          ctx.db.insert("account_external_media_objects", {
-            ...common,
-            objectRole: "spritesheet",
-            storageKind: "component-r2",
-            r2Key: "shared-c8/user-pet/sheet.webp",
-            sourceKind: "user_pet",
-            sourceId: String(seeded.petId),
-            sourceKey: `user_pet:${String(seeded.petId)}`,
-          }),
-          ctx.db.insert("account_external_media_objects", {
-            ...common,
-            objectRole: "diff",
-            storageKind: "component-r2",
-            r2Key: "shared-c8/store/release.diff",
-            sourceKind: "store_release",
-            sourceId: String(seeded.releaseId),
-            sourceKey: `store_release:${String(seeded.releaseId)}`,
-          }),
-          ctx.db.insert("account_external_media_objects", {
-            ...common,
-            objectRole: "store-diff",
-            storageKind: "component-r2",
-            r2Key: "shared-c8/store/orphan.diff",
-          }),
-        ]);
-      });
-
-      const batch = (await t.query(getPurgeBatch, {
-        ownerId,
-        now: Date.now(),
-      })) as { targets: unknown[] };
-      expect(batch.targets).toEqual([]);
-      const result = (await t.action(purgeExternalMedia, fence)) as {
-        ready: boolean;
-        pending: string[];
-      };
-      expect(result.ready).toBe(false);
-      expect(fetchSpy).not.toHaveBeenCalled();
-      const afterPurgeAttempt = await t.run(async (ctx) => ({
-        pet: await ctx.db.get(seeded.petId),
-        pkg: await ctx.db.get(seeded.packageId),
-        release: await ctx.db.get(seeded.releaseId),
-        locators: await Promise.all(
-          retiredLocatorIds.map((id) => ctx.db.get(id)),
-        ),
-      }));
-      expect(afterPurgeAttempt.pet).not.toBeNull();
-      expect(afterPurgeAttempt.pkg).not.toBeNull();
-      expect(afterPurgeAttempt.release).not.toBeNull();
-      expect(afterPurgeAttempt.locators.every(Boolean)).toBe(true);
     } finally {
       fetchSpy.mockRestore();
       vi.unstubAllEnvs();
@@ -511,17 +341,19 @@ describe("account external-media durability", () => {
     const t = createTest();
     const ownerId = "owner-unconfigured-legacy-target";
     const now = 5_000;
-    const petId = await t.run(async (ctx) =>
-      ctx.db.insert("user_pets", {
+    const packRowId = await t.run(async (ctx) =>
+      ctx.db.insert("emoji_packs", {
         ownerId,
-        petId: "unconfigured-target-pet",
-        displayName: "Unconfigured target pet",
+        packId: "unconfigured-target-pack",
+        displayName: "Unconfigured target pack",
         description: "test",
         tags: [],
-        spritesheetUrl:
-          "https://pub-58708621bfa94e3bb92de37cde354c0d.r2.dev/user-pets/legacy/sheet.webp",
+        coverEmoji: "star",
+        sheetUrls: [
+          "https://pub-58708621bfa94e3bb92de37cde354c0d.r2.dev/emoji-packs/legacy/sheet-1.webp",
+        ],
         visibility: "private",
-        searchText: "unconfigured target pet",
+        searchText: "unconfigured target pack",
         createdAt: now,
         updatedAt: now,
       }),
@@ -531,24 +363,22 @@ describe("account external-media durability", () => {
       "R2_PUBLIC_BASE_URL",
       "https://pub-58708621bfa94e3bb92de37cde354c0d.r2.dev",
     );
-    vi.stubEnv("R2_PETS_BUCKET", "");
     vi.stubEnv("R2_EMOJI_BUCKET", "");
-    vi.stubEnv("R2_PETS_PUBLIC_BASE_URL", "");
     vi.stubEnv("R2_EMOJI_PUBLIC_BASE_URL", "");
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     try {
       await expect(t.mutation(materializeLegacy, fence)).rejects.toThrow(
-        /R2_PETS_BUCKET/u,
+        /R2_EMOJI_BUCKET/u,
       );
       expect(fetchSpy).not.toHaveBeenCalled();
       const snapshot = await t.run(async (ctx) => ({
-        pet: await ctx.db.get(petId),
+        pack: await ctx.db.get(packRowId),
         locators: await ctx.db
           .query("account_external_media_objects")
           .withIndex("by_ownerId_and_uploadId", (q) => q.eq("ownerId", ownerId))
           .take(1),
       }));
-      expect(snapshot.pet).not.toBeNull();
+      expect(snapshot.pack).not.toBeNull();
       expect(snapshot.locators).toEqual([]);
     } finally {
       fetchSpy.mockRestore();
@@ -565,7 +395,7 @@ describe("account external-media durability", () => {
       ownerId,
       storageKind: "raw-r2",
       bucket: "test-media",
-      r2Key: `user-pets/${ownerId}/upload/still-writable.webp`,
+      r2Key: `emoji-packs/${ownerId}/upload/still-writable.webp`,
       uploadExpiresAt,
     });
     const fence = await beginDeleteLease(t, ownerId, now);
@@ -607,7 +437,7 @@ describe("account external-media durability", () => {
     async (status) => {
       const t = createTest();
       const ownerId = `owner-raw-delete-${status}`;
-      const r2Key = `user-pets/${ownerId}/upload/private.webp`;
+      const r2Key = `emoji-packs/${ownerId}/upload/private.webp`;
       const locatorId = await insertCommittedLocator(t, {
         ownerId,
         storageKind: "raw-r2",
@@ -650,7 +480,7 @@ describe("account external-media durability", () => {
       ownerId,
       storageKind: "raw-r2",
       bucket: "test-media",
-      r2Key: `user-pets/${ownerId}/upload/already-gone.webp`,
+      r2Key: `emoji-packs/${ownerId}/upload/already-gone.webp`,
     });
     const fence = await beginDeleteLease(t, ownerId, Date.now());
     stubRawMediaEnv();
@@ -674,7 +504,7 @@ describe("account external-media durability", () => {
   it("retains a raw-R2 locator after a lost delete response and converges on retry", async () => {
     const t = createTest();
     const ownerId = "owner-raw-delete-response-loss";
-    const r2Key = `user-pets/${ownerId}/upload/response-lost.webp`;
+    const r2Key = `emoji-packs/${ownerId}/upload/response-lost.webp`;
     const locatorId = await insertCommittedLocator(t, {
       ownerId,
       storageKind: "raw-r2",
@@ -810,8 +640,8 @@ describe("account external-media durability", () => {
   it("re-reads the exact locator tuple before acknowledging an external delete", async () => {
     const t = createTest();
     const ownerId = "owner-exact-locator-ack";
-    const originalKey = `user-pets/${ownerId}/upload/original.webp`;
-    const replacementKey = `user-pets/${ownerId}/upload/replacement.webp`;
+    const originalKey = `emoji-packs/${ownerId}/upload/original.webp`;
+    const replacementKey = `emoji-packs/${ownerId}/upload/replacement.webp`;
     const locatorId = await insertCommittedLocator(t, {
       ownerId,
       storageKind: "raw-r2",
@@ -856,7 +686,7 @@ describe("account external-media durability", () => {
       ownerGeneration: "legacy",
       uploadId: "upload-1",
       uploadExpiresAt: now + 20_000,
-      objects: [rawObject("spritesheet", "user-pets/owner/pet/u/sheet.webp")],
+      objects: [rawObject("sheet-1", "emoji-packs/owner/pack/u/sheet.webp")],
       now,
     };
     await t.mutation(reserve, args);
@@ -864,7 +694,7 @@ describe("account external-media durability", () => {
     await expect(
       t.mutation(reserve, {
         ...args,
-        objects: [rawObject("spritesheet", "user-pets/owner/pet/u/other.webp")],
+        objects: [rawObject("sheet-1", "emoji-packs/owner/pack/u/other.webp")],
       }),
     ).rejects.toThrow(/replay did not match/i);
 
@@ -886,7 +716,7 @@ describe("account external-media durability", () => {
       now: now + 20_000,
     })) as { targets: Array<{ r2Key: string }> };
     expect(expired.targets.map((target) => target.r2Key)).toEqual([
-      "user-pets/owner/pet/u/sheet.webp",
+      "emoji-packs/owner/pack/u/sheet.webp",
     ]);
   });
 
@@ -898,14 +728,14 @@ describe("account external-media durability", () => {
       ownerGeneration: "legacy",
       uploadId: "later-reserved-write",
       uploadExpiresAt: 300,
-      objects: [rawObject("reserved", `user-pets/${ownerId}/reserved.webp`)],
+      objects: [rawObject("reserved", `emoji-packs/${ownerId}/reserved.webp`)],
       now: 100,
     });
     await insertCommittedLocator(t, {
       ownerId,
       storageKind: "raw-r2",
       bucket: "test-media",
-      r2Key: `user-pets/${ownerId}/committed.webp`,
+      r2Key: `emoji-packs/${ownerId}/committed.webp`,
       uploadExpiresAt: 200,
     });
 
@@ -927,7 +757,10 @@ describe("account external-media durability", () => {
     const t = createTest();
     const ownerId = "owner-finalize-race";
     const now = 20_000;
-    const object = rawObject("spritesheet", "user-pets/owner/pet/u/sheet.webp");
+    const object = rawObject(
+      "sheet-1",
+      "emoji-packs/owner/pack/u/sheet-1.webp",
+    );
     await t.mutation(reserve, {
       ownerId,
       ownerGeneration: "legacy",
@@ -942,7 +775,7 @@ describe("account external-media durability", () => {
         ownerId,
         ownerGeneration: "legacy",
         uploadId: "upload-race",
-        sourceKind: "user_pet",
+        sourceKind: "emoji_pack",
         sourceId: "fake-source",
         objects: [object],
         now: now + 2,
@@ -966,8 +799,8 @@ describe("account external-media durability", () => {
     const ownerId = "owner-object-before-row";
     const now = 30_000;
     const objects = [
-      rawObject("spritesheet", "user-pets/owner/pet/u/sheet.webp"),
-      rawObject("preview", "user-pets/owner/pet/u/preview.webp"),
+      rawObject("sheet-1", "emoji-packs/owner/pack/u/sheet-1.webp"),
+      rawObject("cover", "emoji-packs/owner/pack/u/cover.webp"),
     ];
     await t.mutation(reserve, {
       ownerId,
@@ -977,17 +810,18 @@ describe("account external-media durability", () => {
       objects,
       now,
     });
-    const petId = await t.run(async (ctx) =>
-      ctx.db.insert("user_pets", {
+    const packRowId = await t.run(async (ctx) =>
+      ctx.db.insert("emoji_packs", {
         ownerId,
-        petId: "durable-pet",
-        displayName: "Durable pet",
+        packId: "durable-pack",
+        displayName: "Durable pack",
         description: "test",
         tags: [],
-        spritesheetUrl: objects[0]!.publicUrl,
-        previewUrl: objects[1]!.publicUrl,
+        coverEmoji: "star",
+        sheetUrls: [objects[0]!.publicUrl],
+        coverUrl: objects[1]!.publicUrl,
         visibility: "private",
-        searchText: "durable pet",
+        searchText: "durable pack",
         createdAt: now,
         updatedAt: now,
       }),
@@ -996,8 +830,8 @@ describe("account external-media durability", () => {
       ownerId,
       ownerGeneration: "legacy",
       uploadId: "upload-committed",
-      sourceKind: "user_pet",
-      sourceId: petId,
+      sourceKind: "emoji_pack",
+      sourceId: packRowId,
       objects,
       now: now + 1,
     });
@@ -1033,7 +867,7 @@ describe("account external-media durability", () => {
       refs: [batch.targets[0]],
     });
     const afterFirst = await t.run(async (ctx) => ({
-      pet: await ctx.db.get(petId),
+      pack: await ctx.db.get(packRowId),
       locators: await ctx.db
         .query("account_external_media_objects")
         .withIndex("by_ownerId_and_uploadId", (q) =>
@@ -1041,7 +875,7 @@ describe("account external-media durability", () => {
         )
         .take(8),
     }));
-    expect(afterFirst.pet).not.toBeNull();
+    expect(afterFirst.pack).not.toBeNull();
     expect(afterFirst.locators).toHaveLength(2);
     expect(afterFirst.locators.map((row) => row.state).sort()).toEqual([
       "committed",
@@ -1053,7 +887,7 @@ describe("account external-media durability", () => {
       refs: [batch.targets[1]],
     });
     const afterSecond = await t.run(async (ctx) => ({
-      pet: await ctx.db.get(petId),
+      pack: await ctx.db.get(packRowId),
       locators: await ctx.db
         .query("account_external_media_objects")
         .withIndex("by_ownerId_and_uploadId", (q) =>
@@ -1061,12 +895,12 @@ describe("account external-media durability", () => {
         )
         .take(8),
     }));
-    expect(afterSecond.pet).toBeNull();
+    expect(afterSecond.pack).toBeNull();
     expect(afterSecond.locators).toHaveLength(0);
     expect(await t.query(remaining, { ownerId })).toEqual([]);
   });
 
-  it("keeps committed pet, Store, and orphan locators source-owned until signed PUT authority expires", async () => {
+  it("keeps committed pack and orphan locators source-owned until signed PUT authority expires", async () => {
     const t = createTest();
     const fromOwnerId = "barrier-source-owner";
     const toOwnerId = "barrier-destination-owner";
@@ -1083,78 +917,35 @@ describe("account external-media durability", () => {
     expect(claim.claimed).toBe(true);
     const uploadExpiresAt = 2_000;
     const seeded = await t.run(async (ctx) => {
-      const petId = await ctx.db.insert("user_pets", {
+      const packRowId = await ctx.db.insert("emoji_packs", {
         ownerId: fromOwnerId,
-        petId: "barrier-pet",
-        displayName: "Barrier pet",
+        packId: "barrier-pack",
+        displayName: "Barrier pack",
         description: "must move with its locator",
         tags: [],
-        spritesheetUrl: "https://media.test/barrier-pet.webp",
+        coverEmoji: "star",
+        sheetUrls: ["https://media.test/barrier-pack.webp"],
         visibility: "private",
-        searchText: "barrier pet",
+        searchText: "barrier pack",
         createdAt: 1,
         updatedAt: 1,
       });
-      const petLocatorId = await ctx.db.insert(
+      const packLocatorId = await ctx.db.insert(
         "account_external_media_objects",
         {
           ownerId: fromOwnerId,
           ownerGeneration: "legacy",
-          uploadId: "barrier-pet-upload",
-          objectRole: "spritesheet",
+          uploadId: "barrier-pack-upload",
+          objectRole: "sheet-1",
           storageKind: "raw-r2",
-          bucket: "pets",
-          r2Key: "user-pets/source/barrier-pet.webp",
-          payloadSha256: "barrier-pet-sha",
+          bucket: "emoji",
+          r2Key: "emoji-packs/source/barrier-pack.webp",
+          payloadSha256: "barrier-pack-sha",
           state: "committed",
           uploadExpiresAt,
-          sourceKind: "user_pet",
-          sourceId: String(petId),
-          sourceKey: `user_pet:${String(petId)}`,
-          createdAt: 1,
-          updatedAt: 1,
-        },
-      );
-      const packageId = await ctx.db.insert("store_packages", {
-        ownerId: fromOwnerId,
-        packageId: "barrier-package",
-        displayName: "Barrier package",
-        searchText: "barrier package",
-        latestReleaseNumber: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      });
-      const releaseId = await ctx.db.insert("store_package_releases", {
-        ownerId: fromOwnerId,
-        packageRef: packageId,
-        packageId: "barrier-package",
-        releaseNumber: 1,
-        manifest: {},
-        blueprintMarkdown: "# Barrier package",
-        diffRef: {
-          kind: "r2",
-          r2Key: "store/source/barrier.diff",
-          sha256: "barrier-store-sha",
-          sizeBytes: 10,
-        },
-        createdAt: 1,
-      });
-      await ctx.db.patch(packageId, { latestReleaseId: releaseId });
-      const storeLocatorId = await ctx.db.insert(
-        "account_external_media_objects",
-        {
-          ownerId: fromOwnerId,
-          ownerGeneration: "legacy",
-          uploadId: "barrier-store-upload",
-          objectRole: "diff",
-          storageKind: "component-r2",
-          r2Key: "store/source/barrier.diff",
-          payloadSha256: "barrier-store-sha",
-          state: "committed",
-          uploadExpiresAt,
-          sourceKind: "store_release",
-          sourceId: String(releaseId),
-          sourceKey: `store_release:${String(releaseId)}`,
+          sourceKind: "emoji_pack",
+          sourceId: String(packRowId),
+          sourceKey: `emoji_pack:${String(packRowId)}`,
           createdAt: 1,
           updatedAt: 1,
         },
@@ -1175,13 +966,7 @@ describe("account external-media durability", () => {
           updatedAt: 1,
         },
       );
-      return {
-        petId,
-        petLocatorId,
-        releaseId,
-        storeLocatorId,
-        orphanLocatorId,
-      };
+      return { packRowId, packLocatorId, orphanLocatorId };
     });
     const lease = {
       fromOwnerId,
@@ -1204,20 +989,13 @@ describe("account external-media durability", () => {
       await expect(
         t.mutation(migrateExternalMedia, { ...lease, leaseNow: 1_001 }),
       ).resolves.toEqual({ hasMore: true });
-      await expect(
-        t.mutation(migrateStoreContent, { ...lease, leaseNow: 1_001 }),
-      ).resolves.toEqual({ hasMore: true });
       const beforeExpiry = await t.run(async (ctx) => ({
-        pet: await ctx.db.get(seeded.petId),
-        petLocator: await ctx.db.get(seeded.petLocatorId),
-        release: await ctx.db.get(seeded.releaseId),
-        storeLocator: await ctx.db.get(seeded.storeLocatorId),
+        pack: await ctx.db.get(seeded.packRowId),
+        packLocator: await ctx.db.get(seeded.packLocatorId),
         orphanLocator: await ctx.db.get(seeded.orphanLocatorId),
       }));
-      expect(beforeExpiry.pet?.ownerId).toBe(fromOwnerId);
-      expect(beforeExpiry.petLocator?.ownerId).toBe(fromOwnerId);
-      expect(beforeExpiry.release?.ownerId).toBe(fromOwnerId);
-      expect(beforeExpiry.storeLocator?.ownerId).toBe(fromOwnerId);
+      expect(beforeExpiry.pack?.ownerId).toBe(fromOwnerId);
+      expect(beforeExpiry.packLocator?.ownerId).toBe(fromOwnerId);
       expect(beforeExpiry.orphanLocator?.ownerId).toBe(fromOwnerId);
       expect(fetchSpy).not.toHaveBeenCalled();
 
@@ -1230,28 +1008,18 @@ describe("account external-media durability", () => {
         }),
       ).resolves.toEqual({ hasMore: true });
       await expect(
-        t.mutation(migrateStoreContent, {
-          ...lease,
-          leaseNow: uploadExpiresAt,
-        }),
-      ).resolves.toEqual({ hasMore: true });
-      await expect(
         t.mutation(migrateExternalMedia, {
           ...lease,
           leaseNow: uploadExpiresAt,
         }),
       ).resolves.toEqual({ hasMore: true });
       const atExpiry = await t.run(async (ctx) => ({
-        pet: await ctx.db.get(seeded.petId),
-        petLocator: await ctx.db.get(seeded.petLocatorId),
-        release: await ctx.db.get(seeded.releaseId),
-        storeLocator: await ctx.db.get(seeded.storeLocatorId),
+        pack: await ctx.db.get(seeded.packRowId),
+        packLocator: await ctx.db.get(seeded.packLocatorId),
         orphanLocator: await ctx.db.get(seeded.orphanLocatorId),
       }));
-      expect(atExpiry.pet?.ownerId).toBe(toOwnerId);
-      expect(atExpiry.petLocator?.ownerId).toBe(toOwnerId);
-      expect(atExpiry.release?.ownerId).toBe(toOwnerId);
-      expect(atExpiry.storeLocator?.ownerId).toBe(toOwnerId);
+      expect(atExpiry.pack?.ownerId).toBe(toOwnerId);
+      expect(atExpiry.packLocator?.ownerId).toBe(toOwnerId);
       expect(atExpiry.orphanLocator?.ownerId).toBe(toOwnerId);
       expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
@@ -1269,7 +1037,7 @@ describe("account external-media durability", () => {
       uploadId: "migration-upload",
       uploadExpiresAt: 200,
       objects: [
-        rawObject("spritesheet", "user-pets/anonymous/pet/u/sheet.webp"),
+        rawObject("sheet-1", "emoji-packs/anonymous/pack/u/sheet.webp"),
       ],
       now: 100,
     });
@@ -1319,7 +1087,7 @@ describe("account external-media durability", () => {
       }),
     ).rejects.toThrow(/no longer owns the migration lease/i);
     expect(await t.query(remaining, { ownerId: fromOwnerId })).toEqual([
-      "external_media_reserved:migration-upload:spritesheet",
+      "external_media_reserved:migration-upload:sheet-1",
     ]);
 
     expect(

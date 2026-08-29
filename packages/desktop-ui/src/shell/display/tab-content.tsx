@@ -62,10 +62,9 @@ type WithMediaMeta = {
 export { MediaTabContent } from "./media-tab";
 
 /**
- * Live URL preview tab. Used by the social-session preview server: an
- * iframe pointed at the per-session Vite dev server. Includes a tiny
- * reload affordance so participants can force a refresh after the
- * session host edits files (Vite usually HMRs without it).
+ * Live URL preview tab. An iframe pointed at a dev server, with a tiny
+ * reload affordance so the user can force a refresh when the page does
+ * not hot-reload on its own.
  */
 export const UrlTabContent = ({
   url,

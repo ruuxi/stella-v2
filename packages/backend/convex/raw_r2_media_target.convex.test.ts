@@ -11,8 +11,6 @@ const modules = import.meta.glob("./**/*.ts");
 const OWNER_ID = "https://issuer.test|raw-r2-media-owner";
 const SHA256 = "a".repeat(64);
 const RAW_MEDIA_ENV = {
-  R2_PETS_BUCKET: "stella-v2-pets-dev",
-  R2_PETS_PUBLIC_BASE_URL: "https://pets.dev.example.test",
   R2_EMOJI_BUCKET: "stella-v2-emoji-dev",
   R2_EMOJI_PUBLIC_BASE_URL: "https://emoji.dev.example.test",
 } as const;
@@ -80,48 +78,23 @@ afterEach(() => {
 });
 
 describe("raw R2 media authority configuration", () => {
-  it("resolves only the explicitly configured per-kind development buckets", () => {
+  it("resolves only the explicitly configured development bucket", () => {
     stubRawMediaEnv();
 
-    expect(
-      requireConfiguredRawR2MediaTarget({
-        bucketEnv: "R2_PETS_BUCKET",
-        purpose: "Pet uploads",
-      }),
-    ).toEqual({
-      bucket: "stella-v2-pets-dev",
-      publicBase: "https://pets.dev.example.test",
-    });
-    expect(
-      requireConfiguredRawR2MediaTarget({
-        bucketEnv: "R2_EMOJI_BUCKET",
-        purpose: "Emoji pack uploads",
-      }),
-    ).toEqual({
+    expect(requireConfiguredRawR2MediaTarget("Emoji pack uploads")).toEqual({
       bucket: "stella-v2-emoji-dev",
       publicBase: "https://emoji.dev.example.test",
     });
   });
 
-  it("accepts distinct Cloudflare r2.dev origins for explicit dev buckets", () => {
+  it("accepts a Cloudflare r2.dev origin for an explicit dev bucket", () => {
     stubRawMediaEnv({
-      R2_PETS_PUBLIC_BASE_URL:
-        "https://pub-11111111111111111111111111111111.r2.dev",
       R2_EMOJI_PUBLIC_BASE_URL:
         "https://pub-22222222222222222222222222222222.r2.dev",
     });
-    expect(
-      requireConfiguredRawR2MediaTarget({
-        bucketEnv: "R2_PETS_BUCKET",
-        purpose: "Pet uploads",
-      }).publicBase,
-    ).toBe("https://pub-11111111111111111111111111111111.r2.dev");
-    expect(
-      requireConfiguredRawR2MediaTarget({
-        bucketEnv: "R2_EMOJI_BUCKET",
-        purpose: "Emoji uploads",
-      }).publicBase,
-    ).toBe("https://pub-22222222222222222222222222222222.r2.dev");
+    expect(requireConfiguredRawR2MediaTarget("Emoji uploads").publicBase).toBe(
+      "https://pub-22222222222222222222222222222222.r2.dev",
+    );
   });
 
   it.each([
@@ -130,85 +103,42 @@ describe("raw R2 media authority configuration", () => {
     "https://media.example.test/shared/path",
     "https://media.example.test?deployment=prod",
     "https://media.example.test#prod",
-    "https://pets.dev.example.test/",
+    "https://emoji.dev.example.test/",
     "https://media.example.com",
   ])("rejects a non-origin public target before use: %s", (publicBase) => {
-    stubRawMediaEnv({ R2_PETS_PUBLIC_BASE_URL: publicBase });
-    expect(() =>
-      requireConfiguredRawR2MediaTarget({
-        bucketEnv: "R2_PETS_BUCKET",
-        purpose: "Pet uploads",
-      }),
-    ).toThrow(/R2_PETS_PUBLIC_BASE_URL/u);
+    stubRawMediaEnv({ R2_EMOJI_PUBLIC_BASE_URL: publicBase });
+    expect(() => requireConfiguredRawR2MediaTarget("Emoji uploads")).toThrow(
+      /R2_EMOJI_PUBLIC_BASE_URL/u,
+    );
   });
 
-  it.each([
-    ["R2_PETS_BUCKET", "stella-files"],
-    ["R2_PETS_BUCKET", "stella-v2-pets-prod"],
-    ["R2_EMOJI_BUCKET", "stella-emotes"],
-    ["R2_EMOJI_BUCKET", "stella-v2-emoji-production"],
-  ] as const)(
-    "rejects a production-looking %s before use",
-    (envName, bucket) => {
-      stubRawMediaEnv({ [envName]: bucket });
-      expect(() =>
-        requireConfiguredRawR2MediaTarget({
-          bucketEnv: "R2_PETS_BUCKET",
-          purpose: "Raw media",
-        }),
-      ).toThrow(/development-only bucket/u);
+  it.each(["stella-emotes", "stella-v2-emoji-production"])(
+    "rejects a production-looking R2_EMOJI_BUCKET before use: %s",
+    (bucket) => {
+      stubRawMediaEnv({ R2_EMOJI_BUCKET: bucket });
+      expect(() => requireConfiguredRawR2MediaTarget("Raw media")).toThrow(
+        /development-only bucket/u,
+      );
     },
   );
 
-  it("requires distinct per-kind buckets and public origins", () => {
-    stubRawMediaEnv({ R2_EMOJI_BUCKET: RAW_MEDIA_ENV.R2_PETS_BUCKET });
-    expect(() =>
-      requireConfiguredRawR2MediaTarget({
-        bucketEnv: "R2_PETS_BUCKET",
-        purpose: "Raw media",
-      }),
-    ).toThrow(/distinct R2_PETS_BUCKET and R2_EMOJI_BUCKET/u);
-
-    stubRawMediaEnv({
-      R2_EMOJI_BUCKET: RAW_MEDIA_ENV.R2_EMOJI_BUCKET,
-      R2_EMOJI_PUBLIC_BASE_URL: RAW_MEDIA_ENV.R2_PETS_PUBLIC_BASE_URL,
-    });
-    expect(() =>
-      requireConfiguredRawR2MediaTarget({
-        bucketEnv: "R2_EMOJI_BUCKET",
-        purpose: "Raw media",
-      }),
-    ).toThrow(/distinct R2_PETS_PUBLIC_BASE_URL and R2_EMOJI_PUBLIC_BASE_URL/u);
-  });
-
   it("does not fall back to the legacy shared public base", () => {
-    stubRawMediaEnv({ R2_PETS_PUBLIC_BASE_URL: "" });
+    stubRawMediaEnv({ R2_EMOJI_PUBLIC_BASE_URL: "" });
     vi.stubEnv(
       "R2_PUBLIC_BASE_URL",
       "https://pub-58708621bfa94e3bb92de37cde354c0d.r2.dev",
     );
-    expect(() =>
-      requireConfiguredRawR2MediaTarget({
-        bucketEnv: "R2_PETS_BUCKET",
-        purpose: "Pet uploads",
-      }),
-    ).toThrow(/R2_PETS_PUBLIC_BASE_URL/u);
+    expect(() => requireConfiguredRawR2MediaTarget("Emoji uploads")).toThrow(
+      /R2_EMOJI_PUBLIC_BASE_URL/u,
+    );
   });
 
-  it("never substitutes the other product bucket for upload signing authority", async () => {
+  it("never signs upload authority from an unconfigured bucket", async () => {
     const t = await createTest();
     const owner = asOwner(t);
     const providerFetch = vi.spyOn(globalThis, "fetch");
-    stubRawMediaEnv({ R2_PETS_BUCKET: "" });
-
-    await expect(
-      owner.action(api.data.user_pet_uploads.createUploadUrl, {
-        petId: "safe-pet",
-        spritesheetSha256: SHA256,
-      }),
-    ).rejects.toThrow(/R2_PETS_BUCKET/u);
-
     stubRawMediaEnv({ R2_EMOJI_BUCKET: "" });
+
     await expect(
       owner.action(api.data.emoji_pack_uploads.createUploadUrl, {
         packId: "safe-pack",
@@ -220,16 +150,12 @@ describe("raw R2 media authority configuration", () => {
     await expectNoExternalMediaAuthority(t);
   });
 
-  it("signs and records only the explicitly configured development targets", async () => {
+  it("signs and records only the explicitly configured development target", async () => {
     const t = await createTest();
     const owner = asOwner(t);
     const providerFetch = vi.spyOn(globalThis, "fetch");
     stubRawMediaEnv();
 
-    const pet = await owner.action(api.data.user_pet_uploads.createUploadUrl, {
-      petId: "safe-pet",
-      spritesheetSha256: SHA256,
-    });
     const emoji = await owner.action(
       api.data.emoji_pack_uploads.createUploadUrl,
       {
@@ -238,9 +164,6 @@ describe("raw R2 media authority configuration", () => {
       },
     );
 
-    expect(pet.spritesheet.publicUrl).toMatch(
-      /^https:\/\/pets\.dev\.example\.test\/user-pets\//u,
-    );
     expect(emoji.sheets).toHaveLength(3);
     expect(
       emoji.sheets.every((sheet) =>
@@ -254,10 +177,7 @@ describe("raw R2 media authority configuration", () => {
     const objects = await t.run(async (ctx) =>
       ctx.db.query("account_external_media_objects").collect(),
     );
-    expect(objects).toHaveLength(4);
-    expect(
-      objects.filter((row) => row.bucket === "stella-v2-pets-dev"),
-    ).toHaveLength(1);
+    expect(objects).toHaveLength(3);
     expect(
       objects.filter((row) => row.bucket === "stella-v2-emoji-dev"),
     ).toHaveLength(3);
@@ -271,21 +191,9 @@ describe("raw R2 media authority configuration", () => {
       "R2_PUBLIC_BASE_URL",
       "https://pub-58708621bfa94e3bb92de37cde354c0d.r2.dev",
     );
-    vi.stubEnv("R2_PETS_BUCKET", "");
     vi.stubEnv("R2_EMOJI_BUCKET", "");
-    vi.stubEnv("R2_PETS_PUBLIC_BASE_URL", "");
     vi.stubEnv("R2_EMOJI_PUBLIC_BASE_URL", "");
 
-    await expect(
-      owner.action(api.data.user_pet_generation.generatePet, {
-        prompt: "a safe dev pet",
-        visibility: "private",
-      }),
-    ).rejects.toThrow(/R2_PETS_BUCKET/u);
-    stubRawMediaEnv({
-      R2_EMOJI_BUCKET: "",
-      R2_EMOJI_PUBLIC_BASE_URL: "",
-    });
     await expect(
       owner.action(api.data.emoji_pack_generation.generatePack, {
         prompt: "a safe dev emoji pack",

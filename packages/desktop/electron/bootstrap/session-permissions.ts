@@ -43,7 +43,6 @@ export const configureStellaSessionPermissions = ({
     return origin === "file://" || (devOrigin != null && origin === devOrigin);
   };
   const appSession = session.fromPartition(appPartition);
-  const storeSession = session.fromPartition(`${appPartition}:store`);
 
   appSession.setPermissionRequestHandler(
     (webContents, permission, callback) => {
@@ -60,12 +59,4 @@ export const configureStellaSessionPermissions = ({
       isTrustedAppContents(webContents)
     );
   });
-
-  storeSession.setPermissionRequestHandler(
-    (_webContents, _permission, callback) => {
-      callback(false);
-    },
-  );
-
-  storeSession.setPermissionCheckHandler(() => false);
 };

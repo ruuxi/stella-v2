@@ -39,7 +39,6 @@ describe("loadParsedAgentsFromDir", () => {
         "fashion",
         "general",
         "orchestrator",
-        "social_session",
       ].sort(),
     );
     expect(agents.every((agent) => agent.systemPrompt.length > 0)).toBe(true);

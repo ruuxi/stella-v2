@@ -97,7 +97,6 @@ import {
   stripeCustomerAuthorityIdempotencyKey,
   type StripeOperationQuiescenceResult,
 } from "./stripe_operation_dispatch";
-import { assertC8RetiredSurfaceUnavailable } from "./lib/c8_retired_surface";
 
 const BATCH_SIZE = 500;
 const REMOTE_TURN_MIGRATION_BATCH = 32;
@@ -905,7 +904,7 @@ export const migrateFashionBatch = internalMutation({
 });
 
 const MAX_EXTERNAL_MEDIA_OBJECTS_PER_SOURCE = 8;
-type ExternalMediaSourceKind = "user_pet" | "emoji_pack" | "store_release";
+type ExternalMediaSourceKind = "emoji_pack";
 
 const migrateCommittedExternalMediaLocators = async (
   ctx: MutationCtx,
@@ -915,7 +914,6 @@ const migrateCommittedExternalMediaLocators = async (
     toOwnerGeneration: string;
     now: number;
     requireLocator: boolean;
-    expectedR2Keys?: readonly string[];
   },
 ): Promise<boolean> => {
   const sourceKey = `${args.sourceKind}:${args.sourceId}`;
@@ -951,18 +949,6 @@ const migrateCommittedExternalMediaLocators = async (
   if (rows.some((row) => row.uploadExpiresAt > args.now)) {
     return false;
   }
-  if (args.expectedR2Keys) {
-    const actual = [...rows.map((row) => row.r2Key)].sort();
-    const expected = [...args.expectedR2Keys].sort();
-    if (
-      actual.length !== expected.length ||
-      actual.some((key, index) => key !== expected[index])
-    ) {
-      blockOwnershipMigration(
-        "Store release media does not match its exact durable object inventory.",
-      );
-    }
-  }
   for (const row of rows) {
     const collisions = await ctx.db
       .query("account_external_media_objects")
@@ -985,7 +971,7 @@ const migrateCommittedExternalMediaLocators = async (
 };
 
 /**
- * Pet/emoji entities and their exact external-object locators move in one
+ * Emoji packs and their exact external-object locators move in one
  * transaction. Raw keys remain immutable; only deletion authority changes.
  */
 export const migrateAccountExternalMediaContentBatch = internalMutation({
@@ -994,39 +980,6 @@ export const migrateAccountExternalMediaContentBatch = internalMutation({
   handler: async (ctx, args) => {
     const migration = await requireActiveOwnershipMigrationLease(ctx, args);
     const toOwnerGeneration = migration.toOwnerGeneration!;
-    const pet = (
-      await ctx.db
-        .query("user_pets")
-        .withIndex("by_ownerId_and_updatedAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (pet) {
-      assertC8RetiredSurfaceUnavailable("Custom pet ownership migration");
-      const collision = await ctx.db
-        .query("user_pets")
-        .withIndex("by_ownerId_and_petId", (q) =>
-          q.eq("ownerId", args.toOwnerId).eq("petId", pet.petId),
-        )
-        .unique();
-      if (collision && collision._id !== pet._id) {
-        blockOwnershipMigration(
-          `Both identities own a pet with id "${pet.petId}".`,
-        );
-      }
-      const locatorsReady = await migrateCommittedExternalMediaLocators(ctx, {
-        ...args,
-        sourceKind: "user_pet",
-        sourceId: String(pet._id),
-        toOwnerGeneration,
-        now: args.leaseNow,
-        requireLocator: true,
-      });
-      if (!locatorsReady) return { hasMore: true };
-      await ctx.db.patch(pet._id, { ownerId: args.toOwnerId });
-      return { hasMore: true };
-    }
     const pack = (
       await ctx.db
         .query("emoji_packs")
@@ -1071,25 +1024,6 @@ export const migrateAccountExternalMediaContentBatch = internalMutation({
       if (orphan.uploadExpiresAt > args.leaseNow) {
         return { hasMore: true };
       }
-      if (
-        orphan.sourceKind === "store_release" ||
-        orphan.sourceKind === "user_pet" ||
-        orphan.objectRole === "store-diff"
-      ) {
-        assertC8RetiredSurfaceUnavailable("Retired media ownership migration");
-      }
-      if (orphan.sourceKind === "store_release" && orphan.sourceId) {
-        const normalized = ctx.db.normalizeId(
-          "store_package_releases",
-          orphan.sourceId,
-        );
-        const release = normalized ? await ctx.db.get(normalized) : null;
-        if (release?.ownerId === args.fromOwnerId) {
-          // `migrateStoreContentBatch` moves the release and every locator in
-          // one transaction; let that parallel pass own this row.
-          return { hasMore: false };
-        }
-      }
       const collisions = await ctx.db
         .query("account_external_media_objects")
         .withIndex("by_ownerId_and_r2Key", (q) =>
@@ -1120,68 +1054,6 @@ export const migrateAccountExternalMediaContentBatch = internalMutation({
       blockOwnershipMigration(
         "External media deletion is incomplete and must reconcile before account linking.",
       );
-    }
-    return { hasMore: false };
-  },
-});
-
-/** Store packages can be authored before sign-in; releases move first so the
- * package's latestReleaseId always continues to point at owned content. */
-export const migrateStoreContentBatch = internalMutation({
-  args: leasedOwnerArgs,
-  returns: hasMoreReturn,
-  handler: async (ctx, args) => {
-    const migration = await requireActiveOwnershipMigrationLease(ctx, args);
-    const release = (
-      await ctx.db
-        .query("store_package_releases")
-        .withIndex("by_ownerId_and_createdAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (release) {
-      assertC8RetiredSurfaceUnavailable("Store ownership migration");
-      const expectedR2Keys = [
-        ...(release.diffRef ? [release.diffRef.r2Key] : []),
-        ...(release.commitsDiffRef ? [release.commitsDiffRef.r2Key] : []),
-      ];
-      const locatorsReady = await migrateCommittedExternalMediaLocators(ctx, {
-        ...args,
-        sourceKind: "store_release",
-        sourceId: String(release._id),
-        toOwnerGeneration: migration.toOwnerGeneration!,
-        now: args.leaseNow,
-        requireLocator: expectedR2Keys.length > 0,
-        expectedR2Keys,
-      });
-      if (!locatorsReady) return { hasMore: true };
-      await ctx.db.patch(release._id, { ownerId: args.toOwnerId });
-      return { hasMore: true };
-    }
-    const pkg = (
-      await ctx.db
-        .query("store_packages")
-        .withIndex("by_ownerId_and_updatedAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (pkg) {
-      assertC8RetiredSurfaceUnavailable("Store ownership migration");
-      const collision = await ctx.db
-        .query("store_packages")
-        .withIndex("by_ownerId_and_packageId", (q) =>
-          q.eq("ownerId", args.toOwnerId).eq("packageId", pkg.packageId),
-        )
-        .unique();
-      if (collision && collision._id !== pkg._id) {
-        blockOwnershipMigration(
-          `Both identities own store package "${pkg.packageId}". Resolve the duplicate before retrying account linking.`,
-        );
-      }
-      await ctx.db.patch(pkg._id, { ownerId: args.toOwnerId });
-      return { hasMore: true };
     }
     return { hasMore: false };
   },
@@ -3485,99 +3357,6 @@ export const migrateDeviceIdentitySuccessorsBatch = internalMutation({
   },
 });
 
-/**
- * Older Better Auth hooks provisioned a social profile for anonymous users.
- * Social itself is connected-only, so an ordinary source profile has no
- * relationships/content and can be moved (or discarded when the destination
- * already has its freshly provisioned profile). Any customized/dependent
- * source profile fails closed instead of silently merging social identity.
- */
-export const migrateLegacyAnonymousSocialProfileBatch = internalMutation({
-  args: leasedOwnerArgs,
-  returns: hasMoreReturn,
-  handler: async (ctx, args) => {
-    await requireActiveOwnershipMigrationLease(ctx, args);
-    const source = await ctx.db
-      .query("social_profiles")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-      .unique();
-    if (!source) return { hasMore: false };
-    assertC8RetiredSurfaceUnavailable("Social profile ownership migration");
-
-    const dependencies = await Promise.all([
-      ctx.db
-        .query("social_relationships")
-        .withIndex("by_requesterOwnerId_and_status", (q) =>
-          q.eq("requesterOwnerId", args.fromOwnerId),
-        )
-        .take(1),
-      ctx.db
-        .query("social_relationships")
-        .withIndex("by_addresseeOwnerId_and_status", (q) =>
-          q.eq("addresseeOwnerId", args.fromOwnerId),
-        )
-        .take(1),
-      ctx.db
-        .query("social_rooms")
-        .withIndex("by_createdByOwnerId_and_updatedAt", (q) =>
-          q.eq("createdByOwnerId", args.fromOwnerId),
-        )
-        .take(1),
-      ctx.db
-        .query("social_room_members")
-        .withIndex("by_ownerId_and_updatedAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1),
-      ctx.db
-        .query("social_messages")
-        .withIndex("by_senderOwnerId_and_createdAt", (q) =>
-          q.eq("senderOwnerId", args.fromOwnerId),
-        )
-        .take(1),
-      ctx.db
-        .query("stella_session_members")
-        .withIndex("by_ownerId_and_updatedAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1),
-      ctx.db
-        .query("stella_sessions")
-        .withIndex("by_hostOwnerId_and_status", (q) =>
-          q.eq("hostOwnerId", args.fromOwnerId),
-        )
-        .take(1),
-    ]);
-    if (dependencies.some((rows) => rows.length > 0)) {
-      blockOwnershipMigration(
-        "The anonymous identity has connected-only social activity.",
-      );
-    }
-
-    const destination = await ctx.db
-      .query("social_profiles")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.toOwnerId))
-      .unique();
-    if (destination) {
-      const customized =
-        source.avatarUrl !== undefined ||
-        source.badge !== undefined ||
-        source.partnerGrantedAt !== undefined ||
-        source.lastSeenIncomingFriendRequestAt !== undefined;
-      if (customized) {
-        blockOwnershipMigration(
-          "Both identities have distinct social profile state.",
-        );
-      }
-      await ctx.db.delete(source._id);
-    } else {
-      await ctx.db.patch(source._id, { ownerId: args.toOwnerId });
-    }
-    return { hasMore: true };
-  },
-});
-
-/** Cancel transient handshakes that cannot safely cross the migration fence. */
 export const discardAnonymousTransientHandshakesBatch = internalMutation({
   args: leasedOwnerArgs,
   returns: hasMoreReturn,
@@ -8618,15 +8397,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
         ],
       ],
       [
-        "user_pets",
-        await ctx.db
-          .query("user_pets")
-          .withIndex("by_ownerId_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
         "emoji_packs",
         await ctx.db
           .query("emoji_packs")
@@ -8647,76 +8417,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
         await ctx.db
           .query("canvas_shares")
           .withIndex("by_ownerUserId", (q) => q.eq("ownerUserId", ownerId))
-          .take(1),
-      ],
-      [
-        "social_profiles",
-        await ctx.db
-          .query("social_profiles")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "social_relationships",
-        await ctx.db
-          .query("social_relationships")
-          .withIndex("by_requesterOwnerId_and_status", (q) =>
-            q.eq("requesterOwnerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "social_relationships.addresseeOwnerId",
-        await ctx.db
-          .query("social_relationships")
-          .withIndex("by_addresseeOwnerId_and_status", (q) =>
-            q.eq("addresseeOwnerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "social_rooms",
-        await ctx.db
-          .query("social_rooms")
-          .withIndex("by_createdByOwnerId_and_updatedAt", (q) =>
-            q.eq("createdByOwnerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "social_room_members",
-        await ctx.db
-          .query("social_room_members")
-          .withIndex("by_ownerId_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "social_messages",
-        await ctx.db
-          .query("social_messages")
-          .withIndex("by_senderOwnerId_and_createdAt", (q) =>
-            q.eq("senderOwnerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "stella_session_members",
-        await ctx.db
-          .query("stella_session_members")
-          .withIndex("by_ownerId_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "stella_sessions.hostOwnerId",
-        await ctx.db
-          .query("stella_sessions")
-          .withIndex("by_hostOwnerId_and_status", (q) =>
-            q.eq("hostOwnerId", ownerId),
-          )
           .take(1),
       ],
     ] as const;
@@ -8747,10 +8447,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
       // release this exact-attempt lease. Migration waits for that release (or
       // its hard reaper) and never transfers ephemeral provider authority.
       "tts_provider_dispatch_leases",
-      // Legacy Better Auth auto-profile creation is drained by the ordinary
-      // parallel migration pass and must not terminal-fail account linking.
-      "social_profiles",
-      "user_pets",
       "emoji_packs",
       "account_external_media_objects",
     ]);
@@ -8945,24 +8641,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
         "fashion_checkout_sessions",
         await ctx.db
           .query("fashion_checkout_sessions")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "store_packages",
-        await ctx.db
-          .query("store_packages")
-          .withIndex("by_ownerId_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "store_package_releases",
-        await ctx.db
-          .query("store_package_releases")
           .withIndex("by_ownerId_and_createdAt", (q) =>
             q.eq("ownerId", ownerId),
           )
@@ -9648,11 +9326,9 @@ const PARALLEL_TABLE_MUTATIONS = [
   internal.auth_migration.migrateUserCountersBatch,
   internal.auth_migration.migrateFashionBatch,
   internal.auth_migration.migrateAccountExternalMediaContentBatch,
-  internal.auth_migration.migrateStoreContentBatch,
   internal.auth_migration.migrateXTokensBatch,
   internal.auth_migration.migrateDeviceExtensionsForAccountLink,
   internal.auth_migration.migrateDeviceIdentitySuccessorsBatch,
-  internal.auth_migration.migrateLegacyAnonymousSocialProfileBatch,
   internal.auth_migration.discardAnonymousTransientHandshakesBatch,
 ] as const;
 

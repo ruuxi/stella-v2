@@ -455,7 +455,7 @@ export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
   schedule: "light",
   synthesis: "synthesis",
   welcome: "light",
-  store_asset_metadata: "light",
+  asset_metadata: "light",
   chronicle: "light",
   image_description: "image_description",
   html_finish: "light",

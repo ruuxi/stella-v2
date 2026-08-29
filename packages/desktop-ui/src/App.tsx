@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { SocialInviteLayer } from "./global/social/SocialInviteLayer";
 import { PhoneAccessBridge } from "./global/mobile/PhoneAccessBridge";
 import { AppBootstrap } from "./bootstrap/AppBootstrap";
 import { ChatStoreProvider } from "@/context/chat-store";
@@ -49,7 +48,6 @@ function App() {
           <CloudHomeSyncBridge />
           <PhoneAccessBridge />
           <CredentialRequestLayer />
-          <SocialInviteLayer />
           <FullShell />
         </ChatStoreProvider>
       </div>

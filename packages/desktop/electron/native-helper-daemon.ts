@@ -11,8 +11,8 @@ type DaemonChild = ChildProcessByStdio<Writable, Readable, null>
  *
  * Each one-shot helper invocation is a full `CreateProcess`, which on Windows
  * is scanned by Defender and shows up as system-wide lag when a hot path probes
- * the same helper repeatedly (capture window-highlight hover, morph-visibility
- * sample grid, recent-apps polling). The daemon keeps a single helper process
+ * the same helper repeatedly (capture window-highlight hover, recent-apps
+ * polling). The daemon keeps a single helper process
  * alive and answers queries over stdin/stdout, so those probes cost a pipe
  * write instead of a process spawn.
  *

@@ -7,7 +7,6 @@ import {
   type Dispatch,
 } from "react";
 import { RegionCapture } from "./RegionCapture";
-import { MorphTransition } from "@/shell/overlay/MorphTransition";
 import { InworldDictationSession } from "@/features/dictation/services/inworld-dictation";
 import { appendRollingLevel } from "@/features/dictation/rolling-levels";
 import { DictationRecordingBar } from "@/features/dictation/components/DictationRecordingBar";
@@ -16,8 +15,8 @@ import "./overlays.css";
 /**
  * OverlayRoot manages the unified transparent overlay window.
  *
- * All overlay components (Region Capture, Voice Overlay, Screen Guide,
- * Window Highlight, and Morph Transition) live as absolutely-positioned
+ * All overlay components (Region Capture, Voice Overlay, Screen Guide, and
+ * Window Highlight) live as absolutely-positioned
  * children. The overlay window is hidden when idle and only shown when a
  * component activates, preventing it from blocking interaction with windows
  * below.
@@ -512,8 +511,6 @@ export function OverlayRoot() {
         onCancel={dictation.cancel}
         onConfirm={dictation.confirm}
       />
-
-      <MorphTransition />
     </div>
   );
 }

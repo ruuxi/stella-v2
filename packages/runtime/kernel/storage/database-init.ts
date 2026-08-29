@@ -1408,34 +1408,6 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     ON voice_tool_call_receipts(completed_at, updated_at);
   `);
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS social_session_sync_state (
-      session_id TEXT PRIMARY KEY,
-      local_folder_path TEXT NOT NULL,
-      local_folder_name TEXT NOT NULL,
-      role TEXT NOT NULL,
-      last_applied_file_op_ordinal INTEGER NOT NULL DEFAULT 0,
-      last_observed_turn_ordinal INTEGER NOT NULL DEFAULT 0,
-      updated_at INTEGER NOT NULL
-    );
-  `);
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS social_session_files (
-      session_id TEXT NOT NULL,
-      relative_path TEXT NOT NULL,
-      content_hash TEXT NOT NULL,
-      size_bytes INTEGER NOT NULL,
-      mtime_ms INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      PRIMARY KEY (session_id, relative_path)
-    );
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_social_session_files_session
-    ON social_session_files(session_id, updated_at);
-  `);
-
   // Retained delegated-work summaries live independently of the retired
   // automatic memory pipeline. Existing thread-summary rows are migrated
   // once before the obsolete queue is dropped.

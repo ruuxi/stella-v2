@@ -341,4 +341,63 @@ describe("cloud agent control receipts", () => {
       },
     });
   });
+
+  it("admits one running cloud agent per owner, not one per world subtree", async () => {
+    const t = createTest();
+    const conversationId = "conversation:desktop-exclusivity";
+    await seedDesktopOwner(t, conversationId);
+    // Without headroom the plan's concurrency quota rejects first, which is a
+    // different rule from the one this test is about.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("billing_profiles", {
+        ownerId: desktopOwnerId,
+        activePlan: "pro",
+        subscriptionStatus: "active",
+        usageMode: "unlimited",
+        stripeCustomerId: "cus_exclusivity",
+        stripeSubscriptionId: "sub_exclusivity",
+        stripePriceId: "price_exclusivity",
+        defaultPaymentMethodId: "pm_exclusivity",
+        paymentMethodBrand: "visa",
+        paymentMethodLast4: "4242",
+        currentPeriodStart: 0,
+        currentPeriodEnd: 1,
+        cancelAtPeriodEnd: false,
+        monthlyAnchorAt: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    const spawn = (clientMsgId: string, description: string) =>
+      asDesktopOwner(t).mutation(spawnFromDesktop, {
+        ownerGeneration: desktopOwnerGeneration,
+        clientMsgId,
+        description,
+        prompt: "Work on the owner's world.",
+        originDeviceId: desktopOriginDeviceId,
+        originConversationId: desktopOriginConversationId,
+      });
+
+    await expect(spawn("spawn:first", "Edit the drive")).resolves.toMatchObject(
+      { status: "running" },
+    );
+    // Different work, same world. The checkpoint is owner-scoped, so a second
+    // concurrent agent would overwrite the first one's tree on completion.
+    await expect(
+      spawn("spawn:second", "Edit Stella's interior"),
+    ).rejects.toThrow(/Another agent is already working in your cloud world/u);
+
+    await t.run(async (ctx) => {
+      const running = await ctx.db
+        .query("cloud_agent_threads")
+        .withIndex("by_ownerId_and_placement_and_status", (q) =>
+          q
+            .eq("ownerId", desktopOwnerId)
+            .eq("placement", "cloud")
+            .eq("status", "running"),
+        )
+        .collect();
+      expect(running).toHaveLength(1);
+    });
+  });
 });

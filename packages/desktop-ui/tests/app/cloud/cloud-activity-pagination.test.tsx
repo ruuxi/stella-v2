@@ -48,7 +48,7 @@ const thread = (threadId: string, ownerId: string): CloudAgentThread => ({
   ownerId,
   conversationId: "conversation-1",
   description: threadId,
-  workspace: "stella",
+  placement: "cloud",
   agentType: "general",
   status: "completed",
   createdAt: 1,

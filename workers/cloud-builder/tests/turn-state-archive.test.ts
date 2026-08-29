@@ -313,19 +313,19 @@ class SwapStateArchiveSession extends FakeArchiveSession {
     if (!result.success) return result;
 
     const extracted =
-      /\/usr\/bin\/unsquashfs [^\n]* -d (\/workspace\/\.stella-turn-state-restore-workspace-drive-[0-9a-f]{64}) /u.exec(
+      /\/usr\/bin\/unsquashfs [^\n]* -d (\/workspace\/\.stella-turn-state-restore-workspace-world-[0-9a-f]{64}) /u.exec(
         command,
       )?.[1];
     if (extracted) this.stages.set(extracted, "new");
 
     for (const match of command.matchAll(
-      /\/usr\/bin\/rm -rf -- (\/workspace\/\.stella-turn-state-restore-workspace-drive-[0-9a-f]{64})/gu,
+      /\/usr\/bin\/rm -rf -- (\/workspace\/\.stella-turn-state-restore-workspace-world-[0-9a-f]{64})/gu,
     )) {
       this.stages.delete(match[1]!);
     }
 
     const stage =
-      /\/usr\/bin\/mv -- (\/workspace\/\.stella-turn-state-restore-workspace-drive-[0-9a-f]{64}) \/workspace\/drive/u.exec(
+      /\/usr\/bin\/mv -- (\/workspace\/\.stella-turn-state-restore-workspace-world-[0-9a-f]{64}) \/workspace\/world/u.exec(
         command,
       )?.[1];
     if (!stage) return result;
@@ -551,31 +551,25 @@ describe("turn state archive", () => {
       sha256: "b".repeat(64),
     };
 
-    const workspaceMetadata = turnStateArchiveMetadata(workspace, {
-      kind: "workspace",
-      workspaceRoot: "/workspace/project",
-    });
+    const workspaceMetadata = turnStateArchiveMetadata(workspace, { kind: "workspace" });
     expect(workspaceMetadata).toEqual({
       stellaSchemaVersion: "1",
       stellaKind: "workspace",
       stellaFormat: "squashfs-zstd-v1",
       stellaKey: workspace.key,
-      stellaDirectory: "/workspace/project",
+      stellaDirectory: "/workspace/world",
       stellaSizeBytes: "17",
       stellaSha256: "a".repeat(64),
       stellaComplete: "true",
     });
     expect(
-      turnStateArchiveMetadataMatches(workspaceMetadata, workspace, {
-        kind: "workspace",
-        workspaceRoot: "/workspace/project",
-      }),
+      turnStateArchiveMetadataMatches(workspaceMetadata, workspace, { kind: "workspace" }),
     ).toBe(true);
     expect(
       turnStateArchiveMetadataMatches(
         { ...workspaceMetadata, unregistered: "value" },
         workspace,
-        { kind: "workspace", workspaceRoot: "/workspace/project" },
+        { kind: "workspace" },
       ),
     ).toBe(false);
     expect(
@@ -596,7 +590,7 @@ describe("turn state archive", () => {
       session: session.asSession(),
       bucket: bucket.asUploadBucket(),
       key,
-      target: { kind: "workspace", workspaceRoot: "/workspace/project" },
+      target: { kind: "workspace" },
     });
 
     expect(result.replayed).toBe(false);
@@ -621,7 +615,7 @@ describe("turn state archive", () => {
       stellaKind: "workspace",
       stellaFormat: "squashfs-zstd-v1",
       stellaKey: key,
-      stellaDirectory: "/workspace/project",
+      stellaDirectory: "/workspace/world",
       stellaSizeBytes: String(bytes.byteLength),
       stellaSha256: await sha256BytesHex(bytes),
       stellaComplete: "true",
@@ -631,7 +625,7 @@ describe("turn state archive", () => {
     );
     expect(
       session.commands.some((command) =>
-        command.includes("mksquashfs /workspace/project"),
+        command.includes("mksquashfs /workspace/world"),
       ),
     ).toBe(true);
     expect(
@@ -643,7 +637,7 @@ describe("turn state archive", () => {
       true,
     );
     expect(session.commands.at(-1)).toContain(
-      "/home/stella-host-state/turn-state-archive/workspace-project-",
+      "/home/stella-host-state/turn-state-archive/workspace-world-",
     );
   });
 
@@ -657,7 +651,7 @@ describe("turn state archive", () => {
       session: new FakeArchiveSession(bytes).asSession(),
       bucket: bucket.asUploadBucket(),
       key,
-      target: { kind: "workspace", workspaceRoot: "/workspace/drive" },
+      target: { kind: "workspace" },
     });
     expect(first.replayed).toBe(true);
     expect(bucket.putCalls).toBe(1);
@@ -666,7 +660,7 @@ describe("turn state archive", () => {
       session: new FakeArchiveSession(bytes).asSession(),
       bucket: bucket.asUploadBucket(),
       key,
-      target: { kind: "workspace", workspaceRoot: "/workspace/drive" },
+      target: { kind: "workspace" },
     });
     expect(second).toEqual(first);
     expect(bucket.putCalls).toBe(1);
@@ -683,7 +677,7 @@ describe("turn state archive", () => {
         session: session.asSession(),
         bucket: bucket.asUploadBucket(),
         key: archiveKey("workspace"),
-        target: { kind: "workspace", workspaceRoot: "/workspace/project" },
+        target: { kind: "workspace" },
       }),
     ).rejects.toThrow("sandbox stream is invalid");
     expect(session.readCancelCalls).toBe(1);
@@ -703,7 +697,7 @@ describe("turn state archive", () => {
         session: firstSession.asSession(),
         bucket: bucket.asUploadBucket(),
         key,
-        target: { kind: "workspace", workspaceRoot: "/workspace/project" },
+        target: { kind: "workspace" },
       }),
     ).rejects.toThrow("scratch cleanup failed");
     expect(bucket.objects.has(key)).toBe(true);
@@ -712,7 +706,7 @@ describe("turn state archive", () => {
       firstSession.commands.some(
         (command) =>
           command.includes("-mmin +20") &&
-          command.includes("workspace-project-*.sqsh"),
+          command.includes("workspace-world-*.sqsh"),
       ),
     ).toBe(true);
 
@@ -722,7 +716,7 @@ describe("turn state archive", () => {
       session: retrySession.asSession(),
       bucket: bucket.asUploadBucket(),
       key,
-      target: { kind: "workspace", workspaceRoot: "/workspace/project" },
+      target: { kind: "workspace" },
     });
     expect(retry.replayed).toBe(true);
     expect(bucket.putCalls).toBe(1);
@@ -740,7 +734,7 @@ describe("turn state archive", () => {
       session: new FakeArchiveSession(workspaceBytes).asSession(),
       bucket: bucket.asUploadBucket(),
       key: archiveKey("workspace", "a"),
-      target: { kind: "workspace", workspaceRoot: "/workspace/project" },
+      target: { kind: "workspace" },
     });
     const sourceNative = await uploadTurnStateArchive({
       session: new FakeArchiveSession(nativeBytes).asSession(),
@@ -757,10 +751,7 @@ describe("turn state archive", () => {
         workspace: {
           source: sourceWorkspace.archive,
           destinationKey: destinationWorkspaceKey,
-          target: {
-            kind: "workspace",
-            workspaceRoot: "/workspace/project",
-          },
+          target: { kind: "workspace" },
         },
         native: {
           source: sourceNative.archive,
@@ -779,10 +770,7 @@ describe("turn state archive", () => {
       workspace: {
         source: sourceWorkspace.archive,
         destinationKey: destinationWorkspaceKey,
-        target: {
-          kind: "workspace" as const,
-          workspaceRoot: "/workspace/project" as const,
-        },
+        target: { kind: "workspace" },
       },
       native: {
         source: sourceNative.archive,
@@ -810,7 +798,7 @@ describe("turn state archive", () => {
         stellaKind: "workspace",
         stellaFormat: "squashfs-zstd-v1",
         stellaKey: destinationWorkspaceKey,
-        stellaDirectory: "/workspace/project",
+        stellaDirectory: "/workspace/world",
         stellaSizeBytes: String(workspaceBytes.byteLength),
         stellaSha256: await sha256BytesHex(workspaceBytes),
         stellaComplete: "true",
@@ -831,7 +819,7 @@ describe("turn state archive", () => {
       session: new FakeArchiveSession(bytes).asSession(),
       bucket: bucket.asUploadBucket(),
       key: archiveKey("workspace", "4"),
-      target: { kind: "workspace", workspaceRoot: "/workspace/stella" },
+      target: { kind: "workspace" },
     });
     bucket.failAfterStoreOnce = true;
     const destinationKey = archiveKey("workspace", "5", "6", "7");
@@ -840,7 +828,7 @@ describe("turn state archive", () => {
       workspace: {
         source: source.archive,
         destinationKey,
-        target: { kind: "workspace", workspaceRoot: "/workspace/stella" },
+        target: { kind: "workspace" },
       },
     });
 
@@ -882,7 +870,7 @@ describe("turn state archive", () => {
       session: new FakeArchiveSession(bytes).asSession(),
       bucket: bucket.asUploadBucket(),
       key,
-      target: { kind: "workspace", workspaceRoot: "/workspace/stella" },
+      target: { kind: "workspace" },
     });
     bucket.corruptMetadata(key);
 
@@ -891,7 +879,7 @@ describe("turn state archive", () => {
         session: new FakeArchiveSession(bytes).asSession(),
         bucket: bucket.asUploadBucket(),
         key,
-        target: { kind: "workspace", workspaceRoot: "/workspace/stella" },
+        target: { kind: "workspace" },
       }),
     ).rejects.toThrow("conflicts with its reservation");
     expect(bucket.putCalls).toBe(1);
@@ -1034,30 +1022,6 @@ describe("turn state archive", () => {
     expect(restoreSession.commands.at(-1)).toContain("rm -f --");
   });
 
-  test("binds a workspace archive to the exact fixed workspace root", async () => {
-    const bytes = encoder.encode("project-only squashfs");
-    const bucket = new FakeArchiveBucket();
-    const uploaded = await uploadTurnStateArchive({
-      session: new FakeArchiveSession(bytes).asSession(),
-      bucket: bucket.asUploadBucket(),
-      key: archiveKey("workspace"),
-      target: { kind: "workspace", workspaceRoot: "/workspace/project" },
-    });
-    const restoreSession = new FakeArchiveSession(bytes);
-
-    await expect(
-      restoreTurnStateArchive({
-        session: restoreSession.asSession(),
-        bucket: bucket.asRestoreBucket(),
-        archive: uploaded.archive,
-        target: { kind: "workspace", workspaceRoot: "/workspace/app" },
-      }),
-    ).rejects.toThrow("conflicts with its reservation");
-    expect(bucket.getOptions).toEqual([]);
-    expect(restoreSession.writes.size).toBe(0);
-    expect(restoreSession.restoreCalls).toBe(0);
-  });
-
   test("uses a bounded claim and disjoint scratch for concurrent retries", async () => {
     const bytes = encoder.encode("concurrency-safe squashfs");
     const claims = new FakeClaimManager();
@@ -1080,7 +1044,7 @@ describe("turn state archive", () => {
       session: firstSession.asSession(),
       bucket: bucket.asUploadBucket(),
       key: archiveKey("workspace", "e"),
-      target: { kind: "workspace", workspaceRoot: "/workspace/project" },
+      target: { kind: "workspace" },
     });
     await readStarted;
 
@@ -1089,7 +1053,7 @@ describe("turn state archive", () => {
         session: secondSession.asSession(),
         bucket: bucket.asUploadBucket(),
         key: archiveKey("workspace", "e"),
-        target: { kind: "workspace", workspaceRoot: "/workspace/project" },
+        target: { kind: "workspace" },
       }),
     ).rejects.toThrow("archive creation failed");
 
@@ -1106,14 +1070,14 @@ describe("turn state archive", () => {
     expect(firstBuild).toContain("exec 9<>");
     expect(firstBuild).toContain("/usr/bin/flock --exclusive --nonblock 9");
     expect(firstBuild).toContain(
-      "/home/stella-host-state/turn-state-archive/lock-workspace-project",
+      "/home/stella-host-state/turn-state-archive/lock-workspace-world",
     );
     expect(firstBuild).toContain("set -C; : >");
     expect(firstBuild).not.toContain(
-      "/dev/null /home/stella-host-state/turn-state-archive/lock-workspace-project",
+      "/dev/null /home/stella-host-state/turn-state-archive/lock-workspace-world",
     );
     const scratchPath = (command: string | undefined): string | undefined =>
-      /\/home\/stella-host-state\/turn-state-archive\/workspace-project-([0-9a-f]{64})\.sqsh/u.exec(
+      /\/home\/stella-host-state\/turn-state-archive\/workspace-world-([0-9a-f]{64})\.sqsh/u.exec(
         command ?? "",
       )?.[0];
     expect(scratchPath(firstBuild)).toBeDefined();
@@ -1128,7 +1092,7 @@ describe("turn state archive", () => {
       session: new FakeArchiveSession(bytes).asSession(),
       bucket: bucket.asUploadBucket(),
       key: archiveKey("workspace"),
-      target: { kind: "workspace", workspaceRoot: "/workspace/drive" },
+      target: { kind: "workspace" },
     });
     const boundaries: SwapFailureBoundary[] = [
       "source-to-prior",
@@ -1143,7 +1107,7 @@ describe("turn state archive", () => {
           session: restoreSession.asSession(),
           bucket: bucket.asRestoreBucket(),
           archive: uploaded.archive,
-          target: { kind: "workspace", workspaceRoot: "/workspace/drive" },
+          target: { kind: "workspace" },
         }),
       ).rejects.toThrow("target swap failed");
       expect(
@@ -1158,7 +1122,7 @@ describe("turn state archive", () => {
         session: restoreSession.asSession(),
         bucket: bucket.asRestoreBucket(),
         archive: uploaded.archive,
-        target: { kind: "workspace", workspaceRoot: "/workspace/drive" },
+        target: { kind: "workspace" },
       });
       expect(restoreSession.source).toBe("new");
       expect(restoreSession.prior).toBeUndefined();
@@ -1179,7 +1143,7 @@ describe("turn state archive", () => {
         session: malformedSession.asSession(),
         bucket: bucket.asUploadBucket(),
         key: `${TURN_STATE_OBJECT_PREFIX}/workspace.sqsh`,
-        target: { kind: "workspace", workspaceRoot: "/workspace/project" },
+        target: { kind: "workspace" },
       }),
     ).rejects.toThrow("was not pre-registered");
     expect(malformedSession.commands).toEqual([]);
@@ -1191,27 +1155,11 @@ describe("turn state archive", () => {
           session: controlSession.asSession(),
           bucket: bucket.asUploadBucket(),
           key: `${archiveKey("workspace")}${suffix}`,
-          target: { kind: "workspace", workspaceRoot: "/workspace/project" },
+          target: { kind: "workspace" },
         }),
       ).rejects.toThrow("was not pre-registered");
       expect(controlSession.commands).toEqual([]);
     }
-
-    const rootSession = new FakeArchiveSession(bytes);
-    await expect(
-      uploadTurnStateArchive({
-        session: rootSession.asSession(),
-        bucket: bucket.asUploadBucket(),
-        key: archiveKey("workspace"),
-        target: {
-          kind: "workspace",
-          workspaceRoot: "/workspace/project; touch /tmp/escaped",
-        } as never,
-      }),
-    ).rejects.toThrow("workspace root is invalid");
-    expect(
-      rootSession.commands.every((command) => !command.includes("escaped")),
-    ).toBe(true);
 
     const oversizedSession = new FakeArchiveSession(bytes);
     oversizedSession.reportedSize = TURN_STATE_MAX_ARCHIVE_BYTES + 1;
@@ -1220,7 +1168,7 @@ describe("turn state archive", () => {
         session: oversizedSession.asSession(),
         bucket: bucket.asUploadBucket(),
         key: archiveKey("workspace"),
-        target: { kind: "workspace", workspaceRoot: "/workspace/app" },
+        target: { kind: "workspace" },
       }),
     ).rejects.toThrow("exceeds its bounded object contract");
     expect(bucket.putCalls).toBe(0);

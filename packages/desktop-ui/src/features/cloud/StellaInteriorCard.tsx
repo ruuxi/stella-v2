@@ -83,7 +83,7 @@ function StellaInteriorCardImpl() {
         <div className="settings-row-info">
           <div className="settings-row-label">Deployed web renderer</div>
           <div className="settings-row-sublabel">
-            Agents working in <code>workspace: "stella"</code> publish immutable
+            Cloud agents that change Stella's own interior publish immutable
             candidates here. Selecting one asks each packaged shell to download,
             verify, and health-check it; the previous version stays available
             for rollback.
@@ -136,8 +136,7 @@ function StellaInteriorCardImpl() {
       ) : deployment.builds.length === 0 ? (
         <div className="settings-row">
           <div className="settings-row-sublabel">
-            No candidates yet. Ask Stella to make a change in its{" "}
-            <code>stella</code> workspace.
+            No candidates yet. Ask Stella to make a change to its own interior.
           </div>
         </div>
       ) : (

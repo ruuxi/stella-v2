@@ -17,16 +17,9 @@ import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
 import { cloudConversationBelongsToOwnerSubject } from "./cloud-conversation-selection";
 import { cloudApi, type CloudAgentThread } from "./cloud-api";
 
-/** Human label for a C2 workspace identity. */
-export const cloudWorkspaceLabel = (workspace: string): string => {
-  if (workspace === "drive") return "Drive";
-  if (workspace === "stella") return "Stella";
-  if (workspace === "computer") return "Computer";
-  const [kind, ...rest] = workspace.split(":");
-  const slug = rest.join(":");
-  if (slug && (kind === "project" || kind === "app")) return slug;
-  return workspace;
-};
+/** Human label for where a thread ran. */
+export const cloudPlacementLabel = (placement: string): string =>
+  placement === "computer" ? "Computer" : "Cloud";
 
 const threadStatus = (status: string): TaskLifecycleStatus => {
   if (status === "running") return "running";
@@ -80,7 +73,7 @@ export const cloudThreadToTask = (thread: CloudAgentThread): TaskItem => {
 export type CloudActivity = {
   threads: CloudAgentThread[];
   tasks: TaskItem[];
-  /** taskId → workspace label, rendered as the row's placement badge. */
+  /** taskId → placement label, rendered as the row's placement badge. */
   placements: ReadonlyMap<string, string>;
   threadsById: ReadonlyMap<string, CloudAgentThread>;
   hasRunning: boolean;
@@ -106,7 +99,7 @@ const projectCloudActivity = (
   const threadsById = new Map<string, CloudAgentThread>();
   for (const thread of threads) {
     tasks.push(cloudThreadToTask(thread));
-    placements.set(thread.threadId, cloudWorkspaceLabel(thread.workspace));
+    placements.set(thread.threadId, cloudPlacementLabel(thread.placement));
     threadsById.set(thread.threadId, thread);
   }
   return {

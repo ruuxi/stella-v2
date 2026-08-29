@@ -23,7 +23,7 @@ describe("first Stella workspace seed", () => {
           mode = "42424:42424:755";
           return { success: true, exitCode: 0, stdout: "", stderr: "" };
         }
-        if (command.includes("chmod 0750 '/workspace/stella'")) {
+        if (command.includes("chmod 0750 '/workspace/world'")) {
           mode = "42424:42424:750";
         }
         return { success: true, exitCode: 0, stdout: "", stderr: "" };
@@ -35,11 +35,11 @@ describe("first Stella workspace seed", () => {
     expect(calls).toHaveLength(2);
     expect(calls[0]).toStartWith("/usr/bin/setpriv ");
     expect(calls[0]).toContain(
-      "cp -a /opt/stella/packages/desktop-ui/. /workspace/stella/",
+      `cp -a /opt/stella/packages/desktop-ui/. '"'"'/workspace/world/stella/'"'"'`,
     );
-    expect(calls[1]).toContain("chmod 0750 '/workspace/stella'");
+    expect(calls[1]).toContain("chmod 0750 '/workspace/world'");
     expect(calls[1]).toContain(
-      "test \"$(stat -c '%u:%g:%a' '/workspace/stella')\" = 42424:42424:750",
+      "test \"$(stat -c '%u:%g:%a' '/workspace/world')\" = 42424:42424:750",
     );
     expect(mode).toBe("42424:42424:750");
   });

@@ -422,7 +422,7 @@ type QueuedSend = {
 type AutomaticChatTransport = {
   kind: "automatic";
   /** Work subject only; the server still owns execution placement. */
-  workspace?: "computer";
+  subject?: "computer";
   access?: StoredPhoneAccess | null;
   /**
    * Signed-in cloud journal reconciliation seam. The placement service
@@ -557,7 +557,7 @@ export function useChatThread(opts: {
 }): ChatThread {
   const { threadId, transport } = opts;
   const isDesktop =
-    transport.kind === "automatic" && transport.workspace === "computer";
+    transport.kind === "automatic" && transport.subject === "computer";
   const canonicalJournal =
     transport.kind === "automatic" && transport.canonicalJournal === true;
   const canonicalAccountScope =
@@ -3015,7 +3015,7 @@ export function useChatThread(opts: {
               conversationId: placementConversationId,
               kind: "chat",
               prompt: item.text,
-              ...(isDesktop ? { workspace: "computer" } : {}),
+              ...(isDesktop ? { subject: "computer" as const } : {}),
               requiredCapabilities: isDesktop
                 ? ["chat", "computer-use"]
                 : ["chat"],

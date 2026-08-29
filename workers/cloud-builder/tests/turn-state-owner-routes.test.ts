@@ -393,7 +393,7 @@ class FakeR2Bucket {
             customMetadata: turnStateArchiveMetadata(
               archive,
               archive.kind === "workspace"
-                ? { kind: "workspace", workspaceRoot: "/workspace/drive" }
+                ? { kind: "workspace" }
                 : { kind: "native" },
             ),
           }
@@ -414,7 +414,7 @@ const digest = (value: string): string =>
 const ownerId = "owner-1";
 const ownerGeneration = "owner-generation-1";
 const fenceGeneration = "fence-generation-1";
-const workspace = "drive";
+const worldSegment = "world";
 const threadId = "thread-1";
 const nativeIntegritySecret = "test-builder-service-secret";
 
@@ -479,7 +479,6 @@ const lease = (turn: number) => ({
   ownerGeneration,
   namespace: "build" as const,
   role: "run" as const,
-  workspace,
 });
 
 const openFence = (turn: number): TurnStateOwnerFence => {
@@ -514,7 +513,6 @@ const openFenceFor = (
     ownerGeneration: scopedOwnerGeneration,
     namespace: "build" as const,
     role: "run" as const,
-    workspace,
   };
   return {
     ownerId: scopedOwnerId,
@@ -585,8 +583,6 @@ const transferBody = (
     fromOwnerGeneration: ownerGeneration,
     toOwnerId: destinationOwnerId,
     toOwnerGeneration: destinationOwnerGeneration,
-    sourceWorkspace: workspace,
-    destinationWorkspace: workspace,
   };
 };
 
@@ -596,7 +592,6 @@ const prepareBody = (
   scopedThreadId = threadId,
 ) => ({
   ...common(turn),
-  workspace,
   threadId: scopedThreadId,
   attemptGeneration: 1,
   baseWorkspaceRevision,
@@ -755,7 +750,6 @@ const publishPreparedWorkspace = async (
     path: "turn-state/publish-workspace",
     body: {
       ...common(turn),
-      workspace,
       threadId: scopedThreadId,
       canonicalHistoryCursor: `cursor-${turn}`,
       operationId,
@@ -835,7 +829,7 @@ describe("turn-state owner routes", () => {
       session: new RouteArchiveSession(archiveBytes("workspace")).asSession(),
       bucket: r2.asBucket(),
       key: prepared.objectKeys.workspace,
-      target: { kind: "workspace", workspaceRoot: "/workspace/drive" },
+      target: { kind: "workspace" },
     });
     const nativeUpload = await uploadTurnStateArchive({
       session: new RouteArchiveSession(archiveBytes("native")).asSession(),
@@ -905,7 +899,6 @@ describe("turn-state owner routes", () => {
       path: "turn-state/resolve",
       body: {
         ...common(1),
-        workspace,
         threadId,
         canonicalHistoryCursor: "cursor-1",
         requireNative: false,
@@ -941,7 +934,6 @@ describe("turn-state owner routes", () => {
       path: "turn-state/confirm-restore",
       body: {
         ...common(1),
-        workspace,
         threadId,
         canonicalHistoryCursor: "cursor-1",
         workspaceOperationId: first.prepared.operationId,
@@ -978,7 +970,6 @@ describe("turn-state owner routes", () => {
       path: "turn-state/confirm-restore",
       body: {
         ...common(1),
-        workspace,
         threadId,
         canonicalHistoryCursor: "cursor-1",
         workspaceOperationId: first.prepared.operationId,
@@ -997,7 +988,6 @@ describe("turn-state owner routes", () => {
     const recoveryFence = openFence(3);
     const abortBody = {
       ...common(3),
-      workspace,
       threadId,
       operationId: unpublished.prepared.operationId,
       baseWorkspaceRevision: 1,
@@ -1073,7 +1063,6 @@ describe("turn-state owner routes", () => {
       path: "turn-state/resolve",
       body: {
         ...common(3),
-        workspace,
         threadId,
         canonicalHistoryCursor: "cursor-1",
         requireNative: true,
@@ -1091,7 +1080,7 @@ describe("turn-state owner routes", () => {
 
     let drained = await callRoute({
       path: "turn-state/drain",
-      body: { ...common(3), workspace },
+      body: common(3),
       storage,
       r2,
       fence: recoveryFence,
@@ -1103,7 +1092,7 @@ describe("turn-state owner routes", () => {
     ) {
       drained = await callRoute({
         path: "turn-state/drain",
-        body: { ...common(3), workspace },
+        body: common(3),
         storage,
         r2,
         fence: recoveryFence,
@@ -1152,7 +1141,6 @@ describe("turn-state owner routes", () => {
     const requestFingerprint = digest("exact-legacy-directory-descriptor");
     const seedBody = (turn: number, fingerprint = requestFingerprint) => ({
       ...common(turn),
-      workspace,
       requestFingerprint: fingerprint,
       createdAt: 777,
     });
@@ -1254,54 +1242,6 @@ describe("turn-state owner routes", () => {
     ).toMatchObject({ manifest: { count: 0 }, entries: [] });
   });
 
-  test.each(["drive", "stella"])(
-    "allows a read-only %s fallback status probe without weakening mutating mount fences",
-    async (sourceWorkspace) => {
-      const destinationStorage = new FakeDurableObjectStorage();
-      const r2 = new FakeR2Bucket();
-      const destinationFence = transferFence(
-        destinationOwnerId,
-        destinationOwnerGeneration,
-        "destination",
-      );
-      const crossMountBody = {
-        ...transferBody("destination"),
-        sourceWorkspace,
-        destinationWorkspace: `project:import-${sourceWorkspace}`,
-      };
-
-      const status = await callRoute({
-        path: "turn-state/transfer-status",
-        body: crossMountBody,
-        storage: destinationStorage,
-        r2,
-        fence: destinationFence,
-        scopedOwnerId: destinationOwnerId,
-      });
-      expect(status?.status).toBe(200);
-      expect(
-        await responseBody<TurnStateTransferDestinationStatus>(status),
-      ).toEqual({ state: "empty" });
-
-      const sourceStorage = new FakeDurableObjectStorage();
-      const exported = await callRoute({
-        path: "turn-state/transfer-export",
-        body: {
-          ...transferBody("source"),
-          sourceWorkspace,
-          destinationWorkspace: `project:import-${sourceWorkspace}`,
-        },
-        storage: sourceStorage,
-        r2,
-        fence: transferFence(ownerId, ownerGeneration, "source"),
-      });
-      expect(exported?.status).toBe(400);
-      expect(await responseBody(exported)).toMatchObject({
-        code: "invalid_request",
-      });
-    },
-  );
-
   test("transfers global workspace heads and per-thread native state before guarded source retirement", async () => {
     const sourceStorage = new FakeDurableObjectStorage();
     const destinationStorage = new FakeDurableObjectStorage();
@@ -1325,7 +1265,6 @@ describe("turn-state owner routes", () => {
         path: "turn-state/confirm-restore",
         body: {
           ...common(turn),
-          workspace,
           threadId: scopedThreadId,
           canonicalHistoryCursor: `cursor-${turn}`,
           workspaceOperationId: checkpoint.prepared.operationId,
@@ -1355,7 +1294,7 @@ describe("turn-state owner routes", () => {
     const drained = await drainTurnStateRetirements(
       createDurableObjectTurnStateStorage(sourceStorage.asStorage()),
       createR2TurnStateObjectStore(r2.asBucket()),
-      { ownerId, ownerGeneration, workspace },
+      { ownerId, ownerGeneration },
     );
     expect(drained.completed).toBe(1);
     expect(r2.keys()).not.toContain(first.descriptor.key);
@@ -1424,7 +1363,7 @@ describe("turn-state owner routes", () => {
       state: "empty",
     });
     const conflictedDestinationStorage = new FakeDurableObjectStorage();
-    const destinationWorkspaceHash = digest(workspace);
+    const destinationWorkspaceHash = digest(worldSegment);
     conflictedDestinationStorage.set(
       `turn-state:v1:operation:${digest("unrelated-destination-operation")}`,
       {
@@ -1545,7 +1484,6 @@ describe("turn-state owner routes", () => {
       path: "turn-state/resolve",
       body: {
         ...abortCommon,
-        workspace,
         threadId,
         canonicalHistoryCursor: "cursor-3",
         requireNative: true,
@@ -1575,7 +1513,6 @@ describe("turn-state owner routes", () => {
       path: "turn-state/abort-unpublished",
       body: {
         ...abortCommon,
-        workspace,
         threadId,
         operationId: abortProbe.workspacePublication.operationId,
         baseWorkspaceRevision: abortProbe.baseWorkspaceRevision,
@@ -1599,8 +1536,9 @@ describe("turn-state owner routes", () => {
       ],
     });
 
-    const sourcePrefix = `${TURN_STATE_OBJECT_PREFIX}/${digest(ownerId)}/${digest(workspace)}/`;
-    const destinationPrefix = `${TURN_STATE_OBJECT_PREFIX}/${digest(destinationOwnerId)}/${digest(workspace)}/`;
+    const sourcePrefix = `${TURN_STATE_OBJECT_PREFIX}/${digest(ownerId)}/${digest(worldSegment)}/`;
+    const destinationPrefix = `${TURN_STATE_OBJECT_PREFIX}/${digest(destinationOwnerId)}/${digest(worldSegment)}/`;
+    const sourceOwnerPrefix = `${TURN_STATE_OBJECT_PREFIX}/${digest(ownerId)}/`;
     expect(r2.keys(sourcePrefix)).toHaveLength(5);
     expect(r2.keys(destinationPrefix)).toHaveLength(5);
 
@@ -1622,7 +1560,6 @@ describe("turn-state owner routes", () => {
         path: "turn-state/resolve",
         body: {
           ...destinationCommon,
-          workspace,
           threadId: scopedThreadId,
           canonicalHistoryCursor: cursor,
           requireNative: true,
@@ -1671,7 +1608,6 @@ describe("turn-state owner routes", () => {
       path: "turn-state/publish-workspace",
       body: {
         ...destinationCommon,
-        workspace,
         threadId,
         canonicalHistoryCursor: "cursor-3",
         operationId: pending.workspacePublication!.operationId,
@@ -1691,7 +1627,6 @@ describe("turn-state owner routes", () => {
       path: "turn-state/confirm-restore",
       body: {
         ...destinationCommon,
-        workspace,
         threadId,
         canonicalHistoryCursor: "cursor-3",
         workspaceOperationId: published.workspace!.operationId,
@@ -1764,7 +1699,7 @@ describe("turn-state owner routes", () => {
 
     let sourceEmptyScans = 0;
     r2.onList = (options) => {
-      if (options.prefix !== sourcePrefix) return;
+      if (options.prefix !== sourceOwnerPrefix) return;
       sourceEmptyScans += 1;
       if (sourceEmptyScans !== 3) return;
       const active = sourceTransferFence.active["transfer-source-lease"]!;
@@ -1915,7 +1850,6 @@ describe("turn-state owner routes", () => {
       path: "turn-state/resolve",
       body: {
         ...common(1),
-        workspace,
         threadId,
         canonicalHistoryCursor: "cursor-1",
         requireNative: false,
@@ -1936,7 +1870,6 @@ describe("turn-state owner routes", () => {
       path: "turn-state/confirm-restore",
       body: {
         ...common(1),
-        workspace,
         threadId,
         canonicalHistoryCursor: "cursor-1",
         workspaceOperationId: first.prepared.operationId,
@@ -1955,7 +1888,6 @@ describe("turn-state owner routes", () => {
       path: "turn-state/resolve",
       body: {
         ...common(2),
-        workspace,
         threadId,
         canonicalHistoryCursor: "cursor-2",
         requireNative: false,
@@ -1976,7 +1908,6 @@ describe("turn-state owner routes", () => {
       path: "turn-state/confirm-restore",
       body: {
         ...common(2),
-        workspace,
         threadId,
         canonicalHistoryCursor: "cursor-2",
         workspaceOperationId: second.prepared.operationId,
@@ -1993,7 +1924,7 @@ describe("turn-state owner routes", () => {
     const registryDrain = await drainTurnStateRetirements(
       createDurableObjectTurnStateStorage(storage.asStorage()),
       createR2TurnStateObjectStore(r2.asBucket()),
-      { ownerId, ownerGeneration, workspace },
+      { ownerId, ownerGeneration },
     );
     expect(registryDrain.completed).toBe(1);
     const authorizationPrefix = "turn-state:v1:route-operation:";
@@ -2005,7 +1936,7 @@ describe("turn-state owner routes", () => {
 
     const retry = await callRoute({
       path: "turn-state/drain",
-      body: { ...common(2), workspace },
+      body: common(2),
       storage,
       r2,
       fence: second.fence,
@@ -2031,9 +1962,9 @@ describe("turn-state owner routes", () => {
     const storage = new FakeDurableObjectStorage();
     const r2 = new FakeR2Bucket(1);
     const ownerHash = digest(ownerId);
-    const workspaceHash = digest(workspace);
-    const prefix = `stella-checkpoints/v1/${ownerHash}/${workspaceHash}/`;
-    const orphan = `${prefix}orphan/workspace.sqsh`;
+    const workspaceHash = digest(worldSegment);
+    const prefix = `stella-checkpoints/v1/${ownerHash}/`;
+    const orphan = `${prefix}${workspaceHash}/orphan/workspace.sqsh`;
     r2.put(orphan, 3, "orphan-etag");
     storage.set("turn-state:v1:route-operation:metadata-only", {
       ownerHash,
@@ -2053,7 +1984,6 @@ describe("turn-state owner routes", () => {
         schemaVersion: TURN_STATE_SCHEMA_VERSION,
         ownerId,
         generation: blocked.generation,
-        workspace,
       },
       storage,
       r2,
@@ -2067,7 +1997,6 @@ describe("turn-state owner routes", () => {
         schemaVersion: TURN_STATE_SCHEMA_VERSION,
         ownerId,
         generation: blocked.generation,
-        workspace,
       },
       storage,
       r2,
@@ -2089,7 +2018,6 @@ describe("turn-state owner routes", () => {
         schemaVersion: TURN_STATE_SCHEMA_VERSION,
         ownerId,
         generation: blocked.generation,
-        workspace,
       },
       storage,
       r2,
@@ -2118,13 +2046,13 @@ describe("turn-state owner routes", () => {
     expect(unsafe?.status).toBe(409);
   });
 
-  test("purges one workspace through an exact open activity lease without a whole-owner fence", async () => {
+  test("purges the world through an exact open activity lease without a whole-owner fence", async () => {
     const storage = new FakeDurableObjectStorage();
     const r2 = new FakeR2Bucket();
     const ownerHash = digest(ownerId);
-    const workspaceHash = digest(workspace);
-    const prefix = `stella-checkpoints/v1/${ownerHash}/${workspaceHash}/`;
-    r2.put(`${prefix}orphan/workspace.sqsh`, 3, "orphan-etag");
+    const workspaceHash = digest(worldSegment);
+    const prefix = `stella-checkpoints/v1/${ownerHash}/`;
+    r2.put(`${prefix}${workspaceHash}/orphan/workspace.sqsh`, 3, "orphan-etag");
     storage.set("turn-state:v1:route-operation:workspace-purge", {
       ownerHash,
       ownerGeneration,
@@ -2137,7 +2065,6 @@ describe("turn-state owner routes", () => {
       ownerGeneration,
       namespace: "activity" as const,
       role: "run" as const,
-      workspace,
       expiresAt: 20_000,
     };
     const fence: TurnStateOwnerFence = {
@@ -2154,10 +2081,9 @@ describe("turn-state owner routes", () => {
       leaseId: activityLease.leaseId,
       sessionId: activityLease.sessionId,
       turnId: activityLease.turnId,
-      workspace,
     };
     const purged = await callRoute({
-      path: "turn-state/purge-workspace",
+      path: "turn-state/purge-world",
       body,
       storage,
       r2,
@@ -2172,7 +2098,7 @@ describe("turn-state owner routes", () => {
     expect(storage.entries("turn-state:v1:route-operation:").size).toBe(0);
 
     const wrongLease = await callRoute({
-      path: "turn-state/purge-workspace",
+      path: "turn-state/purge-world",
       body: { ...body, leaseId: "different-lease" },
       storage,
       r2,

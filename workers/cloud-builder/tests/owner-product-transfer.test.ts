@@ -12,7 +12,6 @@ import {
   parseOwnerProductTransferRequest,
   replaceOwnerPrefix,
   rewriteInteriorArtifactManifest,
-  resolveWorkspaceTransfer,
   takeOwnerTransferBatch,
   transferredBackupId,
 } from "../src/owner-product-transfer.js";
@@ -28,7 +27,7 @@ const control = {
 };
 
 describe("owner product transfer", () => {
-  test("accepts bounded same-kind workspace moves", () => {
+  test("accepts a bounded move of the one world", () => {
     expect(
       parseOwnerProductTransferRequest({
         ...control,
@@ -36,14 +35,7 @@ describe("owner product transfer", () => {
         toOwnerId: "connected-owner",
         agentHome: true,
         interiors: false,
-        workspaces: [
-          { from: "cloud", to: "drive" },
-          {
-            from: "project:old",
-            to: "project:imported",
-            importedTo: "project:imported-recovery",
-          },
-        ],
+        world: true,
         appSlugs: ["notes"],
       }),
     ).toEqual({
@@ -52,42 +44,12 @@ describe("owner product transfer", () => {
       toOwnerId: "connected-owner",
       agentHome: true,
       interiors: false,
-      workspaces: [
-        { from: "drive", to: "drive" },
-        {
-          from: "project:old",
-          to: "project:imported",
-          importedTo: "project:imported-recovery",
-        },
-      ],
+      world: true,
       appSlugs: ["notes"],
     });
   });
 
-  test("routes a colliding checkpoint to a normal project workspace", () => {
-    const transfer = {
-      from: "stella",
-      to: "stella",
-      importedTo: "project:stella-imported-abc123",
-    };
-    expect(resolveWorkspaceTransfer(transfer, false)).toEqual({
-      from: "stella",
-      requestedTo: "stella",
-      resolvedTo: "stella",
-      imported: false,
-    });
-    expect(resolveWorkspaceTransfer(transfer, true)).toEqual({
-      from: "stella",
-      requestedTo: "stella",
-      resolvedTo: "project:stella-imported-abc123",
-      imported: true,
-    });
-    expect(
-      resolveWorkspaceTransfer({ from: "drive", to: "drive" }, true),
-    ).toBeNull();
-  });
-
-  test("rejects cross-kind moves and unbounded manifests", () => {
+  test("rejects an absent world flag and unbounded manifests", () => {
     expect(
       parseOwnerProductTransferRequest({
         ...control,
@@ -95,7 +57,6 @@ describe("owner product transfer", () => {
         toOwnerId: "connected-owner",
         agentHome: false,
         interiors: false,
-        workspaces: [{ from: "drive", to: "project:drive" }],
         appSlugs: [],
       }),
     ).toBeNull();
@@ -106,7 +67,7 @@ describe("owner product transfer", () => {
         toOwnerId: "connected-owner",
         agentHome: false,
         interiors: false,
-        workspaces: [],
+        world: false,
         appSlugs: ["a", "b", "c", "d", "e"],
       }),
     ).toBeNull();

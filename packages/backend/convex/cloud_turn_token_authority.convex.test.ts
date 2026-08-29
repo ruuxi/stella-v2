@@ -99,7 +99,7 @@ const seedActiveTurn = async (token = TOKEN_A) => {
         attemptGeneration: 1,
         conversationId: "conversation:cloud-turn-authority",
         description,
-        workspace: "cloud",
+        placement: "cloud",
         agentType: "general",
         status: "running",
         createdAt: 1,
@@ -683,7 +683,6 @@ describe("cloud turn-token authority", () => {
       threadId: THREAD_ID,
       turnId: TURN_ID,
       prompt: "Keep this transcript trustworthy",
-      workspace: "cloud",
       turnToken: TOKEN_A,
       attemptGeneration: 1,
       execution: {
@@ -888,7 +887,6 @@ describe("cloud turn-token authority", () => {
         threadId: THREAD_ID,
         turnId: TURN_ID,
         prompt: "Keep this transcript trustworthy",
-        workspace: "cloud",
         turnToken: TOKEN_A,
         attemptGeneration: 1,
         execution: {

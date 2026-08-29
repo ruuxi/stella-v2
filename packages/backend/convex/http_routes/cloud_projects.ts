@@ -16,7 +16,6 @@ const serviceAuthorized = (request: Request): boolean => {
 };
 
 // C2: every project mounts at the same path in the sandbox.
-const PROJECT_MOUNT_PATH = "/workspace/project";
 
 type ProjectRow = {
   projectId: string;
@@ -73,7 +72,6 @@ export function registerCloudProjectRoutes(http: HttpRouter) {
         ownerGeneration?: string;
         projectId?: string;
         slug?: string;
-        workspace?: string;
       };
       if (!body.ownerId || !body.ownerGeneration?.trim()) {
         return json({ error: "ownerId and ownerGeneration required" }, 400);
@@ -92,7 +90,6 @@ export function registerCloudProjectRoutes(http: HttpRouter) {
           ownerId: body.ownerId,
           projectId: body.projectId,
           slug: body.slug,
-          workspace: body.workspace,
         },
       )) as ProjectRow | null;
       if (!project) return json({ error: "Project not found." }, 404);
@@ -100,17 +97,15 @@ export function registerCloudProjectRoutes(http: HttpRouter) {
       const base = {
         projectId: project.projectId,
         slug: project.slug,
-        workspace: `project:${project.slug}`,
         name: project.name,
         provider: project.provider,
         defaultBranch: project.defaultBranch,
         setupScript: project.setupScript,
         instanceSize: project.instanceSize,
         lastCheckpointAt: project.lastCheckpointAt,
-        mountPath: PROJECT_MOUNT_PATH,
       };
       if (project.provider !== "github" || !project.remoteUrl) {
-        // Stella-hosted: the restored workspace is the git home, no remote.
+        // Stella-hosted: the restored directory is the git home, no remote.
         return json({ ...base, remoteUrl: null, token: null });
       }
       try {
@@ -135,7 +130,7 @@ export function registerCloudProjectRoutes(http: HttpRouter) {
           tokenExpiresAt: credential.expiresAt,
           // git wants the token as the password of the x-access-token user.
           tokenUsername: "x-access-token",
-          // Commit identity for the workspace clone; absent until the owner's
+          // Commit identity for the project clone; absent until the owner's
           // connect handshake has proven a GitHub user.
           ...(credential.authorName && credential.authorEmail
             ? {
@@ -170,7 +165,6 @@ export function registerCloudProjectRoutes(http: HttpRouter) {
         ownerGeneration?: string;
         projectId?: string;
         slug?: string;
-        workspace?: string;
         setupScript?: string;
         instanceSize?: string;
         checkpointedAt?: number;
@@ -185,7 +179,6 @@ export function registerCloudProjectRoutes(http: HttpRouter) {
           ownerId: body.ownerId,
           projectId: body.projectId,
           slug: body.slug,
-          workspace: body.workspace,
         },
       )) as ProjectRow | null;
       if (!project) return json({ error: "Project not found." }, 404);

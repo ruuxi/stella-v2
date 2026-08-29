@@ -1334,10 +1334,10 @@ const applyBrowserResumeReceipt = async (
     (["running", "resuming"] as const).map((status) =>
       ctx.db
         .query("cloud_agent_threads")
-        .withIndex("by_ownerId_and_workspace_and_status", (q) =>
+        .withIndex("by_ownerId_and_placement_and_status", (q) =>
           q
             .eq("ownerId", args.ownerId)
-            .eq("workspace", thread.workspace)
+            .eq("placement", "cloud")
             .eq("status", status),
         )
         .take(2),
@@ -1347,7 +1347,7 @@ const applyBrowserResumeReceipt = async (
     conflicting.flat().some((candidate) => candidate.threadId !== row.threadId)
   ) {
     throw new ConvexError(
-      `Another agent is working in the "${thread.workspace}" workspace. Wait for it to finish, then try again.`,
+      "Another agent is working in your cloud world. Wait for it to finish, then try again.",
     );
   }
   const attemptGeneration = row.attemptGeneration + 1;
@@ -1371,7 +1371,7 @@ const applyBrowserResumeReceipt = async (
     lane: "agent",
     kind: "agent",
     agentType: turn.agentType ?? "general",
-    workspace: thread.workspace,
+    placement: "cloud",
     threadId: row.threadId,
     ...(turn.parentTurnId ? { parentTurnId: turn.parentTurnId } : {}),
     source: "browser-resume",
@@ -1387,10 +1387,7 @@ const applyBrowserResumeReceipt = async (
     resultJson: undefined,
     errorMessage: undefined,
     originDeliveryAckAt: undefined,
-    sandboxLeaseExpiresAt: cloudAgentSandboxLeaseExpiresAt(
-      thread.workspace,
-      args.now,
-    ),
+    sandboxLeaseExpiresAt: cloudAgentSandboxLeaseExpiresAt("cloud", args.now),
     updatedAt: args.now,
   });
   const nextRevision = row.revision + 1;
@@ -1578,7 +1575,6 @@ export const activateBrowserResumeTurnInternal = internalMutation({
       threadId: row.threadId,
       turnId: turn.turnId,
       prompt: turn.prompt,
-      workspace: turn.workspace ?? thread.workspace,
       turnToken: args.turnToken,
       ownerGeneration: args.ownerGeneration,
       attemptGeneration: args.attemptGeneration,

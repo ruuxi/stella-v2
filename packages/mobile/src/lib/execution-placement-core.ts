@@ -119,7 +119,6 @@ export const readAutomaticExecutionDispatch = (
       : {}),
     ...Object.fromEntries(
       [
-        "workspace",
         "parentTurnId",
         "threadId",
         "executorDeviceId",
@@ -313,17 +312,9 @@ export type AutomaticExecutionAdmissionInput = {
   description?: string;
   parentTurnId?: string;
   threadId?: string;
-  workspace?: string;
+  /** What the work is about, never which executor runs it. */
+  subject?: AutomaticExecutionSubject;
   requiredCapabilities?: AutomaticExecutionCapability[];
-};
-
-/** Workspace is a work subject, never an executor toggle. */
-export const executionSubjectForMobileWorkspace = (
-  workspace: string | null | undefined,
-): AutomaticExecutionSubject => {
-  const normalized = workspace?.trim().toLowerCase();
-  if (!normalized) return "portable";
-  return normalized === "computer" ? "computer" : "cloud";
 };
 
 export const buildAutomaticExecutionAdmission = (
@@ -333,8 +324,7 @@ export const buildAutomaticExecutionAdmission = (
   if (!prompt) throw new Error("A prompt is required.");
   const idempotencyKey = input.idempotencyKey.trim();
   const conversationId = input.conversationId.trim();
-  const workspace = input.workspace?.trim() || undefined;
-  const subject = executionSubjectForMobileWorkspace(workspace);
+  const subject = input.subject ?? "portable";
   const payloadJson = JSON.stringify({
     prompt,
     ...(input.kind === "agent"
@@ -363,7 +353,6 @@ export const buildAutomaticExecutionAdmission = (
         ? { parentTurnId: input.parentTurnId.trim() }
         : {}),
       ...(input.threadId?.trim() ? { threadId: input.threadId.trim() } : {}),
-      ...(workspace ? { workspace } : {}),
       requiredCapabilities: [
         ...new Set([input.kind, ...(input.requiredCapabilities ?? [])]),
       ],

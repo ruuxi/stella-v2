@@ -173,7 +173,7 @@ function ComputerChatSurface({
   const modelSettings = useComputerModelSettings(access);
 
   const transport = useMemo(
-    () => ({ kind: "automatic" as const, workspace: "computer" as const, access }),
+    () => ({ kind: "automatic" as const, subject: "computer" as const, access }),
     [access],
   );
   const thread = useChatThread({ threadId: "computer", transport });

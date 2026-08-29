@@ -3,7 +3,6 @@ import { validNativeStateCheckpointMac } from "./native-state-checkpoint.js";
 import {
   TURN_STATE_ARCHIVE_CONTENT_TYPE,
   TURN_STATE_MAX_ARCHIVE_BYTES,
-  TURN_STATE_WORKSPACE_ROOTS,
   copyTurnStateArchive,
   turnStateArchiveMetadataMatches,
   type TurnStateArchiveTarget,
@@ -12,6 +11,7 @@ import {
   TURN_STATE_OBJECT_FORMAT,
   TURN_STATE_OBJECT_PREFIX,
   TURN_STATE_SCHEMA_VERSION,
+  WORLD_REGISTRY_SEGMENT,
   assertTurnStateTransferSourceEmpty,
   commitTurnStateOperation,
   confirmTurnStateRestore,
@@ -29,7 +29,6 @@ import {
   type TurnStateObjectStore,
   type TurnStateWorkspaceHead,
 } from "./turn-state-registry.js";
-import { resolveWorkspace } from "./workspace.js";
 
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_STORAGE_KEY_BYTES = 4_096;
@@ -54,7 +53,6 @@ type OwnerLease = {
   role: "run" | "aux" | "orchestrator" | "activity" | "transfer";
   reservationGeneration?: string;
   ownerGeneration?: string;
-  workspace?: string;
   expiresAt?: number;
 };
 
@@ -83,7 +81,6 @@ type RouteOperationAuthorization = {
   leaseId: string;
   sessionId: string;
   turnId: string;
-  workspace: string;
   threadId: string;
   attemptGeneration: number;
   baseWorkspaceRevision: number;
@@ -695,7 +692,6 @@ const assertOpenLease = (
   scopedOwnerId: string,
   fence: TurnStateOwnerFence,
   request: ReturnType<typeof parseCommonLease>,
-  workspace?: string,
 ): OwnerLease => {
   assertOwnerScope(scopedOwnerId, fence, request.ownerId);
   const active = fence.active[request.leaseId];
@@ -708,8 +704,7 @@ const assertOpenLease = (
     active.turnId !== request.turnId ||
     active.ownerGeneration !== request.ownerGeneration ||
     active.namespace !== "build" ||
-    active.role !== "run" ||
-    (workspace !== undefined && active.workspace !== workspace)
+    active.role !== "run"
   ) {
     throw new TurnStateOwnerRouteError(
       "The exact owner turn lease is no longer open.",
@@ -726,7 +721,6 @@ const withCurrentOpenLeaseTransaction = async <T>(
     scopedOwnerId: string;
   },
   request: ReturnType<typeof parseCommonLease>,
-  workspace: string | undefined,
   operation: (
     storage: StrongTurnStateStorage,
     fence: TurnStateOwnerFence,
@@ -741,18 +735,17 @@ const withCurrentOpenLeaseTransaction = async <T>(
         "owner_fence_changed",
       );
     }
-    assertOpenLease(args.scopedOwnerId, fence, request, workspace);
+    assertOpenLease(args.scopedOwnerId, fence, request);
     return await operation(
       createTransactionTurnStateStorage(transaction),
       fence,
     );
   });
 
-const assertOpenWorkspaceActivityLease = (
+const assertOpenWorldActivityLease = (
   scopedOwnerId: string,
   fence: TurnStateOwnerFence,
   request: ReturnType<typeof parseCommonLease>,
-  workspace: string,
   now: number,
 ): OwnerLease => {
   assertOwnerScope(scopedOwnerId, fence, request.ownerId);
@@ -767,12 +760,11 @@ const assertOpenWorkspaceActivityLease = (
     active.ownerGeneration !== request.ownerGeneration ||
     active.namespace !== "activity" ||
     active.role !== "run" ||
-    active.workspace !== workspace ||
     !Number.isSafeInteger(active.expiresAt) ||
     active.expiresAt! <= now
   ) {
     throw new TurnStateOwnerRouteError(
-      "The exact workspace purge lease is no longer open.",
+      "The exact world purge lease is no longer open.",
       409,
       "owner_fence_changed",
     );
@@ -780,14 +772,13 @@ const assertOpenWorkspaceActivityLease = (
   return active;
 };
 
-const withCurrentOpenWorkspaceActivityLeaseTransaction = async <T>(
+const withCurrentOpenWorldActivityLeaseTransaction = async <T>(
   args: {
     storage: DurableObjectStorage;
     scopedOwnerId: string;
     now?: () => number;
   },
   request: ReturnType<typeof parseCommonLease>,
-  workspace: string,
   operation: (storage: StrongTurnStateStorage) => Promise<T>,
 ): Promise<T> =>
   await args.storage.transaction(async (transaction) => {
@@ -799,11 +790,10 @@ const withCurrentOpenWorkspaceActivityLeaseTransaction = async <T>(
         "owner_fence_changed",
       );
     }
-    assertOpenWorkspaceActivityLease(
+    assertOpenWorldActivityLease(
       args.scopedOwnerId,
       fence,
       request,
-      workspace,
       transferRouteNow(args.now),
     );
     return await operation(createTransactionTurnStateStorage(transaction));
@@ -815,14 +805,11 @@ type TransferRouteIdentity = ReturnType<typeof parseCommonLease> & {
   fromOwnerGeneration: string;
   toOwnerId: string;
   toOwnerGeneration: string;
-  sourceWorkspace: string;
-  destinationWorkspace: string;
 };
 
 const parseTransferIdentity = (
   row: Record<string, unknown>,
   side: "source" | "destination",
-  options: { requireMatchingMount?: boolean } = {},
 ): TransferRouteIdentity => {
   const lease = parseCommonLease(row);
   const transferOperationId = requiredHex(row, "transferOperationId");
@@ -830,20 +817,8 @@ const parseTransferIdentity = (
   const fromOwnerGeneration = requiredText(row, "fromOwnerGeneration");
   const toOwnerId = requiredText(row, "toOwnerId");
   const toOwnerGeneration = requiredText(row, "toOwnerGeneration");
-  const sourceWorkspace = requiredText(row, "sourceWorkspace");
-  const destinationWorkspace = requiredText(row, "destinationWorkspace");
-  const source = resolveWorkspace(sourceWorkspace);
-  const destination = resolveWorkspace(destinationWorkspace);
   if (
     fromOwnerId === toOwnerId ||
-    !source ||
-    source.canonical !== sourceWorkspace ||
-    !source.mountPath ||
-    !destination ||
-    destination.canonical !== destinationWorkspace ||
-    !destination.mountPath ||
-    (options.requireMatchingMount !== false &&
-      source.mountPath !== destination.mountPath) ||
     lease.turnId !== `owner-transfer:${transferOperationId}` ||
     (side === "source" &&
       (lease.ownerId !== fromOwnerId ||
@@ -865,8 +840,6 @@ const parseTransferIdentity = (
     fromOwnerGeneration,
     toOwnerId,
     toOwnerGeneration,
-    sourceWorkspace,
-    destinationWorkspace,
   };
 };
 
@@ -1561,9 +1534,9 @@ const transferIdentityHashes = async (identity: TransferRouteIdentity) => {
     destinationWorkspaceHash,
   ] = await Promise.all([
     sha256Hex(identity.fromOwnerId),
-    sha256Hex(identity.sourceWorkspace),
+    sha256Hex(WORLD_REGISTRY_SEGMENT),
     sha256Hex(identity.toOwnerId),
-    sha256Hex(identity.destinationWorkspace),
+    sha256Hex(WORLD_REGISTRY_SEGMENT),
   ]);
   return {
     sourceOwnerHash,
@@ -2137,29 +2110,9 @@ const destinationTransferEntryPlan = async (
 };
 
 const archiveTarget = (
-  workspace: string,
   kind: TurnStateArchive["kind"],
-): TurnStateArchiveTarget => {
-  if (kind === "native") return { kind: "native" };
-  const resolved = resolveWorkspace(workspace);
-  if (
-    !resolved ||
-    resolved.canonical !== workspace ||
-    !resolved.mountPath ||
-    !TURN_STATE_WORKSPACE_ROOTS.some((root) => root === resolved.mountPath)
-  ) {
-    throw new TurnStateOwnerRouteError(
-      "Turn state workspace target is invalid.",
-      400,
-      "invalid_request",
-    );
-  }
-  return {
-    kind: "workspace",
-    workspaceRoot:
-      resolved.mountPath as (typeof TURN_STATE_WORKSPACE_ROOTS)[number],
-  };
-};
+): TurnStateArchiveTarget =>
+  kind === "native" ? { kind: "native" } : { kind: "workspace" };
 
 const sha256ArrayBufferHex = (
   value: ArrayBuffer | undefined,
@@ -2198,7 +2151,6 @@ const abortUnpublishedTurnState = async (
   args: {
     ownerId: string;
     ownerGeneration: string;
-    workspace: string;
     threadId: string;
     operationId: string;
     baseWorkspaceRevision: number;
@@ -2212,7 +2164,7 @@ const abortUnpublishedTurnState = async (
 }> => {
   const [ownerHash, workspaceHash, threadHash] = await Promise.all([
     sha256Hex(args.ownerId),
-    sha256Hex(args.workspace),
+    sha256Hex(WORLD_REGISTRY_SEGMENT),
     sha256Hex(args.threadId),
   ]);
   const abortKey = `${ABORT_UNPUBLISHED_PREFIX}${args.operationId}`;
@@ -2289,7 +2241,6 @@ const abortUnpublishedTurnState = async (
     operation.schemaVersion !== TURN_STATE_SCHEMA_VERSION ||
     operation.identity.ownerId !== args.ownerId ||
     operation.identity.ownerGeneration !== args.ownerGeneration ||
-    operation.identity.workspace !== args.workspace ||
     operation.identity.threadId !== args.threadId ||
     operation.ownerHash !== ownerHash ||
     operation.workspaceHash !== workspaceHash ||
@@ -2438,7 +2389,6 @@ const sameLegacySeedAuthorization = (
   left.operationId === right.operationId &&
   left.ownerId === right.ownerId &&
   left.ownerGeneration === right.ownerGeneration &&
-  left.workspace === right.workspace &&
   left.threadId === LEGACY_SEED_THREAD_ID &&
   right.threadId === LEGACY_SEED_THREAD_ID &&
   left.attemptGeneration === 1 &&
@@ -2490,11 +2440,11 @@ const authorizePreparedOperation = async (
 
 const clearRetiredRouteAuthorizations = async (
   storage: StrongTurnStateStorage,
-  scope: { ownerId: string; ownerGeneration: string; workspace: string },
+  scope: { ownerId: string; ownerGeneration: string },
 ): Promise<void> => {
   const [ownerHash, workspaceHash] = await Promise.all([
     sha256Hex(scope.ownerId),
-    sha256Hex(scope.workspace),
+    sha256Hex(WORLD_REGISTRY_SEGMENT),
   ]);
   let startAfter: string | undefined;
   for (;;) {
@@ -2594,14 +2544,13 @@ const listAllStrongRecords = async (
   }
 };
 
-const assertFullWorkspaceRegistryEmpty = async (
+const assertFullWorldRegistryEmpty = async (
   storage: StrongTurnStateStorage,
   ownerId: string,
-  workspace: string,
 ): Promise<void> => {
   const [ownerHash, workspaceHash] = await Promise.all([
     sha256Hex(ownerId),
-    sha256Hex(workspace),
+    sha256Hex(WORLD_REGISTRY_SEGMENT),
   ]);
   const records = await listAllStrongRecords(storage);
   for (const [key, value] of records) {
@@ -2630,7 +2579,7 @@ const destinationTransferStatus = async (
 ): Promise<TurnStateTransferDestinationStatus> => {
   const [ownerHash, workspaceHash] = await Promise.all([
     sha256Hex(identity.toOwnerId),
-    sha256Hex(identity.destinationWorkspace),
+    sha256Hex(WORLD_REGISTRY_SEGMENT),
   ]);
   const activationKey = transferActivationKey(
     identity.transferOperationId,
@@ -3586,7 +3535,6 @@ const activateTransfer = async (
         identity: {
           ownerId: identity.toOwnerId,
           ownerGeneration: identity.toOwnerGeneration,
-          workspace: identity.destinationWorkspace,
           threadId: originStage.entry.threadId,
           turnId: identity.turnId,
           attemptGeneration: 1,
@@ -3888,14 +3836,13 @@ const createTransferGuardedObjectStore = (
   };
 };
 
-const createOpenWorkspaceLeaseGuardedStorage = (
+const createOpenWorldLeaseGuardedStorage = (
   args: {
     storage: DurableObjectStorage;
     scopedOwnerId: string;
     now?: () => number;
   },
   lease: ReturnType<typeof parseCommonLease>,
-  workspace: string,
 ): StrongTurnStateStorage => {
   const base = createDurableObjectTurnStateStorage(args.storage);
   return {
@@ -3904,39 +3851,35 @@ const createOpenWorkspaceLeaseGuardedStorage = (
     list: async <T = unknown>(options = {}): Promise<Map<string, T>> =>
       await base.list<T>(options),
     put: async (key: string, value: unknown): Promise<void> =>
-      await withCurrentOpenWorkspaceActivityLeaseTransaction(
+      await withCurrentOpenWorldActivityLeaseTransaction(
         args,
         lease,
-        workspace,
         async (storage) => await storage.put(key, value),
       ),
     delete: async (key: string): Promise<boolean> =>
-      await withCurrentOpenWorkspaceActivityLeaseTransaction(
+      await withCurrentOpenWorldActivityLeaseTransaction(
         args,
         lease,
-        workspace,
         async (storage) => await storage.delete(key),
       ),
     transaction: async <T>(
       closure: (storage: StrongTurnStateStorage) => Promise<T>,
     ): Promise<T> =>
-      await withCurrentOpenWorkspaceActivityLeaseTransaction(
+      await withCurrentOpenWorldActivityLeaseTransaction(
         args,
         lease,
-        workspace,
         async (storage) => await closure(storage),
       ),
   };
 };
 
-const createOpenWorkspaceLeaseGuardedObjectStore = (
+const createOpenWorldLeaseGuardedObjectStore = (
   args: {
     storage: DurableObjectStorage;
     scopedOwnerId: string;
     now?: () => number;
   },
   lease: ReturnType<typeof parseCommonLease>,
-  workspace: string,
   bucket: R2Bucket,
 ): TurnStateObjectStore => {
   const base = createR2TurnStateObjectStore(bucket);
@@ -3944,10 +3887,9 @@ const createOpenWorkspaceLeaseGuardedObjectStore = (
     list: async (prefix, cursor) => await base.list(prefix, cursor),
     head: async (key) => await base.head(key),
     delete: async (key) => {
-      await withCurrentOpenWorkspaceActivityLeaseTransaction(
+      await withCurrentOpenWorldActivityLeaseTransaction(
         args,
         lease,
-        workspace,
         async () => undefined,
       );
       await base.delete(key);
@@ -3972,8 +3914,6 @@ const TRANSFER_IDENTITY_KEYS = [
   "fromOwnerGeneration",
   "toOwnerId",
   "toOwnerGeneration",
-  "sourceWorkspace",
-  "destinationWorkspace",
 ] as const;
 
 const validateSchemaVersion = (row: Record<string, unknown>): void => {
@@ -4033,7 +3973,6 @@ export const handleTurnStateOwnerRoute = async (args: {
         raw,
         [
           ...COMMON_LEASE_KEYS,
-          "workspace",
           "threadId",
           "attemptGeneration",
           "baseWorkspaceRevision",
@@ -4045,13 +3984,11 @@ export const handleTurnStateOwnerRoute = async (args: {
       );
       validateSchemaVersion(row);
       const lease = parseCommonLease(row);
-      const workspace = requiredText(row, "workspace");
-      assertOpenLease(args.scopedOwnerId, args.fence, lease, workspace);
+      assertOpenLease(args.scopedOwnerId, args.fence, lease);
       const historyCursor = requiredText(row, "historyCursor", 1_024);
       const identity: TurnStateIdentity = {
         ownerId: lease.ownerId,
         ownerGeneration: lease.ownerGeneration,
-        workspace,
         threadId: requiredText(row, "threadId"),
         turnId: lease.turnId,
         attemptGeneration: requiredSafeInteger(row, "attemptGeneration", 1),
@@ -4069,7 +4006,6 @@ export const handleTurnStateOwnerRoute = async (args: {
       const prepared = await withCurrentOpenLeaseTransaction(
         args,
         lease,
-        workspace,
         async (transaction) => {
           const result = await prepareTurnStateOperation(transaction, {
             identity,
@@ -4092,7 +4028,6 @@ export const handleTurnStateOwnerRoute = async (args: {
             leaseId: lease.leaseId,
             sessionId: lease.sessionId,
             turnId: lease.turnId,
-            workspace,
             threadId: identity.threadId,
             attemptGeneration: identity.attemptGeneration,
             baseWorkspaceRevision,
@@ -4110,23 +4045,17 @@ export const handleTurnStateOwnerRoute = async (args: {
     if (args.path === "turn-state/legacy-seed-prepare") {
       const row = exactObject(raw, [
         ...COMMON_LEASE_KEYS,
-        "workspace",
         "requestFingerprint",
         "createdAt",
       ]);
       validateSchemaVersion(row);
       const lease = parseCommonLease(row);
-      const workspace = requiredText(row, "workspace");
-      assertOpenLease(args.scopedOwnerId, args.fence, lease, workspace);
-      // Reject aliases here even though the trusted caller promises canonical
-      // workspace input. Directory identity is part of the archive metadata.
-      archiveTarget(workspace, "workspace");
+      assertOpenLease(args.scopedOwnerId, args.fence, lease);
       const requestFingerprint = requiredHex(row, "requestFingerprint");
       const createdAt = requiredSafeInteger(row, "createdAt", 0);
       const identity: TurnStateIdentity = {
         ownerId: lease.ownerId,
         ownerGeneration: lease.ownerGeneration,
-        workspace,
         threadId: LEGACY_SEED_THREAD_ID,
         turnId: LEGACY_SEED_THREAD_ID,
         attemptGeneration: 1,
@@ -4134,11 +4063,10 @@ export const handleTurnStateOwnerRoute = async (args: {
       const prepared = await withCurrentOpenLeaseTransaction(
         args,
         lease,
-        workspace,
         async (transaction) => {
           const [ownerHash, workspaceHash] = await Promise.all([
             sha256Hex(lease.ownerId),
-            sha256Hex(workspace),
+            sha256Hex(WORLD_REGISTRY_SEGMENT),
           ]);
           const bindingKey = `${LEGACY_SEED_BINDING_PREFIX}${workspaceHash}`;
           const existingBinding =
@@ -4196,7 +4124,6 @@ export const handleTurnStateOwnerRoute = async (args: {
               leaseId: lease.leaseId,
               sessionId: lease.sessionId,
               turnId: lease.turnId,
-              workspace,
               threadId: LEGACY_SEED_THREAD_ID,
               attemptGeneration: 1,
               baseWorkspaceRevision: 0,
@@ -4231,15 +4158,6 @@ export const handleTurnStateOwnerRoute = async (args: {
         operationId,
         lease,
       );
-      if (
-        args.fence.active[lease.leaseId]?.workspace !== authorization.workspace
-      ) {
-        throw new TurnStateOwnerRouteError(
-          "Turn state operation workspace is no longer leased.",
-          409,
-          "operation_scope_mismatch",
-        );
-      }
       const archive = parseArchive(row.archive);
       if (authorization.objectKeys[archive.kind] !== archive.key) {
         throw new TurnStateOwnerRouteError(
@@ -4251,25 +4169,20 @@ export const handleTurnStateOwnerRoute = async (args: {
       await assertDurableArchiveObject(
         args.bucket,
         archive,
-        archiveTarget(authorization.workspace, archive.kind),
+        archiveTarget(archive.kind),
       );
       const uploaded = await withCurrentOpenLeaseTransaction(
         args,
         lease,
-        undefined,
-        async (transaction, currentFence) => {
+        async (transaction) => {
           const currentAuthorization = await requireOperationAuthorization(
             transaction,
             operationId,
             lease,
           );
-          if (
-            currentFence.active[lease.leaseId]?.workspace !==
-              currentAuthorization.workspace ||
-            currentAuthorization.objectKeys[archive.kind] !== archive.key
-          ) {
+          if (currentAuthorization.objectKeys[archive.kind] !== archive.key) {
             throw new TurnStateOwnerRouteError(
-              "Turn state operation workspace is no longer leased.",
+              "Turn state archive belongs to another operation.",
               409,
               "operation_scope_mismatch",
             );
@@ -4289,40 +4202,12 @@ export const handleTurnStateOwnerRoute = async (args: {
       const lease = parseCommonLease(row);
       assertOpenLease(args.scopedOwnerId, args.fence, lease);
       const operationId = requiredHex(row, "operationId");
-      const authorization = await requireOperationAuthorization(
-        storage,
-        operationId,
-        lease,
-      );
-      if (
-        args.fence.active[lease.leaseId]?.workspace !== authorization.workspace
-      ) {
-        throw new TurnStateOwnerRouteError(
-          "Turn state operation workspace is no longer leased.",
-          409,
-          "operation_scope_mismatch",
-        );
-      }
+      await requireOperationAuthorization(storage, operationId, lease);
       const committed = await withCurrentOpenLeaseTransaction(
         args,
         lease,
-        undefined,
-        async (transaction, currentFence) => {
-          const currentAuthorization = await requireOperationAuthorization(
-            transaction,
-            operationId,
-            lease,
-          );
-          if (
-            currentFence.active[lease.leaseId]?.workspace !==
-            currentAuthorization.workspace
-          ) {
-            throw new TurnStateOwnerRouteError(
-              "Turn state operation workspace is no longer leased.",
-              409,
-              "operation_scope_mismatch",
-            );
-          }
+        async (transaction) => {
+          await requireOperationAuthorization(transaction, operationId, lease);
           return await commitTurnStateOperation(transaction, { operationId });
         },
       ).catch(routeConflict);
@@ -4332,15 +4217,13 @@ export const handleTurnStateOwnerRoute = async (args: {
     if (args.path === "turn-state/publish-workspace") {
       const row = exactObject(raw, [
         ...COMMON_LEASE_KEYS,
-        "workspace",
         "threadId",
         "canonicalHistoryCursor",
         "operationId",
       ]);
       validateSchemaVersion(row);
       const lease = parseCommonLease(row);
-      const workspace = requiredText(row, "workspace");
-      assertOpenLease(args.scopedOwnerId, args.fence, lease, workspace);
+      assertOpenLease(args.scopedOwnerId, args.fence, lease);
       const operationId = requiredHex(row, "operationId");
       const threadId = requiredText(row, "threadId");
       const canonicalHistoryCursor = requiredText(
@@ -4351,26 +4234,16 @@ export const handleTurnStateOwnerRoute = async (args: {
       const published = await withCurrentOpenLeaseTransaction(
         args,
         lease,
-        workspace,
-        async (transaction, currentFence) => {
-          if (currentFence.active[lease.leaseId]?.workspace !== workspace) {
-            throw new TurnStateOwnerRouteError(
-              "Turn state workspace publication is no longer leased.",
-              409,
-              "operation_scope_mismatch",
-            );
-          }
-          return await publishTurnStateWorkspace(transaction, {
+        async (transaction) =>
+          await publishTurnStateWorkspace(transaction, {
             identity: {
               ownerId: lease.ownerId,
               ownerGeneration: lease.ownerGeneration,
-              workspace,
               threadId,
             },
             canonicalHistoryCursor,
             operationId,
-          });
-        },
+          }),
       ).catch(routeConflict);
       return json(published);
     }
@@ -4378,7 +4251,6 @@ export const handleTurnStateOwnerRoute = async (args: {
     if (args.path === "turn-state/abort-unpublished") {
       const row = exactObject(raw, [
         ...COMMON_LEASE_KEYS,
-        "workspace",
         "threadId",
         "operationId",
         "baseWorkspaceRevision",
@@ -4387,8 +4259,7 @@ export const handleTurnStateOwnerRoute = async (args: {
       ]);
       validateSchemaVersion(row);
       const lease = parseCommonLease(row);
-      const workspace = requiredText(row, "workspace");
-      assertOpenLease(args.scopedOwnerId, args.fence, lease, workspace);
+      assertOpenLease(args.scopedOwnerId, args.fence, lease);
       const candidateHistoryCursor = requiredText(
         row,
         "candidateHistoryCursor",
@@ -4409,19 +4280,10 @@ export const handleTurnStateOwnerRoute = async (args: {
       const aborted = await withCurrentOpenLeaseTransaction(
         args,
         lease,
-        workspace,
-        async (transaction, currentFence) => {
-          if (currentFence.active[lease.leaseId]?.workspace !== workspace) {
-            throw new TurnStateOwnerRouteError(
-              "Turn state unpublished abort is no longer leased.",
-              409,
-              "operation_scope_mismatch",
-            );
-          }
-          return await abortUnpublishedTurnState(transaction, {
+        async (transaction) =>
+          await abortUnpublishedTurnState(transaction, {
             ownerId: lease.ownerId,
             ownerGeneration: lease.ownerGeneration,
-            workspace,
             threadId: requiredText(row, "threadId"),
             operationId: requiredHex(row, "operationId"),
             baseWorkspaceRevision: requiredSafeInteger(
@@ -4431,8 +4293,7 @@ export const handleTurnStateOwnerRoute = async (args: {
             ),
             candidateHistoryCursor,
             canonicalHistoryCursor,
-          });
-        },
+          }),
       ).catch(routeConflict);
       return json(aborted);
     }
@@ -4440,15 +4301,13 @@ export const handleTurnStateOwnerRoute = async (args: {
     if (args.path === "turn-state/resolve") {
       const row = exactObject(raw, [
         ...COMMON_LEASE_KEYS,
-        "workspace",
         "threadId",
         "canonicalHistoryCursor",
         "requireNative",
       ]);
       validateSchemaVersion(row);
       const lease = parseCommonLease(row);
-      const workspace = requiredText(row, "workspace");
-      assertOpenLease(args.scopedOwnerId, args.fence, lease, workspace);
+      assertOpenLease(args.scopedOwnerId, args.fence, lease);
       if (typeof row.requireNative !== "boolean") {
         throw new TurnStateOwnerRouteError(
           "requireNative is invalid.",
@@ -4460,13 +4319,11 @@ export const handleTurnStateOwnerRoute = async (args: {
       const resolved = await withCurrentOpenLeaseTransaction(
         args,
         lease,
-        workspace,
         async (transaction) =>
           await resolveTurnState(transaction, {
             identity: {
               ownerId: lease.ownerId,
               ownerGeneration: lease.ownerGeneration,
-              workspace,
               threadId: requiredText(row, "threadId"),
             },
             canonicalHistoryCursor: requiredText(
@@ -4483,18 +4340,12 @@ export const handleTurnStateOwnerRoute = async (args: {
     if (args.path === "turn-state/confirm-restore") {
       const row = exactObject(
         raw,
-        [
-          ...COMMON_LEASE_KEYS,
-          "workspace",
-          "threadId",
-          "canonicalHistoryCursor",
-        ],
+        [...COMMON_LEASE_KEYS, "threadId", "canonicalHistoryCursor"],
         ["workspaceOperationId", "threadOperationId"],
       );
       validateSchemaVersion(row);
       const lease = parseCommonLease(row);
-      const workspace = requiredText(row, "workspace");
-      assertOpenLease(args.scopedOwnerId, args.fence, lease, workspace);
+      assertOpenLease(args.scopedOwnerId, args.fence, lease);
       const workspaceOperationId = Object.hasOwn(row, "workspaceOperationId")
         ? requiredHex(row, "workspaceOperationId")
         : undefined;
@@ -4515,13 +4366,11 @@ export const handleTurnStateOwnerRoute = async (args: {
       const confirmed = await withCurrentOpenLeaseTransaction(
         args,
         lease,
-        workspace,
         async (transaction) =>
           await confirmTurnStateRestore(transaction, {
             identity: {
               ownerId: lease.ownerId,
               ownerGeneration: lease.ownerGeneration,
-              workspace,
               threadId: requiredText(row, "threadId"),
             },
             canonicalHistoryCursor: requiredText(
@@ -4538,15 +4387,10 @@ export const handleTurnStateOwnerRoute = async (args: {
     }
 
     if (args.path === "turn-state/drain") {
-      const row = exactObject(
-        raw,
-        [...COMMON_LEASE_KEYS, "workspace"],
-        ["limit"],
-      );
+      const row = exactObject(raw, [...COMMON_LEASE_KEYS], ["limit"]);
       validateSchemaVersion(row);
       const lease = parseCommonLease(row);
-      const workspace = requiredText(row, "workspace");
-      assertOpenLease(args.scopedOwnerId, args.fence, lease, workspace);
+      assertOpenLease(args.scopedOwnerId, args.fence, lease);
       const limit = Object.hasOwn(row, "limit")
         ? requiredSafeInteger(row, "limit", 1, 128)
         : undefined;
@@ -4554,18 +4398,15 @@ export const handleTurnStateOwnerRoute = async (args: {
         const result = await drainTurnStateRetirements(storage, objectStore, {
           ownerId: lease.ownerId,
           ownerGeneration: lease.ownerGeneration,
-          workspace,
           ...(limit ? { limit } : {}),
         });
         await withCurrentOpenLeaseTransaction(
           args,
           lease,
-          workspace,
           async (transaction) =>
             await clearRetiredRouteAuthorizations(transaction, {
               ownerId: lease.ownerId,
               ownerGeneration: lease.ownerGeneration,
-              workspace,
             }),
         );
         return json(result, result.pending ? 202 : 200);
@@ -4577,13 +4418,7 @@ export const handleTurnStateOwnerRoute = async (args: {
     if (args.path === "turn-state/transfer-status") {
       const row = exactObject(raw, TRANSFER_IDENTITY_KEYS);
       validateSchemaVersion(row);
-      // The product-transfer planner observes its project fallback before it
-      // selects a destination. This route is read-only, so it may inspect a
-      // canonical workspace with a different mount. Every route that exports,
-      // stages, activates, or retires state retains the same-mount fence.
-      const identity = parseTransferIdentity(row, "destination", {
-        requireMatchingMount: false,
-      });
+      const identity = parseTransferIdentity(row, "destination");
       assertTransferLease(
         args.scopedOwnerId,
         args.fence,
@@ -4697,10 +4532,7 @@ export const handleTurnStateOwnerRoute = async (args: {
               bucket: args.bucket,
               source: sourceArchive,
               destinationKey: plan.objectKey,
-              target: archiveTarget(
-                identity.destinationWorkspace,
-                sourceArchive.kind,
-              ),
+              target: archiveTarget(sourceArchive.kind),
             }).catch(routeConflict)
           : undefined;
       const completed = await completeTransferStage(
@@ -4757,7 +4589,7 @@ export const handleTurnStateOwnerRoute = async (args: {
           await assertDurableArchiveObject(
             args.bucket,
             stage.archive,
-            archiveTarget(identity.destinationWorkspace, stage.archive.kind),
+            archiveTarget(stage.archive.kind),
           );
         }
       }
@@ -4804,11 +4636,7 @@ export const handleTurnStateOwnerRoute = async (args: {
           // no longer exist. Full scoped emptiness is the only replay authority
           // accepted in place of recomputing the original manifest.
           try {
-            await assertFullWorkspaceRegistryEmpty(
-              storage,
-              identity.fromOwnerId,
-              identity.sourceWorkspace,
-            );
+            await assertFullWorldRegistryEmpty(storage, identity.fromOwnerId);
           } catch {
             throw new TurnStateOwnerRouteError(
               "Turn state transfer source changed after export.",
@@ -4826,7 +4654,6 @@ export const handleTurnStateOwnerRoute = async (args: {
       );
       const retired = await purgeTurnState(guardedStorage, guardedObjectStore, {
         ownerId: identity.fromOwnerId,
-        workspace: identity.sourceWorkspace,
         ownerPurgeFence: "blocked",
       }).catch(routeConflict);
       let emptyReceipt: string | undefined;
@@ -4835,19 +4662,15 @@ export const handleTurnStateOwnerRoute = async (args: {
           args,
           identity,
           async (storage) =>
-            await assertFullWorkspaceRegistryEmpty(
+            await assertFullWorldRegistryEmpty(
               storage,
               identity.fromOwnerId,
-              identity.sourceWorkspace,
             ),
         ).catch(routeConflict);
         const scannedEmptyReceipt = await assertTurnStateTransferSourceEmpty(
           guardedStorage,
           guardedObjectStore,
-          {
-            ownerId: identity.fromOwnerId,
-            workspace: identity.sourceWorkspace,
-          },
+          { ownerId: identity.fromOwnerId },
         ).catch(routeConflict);
         // The full R2 scan can outlive the reservation. Recheck the exact
         // transfer lease and strong registry after it, before emitting the
@@ -4857,10 +4680,9 @@ export const handleTurnStateOwnerRoute = async (args: {
           args,
           identity,
           async (storage) =>
-            await assertFullWorkspaceRegistryEmpty(
+            await assertFullWorldRegistryEmpty(
               storage,
               identity.fromOwnerId,
-              identity.sourceWorkspace,
             ),
         ).catch(routeConflict);
         emptyReceipt = scannedEmptyReceipt;
@@ -4878,47 +4700,31 @@ export const handleTurnStateOwnerRoute = async (args: {
       );
     }
 
-    if (args.path === "turn-state/purge-workspace") {
-      const row = exactObject(raw, [...COMMON_LEASE_KEYS, "workspace"]);
+    if (args.path === "turn-state/purge-world") {
+      const row = exactObject(raw, [...COMMON_LEASE_KEYS]);
       validateSchemaVersion(row);
       const lease = parseCommonLease(row);
-      const workspace = requiredText(row, "workspace");
-      assertOpenWorkspaceActivityLease(
+      assertOpenWorldActivityLease(
         args.scopedOwnerId,
         args.fence,
         lease,
-        workspace,
         transferRouteNow(args.now),
       );
       const result = await purgeTurnState(
-        createOpenWorkspaceLeaseGuardedStorage(args, lease, workspace),
-        createOpenWorkspaceLeaseGuardedObjectStore(
-          args,
-          lease,
-          workspace,
-          args.bucket,
-        ),
-        {
-          ownerId: lease.ownerId,
-          workspace,
-          ownerPurgeFence: "blocked",
-        },
+        createOpenWorldLeaseGuardedStorage(args, lease),
+        createOpenWorldLeaseGuardedObjectStore(args, lease, args.bucket),
+        { ownerId: lease.ownerId, ownerPurgeFence: "blocked" },
       );
-      await withCurrentOpenWorkspaceActivityLeaseTransaction(
+      await withCurrentOpenWorldActivityLeaseTransaction(
         args,
         lease,
-        workspace,
         async () => undefined,
       );
       return json(result, result.pending ? 202 : 200);
     }
 
     if (args.path === "turn-state/purge") {
-      const row = exactObject(
-        raw,
-        ["schemaVersion", "ownerId", "generation"],
-        ["workspace"],
-      );
+      const row = exactObject(raw, ["schemaVersion", "ownerId", "generation"]);
       validateSchemaVersion(row);
       assertBlockedFence(args.scopedOwnerId, args.fence, row);
       const blocked = await currentBlockedFence(
@@ -4926,24 +4732,15 @@ export const handleTurnStateOwnerRoute = async (args: {
         args.scopedOwnerId,
         row,
       );
-      const workspace = Object.hasOwn(row, "workspace")
-        ? requiredText(row, "workspace")
-        : undefined;
       const result = await purgeTurnState(storage, objectStore, {
         ownerId: blocked.ownerId,
-        ...(workspace ? { workspace } : {}),
         ownerPurgeFence: "blocked",
       });
       return json(result, result.pending ? 202 : 200);
     }
 
     if (args.path === "turn-state/transfer-empty") {
-      const row = exactObject(raw, [
-        "schemaVersion",
-        "ownerId",
-        "generation",
-        "workspace",
-      ]);
+      const row = exactObject(raw, ["schemaVersion", "ownerId", "generation"]);
       validateSchemaVersion(row);
       assertBlockedFence(args.scopedOwnerId, args.fence, row);
       const blocked = await currentBlockedFence(
@@ -4951,18 +4748,13 @@ export const handleTurnStateOwnerRoute = async (args: {
         args.scopedOwnerId,
         row,
       );
-      const workspace = requiredText(row, "workspace");
       try {
-        await assertFullWorkspaceRegistryEmpty(
-          storage,
-          blocked.ownerId,
-          workspace,
-        );
+        await assertFullWorldRegistryEmpty(storage, blocked.ownerId);
         return json({
           receipt: await assertTurnStateTransferSourceEmpty(
             storage,
             objectStore,
-            { ownerId: blocked.ownerId, workspace },
+            { ownerId: blocked.ownerId },
           ),
         });
       } catch (error) {

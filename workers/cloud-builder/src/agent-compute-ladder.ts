@@ -1,0 +1,456 @@
+/**
+ * The compute ladder for one general-agent turn.
+ *
+ * A resident turn starts with no container. The first tool that needs a real
+ * process or the world filesystem attaches one, and it stays attached for the
+ * rest of the turn. Everything about that transition that has to survive an
+ * isolate loss is written down before it happens: the record naming the
+ * sandbox is durable *before* the instance is created, so a Stop arriving mid
+ * boot destroys the exact instance rather than leaking it.
+ *
+ * The sandbox itself is behind `SandboxAttachment`. This module decides when
+ * to boot, when to refuse, when to replay and when to give up; it does not
+ * know how a container is made. That is what lets the state machine be tested
+ * without a container and keeps the module workerd-safe.
+ */
+
+import type {
+  AttachedToolControlResponse,
+  AttachedToolRequest,
+  AttachedToolResponse,
+  SerializedAgentToolResult,
+} from "@stella/executor-cloud/attached-tool-protocol";
+import {
+  ATTACHED_TOOL_PROTOCOL_VERSION,
+  attachedToolFingerprint,
+  isAttachedToolName,
+  type AttachedToolName,
+} from "@stella/executor-cloud/attached-tool-protocol";
+import type { FileChangeRecord } from "@stella/contracts/file-changes";
+import type { TurnComputeUse } from "./general-agent-turn.js";
+import type { TurnExecutionContext } from "./turn-cancellation.js";
+
+export type AgentComputePhase =
+  "resident" | "attaching" | "attached" | "quiesced";
+
+export type AttachReason =
+  "process_tool" | "filesystem_tool" | "interior_build";
+
+/**
+ * The durable fact about where this turn's work is happening.
+ *
+ * `sandboxId` appears from `attaching` onward and never changes afterwards for
+ * a given attempt, because it is what both cancellation sweeps destroy. A
+ * `resident` record has none, which is exactly what makes a Stop on a chat-only
+ * turn a true no-op instead of a lookup that boots a container to kill it.
+ */
+export type PersistedAgentCompute = Readonly<{
+  schemaVersion: 1;
+  turnId: string;
+  attemptGeneration: number;
+  phase: AgentComputePhase;
+  instanceSize: "small" | "large";
+  sandboxId?: string;
+  attachReason?: AttachReason;
+  attachedAt?: number;
+  coldStartMs?: number;
+  restoreMs?: number;
+}>;
+
+export const agentComputeKey = (
+  turnId: string,
+  attemptGeneration: number,
+): string => `agentCompute:${turnId}:${attemptGeneration}`;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const PHASES: ReadonlySet<string> = new Set([
+  "resident",
+  "attaching",
+  "attached",
+  "quiesced",
+]);
+
+/**
+ * Read back a compute record for this exact attempt. A record left by another
+ * attempt names a container this attempt never reserved, and both destroying
+ * it and trusting it would be wrong, so it does not parse.
+ */
+export const parsePersistedAgentCompute = (
+  value: unknown,
+  identity: Readonly<{ turnId: string; attemptGeneration: number }>,
+): PersistedAgentCompute | null => {
+  if (!isRecord(value)) return null;
+  if (
+    value.schemaVersion !== 1 ||
+    value.turnId !== identity.turnId ||
+    value.attemptGeneration !== identity.attemptGeneration ||
+    typeof value.phase !== "string" ||
+    !PHASES.has(value.phase) ||
+    (value.instanceSize !== "small" && value.instanceSize !== "large")
+  ) {
+    return null;
+  }
+  if (value.phase !== "resident" && typeof value.sandboxId !== "string") {
+    return null;
+  }
+  return value as unknown as PersistedAgentCompute;
+};
+
+export type AgentComputeStore = Readonly<{
+  read(): Promise<PersistedAgentCompute | null>;
+  write(record: PersistedAgentCompute): Promise<void>;
+}>;
+
+export type AttachBoot = Readonly<{
+  coldStartMs: number;
+  restoreMs: number;
+}>;
+
+/**
+ * Raised by the attachment port when the container died for want of memory.
+ * It is a distinct type because the answer depends entirely on whether a
+ * command had already been admitted, and no message string can carry that.
+ */
+export class SandboxOutOfMemoryError extends Error {
+  constructor(message = "The sandbox ran out of memory.") {
+    super(message);
+    this.name = "SandboxOutOfMemoryError";
+  }
+}
+
+export type SandboxAttachment = Readonly<{
+  /** Boot the instance the record already names. Never mints an id. */
+  boot(args: {
+    sandboxId: string;
+    instanceSize: "small" | "large";
+  }): Promise<AttachBoot>;
+  callTool(args: {
+    sandboxId: string;
+    request: AttachedToolRequest;
+  }): Promise<AttachedToolResponse>;
+  control(args: {
+    sandboxId: string;
+    control: "boot_report" | "quiesce";
+    turnId: string;
+    attemptGeneration: number;
+  }): Promise<AttachedToolControlResponse>;
+  destroy(sandboxId: string): Promise<void>;
+}>;
+
+export type AgentComputeLadderInput = Readonly<{
+  turnId: string;
+  attemptGeneration: number;
+  /** Reserved at admission and never re-minted, so a sweep has one target. */
+  sandboxId: string;
+  initialInstanceSize: "small" | "large";
+  store: AgentComputeStore;
+  attachment: SandboxAttachment;
+  context: TurnExecutionContext;
+  emitEvent: (kind: string, payload: unknown) => void;
+  now?: () => number;
+}>;
+
+export type LadderToolCall = Readonly<{
+  toolCallId: string;
+  toolName: string;
+  params: Record<string, unknown>;
+}>;
+
+export class AgentComputeUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AgentComputeUnavailableError";
+  }
+}
+
+const BOOT_REPORT_PREFIX = "\n\n";
+
+export type AgentComputeLadder = Readonly<{
+  /** Run one bridged tool, attaching first if this is the call that needs it. */
+  execute(call: LadderToolCall): Promise<SerializedAgentToolResult>;
+  /** The turn recorded a request for the post-loop interior build. */
+  requestInteriorBuild(): void;
+  interiorBuildRequested(): boolean;
+  attached(): boolean;
+  /** Join the daemon and collect what the turn delivered. Idempotent. */
+  quiesce(): Promise<
+    Readonly<{
+      producedFiles: readonly FileChangeRecord[];
+      producedFilesOmitted: Readonly<{ count: number; limit: number }> | null;
+    }>
+  >;
+  /**
+   * Attach after the loop for a resident turn that asked for the interior
+   * build. Constraint 3: the build is squashfs work inside the container, so a
+   * resident turn that recorded the request has to attach or the deploy tool
+   * would be silently useless.
+   */
+  attachForInteriorBuild(): Promise<void>;
+  /** Destroy whatever was reserved. A no-op for a record that never attached. */
+  teardown(): Promise<void>;
+  compute(): TurnComputeUse;
+}>;
+
+const reasonFor = (toolName: AttachedToolName): AttachReason =>
+  toolName === "exec_command" || toolName === "write_stdin"
+    ? "process_tool"
+    : "filesystem_tool";
+
+export const createAgentComputeLadder = (
+  input: AgentComputeLadderInput,
+): AgentComputeLadder => {
+  const now = input.now ?? (() => Date.now());
+  const identity = {
+    turnId: input.turnId,
+    attemptGeneration: input.attemptGeneration,
+  } as const;
+
+  let record: PersistedAgentCompute = {
+    schemaVersion: 1,
+    ...identity,
+    phase: "resident",
+    instanceSize: input.initialInstanceSize,
+  };
+  let attaching: Promise<void> | null = null;
+  let bootNoticePending: string | null = null;
+  let interiorBuild = false;
+  let admitted = false;
+  let quiesceResult: Awaited<ReturnType<AgentComputeLadder["quiesce"]>> | null =
+    null;
+
+  const persist = async (next: PersistedAgentCompute): Promise<void> => {
+    record = next;
+    await input.store.write(next);
+  };
+
+  const boot = async (reason: AttachReason): Promise<void> => {
+    input.context.assertActive();
+    // Durable before the instance exists. A sweep that arrives between this
+    // write and the boot returning still knows the id to destroy.
+    await persist({
+      ...record,
+      phase: "attaching",
+      sandboxId: input.sandboxId,
+      attachReason: reason,
+    });
+    input.context.assertActive();
+    const started = now();
+    const result = await input.attachment.boot({
+      sandboxId: input.sandboxId,
+      instanceSize: record.instanceSize,
+    });
+    await persist({
+      ...record,
+      phase: "attached",
+      sandboxId: input.sandboxId,
+      attachReason: reason,
+      attachedAt: started,
+      coldStartMs: result.coldStartMs,
+      restoreMs: result.restoreMs,
+    });
+    // Only a real attach says the sandbox is ready. A resident turn never
+    // emits this, which is what keeps the client from drawing a workspace the
+    // turn does not have.
+    input.emitEvent("sandbox_ready", {
+      attachedMidTurn: true,
+      instanceSize: record.instanceSize,
+      reason,
+    });
+    const report = await input.attachment.control({
+      sandboxId: input.sandboxId,
+      control: "boot_report",
+      ...identity,
+    });
+    bootNoticePending =
+      report.status === "boot_report" && report.notices.length > 0
+        ? report.notices.join(" ")
+        : null;
+  };
+
+  /** Single-flight and sticky: concurrent tool calls share one attach. */
+  const ensureAttached = async (reason: AttachReason): Promise<void> => {
+    if (record.phase === "attached") return;
+    if (record.phase === "quiesced") {
+      throw new AgentComputeUnavailableError(
+        "This turn's workspace has already been closed.",
+      );
+    }
+    if (!attaching) {
+      attaching = boot(reason).finally(() => {
+        attaching = null;
+      });
+    }
+    await attaching;
+  };
+
+  const withBootNotice = (
+    result: SerializedAgentToolResult,
+  ): SerializedAgentToolResult => {
+    if (!bootNoticePending || result.outcome.kind !== "ok") return result;
+    const notice = bootNoticePending;
+    bootNoticePending = null;
+    return {
+      ...result,
+      outcome: {
+        kind: "ok",
+        text: `${result.outcome.text}${BOOT_REPORT_PREFIX}${notice}`,
+      },
+    };
+  };
+
+  const send = async (
+    request: AttachedToolRequest,
+  ): Promise<SerializedAgentToolResult> => {
+    const response = await input.attachment.callTool({
+      sandboxId: input.sandboxId,
+      request,
+    });
+    if (response.status === "completed") return response.result;
+    if (response.status === "pending") {
+      // The daemon is still running the call this replays. Nothing here can
+      // wait it out without risking a second run, so the model is told.
+      return {
+        outcome: {
+          kind: "error",
+          message:
+            "That command is still running in the workspace. Wait for it before trying again.",
+        },
+        details: null,
+        authorizedImages: [],
+        fileChanges: [],
+        producedFiles: [],
+        producedFilesOmitted: null,
+      };
+    }
+    return {
+      outcome: { kind: "error", message: response.error },
+      details: null,
+      authorizedImages: [],
+      fileChanges: [],
+      producedFiles: [],
+      producedFilesOmitted: null,
+    };
+  };
+
+  /**
+   * D8. Whether an out-of-memory kill can be retried turns entirely on whether
+   * the command was admitted. Before admission nothing ran, so a bigger
+   * instance and one retry is safe. After admission the command may already
+   * have sent mail, spent money, or pushed a branch, and no amount of memory
+   * makes running it twice correct.
+   */
+  const recoverFromOom = async (
+    error: SandboxOutOfMemoryError,
+  ): Promise<void> => {
+    await input.attachment.destroy(input.sandboxId);
+    if (admitted) {
+      await persist({ ...record, phase: "quiesced", instanceSize: "large" });
+      throw error;
+    }
+    await persist({
+      ...record,
+      phase: "resident",
+      instanceSize: "large",
+    });
+  };
+
+  return {
+    async execute(call) {
+      if (!isAttachedToolName(call.toolName)) {
+        throw new AgentComputeUnavailableError(
+          `${call.toolName} is not a tool the workspace can run.`,
+        );
+      }
+      const toolName = call.toolName;
+      const fingerprint = await attachedToolFingerprint({
+        toolName,
+        params: call.params,
+      });
+      const request: AttachedToolRequest = {
+        version: ATTACHED_TOOL_PROTOCOL_VERSION,
+        ...identity,
+        toolCallId: call.toolCallId,
+        fingerprint,
+        toolName,
+        params: call.params,
+      };
+      const attempt = async (): Promise<SerializedAgentToolResult> => {
+        await ensureAttached(reasonFor(toolName));
+        input.context.assertActive();
+        admitted = true;
+        return withBootNotice(await send(request));
+      };
+      try {
+        return await attempt();
+      } catch (error) {
+        if (!(error instanceof SandboxOutOfMemoryError)) throw error;
+        await recoverFromOom(error);
+        // Only reachable when nothing had been admitted; `recoverFromOom`
+        // rethrows otherwise, which is what preserves the prior checkpoint.
+        return await attempt();
+      }
+    },
+
+    requestInteriorBuild() {
+      interiorBuild = true;
+    },
+
+    interiorBuildRequested() {
+      return interiorBuild;
+    },
+
+    attached() {
+      return record.phase === "attached";
+    },
+
+    async quiesce() {
+      if (quiesceResult) return quiesceResult;
+      if (record.phase !== "attached") {
+        quiesceResult = { producedFiles: [], producedFilesOmitted: null };
+        return quiesceResult;
+      }
+      const response = await input.attachment.control({
+        sandboxId: input.sandboxId,
+        control: "quiesce",
+        ...identity,
+      });
+      await persist({ ...record, phase: "quiesced" });
+      quiesceResult =
+        response.status === "quiesced"
+          ? {
+              producedFiles: response.producedFiles,
+              producedFilesOmitted: response.producedFilesOmitted,
+            }
+          : { producedFiles: [], producedFilesOmitted: null };
+      return quiesceResult;
+    },
+
+    async attachForInteriorBuild() {
+      if (!interiorBuild) return;
+      await ensureAttached("interior_build");
+    },
+
+    async teardown() {
+      // A turn that never reserved a container has nothing to destroy, and
+      // asking for one here would boot the very instance the sweep exists to
+      // avoid.
+      if (record.phase === "resident") return;
+      await input.attachment.destroy(input.sandboxId);
+    },
+
+    compute() {
+      if (record.phase === "resident" || !record.attachReason) {
+        return { kind: "resident" };
+      }
+      return {
+        kind: "sandbox",
+        reason: record.attachReason,
+        instanceSize: record.instanceSize,
+        coldStartMs: record.coldStartMs ?? 0,
+        restoreMs: record.restoreMs ?? 0,
+      };
+    },
+  };
+};

@@ -19,7 +19,7 @@ type AgentThread = {
   ownerId: string;
   conversationId: string;
   description: string;
-  workspace: string;
+  placement: "cloud" | "computer";
   agentType: string;
   status: string;
   createdAt: number;
@@ -67,7 +67,7 @@ const insertThread = async (
       ownerId: args.ownerId,
       conversationId: args.conversationId,
       description: `Work ${args.threadId}`,
-      workspace: "stella",
+      placement: "cloud",
       agentType: "general",
       status: args.status ?? "completed",
       createdAt: args.updatedAt - 1,

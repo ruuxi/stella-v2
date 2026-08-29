@@ -426,24 +426,28 @@ render as a blocked frame.
 
 ## Activation and rollback
 
-Every finished app build activates immediately — first build or update alike.
-An app is live when its build completes; the chat card's action is "Open app",
-not "Apply". There is no pending state for apps to sit in.
+Nothing activates because a turn finished. A finished app build records a
+pending candidate in `cloud_app_builds` and leaves the app's route untouched,
+so the build lane never writes the `APP_ROUTES` KV namespace. The user applies
+a candidate to make it live.
 
-Activation is the same three steps whether it runs automatically at build
-completion or from a rollback:
+Activation is the same three steps for a first apply, a later apply, or a
+rollback:
 
 1. validate ownership of app and build in Convex;
 2. write the new KV route through builder `/routes/activate`;
 3. atomically mark the build active in Convex.
 
-Rollback points that operation at any of the five retained builds, and is the
-one user-initiated case. Do not copy artifacts or mutate an existing prefix.
-Confirm the deployed URL returns 200 and the expected UI, then confirm
-Convex's `activeBuildId`.
+Applying a build and rolling back to any of the five retained builds are the
+same operation with a different target. Do not copy artifacts or mutate an
+existing prefix. Confirm the deployed URL returns 200 and the expected UI, then
+confirm Convex's `activeBuildId`.
 
-Stella's own interior is the exception: its build does not switch any client on
-its own. The Settings card selects the immutable candidate through Convex CAS.
+Stella's own interior takes one extra step. Its production build runs only when
+the agent asks for it during a turn, by calling the `publish_stella_interior`
+tool; the request is recorded through the turn broker and the build runs after
+the turn succeeds. The build then does not switch any client on its own: the
+Settings card selects the immutable candidate through Convex CAS.
 The standalone web capability resolves that pointer on each request. Each
 packaged desktop independently downloads and verifies the candidate, runs its
 four-surface readiness trial, and only then records it as locally healthy.

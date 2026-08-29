@@ -1,6 +1,7 @@
 import {
   TURN_BROKER_AUTH_SCHEME,
   TURN_BROKER_HEADERS,
+  TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH,
   TURN_BROKER_NATIVE_STATE_CHECKPOINT_PATH,
   TURN_BROKER_RESPONSE_HEADERS,
   TURN_BROKER_TURN_TOKEN_HEADER,
@@ -70,6 +71,7 @@ export type TurnBrokerTarget = {
     | "browser-gateway"
     | "builder-callback"
     | "callback"
+    | "interior-build-request"
     | "model-resolution"
     | "model-relay";
   method: "POST" | "GET" | "DELETE";
@@ -370,6 +372,16 @@ export const validateTurnBrokerTarget = (
         }
       : null;
   }
+  if (parsed.pathname === TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH) {
+    return method === "POST" && !parsed.search
+      ? {
+          kind: "interior-build-request",
+          method,
+          path: parsed.pathname,
+          maxBodyBytes: MAX_CONTROL_BODY_BYTES,
+        }
+      : null;
+  }
   if (parsed.pathname === "/api/cloud/browser/command") {
     return method === "POST" && !parsed.search
       ? {
@@ -404,7 +416,12 @@ export const turnBrokerTargetMatchesEngine = (
   target: TurnBrokerTarget,
   engine: TurnBrokerEngine,
 ): boolean => {
-  if (target.kind === "callback" || target.kind === "builder-callback") {
+  if (
+    target.kind === "callback" ||
+    target.kind === "builder-callback" ||
+    // The agent asks for an interior build; the engine it ran on is irrelevant.
+    target.kind === "interior-build-request"
+  ) {
     return true;
   }
   if (target.kind === "browser-gateway") return engine === "stella";
@@ -781,7 +798,10 @@ export const turnBrokerUpstreamUrl = (
   expectedConvexOrigin: string,
   target: TurnBrokerTarget,
 ): string => {
-  if (target.kind === "builder-callback") {
+  if (
+    target.kind === "builder-callback" ||
+    target.kind === "interior-build-request"
+  ) {
     throw new Error("Builder-local broker callbacks have no upstream URL.");
   }
   if (target.kind === "browser-gateway") {
@@ -830,7 +850,8 @@ export const forwardTurnBrokerRequest = async (args: {
 }): Promise<Response> => {
   if (
     args.target.kind === "builder-callback" ||
-    args.target.kind === "browser-gateway"
+    args.target.kind === "browser-gateway" ||
+    args.target.kind === "interior-build-request"
   ) {
     throw new Error("Builder-local callback cannot be forwarded to Convex.");
   }

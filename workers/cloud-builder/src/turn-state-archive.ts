@@ -8,22 +8,11 @@ import {
   type TurnStateArchive,
   type TurnStateObjectKind,
 } from "./turn-state-registry.js";
+import { WORLD_ROOT } from "./workspace.js";
 
 export { TURN_STATE_MAX_ARCHIVE_BYTES };
 
-export const TURN_STATE_WORKSPACE_ROOTS = [
-  "/workspace/drive",
-  "/workspace/project",
-  "/workspace/app",
-  "/workspace/stella",
-] as const;
-
-export type TurnStateWorkspaceRoot =
-  (typeof TURN_STATE_WORKSPACE_ROOTS)[number];
-
-export type TurnStateArchiveTarget =
-  | { kind: "workspace"; workspaceRoot: TurnStateWorkspaceRoot }
-  | { kind: "native" };
+export type TurnStateArchiveTarget = { kind: "workspace" } | { kind: "native" };
 
 export type TurnStateArchiveSession = Pick<
   ExecutionSession,
@@ -60,29 +49,8 @@ type ArchiveKeyParts = {
   kind: TurnStateObjectKind;
 };
 
-const workspaceSource = (
-  root: TurnStateWorkspaceRoot,
-): TurnStateWorkspaceRoot => {
-  // This switch is deliberately exhaustive. No caller string is ever quoted
-  // into a shell command merely because it happens to start with /workspace.
-  switch (root) {
-    case "/workspace/drive":
-      return "/workspace/drive";
-    case "/workspace/project":
-      return "/workspace/project";
-    case "/workspace/app":
-      return "/workspace/app";
-    case "/workspace/stella":
-      return "/workspace/stella";
-    default:
-      throw new Error("Turn state workspace root is invalid.");
-  }
-};
-
 const targetSource = (target: TurnStateArchiveTarget): string =>
-  target.kind === "workspace"
-    ? workspaceSource(target.workspaceRoot)
-    : NATIVE_STATE_DIRECTORY;
+  target.kind === "workspace" ? WORLD_ROOT : NATIVE_STATE_DIRECTORY;
 
 const targetParent = (target: TurnStateArchiveTarget): string =>
   target.kind === "workspace" ? "/workspace" : "/home/stella-native-state";
@@ -90,19 +58,8 @@ const targetParent = (target: TurnStateArchiveTarget): string =>
 const targetOwnerMode = (target: TurnStateArchiveTarget): string =>
   target.kind === "workspace" ? "42424:42424:750" : "0:0:700";
 
-const targetPathSlug = (target: TurnStateArchiveTarget): string => {
-  if (target.kind === "native") return "native";
-  switch (workspaceSource(target.workspaceRoot)) {
-    case "/workspace/drive":
-      return "workspace-drive";
-    case "/workspace/project":
-      return "workspace-project";
-    case "/workspace/app":
-      return "workspace-app";
-    case "/workspace/stella":
-      return "workspace-stella";
-  }
-};
+const targetPathSlug = (target: TurnStateArchiveTarget): string =>
+  target.kind === "workspace" ? "workspace-world" : "native";
 
 const newScratchId = (): string =>
   Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>

@@ -17,6 +17,12 @@ export const WORLD_ROOT = "/workspace/world";
 export const WORLD_STELLA_ROOT = `${WORLD_ROOT}/stella`;
 
 /**
+ * Scratch root for the legacy app-build turn. Outside the world on purpose:
+ * an app build is rebuilt from its sources every time and is never restored.
+ */
+export const APP_BUILD_ROOT = "/workspace/app";
+
+/**
  * KV key for an owner's world checkpoint descriptor. Owner-scoped: two users
  * never share a checkpoint, and one user never has two.
  */

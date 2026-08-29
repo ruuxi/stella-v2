@@ -7,6 +7,13 @@ export const TURN_STATE_MAX_ARCHIVE_BYTES =
   5 * 1024 * 1024 * 1024 - 5 * 1024 * 1024;
 const MAX_CANDIDATES = 8;
 
+/**
+ * The object-key segment that used to hold the workspace name. An owner has
+ * exactly one world now, so it is a constant; it stays in the key so the
+ * on-disk layout keeps its owner/world/thread/turn shape.
+ */
+export const WORLD_REGISTRY_SEGMENT = "world";
+
 export type TurnStateObjectKind = "workspace" | "native";
 
 export type TurnStateArchive = {
@@ -36,7 +43,6 @@ export type TurnStateNativeCheckpoint = {
 export type TurnStateIdentity = {
   ownerId: string;
   ownerGeneration: string;
-  workspace: string;
   threadId: string;
   turnId: string;
   attemptGeneration: number;
@@ -152,7 +158,6 @@ const exactText = (value: unknown, max = 512): value is string =>
 const validIdentity = (identity: TurnStateIdentity): boolean =>
   exactText(identity.ownerId) &&
   exactText(identity.ownerGeneration) &&
-  exactText(identity.workspace) &&
   exactText(identity.threadId) &&
   exactText(identity.turnId) &&
   Number.isSafeInteger(identity.attemptGeneration) &&
@@ -196,7 +201,7 @@ const derivedIdentity = async (identity: TurnStateIdentity) => {
   if (!validIdentity(identity)) throw new Error("Turn state identity is invalid.");
   const [ownerHash, workspaceHash, threadHash, turnHash] = await Promise.all([
     sha256Hex(identity.ownerId),
-    sha256Hex(identity.workspace),
+    sha256Hex(WORLD_REGISTRY_SEGMENT),
     sha256Hex(identity.threadId),
     sha256Hex(identity.turnId),
   ]);
@@ -264,7 +269,6 @@ export const prepareTurnStateOperation = async (
     JSON.stringify([
       TURN_STATE_SCHEMA_VERSION,
       args.identity.ownerGeneration,
-      args.identity.workspace,
       args.identity.threadId,
       args.identity.turnId,
       args.identity.attemptGeneration,
@@ -718,7 +722,7 @@ export const publishTurnStateWorkspace = async (
   args: {
     identity: Pick<
       TurnStateIdentity,
-      "ownerId" | "ownerGeneration" | "workspace" | "threadId"
+      "ownerId" | "ownerGeneration" | "threadId"
     >;
     canonicalHistoryCursor: string;
     operationId: string;
@@ -827,7 +831,7 @@ export const resolveTurnState = async (
   args: {
     identity: Pick<
       TurnStateIdentity,
-      "ownerId" | "ownerGeneration" | "workspace" | "threadId"
+      "ownerId" | "ownerGeneration" | "threadId"
     >;
     canonicalHistoryCursor: string;
     requireNative: boolean;
@@ -933,7 +937,7 @@ export const confirmTurnStateRestore = async (
   args: {
     identity: Pick<
       TurnStateIdentity,
-      "ownerId" | "ownerGeneration" | "workspace" | "threadId"
+      "ownerId" | "ownerGeneration" | "threadId"
     >;
     canonicalHistoryCursor: string;
     workspaceOperationId?: string;
@@ -1114,15 +1118,10 @@ export const drainTurnStateRetirements = async (
   args: {
     ownerId: string;
     ownerGeneration: string;
-    workspace?: string;
     limit?: number;
   },
 ): Promise<{ pending: boolean; deleted: number; completed: number }> => {
-  if (
-    !exactText(args.ownerId) ||
-    !exactText(args.ownerGeneration) ||
-    (args.workspace !== undefined && !exactText(args.workspace))
-  ) {
+  if (!exactText(args.ownerId) || !exactText(args.ownerGeneration)) {
     throw new Error("Turn state retirement identity is invalid.");
   }
   const limit = args.limit ?? 32;
@@ -1130,10 +1129,7 @@ export const drainTurnStateRetirements = async (
     throw new Error("Turn state retirement limit is invalid.");
   }
   const ownerHash = await sha256Hex(args.ownerId);
-  const workspaceHash = args.workspace
-    ? await sha256Hex(args.workspace)
-    : undefined;
-  const prefix = `${TURN_STATE_OBJECT_PREFIX}/${ownerHash}/${workspaceHash ? `${workspaceHash}/` : ""}`;
+  const prefix = `${TURN_STATE_OBJECT_PREFIX}/${ownerHash}/`;
   const retirements = [
     ...(await listAll<RetirementRecord>(
       storage,
@@ -1143,8 +1139,7 @@ export const drainTurnStateRetirements = async (
     .filter(
       ([, record]) =>
         record.ownerHash === ownerHash &&
-        record.ownerGeneration === args.ownerGeneration &&
-        (!workspaceHash || record.workspaceHash === workspaceHash),
+        record.ownerGeneration === args.ownerGeneration,
     )
     .sort(([left], [right]) => left.localeCompare(right));
   let pending = retirements.length > limit;
@@ -1204,26 +1199,21 @@ export const drainTurnStateRetirements = async (
   ].some(
     (record) =>
       record.ownerHash === ownerHash &&
-      record.ownerGeneration === args.ownerGeneration &&
-      (!workspaceHash || record.workspaceHash === workspaceHash),
+      record.ownerGeneration === args.ownerGeneration,
   );
   return { pending: pending || remaining, deleted, completed };
 };
 
 const registryScopeMatches = (
-  record: { ownerHash?: string; workspaceHash?: string },
+  record: { ownerHash?: string },
   ownerHash: string,
-  workspaceHash?: string,
-): boolean =>
-  record.ownerHash === ownerHash &&
-  (!workspaceHash || record.workspaceHash === workspaceHash);
+): boolean => record.ownerHash === ownerHash;
 
 export const purgeTurnState = async (
   storage: StrongTurnStateStorage,
   objectStore: TurnStateObjectStore,
   args: {
     ownerId: string;
-    workspace?: string;
     ownerPurgeFence: "blocked";
   },
 ): Promise<{
@@ -1236,19 +1226,14 @@ export const purgeTurnState = async (
     throw new Error("Turn state purge requires the blocked owner fence.");
   }
   const ownerHash = await sha256Hex(args.ownerId);
-  const workspaceHash = args.workspace
-    ? await sha256Hex(args.workspace)
-    : undefined;
-  const prefix = `${TURN_STATE_OBJECT_PREFIX}/${ownerHash}/${workspaceHash ? `${workspaceHash}/` : ""}`;
+  const prefix = `${TURN_STATE_OBJECT_PREFIX}/${ownerHash}/`;
   const registryObjects = await listAll<ObjectRecord>(
     storage,
     "turn-state:v1:object:",
   );
   const expected = new Set(
     [...registryObjects.values()]
-      .filter((record) =>
-        registryScopeMatches(record, ownerHash, workspaceHash),
-      )
+      .filter((record) => registryScopeMatches(record, ownerHash))
       .map((record) => record.key),
   );
   let cursor: string | undefined;
@@ -1271,7 +1256,7 @@ export const purgeTurnState = async (
   for (const key of [...expected].sort()) {
     const recordKey = objectRecordKey(key);
     const record = await storage.get<ObjectRecord>(recordKey);
-    if (record && registryScopeMatches(record, ownerHash, workspaceHash)) {
+    if (record && registryScopeMatches(record, ownerHash)) {
       await storage.put(recordKey, { ...record, state: "retiring" });
     }
     try {
@@ -1281,7 +1266,7 @@ export const purgeTurnState = async (
         continue;
       }
       deleted += 1;
-      if (record && registryScopeMatches(record, ownerHash, workspaceHash)) {
+      if (record && registryScopeMatches(record, ownerHash)) {
         await storage.delete(recordKey);
       }
     } catch {
@@ -1302,9 +1287,9 @@ export const purgeTurnState = async (
     }
     cursor = page.cursor;
   }
-  const remaining = [...(await listAll<ObjectRecord>(storage, "turn-state:v1:object:")).values()].some(
-    (record) => registryScopeMatches(record, ownerHash, workspaceHash),
-  );
+  const remaining = [
+    ...(await listAll<ObjectRecord>(storage, "turn-state:v1:object:")).values(),
+  ].some((record) => registryScopeMatches(record, ownerHash));
   if (remaining) pending = true;
   if (pending) return { pending: true, deleted, prefix };
 
@@ -1313,23 +1298,15 @@ export const purgeTurnState = async (
     "turn-state:v1:",
   )) {
     if (key === ownerMarkerKey) continue;
-    if (registryScopeMatches(value, ownerHash, workspaceHash)) {
-      await storage.delete(key);
-    }
+    if (registryScopeMatches(value, ownerHash)) await storage.delete(key);
   }
-  if (!workspaceHash) await storage.delete(ownerMarkerKey);
+  await storage.delete(ownerMarkerKey);
   return {
     pending: false,
     deleted,
     prefix,
     receipt: await sha256Hex(
-      JSON.stringify([
-        TURN_STATE_SCHEMA_VERSION,
-        ownerHash,
-        workspaceHash ?? null,
-        prefix,
-        "empty",
-      ]),
+      JSON.stringify([TURN_STATE_SCHEMA_VERSION, ownerHash, prefix, "empty"]),
     ),
   };
 };
@@ -1337,15 +1314,14 @@ export const purgeTurnState = async (
 export const assertTurnStateTransferSourceEmpty = async (
   storage: StrongTurnStateStorage,
   objectStore: TurnStateObjectStore,
-  args: { ownerId: string; workspace: string },
+  args: { ownerId: string },
 ): Promise<string> => {
   const ownerHash = await sha256Hex(args.ownerId);
-  const workspaceHash = await sha256Hex(args.workspace);
-  const prefix = `${TURN_STATE_OBJECT_PREFIX}/${ownerHash}/${workspaceHash}/`;
+  const prefix = `${TURN_STATE_OBJECT_PREFIX}/${ownerHash}/`;
   const records = await listAll<ObjectRecord>(storage, "turn-state:v1:object:");
   if (
     [...records.values()].some((record) =>
-      registryScopeMatches(record, ownerHash, workspaceHash),
+      registryScopeMatches(record, ownerHash),
     )
   ) {
     throw new Error("Turn state transfer source is not empty.");
@@ -1366,7 +1342,6 @@ export const assertTurnStateTransferSourceEmpty = async (
     JSON.stringify([
       TURN_STATE_SCHEMA_VERSION,
       ownerHash,
-      workspaceHash,
       prefix,
       "transfer-source-empty",
     ]),

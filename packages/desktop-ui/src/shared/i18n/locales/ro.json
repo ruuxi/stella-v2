@@ -87,7 +87,6 @@
       "title": "Limbă",
       "description": "Alege limba pe care o folosește Stella în aplicație și în răspunsuri."
     },
-
     "memory": {
       "title": "Memorie",
       "description": "Include amintirile salvate și profilul tău în contextul modelului Stella. Copia din cloud este cea de referință și este criptată atât în tranzit, cât și în repaus; Stella poate păstra și o copie locală. Dezactivarea acestei opțiuni exclude memoria din conversațiile viitoare, dar nu o șterge."
@@ -108,12 +107,6 @@
         "system": "Sistem",
         "on": "Activat",
         "off": "Dezactivat"
-      }
-    },
-    "voice": {
-      "title": "Voce",
-      "personality": {
-        "label": "Personalitate"
       }
     },
     "notifications": {
@@ -445,7 +438,6 @@
       "resultsAriaOne": "{count} rezultat",
       "resultsAriaOther": "{count} rezultate",
       "descriptions": {
-        "voice": "Alege stilul de vorbire și vocea de personalitate a Stellei.",
         "permissions": "Acordă acces la accesibilitate, captură de ecran și microfon pe macOS.",
         "shortcuts": "Modifică scurtăturile pentru dictare și voce.",
         "backup": "Copii de rezervă criptate automate, puncte de restaurare și instantanee la cerere.",
@@ -467,9 +459,6 @@
       "loadSoundNotifications": "Nu s-a putut încărca setarea notificărilor sonore.",
       "saveSoundNotifications": "Nu s-a putut actualiza setarea notificărilor sonore.",
       "soundNotificationsUnavailable": "Setările notificărilor sonore nu sunt disponibile în această fereastră.",
-      "loadVoice": "Nu s-a putut încărca setarea de voce.",
-      "saveVoice": "Nu s-a putut actualiza setarea de voce.",
-      "voiceUnavailable": "Setările de voce nu sunt disponibile în această fereastră.",
       "loadMemory": "Nu s-a putut încărca setarea de memorie.",
       "saveMemory": "Nu s-a putut actualiza setarea de memorie.",
       "memoryUnavailable": "Setările de memorie nu sunt disponibile în această fereastră.",
@@ -724,7 +713,6 @@
       "extension": "Adaugă Stella în browser.",
       "browser": "Lasă Stella să te cunoască.",
       "theme": "Cum ar trebui să arate Stella?",
-      "personality": "Cum ar trebui să vorbească Stella?",
       "voice": "Vorbește în loc să tastezi.",
       "enter": "Stella e aproape gata."
     },
@@ -836,212 +824,6 @@
     "permissionDenied": "Stella nu are permisiunea pentru asta."
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "Mesaj nou",
-        "emptySubtitle": "Adaugă mai întâi câțiva prieteni ca să începi o conversație.",
-        "description": "Alege un prieten sau începe o conversație de grup nouă.",
-        "subtitle": "Alege un prieten sau creează un grup.",
-        "groupTitle": "Grup nou",
-        "groupSubtitle": "Alege prietenii pe care să îi adaugi în acest grup.",
-        "groupNameLabel": "Numele grupului",
-        "groupNamePlaceholder": "Numele grupului (opțional)",
-        "members": "Membri",
-        "back": "Înapoi",
-        "creating": "Se creează...",
-        "createGroup": "Creează grupul",
-        "newGroup": "Grup nou",
-        "friends": "Prieteni",
-        "opening": "Se deschide..."
-      },
-      "friends": {
-        "title": "Prieteni",
-        "description": "Partajează-ți codul de prieten pentru a te conecta sau introdu codul altcuiva pentru a trimite o cerere.",
-        "subtitle": "Partajează-ți numele de utilizator sau introdu-l pe al unui prieten pentru a vă conecta.",
-        "requestSent": "Cerere de prietenie trimisă!",
-        "usernameCopied": "Nume de utilizator copiat!",
-        "inviteLinkCopied": "Link de invitație copiat — trimite-l oriunde.",
-        "yourUsername": "Numele tău de utilizator",
-        "copy": "Copiază",
-        "copyUsernameTitle": "Copiază numele tău de utilizator",
-        "copyInviteLink": "Copiază linkul de invitație",
-        "copyInviteLinkTitle": "Copiază un link care deschide Stella și îți trimite o cerere de prietenie — funcționează în iMessage, Discord, oriunde",
-        "addLabel": "Adaugă un prieten",
-        "addPlaceholder": "Introdu numele de utilizator",
-        "add": "Adaugă",
-        "adding": "Se adaugă...",
-        "requestsCount": "Cereri ({count})",
-        "accept": "Acceptă",
-        "decline": "Refuză",
-        "sent": "Trimisă",
-        "waitingForResponse": "Se așteaptă un răspuns",
-        "friendsCount": "Prieteni ({count})",
-        "empty": "Niciun prieten deocamdată. Partajează-ți numele de utilizator sau introdu-l pe al altcuiva mai sus pentru a vă conecta.",
-        "message": "Mesaj",
-        "opening": "Se deschide...",
-        "remove": "Elimină",
-        "removing": "Se elimină...",
-        "errors": {
-          "sendRequest": "Cererea de prietenie nu a putut fi trimisă. Verifică numele de utilizator și încearcă din nou."
-        }
-      },
-      "communities": {
-        "title": "Comunități",
-        "description": "Creează o comunitate sau alătură-te uneia cu un cod de invitație, apoi partajează add-on-uri cu toți membrii ei.",
-        "subtitle": "Cercuri de încredere pentru partajare. Toți dintr-o comunitate văd ce partajează membrii ei.",
-        "defaultName": "Comunitate",
-        "created": "„{name}” a fost creată!",
-        "joined": "Ai intrat!",
-        "createLabel": "Creează o comunitate",
-        "createPlaceholder": "Dă un nume unei comunități noi",
-        "create": "Creează",
-        "joinLabel": "Alătură-te cu un cod de invitație",
-        "joinPlaceholder": "Introdu un cod de invitație",
-        "join": "Alătură-te",
-        "yourCommunities": "Comunitățile tale",
-        "yourCommunitiesCount": "Comunitățile tale ({count})",
-        "empty": "Nicio comunitate deocamdată. Creează una și partajează codul de invitație sau alătură-te cu un cod primit de la cineva.",
-        "createdByYouSuffix": " · creată de tine",
-        "open": "Deschide",
-        "details": "Detalii",
-        "back": "Înapoi",
-        "nameLabel": "Numele comunității",
-        "save": "Salvează",
-        "cancel": "Anulează",
-        "createdByYou": "Tu ai creat această comunitate.",
-        "memberOf": "Ești membru al acestei comunități.",
-        "inviteCode": "Cod de invitație",
-        "copied": "Copiat!",
-        "copyCode": "Copiază codul",
-        "copyInviteLink": "Copiază linkul de invitație",
-        "copyInviteLinkTitle": "Copiază un link care deschide Stella și te alătură acestei comunități",
-        "inviteHint": "Linkul funcționează oriunde — lipește-l într-un chat Stella sau trimite-l pe iMessage ori Discord. Oricine îl are se poate alătura, așa că partajează-l doar cu persoane de încredere.",
-        "membersCount": "Membri ({count})",
-        "roleCreator": "Creator",
-        "roleMember": "Membru",
-        "youSuffix": " · tu",
-        "remove": "Elimină",
-        "removing": "Se elimină...",
-        "confirmDelete": "Chiar ștergi această comunitate?",
-        "delete": "Șterge comunitatea",
-        "confirmLeave": "Chiar pleci?",
-        "leave": "Părăsește comunitatea",
-        "rename": "Redenumește",
-        "openChat": "Deschide chatul",
-        "errors": {
-          "create": "Comunitatea nu a putut fi creată. Încearcă din nou.",
-          "join": "Nu te-ai putut alătura cu acel cod de invitație. Verifică codul și încearcă din nou.",
-          "rename": "Comunitatea nu a putut fi redenumită. Încearcă din nou.",
-          "removeMember": "Acel membru nu a putut fi eliminat. Încearcă din nou.",
-          "delete": "Comunitatea nu a putut fi ștearsă. Încearcă din nou.",
-          "leave": "Nu ai putut părăsi comunitatea. Încearcă din nou."
-        },
-        "memberCount": {
-          "one": "{count} membru",
-          "few": "{count} membri",
-          "other": "{count} de membri"
-        }
-      },
-      "view": {
-        "messages": "Mesaje",
-        "signIn": "Conectează-te",
-        "signInSubtitle": "Conectează-te ca să le scrii prietenilor și să colaborezi împreună cu Stella.",
-        "friends": "Prieteni",
-        "communities": "Comunități",
-        "newMessage": "Mesaj nou",
-        "noRooms": "Nicio conversație deocamdată. Adaugă prieteni sau începe un mesaj nou.",
-        "addFriends": "Adaugă prieteni",
-        "communityBadge": "Comunitate",
-        "communityBadgeTitle": "Partajat cu toți membrii acestei comunități",
-        "usernamePlaceholder": "numele-tau-de-utilizator",
-        "editUsername": "Editează-ți numele de utilizator",
-        "copied": "Copiat!",
-        "clickToCopyUsername": "Dă clic pentru a copia numele tău de utilizator",
-        "copyUsername": "Copiază numele de utilizator",
-        "cancel": "Anulează",
-        "save": "Salvează",
-        "saving": "Se salvează...",
-        "emptyTitle": "Mesajele tale",
-        "emptySubtitle": "Alege o conversație din stânga sau începe una nouă cu un prieten.",
-        "errors": {
-          "startConversation": "Acea conversație nu a putut fi începută. Încearcă din nou.",
-          "createGroup": "Grupul nu a putut fi creat. Încearcă din nou."
-        },
-        "usernameErrors": {
-          "empty": "Numele de utilizator nu poate fi gol.",
-          "length": "Numele de utilizator trebuie să aibă între 3 și 32 de caractere.",
-          "format": "Folosește litere mici, cifre, _ sau -. Trebuie să înceapă și să se termine cu o literă sau o cifră.",
-          "update": "Numele tău de utilizator nu a putut fi actualizat. Încearcă din nou."
-        },
-        "newRequestCount": {
-          "one": "{count} cerere nouă",
-          "few": "{count} cereri noi",
-          "other": "{count} de cereri noi"
-        },
-        "friendsWithRequestsTitle": "Prieteni ({countPhrase})",
-        "friendsWithRequestsAria": "Prieteni, {countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "Stella a terminat fără un răspuns.",
-        "stellaFailed": "Stella nu a putut finaliza acea solicitare.",
-        "stellaThinking": "Stella se gândește...",
-        "sharedStellaUnavailable": "Stella partajată nu este disponibilă în această sesiune a aplicației.",
-        "back": "Înapoi",
-        "backToConversations": "Înapoi la conversații",
-        "peopleCount": "{count} persoane",
-        "startStella": "Pornește Stella",
-        "startStellaTitle": "Adu-o pe Stella în această conversație",
-        "starting": "Pornește...",
-        "startAgain": "Pornește din nou",
-        "pause": "Pauză",
-        "resume": "Reia",
-        "end": "Încheie",
-        "sayHello": "Salută pentru a începe conversația",
-        "loadingOlder": "Se încarcă mesajele mai vechi…",
-        "armedOnTitle": "Trimite următorul mesaj către Stella",
-        "armedOffTitle": "Trimite următorul mesaj ca mesaj de chat obișnuit",
-        "tellStella": "Spune-i Stellei",
-        "tellingStella": "Se transmite Stellei",
-        "tellStellaPlaceholder": "Spune-i Stellei ce vrei...",
-        "messagePlaceholder": "Scrie-i lui {name}",
-        "sessionBadge": {
-          "live": "Stella · Live",
-          "paused": "Stella · În pauză",
-          "ended": "Stella · Încheiată"
-        },
-        "sessionHint": {
-          "live": "Oricine de aici îi poate spune Stellei.",
-          "paused": "În pauză — reia ca să îi poți spune din nou Stellei.",
-          "ended": "Acest spațiu Stella partajat s-a încheiat."
-        },
-        "errors": {
-          "startStella": "Stella nu a putut fi pornită aici. Încearcă din nou.",
-          "updateStella": "Stella nu a putut fi actualizată acum. Încearcă din nou.",
-          "sendToStella": "Nu s-a putut trimite asta către Stella. Încearcă din nou.",
-          "sendMessage": "Mesajul tău nu a putut fi trimis. Încearcă din nou."
-        }
-      },
-      "composer": {
-        "placeholder": "Scrie un mesaj...",
-        "send": "Trimite"
-      },
-      "inviteCard": {
-        "communityEyebrow": "Invitație în comunitate",
-        "friendEyebrow": "Invitație de prietenie",
-        "defaultCommunityName": "Comunitate",
-        "defaultUserName": "Utilizator Stella",
-        "friendDetail": "Atinge pentru a trimite o cerere de prietenie",
-        "inviteUnavailable": "Invitație indisponibilă",
-        "userNotFound": "Utilizator negăsit",
-        "communityMissing": "Această comunitate nu mai există sau codul s-a schimbat.",
-        "userMissing": "Acest link de invitație nu corespunde niciunui utilizator Stella.",
-        "communityDetail": {
-          "one": "{countLabel} membru · atinge pentru a te alătura",
-          "few": "{countLabel} membri · atinge pentru a te alătura",
-          "other": "{countLabel} de membri · atinge pentru a te alătura"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "Utilizarea locală este disponibilă în aplicația desktop Stella.",
       "intro": "Apeluri către furnizori păstrate pe acest dispozitiv. Costurile sunt estimări locale; facturarea din backend rămâne cea oficială.",
@@ -1157,37 +939,6 @@
         "loadFailed": "Aplicația nu a putut fi încărcată.",
         "loading": "Se încarcă {name}…",
         "openFailed": "{name} nu a putut fi deschisă"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "Cele mai populare",
-        "name": "Alfabetic"
-      },
-      "animations": {
-        "idle": "Inactiv",
-        "runningRight": "Aleargă la dreapta",
-        "runningLeft": "Aleargă la stânga",
-        "waving": "Face cu mâna",
-        "jumping": "Sare",
-        "failed": "Eșuat",
-        "waiting": "Așteaptă",
-        "running": "Aleargă",
-        "review": "Recenzie"
-      },
-      "card": {
-        "by": "de {creator}",
-        "selections": "{count} selecții",
-        "get": "Obține",
-        "select": "Selectează",
-        "selected": "Selectat",
-        "remove": "Elimină"
-      },
-      "details": {
-        "caption": "de {creator} · {downloads} selecții",
-        "previewLabel": "Previzualizare {name}",
-        "animations": "Animații",
-        "animationStates": "Stări de animație"
       }
     },
     "chat": {
@@ -1635,114 +1386,6 @@
     "voice": {
       "signInTitle": "Conectează-te pentru a folosi vocea",
       "needsSetupTitle": "Vocea are nevoie de configurare"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "După ce Stella face o modificare pentru tine, partajeaz-o de aici cu prietenii, o comunitate sau Store."
-      },
-      "recentChanges": {
-        "rowSelectHint": "Dă clic pentru a include în partajare",
-        "rowDeselectHint": "Dă clic pentru a elimina din selecție",
-        "updated": "Actualizat {time}",
-        "showOlder": "Arată mai vechi",
-        "justNow": "Chiar acum",
-        "publishEmpty": "Selectează modificările de partajat",
-        "publishLabel": "Partajează · {countPhrase}",
-        "selectedCount": {
-          "one": "{count} selectat",
-          "few": "{count} selectate",
-          "other": "{count} selectate"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "Add-on Stella",
-        "unavailableName": "Add-on indisponibil",
-        "unavailableDesc": "Acest add-on este privat sau nu mai este publicat.",
-        "viewCta": "Vezi →"
-      },
-      "creator": {
-        "loading": "Se încarcă creatorul…",
-        "notFoundTitle": "Creatorul nu a fost găsit",
-        "notFoundBodyPrefix": "Nimeni nu a revendicat încă numele de utilizator",
-        "notFoundBodySuffix": ".",
-        "noAddons": "{username} nu a partajat încă niciun add-on.",
-        "version": "Versiunea {version}",
-        "addonCount": {
-          "zero": "Încă niciun add-on",
-          "one": "{count} add-on",
-          "few": "{count} add-on-uri",
-          "other": "{count} de add-on-uri"
-        }
-      },
-      "categories": {
-        "appsGames": "Aplicații și jocuri",
-        "productivity": "Productivitate",
-        "customization": "Personalizare",
-        "skillsAgents": "Abilități și agenți",
-        "integrations": "Integrări",
-        "other": "Altele"
-      },
-      "shareDialog": {
-        "title": "Partajează",
-        "titleCircle": "Partajează cu cercul tău",
-        "titleCircleUpdate": "Partajează o actualizare",
-        "titleStore": "Partajează în Store",
-        "titleStoreUpdate": "Trimite o actualizare",
-        "destinationLede": "Unde ar trebui să ajungă? Partajarea trimite cod executabil, așa că alege publicul potrivit.",
-        "circleOptionName": "Un prieten sau o comunitate",
-        "circleOptionDesc": "Instant. Ajunge direct la oamenii în care ai încredere, ca un card de partajare în chat — fără verificare, niciodată listat public.",
-        "storeOptionName": "Stella Store",
-        "storeOptionDesc": "Public. Verificat mai întâi de echipa Stella, apoi live în store pentru toată lumea.",
-        "updateExisting": "Actualizează un add-on existent",
-        "existingAddon": "Add-on existent",
-        "selectPlaceholder": "Selectează…",
-        "nameLabel": "Nume",
-        "namePlaceholder": "Mod exemplu",
-        "descriptionLabel": "Descriere",
-        "optionalHint": "(opțional)",
-        "descriptionPlaceholderCircle": "Un rând scurt pentru cardul de partajare.",
-        "descriptionPlaceholderStore": "Un rând scurt pentru listarea din store.",
-        "categoryLabel": "Categorie",
-        "categoryPlaceholder": "Alege o categorie…",
-        "sendTo": "Trimite către",
-        "noRecipients": "Încă niciun prieten sau comunitate — adaugă câteva mai întâi din pagina Mesaje.",
-        "communityFallbackName": "Comunitate",
-        "communityTag": "Comunitate",
-        "circleNote": "Partajările ajung instantaneu ca un card instalabil în fiecare conversație. Doar persoanele pe care le alegi (și oricine din acele comunități) îl pot lua.",
-        "storeNote": "Echipa Stella verifică trimiterile către store înainte ca acestea să devină publice.",
-        "submitPending": "Se partajează…",
-        "submitCircle": "Partajează acum",
-        "submitStore": "Trimite spre verificare",
-        "noSourceChangesTitle": "Nicio modificare de sursă",
-        "noSourceChangesBody": "Selectează mai întâi cel puțin o modificare recentă bazată pe sursă.",
-        "pickRecipientTitle": "Alege cu cine partajezi",
-        "pickRecipientBody": "Alege cel puțin un prieten sau o comunitate.",
-        "pickAddonTitle": "Alege un add-on",
-        "pickAddonBody": "Alege add-on-ul pe care vrei să-l actualizezi.",
-        "nameRequiredTitle": "Numele este obligatoriu",
-        "nameRequiredBody": "Dă add-on-ului tău un nume scurt înainte de a-l partaja.",
-        "badNameTitle": "Alege alt nume",
-        "badNameBody": "Folosește litere sau cifre în nume ca să putem construi un ID.",
-        "publishBackendMissing": "Backendul de publicare nu este disponibil.",
-        "sharingTitle": "Se partajează",
-        "submittingTitle": "Se trimite",
-        "inProgressBody": "Stella te anunță când se termină.",
-        "submittedTitle": "Trimis spre verificare",
-        "submittedBody": "{name} a fost trimis echipei Stella. Va apărea în store după aprobare.",
-        "sharedTitle": "Partajat",
-        "shareFailedTitle": "Partajarea a eșuat",
-        "submissionFailedTitle": "Trimiterea a eșuat",
-        "sharedBodyDelivered": {
-          "one": "{name} este pe drum către {count} conversație.",
-          "few": "{name} este pe drum către {count} conversații.",
-          "other": "{name} este pe drum către {count} de conversații."
-        },
-        "sharedBodyPartial": {
-          "one": "{name} a ajuns la {delivered} din {count} conversație. Deschide Mesaje pentru a reîncerca restul.",
-          "few": "{name} a ajuns la {delivered} din {count} conversații. Deschide Mesaje pentru a reîncerca restul.",
-          "other": "{name} a ajuns la {delivered} din {count} de conversații. Deschide Mesaje pentru a reîncerca restul."
-        }
-      }
     }
   },
   "ui": {
@@ -1822,10 +1465,6 @@
         "files": {
           "label": "Fișiere",
           "description": "Pagini, imagini, video și documente"
-        },
-        "store": {
-          "label": "Store",
-          "description": "Add-on-uri și lucruri pe care le-ai construit"
         },
         "trash": {
           "label": "Coș de gunoi",
@@ -2133,49 +1772,6 @@
         "few": "{count} programări",
         "other": "{count} de programări"
       }
-    },
-    "social": {
-      "dialogDescription": "Confirmă această invitație înainte să se întâmple ceva.",
-      "signInToAccept": "Conectează-te la Stella pentru a accepta această invitație.",
-      "lookingUpInvite": "Se caută invitația…",
-      "stellaAddOn": "Add-on Stella",
-      "stellaUser": "Utilizator Stella",
-      "byAuthor": " · de @{username}",
-      "alreadyIn": " · ești deja înăuntru",
-      "membersLabel": "membri",
-      "memberCount": {
-        "one": "{count} membru",
-        "few": "{count} membri",
-        "other": "{count} de membri"
-      },
-      "working": "Se lucrează…",
-      "alreadyJoined": "Deja alăturat",
-      "welcomeToCommunity": "Bun venit în {community}!",
-      "joinedCommunity": "Te-ai alăturat comunității!",
-      "friendRequestSent": "Cerere de prietenie trimisă către @{username}.",
-      "joinFailed": "Nu te-ai putut alătura acelei comunități. Este posibil ca invitația să fi expirat.",
-      "friendRequestFailed": "Cererea de prietenie nu a putut fi trimisă. Încearcă din nou.",
-      "store": {
-        "title": "Deschide add-on-ul",
-        "confirmLabel": "Vezi în Store",
-        "sub": "Un link pe care l-ai deschis trimite către un add-on Stella. Nu se instalează nimic. Se deschide doar pagina lui din Store.",
-        "missing": "Acest add-on este privat sau nu mai este publicat."
-      },
-      "join": {
-        "title": "Alătură-te comunității",
-        "confirmLabel": "Alătură-te",
-        "sub": "Ai fost invitat într-o comunitate: un cerc de încredere în care membrii partajează add-on-uri între ei.",
-        "missing": "Nu s-a găsit nicio comunitate pentru acest cod de invitație. Cere un link nou."
-      },
-      "friend": {
-        "title": "Adaugă prieten",
-        "confirmLabel": "Trimite cererea de prietenie",
-        "sub": "Ai fost invitat să te conectezi pe Stella.",
-        "missing": "Nu s-a găsit niciun utilizator pentru acest link de invitație."
-      }
-    },
-    "websiteView": {
-      "storeTitle": "Store"
     }
   },
   "mobile": {

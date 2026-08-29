@@ -87,7 +87,6 @@
       "title": "Langue",
       "description": "Choisissez la langue que Stella utilisera dans l'app et pour vous répondre."
     },
-
     "memory": {
       "title": "Mémoire",
       "description": "Incluez les souvenirs enregistrés et votre profil dans le contexte du modèle de Stella. La copie dans le cloud fait foi et est chiffrée en transit et au repos ; Stella peut également conserver une copie locale. Désactiver cette option exclut la mémoire des futurs échanges sans la supprimer."
@@ -108,12 +107,6 @@
         "system": "Système",
         "on": "Activé",
         "off": "Désactivé"
-      }
-    },
-    "voice": {
-      "title": "Voix",
-      "personality": {
-        "label": "Personnalité"
       }
     },
     "notifications": {
@@ -445,7 +438,6 @@
       "resultsAriaOne": "{count} résultat",
       "resultsAriaOther": "{count} résultats",
       "descriptions": {
-        "voice": "Choisissez le style d'élocution et la voix de personnalité de Stella.",
         "permissions": "Accordez l'accès à l'accessibilité, à la capture d'écran et au microphone sur macOS.",
         "shortcuts": "Modifiez les raccourcis de dictée et de voix.",
         "backup": "Sauvegardes chiffrées automatiques, points de restauration et instantanés à la demande.",
@@ -467,9 +459,6 @@
       "loadSoundNotifications": "Échec du chargement du réglage des notifications sonores.",
       "saveSoundNotifications": "Échec de la mise à jour du réglage des notifications sonores.",
       "soundNotificationsUnavailable": "Les réglages des notifications sonores ne sont pas disponibles dans cette fenêtre.",
-      "loadVoice": "Échec du chargement du réglage de la voix.",
-      "saveVoice": "Échec de la mise à jour du réglage de la voix.",
-      "voiceUnavailable": "Les réglages de la voix ne sont pas disponibles dans cette fenêtre.",
       "loadMemory": "Échec du chargement du réglage de mémoire.",
       "saveMemory": "Échec de la mise à jour du réglage de mémoire.",
       "memoryUnavailable": "Les réglages de mémoire ne sont pas disponibles dans cette fenêtre.",
@@ -724,7 +713,6 @@
       "extension": "Ajoutez Stella à votre navigateur.",
       "browser": "Laissez Stella apprendre à vous connaître.",
       "theme": "À quoi Stella doit-elle ressembler ?",
-      "personality": "Comment Stella doit-elle parler ?",
       "voice": "Parlez plutôt que d'écrire.",
       "enter": "Stella est presque prête."
     },
@@ -836,212 +824,6 @@
     "permissionDenied": "Stella n'a pas l'autorisation de faire cela."
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "Nouveau message",
-        "emptySubtitle": "Ajoutez d'abord des amis pour démarrer une conversation.",
-        "description": "Choisissez un ami ou démarrez une nouvelle conversation de groupe.",
-        "subtitle": "Choisissez un ami ou créez un groupe.",
-        "groupTitle": "Nouveau groupe",
-        "groupSubtitle": "Choisissez les amis à ajouter à ce groupe.",
-        "groupNameLabel": "Nom du groupe",
-        "groupNamePlaceholder": "Nom du groupe (facultatif)",
-        "members": "Membres",
-        "back": "Retour",
-        "creating": "Création...",
-        "createGroup": "Créer le groupe",
-        "newGroup": "Nouveau groupe",
-        "friends": "Amis",
-        "opening": "Ouverture..."
-      },
-      "friends": {
-        "title": "Amis",
-        "description": "Partagez votre code ami pour vous connecter, ou saisissez celui de quelqu'un d'autre pour envoyer une demande.",
-        "subtitle": "Partagez votre nom d'utilisateur, ou saisissez celui d'un ami pour vous connecter.",
-        "requestSent": "Demande d'ami envoyée !",
-        "usernameCopied": "Nom d'utilisateur copié !",
-        "inviteLinkCopied": "Lien d'invitation copié — envoyez-le où vous voulez.",
-        "yourUsername": "Votre nom d'utilisateur",
-        "copy": "Copier",
-        "copyUsernameTitle": "Copier votre nom d'utilisateur",
-        "copyInviteLink": "Copier le lien d'invitation",
-        "copyInviteLinkTitle": "Copier un lien qui ouvre Stella et vous envoie une demande d'ami — fonctionne dans iMessage, Discord, partout",
-        "addLabel": "Ajouter un ami",
-        "addPlaceholder": "Saisissez un nom d'utilisateur",
-        "add": "Ajouter",
-        "adding": "Ajout...",
-        "requestsCount": "Demandes ({count})",
-        "accept": "Accepter",
-        "decline": "Refuser",
-        "sent": "Envoyée",
-        "waitingForResponse": "En attente de réponse",
-        "friendsCount": "Amis ({count})",
-        "empty": "Aucun ami pour l'instant. Partagez votre nom d'utilisateur ou saisissez celui de quelqu'un d'autre ci-dessus pour vous connecter.",
-        "message": "Message",
-        "opening": "Ouverture...",
-        "remove": "Retirer",
-        "removing": "Retrait...",
-        "errors": {
-          "sendRequest": "Impossible d'envoyer cette demande d'ami. Vérifiez le nom d'utilisateur et réessayez."
-        }
-      },
-      "communities": {
-        "title": "Communautés",
-        "description": "Créez une communauté ou rejoignez-en une avec un code d'invitation, puis partagez des add-ons avec tous ses membres.",
-        "subtitle": "Des cercles de confiance pour partager. Tous les membres d'une communauté voient ce que ses membres partagent.",
-        "defaultName": "Communauté",
-        "created": "« {name} » créée !",
-        "joined": "Vous y êtes !",
-        "createLabel": "Créer une communauté",
-        "createPlaceholder": "Nommez une nouvelle communauté",
-        "create": "Créer",
-        "joinLabel": "Rejoindre avec un code d'invitation",
-        "joinPlaceholder": "Saisissez un code d'invitation",
-        "join": "Rejoindre",
-        "yourCommunities": "Vos communautés",
-        "yourCommunitiesCount": "Vos communautés ({count})",
-        "empty": "Aucune communauté pour l'instant. Créez-en une et partagez le code d'invitation, ou rejoignez-en une avec un code qu'on vous a envoyé.",
-        "createdByYouSuffix": " · créée par vous",
-        "open": "Ouvrir",
-        "details": "Détails",
-        "back": "Retour",
-        "nameLabel": "Nom de la communauté",
-        "save": "Enregistrer",
-        "cancel": "Annuler",
-        "createdByYou": "Vous avez créé cette communauté.",
-        "memberOf": "Vous êtes membre de cette communauté.",
-        "inviteCode": "Code d'invitation",
-        "copied": "Copié !",
-        "copyCode": "Copier le code",
-        "copyInviteLink": "Copier le lien d'invitation",
-        "copyInviteLinkTitle": "Copier un lien qui ouvre Stella et rejoint cette communauté",
-        "inviteHint": "Le lien fonctionne partout — collez-le dans un chat Stella ou envoyez-le par iMessage ou Discord. Quiconque le possède peut rejoindre, alors ne le partagez qu'avec des personnes de confiance.",
-        "membersCount": "Membres ({count})",
-        "roleCreator": "Créateur",
-        "roleMember": "Membre",
-        "youSuffix": " · vous",
-        "remove": "Retirer",
-        "removing": "Retrait...",
-        "confirmDelete": "Vraiment supprimer cette communauté ?",
-        "delete": "Supprimer la communauté",
-        "confirmLeave": "Vraiment quitter ?",
-        "leave": "Quitter la communauté",
-        "rename": "Renommer",
-        "openChat": "Ouvrir le chat",
-        "errors": {
-          "create": "Impossible de créer cette communauté. Veuillez réessayer.",
-          "join": "Impossible de rejoindre avec ce code d'invitation. Vérifiez le code et réessayez.",
-          "rename": "Impossible de renommer la communauté. Veuillez réessayer.",
-          "removeMember": "Impossible de retirer ce membre. Veuillez réessayer.",
-          "delete": "Impossible de supprimer la communauté. Veuillez réessayer.",
-          "leave": "Impossible de quitter la communauté. Veuillez réessayer."
-        },
-        "memberCount": {
-          "one": "{count} membre",
-          "many": "{count} membres",
-          "other": "{count} membres"
-        }
-      },
-      "view": {
-        "messages": "Messages",
-        "signIn": "Se connecter",
-        "signInSubtitle": "Connectez-vous pour envoyer des messages à vos amis et collaborer avec Stella.",
-        "friends": "Amis",
-        "communities": "Communautés",
-        "newMessage": "Nouveau message",
-        "noRooms": "Aucune conversation pour l'instant. Ajoutez des amis ou démarrez un nouveau message.",
-        "addFriends": "Ajouter des amis",
-        "communityBadge": "Communauté",
-        "communityBadgeTitle": "Partagé avec tous les membres de cette communauté",
-        "usernamePlaceholder": "votre-nom-utilisateur",
-        "editUsername": "Modifier votre nom d'utilisateur",
-        "copied": "Copié !",
-        "clickToCopyUsername": "Cliquez pour copier votre nom d'utilisateur",
-        "copyUsername": "Copier le nom d'utilisateur",
-        "cancel": "Annuler",
-        "save": "Enregistrer",
-        "saving": "Enregistrement...",
-        "emptyTitle": "Vos messages",
-        "emptySubtitle": "Choisissez une conversation à gauche, ou démarrez-en une nouvelle avec un ami.",
-        "errors": {
-          "startConversation": "Impossible de démarrer cette conversation. Veuillez réessayer.",
-          "createGroup": "Impossible de créer le groupe. Veuillez réessayer."
-        },
-        "usernameErrors": {
-          "empty": "Le nom d'utilisateur ne peut pas être vide.",
-          "length": "Le nom d'utilisateur doit comporter 3 à 32 caractères.",
-          "format": "Utilisez des lettres minuscules, des chiffres, _ ou -. Doit commencer et finir par une lettre ou un chiffre.",
-          "update": "Impossible de mettre à jour votre nom d'utilisateur. Veuillez réessayer."
-        },
-        "newRequestCount": {
-          "one": "{count} nouvelle demande",
-          "many": "{count} nouvelles demandes",
-          "other": "{count} nouvelles demandes"
-        },
-        "friendsWithRequestsTitle": "Amis ({countPhrase})",
-        "friendsWithRequestsAria": "Amis, {countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "Stella a terminé sans réponse.",
-        "stellaFailed": "Stella n'a pas pu terminer cette demande.",
-        "stellaThinking": "Stella réfléchit...",
-        "sharedStellaUnavailable": "Stella partagée n'est pas disponible dans cette session de l'app.",
-        "back": "Retour",
-        "backToConversations": "Retour aux conversations",
-        "peopleCount": "{count} personnes",
-        "startStella": "Démarrer Stella",
-        "startStellaTitle": "Inviter Stella dans cette conversation",
-        "starting": "Démarrage...",
-        "startAgain": "Redémarrer",
-        "pause": "Mettre en pause",
-        "resume": "Reprendre",
-        "end": "Terminer",
-        "sayHello": "Dites bonjour pour lancer la conversation",
-        "loadingOlder": "Chargement des messages plus anciens…",
-        "armedOnTitle": "Envoyer le prochain message à Stella",
-        "armedOffTitle": "Envoyer le prochain message comme message de chat normal",
-        "tellStella": "Demander à Stella",
-        "tellingStella": "Envoi à Stella",
-        "tellStellaPlaceholder": "Dites à Stella ce que vous voulez...",
-        "messagePlaceholder": "Écrire à {name}",
-        "sessionBadge": {
-          "live": "Stella · En direct",
-          "paused": "Stella · En pause",
-          "ended": "Stella · Terminée"
-        },
-        "sessionHint": {
-          "live": "Toute personne ici peut solliciter Stella.",
-          "paused": "En pause — reprenez pour solliciter Stella à nouveau.",
-          "ended": "Cet espace Stella partagé est terminé."
-        },
-        "errors": {
-          "startStella": "Impossible de démarrer Stella ici. Veuillez réessayer.",
-          "updateStella": "Impossible de mettre à jour Stella pour le moment. Veuillez réessayer.",
-          "sendToStella": "Impossible d'envoyer cela à Stella. Veuillez réessayer.",
-          "sendMessage": "Impossible d'envoyer votre message. Veuillez réessayer."
-        }
-      },
-      "composer": {
-        "placeholder": "Écrivez un message...",
-        "send": "Envoyer"
-      },
-      "inviteCard": {
-        "communityEyebrow": "Invitation à une communauté",
-        "friendEyebrow": "Invitation d'ami",
-        "defaultCommunityName": "Communauté",
-        "defaultUserName": "Utilisateur Stella",
-        "friendDetail": "Touchez pour envoyer une demande d'ami",
-        "inviteUnavailable": "Invitation indisponible",
-        "userNotFound": "Utilisateur introuvable",
-        "communityMissing": "Cette communauté n'existe plus ou le code a changé.",
-        "userMissing": "Ce lien d'invitation ne correspond à aucun utilisateur Stella.",
-        "communityDetail": {
-          "one": "{countLabel} membre · touchez pour rejoindre",
-          "many": "{countLabel} membres · touchez pour rejoindre",
-          "other": "{countLabel} membres · touchez pour rejoindre"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "L'usage local est disponible dans l'app de bureau Stella.",
       "intro": "Appels aux fournisseurs conservés sur cet appareil. Les coûts sont des estimations locales ; la facturation du backend fait foi.",
@@ -1157,37 +939,6 @@
         "loadFailed": "L'app n'a pas pu être chargée.",
         "loading": "Chargement de {name}…",
         "openFailed": "Impossible d'ouvrir {name}"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "Les plus populaires",
-        "name": "Alphabétique"
-      },
-      "animations": {
-        "idle": "Au repos",
-        "runningRight": "Courir à droite",
-        "runningLeft": "Courir à gauche",
-        "waving": "Salut de la main",
-        "jumping": "Saut",
-        "failed": "Échec",
-        "waiting": "En attente",
-        "running": "Court",
-        "review": "Aperçu"
-      },
-      "card": {
-        "by": "par {creator}",
-        "selections": "{count} sélections",
-        "get": "Obtenir",
-        "select": "Sélectionner",
-        "selected": "Sélectionné",
-        "remove": "Retirer"
-      },
-      "details": {
-        "caption": "par {creator} · {downloads} sélections",
-        "previewLabel": "Aperçu de {name}",
-        "animations": "Animations",
-        "animationStates": "États d’animation"
       }
     },
     "chat": {
@@ -1635,114 +1386,6 @@
     "voice": {
       "signInTitle": "Connectez-vous pour utiliser la voix",
       "needsSetupTitle": "La voix doit être configurée"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "Une fois que Stella a fait une modification pour vous, partagez-la ici avec des amis, une communauté ou le Store."
-      },
-      "recentChanges": {
-        "rowSelectHint": "Cliquez pour inclure dans le partage",
-        "rowDeselectHint": "Cliquez pour retirer de la sélection",
-        "updated": "Mis à jour {time}",
-        "showOlder": "Afficher les plus anciens",
-        "justNow": "À l’instant",
-        "publishEmpty": "Sélectionnez des modifications à partager",
-        "publishLabel": "Partager · {countPhrase}",
-        "selectedCount": {
-          "one": "{count} sélectionnée",
-          "many": "{count} sélectionnées",
-          "other": "{count} sélectionnées"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "Add-on Stella",
-        "unavailableName": "Add-on indisponible",
-        "unavailableDesc": "Cet add-on est privé ou n’est plus publié.",
-        "viewCta": "Voir →"
-      },
-      "creator": {
-        "loading": "Chargement du créateur…",
-        "notFoundTitle": "Créateur introuvable",
-        "notFoundBodyPrefix": "Personne n’a encore revendiqué le nom d’utilisateur",
-        "notFoundBodySuffix": ".",
-        "noAddons": "{username} n’a encore partagé aucun add-on.",
-        "version": "Version {version}",
-        "addonCount": {
-          "zero": "Aucun add-on pour l’instant",
-          "one": "{count} add-on",
-          "many": "{count} add-ons",
-          "other": "{count} add-ons"
-        }
-      },
-      "categories": {
-        "appsGames": "Apps et jeux",
-        "productivity": "Productivité",
-        "customization": "Personnalisation",
-        "skillsAgents": "Compétences et agents",
-        "integrations": "Intégrations",
-        "other": "Autre"
-      },
-      "shareDialog": {
-        "title": "Partager",
-        "titleCircle": "Partager avec votre cercle",
-        "titleCircleUpdate": "Partager une mise à jour",
-        "titleStore": "Partager sur le Store",
-        "titleStoreUpdate": "Soumettre une mise à jour",
-        "destinationLede": "Où cela doit-il aller ? Un partage envoie du code exécutable, choisissez donc bien votre public.",
-        "circleOptionName": "Un ami ou une communauté",
-        "circleOptionDesc": "Immédiat. Va directement aux personnes de confiance sous forme de carte de partage dans le chat — sans vérification, jamais listé publiquement.",
-        "storeOptionName": "Le Store Stella",
-        "storeOptionDesc": "Public. Vérifié d’abord par l’équipe Stella, puis publié dans le Store pour tout le monde.",
-        "updateExisting": "Mettre à jour un add-on existant",
-        "existingAddon": "Add-on existant",
-        "selectPlaceholder": "Sélectionner…",
-        "nameLabel": "Nom",
-        "namePlaceholder": "Exemple de mod",
-        "descriptionLabel": "Description",
-        "optionalHint": "(facultatif)",
-        "descriptionPlaceholderCircle": "Une courte phrase pour la carte de partage.",
-        "descriptionPlaceholderStore": "Une courte phrase pour la fiche du Store.",
-        "categoryLabel": "Catégorie",
-        "categoryPlaceholder": "Choisissez une catégorie…",
-        "sendTo": "Envoyer à",
-        "noRecipients": "Aucun ami ni communauté pour l’instant — ajoutez-en d’abord depuis la page Messages.",
-        "communityFallbackName": "Communauté",
-        "communityTag": "Communauté",
-        "circleNote": "Les partages arrivent instantanément sous forme de carte installable dans chaque conversation. Seules les personnes que vous choisissez (et les membres de ces communautés) peuvent le récupérer.",
-        "storeNote": "L’équipe Stella vérifie les soumissions au Store avant leur publication pour tout le monde.",
-        "submitPending": "Partage…",
-        "submitCircle": "Partager maintenant",
-        "submitStore": "Soumettre à la vérification",
-        "noSourceChangesTitle": "Aucune modification de source",
-        "noSourceChangesBody": "Sélectionnez d’abord au moins une modification récente liée à des sources.",
-        "pickRecipientTitle": "Choisissez avec qui partager",
-        "pickRecipientBody": "Choisissez au moins un ami ou une communauté.",
-        "pickAddonTitle": "Choisissez un add-on",
-        "pickAddonBody": "Choisissez l’add-on que vous voulez mettre à jour.",
-        "nameRequiredTitle": "Nom requis",
-        "nameRequiredBody": "Donnez un nom court à votre add-on avant de le partager.",
-        "badNameTitle": "Choisissez un autre nom",
-        "badNameBody": "Utilisez des lettres ou des chiffres dans le nom pour que nous puissions créer un ID.",
-        "publishBackendMissing": "Le backend de publication n’est pas disponible.",
-        "sharingTitle": "Partage",
-        "submittingTitle": "Soumission",
-        "inProgressBody": "Stella vous préviendra quand ce sera terminé.",
-        "submittedTitle": "Soumis à la vérification",
-        "submittedBody": "{name} a été envoyé à l’équipe Stella. Il sera publié dans le Store une fois approuvé.",
-        "sharedTitle": "Partagé",
-        "shareFailedTitle": "Échec du partage",
-        "submissionFailedTitle": "Échec de la soumission",
-        "sharedBodyDelivered": {
-          "one": "{name} est en route vers {count} conversation.",
-          "many": "{name} est en route vers {count} conversations.",
-          "other": "{name} est en route vers {count} conversations."
-        },
-        "sharedBodyPartial": {
-          "one": "{name} a atteint {delivered} conversation sur {count}. Ouvrez Messages pour réessayer le reste.",
-          "many": "{name} a atteint {delivered} conversations sur {count}. Ouvrez Messages pour réessayer le reste.",
-          "other": "{name} a atteint {delivered} conversations sur {count}. Ouvrez Messages pour réessayer le reste."
-        }
-      }
     }
   },
   "ui": {
@@ -1822,10 +1465,6 @@
         "files": {
           "label": "Fichiers",
           "description": "Pages, images, vidéos et documents"
-        },
-        "store": {
-          "label": "Store",
-          "description": "Add-ons et créations à vous"
         },
         "trash": {
           "label": "Corbeille",
@@ -2133,49 +1772,6 @@
         "many": "{count} planifications",
         "other": "{count} planifications"
       }
-    },
-    "social": {
-      "dialogDescription": "Confirmez cette invitation avant que quoi que ce soit ne se produise.",
-      "signInToAccept": "Connectez-vous à Stella pour accepter cette invitation.",
-      "lookingUpInvite": "Recherche de l’invitation…",
-      "stellaAddOn": "Add-on Stella",
-      "stellaUser": "Utilisateur Stella",
-      "byAuthor": " · par @{username}",
-      "alreadyIn": " · vous en faites déjà partie",
-      "membersLabel": "membres",
-      "memberCount": {
-        "one": "{count} membre",
-        "many": "{count} membres",
-        "other": "{count} membres"
-      },
-      "working": "En cours…",
-      "alreadyJoined": "Déjà rejoint",
-      "welcomeToCommunity": "Bienvenue dans {community} !",
-      "joinedCommunity": "Vous avez rejoint la communauté !",
-      "friendRequestSent": "Demande d’ami envoyée à @{username}.",
-      "joinFailed": "Impossible de rejoindre cette communauté. L’invitation a peut-être expiré.",
-      "friendRequestFailed": "Impossible d’envoyer cette demande d’ami. Veuillez réessayer.",
-      "store": {
-        "title": "Ouvrir l’add-on",
-        "confirmLabel": "Voir dans le Store",
-        "sub": "Un lien que vous avez ouvert pointe vers un add-on Stella. Rien ne s’installe. Cela ouvre seulement sa page dans le Store.",
-        "missing": "Cet add-on est privé ou n’est plus publié."
-      },
-      "join": {
-        "title": "Rejoindre la communauté",
-        "confirmLabel": "Rejoindre",
-        "sub": "Vous avez été invité à une communauté : un cercle de confiance où les membres partagent des add-ons entre eux.",
-        "missing": "Aucune communauté ne correspond à ce code d’invitation. Demandez un nouveau lien."
-      },
-      "friend": {
-        "title": "Ajouter un ami",
-        "confirmLabel": "Envoyer une demande d’ami",
-        "sub": "Vous avez été invité à vous connecter sur Stella.",
-        "missing": "Aucun utilisateur ne correspond à ce lien d’invitation."
-      }
-    },
-    "websiteView": {
-      "storeTitle": "Store"
     }
   },
   "mobile": {

@@ -109,12 +109,6 @@
         "off": "Pois"
       }
     },
-    "voice": {
-      "title": "Ääni",
-      "personality": {
-        "label": "Persoonallisuus"
-      }
-    },
     "notifications": {
       "title": "Ääni-ilmoitukset",
       "description": "Toistaa äänen, kun Stella saa agentin ajon valmiiksi."
@@ -444,7 +438,6 @@
       "resultsAriaOne": "{count} tulos",
       "resultsAriaOther": "{count} tulosta",
       "descriptions": {
-        "voice": "Valitse Stellan puhetyyli ja persoonallisuusääni.",
         "permissions": "Myönnä macOS:ssä käyttöoikeudet saavutettavuuteen, näytön tallennukseen ja mikrofoniin.",
         "shortcuts": "Muuta sanelun ja puheen pikanäppäimiä.",
         "backup": "Automaattiset salatut varmuuskopiot, palautuspisteet ja pyynnöstä otettavat tilannevedokset.",
@@ -466,9 +459,6 @@
       "loadSoundNotifications": "Ääni-ilmoitusasetuksen lataaminen epäonnistui.",
       "saveSoundNotifications": "Ääni-ilmoitusasetuksen päivitys epäonnistui.",
       "soundNotificationsUnavailable": "Ääni-ilmoitusasetukset eivät ole käytettävissä tässä ikkunassa.",
-      "loadVoice": "Ääniasetuksen lataaminen epäonnistui.",
-      "saveVoice": "Ääniasetuksen päivitys epäonnistui.",
-      "voiceUnavailable": "Ääniasetukset eivät ole käytettävissä tässä ikkunassa.",
       "loadMemory": "Muistiasetuksen lataaminen epäonnistui.",
       "saveMemory": "Muistiasetuksen päivitys epäonnistui.",
       "memoryUnavailable": "Muistiasetukset eivät ole käytettävissä tässä ikkunassa.",
@@ -722,7 +712,6 @@
       "extension": "Lisää Stella selaimeesi.",
       "browser": "Anna Stellan oppia tuntemaan sinut.",
       "theme": "Miltä Stellan pitäisi näyttää?",
-      "personality": "Miten Stellan pitäisi puhua?",
       "voice": "Puhu kirjoittamisen sijaan.",
       "enter": "Stella on melkein valmis."
     },
@@ -834,209 +823,6 @@
     "permissionDenied": "Stellalla ei ole oikeuksia tähän."
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "Uusi viesti",
-        "emptySubtitle": "Lisää ensin kavereita aloittaaksesi keskustelun.",
-        "description": "Valitse kaveri tai aloita uusi ryhmäkeskustelu.",
-        "subtitle": "Valitse kaveri tai aloita ryhmä.",
-        "groupTitle": "Uusi ryhmä",
-        "groupSubtitle": "Valitse kaverit, jotka lisätään tähän ryhmään.",
-        "groupNameLabel": "Ryhmän nimi",
-        "groupNamePlaceholder": "Ryhmän nimi (valinnainen)",
-        "members": "Jäsenet",
-        "back": "Takaisin",
-        "creating": "Luodaan...",
-        "createGroup": "Luo ryhmä",
-        "newGroup": "Uusi ryhmä",
-        "friends": "Kaverit",
-        "opening": "Avataan..."
-      },
-      "friends": {
-        "title": "Kaverit",
-        "description": "Jaa kaverikoodisi yhdistääksesi tai syötä jonkun toisen koodi lähettääksesi pyynnön.",
-        "subtitle": "Jaa käyttäjänimesi tai syötä kaverin nimi yhdistääksesi.",
-        "requestSent": "Kaveripyyntö lähetetty!",
-        "usernameCopied": "Käyttäjänimi kopioitu!",
-        "inviteLinkCopied": "Kutsulinkki kopioitu — lähetä se minne tahansa.",
-        "yourUsername": "Käyttäjänimesi",
-        "copy": "Kopioi",
-        "copyUsernameTitle": "Kopioi käyttäjänimesi",
-        "copyInviteLink": "Kopioi kutsulinkki",
-        "copyInviteLinkTitle": "Kopioi linkki, joka avaa Stellan ja lähettää sinulle kaveripyynnön — toimii iMessagessa, Discordissa, missä tahansa",
-        "addLabel": "Lisää kaveri",
-        "addPlaceholder": "Syötä käyttäjänimi",
-        "add": "Lisää",
-        "adding": "Lisätään...",
-        "requestsCount": "Pyynnöt ({count})",
-        "accept": "Hyväksy",
-        "decline": "Hylkää",
-        "sent": "Lähetetty",
-        "waitingForResponse": "Odotetaan vastausta",
-        "friendsCount": "Kaverit ({count})",
-        "empty": "Ei vielä kavereita. Jaa käyttäjänimesi tai syötä jonkun toisen nimi yllä yhdistääksesi.",
-        "message": "Viesti",
-        "opening": "Avataan...",
-        "remove": "Poista",
-        "removing": "Poistetaan...",
-        "errors": {
-          "sendRequest": "Kaveripyyntöä ei voitu lähettää. Tarkista käyttäjänimi ja yritä uudelleen."
-        }
-      },
-      "communities": {
-        "title": "Yhteisöt",
-        "description": "Luo yhteisö tai liity siihen kutsukoodilla ja jaa sitten lisäosia kaikkien sen jäsenten kanssa.",
-        "subtitle": "Luotettuja piirejä jakamiseen. Kaikki yhteisön jäsenet näkevät, mitä siellä jaetaan.",
-        "defaultName": "Yhteisö",
-        "created": "Luotiin ”{name}”!",
-        "joined": "Olet mukana!",
-        "createLabel": "Luo yhteisö",
-        "createPlaceholder": "Anna uudelle yhteisölle nimi",
-        "create": "Luo",
-        "joinLabel": "Liity kutsukoodilla",
-        "joinPlaceholder": "Syötä kutsukoodi",
-        "join": "Liity",
-        "yourCommunities": "Yhteisösi",
-        "yourCommunitiesCount": "Yhteisösi ({count})",
-        "empty": "Ei vielä yhteisöjä. Luo yhteisö ja jaa kutsukoodi tai liity koodilla, jonka joku lähetti sinulle.",
-        "createdByYouSuffix": " · sinun luomasi",
-        "open": "Avaa",
-        "details": "Tiedot",
-        "back": "Takaisin",
-        "nameLabel": "Yhteisön nimi",
-        "save": "Tallenna",
-        "cancel": "Peruuta",
-        "createdByYou": "Sinä loit tämän yhteisön.",
-        "memberOf": "Olet tämän yhteisön jäsen.",
-        "inviteCode": "Kutsukoodi",
-        "copied": "Kopioitu!",
-        "copyCode": "Kopioi koodi",
-        "copyInviteLink": "Kopioi kutsulinkki",
-        "copyInviteLinkTitle": "Kopioi linkki, joka avaa Stellan ja liittää tähän yhteisöön",
-        "inviteHint": "Linkki toimii missä tahansa — liitä se Stella-keskusteluun tai lähetä iMessagella tai Discordissa. Kuka tahansa sen saanut voi liittyä, joten jaa se vain luottamillesi ihmisille.",
-        "membersCount": "Jäsenet ({count})",
-        "roleCreator": "Luoja",
-        "roleMember": "Jäsen",
-        "youSuffix": " · sinä",
-        "remove": "Poista",
-        "removing": "Poistetaan...",
-        "confirmDelete": "Poistetaanko tämä yhteisö varmasti?",
-        "delete": "Poista yhteisö",
-        "confirmLeave": "Poistutaanko varmasti?",
-        "leave": "Poistu yhteisöstä",
-        "rename": "Nimeä uudelleen",
-        "openChat": "Avaa keskustelu",
-        "errors": {
-          "create": "Yhteisöä ei voitu luoda. Yritä uudelleen.",
-          "join": "Kyseisellä kutsukoodilla ei voitu liittyä. Tarkista koodi ja yritä uudelleen.",
-          "rename": "Yhteisön nimeäminen uudelleen epäonnistui. Yritä uudelleen.",
-          "removeMember": "Jäsentä ei voitu poistaa. Yritä uudelleen.",
-          "delete": "Yhteisöä ei voitu poistaa. Yritä uudelleen.",
-          "leave": "Yhteisöstä ei voitu poistua. Yritä uudelleen."
-        },
-        "memberCount": {
-          "one": "{count} jäsen",
-          "other": "{count} jäsentä"
-        }
-      },
-      "view": {
-        "messages": "Viestit",
-        "signIn": "Kirjaudu sisään",
-        "signInSubtitle": "Kirjaudu sisään lähettääksesi viestejä kavereille ja tehdäksesi yhteistyötä Stellan kanssa.",
-        "friends": "Kaverit",
-        "communities": "Yhteisöt",
-        "newMessage": "Uusi viesti",
-        "noRooms": "Ei vielä keskusteluja. Lisää kavereita tai aloita uusi viesti.",
-        "addFriends": "Lisää kavereita",
-        "communityBadge": "Yhteisö",
-        "communityBadgeTitle": "Jaettu kaikkien tämän yhteisön jäsenten kanssa",
-        "usernamePlaceholder": "kayttajanimesi",
-        "editUsername": "Muokkaa käyttäjänimeäsi",
-        "copied": "Kopioitu!",
-        "clickToCopyUsername": "Napsauta kopioidaksesi käyttäjänimesi",
-        "copyUsername": "Kopioi käyttäjänimi",
-        "cancel": "Peruuta",
-        "save": "Tallenna",
-        "saving": "Tallennetaan...",
-        "emptyTitle": "Viestisi",
-        "emptySubtitle": "Valitse keskustelu vasemmalta tai aloita uusi kaverin kanssa.",
-        "errors": {
-          "startConversation": "Keskustelua ei voitu aloittaa. Yritä uudelleen.",
-          "createGroup": "Ryhmää ei voitu luoda. Yritä uudelleen."
-        },
-        "usernameErrors": {
-          "empty": "Käyttäjänimi ei voi olla tyhjä.",
-          "length": "Käyttäjänimen tulee olla 3-32 merkkiä.",
-          "format": "Käytä pieniä kirjaimia, numeroita sekä merkkejä _ tai -. Alun ja lopun on oltava kirjain tai numero.",
-          "update": "Käyttäjänimeäsi ei voitu päivittää. Yritä uudelleen."
-        },
-        "newRequestCount": {
-          "one": "{count} uusi pyyntö",
-          "other": "{count} uutta pyyntöä"
-        },
-        "friendsWithRequestsTitle": "Kaverit ({countPhrase})",
-        "friendsWithRequestsAria": "Kaverit, {countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "Stella lopetti ilman vastausta.",
-        "stellaFailed": "Stella ei saanut pyyntöä valmiiksi.",
-        "stellaThinking": "Stella miettii...",
-        "sharedStellaUnavailable": "Jaettu Stella ei ole käytettävissä tässä sovellusistunnossa.",
-        "back": "Takaisin",
-        "backToConversations": "Takaisin keskusteluihin",
-        "peopleCount": "{count} henkilöä",
-        "startStella": "Käynnistä Stella",
-        "startStellaTitle": "Tuo Stella mukaan tähän keskusteluun",
-        "starting": "Käynnistetään...",
-        "startAgain": "Käynnistä uudelleen",
-        "pause": "Keskeytä",
-        "resume": "Jatka",
-        "end": "Lopeta",
-        "sayHello": "Sano hei aloittaaksesi keskustelun",
-        "loadingOlder": "Ladataan vanhempia viestejä…",
-        "armedOnTitle": "Lähetä seuraava viesti Stellalle",
-        "armedOffTitle": "Lähetä seuraava viesti tavallisena chat-viestinä",
-        "tellStella": "Kerro Stellalle",
-        "tellingStella": "Kerrotaan Stellalle",
-        "tellStellaPlaceholder": "Kerro Stellalle, mitä haluat...",
-        "messagePlaceholder": "Viesti: {name}",
-        "sessionBadge": {
-          "live": "Stella · Käynnissä",
-          "paused": "Stella · Tauolla",
-          "ended": "Stella · Päättynyt"
-        },
-        "sessionHint": {
-          "live": "Kuka tahansa täällä voi kertoa Stellalle.",
-          "paused": "Tauolla — jatka kertoaksesi Stellalle uudelleen.",
-          "ended": "Tämä jaettu Stella-tila on päättynyt."
-        },
-        "errors": {
-          "startStella": "Stellaa ei voitu käynnistää täällä. Yritä uudelleen.",
-          "updateStella": "Stellaa ei voitu päivittää juuri nyt. Yritä uudelleen.",
-          "sendToStella": "Sitä ei voitu lähettää Stellalle. Yritä uudelleen.",
-          "sendMessage": "Viestiäsi ei voitu lähettää. Yritä uudelleen."
-        }
-      },
-      "composer": {
-        "placeholder": "Kirjoita viesti...",
-        "send": "Lähetä"
-      },
-      "inviteCard": {
-        "communityEyebrow": "Yhteisökutsu",
-        "friendEyebrow": "Kaverikutsu",
-        "defaultCommunityName": "Yhteisö",
-        "defaultUserName": "Stella-käyttäjä",
-        "friendDetail": "Napauta lähettääksesi kaveripyynnön",
-        "inviteUnavailable": "Kutsu ei käytettävissä",
-        "userNotFound": "Käyttäjää ei löytynyt",
-        "communityMissing": "Tätä yhteisöä ei ole enää olemassa tai koodi vaihtui.",
-        "userMissing": "Tämä kutsulinkki ei vastaa yhtään Stella-käyttäjää.",
-        "communityDetail": {
-          "one": "{countLabel} jäsen · napauta liittyäksesi",
-          "other": "{countLabel} jäsentä · napauta liittyäksesi"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "Paikallinen käyttö on saatavilla Stellan työpöytäsovelluksessa.",
       "intro": "Tälle laitteelle tallennetut palveluntarjoajien kutsut. Kustannukset ovat paikallisia arvioita; taustajärjestelmän laskutus on ratkaiseva.",
@@ -1152,37 +938,6 @@
         "loadFailed": "Sovellusta ei voitu ladata.",
         "loading": "Ladataan: {name}…",
         "openFailed": "Ei voitu avata: {name}"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "Suosituimmat",
-        "name": "Aakkosjärjestys"
-      },
-      "animations": {
-        "idle": "Paikallaan",
-        "runningRight": "Juokse oikealle",
-        "runningLeft": "Juokse vasemmalle",
-        "waving": "Vilkuttaa",
-        "jumping": "Hyppii",
-        "failed": "Epäonnistui",
-        "waiting": "Odottaa",
-        "running": "Juoksee",
-        "review": "Tarkistus"
-      },
-      "card": {
-        "by": "tekijä: {creator}",
-        "selections": "{count} valintaa",
-        "get": "Hanki",
-        "select": "Valitse",
-        "selected": "Valittu",
-        "remove": "Poista"
-      },
-      "details": {
-        "caption": "tekijä: {creator} · {downloads} valintaa",
-        "previewLabel": "Esikatselu: {name}",
-        "animations": "Animaatiot",
-        "animationStates": "Animaatiotilat"
       }
     },
     "chat": {
@@ -1622,110 +1377,6 @@
     "voice": {
       "signInTitle": "Kirjaudu sisään käyttääksesi ääntä",
       "needsSetupTitle": "Ääni vaatii määrityksen"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "Kun Stella tekee sinulle muutoksen, jaa se täältä ystäville, yhteisölle tai kauppaan."
-      },
-      "recentChanges": {
-        "rowSelectHint": "Sisällytä jakoon napsauttamalla",
-        "rowDeselectHint": "Poista valinnasta napsauttamalla",
-        "updated": "Päivitetty {time}",
-        "showOlder": "Näytä vanhemmat",
-        "justNow": "Juuri nyt",
-        "publishEmpty": "Valitse jaettavat muutokset",
-        "publishLabel": "Jaa · {countPhrase}",
-        "selectedCount": {
-          "one": "{count} valittu",
-          "other": "{count} valittu"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "Stella-lisäosa",
-        "unavailableName": "Lisäosa ei käytettävissä",
-        "unavailableDesc": "Tämä lisäosa on yksityinen tai sitä ei enää julkaista.",
-        "viewCta": "Näytä →"
-      },
-      "creator": {
-        "loading": "Ladataan tekijää…",
-        "notFoundTitle": "Tekijää ei löytynyt",
-        "notFoundBodyPrefix": "Kukaan ei ole vielä varannut käyttäjänimeä",
-        "notFoundBodySuffix": ".",
-        "noAddons": "{username} ei ole vielä jakanut yhtään lisäosaa.",
-        "version": "Versio {version}",
-        "addonCount": {
-          "zero": "Ei vielä lisäosia",
-          "one": "{count} lisäosa",
-          "other": "{count} lisäosaa"
-        }
-      },
-      "categories": {
-        "appsGames": "Sovellukset ja pelit",
-        "productivity": "Tuottavuus",
-        "customization": "Mukautus",
-        "skillsAgents": "Taidot ja agentit",
-        "integrations": "Integraatiot",
-        "other": "Muut"
-      },
-      "shareDialog": {
-        "title": "Jaa",
-        "titleCircle": "Jaa piirillesi",
-        "titleCircleUpdate": "Jaa päivitys",
-        "titleStore": "Jaa Storeen",
-        "titleStoreUpdate": "Lähetä päivitys",
-        "destinationLede": "Minne tämä menee? Jakaminen lähettää suoritettavaa koodia, joten valitse yleisö tarkkaan.",
-        "circleOptionName": "Kaveri tai yhteisö",
-        "circleOptionDesc": "Heti. Menee suoraan luottamillesi ihmisille jakokorttina chatissa — ei tarkistusta, ei koskaan julkisesti listattuna.",
-        "storeOptionName": "Stella Store",
-        "storeOptionDesc": "Julkinen. Stella-tiimi tarkistaa ensin, minkä jälkeen se on kaikkien saatavilla Storessa.",
-        "updateExisting": "Päivitä olemassa oleva lisäosa",
-        "existingAddon": "Olemassa oleva lisäosa",
-        "selectPlaceholder": "Valitse…",
-        "nameLabel": "Nimi",
-        "namePlaceholder": "Esimerkkimodi",
-        "descriptionLabel": "Kuvaus",
-        "optionalHint": "(valinnainen)",
-        "descriptionPlaceholderCircle": "Lyhyt rivi jakokorttiin.",
-        "descriptionPlaceholderStore": "Lyhyt rivi Store-listaukseen.",
-        "categoryLabel": "Kategoria",
-        "categoryPlaceholder": "Valitse kategoria…",
-        "sendTo": "Vastaanottajat",
-        "noRecipients": "Ei vielä kavereita tai yhteisöjä — lisää niitä ensin Viestit-sivulta.",
-        "communityFallbackName": "Yhteisö",
-        "communityTag": "Yhteisö",
-        "circleNote": "Jaot ilmestyvät heti asennettavana korttina kuhunkin keskusteluun. Vain valitsemasi ihmiset (ja kyseisten yhteisöjen jäsenet) voivat ottaa sen käyttöön.",
-        "storeNote": "Stella-tiimi tarkistaa Storeen lähetetyt lisäosat ennen kuin ne julkaistaan kaikille.",
-        "submitPending": "Jaetaan…",
-        "submitCircle": "Jaa nyt",
-        "submitStore": "Lähetä tarkistettavaksi",
-        "noSourceChangesTitle": "Ei lähdekoodin muutoksia",
-        "noSourceChangesBody": "Valitse ensin vähintään yksi tuore lähdekoodiin perustuva muutos.",
-        "pickRecipientTitle": "Valitse, kenelle jaat",
-        "pickRecipientBody": "Valitse vähintään yksi kaveri tai yhteisö.",
-        "pickAddonTitle": "Valitse lisäosa",
-        "pickAddonBody": "Valitse lisäosa, jonka haluat päivittää.",
-        "nameRequiredTitle": "Nimi vaaditaan",
-        "nameRequiredBody": "Anna lisäosallesi lyhyt nimi ennen jakamista.",
-        "badNameTitle": "Valitse toinen nimi",
-        "badNameBody": "Käytä nimessä kirjaimia tai numeroita, jotta voimme muodostaa tunnisteen.",
-        "publishBackendMissing": "Julkaisupalvelu ei ole käytettävissä.",
-        "sharingTitle": "Jaetaan",
-        "submittingTitle": "Lähetetään",
-        "inProgressBody": "Stella ilmoittaa, kun se on valmis.",
-        "submittedTitle": "Lähetetty tarkistettavaksi",
-        "submittedBody": "{name} lähetettiin Stella-tiimille. Se julkaistaan Storessa, kun se on hyväksytty.",
-        "sharedTitle": "Jaettu",
-        "shareFailedTitle": "Jakaminen epäonnistui",
-        "submissionFailedTitle": "Lähetys epäonnistui",
-        "sharedBodyDelivered": {
-          "one": "{name} on matkalla {count} keskusteluun.",
-          "other": "{name} on matkalla {count} keskusteluun."
-        },
-        "sharedBodyPartial": {
-          "one": "{name} tavoitti {delivered}/{count} keskustelua. Avaa Viestit ja yritä loppuja uudelleen.",
-          "other": "{name} tavoitti {delivered}/{count} keskustelua. Avaa Viestit ja yritä loppuja uudelleen."
-        }
-      }
     }
   },
   "ui": {
@@ -1803,10 +1454,6 @@
         "files": {
           "label": "Tiedostot",
           "description": "Sivut, kuvat, videot ja asiakirjat"
-        },
-        "store": {
-          "label": "Store",
-          "description": "Lisäosat ja tekemäsi asiat"
         },
         "trash": {
           "label": "Roskakori",
@@ -2107,48 +1754,6 @@
         "one": "{count} ajastus",
         "other": "{count} ajastusta"
       }
-    },
-    "social": {
-      "dialogDescription": "Vahvista tämä kutsu ennen kuin mitään tapahtuu.",
-      "signInToAccept": "Kirjaudu Stellaan hyväksyäksesi tämän kutsun.",
-      "lookingUpInvite": "Haetaan kutsua…",
-      "stellaAddOn": "Stella-lisäosa",
-      "stellaUser": "Stella-käyttäjä",
-      "byAuthor": " · tekijä @{username}",
-      "alreadyIn": " · olet jo mukana",
-      "membersLabel": "jäsentä",
-      "memberCount": {
-        "one": "{count} jäsen",
-        "other": "{count} jäsentä"
-      },
-      "working": "Työskennellään…",
-      "alreadyJoined": "Olet jo liittynyt",
-      "welcomeToCommunity": "Tervetuloa yhteisöön {community}!",
-      "joinedCommunity": "Liityit yhteisöön!",
-      "friendRequestSent": "Kaveripyyntö lähetetty käyttäjälle @{username}.",
-      "joinFailed": "Yhteisöön ei voitu liittyä. Kutsu on ehkä vanhentunut.",
-      "friendRequestFailed": "Kaveripyyntöä ei voitu lähettää. Yritä uudelleen.",
-      "store": {
-        "title": "Avaa lisäosa",
-        "confirmLabel": "Näytä Storessa",
-        "sub": "Avaamasi linkki osoittaa Stella-lisäosaan. Mitään ei asenneta. Tämä vain avaa sen Store-sivun.",
-        "missing": "Tämä lisäosa on yksityinen tai sitä ei enää julkaista."
-      },
-      "join": {
-        "title": "Liity yhteisöön",
-        "confirmLabel": "Liity",
-        "sub": "Sinut kutsuttiin yhteisöön: luotettuun piiriin, jossa jäsenet jakavat lisäosia toisilleen.",
-        "missing": "Tälle kutsukoodille ei löytynyt yhteisöä. Pyydä uusi linkki."
-      },
-      "friend": {
-        "title": "Lisää kaveri",
-        "confirmLabel": "Lähetä kaveripyyntö",
-        "sub": "Sinut kutsuttiin verkostoitumaan Stellassa.",
-        "missing": "Tälle kutsulinkille ei löytynyt käyttäjää."
-      }
-    },
-    "websiteView": {
-      "storeTitle": "Store"
     }
   },
   "mobile": {

@@ -87,7 +87,6 @@
       "title": "言語",
       "description": "Stella がアプリ内および応答で使う言語を選びます。"
     },
-
     "memory": {
       "title": "メモリ",
       "description": "保存されたメモリとプロフィールを Stella のモデルコンテキストに含めます。クラウド上のコピーが正本であり、転送中も保存時も暗号化されます。Stella はローカルコピーも保持する場合があります。オフにすると、以降のやり取りではメモリを使用しませんが、削除はされません。"
@@ -108,12 +107,6 @@
         "system": "システム",
         "on": "オン",
         "off": "オフ"
-      }
-    },
-    "voice": {
-      "title": "音声",
-      "personality": {
-        "label": "パーソナリティ"
       }
     },
     "notifications": {
@@ -445,7 +438,6 @@
       "resultsAriaOne": "{count} 件の結果",
       "resultsAriaOther": "{count} 件の結果",
       "descriptions": {
-        "voice": "Stella の話し方とパーソナリティの声を選びます。",
         "permissions": "macOS でアクセシビリティ・画面収録・マイクへのアクセスを許可します。",
         "shortcuts": "音声入力と音声のショートカットを変更します。",
         "backup": "自動の暗号化バックアップ、復元ポイント、オンデマンドのスナップショット。",
@@ -467,9 +459,6 @@
       "loadSoundNotifications": "サウンド通知の設定を読み込めませんでした。",
       "saveSoundNotifications": "サウンド通知の設定を更新できませんでした。",
       "soundNotificationsUnavailable": "このウィンドウではサウンド通知の設定を利用できません。",
-      "loadVoice": "音声設定を読み込めませんでした。",
-      "saveVoice": "音声設定を更新できませんでした。",
-      "voiceUnavailable": "このウィンドウでは音声設定を利用できません。",
       "loadMemory": "メモリ設定を読み込めませんでした。",
       "saveMemory": "メモリ設定を更新できませんでした。",
       "memoryUnavailable": "このウィンドウではメモリ設定を利用できません。",
@@ -722,7 +711,6 @@
       "extension": "ブラウザに Stella を追加しましょう。",
       "browser": "Stella にあなたを知ってもらいましょう。",
       "theme": "Stella の見た目はどうしますか？",
-      "personality": "Stella の話し方はどうしますか？",
       "voice": "入力ではなく声で話しかける。",
       "enter": "Stella の準備はもうすぐ整います。"
     },
@@ -834,206 +822,6 @@
     "permissionDenied": "Stella にはこの操作の権限がありません。"
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "新しいメッセージ",
-        "emptySubtitle": "会話を始めるには、まず友だちを追加してください。",
-        "description": "友だちを選ぶか、新しいグループ会話を始めましょう。",
-        "subtitle": "友だちを選ぶか、グループを作成します。",
-        "groupTitle": "新しいグループ",
-        "groupSubtitle": "このグループに追加する友だちを選んでください。",
-        "groupNameLabel": "グループ名",
-        "groupNamePlaceholder": "グループ名（任意）",
-        "members": "メンバー",
-        "back": "戻る",
-        "creating": "作成中...",
-        "createGroup": "グループを作成",
-        "newGroup": "新しいグループ",
-        "friends": "友だち",
-        "opening": "開いています..."
-      },
-      "friends": {
-        "title": "友だち",
-        "description": "フレンドコードを共有してつながるか、相手のコードを入力してリクエストを送りましょう。",
-        "subtitle": "自分のユーザー名を共有するか、友だちのユーザー名を入力してつながりましょう。",
-        "requestSent": "フレンドリクエストを送信しました！",
-        "usernameCopied": "ユーザー名をコピーしました！",
-        "inviteLinkCopied": "招待リンクをコピーしました — どこへでも送れます。",
-        "yourUsername": "あなたのユーザー名",
-        "copy": "コピー",
-        "copyUsernameTitle": "自分のユーザー名をコピー",
-        "copyInviteLink": "招待リンクをコピー",
-        "copyInviteLinkTitle": "Stella を開いてフレンドリクエストを送るリンクをコピーします — iMessage や Discord など、どこでも使えます",
-        "addLabel": "友だちを追加",
-        "addPlaceholder": "ユーザー名を入力",
-        "add": "追加",
-        "adding": "追加中...",
-        "requestsCount": "リクエスト（{count}）",
-        "accept": "承認",
-        "decline": "拒否",
-        "sent": "送信済み",
-        "waitingForResponse": "返答を待っています",
-        "friendsCount": "友だち（{count}）",
-        "empty": "友だちはまだいません。上で自分のユーザー名を共有するか、相手のユーザー名を入力してつながりましょう。",
-        "message": "メッセージ",
-        "opening": "開いています...",
-        "remove": "削除",
-        "removing": "削除中...",
-        "errors": {
-          "sendRequest": "そのフレンドリクエストを送信できませんでした。ユーザー名を確認して、もう一度お試しください。"
-        }
-      },
-      "communities": {
-        "title": "コミュニティ",
-        "description": "コミュニティを作成するか、招待コードで参加して、メンバー全員とアドオンを共有しましょう。",
-        "subtitle": "共有のための信頼できる輪。コミュニティのメンバーが共有したものは全員が見られます。",
-        "defaultName": "コミュニティ",
-        "created": "「{name}」を作成しました！",
-        "joined": "参加しました！",
-        "createLabel": "コミュニティを作成",
-        "createPlaceholder": "新しいコミュニティの名前",
-        "create": "作成",
-        "joinLabel": "招待コードで参加",
-        "joinPlaceholder": "招待コードを入力",
-        "join": "参加",
-        "yourCommunities": "あなたのコミュニティ",
-        "yourCommunitiesCount": "あなたのコミュニティ（{count}）",
-        "empty": "コミュニティはまだありません。作成して招待コードを共有するか、送られてきたコードで参加しましょう。",
-        "createdByYouSuffix": " · あなたが作成",
-        "open": "開く",
-        "details": "詳細",
-        "back": "戻る",
-        "nameLabel": "コミュニティ名",
-        "save": "保存",
-        "cancel": "キャンセル",
-        "createdByYou": "あなたがこのコミュニティを作成しました。",
-        "memberOf": "あなたはこのコミュニティのメンバーです。",
-        "inviteCode": "招待コード",
-        "copied": "コピーしました！",
-        "copyCode": "コードをコピー",
-        "copyInviteLink": "招待リンクをコピー",
-        "copyInviteLinkTitle": "Stella を開いてこのコミュニティに参加するリンクをコピー",
-        "inviteHint": "このリンクはどこでも使えます — Stella のチャットに貼り付けても、iMessage や Discord で送っても構いません。リンクを持つ人は誰でも参加できるので、信頼できる相手にのみ共有してください。",
-        "membersCount": "メンバー（{count}）",
-        "roleCreator": "作成者",
-        "roleMember": "メンバー",
-        "youSuffix": " · あなた",
-        "remove": "削除",
-        "removing": "削除中...",
-        "confirmDelete": "このコミュニティを削除しますか？",
-        "delete": "コミュニティを削除",
-        "confirmLeave": "本当に退出しますか？",
-        "leave": "コミュニティを退出",
-        "rename": "名前を変更",
-        "openChat": "チャットを開く",
-        "errors": {
-          "create": "そのコミュニティを作成できませんでした。もう一度お試しください。",
-          "join": "その招待コードでは参加できませんでした。コードを確認して、もう一度お試しください。",
-          "rename": "コミュニティの名前を変更できませんでした。もう一度お試しください。",
-          "removeMember": "そのメンバーを削除できませんでした。もう一度お試しください。",
-          "delete": "コミュニティを削除できませんでした。もう一度お試しください。",
-          "leave": "コミュニティを退出できませんでした。もう一度お試しください。"
-        },
-        "memberCount": {
-          "other": "{count} 人のメンバー"
-        }
-      },
-      "view": {
-        "messages": "メッセージ",
-        "signIn": "サインイン",
-        "signInSubtitle": "サインインすると、友だちとメッセージをやり取りし、Stella と一緒に作業できます。",
-        "friends": "友だち",
-        "communities": "コミュニティ",
-        "newMessage": "新しいメッセージ",
-        "noRooms": "会話はまだありません。友だちを追加するか、新しいメッセージを始めましょう。",
-        "addFriends": "友だちを追加",
-        "communityBadge": "コミュニティ",
-        "communityBadgeTitle": "このコミュニティの全員と共有されます",
-        "usernamePlaceholder": "your-username",
-        "editUsername": "ユーザー名を編集",
-        "copied": "コピーしました！",
-        "clickToCopyUsername": "クリックしてユーザー名をコピー",
-        "copyUsername": "ユーザー名をコピー",
-        "cancel": "キャンセル",
-        "save": "保存",
-        "saving": "保存中...",
-        "emptyTitle": "あなたのメッセージ",
-        "emptySubtitle": "左から会話を選ぶか、友だちと新しい会話を始めましょう。",
-        "errors": {
-          "startConversation": "その会話を開始できませんでした。もう一度お試しください。",
-          "createGroup": "グループを作成できませんでした。もう一度お試しください。"
-        },
-        "usernameErrors": {
-          "empty": "ユーザー名は空にできません。",
-          "length": "ユーザー名は 3〜32 文字にしてください。",
-          "format": "小文字・数字・_ または - を使用してください。先頭と末尾は英数字にする必要があります。",
-          "update": "ユーザー名を更新できませんでした。もう一度お試しください。"
-        },
-        "newRequestCount": {
-          "other": "{count} 件の新しいリクエスト"
-        },
-        "friendsWithRequestsTitle": "友だち（{countPhrase}）",
-        "friendsWithRequestsAria": "友だち、{countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "Stella は返信せずに終了しました。",
-        "stellaFailed": "Stella はそのリクエストを完了できませんでした。",
-        "stellaThinking": "Stella が考えています...",
-        "sharedStellaUnavailable": "共有 Stella はこのアプリセッションでは利用できません。",
-        "back": "戻る",
-        "backToConversations": "会話一覧に戻る",
-        "peopleCount": "{count} 人",
-        "startStella": "Stella を開始",
-        "startStellaTitle": "この会話に Stella を招き入れる",
-        "starting": "開始中...",
-        "startAgain": "もう一度開始",
-        "pause": "一時停止",
-        "resume": "再開",
-        "end": "終了",
-        "sayHello": "あいさつして会話を始めましょう",
-        "loadingOlder": "以前のメッセージを読み込み中…",
-        "armedOnTitle": "次のメッセージを Stella に送信",
-        "armedOffTitle": "次のメッセージを通常のチャットメッセージとして送信",
-        "tellStella": "Stella に伝える",
-        "tellingStella": "Stella に伝えています",
-        "tellStellaPlaceholder": "してほしいことを Stella に伝えてください...",
-        "messagePlaceholder": "{name} にメッセージ",
-        "sessionBadge": {
-          "live": "Stella · ライブ",
-          "paused": "Stella · 一時停止中",
-          "ended": "Stella · 終了"
-        },
-        "sessionHint": {
-          "live": "ここにいる全員が Stella に指示できます。",
-          "paused": "一時停止中 — 再開すると再び Stella に指示できます。",
-          "ended": "この共有 Stella スペースは終了しました。"
-        },
-        "errors": {
-          "startStella": "ここで Stella を開始できませんでした。もう一度お試しください。",
-          "updateStella": "現在 Stella を更新できませんでした。もう一度お試しください。",
-          "sendToStella": "それを Stella に送信できませんでした。もう一度お試しください。",
-          "sendMessage": "メッセージを送信できませんでした。もう一度お試しください。"
-        }
-      },
-      "composer": {
-        "placeholder": "メッセージを入力...",
-        "send": "送信"
-      },
-      "inviteCard": {
-        "communityEyebrow": "コミュニティの招待",
-        "friendEyebrow": "友だちの招待",
-        "defaultCommunityName": "コミュニティ",
-        "defaultUserName": "Stella ユーザー",
-        "friendDetail": "タップしてフレンドリクエストを送信",
-        "inviteUnavailable": "招待を利用できません",
-        "userNotFound": "ユーザーが見つかりません",
-        "communityMissing": "このコミュニティは存在しないか、コードが変更されました。",
-        "userMissing": "この招待リンクは Stella のユーザーと一致しません。",
-        "communityDetail": {
-          "other": "メンバー {countLabel} 人 · タップして参加"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "ローカルの使用状況は Stella デスクトップアプリで確認できます。",
       "intro": "このデバイスに保存されたプロバイダ呼び出しです。コストはローカルの概算で、正式な請求はバックエンドの記録に基づきます。",
@@ -1149,37 +937,6 @@
         "loadFailed": "アプリを読み込めませんでした。",
         "loading": "{name} を読み込み中…",
         "openFailed": "{name} を開けませんでした"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "人気順",
-        "name": "アルファベット順"
-      },
-      "animations": {
-        "idle": "待機",
-        "runningRight": "右に走る",
-        "runningLeft": "左に走る",
-        "waving": "手を振る",
-        "jumping": "ジャンプ",
-        "failed": "失敗",
-        "waiting": "待機中",
-        "running": "実行中",
-        "review": "確認"
-      },
-      "card": {
-        "by": "作成者: {creator}",
-        "selections": "{count} 回選択",
-        "get": "入手",
-        "select": "選択",
-        "selected": "選択中",
-        "remove": "削除"
-      },
-      "details": {
-        "caption": "作成者: {creator} · {downloads} 回選択",
-        "previewLabel": "{name} のプレビュー",
-        "animations": "アニメーション",
-        "animationStates": "アニメーションの状態"
       }
     },
     "chat": {
@@ -1611,106 +1368,6 @@
     "voice": {
       "signInTitle": "音声を使うにはサインインしてください",
       "needsSetupTitle": "音声の設定が必要です"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "Stella が変更を加えたら、ここから友だち・コミュニティ・ストアに共有できます。"
-      },
-      "recentChanges": {
-        "rowSelectHint": "クリックして共有に含める",
-        "rowDeselectHint": "クリックして選択から外す",
-        "updated": "更新 {time}",
-        "showOlder": "以前のものを表示",
-        "justNow": "たった今",
-        "publishEmpty": "共有する変更を選択",
-        "publishLabel": "共有 · {countPhrase}",
-        "selectedCount": {
-          "other": "{count} 件選択中"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "Stella のアドオン",
-        "unavailableName": "アドオンを利用できません",
-        "unavailableDesc": "このアドオンは非公開か、公開が終了しています。",
-        "viewCta": "表示 →"
-      },
-      "creator": {
-        "loading": "作成者を読み込み中…",
-        "notFoundTitle": "作成者が見つかりません",
-        "notFoundBodyPrefix": "このユーザー名はまだ誰も取得していません:",
-        "notFoundBodySuffix": "。",
-        "noAddons": "{username} はまだアドオンを共有していません。",
-        "version": "バージョン {version}",
-        "addonCount": {
-          "zero": "アドオンはまだありません",
-          "other": "{count} 個のアドオン"
-        }
-      },
-      "categories": {
-        "appsGames": "アプリとゲーム",
-        "productivity": "生産性",
-        "customization": "カスタマイズ",
-        "skillsAgents": "スキルとエージェント",
-        "integrations": "連携",
-        "other": "その他"
-      },
-      "shareDialog": {
-        "title": "共有",
-        "titleCircle": "自分の輪に共有",
-        "titleCircleUpdate": "更新を共有",
-        "titleStore": "Store に共有",
-        "titleStoreUpdate": "更新を申請",
-        "destinationLede": "これはどこに公開しますか？共有では実行可能なコードが送られるので、意図した相手を選んでください。",
-        "circleOptionName": "友だちまたはコミュニティ",
-        "circleOptionDesc": "すぐに届きます。信頼できる相手のチャットに共有カードとして直接送られます — 審査なし、一般公開もされません。",
-        "storeOptionName": "Stella Store",
-        "storeOptionDesc": "一般公開。まず Stella チームが審査し、その後ストアで全員に公開されます。",
-        "updateExisting": "既存のアドオンを更新",
-        "existingAddon": "既存のアドオン",
-        "selectPlaceholder": "選択…",
-        "nameLabel": "名前",
-        "namePlaceholder": "サンプル MOD",
-        "descriptionLabel": "説明",
-        "optionalHint": "（任意）",
-        "descriptionPlaceholderCircle": "共有カードに載せる短い一文。",
-        "descriptionPlaceholderStore": "ストア掲載用の短い一文。",
-        "categoryLabel": "カテゴリ",
-        "categoryPlaceholder": "カテゴリを選択…",
-        "sendTo": "送信先",
-        "noRecipients": "友だちもコミュニティもまだありません — まずメッセージのページで追加してください。",
-        "communityFallbackName": "コミュニティ",
-        "communityTag": "コミュニティ",
-        "circleNote": "共有は各チャットにインストール可能なカードとしてすぐに届きます。選んだ相手（およびそのコミュニティのメンバー）だけが入手できます。",
-        "storeNote": "Stella チームは、ストアへの申請を全員に公開する前に審査します。",
-        "submitPending": "共有中…",
-        "submitCircle": "今すぐ共有",
-        "submitStore": "審査に提出",
-        "noSourceChangesTitle": "ソースの変更がありません",
-        "noSourceChangesBody": "まず、ソースに基づく最近の変更を 1 つ以上選択してください。",
-        "pickRecipientTitle": "共有する相手を選択",
-        "pickRecipientBody": "友だちまたはコミュニティを 1 つ以上選んでください。",
-        "pickAddonTitle": "アドオンを選択",
-        "pickAddonBody": "更新したいアドオンを選んでください。",
-        "nameRequiredTitle": "名前が必要です",
-        "nameRequiredBody": "共有する前に、アドオンに短い名前を付けてください。",
-        "badNameTitle": "別の名前を選んでください",
-        "badNameBody": "ID を作成できるよう、名前には英数字を使用してください。",
-        "publishBackendMissing": "公開用のバックエンドを利用できません。",
-        "sharingTitle": "共有中",
-        "submittingTitle": "送信中",
-        "inProgressBody": "完了したら Stella がお知らせします。",
-        "submittedTitle": "審査に提出しました",
-        "submittedBody": "{name} を Stella チームに送信しました。承認されるとストアで公開されます。",
-        "sharedTitle": "共有しました",
-        "shareFailedTitle": "共有に失敗しました",
-        "submissionFailedTitle": "提出に失敗しました",
-        "sharedBodyDelivered": {
-          "other": "{name} を {count} 件のチャットに送信中です。"
-        },
-        "sharedBodyPartial": {
-          "other": "{name} は {count} 件中 {delivered} 件のチャットに届きました。残りを再試行するにはメッセージを開いてください。"
-        }
-      }
     }
   },
   "ui": {
@@ -1786,10 +1443,6 @@
         "files": {
           "label": "ファイル",
           "description": "ページ・画像・動画・ドキュメント"
-        },
-        "store": {
-          "label": "Store",
-          "description": "アドオンと、あなたが作ったもの"
         },
         "trash": {
           "label": "ゴミ箱",
@@ -2081,47 +1734,6 @@
       "scheduleCount": {
         "other": "{count} 件のスケジュール"
       }
-    },
-    "social": {
-      "dialogDescription": "何かが起きる前に、この招待を確認してください。",
-      "signInToAccept": "この招待を受け入れるには Stella にサインインしてください。",
-      "lookingUpInvite": "招待を確認しています…",
-      "stellaAddOn": "Stella のアドオン",
-      "stellaUser": "Stella ユーザー",
-      "byAuthor": " · @{username} による",
-      "alreadyIn": " · すでに参加済み",
-      "membersLabel": "メンバー",
-      "memberCount": {
-        "other": "{count} 人のメンバー"
-      },
-      "working": "処理中…",
-      "alreadyJoined": "参加済み",
-      "welcomeToCommunity": "{community} へようこそ！",
-      "joinedCommunity": "コミュニティに参加しました！",
-      "friendRequestSent": "@{username} にフレンドリクエストを送信しました。",
-      "joinFailed": "そのコミュニティに参加できませんでした。招待の有効期限が切れている可能性があります。",
-      "friendRequestFailed": "そのフレンドリクエストを送信できませんでした。もう一度お試しください。",
-      "store": {
-        "title": "アドオンを開く",
-        "confirmLabel": "Store で表示",
-        "sub": "開いたリンクは Stella のアドオンを指しています。インストールは行われません。Store のページを開くだけです。",
-        "missing": "このアドオンは非公開か、公開が終了しています。"
-      },
-      "join": {
-        "title": "コミュニティに参加",
-        "confirmLabel": "参加",
-        "sub": "コミュニティに招待されました。メンバー同士がアドオンを共有する、信頼できる輪です。",
-        "missing": "この招待コードに対応するコミュニティは見つかりませんでした。新しいリンクをもらってください。"
-      },
-      "friend": {
-        "title": "友だちを追加",
-        "confirmLabel": "フレンドリクエストを送信",
-        "sub": "Stella でつながるよう招待されました。",
-        "missing": "この招待リンクに対応するユーザーは見つかりませんでした。"
-      }
-    },
-    "websiteView": {
-      "storeTitle": "Store"
     }
   },
   "mobile": {

@@ -87,7 +87,6 @@
       "title": "भाषा",
       "description": "वह भाषा चुनें जिसे Stella ऐप में और जवाबों में इस्तेमाल करेगी।"
     },
-
     "memory": {
       "title": "मेमोरी",
       "description": "सेव की गई यादों और अपनी प्रोफ़ाइल को Stella के मॉडल कॉन्टेक्स्ट में शामिल करें। क्लाउड कॉपी आधिकारिक है और ट्रांज़िट व स्टोरेज दोनों में एन्क्रिप्ट की गई है; Stella एक लोकल कॉपी भी रख सकती है। इसे बंद करने पर मेमोरी आगे की बातचीत में शामिल नहीं होगी, लेकिन मिटाई नहीं जाएगी।"
@@ -108,12 +107,6 @@
         "system": "सिस्टम",
         "on": "चालू",
         "off": "बंद"
-      }
-    },
-    "voice": {
-      "title": "आवाज़",
-      "personality": {
-        "label": "व्यक्तित्व"
       }
     },
     "notifications": {
@@ -445,7 +438,6 @@
       "resultsAriaOne": "{count} परिणाम",
       "resultsAriaOther": "{count} परिणाम",
       "descriptions": {
-        "voice": "Stella की बोलने की शैली और व्यक्तित्व आवाज़ चुनें।",
         "permissions": "macOS पर एक्सेसिबिलिटी, स्क्रीन कैप्चर और माइक्रोफ़ोन एक्सेस दें।",
         "shortcuts": "डिक्टेशन और वॉइस शॉर्टकट बदलें।",
         "backup": "स्वचालित एन्क्रिप्टेड बैकअप, पुनर्स्थापना बिंदु और मांग पर स्नैपशॉट।",
@@ -467,9 +459,6 @@
       "loadSoundNotifications": "ध्वनि सूचना सेटिंग लोड करने में विफल।",
       "saveSoundNotifications": "ध्वनि सूचना सेटिंग अपडेट करने में विफल।",
       "soundNotificationsUnavailable": "इस विंडो में ध्वनि सूचना सेटिंग्स उपलब्ध नहीं हैं।",
-      "loadVoice": "आवाज़ सेटिंग लोड करने में विफल।",
-      "saveVoice": "आवाज़ सेटिंग अपडेट करने में विफल।",
-      "voiceUnavailable": "इस विंडो में आवाज़ सेटिंग्स उपलब्ध नहीं हैं।",
       "loadMemory": "मेमोरी सेटिंग लोड करने में विफल।",
       "saveMemory": "मेमोरी सेटिंग अपडेट करने में विफल।",
       "memoryUnavailable": "इस विंडो में मेमोरी सेटिंग्स उपलब्ध नहीं हैं।",
@@ -723,7 +712,6 @@
       "extension": "अपने ब्राउज़र में Stella जोड़ें।",
       "browser": "Stella को आपको जानने दें।",
       "theme": "Stella कैसी दिखे?",
-      "personality": "Stella कैसे बात करे?",
       "voice": "टाइप करने के बजाय बोलें।",
       "enter": "Stella लगभग तैयार है।"
     },
@@ -835,209 +823,6 @@
     "permissionDenied": "Stella के पास यह करने की अनुमति नहीं है।"
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "नया संदेश",
-        "emptySubtitle": "बातचीत शुरू करने के लिए पहले कुछ मित्र जोड़ें।",
-        "description": "कोई मित्र चुनें या नई समूह बातचीत शुरू करें।",
-        "subtitle": "कोई मित्र चुनें या समूह बनाएँ।",
-        "groupTitle": "नया समूह",
-        "groupSubtitle": "इस समूह में जोड़ने के लिए मित्र चुनें।",
-        "groupNameLabel": "समूह का नाम",
-        "groupNamePlaceholder": "समूह का नाम (वैकल्पिक)",
-        "members": "सदस्य",
-        "back": "वापस",
-        "creating": "बनाया जा रहा है...",
-        "createGroup": "समूह बनाएँ",
-        "newGroup": "नया समूह",
-        "friends": "मित्र",
-        "opening": "खुल रहा है..."
-      },
-      "friends": {
-        "title": "मित्र",
-        "description": "जुड़ने के लिए अपना फ़्रेंड कोड साझा करें, या अनुरोध भेजने के लिए किसी और का दर्ज करें।",
-        "subtitle": "अपना उपयोगकर्ता नाम साझा करें, या जुड़ने के लिए किसी मित्र का दर्ज करें।",
-        "requestSent": "मित्र अनुरोध भेजा गया!",
-        "usernameCopied": "उपयोगकर्ता नाम कॉपी हुआ!",
-        "inviteLinkCopied": "आमंत्रण लिंक कॉपी हुआ — इसे कहीं भी भेजें।",
-        "yourUsername": "आपका उपयोगकर्ता नाम",
-        "copy": "कॉपी करें",
-        "copyUsernameTitle": "अपना उपयोगकर्ता नाम कॉपी करें",
-        "copyInviteLink": "आमंत्रण लिंक कॉपी करें",
-        "copyInviteLinkTitle": "ऐसा लिंक कॉपी करें जो Stella खोलकर आपको मित्र अनुरोध भेजे — iMessage, Discord, कहीं भी काम करता है",
-        "addLabel": "मित्र जोड़ें",
-        "addPlaceholder": "उपयोगकर्ता नाम दर्ज करें",
-        "add": "जोड़ें",
-        "adding": "जोड़ा जा रहा है...",
-        "requestsCount": "अनुरोध ({count})",
-        "accept": "स्वीकारें",
-        "decline": "अस्वीकारें",
-        "sent": "भेजा गया",
-        "waitingForResponse": "उत्तर की प्रतीक्षा",
-        "friendsCount": "मित्र ({count})",
-        "empty": "अभी तक कोई मित्र नहीं। जुड़ने के लिए ऊपर अपना उपयोगकर्ता नाम साझा करें या किसी और का दर्ज करें।",
-        "message": "संदेश",
-        "opening": "खुल रहा है...",
-        "remove": "हटाएँ",
-        "removing": "हटाया जा रहा है...",
-        "errors": {
-          "sendRequest": "वह मित्र अनुरोध नहीं भेजा जा सका। उपयोगकर्ता नाम जाँचें और फिर कोशिश करें।"
-        }
-      },
-      "communities": {
-        "title": "समुदाय",
-        "description": "समुदाय बनाएँ या आमंत्रण कोड से किसी में शामिल हों, फिर उसमें सबके साथ ऐड-ऑन साझा करें।",
-        "subtitle": "साझा करने के लिए भरोसेमंद मंडलियाँ। समुदाय का हर सदस्य देखता है कि उसके सदस्य क्या साझा करते हैं।",
-        "defaultName": "समुदाय",
-        "created": "\"{name}\" बनाया गया!",
-        "joined": "आप शामिल हो गए!",
-        "createLabel": "समुदाय बनाएँ",
-        "createPlaceholder": "नए समुदाय को नाम दें",
-        "create": "बनाएँ",
-        "joinLabel": "आमंत्रण कोड से शामिल हों",
-        "joinPlaceholder": "आमंत्रण कोड दर्ज करें",
-        "join": "शामिल हों",
-        "yourCommunities": "आपके समुदाय",
-        "yourCommunitiesCount": "आपके समुदाय ({count})",
-        "empty": "अभी तक कोई समुदाय नहीं। एक बनाएँ और आमंत्रण कोड साझा करें, या किसी के भेजे कोड से शामिल हों।",
-        "createdByYouSuffix": " · आपने बनाया",
-        "open": "खोलें",
-        "details": "विवरण",
-        "back": "वापस",
-        "nameLabel": "समुदाय का नाम",
-        "save": "सहेजें",
-        "cancel": "रद्द करें",
-        "createdByYou": "यह समुदाय आपने बनाया है।",
-        "memberOf": "आप इस समुदाय के सदस्य हैं।",
-        "inviteCode": "आमंत्रण कोड",
-        "copied": "कॉपी हुआ!",
-        "copyCode": "कोड कॉपी करें",
-        "copyInviteLink": "आमंत्रण लिंक कॉपी करें",
-        "copyInviteLinkTitle": "ऐसा लिंक कॉपी करें जो Stella खोलकर इस समुदाय में शामिल कर दे",
-        "inviteHint": "यह लिंक कहीं भी काम करता है — इसे Stella चैट में चिपकाएँ या iMessage या Discord पर भेजें। जिसके पास भी यह होगा वह शामिल हो सकता है, इसलिए इसे केवल भरोसेमंद लोगों से साझा करें।",
-        "membersCount": "सदस्य ({count})",
-        "roleCreator": "निर्माता",
-        "roleMember": "सदस्य",
-        "youSuffix": " · आप",
-        "remove": "हटाएँ",
-        "removing": "हटाया जा रहा है...",
-        "confirmDelete": "क्या वाकई इस समुदाय को हटाना है?",
-        "delete": "समुदाय हटाएँ",
-        "confirmLeave": "क्या वाकई छोड़ना है?",
-        "leave": "समुदाय छोड़ें",
-        "rename": "नाम बदलें",
-        "openChat": "चैट खोलें",
-        "errors": {
-          "create": "वह समुदाय नहीं बनाया जा सका। कृपया फिर कोशिश करें।",
-          "join": "उस आमंत्रण कोड से शामिल नहीं हुआ जा सका। कोड जाँचें और फिर कोशिश करें।",
-          "rename": "समुदाय का नाम नहीं बदला जा सका। कृपया फिर कोशिश करें।",
-          "removeMember": "उस सदस्य को नहीं हटाया जा सका। कृपया फिर कोशिश करें।",
-          "delete": "समुदाय नहीं हटाया जा सका। कृपया फिर कोशिश करें।",
-          "leave": "समुदाय नहीं छोड़ा जा सका। कृपया फिर कोशिश करें।"
-        },
-        "memberCount": {
-          "one": "{count} सदस्य",
-          "other": "{count} सदस्य"
-        }
-      },
-      "view": {
-        "messages": "संदेश",
-        "signIn": "साइन इन करें",
-        "signInSubtitle": "मित्रों को संदेश भेजने और Stella के साथ मिलकर काम करने के लिए साइन इन करें।",
-        "friends": "मित्र",
-        "communities": "समुदाय",
-        "newMessage": "नया संदेश",
-        "noRooms": "अभी तक कोई बातचीत नहीं। मित्र जोड़ें या नया संदेश शुरू करें।",
-        "addFriends": "मित्र जोड़ें",
-        "communityBadge": "समुदाय",
-        "communityBadgeTitle": "इस समुदाय के सभी लोगों के साथ साझा",
-        "usernamePlaceholder": "your-username",
-        "editUsername": "अपना उपयोगकर्ता नाम बदलें",
-        "copied": "कॉपी हुआ!",
-        "clickToCopyUsername": "अपना उपयोगकर्ता नाम कॉपी करने के लिए क्लिक करें",
-        "copyUsername": "उपयोगकर्ता नाम कॉपी करें",
-        "cancel": "रद्द करें",
-        "save": "सहेजें",
-        "saving": "सहेजा जा रहा है...",
-        "emptyTitle": "आपके संदेश",
-        "emptySubtitle": "बाईं ओर से कोई बातचीत चुनें, या किसी मित्र के साथ नई शुरू करें।",
-        "errors": {
-          "startConversation": "वह बातचीत शुरू नहीं की जा सकी। कृपया फिर कोशिश करें।",
-          "createGroup": "समूह नहीं बनाया जा सका। कृपया फिर कोशिश करें।"
-        },
-        "usernameErrors": {
-          "empty": "उपयोगकर्ता नाम खाली नहीं हो सकता।",
-          "length": "उपयोगकर्ता नाम 3-32 वर्णों का होना चाहिए।",
-          "format": "छोटे अक्षर, अंक, _ या - का उपयोग करें। शुरुआत और अंत अक्षर या अंक से होना चाहिए।",
-          "update": "आपका उपयोगकर्ता नाम अपडेट नहीं हो सका। कृपया फिर कोशिश करें।"
-        },
-        "newRequestCount": {
-          "one": "{count} नया अनुरोध",
-          "other": "{count} नए अनुरोध"
-        },
-        "friendsWithRequestsTitle": "मित्र ({countPhrase})",
-        "friendsWithRequestsAria": "मित्र, {countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "Stella ने बिना उत्तर के समाप्त किया।",
-        "stellaFailed": "Stella वह अनुरोध पूरा नहीं कर सकी।",
-        "stellaThinking": "Stella सोच रही है...",
-        "sharedStellaUnavailable": "साझा Stella इस ऐप सत्र में उपलब्ध नहीं है।",
-        "back": "वापस",
-        "backToConversations": "बातचीत पर वापस",
-        "peopleCount": "{count} लोग",
-        "startStella": "Stella शुरू करें",
-        "startStellaTitle": "Stella को इस बातचीत में लाएँ",
-        "starting": "शुरू हो रही है...",
-        "startAgain": "फिर शुरू करें",
-        "pause": "रोकें",
-        "resume": "जारी रखें",
-        "end": "समाप्त करें",
-        "sayHello": "बातचीत शुरू करने के लिए नमस्ते कहें",
-        "loadingOlder": "पुराने संदेश लोड हो रहे हैं…",
-        "armedOnTitle": "अगला संदेश Stella को भेजें",
-        "armedOffTitle": "अगला संदेश सामान्य चैट संदेश के रूप में भेजें",
-        "tellStella": "Stella को बताएँ",
-        "tellingStella": "Stella को बताया जा रहा है",
-        "tellStellaPlaceholder": "Stella को बताएँ कि आप क्या चाहते हैं...",
-        "messagePlaceholder": "{name} को संदेश",
-        "sessionBadge": {
-          "live": "Stella · लाइव",
-          "paused": "Stella · रुकी हुई",
-          "ended": "Stella · समाप्त"
-        },
-        "sessionHint": {
-          "live": "यहाँ मौजूद कोई भी Stella को बता सकता है।",
-          "paused": "रुकी हुई — Stella को फिर बताने के लिए जारी रखें।",
-          "ended": "यह साझा Stella स्पेस समाप्त हो गया है।"
-        },
-        "errors": {
-          "startStella": "यहाँ Stella शुरू नहीं की जा सकी। कृपया फिर कोशिश करें।",
-          "updateStella": "अभी Stella अपडेट नहीं हो सकी। कृपया फिर कोशिश करें।",
-          "sendToStella": "वह Stella को नहीं भेजा जा सका। कृपया फिर कोशिश करें।",
-          "sendMessage": "आपका संदेश नहीं भेजा जा सका। कृपया फिर कोशिश करें।"
-        }
-      },
-      "composer": {
-        "placeholder": "संदेश लिखें...",
-        "send": "भेजें"
-      },
-      "inviteCard": {
-        "communityEyebrow": "समुदाय आमंत्रण",
-        "friendEyebrow": "मित्र आमंत्रण",
-        "defaultCommunityName": "समुदाय",
-        "defaultUserName": "Stella उपयोगकर्ता",
-        "friendDetail": "मित्र अनुरोध भेजने के लिए टैप करें",
-        "inviteUnavailable": "आमंत्रण अनुपलब्ध",
-        "userNotFound": "उपयोगकर्ता नहीं मिला",
-        "communityMissing": "यह समुदाय अब मौजूद नहीं है या कोड बदल गया है।",
-        "userMissing": "यह आमंत्रण लिंक किसी Stella उपयोगकर्ता से मेल नहीं खाता।",
-        "communityDetail": {
-          "one": "{countLabel} सदस्य · शामिल होने के लिए टैप करें",
-          "other": "{countLabel} सदस्य · शामिल होने के लिए टैप करें"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "स्थानीय उपयोग Stella डेस्कटॉप ऐप में उपलब्ध है।",
       "intro": "इस डिवाइस पर सहेजे गए प्रदाता कॉल। लागतें स्थानीय अनुमान हैं; बैकएंड बिलिंग ही अंतिम मानी जाती है।",
@@ -1153,37 +938,6 @@
         "loadFailed": "ऐप लोड नहीं हो सका।",
         "loading": "{name} लोड हो रहा है…",
         "openFailed": "{name} नहीं खुल सका"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "सबसे लोकप्रिय",
-        "name": "वर्णक्रम अनुसार"
-      },
-      "animations": {
-        "idle": "निष्क्रिय",
-        "runningRight": "दाएँ दौड़ना",
-        "runningLeft": "बाएँ दौड़ना",
-        "waving": "हाथ हिलाना",
-        "jumping": "कूदना",
-        "failed": "विफल",
-        "waiting": "प्रतीक्षा",
-        "running": "चल रहा है",
-        "review": "समीक्षा"
-      },
-      "card": {
-        "by": "{creator} द्वारा",
-        "selections": "{count} चयन",
-        "get": "लें",
-        "select": "चुनें",
-        "selected": "चयनित",
-        "remove": "हटाएँ"
-      },
-      "details": {
-        "caption": "{creator} द्वारा · {downloads} चयन",
-        "previewLabel": "{name} पूर्वावलोकन",
-        "animations": "एनिमेशन",
-        "animationStates": "एनिमेशन अवस्थाएँ"
       }
     },
     "chat": {
@@ -1623,110 +1377,6 @@
     "voice": {
       "signInTitle": "आवाज़ उपयोग करने के लिए साइन इन करें",
       "needsSetupTitle": "आवाज़ के लिए सेटअप ज़रूरी है"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "जब Stella आपके लिए कोई बदलाव कर दे, तो उसे यहाँ से मित्रों, किसी समुदाय या स्टोर के साथ साझा करें।"
-      },
-      "recentChanges": {
-        "rowSelectHint": "साझा करने में शामिल करने के लिए क्लिक करें",
-        "rowDeselectHint": "चयन से हटाने के लिए क्लिक करें",
-        "updated": "{time} को अपडेट हुआ",
-        "showOlder": "पुराने दिखाएँ",
-        "justNow": "अभी-अभी",
-        "publishEmpty": "साझा करने के लिए बदलाव चुनें",
-        "publishLabel": "साझा करें · {countPhrase}",
-        "selectedCount": {
-          "one": "{count} चयनित",
-          "other": "{count} चयनित"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "Stella ऐड-ऑन",
-        "unavailableName": "ऐड-ऑन अनुपलब्ध",
-        "unavailableDesc": "यह ऐड-ऑन निजी है या अब प्रकाशित नहीं है।",
-        "viewCta": "देखें →"
-      },
-      "creator": {
-        "loading": "निर्माता लोड हो रहा है…",
-        "notFoundTitle": "निर्माता नहीं मिला",
-        "notFoundBodyPrefix": "अभी तक किसी ने यह उपयोगकर्ता नाम नहीं लिया है",
-        "notFoundBodySuffix": "।",
-        "noAddons": "{username} ने अभी तक कोई ऐड-ऑन साझा नहीं किया है।",
-        "version": "संस्करण {version}",
-        "addonCount": {
-          "zero": "अभी तक कोई ऐड-ऑन नहीं",
-          "one": "{count} ऐड-ऑन",
-          "other": "{count} ऐड-ऑन"
-        }
-      },
-      "categories": {
-        "appsGames": "ऐप्स और गेम",
-        "productivity": "उत्पादकता",
-        "customization": "अनुकूलन",
-        "skillsAgents": "कौशल और एजेंट",
-        "integrations": "एकीकरण",
-        "other": "अन्य"
-      },
-      "shareDialog": {
-        "title": "साझा करें",
-        "titleCircle": "अपने दायरे के साथ साझा करें",
-        "titleCircleUpdate": "एक अपडेट साझा करें",
-        "titleStore": "Store पर साझा करें",
-        "titleStoreUpdate": "अपडेट सबमिट करें",
-        "destinationLede": "यह कहाँ जाना चाहिए? साझा करने पर चलने योग्य कोड भेजा जाता है, इसलिए सोच-समझकर दर्शक चुनें।",
-        "circleOptionName": "कोई मित्र या समुदाय",
-        "circleOptionDesc": "तुरंत। भरोसेमंद लोगों तक चैट में शेयर कार्ड के रूप में सीधे पहुँचता है — कोई समीक्षा नहीं, सार्वजनिक रूप से कभी सूचीबद्ध नहीं।",
-        "storeOptionName": "Stella Store",
-        "storeOptionDesc": "सार्वजनिक। पहले Stella टीम समीक्षा करती है, फिर सबके लिए स्टोर में लाइव।",
-        "updateExisting": "किसी मौजूदा ऐड-ऑन को अपडेट करें",
-        "existingAddon": "मौजूदा ऐड-ऑन",
-        "selectPlaceholder": "चुनें…",
-        "nameLabel": "नाम",
-        "namePlaceholder": "उदाहरण मॉड",
-        "descriptionLabel": "विवरण",
-        "optionalHint": "(वैकल्पिक)",
-        "descriptionPlaceholderCircle": "शेयर कार्ड के लिए एक छोटी पंक्ति।",
-        "descriptionPlaceholderStore": "स्टोर लिस्टिंग के लिए एक छोटी पंक्ति।",
-        "categoryLabel": "श्रेणी",
-        "categoryPlaceholder": "श्रेणी चुनें…",
-        "sendTo": "इन्हें भेजें",
-        "noRecipients": "अभी कोई मित्र या समुदाय नहीं — पहले संदेश पृष्ठ से कुछ जोड़ें।",
-        "communityFallbackName": "समुदाय",
-        "communityTag": "समुदाय",
-        "circleNote": "साझा की गई चीज़ें हर चैट में तुरंत इंस्टॉल करने योग्य कार्ड के रूप में पहुँचती हैं। केवल आपके चुने लोग (और उन समुदायों के सदस्य) इसे ले सकते हैं।",
-        "storeNote": "स्टोर सबमिशन सबके लिए लाइव होने से पहले Stella टीम उनकी समीक्षा करती है।",
-        "submitPending": "साझा किया जा रहा है…",
-        "submitCircle": "अभी साझा करें",
-        "submitStore": "समीक्षा के लिए भेजें",
-        "noSourceChangesTitle": "कोई स्रोत बदलाव नहीं",
-        "noSourceChangesBody": "पहले कम से कम एक हालिया स्रोत-आधारित बदलाव चुनें।",
-        "pickRecipientTitle": "साझा करने के लिए किसी को चुनें",
-        "pickRecipientBody": "कम से कम एक मित्र या समुदाय चुनें।",
-        "pickAddonTitle": "कोई ऐड-ऑन चुनें",
-        "pickAddonBody": "वह ऐड-ऑन चुनें जिसे आप अपडेट करना चाहते हैं।",
-        "nameRequiredTitle": "नाम आवश्यक है",
-        "nameRequiredBody": "साझा करने से पहले अपने ऐड-ऑन को एक छोटा नाम दें।",
-        "badNameTitle": "कोई दूसरा नाम चुनें",
-        "badNameBody": "नाम में अक्षर या अंक उपयोग करें ताकि हम एक ID बना सकें।",
-        "publishBackendMissing": "प्रकाशन बैकएंड उपलब्ध नहीं है।",
-        "sharingTitle": "साझा किया जा रहा है",
-        "submittingTitle": "भेजा जा रहा है",
-        "inProgressBody": "पूरा होने पर Stella आपको बता देगी।",
-        "submittedTitle": "समीक्षा के लिए भेजा गया",
-        "submittedBody": "{name} Stella टीम को भेजा गया। मंज़ूरी मिलते ही यह स्टोर में लाइव हो जाएगा।",
-        "sharedTitle": "साझा किया गया",
-        "shareFailedTitle": "साझा करना विफल",
-        "submissionFailedTitle": "सबमिशन विफल",
-        "sharedBodyDelivered": {
-          "one": "{name} {count} चैट तक पहुँच रहा है।",
-          "other": "{name} {count} चैट तक पहुँच रहा है।"
-        },
-        "sharedBodyPartial": {
-          "one": "{name} {count} में से {delivered} चैट तक पहुँचा। बाकी के लिए संदेश खोलकर फिर कोशिश करें।",
-          "other": "{name} {count} में से {delivered} चैट तक पहुँचा। बाकी के लिए संदेश खोलकर फिर कोशिश करें।"
-        }
-      }
     }
   },
   "ui": {
@@ -1804,10 +1454,6 @@
         "files": {
           "label": "फ़ाइलें",
           "description": "पेज, छवियाँ, वीडियो और दस्तावेज़"
-        },
-        "store": {
-          "label": "Store",
-          "description": "ऐड-ऑन और आपकी बनाई चीज़ें"
         },
         "trash": {
           "label": "ट्रैश",
@@ -2108,48 +1754,6 @@
         "one": "{count} शेड्यूल",
         "other": "{count} शेड्यूल"
       }
-    },
-    "social": {
-      "dialogDescription": "कुछ भी होने से पहले इस आमंत्रण की पुष्टि करें।",
-      "signInToAccept": "यह आमंत्रण स्वीकारने के लिए Stella में साइन इन करें।",
-      "lookingUpInvite": "आमंत्रण खोजा जा रहा है…",
-      "stellaAddOn": "Stella ऐड-ऑन",
-      "stellaUser": "Stella उपयोगकर्ता",
-      "byAuthor": " · @{username} द्वारा",
-      "alreadyIn": " · आप पहले से शामिल हैं",
-      "membersLabel": "सदस्य",
-      "memberCount": {
-        "one": "{count} सदस्य",
-        "other": "{count} सदस्य"
-      },
-      "working": "काम चल रहा है…",
-      "alreadyJoined": "पहले से शामिल",
-      "welcomeToCommunity": "{community} में आपका स्वागत है!",
-      "joinedCommunity": "आप समुदाय में शामिल हो गए!",
-      "friendRequestSent": "@{username} को मित्र अनुरोध भेजा गया।",
-      "joinFailed": "उस समुदाय में शामिल नहीं हुआ जा सका। आमंत्रण समाप्त हो चुका हो सकता है।",
-      "friendRequestFailed": "वह मित्र अनुरोध नहीं भेजा जा सका। कृपया फिर कोशिश करें।",
-      "store": {
-        "title": "ऐड-ऑन खोलें",
-        "confirmLabel": "Store में देखें",
-        "sub": "आपने जो लिंक खोला वह किसी Stella ऐड-ऑन की ओर इशारा करता है। कुछ भी इंस्टॉल नहीं होता। इससे केवल उसका Store पेज खुलता है।",
-        "missing": "यह ऐड-ऑन निजी है या अब प्रकाशित नहीं है।"
-      },
-      "join": {
-        "title": "समुदाय में शामिल हों",
-        "confirmLabel": "शामिल हों",
-        "sub": "आपको एक समुदाय में आमंत्रित किया गया है: एक भरोसेमंद मंडली जहाँ सदस्य एक-दूसरे के साथ ऐड-ऑन साझा करते हैं।",
-        "missing": "इस आमंत्रण कोड के लिए कोई समुदाय नहीं मिला। कोई नया लिंक माँगें।"
-      },
-      "friend": {
-        "title": "मित्र जोड़ें",
-        "confirmLabel": "मित्र अनुरोध भेजें",
-        "sub": "आपको Stella पर जुड़ने के लिए आमंत्रित किया गया है।",
-        "missing": "इस आमंत्रण लिंक के लिए कोई उपयोगकर्ता नहीं मिला।"
-      }
-    },
-    "websiteView": {
-      "storeTitle": "Store"
     }
   },
   "mobile": {

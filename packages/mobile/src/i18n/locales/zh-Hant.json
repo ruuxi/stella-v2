@@ -109,12 +109,6 @@
         "off": "關閉"
       }
     },
-    "voice": {
-      "title": "語音",
-      "personality": {
-        "label": "個性"
-      }
-    },
     "notifications": {
       "title": "聲音通知",
       "description": "當 Stella 完成一次代理執行時播放聲音。"
@@ -444,7 +438,6 @@
       "resultsAriaOne": "{count} 筆結果",
       "resultsAriaOther": "{count} 筆結果",
       "descriptions": {
-        "voice": "選擇 Stella 的說話風格和個性語音。",
         "permissions": "在 macOS 上授予輔助使用、螢幕錄製和麥克風存取權。",
         "shortcuts": "變更聽寫與語音快速鍵。",
         "backup": "自動加密備份、還原點和隨需快照。",
@@ -466,9 +459,6 @@
       "loadSoundNotifications": "載入聲音通知設定失敗。",
       "saveSoundNotifications": "更新聲音通知設定失敗。",
       "soundNotificationsUnavailable": "此視窗中無法使用聲音通知設定。",
-      "loadVoice": "載入語音設定失敗。",
-      "saveVoice": "更新語音設定失敗。",
-      "voiceUnavailable": "此視窗中無法使用語音設定。",
       "loadMemory": "載入記憶設定失敗。",
       "saveMemory": "更新記憶設定失敗。",
       "memoryUnavailable": "此視窗中無法使用記憶設定。",
@@ -721,7 +711,6 @@
       "extension": "將 Stella 加入您的瀏覽器。",
       "browser": "讓 Stella 認識您。",
       "theme": "Stella 該長什麼樣子？",
-      "personality": "Stella 該怎麼說話？",
       "voice": "用說的，不要用打字。",
       "enter": "Stella 即將準備就緒。"
     },
@@ -833,206 +822,6 @@
     "permissionDenied": "Stella 沒有執行此操作的權限。"
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "新訊息",
-        "emptySubtitle": "先加一些好友才能開始對話。",
-        "description": "選擇一位好友，或開始新的群組對話。",
-        "subtitle": "選擇一位好友，或建立群組。",
-        "groupTitle": "新群組",
-        "groupSubtitle": "選擇要加入此群組的好友。",
-        "groupNameLabel": "群組名稱",
-        "groupNamePlaceholder": "群組名稱（選填）",
-        "members": "成員",
-        "back": "返回",
-        "creating": "正在建立...",
-        "createGroup": "建立群組",
-        "newGroup": "新群組",
-        "friends": "好友",
-        "opening": "正在開啟..."
-      },
-      "friends": {
-        "title": "好友",
-        "description": "分享你的好友代碼以建立連結，或輸入別人的代碼來送出邀請。",
-        "subtitle": "分享你的使用者名稱，或輸入好友的使用者名稱來建立連結。",
-        "requestSent": "已送出好友邀請！",
-        "usernameCopied": "已複製使用者名稱！",
-        "inviteLinkCopied": "已複製邀請連結 — 可傳送到任何地方。",
-        "yourUsername": "你的使用者名稱",
-        "copy": "複製",
-        "copyUsernameTitle": "複製你的使用者名稱",
-        "copyInviteLink": "複製邀請連結",
-        "copyInviteLinkTitle": "複製一個連結，它會開啟 Stella 並向你送出好友邀請 — 在 iMessage、Discord 等任何地方都能用",
-        "addLabel": "加好友",
-        "addPlaceholder": "輸入使用者名稱",
-        "add": "新增",
-        "adding": "正在新增...",
-        "requestsCount": "邀請（{count}）",
-        "accept": "接受",
-        "decline": "拒絕",
-        "sent": "已送出",
-        "waitingForResponse": "等待回覆",
-        "friendsCount": "好友（{count}）",
-        "empty": "還沒有好友。分享你的使用者名稱，或在上方輸入別人的使用者名稱來建立連結。",
-        "message": "傳訊息",
-        "opening": "正在開啟...",
-        "remove": "移除",
-        "removing": "正在移除...",
-        "errors": {
-          "sendRequest": "無法送出該好友邀請。請確認使用者名稱後再試一次。"
-        }
-      },
-      "communities": {
-        "title": "社群",
-        "description": "建立一個社群，或用邀請碼加入，然後和其中的所有人分享外掛。",
-        "subtitle": "用來分享的信任圈。社群中的每個人都能看到成員分享的內容。",
-        "defaultName": "社群",
-        "created": "已建立「{name}」！",
-        "joined": "你已加入！",
-        "createLabel": "建立社群",
-        "createPlaceholder": "為新社群命名",
-        "create": "建立",
-        "joinLabel": "使用邀請碼加入",
-        "joinPlaceholder": "輸入邀請碼",
-        "join": "加入",
-        "yourCommunities": "你的社群",
-        "yourCommunitiesCount": "你的社群（{count}）",
-        "empty": "還沒有社群。建立一個並分享邀請碼，或用別人傳給你的代碼加入。",
-        "createdByYouSuffix": " · 由你建立",
-        "open": "開啟",
-        "details": "詳細資料",
-        "back": "返回",
-        "nameLabel": "社群名稱",
-        "save": "儲存",
-        "cancel": "取消",
-        "createdByYou": "此社群由你建立。",
-        "memberOf": "你是此社群的成員。",
-        "inviteCode": "邀請碼",
-        "copied": "已複製！",
-        "copyCode": "複製代碼",
-        "copyInviteLink": "複製邀請連結",
-        "copyInviteLinkTitle": "複製一個連結，它會開啟 Stella 並加入此社群",
-        "inviteHint": "這個連結在任何地方都能用 — 貼到 Stella 聊天中，或透過 iMessage 或 Discord 傳送。任何拿到它的人都能加入，所以只分享給你信任的人。",
-        "membersCount": "成員（{count}）",
-        "roleCreator": "建立者",
-        "roleMember": "成員",
-        "youSuffix": " · 你",
-        "remove": "移除",
-        "removing": "正在移除...",
-        "confirmDelete": "確定要刪除此社群嗎？",
-        "delete": "刪除社群",
-        "confirmLeave": "確定要離開嗎？",
-        "leave": "離開社群",
-        "rename": "重新命名",
-        "openChat": "開啟聊天",
-        "errors": {
-          "create": "無法建立該社群。請再試一次。",
-          "join": "無法用該邀請碼加入。請確認代碼後再試一次。",
-          "rename": "無法重新命名該社群。請再試一次。",
-          "removeMember": "無法移除該成員。請再試一次。",
-          "delete": "無法刪除該社群。請再試一次。",
-          "leave": "無法離開該社群。請再試一次。"
-        },
-        "memberCount": {
-          "other": "{count} 位成員"
-        }
-      },
-      "view": {
-        "messages": "訊息",
-        "signIn": "登入",
-        "signInSubtitle": "登入後即可傳訊息給好友，並與 Stella 一起協作。",
-        "friends": "好友",
-        "communities": "社群",
-        "newMessage": "新訊息",
-        "noRooms": "還沒有對話。加好友或開始新訊息。",
-        "addFriends": "加好友",
-        "communityBadge": "社群",
-        "communityBadgeTitle": "與此社群的所有人共享",
-        "usernamePlaceholder": "your-username",
-        "editUsername": "編輯你的使用者名稱",
-        "copied": "已複製！",
-        "clickToCopyUsername": "點擊以複製你的使用者名稱",
-        "copyUsername": "複製使用者名稱",
-        "cancel": "取消",
-        "save": "儲存",
-        "saving": "正在儲存...",
-        "emptyTitle": "你的訊息",
-        "emptySubtitle": "從左側選擇一個對話，或與好友開始新的對話。",
-        "errors": {
-          "startConversation": "無法開始該對話。請再試一次。",
-          "createGroup": "無法建立該群組。請再試一次。"
-        },
-        "usernameErrors": {
-          "empty": "使用者名稱不能為空。",
-          "length": "使用者名稱必須為 3-32 個字元。",
-          "format": "請使用小寫字母、數字、_ 或 -。必須以字母或數字開頭和結尾。",
-          "update": "無法更新你的使用者名稱。請再試一次。"
-        },
-        "newRequestCount": {
-          "other": "{count} 則新邀請"
-        },
-        "friendsWithRequestsTitle": "好友（{countPhrase}）",
-        "friendsWithRequestsAria": "好友，{countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "Stella 已結束，但沒有回覆。",
-        "stellaFailed": "Stella 無法完成該請求。",
-        "stellaThinking": "Stella 正在思考...",
-        "sharedStellaUnavailable": "共享 Stella 在此 App 工作階段中無法使用。",
-        "back": "返回",
-        "backToConversations": "返回對話列表",
-        "peopleCount": "{count} 人",
-        "startStella": "啟動 Stella",
-        "startStellaTitle": "把 Stella 加入此對話",
-        "starting": "正在啟動...",
-        "startAgain": "重新啟動",
-        "pause": "暫停",
-        "resume": "繼續",
-        "end": "結束",
-        "sayHello": "打聲招呼來開始對話",
-        "loadingOlder": "正在載入較舊的訊息…",
-        "armedOnTitle": "把下一則訊息傳給 Stella",
-        "armedOffTitle": "把下一則訊息當作一般聊天訊息傳送",
-        "tellStella": "告訴 Stella",
-        "tellingStella": "正在告訴 Stella",
-        "tellStellaPlaceholder": "告訴 Stella 你想要什麼...",
-        "messagePlaceholder": "傳訊息給 {name}",
-        "sessionBadge": {
-          "live": "Stella · 進行中",
-          "paused": "Stella · 已暫停",
-          "ended": "Stella · 已結束"
-        },
-        "sessionHint": {
-          "live": "這裡的任何人都可以告訴 Stella。",
-          "paused": "已暫停 — 繼續後可再次告訴 Stella。",
-          "ended": "此共享 Stella 空間已結束。"
-        },
-        "errors": {
-          "startStella": "無法在此啟動 Stella。請再試一次。",
-          "updateStella": "目前無法更新 Stella。請再試一次。",
-          "sendToStella": "無法把內容傳給 Stella。請再試一次。",
-          "sendMessage": "無法傳送你的訊息。請再試一次。"
-        }
-      },
-      "composer": {
-        "placeholder": "寫點什麼...",
-        "send": "傳送"
-      },
-      "inviteCard": {
-        "communityEyebrow": "社群邀請",
-        "friendEyebrow": "好友邀請",
-        "defaultCommunityName": "社群",
-        "defaultUserName": "Stella 使用者",
-        "friendDetail": "點一下以送出好友邀請",
-        "inviteUnavailable": "邀請無法使用",
-        "userNotFound": "找不到使用者",
-        "communityMissing": "此社群已不存在，或代碼已變更。",
-        "userMissing": "此邀請連結沒有對應到 Stella 使用者。",
-        "communityDetail": {
-          "other": "{countLabel} 位成員 · 點一下加入"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "本機用量可在 Stella 桌面 App 中查看。",
       "intro": "儲存在此裝置上的供應商呼叫。費用為本機估算；以後端帳單為準。",
@@ -1148,37 +937,6 @@
         "loadFailed": "無法載入該 App。",
         "loading": "正在載入 {name}…",
         "openFailed": "無法開啟 {name}"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "最受歡迎",
-        "name": "依字母順序"
-      },
-      "animations": {
-        "idle": "閒置",
-        "runningRight": "向右跑",
-        "runningLeft": "向左跑",
-        "waving": "揮手",
-        "jumping": "跳躍",
-        "failed": "失敗",
-        "waiting": "等待中",
-        "running": "奔跑",
-        "review": "檢視"
-      },
-      "card": {
-        "by": "作者：{creator}",
-        "selections": "{count} 次選用",
-        "get": "取得",
-        "select": "選用",
-        "selected": "已選用",
-        "remove": "移除"
-      },
-      "details": {
-        "caption": "作者：{creator} · {downloads} 次選用",
-        "previewLabel": "{name} 預覽",
-        "animations": "動畫",
-        "animationStates": "動畫狀態"
       }
     },
     "chat": {
@@ -1610,106 +1368,6 @@
     "voice": {
       "signInTitle": "登入以使用語音",
       "needsSetupTitle": "語音需要設定"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "在 Stella 為你做出變更之後，可從這裡分享給好友、社群或商店。"
-      },
-      "recentChanges": {
-        "rowSelectHint": "點擊以加入分享",
-        "rowDeselectHint": "點擊以取消選取",
-        "updated": "已更新 {time}",
-        "showOlder": "顯示較舊的",
-        "justNow": "剛剛",
-        "publishEmpty": "選擇要分享的變更",
-        "publishLabel": "分享 · {countPhrase}",
-        "selectedCount": {
-          "other": "已選取 {count} 項"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "Stella 外掛",
-        "unavailableName": "外掛無法使用",
-        "unavailableDesc": "此外掛為私人，或已不再發布。",
-        "viewCta": "查看 →"
-      },
-      "creator": {
-        "loading": "正在載入創作者…",
-        "notFoundTitle": "找不到創作者",
-        "notFoundBodyPrefix": "還沒有人使用這個使用者名稱",
-        "notFoundBodySuffix": "。",
-        "noAddons": "{username} 還沒有分享任何外掛。",
-        "version": "版本 {version}",
-        "addonCount": {
-          "zero": "還沒有外掛",
-          "other": "{count} 個外掛"
-        }
-      },
-      "categories": {
-        "appsGames": "App 與遊戲",
-        "productivity": "生產力",
-        "customization": "個人化",
-        "skillsAgents": "技能與代理",
-        "integrations": "整合",
-        "other": "其他"
-      },
-      "shareDialog": {
-        "title": "分享",
-        "titleCircle": "分享給你的圈子",
-        "titleCircleUpdate": "分享一則更新",
-        "titleStore": "分享到 Store",
-        "titleStoreUpdate": "送出更新",
-        "destinationLede": "要分享到哪裡？分享會傳送可執行的程式碼，請選好你要的對象。",
-        "circleOptionName": "好友或社群",
-        "circleOptionDesc": "即時。以聊天中的分享卡片直接送給你信任的人 — 不需審核，也不會公開上架。",
-        "storeOptionName": "Stella Store",
-        "storeOptionDesc": "公開。先由 Stella 團隊審核，之後在商店中對所有人上線。",
-        "updateExisting": "更新現有外掛",
-        "existingAddon": "現有外掛",
-        "selectPlaceholder": "選擇…",
-        "nameLabel": "名稱",
-        "namePlaceholder": "範例模組",
-        "descriptionLabel": "說明",
-        "optionalHint": "（選填）",
-        "descriptionPlaceholderCircle": "為分享卡片寫一句簡短說明。",
-        "descriptionPlaceholderStore": "為商店項目寫一句簡短說明。",
-        "categoryLabel": "類別",
-        "categoryPlaceholder": "選一個類別…",
-        "sendTo": "傳送給",
-        "noRecipients": "還沒有好友或社群 — 請先在「訊息」頁面新增。",
-        "communityFallbackName": "社群",
-        "communityTag": "社群",
-        "circleNote": "分享會立刻以可安裝卡片的形式出現在每個聊天中。只有你挑選的人（以及那些社群中的人）能取得它。",
-        "storeNote": "Stella 團隊會先審核商店送出的內容，之後才會對所有人上線。",
-        "submitPending": "正在分享…",
-        "submitCircle": "立即分享",
-        "submitStore": "送出審核",
-        "noSourceChangesTitle": "沒有原始碼變更",
-        "noSourceChangesBody": "請先至少選擇一項近期有原始碼支援的變更。",
-        "pickRecipientTitle": "選擇分享對象",
-        "pickRecipientBody": "請至少選擇一位好友或一個社群。",
-        "pickAddonTitle": "選擇一個外掛",
-        "pickAddonBody": "選擇你想更新的外掛。",
-        "nameRequiredTitle": "需要名稱",
-        "nameRequiredBody": "分享前請為你的外掛取一個簡短的名稱。",
-        "badNameTitle": "請換一個名稱",
-        "badNameBody": "名稱請使用字母或數字，這樣我們才能建立 ID。",
-        "publishBackendMissing": "發布後端無法使用。",
-        "sharingTitle": "正在分享",
-        "submittingTitle": "正在送出",
-        "inProgressBody": "完成後 Stella 會通知你。",
-        "submittedTitle": "已送出審核",
-        "submittedBody": "{name} 已送給 Stella 團隊。通過核准後就會在商店上線。",
-        "sharedTitle": "已分享",
-        "shareFailedTitle": "分享失敗",
-        "submissionFailedTitle": "送出失敗",
-        "sharedBodyDelivered": {
-          "other": "{name} 正在送往 {count} 個聊天。"
-        },
-        "sharedBodyPartial": {
-          "other": "{name} 已送達 {count} 個聊天中的 {delivered} 個。開啟「訊息」以重試其餘的。"
-        }
-      }
     }
   },
   "ui": {
@@ -1785,10 +1443,6 @@
         "files": {
           "label": "檔案",
           "description": "頁面、圖片、影片和文件"
-        },
-        "store": {
-          "label": "Store",
-          "description": "外掛和你做過的東西"
         },
         "trash": {
           "label": "垃圾桶",
@@ -2080,47 +1734,6 @@
       "scheduleCount": {
         "other": "{count} 個排程"
       }
-    },
-    "social": {
-      "dialogDescription": "在任何事情發生前，請先確認這則邀請。",
-      "signInToAccept": "登入 Stella 以接受這則邀請。",
-      "lookingUpInvite": "正在查詢邀請…",
-      "stellaAddOn": "Stella 外掛",
-      "stellaUser": "Stella 使用者",
-      "byAuthor": " · 來自 @{username}",
-      "alreadyIn": " · 你已加入",
-      "membersLabel": "成員",
-      "memberCount": {
-        "other": "{count} 位成員"
-      },
-      "working": "處理中…",
-      "alreadyJoined": "已加入",
-      "welcomeToCommunity": "歡迎來到 {community}！",
-      "joinedCommunity": "你已加入這個社群！",
-      "friendRequestSent": "已將好友邀請送給 @{username}。",
-      "joinFailed": "無法加入該社群。邀請可能已過期。",
-      "friendRequestFailed": "無法送出該好友邀請。請再試一次。",
-      "store": {
-        "title": "開啟外掛",
-        "confirmLabel": "在 Store 中查看",
-        "sub": "你開啟的連結指向一個 Stella 外掛。不會安裝任何東西，這只會開啟它的 Store 頁面。",
-        "missing": "此外掛為私人，或已不再發布。"
-      },
-      "join": {
-        "title": "加入社群",
-        "confirmLabel": "加入",
-        "sub": "有人邀請你加入一個社群：成員之間互相分享外掛的信任圈。",
-        "missing": "找不到與此邀請碼對應的社群。請索取新的連結。"
-      },
-      "friend": {
-        "title": "加好友",
-        "confirmLabel": "送出好友邀請",
-        "sub": "有人邀請你在 Stella 上建立連結。",
-        "missing": "找不到與此邀請連結對應的使用者。"
-      }
-    },
-    "websiteView": {
-      "storeTitle": "Store"
     }
   },
   "mobile": {

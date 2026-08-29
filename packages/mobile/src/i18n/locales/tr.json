@@ -109,12 +109,6 @@
         "off": "Kapalı"
       }
     },
-    "voice": {
-      "title": "Ses",
-      "personality": {
-        "label": "Kişilik"
-      }
-    },
     "notifications": {
       "title": "Ses bildirimleri",
       "description": "Stella bir aracı çalıştırmasını tamamladığında bir ses çalar."
@@ -444,7 +438,6 @@
       "resultsAriaOne": "{count} sonuç",
       "resultsAriaOther": "{count} sonuç",
       "descriptions": {
-        "voice": "Stella'nın konuşma tarzını ve kişilik sesini seçin.",
         "permissions": "macOS'te erişilebilirlik, ekran kaydı ve mikrofon erişimi verin.",
         "shortcuts": "Dikte ve ses kısayollarını değiştirin.",
         "backup": "Otomatik şifreli yedekler, geri yükleme noktaları ve istek üzerine anlık görüntüler.",
@@ -466,9 +459,6 @@
       "loadSoundNotifications": "Ses bildirimi ayarı yüklenemedi.",
       "saveSoundNotifications": "Ses bildirimi ayarı güncellenemedi.",
       "soundNotificationsUnavailable": "Ses bildirimi ayarları bu pencerede kullanılamıyor.",
-      "loadVoice": "Ses ayarı yüklenemedi.",
-      "saveVoice": "Ses ayarı güncellenemedi.",
-      "voiceUnavailable": "Ses ayarları bu pencerede kullanılamıyor.",
       "loadMemory": "Bellek ayarı yüklenemedi.",
       "saveMemory": "Bellek ayarı güncellenemedi.",
       "memoryUnavailable": "Bellek ayarları bu pencerede kullanılamıyor.",
@@ -722,7 +712,6 @@
       "extension": "Stella'yı tarayıcınıza ekleyin.",
       "browser": "Stella'nın sizi tanımasına izin verin.",
       "theme": "Stella nasıl görünmeli?",
-      "personality": "Stella nasıl konuşmalı?",
       "voice": "Yazmak yerine konuşun.",
       "enter": "Stella neredeyse hazır."
     },
@@ -834,209 +823,6 @@
     "permissionDenied": "Stella'nın bunu yapmaya izni yok."
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "Yeni mesaj",
-        "emptySubtitle": "Sohbet başlatmak için önce birkaç arkadaş ekleyin.",
-        "description": "Bir arkadaş seçin veya yeni bir grup sohbeti başlatın.",
-        "subtitle": "Bir arkadaş seçin veya grup başlatın.",
-        "groupTitle": "Yeni grup",
-        "groupSubtitle": "Bu gruba eklenecek arkadaşları seçin.",
-        "groupNameLabel": "Grup adı",
-        "groupNamePlaceholder": "Grup adı (isteğe bağlı)",
-        "members": "Üyeler",
-        "back": "Geri",
-        "creating": "Oluşturuluyor...",
-        "createGroup": "Grup oluştur",
-        "newGroup": "Yeni grup",
-        "friends": "Arkadaşlar",
-        "opening": "Açılıyor..."
-      },
-      "friends": {
-        "title": "Arkadaşlar",
-        "description": "Bağlanmak için arkadaş kodunuzu paylaşın veya istek göndermek için başkasının kodunu girin.",
-        "subtitle": "Kullanıcı adınızı paylaşın veya bağlanmak için bir arkadaşınızınkini girin.",
-        "requestSent": "Arkadaşlık isteği gönderildi!",
-        "usernameCopied": "Kullanıcı adı kopyalandı!",
-        "inviteLinkCopied": "Davet bağlantısı kopyalandı — istediğiniz yere gönderin.",
-        "yourUsername": "Kullanıcı adınız",
-        "copy": "Kopyala",
-        "copyUsernameTitle": "Kullanıcı adınızı kopyalayın",
-        "copyInviteLink": "Davet bağlantısını kopyala",
-        "copyInviteLinkTitle": "Stella'yı açıp size arkadaşlık isteği gönderen bir bağlantı kopyalayın — iMessage'da, Discord'da, her yerde çalışır",
-        "addLabel": "Arkadaş ekle",
-        "addPlaceholder": "Kullanıcı adı girin",
-        "add": "Ekle",
-        "adding": "Ekleniyor...",
-        "requestsCount": "İstekler ({count})",
-        "accept": "Kabul et",
-        "decline": "Reddet",
-        "sent": "Gönderildi",
-        "waitingForResponse": "Yanıt bekleniyor",
-        "friendsCount": "Arkadaşlar ({count})",
-        "empty": "Henüz arkadaş yok. Bağlanmak için kullanıcı adınızı paylaşın veya yukarıya başkasınınkini girin.",
-        "message": "Mesaj gönder",
-        "opening": "Açılıyor...",
-        "remove": "Kaldır",
-        "removing": "Kaldırılıyor...",
-        "errors": {
-          "sendRequest": "Bu arkadaşlık isteği gönderilemedi. Kullanıcı adını kontrol edip tekrar deneyin."
-        }
-      },
-      "communities": {
-        "title": "Topluluklar",
-        "description": "Bir topluluk oluşturun ya da davet koduyla katılın, sonra eklentileri içindeki herkesle paylaşın.",
-        "subtitle": "Paylaşım için güvenilir çevreler. Bir topluluktaki herkes, üyelerinin paylaştıklarını görür.",
-        "defaultName": "Topluluk",
-        "created": "\"{name}\" oluşturuldu!",
-        "joined": "Katıldınız!",
-        "createLabel": "Topluluk oluştur",
-        "createPlaceholder": "Yeni topluluğa bir ad verin",
-        "create": "Oluştur",
-        "joinLabel": "Davet koduyla katıl",
-        "joinPlaceholder": "Bir davet kodu girin",
-        "join": "Katıl",
-        "yourCommunities": "Toplulukların",
-        "yourCommunitiesCount": "Toplulukların ({count})",
-        "empty": "Henüz topluluk yok. Bir tane oluşturup davet kodunu paylaşın veya size gönderilen bir kodla katılın.",
-        "createdByYouSuffix": " · sizin oluşturduğunuz",
-        "open": "Aç",
-        "details": "Ayrıntılar",
-        "back": "Geri",
-        "nameLabel": "Topluluk adı",
-        "save": "Kaydet",
-        "cancel": "İptal",
-        "createdByYou": "Bu topluluğu siz oluşturdunuz.",
-        "memberOf": "Bu topluluğun üyesisiniz.",
-        "inviteCode": "Davet kodu",
-        "copied": "Kopyalandı!",
-        "copyCode": "Kodu kopyala",
-        "copyInviteLink": "Davet bağlantısını kopyala",
-        "copyInviteLinkTitle": "Stella'yı açıp bu topluluğa katılan bir bağlantı kopyalayın",
-        "inviteHint": "Bağlantı her yerde çalışır — bir Stella sohbetine yapıştırın ya da iMessage veya Discord ile gönderin. Bağlantıya sahip olan herkes katılabilir, bu yüzden yalnızca güvendiğiniz kişilerle paylaşın.",
-        "membersCount": "Üyeler ({count})",
-        "roleCreator": "Oluşturan",
-        "roleMember": "Üye",
-        "youSuffix": " · siz",
-        "remove": "Kaldır",
-        "removing": "Kaldırılıyor...",
-        "confirmDelete": "Bu topluluk gerçekten silinsin mi?",
-        "delete": "Topluluğu sil",
-        "confirmLeave": "Gerçekten ayrılmak istiyor musunuz?",
-        "leave": "Topluluktan ayrıl",
-        "rename": "Yeniden adlandır",
-        "openChat": "Sohbeti aç",
-        "errors": {
-          "create": "Bu topluluk oluşturulamadı. Lütfen tekrar deneyin.",
-          "join": "Bu davet koduyla katılınamadı. Kodu kontrol edip tekrar deneyin.",
-          "rename": "Topluluk yeniden adlandırılamadı. Lütfen tekrar deneyin.",
-          "removeMember": "Bu üye kaldırılamadı. Lütfen tekrar deneyin.",
-          "delete": "Topluluk silinemedi. Lütfen tekrar deneyin.",
-          "leave": "Topluluktan ayrılınamadı. Lütfen tekrar deneyin."
-        },
-        "memberCount": {
-          "one": "{count} üye",
-          "other": "{count} üye"
-        }
-      },
-      "view": {
-        "messages": "Mesajlar",
-        "signIn": "Giriş yap",
-        "signInSubtitle": "Arkadaşlarınıza mesaj atmak ve Stella ile birlikte çalışmak için giriş yapın.",
-        "friends": "Arkadaşlar",
-        "communities": "Topluluklar",
-        "newMessage": "Yeni mesaj",
-        "noRooms": "Henüz sohbet yok. Arkadaş ekleyin veya yeni bir mesaj başlatın.",
-        "addFriends": "Arkadaş ekle",
-        "communityBadge": "Topluluk",
-        "communityBadgeTitle": "Bu topluluktaki herkesle paylaşıldı",
-        "usernamePlaceholder": "kullanici-adiniz",
-        "editUsername": "Kullanıcı adınızı düzenleyin",
-        "copied": "Kopyalandı!",
-        "clickToCopyUsername": "Kullanıcı adınızı kopyalamak için tıklayın",
-        "copyUsername": "Kullanıcı adını kopyala",
-        "cancel": "İptal",
-        "save": "Kaydet",
-        "saving": "Kaydediliyor...",
-        "emptyTitle": "Mesajlarınız",
-        "emptySubtitle": "Soldan bir sohbet seçin veya bir arkadaşınızla yeni bir sohbet başlatın.",
-        "errors": {
-          "startConversation": "Bu sohbet başlatılamadı. Lütfen tekrar deneyin.",
-          "createGroup": "Grup oluşturulamadı. Lütfen tekrar deneyin."
-        },
-        "usernameErrors": {
-          "empty": "Kullanıcı adı boş olamaz.",
-          "length": "Kullanıcı adı 3-32 karakter olmalıdır.",
-          "format": "Küçük harf, rakam, _ veya - kullanın. Bir harf veya rakamla başlayıp bitmelidir.",
-          "update": "Kullanıcı adınız güncellenemedi. Lütfen tekrar deneyin."
-        },
-        "newRequestCount": {
-          "one": "{count} yeni istek",
-          "other": "{count} yeni istek"
-        },
-        "friendsWithRequestsTitle": "Arkadaşlar ({countPhrase})",
-        "friendsWithRequestsAria": "Arkadaşlar, {countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "Stella yanıt vermeden tamamladı.",
-        "stellaFailed": "Stella bu isteği tamamlayamadı.",
-        "stellaThinking": "Stella düşünüyor...",
-        "sharedStellaUnavailable": "Paylaşılan Stella bu uygulama oturumunda kullanılamıyor.",
-        "back": "Geri",
-        "backToConversations": "Sohbetlere dön",
-        "peopleCount": "{count} kişi",
-        "startStella": "Stella'yı başlat",
-        "startStellaTitle": "Stella'yı bu sohbete dahil edin",
-        "starting": "Başlatılıyor...",
-        "startAgain": "Yeniden Başlat",
-        "pause": "Duraklat",
-        "resume": "Sürdür",
-        "end": "Bitir",
-        "sayHello": "Sohbeti başlatmak için selam verin",
-        "loadingOlder": "Eski mesajlar yükleniyor…",
-        "armedOnTitle": "Sonraki mesajı Stella'ya gönder",
-        "armedOffTitle": "Sonraki mesajı normal bir sohbet mesajı olarak gönder",
-        "tellStella": "Stella'ya söyle",
-        "tellingStella": "Stella'ya söyleniyor",
-        "tellStellaPlaceholder": "Stella'ya ne istediğinizi söyleyin...",
-        "messagePlaceholder": "{name} kişisine mesaj",
-        "sessionBadge": {
-          "live": "Stella · Canlı",
-          "paused": "Stella · Duraklatıldı",
-          "ended": "Stella · Sona erdi"
-        },
-        "sessionHint": {
-          "live": "Buradaki herkes Stella'ya söyleyebilir.",
-          "paused": "Duraklatıldı — Stella'ya yeniden söylemek için sürdürün.",
-          "ended": "Bu paylaşılan Stella alanı sona erdi."
-        },
-        "errors": {
-          "startStella": "Stella burada başlatılamadı. Lütfen tekrar deneyin.",
-          "updateStella": "Stella şu anda güncellenemedi. Lütfen tekrar deneyin.",
-          "sendToStella": "Bu, Stella'ya gönderilemedi. Lütfen tekrar deneyin.",
-          "sendMessage": "Mesajınız gönderilemedi. Lütfen tekrar deneyin."
-        }
-      },
-      "composer": {
-        "placeholder": "Bir mesaj yazın...",
-        "send": "Gönder"
-      },
-      "inviteCard": {
-        "communityEyebrow": "Topluluk daveti",
-        "friendEyebrow": "Arkadaşlık daveti",
-        "defaultCommunityName": "Topluluk",
-        "defaultUserName": "Stella kullanıcısı",
-        "friendDetail": "Arkadaşlık isteği göndermek için dokunun",
-        "inviteUnavailable": "Davet kullanılamıyor",
-        "userNotFound": "Kullanıcı bulunamadı",
-        "communityMissing": "Bu topluluk artık yok veya kod değişti.",
-        "userMissing": "Bu davet bağlantısı bir Stella kullanıcısıyla eşleşmiyor.",
-        "communityDetail": {
-          "one": "{countLabel} üye · katılmak için dokunun",
-          "other": "{countLabel} üye · katılmak için dokunun"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "Yerel kullanım, Stella masaüstü uygulamasında sunulur.",
       "intro": "Bu cihazda saklanan sağlayıcı çağrıları. Maliyetler yerel tahminlerdir; sunucu tarafındaki faturalandırma esas alınır.",
@@ -1152,37 +938,6 @@
         "loadFailed": "Uygulama yüklenemedi.",
         "loading": "{name} yükleniyor…",
         "openFailed": "{name} açılamadı"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "En popüler",
-        "name": "Alfabetik"
-      },
-      "animations": {
-        "idle": "Boşta",
-        "runningRight": "Sağa koş",
-        "runningLeft": "Sola koş",
-        "waving": "El sallama",
-        "jumping": "Zıplama",
-        "failed": "Başarısız",
-        "waiting": "Bekleme",
-        "running": "Çalışma",
-        "review": "İnceleme"
-      },
-      "card": {
-        "by": "{creator} tarafından",
-        "selections": "{count} seçim",
-        "get": "Al",
-        "select": "Seç",
-        "selected": "Seçili",
-        "remove": "Kaldır"
-      },
-      "details": {
-        "caption": "{creator} tarafından · {downloads} seçim",
-        "previewLabel": "{name} önizlemesi",
-        "animations": "Animasyonlar",
-        "animationStates": "Animasyon durumları"
       }
     },
     "chat": {
@@ -1622,110 +1377,6 @@
     "voice": {
       "signInTitle": "Sesi kullanmak için giriş yapın",
       "needsSetupTitle": "Ses kurulum gerektiriyor"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "Stella sizin için bir değişiklik yaptıktan sonra, buradan arkadaşlarınızla, bir toplulukla veya mağazayla paylaşın."
-      },
-      "recentChanges": {
-        "rowSelectHint": "Paylaşıma dahil etmek için tıklayın",
-        "rowDeselectHint": "Seçimden çıkarmak için tıklayın",
-        "updated": "{time} güncellendi",
-        "showOlder": "Daha eskileri göster",
-        "justNow": "Az önce",
-        "publishEmpty": "Paylaşılacak değişiklikleri seçin",
-        "publishLabel": "Paylaş · {countPhrase}",
-        "selectedCount": {
-          "one": "{count} seçildi",
-          "other": "{count} seçildi"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "Stella eklentisi",
-        "unavailableName": "Eklenti kullanılamıyor",
-        "unavailableDesc": "Bu eklenti özel ya da artık yayında değil.",
-        "viewCta": "Görüntüle →"
-      },
-      "creator": {
-        "loading": "Oluşturan yükleniyor…",
-        "notFoundTitle": "Oluşturan bulunamadı",
-        "notFoundBodyPrefix": "Bu kullanıcı adını henüz kimse almadı:",
-        "notFoundBodySuffix": ".",
-        "noAddons": "{username} henüz hiç eklenti paylaşmadı.",
-        "version": "Sürüm {version}",
-        "addonCount": {
-          "zero": "Henüz eklenti yok",
-          "one": "{count} eklenti",
-          "other": "{count} eklenti"
-        }
-      },
-      "categories": {
-        "appsGames": "Uygulamalar ve oyunlar",
-        "productivity": "Verimlilik",
-        "customization": "Kişiselleştirme",
-        "skillsAgents": "Beceriler ve aracılar",
-        "integrations": "Entegrasyonlar",
-        "other": "Diğer"
-      },
-      "shareDialog": {
-        "title": "Paylaş",
-        "titleCircle": "Çevrenizle paylaşın",
-        "titleCircleUpdate": "Bir güncelleme paylaşın",
-        "titleStore": "Mağazada paylaşın",
-        "titleStoreUpdate": "Bir güncelleme gönderin",
-        "destinationLede": "Bu nereye gitsin? Paylaşım çalıştırılabilir kod gönderir, bu yüzden hedeflediğiniz kitleyi seçin.",
-        "circleOptionName": "Bir arkadaş veya topluluk",
-        "circleOptionDesc": "Anında. Güvendiğiniz kişilere sohbette paylaşım kartı olarak doğrudan ulaşır — inceleme yok, hiçbir zaman herkese açık listelenmez.",
-        "storeOptionName": "Stella Mağazası",
-        "storeOptionDesc": "Herkese açık. Önce Stella ekibi inceler, sonra mağazada herkes için yayına girer.",
-        "updateExisting": "Mevcut bir eklentiyi güncelle",
-        "existingAddon": "Mevcut eklenti",
-        "selectPlaceholder": "Seçin…",
-        "nameLabel": "Ad",
-        "namePlaceholder": "Örnek mod",
-        "descriptionLabel": "Açıklama",
-        "optionalHint": "(isteğe bağlı)",
-        "descriptionPlaceholderCircle": "Paylaşım kartı için kısa bir satır.",
-        "descriptionPlaceholderStore": "Mağaza girişi için kısa bir satır.",
-        "categoryLabel": "Kategori",
-        "categoryPlaceholder": "Bir kategori seçin…",
-        "sendTo": "Şuraya gönder",
-        "noRecipients": "Henüz arkadaş veya topluluk yok — önce Mesajlar sayfasından ekleyin.",
-        "communityFallbackName": "Topluluk",
-        "communityTag": "Topluluk",
-        "circleNote": "Paylaşımlar her sohbete anında kurulabilir bir kart olarak düşer. Yalnızca seçtiğiniz kişiler (ve o topluluklardaki herkes) alabilir.",
-        "storeNote": "Stella ekibi, mağaza gönderimlerini herkes için yayına girmeden önce inceler.",
-        "submitPending": "Paylaşılıyor…",
-        "submitCircle": "Şimdi paylaş",
-        "submitStore": "İncelemeye gönder",
-        "noSourceChangesTitle": "Kaynak değişikliği yok",
-        "noSourceChangesBody": "Önce kaynak destekli en az bir güncel değişiklik seçin.",
-        "pickRecipientTitle": "Paylaşacağınız kişiyi seçin",
-        "pickRecipientBody": "En az bir arkadaş veya topluluk seçin.",
-        "pickAddonTitle": "Bir eklenti seçin",
-        "pickAddonBody": "Güncellemek istediğiniz eklentiyi seçin.",
-        "nameRequiredTitle": "Ad gerekli",
-        "nameRequiredBody": "Paylaşmadan önce eklentinize kısa bir ad verin.",
-        "badNameTitle": "Farklı bir ad seçin",
-        "badNameBody": "Bir kimlik oluşturabilmemiz için adda harf veya rakam kullanın.",
-        "publishBackendMissing": "Yayınlama arka ucu kullanılamıyor.",
-        "sharingTitle": "Paylaşılıyor",
-        "submittingTitle": "Gönderiliyor",
-        "inProgressBody": "Bittiğinde Stella size haber verecek.",
-        "submittedTitle": "İncelemeye gönderildi",
-        "submittedBody": "{name} Stella ekibine gönderildi. Onaylandığında mağazada yayına girer.",
-        "sharedTitle": "Paylaşıldı",
-        "shareFailedTitle": "Paylaşım başarısız oldu",
-        "submissionFailedTitle": "Gönderim başarısız oldu",
-        "sharedBodyDelivered": {
-          "one": "{name} {count} sohbete doğru yolda.",
-          "other": "{name} {count} sohbete doğru yolda."
-        },
-        "sharedBodyPartial": {
-          "one": "{name} {count} sohbetten {delivered} tanesine ulaştı. Kalanı yeniden denemek için Mesajlar'ı açın.",
-          "other": "{name} {count} sohbetten {delivered} tanesine ulaştı. Kalanı yeniden denemek için Mesajlar'ı açın."
-        }
-      }
     }
   },
   "ui": {
@@ -1803,10 +1454,6 @@
         "files": {
           "label": "Dosyalar",
           "description": "Sayfalar, görseller, video ve belgeler"
-        },
-        "store": {
-          "label": "Mağaza",
-          "description": "Eklentiler ve oluşturduğunuz şeyler"
         },
         "trash": {
           "label": "Çöp Kutusu",
@@ -2107,48 +1754,6 @@
         "one": "{count} zamanlama",
         "other": "{count} zamanlama"
       }
-    },
-    "social": {
-      "dialogDescription": "Bir şey olmadan önce bu daveti onaylayın.",
-      "signInToAccept": "Bu daveti kabul etmek için Stella'ya giriş yapın.",
-      "lookingUpInvite": "Davet aranıyor…",
-      "stellaAddOn": "Stella eklentisi",
-      "stellaUser": "Stella kullanıcısı",
-      "byAuthor": " · @{username} tarafından",
-      "alreadyIn": " · zaten üyesiniz",
-      "membersLabel": "üye",
-      "memberCount": {
-        "one": "{count} üye",
-        "other": "{count} üye"
-      },
-      "working": "Çalışıyor…",
-      "alreadyJoined": "Zaten katıldınız",
-      "welcomeToCommunity": "{community} topluluğuna hoş geldiniz!",
-      "joinedCommunity": "Topluluğa katıldınız!",
-      "friendRequestSent": "@{username} kullanıcısına arkadaşlık isteği gönderildi.",
-      "joinFailed": "Bu topluluğa katılınamadı. Davetin süresi dolmuş olabilir.",
-      "friendRequestFailed": "Bu arkadaşlık isteği gönderilemedi. Lütfen tekrar deneyin.",
-      "store": {
-        "title": "Eklentiyi aç",
-        "confirmLabel": "Mağazada görüntüle",
-        "sub": "Açtığınız bağlantı bir Stella eklentisine işaret ediyor. Hiçbir şey kurulmaz. Bu yalnızca Mağaza sayfasını açar.",
-        "missing": "Bu eklenti özel ya da artık yayında değil."
-      },
-      "join": {
-        "title": "Topluluğa katıl",
-        "confirmLabel": "Katıl",
-        "sub": "Bir topluluğa davet edildiniz: üyelerin eklentileri birbiriyle paylaştığı güvenilir bir çevre.",
-        "missing": "Bu davet kodu için topluluk bulunamadı. Yeni bir bağlantı isteyin."
-      },
-      "friend": {
-        "title": "Arkadaş ekle",
-        "confirmLabel": "Arkadaşlık isteği gönder",
-        "sub": "Stella'da bağlanmaya davet edildiniz.",
-        "missing": "Bu davet bağlantısı için kullanıcı bulunamadı."
-      }
-    },
-    "websiteView": {
-      "storeTitle": "Mağaza"
     }
   },
   "mobile": {

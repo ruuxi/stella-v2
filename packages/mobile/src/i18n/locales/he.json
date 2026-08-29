@@ -109,12 +109,6 @@
         "off": "כבוי"
       }
     },
-    "voice": {
-      "title": "קול",
-      "personality": {
-        "label": "אישיות"
-      }
-    },
     "notifications": {
       "title": "התראות קוליות",
       "description": "השמעת צליל כאשר Stella מסיימת הרצת סוכן."
@@ -444,7 +438,6 @@
       "resultsAriaOne": "{count} תוצאה",
       "resultsAriaOther": "{count} תוצאות",
       "descriptions": {
-        "voice": "בחר את סגנון הדיבור ואת קול האישיות של Stella.",
         "permissions": "הענק גישה לנגישות, צילום מסך ומיקרופון ב-macOS.",
         "shortcuts": "שנה את קיצורי הדרך להכתבה ולקול.",
         "backup": "גיבויים מוצפנים אוטומטיים, נקודות שחזור ותמונות מצב לפי דרישה.",
@@ -466,9 +459,6 @@
       "loadSoundNotifications": "טעינת הגדרת ההתראות הקוליות נכשלה.",
       "saveSoundNotifications": "עדכון הגדרת ההתראות הקוליות נכשל.",
       "soundNotificationsUnavailable": "הגדרות ההתראות הקוליות אינן זמינות בחלון זה.",
-      "loadVoice": "טעינת הגדרת הקול נכשלה.",
-      "saveVoice": "עדכון הגדרת הקול נכשל.",
-      "voiceUnavailable": "הגדרות הקול אינן זמינות בחלון זה.",
       "loadMemory": "טעינת הגדרת הזיכרון נכשלה.",
       "saveMemory": "עדכון הגדרת הזיכרון נכשל.",
       "memoryUnavailable": "הגדרות הזיכרון אינן זמינות בחלון זה.",
@@ -723,7 +713,6 @@
       "extension": "הוסיפו את Stella לדפדפן שלכם.",
       "browser": "אפשרו ל-Stella להכיר אתכם.",
       "theme": "איך Stella צריכה להיראות?",
-      "personality": "איך Stella צריכה לדבר?",
       "voice": "דברו במקום להקליד.",
       "enter": "Stella כמעט מוכנה."
     },
@@ -835,212 +824,6 @@
     "permissionDenied": "ל-Stella אין הרשאה לכך."
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "הודעה חדשה",
-        "emptySubtitle": "הוסף קודם חברים כדי להתחיל שיחה.",
-        "description": "בחר חבר או התחל שיחה קבוצתית חדשה.",
-        "subtitle": "בחר חבר או פתח קבוצה.",
-        "groupTitle": "קבוצה חדשה",
-        "groupSubtitle": "בחר חברים להוספה לקבוצה הזו.",
-        "groupNameLabel": "שם הקבוצה",
-        "groupNamePlaceholder": "שם הקבוצה (אופציונלי)",
-        "members": "חברים בקבוצה",
-        "back": "חזרה",
-        "creating": "יוצר...",
-        "createGroup": "צור קבוצה",
-        "newGroup": "קבוצה חדשה",
-        "friends": "חברים",
-        "opening": "פותח..."
-      },
-      "friends": {
-        "title": "חברים",
-        "description": "שתף את קוד החבר שלך כדי להתחבר, או הזן קוד של מישהו אחר כדי לשלוח בקשה.",
-        "subtitle": "שתף את שם המשתמש שלך, או הזן שם של חבר כדי להתחבר.",
-        "requestSent": "בקשת החברות נשלחה!",
-        "usernameCopied": "שם המשתמש הועתק!",
-        "inviteLinkCopied": "קישור ההזמנה הועתק — שלח אותו לכל מקום.",
-        "yourUsername": "שם המשתמש שלך",
-        "copy": "העתק",
-        "copyUsernameTitle": "העתק את שם המשתמש שלך",
-        "copyInviteLink": "העתק קישור הזמנה",
-        "copyInviteLinkTitle": "העתק קישור שפותח את Stella ושולח לך בקשת חברות — עובד ב-iMessage, ב-Discord, בכל מקום",
-        "addLabel": "הוסף חבר",
-        "addPlaceholder": "הזן שם משתמש",
-        "add": "הוסף",
-        "adding": "מוסיף...",
-        "requestsCount": "בקשות ({count})",
-        "accept": "אשר",
-        "decline": "דחה",
-        "sent": "נשלח",
-        "waitingForResponse": "ממתין לתשובה",
-        "friendsCount": "חברים ({count})",
-        "empty": "אין עדיין חברים. שתף את שם המשתמש שלך או הזן למעלה שם של מישהו אחר כדי להתחבר.",
-        "message": "שלח הודעה",
-        "opening": "פותח...",
-        "remove": "הסר",
-        "removing": "מסיר...",
-        "errors": {
-          "sendRequest": "לא ניתן היה לשלוח את בקשת החברות. בדוק את שם המשתמש ונסה שוב."
-        }
-      },
-      "communities": {
-        "title": "קהילות",
-        "description": "צור קהילה או הצטרף לאחת עם קוד הזמנה, ואז שתף תוספים עם כל מי שנמצא בה.",
-        "subtitle": "מעגלים מהימנים לשיתוף. כל מי שבקהילה רואה את מה שחבריה משתפים.",
-        "defaultName": "קהילה",
-        "created": "\"{name}\" נוצרה!",
-        "joined": "הצטרפת!",
-        "createLabel": "צור קהילה",
-        "createPlaceholder": "תן שם לקהילה חדשה",
-        "create": "צור",
-        "joinLabel": "הצטרף עם קוד הזמנה",
-        "joinPlaceholder": "הזן קוד הזמנה",
-        "join": "הצטרף",
-        "yourCommunities": "הקהילות שלך",
-        "yourCommunitiesCount": "הקהילות שלך ({count})",
-        "empty": "אין עדיין קהילות. צור אחת ושתף את קוד ההזמנה, או הצטרף עם קוד שמישהו שלח לך.",
-        "createdByYouSuffix": " · נוצרה על ידך",
-        "open": "פתח",
-        "details": "פרטים",
-        "back": "חזרה",
-        "nameLabel": "שם הקהילה",
-        "save": "שמור",
-        "cancel": "ביטול",
-        "createdByYou": "אתה יצרת את הקהילה הזו.",
-        "memberOf": "אתה חבר בקהילה הזו.",
-        "inviteCode": "קוד הזמנה",
-        "copied": "הועתק!",
-        "copyCode": "העתק קוד",
-        "copyInviteLink": "העתק קישור הזמנה",
-        "copyInviteLinkTitle": "העתק קישור שפותח את Stella ומצרף לקהילה הזו",
-        "inviteHint": "הקישור עובד בכל מקום — הדבק אותו בצ׳אט של Stella או שלח אותו ב-iMessage או ב-Discord. כל מי שיש לו אותו יכול להצטרף, אז שתף רק עם אנשים שאתה סומך עליהם.",
-        "membersCount": "חברים ({count})",
-        "roleCreator": "יוצר",
-        "roleMember": "חבר",
-        "youSuffix": " · אתה",
-        "remove": "הסר",
-        "removing": "מסיר...",
-        "confirmDelete": "באמת למחוק את הקהילה הזו?",
-        "delete": "מחק קהילה",
-        "confirmLeave": "באמת לעזוב?",
-        "leave": "עזוב קהילה",
-        "rename": "שנה שם",
-        "openChat": "פתח צ׳אט",
-        "errors": {
-          "create": "לא ניתן היה ליצור את הקהילה. נסה שוב.",
-          "join": "לא ניתן היה להצטרף עם קוד ההזמנה הזה. בדוק את הקוד ונסה שוב.",
-          "rename": "לא ניתן היה לשנות את שם הקהילה. נסה שוב.",
-          "removeMember": "לא ניתן היה להסיר את החבר הזה. נסה שוב.",
-          "delete": "לא ניתן היה למחוק את הקהילה. נסה שוב.",
-          "leave": "לא ניתן היה לעזוב את הקהילה. נסה שוב."
-        },
-        "memberCount": {
-          "one": "חבר {count}",
-          "two": "{count} חברים",
-          "other": "{count} חברים"
-        }
-      },
-      "view": {
-        "messages": "הודעות",
-        "signIn": "התחבר",
-        "signInSubtitle": "התחבר כדי לשלוח הודעות לחברים ולשתף פעולה יחד עם Stella.",
-        "friends": "חברים",
-        "communities": "קהילות",
-        "newMessage": "הודעה חדשה",
-        "noRooms": "אין עדיין שיחות. הוסף חברים או התחל הודעה חדשה.",
-        "addFriends": "הוסף חברים",
-        "communityBadge": "קהילה",
-        "communityBadgeTitle": "משותף עם כל מי שנמצא בקהילה הזו",
-        "usernamePlaceholder": "שם-המשתמש-שלך",
-        "editUsername": "ערוך את שם המשתמש שלך",
-        "copied": "הועתק!",
-        "clickToCopyUsername": "לחץ כדי להעתיק את שם המשתמש שלך",
-        "copyUsername": "העתק שם משתמש",
-        "cancel": "ביטול",
-        "save": "שמור",
-        "saving": "שומר...",
-        "emptyTitle": "ההודעות שלך",
-        "emptySubtitle": "בחר שיחה מהצד, או התחל שיחה חדשה עם חבר.",
-        "errors": {
-          "startConversation": "לא ניתן היה להתחיל את השיחה הזו. נסה שוב.",
-          "createGroup": "לא ניתן היה ליצור את הקבוצה. נסה שוב."
-        },
-        "usernameErrors": {
-          "empty": "שם המשתמש לא יכול להיות ריק.",
-          "length": "שם המשתמש חייב להיות באורך 3-32 תווים.",
-          "format": "השתמש באותיות קטנות, ספרות, _ או -. חייב להתחיל ולהסתיים באות או בספרה.",
-          "update": "לא ניתן היה לעדכן את שם המשתמש שלך. נסה שוב."
-        },
-        "newRequestCount": {
-          "one": "בקשה חדשה {count}",
-          "two": "{count} בקשות חדשות",
-          "other": "{count} בקשות חדשות"
-        },
-        "friendsWithRequestsTitle": "חברים ({countPhrase})",
-        "friendsWithRequestsAria": "חברים, {countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "Stella סיימה בלי תשובה.",
-        "stellaFailed": "Stella לא הצליחה להשלים את הבקשה הזו.",
-        "stellaThinking": "Stella חושבת...",
-        "sharedStellaUnavailable": "Stella המשותפת אינה זמינה בהפעלה הזו של האפליקציה.",
-        "back": "חזרה",
-        "backToConversations": "חזרה לשיחות",
-        "peopleCount": "{count} אנשים",
-        "startStella": "הפעל את Stella",
-        "startStellaTitle": "הכנס את Stella לשיחה הזו",
-        "starting": "מפעיל...",
-        "startAgain": "הפעל שוב",
-        "pause": "השהה",
-        "resume": "המשך",
-        "end": "סיים",
-        "sayHello": "אמור שלום כדי להתחיל את השיחה",
-        "loadingOlder": "טוען הודעות ישנות יותר…",
-        "armedOnTitle": "שלח את ההודעה הבאה ל-Stella",
-        "armedOffTitle": "שלח את ההודעה הבאה כהודעת צ׳אט רגילה",
-        "tellStella": "אמור ל-Stella",
-        "tellingStella": "אומר ל-Stella",
-        "tellStellaPlaceholder": "אמור ל-Stella מה תרצה...",
-        "messagePlaceholder": "הודעה אל {name}",
-        "sessionBadge": {
-          "live": "Stella · חי",
-          "paused": "Stella · מושהית",
-          "ended": "Stella · הסתיימה"
-        },
-        "sessionHint": {
-          "live": "כל מי שכאן יכול לפנות ל-Stella.",
-          "paused": "מושהית — המשך כדי לפנות שוב ל-Stella.",
-          "ended": "מרחב ה-Stella המשותף הזה הסתיים."
-        },
-        "errors": {
-          "startStella": "לא ניתן היה להפעיל כאן את Stella. נסה שוב.",
-          "updateStella": "לא ניתן לעדכן את Stella כרגע. נסה שוב.",
-          "sendToStella": "לא ניתן היה לשלוח את זה ל-Stella. נסה שוב.",
-          "sendMessage": "לא ניתן היה לשלוח את ההודעה שלך. נסה שוב."
-        }
-      },
-      "composer": {
-        "placeholder": "כתוב הודעה...",
-        "send": "שלח"
-      },
-      "inviteCard": {
-        "communityEyebrow": "הזמנה לקהילה",
-        "friendEyebrow": "הזמנת חברות",
-        "defaultCommunityName": "קהילה",
-        "defaultUserName": "משתמש Stella",
-        "friendDetail": "הקש כדי לשלוח בקשת חברות",
-        "inviteUnavailable": "ההזמנה אינה זמינה",
-        "userNotFound": "המשתמש לא נמצא",
-        "communityMissing": "הקהילה הזו כבר לא קיימת או שהקוד השתנה.",
-        "userMissing": "קישור ההזמנה הזה לא תואם למשתמש Stella.",
-        "communityDetail": {
-          "one": "חבר {countLabel} · הקש כדי להצטרף",
-          "two": "{countLabel} חברים · הקש כדי להצטרף",
-          "other": "{countLabel} חברים · הקש כדי להצטרף"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "השימוש המקומי זמין באפליקציית שולחן העבודה של Stella.",
       "intro": "קריאות לספקים שנשמרו במכשיר הזה. העלויות הן הערכות מקומיות; החיוב בשרת הוא הקובע.",
@@ -1156,37 +939,6 @@
         "loadFailed": "לא ניתן היה לטעון את האפליקציה.",
         "loading": "טוען את {name}…",
         "openFailed": "לא ניתן היה לפתוח את {name}"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "הפופולריים ביותר",
-        "name": "לפי א׳-ב׳"
-      },
-      "animations": {
-        "idle": "מנוחה",
-        "runningRight": "ריצה ימינה",
-        "runningLeft": "ריצה שמאלה",
-        "waving": "נפנוף",
-        "jumping": "קפיצה",
-        "failed": "כשל",
-        "waiting": "המתנה",
-        "running": "ריצה",
-        "review": "בדיקה"
-      },
-      "card": {
-        "by": "מאת {creator}",
-        "selections": "{count} בחירות",
-        "get": "קבל",
-        "select": "בחר",
-        "selected": "נבחר",
-        "remove": "הסר"
-      },
-      "details": {
-        "caption": "מאת {creator} · {downloads} בחירות",
-        "previewLabel": "תצוגה מקדימה של {name}",
-        "animations": "אנימציות",
-        "animationStates": "מצבי אנימציה"
       }
     },
     "chat": {
@@ -1634,114 +1386,6 @@
     "voice": {
       "signInTitle": "התחבר כדי להשתמש בקול",
       "needsSetupTitle": "הקול דורש הגדרה"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "אחרי ש-Stella מבצעת עבורך שינוי, שתף אותו מכאן עם חברים, עם קהילה או עם החנות."
-      },
-      "recentChanges": {
-        "rowSelectHint": "לחץ כדי לכלול בשיתוף",
-        "rowDeselectHint": "לחץ כדי להסיר מהבחירה",
-        "updated": "עודכן {time}",
-        "showOlder": "הצג ישנים יותר",
-        "justNow": "ממש עכשיו",
-        "publishEmpty": "בחר שינויים לשיתוף",
-        "publishLabel": "שתף · {countPhrase}",
-        "selectedCount": {
-          "one": "{count} נבחר",
-          "two": "{count} נבחרו",
-          "other": "{count} נבחרו"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "תוסף של Stella",
-        "unavailableName": "התוסף אינו זמין",
-        "unavailableDesc": "התוסף הזה פרטי או שכבר אינו מפורסם.",
-        "viewCta": "הצג →"
-      },
-      "creator": {
-        "loading": "טוען יוצר…",
-        "notFoundTitle": "היוצר לא נמצא",
-        "notFoundBodyPrefix": "אף אחד לא תפס עדיין את שם המשתמש",
-        "notFoundBodySuffix": "עדיין.",
-        "noAddons": "{username} עדיין לא שיתף תוספים.",
-        "version": "גרסה {version}",
-        "addonCount": {
-          "zero": "אין עדיין תוספים",
-          "one": "תוסף {count}",
-          "two": "{count} תוספים",
-          "other": "{count} תוספים"
-        }
-      },
-      "categories": {
-        "appsGames": "אפליקציות ומשחקים",
-        "productivity": "פרודוקטיביות",
-        "customization": "התאמה אישית",
-        "skillsAgents": "כישורים וסוכנים",
-        "integrations": "אינטגרציות",
-        "other": "אחר"
-      },
-      "shareDialog": {
-        "title": "שיתוף",
-        "titleCircle": "שתף עם המעגל שלך",
-        "titleCircleUpdate": "שתף עדכון",
-        "titleStore": "שתף לחנות",
-        "titleStoreUpdate": "הגש עדכון",
-        "destinationLede": "לאן זה אמור להגיע? שיתוף שולח קוד שניתן להריץ, אז בחר את הקהל שאתה מתכוון אליו.",
-        "circleOptionName": "חבר או קהילה",
-        "circleOptionDesc": "מיידי. מגיע ישירות לאנשים שאתה סומך עליהם ככרטיס שיתוף בצ׳אט — בלי בדיקה, ולעולם לא מפורסם בפומבי.",
-        "storeOptionName": "חנות Stella",
-        "storeOptionDesc": "ציבורי. נבדק קודם על ידי צוות Stella, ואז עולה לחנות לכולם.",
-        "updateExisting": "עדכן תוסף קיים",
-        "existingAddon": "תוסף קיים",
-        "selectPlaceholder": "בחר…",
-        "nameLabel": "שם",
-        "namePlaceholder": "מוד לדוגמה",
-        "descriptionLabel": "תיאור",
-        "optionalHint": "(אופציונלי)",
-        "descriptionPlaceholderCircle": "שורה קצרה לכרטיס השיתוף.",
-        "descriptionPlaceholderStore": "שורה קצרה לדף בחנות.",
-        "categoryLabel": "קטגוריה",
-        "categoryPlaceholder": "בחר קטגוריה…",
-        "sendTo": "שלח אל",
-        "noRecipients": "אין עדיין חברים או קהילות — הוסף כמה מדף ההודעות קודם.",
-        "communityFallbackName": "קהילה",
-        "communityTag": "קהילה",
-        "circleNote": "השיתופים מגיעים מיד ככרטיס בר-התקנה בכל צ׳אט. רק האנשים שתבחר (וכל מי שנמצא בקהילות האלה) יכולים לקחת אותו.",
-        "storeNote": "צוות Stella בודק הגשות לחנות לפני שהן עולות לכולם.",
-        "submitPending": "משתף…",
-        "submitCircle": "שתף עכשיו",
-        "submitStore": "הגש לבדיקה",
-        "noSourceChangesTitle": "אין שינויי מקור",
-        "noSourceChangesBody": "בחר קודם לפחות שינוי אחד אחרון שמגובה בקוד מקור.",
-        "pickRecipientTitle": "בחר עם מי לשתף",
-        "pickRecipientBody": "בחר לפחות חבר אחד או קהילה אחת.",
-        "pickAddonTitle": "בחר תוסף",
-        "pickAddonBody": "בחר את התוסף שברצונך לעדכן.",
-        "nameRequiredTitle": "נדרש שם",
-        "nameRequiredBody": "תן לתוסף שלך שם קצר לפני השיתוף.",
-        "badNameTitle": "בחר שם אחר",
-        "badNameBody": "השתמש באותיות או בספרות בשם כדי שנוכל לבנות מזהה.",
-        "publishBackendMissing": "שירות הפרסום אינו זמין.",
-        "sharingTitle": "משתף",
-        "submittingTitle": "מגיש",
-        "inProgressBody": "Stella תודיע לך כשזה יסתיים.",
-        "submittedTitle": "הוגש לבדיקה",
-        "submittedBody": "{name} נשלח לצוות Stella. הוא יעלה לחנות ברגע שיאושר.",
-        "sharedTitle": "שותף",
-        "shareFailedTitle": "השיתוף נכשל",
-        "submissionFailedTitle": "ההגשה נכשלה",
-        "sharedBodyDelivered": {
-          "one": "{name} בדרך לצ׳אט {count}.",
-          "two": "{name} בדרך ל-{count} צ׳אטים.",
-          "other": "{name} בדרך ל-{count} צ׳אטים."
-        },
-        "sharedBodyPartial": {
-          "one": "{name} הגיע ל-{delivered} מתוך צ׳אט {count}. פתח את ההודעות כדי לנסות שוב את השאר.",
-          "two": "{name} הגיע ל-{delivered} מתוך {count} צ׳אטים. פתח את ההודעות כדי לנסות שוב את השאר.",
-          "other": "{name} הגיע ל-{delivered} מתוך {count} צ׳אטים. פתח את ההודעות כדי לנסות שוב את השאר."
-        }
-      }
     }
   },
   "ui": {
@@ -1821,10 +1465,6 @@
         "files": {
           "label": "קבצים",
           "description": "דפים, תמונות, וידאו ומסמכים"
-        },
-        "store": {
-          "label": "חנות",
-          "description": "תוספים ודברים שבנית"
         },
         "trash": {
           "label": "אשפה",
@@ -2132,49 +1772,6 @@
         "two": "{count} תזמונים",
         "other": "{count} תזמונים"
       }
-    },
-    "social": {
-      "dialogDescription": "אשר את ההזמנה הזו לפני שמשהו קורה.",
-      "signInToAccept": "התחבר ל-Stella כדי לאשר את ההזמנה הזו.",
-      "lookingUpInvite": "מחפש את ההזמנה…",
-      "stellaAddOn": "תוסף של Stella",
-      "stellaUser": "משתמש Stella",
-      "byAuthor": " · מאת @{username}",
-      "alreadyIn": " · אתה כבר בפנים",
-      "membersLabel": "חברים",
-      "memberCount": {
-        "one": "חבר {count}",
-        "two": "{count} חברים",
-        "other": "{count} חברים"
-      },
-      "working": "עובד…",
-      "alreadyJoined": "כבר הצטרפת",
-      "welcomeToCommunity": "ברוך הבא ל-{community}!",
-      "joinedCommunity": "הצטרפת לקהילה!",
-      "friendRequestSent": "בקשת חברות נשלחה אל @{username}.",
-      "joinFailed": "לא ניתן היה להצטרף לקהילה הזו. ייתכן שתוקף ההזמנה פג.",
-      "friendRequestFailed": "לא ניתן היה לשלוח את בקשת החברות. נסה שוב.",
-      "store": {
-        "title": "פתח תוסף",
-        "confirmLabel": "הצג בחנות",
-        "sub": "קישור שפתחת מפנה לתוסף של Stella. שום דבר לא מותקן. זה רק פותח את דף החנות שלו.",
-        "missing": "התוסף הזה פרטי או שכבר אינו מפורסם."
-      },
-      "join": {
-        "title": "הצטרף לקהילה",
-        "confirmLabel": "הצטרף",
-        "sub": "הוזמנת לקהילה: מעגל מהימן שבו חברים משתפים תוספים זה עם זה.",
-        "missing": "לא נמצאה קהילה עבור קוד ההזמנה הזה. בקש קישור חדש."
-      },
-      "friend": {
-        "title": "הוסף חבר",
-        "confirmLabel": "שלח בקשת חברות",
-        "sub": "הוזמנת להתחבר ב-Stella.",
-        "missing": "לא נמצא משתמש עבור קישור ההזמנה הזה."
-      }
-    },
-    "websiteView": {
-      "storeTitle": "חנות"
     }
   },
   "mobile": {

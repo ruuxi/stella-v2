@@ -109,12 +109,6 @@
         "off": "Vypnuto"
       }
     },
-    "voice": {
-      "title": "Hlas",
-      "personality": {
-        "label": "Osobnost"
-      }
-    },
     "notifications": {
       "title": "Zvuková upozornění",
       "description": "Přehraje zvuk, když Stella dokončí běh agenta."
@@ -444,7 +438,6 @@
       "resultsAriaOne": "{count} výsledek",
       "resultsAriaOther": "Výsledky: {count}",
       "descriptions": {
-        "voice": "Vyberte styl mluvení a hlas osobnosti Stelly.",
         "permissions": "Udělte v systému macOS přístup ke zpřístupnění, záznamu obrazovky a mikrofonu.",
         "shortcuts": "Změňte klávesové zkratky pro diktování a hlas.",
         "backup": "Automatické šifrované zálohy, body obnovení a snímky na vyžádání.",
@@ -466,9 +459,6 @@
       "loadSoundNotifications": "Nepodařilo se načíst nastavení zvukových upozornění.",
       "saveSoundNotifications": "Nepodařilo se aktualizovat nastavení zvukových upozornění.",
       "soundNotificationsUnavailable": "Nastavení zvukových upozornění nejsou v tomto okně dostupná.",
-      "loadVoice": "Nepodařilo se načíst nastavení hlasu.",
-      "saveVoice": "Nepodařilo se aktualizovat nastavení hlasu.",
-      "voiceUnavailable": "Nastavení hlasu nejsou v tomto okně dostupná.",
       "loadMemory": "Nepodařilo se načíst nastavení paměti.",
       "saveMemory": "Nepodařilo se aktualizovat nastavení paměti.",
       "memoryUnavailable": "Nastavení paměti nejsou v tomto okně dostupná.",
@@ -724,7 +714,6 @@
       "extension": "Přidejte Stellu do prohlížeče.",
       "browser": "Nechte Stellu, ať vás pozná.",
       "theme": "Jak by Stella měla vypadat?",
-      "personality": "Jak by Stella měla mluvit?",
       "voice": "Mluvte místo psaní.",
       "enter": "Stella je téměř připravena."
     },
@@ -836,215 +825,6 @@
     "permissionDenied": "Stella k tomu nemá oprávnění."
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "Nová zpráva",
-        "emptySubtitle": "Nejprve přidejte přátele, abyste mohli začít konverzaci.",
-        "description": "Vyberte přítele nebo začněte novou skupinovou konverzaci.",
-        "subtitle": "Vyberte přítele nebo založte skupinu.",
-        "groupTitle": "Nová skupina",
-        "groupSubtitle": "Vyberte přátele, které chcete do skupiny přidat.",
-        "groupNameLabel": "Název skupiny",
-        "groupNamePlaceholder": "Název skupiny (nepovinné)",
-        "members": "Členové",
-        "back": "Zpět",
-        "creating": "Vytváření...",
-        "createGroup": "Vytvořit skupinu",
-        "newGroup": "Nová skupina",
-        "friends": "Přátelé",
-        "opening": "Otevírání..."
-      },
-      "friends": {
-        "title": "Přátelé",
-        "description": "Sdílejte svůj kód přítele pro propojení, nebo zadejte cizí a pošlete žádost.",
-        "subtitle": "Sdílejte své uživatelské jméno, nebo zadejte jméno přítele.",
-        "requestSent": "Žádost o přátelství odeslána!",
-        "usernameCopied": "Uživatelské jméno zkopírováno!",
-        "inviteLinkCopied": "Odkaz s pozvánkou zkopírován — pošlete ho kamkoli.",
-        "yourUsername": "Vaše uživatelské jméno",
-        "copy": "Kopírovat",
-        "copyUsernameTitle": "Kopírovat vaše uživatelské jméno",
-        "copyInviteLink": "Kopírovat odkaz s pozvánkou",
-        "copyInviteLinkTitle": "Zkopírujte odkaz, který otevře Stellu a pošle vám žádost o přátelství — funguje v iMessage, Discordu, kdekoli",
-        "addLabel": "Přidat přítele",
-        "addPlaceholder": "Zadejte uživatelské jméno",
-        "add": "Přidat",
-        "adding": "Přidávání...",
-        "requestsCount": "Žádosti ({count})",
-        "accept": "Přijmout",
-        "decline": "Odmítnout",
-        "sent": "Odesláno",
-        "waitingForResponse": "Čeká na odpověď",
-        "friendsCount": "Přátelé ({count})",
-        "empty": "Zatím žádní přátelé. Sdílejte své uživatelské jméno nebo výše zadejte cizí a propojte se.",
-        "message": "Napsat",
-        "opening": "Otevírání...",
-        "remove": "Odebrat",
-        "removing": "Odebírání...",
-        "errors": {
-          "sendRequest": "Tuto žádost o přátelství se nepodařilo odeslat. Zkontrolujte uživatelské jméno a zkuste to znovu."
-        }
-      },
-      "communities": {
-        "title": "Komunity",
-        "description": "Vytvořte komunitu nebo se do některé připojte pomocí kódu pozvánky a pak sdílejte doplňky se všemi v ní.",
-        "subtitle": "Důvěryhodné kruhy pro sdílení. Všichni v komunitě vidí, co její členové sdílejí.",
-        "defaultName": "Komunita",
-        "created": "Komunita „{name}“ vytvořena!",
-        "joined": "Jste uvnitř!",
-        "createLabel": "Vytvořit komunitu",
-        "createPlaceholder": "Pojmenujte novou komunitu",
-        "create": "Vytvořit",
-        "joinLabel": "Připojit se kódem pozvánky",
-        "joinPlaceholder": "Zadejte kód pozvánky",
-        "join": "Připojit se",
-        "yourCommunities": "Vaše komunity",
-        "yourCommunitiesCount": "Vaše komunity ({count})",
-        "empty": "Zatím žádné komunity. Vytvořte jednu a sdílejte kód pozvánky, nebo se připojte kódem, který vám někdo poslal.",
-        "createdByYouSuffix": " · vytvořeno vámi",
-        "open": "Otevřít",
-        "details": "Podrobnosti",
-        "back": "Zpět",
-        "nameLabel": "Název komunity",
-        "save": "Uložit",
-        "cancel": "Zrušit",
-        "createdByYou": "Tuto komunitu jste vytvořili vy.",
-        "memberOf": "Jste členem této komunity.",
-        "inviteCode": "Kód pozvánky",
-        "copied": "Zkopírováno!",
-        "copyCode": "Kopírovat kód",
-        "copyInviteLink": "Kopírovat odkaz s pozvánkou",
-        "copyInviteLinkTitle": "Zkopírujte odkaz, který otevře Stellu a připojí vás k této komunitě",
-        "inviteHint": "Odkaz funguje kdekoli — vložte ho do chatu Stelly nebo pošlete přes iMessage či Discord. Připojit se může kdokoli, kdo ho má, proto ho sdílejte jen s lidmi, kterým důvěřujete.",
-        "membersCount": "Členové ({count})",
-        "roleCreator": "Zakladatel",
-        "roleMember": "Člen",
-        "youSuffix": " · vy",
-        "remove": "Odebrat",
-        "removing": "Odebírání...",
-        "confirmDelete": "Opravdu smazat tuto komunitu?",
-        "delete": "Smazat komunitu",
-        "confirmLeave": "Opravdu odejít?",
-        "leave": "Opustit komunitu",
-        "rename": "Přejmenovat",
-        "openChat": "Otevřít chat",
-        "errors": {
-          "create": "Tuto komunitu se nepodařilo vytvořit. Zkuste to prosím znovu.",
-          "join": "S tímto kódem pozvánky se nepodařilo připojit. Zkontrolujte kód a zkuste to znovu.",
-          "rename": "Komunitu se nepodařilo přejmenovat. Zkuste to prosím znovu.",
-          "removeMember": "Tohoto člena se nepodařilo odebrat. Zkuste to prosím znovu.",
-          "delete": "Komunitu se nepodařilo smazat. Zkuste to prosím znovu.",
-          "leave": "Komunitu se nepodařilo opustit. Zkuste to prosím znovu."
-        },
-        "memberCount": {
-          "one": "{count} člen",
-          "few": "{count} členové",
-          "many": "{count} člena",
-          "other": "{count} členů"
-        }
-      },
-      "view": {
-        "messages": "Zprávy",
-        "signIn": "Přihlásit se",
-        "signInSubtitle": "Přihlaste se, abyste mohli psát přátelům a spolupracovat spolu se Stellou.",
-        "friends": "Přátelé",
-        "communities": "Komunity",
-        "newMessage": "Nová zpráva",
-        "noRooms": "Zatím žádné konverzace. Přidejte přátele nebo napište novou zprávu.",
-        "addFriends": "Přidat přátele",
-        "communityBadge": "Komunita",
-        "communityBadgeTitle": "Sdíleno se všemi v této komunitě",
-        "usernamePlaceholder": "vase-jmeno",
-        "editUsername": "Upravit své uživatelské jméno",
-        "copied": "Zkopírováno!",
-        "clickToCopyUsername": "Kliknutím zkopírujete své uživatelské jméno",
-        "copyUsername": "Kopírovat uživatelské jméno",
-        "cancel": "Zrušit",
-        "save": "Uložit",
-        "saving": "Ukládání...",
-        "emptyTitle": "Vaše zprávy",
-        "emptySubtitle": "Vyberte konverzaci vlevo, nebo začněte novou s přítelem.",
-        "errors": {
-          "startConversation": "Tuto konverzaci se nepodařilo zahájit. Zkuste to prosím znovu.",
-          "createGroup": "Skupinu se nepodařilo vytvořit. Zkuste to prosím znovu."
-        },
-        "usernameErrors": {
-          "empty": "Uživatelské jméno nemůže být prázdné.",
-          "length": "Uživatelské jméno musí mít 3–32 znaků.",
-          "format": "Použijte malá písmena, číslice, _ nebo -. Musí začínat a končit písmenem nebo číslicí.",
-          "update": "Vaše uživatelské jméno se nepodařilo aktualizovat. Zkuste to prosím znovu."
-        },
-        "newRequestCount": {
-          "one": "{count} nová žádost",
-          "few": "{count} nové žádosti",
-          "many": "{count} nové žádosti",
-          "other": "{count} nových žádostí"
-        },
-        "friendsWithRequestsTitle": "Přátelé ({countPhrase})",
-        "friendsWithRequestsAria": "Přátelé, {countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "Stella skončila bez odpovědi.",
-        "stellaFailed": "Stella nemohla tento požadavek dokončit.",
-        "stellaThinking": "Stella přemýšlí...",
-        "sharedStellaUnavailable": "Sdílená Stella není v této relaci aplikace dostupná.",
-        "back": "Zpět",
-        "backToConversations": "Zpět na konverzace",
-        "peopleCount": "lidí: {count}",
-        "startStella": "Spustit Stellu",
-        "startStellaTitle": "Přizvat Stellu do této konverzace",
-        "starting": "Spouštění...",
-        "startAgain": "Spustit znovu",
-        "pause": "Pozastavit",
-        "resume": "Pokračovat",
-        "end": "Ukončit",
-        "sayHello": "Pozdravte a začněte konverzaci",
-        "loadingOlder": "Načítání starších zpráv…",
-        "armedOnTitle": "Odeslat další zprávu Stelle",
-        "armedOffTitle": "Odeslat další zprávu jako běžnou zprávu v chatu",
-        "tellStella": "Říct Stelle",
-        "tellingStella": "Říkáte Stelle",
-        "tellStellaPlaceholder": "Řekněte Stelle, co chcete...",
-        "messagePlaceholder": "Napsat: {name}",
-        "sessionBadge": {
-          "live": "Stella · Živě",
-          "paused": "Stella · Pozastaveno",
-          "ended": "Stella · Ukončeno"
-        },
-        "sessionHint": {
-          "live": "Kdokoli tady může mluvit se Stellou.",
-          "paused": "Pozastaveno — pokračujte, abyste mohli Stelle znovu psát.",
-          "ended": "Tento sdílený prostor Stelly skončil."
-        },
-        "errors": {
-          "startStella": "Stellu se tu nepodařilo spustit. Zkuste to prosím znovu.",
-          "updateStella": "Stellu se teď nepodařilo aktualizovat. Zkuste to prosím znovu.",
-          "sendToStella": "Tohle se nepodařilo odeslat Stelle. Zkuste to prosím znovu.",
-          "sendMessage": "Vaši zprávu se nepodařilo odeslat. Zkuste to prosím znovu."
-        }
-      },
-      "composer": {
-        "placeholder": "Napište zprávu...",
-        "send": "Odeslat"
-      },
-      "inviteCard": {
-        "communityEyebrow": "Pozvánka do komunity",
-        "friendEyebrow": "Pozvánka k přátelství",
-        "defaultCommunityName": "Komunita",
-        "defaultUserName": "Uživatel Stelly",
-        "friendDetail": "Klepnutím pošlete žádost o přátelství",
-        "inviteUnavailable": "Pozvánka není dostupná",
-        "userNotFound": "Uživatel nenalezen",
-        "communityMissing": "Tato komunita už neexistuje, nebo se změnil kód.",
-        "userMissing": "Tomuto odkazu s pozvánkou neodpovídá žádný uživatel Stelly.",
-        "communityDetail": {
-          "one": "{countLabel} člen · klepnutím se připojíte",
-          "few": "{countLabel} členové · klepnutím se připojíte",
-          "many": "{countLabel} člena · klepnutím se připojíte",
-          "other": "{countLabel} členů · klepnutím se připojíte"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "Místní využití je dostupné v desktopové aplikaci Stella.",
       "intro": "Volání poskytovatelů uložená na tomto zařízení. Náklady jsou místní odhady; závazné zůstává vyúčtování na serveru.",
@@ -1160,37 +940,6 @@
         "loadFailed": "Aplikaci se nepodařilo načíst.",
         "loading": "Načítání {name}…",
         "openFailed": "Nepodařilo se otevřít {name}"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "Nejoblíbenější",
-        "name": "Abecedně"
-      },
-      "animations": {
-        "idle": "Klid",
-        "runningRight": "Běh doprava",
-        "runningLeft": "Běh doleva",
-        "waving": "Mávání",
-        "jumping": "Skákání",
-        "failed": "Selhání",
-        "waiting": "Čekání",
-        "running": "Běh",
-        "review": "Kontrola"
-      },
-      "card": {
-        "by": "od {creator}",
-        "selections": "výběrů: {count}",
-        "get": "Získat",
-        "select": "Vybrat",
-        "selected": "Vybráno",
-        "remove": "Odebrat"
-      },
-      "details": {
-        "caption": "od {creator} · výběrů: {downloads}",
-        "previewLabel": "Náhled {name}",
-        "animations": "Animace",
-        "animationStates": "Stavy animací"
       }
     },
     "chat": {
@@ -1646,118 +1395,6 @@
     "voice": {
       "signInTitle": "Pro hlas se přihlaste",
       "needsSetupTitle": "Hlas vyžaduje nastavení"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "Až pro vás Stella něco změní, sdílejte to odsud s přáteli, komunitou nebo do Store."
-      },
-      "recentChanges": {
-        "rowSelectHint": "Kliknutím zahrnete do sdílení",
-        "rowDeselectHint": "Kliknutím odeberete z výběru",
-        "updated": "Aktualizováno {time}",
-        "showOlder": "Zobrazit starší",
-        "justNow": "Právě teď",
-        "publishEmpty": "Vyberte změny ke sdílení",
-        "publishLabel": "Sdílet · {countPhrase}",
-        "selectedCount": {
-          "one": "vybráno: {count}",
-          "few": "vybráno: {count}",
-          "many": "vybráno: {count}",
-          "other": "vybráno: {count}"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "Doplněk Stelly",
-        "unavailableName": "Doplněk není dostupný",
-        "unavailableDesc": "Tento doplněk je soukromý nebo už není publikovaný.",
-        "viewCta": "Zobrazit →"
-      },
-      "creator": {
-        "loading": "Načítání tvůrce…",
-        "notFoundTitle": "Tvůrce nenalezen",
-        "notFoundBodyPrefix": "Uživatelské jméno si zatím nikdo nezabral:",
-        "notFoundBodySuffix": ".",
-        "noAddons": "{username} zatím nesdílel žádné doplňky.",
-        "version": "Verze {version}",
-        "addonCount": {
-          "zero": "Zatím žádné doplňky",
-          "one": "{count} doplněk",
-          "few": "{count} doplňky",
-          "many": "{count} doplňku",
-          "other": "{count} doplňků"
-        }
-      },
-      "categories": {
-        "appsGames": "Aplikace a hry",
-        "productivity": "Produktivita",
-        "customization": "Přizpůsobení",
-        "skillsAgents": "Dovednosti a agenti",
-        "integrations": "Integrace",
-        "other": "Ostatní"
-      },
-      "shareDialog": {
-        "title": "Sdílet",
-        "titleCircle": "Sdílet se svým okruhem",
-        "titleCircleUpdate": "Sdílet aktualizaci",
-        "titleStore": "Sdílet do Store",
-        "titleStoreUpdate": "Odeslat aktualizaci",
-        "destinationLede": "Kam to má jít? Sdílíte spustitelný kód, proto zvolte publikum uvážlivě.",
-        "circleOptionName": "Přítel nebo komunita",
-        "circleOptionDesc": "Okamžitě. Jde přímo lidem, kterým důvěřujete, jako karta v chatu — bez kontroly a nikdy veřejně.",
-        "storeOptionName": "Stella Store",
-        "storeOptionDesc": "Veřejné. Nejdřív zkontroluje tým Stelly, pak je to ve Store pro všechny.",
-        "updateExisting": "Aktualizovat existující doplněk",
-        "existingAddon": "Existující doplněk",
-        "selectPlaceholder": "Vyberte…",
-        "nameLabel": "Název",
-        "namePlaceholder": "Ukázkový mod",
-        "descriptionLabel": "Popis",
-        "optionalHint": "(nepovinné)",
-        "descriptionPlaceholderCircle": "Krátký řádek pro kartu sdílení.",
-        "descriptionPlaceholderStore": "Krátký řádek pro stránku ve Store.",
-        "categoryLabel": "Kategorie",
-        "categoryPlaceholder": "Vyberte kategorii…",
-        "sendTo": "Odeslat komu",
-        "noRecipients": "Zatím žádní přátelé ani komunity — nejdřív je přidejte na stránce Zprávy.",
-        "communityFallbackName": "Komunita",
-        "communityTag": "Komunita",
-        "circleNote": "Sdílení dorazí okamžitě jako instalovatelná karta do každého chatu. Získat ho mohou jen lidé, které vyberete (a členové těchto komunit).",
-        "storeNote": "Tým Stelly kontroluje příspěvky do Store, než se zpřístupní všem.",
-        "submitPending": "Sdílení…",
-        "submitCircle": "Sdílet nyní",
-        "submitStore": "Odeslat ke kontrole",
-        "noSourceChangesTitle": "Žádné změny ve zdrojích",
-        "noSourceChangesBody": "Nejdřív vyberte alespoň jednu nedávnou změnu se zdrojovým kódem.",
-        "pickRecipientTitle": "Vyberte, s kým sdílet",
-        "pickRecipientBody": "Vyberte alespoň jednoho přítele nebo jednu komunitu.",
-        "pickAddonTitle": "Vyberte doplněk",
-        "pickAddonBody": "Vyberte doplněk, který chcete aktualizovat.",
-        "nameRequiredTitle": "Název je povinný",
-        "nameRequiredBody": "Než budete sdílet, dejte doplňku krátký název.",
-        "badNameTitle": "Zvolte jiný název",
-        "badNameBody": "Použijte v názvu písmena nebo číslice, abychom mohli sestavit ID.",
-        "publishBackendMissing": "Backend publikování není dostupný.",
-        "sharingTitle": "Sdílení",
-        "submittingTitle": "Odesílání",
-        "inProgressBody": "Stella dá vědět, až bude hotovo.",
-        "submittedTitle": "Odesláno ke kontrole",
-        "submittedBody": "{name} bylo odesláno týmu Stelly. Po schválení se objeví ve Store.",
-        "sharedTitle": "Sdíleno",
-        "shareFailedTitle": "Sdílení selhalo",
-        "submissionFailedTitle": "Odeslání selhalo",
-        "sharedBodyDelivered": {
-          "one": "{name} je na cestě do {count} chatu.",
-          "few": "{name} je na cestě do {count} chatů.",
-          "many": "{name} je na cestě do {count} chatu.",
-          "other": "{name} je na cestě do {count} chatů."
-        },
-        "sharedBodyPartial": {
-          "one": "{name} dorazilo do {delivered} z {count} chatu. Otevřete Zprávy a zkuste zbytek znovu.",
-          "few": "{name} dorazilo do {delivered} z {count} chatů. Otevřete Zprávy a zkuste zbytek znovu.",
-          "many": "{name} dorazilo do {delivered} z {count} chatu. Otevřete Zprávy a zkuste zbytek znovu.",
-          "other": "{name} dorazilo do {delivered} z {count} chatů. Otevřete Zprávy a zkuste zbytek znovu."
-        }
-      }
     }
   },
   "ui": {
@@ -1839,10 +1476,6 @@
         "files": {
           "label": "Soubory",
           "description": "Stránky, obrázky, videa a dokumenty"
-        },
-        "store": {
-          "label": "Store",
-          "description": "Doplňky a věci, které jste vytvořili"
         },
         "trash": {
           "label": "Koš",
@@ -2157,50 +1790,6 @@
         "many": "{count} plánu",
         "other": "{count} plánů"
       }
-    },
-    "social": {
-      "dialogDescription": "Než se cokoli stane, potvrďte tuto pozvánku.",
-      "signInToAccept": "Pro přijetí této pozvánky se přihlaste ke Stelle.",
-      "lookingUpInvite": "Hledáme pozvánku…",
-      "stellaAddOn": "Doplněk Stelly",
-      "stellaUser": "Uživatel Stelly",
-      "byAuthor": " · od @{username}",
-      "alreadyIn": " · už jste členem",
-      "membersLabel": "členů",
-      "memberCount": {
-        "one": "{count} člen",
-        "few": "{count} členové",
-        "many": "{count} člena",
-        "other": "{count} členů"
-      },
-      "working": "Pracujeme…",
-      "alreadyJoined": "Již připojeno",
-      "welcomeToCommunity": "Vítejte v {community}!",
-      "joinedCommunity": "Připojili jste se ke komunitě!",
-      "friendRequestSent": "Žádost o přátelství odeslána @{username}.",
-      "joinFailed": "K této komunitě se nepodařilo připojit. Pozvánka možná vypršela.",
-      "friendRequestFailed": "Tuto žádost o přátelství se nepodařilo odeslat. Zkuste to prosím znovu.",
-      "store": {
-        "title": "Otevřít doplněk",
-        "confirmLabel": "Zobrazit ve Store",
-        "sub": "Odkaz, který jste otevřeli, míří na doplněk Stelly. Nic se neinstaluje. Otevře se jen jeho stránka ve Store.",
-        "missing": "Tento doplněk je soukromý nebo už není publikovaný."
-      },
-      "join": {
-        "title": "Připojit se ke komunitě",
-        "confirmLabel": "Připojit se",
-        "sub": "Byli jste pozváni do komunity: důvěryhodného kruhu, kde členové mezi sebou sdílejí doplňky.",
-        "missing": "K tomuto kódu pozvánky nebyla nalezena žádná komunita. Požádejte o nový odkaz."
-      },
-      "friend": {
-        "title": "Přidat přítele",
-        "confirmLabel": "Odeslat žádost o přátelství",
-        "sub": "Byli jste pozváni k propojení na Stelle.",
-        "missing": "K tomuto odkazu s pozvánkou nebyl nalezen žádný uživatel."
-      }
-    },
-    "websiteView": {
-      "storeTitle": "Store"
     }
   },
   "mobile": {

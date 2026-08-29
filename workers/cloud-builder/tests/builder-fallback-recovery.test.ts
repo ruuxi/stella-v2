@@ -94,8 +94,6 @@ const marker = {
   attemptGeneration: 1,
   sandboxId: "sandbox-1",
   size: "large" as const,
-  workspace: "drive",
-  workspaceRoot: "/workspace/drive" as const,
   startedAt: 1,
 };
 
@@ -542,7 +540,6 @@ describe("Builder fallback recovery", () => {
     let publicationCommits = 0;
     instance["publishAgentTurnWorkspace"] = async (
       _turn: unknown,
-      _workspace: unknown,
       _cursor: unknown,
       operationId: string,
     ) => {
@@ -572,31 +569,16 @@ describe("Builder fallback recovery", () => {
     }) as typeof fetch;
     try {
       await expect(
-        instance["advanceBuilderFallback"](
-          current,
-          marker.workspace,
-          marker.workspaceRoot,
-          fallback,
-        ),
+        instance["advanceBuilderFallback"](current, fallback),
       ).rejects.toThrow("transcript ACK lost");
       await expect(
-        instance["advanceBuilderFallback"](
-          current,
-          marker.workspace,
-          marker.workspaceRoot,
-          fallback,
-        ),
+        instance["advanceBuilderFallback"](current, fallback),
       ).rejects.toThrow("publish ACK lost");
       expect(
         (state.values.get(fallbackKey) as { transcriptCommitted: boolean })
           .transcriptCommitted,
       ).toBe(true);
-      await instance["advanceBuilderFallback"](
-        current,
-        marker.workspace,
-        marker.workspaceRoot,
-        fallback,
-      );
+      await instance["advanceBuilderFallback"](current, fallback);
     } finally {
       globalThis.fetch = originalFetch;
     }

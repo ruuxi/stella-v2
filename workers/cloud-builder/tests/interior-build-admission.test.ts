@@ -34,7 +34,7 @@ const identity = {
   attemptGeneration: 3,
 };
 
-const brokerHarness = async (workspace: string) => {
+const brokerHarness = async () => {
   const { handoff, record } = await issueTurnBrokerCredential({
     identity,
     endpoint: "https://builder.example/sessions/session-1/turn-broker",
@@ -50,7 +50,6 @@ const brokerHarness = async (workspace: string) => {
     turnId: identity.turnId,
     attemptGeneration: identity.attemptGeneration,
     threadId: "thread-1",
-    workspace,
     prompt: "prompt",
     turnToken: "token",
     convexCallbackBase: "https://convex.example",
@@ -138,8 +137,8 @@ const brokerHarness = async (workspace: string) => {
 };
 
 describe("interior build request admission", () => {
-  test("records the request for a Stella-interior turn", async () => {
-    const harness = await brokerHarness("stella");
+  test("records the request on any cloud agent turn", async () => {
+    const harness = await brokerHarness();
     const response = await harness.post({
       schemaVersion: 1,
       note: "renderer refresh",
@@ -157,15 +156,8 @@ describe("interior build request admission", () => {
     });
   });
 
-  test("refuses the request for any other workspace", async () => {
-    const harness = await brokerHarness("project:stella-v2");
-    const response = await harness.post({ schemaVersion: 1 });
-    expect(response.status).toBe(403);
-    expect(harness.stored()).toBeUndefined();
-  });
-
   test("refuses a malformed request body", async () => {
-    const harness = await brokerHarness("stella");
+    const harness = await brokerHarness();
     const response = await harness.post({ schemaVersion: 2 });
     expect(response.status).toBe(400);
     expect(harness.stored()).toBeUndefined();

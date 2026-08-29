@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sha256Hex } from "../src/hash.js";
+import { WORLD_REGISTRY_SEGMENT } from "../src/turn-state-registry.js";
 
 const packageRoot = new URL("..", import.meta.url);
 const hash = (character: string): string => character.repeat(64);
@@ -255,18 +256,17 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     );
 
     const workspacePlanId = "f".repeat(64);
-    const workspaceHash = await sha256Hex("drive");
+    const workspaceHash = await sha256Hex(WORLD_REGISTRY_SEGMENT);
     const plan = await requestJson(
       realCoordinatorPath(attempt, "/workspace/plan"),
       {
         attempt,
         observation: {
           workspacePlanId,
-          transfer: { from: "drive", to: "drive" },
           sourceHasState: true,
           sourceStateMarker: "source-marker",
-          requestedDestinationMarker: "absent",
-          expectedRequestedMarker: "destination-marker",
+          destinationMarker: "absent",
+          expectedDestinationMarker: "destination-marker",
         },
       },
     );

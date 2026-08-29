@@ -8,8 +8,6 @@ import {
 } from "react";
 import type { EventRecord, MessageRecord } from "@stella/contracts/local-chat";
 import type { TaskItem } from "@/features/chat/lib/event-transforms";
-import type { StreamingAssistantOverlay } from "@/features/chat/streaming/streaming-types";
-import { streamingAssistantOverlayId } from "@/features/chat/streaming/streaming-types";
 import type { SendMessageArgs } from "@/features/chat/streaming/chat-types";
 import { showToast } from "@/ui/toast";
 import {
@@ -34,7 +32,7 @@ import {
   mergeCloudConversationTasks,
   useCloudConversationActivity,
 } from "./use-cloud-activity";
-import { messageText, type JournalRecord } from "./conversation-protocol";
+import type { JournalRecord } from "./conversation-protocol";
 import type { PendingPrompt } from "./conversation-store";
 import {
   useConversation,
@@ -91,55 +89,6 @@ export const latestInFlightCloudUserMessageId = (
   pending: readonly PendingPrompt[],
 ): string | null =>
   pending.findLast((entry) => !entry.error)?.clientMsgId ?? null;
-
-const owningUserMessageId = (
-  records: readonly JournalRecord[],
-  pending: readonly PendingPrompt[],
-  turnId: string,
-): string | null => {
-  const canonical = records.find(
-    (record): record is Extract<JournalRecord, { kind: "message" }> =>
-      record.kind === "message" &&
-      record.role === "user" &&
-      record.turnId === turnId,
-  );
-  if (canonical) return journalUserMessageId(canonical);
-  return pending.find((entry) => entry.turnId === turnId)?.clientMsgId ?? null;
-};
-
-export const cloudLiveToStreamingAssistants = (
-  records: readonly JournalRecord[],
-  pending: readonly PendingPrompt[],
-  live: CloudConversationView["state"]["live"],
-): StreamingAssistantOverlay[] => {
-  if (!live?.text) return [];
-  const userMessageId = owningUserMessageId(records, pending, live.turnId);
-  if (!userMessageId) return [];
-  const committedAssistantCount = records.filter(
-    (record) =>
-      record.kind === "message" &&
-      record.role === "assistant" &&
-      record.turnId === live.turnId &&
-      Boolean(messageText(record.payload)),
-  ).length;
-  const indexInTurn = committedAssistantCount + 1;
-  const latestTurnTimestamp = records
-    .filter((record) => record.turnId === live.turnId)
-    .at(-1)?.createdAtMs;
-  const pendingTimestamp = pending.find(
-    (entry) => entry.turnId === live.turnId,
-  )?.createdAtMs;
-  return [
-    {
-      _id: streamingAssistantOverlayId(userMessageId, indexInTurn),
-      userMessageId,
-      indexInTurn,
-      text: live.text,
-      timestamp: (latestTurnTimestamp ?? pendingTimestamp ?? 0) + 1,
-      runId: live.turnId,
-    },
-  ];
-};
 
 /**
  * Cloud start currently accepts one visible prompt string. Text remains
@@ -318,10 +267,8 @@ export type CloudChatBridge = {
   isLoadingOlderActivity: boolean;
   loadOlderActivity: () => void;
   optimisticEvents: EventRecord[];
-  streamingAssistants: StreamingAssistantOverlay[];
   isWebShell: boolean;
   isStreaming: boolean;
-  isStreamingResponseText: boolean;
   runtimeStatusText: string | null;
   activeToolName: string | null;
   pendingUserMessageId: string | null;
@@ -471,23 +418,6 @@ export function useCloudChatBridge({
         : EMPTY_EVENTS,
     [conversation.pending, enabled, webShell],
   );
-  const streamingAssistants = useMemo(
-    () =>
-      enabled && webShell
-        ? cloudLiveToStreamingAssistants(
-            completeRecords,
-            conversation.pending,
-            conversation.state.live,
-          )
-        : [],
-    [
-      completeRecords,
-      conversation.pending,
-      conversation.state.live,
-      enabled,
-      webShell,
-    ],
-  );
   const pendingInFlight = conversation.pending.filter((entry) => !entry.error);
   const isStreaming = Boolean(
     enabled && webShell && (conversation.state.live || pendingInFlight.length),
@@ -560,10 +490,8 @@ export function useCloudChatBridge({
     isLoadingOlderActivity: cloudActivity.isLoadingOlder,
     loadOlderActivity: cloudActivity.loadOlder,
     optimisticEvents,
-    streamingAssistants,
     isWebShell: webShell,
     isStreaming,
-    isStreamingResponseText: Boolean(conversation.state.live?.text),
     runtimeStatusText: activeToolName
       ? (conversation.state.live?.toolLabel ?? `Running ${activeToolName}…`)
       : isStreaming

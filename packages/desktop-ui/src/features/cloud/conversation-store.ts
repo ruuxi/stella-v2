@@ -18,7 +18,6 @@
 import { getConvexToken } from "@/global/auth/services/auth-token";
 import {
   BACKFILL_BATCH_RECORDS,
-  LIVE_PARTIAL_MAX_CHARS,
   MAX_CLIENT_RECORDS,
   type JournalRecord,
 } from "./conversation-protocol";
@@ -45,15 +44,16 @@ export type {
   PendingPrompt,
 } from "./conversation-outbox";
 
+/**
+ * The turn that is running right now. Assistant replies are delivered whole,
+ * so this carries no text: it exists to keep the working indicator up between
+ * the turn's `started` row and its terminal one.
+ */
 export type LiveStream = {
   turnId: string;
-  streamId: string;
-  text: string;
   /** The tool currently running, for the working label. */
   toolName: string | null;
   toolLabel: string | null;
-  /** True once the server stopped sending deltas for this turn. */
-  dropped: boolean;
 };
 
 export type ConversationState = {
@@ -938,11 +938,8 @@ class ConversationStore {
           live: live
             ? {
                 turnId: live.turnId,
-                streamId: live.streamId,
-                text: live.partialText,
                 toolName: live.tools.at(-1)?.name ?? null,
                 toolLabel: live.tools.at(-1)?.label ?? null,
-                dropped: false,
               }
             : null,
         });
@@ -977,16 +974,8 @@ class ConversationStore {
         // the hot window but reachable, so scrollback stays offered.
         this.patch({ hasOlder: true });
         return;
-      case "delta":
-        this.applyDelta(event.turnId, event.streamId, event.kind, event.text);
-        return;
       case "tool":
         this.applyTool(event.turnId, event.name, event.label, event.phase);
-        return;
-      case "deltas_dropped":
-        if (this.state.live?.streamId === event.streamId) {
-          this.patch({ live: { ...this.state.live, dropped: true } });
-        }
         return;
     }
   }
@@ -1021,24 +1010,16 @@ class ConversationStore {
     let live = this.state.live;
     for (const record of fresh) {
       pendingPrompts.resolve(this.authority, record);
-      if (!live) continue;
-      // The committed row replaces its provisional bubble wholesale. Matching
-      // on `turnId` as well as `streamId` is deliberate: a committed assistant
-      // row for the live turn supersedes whatever partial we were showing even
-      // if the server did not stamp a stream id, and the next delta opens a
-      // fresh bubble. Without it the partial would render beside its own
-      // committed copy.
-      if (
-        record.kind === "message" &&
-        record.role === "assistant" &&
-        (record.streamId === live.streamId || record.turnId === live.turnId)
-      ) {
-        live = null;
-      } else if (
-        record.kind === "turn" &&
-        record.turnId === live.turnId &&
-        record.phase !== "started"
-      ) {
+      // The turn's own journal rows bracket the working indicator. Nothing
+      // else can: with replies delivered whole there is no per-token traffic
+      // to infer liveness from, and a committed assistant row is not the end
+      // of a turn — a preamble is followed by tools and another reply.
+      if (record.kind !== "turn") continue;
+      if (record.phase === "started") {
+        if (live?.turnId !== record.turnId) {
+          live = { turnId: record.turnId, toolName: null, toolLabel: null };
+        }
+      } else if (live?.turnId === record.turnId) {
         live = null;
       }
     }
@@ -1238,58 +1219,18 @@ class ConversationStore {
     });
   }
 
-  private applyDelta(
-    turnId: string,
-    streamId: string,
-    kind: "text" | "thinking",
-    text: string,
-  ): void {
-    // Thinking is not rendered in this surface; it still proves the turn is
-    // alive, which the working label reads off `live` being present.
-    const current =
-      this.state.live && this.state.live.streamId === streamId
-        ? this.state.live
-        : {
-            turnId,
-            streamId,
-            text: "",
-            toolName: null,
-            toolLabel: null,
-            dropped: false,
-          };
-    if (kind !== "text") {
-      if (current !== this.state.live) this.patch({ live: current });
-      return;
-    }
-    const joined = current.text + text;
-    this.patch({
-      live: {
-        ...current,
-        text:
-          joined.length > LIVE_PARTIAL_MAX_CHARS
-            ? joined.slice(joined.length - LIVE_PARTIAL_MAX_CHARS)
-            : joined,
-      },
-    });
-  }
-
   private applyTool(
     turnId: string,
     name: string,
     label: string | undefined,
     phase: "start" | "end",
   ): void {
+    // A tool frame can outrun the turn's `started` row on a fresh connect, so
+    // it opens the live turn rather than assuming one is already there.
     const current =
       this.state.live && this.state.live.turnId === turnId
         ? this.state.live
-        : {
-            turnId,
-            streamId: `tool:${turnId}`,
-            text: "",
-            toolName: null,
-            toolLabel: null,
-            dropped: false,
-          };
+        : { turnId, toolName: null, toolLabel: null };
     this.patch({
       live: {
         ...current,

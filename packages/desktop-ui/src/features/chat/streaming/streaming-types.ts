@@ -11,16 +11,16 @@ export type {
 import type { AgentResponseTarget } from "@stella/contracts/agent-stream";
 
 /**
- * In-memory assistant message currently being streamed.
+ * In-memory assistant message the renderer is showing ahead of SQLite.
  *
- * Stella streams runtime → renderer over IPC and the persisted source
- * of truth is SQLite. Per Option A (standard chat-UI pattern, c.f.
- * Vercel `useChat`), the renderer treats stream chunks as updates to
- * a synthetic in-memory `MessageRecord` rather than overlaying a
- * separate "tail row" on top of the persisted list. The overlay is
- * inserted into `displayMessages` by `useConversationDisplayMessages`.
- * While it exists, it masks the persisted row at the same
- * `(userMessageId, indexInTurn)` slot and borrows that row's metadata.
+ * The persisted source of truth is SQLite, and the runtime delivers each
+ * assistant message whole over IPC. The renderer turns that message into a
+ * synthetic in-memory `MessageRecord` so the reply can be on screen before
+ * its row commits, rather than overlaying a separate "tail row" on top of the
+ * persisted list. The overlay is inserted into `displayMessages` by
+ * `useConversationDisplayMessages`. While it exists, it masks the persisted
+ * row at the same `(userMessageId, indexInTurn)` slot and borrows that row's
+ * metadata.
  *
  * Layout invariants:
  *   - `indexInTurn` is 1-based per `userMessageId`. The first assistant
@@ -44,36 +44,17 @@ export type StreamingAssistantOverlay = {
   runId: string;
   /** Exact persisted twin learned from the assistant-message boundary. */
   canonicalMessageId?: string;
-  /**
-   * Marked true once this slot's text equals the full upstream-received
-   * text for its message (set on `ASSISTANT_MESSAGE` boundary or
-   * `RUN_FINISHED`).
-   */
+  /** This slot carries the message's full upstream text. */
   locked?: boolean;
+  /**
+   * Withheld from the timeline while the indicator plays its handoff exit, so
+   * the reply lands as the indicator finishes clearing the row rather than
+   * appearing beside it.
+   */
+  heldForHandoff?: boolean;
 };
 
-export const linkStreamingAssistantCanonicalMessage = (
-  overlays: StreamingAssistantOverlay[],
-  args: {
-    userMessageId: string;
-    indexInTurn: number;
-    canonicalMessageId: string;
-  },
-): StreamingAssistantOverlay[] => {
-  const index = overlays.findIndex(
-    (overlay) =>
-      overlay.userMessageId === args.userMessageId &&
-      overlay.indexInTurn === args.indexInTurn,
-  );
-  if (index < 0) return overlays;
-  const current = overlays[index]!;
-  if (current.canonicalMessageId === args.canonicalMessageId) return overlays;
-  const next = overlays.slice();
-  next[index] = { ...current, canonicalMessageId: args.canonicalMessageId };
-  return next;
-};
-
-/** Replace optimistic streamed text with the provider's finalized text. */
+/** Adopt the provider's finalized text and persisted id for a slot. */
 export const reconcileStreamingAssistantCanonicalMessage = (
   overlays: StreamingAssistantOverlay[],
   args: {

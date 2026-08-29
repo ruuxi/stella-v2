@@ -4,24 +4,23 @@ import { useResumeAgentRun } from "../hooks/use-resume-agent-run";
 import { attachmentsForStartChat, initialStoreState, streamStoreReducer, } from "./store";
 import { useReasoningBatcher } from "./use-reasoning-batcher";
 import { clearConversationTaskDecorations, getTaskDecorationsSnapshot, subscribeTaskDecorations, } from "./task-decoration-store";
-import { useStreamTextAnimation } from "./use-stream-text-animation";
 import { useAgentEventHandler } from "./use-agent-event-handler";
 import { useApplyResumeSnapshot } from "./use-resume-snapshot";
-import { assistantScrollFollowKey, linkStreamingAssistantCanonicalMessage, reconcileStreamingAssistantCanonicalMessage, streamingAssistantOverlayId, } from "./streaming-types";
-import { beginAssistantScrollFollow, clearAssistantScrollFollow, notifyAssistantScrollFollowLayoutChange, } from "@/shell/chat-scroll-follow";
+import { reconcileStreamingAssistantCanonicalMessage, streamingAssistantOverlayId, } from "./streaming-types";
+import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
+import { WORKING_INDICATOR_HANDOFF_MS } from "@/features/chat/working-indicator-state";
 import { resolveAgentNotReadyToast } from "./agent-stream-errors";
 import { isStellaLimitOrAuthReason, resolveStellaProviderErrorToast, } from "./stella-provider-error-toast";
 export function useLocalAgentStream({ activeConversationId, storageMode, onRunStarted, onRunFinished, }) {
     const [storeState, dispatch] = useReducer(streamStoreReducer, initialStoreState);
     const [pendingUserMessageId, setPendingUserMessageId] = useState(null);
+
     /**
-     * In-memory assistant messages currently being streamed for the
-     * active conversation. The renderer merges these into
-     * `displayMessages` so the live stream is just a regular assistant
-     * row (whose text grows) rather than a separate "tail" overlay.
-     * Entries keep owning the visible text while present, even after
-     * SQLite has persisted the matching `(userMessageId, indexInTurn)`
-     * slot.
+     * Assistant messages the renderer is showing ahead of SQLite for the
+     * active conversation. Merged into `displayMessages` so a reply is a
+     * regular assistant row rather than a separate "tail" overlay. Entries
+     * keep owning the visible text while present, even after SQLite has
+     * persisted the matching `(userMessageId, indexInTurn)` slot.
      */
     const [streamingAssistants, setStreamingAssistants] = useState([]);
     const streamingAssistantsRef = useRef([]);
@@ -41,15 +40,13 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
     const seenSourceEventKeysRef = useRef(new Set());
     const terminalRunIdsRef = useRef(new Set());
     const pendingRequestIdsRef = useRef(new Set());
+
     /**
-     * Active slot index per `userMessageId` for the in-flight run. The
-     * first chunk of a turn pushes overlay slot 1; each
-     * `ASSISTANT_MESSAGE` boundary increments the index; the next chunk
-     * pushes overlay slot N at the new index.
+     * Next slot index per `userMessageId` for the in-flight run. A run emits
+     * several assistant messages — preamble, then the post-tool answer — and
+     * each lands in its own 1-based slot within the turn.
      */
     const nextSlotIndexByUserMessageIdRef = useRef(new Map());
-    const receivedSlotIdsRef = useRef(new Set());
-    const pendingCanonicalBySlotIdRef = useRef(new Map());
     const startAttemptRef = useRef(0);
     const agentStreamCleanupRef = useRef(null);
     const activeRunId = activeConversationId
@@ -66,179 +63,113 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
     const latestCompletedTool = activeRun?.latestCompletedTool ?? null;
     const hasToolActivity = Boolean(activeRun?.hasToolActivity);
     const isToolActive = Boolean(activeToolName);
-    const isStreamingResponseText = Boolean(activeRun?.isStreamingText);
+    const answerLanded = Boolean(activeRun?.answerLanded && !isToolActive);
     const reasoningText = "";
-    /** Apply an idempotent full-text animation frame to its overlay slot. */
-    const revealStreamText = useCallback((slotId, visibleText) => {
-        commitStreamingAssistants((current) => {
-            const index = current.findIndex((slot) => slot._id === slotId);
-            const slot = index >= 0 ? current[index] : undefined;
-            if (!slot || slot.text === visibleText)
-                return current;
-            const next = current.slice();
-            next[index] = { ...slot, text: visibleText };
-            return next;
-        });
-        notifyAssistantScrollFollowLayoutChange();
-    }, [commitStreamingAssistants]);
-    const { enqueue: animateStreamText, finish: finishStreamText, discard: discardStreamText, } = useStreamTextAnimation({ onReveal: revealStreamText });
-    /**
-     * Lock one exact slot only after the frame-driven playout has drained.
-     */
-    const lockStreamSlot = useCallback((slotId) => {
-        const canonical = pendingCanonicalBySlotIdRef.current.get(slotId);
-        pendingCanonicalBySlotIdRef.current.delete(slotId);
-        commitStreamingAssistants((current) => {
-            let next = current;
-            if (canonical?.canonicalText !== undefined) {
-                next = reconcileStreamingAssistantCanonicalMessage(next, {
-                    userMessageId: canonical.userMessageId,
-                    indexInTurn: canonical.indexInTurn,
-                    ...(canonical.canonicalMessageId
-                        ? { canonicalMessageId: canonical.canonicalMessageId }
-                        : {}),
-                    canonicalText: canonical.canonicalText,
-                });
-            }
-            else if (canonical?.canonicalMessageId) {
-                next = linkStreamingAssistantCanonicalMessage(next, {
-                    userMessageId: canonical.userMessageId,
-                    indexInTurn: canonical.indexInTurn,
-                    canonicalMessageId: canonical.canonicalMessageId,
-                });
-            }
-            const index = next.findIndex((slot) => slot._id === slotId);
-            const slot = index >= 0 ? next[index] : undefined;
-            if (!slot || slot.locked)
-                return next;
-            const locked = next.slice();
-            locked[index] = { ...slot, locked: true };
-            return locked;
-        });
-    }, [commitStreamingAssistants]);
-    const lockAndDiscardStreamSlot = useCallback((slotId) => {
-        lockStreamSlot(slotId);
-        discardStreamText((entry) => entry.slotId === slotId);
-    }, [discardStreamText, lockStreamSlot]);
-    /**
-     * RUN_STARTED for a visible run: finish any prior run's pending playout and
-     * reset the per-turn slot index so the next chunk lands on a fresh slot.
-     * Prior overlays remain in the timeline; failed/canceled runs may not have a
-     * persisted twin, so dropping them here would lose received response text.
-     */
+
+    /** RUN_STARTED for a visible run: start the turn's slot numbering over. */
     const beginStreamingRun = useCallback((args) => {
-        clearAssistantScrollFollow();
-        finishStreamText((entry) => entry.runId !== args.runId, lockAndDiscardStreamSlot);
         if (args.userMessageId) {
             nextSlotIndexByUserMessageIdRef.current.set(args.userMessageId, 1);
         }
-    }, [finishStreamText, lockAndDiscardStreamSlot]);
+    }, []);
+
     /**
-     * STREAM chunk: ensure the current overlay slot for
-     * `(userMessageId, currentIndex)` exists, then hand the chunk to the
-     * frame-driven text animator. Provider chunk boundaries stay out of the
-     * visual layer; hidden runs and runs without a `userMessageId` never produce
-     * overlays.
+     * Per-slot timers for replies being withheld during the indicator's
+     * handoff exit. Keyed by slot so overlapping runs can't cancel each
+     * other's hold, and drained on unmount and on conversation switch.
      */
-    const acceptStreamChunk = useCallback((args) => {
-        if (!args.chunk)
-            return;
-        if (!args.userMessageId) {
-            return;
+    const handoffTimersRef = useRef(new Map());
+
+    /** Publish a withheld reply into the timeline. */
+    const releaseHandoffHold = useCallback((slotId) => {
+        const timer = handoffTimersRef.current.get(slotId);
+        if (timer !== undefined) {
+            window.clearTimeout(timer);
+            handoffTimersRef.current.delete(slotId);
         }
-        const userMessageId = args.userMessageId;
-        const expectedIndex = nextSlotIndexByUserMessageIdRef.current.get(userMessageId) ?? 1;
-        nextSlotIndexByUserMessageIdRef.current.set(userMessageId, expectedIndex);
-        const slotId = streamingAssistantOverlayId(userMessageId, expectedIndex);
-        receivedSlotIdsRef.current.add(slotId);
-        const existing = streamingAssistantsRef.current.find((slot) => slot._id === slotId);
-        if (existing) {
-            if (existing.locked) {
-                commitStreamingAssistants((current) => {
-                    const index = current.findIndex((slot) => slot._id === slotId);
-                    const slot = index >= 0 ? current[index] : undefined;
-                    if (!slot || !slot.locked)
-                        return current;
-                    const next = current.slice();
-                    next[index] = { ...slot, locked: false };
-                    return next;
-                });
+        commitStreamingAssistants((current) => {
+            if (!current.some((slot) => slot._id === slotId && slot.heldForHandoff)) {
+                return current;
             }
-            animateStreamText(slotId, args.runId, args.chunk);
-            return;
-        }
-        const newSlot = {
-                _id: slotId,
-                userMessageId,
-                indexInTurn: expectedIndex,
-                text: "",
-                ...(args.responseTarget
-                    ? { responseTarget: args.responseTarget }
-                    : {}),
-                timestamp: Date.now(),
-                runId: args.runId,
-            };
-        commitStreamingAssistants((current) => [...current, newSlot]);
-        beginAssistantScrollFollow(assistantScrollFollowKey(userMessageId, expectedIndex));
-        animateStreamText(slotId, args.runId, args.chunk);
-        notifyAssistantScrollFollowLayoutChange();
-    }, [animateStreamText, commitStreamingAssistants]);
+            return current.map((slot) => {
+                if (slot._id !== slotId)
+                    return slot;
+                const { heldForHandoff: _held, ...rest } = slot;
+                return rest;
+            });
+        });
+        notifyChatContentGrowth();
+    }, [commitStreamingAssistants]);
+
     /**
-     * `ASSISTANT_MESSAGE` boundary: lock the current slot, increment the
-     * slot index, and let the next chunk create the next slot.
+     * An assistant message arrived whole. Claim the turn's next slot for it,
+     * advance the index for whatever follows, and — unless it is a preamble —
+     * withhold it for the length of the indicator's handoff exit so the reply
+     * lands as the indicator finishes clearing the row it was holding.
+     *
+     * Reduced-motion skips the hold: there is no exit to wait for, and delaying
+     * the answer would just read as lag.
      */
     const finalizeMessageBoundary = useCallback((args) => {
-        const currentIndex = args.userMessageId
-            ? (nextSlotIndexByUserMessageIdRef.current.get(args.userMessageId) ?? 1)
-            : null;
-        if (args.userMessageId && currentIndex !== null) {
-            const slotId = streamingAssistantOverlayId(args.userMessageId, currentIndex);
-            pendingCanonicalBySlotIdRef.current.set(slotId, {
-                userMessageId: args.userMessageId,
-                indexInTurn: currentIndex,
-                ...(args.canonicalMessageId
-                    ? { canonicalMessageId: args.canonicalMessageId }
-                    : {}),
-                ...(args.canonicalText !== undefined
-                    ? { canonicalText: args.canonicalText }
-                    : {}),
-            });
-            if (receivedSlotIdsRef.current.has(slotId)) {
-                finishStreamText((entry) => entry.slotId === slotId, lockStreamSlot);
+        if (!args.userMessageId)
+            return;
+        const userMessageId = args.userMessageId;
+        const indexInTurn = nextSlotIndexByUserMessageIdRef.current.get(userMessageId) ?? 1;
+        nextSlotIndexByUserMessageIdRef.current.set(userMessageId, indexInTurn + 1);
+        const slotId = streamingAssistantOverlayId(userMessageId, indexInTurn);
+        const canonicalText = args.canonicalText ?? "";
+        const holdForHandoff = args.followedByToolCall !== true &&
+            typeof window !== "undefined" &&
+            typeof window.matchMedia === "function" &&
+            !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        commitStreamingAssistants((current) => {
+            if (current.some((slot) => slot._id === slotId)) {
+                return reconcileStreamingAssistantCanonicalMessage(current, {
+                    userMessageId,
+                    indexInTurn,
+                    ...(args.canonicalMessageId
+                        ? { canonicalMessageId: args.canonicalMessageId }
+                        : {}),
+                    canonicalText,
+                });
             }
-            else {
-                lockStreamSlot(slotId);
-            }
-            // Keep the active follow key until the next slot's first chunk
-            // calls `beginAssistantScrollFollow` — clearing here dropped
-            // auto-follow for late layout (image cards, undo) after the
-            // final assistant message in a run.
-            nextSlotIndexByUserMessageIdRef.current.set(args.userMessageId, currentIndex + 1);
+            return [
+                ...current,
+                {
+                    _id: slotId,
+                    userMessageId,
+                    indexInTurn,
+                    text: canonicalText,
+                    ...(args.responseTarget
+                        ? { responseTarget: args.responseTarget }
+                        : {}),
+                    timestamp: Date.now(),
+                    runId: args.runId,
+                    ...(args.canonicalMessageId
+                        ? { canonicalMessageId: args.canonicalMessageId }
+                        : {}),
+                    locked: true,
+                    ...(holdForHandoff ? { heldForHandoff: true } : {}),
+                },
+            ];
+        });
+        if (holdForHandoff) {
+            const timer = window.setTimeout(() => {
+                releaseHandoffHold(slotId);
+            }, WORKING_INDICATOR_HANDOFF_MS);
+            handoffTimersRef.current.set(slotId, timer);
         }
-    }, [finishStreamText, lockStreamSlot]);
-    /**
-     * `RUN_FINISHED` (any outcome): lock the current slot and stop
-     * expecting more chunks. The remaining overlay entries stay in the
-     * array so the active UI does not swap from streamed text to SQLite
-     * just because persistence completed.
-     */
-    const finalizeRunOnFinish = useCallback((args) => {
-        finishStreamText((entry) => entry.runId === args.runId, lockStreamSlot);
-    }, [finishStreamText, lockStreamSlot]);
-    /**
-     * Marks persisted text restored for a resumed run as visible response text.
-     * Live runs are marked directly from their first non-whitespace stream
-     * event, without waiting for a client-side animation or paint callback.
-     */
-    const markAssistantResponseTextStarted = useCallback(() => {
-        const conversationId = activeConversationIdRef.current;
-        const runId = conversationId
-            ? (activeRunIdByConversationRef.current[conversationId] ?? null)
-            : null;
-        if (runId) {
-            dispatch({ type: "mark-streaming-text", runId });
+        else {
+            notifyChatContentGrowth();
         }
-    }, []);
+    }, [commitStreamingAssistants, releaseHandoffHold]);
+
+    /**
+     * RUN_FINISHED needs no slot work: every message already arrived whole and
+     * locked at its own boundary. Kept as a no-op so the event handler's
+     * lifecycle contract stays uniform across the four callbacks.
+     */
+    const finalizeRunOnFinish = useCallback(() => { }, []);
     activeConversationIdRef.current = activeConversationId;
     activeRunIdByConversationRef.current = storeState.activeRunIdByConversation;
     const reasoning = useReasoningBatcher();
@@ -251,20 +182,20 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             agentStreamCleanupRef.current();
             agentStreamCleanupRef.current = null;
         }
+        for (const timer of handoffTimersRef.current.values()) {
+            window.clearTimeout(timer);
+        }
+        handoffTimersRef.current.clear();
     }, []);
     const resetStreamingState = useCallback(() => {
-        clearAssistantScrollFollow();
-        discardStreamText();
-        receivedSlotIdsRef.current.clear();
-        pendingCanonicalBySlotIdRef.current.clear();
         setPendingUserMessageId(null);
+        for (const timer of handoffTimersRef.current.values()) {
+            window.clearTimeout(timer);
+        }
+        handoffTimersRef.current.clear();
         commitStreamingAssistants([]);
         nextSlotIndexByUserMessageIdRef.current.clear();
-        // This callback is handed to `useResumeAgentRun`, whose effect depends on
-        // its identity. Reading the live ids from refs keeps the callback stable
-        // across RUN_FINISHED; otherwise terminal state changed `activeRunId`,
-        // restarted the resume effect, and its no-active-run cleanup discarded a
-        // still-draining text buffer so SQLite's full message appeared at once.
+
         const conversationId = activeConversationIdRef.current;
         if (conversationId) {
             clearConversationTaskDecorations(conversationId);
@@ -273,7 +204,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                 conversationId,
             });
         }
-    }, [commitStreamingAssistants, discardStreamText]);
+    }, [commitStreamingAssistants]);
     const handleAgentEvent = useAgentEventHandler({
         dispatch,
         refs: {
@@ -289,7 +220,6 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
         streaming: {
             setPendingUserMessageId,
             beginStreamingRun,
-            acceptStreamChunk,
             finalizeMessageBoundary,
             finalizeRunOnFinish,
         },
@@ -327,10 +257,6 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
         },
     });
     useEffect(() => {
-        clearAssistantScrollFollow();
-        discardStreamText();
-        receivedSlotIdsRef.current.clear();
-        pendingCanonicalBySlotIdRef.current.clear();
         commitStreamingAssistants([]);
         nextSlotIndexByUserMessageIdRef.current.clear();
         seenSourceEventKeysRef.current.clear();
@@ -338,7 +264,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             setPendingUserMessageId(null);
         }, 0);
         return () => window.clearTimeout(timeoutId);
-    }, [activeConversationId, commitStreamingAssistants, discardStreamText]);
+    }, [activeConversationId, commitStreamingAssistants]);
     const startStream = useCallback(async (args) => {
         if (!activeConversationId || !window.electronAPI) {
             args.onStartFailed?.();
@@ -435,6 +361,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
         }
         window.electronAPI.agent.cancelChat(activeRunId);
     }, [activeRunId]);
+
     // Ephemeral per-thread stream decoration (statusText ticks, tool
     // activity, reasoning) for the active conversation, keyed by agentId.
     // The authoritative task rows come from `useThreadActivity`; callers
@@ -447,13 +374,12 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
     return {
         taskDecorations,
         runtimeStatusText,
-        markAssistantResponseTextStarted,
         activeToolCallId,
         activeToolName,
         latestCompletedTool,
         hasToolActivity,
         isToolActive,
-        isStreamingResponseText,
+        answerLanded,
         reasoningText,
         streamingAssistants,
         isStreaming,

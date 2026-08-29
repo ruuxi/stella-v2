@@ -19,7 +19,6 @@ import {
   type ThemeColors,
 } from "../shared/theme/themes";
 import {
-  generateAuroraStops,
   generateGradientTokens,
 } from "../shared/theme/color";
 import { uiState } from "../platform/ui-state";
@@ -170,19 +169,6 @@ function applyThemeToDocument(
   root.style.setProperty("--stella-animation-color-1", colors.interactive);
   root.style.setProperty("--stella-animation-color-2", colors.success);
   root.style.setProperty("--stella-animation-color-3", colors.warning);
-
-  // Five aurora ramp stops for the StellaAnimation (see shell/aurora),
-  // derived from the theme's interactive/accent hues. The animation's
-  // MutationObserver re-reads these on every root style change, so theme
-  // switches and picker previews recolor the aurora live.
-  const auroraStops = generateAuroraStops(
-    colors.interactive,
-    colors.accent,
-    isDark,
-  );
-  auroraStops.forEach((stop, index) => {
-    root.style.setProperty(`--stella-aurora-${index + 1}`, stop);
-  });
 
   const gradientTokens = getGradientTokens(
     {

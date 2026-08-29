@@ -8,7 +8,6 @@ import type { MessageMetadata } from "@/features/chat/lib/event-transforms";
 import type { EventRecord } from "@/features/chat/lib/event-transforms";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 import { resolveComposerContextState } from "../composer-context";
-import { shouldTreatResumedAnswerAsStarted } from "@/features/chat/working-indicator-state";
 import {
   buildAllLocalAttachments,
   toDisplayAttachments,
@@ -228,13 +227,12 @@ export function useStreamingChatCore({
   const {
     taskDecorations,
     runtimeStatusText,
-    markAssistantResponseTextStarted,
     activeToolCallId,
     activeToolName,
     latestCompletedTool,
     hasToolActivity,
     isToolActive,
-    isStreamingResponseText,
+    answerLanded,
     reasoningText,
     streamingAssistants,
     isStreaming,
@@ -420,40 +418,6 @@ export function useStreamingChatCore({
     setPendingUserMessageId,
   ]);
 
-  // Resume hand-off: an already-streamed answer can come back from persistence
-  // with no live overlay. Mark it as response text so the inline working
-  // indicator does not hang under the visible answer until the run terminates.
-  useEffect(() => {
-    if (!pendingUserMessageId) return;
-    const activeTurnAnswerVisible = persistedMessages.some((message) => {
-      if (message.type !== "assistant_message") return false;
-      if (!message.payload || typeof message.payload !== "object") return false;
-      const payload = message.payload as {
-        userMessageId?: string;
-        text?: string;
-      };
-      if (payload.userMessageId !== pendingUserMessageId) return false;
-      return typeof payload.text === "string" && payload.text.trim().length > 0;
-    });
-    if (
-      shouldTreatResumedAnswerAsStarted({
-        isStreaming,
-        isStreamingResponseText,
-        hasLiveStreamingOverlay: streamingAssistants.length > 0,
-        activeTurnAnswerVisible,
-      })
-    ) {
-      markAssistantResponseTextStarted();
-    }
-  }, [
-    isStreaming,
-    isStreamingResponseText,
-    streamingAssistants,
-    pendingUserMessageId,
-    persistedMessages,
-    markAssistantResponseTextStarted,
-  ]);
-
   useEffect(() => {
     if (optimisticEvents.length === 0) return;
     const persistedIds = new Set(
@@ -617,7 +581,7 @@ export function useStreamingChatCore({
     reasoningText,
     streamingAssistants,
     isStreaming,
-    isStreamingResponseText,
+    answerLanded,
     pendingUserMessageId,
     removeQueuedUserMessage,
     sendMessage,

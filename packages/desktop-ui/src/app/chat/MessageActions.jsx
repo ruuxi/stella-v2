@@ -12,14 +12,9 @@
  * shifts surrounding row geometry, which the chat's scroll-follow logic
  * depends on.
  *
- * It is mounted *throughout* an assistant message's lifetime — including
- * while it is still streaming — so its reserved height is present from the
- * first painted line and finalizing the message causes NO layout jump. While
- * `streaming` is true the row is held invisible and made `inert` (not
- * focusable, not clickable, hidden from the accessibility tree); it cannot
- * reveal on hover/focus until the message settles. The CSS that suppresses
- * the reveal keys off the row's `.event-row--streaming` ancestor (see
- * `message-actions.css`).
+ * It is mounted for an assistant message's whole lifetime, so its reserved
+ * height is present from the first painted line and nothing later causes a
+ * layout jump.
  */
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -55,7 +50,6 @@ const REWIND_CONFIRM_TIMEOUT_MS = 3000;
  * @property {string} messageKey
  * @property {boolean} [showReadAloud]
  * @property {"start" | "end"} [align]
- * @property {boolean} [streaming]
  * @property {(() => void)} [onRewind] Rewind action (user rows only).
  * @property {(() => void)} [onFork] Fork action (user rows only).
  * @property {boolean} [actionsDisabled] Greys out Rewind/Fork while a turn is busy.
@@ -72,7 +66,6 @@ function MessageActionsImpl({
   messageKey,
   showReadAloud = false,
   align = "start",
-  streaming = false,
   onRewind,
   onFork,
   actionsDisabled = false,
@@ -195,15 +188,10 @@ function MessageActionsImpl({
     <div
       className={`message-actions message-actions--${align}`}
       data-active={isPlaying ? "true" : undefined}
-      data-streaming={streaming ? "true" : undefined}
       // While the destructive Rewind is armed, hold the strip fully revealed
       // (even off-hover) so the confirm affordance can't silently vanish.
       data-confirming={rewindArmed ? "true" : undefined}
       onMouseLeave={onRewind ? disarmRewind : undefined}
-      // `inert` keeps the still-streaming (invisible) row out of the tab
-      // order and the accessibility tree and blocks pointer interaction —
-      // belt-and-suspenders with the CSS that holds it at opacity:0.
-      inert={streaming || undefined}
     >
       <button
         type="button"

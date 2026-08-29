@@ -285,7 +285,6 @@ const validateJournalRecord = (
           "createdAtMs",
           "role",
           "hidden",
-          "streamId",
           "clientMsgId",
           "payload",
         ]
@@ -325,9 +324,6 @@ const validateJournalRecord = (
     }
     if (typeof value.hidden !== "boolean" || !isObject(value.payload)) {
       throw new TypeError(`records[${index}] has an invalid message payload.`);
-    }
-    if (value.streamId !== undefined) {
-      boundedString(value.streamId, `records[${index}].streamId`);
     }
     if (value.clientMsgId !== undefined) {
       boundedString(value.clientMsgId, `records[${index}].clientMsgId`);

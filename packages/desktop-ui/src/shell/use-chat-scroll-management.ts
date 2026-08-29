@@ -30,9 +30,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LegendListRef } from "@legendapp/list/react";
 import {
-  clearAssistantScrollFollow,
-  getAssistantScrollFollowKey,
-  subscribeAssistantScrollFollow,
   subscribeChatContentGrowth,
 } from "@/shell/chat-scroll-follow";
 import {
@@ -43,7 +40,6 @@ import {
   resolveIdleTailTarget,
   resolvePostSendTarget,
   resolveResponseSpacerHeight,
-  resolveStreamFollowTarget,
   shouldPlaceLatestTurn,
 } from "@/shell/chat-follow-target";
 import {
@@ -137,15 +133,6 @@ const FOLLOW_REARM_EXTRA_PX = 24;
 /** Re-arm stream auto-follow after scroll-up within the footer stack below the last message. */
 const followRearmThresholdPx = (trailingRegionMinPx: number): number =>
   trailingRegionMinPx + FOLLOW_REARM_EXTRA_PX;
-
-/**
- * Turn identity (`userMessageId`) embedded in an assistant scroll-follow
- * key (`assistant-<userMessageId>-<indexInTurn>`). Used to tell "a new
- * turn started streaming" (gentle reframe) apart from "the same turn
- * grew or advanced to its next slot" (spring follow / hard snap).
- */
-const followKeyTurnId = (followKey: string): string =>
-  followKey.replace(/^assistant-/, "").replace(/-\d+$/, "");
 
 const isTextEditingTarget = (target: EventTarget | null): boolean =>
   target instanceof Element &&
@@ -742,7 +729,6 @@ export function useChatScrollManagement({
     responseSpacerExpandedRef.current = false;
     followRearmBlockedRef.current = true;
     setFollow(false);
-    clearAssistantScrollFollow();
     followApi.current?.cancel();
     followApi.current?.clearResponseSpacer();
   }, [setFollow]);
@@ -777,13 +763,9 @@ export function useChatScrollManagement({
    * sits below it — not just a fixed ~48px bump that leaves tall bubbles
    * clipped at the top while empty space exists off-screen below.
    */
-  const nudgeAfterSend = useCallback((followKeyBeforeSend?: string | null) => {
+  const nudgeAfterSend = useCallback(() => {
     responseSpacerExpandedRef.current = true;
     setFollow(true);
-    // Send acceptance is async, so a fast first stream can already own the
-    // follow key by the time placement runs. Only drop the key this caller
-    // saw before the send.
-    clearAssistantScrollFollow(followKeyBeforeSend);
     followApi.current?.activateResponseSpacer();
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -1098,17 +1080,6 @@ export function useChatScrollManagement({
       let followVel = 0;
       let lastFrameTime = 0;
       let lastTargetTime = 0;
-      // Turn-start reframe latch. When the followed turn changes (a fresh
-      // send, or a queued follow-up dispatching once its turn comes) the
-      // first catch-up is a one-shot reframe with no reading continuity to
-      // preserve, so it uses the gentle ease-out instead of the
-      // stream-tuned spring — whose hard-snap branch is exactly the
-      // jarring jump on queued-message dispatch. The latch holds gentle
-      // across the per-chunk retargets until the loop first catches up,
-      // then the spring owns the follow for the rest of the turn.
-      let lastFollowedTurnId: string | null = null;
-      let turnStartGlide = false;
-
       const stopLoop = () => {
         if (followRaf) cancelAnimationFrame(followRaf);
         followRaf = 0;
@@ -1117,7 +1088,6 @@ export function useChatScrollManagement({
         followVel = 0;
         lastFrameTime = 0;
         lastTargetTime = 0;
-        turnStartGlide = false;
       };
 
       const stepFollow = () => {
@@ -1146,7 +1116,6 @@ export function useChatScrollManagement({
           attached.scrollTop = target;
           followVel = 0;
           lastFrameTime = 0;
-          turnStartGlide = false;
           if (
             followGentle ||
             performance.now() - lastTargetTime > FOLLOW_STREAM_IDLE_MS
@@ -1335,99 +1304,6 @@ export function useChatScrollManagement({
       };
 
       /**
-       * Returns whether it owned the motion. `false` means there is no live
-       * streaming row to anchor to, and the caller should fall back to the
-       * idle tail settle — the turn can still be alive (a tool running under a
-       * settled assistant slot, with the working indicator below it), and that
-       * growth has to be followed by something.
-       */
-      const followActiveAssistantRow = (): boolean => {
-        if (!attached || !followRef.current) return false;
-        const followKey = getAssistantScrollFollowKey();
-        if (!followKey) return false;
-        // A different turn started streaming — arm the gentle turn-start
-        // reframe. Same-turn key changes (next slot after a tool call)
-        // keep the spring so post-tool content dumps still hard-snap into
-        // view instead of gliding with the text off-screen.
-        const turnId = followKeyTurnId(followKey);
-        if (turnId !== lastFollowedTurnId) {
-          lastFollowedTurnId = turnId;
-          turnStartGlide = true;
-        }
-        const streamingRow = attached.querySelector<HTMLElement>(
-          `[data-scroll-follow-key="${CSS.escape(followKey)}"]`,
-        );
-        if (!streamingRow || streamingRow.offsetHeight <= 0) return false;
-        // The follow key is intentionally kept active after a run's final
-        // assistant message settles (so a *new* turn's first chunk can hand
-        // off cleanly). But once that row has locked, `.event-row--streaming`
-        // is gone and it is no longer growing. A late layout change on the
-        // settled row — an inline image/card mounting once artifacts render,
-        // a code block, or a timestamp settling —
-        // still fires `notifyAssistantScrollFollowLayoutChange`, and following
-        // the full (now static) row bottom re-applies the breathing inset,
-        // pulling the viewport forward into the empty trailing region a beat
-        // after the reply was already fully visible. The anticipatory follow
-        // is only meaningful while content is actively streaming, so bail once
-        // the row has settled and leave the view put. That path
-        // (`scheduleFollowActiveAssistantRow`) ignores the return value, so a
-        // settled row stays put; only real growth, which arrives through
-        // `followIdleContentGrowth`, is picked up by the fallback.
-        if (!streamingRow.classList.contains("event-row--streaming")) {
-          return false;
-        }
-        const rowRect = streamingRow.getBoundingClientRect();
-        const containerRect = attached.getBoundingClientRect();
-        const rowTop = rowRect.top - containerRect.top + attached.scrollTop;
-        const rowBottom =
-          rowRect.bottom - containerRect.top + attached.scrollTop;
-        // Everything below the row that is still part of this turn: the
-        // working indicator is its own timeline item, and a card row can be
-        // appended mid-turn. Measuring the first element *after* the live tail
-        // — the queued stack, else the trailing footer — picks up whatever
-        // that tail currently ends with without enumerating (and forcing a
-        // rect read on) every rendered row each follow frame.
-        const tailBoundary =
-          attached.querySelector<HTMLElement>(".composer-queued-stack") ??
-          attached.querySelector<HTMLElement>(".event-list-trailing-region");
-        const tailBottom = tailBoundary
-          ? tailBoundary.getBoundingClientRect().top -
-            containerRect.top +
-            attached.scrollTop
-          : null;
-        const queuedMessages = attached.querySelectorAll<HTMLElement>(
-          ".composer-queued-message:not(.composer-queued-message--leaving)",
-        );
-        const queuedMessage =
-          queuedMessages.length > 0
-            ? queuedMessages[queuedMessages.length - 1]!
-            : null;
-        const queuedMessageBottom = queuedMessage
-          ? queuedMessage.getBoundingClientRect().bottom -
-            containerRect.top +
-            attached.scrollTop
-          : null;
-        const target = resolveStreamFollowTarget({
-          clientHeight: attached.clientHeight,
-          rowTop,
-          rowBottom,
-          tailBottom,
-          unrevealedPx: 0,
-          queuedBottom: queuedMessageBottom,
-        });
-        setTarget(target, turnStartGlide ? { gentle: true } : undefined);
-        return true;
-      };
-      let followAssistantRowRaf = 0;
-      const scheduleFollowActiveAssistantRow = () => {
-        if (followAssistantRowRaf) return;
-        followAssistantRowRaf = requestAnimationFrame(() => {
-          followAssistantRowRaf = 0;
-          followActiveAssistantRow();
-        });
-      };
-
-      /**
        * Follow content growth that no streaming row anchors — an agent
        * completion card mounting (or the spawn card settling into its taller
        * completed form) after the run ended, and the working indicator coming
@@ -1438,12 +1314,6 @@ export function useChatScrollManagement({
        */
       const followIdleContentGrowth = () => {
         if (!attached || !followRef.current) return;
-        // A run may have started between the notify and this frame — the keyed
-        // follow owns the motion then, but only while its row is actually
-        // streaming. The key outlives the row it points at (it is held across
-        // the gap between slots so the next turn hands off cleanly), so a
-        // truthy key alone is not proof anything is anchoring the tail.
-        if (followActiveAssistantRow()) return;
         const trailing = attached.querySelector<HTMLElement>(
           ".event-list-trailing-region",
         );
@@ -1646,11 +1516,6 @@ export function useChatScrollManagement({
         passive: true,
       });
 
-      const unsubscribeFollow = subscribeAssistantScrollFollow(() => {
-        if (!followRef.current) return;
-        scheduleFollowActiveAssistantRow();
-      });
-
       // Agent card mounts and the working indicator route through their own
       // channel (not the keyed follow notify) because they must fire even when
       // no follow key is active — see `notifyChatContentGrowth`. Always go
@@ -1681,7 +1546,6 @@ export function useChatScrollManagement({
         if (!attached) return;
         responseSpacerResizeObserver?.disconnect();
         attached.style.removeProperty("--chat-response-spacer-height");
-        unsubscribeFollow();
         unsubscribeGrowth();
         if (idleGrowthRaf) {
           cancelAnimationFrame(idleGrowthRaf);
@@ -1701,10 +1565,6 @@ export function useChatScrollManagement({
         );
         attached.removeEventListener("scroll", scheduleScrollStateUpdate);
         attached.removeEventListener("scroll", handlePaginationScroll);
-        if (followAssistantRowRaf) {
-          cancelAnimationFrame(followAssistantRowRaf);
-          followAssistantRowRaf = 0;
-        }
         stopLoop();
         followApi.current = null;
         if (attachedScrollNodeRef.current === attached) {

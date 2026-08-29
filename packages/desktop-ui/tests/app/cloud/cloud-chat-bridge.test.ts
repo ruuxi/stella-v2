@@ -12,7 +12,6 @@ import {
   type CloudConversationOutboxStorage,
 } from "../../../src/features/cloud/conversation-outbox";
 import {
-  cloudLiveToStreamingAssistants,
   cloudPendingPromptsToEvents,
   cloudPrefixBoundaryForUserMessage,
   cloudPromptFromSendArgs,
@@ -424,7 +423,10 @@ describe("cloud chat bridge authority", () => {
     expect(pendingPrompts.find(TEST_AUTHORITY, clientMsgId)).toBeNull();
   });
 
-  test("projects pending prompts and live deltas without a second durable transcript", () => {
+  // A cloud reply becomes visible when its journal row commits; there is no
+  // in-memory assistant overlay to project, so the bridge's only optimistic
+  // surface is the prompt the user just sent.
+  test("projects pending prompts without a second durable transcript", () => {
     const clientMsgId = "pending-client";
     const pending = [
       {
@@ -450,22 +452,6 @@ describe("cloud chat bridge authority", () => {
         timestamp: 100,
         type: "user_message",
         payload: { text: "hello" },
-      },
-    ]);
-    expect(
-      cloudLiveToStreamingAssistants([], pending, {
-        turnId: "turn-live",
-        streamId: "stream-live",
-        text: "working",
-        toolName: null,
-        toolLabel: null,
-        dropped: false,
-      }),
-    ).toMatchObject([
-      {
-        userMessageId: clientMsgId,
-        text: "working",
-        runId: "turn-live",
       },
     ]);
   });

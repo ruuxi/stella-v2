@@ -4,7 +4,6 @@ import {
   acceptConversationAgentEventSequence,
 } from '@/features/chat/streaming/use-agent-event-handler'
 import {
-  linkStreamingAssistantCanonicalMessage,
   reconcileStreamingAssistantCanonicalMessage,
   type StreamingAssistantOverlay,
 } from '@/features/chat/streaming/streaming-types'
@@ -57,29 +56,6 @@ describe('desktop agent event replay deduplication', () => {
 })
 
 describe('assistant optimistic/canonical linkage', () => {
-  it('links the current live slot to its exact persisted twin', () => {
-    const slot: StreamingAssistantOverlay = {
-      _id: 'stream-overlay:u1:2',
-      userMessageId: 'u1',
-      indexInTurn: 2,
-      text: 'answer',
-      timestamp: 100,
-      runId: 'run-1',
-    }
-    const source = [slot]
-    const linked = linkStreamingAssistantCanonicalMessage(source, {
-      userMessageId: 'u1',
-      indexInTurn: 2,
-      canonicalMessageId: 'assistant-msg-run-1-12',
-    })
-
-    expect(linked).not.toBe(source)
-    expect(linked[0]).toMatchObject({
-      canonicalMessageId: 'assistant-msg-run-1-12',
-    })
-    expect(slot.canonicalMessageId).toBeUndefined()
-  })
-
   it('replaces a ghost trailing delta with canonical finalized text', () => {
     const source: StreamingAssistantOverlay[] = [{
       _id: 'stream-overlay:u1:1',

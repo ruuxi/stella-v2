@@ -392,7 +392,7 @@ const assistantRowEqual = (
     (b.toolEventSummary?.detailCursor?.id ?? null) &&
   (a.toolEventSummary?.detailCursor?.sequence ?? null) ===
     (b.toolEventSummary?.detailCursor?.sequence ?? null) &&
-  Boolean(a.isStreaming) === Boolean(b.isStreaming) &&
+  Boolean(a.justArrived) === Boolean(b.justArrived) &&
   // Controls the Copy/Read-aloud strip: flips when a locked overlay's
   // persisted twin lands with `followedByToolCall`, with no other field
   // changing — must participate so the strip actually unmounts.

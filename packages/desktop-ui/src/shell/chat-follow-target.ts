@@ -174,75 +174,11 @@ export const resolvePostSendTarget = ({
   return Math.min(framed, rowTop - POST_SEND_TOP_MARGIN_PX);
 };
 
-/** All offsets are in scroll-container coordinates (`scrollTop`-relative). */
-export type LiveTailGeometry = {
-  /** Bottom of the streaming assistant row, already clamped to the reveal frontier. */
-  rowBottom: number;
-  /**
-   * Bottom of the live tail rendered below the streaming row — the working
-   * indicator, plus any card row that mounted mid-turn. `null` when it cannot
-   * be measured, which degrades to following the row alone.
-   */
-  tailBottom: number | null;
-  /**
-   * Height of the row's rendered-but-unrevealed tail (the soft mask's hidden
-   * text). Everything laid out below the row is displaced downward by exactly
-   * this much, so it is subtracted back out — otherwise following the indicator
-   * would scroll past text the user cannot see yet, defeating the frontier
-   * clamp the row bottom already went through.
-   */
-  unrevealedPx: number;
-};
-
-export const resolveLiveTailBottom = (geometry: LiveTailGeometry): number => {
-  if (geometry.tailBottom === null) return geometry.rowBottom;
-  const displaced = geometry.tailBottom - Math.max(0, geometry.unrevealedPx);
-  // Never behind the row itself: a shrinking tail (indicator vacating) must not
-  // drag the destination back above the text being streamed.
-  return Math.max(geometry.rowBottom, displaced);
-};
-
-export type StreamFollowGeometry = LiveTailGeometry & {
-  /** Viewport height of the scroll container. */
-  clientHeight: number;
-  /** Top of the streaming assistant row. */
-  rowTop: number;
-  /** Bottom of the last queued user bubble, or `null` when nothing is queued. */
-  queuedBottom: number | null;
-};
-
 /**
- * Destination `scrollTop` for stream-follow: the whole live tail framed above
- * the fade band with the bottom gutter intact, capped by the top pin so a reply
- * taller than the viewport stops chasing its own bottom.
- */
-export const resolveStreamFollowTarget = (
-  geometry: StreamFollowGeometry,
-): number => {
-  const liveBottom = resolveLiveTailBottom(geometry);
-  const tailFollow =
-    liveBottom - geometry.clientHeight + followBottomInsetPx();
-  // The queued stack owns its own (tighter) framing: it bottom-aligns inside a
-  // pre-allocated gutter, so it does not need the fade inset on top.
-  const queuedFollow =
-    geometry.queuedBottom === null
-      ? 0
-      : geometry.queuedBottom -
-        geometry.clientHeight +
-        POST_SEND_USER_MESSAGE_BREATHING_PX;
-  const bottomFollow = Math.max(tailFollow, queuedFollow);
-  // `min` lets short replies and the queued-follow-up stack keep bottom-
-  // following (their `pinnedTop` sits below `bottomFollow`, so it never bites).
-  const pinnedTop = Math.max(0, geometry.rowTop - FOLLOW_TOP_PEEK_PX);
-  return Math.max(0, Math.min(bottomFollow, pinnedTop));
-};
-
-/**
- * Destination `scrollTop` for growth outside a streaming run — a completion
- * card mounting, or the working indicator coming up while the current assistant
- * slot has already settled. `contentBottom` is the end of laid-out content (the
- * trailing footer's top), framed the same way so the gutter reads identically
- * whether or not a row happens to be streaming.
+ * Destination `scrollTop` for late content growth — a completion card
+ * mounting, an inline image resolving, or the working indicator taking its
+ * slot. `contentBottom` is the end of laid-out content (the trailing footer's
+ * top). All offsets are in scroll-container coordinates (`scrollTop`-relative).
  */
 export const resolveIdleTailTarget = (args: {
   contentBottom: number;

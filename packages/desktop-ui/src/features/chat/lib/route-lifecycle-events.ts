@@ -11,27 +11,26 @@
  * renders a live background-work card. Later lifecycle packets are still
  * routed/deduplicated here, then the task selector folds them back onto that
  * start-anchored card.
- * Under the first-assistant rule a card that painted ABOVE the live
- * streaming text (anchored to the user message because no assistant
- * row was persisted yet) gets re-anchored BELOW the text the moment
- * the streamed segment persists — already-painted rows visibly
- * reorder mid-turn.
+ * Under the first-assistant rule a card that painted ABOVE the reply
+ * (anchored to the user message because no assistant row was persisted
+ * yet) gets re-anchored BELOW it the moment the segment persists —
+ * already-painted rows visibly reorder mid-turn.
  *
  * The rule here is arrival order, applied on the merged display list
- * (persisted messages + streaming overlays):
+ * (persisted messages + in-memory overlays):
  *
- *   - Every assistant anchor has a *stream start* time: the overlay's
- *     first-chunk timestamp while streaming, and the persisted row's
- *     `metadata.runtime.streamStartedAtMs` (stamped by the worker at
- *     the segment's first stream chunk) afterwards.
+ *   - Every assistant anchor has a *first text* time: the overlay's own
+ *     creation timestamp while it is the live row, and the persisted
+ *     row's `metadata.runtime.streamStartedAtMs` afterwards. The runtime
+ *     stamps that moment onto the `assistant-message` event as
+ *     `firstTextAtMs`; the worker persists it under the older name.
  *   - A lifecycle event anchors to the LATEST anchor in its turn whose
- *     stream start is <= the event's timestamp — i.e. exactly where the
+ *     first text is <= the event's timestamp — i.e. exactly where the
  *     bottom of the transcript was when the event occurred. An event
- *     that predates every assistant's stream start anchors to the
- *     turn's user message (renders above the text, where it first
- *     painted); an event that fires mid-stream anchors to the streaming
- *     segment (renders after the growing text block, never injected
- *     above it).
+ *     that predates every assistant's first text anchors to the turn's
+ *     user message (renders above the reply, where it first painted); an
+ *     event that fires after one anchors to that segment (renders below
+ *     it, never injected above).
  *   - Once routed, the decision is STICKY for the session (`sticky`
  *     map, `eventId -> anchorKey`). The overlay and its eventual
  *     persisted twin share the same anchor key, so the overlay ->
@@ -96,7 +95,8 @@ const getAssistantUserMessageId = (
 
 const getStreamStartedAtMs = (message: MessageRecord): number | undefined => {
   if (message._id.startsWith(STREAMING_OVERLAY_ID_PREFIX)) {
-    // Overlay rows sort by (and were created at) their first-chunk time.
+    // Overlay rows sort by (and were created at) the moment their text
+    // arrived, which for a whole message is the moment the row appeared.
     return message.timestamp;
   }
   const metadata = (

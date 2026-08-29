@@ -10,16 +10,11 @@ const user = (id: string, text = id): EventRowViewModel => ({
   attachments: [],
 });
 
-const assistant = (
-  id: string,
-  text: string,
-  isStreaming = false,
-): EventRowViewModel => ({
+const assistant = (id: string, text: string): EventRowViewModel => ({
   kind: "assistant",
   id,
   cacheKey: id,
   text,
-  ...(isStreaming ? { isStreaming: true } : {}),
 });
 
 const queued = (
@@ -36,9 +31,9 @@ const identity = (item: ReturnType<typeof buildChatTimelineItems>[number]) =>
   `${item.type}:${item.id}`;
 
 describe("buildChatTimelineItems", () => {
-  it("places a queued send below the assistant that is actively streaming", () => {
+  it("places a queued send below the newest assistant message", () => {
     const items = buildChatTimelineItems({
-      rows: [user("u1"), assistant("assistant-active", "still streaming", true)],
+      rows: [user("u1"), assistant("assistant-active", "here you go")],
       queuedUserMessages: [queued("u2", 1)],
       includeWorkingIndicator: true,
     });
@@ -56,8 +51,7 @@ describe("buildChatTimelineItems", () => {
       rows: [
         user("u1"),
         assistant("assistant-preamble", "I will check."),
-        // Empty streaming slots still represent the active post-tool segment.
-        assistant("assistant-post-tool", "", true),
+        assistant("assistant-post-tool", "Here it is."),
       ],
       queuedUserMessages: [queued("u3", 2), queued("u2", 1)],
       includeWorkingIndicator: true,
@@ -83,7 +77,7 @@ describe("buildChatTimelineItems", () => {
     const activeRows = [
       user("u1"),
       assistant("assistant-preamble", "I will check."),
-      assistant("assistant-post-tool", "Done.", true),
+      assistant("assistant-post-tool", "Done."),
     ];
     const queuedItems = buildChatTimelineItems({
       rows: activeRows,

@@ -1,13 +1,21 @@
+import { useMemo } from "react";
+import { useMinimumVisibleValue } from "@/shared/hooks/use-minimum-visible-value";
 import { useWindowFocus } from "@/shared/hooks/use-window-focus";
 import { cn } from "@/shared/lib/utils";
-import { StellaAnimation } from "@/shell/aurora/StellaAnimation";
+import { StellaCharacter } from "@/ui/stella-character/StellaCharacter";
 import { SwapText } from "./SwapText";
 import { CHAT_ACTIVITY_SHIMMER_GROUP } from "./TextShimmer";
 import {
+  getWorkingIndicatorCharacterState,
   getWorkingIndicatorDisplayStatus,
   INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS,
 } from "@/features/chat/working-indicator-state";
 import "./indicators.css";
+
+const INDICATOR_MARK_SIZE_PX = 30;
+
+/** Punches the eyes out of the mark so they read as holes, not paint. */
+const INDICATOR_EYE_COLOR = "var(--surface-base)";
 
 interface WorkingIndicatorProps {
   status?: string;
@@ -39,64 +47,57 @@ export function WorkingIndicator({
   const windowFocused = useWindowFocus();
   const animationPaused = !animationActive || !windowFocused;
 
-  const displayStatus = getWorkingIndicatorDisplayStatus({
-    status,
-    toolName,
-    toolCallId,
-    isReasoning,
-    reasoningSeed,
-  });
-  return (
-    <div className={cn("working-indicator", className)}>
-      <div className="indicator-stella">
-        <div className="indicator-stella-scale">
-          {/* 10×7.15 cells × the 5×7px cell metric → a square 125×125
-              backing buffer displayed in a native 30×30 CSS footprint.
-              Keeping the display size on the canvas itself avoids putting an
-              oversized, transformed WebGL layer into the Windows compositor.
-              The canvas must never overflow the slot: ancestor containers in
-              the chat layout clip overflow with hard edges.
-              Keep these dims — and the variant — in sync with `prewarmAurora`
-              in ChatColumn: they form the pooled renderer's key, and a
-              mismatch means the prewarmed context goes unused.
+  // Pose and label are held as one tuple so they can never disagree: holding
+  // them separately would let a stale label sit under the next activity's
+  // pose for the remainder of its floor.
+  const liveDisplay = useMemo(
+    () => ({
+      status: getWorkingIndicatorDisplayStatus({
+        status,
+        toolName,
+        toolCallId,
+        isReasoning,
+        reasoningSeed,
+      }),
+      characterState: getWorkingIndicatorCharacterState({
+        toolName,
+        isReasoning,
+      }),
+    }),
+    [status, toolName, toolCallId, isReasoning, reasoningSeed],
+  );
+  const held = useMinimumVisibleValue(
+    liveDisplay,
+    minimumVisibleMs,
+    (a, b) => a.status === b.status && a.characterState === b.characterState,
+  );
+  // Thinking has nothing worth narrating, so it shows as the mark alone and
+  // the row stays quiet until a tool gives it something to say.
+  const dotsOnly = held.characterState === "thinking";
 
-              125 and not the old 250: the slot is 30 css px, so even a 2x
-              display only shows 60 device px and a 3x display 90. Rendering
-              250 shaded 4x the pixels that survive, and measured *further*
-              from ground truth than 125 — a 250→60 downscale is past what
-              the compositor's bilinear tap can resolve, so it aliases.
-              125 still exceeds the device pixels everywhere, so it never
-              upscales. */}
-          <StellaAnimation
-            variant="star-spin"
-            width={10}
-            height={7.15}
-            displayWidth={30}
-            displayHeight={30}
-            maxDpr={1}
-            /* 30fps at an unscaled clock, and both halves of that are load
-               bearing. The star's motion blur smears each arm across
-               1/30s worth of shader time, so this is the pairing at which
-               the smear covers exactly the ground the arms cover between
-               frames; scaling the clock or dropping the rate leaves the
-               whip's fastest pass under-smeared, which at this size shows up
-               as strobing rather than as blur. The turn is staged in the
-               shader (see starTurn), so the cadence does not come from here. */
-            maxFps={30}
-            paused={animationPaused}
-            requireWindowFocus
-          />
-        </div>
+  return (
+    <div
+      className={cn("working-indicator", className)}
+      data-mode={dotsOnly ? "thinking" : "tool"}
+    >
+      <div className="indicator-stella">
+        <StellaCharacter
+          size={INDICATOR_MARK_SIZE_PX}
+          state={held.characterState}
+          eyeColor={INDICATOR_EYE_COLOR}
+          paused={animationPaused}
+        />
       </div>
-      <SwapText
-        text={displayStatus}
-        active={animationActive}
-        animateInitial={false}
-        minimumVisibleMs={minimumVisibleMs}
-        className="working-status"
-        shimmerGroup={CHAT_ACTIVITY_SHIMMER_GROUP}
-        shimmerPriority={100}
-      />
+      {dotsOnly ? null : (
+        <SwapText
+          text={held.status}
+          active={animationActive}
+          animateInitial={false}
+          className="working-status"
+          shimmerGroup={CHAT_ACTIVITY_SHIMMER_GROUP}
+          shimmerPriority={100}
+        />
+      )}
     </div>
   );
 }

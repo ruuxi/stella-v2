@@ -51,11 +51,9 @@ function QuickChatConversation({
     runtimeStatusText,
     activeToolCallId,
     activeToolName,
-    latestCompletedTool,
-    hasToolActivity,
     isToolActive,
     isStreaming,
-    isStreamingResponseText,
+    answerLanded,
     pendingUserMessageId,
     queuedUserMessages,
     removeQueuedUserMessage,
@@ -107,12 +105,10 @@ function QuickChatConversation({
           messages={displayMessages}
           conversationId={conversationId}
           isStreaming={isStreaming}
-          isStreamingResponseText={isStreamingResponseText}
+          answerLanded={answerLanded}
           runtimeStatusText={runtimeStatusText}
           activeToolCallId={activeToolCallId}
           activeToolName={activeToolName}
-          latestCompletedTool={latestCompletedTool}
-          hasToolActivity={hasToolActivity}
           isToolActive={isToolActive}
           pendingUserMessageId={pendingUserMessageId}
           queuedUserMessages={queuedUserMessages}

@@ -43,7 +43,6 @@ import type { ChatContext } from "@/shared/types/electron";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 import type { QueuedUserMessage } from "@/features/chat/hooks/use-streaming-chat";
 import { restoreQueuedTextToComposer } from "@/features/chat/hooks/queued-user-messages";
-import { getAssistantScrollFollowKey } from "@/shell/chat-scroll-follow";
 import { useCapturedChatContext } from "./use-captured-chat-context";
 import {
   updateComposerTextareaExpansion,
@@ -92,17 +91,11 @@ interface ChatPanelTabProps {
   messages: MessageRecord[];
   conversationId?: string | null;
   isStreaming: boolean;
-  /** True once the in-flight run has streamed any visible assistant text. */
-  isStreamingResponseText?: boolean;
+  /** The run's final assistant message landed (no tool followed it). */
+  answerLanded?: boolean;
   runtimeStatusText?: string | null;
   activeToolCallId?: string | null;
   activeToolName?: string | null;
-  latestCompletedTool?: {
-    toolName: string;
-    toolCallId: string;
-    exitCode?: number;
-  } | null;
-  hasToolActivity?: boolean;
   isToolActive?: boolean;
   pendingUserMessageId: string | null;
   queuedUserMessages?: QueuedUserMessage[];
@@ -169,12 +162,10 @@ function AccountScopedChatPanelTab({
   messages,
   conversationId,
   isStreaming,
-  isStreamingResponseText,
+  answerLanded,
   runtimeStatusText,
   activeToolCallId,
   activeToolName,
-  latestCompletedTool,
-  hasToolActivity,
   isToolActive,
   pendingUserMessageId,
   queuedUserMessages,
@@ -316,17 +307,14 @@ function AccountScopedChatPanelTab({
   );
 
   useReadAloud(messages);
-  // Before tool results, the indicator hands off on the assistant's first
-  // visible provider delta. A completed tool keeps its newest friendly
-  // one-line receipt visible until the turn ends.
+  // The indicator hands off to the reply once the run's final assistant
+  // message lands; a preamble followed by a tool keeps it up.
   const indicatorProps = buildInlineWorkingIndicatorProps({
     isStreaming: Boolean(isStreaming),
-    isStreamingResponseText: Boolean(isStreamingResponseText),
     isToolActive: Boolean(isToolActive),
-    hasToolActivity: Boolean(hasToolActivity),
+    answerLanded: Boolean(answerLanded),
     activeToolName,
     activeToolCallId,
-    latestCompletedTool,
     runtimeStatusText,
   });
 
@@ -433,7 +421,6 @@ function AccountScopedChatPanelTab({
     // applying Codex's 300px near-bottom threshold, so a visually-bottomed
     // short reply still reframes while deliberate scrollback stays put.
     const shouldNudgeAfterSend = sidebarScroll.getShouldPlaceLatestTurn();
-    const followKeyBeforeSend = getAssistantScrollFollowKey();
     const accepted = await onSend(trimmedMessage, chatContext, selectedText);
     if (!accepted) return;
     setInputText("");
@@ -451,7 +438,7 @@ function AccountScopedChatPanelTab({
     } else if (shouldNudgeAfterSend) {
       // Place the newest user turn above the viewport-derived response
       // spacer, using the same gentle loop as stream-follow.
-      sidebarScroll.nudgeAfterSend(followKeyBeforeSend);
+      sidebarScroll.nudgeAfterSend();
     } else {
       sidebarScroll.releaseFollow();
     }

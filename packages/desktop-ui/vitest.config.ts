@@ -21,6 +21,7 @@ const jsdomTests = [
   'tests/app/shell/conversation-topbar-contract.test.ts',
   'tests/app/shell/shell-topbar-header-layout-contract.test.ts',
   'tests/app/shell/sidebar-nav-model.test.ts',
+  'tests/app/chat/working-indicator-animation-budget.test.ts',
   'tests/runtime/thread-activity-tab-cache.test.ts',
   'tests/runtime/use-conversation-messages.test.tsx',
 ];

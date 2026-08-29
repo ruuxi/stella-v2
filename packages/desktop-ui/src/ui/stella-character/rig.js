@@ -1,8 +1,20 @@
 import { TAU, clamp, toPath, polyPath, spanAt, profileMax } from "./geometry.js";
 import { N, C, BLEED, VIEWBOX, SHAPES, SPARKLE_PATH } from "./shapes.js";
-import { EYE_POSES, lerpPose } from "./eyes.js";
+import { EYE_N, EYE_POSES, lerpPose } from "./eyes.js";
 
 const SVGNS = "http://www.w3.org/2000/svg";
+
+const RING_COS = new Float64Array(N);
+const RING_SIN = new Float64Array(N);
+const RING_SHIMMER_SIN = new Float64Array(N);
+const RING_SHIMMER_COS = new Float64Array(N);
+for (let i = 0; i < N; i++) {
+  const th = (i / N) * TAU;
+  RING_COS[i] = Math.cos(th);
+  RING_SIN[i] = Math.sin(th);
+  RING_SHIMMER_SIN[i] = Math.sin(th * 3);
+  RING_SHIMMER_COS[i] = Math.cos(th * 3);
+}
 
 const spring = (v) => ({ x: v, v: 0, t: v });
 const stepSpring = (s, w, z, dt) => {
@@ -227,6 +239,7 @@ export function createStellaMark(host, opts = {}) {
     followPointer: false,
     interactive: false,
     paused: false,
+    visibilityGate: true,
     ...opts,
   };
   const id = `sm${++uid}`;
@@ -467,12 +480,21 @@ export function createStellaMark(host, opts = {}) {
 
   let pointer = null;
   let paused = o.paused;
+  let onscreen = true;
+  let painted = false;
   let running = false, raf = 0, last = 0, clock = 0;
   let boxW = o.size ?? 28, measuredAt = -1e9;
   let lastPath = "";
+  const lastEyePath = ["", ""];
+  let decorHidden = false;
+  let sweepShown = false, eyesHidden = false;
+  let lastBodyTransform = "", lastGlowTransform = "";
+  let lastBodyAlpha = -1, lastGlowAlpha = -1;
   let squeezeStart = 0;
   let particles = [];
   let destroyed = false;
+
+  const suspended = () => paused || !onscreen;
 
   const weightOf = (name) => {
     const e = clamp(env.x, 0, 1);
@@ -563,8 +585,12 @@ export function createStellaMark(host, opts = {}) {
   }
 
   const workProfile = new Float64Array(N);
-  const workRing = new Array(N);
-  let ringCache = null;
+  const workRing = Array.from({ length: N }, () => [0, 0]);
+  const warpedRing = Array.from({ length: N }, () => [0, 0]);
+  const eyeBuf = [
+    Array.from({ length: EYE_N }, () => [0, 0]),
+    Array.from({ length: EYE_N }, () => [0, 0]),
+  ];
 
   function buildRing(now, twinkleW) {
     const base = shape.profile;
@@ -577,11 +603,19 @@ export function createStellaMark(host, opts = {}) {
 
     const sweep = ((now - activityStart) / 1900) * TAU;
 
+    const twinkling = twinkleW > 0.004;
+
+    const shimmerSin = shimmerAmp ? Math.sin(shimmerPhase) : 0;
+    const shimmerCos = shimmerAmp ? Math.cos(shimmerPhase) : 0;
+
     for (let i = 0; i < N; i++) {
       let r = mixing ? from[i] + (base[i] - from[i]) * m : base[i];
-      const th = (i / N) * TAU;
-      if (shimmerAmp) r *= 1 + shimmerAmp * Math.sin(th * 3 + shimmerPhase);
-      if (twinkleW > 0.004) {
+      if (shimmerAmp) {
+        const wobble = RING_SHIMMER_SIN[i] * shimmerCos + RING_SHIMMER_COS[i] * shimmerSin;
+        r *= 1 + shimmerAmp * wobble;
+      }
+      if (twinkling) {
+        const th = (i / N) * TAU;
         let d = Math.abs(((th - sweep) % TAU + TAU) % TAU - Math.PI);
         d = Math.PI - d;
         const g = Math.exp(-(d * d) / (2 * 0.55 * 0.55));
@@ -592,9 +626,10 @@ export function createStellaMark(host, opts = {}) {
     const max = profileMax(workProfile) || 1;
     const k = C / max;
     for (let i = 0; i < N; i++) {
-      const th = (i / N) * TAU;
       const r = workProfile[i] * k;
-      workRing[i] = [C + Math.cos(th) * r, C + Math.sin(th) * r];
+      const p = workRing[i];
+      p[0] = C + RING_COS[i] * r;
+      p[1] = C + RING_SIN[i] * r;
     }
     return workRing;
   }
@@ -607,10 +642,9 @@ export function createStellaMark(host, opts = {}) {
     clock += dt * 1000;
     const t = clock;
 
-    if (now - measuredAt > 500) {
+    if (!sizeObserver && now - measuredAt > 500) {
       measuredAt = now;
-      const w = svg.getBoundingClientRect().width;
-      if (w > 0) boxW = w;
+      setBoxW(svg.getBoundingClientRect().width);
     }
 
     env.t = activity ? 1 : 0;
@@ -678,11 +712,16 @@ export function createStellaMark(host, opts = {}) {
       faceWarp = squeezeWarp(band, wSqueeze, SQ_FACE_GIVE);
     }
 
-    const ring = buildRing(t, wTwinkle);
-    let finalRing = ring;
-
-    const layoutRing = finalRing;
-    if (warp) finalRing = finalRing.map(([x, y]) => warp(x, y));
+    const layoutRing = buildRing(t, wTwinkle);
+    let finalRing = layoutRing;
+    if (warp) {
+      for (let i = 0; i < N; i++) {
+        const [wx, wy] = warp(layoutRing[i][0], layoutRing[i][1]);
+        warpedRing[i][0] = wx;
+        warpedRing[i][1] = wy;
+      }
+      finalRing = warpedRing;
+    }
     const d = toPath(finalRing);
     if (d !== lastPath) {
       body.setAttribute("d", d);
@@ -694,12 +733,13 @@ export function createStellaMark(host, opts = {}) {
 
       const y = C + (band - SQ_LEAD * 0.5) * C;
       const h = SQ_SIGMA * C * 1.5;
-      sweepG.style.display = "";
+      if (!sweepShown) { sweepG.style.display = ""; sweepShown = true; }
       sweepG.style.opacity = wSqueeze.toFixed(3);
       sweepGrad.setAttribute("y1", (y - h).toFixed(1));
       sweepGrad.setAttribute("y2", (y + h).toFixed(1));
-    } else {
+    } else if (sweepShown) {
       sweepG.style.display = "none";
+      sweepShown = false;
     }
 
     const spin = updateSpinner(wSpinner, t, dt);
@@ -737,22 +777,41 @@ export function createStellaMark(host, opts = {}) {
     if (wStandby > 0.004) bodyAlpha *= 1 - (0.3 + 0.18 * Math.sin(t * 0.0016)) * wStandby;
     if (wProgress > 0.004 || wOrbit > 0.004) rot += Math.sin(t * 0.0009) * 3 * (wProgress + wOrbit);
 
-    bodyG.setAttribute("transform",
+    const bodyTransform =
       `translate(${tx.toFixed(2)} ${ty.toFixed(2)}) rotate(${rot.toFixed(2)}) ` +
-      `scale(${scaleX.toFixed(4)} ${scaleY.toFixed(4)}) translate(${-C} ${-C})`);
-    bodyG.style.opacity = bodyAlpha.toFixed(3);
+      `scale(${scaleX.toFixed(4)} ${scaleY.toFixed(4)}) translate(${-C} ${-C})`;
+    if (bodyTransform !== lastBodyTransform) {
+      bodyG.setAttribute("transform", bodyTransform);
+      lastBodyTransform = bodyTransform;
+    }
+    const bodyAlphaQ = Math.round(bodyAlpha * 1000) / 1000;
+    if (bodyAlphaQ !== lastBodyAlpha) {
+      bodyG.style.opacity = bodyAlphaQ.toFixed(3);
+      lastBodyAlpha = bodyAlphaQ;
+    }
 
     if (glowEl) {
       const gl = (rest * breathe.x + act * (bodyR / C)) * shrink * (1 + 0.05 * Math.sin(t * 0.0011));
-      glowEl.setAttribute("transform",
-        `translate(${tx.toFixed(2)} ${ty.toFixed(2)}) scale(${gl.toFixed(4)}) translate(${-C} ${-C})`);
-      glowEl.style.opacity = ((0.55 + 0.45 * wTwinkle) * (1 - wSpinner)).toFixed(3);
+      const glowTransform =
+        `translate(${tx.toFixed(2)} ${ty.toFixed(2)}) scale(${gl.toFixed(4)}) translate(${-C} ${-C})`;
+      if (glowTransform !== lastGlowTransform) {
+        glowEl.setAttribute("transform", glowTransform);
+        lastGlowTransform = glowTransform;
+      }
+      const glowAlphaQ = Math.round((0.55 + 0.45 * wTwinkle) * (1 - wSpinner) * 1000) / 1000;
+      if (glowAlphaQ !== lastGlowAlpha) {
+        glowEl.style.opacity = glowAlphaQ.toFixed(3);
+        lastGlowAlpha = glowAlphaQ;
+      }
     }
 
     const face = shape.face;
     const [fSize, fGap, fHeight] = FACE_TUNE[state] ?? FACE_DEFAULT;
     const hideEyes = wSpinner > 0.5;
-    eyeG.style.display = hideEyes ? "none" : "";
+    if (hideEyes !== eyesHidden) {
+      eyeG.style.display = hideEyes ? "none" : "";
+      eyesHidden = hideEyes;
+    }
     if (!hideEyes) {
       const pts = currentPosePoints();
       const socketX = C + face.dx;
@@ -768,14 +827,33 @@ export function createStellaMark(host, opts = {}) {
         const cy = socketY + gazeY.x + bobY.x * 0.25;
 
         cx = clamp(cx, l + ew * 0.8, r - ew * 0.8);
-        let placed = pts.map(([x, y]) => [cx + x * ew, cy + y * eh]);
-        if (faceWarp) placed = placed.map(([x, y]) => faceWarp(x, y));
-        eyes[i].setAttribute("d", polyPath(placed));
+        const placed = eyeBuf[i];
+        for (let k = 0; k < EYE_N; k++) {
+          const px = cx + pts[k][0] * ew;
+          const py = cy + pts[k][1] * eh;
+          const out = placed[k];
+          if (faceWarp) {
+            const [fx, fy] = faceWarp(px, py);
+            out[0] = fx; out[1] = fy;
+          } else {
+            out[0] = px; out[1] = py;
+          }
+        }
+
+        const eyePath = polyPath(placed);
+        if (eyePath !== lastEyePath[i]) {
+          eyes[i].setAttribute("d", eyePath);
+          lastEyePath[i] = eyePath;
+        }
       }
     }
 
-    for (const s of sparks) s.style.display = "none";
-    for (const r of rings) r.style.display = "none";
+    const decorActive = wOrbit > 0.004 || wRadar > 0.004 || wProgress > 0.004;
+    if (decorActive || !decorHidden) {
+      for (const s of sparks) s.style.display = "none";
+      for (const r of rings) r.style.display = "none";
+      decorHidden = !decorActive;
+    }
 
     if (wOrbit > 0.004) drawOrbit(wOrbit, t);
     if (wRadar > 0.004) drawRadar(wRadar, t, (bodyR / C) * C);
@@ -787,7 +865,8 @@ export function createStellaMark(host, opts = {}) {
       Math.abs(env.x - env.t) < 0.001 && Math.abs(env.v) < 0.001 &&
       poseMix >= 1 && blink.t === 1 && Math.abs(blink.x - 1) < 0.002 &&
       shapeMix.x > 0.999;
-    if (reduced && settled) { running = false; raf = 0; return; }
+    painted = true;
+    if (suspended() || (reduced && settled)) { running = false; raf = 0; return; }
     raf = requestAnimationFrame(frame);
   }
 
@@ -997,7 +1076,7 @@ export function createStellaMark(host, opts = {}) {
   }
 
   function wake() {
-    if (destroyed || running) return;
+    if (destroyed || running || (suspended() && painted)) return;
     running = true; last = 0;
     raf = requestAnimationFrame(frame);
   }
@@ -1007,6 +1086,39 @@ export function createStellaMark(host, opts = {}) {
   if (o.followPointer && !reduced) {
     window.addEventListener("pointermove", onPointerMove, { passive: true });
     document.documentElement.addEventListener("pointerleave", onPointerLeave);
+  }
+
+  const setBoxW = (w) => {
+    if (!(w > 0) || Math.abs(w - boxW) < 0.5) return;
+    boxW = w;
+    wake();
+  };
+
+  let sizeObserver = null;
+  if (typeof ResizeObserver === "function") {
+    sizeObserver = new ResizeObserver((entries) => {
+      setBoxW(entries[entries.length - 1]?.contentRect?.width ?? 0);
+    });
+    sizeObserver.observe(svg);
+  }
+
+  /**
+   * An offscreen or display:none mark renders nothing, so freeze it rather than
+   * recomputing the outline 60 times a second for pixels nobody can see. Time is
+   * frozen (as with pause), so it resumes mid-motion instead of jumping.
+   */
+  let viewObserver = null;
+  if (o.visibilityGate && typeof IntersectionObserver === "function") {
+    viewObserver = new IntersectionObserver(
+      (entries) => {
+        const next = entries[entries.length - 1]?.isIntersecting ?? true;
+        if (next === onscreen) return;
+        onscreen = next;
+        if (onscreen) { last = 0; wake(); }
+      },
+      { rootMargin: "64px" },
+    );
+    viewObserver.observe(svg);
   }
 
   applyStateInitial();
@@ -1038,6 +1150,8 @@ export function createStellaMark(host, opts = {}) {
     destroy() {
       destroyed = true;
       cancelAnimationFrame(raf);
+      sizeObserver?.disconnect();
+      viewObserver?.disconnect();
       window.removeEventListener("pointermove", onPointerMove);
       document.documentElement.removeEventListener("pointerleave", onPointerLeave);
       svg.remove();

@@ -47,6 +47,7 @@ import {
 } from "../http_shared/webhook_controls";
 import { readJsonBody } from "../http_shared/request";
 import { encodeSseData, sseResponse } from "../http_shared/sse";
+import { createAssistantTextFramer } from "../http_shared/assistant_text_frames";
 import { dollarsToMicroCents } from "../lib/billing_money";
 import {
   estimateManagedModelFallbackCostMicroCents,
@@ -971,13 +972,16 @@ const streamOfflineReply = async (args: {
           billing,
           dispatchGuard,
         });
+        // Assistant text is delivered whole: deltas buffer here and leave as
+        // one `{ t }` frame per text block once the block closes. `done` needs
+        // no branch of its own — exact provider usage is captured by the
+        // physical receipt before that event leaves the managed stream.
+        const textFramer = createAssistantTextFramer();
         for await (const event of eventStream) {
-          if (event.type === "text_delta") {
-            enqueue(encodeSseData({ t: event.delta }));
-          } else if (event.type === "done") {
-            // Exact provider usage is captured by the physical receipt before
-            // the done event leaves the managed stream.
-          } else if (event.type === "error") {
+          for (const segment of textFramer.accept(event)) {
+            enqueue(encodeSseData({ t: segment }));
+          }
+          if (event.type === "error") {
             sawProviderError = true;
             enqueue(encodeSseData({ error: "Stream failed" }));
           }

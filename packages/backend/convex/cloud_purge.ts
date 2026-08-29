@@ -951,7 +951,6 @@ export const listOwnerAppPurgeManifestInternal = internalQuery({
   returns: v.object({
     hasRows: v.boolean(),
     slugs: v.array(v.string()),
-    workspaces: v.array(v.string()),
     buildPrefixes: v.array(v.string()),
   }),
   handler: async (ctx, args) => {
@@ -975,9 +974,6 @@ export const listOwnerAppPurgeManifestInternal = internalQuery({
     return {
       hasRows: apps.length > 0 || builds.length > 0,
       slugs: apps.map((app) => app.slug),
-      // An agent spawned into `app:<slug>` checkpoints its sandbox under a key
-      // derived from that string, so the app's workspace goes with the app.
-      workspaces: apps.map((app) => `app:${app.slug}`),
       buildPrefixes,
     };
   },
@@ -1097,7 +1093,8 @@ export const deleteOwnerAppBatch = internalMutation({
 /**
  * The exact external state named by one owner's interior deployment. Build
  * prefixes are read from their immutable rows. The owner-level purge later in
- * this action independently removes the `stella` source-workspace checkpoint.
+ * this action independently removes the owner's world checkpoint, which holds
+ * the interior source.
  */
 export const listOwnerInteriorPurgeManifestInternal = internalQuery({
   args: { ownerId: v.string() },
@@ -1181,40 +1178,15 @@ export const deleteOwnerInteriorDeploymentBatch = internalMutation({
 // ─── Projects ────────────────────────────────────────────────────────────────
 
 /**
- * The workspace strings whose sandbox checkpoints the worker must drop. The
- * checkpoint key hashes `<ownerId>:project:<slug>`, so once the project row is
- * gone there is nothing left in the system that can name the checkpoint — a
- * full copy of the user's private repository, sitting in R2 behind a live KV
- * descriptor. Read first, deleted last.
- */
-export const listOwnerProjectWorkspacesInternal = internalQuery({
-  args: { ownerId: v.string() },
-  returns: v.array(v.string()),
-  handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("cloud_projects")
-      .withIndex("by_ownerId_and_updatedAt", (q) =>
-        q.eq("ownerId", args.ownerId),
-      )
-      .take(BATCH);
-    return rows.map((row) => `project:${row.slug}`);
-  },
-});
-
-/**
- * `purgedWorkspaces` is what the worker just confirmed; a project created
- * since the manifest was read keeps its row, and with it the only name its
- * checkpoint has, until a later pass purges that checkpoint first.
+ * A project checkout lives in the owner's one world checkpoint, which the
+ * owner-level step at the end of this action drops whole. Nothing external is
+ * keyed by the slug any more, so these rows are ordinary owner-indexed rows.
  */
 export const deleteOwnerProjectBatch = internalMutation({
-  args: {
-    ...purgeOperationArgs,
-    purgedWorkspaces: v.array(v.string()),
-  },
+  args: purgeOperationArgs,
   returns: v.object({ hasMore: v.boolean(), deleted: v.number() }),
   handler: async (ctx, args) => {
     await assertOwnerPurgeOperation(ctx, args);
-    const purged = new Set(args.purgedWorkspaces);
     const rows = await ctx.db
       .query("cloud_projects")
       .withIndex("by_ownerId_and_updatedAt", (q) =>
@@ -1223,11 +1195,10 @@ export const deleteOwnerProjectBatch = internalMutation({
       .take(BATCH);
     let deleted = 0;
     for (const row of rows) {
-      if (!purged.has(`project:${row.slug}`)) continue;
       await ctx.db.delete(row._id);
       deleted += 1;
     }
-    return { hasMore: rows.length > deleted || rows.length === BATCH, deleted };
+    return { hasMore: rows.length === BATCH, deleted };
   },
 });
 
@@ -2092,7 +2063,6 @@ const builderEndpoint = (): BuilderEndpoint | null => {
 };
 
 type ExternalPurgeRequest = {
-  workspaces?: string[];
   appSlugs?: string[];
   buildPrefixes?: string[];
   browserProfiles?: string[];
@@ -2571,7 +2541,6 @@ export const purgeOwnerCloudStack = internalAction({
         const manifest: {
           hasRows: boolean;
           slugs: string[];
-          workspaces: string[];
           buildPrefixes: string[];
         } = await ctx.runQuery(
           internal.cloud_purge.listOwnerAppPurgeManifestInternal,
@@ -2580,7 +2549,6 @@ export const purgeOwnerCloudStack = internalAction({
         if (!manifest.hasRows) break;
         const external = await purgeExternalStoresFenced({
           appSlugs: manifest.slugs,
-          workspaces: manifest.workspaces,
           buildPrefixes: manifest.buildPrefixes,
         });
         if (external.pending.length > 0) {
@@ -2679,26 +2647,15 @@ export const purgeOwnerCloudStack = internalAction({
         if (!manifest.hasRows && !handleless.hasMore) break;
       }
 
-      // 5. Projects. Same rule: the sandbox checkpoint holds a full checkout of
-      //    the user's repository and its KV key cannot be derived without the
-      //    slug on the row.
+      // 5. Projects. The checkout itself is inside the owner's world
+      //    checkpoint, dropped whole by the owner-level step below.
       let barrenProjectPasses = 0;
       for (let projectPass = 0; projectPass < MAX_PASSES; projectPass += 1) {
-        const workspaces: string[] = await ctx.runQuery(
-          internal.cloud_purge.listOwnerProjectWorkspacesInternal,
-          { ownerId },
-        );
-        if (workspaces.length === 0) break;
-        const external = await purgeExternalStoresFenced({ workspaces });
-        if (external.pending.length > 0) {
-          pending.push("cloud_projects");
-          break;
-        }
         const drained: { hasMore: boolean; deleted: number } =
-          await ctx.runMutation(internal.cloud_purge.deleteOwnerProjectBatch, {
-            ...fence,
-            purgedWorkspaces: workspaces,
-          });
+          await ctx.runMutation(
+            internal.cloud_purge.deleteOwnerProjectBatch,
+            fence,
+          );
         if (!drained.hasMore) break;
         barrenProjectPasses =
           drained.deleted === 0 ? barrenProjectPasses + 1 : 0;
@@ -2897,10 +2854,9 @@ export const purgeOwnerCloudStack = internalAction({
 
       // 11. Owner-level object storage the per-row steps cannot see: the
       //    agent-home memory prefix, any archive segment whose conversation row
-      //    was already gone, and the checkpoints of the two workspaces that
-      //    exist for every owner without a row anywhere naming them.
+      //    was already gone, and the owner's world checkpoint, which exists
+      //    without a row anywhere naming it.
       const external = await purgeExternalStoresFenced({
-        workspaces: ["drive", "stella"],
         browserProfiles: ["default"],
       });
       if (external.pending.length > 0) {

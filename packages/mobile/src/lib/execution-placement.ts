@@ -38,7 +38,6 @@ export type AutomaticExecutionDispatch = {
   kind: AutomaticExecutionKind;
   ingress: "mobile";
   subject: AutomaticExecutionSubject;
-  workspace?: string;
   conversationId: string;
   parentTurnId?: string;
   threadId?: string;

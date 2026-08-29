@@ -43,6 +43,7 @@ import {
   cloudAgentSandboxLeaseExpiresAt,
   cloudSandboxThreadIsActive,
 } from "./lib/computer_agent_thread";
+import { executionPlacementValidator } from "./schema/execution_placement";
 import {
   assertOwnerDataAccessActive,
   assertOwnerDataWriteAllowed,
@@ -955,7 +956,7 @@ const cloudAgentThreadProjectionValidator = v.object({
   conversationId: v.string(),
   parentTurnId: v.optional(v.string()),
   description: v.string(),
-  workspace: v.string(),
+  placement: executionPlacementValidator,
   agentType: v.string(),
   status: v.string(),
   resultJson: v.optional(v.string()),
@@ -1084,7 +1085,7 @@ const projectCloudAgentThread = (row: Doc<"cloud_agent_threads">) => ({
   conversationId: row.conversationId,
   ...(row.parentTurnId === undefined ? {} : { parentTurnId: row.parentTurnId }),
   description: row.description,
-  workspace: row.workspace,
+  placement: row.placement,
   agentType: row.agentType,
   status: row.status,
   ...(row.resultJson === undefined ? {} : { resultJson: row.resultJson }),
@@ -1170,7 +1171,6 @@ const assertExecutionPlacementAdmission = async (
     clientMsgId?: string;
     parentTurnId?: string;
     threadId?: string;
-    workspace?: string;
     placementAttempt?: ExecutionPlacementAttempt;
   },
 ) => {
@@ -1190,8 +1190,7 @@ const assertExecutionPlacementAdmission = async (
     dispatch.conversationId === args.conversationId &&
     (args.kind === "chat" ||
       (dispatch.parentTurnId === args.parentTurnId &&
-        dispatch.threadId === args.threadId &&
-        dispatch.workspace === args.workspace)) &&
+        dispatch.threadId === args.threadId)) &&
     dispatch.placement === "cloud" &&
     dispatch.state === "cloud_committed" &&
     dispatch.cloudAttemptId === attempt.attemptId &&
@@ -4430,78 +4429,6 @@ export const runOrchestratorTurnInternal = internalAction({
   },
 });
 
-// Contract C2. "computer" is a real workspace on the desktop but is never
-// dispatchable from the cloud, so it is deliberately absent here.
-const CLOUD_WORKSPACE_PATTERN =
-  /^(cloud|drive|stella|project:[A-Za-z0-9._-]{1,64}|app:[a-z0-9-]{1,64})$/;
-
-const getProjectBySlugRef = makeFunctionReference<
-  "query",
-  { ownerId: string; slug: string },
-  { projectId: string; slug: string; status: string } | null
->("cloud_projects:getProjectBySlugInternal");
-
-/**
- * Contract C2's provisioning check: drive and stella exist for every owner,
- * but app:<slug> and project:<slug> only name something real once the owner
- * actually has that app or project.
- *
- * Returns a readable error, or the CANONICAL workspace string. Canonicalizing
- * here is load-bearing: the builder worker lowercases a workspace before
- * hashing it into the checkpoint key and before asking Convex for the
- * project's credentials, so a thread stored as `project:My_Project` would
- * checkpoint under a name no project row answers to.
- */
-const checkWorkspaceProvisioned = async (
-  ctx: MutationCtx,
-  ownerId: string,
-  workspace: string,
-): Promise<{ error?: string; workspace: string }> => {
-  // Keep the original `drive` checkpoint namespace during the public
-  // `cloud` rename so existing owner workspaces restore in place.
-  if (workspace === "cloud") return { workspace: "drive" };
-  if (workspace === "drive" || workspace === "stella") return { workspace };
-  if (workspace.startsWith("app:")) {
-    const slug = workspace.slice("app:".length);
-    // by_slug is not owner-scoped and slugs are only unique in practice, so
-    // read a small window and pick this owner's row rather than .unique().
-    const candidates = await ctx.db
-      .query("cloud_apps")
-      .withIndex("by_slug", (q) => q.eq("slug", slug))
-      .take(5);
-    const app = candidates.find((row) => row.ownerId === ownerId);
-    if (!app) {
-      return {
-        workspace,
-        error: `No app named "${slug}" in this account. Build the app first, then send an agent into its workspace.`,
-      };
-    }
-    return { workspace: `app:${app.slug}` };
-  }
-  const slug = workspace.slice("project:".length);
-  let project: { projectId: string; slug: string } | null = null;
-  try {
-    project = await ctx.runQuery(getProjectBySlugRef, { ownerId, slug });
-  } catch {
-    // Projects land in their own module; until it deploys, say so plainly
-    // rather than reporting the project as missing.
-    return {
-      workspace,
-      error:
-        'Project workspaces are not available on this deployment yet. Use workspace "cloud".',
-    };
-  }
-  if (!project) {
-    return {
-      workspace,
-      error: `No project named "${slug}" in this account. Create the project first, then send an agent into it.`,
-    };
-  }
-  // The project's own slug, not what the caller typed: it is what the builder
-  // resolves credentials by and what the checkpoint key is derived from.
-  return { workspace: `project:${project.slug}` };
-};
-
 type SpawnCloudAgentResult = {
   ok: boolean;
   threadId?: string;
@@ -4528,7 +4455,6 @@ const spawnIntentFingerprint = async (
     parentTurnId?: string;
     description: string;
     prompt: string;
-    workspace: string;
     threadId?: string;
     expectedAttemptGeneration?: number;
     expectedTerminalUpdatedAt?: number;
@@ -4540,13 +4466,11 @@ const spawnIntentFingerprint = async (
 ): Promise<string> =>
   await hashToken(
     JSON.stringify({
-      version: "spawn-agent-intent/v1",
+      version: "spawn-agent-intent/v2",
       conversationId: args.conversationId,
       parentTurnId: args.parentTurnId || null,
       description: args.description,
       prompt: args.prompt,
-      // Public `cloud` and the durable `drive` checkpoint are one workspace.
-      workspace: args.workspace === "cloud" ? "drive" : args.workspace,
       threadId: args.threadId || null,
       expectedAttemptGeneration: args.expectedAttemptGeneration ?? null,
       expectedTerminalUpdatedAt: args.expectedTerminalUpdatedAt ?? null,
@@ -4565,10 +4489,10 @@ const spawnIntentFingerprint = async (
   );
 
 /**
- * The one implementation of "put a background agent into a cloud workspace".
+ * The one implementation of "put a background agent in the cloud".
  * `parentTurnId` is absent for desktop-dispatched spawns, which have no cloud
- * turn above them; every other gate (workspace pattern, provisioning, plan
- * quota, per-workspace exclusivity) applies identically either way.
+ * turn above them; every other gate (plan quota, one-running-agent
+ * exclusivity) applies identically either way.
  */
 const spawnCloudAgent = async (
   ctx: MutationCtx,
@@ -4581,7 +4505,6 @@ const spawnCloudAgent = async (
     parentTokenHash?: string;
     description: string;
     prompt: string;
-    workspace: string;
     threadId?: string;
     expectedAttemptGeneration?: number;
     expectedTerminalUpdatedAt?: number;
@@ -4736,7 +4659,6 @@ const spawnCloudAgent = async (
     ...(clientMsgId ? { clientMsgId } : {}),
     ...(args.parentTurnId ? { parentTurnId: args.parentTurnId } : {}),
     ...(args.threadId ? { threadId: args.threadId } : {}),
-    workspace: args.workspace,
     ...(args.placementAttempt
       ? { placementAttempt: args.placementAttempt }
       : {}),
@@ -4760,13 +4682,6 @@ const spawnCloudAgent = async (
       ? normalizeCloudExecutionSelection(parent.execution)
       : undefined;
   }
-  if (!CLOUD_WORKSPACE_PATTERN.test(args.workspace)) {
-    return {
-      ok: false,
-      error:
-        "workspace must be cloud, stella, project:<name>, or app:<slug> for cloud spawns.",
-    };
-  }
   // A full execution object is the canonical override. The string parser
   // remains only for already-running cloud orchestrators during rollout.
   let executionOverride = requestedExecution;
@@ -4788,7 +4703,6 @@ const spawnCloudAgent = async (
     }
   }
   let threadId = args.threadId;
-  let workspace = args.workspace;
   let continuedThread: Doc<"cloud_agent_threads"> | null = null;
   if (threadId) {
     const requestedThreadId = threadId;
@@ -4832,8 +4746,6 @@ const spawnCloudAgent = async (
           "That agent is still working. Wait for its [Agent completed] event, then send the follow-up.",
       };
     }
-    // Continuations stay in the thread's own workspace.
-    workspace = thread.workspace;
     continuedThread = thread;
   }
   let execution = executionOverride;
@@ -4906,16 +4818,6 @@ const spawnCloudAgent = async (
       };
     }
   }
-  // Provisioning is judged on the RESOLVED workspace, so a continuation
-  // into a project that has since been removed fails the same way a fresh
-  // spawn into it would.
-  const provisioning = await checkWorkspaceProvisioned(
-    ctx,
-    args.ownerId,
-    workspace,
-  );
-  if (provisioning.error) return { ok: false, error: provisioning.error };
-  workspace = provisioning.workspace;
   const { quota } = await resolveCloudPlan(ctx, args.ownerId);
   // Fresh cloud threads carry an explicit expiring lease. The index range is
   // the admission authority: computer rows use lease marker 0 and terminal
@@ -4971,7 +4873,7 @@ const spawnCloudAgent = async (
       (candidate) =>
         candidate.status === "resuming" ||
         cloudSandboxThreadIsActive({
-          workspace: candidate.workspace,
+          placement: candidate.placement,
           status: candidate.status,
           sandboxLeaseExpiresAt: candidate.sandboxLeaseExpiresAt,
           updatedAt: candidate.updatedAt,
@@ -4987,15 +4889,33 @@ const spawnCloudAgent = async (
       }. Wait for one to finish, then try again.`,
     };
   }
-  // One agent per workspace at a time: turns restore the workspace
-  // checkpoint at start and overwrite it at end, so two concurrent agents
-  // in the same workspace would silently lose the first one's work
+  // One sandboxed agent per owner at a time. Every owner has one world, and a
+  // turn restores its checkpoint at start and overwrites it at end, so a
+  // second concurrent agent would silently lose the first one's work
   // (last-writer-wins on the ws:* key). This mutation is transactional, so
   // the check-and-insert can't race with itself.
-  if (runningThreads.some((thread) => thread.workspace === workspace)) {
+  const occupied = (
+    await Promise.all(
+      (["running", "resuming"] as const).map((status) =>
+        ctx.db
+          .query("cloud_agent_threads")
+          .withIndex("by_ownerId_and_placement_and_status", (q) =>
+            q
+              .eq("ownerId", args.ownerId)
+              .eq("placement", "cloud")
+              .eq("status", status),
+          )
+          .take(2),
+      ),
+    )
+  )
+    .flat()
+    .filter((thread) => thread.threadId !== threadId);
+  if (occupied.length > 0) {
     return {
       ok: false,
-      error: `Another agent is already working in the "${workspace}" workspace. Wait for it to finish, then try again — concurrent agents can run in different workspaces.`,
+      error:
+        "Another agent is already working in your cloud world. Wait for it to finish, then try again.",
     };
   }
   let attemptGeneration = 1;
@@ -5015,7 +4935,7 @@ const spawnCloudAgent = async (
       ...(originConversationId ? { originConversationId } : {}),
       execution,
       sandboxLeaseExpiresAt: cloudAgentSandboxLeaseExpiresAt(
-        workspace,
+        "cloud",
         args.now,
       ),
       updatedAt: args.now,
@@ -5032,12 +4952,12 @@ const spawnCloudAgent = async (
       ...(originDeviceId ? { originDeviceId } : {}),
       ...(originConversationId ? { originConversationId } : {}),
       description: args.description,
-      workspace,
+      placement: "cloud",
       agentType: "general",
       attemptGeneration,
       execution,
       sandboxLeaseExpiresAt: cloudAgentSandboxLeaseExpiresAt(
-        workspace,
+        "cloud",
         args.now,
       ),
       status: "running",
@@ -5058,7 +4978,7 @@ const spawnCloudAgent = async (
     lane: "agent",
     kind: "agent",
     agentType: "general",
-    workspace,
+    placement: "cloud",
     threadId,
     ...(args.parentTurnId ? { parentTurnId: args.parentTurnId } : {}),
     ...(args.source ? { source: args.source } : {}),
@@ -5078,7 +4998,6 @@ const spawnCloudAgent = async (
     threadId,
     turnId,
     prompt: args.prompt,
-    workspace,
     turnToken,
     ownerGeneration: lifecycle.generation,
     attemptGeneration,
@@ -5115,7 +5034,7 @@ const resolveCloudAgentReplayInput = async (
     clientMsgId: string;
     requestedConversationId?: string;
   },
-): Promise<{ conversationId: string; workspace?: string } | null> => {
+): Promise<{ conversationId: string } | null> => {
   const candidates = await ctx.db
     .query("agent_turns")
     .withIndex("by_ownerId_and_clientMsgId", (q) =>
@@ -5140,10 +5059,7 @@ const resolveCloudAgentReplayInput = async (
       "That cloud agent request id was already used differently.",
     );
   }
-  return {
-    conversationId: turn.conversationId,
-    ...(turn.workspace ? { workspace: turn.workspace } : {}),
-  };
+  return { conversationId: turn.conversationId };
 };
 
 export const spawnCloudAgentInternal = internalMutation({
@@ -5155,7 +5071,6 @@ export const spawnCloudAgentInternal = internalMutation({
     parentTokenHash: v.optional(v.string()),
     description: v.string(),
     prompt: v.string(),
-    workspace: v.string(),
     threadId: v.optional(v.string()),
     expectedAttemptGeneration: v.optional(v.number()),
     expectedTerminalUpdatedAt: v.optional(v.number()),
@@ -5182,7 +5097,7 @@ export const spawnCloudAgentInternal = internalMutation({
 });
 
 /**
- * Desktop `spawn_agent` with a cloud workspace lands here. Authenticated by
+ * Desktop `spawn_agent` with cloud placement lands here. Authenticated by
  * the signed-in user's identity — never the builder service secret — so the
  * cloud bills and authorizes the person who asked. `conversationId` is a
  * cloud conversation echoed back from a previous call; refusals throw so the
@@ -5192,7 +5107,6 @@ export const spawnCloudAgentFromDesktop = mutation({
   args: {
     ownerGeneration: v.string(),
     clientMsgId: v.string(),
-    workspace: v.string(),
     description: v.string(),
     prompt: v.string(),
     conversationId: v.optional(v.string()),
@@ -5264,7 +5178,6 @@ export const spawnCloudAgentFromDesktop = mutation({
         conversationId: replayInput.conversationId,
         description,
         prompt,
-        workspace: args.workspace,
         ...(args.execution ? { execution: args.execution } : {}),
         source: "desktop",
         clientMsgId,
@@ -5327,7 +5240,6 @@ export const spawnCloudAgentFromDesktop = mutation({
       conversationId,
       description,
       prompt,
-      workspace: args.workspace,
       ...(args.execution ? { execution: args.execution } : {}),
       source: "desktop",
       clientMsgId,
@@ -5418,11 +5330,6 @@ export const continueMyCloudAgentFromDesktop = mutation({
       clientMsgId: controlRequestId,
     });
     if (replayInput) {
-      if (!replayInput.workspace) {
-        throw new ConvexError(
-          "That cloud agent request has no authoritative thread receipt.",
-        );
-      }
       const replayed = await spawnCloudAgent(ctx, {
         ownerId,
         ownerGeneration: lifecycle.generation,
@@ -5432,7 +5339,6 @@ export const continueMyCloudAgentFromDesktop = mutation({
         expectedTerminalUpdatedAt: args.expectedTerminalUpdatedAt,
         description,
         prompt,
-        workspace: replayInput.workspace,
         source: "desktop",
         clientMsgId: controlRequestId,
         originDeviceId,
@@ -5488,7 +5394,6 @@ export const continueMyCloudAgentFromDesktop = mutation({
       expectedTerminalUpdatedAt: args.expectedTerminalUpdatedAt,
       description,
       prompt,
-      workspace: thread.workspace,
       source: "desktop",
       clientMsgId: controlRequestId,
       originDeviceId,
@@ -6151,7 +6056,6 @@ export const runCloudAgentTurnInternal = internalAction({
     threadId: v.string(),
     turnId: v.string(),
     prompt: v.string(),
-    workspace: v.string(),
     turnToken: v.string(),
     ownerGeneration: v.string(),
     attemptGeneration: v.number(),
@@ -6178,7 +6082,6 @@ export const runCloudAgentTurnInternal = internalAction({
       threadId: args.threadId,
       turnId: args.turnId,
       prompt: args.prompt,
-      workspace: args.workspace,
       turnToken: args.turnToken,
       ownerGeneration: args.ownerGeneration,
       attemptGeneration: args.attemptGeneration,
@@ -6340,7 +6243,6 @@ export const runCloudAgentTurnInternal = internalAction({
             threadId: args.threadId,
             turnId: args.turnId,
             prompt: args.prompt,
-            workspace: args.workspace,
             turnToken: args.turnToken,
             convexCallbackBase,
             execution,
@@ -6844,7 +6746,7 @@ export const getAgentThreadProbeInternal = internalQuery({
         return {
           threadId: thread.threadId,
           turnId: turn?.turnId,
-          workspace: thread.workspace,
+          placement: thread.placement,
           status: thread.status,
           description: thread.description,
           turnStatus: turn?.status,
@@ -7006,7 +6908,7 @@ export const listMyDeviceAgentThreads = query({
       originConversationId: v.string(),
       parentTurnId: v.union(v.string(), v.null()),
       description: v.string(),
-      workspace: v.string(),
+      placement: executionPlacementValidator,
       agentType: v.string(),
       ownerGeneration: v.string(),
       attemptGeneration: v.number(),
@@ -7069,7 +6971,7 @@ export const listMyDeviceAgentThreads = query({
               originConversationId: row.originConversationId,
               parentTurnId: row.parentTurnId ?? null,
               description: row.description,
-              workspace: row.workspace,
+              placement: row.placement,
               agentType: row.agentType,
               ownerGeneration,
               attemptGeneration: row.attemptGeneration,

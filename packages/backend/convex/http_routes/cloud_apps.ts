@@ -614,7 +614,6 @@ export function registerCloudAppRoutes(http: HttpRouter) {
         parentTurnId?: string;
         description?: string;
         prompt?: string;
-        workspace?: string;
         threadId?: string;
         turnId?: string;
         attemptGeneration?: number;
@@ -803,7 +802,6 @@ export function registerCloudAppRoutes(http: HttpRouter) {
           parentTokenHash,
           description: body.description,
           prompt: body.prompt,
-          workspace: body.workspace ?? "cloud",
           threadId: body.threadId,
           ...(body.threadId
             ? {

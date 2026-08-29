@@ -1,4 +1,4 @@
-export const COMPUTER_AGENT_WORKSPACE = "computer";
+import type { ExecutionPlacement } from "../schema/execution_placement";
 
 /**
  * Cloud-agent watchdogs normally terminalize a sandbox turn within 15 minutes.
@@ -8,14 +8,15 @@ export const COMPUTER_AGENT_WORKSPACE = "computer";
 export const CLOUD_SANDBOX_LEASE_MS = 60 * 60_000;
 export const COMPUTER_AGENT_SANDBOX_LEASE_MARKER = 0;
 
-export const countsTowardCloudSandboxConcurrency = (workspace: string) =>
-  workspace !== COMPUTER_AGENT_WORKSPACE;
+export const countsTowardCloudSandboxConcurrency = (
+  placement: ExecutionPlacement,
+) => placement === "cloud";
 
 export const cloudAgentSandboxLeaseExpiresAt = (
-  workspace: string,
+  placement: ExecutionPlacement,
   now: number,
 ): number =>
-  countsTowardCloudSandboxConcurrency(workspace)
+  countsTowardCloudSandboxConcurrency(placement)
     ? now + CLOUD_SANDBOX_LEASE_MS
     : COMPUTER_AGENT_SANDBOX_LEASE_MARKER;
 
@@ -25,7 +26,7 @@ export const cloudAgentSandboxLeaseExpiresAt = (
  * grace; computer rows never consume cloud sandbox capacity in either form.
  */
 export const cloudSandboxThreadIsActive = (args: {
-  workspace: string;
+  placement: ExecutionPlacement;
   status: string;
   sandboxLeaseExpiresAt?: number;
   updatedAt: number;
@@ -33,7 +34,7 @@ export const cloudSandboxThreadIsActive = (args: {
 }): boolean => {
   if (
     args.status !== "running" ||
-    !countsTowardCloudSandboxConcurrency(args.workspace)
+    !countsTowardCloudSandboxConcurrency(args.placement)
   ) {
     return false;
   }

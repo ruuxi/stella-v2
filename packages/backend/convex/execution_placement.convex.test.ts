@@ -252,7 +252,6 @@ const submitMobile = async (
     idempotencyKey: string;
     prompt?: string;
     subject?: "portable" | "computer" | "cloud";
-    workspace?: string;
   },
 ) => {
   const payloadJson = JSON.stringify({ prompt: args.prompt ?? "hello" });
@@ -266,13 +265,6 @@ const submitMobile = async (
     ingress: "mobile",
     subject: args.subject ?? "portable",
     conversationId: args.conversationId,
-    ...(args.workspace
-      ? { workspace: args.workspace }
-      : args.subject === "computer"
-        ? { workspace: "computer" }
-        : args.subject === "cloud"
-          ? { workspace: "cloud" }
-          : {}),
     requestingDeviceId: mobileDeviceId,
     pairGrantDeviceId: deviceId,
     requiredCapabilities: [],
@@ -286,7 +278,6 @@ const submitUnpairedMobile = async (
     conversationId: string;
     idempotencyKey: string;
     subject?: "portable" | "computer" | "cloud";
-    workspace?: string;
   },
 ) => {
   const payloadJson = JSON.stringify({ prompt: "hello without a pair" });
@@ -300,13 +291,6 @@ const submitUnpairedMobile = async (
     ingress: "mobile",
     subject: args.subject ?? "portable",
     conversationId: args.conversationId,
-    ...(args.workspace
-      ? { workspace: args.workspace }
-      : args.subject === "computer"
-        ? { workspace: "computer" }
-        : args.subject === "cloud"
-          ? { workspace: "cloud" }
-          : {}),
     requiredCapabilities: [],
     now: Date.now(),
   });
@@ -568,7 +552,6 @@ describe("automatic execution placement", () => {
     expect(dispatch).toMatchObject({
       state: "offering",
       subject: "computer",
-      workspace: "computer",
     });
     const claimed = await claim(t, signer, dispatch.dispatchId);
     const accepted = await asOwner(t).mutation(refs.ack, {
@@ -591,7 +574,6 @@ describe("automatic execution placement", () => {
       state: "computer_accepted",
       placement: "computer",
       subject: "computer",
-      workspace: "computer",
     });
   });
 
@@ -607,7 +589,6 @@ describe("automatic execution placement", () => {
       state: "cloud_committed",
       placement: "cloud",
       subject: "computer",
-      workspace: "computer",
       fallbackReason: "no-eligible-paired-computer",
     });
     await t.action(refs.executeCloud, {
@@ -666,7 +647,6 @@ describe("automatic execution placement", () => {
     expect(dispatch).toMatchObject({
       ingress: "mobile",
       subject: "computer",
-      workspace: "computer",
       state: "cloud_committed",
       placement: "cloud",
       fallbackReason: "no-eligible-paired-computer",
@@ -690,7 +670,6 @@ describe("automatic execution placement", () => {
       ingress: "mobile",
       subject: "computer",
       conversationId,
-      workspace: "computer",
       requiredCapabilities: ["local-files"],
       now: Date.now(),
     });
@@ -698,7 +677,6 @@ describe("automatic execution placement", () => {
       state: "cloud_committed",
       placement: "cloud",
       subject: "computer",
-      workspace: "computer",
     });
 
     await t.action(refs.executeCloud, {
@@ -712,7 +690,6 @@ describe("automatic execution placement", () => {
       state: "failed",
       placement: "cloud",
       subject: "computer",
-      workspace: "computer",
       errorCode: "CLOUD_CAPABILITY_UNAVAILABLE",
       errorMessage:
         "The cloud sandbox cannot provide the required device capability: local-files.",
@@ -1042,7 +1019,7 @@ describe("automatic execution placement", () => {
     });
   });
 
-  it("rejects spoofed subjects and unowned hosted workspaces", async () => {
+  it("refuses a deviceless ingress that claims a local subject", async () => {
     const t = createTest();
     const conversationId = await seedConversation(t, "conv-subject-spoof");
     const payloadJson = JSON.stringify({
@@ -1060,17 +1037,21 @@ describe("automatic execution placement", () => {
       now: Date.now(),
     };
 
-    await expect(
-      t.mutation(refs.submitInternal, {
-        ...base,
-        idempotencyKey: "mobile:spoof-computer",
-        ingress: "mobile",
-        subject: "computer",
-      }),
-    ).rejects.toThrow("derived by the server");
+    for (const ingress of ["browser", "cloud", "schedule"] as const) {
+      for (const subject of ["computer", "portable"] as const) {
+        await expect(
+          t.mutation(refs.submitInternal, {
+            ...base,
+            idempotencyKey: `${ingress}:spoof-${subject}`,
+            ingress,
+            subject,
+          }),
+        ).rejects.toThrow("may only submit hosted execution");
+      }
+    }
     await expect(
       asOwner(t).mutation(refs.submitBrowser, {
-        idempotencyKey: "browser:spoof-portable",
+        idempotencyKey: "browser:spoof-portable-public",
         expectedOwnerGeneration: ownerGeneration,
         payloadJson,
         payloadHash: sha256(payloadJson),
@@ -1079,42 +1060,19 @@ describe("automatic execution placement", () => {
         conversationId,
         requiredCapabilities: [],
       }),
-    ).rejects.toThrow("derived by the server");
-
-    await t.run(async (ctx) => {
-      await ctx.db.insert("cloud_projects", {
-        projectId: "project-other-owner",
-        ownerId: "https://issuer.test|placement-other",
-        slug: "private-project",
-        name: "Private project",
-        provider: "stella",
-        defaultBranch: "main",
-        status: "active",
-        createdAt: 1,
-        updatedAt: 1,
-      });
-    });
-    await expect(
-      t.mutation(refs.submitInternal, {
-        ...base,
-        idempotencyKey: "mobile:spoof-project",
-        ingress: "mobile",
-        subject: "cloud",
-        workspace: "project:private-project",
-      }),
-    ).rejects.toThrow("not available to this account");
+    ).rejects.toThrow("may only submit hosted execution");
   });
 
-  it("uses a durable thread workspace as authority", async () => {
+  it("uses a durable thread's placement as subject authority", async () => {
     const t = createTest();
-    const conversationId = await seedConversation(t, "conv-thread-workspace");
+    const conversationId = await seedConversation(t, "conv-thread-placement");
     await t.run(async (ctx) => {
       await ctx.db.insert("cloud_agent_threads", {
-        threadId: "thread-workspace-authority",
+        threadId: "thread-placement-authority",
         ownerId,
         conversationId,
-        description: "Workspace authority",
-        workspace: "stella",
+        description: "Placement authority",
+        placement: "cloud",
         agentType: "general",
         status: "completed",
         createdAt: 1,
@@ -1131,10 +1089,9 @@ describe("automatic execution placement", () => {
         payloadHash: sha256(payloadJson),
         kind: "agent",
         ingress: "mobile",
-        subject: "cloud",
+        subject: "computer",
         conversationId,
-        threadId: "thread-workspace-authority",
-        workspace: "drive",
+        threadId: "thread-placement-authority",
         requiredCapabilities: ["agent"],
         now: Date.now(),
       }),
@@ -1384,7 +1341,6 @@ describe("automatic execution placement", () => {
       parentTurnId,
       description: "Replay-safe placement agent",
       prompt: "perform the replay-safe work",
-      workspace: "cloud",
       clientMsgId,
       model: "stella/default:low",
       now: Date.now(),
@@ -1460,7 +1416,6 @@ describe("automatic execution placement", () => {
           parentTurnId,
           description,
           prompt: args.prompt,
-          workspace: args.workspace,
           clientMsgId,
           model: args.model,
         }),
@@ -1591,7 +1546,6 @@ describe("automatic execution placement", () => {
       kind: "agent",
       subject: "cloud",
       conversationId,
-      workspace: "cloud",
       requiredCapabilities: ["agent"],
     });
     const now = Date.now();
@@ -1609,7 +1563,6 @@ describe("automatic execution placement", () => {
       conversationId,
       description: "Placement-owned agent",
       prompt: "run the placed agent",
-      workspace: "cloud",
       source: "execution-placement",
       clientMsgId: dispatch.dispatchId,
       placementAttempt: {
@@ -1701,7 +1654,7 @@ describe("automatic execution placement", () => {
         status: "running",
         lane: "agent",
         kind: "agent",
-        workspace: "drive",
+        placement: "cloud",
         threadId: "thread:agent-placement-aba-successor",
         attemptGeneration: first.attemptGeneration! + 1,
         clientMsgId: dispatch.dispatchId,
@@ -1740,7 +1693,6 @@ describe("automatic execution placement", () => {
       conversationId,
       description: "Pause target",
       prompt: "run until paused",
-      workspace: "cloud",
       source: "desktop",
       originDeviceId: deviceId,
       originConversationId: "local-conv-pause",
@@ -1815,7 +1767,6 @@ describe("automatic execution placement", () => {
         expectedTerminalUpdatedAt: paused.threadUpdatedAt,
         description: "Successor",
         prompt: "continue with newer work",
-        workspace: "cloud",
         source: "agent-thread",
         clientMsgId: "pause-successor",
         now: paused.threadUpdatedAt + 1,
@@ -2785,7 +2736,6 @@ describe("automatic execution placement", () => {
         kind: "chat",
         ingress: "mobile",
         subject: "cloud",
-        workspace: "cloud",
         conversationId,
         requiredCapabilities: ["chat"],
         now: Date.now(),

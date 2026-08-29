@@ -1,7 +1,7 @@
 /**
  * Provider-neutral execution placement protocol.
  *
- * `workspace` describes the subject of the work. It is deliberately not an
+ * `subject` describes what the work is about. It is deliberately not an
  * executor selector: placement is derived from trusted ingress plus current
  * device eligibility and is then durably committed by the backend.
  */
@@ -65,39 +65,25 @@ export type ExecutionRoutingInput = {
   subject: ExecutionSubject;
 };
 
-/**
- * Classifies legacy spawn `workspace` values as work subjects. Any explicit
- * non-computer workspace is hosted state and therefore cloud-only. Omitted
- * workspace remains portable and may follow ingress availability.
- */
-export const executionSubjectForWorkspace = (
-  workspace: string | null | undefined,
-): ExecutionSubject => {
-  const normalized = workspace?.trim().toLowerCase();
-  if (!normalized) return "portable";
-  if (normalized === "computer") return "computer";
-  return "cloud";
-};
+/** Ingresses with no local device behind them, so no claim to local work. */
+export const ingressMayClaimComputerSubject = (
+  ingress: ExecutionIngress,
+): boolean => ingress === "desktop" || ingress === "mobile";
 
 /**
- * Derives the work subject from trusted ingress plus a server-authorized
- * workspace. Browser/cloud/schedule callers cannot select a local subject;
- * desktop and mobile retain the semantic workspace subject, which the policy
- * resolves independently from the executor.
+ * Resolves the work subject a caller asked for against what its ingress is
+ * allowed to ask for. Browser, cloud, and schedule callers have no device
+ * behind them, so their requests collapse to the hosted subject no matter
+ * what they sent. Desktop and mobile keep the subject they named, which the
+ * policy then resolves independently from the executor.
  */
 export const deriveExecutionSubject = (args: {
   ingress: ExecutionIngress;
-  workspace?: string | null;
-}): ExecutionSubject => {
-  if (
-    args.ingress === "browser" ||
-    args.ingress === "cloud" ||
-    args.ingress === "schedule"
-  ) {
-    return "cloud";
-  }
-  return executionSubjectForWorkspace(args.workspace);
-};
+  subject?: ExecutionSubject | null;
+}): ExecutionSubject =>
+  ingressMayClaimComputerSubject(args.ingress)
+    ? (args.subject ?? "portable")
+    : "cloud";
 
 /**
  * Pure policy only. Reachability never enters this function: an
@@ -203,7 +189,6 @@ export type ExecutionDispatchSummary = {
   kind: ExecutionRequestKind;
   ingress: ExecutionIngress;
   subject: ExecutionSubject;
-  workspace?: string;
   conversationId: string;
   threadId?: string;
   state: ExecutionDispatchState;

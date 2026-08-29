@@ -203,6 +203,7 @@ import {
 } from "./interior-build-request.js";
 import {
   parseTurnComputePlan,
+  requiresExactThreadCandidate,
   turnComputePlan,
   turnComputePlanKey,
   type TurnComputePlan,
@@ -1401,7 +1402,8 @@ export const waitForCloudAgentTurnResultText = async (
   session: Pick<ExecutionSession, "readFile">,
   signals: readonly AbortSignal[],
 ): Promise<string> => {
-  const aborted = (): unknown => signals.find((signal) => signal.aborted)?.reason;
+  const aborted = (): unknown =>
+    signals.find((signal) => signal.aborted)?.reason;
   while (true) {
     const reason = aborted();
     if (reason !== undefined) {
@@ -2094,10 +2096,9 @@ export class BuildSession extends DurableObject<Env> {
     checkpoint: TurnBrokerTurnStateCheckpointReceipt,
     signal?: AbortSignal,
   ): Promise<CloudBrowserSuspension | null> {
-    const observation =
-      await this.ctx.storage.get<ObservedBrowserSuspension>(
-        OBSERVED_BROWSER_SUSPENSION_KEY,
-      );
+    const observation = await this.ctx.storage.get<ObservedBrowserSuspension>(
+      OBSERVED_BROWSER_SUSPENSION_KEY,
+    );
     if (!observation) return null;
     const rows = await this.fetchCanonicalAgentHistory(turn, {
       excludeCurrentTurn: false,
@@ -2122,12 +2123,8 @@ export class BuildSession extends DurableObject<Env> {
           txn.get<TurnRequest>("turn"),
           txn.get<boolean>("terminal"),
           txn.get<PendingTerminal>("pendingTerminal"),
-          txn.get<PendingBrowserSuspension>(
-            PENDING_BROWSER_SUSPENSION_KEY,
-          ),
-          txn.get<ObservedBrowserSuspension>(
-            OBSERVED_BROWSER_SUSPENSION_KEY,
-          ),
+          txn.get<PendingBrowserSuspension>(PENDING_BROWSER_SUSPENSION_KEY),
+          txn.get<ObservedBrowserSuspension>(OBSERVED_BROWSER_SUSPENSION_KEY),
         ]);
       if (
         !exactTurnIdentityMatches(current, turn) ||
@@ -2170,10 +2167,9 @@ export class BuildSession extends DurableObject<Env> {
     turn: TurnRequest,
     operations: TurnStateCheckpointOperation[],
   ): Promise<BuilderFallbackTranscript | null> {
-    const observation =
-      await this.ctx.storage.get<ObservedBrowserSuspension>(
-        OBSERVED_BROWSER_SUSPENSION_KEY,
-      );
+    const observation = await this.ctx.storage.get<ObservedBrowserSuspension>(
+      OBSERVED_BROWSER_SUSPENSION_KEY,
+    );
     if (!observation) return null;
     const candidates: Array<{
       operation: Extract<TurnStateCheckpointOperation, { state: "succeeded" }>;
@@ -2189,17 +2185,16 @@ export class BuildSession extends DurableObject<Env> {
         continue;
       }
       const messages = operation.payload.suspensionTranscript;
-      const bound =
-        await bindObservedBrowserSuspensionToCanonicalCodeCall({
-          observation,
+      const bound = await bindObservedBrowserSuspensionToCanonicalCodeCall({
+        observation,
+        turnId: turn.turnId,
+        attemptGeneration: turn.attemptGeneration!,
+        checkpoint: operation.receipt,
+        rows: messages.map((message) => ({
+          ...message,
           turnId: turn.turnId,
-          attemptGeneration: turn.attemptGeneration!,
-          checkpoint: operation.receipt,
-          rows: messages.map((message) => ({
-            ...message,
-            turnId: turn.turnId,
-          })),
-        });
+        })),
+      });
       if (bound) candidates.push({ operation, messages });
     }
     if (candidates.length > 1) {
@@ -2248,7 +2243,8 @@ export class BuildSession extends DurableObject<Env> {
         if (
           existing.requestId !== fallback.requestId ||
           existing.requestFingerprint !== fallback.requestFingerprint ||
-          JSON.stringify(existing.messages) !== JSON.stringify(fallback.messages)
+          JSON.stringify(existing.messages) !==
+            JSON.stringify(fallback.messages)
         ) {
           throw new Error("Browser suspension recovery journal conflicted.");
         }
@@ -2257,10 +2253,8 @@ export class BuildSession extends DurableObject<Env> {
       if (
         !currentObserved ||
         currentObserved.turnId !== observation.turnId ||
-        currentObserved.attemptGeneration !==
-          observation.attemptGeneration ||
-        currentObserved.responseBodySha256 !==
-          observation.responseBodySha256 ||
+        currentObserved.attemptGeneration !== observation.attemptGeneration ||
+        currentObserved.responseBodySha256 !== observation.responseBodySha256 ||
         !currentOperation ||
         currentOperation.state !== "succeeded" ||
         currentOperation.requestFingerprint !== operation.requestFingerprint ||
@@ -3694,10 +3688,10 @@ export class BuildSession extends DurableObject<Env> {
         body.generation === current.generation &&
         Boolean(
           body.leaseId &&
-            ownerGenerationMatches(
-              current.active[body.leaseId]?.ownerGeneration,
-              body.ownerGeneration,
-            ),
+          ownerGenerationMatches(
+            current.active[body.leaseId]?.ownerGeneration,
+            body.ownerGeneration,
+          ),
         )
         ? json({ ok: true })
         : json({ error: "Owner purge fence changed." }, 409);
@@ -5153,11 +5147,10 @@ export class BuildSession extends DurableObject<Env> {
         }
         let recoveredSuspension: CloudBrowserSuspension | null;
         try {
-          recoveredSuspension =
-            await this.recoverObservedBrowserSuspension(
-              turn,
-              recoveredCheckpoint,
-            );
+          recoveredSuspension = await this.recoverObservedBrowserSuspension(
+            turn,
+            recoveredCheckpoint,
+          );
         } catch (error) {
           log("error", "browser_suspension_recovery_retry", {
             turnId: turn.turnId,
@@ -5776,8 +5769,7 @@ export class BuildSession extends DurableObject<Env> {
       });
 
       let nativeUpload:
-        | Awaited<ReturnType<typeof uploadTurnStateArchive>>
-        | undefined;
+        Awaited<ReturnType<typeof uploadTurnStateArchive>> | undefined;
       if (prepared.objectKeys.native) {
         nativeUpload = await uploadTurnStateArchive({
           session,
@@ -5879,12 +5871,8 @@ export class BuildSession extends DurableObject<Env> {
           txn.get<TurnRequest>("turn"),
           txn.get<boolean>("terminal"),
           txn.get<PendingTerminal>("pendingTerminal"),
-          txn.get<PendingBrowserSuspension>(
-            PENDING_BROWSER_SUSPENSION_KEY,
-          ),
-          txn.get<ObservedBrowserSuspension>(
-            OBSERVED_BROWSER_SUSPENSION_KEY,
-          ),
+          txn.get<PendingBrowserSuspension>(PENDING_BROWSER_SUSPENSION_KEY),
+          txn.get<ObservedBrowserSuspension>(OBSERVED_BROWSER_SUSPENSION_KEY),
         ]);
       if (
         !exactTurnIdentityMatches(current, turn) ||
@@ -6118,11 +6106,7 @@ export class BuildSession extends DurableObject<Env> {
       if (admission.target.kind === "browser-gateway") {
         if (!this.env.BROWSER_GATEWAY) return this.brokerFailure(503);
         const command = decoded;
-        if (
-          !command ||
-          typeof command !== "object" ||
-          Array.isArray(command)
-        ) {
+        if (!command || typeof command !== "object" || Array.isArray(command)) {
           return this.brokerFailure(400);
         }
         try {
@@ -6170,13 +6154,9 @@ export class BuildSession extends DurableObject<Env> {
             responsePayload &&
             typeof responsePayload === "object" &&
             !Array.isArray(responsePayload) &&
-            (responsePayload as Record<string, unknown>).outcome ===
-              "suspended"
+            (responsePayload as Record<string, unknown>).outcome === "suspended"
           ) {
-            const responseRecord = responsePayload as Record<
-              string,
-              unknown
-            >;
+            const responseRecord = responsePayload as Record<string, unknown>;
             const commandRecord = command as Record<string, unknown>;
             const suspension = responseRecord.suspension;
             const commandRequestId = commandRecord.requestId;
@@ -7081,7 +7061,11 @@ export class BuildSession extends DurableObject<Env> {
           "This workspace's saved state is incomplete. Try again after Stella finishes recovering it.",
         );
       }
-      if (resolvedTurnState.threadRegistryPresent && !turnStateThreadRestore) {
+      if (
+        resolvedTurnState.threadRegistryPresent &&
+        !turnStateThreadRestore &&
+        requiresExactThreadCandidate(turn.execution)
+      ) {
         throw new AgentTurnError(
           "This agent's saved session no longer matches its cloud conversation. Start a new agent thread to continue safely.",
         );
@@ -7543,12 +7527,11 @@ export class BuildSession extends DurableObject<Env> {
         result.suspension &&
         validTurnStateCheckpointReceipt(result.turnStateCheckpoint)
       ) {
-        const verifiedSuspension =
-          await this.recoverObservedBrowserSuspension(
-            turn,
-            result.turnStateCheckpoint,
-            execution.signal,
-          );
+        const verifiedSuspension = await this.recoverObservedBrowserSuspension(
+          turn,
+          result.turnStateCheckpoint,
+          execution.signal,
+        );
         if (
           !verifiedSuspension ||
           cloudBrowserSuspensionMarker(verifiedSuspension) !==
@@ -7894,9 +7877,7 @@ export class BuildSession extends DurableObject<Env> {
     // image, never an empty directory the model has to invent. Once it exists
     // its recorded seed has to still match the image, or a self-update would
     // be built on top of a renderer Stella no longer ships.
-    const stellaPresent = await session.exec(
-      `test -d '${WORLD_STELLA_ROOT}'`,
-    );
+    const stellaPresent = await session.exec(`test -d '${WORLD_STELLA_ROOT}'`);
     turnExecution.assertActive();
     if (!stellaPresent.success) {
       await seedFirstStellaToolWorkspace(session);
@@ -7974,8 +7955,8 @@ export class BuildSession extends DurableObject<Env> {
     turnExecution.assertActive();
 
     let cloudSkills:
-      | Awaited<ReturnType<typeof materializeCloudSkillSnapshot>>
-      | undefined = undefined;
+      Awaited<ReturnType<typeof materializeCloudSkillSnapshot>> | undefined =
+      undefined;
     if (args.cloudSkillHome && args.cloudSkillCatalog) {
       turnExecution.assertActive();
       cloudSkills = await materializeCloudSkillSnapshot({
@@ -8217,8 +8198,7 @@ export class BuildSession extends DurableObject<Env> {
         resultPollController.signal,
         turnExecution.signal,
       ]).then(
-        (resultText) =>
-          ({ kind: "result_file" as const, resultText }) as const,
+        (resultText) => ({ kind: "result_file" as const, resultText }) as const,
         (error: unknown) =>
           ({ kind: "result_file_error" as const, error }) as const,
       );
@@ -8253,8 +8233,9 @@ export class BuildSession extends DurableObject<Env> {
         } else if (captureAfterFile.kind === "execution_error") {
           capturedExecutionError = captureAfterFile.error;
           recordedResultProcessQuiesced =
-            !(captureAfterFile.error instanceof CapturedSessionAbandonedError) ||
-            captureAfterFile.error.disposition === "session_quiesced";
+            !(
+              captureAfterFile.error instanceof CapturedSessionAbandonedError
+            ) || captureAfterFile.error.disposition === "session_quiesced";
         } else {
           // The executor writes this file only after its checkpoint and
           // transcript work has completed. If Cloudflare's process registry is
@@ -9826,9 +9807,9 @@ const moveWorldCheckpoint = async (
     throw new OwnerProductTransferConflictError(
       planBody?.message ?? "The durable workspace transfer plan was rejected.",
       planBody?.code === "destination_checkpoint_changed" ||
-      planBody?.code === "owner_purge_permanent" ||
-      planBody?.code === "owner_purge_temporary" ||
-      planBody?.code === "transfer_busy"
+        planBody?.code === "owner_purge_permanent" ||
+        planBody?.code === "owner_purge_temporary" ||
+        planBody?.code === "transfer_busy"
         ? planBody.code
         : "owner_transfer_conflict",
     );

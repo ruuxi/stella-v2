@@ -98,6 +98,48 @@ describe("the placement dispatch is the only engine branch", () => {
     expect(outcome).toEqual({ kind: "native_finalized" });
   });
 
+  test("an unplaced attempt keeps the container path it was admitted onto", async () => {
+    const calls: string[] = [];
+
+    const outcome = await runGeneralAgentTurn({
+      plan: { kind: "native_sandbox", execution: STELLA, reason: "unplaced" },
+      context: liveContext(),
+      resident: async () => {
+        calls.push("resident");
+        return residentResult();
+      },
+      native: async () => {
+        calls.push("native");
+      },
+    });
+
+    expect(calls).toEqual(["native"]);
+    expect(outcome).toEqual({ kind: "native_finalized" });
+  });
+
+  test("a stella turn cannot reach the container as a native engine", async () => {
+    const calls: string[] = [];
+
+    await expect(
+      runGeneralAgentTurn({
+        plan: {
+          kind: "native_sandbox",
+          execution: STELLA,
+          reason: "native_engine",
+        } as Parameters<typeof runGeneralAgentTurn>[0]["plan"],
+        context: liveContext(),
+        resident: async () => {
+          calls.push("resident");
+          return residentResult();
+        },
+        native: async () => {
+          calls.push("native");
+        },
+      }),
+    ).rejects.toThrow(GeneralAgentPlacementError);
+    expect(calls).toEqual([]);
+  });
+
   test("a resident turn cannot claim an archive it never attached to upload", async () => {
     await expect(
       runGeneralAgentTurn({

@@ -217,6 +217,24 @@ describe("agent turn admission records its placement", () => {
     expect(harness.values.get("sandboxId")).toBe("agent-turn-1");
   });
 
+  test("a stored plan pairing stella with native_engine is not trusted", async () => {
+    const harness = admissionHarness();
+
+    await admit(harness, agentTurn());
+    const key = turnComputePlanKey("turn-1", 1);
+    const stored = harness.values.get(key) as Record<string, unknown>;
+    harness.values.set(key, {
+      ...stored,
+      plan: {
+        kind: "native_sandbox",
+        execution: STELLA,
+        reason: "native_engine",
+      },
+    });
+
+    expect(storedPlan(harness, "turn-1", 1)).toBeNull();
+  });
+
   test("a plan from another attempt is never read as this attempt's", async () => {
     const harness = admissionHarness();
 

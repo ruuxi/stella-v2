@@ -612,6 +612,11 @@ export type ElectronAgentApi = {
   resumeConversationExecution: (payload: {
     conversationId: string;
     lastSeq: number;
+    /**
+     * Highest worker/recorder seq the renderer has seen. `lastSeq` is main's
+     * wire cursor; only this one is a valid cursor into the host run-event log.
+     */
+    lastSourceSeq?: number;
   }) => Promise<{
     activeRun: {
       runId: string;
@@ -865,7 +870,6 @@ export type ElectronSystemApi = {
     };
     realtimeVoice: RealtimeVoicePreferences;
     memoryEnabled: boolean;
-    developerModeEnabled: boolean;
   } | null>;
   setLocalModelPreferences: (payload: {
     defaultModels?: Record<string, string>;
@@ -906,7 +910,6 @@ export type ElectronSystemApi = {
     };
     realtimeVoice?: RealtimeVoicePreferences;
     memoryEnabled?: boolean;
-    developerModeEnabled?: boolean;
   }) => Promise<{
     defaultModels: Record<string, string>;
     modelOverrides: Record<string, string>;
@@ -946,7 +949,6 @@ export type ElectronSystemApi = {
     };
     realtimeVoice: RealtimeVoicePreferences;
     memoryEnabled: boolean;
-    developerModeEnabled: boolean;
   } | null>;
   listCodexModels: () => Promise<{
     models: Array<{
@@ -1754,15 +1756,19 @@ export type ElectronDisplayApi = {
    * viewer / canvas / media previewers to load local files without
    * giving the renderer file:// access. Bytes are transferred directly
    * via Electron's structured-clone IPC (no base64 round-trip).
+   *
+   * `maxBytes` reads only a bounded prefix (and reports `truncated`), so a
+   * preview surface never has to pull a huge file through IPC in full.
    */
   readFile: (
     filePath: string,
-    options?: { conversationId?: string | null },
+    options?: { conversationId?: string | null; maxBytes?: number },
   ) => Promise<
     | {
         bytes: Uint8Array;
         sizeBytes: number;
         mimeType: string;
+        truncated: boolean;
         missing: false;
       }
     | { missing: true; mimeType: string; path: string }

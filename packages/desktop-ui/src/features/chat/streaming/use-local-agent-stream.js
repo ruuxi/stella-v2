@@ -37,6 +37,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
     const activeRunIdByConversationRef = useRef(storeState.activeRunIdByConversation);
     const lastSeqByConversationRef = useRef(new Map());
     const resumeSeqByConversationRef = useRef(new Map());
+    const resumeSourceSeqByConversationRef = useRef(new Map());
     const seenSourceEventKeysRef = useRef(new Set());
     const terminalRunIdsRef = useRef(new Set());
     const pendingRequestIdsRef = useRef(new Set());
@@ -280,6 +281,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             activeRunIdByConversationRef,
             lastSeqByConversationRef,
             resumeSeqByConversationRef,
+            resumeSourceSeqByConversationRef,
             seenSourceEventKeysRef,
             terminalRunIdsRef,
             pendingRequestIdsRef,
@@ -315,6 +317,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
         activeConversationId,
         refs: {
             resumeSeqByConversationRef,
+            resumeSourceSeqByConversationRef,
         },
         actions: {
             ensureAgentStreamSubscription,

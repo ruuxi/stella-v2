@@ -6,6 +6,7 @@ import { AGENT_RUN_FINISH_OUTCOMES, AGENT_STREAM_EVENT_TYPES, } from "@stella/co
 import { IPC_AGENT_ONE_SHOT_COMPLETION } from "@stella/contracts/desktop/ipc-channels";
 import { requireMatchingCloudConversationId, selectedCloudConversationId, withCloudConversationStorage, } from "../cloud-conversation-mode.js";
 import { createMonotonicSeqGenerator } from "./monotonic-seq.js";
+import { stampAgentEventMainSeq, workerResumeLastSeq, } from "./agent-event-seq.js";
 const redactSensitiveLogText = (value) => value
     .replace(/\b(sk-[A-Za-z0-9_-]{12,})\b/g, "[redacted-token]")
     .replace(/\b(Bearer\s+[A-Za-z0-9._-]{12,})\b/gi, "[redacted-token]")
@@ -141,12 +142,10 @@ export const registerAgentHandlers = (options) => {
         }
     };
     const emitAgentEvent = (event, targetWebContentsId) => {
-        const sourceSeq = Number.isFinite(event.seq) ? event.seq : undefined;
-        const normalizedEvent = {
-            ...event,
-            ...(sourceSeq !== undefined ? { sourceSeq } : {}),
-            seq: nextAgentEventSeq(),
-        };
+        // Live frames get a main-process wire seq; the worker/recorder value is
+        // preserved on `sourceSeq` so `agent:resume` can ask the host for the
+        // right recorder cursor instead of a Date.now-scale wire number.
+        const normalizedEvent = stampAgentEventMainSeq(event, nextAgentEventSeq());
         const trackedRunId = normalizedEvent.rootRunId ?? normalizedEvent.runId;
         runToConversationId.set(trackedRunId, normalizedEvent.conversationId);
         if (normalizedEvent.requestId) {
@@ -280,6 +279,10 @@ export const registerAgentHandlers = (options) => {
         pruneConversationEventBuffers();
         const conversationId = requireMatchingCloudConversationId(payload?.conversationId, options.uiState?.conversationId);
         const lastSeq = Number.isFinite(payload.lastSeq) ? payload.lastSeq : 0;
+        // The main-process buffer is keyed by wire seq; the host's per-run
+        // recorder log is keyed by the worker seq the renderer echoes back as
+        // `lastSourceSeq`. Mixing the two replayed already-seen events.
+        const hostLastSeq = workerResumeLastSeq(payload);
         const buffer = conversationEventBuffers.get(conversationId);
         let activeRun = activeRunByConversation.get(conversationId) ?? null;
         let resumeRunId = activeRun?.runId ?? null;
@@ -314,14 +317,22 @@ export const registerAgentHandlers = (options) => {
                 try {
                     const replay = await stellaHostRunner.resumeRunEvents({
                         runId: resumeRunId,
-                        lastSeq,
+                        lastSeq: hostLastSeq,
                     });
                     if (!replay.exhausted) {
-                        events = replay.events.map((event) => ({
-                            ...event,
-                            type: event.type,
-                            conversationId: event.conversationId ?? conversationId,
-                        }));
+                        // Replayed events arrive with their recorder seq. Remap them
+                        // into the same wire-seq space live frames use (keeping the
+                        // recorder value on `sourceSeq`) and buffer them, so a later
+                        // resume advances one cursor instead of two.
+                        events = replay.events.map((event) => {
+                            const remapped = stampAgentEventMainSeq({
+                                ...event,
+                                type: event.type,
+                                conversationId: event.conversationId ?? conversationId,
+                            }, nextAgentEventSeq());
+                            bufferConversationEvent(remapped.conversationId, remapped);
+                            return remapped;
+                        });
                     }
                 }
                 catch {

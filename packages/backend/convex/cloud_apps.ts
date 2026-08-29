@@ -993,7 +993,6 @@ const cloudAppBuildRowValidator = v.object({
   previewUrl: v.optional(v.string()),
   slug: v.optional(v.string()),
   metricsJson: v.optional(v.string()),
-  callbackAutoActivate: v.optional(v.boolean()),
   callbackTitle: v.optional(v.string()),
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -2152,11 +2151,6 @@ const startCloudComposerTurn = async (
       turnToken,
       ownerGeneration: lifecycle.generation,
       execution,
-      // Apps go live the moment their build finishes — new or updated.
-      // There is nothing to approve: the artifact is built and hosted, so
-      // a pending state would only hide working software behind a click.
-      // (Stella's own interior is the exception; see the apply card.)
-      autoActivate: true,
       ...(!routed && process.env.CONVEX_SITE_URL?.trim()
         ? { convexCallbackBase: process.env.CONVEX_SITE_URL.trim() }
         : {}),
@@ -2277,7 +2271,6 @@ export const runCloudTurnInternal = internalAction({
     turnToken: v.string(),
     ownerGeneration: v.string(),
     execution: v.optional(cloudExecutionSelectionValidator),
-    autoActivate: v.boolean(),
     convexCallbackBase: v.optional(v.string()),
     dispatchAttempt: v.optional(v.number()),
   },
@@ -2303,7 +2296,6 @@ export const runCloudTurnInternal = internalAction({
       turnToken: args.turnToken,
       ownerGeneration: args.ownerGeneration,
       ...(args.execution ? { execution: args.execution } : {}),
-      autoActivate: args.autoActivate,
       ...(pinnedCallbackBase ? { convexCallbackBase: pinnedCallbackBase } : {}),
       dispatchAttempt: dispatchAttempt + 1,
     });
@@ -2468,7 +2460,6 @@ export const runCloudTurnInternal = internalAction({
             prompt: args.prompt,
             turnToken: args.turnToken,
             convexCallbackBase: pinnedCallbackBase,
-            autoActivate: args.autoActivate,
             execution,
           }),
           signal: AbortSignal.timeout(30_000),
@@ -7628,7 +7619,6 @@ export const recordBuildInternal = internalMutation({
     previewUrl: v.string(),
     metricsJson: v.string(),
     slug: v.string(),
-    autoActivate: v.boolean(),
     title: v.optional(v.string()),
     now: v.number(),
   },
@@ -7674,7 +7664,6 @@ export const recordBuildInternal = internalMutation({
         existing.previewUrl === args.previewUrl &&
         existing.metricsJson === args.metricsJson &&
         existing.slug === args.slug &&
-        existing.callbackAutoActivate === args.autoActivate &&
         existing.callbackTitle === callbackTitle
       ) {
         return null;
@@ -7698,12 +7687,11 @@ export const recordBuildInternal = internalMutation({
       appId: args.appId,
       ownerId: args.ownerId,
       turnId: args.turnId,
-      status: args.autoActivate ? "active" : "pending",
+      status: "pending",
       artifactPrefix: args.artifactPrefix,
       previewUrl: args.previewUrl,
       slug: args.slug,
       metricsJson: args.metricsJson,
-      callbackAutoActivate: args.autoActivate,
       callbackTitle,
       createdAt: args.now,
       updatedAt: args.now,
@@ -7713,9 +7701,6 @@ export const recordBuildInternal = internalMutation({
     const title = callbackTitle;
     await ctx.db.patch(app._id, {
       ...(title && title !== app.title ? { title } : {}),
-      ...(args.autoActivate
-        ? { status: "active", activeBuildId: args.buildId }
-        : {}),
       updatedAt: args.now,
     });
     return null;
@@ -8001,7 +7986,6 @@ export const startBenchmarkTurn = internalAction({
           prompt: benchmarkPrompt,
           turnToken,
           convexCallbackBase: process.env.CONVEX_SITE_URL,
-          autoActivate: true,
         }),
       },
     );
@@ -8063,7 +8047,6 @@ export const startLifecycleTurn = internalAction({
           prompt,
           turnToken,
           convexCallbackBase: process.env.CONVEX_SITE_URL,
-          autoActivate: false,
         }),
       },
     );
@@ -8254,7 +8237,6 @@ export const startLifecycleProbe = internalAction({
           prompt,
           turnToken: crypto.randomUUID().replaceAll("-", ""),
           convexCallbackBase: process.env.CONVEX_SITE_URL,
-          autoActivate: false,
           preflightDelayMs: args.preflightDelayMs,
           watchdogMs: args.watchdogMs,
         }),
@@ -9039,7 +9021,6 @@ export const routeCloudTurnInternal = internalAction({
     prompt: v.string(),
     turnToken: v.string(),
     execution: v.optional(cloudExecutionSelectionValidator),
-    autoActivate: v.boolean(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -9073,8 +9054,6 @@ export const routeCloudTurnInternal = internalAction({
         turnToken: args.turnToken,
         ownerGeneration: args.ownerGeneration,
         ...(args.execution ? { execution: args.execution } : {}),
-        // Same rule as the direct build lane: a finished app build is live.
-        autoActivate: true,
       });
     };
 

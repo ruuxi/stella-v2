@@ -450,15 +450,6 @@ export const layer = Layer.effect(
        * segment from an interim assistant segment that handed off to a tool.
        */
       let lastAssistantMessageEvent: LocalChatEventRecord | null = null;
-      /**
-       * Worker-clock time of the CURRENT assistant segment's first stream
-       * chunk, per run. Set on the first `onStream` chunk after a segment
-       * boundary, consumed (and cleared) by `onAssistantMessage` so the
-       * persisted row carries `metadata.runtime.streamStartedAtMs` — the
-       * chronological anchor the renderer uses to place lifecycle cards
-       * before/after this text block.
-       */
-      const segmentFirstChunkAtMsByRunId = new Map<string, number>();
       const mergedAttachments = [
         ...modelImageAttachments,
         ...(modelWindowScreenshotAttachment
@@ -508,10 +499,15 @@ export const layer = Layer.effect(
             ) {
               return;
             }
-            const streamStartedAtMs = segmentFirstChunkAtMsByRunId.get(
-              ev.runId,
-            );
-            segmentFirstChunkAtMsByRunId.delete(ev.runId);
+            // Chronological anchor for this text block: the moment the
+            // segment produced its first character. Assistant text no longer
+            // streams chunk by chunk, so the runtime recorder stamps this on
+            // the segment (`firstTextAtMs`) instead of the worker deriving it
+            // from the first STREAM chunk it forwarded. Persisted as
+            // `metadata.runtime.streamStartedAtMs`, which is what orders
+            // lifecycle cards before and after the block. Falls back to now()
+            // so an engine that never reports deltas still gets an anchor.
+            const streamStartedAtMs = ev.firstTextAtMs ?? Date.now();
             const assistantEvent = persistLocalTranscript
               ? appendAssistantMessageForTurn({
                   conversationId: payload.conversationId,
@@ -524,28 +520,22 @@ export const layer = Layer.effect(
                     ? { followedByToolCall: true }
                     : {}),
                   responseTarget: ev.responseTarget,
-                  ...(streamStartedAtMs !== undefined
-                    ? { streamStartedAtMs }
-                    : {}),
+                  streamStartedAtMs,
                 })
               : null;
             if (assistantEvent) {
               lastAssistantMessageEvent = assistantEvent;
             }
-            // Boundary marker on the same wire as `STREAM` chunks so the
-            // renderer can reset its in-flight streaming buffer before
-            // chunks for the next assistant message in this run arrive
-            // (e.g. post-tool answer after a preamble). Without this the
-            // buffer keeps growing across messages and the live stream
-            // row replays the preamble text under the next message's
-            // content.
+            // Sole text-delivery event: one per completed assistant message
+            // segment, carrying the full canonical text plus the persisted
+            // row id. A run may emit several (preamble → post-tool answer),
+            // and the renderer paints each whole.
             //
             // Use the recorder's own seq for this event (`ev.seq`) — the
             // renderer's per-conversation seq guard drops any event whose
             // seq is `<= previousSeq`. A `Date.now()`-style synthetic seq
             // here would clobber the cursor with a huge number and silently
-            // drop every subsequent small-seq STREAM chunk in the run
-            // (the post-tool answer would stop streaming live). For the
+            // drop every subsequent small-seq event in the run. For the
             // rare hidden→visible mirror path the boundary seq has to
             // belong to the visible run's cursor; fall back to a
             // synthetic value there since the visible recorder is not
@@ -633,32 +623,6 @@ export const layer = Layer.effect(
                 timestamp: ev.timestamp,
                 timezone: payload.timezone,
               }),
-            });
-          },
-          onStream: (ev) => {
-            if (ev.chunk && !segmentFirstChunkAtMsByRunId.has(ev.runId)) {
-              segmentFirstChunkAtMsByRunId.set(ev.runId, Date.now());
-            }
-            if (hiddenSystemRunIds.has(ev.runId)) {
-              if (lastVisibleRunId) {
-                emitRunEvent({
-                  ...ev,
-                  runId: lastVisibleRunId,
-                  seq: nextSyntheticSeq(),
-                  type: AGENT_STREAM_EVENT_TYPES.STREAM,
-                  conversationId: payload.conversationId,
-                  ...(lastVisibleRequestId
-                    ? { requestId: lastVisibleRequestId }
-                    : {}),
-                });
-              }
-              return;
-            }
-            emitRunEvent({
-              ...ev,
-              type: AGENT_STREAM_EVENT_TYPES.STREAM,
-              conversationId: payload.conversationId,
-              ...(requestId ? { requestId } : {}),
             });
           },
           onStatus: (ev) => {

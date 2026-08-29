@@ -36,6 +36,11 @@ import type {
   ProviderStreamSettlementEvent,
 } from "./provider-stream-lifecycle.js";
 
+/**
+ * One delta of a chunk-shaped runtime stream. Assistant text no longer travels
+ * this way (it is delivered whole on `RuntimeAssistantMessageEvent`), so the
+ * only surviving carrier of this shape is reasoning.
+ */
 export type RuntimeStreamEvent = {
   runId: string;
   agentType: string;
@@ -147,6 +152,14 @@ export type RuntimeAssistantMessageEvent = {
    * between this message and the tool it precedes.
    */
   followedByToolCall?: boolean;
+  /**
+   * Wall-clock time of this segment's first text delta, when the engine
+   * produced one. The chronological anchor the renderer uses to order
+   * lifecycle cards (tool cards, status rows) against the finished text
+   * block; the worker persists it as `metadata.runtime.streamStartedAtMs`.
+   * Absent for an engine that reports no deltas at all.
+   */
+  firstTextAtMs?: number;
 };
 
 export type RuntimeEndEvent = {
@@ -201,7 +214,6 @@ export type RuntimeRunCallbacks = {
   onRunStarted?: (event: RuntimeRunStartedEvent) => void;
   onUserMessage?: (event: RuntimeUserMessageEvent) => void;
   onAssistantMessage?: (event: RuntimeAssistantMessageEvent) => void;
-  onStream: (event: RuntimeStreamEvent) => void;
   onReasoning?: (event: RuntimeReasoningEvent) => void;
   onStatus?: (event: RuntimeStatusEvent) => void;
   onProviderLifecycle?: (event: RuntimeProviderLifecycleEvent) => void;

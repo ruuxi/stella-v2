@@ -313,6 +313,11 @@ export const getAgentFollowUpMode = (
 export const AGENT_STREAM_EVENT_TYPES = {
   RUN_STARTED: "run-started",
   RUN_FINISHED: "run-finished",
+  /**
+   * Retired: assistant text is delivered whole on `ASSISTANT_MESSAGE` and no
+   * runtime path emits this any more. The member stays declared while desktop
+   * and mobile still carry the handler that reads it.
+   */
   STREAM: "stream",
   STATUS: "status",
   AGENT_REASONING: "agent-reasoning",
@@ -325,11 +330,10 @@ export const AGENT_STREAM_EVENT_TYPES = {
   AGENT_FAILED: "agent-failed",
   AGENT_CANCELED: "agent-canceled",
   /**
-   * Boundary between two consecutive assistant messages within a single
-   * orchestrator run (e.g. preamble → post-tool answer). Carries the
-   * persisted eventId of the message that just finalized so the renderer
-   * can reset its in-flight streaming buffer before chunks for the next
-   * message arrive on the same channel.
+   * The one and only carrier of assistant text. Emitted once per completed
+   * assistant message segment (a run may produce several — preamble →
+   * post-tool answer), after the row is persisted, carrying that row's
+   * eventId and the segment's full canonical text.
    */
   ASSISTANT_MESSAGE: "assistant-message",
 } as const;
@@ -464,6 +468,11 @@ export type AgentRunFinishOutcome = TerminalTaskLifecycleStatus;
 // are persisted to RuntimeStore and the schema is independent from IPC).
 export const RUNTIME_RUN_EVENT_TYPES = {
   RUN_START: "run_start",
+  /**
+   * No longer written: the recorder stopped persisting a row per text delta
+   * when assistant text became whole-message. Declared so rows already in
+   * users' local stores keep a name.
+   */
   STREAM: "stream",
   TOOL_START: "tool_start",
   TOOL_END: "tool_end",

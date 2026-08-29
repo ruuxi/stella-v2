@@ -59,7 +59,6 @@ const logger = createRuntimeLogger("runner.orchestrator");
 const UI_VISIBILITY_HIDDEN = "hidden" as const;
 const UI_VISIBILITY_VISIBLE = "visible" as const;
 const DETACHED_LIFECYCLE_CALLBACKS: AgentCallbacks = {
-  onStream: () => {},
   onToolStart: () => {},
   onToolEnd: () => {},
   onError: () => {},
@@ -147,7 +146,6 @@ export const createOrchestratorController = (
       onUserMessage: (event) => currentCallbacks.onUserMessage?.(event),
       onAssistantMessage: (event) =>
         currentCallbacks.onAssistantMessage?.(event),
-      onStream: (event) => currentCallbacks.onStream(event),
       onAgentReasoning: (event) => currentCallbacks.onAgentReasoning?.(event),
       onStatus: (event) => currentCallbacks.onStatus?.(event),
       onProviderLifecycle: (event) =>

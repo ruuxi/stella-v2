@@ -39,7 +39,6 @@ import type {
   RuntimeRunStartedEvent,
   RuntimeStatusEvent,
   RuntimeProviderLifecycleEvent,
-  RuntimeStreamEvent,
   RuntimeToolEndEvent,
   RuntimeToolStartEvent,
 } from "./types.js";
@@ -115,6 +114,18 @@ export const createRunEventRecorder = ({
   let seq = 0;
   let currentUserMessageId = userMessageId;
   let currentUiVisibility = uiVisibility;
+  /**
+   * Wall-clock time of the first text delta of the assistant segment that is
+   * currently generating, or null between segments.
+   *
+   * Assistant text no longer travels as per-chunk STREAM events, so this is
+   * the only surviving reason to watch deltas at all: it is the chronological
+   * anchor the renderer uses to order lifecycle cards against the finished
+   * text block. It rides out on the assistant-message event as
+   * `firstTextAtMs`; the worker used to derive the same value from the first
+   * `onStream` chunk it forwarded.
+   */
+  let pendingSegmentFirstTextAtMs: number | null = null;
   const queuedUserMessageStarts: Array<{
     userMessageId: string;
     onStart?: () => void;
@@ -129,6 +140,11 @@ export const createRunEventRecorder = ({
     if (!trimmedText) {
       return null;
     }
+    const firstTextAtMs = pendingSegmentFirstTextAtMs;
+    // Consumed once; the next segment stamps a fresh anchor. Left set when the
+    // segment produced no persistable text, so an empty flush cannot steal the
+    // anchor from the text that follows it.
+    pendingSegmentFirstTextAtMs = null;
     const responseTarget = getResponseTarget?.();
     return {
       runId,
@@ -137,6 +153,7 @@ export const createRunEventRecorder = ({
       userMessageId: currentUserMessageId,
       text: trimmedText,
       timestamp,
+      ...(firstTextAtMs !== null ? { firstTextAtMs } : {}),
       ...(responseTarget ? { responseTarget } : {}),
       ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
     };
@@ -201,27 +218,22 @@ export const createRunEventRecorder = ({
       });
     },
 
-    recordStream(chunk: string): RuntimeStreamEvent {
-      const seq = nextSeq();
-      store.recordRunEvent({
-        timestamp: now(),
-        runId,
-        conversationId,
-        agentType,
-        seq,
-        type: RUNTIME_RUN_EVENT_TYPES.STREAM,
-        chunk,
-      });
-      const responseTarget = getResponseTarget?.();
-      return {
-        runId,
-        agentType,
-        seq,
-        chunk,
-        userMessageId: currentUserMessageId,
-        ...(responseTarget ? { responseTarget } : {}),
-        ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
-      };
+    /**
+     * Observe one assistant text delta.
+     *
+     * Assistant text is delivered whole (one assistant-message event per
+     * segment), so a delta produces no event and consumes no recorder seq.
+     * All this does is stamp the segment's first-text time — see
+     * `pendingSegmentFirstTextAtMs`. Per-chunk `run_event` rows are
+     * deliberately not persisted any more: nothing ever read them back
+     * (`run_event` rows are excluded from every history query) and they cost
+     * one SQLite transaction per token.
+     */
+    noteAssistantTextChunk(chunk: string): void {
+      if (!chunk || pendingSegmentFirstTextAtMs !== null) {
+        return;
+      }
+      pendingSegmentFirstTextAtMs = now();
     },
 
     recordReasoning(chunk: string): RuntimeReasoningEvent {
@@ -635,13 +647,13 @@ export const subscribeRuntimeAgentEvents = ({
     }
 
     if (event.type === "message_update") {
-      // Recorder + IPC receive deltas before hooks observe the normalized update.
+      // Assistant text is delivered whole on `message_end`; deltas only feed
+      // the segment first-text anchor and the subagent Activity feed.
       if (event.assistantMessageEvent.type === "text_delta") {
         const chunk = event.assistantMessageEvent.delta;
         if (chunk) {
-          const streamEvent = recorder.recordStream(chunk);
+          recorder.noteAssistantTextChunk(chunk);
           onProgress?.(chunk);
-          callbacks?.onStream?.(streamEvent);
         }
       } else if (event.assistantMessageEvent.type === "thinking_delta") {
         // Reasoning deltas stream to the per-agent reasoning section, not chat text.

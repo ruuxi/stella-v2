@@ -16,7 +16,6 @@ import type {
   RuntimeProviderLifecycleEvent,
   RuntimeRunStartedEvent,
   RuntimeStatusEvent,
-  RuntimeStreamEvent,
   RuntimeToolEndEvent,
   RuntimeToolStartEvent,
   RuntimeUserMessageEvent,
@@ -211,7 +210,6 @@ export type AgentCallbacks = {
   onRunStarted?: (event: RuntimeRunStartedEvent) => void;
   onUserMessage?: (event: RuntimeUserMessageEvent) => void;
   onAssistantMessage?: (event: RuntimeAssistantMessageEvent) => void;
-  onStream: (event: RuntimeStreamEvent) => void;
   onAgentReasoning?: (
     event: RuntimeReasoningEvent & {
       agentId: string;

@@ -83,9 +83,8 @@ const SubscriptionUpgradeDialog = lazy(() =>
 );
 import { ShellTopBarFull } from "@/shell/ShellTopBarFull";
 import { GlobalModelsControl } from "@/shell/GlobalModelsControl";
-import { useDeveloperModeEnabled } from "@/global/settings/hooks/use-developer-mode";
 import { useActiveSidebarSection } from "@/features/workspace-display/sidebar-sections";
-import { useHasQualifyingActivity } from "@/shell/workspace/use-qualifying-activity";
+import { shouldShowGlobalModelsControl } from "@/shell/global-models-control-visibility";
 import { DisplayPanelTopBar } from "@/shell/DisplayPanelTopBar";
 import { StellaContextMenu } from "@/shell/context-menu/StellaContextMenu";
 import {
@@ -692,30 +691,10 @@ function RootChrome({ conversationId }: { conversationId: string | null }) {
   const panelExpanded = useDisplayPanelExpanded();
   const shellBreakpoints = useShellBreakpointState();
   const activeSidebarSection = useActiveSidebarSection();
-  // Authoritative "is anything legitimately on the right?" signal, shared with
-  // WorkspaceHomeSurface / WorkspaceSections: the count of Activity rows that
-  // actually qualify to be shown (running + terminal rows still inside their
-  // auto-hide window), NOT the raw conversation task count. The raw count stays
-  // > 0 after every row has auto-hidden, which is what left an empty right
-  // gutter — and this stray Models button — mounted with nothing to show.
-  const hasQualifyingActivity = useHasQualifyingActivity();
-  // Authoritative visibility for the global Models control. It shows only when
-  //  1) the right-side Activity workspace is legitimately present — the panel is
-  //     open, or the ambient Activity strip is showing (not breakpoint-hidden,
-  //     and there is qualifying activity), the same inputs WorkspaceHomeSurface
-  //     uses — and
-  //  2) the active surface supports choosing the main conversation model. Quick
-  //     chat is its own ephemeral thread, so the main-model picker is excluded
-  //     there (only relevant while that surface is actually on screen, i.e. the
-  //     panel is open on it).
-  // The control only reads this state; it never contributes to it or forces the
-  // right region into existence.
-  const activityWorkspaceVisible =
-    panelOpen ||
-    (!shellBreakpoints.hideWorkspaceStrip && hasQualifyingActivity);
-  const onQuickChatSurface = panelOpen && activeSidebarSection === "quickchat";
-  const modelControlVisible = activityWorkspaceVisible && !onQuickChatSurface;
-  const developerModeEnabled = useDeveloperModeEnabled();
+  const modelControlVisible = shouldShowGlobalModelsControl({
+    panelOpen,
+    activeSidebarSection,
+  });
   const panelExpandedBeforeTakeoverRef = useRef<boolean | null>(null);
   const displayBreakpointTransitionTimeoutRef = useRef<number | null>(null);
 
@@ -1104,13 +1083,9 @@ function RootChrome({ conversationId }: { conversationId: string | null }) {
 
       {/* Global bottom-right Models control — top-level, not owned by the
           right sidebar (state/overlay/lifecycle stay global), but its on-screen
-          visibility follows the right-side Activity workspace so it never
-          creates an empty right gutter when there is nothing on the right.
-          Developer-mode gate: the whole control (and the picker popover it
-          anchors) is not mounted at all in the default experience. */}
-      {developerModeEnabled ? (
-        <GlobalModelsControl visible={modelControlVisible} />
-      ) : null}
+          visibility follows the display panel so it never creates an empty
+          right gutter when there is nothing on the right. */}
+      <GlobalModelsControl visible={modelControlVisible} />
 
       <FullShellDialogs
         activeDialog={activeDialog ?? null}

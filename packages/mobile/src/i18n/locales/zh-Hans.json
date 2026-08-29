@@ -95,10 +95,6 @@
       "title": "开发者文件预览",
       "description": "在聊天中显示代码更改，并在侧边面板中打开它们。"
     },
-    "developerMode": {
-      "title": "开发者模式",
-      "description": "显示高级的模型、引擎和提供商控制，包括自带 API 密钥的设置。"
-    },
     "nativeFontSmoothing": {
       "title": "原生字体平滑",
       "description": "像 macOS 应用那样渲染文本，使用灰度抗锯齿。"
@@ -475,7 +471,6 @@
       "voiceUnavailable": "此窗口中无法使用语音设置。",
       "loadMemory": "加载记忆设置失败。",
       "saveMemory": "更新记忆设置失败。",
-      "saveDeveloperMode": "无法更新开发者模式。",
       "memoryUnavailable": "此窗口中无法使用记忆设置。",
       "loadPermissions": "加载桌面权限状态失败。",
       "savePermission": "更新「{kind}」权限失败。",

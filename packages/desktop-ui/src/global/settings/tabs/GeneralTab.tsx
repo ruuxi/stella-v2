@@ -95,12 +95,6 @@ export function GeneralTab() {
     kind: "done" | "none" | "error";
     message: string;
   } | null>(null);
-  const [developerModeEnabled, setDeveloperModeEnabled] = useState(false);
-  const [developerModeLoaded, setDeveloperModeLoaded] = useState(false);
-  const [isSavingDeveloperMode, setIsSavingDeveloperMode] = useState(false);
-  const [developerModeError, setDeveloperModeError] = useState<string | null>(
-    null,
-  );
   const initialPermissionStatus = useMemo<DesktopPermissionStatus>(
     () => ({
       accessibility: platform === "darwin" ? false : true,
@@ -110,38 +104,6 @@ export function GeneralTab() {
     }),
     [platform],
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const preferencesApi = window.electronAPI?.system;
-        if (!preferencesApi?.getLocalModelPreferences) {
-          throw new Error(t("settings.errors.saveDeveloperMode"));
-        }
-        const preferences = await preferencesApi.getLocalModelPreferences();
-        if (!cancelled) {
-          setDeveloperModeEnabled(preferences?.developerModeEnabled === true);
-          setDeveloperModeError(null);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setDeveloperModeError(
-            getSettingsErrorMessage(
-              error,
-              t("settings.errors.saveDeveloperMode"),
-            ),
-          );
-        }
-      } finally {
-        if (!cancelled) setDeveloperModeLoaded(true);
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -431,41 +393,6 @@ export function GeneralTab() {
     [soundNotificationsEnabled, t],
   );
 
-  // Developer mode is the single gate for every power-user surface (Models
-  // picker, BYOK providers, composer mini picker/mentions, spawn_agent model
-  // routing). The write goes through the shared local-model-preferences IPC
-  // and the change event re-gates mounted surfaces immediately; agent-side
-  // effects (prompt/tool schema) apply from the next turn.
-  const handleDeveloperModeChange = useCallback(
-    async (enabled: boolean) => {
-      const preferencesApi = window.electronAPI?.system;
-      if (!preferencesApi?.setLocalModelPreferences) {
-        setDeveloperModeError(t("settings.errors.saveDeveloperMode"));
-        return;
-      }
-      const previous = developerModeEnabled;
-      setDeveloperModeEnabled(enabled);
-      setDeveloperModeError(null);
-      setIsSavingDeveloperMode(true);
-      try {
-        const preferences = await preferencesApi.setLocalModelPreferences({
-          developerModeEnabled: enabled,
-        });
-        setDeveloperModeEnabled(preferences?.developerModeEnabled === true);
-        window.dispatchEvent(
-          new CustomEvent("stella:local-model-preferences-changed"),
-        );
-      } catch (error) {
-        setDeveloperModeEnabled(previous);
-        setDeveloperModeError(
-          getSettingsErrorMessage(error, t("settings.errors.saveDeveloperMode")),
-        );
-      } finally {
-        setIsSavingDeveloperMode(false);
-      }
-    },
-    [developerModeEnabled, t],
-  );
   const formatPermissionLoadError = useCallback(
     (error: unknown) =>
       getSettingsErrorMessage(error, t("settings.errors.loadPermissions")),
@@ -994,14 +921,6 @@ export function GeneralTab() {
             {t("settings.developerPreviews.description")}
           </p>
         </div>
-        {renderToggleCard({
-          title: t("settings.developerMode.title"),
-          description: t("settings.developerMode.description"),
-          error: developerModeError,
-          checked: developerModeEnabled,
-          disabled: !developerModeLoaded || isSavingDeveloperMode,
-          onChange: (checked) => void handleDeveloperModeChange(checked),
-        })}
         {platform === "darwin"
           ? renderToggleCard({
               title: t("settings.nativeFontSmoothing.title"),

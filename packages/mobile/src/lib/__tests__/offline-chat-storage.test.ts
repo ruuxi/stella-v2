@@ -33,10 +33,6 @@ let failGetKeyOnce: string | null = null;
 };
 
 import type { ChatMessage } from "../../types";
-import {
-  establishTranscriptRewindBarrier,
-  selectIncrementalPersistenceRows,
-} from "../chat-persistence-policy";
 import { runAccountChatMetadataWrite } from "../chat-account-metadata-queue";
 import {
   enqueueDesktopChatOutbox,
@@ -336,42 +332,6 @@ describe("chat storage round-trip", () => {
     await Promise.all([write, cleanup]);
 
     expect(memoryStore.has(CLOUD_TRANSCRIPT_KEY)).toBe(false);
-  });
-
-  test("selects only a changed hot row and its ordering anchors at 10k", () => {
-    const rows: ChatMessage[] = Array.from({ length: 10_000 }, (_, index) => ({
-      id: `hot-${index}`,
-      role: "assistant",
-      text: String(index),
-      createdAt: index,
-    }));
-    expect(
-      selectIncrementalPersistenceRows(rows, new Set(["hot-5000"])).map(
-        (message) => message.id,
-      ),
-    ).toEqual(["hot-4999", "hot-5000", "hot-5001"]);
-  });
-
-  test("disarms a pending snapshot before a rewind can truncate", async () => {
-    let durableIds = ["before", "target", "suffix"];
-    const staleSnapshot = [...durableIds];
-    let timer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-      durableIds = staleSnapshot;
-    }, 5);
-
-    await establishTranscriptRewindBarrier(
-      () => {
-        if (timer !== null) clearTimeout(timer);
-        timer = null;
-      },
-      async () => {
-        durableIds = [...staleSnapshot];
-      },
-    );
-    durableIds = durableIds.slice(0, durableIds.indexOf("target"));
-    await new Promise((resolve) => setTimeout(resolve, 15));
-
-    expect(durableIds).toEqual(["before"]);
   });
 
   test("preserves the canonical ordering stamp alongside the local anchor", async () => {

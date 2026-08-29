@@ -3,10 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import {
-  clampDesktopUpdatePercent,
-  splitUpdatePillDownloadingLabel,
-} from "@/shell/ShellTopBarUpdatePill";
 import enCatalog from "../../../src/shared/i18n/locales/en.json";
 
 const SOURCE_ROOT = path.resolve(
@@ -81,41 +77,17 @@ describe("full-window header layout contract", () => {
   });
 });
 
-describe("updater label stability", () => {
-  it("reserves a three-digit tabular slot for download progress", () => {
-    const css = read("shell/shell-topbar-update-pill.css");
+describe("updater pill affordance", () => {
+  it("only ever renders the installable, restarting, and retry states", () => {
     const source = read("shell/ShellTopBarUpdatePill.tsx");
 
-    expect(source).toContain("splitUpdatePillDownloadingLabel(");
-    expect(source).toContain('className="shell-topbar-update-pill__percent"');
-    expect(css).toMatch(
-      /\.shell-topbar-update-pill__percent\s*\{[^}]*min-width:\s*3ch;[^}]*text-align:\s*end;[^}]*font-variant-numeric:\s*tabular-nums;/,
-    );
-    expect(enCatalog.shell.updatePill.downloading).toBe(
-      "Downloading {percent}%",
-    );
-  });
-
-  it("keeps 9, 10, 99, and 100 on the same reserved digit width", () => {
-    const template = enCatalog.shell.updatePill.downloading;
-    const samples = [0, 9, 10, 99, 100].map((percent) =>
-      splitUpdatePillDownloadingLabel(template, percent),
-    );
-
-    expect(new Set(samples.map((part) => part.prefix))).toEqual(
-      new Set(["Downloading "]),
-    );
-    expect(new Set(samples.map((part) => part.suffix))).toEqual(new Set(["%"]));
-    expect(samples.map((part) => part.value)).toEqual([
-      "0",
-      "9",
-      "10",
-      "99",
-      "100",
-    ]);
-    expect(clampDesktopUpdatePercent(9.4)).toBe(9);
-    expect(clampDesktopUpdatePercent(99.6)).toBe(100);
-    expect(clampDesktopUpdatePercent(-3)).toBe(0);
-    expect(clampDesktopUpdatePercent(140)).toBe(100);
+    // The download runs in the background, so nothing appears while an update
+    // is merely available or downloading — the pill is a single-click install.
+    expect(source).toContain('snapshot.status === "downloaded"');
+    expect(source).not.toContain('snapshot.status === "downloading"');
+    expect(source).not.toContain('snapshot.status === "available"');
+    expect(source).toContain('t("shell.updatePill.update")');
+    expect(source).not.toContain("restartToUpdate");
+    expect(enCatalog.shell.updatePill.update).toBe("Update");
   });
 });

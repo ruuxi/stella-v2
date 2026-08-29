@@ -50,19 +50,21 @@ describe("M4 desktop release contracts", () => {
     ).toBe(false);
   });
 
-  it("describes the completed download truthfully", () => {
+  it("stages the download silently and offers a one-click install", () => {
     const pill = read(
       "packages/desktop-ui/src/shell/ShellTopBarUpdatePill.tsx",
     );
-    // The strings are localized now, so pin the key here and the English
-    // wording in the catalog — the point is that a finished download does not
-    // announce itself as still downloading.
-    expect(pill).toContain('t("shell.updatePill.toasts.downloadedTitle")');
-    const en = JSON.parse(
-      read("packages/desktop-ui/src/shared/i18n/locales/en.json"),
-    ) as { shell: { updatePill: { toasts: Record<string, string> } } };
-    expect(en.shell.updatePill.toasts.downloadedTitle).toBe(
-      "Update downloaded",
+    // A finished download announces nothing: the payload is fetched in the
+    // background and the only thing the user ever sees is an Update button
+    // that installs on the first click.
+    expect(pill).not.toContain("downloadedTitle");
+    expect(pill).toContain('t("shell.updatePill.update")');
+
+    const updater = read(
+      "packages/desktop/electron/updates/desktop-updater.ts",
+    );
+    expect(updater).toContain(
+      "this.autoDownload = options.autoDownload ?? true",
     );
   });
 

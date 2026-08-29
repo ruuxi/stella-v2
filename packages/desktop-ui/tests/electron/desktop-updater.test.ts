@@ -128,11 +128,13 @@ describe("DesktopUpdater", () => {
     updater.start();
 
     await updater.checkNow();
+    // The check hands straight off to the background download, so the pill
+    // never sees a bare "available" state.
     expect(updater.getState()).toMatchObject({
-      status: "available",
       currentVersion: "1.0.0",
       availableVersion: "1.0.1",
     });
+    expect(states).toContain("available");
     expect(client.setFeedURL).toHaveBeenCalledWith(
       expect.objectContaining({
         channel: "latest-v2",
@@ -150,6 +152,9 @@ describe("DesktopUpdater", () => {
       progress: { percent: 100, transferred: 424, total: 1_000 },
     });
     expect(states).toContain("downloading");
+    // The staging download starts on its own, so the manual call joined the
+    // in-flight one rather than fetching the payload twice.
+    expect(client.downloadUpdate).toHaveBeenCalledTimes(1);
 
     expect(updater.restartAndInstall()).toEqual({ accepted: true });
     await new Promise((resolve) => setImmediate(resolve));
@@ -169,6 +174,47 @@ describe("DesktopUpdater", () => {
     expect(updater.restartAndInstall()).toEqual({ accepted: true });
     await new Promise((resolve) => setImmediate(resolve));
     expect(client.quitAndInstall).toHaveBeenCalledTimes(1);
+    updater.dispose();
+  });
+
+  it("stages the download in the background as soon as one is available", async () => {
+    const client = new FakeUpdater();
+    const updater = new DesktopUpdater({
+      client,
+      currentVersion: "1.0.0",
+      enabled: true,
+      startupDelayMs: 60_000,
+      checkIntervalMs: 60_000,
+    });
+    updater.start();
+
+    await updater.checkNow();
+    await new Promise((resolve) => setImmediate(resolve));
+    // Nobody clicked anything: the pill only surfaces once this lands.
+    expect(client.downloadUpdate).toHaveBeenCalledTimes(1);
+    expect(updater.getState()).toMatchObject({
+      status: "downloaded",
+      downloadedVersion: "1.0.1",
+    });
+    updater.dispose();
+  });
+
+  it("leaves the download manual when auto-download is off", async () => {
+    const client = new FakeUpdater();
+    const updater = new DesktopUpdater({
+      client,
+      currentVersion: "1.0.0",
+      enabled: true,
+      autoDownload: false,
+      startupDelayMs: 60_000,
+      checkIntervalMs: 60_000,
+    });
+    updater.start();
+
+    await updater.checkNow();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(client.downloadUpdate).not.toHaveBeenCalled();
+    expect(updater.getState().status).toBe("available");
     updater.dispose();
   });
 

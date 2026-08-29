@@ -210,7 +210,6 @@ import {
   turnComputePlanKey,
   type GeneralAgentTurnPlan,
   type GeneralAgentTurnResult,
-  type NativeExecution,
   type TurnComputePlan,
   type TurnDurability,
 } from "./general-agent-turn.js";
@@ -7259,8 +7258,8 @@ export class BuildSession extends DurableObject<Env> {
         admitted?.plan ??
         ({
           kind: "native_sandbox",
-          execution: turn.execution as NativeExecution,
-          reason: "native_engine",
+          ...(turn.execution ? { execution: turn.execution } : {}),
+          reason: "unplaced",
         } as const),
       context: execution,
       resident: (plan) => this.runResidentAgentTurn(turn, plan, execution),

@@ -108,6 +108,19 @@ export type GeneralAgentTurnPlan =
       kind: "native_sandbox";
       execution: NativeExecution | StellaExecution;
       reason: "native_engine" | "browser_resume" | "resident_disabled";
+    }>
+  /**
+   * The one placement the selector never returns. It belongs to an attempt
+   * that re-enters the runner with no admitted plan to read, which after this
+   * stack means a turn admitted before the ladder shipped or a lost storage
+   * row. Such an attempt already holds an eagerly reserved container, so it
+   * keeps the path it was admitted onto, and it may carry no engine selection
+   * at all.
+   */
+  | Readonly<{
+      kind: "native_sandbox";
+      execution?: CloudExecutionSelection;
+      reason: "unplaced";
     }>;
 
 /**
@@ -395,6 +408,27 @@ const isTurnComputePlanRecord = (
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 /**
+ * Which container placements a Stella turn is allowed to hold.
+ *
+ * The executor's in-container Stella loop survives stage 6 only to serve
+ * these three. A browser handoff resumes inside the container that suspended
+ * it, the kill switch is the ladder's rollback lever, and an unplaced attempt
+ * keeps the path it was admitted onto. A Stella turn reaching the container
+ * for `native_engine` means something built a placement without the selector.
+ */
+const STELLA_CONTAINER_REASONS: ReadonlySet<string> = new Set([
+  "browser_resume",
+  "resident_disabled",
+  "unplaced",
+]);
+
+export const stellaMayUseContainer = (
+  plan: Extract<GeneralAgentTurnPlan, { kind: "native_sandbox" }>,
+): boolean =>
+  plan.execution?.engine !== "stella" ||
+  STELLA_CONTAINER_REASONS.has(plan.reason);
+
+/**
  * Read back an admitted placement. The exact turn and attempt have to match:
  * a plan left by a predecessor attempt describes a container this attempt
  * never reserved, and acting on it would tear down or trust the wrong one.
@@ -427,7 +461,14 @@ export const parseTurnComputePlan = (
   ) {
     return null;
   }
-  return value as unknown as TurnComputePlan;
+  const parsed = value as unknown as TurnComputePlan;
+  if (
+    parsed.plan.kind === "native_sandbox" &&
+    !stellaMayUseContainer(parsed.plan)
+  ) {
+    return null;
+  }
+  return parsed;
 };
 
 const RESIDENT_COMPUTE: TurnComputeUse = { kind: "resident" };
@@ -579,10 +620,12 @@ export type GeneralAgentTurnOutcome =
  * The single dispatch on an admitted placement.
  *
  * Both arms are supplied by `BuildSession`, which owns the sandbox, the
- * archive and the terminal event. What this adds is the guard at the boundary:
- * a resident arm that reports a workspace checkpoint without having attached
- * is a wiring bug, and letting it through would mean a chat-only turn claiming
- * an archive nobody uploaded.
+ * archive and the terminal event. What this adds are the two guards at the
+ * boundary. A resident arm that reports a workspace checkpoint without having
+ * attached is a wiring bug, and letting it through would mean a chat-only turn
+ * claiming an archive nobody uploaded. A Stella turn taking the container arm
+ * without one of the three reasons that still justify it is the other, and
+ * letting it through would silently re-run the loop stage 6 retired.
  */
 export const runGeneralAgentTurn = async (args: {
   plan: GeneralAgentTurnPlan;
@@ -596,6 +639,11 @@ export const runGeneralAgentTurn = async (args: {
 }): Promise<GeneralAgentTurnOutcome> => {
   args.context.assertActive();
   if (args.plan.kind === "native_sandbox") {
+    if (!stellaMayUseContainer(args.plan)) {
+      throw new GeneralAgentPlacementError(
+        `A Stella turn reached the container as ${args.plan.reason}.`,
+      );
+    }
     await args.native(args.plan);
     return { kind: "native_finalized" };
   }

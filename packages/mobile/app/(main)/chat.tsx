@@ -37,7 +37,7 @@ import {
   type ReasoningEffort,
 } from "../../src/lib/desktop-model-prefs";
 import { type DesktopConnection } from "../../src/lib/top-bar-status";
-import { MAX_OFFLINE_CHAT_IMAGES } from "../../src/lib/offline-chat-request";
+import { MAX_CHAT_IMAGES } from "../../src/lib/image-attachments";
 import { useIsOffline } from "../../src/lib/use-network-status";
 import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
@@ -482,7 +482,7 @@ function ChatSurface(props: {
         quotes={thread.quotes}
         onAddQuote={thread.addQuote}
         onRemoveQuote={thread.removeQuote}
-        maxAttachments={MAX_OFFLINE_CHAT_IMAGES}
+        maxAttachments={MAX_CHAT_IMAGES}
         dictationAnonymous={false}
         onOpenArtifact={setSelectedArtifact}
         conversationId={thread.conversationId}

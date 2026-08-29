@@ -13,9 +13,7 @@ import {
 
 const OUTBOX_KEY: Record<ChatThreadId, string> = {
   cloud: "stella-mobile-cloud-chat-outbox-v1",
-  computer: "stella-mobile-computer-chat-outbox-v1",
   carplay: "stella-mobile-carplay-chat-outbox-v1",
-  "carplay-computer": "stella-mobile-carplay-computer-chat-outbox-v1",
 };
 
 const mutations = new Map<string, Promise<void>>();

@@ -8,11 +8,31 @@
  * only accept jpeg/png/gif/webp, so the turn lands with
  * "[Image omitted: it could not be decoded as a valid image…]".
  *
- * Every attachment lane (computer-chat bridge, cloud chat) must funnel
- * through `toSendableImage` so the payload that leaves the phone is always a
- * provider-decodable format with an honest mime type.
+ * Every attachment lane must funnel through `toSendableImage` so the payload
+ * that leaves the phone is always a provider-decodable format with an honest
+ * mime type.
  */
 import { standardBase64ToBytes } from "./bridge-envelope";
+
+/** How many images one turn may carry. */
+export const MAX_CHAT_IMAGES = 5;
+
+/**
+ * Add picked assets to the composer's pending attachments, capped at
+ * {@link MAX_CHAT_IMAGES}. Reports the overflow count so the picker can say
+ * how many it dropped rather than silently swallowing them.
+ */
+export const appendChatAttachments = <T>(
+  current: readonly T[],
+  incoming: readonly T[],
+  limit = MAX_CHAT_IMAGES,
+): { attachments: T[]; rejected: number } => {
+  const combined = [...current, ...incoming];
+  return {
+    attachments: combined.slice(0, limit),
+    rejected: Math.max(0, combined.length - limit),
+  };
+};
 
 /** Formats the desktop runtime's model providers accept as vision input. */
 export const PROVIDER_SAFE_IMAGE_MIME_TYPES: ReadonlySet<string> = new Set([

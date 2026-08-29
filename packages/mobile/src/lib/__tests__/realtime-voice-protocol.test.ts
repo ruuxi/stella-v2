@@ -12,9 +12,7 @@ import {
 describe("realtime voice protocol", () => {
   test("keeps local transcript keys out of managed voice requests", () => {
     expect(managedVoiceConversationId("cloud")).toBe(undefined);
-    expect(managedVoiceConversationId("computer")).toBe(undefined);
     expect(managedVoiceConversationId("carplay")).toBe(undefined);
-    expect(managedVoiceConversationId("carplay-computer")).toBe(undefined);
     expect(managedVoiceConversationId("  jn7realconversationid  ")).toBe(
       "jn7realconversationid",
     );

@@ -37,10 +37,6 @@ import {
   establishTranscriptRewindBarrier,
   selectIncrementalPersistenceRows,
 } from "../chat-persistence-policy";
-import {
-  CHAT_CHECKPOINT_STORAGE_KEY,
-  CHAT_MEMORY_STORAGE_KEY,
-} from "../chat-storage-keys";
 import { runAccountChatMetadataWrite } from "../chat-account-metadata-queue";
 import {
   enqueueDesktopChatOutbox,
@@ -77,6 +73,9 @@ import {
   subscribeChatStorageCleanup,
   truncateChatMessagesFrom,
 } from "../offline-chat-storage";
+
+/** The cloud thread's transcript key — an account-scoped value cleanup wipes. */
+const CLOUD_TRANSCRIPT_KEY = "stella-mobile-offline-chat-v1";
 
 const sqliteAdapter = (database: DatabaseSync) => ({
   execAsync: async (sql: string) => {
@@ -161,14 +160,14 @@ describe("chat storage round-trip", () => {
     await saveChatMessages("cloud", [
       { id: "stale-cloud", role: "user", text: "stale" },
     ]);
-    await saveChatMessages("computer", [
+    await saveChatMessages("carplay", [
       { id: "kept-computer", role: "assistant", text: "keep" },
     ]);
 
     await clearChatMessages("cloud");
 
     expect(await loadChatMessages("cloud")).toEqual([]);
-    expect((await loadChatMessages("computer")).map((row) => row.id)).toEqual([
+    expect((await loadChatMessages("carplay")).map((row) => row.id)).toEqual([
       "kept-computer",
     ]);
   });
@@ -263,11 +262,11 @@ describe("chat storage round-trip", () => {
   });
 
   test("blocks sync and outbox metadata behind cross-store account ownership", async () => {
-    await saveChatSyncState("computer", {
+    await saveChatSyncState("carplay", {
       conversationId: "old-account",
       cursor: "old-cursor",
     });
-    await enqueueDesktopChatOutbox("computer", {
+    await enqueueDesktopChatOutbox("carplay", {
       sendId: "old-send",
       userMessageId: "old-user",
       text: "private",
@@ -277,17 +276,17 @@ describe("chat storage round-trip", () => {
     });
     await beginAccountChatCleanupIntent();
 
-    expect(await loadChatSyncState("computer")).toEqual({
+    expect(await loadChatSyncState("carplay")).toEqual({
       conversationId: null,
       cursor: null,
     });
-    expect(await loadDesktopChatOutbox("computer")).toEqual([]);
-    await saveChatSyncState("computer", {
+    expect(await loadDesktopChatOutbox("carplay")).toEqual([]);
+    await saveChatSyncState("carplay", {
       conversationId: "must-not-write",
       cursor: "must-not-write",
     });
     await expect(
-      enqueueDesktopChatOutbox("computer", {
+      enqueueDesktopChatOutbox("carplay", {
         sendId: "must-not-write",
         userMessageId: "must-not-write",
         text: "blocked",
@@ -297,23 +296,19 @@ describe("chat storage round-trip", () => {
       }),
     ).rejects.toThrow("account cleanup is active");
     expect(
-      (memoryStore.get("stella-mobile-computer-sync-state-v1") ?? "").includes(
+      (memoryStore.get("stella-mobile-carplay-sync-state-v1") ?? "").includes(
         "must-not-write",
       ),
     ).toBe(false);
     expect(
-      (memoryStore.get("stella-mobile-computer-chat-outbox-v1") ?? "").includes(
+      (memoryStore.get("stella-mobile-carplay-chat-outbox-v1") ?? "").includes(
         "must-not-write",
       ),
     ).toBe(false);
   });
 
-  test("wipes checkpoint and memory behind the transcript cleanup marker", async () => {
-    memoryStore.set(CHAT_CHECKPOINT_STORAGE_KEY, "old checkpoint");
-    memoryStore.set(CHAT_MEMORY_STORAGE_KEY, "old memory");
+  test("clears the transcript cleanup marker once the wipe completes", async () => {
     await clearAllChatStorage();
-    expect(memoryStore.has(CHAT_CHECKPOINT_STORAGE_KEY)).toBe(false);
-    expect(memoryStore.has(CHAT_MEMORY_STORAGE_KEY)).toBe(false);
     expect(
       memoryStore.has("stella-mobile-transcript-cleanup-required-v1"),
     ).toBe(false);
@@ -331,7 +326,7 @@ describe("chat storage round-trip", () => {
     const write = runAccountChatMetadataWrite(async () => {
       signalStarted?.();
       await gate;
-      memoryStore.set(CHAT_MEMORY_STORAGE_KEY, "stale memory");
+      memoryStore.set(CLOUD_TRANSCRIPT_KEY, "stale rows");
     });
     await started;
 
@@ -340,7 +335,7 @@ describe("chat storage round-trip", () => {
     releaseWrite();
     await Promise.all([write, cleanup]);
 
-    expect(memoryStore.has(CHAT_MEMORY_STORAGE_KEY)).toBe(false);
+    expect(memoryStore.has(CLOUD_TRANSCRIPT_KEY)).toBe(false);
   });
 
   test("selects only a changed hot row and its ordering anchors at 10k", () => {
@@ -401,8 +396,8 @@ describe("chat storage round-trip", () => {
       // In-flight local row: no canonical identity, no stamp.
       { id: "local-x", role: "user", text: "in flight", createdAt: 911_500 },
     ];
-    await saveChatMessages("computer", rows);
-    const loaded = await loadChatMessages("computer");
+    await saveChatMessages("carplay", rows);
+    const loaded = await loadChatMessages("carplay");
     expect(loaded.map((m) => m.id)).toEqual(["local-u", "desk-a", "local-x"]);
     expect(loaded[0]?.canonicalCreatedAt).toBe(1_003_000);
     expect(loaded[0]?.createdAt).toBe(911_000);
@@ -537,7 +532,7 @@ describe("chat storage round-trip", () => {
   });
 
   test("keeps a full historical fallback page ordered before its anchor", async () => {
-    await saveChatMessages("computer", [
+    await saveChatMessages("carplay", [
       {
         id: "anchor",
         role: "assistant",
@@ -551,7 +546,7 @@ describe("chat storage round-trip", () => {
       text: String(index),
       createdAt: index,
     }));
-    await saveChatMessages("computer", [
+    await saveChatMessages("carplay", [
       ...historical,
       {
         id: "anchor",
@@ -561,7 +556,7 @@ describe("chat storage round-trip", () => {
       },
     ]);
 
-    const loaded = await loadChatMessages("computer");
+    const loaded = await loadChatMessages("carplay");
     expect(loaded.map((message) => message.text)).toEqual([
       ...historical.map((message) => message.text),
       "anchor",
@@ -621,16 +616,16 @@ describe("chat storage round-trip", () => {
       text: `before ${index}`,
       createdAt: index,
     }));
-    await saveChatMessages("computer", rows);
-    const recent = await loadRecentChatMessages("computer", 20);
+    await saveChatMessages("carplay", rows);
+    const recent = await loadRecentChatMessages("carplay", 20);
     const changed = recent.messages.map((message) =>
       message.id === "incremental-999"
         ? { ...message, text: "stream settled" }
         : message,
     );
-    await saveChatMessages("computer", changed);
+    await saveChatMessages("carplay", changed);
 
-    const reloaded = await loadRecentChatMessages("computer", 1_000);
+    const reloaded = await loadRecentChatMessages("carplay", 1_000);
     expect(reloaded.messages).toHaveLength(1_000);
     expect(reloaded.messages[0]?.id).toBe("incremental-0");
     expect(reloaded.messages.at(-1)?.text).toBe("stream settled");
@@ -773,11 +768,11 @@ describe("chat storage round-trip", () => {
     expect(interrupted.marker).toBe("done");
     expect(memoryStore.has("stella-mobile-offline-chat-v1")).toBe(false);
 
-    memoryStore.set("stella-mobile-computer-chat-v1", JSON.stringify(legacy));
+    memoryStore.set("stella-mobile-carplay-chat-v1", JSON.stringify(legacy));
     const concurrent = new MigrationDatabase();
     await Promise.all([
-      __migrateLegacyTranscriptForTests(concurrent, "computer"),
-      __migrateLegacyTranscriptForTests(concurrent, "computer"),
+      __migrateLegacyTranscriptForTests(concurrent, "carplay"),
+      __migrateLegacyTranscriptForTests(concurrent, "carplay"),
     ]);
     expect(concurrent.rows.size).toBe(250);
     expect(concurrent.marker).toBe("done");
@@ -905,9 +900,9 @@ describe("chat storage round-trip", () => {
         role: "assistant",
         text: "after",
       };
-      await saveChatMessages("computer", [before, after]);
+      await saveChatMessages("carplay", [before, after]);
       const staleAfterCursor = await findChatMessageCursor(
-        "computer",
+        "carplay",
         "sqlite-precision-after",
       );
       let next = after;
@@ -917,12 +912,12 @@ describe("chat storage round-trip", () => {
           role: "user",
           text: String(index),
         };
-        await saveChatMessages("computer", [before, inserted, next]);
+        await saveChatMessages("carplay", [before, inserted, next]);
         next = inserted;
       }
 
       expect(
-        (await loadRecentChatMessages("computer", 100)).messages.map(
+        (await loadRecentChatMessages("carplay", 100)).messages.map(
           (row) => row.id,
         ),
       ).toEqual([
@@ -935,7 +930,7 @@ describe("chat storage round-trip", () => {
         "sqlite-precision-after",
       ]);
       expect(
-        (await loadOlderChatMessages("computer", staleAfterCursor!, 1))
+        (await loadOlderChatMessages("carplay", staleAfterCursor!, 1))
           .messages[0]?.id,
       ).toBe("sqlite-precision-00");
     } finally {

@@ -6,7 +6,6 @@ import {
   renderPdfHtml,
   summarizePdf,
 } from "../chat-pdf";
-import { parseToolBlock, TOOL_BLOCK_CLOSE, TOOL_BLOCK_OPEN } from "../chat-tools";
 import { isMobileDisplayPayload, parseChatArtifacts } from "../mobile-artifacts";
 
 describe("pdfFileName", () => {
@@ -108,33 +107,5 @@ describe("pdf artifact + summary", () => {
     expect(
       isMobileDisplayPayload({ kind: "pdf", filePath: "x.pdf", localUri: 5 }),
     ).toBe(false);
-  });
-});
-
-describe("pdf tool block parsing", () => {
-  test("parses a pdf tool call with string content and hides the block", () => {
-    const raw = `Here is your PDF.\n${TOOL_BLOCK_OPEN}\n{"tool":"pdf","title":"Notes","content":"# Notes\\n\\nBody"}\n${TOOL_BLOCK_CLOSE}`;
-    const parsed = parseToolBlock(raw);
-    expect(parsed.visibleText).toBe("Here is your PDF.");
-    expect(parsed.calls).toHaveLength(1);
-    expect(parsed.calls[0]).toMatchObject({
-      tool: "pdf",
-      title: "Notes",
-      content: "# Notes\n\nBody",
-    });
-  });
-
-  test("accepts array-of-lines content", () => {
-    const raw = `${TOOL_BLOCK_OPEN}\n{"tool":"pdf","content":["# H","","para"]}\n${TOOL_BLOCK_CLOSE}`;
-    const parsed = parseToolBlock(raw);
-    expect(parsed.calls[0]).toMatchObject({
-      tool: "pdf",
-      content: "# H\n\npara",
-    });
-  });
-
-  test("drops a pdf call with no content", () => {
-    const raw = `${TOOL_BLOCK_OPEN}\n{"tool":"pdf","title":"Empty"}\n${TOOL_BLOCK_CLOSE}`;
-    expect(parseToolBlock(raw).calls).toHaveLength(0);
   });
 });

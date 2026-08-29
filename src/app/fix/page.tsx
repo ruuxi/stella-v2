@@ -46,7 +46,7 @@ export default function FixIndexPage() {
             </div>
             <WindowsInstallNote />
             <p className="fix-offer">
-              Free. No credit card, no trial. Go is $5/mo, Pro is $15/mo.
+              Free to use
             </p>
           </div>
         </section>

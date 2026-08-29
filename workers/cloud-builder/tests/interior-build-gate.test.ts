@@ -82,9 +82,9 @@ const gateHarness = (
     },
   });
   const run = async (): Promise<InteriorOutcome> => {
-    const gate = (
-      BuildSession.prototype as unknown as Record<string, unknown>
-    )["publishRequestedInteriorCandidate"] as (
+    const gate = (BuildSession.prototype as unknown as Record<string, unknown>)[
+      "publishRequestedInteriorCandidate"
+    ] as (
       this: Record<string, unknown>,
       args: Record<string, unknown>,
     ) => Promise<InteriorOutcome>;

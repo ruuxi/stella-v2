@@ -55,8 +55,8 @@ describe("parseCloudBuildCallback", () => {
   });
 
   it("carries no activation decision for the build to obey", () => {
-    expect(parseCloudBuildCallback({ ...valid(), autoActivate: true })).not.toHaveProperty(
-      "autoActivate",
-    );
+    expect(
+      parseCloudBuildCallback({ ...valid(), autoActivate: true }),
+    ).not.toHaveProperty("autoActivate");
   });
 });

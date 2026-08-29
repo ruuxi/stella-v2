@@ -1,8 +1,9 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, StyleSheet, View } from "react-native";
+import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 import { ShimmerText } from "./ShimmerText";
 import { StellaMarkIndicator } from "./stella-mark/StellaMarkIndicator";
 import { computeWorkingIndicatorStatus } from "./working-indicator-status";
+import { useMinimumVisibleValue } from "../lib/use-minimum-visible-value";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
@@ -11,17 +12,25 @@ const ENTER_DURATION_MS = 320;
 const EXIT_HOLD_MS = 300;
 const EXIT_ANIMATION_MS = 480;
 const SWAP_DURATION_MS = 240;
+const STATUS_MIN_VISIBLE_MS = 2000;
 const INDICATOR_PAD_TOP = 0;
 const INDICATOR_PAD_BOTTOM = 0;
 const INDICATOR_VIEWPORT_SIZE = 34;
+const BUBBLE_PAD_VERTICAL = 4;
+/** How far the thinking mark's figure-eight travel reaches past the mark box
+ *  on each side. The dots-mode box is widened by this so the travel and the
+ *  parked dots stay inside the bubble instead of running off the screen edge. */
+const TRAVEL_OVERHANG = 18;
 
 /**
- * Reserved vertical space above the composer for the native working pulse.
+ * Reserved vertical space above the composer for the working indicator,
+ * including the bubble's own padding and hairline border.
  */
-export const WORKING_INDICATOR_SLOT_HEIGHT = INDICATOR_VIEWPORT_SIZE;
+export const WORKING_INDICATOR_SLOT_HEIGHT =
+  INDICATOR_VIEWPORT_SIZE + BUBBLE_PAD_VERTICAL * 2 + 2;
 
 interface WorkingIndicatorProps {
-  /** When true, the indicator is visible and the brand pulse animates. */
+  /** When true, the indicator is visible and the mark animates. */
   active: boolean;
   /** Optional explicit status. Defaults to the same reasoning copy as desktop. */
   status?: string;
@@ -123,6 +132,18 @@ function SwapText({
 
   return (
     <View style={styles.swapText}>
+      {
+        // Invisible sizer: the animated layers are absolutely positioned, so
+        // this gives the bubble its intrinsic width for the current label.
+      }
+      <Text
+        style={[styles.statusText, styles.swapSizer]}
+        numberOfLines={1}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        {current}
+      </Text>
       {previous ? (
         <Animated.View
           style={[styles.swapLayer, outStyle]}
@@ -153,7 +174,8 @@ function SwapText({
 }
 
 /**
- * Stella's working state above the composer.
+ * Stella's working state above the composer, wearing an assistant-style bubble
+ * that hugs its content so it reads as an incoming message.
  *
  * Entrance/exit is a plain opacity fade on the whole row, and the row is
  * unmounted after the desktop-matched hold so no animation remains active.
@@ -177,14 +199,19 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     toolName,
     seed: toolCallId ?? reasoningSeed,
   });
+  // The hold covers the mark as well as the label, because the pose is read
+  // off the held label below: without it the mark flapped between the thinking
+  // spinner and the tool star whenever a quick tool started and ended.
+  const heldStatus = useMinimumVisibleValue(liveStatus, STATUS_MIN_VISIBLE_MS);
+
   // Snapshot the label while active so the exit animation shows a stable
   // last-known phrase even though the upstream activity clears the moment
   // `active` flips false (mirrors the desktop's frozen props).
-  const frozenStatusRef = useRef(liveStatus);
-  if (active) frozenStatusRef.current = liveStatus;
-  const displayStatus = active ? liveStatus : frozenStatusRef.current;
+  const frozenStatusRef = useRef(heldStatus);
+  if (active) frozenStatusRef.current = heldStatus;
+  const displayStatus = active ? heldStatus : frozenStatusRef.current;
   // With no label there is nothing to read, so the mark itself carries the
-  // state as the thinking bounce; a tool label gets the resting star beside it.
+  // state as the top spinner; a tool label gets the resting star beside it.
   const hasLabel = displayStatus.length > 0;
   const [renderShell, setRenderShell] = useState(active);
   const shellProgress = useRef(new Animated.Value(active ? 1 : 0)).current;
@@ -234,9 +261,9 @@ export const WorkingIndicator = memo(function WorkingIndicator({
       }, EXIT_ANIMATION_MS);
     };
 
-    // Skip the hold when answer text has started streaming so the indicator
-    // doesn't trail the growing reply; otherwise hold briefly so a fast turn
-    // still flashes the indicator.
+    // Skip the hold when the answer has landed so the indicator doesn't trail
+    // the delivered reply; otherwise hold briefly so a fast turn still flashes
+    // the indicator.
     if (exitImmediately) {
       startExit();
     } else {
@@ -258,17 +285,23 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     >
       {renderShell ? (
         <Animated.View style={[styles.row, shellStyle]} collapsable={false}>
-          <StellaMarkIndicator
-            active={active}
-            size={INDICATOR_VIEWPORT_SIZE}
-            mode={hasLabel ? "star" : "dots"}
-          />
-          <SwapText
-            text={displayStatus}
-            active={active}
-            colors={colors}
-            styles={styles}
-          />
+          <View style={[styles.bubble, !hasLabel && styles.bubbleDots]}>
+            <View style={hasLabel ? styles.markBox : styles.markBoxWide}>
+              <StellaMarkIndicator
+                active={active}
+                size={INDICATOR_VIEWPORT_SIZE}
+                mode={hasLabel ? "star" : "dots"}
+              />
+            </View>
+            {hasLabel ? (
+              <SwapText
+                text={displayStatus}
+                active={active}
+                colors={colors}
+                styles={styles}
+              />
+            ) : null}
+          </View>
         </Animated.View>
       ) : null}
     </View>
@@ -289,23 +322,58 @@ const makeStyles = (colors: Colors) =>
     row: {
       alignItems: "center",
       flexDirection: "row",
-      gap: 8,
       height: WORKING_INDICATOR_SLOT_HEIGHT,
       justifyContent: "flex-start",
       paddingBottom: INDICATOR_PAD_BOTTOM,
       // Inline at the chat tail this row already inherits the list's horizontal
-      // inset, so its glyph must hug the left to line up with the assistant
+      // inset, so its bubble must hug the left to line up with the assistant
       // message text rather than floating in with an extra indent. Keep a right
       // inset only so the status label has room before the edge.
       paddingLeft: 0,
       paddingRight: 18,
       paddingTop: INDICATOR_PAD_TOP,
     },
+    // The assistant bubble treatment, squared off at the bottom-left the same
+    // way an incoming message is, sized to hug whatever the label currently is.
+    bubble: {
+      alignItems: "center",
+      backgroundColor: colors.card,
+      borderColor: colors.border,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderRadius: 18,
+      borderBottomLeftRadius: 4,
+      flexDirection: "row",
+      flexShrink: 1,
+      gap: 8,
+      maxWidth: "100%",
+      paddingHorizontal: 13,
+      paddingVertical: BUBBLE_PAD_VERTICAL,
+    },
+    bubbleDots: {
+      paddingHorizontal: 8,
+    },
+    markBox: {
+      alignItems: "center",
+      height: INDICATOR_VIEWPORT_SIZE,
+      justifyContent: "center",
+      width: INDICATOR_VIEWPORT_SIZE,
+    },
+    // Dots mode: wide enough to contain the spinner's figure-eight travel and
+    // its parked dots.
+    markBoxWide: {
+      alignItems: "center",
+      height: INDICATOR_VIEWPORT_SIZE,
+      justifyContent: "center",
+      width: INDICATOR_VIEWPORT_SIZE + TRAVEL_OVERHANG * 2,
+    },
     swapText: {
-      flex: 1,
+      flexShrink: 1,
       height: 20,
       minWidth: 0,
       overflow: "hidden",
+    },
+    swapSizer: {
+      opacity: 0,
     },
     swapLayer: {
       bottom: 0,

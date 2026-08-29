@@ -4,18 +4,22 @@ import {
   Easing,
   StyleSheet,
   Text,
-  View,
   type TextStyle,
 } from "react-native";
 import MaskedView from "@react-native-masked-view/masked-view";
 import { LinearGradient } from "expo-linear-gradient";
+import { useReducedMotion } from "react-native-reanimated";
 import { fadeHex } from "../theme/oklch";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
+import { shouldRunContinuousAnimation } from "../lib/continuous-animation";
+import { useAppVisible } from "../lib/use-app-visible";
 
 const DEFAULT_DURATION_MS = 1600;
-// Strip is wider than the text so the bright peak fully exits before looping.
+
+/** Strip is wider than the text so the bright peak fully exits before looping. */
 const GRADIENT_MULTIPLIER = 3;
-// Trough almost vanishes; peak is fully opaque — a clearly visible sweep.
+
+/** Trough almost vanishes; peak is fully opaque — a clearly visible sweep. */
 const DEFAULT_DIM_ALPHA = 0.15;
 const PEAK_ALPHA = 1;
 
@@ -32,6 +36,9 @@ const PEAK_ALPHA = 1;
  *     of `color`) and the moving band brightens them up to full strength as
  *     it passes, reading as a light sweeping across dim text. Used by the
  *     minimal agent activity rows (matches desktop's inverted shimmer).
+ *
+ * Reduce-motion and app-backgrounding are handled here rather than by callers,
+ * so every shimmering label gets the same lifecycle for free.
  */
 export function ShimmerText({
   text,
@@ -54,6 +61,14 @@ export function ShimmerText({
 }) {
   const shimmer = useRef(new Animated.Value(0)).current;
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const reduceMotion = useReducedMotion();
+  const appVisible = useAppVisible();
+
+  const animating = shouldRunContinuousAnimation({
+    logicalActive: active,
+    appVisible,
+    reducedMotion: reduceMotion,
+  });
 
   // Re-measure when the text changes so the mask tracks the new glyph run.
   useEffect(() => {
@@ -61,7 +76,7 @@ export function ShimmerText({
   }, [text]);
 
   useEffect(() => {
-    if (!active || size.width === 0) {
+    if (!animating || size.width === 0) {
       shimmer.stopAnimation();
       shimmer.setValue(0);
       return;
@@ -76,11 +91,12 @@ export function ShimmerText({
     );
     loop.start();
     return () => loop.stop();
-  }, [active, durationMs, shimmer, size.width]);
+  }, [animating, durationMs, shimmer, size.width]);
 
   const gradientWidth = Math.max(1, size.width * GRADIENT_MULTIPLIER);
-  // Slide the wide strip so its dim trough crosses the visible glyphs exactly
-  // once per loop, left → right.
+
+  // Slide the wide strip so its band crosses the visible glyphs exactly once
+  // per loop, left → right.
   const translate = useMemo(
     () =>
       shimmer.interpolate({
@@ -90,8 +106,10 @@ export function ShimmerText({
     [gradientWidth, shimmer, size.width],
   );
 
-  // Plain text when idle — settles without a remount.
-  if (!active) {
+  // Plain text when idle or when motion is off — settles without a remount.
+  // Backgrounding is deliberately not in this branch: it only stops the loop,
+  // so returning to the app resumes the sweep rather than remounting the row.
+  if (!active || reduceMotion) {
     return (
       <Text style={textStyle} numberOfLines={1} maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}>
         {text}
@@ -120,6 +138,7 @@ export function ShimmerText({
 
   const dim = fadeHex(color, dimAlpha);
   const peak = fadeHex(color, PEAK_ALPHA);
+
   // Trough: a dim band crosses bright resting text. Highlight: inverted —
   // dim resting text with a bright peak sweeping across it. The highlight's
   // bright band is wider and softer-edged than the trough (a broad wave that

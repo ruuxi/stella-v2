@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { useReducedMotion } from "react-native-reanimated";
 import { Icon } from "./Icon";
 import { ShimmerText } from "./ShimmerText";
 import { StellaStarGlyph } from "./AgentActivityGlyph";
@@ -47,10 +46,7 @@ export function AgentActivityRow({
   onPress?: () => void;
 }) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  // OS reduce-motion: the sweep stills entirely — static dimmed text remains
-  // the running tell (the star still marks the row as agent work).
-  const reduceMotion = useReducedMotion();
-  const shimmerActive = working && !reduceMotion;
+
   return (
     <Pressable
       accessibilityRole={onPress ? "button" : "text"}
@@ -76,17 +72,17 @@ export function AgentActivityRow({
       <View style={styles.titleWrap}>
         <ShimmerText
           text={title}
-          active={shimmerActive}
+          active={working}
           variant="highlight"
           // Sweep peak lifts to full strong ink (desktop
           // `--text-shimmer-via: --text-strong`); the resting base below is
           // the same ink faded to the settled title's strength.
           color={colors.textStrong}
           textStyle={
-            // Running rows rest at the settled title's strength and the
-            // sweep lifts them to full strong ink; with the sweep stilled
-            // (reduce motion) the same resting color renders statically so
-            // the state still reads as in-progress.
+            // Running rows rest at the settled title's strength and the sweep
+            // lifts them to full strong ink; ShimmerText renders the same
+            // resting color statically when motion is off, so the state still
+            // reads as in-progress.
             working
               ? [
                   styles.title,

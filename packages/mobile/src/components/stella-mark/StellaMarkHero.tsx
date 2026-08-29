@@ -18,6 +18,7 @@ import {
   breatheScale,
   voiceScale,
 } from "./motion";
+import { useAppVisible } from "../../lib/use-app-visible";
 
 /**
  * The character mark at hero size: onboarding's welcome step and the realtime
@@ -36,6 +37,7 @@ export function StellaMarkHero({
   energy?: SharedValue<number>;
 }) {
   const reduceMotion = useReducedMotion();
+  const appVisible = useAppVisible();
   // Gradient ids are per-instance: two marks sharing an id make the second
   // resolve against the first one's gradient (see StellaMark.tsx).
   const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
@@ -51,6 +53,9 @@ export function StellaMarkHero({
       clock.value = 0;
       return;
     }
+    // The breathe has no end of its own, so without this gate a backgrounded
+    // app keeps the clock looping forever.
+    if (!appVisible) return;
     clock.value = 0;
     clock.value = withRepeat(
       withTiming(CLOCK_SPAN_MS, {
@@ -61,7 +66,7 @@ export function StellaMarkHero({
       false,
     );
     return () => cancelAnimation(clock);
-  }, [clock, reduceMotion]);
+  }, [appVisible, clock, reduceMotion]);
 
   const stageStyle = useAnimatedStyle(() => {
     if (reduceMotion) {

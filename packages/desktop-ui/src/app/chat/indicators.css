@@ -3,11 +3,12 @@
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  border-radius: var(--radius-md);
-  background: var(--surface-inset);
+  border-radius: var(--radius-3xl);
+  border-bottom-left-radius: 4px;
+  background: var(--chat-assistant-bubble-fill);
   border: none;
   font-size: var(--font-size-md);
-  color: var(--text-base);
+  color: var(--chat-assistant-bubble-text, var(--text-base));
   animation: stream-fade-in 0.4s ease-out both;
 }
 
@@ -119,10 +120,6 @@
 }
 
 .inline-working-indicator__indicator {
-  background: transparent;
-  border: none;
-  padding: 0;
-
   animation: none;
 }
 

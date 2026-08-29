@@ -13,7 +13,7 @@
  * renderer's `src/` tree is not part of a packaged build (electron-builder
  * only ships `dist-electron/electron/**` plus the renderer's *built* output),
  * so `dev-electron-build.mjs` copies `desktop-ui/src/shared/i18n/locales/`
- * there alongside the bundles — the same pattern `copyRuntimeStaticAssets`
+ * there alongside the bundles — the same pattern `copyPackagedRuntimeAssets`
  * already uses for main-process static assets. That directory sits inside
  * `app.asar` in a packaged build, which `fs.readFileSync` reads transparently.
  * The renderer source directory is kept as a second candidate so a tree that

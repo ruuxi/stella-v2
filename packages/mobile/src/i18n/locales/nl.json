@@ -295,35 +295,6 @@
           "sync": "Nu synchroniseren"
         }
       },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Cloud Skills laden…",
-        "unavailable": "Cloud Skills is niet beschikbaar terwijl accountgegevens worden verplaatst, opnieuw ingesteld of verwijderd.",
-        "empty": "Er zijn nog geen aangepaste cloudskills geïnstalleerd.",
-        "saved": "Opgeslagen. De exacte cloudversie is nu actueel.",
-        "saveError": "De skill is gewijzigd of het account is niet beschikbaar. De opnieuw geladen cloudstatus wordt gebruikt; probeer het opnieuw nadat je deze hebt gecontroleerd.",
-        "versionStatus": "{description} Versie: {version}. Status: {status}.",
-        "notPublished": "niet gepubliceerd",
-        "status": {
-          "disabled": "uitgeschakeld",
-          "authorized": "geautoriseerd",
-          "notAuthorized": "niet geautoriseerd voor deze versie"
-        },
-        "agentScope": "Agentbereik:",
-        "agentType": {
-          "orchestrator": "Orchestrator",
-          "general": "Algemeen"
-        },
-        "allowedTools": "Toegestane toolnamen (optioneel, kommagescheiden; hiermee worden nooit tools toegevoegd)",
-        "invalidTools": "Toolnamen mogen alleen letters, cijfers, punten, onderstrepingstekens, dubbele punten of koppeltekens bevatten (maximaal 64 tekens).",
-        "actions": {
-          "saving": "Opslaan…",
-          "revoke": "Intrekken",
-          "authorize": "Versie autoriseren",
-          "disable": "Uitschakelen",
-          "enable": "Inschakelen"
-        }
-      },
       "signOut": {
         "label": "Afmelden",
         "description": "Meld je af bij Stella op dit apparaat.",

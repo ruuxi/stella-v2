@@ -295,35 +295,6 @@
           "sync": "Sincronizar ahora"
         }
       },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Cargando Cloud Skills…",
-        "unavailable": "Cloud Skills no está disponible mientras se trasladan, restablecen o eliminan los datos de la cuenta.",
-        "empty": "Aún no hay habilidades personalizadas en la nube instaladas.",
-        "saved": "Guardado. La versión exacta en la nube ya está actualizada.",
-        "saveError": "La habilidad ha cambiado o la cuenta no está disponible. Se usará el estado recargado de la nube; vuelve a intentarlo después de revisarlo.",
-        "versionStatus": "{description} Versión: {version}. Estado: {status}.",
-        "notPublished": "sin publicar",
-        "status": {
-          "disabled": "desactivada",
-          "authorized": "autorizada",
-          "notAuthorized": "no autorizada para esta versión"
-        },
-        "agentScope": "Ámbito del agente:",
-        "agentType": {
-          "orchestrator": "Orquestador",
-          "general": "General"
-        },
-        "allowedTools": "Nombres de herramientas permitidos (opcional, separados por comas; esto nunca añade herramientas)",
-        "invalidTools": "Los nombres de herramientas solo pueden contener letras, números, puntos, guiones bajos, dos puntos o guiones (64 caracteres como máximo).",
-        "actions": {
-          "saving": "Guardando…",
-          "revoke": "Revocar",
-          "authorize": "Autorizar versión",
-          "disable": "Desactivar",
-          "enable": "Activar"
-        }
-      },
       "signOut": {
         "label": "Cerrar sesión",
         "description": "Cierra sesión de Stella en este dispositivo.",

@@ -333,35 +333,6 @@
           "blocked": "Nhập bị chặn",
           "sync": "Đồng bộ ngay"
         }
-      },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Đang tải Cloud Skills…",
-        "unavailable": "Cloud Skills không khả dụng trong khi dữ liệu tài khoản đang được di chuyển, đặt lại hoặc xóa.",
-        "empty": "Chưa cài đặt kỹ năng đám mây tùy chỉnh nào.",
-        "saved": "Đã lưu. Phiên bản chính xác trên đám mây hiện đã được cập nhật.",
-        "saveError": "Kỹ năng đã thay đổi hoặc tài khoản không khả dụng. Trạng thái đám mây được tải lại sẽ được sử dụng; hãy thử lại sau khi xem xét.",
-        "versionStatus": "{description} Phiên bản: {version}. Trạng thái: {status}.",
-        "notPublished": "chưa phát hành",
-        "status": {
-          "disabled": "đã tắt",
-          "authorized": "đã cấp quyền",
-          "notAuthorized": "chưa được cấp quyền cho phiên bản này"
-        },
-        "agentScope": "Phạm vi tác nhân:",
-        "agentType": {
-          "orchestrator": "Bộ điều phối",
-          "general": "Chung"
-        },
-        "allowedTools": "Tên công cụ được phép (không bắt buộc, phân tách bằng dấu phẩy; thao tác này không bao giờ thêm công cụ)",
-        "invalidTools": "Tên công cụ chỉ được dùng chữ cái, số, dấu chấm, dấu gạch dưới, dấu hai chấm hoặc dấu gạch ngang (tối đa 64 ký tự).",
-        "actions": {
-          "saving": "Đang lưu…",
-          "revoke": "Thu hồi",
-          "authorize": "Cấp quyền cho phiên bản",
-          "disable": "Tắt",
-          "enable": "Bật"
-        }
       }
     },
     "audio": {

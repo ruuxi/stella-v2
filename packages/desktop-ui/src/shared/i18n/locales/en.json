@@ -333,35 +333,6 @@
           "blocked": "Import blocked",
           "sync": "Sync now"
         }
-      },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Loading cloud skills…",
-        "unavailable": "Cloud Skills are unavailable while account data is moving, resetting, or deleting.",
-        "empty": "No custom cloud skills are installed yet.",
-        "saved": "Saved. The exact cloud version is now current.",
-        "saveError": "The skill changed or the account is unavailable. Reloaded cloud state will be used; retry after reviewing it.",
-        "versionStatus": "{description} Version: {version}. Status: {status}.",
-        "notPublished": "not published",
-        "status": {
-          "disabled": "disabled",
-          "authorized": "authorized",
-          "notAuthorized": "not authorized for this version"
-        },
-        "agentScope": "Agent scope:",
-        "agentType": {
-          "orchestrator": "Orchestrator",
-          "general": "General"
-        },
-        "allowedTools": "Allowed tool names (optional, comma separated; this never adds tools)",
-        "invalidTools": "Tool names must use only letters, numbers, dot, underscore, colon, or dash (64 maximum).",
-        "actions": {
-          "saving": "Saving…",
-          "revoke": "Revoke",
-          "authorize": "Authorize version",
-          "disable": "Disable",
-          "enable": "Enable"
-        }
       }
     },
     "audio": {

@@ -333,35 +333,6 @@
           "blocked": "Impor diblokir",
           "sync": "Sinkronkan sekarang"
         }
-      },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Memuat Cloud Skills…",
-        "unavailable": "Cloud Skills tidak tersedia selama data akun dipindahkan, direset, atau dihapus.",
-        "empty": "Belum ada skill cloud kustom yang terinstal.",
-        "saved": "Tersimpan. Versi cloud yang tepat kini sudah mutakhir.",
-        "saveError": "Skill telah berubah atau akun tidak tersedia. Status cloud yang dimuat ulang akan digunakan; coba lagi setelah meninjaunya.",
-        "versionStatus": "{description} Versi: {version}. Status: {status}.",
-        "notPublished": "belum dipublikasikan",
-        "status": {
-          "disabled": "dinonaktifkan",
-          "authorized": "diotorisasi",
-          "notAuthorized": "belum diotorisasi untuk versi ini"
-        },
-        "agentScope": "Cakupan agen:",
-        "agentType": {
-          "orchestrator": "Orkestrator",
-          "general": "Umum"
-        },
-        "allowedTools": "Nama alat yang diizinkan (opsional, dipisahkan koma; ini tidak pernah menambahkan alat)",
-        "invalidTools": "Nama alat hanya boleh menggunakan huruf, angka, titik, garis bawah, titik dua, atau tanda hubung (maksimum 64 karakter).",
-        "actions": {
-          "saving": "Menyimpan…",
-          "revoke": "Cabut",
-          "authorize": "Otorisasi versi",
-          "disable": "Nonaktifkan",
-          "enable": "Aktifkan"
-        }
       }
     },
     "audio": {

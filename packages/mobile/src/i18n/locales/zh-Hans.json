@@ -333,35 +333,6 @@
           "blocked": "导入已被阻止",
           "sync": "立即同步"
         }
-      },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "正在加载云端技能…",
-        "unavailable": "移动、重置或删除账户数据时，Cloud Skills 不可用。",
-        "empty": "尚未安装自定义云端技能。",
-        "saved": "已保存。现在使用确切的云端版本。",
-        "saveError": "技能已更改或账户不可用。将使用重新加载的云端状态；请检查后重试。",
-        "versionStatus": "{description} 版本：{version}。状态：{status}。",
-        "notPublished": "未发布",
-        "status": {
-          "disabled": "已停用",
-          "authorized": "已授权",
-          "notAuthorized": "此版本未授权"
-        },
-        "agentScope": "代理范围：",
-        "agentType": {
-          "orchestrator": "编排代理",
-          "general": "通用代理"
-        },
-        "allowedTools": "允许的工具名称（可选，使用逗号分隔；此设置不会添加工具）",
-        "invalidTools": "工具名称只能使用字母、数字、句点、下划线、冒号或连字符（最多 64 个）。",
-        "actions": {
-          "saving": "正在保存…",
-          "revoke": "撤销授权",
-          "authorize": "授权此版本",
-          "disable": "停用",
-          "enable": "启用"
-        }
       }
     },
     "audio": {

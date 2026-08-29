@@ -295,35 +295,6 @@
           "sync": "Synkronoi nyt"
         }
       },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Ladataan pilvitaitoja…",
-        "unavailable": "Cloud Skills ei ole käytettävissä, kun tilitietoja siirretään, nollataan tai poistetaan.",
-        "empty": "Mukautettuja pilvitaitoja ei ole vielä asennettu.",
-        "saved": "Tallennettu. Tarkka pilviversio on nyt ajan tasalla.",
-        "saveError": "Taito muuttui tai tili ei ole käytettävissä. Uudelleen ladattua pilvitilaa käytetään; yritä uudelleen sen tarkistamisen jälkeen.",
-        "versionStatus": "{description} Versio: {version}. Tila: {status}.",
-        "notPublished": "ei julkaistu",
-        "status": {
-          "disabled": "poistettu käytöstä",
-          "authorized": "valtuutettu",
-          "notAuthorized": "ei valtuutettu tälle versiolle"
-        },
-        "agentScope": "Agentin käyttöalue:",
-        "agentType": {
-          "orchestrator": "Orkestroija",
-          "general": "Yleinen"
-        },
-        "allowedTools": "Sallitut työkalujen nimet (valinnainen, pilkuilla erotettuna; tämä ei koskaan lisää työkaluja)",
-        "invalidTools": "Työkalujen nimissä voi käyttää vain kirjaimia, numeroita, pistettä, alaviivaa, kaksoispistettä tai yhdysmerkkiä (enintään 64 merkkiä).",
-        "actions": {
-          "saving": "Tallennetaan…",
-          "revoke": "Peruuta valtuutus",
-          "authorize": "Valtuuta versio",
-          "disable": "Poista käytöstä",
-          "enable": "Ota käyttöön"
-        }
-      },
       "signOut": {
         "label": "Kirjaudu ulos",
         "description": "Kirjaudu ulos Stellasta tällä laitteella.",

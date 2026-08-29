@@ -295,35 +295,6 @@
           "sync": "Sincronizează acum"
         }
       },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Se încarcă Cloud Skills…",
-        "unavailable": "Cloud Skills nu este disponibil cât timp datele contului sunt mutate, resetate sau șterse.",
-        "empty": "Nu este instalată încă nicio abilitate cloud personalizată.",
-        "saved": "Salvat. Versiunea cloud exactă este acum actualizată.",
-        "saveError": "Abilitatea s-a modificat sau contul nu este disponibil. Va fi folosită starea cloud reîncărcată; încearcă din nou după ce o verifici.",
-        "versionStatus": "{description} Versiune: {version}. Stare: {status}.",
-        "notPublished": "nepublicată",
-        "status": {
-          "disabled": "dezactivată",
-          "authorized": "autorizată",
-          "notAuthorized": "neautorizată pentru această versiune"
-        },
-        "agentScope": "Domeniul agentului:",
-        "agentType": {
-          "orchestrator": "Orchestrator",
-          "general": "General"
-        },
-        "allowedTools": "Numele instrumentelor permise (opțional, separate prin virgulă; această opțiune nu adaugă niciodată instrumente)",
-        "invalidTools": "Numele instrumentelor trebuie să conțină numai litere, cifre, puncte, caractere de subliniere, două puncte sau cratime (maximum 64 de caractere).",
-        "actions": {
-          "saving": "Se salvează…",
-          "revoke": "Revocă",
-          "authorize": "Autorizează versiunea",
-          "disable": "Dezactivează",
-          "enable": "Activează"
-        }
-      },
       "signOut": {
         "label": "Deconectează-te",
         "description": "Deconectează-te de la Stella pe acest dispozitiv.",

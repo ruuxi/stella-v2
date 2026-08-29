@@ -295,35 +295,6 @@
           "sync": "Synchroniser maintenant"
         }
       },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Chargement de Cloud Skills…",
-        "unavailable": "Cloud Skills est indisponible pendant le déplacement, la réinitialisation ou la suppression des données du compte.",
-        "empty": "Aucune compétence cloud personnalisée n’est encore installée.",
-        "saved": "Enregistré. La version cloud exacte est maintenant à jour.",
-        "saveError": "La compétence a changé ou le compte est indisponible. L’état cloud rechargé sera utilisé ; réessayez après l’avoir vérifié.",
-        "versionStatus": "{description} Version : {version}. État : {status}.",
-        "notPublished": "non publiée",
-        "status": {
-          "disabled": "désactivée",
-          "authorized": "autorisée",
-          "notAuthorized": "non autorisée pour cette version"
-        },
-        "agentScope": "Portée de l’agent :",
-        "agentType": {
-          "orchestrator": "Orchestrateur",
-          "general": "Général"
-        },
-        "allowedTools": "Noms d’outils autorisés (facultatif, séparés par des virgules ; cela n’ajoute jamais d’outils)",
-        "invalidTools": "Les noms d’outils ne peuvent contenir que des lettres, des chiffres, des points, des traits de soulignement, des deux-points ou des tirets (64 caractères maximum).",
-        "actions": {
-          "saving": "Enregistrement…",
-          "revoke": "Révoquer",
-          "authorize": "Autoriser la version",
-          "disable": "Désactiver",
-          "enable": "Activer"
-        }
-      },
       "signOut": {
         "label": "Se déconnecter",
         "description": "Déconnectez-vous de Stella sur cet appareil.",

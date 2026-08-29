@@ -295,35 +295,6 @@
           "sync": "Synkroniser nu"
         }
       },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Indlæser færdigheder i skyen…",
-        "unavailable": "Cloud Skills er ikke tilgængelige, mens kontodata flyttes, nulstilles eller slettes.",
-        "empty": "Der er endnu ikke installeret nogen brugerdefinerede færdigheder i skyen.",
-        "saved": "Gemt. Den præcise cloudversion er nu opdateret.",
-        "saveError": "Færdigheden er ændret, eller kontoen er ikke tilgængelig. Den genindlæste cloudtilstand bruges; prøv igen, når du har gennemgået den.",
-        "versionStatus": "{description} Version: {version}. Status: {status}.",
-        "notPublished": "ikke udgivet",
-        "status": {
-          "disabled": "deaktiveret",
-          "authorized": "autoriseret",
-          "notAuthorized": "ikke autoriseret til denne version"
-        },
-        "agentScope": "Agentområde:",
-        "agentType": {
-          "orchestrator": "Orkestrator",
-          "general": "Generel"
-        },
-        "allowedTools": "Tilladte værktøjsnavne (valgfrit, kommasepareret; dette tilføjer aldrig værktøjer)",
-        "invalidTools": "Værktøjsnavne må kun indeholde bogstaver, tal, punktum, understregningstegn, kolon eller bindestreg (højst 64 tegn).",
-        "actions": {
-          "saving": "Gemmer…",
-          "revoke": "Tilbagekald",
-          "authorize": "Autoriser version",
-          "disable": "Deaktiver",
-          "enable": "Aktivér"
-        }
-      },
       "signOut": {
         "label": "Log ud",
         "description": "Log ud af Stella på denne enhed.",

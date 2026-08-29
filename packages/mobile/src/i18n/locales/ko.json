@@ -333,35 +333,6 @@
           "blocked": "가져오기 차단됨",
           "sync": "지금 동기화"
         }
-      },
-      "cloudSkills": {
-        "title": "Cloud Skills",
-        "loading": "Cloud Skills를 불러오는 중…",
-        "unavailable": "계정 데이터를 이동, 재설정 또는 삭제하는 동안에는 Cloud Skills를 사용할 수 없습니다.",
-        "empty": "아직 설치된 사용자 지정 클라우드 스킬이 없습니다.",
-        "saved": "저장되었습니다. 정확한 클라우드 버전이 이제 최신 상태입니다.",
-        "saveError": "스킬이 변경되었거나 계정을 사용할 수 없습니다. 다시 불러온 클라우드 상태가 사용됩니다. 내용을 검토한 후 다시 시도하세요.",
-        "versionStatus": "{description} 버전: {version}. 상태: {status}.",
-        "notPublished": "게시되지 않음",
-        "status": {
-          "disabled": "비활성화됨",
-          "authorized": "승인됨",
-          "notAuthorized": "이 버전에 대해 승인되지 않음"
-        },
-        "agentScope": "에이전트 범위:",
-        "agentType": {
-          "orchestrator": "오케스트레이터",
-          "general": "일반"
-        },
-        "allowedTools": "허용된 도구 이름(선택 사항, 쉼표로 구분. 이 설정으로 도구가 추가되지는 않음)",
-        "invalidTools": "도구 이름에는 문자, 숫자, 마침표, 밑줄, 콜론 또는 대시만 사용할 수 있습니다(최대 64자).",
-        "actions": {
-          "saving": "저장 중…",
-          "revoke": "승인 취소",
-          "authorize": "버전 승인",
-          "disable": "비활성화",
-          "enable": "활성화"
-        }
       }
     },
     "audio": {

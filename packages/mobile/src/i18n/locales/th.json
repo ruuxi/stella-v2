@@ -783,7 +783,23 @@
   },
   "chat": {
     "stoppedReply": "Stella ไม่สามารถเริ่มการตอบกลับนี้ได้",
-    "tryAgainHint": "โปรดลองอีกครั้ง"
+    "tryAgainHint": "โปรดลองอีกครั้ง",
+    "attachments": {
+      "attachPhoto": "แนบรูปภาพ",
+      "takePhoto": "ถ่ายรูป",
+      "attachFile": "แนบไฟล์",
+      "remove": "ลบไฟล์แนบ",
+      "uploading": "กำลังอัปโหลด",
+      "retryUpload": "ลองอัปโหลดอีกครั้ง",
+      "uploadFailed": "อัปโหลดไม่สำเร็จ แตะเพื่อลองอีกครั้ง",
+      "tooManyTitle": "ไฟล์มากเกินไป",
+      "tooManyBody": "คุณแนบไฟล์ได้สูงสุด {count} ไฟล์ต่อครั้ง",
+      "photosDeniedTitle": "รูปภาพ",
+      "photosDeniedBody": "อนุญาตให้ Stella เข้าถึงคลังรูปภาพของคุณในการตั้งค่าเพื่อแนบรูปภาพ",
+      "cameraDeniedTitle": "กล้อง",
+      "cameraDeniedBody": "อนุญาตให้ Stella ใช้กล้องในการตั้งค่าเพื่อถ่ายรูป",
+      "photoLabel": "รูปภาพ"
+    }
   },
   "errors": {
     "generic": "เกิดบางอย่างผิดพลาด",

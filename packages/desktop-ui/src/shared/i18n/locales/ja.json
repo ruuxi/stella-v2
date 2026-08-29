@@ -783,7 +783,23 @@
   },
   "chat": {
     "stoppedReply": "Stella はこの返信を開始できませんでした",
-    "tryAgainHint": "もう一度お試しください。"
+    "tryAgainHint": "もう一度お試しください。",
+    "attachments": {
+      "attachPhoto": "写真を添付",
+      "takePhoto": "写真を撮る",
+      "attachFile": "ファイルを添付",
+      "remove": "添付を削除",
+      "uploading": "アップロード中",
+      "retryUpload": "アップロードを再試行",
+      "uploadFailed": "アップロードに失敗しました。タップして再試行してください。",
+      "tooManyTitle": "ファイルが多すぎます",
+      "tooManyBody": "一度に添付できるファイルは {count} 件までです。",
+      "photosDeniedTitle": "写真",
+      "photosDeniedBody": "画像を添付できるように、設定で Stella に写真ライブラリへのアクセスを許可してください。",
+      "cameraDeniedTitle": "カメラ",
+      "cameraDeniedBody": "写真を撮れるように、設定で Stella にカメラの使用を許可してください。",
+      "photoLabel": "写真"
+    }
   },
   "errors": {
     "generic": "問題が発生しました",

@@ -783,7 +783,23 @@
   },
   "chat": {
     "stoppedReply": "Stella 无法开始此次回复",
-    "tryAgainHint": "请重试。"
+    "tryAgainHint": "请重试。",
+    "attachments": {
+      "attachPhoto": "添加照片",
+      "takePhoto": "拍照",
+      "attachFile": "添加文件",
+      "remove": "移除附件",
+      "uploading": "正在上传",
+      "retryUpload": "重试上传",
+      "uploadFailed": "上传失败。点按可重试。",
+      "tooManyTitle": "文件过多",
+      "tooManyBody": "每次最多可添加 {count} 个文件。",
+      "photosDeniedTitle": "照片",
+      "photosDeniedBody": "请在设置中允许 Stella 访问你的照片图库，以便添加图片。",
+      "cameraDeniedTitle": "相机",
+      "cameraDeniedBody": "请在设置中允许 Stella 使用相机，以便拍照。",
+      "photoLabel": "照片"
+    }
   },
   "errors": {
     "generic": "出了点问题",

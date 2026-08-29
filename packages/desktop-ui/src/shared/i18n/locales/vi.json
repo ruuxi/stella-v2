@@ -783,7 +783,23 @@
   },
   "chat": {
     "stoppedReply": "Stella không thể bắt đầu phản hồi này",
-    "tryAgainHint": "Vui lòng thử lại."
+    "tryAgainHint": "Vui lòng thử lại.",
+    "attachments": {
+      "attachPhoto": "Đính kèm ảnh",
+      "takePhoto": "Chụp ảnh",
+      "attachFile": "Đính kèm tệp",
+      "remove": "Xóa tệp đính kèm",
+      "uploading": "Đang tải lên",
+      "retryUpload": "Thử tải lên lại",
+      "uploadFailed": "Tải lên thất bại. Nhấn để thử lại.",
+      "tooManyTitle": "Quá nhiều tệp",
+      "tooManyBody": "Bạn có thể đính kèm tối đa {count} tệp mỗi lần.",
+      "photosDeniedTitle": "Ảnh",
+      "photosDeniedBody": "Cho phép Stella truy cập thư viện ảnh của bạn trong Cài đặt để đính kèm hình ảnh.",
+      "cameraDeniedTitle": "Máy ảnh",
+      "cameraDeniedBody": "Cho phép Stella dùng máy ảnh trong Cài đặt để chụp ảnh.",
+      "photoLabel": "Ảnh"
+    }
   },
   "errors": {
     "generic": "Đã có lỗi xảy ra",

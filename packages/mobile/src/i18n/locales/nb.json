@@ -784,7 +784,23 @@
   },
   "chat": {
     "stoppedReply": "Stella klarte ikke å starte dette svaret",
-    "tryAgainHint": "Prøv igjen."
+    "tryAgainHint": "Prøv igjen.",
+    "attachments": {
+      "attachPhoto": "Legg ved et bilde",
+      "takePhoto": "Ta et bilde",
+      "attachFile": "Legg ved en fil",
+      "remove": "Fjern vedlegg",
+      "uploading": "Laster opp",
+      "retryUpload": "Prøv opplasting igjen",
+      "uploadFailed": "Opplastingen mislyktes. Trykk for å prøve igjen.",
+      "tooManyTitle": "For mange filer",
+      "tooManyBody": "Du kan legge ved opptil {count} filer om gangen.",
+      "photosDeniedTitle": "Bilder",
+      "photosDeniedBody": "Gi Stella tilgang til bildebiblioteket i Innstillinger for å legge ved bilder.",
+      "cameraDeniedTitle": "Kamera",
+      "cameraDeniedBody": "Gi Stella tilgang til kameraet i Innstillinger for å ta et bilde.",
+      "photoLabel": "Bilde"
+    }
   },
   "errors": {
     "generic": "Noe gikk galt",

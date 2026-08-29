@@ -786,7 +786,23 @@
   },
   "chat": {
     "stoppedReply": "Stella не смогла начать этот ответ",
-    "tryAgainHint": "Попробуйте ещё раз."
+    "tryAgainHint": "Попробуйте ещё раз.",
+    "attachments": {
+      "attachPhoto": "Прикрепить фото",
+      "takePhoto": "Сделать фото",
+      "attachFile": "Прикрепить файл",
+      "remove": "Убрать вложение",
+      "uploading": "Загрузка",
+      "retryUpload": "Повторить загрузку",
+      "uploadFailed": "Не удалось загрузить. Нажмите, чтобы повторить.",
+      "tooManyTitle": "Слишком много файлов",
+      "tooManyBody": "За один раз можно прикрепить не более {count} файлов.",
+      "photosDeniedTitle": "Фото",
+      "photosDeniedBody": "Разрешите Stella доступ к медиатеке в настройках, чтобы прикреплять изображения.",
+      "cameraDeniedTitle": "Камера",
+      "cameraDeniedBody": "Разрешите Stella использовать камеру в настройках, чтобы сделать фото.",
+      "photoLabel": "Фото"
+    }
   },
   "errors": {
     "generic": "Что-то пошло не так",

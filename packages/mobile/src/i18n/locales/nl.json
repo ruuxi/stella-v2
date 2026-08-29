@@ -784,7 +784,23 @@
   },
   "chat": {
     "stoppedReply": "Stella kon dit antwoord niet starten",
-    "tryAgainHint": "Probeer het opnieuw."
+    "tryAgainHint": "Probeer het opnieuw.",
+    "attachments": {
+      "attachPhoto": "Foto toevoegen",
+      "takePhoto": "Foto maken",
+      "attachFile": "Bestand toevoegen",
+      "remove": "Bijlage verwijderen",
+      "uploading": "Uploaden",
+      "retryUpload": "Upload opnieuw proberen",
+      "uploadFailed": "Uploaden is mislukt. Tik om opnieuw te proberen.",
+      "tooManyTitle": "Te veel bestanden",
+      "tooManyBody": "Je kunt maximaal {count} bestanden per keer toevoegen.",
+      "photosDeniedTitle": "Foto's",
+      "photosDeniedBody": "Geef Stella in Instellingen toegang tot je fotobibliotheek om afbeeldingen toe te voegen.",
+      "cameraDeniedTitle": "Camera",
+      "cameraDeniedBody": "Geef Stella in Instellingen toegang tot de camera om een foto te maken.",
+      "photoLabel": "Foto"
+    }
   },
   "errors": {
     "generic": "Er ging iets mis",

@@ -785,7 +785,23 @@
   },
   "chat": {
     "stoppedReply": "Stella לא הצליחה להתחיל את התגובה הזו",
-    "tryAgainHint": "אנא נסו שוב."
+    "tryAgainHint": "אנא נסו שוב.",
+    "attachments": {
+      "attachPhoto": "צירוף תמונה",
+      "takePhoto": "צילום תמונה",
+      "attachFile": "צירוף קובץ",
+      "remove": "הסרת הקובץ המצורף",
+      "uploading": "מעלה",
+      "retryUpload": "נסה להעלות שוב",
+      "uploadFailed": "ההעלאה נכשלה. הקש כדי לנסות שוב.",
+      "tooManyTitle": "יותר מדי קבצים",
+      "tooManyBody": "אפשר לצרף עד {count} קבצים בכל פעם.",
+      "photosDeniedTitle": "תמונות",
+      "photosDeniedBody": "אפשר ל-Stella לגשת לספריית התמונות שלך בהגדרות כדי לצרף תמונות.",
+      "cameraDeniedTitle": "מצלמה",
+      "cameraDeniedBody": "אפשר ל-Stella להשתמש במצלמה בהגדרות כדי לצלם תמונה.",
+      "photoLabel": "תמונה"
+    }
   },
   "errors": {
     "generic": "משהו השתבש",

@@ -783,7 +783,23 @@
   },
   "chat": {
     "stoppedReply": "Stella가 이 응답을 시작하지 못했습니다",
-    "tryAgainHint": "다시 시도해 주세요."
+    "tryAgainHint": "다시 시도해 주세요.",
+    "attachments": {
+      "attachPhoto": "사진 첨부",
+      "takePhoto": "사진 촬영",
+      "attachFile": "파일 첨부",
+      "remove": "첨부 제거",
+      "uploading": "업로드 중",
+      "retryUpload": "업로드 다시 시도",
+      "uploadFailed": "업로드에 실패했습니다. 다시 시도하려면 탭하세요.",
+      "tooManyTitle": "파일이 너무 많습니다",
+      "tooManyBody": "한 번에 최대 {count}개의 파일을 첨부할 수 있습니다.",
+      "photosDeniedTitle": "사진",
+      "photosDeniedBody": "이미지를 첨부할 수 있도록 설정에서 Stella에 사진 라이브러리 접근을 허용하세요.",
+      "cameraDeniedTitle": "카메라",
+      "cameraDeniedBody": "사진을 찍을 수 있도록 설정에서 Stella에 카메라 사용을 허용하세요.",
+      "photoLabel": "사진"
+    }
   },
   "errors": {
     "generic": "문제가 발생했습니다",

@@ -785,7 +785,23 @@
   },
   "chat": {
     "stoppedReply": "Stella no pudo iniciar esta respuesta",
-    "tryAgainHint": "Inténtalo de nuevo."
+    "tryAgainHint": "Inténtalo de nuevo.",
+    "attachments": {
+      "attachPhoto": "Adjuntar una foto",
+      "takePhoto": "Hacer una foto",
+      "attachFile": "Adjuntar un archivo",
+      "remove": "Quitar adjunto",
+      "uploading": "Subiendo",
+      "retryUpload": "Reintentar la subida",
+      "uploadFailed": "La subida ha fallado. Toca para reintentar.",
+      "tooManyTitle": "Demasiados archivos",
+      "tooManyBody": "Puedes adjuntar hasta {count} archivos a la vez.",
+      "photosDeniedTitle": "Fotos",
+      "photosDeniedBody": "Permite a Stella acceder a tu biblioteca de fotos en Ajustes para adjuntar imágenes.",
+      "cameraDeniedTitle": "Cámara",
+      "cameraDeniedBody": "Permite a Stella usar la cámara en Ajustes para hacer una foto.",
+      "photoLabel": "Foto"
+    }
   },
   "errors": {
     "generic": "Algo salió mal",

@@ -785,7 +785,23 @@
   },
   "chat": {
     "stoppedReply": "Stella n'a pas pu démarrer cette réponse",
-    "tryAgainHint": "Veuillez réessayer."
+    "tryAgainHint": "Veuillez réessayer.",
+    "attachments": {
+      "attachPhoto": "Joindre une photo",
+      "takePhoto": "Prendre une photo",
+      "attachFile": "Joindre un fichier",
+      "remove": "Retirer la pièce jointe",
+      "uploading": "Envoi en cours",
+      "retryUpload": "Relancer l'envoi",
+      "uploadFailed": "Échec de l'envoi. Touchez pour réessayer.",
+      "tooManyTitle": "Trop de fichiers",
+      "tooManyBody": "Vous pouvez joindre jusqu'à {count} fichiers à la fois.",
+      "photosDeniedTitle": "Photos",
+      "photosDeniedBody": "Autorisez Stella à accéder à votre photothèque dans Réglages pour joindre des images.",
+      "cameraDeniedTitle": "Appareil photo",
+      "cameraDeniedBody": "Autorisez Stella à utiliser l'appareil photo dans Réglages pour prendre une photo.",
+      "photoLabel": "Photo"
+    }
   },
   "errors": {
     "generic": "Une erreur est survenue",

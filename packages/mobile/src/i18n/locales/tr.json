@@ -784,7 +784,23 @@
   },
   "chat": {
     "stoppedReply": "Stella bu yanıtı başlatamadı",
-    "tryAgainHint": "Lütfen tekrar deneyin."
+    "tryAgainHint": "Lütfen tekrar deneyin.",
+    "attachments": {
+      "attachPhoto": "Fotoğraf ekle",
+      "takePhoto": "Fotoğraf çek",
+      "attachFile": "Dosya ekle",
+      "remove": "Eki kaldır",
+      "uploading": "Yükleniyor",
+      "retryUpload": "Yüklemeyi yeniden dene",
+      "uploadFailed": "Yükleme başarısız oldu. Yeniden denemek için dokun.",
+      "tooManyTitle": "Çok fazla dosya",
+      "tooManyBody": "Bir kerede en fazla {count} dosya ekleyebilirsin.",
+      "photosDeniedTitle": "Fotoğraflar",
+      "photosDeniedBody": "Görsel ekleyebilmek için Ayarlar'dan Stella'nın fotoğraf kitaplığına erişmesine izin ver.",
+      "cameraDeniedTitle": "Kamera",
+      "cameraDeniedBody": "Fotoğraf çekebilmek için Ayarlar'dan Stella'nın kamerayı kullanmasına izin ver.",
+      "photoLabel": "Fotoğraf"
+    }
   },
   "errors": {
     "generic": "Bir şeyler ters gitti",

@@ -784,7 +784,23 @@
   },
   "chat": {
     "stoppedReply": "A Stella nem tudta elindítani ezt a választ",
-    "tryAgainHint": "Próbáld újra."
+    "tryAgainHint": "Próbáld újra.",
+    "attachments": {
+      "attachPhoto": "Fotó csatolása",
+      "takePhoto": "Fotó készítése",
+      "attachFile": "Fájl csatolása",
+      "remove": "Csatolmány eltávolítása",
+      "uploading": "Feltöltés",
+      "retryUpload": "Feltöltés újra",
+      "uploadFailed": "A feltöltés nem sikerült. Koppints az újrapróbálkozáshoz.",
+      "tooManyTitle": "Túl sok fájl",
+      "tooManyBody": "Egyszerre legfeljebb {count} fájlt csatolhatsz.",
+      "photosDeniedTitle": "Fotók",
+      "photosDeniedBody": "Engedélyezd a Stellának a fotókönyvtárad elérését a Beállításokban, hogy képeket csatolhass.",
+      "cameraDeniedTitle": "Kamera",
+      "cameraDeniedBody": "Engedélyezd a Stellának a kamera használatát a Beállításokban, hogy fotót készíthess.",
+      "photoLabel": "Fotó"
+    }
   },
   "errors": {
     "generic": "Valami hiba történt",

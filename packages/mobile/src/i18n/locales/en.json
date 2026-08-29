@@ -784,7 +784,23 @@
   },
   "chat": {
     "stoppedReply": "Stella couldn't start this reply",
-    "tryAgainHint": "Please try again."
+    "tryAgainHint": "Please try again.",
+    "attachments": {
+      "attachPhoto": "Attach a photo",
+      "takePhoto": "Take a photo",
+      "attachFile": "Attach a file",
+      "remove": "Remove attachment",
+      "uploading": "Uploading",
+      "retryUpload": "Retry upload",
+      "uploadFailed": "Upload failed. Tap to retry.",
+      "tooManyTitle": "Too many files",
+      "tooManyBody": "You can attach up to {count} files at a time.",
+      "photosDeniedTitle": "Photos",
+      "photosDeniedBody": "Allow Stella to access your photo library in Settings so you can attach images.",
+      "cameraDeniedTitle": "Camera",
+      "cameraDeniedBody": "Allow Stella to use the camera in Settings so you can snap a photo.",
+      "photoLabel": "Photo"
+    }
   },
   "errors": {
     "generic": "Something went wrong",

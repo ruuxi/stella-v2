@@ -786,7 +786,23 @@
   },
   "chat": {
     "stoppedReply": "Stella nie mogła rozpocząć tej odpowiedzi",
-    "tryAgainHint": "Spróbuj ponownie."
+    "tryAgainHint": "Spróbuj ponownie.",
+    "attachments": {
+      "attachPhoto": "Załącz zdjęcie",
+      "takePhoto": "Zrób zdjęcie",
+      "attachFile": "Załącz plik",
+      "remove": "Usuń załącznik",
+      "uploading": "Przesyłanie",
+      "retryUpload": "Ponów przesyłanie",
+      "uploadFailed": "Przesyłanie nie udało się. Dotknij, aby ponowić.",
+      "tooManyTitle": "Za dużo plików",
+      "tooManyBody": "Jednorazowo możesz załączyć maksymalnie {count} plików.",
+      "photosDeniedTitle": "Zdjęcia",
+      "photosDeniedBody": "Zezwól Stelli w Ustawieniach na dostęp do biblioteki zdjęć, aby załączać obrazy.",
+      "cameraDeniedTitle": "Kamera",
+      "cameraDeniedBody": "Zezwól Stelli w Ustawieniach na korzystanie z kamery, aby zrobić zdjęcie.",
+      "photoLabel": "Zdjęcie"
+    }
   },
   "errors": {
     "generic": "Coś poszło nie tak",

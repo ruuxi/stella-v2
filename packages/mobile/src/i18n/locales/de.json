@@ -784,7 +784,23 @@
   },
   "chat": {
     "stoppedReply": "Stella konnte diese Antwort nicht starten",
-    "tryAgainHint": "Bitte versuch es erneut."
+    "tryAgainHint": "Bitte versuch es erneut.",
+    "attachments": {
+      "attachPhoto": "Foto anhängen",
+      "takePhoto": "Foto aufnehmen",
+      "attachFile": "Datei anhängen",
+      "remove": "Anhang entfernen",
+      "uploading": "Wird hochgeladen",
+      "retryUpload": "Upload wiederholen",
+      "uploadFailed": "Upload fehlgeschlagen. Zum Wiederholen tippen.",
+      "tooManyTitle": "Zu viele Dateien",
+      "tooManyBody": "Du kannst höchstens {count} Dateien gleichzeitig anhängen.",
+      "photosDeniedTitle": "Fotos",
+      "photosDeniedBody": "Erlaube Stella in den Einstellungen den Zugriff auf deine Fotobibliothek, um Bilder anzuhängen.",
+      "cameraDeniedTitle": "Kamera",
+      "cameraDeniedBody": "Erlaube Stella in den Einstellungen die Kameranutzung, um ein Foto aufzunehmen.",
+      "photoLabel": "Foto"
+    }
   },
   "errors": {
     "generic": "Etwas ist schiefgelaufen",

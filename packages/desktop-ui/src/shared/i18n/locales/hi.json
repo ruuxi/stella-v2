@@ -784,7 +784,23 @@
   },
   "chat": {
     "stoppedReply": "Stella यह उत्तर शुरू नहीं कर सकी",
-    "tryAgainHint": "कृपया फिर से कोशिश करें।"
+    "tryAgainHint": "कृपया फिर से कोशिश करें।",
+    "attachments": {
+      "attachPhoto": "फ़ोटो अटैच करें",
+      "takePhoto": "फ़ोटो लें",
+      "attachFile": "फ़ाइल अटैच करें",
+      "remove": "अटैचमेंट हटाएँ",
+      "uploading": "अपलोड हो रहा है",
+      "retryUpload": "अपलोड फिर आज़माएँ",
+      "uploadFailed": "अपलोड नहीं हो सका. फिर आज़माने के लिए टैप करें.",
+      "tooManyTitle": "बहुत ज़्यादा फ़ाइलें",
+      "tooManyBody": "आप एक बार में {count} फ़ाइलें तक अटैच कर सकते हैं.",
+      "photosDeniedTitle": "फ़ोटो",
+      "photosDeniedBody": "इमेज अटैच करने के लिए सेटिंग में Stella को अपनी फ़ोटो लाइब्रेरी की अनुमति दें.",
+      "cameraDeniedTitle": "कैमरा",
+      "cameraDeniedBody": "फ़ोटो लेने के लिए सेटिंग में Stella को कैमरे की अनुमति दें.",
+      "photoLabel": "फ़ोटो"
+    }
   },
   "errors": {
     "generic": "कुछ गलत हो गया",

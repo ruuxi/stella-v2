@@ -786,7 +786,23 @@
   },
   "chat": {
     "stoppedReply": "Stella nemohla zahájit tuto odpověď",
-    "tryAgainHint": "Zkuste to znovu."
+    "tryAgainHint": "Zkuste to znovu.",
+    "attachments": {
+      "attachPhoto": "Přiložit fotku",
+      "takePhoto": "Vyfotit",
+      "attachFile": "Přiložit soubor",
+      "remove": "Odebrat přílohu",
+      "uploading": "Nahrávání",
+      "retryUpload": "Zkusit nahrát znovu",
+      "uploadFailed": "Nahrávání se nezdařilo. Klepnutím to zkuste znovu.",
+      "tooManyTitle": "Příliš mnoho souborů",
+      "tooManyBody": "Najednou můžete přiložit nejvýše {count} souborů.",
+      "photosDeniedTitle": "Fotky",
+      "photosDeniedBody": "Povolte Stelle v Nastavení přístup k fotogalerii, abyste mohli přikládat obrázky.",
+      "cameraDeniedTitle": "Kamera",
+      "cameraDeniedBody": "Povolte Stelle v Nastavení používat kameru, abyste mohli vyfotit snímek.",
+      "photoLabel": "Fotka"
+    }
   },
   "errors": {
     "generic": "Něco se pokazilo",

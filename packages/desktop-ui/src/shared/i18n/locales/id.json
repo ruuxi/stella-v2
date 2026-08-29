@@ -783,7 +783,23 @@
   },
   "chat": {
     "stoppedReply": "Stella tidak dapat memulai balasan ini",
-    "tryAgainHint": "Silakan coba lagi."
+    "tryAgainHint": "Silakan coba lagi.",
+    "attachments": {
+      "attachPhoto": "Lampirkan foto",
+      "takePhoto": "Ambil foto",
+      "attachFile": "Lampirkan file",
+      "remove": "Hapus lampiran",
+      "uploading": "Mengunggah",
+      "retryUpload": "Coba unggah lagi",
+      "uploadFailed": "Unggahan gagal. Ketuk untuk mencoba lagi.",
+      "tooManyTitle": "Terlalu banyak file",
+      "tooManyBody": "Kamu bisa melampirkan hingga {count} file sekaligus.",
+      "photosDeniedTitle": "Foto",
+      "photosDeniedBody": "Izinkan Stella mengakses galeri fotomu di Pengaturan agar kamu bisa melampirkan gambar.",
+      "cameraDeniedTitle": "Kamera",
+      "cameraDeniedBody": "Izinkan Stella menggunakan kamera di Pengaturan agar kamu bisa mengambil foto.",
+      "photoLabel": "Foto"
+    }
   },
   "errors": {
     "generic": "Terjadi kesalahan",

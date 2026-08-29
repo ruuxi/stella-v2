@@ -784,7 +784,23 @@
   },
   "chat": {
     "stoppedReply": "Stella ei pystynyt aloittamaan tätä vastausta",
-    "tryAgainHint": "Yritä uudelleen."
+    "tryAgainHint": "Yritä uudelleen.",
+    "attachments": {
+      "attachPhoto": "Liitä kuva",
+      "takePhoto": "Ota kuva",
+      "attachFile": "Liitä tiedosto",
+      "remove": "Poista liite",
+      "uploading": "Lähetetään",
+      "retryUpload": "Yritä lähetystä uudelleen",
+      "uploadFailed": "Lähetys epäonnistui. Napauta yrittääksesi uudelleen.",
+      "tooManyTitle": "Liian monta tiedostoa",
+      "tooManyBody": "Voit liittää enintään {count} tiedostoa kerrallaan.",
+      "photosDeniedTitle": "Kuvat",
+      "photosDeniedBody": "Anna Stellalle oikeus kuvakirjastoosi Asetuksissa, jotta voit liittää kuvia.",
+      "cameraDeniedTitle": "Kamera",
+      "cameraDeniedBody": "Anna Stellalle oikeus käyttää kameraa Asetuksissa, jotta voit ottaa kuvan.",
+      "photoLabel": "Kuva"
+    }
   },
   "errors": {
     "generic": "Jotain meni pieleen",

@@ -783,7 +783,23 @@
   },
   "chat": {
     "stoppedReply": "Stella 無法開始此次回覆",
-    "tryAgainHint": "請重試。"
+    "tryAgainHint": "請重試。",
+    "attachments": {
+      "attachPhoto": "附加照片",
+      "takePhoto": "拍照",
+      "attachFile": "附加檔案",
+      "remove": "移除附件",
+      "uploading": "正在上傳",
+      "retryUpload": "重試上傳",
+      "uploadFailed": "上傳失敗。輕觸即可重試。",
+      "tooManyTitle": "檔案過多",
+      "tooManyBody": "每次最多可附加 {count} 個檔案。",
+      "photosDeniedTitle": "照片",
+      "photosDeniedBody": "請在設定中允許 Stella 存取你的照片圖庫，以便附加圖片。",
+      "cameraDeniedTitle": "相機",
+      "cameraDeniedBody": "請在設定中允許 Stella 使用相機，以便拍照。",
+      "photoLabel": "照片"
+    }
   },
   "errors": {
     "generic": "出了一點問題",

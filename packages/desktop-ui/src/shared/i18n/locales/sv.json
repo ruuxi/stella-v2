@@ -784,7 +784,23 @@
   },
   "chat": {
     "stoppedReply": "Stella kunde inte starta det här svaret",
-    "tryAgainHint": "Försök igen."
+    "tryAgainHint": "Försök igen.",
+    "attachments": {
+      "attachPhoto": "Bifoga ett foto",
+      "takePhoto": "Ta ett foto",
+      "attachFile": "Bifoga en fil",
+      "remove": "Ta bort bilagan",
+      "uploading": "Laddar upp",
+      "retryUpload": "Försök ladda upp igen",
+      "uploadFailed": "Uppladdningen misslyckades. Tryck för att försöka igen.",
+      "tooManyTitle": "För många filer",
+      "tooManyBody": "Du kan bifoga upp till {count} filer åt gången.",
+      "photosDeniedTitle": "Bilder",
+      "photosDeniedBody": "Ge Stella åtkomst till ditt bildbibliotek i Inställningar så att du kan bifoga bilder.",
+      "cameraDeniedTitle": "Kamera",
+      "cameraDeniedBody": "Ge Stella åtkomst till kameran i Inställningar så att du kan ta ett foto.",
+      "photoLabel": "Bild"
+    }
   },
   "errors": {
     "generic": "Något gick fel",

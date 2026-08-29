@@ -785,7 +785,23 @@
   },
   "chat": {
     "stoppedReply": "Stella nu a putut începe acest răspuns",
-    "tryAgainHint": "Încearcă din nou."
+    "tryAgainHint": "Încearcă din nou.",
+    "attachments": {
+      "attachPhoto": "Atașează o fotografie",
+      "takePhoto": "Fă o fotografie",
+      "attachFile": "Atașează un fișier",
+      "remove": "Elimină atașamentul",
+      "uploading": "Se încarcă",
+      "retryUpload": "Reîncearcă încărcarea",
+      "uploadFailed": "Încărcarea a eșuat. Atinge pentru a reîncerca.",
+      "tooManyTitle": "Prea multe fișiere",
+      "tooManyBody": "Poți atașa cel mult {count} fișiere odată.",
+      "photosDeniedTitle": "Fotografii",
+      "photosDeniedBody": "Permite-i Stellei accesul la biblioteca de fotografii din Setări pentru a atașa imagini.",
+      "cameraDeniedTitle": "Cameră",
+      "cameraDeniedBody": "Permite-i Stellei să folosească camera din Setări pentru a face o fotografie.",
+      "photoLabel": "Fotografie"
+    }
   },
   "errors": {
     "generic": "Ceva nu a mers",

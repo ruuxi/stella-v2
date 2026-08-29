@@ -788,7 +788,23 @@
   },
   "chat": {
     "stoppedReply": "لم تستطع Stella بدء هذا الرد",
-    "tryAgainHint": "يرجى المحاولة مرة أخرى."
+    "tryAgainHint": "يرجى المحاولة مرة أخرى.",
+    "attachments": {
+      "attachPhoto": "إرفاق صورة",
+      "takePhoto": "التقاط صورة",
+      "attachFile": "إرفاق ملف",
+      "remove": "إزالة المرفق",
+      "uploading": "جارٍ الرفع",
+      "retryUpload": "إعادة محاولة الرفع",
+      "uploadFailed": "فشل الرفع. اضغط لإعادة المحاولة.",
+      "tooManyTitle": "عدد الملفات كبير جدًا",
+      "tooManyBody": "يمكنك إرفاق {count} ملفات كحد أقصى في المرة الواحدة.",
+      "photosDeniedTitle": "الصور",
+      "photosDeniedBody": "اسمح لـ Stella بالوصول إلى مكتبة صورك من الإعدادات لتتمكن من إرفاق الصور.",
+      "cameraDeniedTitle": "الكاميرا",
+      "cameraDeniedBody": "اسمح لـ Stella باستخدام الكاميرا من الإعدادات لتتمكن من التقاط صورة.",
+      "photoLabel": "صورة"
+    }
   },
   "errors": {
     "generic": "حدث خطأ ما",

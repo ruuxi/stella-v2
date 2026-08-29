@@ -151,7 +151,7 @@
     "bun-types": "1.4.0",
     "concurrently": "^10.0.0",
     "electron": "43.4.1",
-    "electron-builder": "^26.8.1",
+    "electron-builder": "26.15.7",
     "eslint": "^10.4.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",

@@ -131,13 +131,29 @@ CI then verifies the signature, stapled ticket, and Gatekeeper assessment.
 Missing signing or notarization credentials are fatal in CI. Local builds skip
 notarization when credentials are absent.
 
-Windows NSIS artifacts are intentionally unsigned in M4. The workflow disables
-certificate auto-discovery and asserts `Get-AuthenticodeSignature` returns
-`NotSigned`, matching the accepted SmartScreen warning. To add DigiCert later,
-store its certificate or KeyLocker credentials as GitHub secrets, map them to
-electron-builder's Windows signing inputs (for a PFX, `WIN_CSC_LINK` and
-`WIN_CSC_KEY_PASSWORD`), remove the intentional `NotSigned` assertion, and add
-an Authenticode verification step that requires a valid trusted signature.
+Windows releases use DigiCert KeyLocker through the immutable DigiCert Software
+Trust Manager action. CI reconstructs the encrypted client-authentication P12
+only in the runner temp directory, installs the DigiCert KSP, synchronizes the
+approved certificate, and selects it by its configured SHA-1 certificate
+identifier. Electron Builder signs only with SHA-256 and uses DigiCert's RFC
+3161 timestamp service. The signing policy covers the application, managed Bun,
+ripgrep, and uv command-line entry points, native helpers, Stella Browser, NSIS
+elevation helper, installer, and uninstaller. It deliberately preserves the
+upstream identity of the separately pinned Git, Node, and Python runtime trees
+instead of re-signing third-party binaries as FromYou. An unexpected signing
+candidate fails the build. The additional `signExts` entry covers the Stella
+Browser helper even if an immutable manifest delivers it without an `.exe`
+suffix.
+
+The Windows verification gate uses both `Get-AuthenticodeSignature` and
+Microsoft SignTool. It requires a valid chain, the exact configured certificate
+identifier and serial, the `FromYou, LLC` subject, and a DigiCert timestamp for
+the packaged application, all three managed CLI entry points, every pinned
+native helper, Stella Browser, the NSIS elevation helper, the final installer,
+and the uninstaller produced by a silent test install. It emits a redacted JSON
+verification report as a separate CI artifact. A manual workflow dispatch
+performs this full build and verification without publishing to R2 or creating
+a GitHub release.
 
 ## Local updater verification
 
@@ -171,24 +187,32 @@ M4 stops locally. To run the real release:
    `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, and `R2_ENDPOINT`. The R2 principal
    should be least-privilege for the v2 desktop and retained binary-pin
    prefixes and must not be used to write the v1 `desktop/**` namespace.
-3. Add public repository variables `VITE_CONVEX_URL`,
+3. Add DigiCert secrets `SM_API_KEY`, `SM_CLIENT_CERT_FILE_B64`, and
+   `SM_CLIENT_CERT_PASSWORD`; add variables `SM_HOST`, `SM_KEYPAIR_ALIAS`,
+   `STELLA_WINDOWS_CERT_SHA1`, and `STELLA_WINDOWS_CERT_SERIAL`. The API key
+   and client certificate must belong to the least-privilege KeyLocker signer
+   service user assigned to the certificate.
+4. Add public repository variables `VITE_CONVEX_URL`,
    `VITE_CONVEX_SITE_URL`, and `VITE_STELLA_APPS_HOST` for connected release
    builds. The Apps value must be a reviewed production HTTPS origin; the
    release validator explicitly rejects the development Apps host. Confirm the
    configured R2 public base URL serves byte ranges and exposes only the
    intended `desktop-v2/stable/<platform>` feeds to this client.
-4. Run the retained native-helper and Stella Browser workflows first so their
+5. Run the retained native-helper and Stella Browser workflows first so their
    immutable manifests contain `darwin-arm64`, `darwin-x64`, `win-x64`, and
    `linux-x64`.
-5. Push an exact stable `desktop-v2-vX.Y.Z` tag. Confirm Developer ID signing,
-   notarization, stapling, Gatekeeper assessment, unsigned-Windows assertion,
-   R2 publication, website installer aliases, and GitHub Release creation all
-   pass. The website aliases are `desktop-v2/stable/Stella-darwin-arm64.dmg`,
+6. Run the desktop workflow manually and confirm all build jobs, the Windows
+   signature gate, and the verification artifact pass while the publish job is
+   skipped.
+7. Push an exact stable `desktop-v2-vX.Y.Z` tag. Confirm Developer ID signing,
+   notarization, stapling, Gatekeeper assessment, Windows Authenticode
+   verification, R2 publication, website installer aliases, and GitHub Release
+   creation all pass. The website aliases are `desktop-v2/stable/Stella-darwin-arm64.dmg`,
    `desktop-v2/stable/Stella-darwin-x64.dmg`, and
    `desktop-v2/stable/Stella.exe`,
    `desktop-v2/stable/Stella-linux-x64.AppImage`, and
    `desktop-v2/stable/Stella-arch-x64.pkg.tar.xz`.
-6. On an isolated test account or machine—not Rahul's live install—install an
+8. On an isolated test account or machine—not Rahul's live install—install an
    older signed v2 build, publish a newer signed v2 build, and prove the pill
    downloads, quits, installs, and relaunches the newer version. Verify the
    macOS Keychain prompt disappears on the first real Developer-ID-signed and
@@ -196,10 +220,6 @@ M4 stops locally. To run the real release:
    dictation permission plus actual audio capture. Record that the v1 feed and
    `desktop/current.json` are byte-for-byte unchanged before and after this
    test.
-7. On the same isolated machine, run negative cross-channel checks: prove an
+9. On the same isolated machine, run negative cross-channel checks: prove an
    installed v1 client cannot discover or consume the v2 feed, and prove an
    installed v2 client cannot discover or consume the v1 feed.
-8. Windows stays unsigned for M4. To add DigiCert later, configure the chosen
-   PFX or KeyLocker credentials, remove `CSC_IDENTITY_AUTO_DISCOVERY=false`
-   and the `NotSigned` assertion, wire electron-builder's signing inputs, and
-   require a trusted Authenticode result before publication.

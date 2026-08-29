@@ -319,7 +319,18 @@
     "win": {
       "target": "nsis",
       "icon": "icon.ico",
-      "artifactName": "Stella-${version}-Windows-${arch}.${ext}"
+      "artifactName": "Stella-${version}-Windows-${arch}.${ext}",
+      "signExts": [
+        "stella-browser"
+      ],
+      "signtoolOptions": {
+        "signingHashAlgorithms": [
+          "sha256"
+        ],
+        "rfc3161TimeStampServer": "http://timestamp.digicert.com",
+        "publisherName": "FromYou, LLC",
+        "sign": "packages/desktop/scripts/sign-windows.mjs"
+      }
     },
     "nsis": {
       "oneClick": true,

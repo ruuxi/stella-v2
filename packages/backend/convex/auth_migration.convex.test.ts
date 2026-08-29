@@ -3758,7 +3758,7 @@ describe("crash-safe ownership migration lifecycle", () => {
     });
   });
 
-  it("moves versioned Memory, pending Dream input, and authorized Skills without stale leases", async () => {
+  it("moves versioned Memory and authorized Skills without stale leases", async () => {
     const t = createTest();
     await t.mutation(migrationInternal.prepareOwnershipMigration, ownerArgs);
     await t.mutation(migrationInternal.claimOwnershipMigration, {
@@ -3834,7 +3834,7 @@ describe("crash-safe ownership migration lifecycle", () => {
         name: "MEMORY.md",
         displayPath: "~/.stella/memories/MEMORY.md",
         kind: "memory",
-        source: "dream",
+        source: "desktop_sync",
         ownerGeneration: "legacy",
         memoryEpoch: "source-memory-epoch",
         activeVersionId: "memver-source",
@@ -3856,8 +3856,8 @@ describe("crash-safe ownership migration lifecycle", () => {
         r2Key: `${sourcePrefix}memory-versions/memdoc-source/memver-source/${sha}.md`,
         sha256: sha,
         sizeBytes: 10,
-        writer: "dream",
-        idempotencyKey: "dream-source",
+        writer: "desktop_sync",
+        idempotencyKey: "memory-source",
         createdAt: 1,
       });
       await ctx.db.insert("cloud_agent_home_write_intents", {
@@ -3869,7 +3869,7 @@ describe("crash-safe ownership migration lifecycle", () => {
         name: "MEMORY.md",
         displayPath: "~/.stella/memories/MEMORY.md",
         kind: "memory",
-        source: "dream",
+        source: "desktop_sync",
         baseRevision: 1,
         baseVersionId: "memver-source",
         versionId: "memver-pending",
@@ -3877,62 +3877,12 @@ describe("crash-safe ownership migration lifecycle", () => {
         r2Key: `${sourcePrefix}memory-versions/memdoc-source/memver-pending/${sha}.md`,
         sha256: sha,
         sizeBytes: 10,
-        writer: "dream",
-        idempotencyKey: "dream-pending",
+        writer: "desktop_sync",
+        idempotencyKey: "memory-pending",
         status: "prepared",
         expiresAt: 10_000,
         createdAt: 2,
         updatedAt: 2,
-      });
-      await ctx.db.insert("cloud_dream_inbox", {
-        inboxId: "dream-source",
-        ownerId: fromOwnerId,
-        ownerGeneration: "legacy",
-        memoryEpoch: "source-memory-epoch",
-        kind: "thread_summary",
-        sourceKey: "thread:source",
-        sourceRevision: 1,
-        r2Key: `${sourcePrefix}dream-inbox/dream-source/1-${sha}.json`,
-        sha256: sha,
-        sizeBytes: 10,
-        priority: 1,
-        usageCount: 0,
-        claimedByRunId: "run-source",
-        claimExpiresAt: 9_000,
-        createdAt: 1,
-        updatedAt: 1,
-      });
-      await ctx.db.insert("cloud_dream_runs", {
-        runId: "run-source",
-        ownerId: fromOwnerId,
-        ownerGeneration: "legacy",
-        memoryEpoch: "source-memory-epoch",
-        status: "running",
-        leaseId: "dream-lease",
-        leaseExpiresAt: 9_000,
-        inputCount: 1,
-        processedCount: 0,
-        createdAt: 1,
-        updatedAt: 1,
-      });
-      await ctx.db.insert("cloud_dream_dispatches", {
-        dispatchId: "dream-dispatch-source",
-        ownerId: fromOwnerId,
-        ownerGeneration: "legacy",
-        memoryEpoch: "source-memory-epoch",
-        conversationId: "conversation-source",
-        turnId: "turn-source",
-        sourceKey: "thread:source",
-        sourceRevision: 1,
-        payloadJson: '{"summary":"source"}',
-        payloadSha256: sha,
-        status: "running",
-        attemptCount: 1,
-        nextAttemptAt: 1,
-        leaseId: "dream-dispatch-lease",
-        leaseExpiresAt: 9_000,
-        createdAt: 1,
-        updatedAt: 1,
       });
       await ctx.db.insert("cloud_skills", {
         skillId: "skill-destination",
@@ -4065,15 +4015,9 @@ describe("crash-safe ownership migration lifecycle", () => {
       memoryIntents: await ctx.db
         .query("cloud_agent_home_write_intents")
         .collect(),
-      dreamInbox: await ctx.db.query("cloud_dream_inbox").collect(),
-      dreamRuns: await ctx.db.query("cloud_dream_runs").collect(),
-      dreamDispatches: await ctx.db.query("cloud_dream_dispatches").collect(),
       skills: await ctx.db.query("cloud_skills").collect(),
       skillVersions: await ctx.db.query("cloud_skill_versions").collect(),
       skillFiles: await ctx.db.query("cloud_skill_files").collect(),
-      skillAuthorizations: await ctx.db
-        .query("cloud_skill_authorizations")
-        .collect(),
       skillIntents: await ctx.db.query("cloud_skill_write_intents").collect(),
     }));
     expect(state.memoryPreferences).toHaveLength(1);
@@ -4123,30 +4067,12 @@ describe("crash-safe ownership migration lifecycle", () => {
       memoryEpoch: "destination-memory-epoch",
     });
     expect(state.memoryIntents).toEqual([]);
-    expect(state.dreamRuns).toEqual([]);
-    expect(state.dreamDispatches[0]).toMatchObject({
-      ownerId: toOwnerId,
-      ownerGeneration: "legacy",
-      status: "pending",
-      memoryEpoch: "destination-memory-epoch",
-    });
-    expect(state.dreamDispatches[0]?.leaseId).toBeUndefined();
-    expect(state.dreamDispatches[0]?.leaseExpiresAt).toBeUndefined();
-    expect(state.dreamInbox[0]).toMatchObject({
-      ownerId: toOwnerId,
-      ownerGeneration: "legacy",
-      sourceKey: `owner-migration:${fromOwnerHash.slice(-16)}:thread:source`,
-      memoryEpoch: "destination-memory-epoch",
-    });
-    expect(state.dreamInbox[0]?.claimedByRunId).toBeUndefined();
-    expect(state.dreamInbox[0]?.claimExpiresAt).toBeUndefined();
     const importedSkill = state.skills.find(
       (skill) => skill.skillId === "skill-source",
     )!;
     expect(importedSkill).toMatchObject({
       ownerId: toOwnerId,
       source: "owner_migration",
-      enabled: true,
       activeVersionId: "skillver-source",
     });
     expect(importedSkill.slug).not.toBe("calendar");

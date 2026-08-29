@@ -47,10 +47,6 @@ const listDocuments = makeFunctionReference<"query", any, any>(
 const setPreference = makeFunctionReference<"mutation", any, any>(
   "cloud_memory:setMyMemoryEnabled",
 );
-const recordDreamInput = makeFunctionReference<"mutation", any, any>(
-  "cloud_dream:recordInboxObjectInternal",
-);
-
 const OWNER_ID = "https://issuer.test|memory-wipe-owner";
 const GENERATION = "memory-wipe-owner-generation";
 
@@ -134,52 +130,6 @@ describe("dedicated cloud memory wipe lifecycle", () => {
       requestId: "wipe-disable-memory",
     });
     await t.run(async (ctx) => {
-      await ctx.db.insert("cloud_dream_inbox", {
-        inboxId: "wipe-inbox",
-        ownerId: OWNER_ID,
-        ownerGeneration: GENERATION,
-        memoryEpoch: "legacy",
-        kind: "thread_summary",
-        sourceKey: "wipe-source",
-        sourceRevision: 1,
-        r2Key: "agent-home/owned/dream-inbox/wipe.json",
-        sha256: "b".repeat(64),
-        sizeBytes: 1,
-        priority: 0,
-        usageCount: 0,
-        createdAt: 1,
-        updatedAt: 1,
-      });
-      await ctx.db.insert("cloud_dream_runs", {
-        runId: "wipe-run",
-        ownerId: OWNER_ID,
-        ownerGeneration: GENERATION,
-        memoryEpoch: "legacy",
-        status: "running",
-        leaseId: "wipe-dream-lease",
-        leaseExpiresAt: 100,
-        inputCount: 1,
-        processedCount: 0,
-        createdAt: 1,
-        updatedAt: 1,
-      });
-      await ctx.db.insert("cloud_dream_dispatches", {
-        dispatchId: "wipe-dispatch",
-        ownerId: OWNER_ID,
-        ownerGeneration: GENERATION,
-        memoryEpoch: "legacy",
-        conversationId: "wipe-conversation",
-        turnId: "wipe-turn",
-        sourceKey: "wipe-source",
-        sourceRevision: 1,
-        payloadJson: "{}",
-        payloadSha256: "c".repeat(64),
-        status: "pending",
-        attemptCount: 0,
-        nextAttemptAt: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      });
       await ctx.db.insert("cloud_skills", {
         skillId: "wipe-imported-skill",
         ownerId: OWNER_ID,
@@ -263,20 +213,6 @@ describe("dedicated cloud memory wipe lifecycle", () => {
     await expect(commit(t, stale)).rejects.toThrow("being permanently erased");
     await expect(
       prepare(t, "memories/other.md", "wipe-blocked-remember", "remember"),
-    ).rejects.toThrow("being permanently erased");
-    await expect(
-      t.mutation(recordDreamInput, {
-        ownerId: OWNER_ID,
-        ownerGeneration: GENERATION,
-        memoryEpoch: "legacy",
-        kind: "memory_note",
-        sourceKey: "wipe-blocked-dream",
-        sourceRevision: 1,
-        r2Key: "must-not-be-used",
-        sha256: "d".repeat(64),
-        sizeBytes: 1,
-        now: 30,
-      }),
     ).rejects.toThrow("being permanently erased");
 
     const operationId = started.job.operationId as string;
@@ -410,31 +346,21 @@ describe("dedicated cloud memory wipe lifecycle", () => {
       docs: await ctx.db.query("cloud_agent_home_docs").collect(),
       versions: await ctx.db.query("cloud_agent_home_doc_versions").collect(),
       intents: await ctx.db.query("cloud_agent_home_write_intents").collect(),
-      inbox: await ctx.db.query("cloud_dream_inbox").collect(),
-      runs: await ctx.db.query("cloud_dream_runs").collect(),
-      dispatches: await ctx.db.query("cloud_dream_dispatches").collect(),
       preference: await ctx.db.query("cloud_agent_home_preferences").unique(),
       skills: await ctx.db.query("cloud_skills").collect(),
       skillVersions: await ctx.db.query("cloud_skill_versions").collect(),
       skillFiles: await ctx.db.query("cloud_skill_files").collect(),
-      skillAuthorizations: await ctx.db
-        .query("cloud_skill_authorizations")
-        .collect(),
     }));
     expect(residue).toMatchObject({
       docs: [],
       versions: [],
       intents: [],
-      inbox: [],
-      runs: [],
-      dispatches: [],
       preference: { memoryEnabled: false, revision: 1 },
       skills: [
         {
           skillId: "wipe-imported-skill",
           source: "owner_migration",
           activeVersionId: "wipe-imported-skill-version",
-          enabled: true,
         },
       ],
       skillVersions: [

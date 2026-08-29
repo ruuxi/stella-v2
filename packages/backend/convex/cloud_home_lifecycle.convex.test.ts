@@ -87,19 +87,6 @@ const memory = (
   }
 ).cloud_memory;
 
-const dream = (
-  api as unknown as {
-    cloud_dream: {
-      getMyDreamStatus: FunctionReference<
-        "query",
-        "public",
-        Record<string, never>,
-        unknown
-      >;
-    };
-  }
-).cloud_dream;
-
 const skillsInternal = (
   internal as unknown as {
     cloud_skills: {
@@ -317,79 +304,44 @@ describe("Cloud Home lifecycle fences", () => {
             name: "memories/profile.md",
             kind: "profile" as const,
           }),
-        () => owner.query(dream.getMyDreamStatus, {}),
         () =>
-          owner.mutation(skills.authorizeMySkill, {
-            skillId: prepared.skillId,
-            versionId: prepared.versionId,
-            expectedOwnerGeneration: GENERATION,
-            expectedAuthorizationRevision: 1,
-            allowedAgentTypes: ["orchestrator" as const],
-            allowedToolNames: [],
-          }),
-        () =>
-          owner.mutation(skills.revokeMySkill, {
-            skillId: prepared.skillId,
-            expectedOwnerGeneration: GENERATION,
-            expectedAuthorizationRevision: 1,
-          }),
-        () =>
-          owner.mutation(skills.setMySkillEnabled, {
-            skillId: prepared.skillId,
-            enabled: false,
-            expectedOwnerGeneration: GENERATION,
-            expectedRevision: 1,
+          t.query(skillsInternal.listMirroredSkillsInternal, {
+            ownerId: OWNER_ID,
+            ownerGeneration: GENERATION,
+            agentType: "orchestrator" as const,
           }),
       ];
       for (const call of calls) await expect(call()).rejects.toThrow();
-      const residue = await t.run(async (ctx) => ({
-        authorizations: await ctx.db
-          .query("cloud_skill_authorizations")
-          .collect(),
-        skill: await ctx.db
+      // The fence blocks reads without destroying the mirror: the device root
+      // still holds this skill, so the row has to survive to be re-mirrored.
+      const skill = await t.run(async (ctx) =>
+        ctx.db
           .query("cloud_skills")
           .withIndex("by_skillId", (q) => q.eq("skillId", prepared.skillId))
           .unique(),
-      }));
-      expect(residue.authorizations).toMatchObject([
-        {
-          state: "active",
-          authorizationRevision: 1,
-          skillId: prepared.skillId,
-        },
-      ]);
-      expect(residue.skill?.enabled).toBe(true);
-      expect(residue.skill?.revision).toBe(1);
+      );
+      expect(skill?.revision).toBe(1);
     },
   );
 
-  it("rejects stale-generation control after reset reopens without resurrecting authorization", async () => {
+  it("rejects a stale-generation mirror read after reset reopens the home", async () => {
     const t = createTest();
     await setLifecycle(t, "open");
-    const prepared = await uploadSkill(t);
+    await uploadSkill(t);
     await setLifecycle(t, "open", "cloud-home-generation-2");
     await expect(
-      asOwner(t).mutation(skills.authorizeMySkill, {
-        skillId: prepared.skillId,
-        versionId: prepared.versionId,
-        expectedOwnerGeneration: GENERATION,
-        expectedAuthorizationRevision: 0,
-        allowedAgentTypes: ["orchestrator"],
-        allowedToolNames: [],
+      t.query(skillsInternal.listMirroredSkillsInternal, {
+        ownerId: OWNER_ID,
+        ownerGeneration: GENERATION,
+        agentType: "orchestrator",
       }),
     ).rejects.toThrow("before the account data was reset");
-    await expect(
-      t.run(
-        async (ctx) =>
-          await ctx.db.query("cloud_skill_authorizations").collect(),
-      ),
-    ).resolves.toEqual([]);
   });
 
-  it("fails closed for a migrated source owner on reads and controls", async () => {
+  it("fails closed for a migrated source owner on reads", async () => {
     const t = createTest();
     await setLifecycle(t, "open");
-    const prepared = await uploadSkill(t);
+    await uploadSkill(t);
     await t.run(async (ctx) => {
       await ctx.db.insert("auth_owner_migrations", {
         fromOwnerId: OWNER_ID,

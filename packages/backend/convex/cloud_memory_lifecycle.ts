@@ -26,7 +26,7 @@ export const LEGACY_MEMORY_EPOCH = "legacy";
 const WIPE_JOB_LEASE_MS = 9 * 60_000;
 const WIPE_RETRY_MAX_MS = 15 * 60_000;
 const METADATA_BATCH_SIZE = 100;
-const METADATA_STORE_COUNT = 6;
+const METADATA_STORE_COUNT = 3;
 const MEMORY_WIPE_EXTERNAL_PROTOCOL_VERSION = 2;
 const MEMORY_WIPE_EXTERNAL_TARGET_COUNT = 9;
 const MEMORY_WIPE_EXTERNAL_PAGE_MAX = 250;
@@ -725,31 +725,6 @@ const deleteMetadataPage = async (
         .withIndex("by_ownerId_and_idempotencyKey", (q) =>
           q.eq("ownerId", ownerId),
         )
-        .take(METADATA_BATCH_SIZE);
-    case 3:
-      return await ctx.db
-        .query("cloud_dream_inbox")
-        .withIndex("by_ownerId_and_sourceKey", (q) => q.eq("ownerId", ownerId))
-        .take(METADATA_BATCH_SIZE);
-    case 4: {
-      const rows = [];
-      for (const status of ["running", "completed", "failed"] as const) {
-        if (rows.length >= METADATA_BATCH_SIZE) break;
-        rows.push(
-          ...(await ctx.db
-            .query("cloud_dream_runs")
-            .withIndex("by_ownerId_and_status_and_leaseExpiresAt", (q) =>
-              q.eq("ownerId", ownerId).eq("status", status),
-            )
-            .take(METADATA_BATCH_SIZE - rows.length)),
-        );
-      }
-      return rows;
-    }
-    case 5:
-      return await ctx.db
-        .query("cloud_dream_dispatches")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
         .take(METADATA_BATCH_SIZE);
     default:
       return [];

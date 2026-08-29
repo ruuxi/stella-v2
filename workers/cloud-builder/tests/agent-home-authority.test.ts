@@ -3,7 +3,6 @@ import {
   AgentHome,
   buildResidentMemorySection,
 } from "../src/agent-home.js";
-import { buildDreamWritePlan } from "../src/cloud-dream-writer.js";
 import { utf8Bytes, utf8Text } from "../src/cloud-home-store.js";
 import { sha256BytesHex, sha256Hex } from "../src/hash.js";
 
@@ -70,7 +69,7 @@ const harness = async (
     name: "MEMORY.md",
     displayPath: "~/.stella/memories/MEMORY.md",
     kind: "memory",
-    source: "cloud_dream",
+    source: "desktop_sync",
     ownerGeneration,
     memoryEpoch,
     revision: 1,
@@ -117,35 +116,16 @@ const harness = async (
 };
 
 describe("authoritative Agent Home startup", () => {
-  test("makes a completed Dream document visible to a later fresh AgentHome", async () => {
-    const inputBytes = utf8Bytes(
-      JSON.stringify({
-        title: "Restart receipt",
-        summary: "The exact restart receipt is durable and visible later.",
-      }),
-    );
-    const plan = await buildDreamWritePlan({
-      inputs: [
-        {
-          entry: {
-            inboxId: "inbox-later-turn",
-            memoryEpoch,
-            kind: "thread_summary",
-            sourceKey: "conversation:one:turn:one",
-            sourceRevision: 1,
-            title: "Restart receipt",
-            r2Key: "agent-home/hash/dream/input",
-            sha256: await sha256BytesHex(inputBytes),
-            sizeBytes: inputBytes.byteLength,
-            priority: 0,
-            usageCount: 0,
-            updatedAt: 1,
-          },
-          bytes: inputBytes,
-        },
-      ],
-    });
-    const first = await harness(plan.memory);
+  test("makes a stored memory document visible to a later fresh AgentHome", async () => {
+    const stored = [
+      "# Stella Memory",
+      "",
+      "## Restart receipt",
+      "",
+      "The exact restart receipt is durable and visible later.",
+      "",
+    ].join("\n");
+    const first = await harness(stored);
     expect((await first.agentHome.getMemoryPreference()).memoryEnabled).toBe(
       true,
     );

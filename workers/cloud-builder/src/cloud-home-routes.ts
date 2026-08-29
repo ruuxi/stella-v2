@@ -6,7 +6,6 @@ import {
   utf8Bytes,
   utf8Text,
 } from "./cloud-home-store.js";
-import { CloudDreamWriter } from "./cloud-dream-writer.js";
 
 type CloudHomeRouteEnv = {
   AGENT_HOME?: R2Bucket;
@@ -513,8 +512,6 @@ export const handleUserCloudHomeRoute = async (args: {
               versionId: entry.versionId,
               manifestSha256: entry.manifestSha256,
               treeSha256: entry.treeSha256,
-              allowedAgentTypes: entry.allowedAgentTypes,
-              allowedToolNames: entry.allowedToolNames,
               files: await Promise.all(
                 entry.files.map(async (file) => ({
                   path: file.path,
@@ -533,85 +530,6 @@ export const handleUserCloudHomeRoute = async (args: {
             })),
           );
           return json({ ownerGeneration, agentType, skills });
-        }
-        return json({ error: "Not found." }, 404);
-      },
-    );
-  } catch (error) {
-    return routeError(error);
-  }
-};
-
-/** Service-secret Dream enqueue/run plane used by completion and cron jobs. */
-export const handleInternalCloudHomeRoute = async (args: {
-  request: Request;
-  env: CloudHomeRouteEnv;
-  withLease: CloudHomeLeaseRunner;
-}): Promise<Response | null> => {
-  const url = new URL(args.request.url);
-  if (!url.pathname.startsWith("/internal/cloud-home/")) return null;
-  try {
-    const body = await parseJsonObject(args.request);
-    const ownerId = requiredString(body, "ownerId", 512);
-    const ownerGeneration = requiredString(body, "ownerGeneration", 512);
-    return await args.withLease(
-      ownerId,
-      ownerGeneration,
-      `cloud-home-internal:${crypto.randomUUID()}`,
-      async (assertExternalWrite) => {
-        const home = makeStore(
-          args.env,
-          ownerId,
-          ownerGeneration,
-          assertExternalWrite,
-        );
-        if (
-          args.request.method === "POST" &&
-          url.pathname === "/internal/cloud-home/dream/enqueue"
-        ) {
-          const kind = body.kind;
-          if (
-            kind !== "thread_summary" &&
-            kind !== "memory_note" &&
-            kind !== "chronicle" &&
-            kind !== "imported_memory"
-          ) {
-            throw new CloudHomeProtocolError("Dream input kind was invalid.");
-          }
-          const payload = body.payload;
-          if (payload === undefined) {
-            throw new CloudHomeProtocolError("Dream input payload required.");
-          }
-          const bytes = utf8Bytes(`${JSON.stringify(payload)}\n`);
-          if (bytes.byteLength > 256 * 1024) {
-            throw new CloudHomeProtocolError("Dream input was too large.", 413);
-          }
-          const entry = await home.publishDreamInput({
-            memoryEpoch: requiredString(body, "memoryEpoch", 512),
-            kind,
-            sourceKey: requiredString(body, "sourceKey", 384),
-            sourceRevision: requiredRevision(body, "sourceRevision"),
-            ...(typeof body.title === "string" && body.title.trim()
-              ? { title: body.title.trim().slice(0, 240) }
-              : {}),
-            bytes,
-          });
-          const { r2Key: _r2Key, ...safe } = entry;
-          return json(safe);
-        }
-        if (
-          args.request.method === "POST" &&
-          url.pathname === "/internal/cloud-home/dream/run"
-        ) {
-          const result = await new CloudDreamWriter(home).claimAndRun({
-            memoryEpoch: requiredString(body, "memoryEpoch", 512),
-            ...(typeof body.runId === "string" ? { runId: body.runId } : {}),
-            ...(typeof body.leaseId === "string"
-              ? { leaseId: body.leaseId }
-              : {}),
-            ...(typeof body.limit === "number" ? { limit: body.limit } : {}),
-          });
-          return json(result);
         }
         return json({ error: "Not found." }, 404);
       },

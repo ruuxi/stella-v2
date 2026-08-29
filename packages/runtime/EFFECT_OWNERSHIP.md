@@ -9,22 +9,22 @@ aesthetics.
 
 ## Effect-owned lifetime seams
 
-| Seam | Owner |
-| --- | --- |
-| Worker RPC services + session graph | `worker/server/` Layers; teardown order documented in `worker/server/sessions.ts` |
-| Host worker lifecycle (lock/spawn/kill/readiness) | `host/lifecycle/` Scope + Schedule |
-| Orchestrator lane admission + queued-turn drain | `kernel/runner/run-coordinator.ts` |
-| Run fiber tree (turns, subagent attempts) | `kernel/runner/supervision/run-supervisor.ts` over `shared/supervised-scope.ts` |
-| Provider streams (delivery + lifecycle) | `agent-runtime/provider-stream-lifecycle.ts` (true Stream pipeline; relay abort; bounded joins) + `ai/stream.ts` pipeStream |
-| Tool executions | `agent-runtime/tool-lifecycle.ts` (child signals, duplicate guard, bounded joins) |
-| External engine turns | `agent-runtime/external-engine-lifecycle.ts` (relay → kill ladder, bounded joins) |
-| Compaction / Dream scheduling | keyed SupervisedScope executors (single-flight pinned) |
-| Cancellation | one joining interrupt: `cancelLocalChat` → `supervisor.cancelRun` |
-| Boot readiness | `shared/readiness-latch.ts` (Deferred; reset on stop) |
-| Subagent settlement | `LocalAgentManager.waitForAgentUpdate` (notify at persistTask; SQLite truth) |
-| toolHost shutdown | idempotent memoized finalizer sequence; shell exits joined (3s bound) → repl kernels |
-| Shell exit joins | `kernel/tools/host.ts#killShell` — event-driven join on the shell's exit latch, 1.5s bound (was a 25ms poll) |
-| RunEventLog retention sweep | fixed-rate fiber in `kernel/storage/run-event-log.ts` with a cancel thunk (was an unref'd `setInterval`); host timers (heartbeat, debounces) ride `host/effect-runtime.ts` |
+| Seam                                              | Owner                                                                                                                                                                      |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Worker RPC services + session graph               | `worker/server/` Layers; teardown order documented in `worker/server/sessions.ts`                                                                                          |
+| Host worker lifecycle (lock/spawn/kill/readiness) | `host/lifecycle/` Scope + Schedule                                                                                                                                         |
+| Orchestrator lane admission + queued-turn drain   | `kernel/runner/run-coordinator.ts`                                                                                                                                         |
+| Run fiber tree (turns, subagent attempts)         | `kernel/runner/supervision/run-supervisor.ts` over `shared/supervised-scope.ts`                                                                                            |
+| Provider streams (delivery + lifecycle)           | `agent-runtime/provider-stream-lifecycle.ts` (true Stream pipeline; relay abort; bounded joins) + `ai/stream.ts` pipeStream                                                |
+| Tool executions                                   | `agent-runtime/tool-lifecycle.ts` (child signals, duplicate guard, bounded joins)                                                                                          |
+| External engine turns                             | `agent-runtime/external-engine-lifecycle.ts` (relay → kill ladder, bounded joins)                                                                                          |
+| Compaction scheduling                             | keyed SupervisedScope executors (single-flight pinned)                                                                                                                     |
+| Cancellation                                      | one joining interrupt: `cancelLocalChat` → `supervisor.cancelRun`                                                                                                          |
+| Boot readiness                                    | `shared/readiness-latch.ts` (Deferred; reset on stop)                                                                                                                      |
+| Subagent settlement                               | `LocalAgentManager.waitForAgentUpdate` (notify at persistTask; SQLite truth)                                                                                               |
+| toolHost shutdown                                 | idempotent memoized finalizer sequence; shell exits joined (3s bound) → repl kernels                                                                                       |
+| Shell exit joins                                  | `kernel/tools/host.ts#killShell` — event-driven join on the shell's exit latch, 1.5s bound (was a 25ms poll)                                                               |
+| RunEventLog retention sweep                       | fixed-rate fiber in `kernel/storage/run-event-log.ts` with a cancel thunk (was an unref'd `setInterval`); host timers (heartbeat, debounces) ride `host/effect-runtime.ts` |
 
 ## Retained imperative seams (deliberate, with reasons)
 

@@ -1460,33 +1460,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     CREATE INDEX IF NOT EXISTS idx_durable_thread_summaries_updated
     ON durable_thread_summaries(source_updated_at);
   `);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS dream_consolidation_watermark (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      frontier INTEGER NOT NULL,
-      completed_at INTEGER NOT NULL
-    );
-  `);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS dream_delta_watermark (
-      conversation_id TEXT PRIMARY KEY,
-      last_message_ts INTEGER NOT NULL,
-      applied_through_ts INTEGER,
-      updated_at INTEGER NOT NULL
-    );
-  `);
-  try {
-    db.exec(
-      "ALTER TABLE dream_delta_watermark ADD COLUMN applied_through_ts INTEGER;",
-    );
-  } catch {
-    // Column already exists.
-  }
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS dream_scheduler_state (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      tokens_at_last_run INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-  `);
+  db.exec("DROP TABLE IF EXISTS dream_consolidation_watermark;");
+  db.exec("DROP TABLE IF EXISTS dream_delta_watermark;");
+  db.exec("DROP TABLE IF EXISTS dream_scheduler_state;");
 };

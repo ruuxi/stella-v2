@@ -330,7 +330,7 @@ describe("mobile Cloud Home client", () => {
       {
         name: "memories/profile.md",
         kind: "profile",
-        writer: "dream",
+        writer: "remember",
         content,
         expectedRevision: 1,
       },

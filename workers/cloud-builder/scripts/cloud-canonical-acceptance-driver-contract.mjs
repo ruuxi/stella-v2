@@ -63,7 +63,6 @@ export const REQUIRED_RAW_SURFACES = Object.freeze({
   browser_cloud_routing: ["browser-cdp", "convex", "sandbox"],
   child_completion: ["worker", "sandbox"],
   memory_restart_recall: ["worker", "r2"],
-  dream_rotation_memory_map: ["worker", "r2"],
   cloud_skill_discovery_use: ["worker", "r2"],
   code_mode_real_mcp: ["worker", "mcp"],
   general_agent_real_sandbox: ["worker", "sandbox"],

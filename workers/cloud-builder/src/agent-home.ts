@@ -4,8 +4,10 @@
  * Desktop Stella keeps user-owned Markdown under `~/.stella`. Owner-fenced
  * Cloud Home import/sync copies applicable documents into generation-scoped R2
  * state, and the DO reads that authoritative cloud state at turn start.
- * Remember writes `profile.md`; Dream rotates `MEMORY.md` and `memory_map.md`;
- * explicit Cloud Home sync can also materialize personality and imported
+ * Remember writes `profile.md`. `MEMORY.md`, `memory_map.md` and archive
+ * documents are now read-only surfaces for Recall: nothing in the cloud writes
+ * them, and they exist only when desktop or mobile sync imported them.
+ * Explicit Cloud Home sync can also materialize personality and imported
  * user-owned Markdown.
  *
  * Everything in this module has to run in workerd, so the desktop's

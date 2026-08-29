@@ -41,6 +41,22 @@ describe("retired automatic-memory database migration", () => {
         conversation_id TEXT PRIMARY KEY,
         user_turns_since_review INTEGER NOT NULL DEFAULT 0
       );
+      CREATE TABLE dream_consolidation_watermark (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        frontier INTEGER NOT NULL,
+        completed_at INTEGER NOT NULL
+      );
+      CREATE TABLE dream_delta_watermark (
+        conversation_id TEXT PRIMARY KEY,
+        last_message_ts INTEGER NOT NULL,
+        applied_through_ts INTEGER,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE dream_scheduler_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        tokens_at_last_run INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
       INSERT INTO dream_inbox (
         kind, source_key, thread_id, run_id, agent_type, content,
         source_updated_at
@@ -59,6 +75,9 @@ describe("retired automatic-memory database migration", () => {
 
     expect(tableExists(db, "dream_inbox")).toBe(false);
     expect(tableExists(db, "runtime_memory_review_state")).toBe(false);
+    expect(tableExists(db, "dream_consolidation_watermark")).toBe(false);
+    expect(tableExists(db, "dream_delta_watermark")).toBe(false);
+    expect(tableExists(db, "dream_scheduler_state")).toBe(false);
     const summaries = db
       .prepare(
         `

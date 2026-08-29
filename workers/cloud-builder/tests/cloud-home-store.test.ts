@@ -235,10 +235,10 @@ describe("CloudHomeStore", () => {
       store.publishMemory({
         name: "MEMORY.md",
         kind: "memory",
-        source: "dream",
+        source: "desktop_sync",
         expectedRevision: 0,
         bytes,
-        writer: "dream",
+        writer: "desktop_sync",
         idempotencyKey: "reset-race",
       }),
     ).rejects.toThrow("owner purge began");
@@ -294,10 +294,10 @@ describe("CloudHomeStore", () => {
     const replay = await store.publishMemory({
       name: "MEMORY.md",
       kind: "memory",
-      source: "dream",
+      source: "desktop_sync",
       expectedRevision: 0,
       bytes,
-      writer: "dream",
+      writer: "desktop_sync",
       idempotencyKey: "replay-1",
     });
     expect(replay.status).toBe("committed");
@@ -318,7 +318,7 @@ describe("CloudHomeStore", () => {
           name: "MEMORY.md",
           displayPath: "~/.stella/memories/MEMORY.md",
           kind: "memory",
-          source: "dream",
+          source: "desktop_sync",
           ownerGeneration,
           memoryEpoch,
           revision: 1,
@@ -335,148 +335,7 @@ describe("CloudHomeStore", () => {
     expect(r2.getCount()).toBe(0);
   });
 
-  test("generation-scopes Dream inbox bytes and fences the PUT", async () => {
-    const r2 = fakeBucket();
-    const ownerHash = await sha256Hex(ownerId);
-    const generationHash = await sha256Hex(ownerGeneration);
-    const bytes = utf8Bytes('{"summary":"remember this"}');
-    const sha256 = await sha256BytesHex(bytes);
-    let assertions = 0;
-    const store = new CloudHomeStore(r2.bucket, {
-      base: "https://convex.example",
-      serviceSecret: "secret",
-      ownerId,
-      ownerGeneration,
-      assertExternalWrite: async () => {
-        assertions += 1;
-      },
-      fetch: async (input, init) => {
-        if (new URL(String(input)).pathname.endsWith("/memory/preference")) {
-          return Response.json({
-            ownerGeneration,
-            memoryEpoch,
-            memoryEnabled: true,
-            revision: 0,
-            updatedAt: 0,
-          });
-        }
-        if (new URL(String(input)).pathname.endsWith("/memory/epoch/assert")) {
-          return Response.json({ memoryEpoch });
-        }
-        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-        return Response.json({
-          inboxId: body.r2Key
-            ?.toString()
-            .split("/dream-inbox/")[1]
-            ?.split("/")[0],
-          kind: body.kind,
-          sourceKey: body.sourceKey,
-          sourceRevision: body.sourceRevision,
-          memoryEpoch,
-          r2Key: body.r2Key,
-          sha256: body.sha256,
-          sizeBytes: body.sizeBytes,
-          priority: 0,
-          usageCount: 0,
-          updatedAt: 1,
-        });
-      },
-    });
-
-    const entry = await store.publishDreamInput({
-      memoryEpoch,
-      kind: "memory_note",
-      sourceKey: "memory:profile",
-      sourceRevision: 7,
-      bytes,
-    });
-    expect(entry.r2Key).toBe(
-      `agent-home/${ownerHash}/generations/${generationHash}/dream-inbox/${entry.inboxId}/7-${sha256}.json`,
-    );
-    expect(assertions).toBe(1);
-    expect(r2.objects.has(entry.r2Key)).toBe(true);
-  });
-
-  test("a Dream reset race cannot write bytes", async () => {
-    const r2 = fakeBucket();
-    const store = new CloudHomeStore(r2.bucket, {
-      base: "https://convex.example",
-      serviceSecret: "secret",
-      ownerId,
-      ownerGeneration,
-      assertExternalWrite: async () => {
-        throw new Error("owner purge began");
-      },
-      fetch: async (input) => {
-        if (new URL(String(input)).pathname.endsWith("/memory/preference")) {
-          return Response.json({
-            ownerGeneration,
-            memoryEpoch,
-            memoryEnabled: true,
-            revision: 0,
-            updatedAt: 0,
-          });
-        }
-        if (new URL(String(input)).pathname.endsWith("/memory/epoch/assert")) {
-          return Response.json({ memoryEpoch });
-        }
-        return Response.json(
-          { error: "record must not run" },
-          { status: 500 },
-        );
-      },
-    });
-
-    await expect(
-      store.publishDreamInput({
-        memoryEpoch,
-        kind: "memory_note",
-        sourceKey: "memory:profile",
-        sourceRevision: 7,
-        bytes: utf8Bytes("dream"),
-      }),
-    ).rejects.toThrow("owner purge began");
-    expect(r2.putCount()).toBe(0);
-    expect(r2.objects.size).toBe(0);
-  });
-
-  test("a disabled memory preference blocks Dream before any R2 write", async () => {
-    const r2 = fakeBucket();
-    const store = new CloudHomeStore(r2.bucket, {
-      base: "https://convex.example",
-      serviceSecret: "secret",
-      ownerId,
-      ownerGeneration,
-      assertExternalWrite: async () => {
-        throw new Error("R2 fence must not be reached while disabled");
-      },
-      fetch: async (input) => {
-        expect(new URL(String(input)).pathname).toBe(
-          "/api/cloud/home/memory/preference",
-        );
-        return Response.json({
-          ownerGeneration,
-          memoryEpoch,
-          memoryEnabled: false,
-          revision: 1,
-          updatedAt: 1,
-        });
-      },
-    });
-
-    await expect(
-      store.publishDreamInput({
-        memoryEpoch,
-        kind: "memory_note",
-        sourceKey: "memory:disabled",
-        sourceRevision: 1,
-        bytes: utf8Bytes("must remain unwritten"),
-      }),
-    ).rejects.toMatchObject({ code: "CLOUD_MEMORY_DISABLED" });
-    expect(r2.putCount()).toBe(0);
-  });
-
-  test("pins exact authorized skill files for discovery and use", async () => {
+  test("pins exact mirrored skill files for discovery and use", async () => {
     const r2 = fakeBucket();
     const ownerHash = await sha256Hex(ownerId);
     const bytes = utf8Bytes("# Calendar\n\nUse the calendar tool.\n");

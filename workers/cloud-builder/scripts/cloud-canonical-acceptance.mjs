@@ -192,8 +192,6 @@ const requiredStepDescriptions = Object.freeze({
     "A real child completion reaches the parent DO exactly once.",
   memory_restart_recall:
     "Cloud MEMORY.md survives a Worker restart and is recalled and injected into a later real turn.",
-  dream_rotation_memory_map:
-    "A real Dream pass updates MEMORY.md and memory_map.md and rotates durable memory into an archive version.",
   cloud_skill_discovery_use:
     "A versioned cloud-owned skill manifest and asset are discovered, loaded, and used by a real cloud agent without Mac filesystem access.",
   code_mode_real_mcp:
@@ -3717,131 +3715,6 @@ const validators = {
       ),
     };
   },
-  dream_rotation_memory_map(observation, context) {
-    const memoryRevisionBefore = finiteInteger(
-      observation.memoryRevisionBefore,
-      "memoryRevisionBefore",
-      1,
-    );
-    const memoryRevisionAfter = finiteInteger(
-      observation.memoryRevisionAfter,
-      "memoryRevisionAfter",
-      memoryRevisionBefore + 1,
-    );
-    const memoryMapRevisionBefore = finiteInteger(
-      observation.memoryMapRevisionBefore,
-      "memoryMapRevisionBefore",
-    );
-    const memoryMapRevisionAfter = finiteInteger(
-      observation.memoryMapRevisionAfter,
-      "memoryMapRevisionAfter",
-      memoryMapRevisionBefore + 1,
-    );
-    const archiveR2Key = boundedIdentifier(
-      observation.archiveR2Key,
-      "archiveR2Key",
-      1_024,
-    );
-    const archiveDocumentName = boundedIdentifier(
-      observation.archiveDocumentName,
-      "archiveDocumentName",
-    );
-    const archiveDocumentId = boundedIdentifier(
-      observation.archiveDocumentId,
-      "archiveDocumentId",
-    );
-    const archiveVersionId = boundedIdentifier(
-      observation.archiveVersionId,
-      "archiveVersionId",
-    );
-    assert(
-      /^archive\/[0-9]{4}-[0-9]{2}\.md$/u.test(archiveDocumentName),
-      "Dream archiveDocumentName must identify a monthly archive document.",
-    );
-    const archiveContentSha256 = sha256Value(
-      observation.archiveContentSha256,
-      "archiveContentSha256",
-    );
-    assert(
-      archiveR2Key ===
-        `${agentHomeGenerationPrefix(context.identity)}memory-versions/${archiveDocumentId}/${archiveVersionId}/${archiveContentSha256}.md`,
-      "Dream rotation archive is not the exact generation-fenced document version for this owner.",
-    );
-    return {
-      conversationId: boundedIdentifier(
-        observation.conversationId,
-        "conversationId",
-      ),
-      dreamRunId: boundedIdentifier(observation.dreamRunId, "dreamRunId"),
-      dreamLeaseIdSha256: sha256Value(
-        observation.dreamLeaseIdSha256,
-        "dreamLeaseIdSha256",
-      ),
-      inputMemoryVersionId: boundedIdentifier(
-        observation.inputMemoryVersionId,
-        "inputMemoryVersionId",
-      ),
-      outputMemoryVersionId: boundedIdentifier(
-        observation.outputMemoryVersionId,
-        "outputMemoryVersionId",
-      ),
-      outputMemoryMapVersionId: boundedIdentifier(
-        observation.outputMemoryMapVersionId,
-        "outputMemoryMapVersionId",
-      ),
-      memoryRevisionBefore,
-      memoryRevisionAfter,
-      memoryMapRevisionBefore,
-      memoryMapRevisionAfter,
-      dreamInputSha256: sha256Value(
-        observation.dreamInputSha256,
-        "dreamInputSha256",
-      ),
-      memoryOutputSha256: sha256Value(
-        observation.memoryOutputSha256,
-        "memoryOutputSha256",
-      ),
-      memoryMapOutputSha256: sha256Value(
-        observation.memoryMapOutputSha256,
-        "memoryMapOutputSha256",
-      ),
-      archiveDocumentName,
-      archiveDocumentId,
-      archiveVersionId,
-      archiveContentSha256,
-      archiveR2Key,
-      archiveR2Etag: boundedIdentifier(
-        observation.archiveR2Etag,
-        "archiveR2Etag",
-      ),
-      dreamRunCompleted: booleanTrue(
-        observation.dreamRunCompleted,
-        "dreamRunCompleted",
-      ),
-      memoryUpdated: booleanTrue(observation.memoryUpdated, "memoryUpdated"),
-      memoryMapUpdated: booleanTrue(
-        observation.memoryMapUpdated,
-        "memoryMapUpdated",
-      ),
-      rotationObserved: booleanTrue(
-        observation.rotationObserved,
-        "rotationObserved",
-      ),
-      rotatedBlockCount: finiteInteger(
-        observation.rotatedBlockCount,
-        "rotatedBlockCount",
-        1,
-      ),
-      memoryMapReferencesArchive: booleanTrue(
-        observation.memoryMapReferencesArchive,
-        "memoryMapReferencesArchive",
-      ),
-      conflictRetryObserved: booleanTrue(
-        observation.conflictRetryObserved,
-        "conflictRetryObserved",
-      ),
-    };
-  },
   cloud_skill_discovery_use(observation, context) {
     const skillId = boundedIdentifier(observation.skillId, "skillId");
     const skillVersionId = boundedIdentifier(
@@ -5167,7 +5040,6 @@ export const assertEvidenceCoherence = (steps, isolatedRoots) => {
   const browserRoute = required("browser_cloud_routing").evidence;
   const child = required("child_completion").evidence;
   const memory = required("memory_restart_recall").evidence;
-  const dream = required("dream_rotation_memory_map").evidence;
   const skill = required("cloud_skill_discovery_use").evidence;
   const codeMode = required("code_mode_real_mcp").evidence;
   const sandbox = required("general_agent_real_sandbox").evidence;
@@ -5207,7 +5079,6 @@ export const assertEvidenceCoherence = (steps, isolatedRoots) => {
     ["cancellation", cancellation],
     ["cloud_failure_no_local_fallback", noFallback],
     ["memory_restart_recall", memory],
-    ["dream_rotation_memory_map", dream],
     ["cloud_skill_discovery_use", skill],
     ["code_mode_real_mcp", codeMode],
   ]) {
@@ -5340,12 +5211,6 @@ export const assertEvidenceCoherence = (steps, isolatedRoots) => {
       memory.workerVersionIdBeforeRestart === deployment.workerVersionId &&
       memory.workerVersionIdAfterRestart === deployment.workerVersionId,
     "Memory restart evidence is not tied to the second turn and deployed Worker version.",
-  );
-  assert(
-    dream.inputMemoryVersionId === memory.memoryVersionId &&
-      dream.memoryRevisionBefore === memory.memoryRevision &&
-      dream.outputMemoryVersionId !== dream.inputMemoryVersionId,
-    "Dream did not rotate forward from the exact recalled MEMORY.md version.",
   );
   assert(
     skill.discoveryTurnId !== skill.useTurnId,

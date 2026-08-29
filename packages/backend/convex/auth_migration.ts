@@ -60,7 +60,6 @@ import {
   importedAgentHomeDocumentName,
   importedAgentHomePrefix,
   importedDrivePath,
-  importedDreamSourceKey,
   importedInteriorPrefix,
   importedOwnerScopedKey,
   importedProjectSlug,
@@ -6572,51 +6571,6 @@ export const commitOwnerNamespaceTransfer = internalMutation({
       }
       return await progressed();
     }
-    const dreamDispatches = await ctx.db
-      .query("cloud_dream_dispatches")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-      .take(20);
-    if (dreamDispatches.length > 0) {
-      for (const dispatch of dreamDispatches) {
-        const collision = await ctx.db
-          .query("cloud_dream_dispatches")
-          .withIndex("by_dispatchId", (q) =>
-            q.eq("dispatchId", dispatch.dispatchId),
-          )
-          .unique();
-        if (collision && collision._id !== dispatch._id) {
-          blockOwnershipMigration(
-            `An automatic Dream dispatch identity collided during account linking: ${dispatch.dispatchId}.`,
-          );
-        }
-        await ctx.db.patch(dispatch._id, {
-          ownerId: args.toOwnerId,
-          ownerGeneration: destinationGeneration,
-          memoryEpoch: destinationMemoryEpoch,
-          ...(dispatch.status === "running"
-            ? {
-                status: "pending" as const,
-                nextAttemptAt: Date.now(),
-              }
-            : {}),
-          leaseId: undefined,
-          leaseExpiresAt: undefined,
-          updatedAt: Date.now(),
-        });
-      }
-      return await progressed();
-    }
-    const dreamRuns = await ctx.db
-      .query("cloud_dream_runs")
-      .withIndex("by_ownerId_and_status_and_leaseExpiresAt", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(20);
-    if (dreamRuns.length > 0) {
-      await Promise.all(dreamRuns.map((row) => ctx.db.delete(row._id)));
-      return await progressed();
-    }
-
     const memoryVersions = await ctx.db
       .query("cloud_agent_home_doc_versions")
       .withIndex("by_ownerId_and_createdAt", (q) =>
@@ -6675,33 +6629,8 @@ export const commitOwnerNamespaceTransfer = internalMutation({
     }
     if (documents.length > 0) return await progressed();
 
-    const dreamInbox = await ctx.db
-      .query("cloud_dream_inbox")
-      .withIndex("by_ownerId_and_processedAt_and_priority_and_updatedAt", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(20);
-    if (dreamInbox.length > 0) {
-      for (const input of dreamInbox) {
-        await ctx.db.patch(input._id, {
-          ownerId: args.toOwnerId,
-          ownerGeneration: destinationGeneration,
-          memoryEpoch: destinationMemoryEpoch,
-          sourceKey: importedDreamSourceKey(
-            input.sourceKey,
-            args.fromOwnerHash,
-          ),
-          r2Key: importedObjectKey(input.r2Key, "A Dream inbox object"),
-          claimedByRunId: undefined,
-          claimExpiresAt: undefined,
-          updatedAt: Date.now(),
-        });
-      }
-      return await progressed();
-    }
-
     // The worker has already copied the complete Agent Home namespace, and
-    // every source Memory/Dream metadata row above has now moved or drained.
+    // every source Memory metadata row above has now moved or drained.
     // Only at this point may the source epoch capability move/disappear.
     if (memoryMigration.sourceLifecycle) {
       if (memoryMigration.destinationLifecycle) {
@@ -8866,32 +8795,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
           .withIndex("by_ownerId_and_status_and_updatedAt", (q) =>
             q.eq("ownerId", ownerId),
           )
-          .take(1),
-      ],
-      [
-        "cloud_dream_inbox",
-        await ctx.db
-          .query("cloud_dream_inbox")
-          .withIndex(
-            "by_ownerId_and_processedAt_and_priority_and_updatedAt",
-            (q) => q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "cloud_dream_runs",
-        await ctx.db
-          .query("cloud_dream_runs")
-          .withIndex("by_ownerId_and_status_and_leaseExpiresAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "cloud_dream_dispatches",
-        await ctx.db
-          .query("cloud_dream_dispatches")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
           .take(1),
       ],
       [

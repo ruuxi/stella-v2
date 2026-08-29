@@ -142,7 +142,16 @@ describe("general agent turn placement", () => {
 describe("persisted turn compute plan", () => {
   test("records the facts that produced the placement", () => {
     const turn = parse();
-    expect(turnComputePlan({ turn, residentDisabled: false, now: 42 })).toEqual({
+    expect(
+      turnComputePlan({
+        turnId: turn.identity.turnId,
+        attemptGeneration: turn.identity.attemptGeneration,
+        execution: turn.execution,
+        browserResume: turn.browserResume !== undefined,
+        residentDisabled: false,
+        now: 42,
+      }),
+    ).toEqual({
       schemaVersion: 1,
       turnId: "turn-1",
       attemptGeneration: 2,
@@ -237,7 +246,14 @@ describe("general agent turn request parsing", () => {
     const turn = parse({ browserResume: RESUME });
     expect(turn.browserResume).toEqual(RESUME);
     expect(
-      turnComputePlan({ turn, residentDisabled: false, now: 1 }).plan,
+      turnComputePlan({
+        turnId: turn.identity.turnId,
+        attemptGeneration: turn.identity.attemptGeneration,
+        execution: turn.execution,
+        browserResume: turn.browserResume !== undefined,
+        residentDisabled: false,
+        now: 1,
+      }).plan,
     ).toMatchObject({ kind: "native_sandbox", reason: "browser_resume" });
   });
 

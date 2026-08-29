@@ -22,12 +22,6 @@ const maintainAgentEventOwnershipRef = makeFunctionReference<
   unknown
 >("agent_event_ownership:maintainAgentEventOwnershipInternal");
 
-const sweepAutomaticDreamDispatchesRef = makeFunctionReference<
-  "mutation",
-  { now?: number; limit?: number },
-  { scheduled: number }
->("cloud_dream:sweepAutomaticDreamDispatchesInternal");
-
 const sweepMemoryWipesRef = makeFunctionReference<
   "action",
   { limit?: number },
@@ -210,16 +204,6 @@ crons.interval(
   { hours: 6 },
   maintainAgentEventOwnershipRef,
   { maxBatches: 8 },
-);
-
-// Completion acceptance atomically creates each Dream dispatch. Immediate
-// scheduling is the fast path; this bounded sweep recovers killed actions,
-// stale leases and deployment restarts without scanning conversation history.
-crons.interval(
-  "recover automatic cloud Dream dispatches",
-  { minutes: 1 },
-  sweepAutomaticDreamDispatchesRef,
-  { limit: 20 },
 );
 
 // Memory-only erasure is object-first and cursor-driven. This sweep recovers

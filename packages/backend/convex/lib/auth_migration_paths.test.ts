@@ -6,7 +6,6 @@ import {
   importedAgentHomeDocumentName,
   importedAgentHomePrefix,
   importedDrivePath,
-  importedDreamSourceKey,
   importedInteriorPrefix,
   importedOwnerScopedKey,
   importedProjectSlug,
@@ -74,7 +73,7 @@ describe("anonymous owner collision paths", () => {
     );
   });
 
-  test("uses valid collision-safe identities for migrated skills and Dream inputs", () => {
+  test("uses valid collision-safe identities for migrated skills", () => {
     assert.equal(
       importedSkillSlug("calendar", "skill-source-ABC123"),
       "calendar-imported-sourceabc123",
@@ -82,10 +81,6 @@ describe("anonymous owner collision paths", () => {
     assert.match(
       importedSkillSlug("Bad / Skill", "source", 1),
       /^[a-z0-9][a-z0-9-]{0,62}$/,
-    );
-    assert.equal(
-      importedDreamSourceKey("thread:one", "anonymous-owner"),
-      "owner-migration:anonymousowner:thread:one",
     );
   });
 

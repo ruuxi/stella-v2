@@ -27,6 +27,9 @@ export const memoryWipeTargets = async (
   const generationRoot = `${ownerRoot}generations/${generationHash}/`;
   const targets: MemoryWipeTarget[] = [
     { kind: "prefix", value: `${generationRoot}memory-versions/` },
+    // Automatic memory review is retired, so nothing writes `dream-inbox/`
+    // anymore. Bytes an earlier build left there still belong to the owner and
+    // must still be erased, so the namespace stays a wipe target.
     { kind: "prefix", value: `${generationRoot}dream-inbox/` },
     { kind: "prefix", value: `${generationRoot}memories/` },
     { kind: "key", value: `${generationRoot}PERSONALITY.md` },

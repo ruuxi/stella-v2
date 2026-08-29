@@ -8,7 +8,6 @@ export const CLOUD_SKILL_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 export const CLOUD_HOME_MAX_DOCUMENTS = 100;
 export const CLOUD_HOME_WRITE_INTENT_TTL_MS = 15 * 60_000;
-export const CLOUD_DREAM_CLAIM_TTL_MS = 5 * 60_000;
 export const CLOUD_SKILL_MAX_FILES = 256;
 export const CLOUD_SKILL_MAX_FILE_BYTES = 5 * 1024 * 1024;
 export const CLOUD_SKILL_MAX_TOTAL_BYTES = 25 * 1024 * 1024;
@@ -25,7 +24,6 @@ export type CloudMemoryDocumentKind =
 
 export type CloudMemoryWriter =
   | "remember"
-  | "dream"
   | "desktop_sync"
   | "mobile_sync"
   | "user_edit"
@@ -153,7 +151,7 @@ export const normalizeCloudMemoryDocument = (
   }
   if (safe.startsWith("archive/")) {
     if (requestedKind !== "archive") {
-      throw new ConvexError("Dream archive documents require archive kind.");
+      throw new ConvexError("Memory archive documents require archive kind.");
     }
     return {
       name: safe,
@@ -314,21 +312,6 @@ export const memoryVersionR2Key = async (args: {
   sha256: string;
 }): Promise<string> =>
   `${await agentHomeGenerationR2Prefix(args)}memory-versions/${args.documentId}/${args.versionId}/${args.sha256}.md`;
-
-export const dreamInboxR2Key = async (args: {
-  ownerId: string;
-  ownerGeneration: string;
-  inboxId: string;
-  sourceRevision: number;
-  sha256: string;
-}): Promise<string> =>
-  `${await agentHomeGenerationR2Prefix(args)}dream-inbox/${args.inboxId}/${args.sourceRevision}-${args.sha256}.json`;
-
-export const dreamInboxId = async (
-  ownerId: string,
-  sourceKey: string,
-): Promise<string> =>
-  `dream-${(await sha256Hex(`${ownerId}\0${sourceKey}`)).slice(0, 40)}`;
 
 export const skillManifestR2Key = async (args: {
   ownerId: string;

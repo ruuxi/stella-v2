@@ -52,7 +52,6 @@ import {
 import { hashSha256Hex } from "./lib/crypto_utils";
 import { createManagedUsageDispatchGuard } from "./lib/managed_billing";
 import { runManagedDispatchAttempt } from "./runtime_ai/managed";
-import { enqueueAutomaticDreamForCompletedChat } from "./cloud_dream";
 import {
   browserSuspensionReplayMatches,
   completeCloudBrowserInteractionForResumeTurn,
@@ -7590,21 +7589,6 @@ export const appendEventInternal = internalMutation({
         ...(args.tokenHash ? { terminalTokenHash: args.tokenHash } : {}),
         updatedAt: args.now,
       });
-      if (
-        args.kind === "completed" &&
-        turn.kind === "chat" &&
-        turn.conversationId
-      ) {
-        await enqueueAutomaticDreamForCompletedChat(ctx, {
-          ownerId: turn.ownerId,
-          ownerGeneration: args.ownerGeneration,
-          conversationId: turn.conversationId,
-          turnId: turn.turnId,
-          prompt: turn.prompt,
-          terminalPayloadJson: args.payloadJson,
-          now: args.now,
-        });
-      }
       await scheduleTerminalCard(
         ctx,
         turn,

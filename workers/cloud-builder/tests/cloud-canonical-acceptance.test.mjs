@@ -57,7 +57,6 @@ const expectedStepIds = [
   "browser_cloud_routing",
   "child_completion",
   "memory_restart_recall",
-  "dream_rotation_memory_map",
   "cloud_skill_discovery_use",
   "code_mode_real_mcp",
   "general_agent_real_sandbox",
@@ -1112,35 +1111,6 @@ const ownerResetObservation = () => {
   });
 };
 
-const dreamObservation = () => ({
-  conversationId: "conversation-primary",
-  dreamRunId: "dream-run-1",
-  dreamLeaseIdSha256: digest("1"),
-  inputMemoryVersionId: "memver-1",
-  outputMemoryVersionId: "memver-2",
-  outputMemoryMapVersionId: "memver-map-2",
-  memoryRevisionBefore: 2,
-  memoryRevisionAfter: 3,
-  memoryMapRevisionBefore: 1,
-  memoryMapRevisionAfter: 2,
-  dreamInputSha256: digest("2"),
-  memoryOutputSha256: digest("3"),
-  memoryMapOutputSha256: digest("4"),
-  archiveDocumentName: "archive/2026-08.md",
-  archiveDocumentId: "memdoc-archive",
-  archiveVersionId: "memver-archive",
-  archiveContentSha256: digest("5"),
-  archiveR2Key: `agent-home/${ownerIdSha256}/generations/${generationSha256}/memory-versions/memdoc-archive/memver-archive/${digest("5")}.md`,
-  archiveR2Etag: "archive-etag-1",
-  dreamRunCompleted: true,
-  memoryUpdated: true,
-  memoryMapUpdated: true,
-  rotationObserved: true,
-  rotatedBlockCount: 1,
-  memoryMapReferencesArchive: true,
-  conflictRetryObserved: true,
-});
-
 const skillObservation = () => ({
   conversationId: "conversation-primary",
   discoveryTurnId: "turn-skill-discovery",
@@ -1364,12 +1334,6 @@ const coherentSteps = (root) => {
       workerVersionIdAfterRestart: workerVersionId,
       memoryVersionId: "memver-1",
       memoryRevision: 2,
-    }),
-    step("dream_rotation_memory_map", {
-      conversationId: "conversation-primary",
-      inputMemoryVersionId: "memver-1",
-      outputMemoryVersionId: "memver-2",
-      memoryRevisionBefore: 2,
     }),
     step("cloud_skill_discovery_use", {
       conversationId: "conversation-primary",
@@ -2438,30 +2402,6 @@ describe("cloud canonical evidence validators", () => {
     );
   });
 
-  test("requires Dream to rotate a real archive and reference it from memory_map", () => {
-    expect(() =>
-      validateObservation("dream_rotation_memory_map", dreamObservation()),
-    ).not.toThrow();
-
-    const noRotation = dreamObservation();
-    noRotation.rotatedBlockCount = 0;
-    expect(() =>
-      validateObservation("dream_rotation_memory_map", noRotation),
-    ).toThrow("rotatedBlockCount must be an integer >= 1");
-
-    const noMapReference = dreamObservation();
-    noMapReference.memoryMapReferencesArchive = false;
-    expect(() =>
-      validateObservation("dream_rotation_memory_map", noMapReference),
-    ).toThrow("memoryMapReferencesArchive must be true");
-
-    const crossedArchiveVersion = dreamObservation();
-    crossedArchiveVersion.archiveVersionId = "memver-other";
-    expect(() =>
-      validateObservation("dream_rotation_memory_map", crossedArchiveVersion),
-    ).toThrow("exact generation-fenced document version");
-  });
-
   test("binds a discovered skill and asset to one generation-fenced version", () => {
     expect(() =>
       validateObservation("cloud_skill_discovery_use", skillObservation()),
@@ -2487,7 +2427,7 @@ describe("cloud canonical evidence validators", () => {
     ).toThrow("normalized relative path");
   });
 
-  test("ties second turn, restart, memory, Dream, sandbox, and child ids together", async () => {
+  test("ties second turn, restart, memory, sandbox, and child ids together", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "stella-cloud-coherence-"));
     const steps = coherentSteps(root);
     expect(() => assertEvidenceCoherence(steps, [root])).not.toThrow();
@@ -2498,14 +2438,6 @@ describe("cloud canonical evidence validators", () => {
     ).evidence.journalHeadSeqBefore = 10;
     expect(() => assertEvidenceCoherence(staleReconnect, [root])).toThrow(
       "post-duplicate DO journal head",
-    );
-
-    const wrongDreamBase = structuredClone(steps);
-    wrongDreamBase.find(
-      (step) => step.id === "dream_rotation_memory_map",
-    ).evidence.inputMemoryVersionId = "memver-other";
-    expect(() => assertEvidenceCoherence(wrongDreamBase, [root])).toThrow(
-      "exact recalled MEMORY.md version",
     );
 
     const wrongChild = structuredClone(steps);

@@ -129,9 +129,8 @@ timezone if they tell you.`;
 const CLOUD_MEMORY_DISABLED_OVERLAY = `# Cloud memory preference
 
 The owner has disabled cloud memory. Do not infer or claim durable recall. \
-Recall and Remember are unavailable, no resident memory documents are loaded, \
-and this turn must not create Dream memory. Existing stored bytes are preserved \
-until the owner re-enables memory.`;
+Recall and Remember are unavailable and no resident memory documents are \
+loaded. Existing stored bytes are preserved until the owner re-enables memory.`;
 
 const asRecord = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {

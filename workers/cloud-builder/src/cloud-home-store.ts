@@ -40,7 +40,6 @@ export type CloudMemoryKind =
 
 export type CloudMemoryWriter =
   | "remember"
-  | "dream"
   | "desktop_sync"
   | "mobile_sync"
   | "user_edit"
@@ -139,31 +138,6 @@ export type CloudSkillUploadFile = {
   contentType: string;
 };
 
-export type CloudDreamEntry = {
-  inboxId: string;
-  memoryEpoch: string;
-  kind: "thread_summary" | "memory_note" | "chronicle" | "imported_memory";
-  sourceKey: string;
-  sourceRevision: number;
-  title?: string;
-  r2Key: string;
-  sha256: string;
-  sizeBytes: number;
-  priority: number;
-  usageCount: number;
-  lastUsageAt?: number;
-  updatedAt: number;
-};
-
-export type CloudDreamClaim = {
-  runId: string;
-  memoryEpoch: string;
-  status: "running" | "completed" | "failed";
-  leaseId: string;
-  leaseExpiresAt: number;
-  entries: CloudDreamEntry[];
-};
-
 export type CloudMemoryWipeStatus = {
   subject: string;
   ownerGeneration: string;
@@ -216,7 +190,7 @@ type ImmutableObjectMetadata = {
   sha256: string;
   versionId: string;
   ownerHash: string;
-  kind: "memory" | "skill-manifest" | "skill-file" | "dream-inbox";
+  kind: "memory" | "skill-manifest" | "skill-file";
 };
 
 export class CloudHomeProtocolError extends Error {
@@ -481,66 +455,8 @@ const parseSkillEntry = (value: unknown): CloudSkillCatalogEntry => {
     treeSha256: exactSha256(row.treeSha256, "Skill tree digest"),
     fileCount,
     totalSizeBytes,
-    allowedAgentTypes: allowedAgentTypes as Array<"orchestrator" | "general">,
-    allowedToolNames,
     files,
     updatedAt: exactInteger(row.updatedAt, "Skill update time"),
-  };
-};
-
-const parseDreamEntry = (value: unknown): CloudDreamEntry => {
-  const row = asRecord(value, "Dream entry");
-  const kind = exactString(
-    row.kind,
-    "Dream entry kind",
-  ) as CloudDreamEntry["kind"];
-  if (
-    !["thread_summary", "memory_note", "chronicle", "imported_memory"].includes(
-      kind,
-    )
-  ) {
-    throw new CloudHomeProtocolError("Dream entry kind was invalid.");
-  }
-  return {
-    inboxId: exactString(row.inboxId, "Dream inbox id"),
-    memoryEpoch: exactString(row.memoryEpoch, "Memory epoch"),
-    kind,
-    sourceKey: exactString(row.sourceKey, "Dream source key", 384),
-    sourceRevision: exactInteger(row.sourceRevision, "Dream source revision"),
-    ...(row.title === undefined
-      ? {}
-      : { title: exactString(row.title, "Dream title", 240) }),
-    r2Key: exactString(row.r2Key, "Dream object key", 1_024),
-    sha256: exactSha256(row.sha256, "Dream digest"),
-    sizeBytes: exactInteger(row.sizeBytes, "Dream size"),
-    priority: exactInteger(row.priority, "Dream priority"),
-    usageCount: exactInteger(row.usageCount, "Dream usage count"),
-    ...(row.lastUsageAt === undefined
-      ? {}
-      : { lastUsageAt: exactInteger(row.lastUsageAt, "Dream last usage") }),
-    updatedAt: exactInteger(row.updatedAt, "Dream update time"),
-  };
-};
-
-const parseDreamClaim = (value: unknown): CloudDreamClaim => {
-  const row = asRecord(value, "Dream claim");
-  const status = exactString(
-    row.status,
-    "Dream run status",
-  ) as CloudDreamClaim["status"];
-  if (!["running", "completed", "failed"].includes(status)) {
-    throw new CloudHomeProtocolError("Dream run status was invalid.");
-  }
-  if (!Array.isArray(row.entries)) {
-    throw new CloudHomeProtocolError("Dream claim omitted its entries.");
-  }
-  return {
-    runId: exactString(row.runId, "Dream run id"),
-    memoryEpoch: exactString(row.memoryEpoch, "Memory epoch"),
-    status,
-    leaseId: exactString(row.leaseId, "Dream lease id"),
-    leaseExpiresAt: exactInteger(row.leaseExpiresAt, "Dream lease expiry"),
-    entries: row.entries.map(parseDreamEntry),
   };
 };
 
@@ -1047,178 +963,6 @@ export class CloudHomeStore {
       throw new CloudHomeProtocolError("Cloud memory commit receipt changed.");
     }
     return committed;
-  }
-
-  async publishDreamInput(args: {
-    memoryEpoch: string;
-    kind: CloudDreamEntry["kind"];
-    sourceKey: string;
-    sourceRevision: number;
-    title?: string;
-    bytes: Uint8Array;
-  }): Promise<CloudDreamEntry> {
-    const preference = await this.getMemoryPreference();
-    if (!preference.memoryEnabled) {
-      throw new CloudHomeProtocolError(
-        "Cloud memory is disabled for this account.",
-        409,
-        "CLOUD_MEMORY_DISABLED",
-      );
-    }
-    if (preference.memoryEpoch !== args.memoryEpoch) {
-      throw new CloudHomeProtocolError(
-        "This Dream input started before cloud memory was erased.",
-        412,
-        "CLOUD_MEMORY_EPOCH_STALE",
-      );
-    }
-    const bytes = cloneBytes(args.bytes);
-    const sha256 = await sha256BytesHex(bytes);
-    const inboxId = `dream-${(
-      await sha256Hex(`${this.endpoint.ownerId}\0${args.sourceKey}`)
-    ).slice(0, 40)}`;
-    // Dream inbox bytes are published before their Convex row. Scope that
-    // immutable write to the lifecycle generation so a delayed pre-reset turn
-    // cannot recreate a live-looking object after an owner-root purge sweep.
-    const r2Key = `${await this.generationPrefix()}dream-inbox/${inboxId}/${args.sourceRevision}-${sha256}.json`;
-    await this.putImmutable(
-      r2Key,
-      bytes,
-      {
-        sha256,
-        versionId: `${inboxId}:${args.sourceRevision}`,
-        ownerHash: await this.ownerHash(),
-        kind: "dream-inbox",
-      },
-      "application/json; charset=utf-8",
-      preference.memoryEpoch,
-    );
-    const entry = parseDreamEntry(
-      await this.control("/api/cloud/home/dream/record", {
-        kind: args.kind,
-        sourceKey: args.sourceKey,
-        sourceRevision: args.sourceRevision,
-        memoryEpoch: preference.memoryEpoch,
-        ...(args.title ? { title: args.title } : {}),
-        r2Key,
-        sha256,
-        sizeBytes: bytes.byteLength,
-      }),
-    );
-    if (
-      entry.inboxId !== inboxId ||
-      entry.memoryEpoch !== preference.memoryEpoch ||
-      entry.r2Key !== r2Key ||
-      entry.sha256 !== sha256 ||
-      entry.sourceRevision !== args.sourceRevision
-    ) {
-      throw new CloudHomeProtocolError(
-        "Dream input receipt contradicted its immutable object.",
-      );
-    }
-    return entry;
-  }
-
-  async claimDreamRun(args: {
-    memoryEpoch: string;
-    runId: string;
-    leaseId: string;
-    limit?: number;
-  }): Promise<CloudDreamClaim> {
-    const preference = await this.getMemoryPreference();
-    if (!preference.memoryEnabled) {
-      throw new CloudHomeProtocolError(
-        "Cloud memory is disabled for this account.",
-        409,
-        "CLOUD_MEMORY_DISABLED",
-      );
-    }
-    if (preference.memoryEpoch !== args.memoryEpoch) {
-      throw new CloudHomeProtocolError(
-        "This Dream pass started before cloud memory was erased.",
-        412,
-        "CLOUD_MEMORY_EPOCH_STALE",
-      );
-    }
-    const claim = parseDreamClaim(
-      await this.control("/api/cloud/home/dream/claim", {
-        ...args,
-        memoryEpoch: args.memoryEpoch,
-      }),
-    );
-    if (
-      claim.runId !== args.runId ||
-      claim.leaseId !== args.leaseId ||
-      claim.memoryEpoch !== args.memoryEpoch ||
-      claim.entries.some(
-        (entry) => entry.memoryEpoch !== args.memoryEpoch,
-      )
-    ) {
-      throw new CloudHomeProtocolError("Dream claim identity changed.");
-    }
-    await Promise.all(
-      claim.entries.map((entry) => this.assertOwnedKey(entry.r2Key)),
-    );
-    return claim;
-  }
-
-  async renewDreamRun(
-    runId: string,
-    leaseId: string,
-    memoryEpoch: string,
-  ): Promise<number> {
-    return exactInteger(
-      await this.control("/api/cloud/home/dream/renew", {
-        runId,
-        leaseId,
-        memoryEpoch,
-      }),
-      "Dream lease expiry",
-    );
-  }
-
-  async completeDreamRun(args: {
-    runId: string;
-    leaseId: string;
-    memoryEpoch: string;
-    processed: Array<{ inboxId: string; sourceRevision: number }>;
-    memoryVersionId?: string;
-    memoryMapVersionId?: string;
-    archiveVersionIds?: string[];
-  }): Promise<{ processedCount: number; supersededCount: number }> {
-    const row = asRecord(
-      await this.control("/api/cloud/home/dream/complete", args),
-      "Dream completion",
-    );
-    return {
-      processedCount: exactInteger(row.processedCount, "Dream processed count"),
-      supersededCount: exactInteger(
-        row.supersededCount,
-        "Dream superseded count",
-      ),
-    };
-  }
-
-  async failDreamRun(
-    runId: string,
-    leaseId: string,
-    memoryEpoch: string,
-    errorMessage: string,
-  ): Promise<void> {
-    await this.control("/api/cloud/home/dream/fail", {
-      runId,
-      leaseId,
-      memoryEpoch,
-      errorMessage,
-    });
-  }
-
-  async readDreamInput(entry: CloudDreamEntry): Promise<Uint8Array> {
-    await this.assertMemoryEpoch(entry.memoryEpoch);
-    return await this.verifyObject(entry.r2Key, {
-      sha256: entry.sha256,
-      sizeBytes: entry.sizeBytes,
-    });
   }
 
   async loadSkillCatalog(

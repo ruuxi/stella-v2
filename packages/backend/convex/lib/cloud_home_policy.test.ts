@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   agentHomeGenerationR2Prefix,
-  dreamInboxR2Key,
   memoryVersionR2Key,
   skillFileR2Key,
 } from "./cloud_home_policy";
@@ -23,12 +22,6 @@ describe("cloud-home generation-scoped R2 keys", () => {
       versionId: "version-1",
       sha256: "a".repeat(64),
     });
-    const dream = await dreamInboxR2Key({
-      ...base,
-      inboxId: "inbox-1",
-      sourceRevision: 1,
-      sha256: "b".repeat(64),
-    });
     const skill = await skillFileR2Key({
       ...base,
       skillId: "skill-1",
@@ -36,7 +29,6 @@ describe("cloud-home generation-scoped R2 keys", () => {
       path: "SKILL.md",
     });
     expect(memory.startsWith(prefix)).toBe(true);
-    expect(dream.startsWith(prefix)).toBe(true);
     expect(skill.startsWith(prefix)).toBe(true);
   });
 });

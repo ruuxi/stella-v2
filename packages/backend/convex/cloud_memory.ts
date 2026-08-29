@@ -510,7 +510,7 @@ export const beginWriteInternal = internalMutation({
         });
       }
     }
-    if (args.writer === "remember" || args.writer === "dream") {
+    if (args.writer === "remember") {
       const preference = await readMemoryPreference(
         ctx,
         args.ownerId,
@@ -678,7 +678,7 @@ export const commitWriteInternal = internalMutation({
     if (intent.status !== "prepared") {
       throw new ConvexError("Memory write intent is no longer active.");
     }
-    if (intent.writer === "remember" || intent.writer === "dream") {
+    if (intent.writer === "remember") {
       const preference = await readMemoryPreference(
         ctx,
         args.ownerId,

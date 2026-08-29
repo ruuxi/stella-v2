@@ -128,19 +128,6 @@ export const importedSkillSlug = (
   return `${base || "skill"}${suffix}`;
 };
 
-export const importedDreamSourceKey = (
-  sourceKey: string,
-  sourceId: string,
-): string => {
-  const identity =
-    sourceId
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "")
-      .slice(-16) || "source";
-  const prefix = `owner-migration:${identity}:`;
-  return `${prefix}${sourceKey}`.slice(0, 384);
-};
-
 export const importedAgentHomePrefix = (
   fromOwnerHash: string,
   toOwnerHash: string,

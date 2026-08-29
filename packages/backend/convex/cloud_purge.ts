@@ -135,7 +135,7 @@ const OWNER_STORES = {
   // Browser profile/session bytes live in the Gateway. Keep the interaction
   // receipts until the owner-level `default` profile purge is confirmed.
   cloud_browser_interactions: "external-ref",
-  // Memory/Dream/Skills metadata all names bytes under the owner-derived R2
+  // Memory/Skills metadata all names bytes under the owner-derived R2
   // `agent-home/<hash>/` prefix. That whole prefix is swept first; every row
   // below is retained as locator/control debt until the worker confirms it.
   cloud_memory_lifecycles: "simple",
@@ -144,16 +144,10 @@ const OWNER_STORES = {
   cloud_agent_home_preferences: "simple",
   cloud_agent_home_doc_versions: "external-ref",
   cloud_agent_home_write_intents: "external-ref",
-  cloud_dream_inbox: "external-ref",
-  cloud_dream_runs: "external-ref",
-  // Bounded automatic-Dream payload/control rows contain no external locator;
-  // stale workers are generation/activity fenced, so they can drain directly.
-  cloud_dream_dispatches: "simple",
   cloud_skills: "external-ref",
   cloud_skill_versions: "external-ref",
   cloud_skill_write_intents: "external-ref",
   cloud_skill_files: "external-ref",
-  cloud_skill_authorizations: "external-ref",
   // Dual principal: an account may be a user of another owner's app. The
   // drain and completeness check cover both ownerId and userId indexes.
   cloud_app_storage: "simple",
@@ -239,7 +233,6 @@ const SIMPLE_TABLES = [
   "cloud_memory_lifecycles",
   "cloud_memory_wipe_jobs",
   "cloud_agent_home_preferences",
-  "cloud_dream_dispatches",
   "cloud_app_storage",
   "cloud_app_operations",
   "cloud_app_op_invocations",
@@ -271,13 +264,10 @@ const AGENT_HOME_TABLES = [
   "cloud_agent_home_docs",
   "cloud_agent_home_doc_versions",
   "cloud_agent_home_write_intents",
-  "cloud_dream_inbox",
-  "cloud_dream_runs",
   "cloud_skills",
   "cloud_skill_versions",
   "cloud_skill_write_intents",
   "cloud_skill_files",
-  "cloud_skill_authorizations",
 ] as const;
 
 type AgentHomeTable = (typeof AGENT_HOME_TABLES)[number];
@@ -389,14 +379,6 @@ const drainOwnerIndexedTable = async (
     case "cloud_agent_home_preferences": {
       const rows = await ctx.db
         .query("cloud_agent_home_preferences")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
-    case "cloud_dream_dispatches": {
-      const rows = await ctx.db
-        .query("cloud_dream_dispatches")
         .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
         .take(BATCH);
       ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
@@ -771,26 +753,6 @@ const drainAgentHomeTable = async (
         await ctx.db
           .query(table)
           .withIndex("by_ownerId_and_idempotencyKey", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(BATCH)
-      ).map((row) => row._id) as Id<AgentHomeTable>[];
-      break;
-    case "cloud_dream_inbox":
-      ids = (
-        await ctx.db
-          .query(table)
-          .withIndex("by_ownerId_and_sourceKey", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(BATCH)
-      ).map((row) => row._id) as Id<AgentHomeTable>[];
-      break;
-    case "cloud_dream_runs":
-      ids = (
-        await ctx.db
-          .query(table)
-          .withIndex("by_ownerId_and_status_and_leaseExpiresAt", (q) =>
             q.eq("ownerId", ownerId),
           )
           .take(BATCH)
@@ -1707,14 +1669,6 @@ export const remainingOwnerStoresInternal = internalQuery({
               .take(1),
           );
           break;
-        case "cloud_dream_dispatches":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_dream_dispatches")
-              .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-              .take(1),
-          );
-          break;
         case "cloud_agent_home_docs":
           await check(store, () =>
             ctx.db
@@ -1740,26 +1694,6 @@ export const remainingOwnerStoresInternal = internalQuery({
             ctx.db
               .query("cloud_agent_home_write_intents")
               .withIndex("by_ownerId_and_idempotencyKey", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
-        case "cloud_dream_inbox":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_dream_inbox")
-              .withIndex("by_ownerId_and_sourceKey", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
-        case "cloud_dream_runs":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_dream_runs")
-              .withIndex("by_ownerId_and_status_and_leaseExpiresAt", (q) =>
                 q.eq("ownerId", ownerId),
               )
               .take(1),
@@ -2907,7 +2841,7 @@ export const purgeOwnerCloudStack = internalAction({
         pending.push(...external.pending.map((store) => `builder:${store}`));
       }
 
-      // Memory/Dream/Skills rows are external locators/control receipts. The
+      // Memory/Skills rows are external locators/control receipts. The
       // owner-derived agent-home prefix must be confirmed empty before any of
       // them is retired; otherwise a failed R2 sweep would strand private bytes
       // with no database record left to force a retry.

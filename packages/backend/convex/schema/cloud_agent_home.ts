@@ -14,7 +14,6 @@ export const cloudMemoryDocumentKindValidator = v.union(
 
 export const cloudMemoryWriterValidator = v.union(
   v.literal("remember"),
-  v.literal("dream"),
   v.literal("desktop_sync"),
   v.literal("mobile_sync"),
   v.literal("user_edit"),
@@ -27,27 +26,6 @@ export const cloudHomeWriteIntentStatusValidator = v.union(
   v.literal("committed"),
   v.literal("conflict"),
   v.literal("aborted"),
-);
-
-export const cloudDreamInboxKindValidator = v.union(
-  v.literal("thread_summary"),
-  v.literal("memory_note"),
-  v.literal("chronicle"),
-  v.literal("imported_memory"),
-);
-
-export const cloudDreamRunStatusValidator = v.union(
-  v.literal("running"),
-  v.literal("completed"),
-  v.literal("failed"),
-);
-
-export const cloudDreamDispatchStatusValidator = v.union(
-  v.literal("pending"),
-  v.literal("running"),
-  v.literal("retry_wait"),
-  v.literal("completed"),
-  v.literal("abandoned"),
 );
 
 export const cloudMemoryLifecycleStateValidator = v.union(
@@ -147,7 +125,7 @@ export const cloudAgentHomeSchema = {
   /**
    * Cloud-authoritative memory privacy switch. Absence means enabled for
    * backwards compatibility; once written, generation+revision CAS controls
-   * startup injection and every Recall/Remember/Dream path.
+   * startup injection and every Recall/Remember path.
    */
   cloud_agent_home_preferences: defineTable({
     ownerId: v.string(),
@@ -265,114 +243,11 @@ export const cloudAgentHomeSchema = {
     ])
     .index("by_status_and_expiresAt", ["status", "expiresAt"]),
 
-  /** R2-backed inputs waiting for the deterministic cloud Dream writer. */
-  cloud_dream_inbox: defineTable({
-    inboxId: v.string(),
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    memoryEpoch: v.optional(v.string()),
-    kind: cloudDreamInboxKindValidator,
-    sourceKey: v.string(),
-    sourceRevision: v.number(),
-    title: v.optional(v.string()),
-    r2Key: v.string(),
-    sha256: v.string(),
-    sizeBytes: v.number(),
-    priority: v.number(),
-    usageCount: v.number(),
-    lastUsageAt: v.optional(v.number()),
-    claimedByRunId: v.optional(v.string()),
-    claimExpiresAt: v.optional(v.number()),
-    processedAt: v.optional(v.number()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_inboxId", ["inboxId"])
-    .index("by_ownerId_and_sourceKey", ["ownerId", "sourceKey"])
-    .index("by_ownerId_and_processedAt_and_priority_and_updatedAt", [
-      "ownerId",
-      "processedAt",
-      "priority",
-      "updatedAt",
-    ])
-    .index("by_owner_pending_claim_priority_updated", [
-      "ownerId",
-      "processedAt",
-      "claimExpiresAt",
-      "priority",
-      "updatedAt",
-    ])
-    .index("by_ownerId_and_claimedByRunId", ["ownerId", "claimedByRunId"])
-    .index("by_processedAt_and_updatedAt", ["processedAt", "updatedAt"]),
-
-  /** One durable lease/receipt per cloud Dream pass. */
-  cloud_dream_runs: defineTable({
-    runId: v.string(),
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    memoryEpoch: v.optional(v.string()),
-    status: cloudDreamRunStatusValidator,
-    leaseId: v.string(),
-    leaseExpiresAt: v.number(),
-    inputCount: v.number(),
-    processedCount: v.number(),
-    memoryVersionId: v.optional(v.string()),
-    memoryMapVersionId: v.optional(v.string()),
-    archiveVersionIds: v.optional(v.array(v.string())),
-    errorMessage: v.optional(v.string()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_runId", ["runId"])
-    .index("by_ownerId_and_status_and_leaseExpiresAt", [
-      "ownerId",
-      "status",
-      "leaseExpiresAt",
-    ])
-    .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"]),
-
   /**
-   * Durable automatic-Dream work created in the same transaction that accepts
-   * a completed chat event. Payloads are bounded deterministic summaries; R2
-   * locators remain exclusively in cloud_dream_inbox and memory version rows.
+   * Mirror head for one skill in the owner's canonical device skills root;
+   * package bytes never live in Convex. There is no cloud-side enable or
+   * authorize flag: the device root decides which skills exist.
    */
-  cloud_dream_dispatches: defineTable({
-    dispatchId: v.string(),
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    memoryEpoch: v.optional(v.string()),
-    conversationId: v.string(),
-    turnId: v.string(),
-    sourceKey: v.string(),
-    sourceRevision: v.number(),
-    title: v.optional(v.string()),
-    payloadJson: v.string(),
-    payloadSha256: v.string(),
-    status: cloudDreamDispatchStatusValidator,
-    attemptCount: v.number(),
-    nextAttemptAt: v.number(),
-    leaseId: v.optional(v.string()),
-    leaseExpiresAt: v.optional(v.number()),
-    inboxId: v.optional(v.string()),
-    runId: v.optional(v.string()),
-    processedCount: v.optional(v.number()),
-    lastErrorCode: v.optional(v.string()),
-    completedAt: v.optional(v.number()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_dispatchId", ["dispatchId"])
-    .index("by_ownerId", ["ownerId"])
-    .index("by_ownerId_and_turnId", ["ownerId", "turnId"])
-    .index("by_status_and_nextAttemptAt", ["status", "nextAttemptAt"])
-    .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])
-    .index("by_ownerId_and_status_and_updatedAt", [
-      "ownerId",
-      "status",
-      "updatedAt",
-    ]),
-
-  /** Mutable owner-facing catalog head; package bytes never live in Convex. */
   cloud_skills: defineTable({
     skillId: v.string(),
     ownerId: v.string(),

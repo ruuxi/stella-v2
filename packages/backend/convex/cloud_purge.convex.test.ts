@@ -132,7 +132,6 @@ const purgeFunctions = internal as unknown as {
           | "cloud_memory_lifecycles"
           | "cloud_memory_wipe_jobs"
           | "cloud_agent_home_preferences"
-          | "cloud_dream_dispatches"
           | "cloud_integration_call_receipts";
       },
       { hasMore: boolean }
@@ -1789,11 +1788,11 @@ describe("owner purge adversarial invariants", () => {
     expect(await t.run(async (ctx) => ctx.db.get(receiptId))).toBeNull();
   });
 
-  it("strictly reads back and drains Memory lifecycle and Dream control rows", async () => {
+  it("strictly reads back and drains Memory lifecycle and preference rows", async () => {
     const t = createTest();
     const fence = await beginAndClaim(
       t,
-      "dream-dispatch-owner",
+      "memory-lifecycle-owner",
       "reset",
       "cloud",
     );
@@ -1840,24 +1839,6 @@ describe("owner purge adversarial invariants", () => {
         createdAt: 1,
         updatedAt: 1,
       }),
-      dispatchId: await ctx.db.insert("cloud_dream_dispatches", {
-        dispatchId: "dream-dispatch-purge",
-        ownerId: fence.ownerId,
-        ownerGeneration: fence.generation,
-        conversationId: "conversation-purge",
-        turnId: "turn-purge",
-        sourceKey: "thread:purge",
-        sourceRevision: 1,
-        payloadJson: '{"private":"owner-data"}',
-        payloadSha256: "a".repeat(64),
-        status: "running",
-        attemptCount: 1,
-        nextAttemptAt: 1,
-        leaseId: "stale-generation-lease",
-        leaseExpiresAt: Date.now() + 60_000,
-        createdAt: 1,
-        updatedAt: 1,
-      }),
     }));
 
     await expect(
@@ -1874,11 +1855,6 @@ describe("owner purge adversarial invariants", () => {
       t.query(purgeFunctions.cloud_purge.remainingOwnerStoresInternal, {
         ownerId: fence.ownerId,
       }),
-    ).resolves.toContain("cloud_dream_dispatches");
-    await expect(
-      t.query(purgeFunctions.cloud_purge.remainingOwnerStoresInternal, {
-        ownerId: fence.ownerId,
-      }),
     ).resolves.toContain("cloud_agent_home_preferences");
     await t.mutation(purgeFunctions.cloud_purge.deleteOwnerCloudBatch, {
       ...fence,
@@ -1890,15 +1866,10 @@ describe("owner purge adversarial invariants", () => {
     });
     await t.mutation(purgeFunctions.cloud_purge.deleteOwnerCloudBatch, {
       ...fence,
-      table: "cloud_dream_dispatches",
-    });
-    await t.mutation(purgeFunctions.cloud_purge.deleteOwnerCloudBatch, {
-      ...fence,
       table: "cloud_agent_home_preferences",
     });
     expect(await t.run(async (ctx) => ctx.db.get(rows.lifecycleId))).toBeNull();
     expect(await t.run(async (ctx) => ctx.db.get(rows.wipeJobId))).toBeNull();
-    expect(await t.run(async (ctx) => ctx.db.get(rows.dispatchId))).toBeNull();
     expect(
       await t.run(async (ctx) => ctx.db.get(rows.preferenceId)),
     ).toBeNull();

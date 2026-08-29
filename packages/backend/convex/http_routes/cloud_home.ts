@@ -69,24 +69,8 @@ const skillCommitRef = makeFunctionReference<"mutation", any, any>(
   "cloud_skills:commitSkillWriteInternal",
 );
 const skillCatalogRef = makeFunctionReference<"query", any, any>(
-  "cloud_skills:listAuthorizedSkillsInternal",
+  "cloud_skills:listMirroredSkillsInternal",
 );
-const dreamRecordRef = makeFunctionReference<"mutation", any, any>(
-  "cloud_dream:recordInboxObjectInternal",
-);
-const dreamClaimRef = makeFunctionReference<"mutation", any, any>(
-  "cloud_dream:claimRunInternal",
-);
-const dreamRenewRef = makeFunctionReference<"mutation", any, any>(
-  "cloud_dream:renewRunLeaseInternal",
-);
-const dreamCompleteRef = makeFunctionReference<"mutation", any, any>(
-  "cloud_dream:completeRunInternal",
-);
-const dreamFailRef = makeFunctionReference<"mutation", any, any>(
-  "cloud_dream:failRunInternal",
-);
-
 type CloudHomeRoute = {
   path: string;
   kind: "query" | "mutation";
@@ -150,19 +134,6 @@ const ROUTES: CloudHomeRoute[] = [
     kind: "query",
     ref: skillCatalogRef,
   },
-  {
-    path: "/api/cloud/home/dream/record",
-    kind: "mutation",
-    ref: dreamRecordRef,
-  },
-  { path: "/api/cloud/home/dream/claim", kind: "mutation", ref: dreamClaimRef },
-  { path: "/api/cloud/home/dream/renew", kind: "mutation", ref: dreamRenewRef },
-  {
-    path: "/api/cloud/home/dream/complete",
-    kind: "mutation",
-    ref: dreamCompleteRef,
-  },
-  { path: "/api/cloud/home/dream/fail", kind: "mutation", ref: dreamFailRef },
 ];
 
 /**
@@ -227,7 +198,6 @@ export function registerCloudHomeRoutes(http: HttpRouter) {
           const payload = errorPayload(error);
           const status =
             payload.code?.includes("CONFLICT") ||
-            payload.code === "CLOUD_DREAM_BUSY" ||
             payload.code === "CLOUD_MEMORY_WIPE_ACTIVE" ||
             payload.code === "CLOUD_MEMORY_REIMPORT_CONFIRMATION_REQUIRED" ||
             payload.code === "CLOUD_MEMORY_REIMPORT_NOT_REQUIRED"

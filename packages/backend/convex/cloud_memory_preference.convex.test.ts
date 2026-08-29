@@ -26,13 +26,6 @@ const commitMemoryWrite = makeFunctionReference<"mutation", any, any>(
 const searchRecall = makeFunctionReference<"query", any, any>(
   "cloud_agent_home:searchOwnerMessagesInternal",
 );
-const recordDreamInput = makeFunctionReference<"mutation", any, any>(
-  "cloud_dream:recordInboxObjectInternal",
-);
-const appendEvent = makeFunctionReference<"mutation", any, any>(
-  "cloud_apps:appendEventInternal",
-);
-
 const OWNER_ID = "https://issuer.test|memory-preference-owner";
 const GENERATION = "memory-preference-generation-1";
 
@@ -201,7 +194,7 @@ describe("authoritative cloud memory preference", () => {
     ).rejects.toThrow("before the account data was reset");
   });
 
-  it("preserves existing heads while blocking Recall, Remember and Dream writes", async () => {
+  it("preserves existing heads while blocking Recall and Remember writes", async () => {
     const t = createTest();
     await openOwner(t);
     const existing = await beginWrite(t, {
@@ -214,11 +207,11 @@ describe("authoritative cloud memory preference", () => {
       status: "committed",
       nextRevision: 1,
     });
-    const preparedDream = await beginWrite(t, {
+    const preparedInflight = await beginWrite(t, {
       name: "MEMORY.md",
       kind: "memory",
-      writer: "dream",
-      idempotencyKey: "memory-pref-inflight-dream",
+      writer: "remember",
+      idempotencyKey: "memory-pref-inflight-remember",
     });
 
     await setEnabled(t, false, 0, "memory-pref-disable-writers");
@@ -241,74 +234,11 @@ describe("authoritative cloud memory preference", () => {
         now: 300,
       }),
     ).rejects.toThrow("disabled");
-    await expect(
-      t.mutation(recordDreamInput, {
-        ownerId: OWNER_ID,
-        ownerGeneration: GENERATION,
-        memoryEpoch: "legacy",
-        kind: "thread_summary",
-        sourceKey: "turn:blocked",
-        sourceRevision: 1,
-        r2Key: "not-used-while-disabled",
-        sha256: "b".repeat(64),
-        sizeBytes: 1,
-        now: 300,
-      }),
-    ).rejects.toThrow("disabled");
-    expect(await commitWrite(t, preparedDream)).toMatchObject({
+    expect(await commitWrite(t, preparedInflight)).toMatchObject({
       status: "aborted",
     });
     expect(await asOwner(t).query(listDocuments, {})).toMatchObject([
       { name: "memories/profile.md", revision: 1 },
-    ]);
-  });
-
-  it("suppresses automatic Dream while off and resumes on a later enabled turn", async () => {
-    const t = createTest();
-    await openOwner(t);
-    await setEnabled(t, false, 0, "memory-pref-disable-auto-dream");
-    const disabledTurn = await insertConversationTurn(t, "disabled");
-    await t.mutation(appendEvent, {
-      ownerId: OWNER_ID,
-      ownerGeneration: GENERATION,
-      turnId: disabledTurn.turnId,
-      sessionId: disabledTurn.sessionId,
-      seq: 0,
-      kind: "completed",
-      payloadJson: JSON.stringify({ text: "This must not enter Dream." }),
-      terminal: true,
-      now: 400,
-    });
-    expect(
-      await t.run(
-        async (ctx) => await ctx.db.query("cloud_dream_dispatches").collect(),
-      ),
-    ).toEqual([]);
-
-    await setEnabled(t, true, 1, "memory-pref-enable-auto-dream");
-    const enabledTurn = await insertConversationTurn(t, "reenabled");
-    await t.mutation(appendEvent, {
-      ownerId: OWNER_ID,
-      ownerGeneration: GENERATION,
-      turnId: enabledTurn.turnId,
-      sessionId: enabledTurn.sessionId,
-      seq: 0,
-      kind: "completed",
-      payloadJson: JSON.stringify({ text: "This later turn may enter Dream." }),
-      terminal: true,
-      now: 500,
-    });
-    expect(
-      await t.run(
-        async (ctx) => await ctx.db.query("cloud_dream_dispatches").collect(),
-      ),
-    ).toMatchObject([
-      {
-        turnId: enabledTurn.turnId,
-        ownerGeneration: GENERATION,
-        status: "pending",
-        attemptCount: 0,
-      },
     ]);
   });
 });

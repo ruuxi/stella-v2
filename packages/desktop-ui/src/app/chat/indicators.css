@@ -1,14 +1,18 @@
-/* Working indicator — the character mark plus, while a tool runs, its label. */
+/* Working indicator — the character mark plus, while a tool runs, its label.
+   It wears the assistant bubble's own fill and radius (bottom-left squared off
+   the same way) so thinking and tool states read as an incoming message rather
+   than as separate chrome sitting under the conversation. */
 .working-indicator {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  border-radius: var(--radius-md);
-  background: var(--surface-inset);
+  border-radius: var(--radius-3xl);
+  border-bottom-left-radius: 4px;
+  background: var(--chat-assistant-bubble-fill);
   border: none;
   font-size: var(--font-size-md);
-  color: var(--text-base);
+  color: var(--chat-assistant-bubble-text, var(--text-base));
   animation: stream-fade-in 0.4s ease-out both;
 }
 
@@ -162,13 +166,10 @@
   animation: none;
 }
 
+/* Inline it keeps its bubble chrome — that IS the treatment now — so only the
+ * entrance is dropped: the wrapper's `inline-indicator-in` already animates it,
+ * and the pill's own `stream-fade-in` would stack into a doubled entrance. */
 .inline-working-indicator__indicator {
-  background: transparent;
-  border: none;
-  padding: 0;
-  /* The wrapper's `inline-indicator-in` already animates the entrance;
-   * the pill's own `stream-fade-in` would stack on top of it and read
-   * as a doubled entrance. */
   animation: none;
 }
 
@@ -246,6 +247,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Thinking runs the top spinner, which travels a figure-eight well outside the
+   mark's own 30px. Widening the slot keeps that travel inside the bubble rather
+   than letting it run past the bubble's left edge. */
+.working-indicator[data-mode="thinking"] .indicator-stella {
+  width: 64px;
 }
 
 .indicator-stella > svg {

@@ -1,0 +1,20 @@
+{
+  "name": "stella-general-agent-resident-workerd-acceptance",
+  "main": "./general-agent-resident-workerd-worker.ts",
+  "compatibility_date": "2026-07-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RESIDENT_TURNS",
+        "class_name": "ResidentTurnHarness",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ResidentTurnHarness"],
+    },
+  ],
+}

@@ -23,9 +23,20 @@ mock.module("../verify-one-time-token", () => ({
 
 const { nativeBearerClient } = await import("../native-auth-client");
 
-const initFor = async (body: Record<string, unknown>) => {
-  // bun's mock.module registry is global, so sibling test files can replace
-  // the expo-secure-store stub; re-assert ours immediately before the call.
+type AnyOptions = {
+  body?: unknown;
+  headers?: Record<string, string>;
+  credentials?: RequestCredentials;
+};
+
+// Replicates better-fetch's initializePlugins loop: every plugin's init is
+// called with the ORIGINAL options object and only the LAST returned options
+// survive. convexClient's cross-domain plugin mutates and returns that
+// original, so anything we return in a copy is discarded — our plugin must
+// mutate the shared object to survive.
+const runPluginChain = async (url: string, original: AnyOptions) => {
+  // bun's mock.module registry is global; re-assert before the import-time
+  // bindings are exercised in case a sibling test file replaced the stub.
   mock.module("expo-secure-store", () => ({
     getItem: () => null,
     setItem: () => {},
@@ -33,25 +44,41 @@ const initFor = async (body: Record<string, unknown>) => {
     getItemAsync: async () => null,
     setItemAsync: async () => {},
   }));
-  const client = nativeBearerClient({ scheme: "stella-mobile" });
-  const plugin = client.fetchPlugins[0];
-  const result = await plugin.init?.("https://example.convex.site/api/auth", {
-    body,
-  });
-  const headers = (result?.options?.headers ?? {}) as Record<string, string>;
-  return headers;
+  const ours = nativeBearerClient({ scheme: "stella-mobile" }).fetchPlugins[0];
+  const crossDomainLike = {
+    init: async (_url: string, options: AnyOptions | undefined) => {
+      const opts = options ?? {};
+      opts.credentials = "omit";
+      opts.headers = { ...opts.headers, "better-auth-cookie": "stored" };
+      return { url: _url, options: opts };
+    },
+  };
+  let winner: AnyOptions = original;
+  for (const plugin of [ours, crossDomainLike]) {
+    const res = await plugin.init?.(url, original);
+    winner = (res?.options as AnyOptions) ?? winner;
+  }
+  return winner;
 };
 
-describe("native auth client origin header", () => {
-  test("sends expo-origin for a native idToken sign-in", async () => {
-    // Regression: dropping this header on idToken flows made the server
-    // reject native Google/Apple sign-in with MISSING_OR_NULL_ORIGIN.
-    const headers = await initFor({ idToken: "apple-id-token" });
-    expect(headers["expo-origin"]).toBe("stella-mobile://");
+describe("native auth client through the better-fetch plugin chain", () => {
+  test("expo-origin survives for a native idToken sign-in", async () => {
+    const final = await runPluginChain(
+      "https://example.convex.site/api/auth/sign-in/social",
+      { body: { provider: "apple", idToken: { token: "t", nonce: "n" } } },
+    );
+    expect(final.headers?.["expo-origin"]).toBe("stella-mobile://");
+    expect(final.headers?.["better-auth-cookie"]).toBe("stored");
   });
 
-  test("sends expo-origin for a non-idToken request", async () => {
-    const headers = await initFor({ email: "someone@example.com" });
-    expect(headers["expo-origin"]).toBe("stella-mobile://");
+  test("callbackURL is rewritten to the deep link for browser OAuth", async () => {
+    const final = await runPluginChain(
+      "https://example.convex.site/api/auth/sign-in/social",
+      { body: { provider: "google", callbackURL: "/chat" } },
+    );
+    expect(final.headers?.["expo-origin"]).toBe("stella-mobile://");
+    expect((final.body as { callbackURL?: string }).callbackURL).toBe(
+      "stella-mobile://chat",
+    );
   });
 });

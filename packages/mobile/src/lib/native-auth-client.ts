@@ -197,15 +197,15 @@ export const nativeBearerClient = ({ scheme }: NativeAuthClientOptions) => {
         });
       }
 
-      return {
-        url,
-        options: {
-          ...options,
-          body: rewrittenBody,
-          credentials: "omit",
-          headers,
-        },
-      };
+      // better-fetch calls every plugin's init with the ORIGINAL options and
+      // keeps only the last returned object; sibling plugins (convexClient's
+      // cross-domain) mutate and return that original, discarding anything we
+      // return in a copy. Mutate the shared object in place so our headers and
+      // callback rewrites survive regardless of plugin order.
+      options.body = rewrittenBody;
+      options.credentials = "omit";
+      options.headers = headers;
+      return { url, options };
     },
   };
 

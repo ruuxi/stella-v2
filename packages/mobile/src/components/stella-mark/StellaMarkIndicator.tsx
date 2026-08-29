@@ -22,6 +22,8 @@ import Svg, {
 } from "react-native-svg";
 import { STELLA_STAR_PATH } from "./geometry";
 import { MarkLayer } from "./MarkLayer";
+import { shouldRunContinuousAnimation } from "../../lib/continuous-animation";
+import { useAppVisible } from "../../lib/use-app-visible";
 import {
   CELL,
   CX,
@@ -203,6 +205,7 @@ export function StellaMarkIndicator({
   mode?: StellaMarkMode;
 }) {
   const reduceMotion = useReducedMotion();
+  const appVisible = useAppVisible();
   const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
   const pxPerUnit = size / CELL;
 
@@ -216,7 +219,13 @@ export function StellaMarkIndicator({
     computeSpinnerFrame(0, 0, morphTarget, true, makeDotState()),
   );
 
-  const [running, setRunning] = useState(spinning && !reduceMotion);
+  const [running, setRunning] = useState(() =>
+    shouldRunContinuousAnimation({
+      logicalActive: spinning,
+      appVisible,
+      reducedMotion: reduceMotion,
+    }),
+  );
 
   useEffect(() => {
     if (reduceMotion) {
@@ -230,7 +239,7 @@ export function StellaMarkIndicator({
   }, [morph, morphTarget, reduceMotion]);
 
   useEffect(() => {
-    if (reduceMotion) {
+    if (reduceMotion || !appVisible) {
       setRunning(false);
       return;
     }
@@ -243,7 +252,7 @@ export function StellaMarkIndicator({
       MORPH_MS + STOP_GRACE_MS,
     );
     return () => clearTimeout(timer);
-  }, [reduceMotion, spinning]);
+  }, [appVisible, reduceMotion, spinning]);
 
   useEffect(() => {
     if (running) return;

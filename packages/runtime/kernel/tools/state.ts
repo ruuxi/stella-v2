@@ -66,22 +66,19 @@ const toOptionalString = (value: unknown): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
-const isGenericAgentDescription = (value: string): boolean =>
-  /^(task|agent|work|help|do this|follow up)$/i.test(value.trim());
-
-const deriveAgentDescription = (
-  description: string,
-  prompt: string,
-): string => {
-  if (description && !isGenericAgentDescription(description)) {
-    return description;
-  }
-  const firstLine = prompt
+/**
+ * `send_input` no longer asks the caller for a description, but the cloud
+ * continuation mutation still requires a non-empty one and this device holds no
+ * mirror of the cloud thread's current title. Local threads keep their spawn
+ * name; only the cloud path needs a label, so derive it from the follow-up.
+ */
+const cloudContinuationLabel = (message: string): string => {
+  const firstLine = message
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^task\s*:\s*/i, "");
   if (!firstLine) {
-    return description;
+    return "Follow-up";
   }
   return firstLine.length > 80
     ? `${firstLine.slice(0, 77).trimEnd()}...`
@@ -281,17 +278,11 @@ export const handleSendInput = async (
   if (!message) {
     return { error: "message is required" };
   }
-  const rawDescription = toOptionalString(args.description);
-  if (!rawDescription) {
-    return { error: "description is required" };
-  }
-  const description = deriveAgentDescription(rawDescription, message);
   const delivered = await ctx.agentApi.sendAgentMessage(
     threadId,
     message,
     "orchestrator",
     {
-      description,
       ...(context.rootRunId ? { rootRunId: context.rootRunId } : {}),
       ...(context.agentType === AGENT_IDS.ORCHESTRATOR &&
       context.modelConfigSnapshot
@@ -307,7 +298,7 @@ export const handleSendInput = async (
     ) {
       const continued = await ctx.agentApi.cloudContinue({
         threadId,
-        description,
+        description: cloudContinuationLabel(message),
         message,
         conversationId: context.conversationId,
         requestId: context.requestId,
@@ -666,7 +657,9 @@ export const handleSpawnAgent = async (
   if (!rawDescription) {
     return { error: "description is required" };
   }
-  const description = deriveAgentDescription(rawDescription, prompt);
+  // `spawn_agent` asks for a short domain name, so the caller's text is the
+  // thread name verbatim — no prompt-derived rewrite behind its back.
+  const description = rawDescription;
   if (cloudWorkspace) {
     // Re-read the capability rather than falling through: a cloud placement
     // that reached the local branch would run off-device work on the user's

@@ -172,16 +172,18 @@ export const nativeBearerClient = ({ scheme }: NativeAuthClientOptions) => {
             idToken?: unknown;
           }
         | undefined;
-      const isNativeIdToken = body?.idToken !== undefined;
       const headers = toHeaderRecord(options.headers as HeadersInit | undefined);
       const bearerToken = readBearerToken();
       if (bearerToken && !headers.authorization) {
         headers.authorization = `Bearer ${bearerToken}`;
       }
       headers["x-skip-oauth-proxy"] = "true";
-      if (!isNativeIdToken) {
-        headers["expo-origin"] = Linking.createURL("", { scheme });
-      }
+
+      // Every native request carries expo-origin. The Expo server plugin
+      // promotes it to `origin` before Better Auth's CSRF check runs, and an
+      // idToken sign-in has no other origin source. Sending it always is safe
+      // because the value is still matched against trustedOrigins.
+      headers["expo-origin"] = Linking.createURL("", { scheme });
 
       const rewriteCallback = (value: unknown) =>
         typeof value === "string" && value.startsWith("/")
@@ -209,15 +211,15 @@ export const nativeBearerClient = ({ scheme }: NativeAuthClientOptions) => {
         });
       }
 
-      return {
-        url,
-        options: {
-          ...options,
-          body: rewrittenBody,
-          credentials: "omit",
-          headers,
-        },
-      };
+      // better-fetch calls every fetch plugin's init with the ORIGINAL options
+      // object and keeps only the last plugin's return value, so a sibling
+      // plugin that mutates and returns that original discards anything we
+      // hand back in a copy. Mutate the shared object so our headers and
+      // callback rewrites survive whatever else joins the chain.
+      options.body = rewrittenBody;
+      options.credentials = "omit";
+      options.headers = headers;
+      return { url, options };
     },
   };
 

@@ -23,7 +23,6 @@ import {
   cloudHomeSyncStatusStore,
 } from "@/features/cloud/cloud-home-sync";
 import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
-import { CloudHomeSkillsSettings } from "@/features/cloud/CloudHomeSkillsSettings";
 import { CloudAccountCards } from "@/features/cloud/CloudAccountCards";
 import { CloudHomeMemorySettings } from "@/features/cloud/CloudHomeMemorySettings";
 import { CloudMemoryWipeSettings } from "@/features/cloud/CloudMemoryWipeSettings";
@@ -282,12 +281,6 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
             </div>
           </div>
         </div>
-      ) : null}
-      {window.electronAPI?.cloudHome && accountScope.startsWith("account:") ? (
-        <CloudHomeSkillsSettings
-          key={accountScope}
-          accountScope={accountScope}
-        />
       ) : null}
       {window.electronAPI?.cloudHome && cloudMode ? (
         <CloudHomeMemorySettings key={`${accountScope}:${identityRevision}`} />

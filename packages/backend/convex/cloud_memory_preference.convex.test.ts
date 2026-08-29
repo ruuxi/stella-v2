@@ -101,39 +101,6 @@ const commitWrite = async (
     now: 200,
   });
 
-const insertConversationTurn = async (
-  t: ReturnType<typeof createTest>,
-  suffix: string,
-) => {
-  const conversationId = `memory-pref-conversation-${suffix}`;
-  const turnId = `memory-pref-turn-${suffix}`;
-  const sessionId = `memory-pref-session-${suffix}`;
-  await t.run(async (ctx) => {
-    await ctx.db.insert("cloud_conversations", {
-      conversationId,
-      ownerId: OWNER_ID,
-      title: "Memory preference",
-      createdAt: 1,
-      updatedAt: 1,
-    });
-    await ctx.db.insert("agent_turns", {
-      turnId,
-      sessionId,
-      ownerId: OWNER_ID,
-      ownerGeneration: GENERATION,
-      conversationId,
-      prompt: "Remember this only when cloud memory is enabled.",
-      status: "running",
-      lane: "chat",
-      kind: "chat",
-      agentType: "orchestrator",
-      createdAt: 1,
-      updatedAt: 1,
-    });
-  });
-  return { conversationId, turnId, sessionId };
-};
-
 describe("authoritative cloud memory preference", () => {
   it("defaults enabled and enforces generation/revision CAS plus idempotency", async () => {
     const t = createTest();

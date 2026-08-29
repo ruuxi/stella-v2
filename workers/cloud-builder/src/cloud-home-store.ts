@@ -119,8 +119,6 @@ export type CloudSkillCatalogEntry = {
   treeSha256: string;
   fileCount: number;
   totalSizeBytes: number;
-  allowedAgentTypes: Array<"orchestrator" | "general">;
-  allowedToolNames: string[];
   files: CloudSkillFileDescriptor[];
   updatedAt: number;
 };
@@ -386,31 +384,6 @@ const parseSkillEntry = (value: unknown): CloudSkillCatalogEntry => {
   const paths = new Set(files.map((file) => file.path));
   if (paths.size !== files.length || !paths.has("SKILL.md")) {
     throw new CloudHomeProtocolError("Skill catalog file set was invalid.");
-  }
-  const allowedAgentTypes = Array.isArray(row.allowedAgentTypes)
-    ? row.allowedAgentTypes.map((entry) =>
-        exactString(entry, "Allowed skill agent type"),
-      )
-    : [];
-  if (
-    allowedAgentTypes.some(
-      (entry) => entry !== "orchestrator" && entry !== "general",
-    )
-  ) {
-    throw new CloudHomeProtocolError("Allowed skill agent type was invalid.");
-  }
-  const allowedToolNames = Array.isArray(row.allowedToolNames)
-    ? row.allowedToolNames.map((entry) =>
-        exactString(entry, "Allowed skill tool", 80),
-      )
-    : [];
-  if (
-    new Set(allowedAgentTypes).size !== allowedAgentTypes.length ||
-    new Set(allowedToolNames).size !== allowedToolNames.length
-  ) {
-    throw new CloudHomeProtocolError(
-      "Skill authorization contained duplicate capabilities.",
-    );
   }
   const fileCount = exactInteger(row.fileCount, "Skill file count");
   const totalSizeBytes = exactInteger(row.totalSizeBytes, "Skill total size");
@@ -985,7 +958,7 @@ export class CloudHomeStore {
       const identity = `${entry.skillId}\0${entry.versionId}`;
       if (identities.has(identity) || slugs.has(entry.slug)) {
         throw new CloudHomeProtocolError(
-          "Skill catalog contained duplicate authorized identities.",
+          "Skill catalog contained duplicate mirrored identities.",
         );
       }
       identities.add(identity);
@@ -1057,7 +1030,7 @@ export class CloudHomeStore {
     const file = entry?.files.find((candidate) => candidate.path === safePath);
     if (!entry || !file) {
       throw new CloudHomeProtocolError(
-        "That file is not in the pinned authorized skill version.",
+        "That file is not in the pinned mirrored skill version.",
       );
     }
     return await this.verifyObject(file.r2Key, {

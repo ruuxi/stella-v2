@@ -12442,7 +12442,7 @@ const stepCloudSkillDiscoveryUse = async ({
     context,
     secrets,
     "query",
-    "cloud_skills:listMySkills",
+    "cloud_skills:listMySkillHeads",
     { clientScope: `acceptance:${context.runId}` },
     "read uploaded cloud skill",
     rawLog,
@@ -12455,32 +12455,11 @@ const stepCloudSkillDiscoveryUse = async ({
   );
   assert(
     publicSkill,
-    "Uploaded cloud skill is absent from the authenticated catalog.",
+    "Uploaded cloud skill is absent from the mirrored catalog.",
   );
-  const authorization = requireRecord(
-    await convexCall(
-      context,
-      secrets,
-      "mutation",
-      "cloud_skills:authorizeMySkill",
-      {
-        skillId: upload.skillId,
-        versionId: upload.versionId,
-        expectedOwnerGeneration: owner.ownerGeneration,
-        expectedAuthorizationRevision: publicSkill.authorizationRevision ?? 0,
-        allowedAgentTypes: ["orchestrator", "general"],
-        allowedToolNames: ["skill_read", "skill_search"],
-      },
-      "authorize uploaded cloud skill",
-      rawLog,
-    ),
-    "Cloud skill authorization receipt",
-  );
-  requireInteger(
-    authorization.authorizationRevision,
-    "Cloud skill authorization revision",
-    1,
-  );
+  // The commit is the only gate. There is no cloud-side authorization step, so
+  // the mirrored skill has to reach the turn catalog on the strength of the
+  // upload alone.
   const privateCatalog = await cloudHomeControlRequest(
     context,
     secrets,
@@ -12500,7 +12479,7 @@ const stepCloudSkillDiscoveryUse = async ({
         entry?.skillId === upload.skillId &&
         entry?.versionId === upload.versionId,
     ),
-    "Authorized cloud skill catalog entry",
+    "Mirrored cloud skill catalog entry",
   );
   assert(
     Array.isArray(skill.files),
@@ -13269,7 +13248,7 @@ const electronCloudHomeSync = async (
         token,
         scanLocal: () => window.electronAPI.cloudHome.scanLocal(accountScope),
         readImportOwnership: window.electronAPI.cloudHome.getImportOwnership,
-        readSkillHeads: () => convexClient.query(cloudHomeApi.listMySkills, { clientScope: accountScope }),
+        readSkillHeads: () => convexClient.query(cloudHomeApi.listMySkillHeads, { clientScope: accountScope }),
         cursorStore: uiState,
       });
       return {

@@ -347,7 +347,7 @@ describe("CloudHomeStore", () => {
       slug: "calendar",
       name: "Calendar",
       description: "Manage calendar events",
-      source: "cloud_created",
+      source: "desktop_sync",
       availability: "both",
       revision: 1,
       versionId: "version-1",
@@ -355,8 +355,6 @@ describe("CloudHomeStore", () => {
       treeSha256: "2".repeat(64),
       fileCount: 1,
       totalSizeBytes: bytes.byteLength,
-      allowedAgentTypes: ["orchestrator", "general"],
-      allowedToolNames: ["calendar.list"],
       files: [
         {
           path: "SKILL.md",

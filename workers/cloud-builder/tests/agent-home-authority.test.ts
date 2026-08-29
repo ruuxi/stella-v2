@@ -136,10 +136,10 @@ describe("authoritative Agent Home startup", () => {
 
     // A new instance models a DO restart/new turn and resolves the same
     // authoritative head and immutable bytes rather than process memory.
-    const restarted = await harness(plan.memory);
+    const restarted = await harness(stored);
     expect(
       buildResidentMemorySection(await restarted.agentHome.readDocuments()),
-    ).toContain("source=conversation%3Aone%3Aturn%3Aone");
+    ).toContain("Restart receipt");
   });
 
   test("blocks missing or corrupt bytes for an advertised head", async () => {

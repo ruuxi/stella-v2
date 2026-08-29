@@ -43,13 +43,24 @@ describe("resetStellaCustomizations", () => {
       "override",
     );
     await writeFile(path.join(home, "PERSONALITY.md"), "custom personality");
-    await mkdir(path.join(home, "system", "skills", "pdf"), {
-      recursive: true,
-    });
     await mkdir(path.join(home, "skills", "pdf"), { recursive: true });
     await writeFile(path.join(home, "skills", "pdf", "SKILL.md"), "fork");
     await mkdir(path.join(home, "skills", "my-skill"), { recursive: true });
     await writeFile(path.join(home, "skills", "my-skill", "SKILL.md"), "mine");
+    // `pdf` is tracked as Stella-shipped, so the fork is a customization.
+    await writeFile(
+      path.join(home, "skills", ".bundled-manifest.json"),
+      JSON.stringify({
+        version: 2,
+        entries: {
+          pdf: {
+            lastSyncedHash: "a".repeat(64),
+            sourceRevision: "bundled",
+            customized: true,
+          },
+        },
+      }),
+    );
 
     const result = await resetStellaCustomizations(home);
 

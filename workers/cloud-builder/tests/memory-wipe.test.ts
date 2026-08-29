@@ -234,8 +234,6 @@ describe("memory-only R2 wipe", () => {
       treeSha256: "f".repeat(64),
       fileCount: files.length,
       totalSizeBytes: files.reduce((total, file) => total + file.sizeBytes, 0),
-      allowedAgentTypes: ["general"],
-      allowedToolNames: ["calendar.list"],
       files,
       updatedAt: 1,
     };

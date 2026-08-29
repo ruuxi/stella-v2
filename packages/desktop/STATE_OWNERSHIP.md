@@ -18,6 +18,24 @@ initial sync.
 
 ## State domains
 
+### Installed skills
+
+`~/.stella/skills/<skill-name>/` is the only installed and discovered skills
+root. User-created skills and the defaults shipped from
+`packages/home-seed/skills/` share that one directory, so nothing shadows
+anything. Bootstrap tracks only the last synchronized content hash for shipped
+skills, in `~/.stella/skills/.bundled-manifest.json`: an untouched shipped skill
+can be updated atomically, while a pre-existing collision or an edited shipped
+skill becomes user-owned and is never overwritten. Legacy
+`~/.stella/system/skills/` content is migrated once into the canonical root
+without replacing collisions, then archived under `~/.stella/.trash/`.
+
+The cloud skill store (`cloud_skills` in Convex, package bytes in R2) is a
+mirror of that root, not a second catalog. Desktop sync is its only writer, and
+a cloud-executing turn materializes the mirror read-only into its sandbox. The
+cloud has no create, edit, enable, or authorize surface: a skill exists for a
+cloud turn exactly when it exists in the device root.
+
 ### UI State (`UiState`)
 
 

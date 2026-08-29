@@ -9,9 +9,10 @@ Use this skill to create or update skills for Stella agents.
 
 ## Stella Skill Shape
 
-Bundled source skills live under `runtime/home-seed/skills/<skill-name>/`.
-User or generated skills live under the active Stella home at
-`skills/<skill-name>/`.
+All installed skills, whether shipped by Stella or created by the user, live
+under the active Stella home at `~/.stella/skills/<skill-name>/`. The desktop
+package's source copies live at `packages/home-seed/skills/<skill-name>/` and
+are materialized into that same runtime root during bootstrap.
 
 Required:
 
@@ -40,14 +41,14 @@ Do not add auxiliary docs such as `README.md`, `CHANGELOG.md`, or installation g
 
 1. Clarify the real use cases with concrete examples when the request is vague.
 2. Choose a lowercase hyphenated name under 64 characters.
-3. Create `runtime/home-seed/skills/<name>/SKILL.md` for bundled source skills, or `skills/<name>/SKILL.md` inside Stella home for user-local skills.
+3. Create or edit `~/.stella/skills/<name>/SKILL.md`. Only when working in the Stella source repository to change the default shipped in future builds, edit `packages/home-seed/skills/<name>/` instead.
 4. Add only the resource folders that are actually useful.
 5. Validate frontmatter and folder shape.
 
 When initializing from this skill's helper script, target Stella's skill root:
 
 ```bash
-python3 runtime/home-seed/skills/skill-creator/scripts/init_skill.py <skill-name> --path runtime/home-seed/skills
+python3 ~/.stella/skills/skill-creator/scripts/init_skill.py <skill-name> --path ~/.stella/skills
 ```
 
 The upstream helper also creates `agents/openai.yaml`. Stella does not require that file for skill discovery; remove it unless the UI explicitly needs it.
@@ -73,7 +74,7 @@ description: Clear trigger and capability description.
 Run the bundled validator for basic frontmatter and naming checks:
 
 ```bash
-python3 runtime/home-seed/skills/skill-creator/scripts/quick_validate.py runtime/home-seed/skills/<skill-name>
+python3 ~/.stella/skills/skill-creator/scripts/quick_validate.py ~/.stella/skills/<skill-name>
 ```
 
 Also verify Stella's current catalog expectations in `runtime/kernel/shared/skill-catalog.ts` if discovery behavior is relevant to the task.

@@ -29,7 +29,6 @@ export type MaterializedCloudSkill = {
   versionId: string;
   revision: number;
   root: string;
-  allowedToolNames: string[];
 };
 
 export type MaterializedCloudSkillCatalog = {
@@ -47,7 +46,7 @@ const safeRelativePath = (value: string): string => {
     !SAFE_SKILL_PATH.test(normalized) ||
     normalized.split("/").some((segment) => !segment || segment.length > 96)
   ) {
-    throw new Error("Authorized cloud skill contained an unsafe file path.");
+    throw new Error("Mirrored cloud skill contained an unsafe file path.");
   }
   return normalized;
 };
@@ -65,8 +64,10 @@ const directoryOf = (filePath: string): string =>
   CLOUD_SKILL_SANDBOX_ROOT;
 
 /**
- * Materializes an already authorized, immutable catalog snapshot into the
- * sandbox's ephemeral filesystem. The returned turn input contains only safe
+ * Materializes an immutable catalog snapshot — the mirror of the owner's
+ * canonical device skills root — into the sandbox's ephemeral filesystem. The
+ * device root decides membership; nothing here narrows it. The turn input
+ * contains only safe
  * display metadata and local paths: no R2 locators, service credentials, or
  * host-machine paths cross into the model process.
  */
@@ -153,7 +154,6 @@ export const materializeCloudSkillSnapshot = async (args: {
       versionId: entry.versionId,
       revision: entry.revision,
       root,
-      allowedToolNames: [...entry.allowedToolNames],
     });
   }
   return {

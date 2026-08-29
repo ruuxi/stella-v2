@@ -88,7 +88,6 @@ const skillHead = (
   treeSha256: skill.treeSha256,
   fileCount: 1,
   totalSizeBytes: skill.totalSizeBytes,
-  enabled: true,
   updatedAt: 1,
   ...overrides,
 });

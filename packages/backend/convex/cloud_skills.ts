@@ -1,8 +1,18 @@
+// A mirror of one device's canonical `~/.stella/skills/` root, not a catalog of
+// its own. Desktop sync uploads whatever that root holds; a cloud-executing
+// turn materializes those bytes into its sandbox. There is deliberately no
+// cloud-side create, edit, enable, or authorize surface, because anything the
+// cloud decided on its own would be a second source of truth for the same
+// skill, and the two would drift the moment the user edited either one.
+//
+// So the only writer is the device sync channel below
+// (`beginSkillWriteInternal` / `commitSkillWriteInternal`), the only reader for
+// a turn is `listMirroredSkillsInternal`, and `listMySkillHeads` exists solely
+// so the device can diff what it already uploaded.
 import { ConvexError, v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
-  mutation,
   query,
   type QueryCtx,
 } from "./_generated/server";
@@ -26,7 +36,6 @@ import {
 import { hashSha256Hex } from "./lib/crypto_utils";
 import {
   cloudHomeWriteIntentStatusValidator,
-  cloudSkillAuthorizationStateValidator,
   cloudSkillAvailabilityValidator,
   cloudSkillSourceValidator,
 } from "./schema/cloud_agent_home";
@@ -35,7 +44,6 @@ const MAX_SKILLS_PER_OWNER = 50;
 const MAX_SKILL_NAME_CHARS = 120;
 const MAX_SKILL_DESCRIPTION_CHARS = 1_000;
 const MAX_CONTENT_TYPE_CHARS = 120;
-const MAX_ALLOWED_TOOL_NAMES = 64;
 
 const skillFileInputValidator = v.object({
   path: v.string(),
@@ -90,10 +98,6 @@ const skillCatalogEntryValidator = v.object({
   treeSha256: v.string(),
   fileCount: v.number(),
   totalSizeBytes: v.number(),
-  allowedAgentTypes: v.array(
-    v.union(v.literal("orchestrator"), v.literal("general")),
-  ),
-  allowedToolNames: v.array(v.string()),
   files: v.optional(v.array(skillFilePrivateValidator)),
   updatedAt: v.number(),
 });
@@ -548,7 +552,6 @@ export const commitSkillWriteInternal = internalMutation({
       availability: intent.availability,
       activeVersionId: intent.versionId,
       revision: intent.nextRevision,
-      enabled: true,
       deletedAt: undefined,
       updatedAt: args.now,
     };
@@ -572,219 +575,14 @@ export const commitSkillWriteInternal = internalMutation({
   },
 });
 
-const normalizeAgentTypes = (
-  values: Array<"orchestrator" | "general">,
-): Array<"orchestrator" | "general"> => {
-  const unique = [...new Set(values)];
-  if (unique.length === 0 || unique.length > 2) {
-    throw new ConvexError("Select at least one supported skill agent type.");
-  }
-  return unique.sort();
-};
-
-const normalizeToolNames = (values: string[]): string[] => {
-  if (values.length > MAX_ALLOWED_TOOL_NAMES) {
-    throw new ConvexError("Too many skill tool authorizations.");
-  }
-  const normalized = [
-    ...new Set(values.map((value) => value.trim()).filter(Boolean)),
-  ];
-  if (
-    normalized.some(
-      (value) => value.length > 80 || !/^[A-Za-z0-9_.:-]+$/u.test(value),
-    )
-  ) {
-    throw new ConvexError("Invalid skill tool authorization.");
-  }
-  return normalized.sort();
-};
-
-export const authorizeMySkill = mutation({
-  args: {
-    skillId: v.string(),
-    versionId: v.string(),
-    expectedOwnerGeneration: v.string(),
-    expectedAuthorizationRevision: v.number(),
-    allowedAgentTypes: v.array(
-      v.union(v.literal("orchestrator"), v.literal("general")),
-    ),
-    allowedToolNames: v.array(v.string()),
-  },
-  returns: v.object({ authorizationRevision: v.number() }),
-  handler: async (ctx, args) => {
-    const ownerId = await requireUserId(ctx);
-    await assertOwnerMigrationWriteAllowed(
-      ctx,
-      ownerId,
-      args.expectedOwnerGeneration,
-    );
-    const skill = await ctx.db
-      .query("cloud_skills")
-      .withIndex("by_skillId", (q) => q.eq("skillId", args.skillId))
-      .unique();
-    if (
-      !skill ||
-      skill.ownerId !== ownerId ||
-      skill.deletedAt !== undefined ||
-      skill.activeVersionId !== args.versionId
-    ) {
-      throw new ConvexError("Skill version not found.");
-    }
-    const authorization = await ctx.db
-      .query("cloud_skill_authorizations")
-      .withIndex("by_ownerId_and_skillId", (q) =>
-        q.eq("ownerId", ownerId).eq("skillId", skill.skillId),
-      )
-      .unique();
-    const currentRevision = authorization?.authorizationRevision ?? 0;
-    if (currentRevision !== args.expectedAuthorizationRevision) {
-      throw new ConvexError({
-        code: "CLOUD_SKILL_AUTHORIZATION_CONFLICT",
-        message: "Skill authorization changed on another client.",
-        currentRevision,
-      });
-    }
-    const allowedAgentTypes = normalizeAgentTypes(args.allowedAgentTypes);
-    if (
-      allowedAgentTypes.some(
-        (agentType) =>
-          skill.availability !== "both" && skill.availability !== agentType,
-      )
-    ) {
-      throw new ConvexError(
-        "Skill authorization exceeds the package's declared availability.",
-      );
-    }
-    const allowedToolNames = normalizeToolNames(args.allowedToolNames);
-    const now = Date.now();
-    const nextRevision = currentRevision + 1;
-    const values = {
-      ownerId,
-      skillId: skill.skillId,
-      versionId: args.versionId,
-      state: "active" as const,
-      allowedAgentTypes,
-      allowedToolNames,
-      authorizationRevision: nextRevision,
-      approvedAt: now,
-      revokedAt: undefined,
-      updatedAt: now,
-    };
-    if (authorization) {
-      await ctx.db.patch(authorization._id, values);
-    } else {
-      await ctx.db.insert("cloud_skill_authorizations", {
-        ...values,
-        createdAt: now,
-      });
-    }
-    return { authorizationRevision: nextRevision };
-  },
-});
-
-export const revokeMySkill = mutation({
-  args: {
-    skillId: v.string(),
-    expectedOwnerGeneration: v.string(),
-    expectedAuthorizationRevision: v.number(),
-  },
-  returns: v.object({ authorizationRevision: v.number() }),
-  handler: async (ctx, args) => {
-    const ownerId = await requireUserId(ctx);
-    await assertOwnerMigrationWriteAllowed(
-      ctx,
-      ownerId,
-      args.expectedOwnerGeneration,
-    );
-    const authorization = await ctx.db
-      .query("cloud_skill_authorizations")
-      .withIndex("by_ownerId_and_skillId", (q) =>
-        q.eq("ownerId", ownerId).eq("skillId", args.skillId),
-      )
-      .unique();
-    if (
-      !authorization ||
-      authorization.authorizationRevision !== args.expectedAuthorizationRevision
-    ) {
-      throw new ConvexError({
-        code: "CLOUD_SKILL_AUTHORIZATION_CONFLICT",
-        message: "Skill authorization changed on another client.",
-        currentRevision: authorization?.authorizationRevision ?? 0,
-      });
-    }
-    const now = Date.now();
-    const authorizationRevision = authorization.authorizationRevision + 1;
-    await ctx.db.patch(authorization._id, {
-      state: "revoked",
-      authorizationRevision,
-      revokedAt: now,
-      updatedAt: now,
-    });
-    return { authorizationRevision };
-  },
-});
-
-export const setMySkillEnabled = mutation({
-  args: {
-    skillId: v.string(),
-    enabled: v.boolean(),
-    expectedOwnerGeneration: v.string(),
-    expectedRevision: v.number(),
-  },
-  returns: v.object({ revision: v.number() }),
-  handler: async (ctx, args) => {
-    const ownerId = await requireUserId(ctx);
-    await assertOwnerMigrationWriteAllowed(
-      ctx,
-      ownerId,
-      args.expectedOwnerGeneration,
-    );
-    const skill = await ctx.db
-      .query("cloud_skills")
-      .withIndex("by_skillId", (q) => q.eq("skillId", args.skillId))
-      .unique();
-    if (!skill || skill.ownerId !== ownerId || skill.deletedAt !== undefined) {
-      throw new ConvexError("Skill not found.");
-    }
-    if (
-      !Number.isSafeInteger(args.expectedRevision) ||
-      args.expectedRevision < 0 ||
-      skill.revision !== args.expectedRevision
-    ) {
-      throw new ConvexError({
-        code: "CLOUD_SKILL_REVISION_CONFLICT",
-        message: "The cloud skill changed on another client.",
-        currentRevision: skill.revision,
-      });
-    }
-    const revision = skill.revision + 1;
-    await ctx.db.patch(skill._id, {
-      enabled: args.enabled,
-      revision,
-      updatedAt: Date.now(),
-    });
-    return { revision };
-  },
-});
-
 const buildCatalogEntry = async (
   ctx: QueryCtx,
-  authorization: Doc<"cloud_skill_authorizations">,
+  skill: Doc<"cloud_skills">,
   agentType: "orchestrator" | "general",
   includeFiles: boolean,
 ) => {
-  if (!authorization.allowedAgentTypes.includes(agentType)) return null;
-  const skill = await ctx.db
-    .query("cloud_skills")
-    .withIndex("by_skillId", (q) => q.eq("skillId", authorization.skillId))
-    .unique();
   if (
-    !skill ||
-    skill.ownerId !== authorization.ownerId ||
-    skill.deletedAt !== undefined ||
-    !skill.enabled ||
     !skill.activeVersionId ||
-    skill.activeVersionId !== authorization.versionId ||
     !(skill.availability === "both" || skill.availability === agentType)
   ) {
     return null;
@@ -793,14 +591,12 @@ const buildCatalogEntry = async (
     .query("cloud_skill_versions")
     .withIndex("by_versionId", (q) => q.eq("versionId", skill.activeVersionId!))
     .unique();
-  if (!version || version.ownerId !== authorization.ownerId) return null;
+  if (!version || version.ownerId !== skill.ownerId) return null;
   const files = includeFiles
     ? await ctx.db
         .query("cloud_skill_files")
         .withIndex("by_ownerId_and_versionId_and_path", (q) =>
-          q
-            .eq("ownerId", authorization.ownerId)
-            .eq("versionId", version.versionId),
+          q.eq("ownerId", skill.ownerId).eq("versionId", version.versionId),
         )
         .take(CLOUD_SKILL_MAX_FILES + 1)
     : [];
@@ -820,8 +616,6 @@ const buildCatalogEntry = async (
     treeSha256: version.treeSha256,
     fileCount: version.fileCount,
     totalSizeBytes: version.totalSizeBytes,
-    allowedAgentTypes: authorization.allowedAgentTypes,
-    allowedToolNames: authorization.allowedToolNames,
     ...(includeFiles
       ? {
           files: files.map((file) => ({
@@ -837,7 +631,12 @@ const buildCatalogEntry = async (
   };
 };
 
-export const listAuthorizedSkillsInternal = internalQuery({
+/**
+ * The skills a cloud-executing turn may materialize: exactly what the owner's
+ * device root holds, mirrored. Availability tracks the uploaded package, so no
+ * cloud-side decision narrows or widens the set.
+ */
+export const listMirroredSkillsInternal = internalQuery({
   args: {
     ownerId: v.string(),
     ownerGeneration: v.string(),
@@ -851,21 +650,16 @@ export const listAuthorizedSkillsInternal = internalQuery({
       args.ownerId,
       args.ownerGeneration,
     );
-    const authorizations = await ctx.db
-      .query("cloud_skill_authorizations")
-      .withIndex("by_ownerId_and_state_and_updatedAt", (q) =>
-        q.eq("ownerId", args.ownerId).eq("state", "active"),
+    const skills = await ctx.db
+      .query("cloud_skills")
+      .withIndex("by_ownerId_and_deletedAt_and_updatedAt", (q) =>
+        q.eq("ownerId", args.ownerId).eq("deletedAt", undefined),
       )
       .order("desc")
       .take(MAX_SKILLS_PER_OWNER);
     const entries = await Promise.all(
-      authorizations.map((authorization) =>
-        buildCatalogEntry(
-          ctx,
-          authorization,
-          args.agentType,
-          args.includeFiles === true,
-        ),
+      skills.map((skill) =>
+        buildCatalogEntry(ctx, skill, args.agentType, args.includeFiles === true),
       ),
     );
     return entries.filter((entry): entry is NonNullable<typeof entry> =>
@@ -874,8 +668,12 @@ export const listAuthorizedSkillsInternal = internalQuery({
   },
 });
 
-/** Public catalog intentionally omits every R2 object locator. */
-export const listMySkills = query({
+/**
+ * Mirror heads for the desktop importer's reconciliation read: enough to tell
+ * whether the cloud already holds a device skill at the same content hash.
+ * R2 object locators never cross this boundary.
+ */
+export const listMySkillHeads = query({
   args: { clientScope: v.string() },
   returns: v.array(
     v.object({
@@ -892,14 +690,6 @@ export const listMySkills = query({
       treeSha256: v.optional(v.string()),
       fileCount: v.optional(v.number()),
       totalSizeBytes: v.optional(v.number()),
-      enabled: v.boolean(),
-      authorizationState: v.optional(cloudSkillAuthorizationStateValidator),
-      authorizationVersionId: v.optional(v.string()),
-      authorizationRevision: v.optional(v.number()),
-      allowedAgentTypes: v.optional(
-        v.array(v.union(v.literal("orchestrator"), v.literal("general"))),
-      ),
-      allowedToolNames: v.optional(v.array(v.string())),
       updatedAt: v.number(),
     }),
   ),
@@ -920,22 +710,14 @@ export const listMySkills = query({
       .take(MAX_SKILLS_PER_OWNER);
     return await Promise.all(
       skills.map(async (skill) => {
-        const [authorization, version] = await Promise.all([
-          ctx.db
-            .query("cloud_skill_authorizations")
-            .withIndex("by_ownerId_and_skillId", (q) =>
-              q.eq("ownerId", ownerId).eq("skillId", skill.skillId),
-            )
-            .unique(),
-          skill.activeVersionId
-            ? ctx.db
-                .query("cloud_skill_versions")
-                .withIndex("by_versionId", (q) =>
-                  q.eq("versionId", skill.activeVersionId!),
-                )
-                .unique()
-            : Promise.resolve(null),
-        ]);
+        const version = skill.activeVersionId
+          ? await ctx.db
+              .query("cloud_skill_versions")
+              .withIndex("by_versionId", (q) =>
+                q.eq("versionId", skill.activeVersionId!),
+              )
+              .unique()
+          : null;
         const ownedVersion = version?.ownerId === ownerId ? version : null;
         return {
           skillId: skill.skillId,
@@ -955,16 +737,6 @@ export const listMySkills = query({
                 treeSha256: ownedVersion.treeSha256,
                 fileCount: ownedVersion.fileCount,
                 totalSizeBytes: ownedVersion.totalSizeBytes,
-              }
-            : {}),
-          enabled: skill.enabled,
-          ...(authorization
-            ? {
-                authorizationState: authorization.state,
-                authorizationVersionId: authorization.versionId,
-                authorizationRevision: authorization.authorizationRevision,
-                allowedAgentTypes: authorization.allowedAgentTypes,
-                allowedToolNames: authorization.allowedToolNames,
               }
             : {}),
           updatedAt: skill.updatedAt,

@@ -15,7 +15,7 @@ const snapshot = (path = "SKILL.md"): CloudSkillCatalogSnapshot => ({
       slug: "calendar",
       name: "Calendar",
       description: "Use the calendar",
-      source: "cloud_created",
+      source: "desktop_sync",
       availability: "both",
       revision: 4,
       versionId: "version/4",
@@ -23,8 +23,6 @@ const snapshot = (path = "SKILL.md"): CloudSkillCatalogSnapshot => ({
       treeSha256: "2".repeat(64),
       fileCount: 2,
       totalSizeBytes: 8,
-      allowedAgentTypes: ["general"],
-      allowedToolNames: ["calendar.list"],
       files: [
         {
           path,

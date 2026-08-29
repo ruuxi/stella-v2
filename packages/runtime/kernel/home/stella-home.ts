@@ -6,12 +6,15 @@ import { Effect } from "effect";
 
 import { ensurePrivateDir } from "../shared/private-fs.js";
 import {
-  buildSystemSnapshot,
-  cleanupAbandonedSystemDirs,
-  mirrorSystemDir,
-} from "./system-mirror.js";
-import { migrateLegacyHomeLayout } from "./legacy-migration.js";
+  migrateLegacyHomeLayout,
+  migrateLegacySystemSkillRoot,
+} from "./legacy-migration.js";
 import { type BundledSyncReport } from "./bundled-sync.js";
+import {
+  listIncludedBundledSkillIds,
+  reconcileBundledSkillsEffect,
+  summarizeSkillsSync,
+} from "./skills-sync.js";
 import {
   StalePromptManifestError,
   applyPromptManifestIfCurrentEffect,
@@ -51,7 +54,8 @@ export type StellaDataDir = {
 };
 
 export type StellaDataDirSeedReport = {
-  mirrored: boolean;
+  /** Whether the bundled-skill reconciliation changed the canonical root. */
+  synced: boolean;
   /** Present only when the cloud prompt-parity path ran (prompt site URL supplied). */
   promptResolution?: PromptManifestResolution["source"];
   personalitySync?: BundledSyncReport;
@@ -91,9 +95,9 @@ const copyPathIfMissing = async (sourcePath: string, targetPath: string) => {
   await fs.copyFile(sourcePath, targetPath);
 };
 
-// One-shot copies into the user's space. Bundled skills are mirrored into
-// `system/` instead; system prompts live in the app bundle and never
-// materialize into the data dir at all.
+// One-shot copies into the user's space. Bundled skills are reconciled into the
+// canonical `skills/` root below; system prompts live in the app bundle and
+// never materialize into the data dir at all.
 const STELLA_DATA_SEED_ENTRIES = [path.join("outputs", "README.md")] as const;
 
 export const ensureStellaDataDirSeededEffect = (
@@ -116,18 +120,28 @@ export const ensureStellaDataDirSeededEffect = (
 
     yield* tryIO(() => migrateLegacyHomeLayout(stellaDataDir));
 
-    yield* tryIO(() => cleanupAbandonedSystemDirs(stellaDataDir));
-    const snapshot = yield* tryIO(() =>
-      buildSystemSnapshot({
-        seedSkillsDir: path.join(seedPath, "skills"),
-      }),
+    const bundledSkillsDir = path.join(seedPath, "skills");
+    const bundledSkillIds = yield* tryIO(() =>
+      listIncludedBundledSkillIds(bundledSkillsDir),
     );
-    const { applied } = yield* tryIO(() =>
-      mirrorSystemDir(stellaDataDir, snapshot),
+    yield* tryIO(() =>
+      migrateLegacySystemSkillRoot(stellaDataDir, bundledSkillIds),
+    );
+    const skillsSync = yield* reconcileBundledSkillsEffect(
+      bundledSkillsDir,
+      path.join(stellaDataDir, "skills"),
+    );
+    const applied = skillsSync.actions.some(
+      (action) =>
+        action.type === "seed" ||
+        action.type === "update" ||
+        action.type === "remove-obsolete",
     );
     if (applied) {
       yield* Effect.sync(() =>
-        console.log("[stella-home] system skills mirror applied"),
+        console.log(
+          `[stella-home] bundled skills reconciled: ${summarizeSkillsSync(skillsSync)}`,
+        ),
       );
     }
 
@@ -174,7 +188,7 @@ export const ensureStellaDataDirSeededEffect = (
     }
 
     return {
-      mirrored: applied,
+      synced: applied,
       ...(promptResolution ? { promptResolution } : {}),
       ...(personalitySync ? { personalitySync } : {}),
     };

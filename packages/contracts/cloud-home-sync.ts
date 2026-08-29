@@ -134,12 +134,6 @@ export type CloudSkillHead = {
   treeSha256?: string;
   fileCount?: number;
   totalSizeBytes?: number;
-  enabled: boolean;
-  authorizationState?: "active" | "revoked";
-  authorizationVersionId?: string;
-  authorizationRevision?: number;
-  allowedAgentTypes?: Array<"orchestrator" | "general">;
-  allowedToolNames?: string[];
   updatedAt: number;
 };
 

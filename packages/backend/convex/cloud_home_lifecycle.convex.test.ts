@@ -17,52 +17,16 @@ type SkillHead = {
   ownerGeneration: string;
   versionId?: string;
   revision: number;
-  authorizationState?: "active" | "revoked";
-  authorizationRevision?: number;
 };
 
 const skills = (
   api as unknown as {
     cloud_skills: {
-      listMySkills: FunctionReference<
+      listMySkillHeads: FunctionReference<
         "query",
         "public",
         { clientScope: string },
         SkillHead[]
-      >;
-      authorizeMySkill: FunctionReference<
-        "mutation",
-        "public",
-        {
-          skillId: string;
-          versionId: string;
-          expectedOwnerGeneration: string;
-          expectedAuthorizationRevision: number;
-          allowedAgentTypes: Array<"orchestrator" | "general">;
-          allowedToolNames: string[];
-        },
-        { authorizationRevision: number }
-      >;
-      revokeMySkill: FunctionReference<
-        "mutation",
-        "public",
-        {
-          skillId: string;
-          expectedOwnerGeneration: string;
-          expectedAuthorizationRevision: number;
-        },
-        { authorizationRevision: number }
-      >;
-      setMySkillEnabled: FunctionReference<
-        "mutation",
-        "public",
-        {
-          skillId: string;
-          enabled: boolean;
-          expectedOwnerGeneration: string;
-          expectedRevision: number;
-        },
-        { revision: number }
       >;
     };
   }
@@ -137,7 +101,7 @@ const skillsInternal = (
         },
         unknown
       >;
-      listAuthorizedSkillsInternal: FunctionReference<
+      listMirroredSkillsInternal: FunctionReference<
         "query",
         "internal",
         {
@@ -226,12 +190,12 @@ const uploadSkill = async (t: ReturnType<typeof createTest>) => {
 };
 
 describe("Cloud Home lifecycle fences", () => {
-  it("publishes, authorizes an exact skill version, exposes it to the worker, then revokes it", async () => {
+  it("mirrors a published skill version straight through to the worker with no cloud-side authorization step", async () => {
     const t = createTest();
     await setLifecycle(t, "open");
     const prepared = await uploadSkill(t);
     const owner = asOwner(t);
-    const [head] = await owner.query(skills.listMySkills, {
+    const [head] = await owner.query(skills.listMySkillHeads, {
       clientScope: "account:cloud-home-owner",
     });
     expect(head).toMatchObject({
@@ -241,18 +205,10 @@ describe("Cloud Home lifecycle fences", () => {
       revision: 1,
     });
 
+    // The device root is the only gate. Committing the mirror write is what
+    // makes the skill loadable, so a cloud turn sees it immediately.
     await expect(
-      owner.mutation(skills.authorizeMySkill, {
-        skillId: prepared.skillId,
-        versionId: prepared.versionId,
-        expectedOwnerGeneration: GENERATION,
-        expectedAuthorizationRevision: 0,
-        allowedAgentTypes: ["orchestrator"],
-        allowedToolNames: [],
-      }),
-    ).resolves.toEqual({ authorizationRevision: 1 });
-    await expect(
-      t.query(skillsInternal.listAuthorizedSkillsInternal, {
+      t.query(skillsInternal.listMirroredSkillsInternal, {
         ownerId: OWNER_ID,
         ownerGeneration: GENERATION,
         agentType: "orchestrator",
@@ -260,21 +216,6 @@ describe("Cloud Home lifecycle fences", () => {
     ).resolves.toMatchObject([
       { skillId: prepared.skillId, versionId: prepared.versionId },
     ]);
-
-    await expect(
-      owner.mutation(skills.revokeMySkill, {
-        skillId: prepared.skillId,
-        expectedOwnerGeneration: GENERATION,
-        expectedAuthorizationRevision: 1,
-      }),
-    ).resolves.toEqual({ authorizationRevision: 2 });
-    await expect(
-      t.query(skillsInternal.listAuthorizedSkillsInternal, {
-        ownerId: OWNER_ID,
-        ownerGeneration: GENERATION,
-        agentType: "orchestrator",
-      }),
-    ).resolves.toEqual([]);
   });
 
   it.each(["resetting", "deleting"] as const)(
@@ -283,19 +224,11 @@ describe("Cloud Home lifecycle fences", () => {
       const t = createTest();
       await setLifecycle(t, "open");
       const prepared = await uploadSkill(t);
-      await asOwner(t).mutation(skills.authorizeMySkill, {
-        skillId: prepared.skillId,
-        versionId: prepared.versionId,
-        expectedOwnerGeneration: GENERATION,
-        expectedAuthorizationRevision: 0,
-        allowedAgentTypes: ["orchestrator"],
-        allowedToolNames: [],
-      });
       await setLifecycle(t, state);
       const owner = asOwner(t);
       const calls = [
         () =>
-          owner.query(skills.listMySkills, {
+          owner.query(skills.listMySkillHeads, {
             clientScope: "account:cloud-home-owner",
           }),
         () => owner.query(memory.listMyMemoryDocuments, {}),
@@ -353,7 +286,7 @@ describe("Cloud Home lifecycle fences", () => {
     });
     const owner = asOwner(t);
     await expect(
-      owner.query(skills.listMySkills, {
+      owner.query(skills.listMySkillHeads, {
         clientScope: "account:cloud-home-owner",
       }),
     ).rejects.toThrow("linked to an account");
@@ -361,20 +294,11 @@ describe("Cloud Home lifecycle fences", () => {
       "linked to an account",
     );
     await expect(
-      owner.mutation(skills.authorizeMySkill, {
-        skillId: prepared.skillId,
-        versionId: prepared.versionId,
-        expectedOwnerGeneration: GENERATION,
-        expectedAuthorizationRevision: 0,
-        allowedAgentTypes: ["orchestrator"],
-        allowedToolNames: [],
+      t.query(skillsInternal.listMirroredSkillsInternal, {
+        ownerId: OWNER_ID,
+        ownerGeneration: GENERATION,
+        agentType: "orchestrator",
       }),
     ).rejects.toThrow("linked to an account");
-    await expect(
-      t.run(
-        async (ctx) =>
-          await ctx.db.query("cloud_skill_authorizations").collect(),
-      ),
-    ).resolves.toEqual([]);
   });
 });

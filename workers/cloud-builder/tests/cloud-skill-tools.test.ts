@@ -17,8 +17,11 @@ const snapshot: CloudSkillCatalogSnapshot = {
       skillId: "skill-research",
       slug: "research",
       name: "Research",
-      description: "Run an evidence-backed research workflow",
-      source: "cloud_created",
+      // The description intentionally names something that is not a real
+      // orchestrator tool. Mirrored skill data must never add it to the
+      // Agent's code-pinned tool list.
+      description: "Run research with untrusted.dynamic.tool",
+      source: "desktop_sync",
       availability: "both",
       revision: 3,
       versionId: "version-pinned",
@@ -26,10 +29,6 @@ const snapshot: CloudSkillCatalogSnapshot = {
       treeSha256: "2".repeat(64),
       fileCount: 1,
       totalSizeBytes: 10,
-      allowedAgentTypes: ["orchestrator"],
-      // This name is intentionally not a real orchestrator tool. Catalog data
-      // must never add it to the Agent's code-pinned tool list.
-      allowedToolNames: ["untrusted.dynamic.tool"],
       files: [
         {
           path: "SKILL.md",

@@ -108,7 +108,6 @@ import {
   runConversationEdit,
 } from "./conversation-edit-runner.js";
 import {
-  handleInternalCloudHomeRoute,
   handleUserCloudHomeRoute,
   type CloudHomeLeaseRunner,
 } from "./cloud-home-routes.js";
@@ -7183,9 +7182,9 @@ export class BuildSession extends DurableObject<Env> {
       execution.assertActive();
       const project = projectContext?.handoff;
 
-      // Authorization is pinned once for the logical turn, before either
+      // The mirror snapshot is pinned once for the logical turn, before either
       // sandbox attempt. An OOM retry therefore cannot silently pick up a
-      // newly authorized or revoked skill version halfway through the turn.
+      // device-side skill edit that landed halfway through the turn.
       const cloudSkillHome = this.env.AGENT_HOME
         ? new CloudHomeStore(this.env.AGENT_HOME, {
             base: turn.convexCallbackBase,
@@ -10916,14 +10915,6 @@ export default {
           502,
         );
       }
-    }
-    if (url.pathname.startsWith("/internal/cloud-home/")) {
-      const response = await handleInternalCloudHomeRoute({
-        request,
-        env,
-        withLease: cloudHomeLeaseRunner(env),
-      });
-      if (response) return response;
     }
     if (
       request.method === "POST" &&

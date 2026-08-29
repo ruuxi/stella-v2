@@ -60,11 +60,6 @@ export const cloudSkillSourceValidator = v.union(
   v.literal("owner_migration"),
 );
 
-export const cloudSkillAuthorizationStateValidator = v.union(
-  v.literal("active"),
-  v.literal("revoked"),
-);
-
 export const cloudAgentHomeSchema = {
   /**
    * Memory-only destructive lifecycle. `epoch` is opaque and monotonically
@@ -258,7 +253,6 @@ export const cloudAgentHomeSchema = {
     availability: cloudSkillAvailabilityValidator,
     activeVersionId: v.optional(v.string()),
     revision: v.number(),
-    enabled: v.boolean(),
     deletedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -354,30 +348,4 @@ export const cloudAgentHomeSchema = {
       "path",
     ])
     .index("by_ownerId_and_skillId", ["ownerId", "skillId"]),
-
-  /**
-   * Loading authorization is version-bound. Publishing a new version makes it
-   * unavailable until the owner authorizes that exact immutable version.
-   */
-  cloud_skill_authorizations: defineTable({
-    ownerId: v.string(),
-    skillId: v.string(),
-    versionId: v.string(),
-    state: cloudSkillAuthorizationStateValidator,
-    allowedAgentTypes: v.array(
-      v.union(v.literal("orchestrator"), v.literal("general")),
-    ),
-    allowedToolNames: v.array(v.string()),
-    authorizationRevision: v.number(),
-    approvedAt: v.optional(v.number()),
-    revokedAt: v.optional(v.number()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_ownerId_and_skillId", ["ownerId", "skillId"])
-    .index("by_ownerId_and_state_and_updatedAt", [
-      "ownerId",
-      "state",
-      "updatedAt",
-    ]),
 };

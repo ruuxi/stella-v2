@@ -6709,32 +6709,6 @@ export const commitOwnerNamespaceTransfer = internalMutation({
       return await progressed();
     }
 
-    const skillAuthorizations = await ctx.db
-      .query("cloud_skill_authorizations")
-      .withIndex("by_ownerId_and_skillId", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(20);
-    if (skillAuthorizations.length > 0) {
-      for (const authorization of skillAuthorizations) {
-        const collision = await ctx.db
-          .query("cloud_skill_authorizations")
-          .withIndex("by_ownerId_and_skillId", (q) =>
-            q
-              .eq("ownerId", args.toOwnerId)
-              .eq("skillId", authorization.skillId),
-          )
-          .unique();
-        if (collision && collision._id !== authorization._id) {
-          blockOwnershipMigration(
-            "A cloud Skill authorization identity collided during account linking.",
-          );
-        }
-        await ctx.db.patch(authorization._id, { ownerId: args.toOwnerId });
-      }
-      return await progressed();
-    }
-
     const skills = await ctx.db
       .query("cloud_skills")
       .withIndex("by_ownerId_and_deletedAt_and_updatedAt", (q) =>
@@ -8828,13 +8802,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
         "cloud_skill_files",
         await ctx.db
           .query("cloud_skill_files")
-          .withIndex("by_ownerId_and_skillId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "cloud_skill_authorizations",
-        await ctx.db
-          .query("cloud_skill_authorizations")
           .withIndex("by_ownerId_and_skillId", (q) => q.eq("ownerId", ownerId))
           .take(1),
       ],

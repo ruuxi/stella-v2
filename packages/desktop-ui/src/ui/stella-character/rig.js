@@ -583,7 +583,6 @@ export function createStellaMark(host, opts = {}) {
   }
 
   const workProfile = new Float64Array(N);
-
   const workRing = Array.from({ length: N }, () => [0, 0]);
   const warpedRing = Array.from({ length: N }, () => [0, 0]);
   const eyeBuf = [
@@ -610,7 +609,6 @@ export function createStellaMark(host, opts = {}) {
     for (let i = 0; i < N; i++) {
       let r = mixing ? from[i] + (base[i] - from[i]) * m : base[i];
       if (shimmerAmp) {
-
         const wobble = RING_SHIMMER_SIN[i] * shimmerCos + RING_SHIMMER_COS[i] * shimmerSin;
         r *= 1 + shimmerAmp * wobble;
       }
@@ -1064,7 +1062,6 @@ export function createStellaMark(host, opts = {}) {
   }
 
   function wake() {
-
     if (destroyed || running || (suspended() && painted)) return;
     running = true; last = 0;
     raf = requestAnimationFrame(frame);

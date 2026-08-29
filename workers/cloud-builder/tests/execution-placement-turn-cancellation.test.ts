@@ -3932,7 +3932,15 @@ const residentStopHarness = (turnId: string) => {
       sandboxId: string | undefined,
     ) => Promise<void>
   )(current, undefined);
-  return { harness, current, order, destroyed, killed, running, sandboxCalls: () => sandboxCalls };
+  return {
+    harness,
+    current,
+    order,
+    destroyed,
+    killed,
+    running,
+    sandboxCalls: () => sandboxCalls,
+  };
 };
 
 describe("resident placement exact Stop", () => {

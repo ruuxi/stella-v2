@@ -87,7 +87,6 @@
       "title": "Nyelv",
       "description": "Válaszd ki a Stella által az alkalmazásban és a válaszokban használt nyelvet."
     },
-
     "memory": {
       "title": "Memória",
       "description": "A mentett emlékeket és a profilodat is foglald bele Stella modellkontextusába. A felhőbeli példány a mérvadó, és átvitel közben, valamint tárolva is titkosított; Stella helyi példányt is megőrizhet. Kikapcsoláskor a memória kimarad a későbbi beszélgetésekből, de nem törlődik."
@@ -108,12 +107,6 @@
         "system": "Rendszer",
         "on": "Be",
         "off": "Ki"
-      }
-    },
-    "voice": {
-      "title": "Hang",
-      "personality": {
-        "label": "Személyiség"
       }
     },
     "notifications": {
@@ -445,7 +438,6 @@
       "resultsAriaOne": "{count} találat",
       "resultsAriaOther": "{count} találat",
       "descriptions": {
-        "voice": "Válaszd ki a Stella beszédstílusát és személyiséghangját.",
         "permissions": "Adj hozzáférést a kisegítő lehetőségekhez, a képernyőrögzítéshez és a mikrofonhoz macOS-en.",
         "shortcuts": "Módosítsd a diktálás és a hang gyorsbillentyűit.",
         "backup": "Automatikus titkosított biztonsági mentések, visszaállítási pontok és igény szerinti pillanatképek.",
@@ -467,9 +459,6 @@
       "loadSoundNotifications": "Nem sikerült betölteni a hangértesítések beállítását.",
       "saveSoundNotifications": "Nem sikerült frissíteni a hangértesítések beállítását.",
       "soundNotificationsUnavailable": "A hangértesítések beállításai nem érhetők el ebben az ablakban.",
-      "loadVoice": "Nem sikerült betölteni a hangbeállítást.",
-      "saveVoice": "Nem sikerült frissíteni a hangbeállítást.",
-      "voiceUnavailable": "A hangbeállítások nem érhetők el ebben az ablakban.",
       "loadMemory": "Nem sikerült betölteni a memóriabeállítást.",
       "saveMemory": "Nem sikerült frissíteni a memóriabeállítást.",
       "memoryUnavailable": "A memóriabeállítások nem érhetők el ebben az ablakban.",
@@ -723,7 +712,6 @@
       "extension": "Add hozzá a Stellát a böngésződhöz.",
       "browser": "Hadd ismerjen meg téged a Stella.",
       "theme": "Hogyan nézzen ki a Stella?",
-      "personality": "Hogyan beszéljen a Stella?",
       "voice": "Beszélj gépelés helyett.",
       "enter": "A Stella majdnem készen áll."
     },
@@ -835,209 +823,6 @@
     "permissionDenied": "A Stellának nincs erre jogosultsága."
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "Új üzenet",
-        "emptySubtitle": "Előbb adj hozzá ismerősöket a beszélgetés indításához.",
-        "description": "Válassz egy ismerőst, vagy indíts új csoportos beszélgetést.",
-        "subtitle": "Válassz egy ismerőst, vagy indíts csoportot.",
-        "groupTitle": "Új csoport",
-        "groupSubtitle": "Válaszd ki, kiket adsz hozzá ehhez a csoporthoz.",
-        "groupNameLabel": "Csoport neve",
-        "groupNamePlaceholder": "Csoport neve (nem kötelező)",
-        "members": "Tagok",
-        "back": "Vissza",
-        "creating": "Létrehozás...",
-        "createGroup": "Csoport létrehozása",
-        "newGroup": "Új csoport",
-        "friends": "Ismerősök",
-        "opening": "Megnyitás..."
-      },
-      "friends": {
-        "title": "Ismerősök",
-        "description": "Oszd meg az ismerőskódodat a kapcsolódáshoz, vagy írd be valaki másét kérelem küldéséhez.",
-        "subtitle": "Oszd meg a felhasználóneved, vagy írd be egy ismerősödét a kapcsolódáshoz.",
-        "requestSent": "Ismerőskérelem elküldve!",
-        "usernameCopied": "Felhasználónév másolva!",
-        "inviteLinkCopied": "Meghívó link másolva — küldd el bárhová.",
-        "yourUsername": "A felhasználóneved",
-        "copy": "Másolás",
-        "copyUsernameTitle": "Felhasználóneved másolása",
-        "copyInviteLink": "Meghívó link másolása",
-        "copyInviteLinkTitle": "Olyan link másolása, amely megnyitja a Stellát, és ismerőskérelmet küld neked — működik iMessage-ben, Discordon, bárhol",
-        "addLabel": "Ismerős hozzáadása",
-        "addPlaceholder": "Írd be a felhasználónevet",
-        "add": "Hozzáadás",
-        "adding": "Hozzáadás...",
-        "requestsCount": "Kérelmek ({count})",
-        "accept": "Elfogadás",
-        "decline": "Elutasítás",
-        "sent": "Elküldve",
-        "waitingForResponse": "Válaszra várva",
-        "friendsCount": "Ismerősök ({count})",
-        "empty": "Még nincsenek ismerőseid. Oszd meg a felhasználóneved, vagy írd be valaki másét fent a kapcsolódáshoz.",
-        "message": "Üzenet",
-        "opening": "Megnyitás...",
-        "remove": "Eltávolítás",
-        "removing": "Eltávolítás...",
-        "errors": {
-          "sendRequest": "Nem sikerült elküldeni az ismerőskérelmet. Ellenőrizd a felhasználónevet, és próbáld újra."
-        }
-      },
-      "communities": {
-        "title": "Közösségek",
-        "description": "Hozz létre közösséget, vagy csatlakozz egyhez meghívókóddal, majd oszd meg a bővítményeket mindenkivel benne.",
-        "subtitle": "Megbízható körök a megosztáshoz. Egy közösségben mindenki látja, amit a tagjai megosztanak.",
-        "defaultName": "Közösség",
-        "created": "Létrehozva: „{name}”!",
-        "joined": "Bent vagy!",
-        "createLabel": "Közösség létrehozása",
-        "createPlaceholder": "Adj nevet az új közösségnek",
-        "create": "Létrehozás",
-        "joinLabel": "Csatlakozás meghívókóddal",
-        "joinPlaceholder": "Írj be egy meghívókódot",
-        "join": "Csatlakozás",
-        "yourCommunities": "A közösségeid",
-        "yourCommunitiesCount": "A közösségeid ({count})",
-        "empty": "Még nincsenek közösségek. Hozz létre egyet, és oszd meg a meghívókódot, vagy csatlakozz egy kapott kóddal.",
-        "createdByYouSuffix": " · te hoztad létre",
-        "open": "Megnyitás",
-        "details": "Részletek",
-        "back": "Vissza",
-        "nameLabel": "Közösség neve",
-        "save": "Mentés",
-        "cancel": "Mégse",
-        "createdByYou": "Te hoztad létre ezt a közösséget.",
-        "memberOf": "Tagja vagy ennek a közösségnek.",
-        "inviteCode": "Meghívókód",
-        "copied": "Másolva!",
-        "copyCode": "Kód másolása",
-        "copyInviteLink": "Meghívó link másolása",
-        "copyInviteLinkTitle": "Olyan link másolása, amely megnyitja a Stellát, és csatlakoztat ehhez a közösséghez",
-        "inviteHint": "A link bárhol működik — illeszd be egy Stella-beszélgetésbe, vagy küldd el iMessage-ben vagy Discordon. Bárki csatlakozhat vele, ezért csak olyanokkal oszd meg, akikben megbízol.",
-        "membersCount": "Tagok ({count})",
-        "roleCreator": "Létrehozó",
-        "roleMember": "Tag",
-        "youSuffix": " · te",
-        "remove": "Eltávolítás",
-        "removing": "Eltávolítás...",
-        "confirmDelete": "Biztosan törlöd ezt a közösséget?",
-        "delete": "Közösség törlése",
-        "confirmLeave": "Biztosan kilépsz?",
-        "leave": "Kilépés a közösségből",
-        "rename": "Átnevezés",
-        "openChat": "Csevegés megnyitása",
-        "errors": {
-          "create": "Nem sikerült létrehozni a közösséget. Próbáld újra.",
-          "join": "Nem sikerült csatlakozni ezzel a meghívókóddal. Ellenőrizd a kódot, és próbáld újra.",
-          "rename": "Nem sikerült átnevezni a közösséget. Próbáld újra.",
-          "removeMember": "Nem sikerült eltávolítani ezt a tagot. Próbáld újra.",
-          "delete": "Nem sikerült törölni a közösséget. Próbáld újra.",
-          "leave": "Nem sikerült kilépni a közösségből. Próbáld újra."
-        },
-        "memberCount": {
-          "one": "{count} tag",
-          "other": "{count} tag"
-        }
-      },
-      "view": {
-        "messages": "Üzenetek",
-        "signIn": "Bejelentkezés",
-        "signInSubtitle": "Jelentkezz be, hogy üzenhess az ismerőseidnek, és együtt dolgozhassatok a Stellával.",
-        "friends": "Ismerősök",
-        "communities": "Közösségek",
-        "newMessage": "Új üzenet",
-        "noRooms": "Még nincsenek beszélgetések. Adj hozzá ismerősöket, vagy indíts új üzenetet.",
-        "addFriends": "Ismerősök hozzáadása",
-        "communityBadge": "Közösség",
-        "communityBadgeTitle": "Megosztva mindenkivel ebben a közösségben",
-        "usernamePlaceholder": "felhasznalonev",
-        "editUsername": "Felhasználóneved szerkesztése",
-        "copied": "Másolva!",
-        "clickToCopyUsername": "Kattints a felhasználóneved másolásához",
-        "copyUsername": "Felhasználónév másolása",
-        "cancel": "Mégse",
-        "save": "Mentés",
-        "saving": "Mentés...",
-        "emptyTitle": "Az üzeneteid",
-        "emptySubtitle": "Válassz egy beszélgetést balról, vagy indíts újat egy ismerősöddel.",
-        "errors": {
-          "startConversation": "Nem sikerült elindítani a beszélgetést. Próbáld újra.",
-          "createGroup": "Nem sikerült létrehozni a csoportot. Próbáld újra."
-        },
-        "usernameErrors": {
-          "empty": "A felhasználónév nem lehet üres.",
-          "length": "A felhasználónévnek 3-32 karakteresnek kell lennie.",
-          "format": "Használj kisbetűket, számokat, _ vagy - karaktert. Betűvel vagy számmal kell kezdődnie és végződnie.",
-          "update": "Nem sikerült frissíteni a felhasználóneved. Próbáld újra."
-        },
-        "newRequestCount": {
-          "one": "{count} új kérelem",
-          "other": "{count} új kérelem"
-        },
-        "friendsWithRequestsTitle": "Ismerősök ({countPhrase})",
-        "friendsWithRequestsAria": "Ismerősök, {countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "A Stella válasz nélkül fejezte be.",
-        "stellaFailed": "A Stella nem tudta befejezni ezt a kérést.",
-        "stellaThinking": "A Stella gondolkodik...",
-        "sharedStellaUnavailable": "A megosztott Stella nem érhető el ebben az alkalmazás-munkamenetben.",
-        "back": "Vissza",
-        "backToConversations": "Vissza a beszélgetésekhez",
-        "peopleCount": "{count} fő",
-        "startStella": "Stella indítása",
-        "startStellaTitle": "Hozd be a Stellát ebbe a beszélgetésbe",
-        "starting": "Indítás...",
-        "startAgain": "Indítás újra",
-        "pause": "Szünet",
-        "resume": "Folytatás",
-        "end": "Befejezés",
-        "sayHello": "Köszönj, hogy elinduljon a beszélgetés",
-        "loadingOlder": "Régebbi üzenetek betöltése…",
-        "armedOnTitle": "A következő üzenet a Stellának megy",
-        "armedOffTitle": "A következő üzenet normál csevegőüzenetként megy",
-        "tellStella": "Szólj a Stellának",
-        "tellingStella": "Szólás a Stellának",
-        "tellStellaPlaceholder": "Mondd el a Stellának, mit szeretnél...",
-        "messagePlaceholder": "Üzenet neki: {name}",
-        "sessionBadge": {
-          "live": "Stella · Élő",
-          "paused": "Stella · Szüneteltetve",
-          "ended": "Stella · Befejezve"
-        },
-        "sessionHint": {
-          "live": "Itt bárki szólhat a Stellának.",
-          "paused": "Szüneteltetve — folytasd, hogy újra szólhass a Stellának.",
-          "ended": "Ez a megosztott Stella-tér véget ért."
-        },
-        "errors": {
-          "startStella": "Nem sikerült elindítani itt a Stellát. Próbáld újra.",
-          "updateStella": "Most nem sikerült frissíteni a Stellát. Próbáld újra.",
-          "sendToStella": "Nem sikerült ezt elküldeni a Stellának. Próbáld újra.",
-          "sendMessage": "Nem sikerült elküldeni az üzenetedet. Próbáld újra."
-        }
-      },
-      "composer": {
-        "placeholder": "Írj egy üzenetet...",
-        "send": "Küldés"
-      },
-      "inviteCard": {
-        "communityEyebrow": "Közösségi meghívó",
-        "friendEyebrow": "Ismerősmeghívó",
-        "defaultCommunityName": "Közösség",
-        "defaultUserName": "Stella-felhasználó",
-        "friendDetail": "Koppints ismerőskérelem küldéséhez",
-        "inviteUnavailable": "A meghívó nem érhető el",
-        "userNotFound": "A felhasználó nem található",
-        "communityMissing": "Ez a közösség már nem létezik, vagy megváltozott a kód.",
-        "userMissing": "Ehhez a meghívó linkhez nem tartozik Stella-felhasználó.",
-        "communityDetail": {
-          "one": "{countLabel} tag · koppints a csatlakozáshoz",
-          "other": "{countLabel} tag · koppints a csatlakozáshoz"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "A helyi használat a Stella asztali alkalmazásában érhető el.",
       "intro": "Az ezen az eszközön tárolt szolgáltatóhívások. A költségek helyi becslések; a mérvadó elszámolás a háttérrendszerben történik.",
@@ -1153,37 +938,6 @@
         "loadFailed": "Az alkalmazást nem sikerült betölteni.",
         "loading": "Betöltés: {name}…",
         "openFailed": "Nem sikerült megnyitni: {name}"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "Legnépszerűbb",
-        "name": "Betűrend"
-      },
-      "animations": {
-        "idle": "Tétlen",
-        "runningRight": "Futás jobbra",
-        "runningLeft": "Futás balra",
-        "waving": "Integetés",
-        "jumping": "Ugrás",
-        "failed": "Sikertelen",
-        "waiting": "Várakozás",
-        "running": "Futás",
-        "review": "Ellenőrzés"
-      },
-      "card": {
-        "by": "Készítette: {creator}",
-        "selections": "{count} kiválasztás",
-        "get": "Beszerzés",
-        "select": "Kiválasztás",
-        "selected": "Kiválasztva",
-        "remove": "Eltávolítás"
-      },
-      "details": {
-        "caption": "Készítette: {creator} · {downloads} kiválasztás",
-        "previewLabel": "Előnézet: {name}",
-        "animations": "Animációk",
-        "animationStates": "Animációs állapotok"
       }
     },
     "chat": {
@@ -1623,110 +1377,6 @@
     "voice": {
       "signInTitle": "Jelentkezz be a hang használatához",
       "needsSetupTitle": "A hangot be kell állítani"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "Miután a Stella módosít valamit neked, innen megoszthatod barátokkal, egy közösséggel vagy a Store-ban."
-      },
-      "recentChanges": {
-        "rowSelectHint": "Kattints a megosztásba foglaláshoz",
-        "rowDeselectHint": "Kattints a kijelölésből való eltávolításhoz",
-        "updated": "Frissítve: {time}",
-        "showOlder": "Régebbiek megjelenítése",
-        "justNow": "Épp most",
-        "publishEmpty": "Válassz megosztandó módosításokat",
-        "publishLabel": "Megosztás · {countPhrase}",
-        "selectedCount": {
-          "one": "{count} kiválasztva",
-          "other": "{count} kiválasztva"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "Stella-kiegészítő",
-        "unavailableName": "A kiegészítő nem érhető el",
-        "unavailableDesc": "Ez a bővítmény privát, vagy már nincs közzétéve.",
-        "viewCta": "Megtekintés →"
-      },
-      "creator": {
-        "loading": "Készítő betöltése…",
-        "notFoundTitle": "A készítő nem található",
-        "notFoundBodyPrefix": "Még senki sem foglalta le ezt a felhasználónevet:",
-        "notFoundBodySuffix": "– egyelőre.",
-        "noAddons": "{username} még nem osztott meg bővítményt.",
-        "version": "Verzió: {version}",
-        "addonCount": {
-          "zero": "Még nincs bővítmény",
-          "one": "{count} bővítmény",
-          "other": "{count} bővítmény"
-        }
-      },
-      "categories": {
-        "appsGames": "Alkalmazások és játékok",
-        "productivity": "Produktivitás",
-        "customization": "Testreszabás",
-        "skillsAgents": "Képességek és ügynökök",
-        "integrations": "Integrációk",
-        "other": "Egyéb"
-      },
-      "shareDialog": {
-        "title": "Megosztás",
-        "titleCircle": "Megosztás a köröddel",
-        "titleCircleUpdate": "Frissítés megosztása",
-        "titleStore": "Megosztás a Store-ban",
-        "titleStoreUpdate": "Frissítés beküldése",
-        "destinationLede": "Hová kerüljön? A megosztás futtatható kódot küld, ezért válaszd ki a megfelelő közönséget.",
-        "circleOptionName": "Egy ismerős vagy közösség",
-        "circleOptionDesc": "Azonnali. Megosztókártyaként egyenesen azokhoz jut, akikben megbízol – nincs ellenőrzés, és sosem kerül nyilvános listára.",
-        "storeOptionName": "A Stella Store",
-        "storeOptionDesc": "Nyilvános. Előbb a Stella csapata ellenőrzi, aztán mindenki számára elérhető lesz a store-ban.",
-        "updateExisting": "Meglévő bővítmény frissítése",
-        "existingAddon": "Meglévő bővítmény",
-        "selectPlaceholder": "Válassz…",
-        "nameLabel": "Név",
-        "namePlaceholder": "Példa mod",
-        "descriptionLabel": "Leírás",
-        "optionalHint": "(nem kötelező)",
-        "descriptionPlaceholderCircle": "Egy rövid sor a megosztókártyához.",
-        "descriptionPlaceholderStore": "Egy rövid sor a store-beli megjelenéshez.",
-        "categoryLabel": "Kategória",
-        "categoryPlaceholder": "Válassz kategóriát…",
-        "sendTo": "Címzettek",
-        "noRecipients": "Még nincsenek ismerősök vagy közösségek – adj hozzá párat az Üzenetek oldalon.",
-        "communityFallbackName": "Közösség",
-        "communityTag": "Közösség",
-        "circleNote": "A megosztás azonnal telepíthető kártyaként érkezik meg minden csevegésbe. Csak az általad választott emberek (és az adott közösségek tagjai) tudják letölteni.",
-        "storeNote": "A Stella csapata ellenőrzi a store-ba beküldött tartalmakat, mielőtt mindenki számára elérhetővé válnak.",
-        "submitPending": "Megosztás…",
-        "submitCircle": "Megosztás most",
-        "submitStore": "Beküldés ellenőrzésre",
-        "noSourceChangesTitle": "Nincs forrásmódosítás",
-        "noSourceChangesBody": "Előbb válassz ki legalább egy friss, forrásalapú módosítást.",
-        "pickRecipientTitle": "Válaszd ki, kivel osztod meg",
-        "pickRecipientBody": "Válassz legalább egy ismerőst vagy közösséget.",
-        "pickAddonTitle": "Válassz bővítményt",
-        "pickAddonBody": "Válaszd ki a frissíteni kívánt bővítményt.",
-        "nameRequiredTitle": "Név szükséges",
-        "nameRequiredBody": "Adj a bővítménynek egy rövid nevet a megosztás előtt.",
-        "badNameTitle": "Válassz másik nevet",
-        "badNameBody": "Használj betűket vagy számokat a névben, hogy azonosítót tudjunk létrehozni.",
-        "publishBackendMissing": "A közzétételi háttérszolgáltatás nem érhető el.",
-        "sharingTitle": "Megosztás",
-        "submittingTitle": "Beküldés",
-        "inProgressBody": "A Stella szól, ha elkészült.",
-        "submittedTitle": "Beküldve ellenőrzésre",
-        "submittedBody": "{name} elküldve a Stella csapatának. Jóváhagyás után megjelenik a store-ban.",
-        "sharedTitle": "Megosztva",
-        "shareFailedTitle": "A megosztás sikertelen",
-        "submissionFailedTitle": "A beküldés sikertelen",
-        "sharedBodyDelivered": {
-          "one": "{name} úton van {count} csevegésbe.",
-          "other": "{name} úton van {count} csevegésbe."
-        },
-        "sharedBodyPartial": {
-          "one": "{name} elért {delivered}/{count} csevegést. Nyisd meg az Üzeneteket a többi újrapróbálásához.",
-          "other": "{name} elért {delivered}/{count} csevegést. Nyisd meg az Üzeneteket a többi újrapróbálásához."
-        }
-      }
     }
   },
   "ui": {
@@ -1804,10 +1454,6 @@
         "files": {
           "label": "Fájlok",
           "description": "Oldalak, képek, videók és dokumentumok"
-        },
-        "store": {
-          "label": "Store",
-          "description": "Bővítmények és amiket készítettél"
         },
         "trash": {
           "label": "Kuka",
@@ -2108,48 +1754,6 @@
         "one": "{count} ütemezés",
         "other": "{count} ütemezés"
       }
-    },
-    "social": {
-      "dialogDescription": "Erősítsd meg ezt a meghívót, mielőtt bármi történne.",
-      "signInToAccept": "Jelentkezz be a Stellába a meghívó elfogadásához.",
-      "lookingUpInvite": "Meghívó keresése…",
-      "stellaAddOn": "Stella-bővítmény",
-      "stellaUser": "Stella-felhasználó",
-      "byAuthor": " · készítette: @{username}",
-      "alreadyIn": " · már tag vagy",
-      "membersLabel": "tag",
-      "memberCount": {
-        "one": "{count} tag",
-        "other": "{count} tag"
-      },
-      "working": "Dolgozom…",
-      "alreadyJoined": "Már csatlakoztál",
-      "welcomeToCommunity": "Üdv itt: {community}!",
-      "joinedCommunity": "Csatlakoztál a közösséghez!",
-      "friendRequestSent": "Ismerőskérelem elküldve neki: @{username}.",
-      "joinFailed": "Nem sikerült csatlakozni a közösséghez. Lehet, hogy a meghívó lejárt.",
-      "friendRequestFailed": "Nem sikerült elküldeni az ismerőskérelmet. Próbáld újra.",
-      "store": {
-        "title": "Bővítmény megnyitása",
-        "confirmLabel": "Megtekintés a Store-ban",
-        "sub": "A megnyitott hivatkozás egy Stella-bővítményre mutat. Semmi nem települ. Ez csak a Store-oldalát nyitja meg.",
-        "missing": "Ez a bővítmény privát, vagy már nincs közzétéve."
-      },
-      "join": {
-        "title": "Csatlakozás a közösséghez",
-        "confirmLabel": "Csatlakozás",
-        "sub": "Meghívtak egy közösségbe: megbízható kör, ahol a tagok bővítményeket osztanak meg egymással.",
-        "missing": "Ehhez a meghívókódhoz nem található közösség. Kérj friss hivatkozást."
-      },
-      "friend": {
-        "title": "Ismerős hozzáadása",
-        "confirmLabel": "Ismerőskérelem küldése",
-        "sub": "Meghívtak, hogy kapcsolódj a Stellán.",
-        "missing": "Ehhez a meghívó hivatkozáshoz nem található felhasználó."
-      }
-    },
-    "websiteView": {
-      "storeTitle": "Store"
     }
   },
   "mobile": {

@@ -87,7 +87,6 @@
       "title": "اللغة",
       "description": "اختر اللغة التي ستستخدمها Stella في التطبيق وعند الرد عليك."
     },
-
     "memory": {
       "title": "الذاكرة",
       "description": "ضمّن الذكريات المحفوظة وملفك الشخصي في سياق نموذج Stella. النسخة السحابية هي النسخة المعتمدة ومشفّرة أثناء النقل وعند التخزين؛ وقد يحتفظ Stella أيضًا بنسخة محلية. يؤدي إيقاف هذا الخيار إلى استبعاد الذاكرة من المحادثات المستقبلية، لكنه لا يحذفها."
@@ -108,12 +107,6 @@
         "system": "النظام",
         "on": "تشغيل",
         "off": "إيقاف"
-      }
-    },
-    "voice": {
-      "title": "الصوت",
-      "personality": {
-        "label": "الشخصية"
       }
     },
     "notifications": {
@@ -445,7 +438,6 @@
       "resultsAriaOne": "{count} نتيجة",
       "resultsAriaOther": "{count} نتيجة",
       "descriptions": {
-        "voice": "اختر أسلوب كلام Stella وصوت شخصيتها.",
         "permissions": "امنح الوصول إلى إمكانية الوصول وتسجيل الشاشة والميكروفون على macOS.",
         "shortcuts": "غيّر اختصارات الإملاء والصوت.",
         "backup": "نسخ احتياطية مشفّرة تلقائية، ونقاط استعادة، ولقطات عند الطلب.",
@@ -467,9 +459,6 @@
       "loadSoundNotifications": "تعذّر تحميل إعداد الإشعارات الصوتية.",
       "saveSoundNotifications": "تعذّر تحديث إعداد الإشعارات الصوتية.",
       "soundNotificationsUnavailable": "إعدادات الإشعارات الصوتية غير متاحة في هذه النافذة.",
-      "loadVoice": "تعذّر تحميل إعداد الصوت.",
-      "saveVoice": "تعذّر تحديث إعداد الصوت.",
-      "voiceUnavailable": "إعدادات الصوت غير متاحة في هذه النافذة.",
       "loadMemory": "تعذّر تحميل إعداد الذاكرة.",
       "saveMemory": "تعذّر تحديث إعداد الذاكرة.",
       "memoryUnavailable": "إعدادات الذاكرة غير متاحة في هذه النافذة.",
@@ -727,7 +716,6 @@
       "extension": "أضف Stella إلى متصفحك.",
       "browser": "دع Stella تتعرف عليك.",
       "theme": "كيف يجب أن تبدو Stella؟",
-      "personality": "كيف يجب أن تتحدث Stella؟",
       "voice": "تحدث بدلاً من الكتابة.",
       "enter": "‏Stella جاهزة تقريبًا."
     },
@@ -839,221 +827,6 @@
     "permissionDenied": "ليس لدى Stella إذن للقيام بذلك."
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "رسالة جديدة",
-        "emptySubtitle": "أضف بعض الأصدقاء أولًا لبدء محادثة.",
-        "description": "اختر صديقًا أو ابدأ محادثة جماعية جديدة.",
-        "subtitle": "اختر صديقًا أو ابدأ مجموعة.",
-        "groupTitle": "مجموعة جديدة",
-        "groupSubtitle": "اختر أصدقاء لإضافتهم إلى هذه المجموعة.",
-        "groupNameLabel": "اسم المجموعة",
-        "groupNamePlaceholder": "اسم المجموعة (اختياري)",
-        "members": "الأعضاء",
-        "back": "رجوع",
-        "creating": "جارٍ الإنشاء...",
-        "createGroup": "أنشئ مجموعة",
-        "newGroup": "مجموعة جديدة",
-        "friends": "الأصدقاء",
-        "opening": "جارٍ الفتح..."
-      },
-      "friends": {
-        "title": "الأصدقاء",
-        "description": "شارك رمز الصداقة الخاص بك للتواصل، أو أدخل رمز شخص آخر لإرسال طلب.",
-        "subtitle": "شارك اسم المستخدم الخاص بك، أو أدخل اسم صديق للتواصل.",
-        "requestSent": "تم إرسال طلب الصداقة!",
-        "usernameCopied": "تم نسخ اسم المستخدم!",
-        "inviteLinkCopied": "تم نسخ رابط الدعوة — أرسله في أي مكان.",
-        "yourUsername": "اسم المستخدم الخاص بك",
-        "copy": "نسخ",
-        "copyUsernameTitle": "انسخ اسم المستخدم الخاص بك",
-        "copyInviteLink": "انسخ رابط الدعوة",
-        "copyInviteLinkTitle": "انسخ رابطًا يفتح Stella ويرسل لك طلب صداقة — يعمل في iMessage وDiscord وأي مكان",
-        "addLabel": "أضف صديقًا",
-        "addPlaceholder": "أدخل اسم المستخدم",
-        "add": "إضافة",
-        "adding": "جارٍ الإضافة...",
-        "requestsCount": "الطلبات ({count})",
-        "accept": "قبول",
-        "decline": "رفض",
-        "sent": "أُرسل",
-        "waitingForResponse": "في انتظار الرد",
-        "friendsCount": "الأصدقاء ({count})",
-        "empty": "لا أصدقاء بعد. شارك اسم المستخدم الخاص بك أو أدخل اسم شخص آخر أعلاه للتواصل.",
-        "message": "مراسلة",
-        "opening": "جارٍ الفتح...",
-        "remove": "إزالة",
-        "removing": "جارٍ الإزالة...",
-        "errors": {
-          "sendRequest": "تعذّر إرسال طلب الصداقة. تحقّق من اسم المستخدم وحاول مرة أخرى."
-        }
-      },
-      "communities": {
-        "title": "المجتمعات",
-        "description": "أنشئ مجتمعًا أو انضم إلى واحد برمز دعوة، ثم شارك الإضافات مع الجميع فيه.",
-        "subtitle": "دوائر موثوقة للمشاركة. يرى كل من في المجتمع ما يشاركه أعضاؤه.",
-        "defaultName": "مجتمع",
-        "created": "تم إنشاء \"{name}\"!",
-        "joined": "انضممت!",
-        "createLabel": "أنشئ مجتمعًا",
-        "createPlaceholder": "سمِّ مجتمعًا جديدًا",
-        "create": "إنشاء",
-        "joinLabel": "انضم برمز دعوة",
-        "joinPlaceholder": "أدخل رمز دعوة",
-        "join": "انضمام",
-        "yourCommunities": "مجتمعاتك",
-        "yourCommunitiesCount": "مجتمعاتك ({count})",
-        "empty": "لا مجتمعات بعد. أنشئ واحدًا وشارك رمز الدعوة، أو انضم برمز أرسله لك أحدهم.",
-        "createdByYouSuffix": " · أنشأته أنت",
-        "open": "فتح",
-        "details": "التفاصيل",
-        "back": "رجوع",
-        "nameLabel": "اسم المجتمع",
-        "save": "حفظ",
-        "cancel": "إلغاء",
-        "createdByYou": "أنت أنشأت هذا المجتمع.",
-        "memberOf": "أنت عضو في هذا المجتمع.",
-        "inviteCode": "رمز الدعوة",
-        "copied": "تم النسخ!",
-        "copyCode": "انسخ الرمز",
-        "copyInviteLink": "انسخ رابط الدعوة",
-        "copyInviteLinkTitle": "انسخ رابطًا يفتح Stella وينضم إلى هذا المجتمع",
-        "inviteHint": "يعمل الرابط في أي مكان — ألصقه في محادثة Stella أو أرسله عبر iMessage أو Discord. يمكن لأي شخص لديه الرابط الانضمام، لذا شاركه فقط مع من تثق بهم.",
-        "membersCount": "الأعضاء ({count})",
-        "roleCreator": "المنشئ",
-        "roleMember": "عضو",
-        "youSuffix": " · أنت",
-        "remove": "إزالة",
-        "removing": "جارٍ الإزالة...",
-        "confirmDelete": "هل تريد حقًا حذف هذا المجتمع؟",
-        "delete": "احذف المجتمع",
-        "confirmLeave": "هل تريد المغادرة فعلًا؟",
-        "leave": "غادر المجتمع",
-        "rename": "إعادة تسمية",
-        "openChat": "افتح المحادثة",
-        "errors": {
-          "create": "تعذّر إنشاء ذلك المجتمع. حاول مرة أخرى.",
-          "join": "تعذّر الانضمام برمز الدعوة هذا. تحقّق من الرمز وحاول مرة أخرى.",
-          "rename": "تعذّرت إعادة تسمية المجتمع. حاول مرة أخرى.",
-          "removeMember": "تعذّرت إزالة ذلك العضو. حاول مرة أخرى.",
-          "delete": "تعذّر حذف المجتمع. حاول مرة أخرى.",
-          "leave": "تعذّرت مغادرة المجتمع. حاول مرة أخرى."
-        },
-        "memberCount": {
-          "zero": "{count} عضو",
-          "one": "{count} عضو",
-          "two": "{count} عضوان",
-          "few": "{count} أعضاء",
-          "many": "{count} عضوًا",
-          "other": "{count} عضو"
-        }
-      },
-      "view": {
-        "messages": "الرسائل",
-        "signIn": "تسجيل الدخول",
-        "signInSubtitle": "سجّل الدخول لمراسلة الأصدقاء والتعاون معًا عبر Stella.",
-        "friends": "الأصدقاء",
-        "communities": "المجتمعات",
-        "newMessage": "رسالة جديدة",
-        "noRooms": "لا محادثات بعد. أضف أصدقاء أو ابدأ رسالة جديدة.",
-        "addFriends": "أضف أصدقاء",
-        "communityBadge": "مجتمع",
-        "communityBadgeTitle": "مشترك مع الجميع في هذا المجتمع",
-        "usernamePlaceholder": "اسم-المستخدم",
-        "editUsername": "عدّل اسم المستخدم الخاص بك",
-        "copied": "تم النسخ!",
-        "clickToCopyUsername": "انقر لنسخ اسم المستخدم الخاص بك",
-        "copyUsername": "انسخ اسم المستخدم",
-        "cancel": "إلغاء",
-        "save": "حفظ",
-        "saving": "جارٍ الحفظ...",
-        "emptyTitle": "رسائلك",
-        "emptySubtitle": "اختر محادثة من اليمين، أو ابدأ محادثة جديدة مع صديق.",
-        "errors": {
-          "startConversation": "تعذّر بدء تلك المحادثة. حاول مرة أخرى.",
-          "createGroup": "تعذّر إنشاء المجموعة. حاول مرة أخرى."
-        },
-        "usernameErrors": {
-          "empty": "لا يمكن ترك اسم المستخدم فارغًا.",
-          "length": "يجب أن يتكوّن اسم المستخدم من 3 إلى 32 حرفًا.",
-          "format": "استخدم أحرفًا لاتينية صغيرة أو أرقامًا أو _ أو -. يجب أن يبدأ وينتهي بحرف أو رقم.",
-          "update": "تعذّر تحديث اسم المستخدم الخاص بك. حاول مرة أخرى."
-        },
-        "newRequestCount": {
-          "zero": "{count} طلب جديد",
-          "one": "{count} طلب جديد",
-          "two": "{count} طلبان جديدان",
-          "few": "{count} طلبات جديدة",
-          "many": "{count} طلبًا جديدًا",
-          "other": "{count} طلب جديد"
-        },
-        "friendsWithRequestsTitle": "الأصدقاء ({countPhrase})",
-        "friendsWithRequestsAria": "الأصدقاء، {countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "أنهت Stella دون رد.",
-        "stellaFailed": "تعذّر على Stella إتمام هذا الطلب.",
-        "stellaThinking": "Stella تفكّر...",
-        "sharedStellaUnavailable": "Stella المشتركة غير متاحة في جلسة التطبيق هذه.",
-        "back": "رجوع",
-        "backToConversations": "العودة إلى المحادثات",
-        "peopleCount": "{count} أشخاص",
-        "startStella": "ابدأ Stella",
-        "startStellaTitle": "أدخل Stella إلى هذه المحادثة",
-        "starting": "جارٍ البدء...",
-        "startAgain": "ابدأ من جديد",
-        "pause": "إيقاف مؤقت",
-        "resume": "استئناف",
-        "end": "إنهاء",
-        "sayHello": "ألقِ التحية لبدء المحادثة",
-        "loadingOlder": "جارٍ تحميل الرسائل الأقدم…",
-        "armedOnTitle": "أرسل الرسالة التالية إلى Stella",
-        "armedOffTitle": "أرسل الرسالة التالية كرسالة محادثة عادية",
-        "tellStella": "أخبر Stella",
-        "tellingStella": "جارٍ إخبار Stella",
-        "tellStellaPlaceholder": "أخبر Stella بما تريد...",
-        "messagePlaceholder": "راسل {name}",
-        "sessionBadge": {
-          "live": "Stella · مباشر",
-          "paused": "Stella · موقوفة مؤقتًا",
-          "ended": "Stella · منتهية"
-        },
-        "sessionHint": {
-          "live": "يمكن لأي شخص هنا أن يخبر Stella.",
-          "paused": "موقوفة مؤقتًا — استأنف لإخبار Stella مجددًا.",
-          "ended": "انتهت مساحة Stella المشتركة هذه."
-        },
-        "errors": {
-          "startStella": "تعذّر بدء Stella هنا. حاول مرة أخرى.",
-          "updateStella": "تعذّر تحديث Stella الآن. حاول مرة أخرى.",
-          "sendToStella": "تعذّر إرسال ذلك إلى Stella. حاول مرة أخرى.",
-          "sendMessage": "تعذّر إرسال رسالتك. حاول مرة أخرى."
-        }
-      },
-      "composer": {
-        "placeholder": "اكتب رسالة...",
-        "send": "إرسال"
-      },
-      "inviteCard": {
-        "communityEyebrow": "دعوة إلى مجتمع",
-        "friendEyebrow": "دعوة صداقة",
-        "defaultCommunityName": "مجتمع",
-        "defaultUserName": "مستخدم Stella",
-        "friendDetail": "اضغط لإرسال طلب صداقة",
-        "inviteUnavailable": "الدعوة غير متاحة",
-        "userNotFound": "المستخدم غير موجود",
-        "communityMissing": "لم يعد هذا المجتمع موجودًا أو تغيّر الرمز.",
-        "userMissing": "رابط الدعوة هذا لا يطابق أي مستخدم Stella.",
-        "communityDetail": {
-          "zero": "{countLabel} عضو · اضغط للانضمام",
-          "one": "{countLabel} عضو · اضغط للانضمام",
-          "two": "{countLabel} عضوان · اضغط للانضمام",
-          "few": "{countLabel} أعضاء · اضغط للانضمام",
-          "many": "{countLabel} عضوًا · اضغط للانضمام",
-          "other": "{countLabel} عضو · اضغط للانضمام"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "الاستخدام المحلي متاح في تطبيق Stella لسطح المكتب.",
       "intro": "استدعاءات المزوّدين المحفوظة على هذا الجهاز. التكاليف تقديرات محلية؛ وتبقى فوترة الخادم هي المرجع.",
@@ -1169,37 +942,6 @@
         "loadFailed": "تعذّر تحميل التطبيق.",
         "loading": "جارٍ تحميل {name}…",
         "openFailed": "تعذّر فتح {name}"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "الأكثر رواجًا",
-        "name": "أبجديًا"
-      },
-      "animations": {
-        "idle": "خامل",
-        "runningRight": "الجري يمينًا",
-        "runningLeft": "الجري يسارًا",
-        "waving": "التلويح",
-        "jumping": "القفز",
-        "failed": "فشل",
-        "waiting": "الانتظار",
-        "running": "التشغيل",
-        "review": "المراجعة"
-      },
-      "card": {
-        "by": "بواسطة {creator}",
-        "selections": "{count} اختيار",
-        "get": "احصل عليه",
-        "select": "اختيار",
-        "selected": "محدَّد",
-        "remove": "إزالة"
-      },
-      "details": {
-        "caption": "بواسطة {creator} · {downloads} اختيار",
-        "previewLabel": "معاينة {name}",
-        "animations": "الرسوم المتحركة",
-        "animationStates": "حالات الرسوم المتحركة"
       }
     },
     "chat": {
@@ -1671,125 +1413,6 @@
     "voice": {
       "signInTitle": "سجّل الدخول لاستخدام الصوت",
       "needsSetupTitle": "يحتاج الصوت إلى إعداد"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "بعد أن تُجري Stella تغييرًا لك، شاركه من هنا مع الأصدقاء أو مجتمع أو المتجر."
-      },
-      "recentChanges": {
-        "rowSelectHint": "انقر لتضمينه في المشاركة",
-        "rowDeselectHint": "انقر لإزالته من التحديد",
-        "updated": "حُدِّث {time}",
-        "showOlder": "عرض الأقدم",
-        "justNow": "الآن",
-        "publishEmpty": "حدّد التغييرات للمشاركة",
-        "publishLabel": "مشاركة · {countPhrase}",
-        "selectedCount": {
-          "zero": "{count} محدَّد",
-          "one": "{count} محدَّد",
-          "two": "{count} محدَّدان",
-          "few": "{count} محدَّدة",
-          "many": "{count} محدَّدًا",
-          "other": "{count} محدَّد"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "إضافة Stella",
-        "unavailableName": "الإضافة غير متاحة",
-        "unavailableDesc": "هذه الإضافة خاصة أو لم تعد منشورة.",
-        "viewCta": "عرض →"
-      },
-      "creator": {
-        "loading": "جارٍ تحميل المنشئ…",
-        "notFoundTitle": "المنشئ غير موجود",
-        "notFoundBodyPrefix": "لم يطالب أحد باسم المستخدم",
-        "notFoundBodySuffix": "بعد.",
-        "noAddons": "لم يشارك {username} أي إضافات بعد.",
-        "version": "الإصدار {version}",
-        "addonCount": {
-          "zero": "لا إضافات بعد",
-          "one": "{count} إضافة",
-          "two": "{count} إضافتان",
-          "few": "{count} إضافات",
-          "many": "{count} إضافة",
-          "other": "{count} إضافة"
-        }
-      },
-      "categories": {
-        "appsGames": "التطبيقات والألعاب",
-        "productivity": "الإنتاجية",
-        "customization": "التخصيص",
-        "skillsAgents": "المهارات والوكلاء",
-        "integrations": "التكاملات",
-        "other": "أخرى"
-      },
-      "shareDialog": {
-        "title": "مشاركة",
-        "titleCircle": "شارك مع دائرتك",
-        "titleCircleUpdate": "شارك تحديثًا",
-        "titleStore": "شارك في المتجر",
-        "titleStoreUpdate": "أرسل تحديثًا",
-        "destinationLede": "أين تريد إرسال هذا؟ المشاركة ترسل كودًا قابلًا للتشغيل، لذا اختر الجمهور الذي تقصده.",
-        "circleOptionName": "صديق أو مجتمع",
-        "circleOptionDesc": "فوري. يصل مباشرة إلى من تثق بهم كبطاقة مشاركة في المحادثة — بلا مراجعة، ولا يُدرج علنًا أبدًا.",
-        "storeOptionName": "متجر Stella",
-        "storeOptionDesc": "علني. يراجعه فريق Stella أولًا، ثم يظهر في المتجر للجميع.",
-        "updateExisting": "حدّث إضافة موجودة",
-        "existingAddon": "إضافة موجودة",
-        "selectPlaceholder": "اختر…",
-        "nameLabel": "الاسم",
-        "namePlaceholder": "تعديل مثال",
-        "descriptionLabel": "الوصف",
-        "optionalHint": "(اختياري)",
-        "descriptionPlaceholderCircle": "سطر قصير لبطاقة المشاركة.",
-        "descriptionPlaceholderStore": "سطر قصير لصفحة المتجر.",
-        "categoryLabel": "الفئة",
-        "categoryPlaceholder": "اختر فئة…",
-        "sendTo": "أرسل إلى",
-        "noRecipients": "لا أصدقاء أو مجتمعات بعد — أضف بعضهم من صفحة الرسائل أولًا.",
-        "communityFallbackName": "مجتمع",
-        "communityTag": "مجتمع",
-        "circleNote": "تصل المشاركات فورًا كبطاقة قابلة للتثبيت في كل محادثة. لا يمكن الحصول عليها إلا لمن تختارهم (ولمن في تلك المجتمعات).",
-        "storeNote": "يراجع فريق Stella طلبات المتجر قبل نشرها للجميع.",
-        "submitPending": "جارٍ المشاركة…",
-        "submitCircle": "شارك الآن",
-        "submitStore": "أرسل للمراجعة",
-        "noSourceChangesTitle": "لا تغييرات في المصدر",
-        "noSourceChangesBody": "حدّد أولًا تغييرًا حديثًا واحدًا على الأقل مدعومًا بالمصدر.",
-        "pickRecipientTitle": "اختر من تشارك معه",
-        "pickRecipientBody": "اختر صديقًا أو مجتمعًا واحدًا على الأقل.",
-        "pickAddonTitle": "اختر إضافة",
-        "pickAddonBody": "اختر الإضافة التي تريد تحديثها.",
-        "nameRequiredTitle": "الاسم مطلوب",
-        "nameRequiredBody": "امنح إضافتك اسمًا قصيرًا قبل المشاركة.",
-        "badNameTitle": "اختر اسمًا مختلفًا",
-        "badNameBody": "استخدم أحرفًا أو أرقامًا في الاسم حتى نتمكن من إنشاء معرّف.",
-        "publishBackendMissing": "خدمة النشر غير متاحة.",
-        "sharingTitle": "جارٍ المشاركة",
-        "submittingTitle": "جارٍ الإرسال",
-        "inProgressBody": "ستُعلمك Stella عند الانتهاء.",
-        "submittedTitle": "أُرسل للمراجعة",
-        "submittedBody": "أُرسل {name} إلى فريق Stella. سيظهر في المتجر بمجرد الموافقة عليه.",
-        "sharedTitle": "تمت المشاركة",
-        "shareFailedTitle": "فشلت المشاركة",
-        "submissionFailedTitle": "فشل الإرسال",
-        "sharedBodyDelivered": {
-          "zero": "{name} في طريقه إلى {count} محادثة.",
-          "one": "{name} في طريقه إلى {count} محادثة.",
-          "two": "{name} في طريقه إلى {count} محادثتين.",
-          "few": "{name} في طريقه إلى {count} محادثات.",
-          "many": "{name} في طريقه إلى {count} محادثة.",
-          "other": "{name} في طريقه إلى {count} محادثة."
-        },
-        "sharedBodyPartial": {
-          "zero": "وصل {name} إلى {delivered} من {count} محادثة. افتح الرسائل لإعادة محاولة الباقي.",
-          "one": "وصل {name} إلى {delivered} من {count} محادثة. افتح الرسائل لإعادة محاولة الباقي.",
-          "two": "وصل {name} إلى {delivered} من {count} محادثتين. افتح الرسائل لإعادة محاولة الباقي.",
-          "few": "وصل {name} إلى {delivered} من {count} محادثات. افتح الرسائل لإعادة محاولة الباقي.",
-          "many": "وصل {name} إلى {delivered} من {count} محادثة. افتح الرسائل لإعادة محاولة الباقي.",
-          "other": "وصل {name} إلى {delivered} من {count} محادثة. افتح الرسائل لإعادة محاولة الباقي."
-        }
-      }
     }
   },
   "ui": {
@@ -1875,10 +1498,6 @@
         "files": {
           "label": "الملفات",
           "description": "الصفحات والصور والفيديو والمستندات"
-        },
-        "store": {
-          "label": "المتجر",
-          "description": "الإضافات والأشياء التي أنشأتها"
         },
         "trash": {
           "label": "المهملات",
@@ -2207,52 +1826,6 @@
         "many": "{count} جدولة",
         "other": "{count} جدولة"
       }
-    },
-    "social": {
-      "dialogDescription": "أكّد هذه الدعوة قبل أن يحدث أي شيء.",
-      "signInToAccept": "سجّل الدخول إلى Stella لقبول هذه الدعوة.",
-      "lookingUpInvite": "جارٍ البحث عن الدعوة…",
-      "stellaAddOn": "إضافة Stella",
-      "stellaUser": "مستخدم Stella",
-      "byAuthor": " · بواسطة @{username}",
-      "alreadyIn": " · أنت عضو بالفعل",
-      "membersLabel": "أعضاء",
-      "memberCount": {
-        "zero": "{count} عضو",
-        "one": "{count} عضو",
-        "two": "{count} عضوان",
-        "few": "{count} أعضاء",
-        "many": "{count} عضوًا",
-        "other": "{count} عضو"
-      },
-      "working": "جارٍ العمل…",
-      "alreadyJoined": "منضم بالفعل",
-      "welcomeToCommunity": "مرحبًا بك في {community}!",
-      "joinedCommunity": "انضممت إلى المجتمع!",
-      "friendRequestSent": "أُرسل طلب الصداقة إلى @{username}.",
-      "joinFailed": "تعذّر الانضمام إلى ذلك المجتمع. قد تكون الدعوة منتهية الصلاحية.",
-      "friendRequestFailed": "تعذّر إرسال طلب الصداقة هذا. حاول مرة أخرى.",
-      "store": {
-        "title": "افتح الإضافة",
-        "confirmLabel": "اعرض في المتجر",
-        "sub": "الرابط الذي فتحته يشير إلى إضافة Stella. لن يُثبَّت أي شيء. هذا يفتح صفحتها في المتجر فقط.",
-        "missing": "هذه الإضافة خاصة أو لم تعد منشورة."
-      },
-      "join": {
-        "title": "انضم إلى المجتمع",
-        "confirmLabel": "انضمام",
-        "sub": "تمت دعوتك إلى مجتمع: دائرة موثوقة يتشارك فيها الأعضاء الإضافات فيما بينهم.",
-        "missing": "لم يُعثر على مجتمع لرمز الدعوة هذا. اطلب رابطًا جديدًا."
-      },
-      "friend": {
-        "title": "أضف صديقًا",
-        "confirmLabel": "أرسل طلب صداقة",
-        "sub": "تمت دعوتك للتواصل على Stella.",
-        "missing": "لم يُعثر على مستخدم لرابط الدعوة هذا."
-      }
-    },
-    "websiteView": {
-      "storeTitle": "المتجر"
     }
   },
   "mobile": {

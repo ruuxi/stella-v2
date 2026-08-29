@@ -109,12 +109,6 @@
         "off": "Disattivato"
       }
     },
-    "voice": {
-      "title": "Voce",
-      "personality": {
-        "label": "Personalità"
-      }
-    },
     "notifications": {
       "title": "Notifiche sonore",
       "description": "Riproduce un suono quando Stella termina l'esecuzione di un agente."
@@ -444,7 +438,6 @@
       "resultsAriaOne": "{count} risultato",
       "resultsAriaOther": "{count} risultati",
       "descriptions": {
-        "voice": "Scegli lo stile di parlato e la voce di personalità di Stella.",
         "permissions": "Concedi l'accesso ad accessibilità, cattura schermo e microfono su macOS.",
         "shortcuts": "Modifica le scorciatoie per dettatura e voce.",
         "backup": "Backup crittografati automatici, punti di ripristino e snapshot su richiesta.",
@@ -466,9 +459,6 @@
       "loadSoundNotifications": "Impossibile caricare l'impostazione delle notifiche sonore.",
       "saveSoundNotifications": "Impossibile aggiornare l'impostazione delle notifiche sonore.",
       "soundNotificationsUnavailable": "Le impostazioni delle notifiche sonore non sono disponibili in questa finestra.",
-      "loadVoice": "Impossibile caricare l'impostazione della voce.",
-      "saveVoice": "Impossibile aggiornare l'impostazione della voce.",
-      "voiceUnavailable": "Le impostazioni della voce non sono disponibili in questa finestra.",
       "loadMemory": "Impossibile caricare l'impostazione di memoria.",
       "saveMemory": "Impossibile aggiornare l'impostazione di memoria.",
       "memoryUnavailable": "Le impostazioni di memoria non sono disponibili in questa finestra.",
@@ -723,7 +713,6 @@
       "extension": "Aggiungi Stella al tuo browser.",
       "browser": "Lascia che Stella ti conosca.",
       "theme": "Che aspetto deve avere Stella?",
-      "personality": "Come deve parlare Stella?",
       "voice": "Parla invece di scrivere.",
       "enter": "Stella è quasi pronta."
     },
@@ -835,212 +824,6 @@
     "permissionDenied": "Stella non ha l'autorizzazione per farlo."
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "Nuovo messaggio",
-        "emptySubtitle": "Aggiungi qualche amico prima di avviare una conversazione.",
-        "description": "Scegli un amico o avvia una nuova conversazione di gruppo.",
-        "subtitle": "Scegli un amico o crea un gruppo.",
-        "groupTitle": "Nuovo gruppo",
-        "groupSubtitle": "Scegli gli amici da aggiungere a questo gruppo.",
-        "groupNameLabel": "Nome del gruppo",
-        "groupNamePlaceholder": "Nome del gruppo (facoltativo)",
-        "members": "Membri",
-        "back": "Indietro",
-        "creating": "Creazione...",
-        "createGroup": "Crea gruppo",
-        "newGroup": "Nuovo gruppo",
-        "friends": "Amici",
-        "opening": "Apertura..."
-      },
-      "friends": {
-        "title": "Amici",
-        "description": "Condividi il tuo codice amico per collegarti, oppure inserisci quello di qualcun altro per inviare una richiesta.",
-        "subtitle": "Condividi il tuo nome utente, o inserisci quello di un amico per collegarvi.",
-        "requestSent": "Richiesta di amicizia inviata!",
-        "usernameCopied": "Nome utente copiato!",
-        "inviteLinkCopied": "Link di invito copiato: mandalo dove vuoi.",
-        "yourUsername": "Il tuo nome utente",
-        "copy": "Copia",
-        "copyUsernameTitle": "Copia il tuo nome utente",
-        "copyInviteLink": "Copia link di invito",
-        "copyInviteLinkTitle": "Copia un link che apre Stella e ti invia una richiesta di amicizia: funziona su iMessage, Discord, ovunque",
-        "addLabel": "Aggiungi un amico",
-        "addPlaceholder": "Inserisci il nome utente",
-        "add": "Aggiungi",
-        "adding": "Aggiunta...",
-        "requestsCount": "Richieste ({count})",
-        "accept": "Accetta",
-        "decline": "Rifiuta",
-        "sent": "Inviata",
-        "waitingForResponse": "In attesa di risposta",
-        "friendsCount": "Amici ({count})",
-        "empty": "Ancora nessun amico. Condividi il tuo nome utente o inserisci qui sopra quello di qualcun altro per collegarvi.",
-        "message": "Messaggio",
-        "opening": "Apertura...",
-        "remove": "Rimuovi",
-        "removing": "Rimozione...",
-        "errors": {
-          "sendRequest": "Impossibile inviare quella richiesta di amicizia. Controlla il nome utente e riprova."
-        }
-      },
-      "communities": {
-        "title": "Community",
-        "description": "Crea una community o entra in una con un codice di invito, poi condividi i componenti aggiuntivi con tutti i suoi membri.",
-        "subtitle": "Cerchie fidate per condividere. Tutti in una community vedono ciò che i suoi membri condividono.",
-        "defaultName": "Community",
-        "created": "\"{name}\" creata!",
-        "joined": "Sei dentro!",
-        "createLabel": "Crea una community",
-        "createPlaceholder": "Dai un nome a una nuova community",
-        "create": "Crea",
-        "joinLabel": "Entra con un codice di invito",
-        "joinPlaceholder": "Inserisci un codice di invito",
-        "join": "Entra",
-        "yourCommunities": "Le tue community",
-        "yourCommunitiesCount": "Le tue community ({count})",
-        "empty": "Ancora nessuna community. Creane una e condividi il codice di invito, oppure entra con un codice che ti hanno mandato.",
-        "createdByYouSuffix": " · creata da te",
-        "open": "Apri",
-        "details": "Dettagli",
-        "back": "Indietro",
-        "nameLabel": "Nome della community",
-        "save": "Salva",
-        "cancel": "Annulla",
-        "createdByYou": "Hai creato tu questa community.",
-        "memberOf": "Sei un membro di questa community.",
-        "inviteCode": "Codice di invito",
-        "copied": "Copiato!",
-        "copyCode": "Copia codice",
-        "copyInviteLink": "Copia link di invito",
-        "copyInviteLinkTitle": "Copia un link che apre Stella e ti fa entrare in questa community",
-        "inviteHint": "Il link funziona ovunque: incollalo in una chat di Stella o mandalo su iMessage o Discord. Chiunque lo abbia può entrare, quindi condividilo solo con persone di cui ti fidi.",
-        "membersCount": "Membri ({count})",
-        "roleCreator": "Creatore",
-        "roleMember": "Membro",
-        "youSuffix": " · tu",
-        "remove": "Rimuovi",
-        "removing": "Rimozione...",
-        "confirmDelete": "Vuoi davvero eliminare questa community?",
-        "delete": "Elimina community",
-        "confirmLeave": "Vuoi davvero uscire?",
-        "leave": "Esci dalla community",
-        "rename": "Rinomina",
-        "openChat": "Apri chat",
-        "errors": {
-          "create": "Impossibile creare quella community. Riprova.",
-          "join": "Impossibile entrare con quel codice di invito. Controlla il codice e riprova.",
-          "rename": "Impossibile rinominare la community. Riprova.",
-          "removeMember": "Impossibile rimuovere quel membro. Riprova.",
-          "delete": "Impossibile eliminare la community. Riprova.",
-          "leave": "Impossibile uscire dalla community. Riprova."
-        },
-        "memberCount": {
-          "one": "{count} membro",
-          "many": "{count} membri",
-          "other": "{count} membri"
-        }
-      },
-      "view": {
-        "messages": "Messaggi",
-        "signIn": "Accedi",
-        "signInSubtitle": "Accedi per scrivere agli amici e collaborare insieme a Stella.",
-        "friends": "Amici",
-        "communities": "Community",
-        "newMessage": "Nuovo messaggio",
-        "noRooms": "Ancora nessuna conversazione. Aggiungi amici o inizia un nuovo messaggio.",
-        "addFriends": "Aggiungi amici",
-        "communityBadge": "Community",
-        "communityBadgeTitle": "Condiviso con tutti in questa community",
-        "usernamePlaceholder": "il-tuo-nome-utente",
-        "editUsername": "Modifica il tuo nome utente",
-        "copied": "Copiato!",
-        "clickToCopyUsername": "Fai clic per copiare il tuo nome utente",
-        "copyUsername": "Copia nome utente",
-        "cancel": "Annulla",
-        "save": "Salva",
-        "saving": "Salvataggio...",
-        "emptyTitle": "I tuoi messaggi",
-        "emptySubtitle": "Scegli una conversazione a sinistra, o iniziane una nuova con un amico.",
-        "errors": {
-          "startConversation": "Impossibile avviare quella conversazione. Riprova.",
-          "createGroup": "Impossibile creare il gruppo. Riprova."
-        },
-        "usernameErrors": {
-          "empty": "Il nome utente non può essere vuoto.",
-          "length": "Il nome utente deve avere da 3 a 32 caratteri.",
-          "format": "Usa lettere minuscole, numeri, _ o -. Deve iniziare e finire con una lettera o un numero.",
-          "update": "Impossibile aggiornare il tuo nome utente. Riprova."
-        },
-        "newRequestCount": {
-          "one": "{count} nuova richiesta",
-          "many": "{count} nuove richieste",
-          "other": "{count} nuove richieste"
-        },
-        "friendsWithRequestsTitle": "Amici ({countPhrase})",
-        "friendsWithRequestsAria": "Amici, {countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "Stella ha finito senza rispondere.",
-        "stellaFailed": "Stella non è riuscita a completare quella richiesta.",
-        "stellaThinking": "Stella sta pensando...",
-        "sharedStellaUnavailable": "Stella condivisa non è disponibile in questa sessione dell'app.",
-        "back": "Indietro",
-        "backToConversations": "Torna alle conversazioni",
-        "peopleCount": "{count} persone",
-        "startStella": "Avvia Stella",
-        "startStellaTitle": "Porta Stella in questa conversazione",
-        "starting": "Avvio...",
-        "startAgain": "Avvia di nuovo",
-        "pause": "Metti in pausa",
-        "resume": "Riprendi",
-        "end": "Termina",
-        "sayHello": "Saluta per iniziare la conversazione",
-        "loadingOlder": "Caricamento dei messaggi precedenti…",
-        "armedOnTitle": "Invia il prossimo messaggio a Stella",
-        "armedOffTitle": "Invia il prossimo messaggio come normale messaggio di chat",
-        "tellStella": "Dillo a Stella",
-        "tellingStella": "Lo sto dicendo a Stella",
-        "tellStellaPlaceholder": "Di' a Stella cosa vuoi...",
-        "messagePlaceholder": "Scrivi a {name}",
-        "sessionBadge": {
-          "live": "Stella · Live",
-          "paused": "Stella · In pausa",
-          "ended": "Stella · Terminata"
-        },
-        "sessionHint": {
-          "live": "Chiunque sia qui può parlare con Stella.",
-          "paused": "In pausa: riprendi per parlare di nuovo con Stella.",
-          "ended": "Questo spazio condiviso di Stella è terminato."
-        },
-        "errors": {
-          "startStella": "Impossibile avviare Stella qui. Riprova.",
-          "updateStella": "Impossibile aggiornare Stella in questo momento. Riprova.",
-          "sendToStella": "Impossibile inviarlo a Stella. Riprova.",
-          "sendMessage": "Impossibile inviare il tuo messaggio. Riprova."
-        }
-      },
-      "composer": {
-        "placeholder": "Scrivi un messaggio...",
-        "send": "Invia"
-      },
-      "inviteCard": {
-        "communityEyebrow": "Invito a una community",
-        "friendEyebrow": "Invito di amicizia",
-        "defaultCommunityName": "Community",
-        "defaultUserName": "Utente Stella",
-        "friendDetail": "Tocca per inviare una richiesta di amicizia",
-        "inviteUnavailable": "Invito non disponibile",
-        "userNotFound": "Utente non trovato",
-        "communityMissing": "Questa community non esiste più oppure il codice è cambiato.",
-        "userMissing": "Questo link di invito non corrisponde a nessun utente Stella.",
-        "communityDetail": {
-          "one": "{countLabel} membro · tocca per entrare",
-          "many": "{countLabel} membri · tocca per entrare",
-          "other": "{countLabel} membri · tocca per entrare"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "L'utilizzo locale è disponibile nell'app Stella per computer.",
       "intro": "Chiamate ai provider salvate su questo dispositivo. I costi sono stime locali; fa fede la fatturazione del backend.",
@@ -1156,37 +939,6 @@
         "loadFailed": "Impossibile caricare l'app.",
         "loading": "Caricamento di {name}…",
         "openFailed": "Impossibile aprire {name}"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "Più popolari",
-        "name": "Alfabetico"
-      },
-      "animations": {
-        "idle": "Fermo",
-        "runningRight": "Corsa a destra",
-        "runningLeft": "Corsa a sinistra",
-        "waving": "Saluto",
-        "jumping": "Salto",
-        "failed": "Non riuscito",
-        "waiting": "In attesa",
-        "running": "In corsa",
-        "review": "Revisione"
-      },
-      "card": {
-        "by": "di {creator}",
-        "selections": "{count} selezioni",
-        "get": "Ottieni",
-        "select": "Seleziona",
-        "selected": "Selezionato",
-        "remove": "Rimuovi"
-      },
-      "details": {
-        "caption": "di {creator} · {downloads} selezioni",
-        "previewLabel": "Anteprima di {name}",
-        "animations": "Animazioni",
-        "animationStates": "Stati di animazione"
       }
     },
     "chat": {
@@ -1634,114 +1386,6 @@
     "voice": {
       "signInTitle": "Accedi per usare la voce",
       "needsSetupTitle": "La voce va configurata"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "Dopo che Stella ha fatto una modifica per te, condividila da qui con gli amici, con una community o con lo Store."
-      },
-      "recentChanges": {
-        "rowSelectHint": "Fai clic per includerlo nella condivisione",
-        "rowDeselectHint": "Fai clic per toglierlo dalla selezione",
-        "updated": "Aggiornato {time}",
-        "showOlder": "Mostra precedenti",
-        "justNow": "Proprio ora",
-        "publishEmpty": "Seleziona le modifiche da condividere",
-        "publishLabel": "Condividi · {countPhrase}",
-        "selectedCount": {
-          "one": "{count} selezionata",
-          "many": "{count} selezionate",
-          "other": "{count} selezionate"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "Add-on di Stella",
-        "unavailableName": "Add-on non disponibile",
-        "unavailableDesc": "Questo add-on è privato oppure non è più pubblicato.",
-        "viewCta": "Vedi →"
-      },
-      "creator": {
-        "loading": "Caricamento del creatore…",
-        "notFoundTitle": "Creatore non trovato",
-        "notFoundBodyPrefix": "Nessuno ha ancora rivendicato il nome utente",
-        "notFoundBodySuffix": ".",
-        "noAddons": "{username} non ha ancora condiviso nessun add-on.",
-        "version": "Versione {version}",
-        "addonCount": {
-          "zero": "Ancora nessun add-on",
-          "one": "{count} add-on",
-          "many": "{count} add-on",
-          "other": "{count} add-on"
-        }
-      },
-      "categories": {
-        "appsGames": "App e giochi",
-        "productivity": "Produttività",
-        "customization": "Personalizzazione",
-        "skillsAgents": "Competenze e agenti",
-        "integrations": "Integrazioni",
-        "other": "Altro"
-      },
-      "shareDialog": {
-        "title": "Condividi",
-        "titleCircle": "Condividi con la tua cerchia",
-        "titleCircleUpdate": "Condividi un aggiornamento",
-        "titleStore": "Condividi nello Store",
-        "titleStoreUpdate": "Invia un aggiornamento",
-        "destinationLede": "Dove deve andare? La condivisione invia codice eseguibile, quindi scegli bene il pubblico.",
-        "circleOptionName": "Un amico o una community",
-        "circleOptionDesc": "Immediato. Va dritto alle persone di cui ti fidi come scheda condivisa in chat: nessuna revisione, mai in elenco pubblico.",
-        "storeOptionName": "Lo Stella Store",
-        "storeOptionDesc": "Pubblico. Prima viene esaminato dal team di Stella, poi è nello Store per tutti.",
-        "updateExisting": "Aggiorna un add-on esistente",
-        "existingAddon": "Add-on esistente",
-        "selectPlaceholder": "Seleziona…",
-        "nameLabel": "Nome",
-        "namePlaceholder": "Mod di esempio",
-        "descriptionLabel": "Descrizione",
-        "optionalHint": "(facoltativo)",
-        "descriptionPlaceholderCircle": "Una riga breve per la scheda condivisa.",
-        "descriptionPlaceholderStore": "Una riga breve per la scheda nello Store.",
-        "categoryLabel": "Categoria",
-        "categoryPlaceholder": "Scegli una categoria…",
-        "sendTo": "Invia a",
-        "noRecipients": "Ancora nessun amico o community: aggiungine qualcuno dalla pagina Messaggi.",
-        "communityFallbackName": "Community",
-        "communityTag": "Community",
-        "circleNote": "Le condivisioni arrivano subito come scheda installabile in ogni chat. Solo le persone che scegli (e chi fa parte di quelle community) possono prenderla.",
-        "storeNote": "Il team di Stella esamina gli invii allo Store prima che siano disponibili per tutti.",
-        "submitPending": "Condivisione…",
-        "submitCircle": "Condividi ora",
-        "submitStore": "Invia per la revisione",
-        "noSourceChangesTitle": "Nessuna modifica al codice",
-        "noSourceChangesBody": "Seleziona prima almeno una modifica recente con codice associato.",
-        "pickRecipientTitle": "Scegli con chi condividere",
-        "pickRecipientBody": "Scegli almeno un amico o una community.",
-        "pickAddonTitle": "Scegli un add-on",
-        "pickAddonBody": "Scegli l'add-on che vuoi aggiornare.",
-        "nameRequiredTitle": "Nome obbligatorio",
-        "nameRequiredBody": "Dai un nome breve al tuo add-on prima di condividerlo.",
-        "badNameTitle": "Scegli un nome diverso",
-        "badNameBody": "Usa lettere o numeri nel nome così possiamo creare un ID.",
-        "publishBackendMissing": "Il backend di pubblicazione non è disponibile.",
-        "sharingTitle": "Condivisione",
-        "submittingTitle": "Invio",
-        "inProgressBody": "Stella ti avviserà quando avrà finito.",
-        "submittedTitle": "Inviato per la revisione",
-        "submittedBody": "{name} è stato inviato al team di Stella. Sarà nello Store non appena viene approvato.",
-        "sharedTitle": "Condiviso",
-        "shareFailedTitle": "Condivisione non riuscita",
-        "submissionFailedTitle": "Invio non riuscito",
-        "sharedBodyDelivered": {
-          "one": "{name} sta arrivando in {count} chat.",
-          "many": "{name} sta arrivando in {count} chat.",
-          "other": "{name} sta arrivando in {count} chat."
-        },
-        "sharedBodyPartial": {
-          "one": "{name} è arrivato in {delivered} chat su {count}. Apri Messaggi per riprovare con le altre.",
-          "many": "{name} è arrivato in {delivered} chat su {count}. Apri Messaggi per riprovare con le altre.",
-          "other": "{name} è arrivato in {delivered} chat su {count}. Apri Messaggi per riprovare con le altre."
-        }
-      }
     }
   },
   "ui": {
@@ -1821,10 +1465,6 @@
         "files": {
           "label": "File",
           "description": "Pagine, immagini, video e documenti"
-        },
-        "store": {
-          "label": "Store",
-          "description": "Add-on e cose che hai creato"
         },
         "trash": {
           "label": "Cestino",
@@ -2132,49 +1772,6 @@
         "many": "{count} pianificazioni",
         "other": "{count} pianificazioni"
       }
-    },
-    "social": {
-      "dialogDescription": "Conferma questo invito prima che succeda qualcosa.",
-      "signInToAccept": "Accedi a Stella per accettare questo invito.",
-      "lookingUpInvite": "Ricerca dell'invito…",
-      "stellaAddOn": "Add-on di Stella",
-      "stellaUser": "Utente Stella",
-      "byAuthor": " · di @{username}",
-      "alreadyIn": " · ci sei già",
-      "membersLabel": "membri",
-      "memberCount": {
-        "one": "{count} membro",
-        "many": "{count} membri",
-        "other": "{count} membri"
-      },
-      "working": "In corso…",
-      "alreadyJoined": "Già iscritto",
-      "welcomeToCommunity": "Benvenuto in {community}!",
-      "joinedCommunity": "Sei entrato nella community!",
-      "friendRequestSent": "Richiesta di amicizia inviata a @{username}.",
-      "joinFailed": "Impossibile entrare in quella community. L'invito potrebbe essere scaduto.",
-      "friendRequestFailed": "Impossibile inviare quella richiesta di amicizia. Riprova.",
-      "store": {
-        "title": "Apri add-on",
-        "confirmLabel": "Vedi nello Store",
-        "sub": "Un link che hai aperto punta a un add-on di Stella. Non viene installato nulla. Questo apre solo la sua pagina nello Store.",
-        "missing": "Questo add-on è privato oppure non è più pubblicato."
-      },
-      "join": {
-        "title": "Entra nella community",
-        "confirmLabel": "Entra",
-        "sub": "Sei stato invitato in una community: una cerchia fidata dove i membri condividono add-on tra loro.",
-        "missing": "Nessuna community trovata per questo codice di invito. Chiedi un link nuovo."
-      },
-      "friend": {
-        "title": "Aggiungi amico",
-        "confirmLabel": "Invia richiesta di amicizia",
-        "sub": "Sei stato invitato a collegarti su Stella.",
-        "missing": "Nessun utente trovato per questo link di invito."
-      }
-    },
-    "websiteView": {
-      "storeTitle": "Store"
     }
   },
   "mobile": {

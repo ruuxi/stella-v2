@@ -109,12 +109,6 @@
         "off": "Nonaktif"
       }
     },
-    "voice": {
-      "title": "Suara",
-      "personality": {
-        "label": "Kepribadian"
-      }
-    },
     "notifications": {
       "title": "Notifikasi suara",
       "description": "Memutar suara saat Stella menyelesaikan sebuah proses agen."
@@ -444,7 +438,6 @@
       "resultsAriaOne": "{count} hasil",
       "resultsAriaOther": "{count} hasil",
       "descriptions": {
-        "voice": "Pilih gaya bicara dan suara kepribadian Stella.",
         "permissions": "Berikan akses ke aksesibilitas, rekam layar, dan mikrofon di macOS.",
         "shortcuts": "Ubah pintasan dikte dan suara.",
         "backup": "Cadangan terenkripsi otomatis, titik pemulihan, dan snapshot sesuai permintaan.",
@@ -466,9 +459,6 @@
       "loadSoundNotifications": "Gagal memuat pengaturan notifikasi suara.",
       "saveSoundNotifications": "Gagal memperbarui pengaturan notifikasi suara.",
       "soundNotificationsUnavailable": "Pengaturan notifikasi suara tidak tersedia di jendela ini.",
-      "loadVoice": "Gagal memuat pengaturan suara.",
-      "saveVoice": "Gagal memperbarui pengaturan suara.",
-      "voiceUnavailable": "Pengaturan suara tidak tersedia di jendela ini.",
       "loadMemory": "Gagal memuat pengaturan memori.",
       "saveMemory": "Gagal memperbarui pengaturan memori.",
       "memoryUnavailable": "Pengaturan memori tidak tersedia di jendela ini.",
@@ -721,7 +711,6 @@
       "extension": "Tambahkan Stella ke peramban Anda.",
       "browser": "Biarkan Stella mengenal Anda.",
       "theme": "Bagaimana Stella seharusnya terlihat?",
-      "personality": "Bagaimana Stella seharusnya berbicara?",
       "voice": "Bicaralah, jangan mengetik.",
       "enter": "Stella hampir siap."
     },
@@ -833,206 +822,6 @@
     "permissionDenied": "Stella tidak punya izin untuk melakukan ini."
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "Pesan baru",
-        "emptySubtitle": "Tambahkan teman dulu untuk memulai percakapan.",
-        "description": "Pilih teman atau mulai percakapan grup baru.",
-        "subtitle": "Pilih teman atau buat grup.",
-        "groupTitle": "Grup baru",
-        "groupSubtitle": "Pilih teman untuk ditambahkan ke grup ini.",
-        "groupNameLabel": "Nama grup",
-        "groupNamePlaceholder": "Nama grup (opsional)",
-        "members": "Anggota",
-        "back": "Kembali",
-        "creating": "Membuat...",
-        "createGroup": "Buat grup",
-        "newGroup": "Grup baru",
-        "friends": "Teman",
-        "opening": "Membuka..."
-      },
-      "friends": {
-        "title": "Teman",
-        "description": "Bagikan kode teman Anda untuk terhubung, atau masukkan kode orang lain untuk mengirim permintaan.",
-        "subtitle": "Bagikan nama pengguna Anda, atau masukkan nama pengguna teman untuk terhubung.",
-        "requestSent": "Permintaan pertemanan terkirim!",
-        "usernameCopied": "Nama pengguna disalin!",
-        "inviteLinkCopied": "Tautan undangan disalin — kirim ke mana saja.",
-        "yourUsername": "Nama pengguna Anda",
-        "copy": "Salin",
-        "copyUsernameTitle": "Salin nama pengguna Anda",
-        "copyInviteLink": "Salin tautan undangan",
-        "copyInviteLinkTitle": "Salin tautan yang membuka Stella dan mengirimkan permintaan pertemanan kepada Anda — berfungsi di iMessage, Discord, di mana saja",
-        "addLabel": "Tambahkan teman",
-        "addPlaceholder": "Masukkan nama pengguna",
-        "add": "Tambah",
-        "adding": "Menambahkan...",
-        "requestsCount": "Permintaan ({count})",
-        "accept": "Terima",
-        "decline": "Tolak",
-        "sent": "Terkirim",
-        "waitingForResponse": "Menunggu tanggapan",
-        "friendsCount": "Teman ({count})",
-        "empty": "Belum ada teman. Bagikan nama pengguna Anda atau masukkan nama pengguna orang lain di atas untuk terhubung.",
-        "message": "Pesan",
-        "opening": "Membuka...",
-        "remove": "Hapus",
-        "removing": "Menghapus...",
-        "errors": {
-          "sendRequest": "Tidak dapat mengirim permintaan pertemanan itu. Periksa nama penggunanya dan coba lagi."
-        }
-      },
-      "communities": {
-        "title": "Komunitas",
-        "description": "Buat komunitas atau gabung dengan kode undangan, lalu bagikan add-on dengan semua orang di dalamnya.",
-        "subtitle": "Lingkaran tepercaya untuk berbagi. Semua orang di sebuah komunitas melihat apa yang dibagikan anggotanya.",
-        "defaultName": "Komunitas",
-        "created": "\"{name}\" dibuat!",
-        "joined": "Anda sudah bergabung!",
-        "createLabel": "Buat komunitas",
-        "createPlaceholder": "Beri nama komunitas baru",
-        "create": "Buat",
-        "joinLabel": "Gabung dengan kode undangan",
-        "joinPlaceholder": "Masukkan kode undangan",
-        "join": "Gabung",
-        "yourCommunities": "Komunitas Anda",
-        "yourCommunitiesCount": "Komunitas Anda ({count})",
-        "empty": "Belum ada komunitas. Buat satu dan bagikan kode undangannya, atau gabung dengan kode yang dikirim seseorang kepada Anda.",
-        "createdByYouSuffix": " · dibuat oleh Anda",
-        "open": "Buka",
-        "details": "Detail",
-        "back": "Kembali",
-        "nameLabel": "Nama komunitas",
-        "save": "Simpan",
-        "cancel": "Batal",
-        "createdByYou": "Anda membuat komunitas ini.",
-        "memberOf": "Anda anggota komunitas ini.",
-        "inviteCode": "Kode undangan",
-        "copied": "Disalin!",
-        "copyCode": "Salin kode",
-        "copyInviteLink": "Salin tautan undangan",
-        "copyInviteLinkTitle": "Salin tautan yang membuka Stella dan bergabung ke komunitas ini",
-        "inviteHint": "Tautannya berfungsi di mana saja — tempel di obrolan Stella atau kirim lewat iMessage atau Discord. Siapa pun yang memilikinya bisa bergabung, jadi bagikan hanya kepada orang yang Anda percaya.",
-        "membersCount": "Anggota ({count})",
-        "roleCreator": "Pembuat",
-        "roleMember": "Anggota",
-        "youSuffix": " · Anda",
-        "remove": "Hapus",
-        "removing": "Menghapus...",
-        "confirmDelete": "Yakin ingin menghapus komunitas ini?",
-        "delete": "Hapus komunitas",
-        "confirmLeave": "Yakin ingin keluar?",
-        "leave": "Keluar dari komunitas",
-        "rename": "Ganti nama",
-        "openChat": "Buka obrolan",
-        "errors": {
-          "create": "Tidak dapat membuat komunitas itu. Silakan coba lagi.",
-          "join": "Tidak dapat bergabung dengan kode undangan itu. Periksa kodenya dan coba lagi.",
-          "rename": "Tidak dapat mengganti nama komunitas. Silakan coba lagi.",
-          "removeMember": "Tidak dapat menghapus anggota itu. Silakan coba lagi.",
-          "delete": "Tidak dapat menghapus komunitas. Silakan coba lagi.",
-          "leave": "Tidak dapat keluar dari komunitas. Silakan coba lagi."
-        },
-        "memberCount": {
-          "other": "{count} anggota"
-        }
-      },
-      "view": {
-        "messages": "Pesan",
-        "signIn": "Masuk",
-        "signInSubtitle": "Masuk untuk mengirim pesan ke teman dan berkolaborasi bersama Stella.",
-        "friends": "Teman",
-        "communities": "Komunitas",
-        "newMessage": "Pesan baru",
-        "noRooms": "Belum ada percakapan. Tambahkan teman atau mulai pesan baru.",
-        "addFriends": "Tambahkan teman",
-        "communityBadge": "Komunitas",
-        "communityBadgeTitle": "Dibagikan dengan semua orang di komunitas ini",
-        "usernamePlaceholder": "nama-pengguna-anda",
-        "editUsername": "Ubah nama pengguna Anda",
-        "copied": "Disalin!",
-        "clickToCopyUsername": "Klik untuk menyalin nama pengguna Anda",
-        "copyUsername": "Salin nama pengguna",
-        "cancel": "Batal",
-        "save": "Simpan",
-        "saving": "Menyimpan...",
-        "emptyTitle": "Pesan Anda",
-        "emptySubtitle": "Pilih percakapan di sebelah kiri, atau mulai yang baru dengan seorang teman.",
-        "errors": {
-          "startConversation": "Tidak dapat memulai percakapan itu. Silakan coba lagi.",
-          "createGroup": "Tidak dapat membuat grup. Silakan coba lagi."
-        },
-        "usernameErrors": {
-          "empty": "Nama pengguna tidak boleh kosong.",
-          "length": "Nama pengguna harus 3-32 karakter.",
-          "format": "Gunakan huruf kecil, angka, _ atau -. Harus diawali dan diakhiri dengan huruf atau angka.",
-          "update": "Tidak dapat memperbarui nama pengguna Anda. Silakan coba lagi."
-        },
-        "newRequestCount": {
-          "other": "{count} permintaan baru"
-        },
-        "friendsWithRequestsTitle": "Teman ({countPhrase})",
-        "friendsWithRequestsAria": "Teman, {countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "Stella selesai tanpa balasan.",
-        "stellaFailed": "Stella tidak dapat menyelesaikan permintaan itu.",
-        "stellaThinking": "Stella sedang berpikir...",
-        "sharedStellaUnavailable": "Stella bersama tidak tersedia di sesi aplikasi ini.",
-        "back": "Kembali",
-        "backToConversations": "Kembali ke percakapan",
-        "peopleCount": "{count} orang",
-        "startStella": "Mulai Stella",
-        "startStellaTitle": "Bawa Stella ke percakapan ini",
-        "starting": "Memulai...",
-        "startAgain": "Mulai Lagi",
-        "pause": "Jeda",
-        "resume": "Lanjutkan",
-        "end": "Akhiri",
-        "sayHello": "Sapa untuk memulai percakapan",
-        "loadingOlder": "Memuat pesan lama…",
-        "armedOnTitle": "Kirim pesan berikutnya ke Stella",
-        "armedOffTitle": "Kirim pesan berikutnya sebagai pesan obrolan biasa",
-        "tellStella": "Beri tahu Stella",
-        "tellingStella": "Memberi tahu Stella",
-        "tellStellaPlaceholder": "Beri tahu Stella apa yang Anda inginkan...",
-        "messagePlaceholder": "Pesan untuk {name}",
-        "sessionBadge": {
-          "live": "Stella · Langsung",
-          "paused": "Stella · Dijeda",
-          "ended": "Stella · Berakhir"
-        },
-        "sessionHint": {
-          "live": "Siapa pun di sini bisa memberi tahu Stella.",
-          "paused": "Dijeda — lanjutkan untuk memberi tahu Stella lagi.",
-          "ended": "Ruang Stella bersama ini sudah berakhir."
-        },
-        "errors": {
-          "startStella": "Tidak dapat memulai Stella di sini. Silakan coba lagi.",
-          "updateStella": "Tidak dapat memperbarui Stella saat ini. Silakan coba lagi.",
-          "sendToStella": "Tidak dapat mengirimkan itu ke Stella. Silakan coba lagi.",
-          "sendMessage": "Tidak dapat mengirim pesan Anda. Silakan coba lagi."
-        }
-      },
-      "composer": {
-        "placeholder": "Tulis pesan...",
-        "send": "Kirim"
-      },
-      "inviteCard": {
-        "communityEyebrow": "Undangan komunitas",
-        "friendEyebrow": "Undangan pertemanan",
-        "defaultCommunityName": "Komunitas",
-        "defaultUserName": "Pengguna Stella",
-        "friendDetail": "Ketuk untuk mengirim permintaan pertemanan",
-        "inviteUnavailable": "Undangan tidak tersedia",
-        "userNotFound": "Pengguna tidak ditemukan",
-        "communityMissing": "Komunitas ini sudah tidak ada atau kodenya berubah.",
-        "userMissing": "Tautan undangan ini tidak cocok dengan pengguna Stella mana pun.",
-        "communityDetail": {
-          "other": "{countLabel} anggota · ketuk untuk bergabung"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "Penggunaan lokal tersedia di aplikasi desktop Stella.",
       "intro": "Panggilan penyedia yang tersimpan di perangkat ini. Biaya adalah perkiraan lokal; penagihan backend tetap yang berlaku.",
@@ -1148,37 +937,6 @@
         "loadFailed": "Aplikasi tidak dapat dimuat.",
         "loading": "Memuat {name}…",
         "openFailed": "Tidak dapat membuka {name}"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "Paling populer",
-        "name": "Menurut abjad"
-      },
-      "animations": {
-        "idle": "Diam",
-        "runningRight": "Lari ke kanan",
-        "runningLeft": "Lari ke kiri",
-        "waving": "Melambai",
-        "jumping": "Melompat",
-        "failed": "Gagal",
-        "waiting": "Menunggu",
-        "running": "Berjalan",
-        "review": "Tinjau"
-      },
-      "card": {
-        "by": "oleh {creator}",
-        "selections": "{count} pemilihan",
-        "get": "Dapatkan",
-        "select": "Pilih",
-        "selected": "Dipilih",
-        "remove": "Hapus"
-      },
-      "details": {
-        "caption": "oleh {creator} · {downloads} pemilihan",
-        "previewLabel": "Pratinjau {name}",
-        "animations": "Animasi",
-        "animationStates": "Status animasi"
       }
     },
     "chat": {
@@ -1610,106 +1368,6 @@
     "voice": {
       "signInTitle": "Masuk untuk memakai suara",
       "needsSetupTitle": "Suara perlu disiapkan"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "Setelah Stella membuat perubahan untuk Anda, bagikan dari sini ke teman, komunitas, atau store."
-      },
-      "recentChanges": {
-        "rowSelectHint": "Klik untuk menyertakan dalam bagikan",
-        "rowDeselectHint": "Klik untuk menghapus dari pilihan",
-        "updated": "Diperbarui {time}",
-        "showOlder": "Tampilkan yang lebih lama",
-        "justNow": "Baru saja",
-        "publishEmpty": "Pilih perubahan untuk dibagikan",
-        "publishLabel": "Bagikan · {countPhrase}",
-        "selectedCount": {
-          "other": "{count} dipilih"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "Add-on Stella",
-        "unavailableName": "Add-on tidak tersedia",
-        "unavailableDesc": "Add-on ini privat atau sudah tidak dipublikasikan.",
-        "viewCta": "Lihat →"
-      },
-      "creator": {
-        "loading": "Memuat pembuat…",
-        "notFoundTitle": "Pembuat tidak ditemukan",
-        "notFoundBodyPrefix": "Belum ada yang mengklaim nama pengguna",
-        "notFoundBodySuffix": "ini.",
-        "noAddons": "{username} belum membagikan add-on apa pun.",
-        "version": "Versi {version}",
-        "addonCount": {
-          "zero": "Belum ada add-on",
-          "other": "{count} add-on"
-        }
-      },
-      "categories": {
-        "appsGames": "Aplikasi & game",
-        "productivity": "Produktivitas",
-        "customization": "Kustomisasi",
-        "skillsAgents": "Keterampilan & agen",
-        "integrations": "Integrasi",
-        "other": "Lainnya"
-      },
-      "shareDialog": {
-        "title": "Bagikan",
-        "titleCircle": "Bagikan ke lingkaran Anda",
-        "titleCircleUpdate": "Bagikan pembaruan",
-        "titleStore": "Bagikan ke Store",
-        "titleStoreUpdate": "Kirim pembaruan",
-        "destinationLede": "Ini sebaiknya ke mana? Berbagi mengirimkan kode yang bisa dijalankan, jadi pilih audiens dengan cermat.",
-        "circleOptionName": "Seorang teman atau komunitas",
-        "circleOptionDesc": "Instan. Langsung sampai ke orang yang Anda percaya sebagai kartu berbagi di obrolan — tanpa peninjauan, tidak pernah tercantum publik.",
-        "storeOptionName": "Stella Store",
-        "storeOptionDesc": "Publik. Ditinjau dulu oleh tim Stella, lalu tayang di store untuk semua orang.",
-        "updateExisting": "Perbarui add-on yang sudah ada",
-        "existingAddon": "Add-on yang ada",
-        "selectPlaceholder": "Pilih…",
-        "nameLabel": "Nama",
-        "namePlaceholder": "Contoh mod",
-        "descriptionLabel": "Deskripsi",
-        "optionalHint": "(opsional)",
-        "descriptionPlaceholderCircle": "Satu baris singkat untuk kartu berbagi.",
-        "descriptionPlaceholderStore": "Satu baris singkat untuk daftar di store.",
-        "categoryLabel": "Kategori",
-        "categoryPlaceholder": "Pilih kategori…",
-        "sendTo": "Kirim ke",
-        "noRecipients": "Belum ada teman atau komunitas — tambahkan dulu dari halaman Pesan.",
-        "communityFallbackName": "Komunitas",
-        "communityTag": "Komunitas",
-        "circleNote": "Yang dibagikan langsung muncul sebagai kartu yang bisa dipasang di tiap obrolan. Hanya orang yang Anda pilih (dan siapa pun di komunitas tersebut) yang bisa mengambilnya.",
-        "storeNote": "Tim Stella meninjau kiriman ke store sebelum tayang untuk semua orang.",
-        "submitPending": "Membagikan…",
-        "submitCircle": "Bagikan sekarang",
-        "submitStore": "Kirim untuk ditinjau",
-        "noSourceChangesTitle": "Tidak ada perubahan sumber",
-        "noSourceChangesBody": "Pilih dulu setidaknya satu perubahan terbaru yang berbasis sumber.",
-        "pickRecipientTitle": "Pilih dengan siapa akan dibagikan",
-        "pickRecipientBody": "Pilih setidaknya satu teman atau komunitas.",
-        "pickAddonTitle": "Pilih sebuah add-on",
-        "pickAddonBody": "Pilih add-on yang ingin Anda perbarui.",
-        "nameRequiredTitle": "Nama wajib diisi",
-        "nameRequiredBody": "Beri add-on Anda nama singkat sebelum membagikannya.",
-        "badNameTitle": "Pilih nama lain",
-        "badNameBody": "Gunakan huruf atau angka pada namanya agar kami bisa membuat ID.",
-        "publishBackendMissing": "Backend publikasi tidak tersedia.",
-        "sharingTitle": "Membagikan",
-        "submittingTitle": "Mengirim",
-        "inProgressBody": "Stella akan memberi tahu Anda setelah selesai.",
-        "submittedTitle": "Dikirim untuk ditinjau",
-        "submittedBody": "{name} telah dikirim ke tim Stella. Ini akan tayang di store setelah disetujui.",
-        "sharedTitle": "Dibagikan",
-        "shareFailedTitle": "Gagal membagikan",
-        "submissionFailedTitle": "Pengiriman gagal",
-        "sharedBodyDelivered": {
-          "other": "{name} sedang menuju {count} obrolan."
-        },
-        "sharedBodyPartial": {
-          "other": "{name} sampai ke {delivered} dari {count} obrolan. Buka Pesan untuk mencoba lagi sisanya."
-        }
-      }
     }
   },
   "ui": {
@@ -1785,10 +1443,6 @@
         "files": {
           "label": "Berkas",
           "description": "Halaman, gambar, video, dan dokumen"
-        },
-        "store": {
-          "label": "Store",
-          "description": "Add-on dan hal-hal yang Anda buat"
         },
         "trash": {
           "label": "Sampah",
@@ -2080,47 +1734,6 @@
       "scheduleCount": {
         "other": "{count} jadwal"
       }
-    },
-    "social": {
-      "dialogDescription": "Konfirmasi undangan ini sebelum apa pun terjadi.",
-      "signInToAccept": "Masuk ke Stella untuk menerima undangan ini.",
-      "lookingUpInvite": "Mencari undangan…",
-      "stellaAddOn": "Add-on Stella",
-      "stellaUser": "Pengguna Stella",
-      "byAuthor": " · oleh @{username}",
-      "alreadyIn": " · Anda sudah bergabung",
-      "membersLabel": "anggota",
-      "memberCount": {
-        "other": "{count} anggota"
-      },
-      "working": "Sedang bekerja…",
-      "alreadyJoined": "Sudah bergabung",
-      "welcomeToCommunity": "Selamat datang di {community}!",
-      "joinedCommunity": "Anda bergabung dengan komunitas ini!",
-      "friendRequestSent": "Permintaan pertemanan terkirim ke @{username}.",
-      "joinFailed": "Tidak dapat bergabung dengan komunitas itu. Undangannya mungkin sudah kedaluwarsa.",
-      "friendRequestFailed": "Tidak dapat mengirim permintaan pertemanan itu. Silakan coba lagi.",
-      "store": {
-        "title": "Buka add-on",
-        "confirmLabel": "Lihat di Store",
-        "sub": "Tautan yang Anda buka mengarah ke sebuah add-on Stella. Tidak ada yang dipasang. Ini hanya membuka halaman Store-nya.",
-        "missing": "Add-on ini privat atau sudah tidak dipublikasikan."
-      },
-      "join": {
-        "title": "Gabung komunitas",
-        "confirmLabel": "Gabung",
-        "sub": "Anda diundang ke sebuah komunitas: lingkaran tepercaya tempat anggota saling berbagi add-on.",
-        "missing": "Tidak ada komunitas yang ditemukan untuk kode undangan ini. Mintalah tautan baru."
-      },
-      "friend": {
-        "title": "Tambah teman",
-        "confirmLabel": "Kirim permintaan pertemanan",
-        "sub": "Anda diundang untuk terhubung di Stella.",
-        "missing": "Tidak ada pengguna yang ditemukan untuk tautan undangan ini."
-      }
-    },
-    "websiteView": {
-      "storeTitle": "Store"
     }
   },
   "mobile": {

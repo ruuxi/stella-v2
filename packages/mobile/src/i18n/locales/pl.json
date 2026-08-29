@@ -109,12 +109,6 @@
         "off": "Wył."
       }
     },
-    "voice": {
-      "title": "Głos",
-      "personality": {
-        "label": "Osobowość"
-      }
-    },
     "notifications": {
       "title": "Powiadomienia dźwiękowe",
       "description": "Odtwarza dźwięk, gdy Stella kończy działanie agenta."
@@ -444,7 +438,6 @@
       "resultsAriaOne": "{count} wynik",
       "resultsAriaOther": "Wyniki: {count}",
       "descriptions": {
-        "voice": "Wybierz styl mówienia i głos osobowości Stelli.",
         "permissions": "Przyznaj dostęp do dostępności, przechwytywania ekranu i mikrofonu w macOS.",
         "shortcuts": "Zmień skróty dyktowania i głosu.",
         "backup": "Automatyczne szyfrowane kopie zapasowe, punkty przywracania i migawki na żądanie.",
@@ -466,9 +459,6 @@
       "loadSoundNotifications": "Nie udało się wczytać ustawienia powiadomień dźwiękowych.",
       "saveSoundNotifications": "Nie udało się zaktualizować ustawienia powiadomień dźwiękowych.",
       "soundNotificationsUnavailable": "Ustawienia powiadomień dźwiękowych są niedostępne w tym oknie.",
-      "loadVoice": "Nie udało się wczytać ustawienia głosu.",
-      "saveVoice": "Nie udało się zaktualizować ustawienia głosu.",
-      "voiceUnavailable": "Ustawienia głosu są niedostępne w tym oknie.",
       "loadMemory": "Nie udało się wczytać ustawienia pamięci.",
       "saveMemory": "Nie udało się zaktualizować ustawienia pamięci.",
       "memoryUnavailable": "Ustawienia pamięci są niedostępne w tym oknie.",
@@ -724,7 +714,6 @@
       "extension": "Dodaj Stellę do przeglądarki.",
       "browser": "Pozwól Stelli Cię poznać.",
       "theme": "Jak ma wyglądać Stella?",
-      "personality": "Jak ma mówić Stella?",
       "voice": "Mów zamiast pisać.",
       "enter": "Stella jest prawie gotowa."
     },
@@ -836,215 +825,6 @@
     "permissionDenied": "Stella nie ma uprawnień, aby to zrobić."
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "Nowa wiadomość",
-        "emptySubtitle": "Najpierw dodaj znajomych, aby rozpocząć rozmowę.",
-        "description": "Wybierz znajomego lub rozpocznij nową rozmowę grupową.",
-        "subtitle": "Wybierz znajomego lub załóż grupę.",
-        "groupTitle": "Nowa grupa",
-        "groupSubtitle": "Wybierz znajomych do dodania do tej grupy.",
-        "groupNameLabel": "Nazwa grupy",
-        "groupNamePlaceholder": "Nazwa grupy (opcjonalnie)",
-        "members": "Członkowie",
-        "back": "Wstecz",
-        "creating": "Tworzenie...",
-        "createGroup": "Utwórz grupę",
-        "newGroup": "Nowa grupa",
-        "friends": "Znajomi",
-        "opening": "Otwieranie..."
-      },
-      "friends": {
-        "title": "Znajomi",
-        "description": "Udostępnij swój kod znajomego, aby się połączyć, albo wpisz cudzy, aby wysłać zaproszenie.",
-        "subtitle": "Udostępnij swoją nazwę użytkownika lub wpisz nazwę znajomego.",
-        "requestSent": "Zaproszenie wysłane!",
-        "usernameCopied": "Nazwa użytkownika skopiowana!",
-        "inviteLinkCopied": "Link z zaproszeniem skopiowany — wyślij go gdziekolwiek.",
-        "yourUsername": "Twoja nazwa użytkownika",
-        "copy": "Kopiuj",
-        "copyUsernameTitle": "Skopiuj swoją nazwę użytkownika",
-        "copyInviteLink": "Kopiuj link z zaproszeniem",
-        "copyInviteLinkTitle": "Skopiuj link, który otwiera Stellę i wysyła Ci zaproszenie do znajomych — działa w iMessage, Discordzie, wszędzie",
-        "addLabel": "Dodaj znajomego",
-        "addPlaceholder": "Wpisz nazwę użytkownika",
-        "add": "Dodaj",
-        "adding": "Dodawanie...",
-        "requestsCount": "Zaproszenia ({count})",
-        "accept": "Akceptuj",
-        "decline": "Odrzuć",
-        "sent": "Wysłano",
-        "waitingForResponse": "Oczekiwanie na odpowiedź",
-        "friendsCount": "Znajomi ({count})",
-        "empty": "Brak jeszcze znajomych. Udostępnij swoją nazwę użytkownika lub wpisz powyżej cudzą, aby się połączyć.",
-        "message": "Napisz",
-        "opening": "Otwieranie...",
-        "remove": "Usuń",
-        "removing": "Usuwanie...",
-        "errors": {
-          "sendRequest": "Nie udało się wysłać tego zaproszenia. Sprawdź nazwę użytkownika i spróbuj ponownie."
-        }
-      },
-      "communities": {
-        "title": "Społeczności",
-        "description": "Utwórz społeczność lub dołącz do niej kodem zaproszenia, a potem udostępniaj dodatki wszystkim jej członkom.",
-        "subtitle": "Zaufane kręgi do dzielenia się. Wszyscy w społeczności widzą to, co udostępniają jej członkowie.",
-        "defaultName": "Społeczność",
-        "created": "Utworzono „{name}”!",
-        "joined": "Jesteś w środku!",
-        "createLabel": "Utwórz społeczność",
-        "createPlaceholder": "Nazwij nową społeczność",
-        "create": "Utwórz",
-        "joinLabel": "Dołącz kodem zaproszenia",
-        "joinPlaceholder": "Wpisz kod zaproszenia",
-        "join": "Dołącz",
-        "yourCommunities": "Twoje społeczności",
-        "yourCommunitiesCount": "Twoje społeczności ({count})",
-        "empty": "Brak jeszcze społeczności. Utwórz jedną i udostępnij kod zaproszenia albo dołącz kodem, który ktoś Ci przysłał.",
-        "createdByYouSuffix": " · utworzona przez Ciebie",
-        "open": "Otwórz",
-        "details": "Szczegóły",
-        "back": "Wstecz",
-        "nameLabel": "Nazwa społeczności",
-        "save": "Zapisz",
-        "cancel": "Anuluj",
-        "createdByYou": "Ty utworzyłeś tę społeczność.",
-        "memberOf": "Jesteś członkiem tej społeczności.",
-        "inviteCode": "Kod zaproszenia",
-        "copied": "Skopiowano!",
-        "copyCode": "Kopiuj kod",
-        "copyInviteLink": "Kopiuj link z zaproszeniem",
-        "copyInviteLinkTitle": "Skopiuj link, który otwiera Stellę i dołącza do tej społeczności",
-        "inviteHint": "Link działa wszędzie — wklej go w czacie Stelli albo wyślij przez iMessage lub Discorda. Dołączyć może każdy, kto go ma, więc udostępniaj go tylko zaufanym osobom.",
-        "membersCount": "Członkowie ({count})",
-        "roleCreator": "Twórca",
-        "roleMember": "Członek",
-        "youSuffix": " · Ty",
-        "remove": "Usuń",
-        "removing": "Usuwanie...",
-        "confirmDelete": "Na pewno usunąć tę społeczność?",
-        "delete": "Usuń społeczność",
-        "confirmLeave": "Na pewno opuścić?",
-        "leave": "Opuść społeczność",
-        "rename": "Zmień nazwę",
-        "openChat": "Otwórz czat",
-        "errors": {
-          "create": "Nie udało się utworzyć tej społeczności. Spróbuj ponownie.",
-          "join": "Nie udało się dołączyć tym kodem zaproszenia. Sprawdź kod i spróbuj ponownie.",
-          "rename": "Nie udało się zmienić nazwy społeczności. Spróbuj ponownie.",
-          "removeMember": "Nie udało się usunąć tego członka. Spróbuj ponownie.",
-          "delete": "Nie udało się usunąć społeczności. Spróbuj ponownie.",
-          "leave": "Nie udało się opuścić społeczności. Spróbuj ponownie."
-        },
-        "memberCount": {
-          "one": "{count} członek",
-          "few": "{count} członkowie",
-          "many": "{count} członków",
-          "other": "{count} członka"
-        }
-      },
-      "view": {
-        "messages": "Wiadomości",
-        "signIn": "Zaloguj się",
-        "signInSubtitle": "Zaloguj się, aby pisać do znajomych i współpracować razem ze Stellą.",
-        "friends": "Znajomi",
-        "communities": "Społeczności",
-        "newMessage": "Nowa wiadomość",
-        "noRooms": "Brak jeszcze rozmów. Dodaj znajomych lub napisz nową wiadomość.",
-        "addFriends": "Dodaj znajomych",
-        "communityBadge": "Społeczność",
-        "communityBadgeTitle": "Udostępnione wszystkim w tej społeczności",
-        "usernamePlaceholder": "twoja-nazwa",
-        "editUsername": "Edytuj swoją nazwę użytkownika",
-        "copied": "Skopiowano!",
-        "clickToCopyUsername": "Kliknij, aby skopiować swoją nazwę użytkownika",
-        "copyUsername": "Kopiuj nazwę użytkownika",
-        "cancel": "Anuluj",
-        "save": "Zapisz",
-        "saving": "Zapisywanie...",
-        "emptyTitle": "Twoje wiadomości",
-        "emptySubtitle": "Wybierz rozmowę po lewej lub zacznij nową ze znajomym.",
-        "errors": {
-          "startConversation": "Nie udało się rozpocząć tej rozmowy. Spróbuj ponownie.",
-          "createGroup": "Nie udało się utworzyć grupy. Spróbuj ponownie."
-        },
-        "usernameErrors": {
-          "empty": "Nazwa użytkownika nie może być pusta.",
-          "length": "Nazwa użytkownika musi mieć od 3 do 32 znaków.",
-          "format": "Używaj małych liter, cyfr, _ lub -. Musi zaczynać się i kończyć literą lub cyfrą.",
-          "update": "Nie udało się zaktualizować Twojej nazwy użytkownika. Spróbuj ponownie."
-        },
-        "newRequestCount": {
-          "one": "{count} nowe zaproszenie",
-          "few": "{count} nowe zaproszenia",
-          "many": "{count} nowych zaproszeń",
-          "other": "{count} nowego zaproszenia"
-        },
-        "friendsWithRequestsTitle": "Znajomi ({countPhrase})",
-        "friendsWithRequestsAria": "Znajomi, {countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "Stella zakończyła bez odpowiedzi.",
-        "stellaFailed": "Stella nie mogła dokończyć tej prośby.",
-        "stellaThinking": "Stella myśli...",
-        "sharedStellaUnavailable": "Wspólna Stella nie jest dostępna w tej sesji aplikacji.",
-        "back": "Wstecz",
-        "backToConversations": "Wróć do rozmów",
-        "peopleCount": "osób: {count}",
-        "startStella": "Uruchom Stellę",
-        "startStellaTitle": "Wprowadź Stellę do tej rozmowy",
-        "starting": "Uruchamianie...",
-        "startAgain": "Uruchom ponownie",
-        "pause": "Wstrzymaj",
-        "resume": "Wznów",
-        "end": "Zakończ",
-        "sayHello": "Przywitaj się, aby zacząć rozmowę",
-        "loadingOlder": "Ładowanie starszych wiadomości…",
-        "armedOnTitle": "Wyślij następną wiadomość do Stelli",
-        "armedOffTitle": "Wyślij następną wiadomość jako zwykłą wiadomość na czacie",
-        "tellStella": "Powiedz Stelli",
-        "tellingStella": "Mówisz Stelli",
-        "tellStellaPlaceholder": "Powiedz Stelli, czego chcesz...",
-        "messagePlaceholder": "Napisz do: {name}",
-        "sessionBadge": {
-          "live": "Stella · Na żywo",
-          "paused": "Stella · Wstrzymana",
-          "ended": "Stella · Zakończona"
-        },
-        "sessionHint": {
-          "live": "Każdy tutaj może zwrócić się do Stelli.",
-          "paused": "Wstrzymane — wznów, aby znów mówić do Stelli.",
-          "ended": "Ta wspólna przestrzeń Stelli została zakończona."
-        },
-        "errors": {
-          "startStella": "Nie udało się tu uruchomić Stelli. Spróbuj ponownie.",
-          "updateStella": "Nie udało się teraz zaktualizować Stelli. Spróbuj ponownie.",
-          "sendToStella": "Nie udało się tego wysłać do Stelli. Spróbuj ponownie.",
-          "sendMessage": "Nie udało się wysłać Twojej wiadomości. Spróbuj ponownie."
-        }
-      },
-      "composer": {
-        "placeholder": "Napisz wiadomość...",
-        "send": "Wyślij"
-      },
-      "inviteCard": {
-        "communityEyebrow": "Zaproszenie do społeczności",
-        "friendEyebrow": "Zaproszenie do znajomych",
-        "defaultCommunityName": "Społeczność",
-        "defaultUserName": "Użytkownik Stelli",
-        "friendDetail": "Dotknij, aby wysłać zaproszenie do znajomych",
-        "inviteUnavailable": "Zaproszenie niedostępne",
-        "userNotFound": "Nie znaleziono użytkownika",
-        "communityMissing": "Ta społeczność już nie istnieje albo kod się zmienił.",
-        "userMissing": "Ten link z zaproszeniem nie pasuje do żadnego użytkownika Stelli.",
-        "communityDetail": {
-          "one": "{countLabel} członek · dotknij, aby dołączyć",
-          "few": "{countLabel} członkowie · dotknij, aby dołączyć",
-          "many": "{countLabel} członków · dotknij, aby dołączyć",
-          "other": "{countLabel} członka · dotknij, aby dołączyć"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "Lokalne zużycie jest dostępne w aplikacji desktopowej Stelli.",
       "intro": "Wywołania dostawców zapisane na tym urządzeniu. Koszty to lokalne szacunki; rozliczenie po stronie serwera pozostaje wiążące.",
@@ -1160,37 +940,6 @@
         "loadFailed": "Nie udało się wczytać aplikacji.",
         "loading": "Ładowanie {name}…",
         "openFailed": "Nie udało się otworzyć {name}"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "Najpopularniejsze",
-        "name": "Alfabetycznie"
-      },
-      "animations": {
-        "idle": "Bezczynność",
-        "runningRight": "Bieg w prawo",
-        "runningLeft": "Bieg w lewo",
-        "waving": "Machanie",
-        "jumping": "Skakanie",
-        "failed": "Niepowodzenie",
-        "waiting": "Czekanie",
-        "running": "Działanie",
-        "review": "Przegląd"
-      },
-      "card": {
-        "by": "od {creator}",
-        "selections": "wybrań: {count}",
-        "get": "Pobierz",
-        "select": "Wybierz",
-        "selected": "Wybrany",
-        "remove": "Usuń"
-      },
-      "details": {
-        "caption": "od {creator} · wybrań: {downloads}",
-        "previewLabel": "Podgląd {name}",
-        "animations": "Animacje",
-        "animationStates": "Stany animacji"
       }
     },
     "chat": {
@@ -1646,118 +1395,6 @@
     "voice": {
       "signInTitle": "Zaloguj się, aby używać głosu",
       "needsSetupTitle": "Głos wymaga konfiguracji"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "Gdy Stella wprowadzi dla Ciebie zmianę, udostępnij ją stąd znajomym, społeczności albo w Store."
-      },
-      "recentChanges": {
-        "rowSelectHint": "Kliknij, aby dołączyć do udostępnienia",
-        "rowDeselectHint": "Kliknij, aby usunąć z wyboru",
-        "updated": "Zaktualizowano {time}",
-        "showOlder": "Pokaż starsze",
-        "justNow": "Przed chwilą",
-        "publishEmpty": "Wybierz zmiany do udostępnienia",
-        "publishLabel": "Udostępnij · {countPhrase}",
-        "selectedCount": {
-          "one": "wybrano: {count}",
-          "few": "wybrano: {count}",
-          "many": "wybrano: {count}",
-          "other": "wybrano: {count}"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "Dodatek Stelli",
-        "unavailableName": "Dodatek niedostępny",
-        "unavailableDesc": "Ten dodatek jest prywatny albo nie jest już opublikowany.",
-        "viewCta": "Zobacz →"
-      },
-      "creator": {
-        "loading": "Ładowanie twórcy…",
-        "notFoundTitle": "Nie znaleziono twórcy",
-        "notFoundBodyPrefix": "Nikt jeszcze nie zajął nazwy użytkownika",
-        "notFoundBodySuffix": ".",
-        "noAddons": "{username} nie udostępnił jeszcze żadnych dodatków.",
-        "version": "Wersja {version}",
-        "addonCount": {
-          "zero": "Brak jeszcze dodatków",
-          "one": "{count} dodatek",
-          "few": "{count} dodatki",
-          "many": "{count} dodatków",
-          "other": "{count} dodatku"
-        }
-      },
-      "categories": {
-        "appsGames": "Aplikacje i gry",
-        "productivity": "Produktywność",
-        "customization": "Personalizacja",
-        "skillsAgents": "Umiejętności i agenci",
-        "integrations": "Integracje",
-        "other": "Inne"
-      },
-      "shareDialog": {
-        "title": "Udostępnij",
-        "titleCircle": "Udostępnij swojemu kręgowi",
-        "titleCircleUpdate": "Udostępnij aktualizację",
-        "titleStore": "Opublikuj w Store",
-        "titleStoreUpdate": "Prześlij aktualizację",
-        "destinationLede": "Gdzie to ma trafić? Udostępniasz uruchamialny kod, więc wybierz odbiorców świadomie.",
-        "circleOptionName": "Znajomy lub społeczność",
-        "circleOptionDesc": "Natychmiast. Trafia prosto do zaufanych osób jako karta w czacie — bez weryfikacji, nigdy publicznie.",
-        "storeOptionName": "Stella Store",
-        "storeOptionDesc": "Publicznie. Najpierw sprawdza zespół Stelli, potem trafia do Store dla wszystkich.",
-        "updateExisting": "Zaktualizuj istniejący dodatek",
-        "existingAddon": "Istniejący dodatek",
-        "selectPlaceholder": "Wybierz…",
-        "nameLabel": "Nazwa",
-        "namePlaceholder": "Przykładowy mod",
-        "descriptionLabel": "Opis",
-        "optionalHint": "(opcjonalnie)",
-        "descriptionPlaceholderCircle": "Krótki opis na kartę udostępnienia.",
-        "descriptionPlaceholderStore": "Krótki opis na stronę w Store.",
-        "categoryLabel": "Kategoria",
-        "categoryPlaceholder": "Wybierz kategorię…",
-        "sendTo": "Wyślij do",
-        "noRecipients": "Brak jeszcze znajomych i społeczności — najpierw dodaj ich na stronie Wiadomości.",
-        "communityFallbackName": "Społeczność",
-        "communityTag": "Społeczność",
-        "circleNote": "Udostępnienia trafiają natychmiast jako instalowalna karta w każdym czacie. Pobrać je mogą tylko wybrane przez Ciebie osoby (i członkowie tych społeczności).",
-        "storeNote": "Zespół Stelli sprawdza zgłoszenia do Store, zanim trafią do wszystkich.",
-        "submitPending": "Udostępnianie…",
-        "submitCircle": "Udostępnij teraz",
-        "submitStore": "Prześlij do weryfikacji",
-        "noSourceChangesTitle": "Brak zmian w źródłach",
-        "noSourceChangesBody": "Najpierw wybierz co najmniej jedną niedawną zmianę z kodem źródłowym.",
-        "pickRecipientTitle": "Wybierz, komu udostępnić",
-        "pickRecipientBody": "Wybierz co najmniej jednego znajomego lub jedną społeczność.",
-        "pickAddonTitle": "Wybierz dodatek",
-        "pickAddonBody": "Wybierz dodatek, który chcesz zaktualizować.",
-        "nameRequiredTitle": "Nazwa wymagana",
-        "nameRequiredBody": "Nadaj dodatkowi krótką nazwę przed udostępnieniem.",
-        "badNameTitle": "Wybierz inną nazwę",
-        "badNameBody": "Użyj w nazwie liter lub cyfr, abyśmy mogli zbudować identyfikator.",
-        "publishBackendMissing": "Backend publikowania jest niedostępny.",
-        "sharingTitle": "Udostępnianie",
-        "submittingTitle": "Przesyłanie",
-        "inProgressBody": "Stella da znać, gdy skończy.",
-        "submittedTitle": "Przesłano do weryfikacji",
-        "submittedBody": "{name} trafił do zespołu Stelli. Po zatwierdzeniu pojawi się w Store.",
-        "sharedTitle": "Udostępniono",
-        "shareFailedTitle": "Udostępnianie nie powiodło się",
-        "submissionFailedTitle": "Przesyłanie nie powiodło się",
-        "sharedBodyDelivered": {
-          "one": "{name} jest w drodze do {count} czatu.",
-          "few": "{name} jest w drodze do {count} czatów.",
-          "many": "{name} jest w drodze do {count} czatów.",
-          "other": "{name} jest w drodze do {count} czatu."
-        },
-        "sharedBodyPartial": {
-          "one": "{name} dotarł do {delivered} z {count} czatu. Otwórz Wiadomości, aby ponowić resztę.",
-          "few": "{name} dotarł do {delivered} z {count} czatów. Otwórz Wiadomości, aby ponowić resztę.",
-          "many": "{name} dotarł do {delivered} z {count} czatów. Otwórz Wiadomości, aby ponowić resztę.",
-          "other": "{name} dotarł do {delivered} z {count} czatu. Otwórz Wiadomości, aby ponowić resztę."
-        }
-      }
     }
   },
   "ui": {
@@ -1839,10 +1476,6 @@
         "files": {
           "label": "Pliki",
           "description": "Strony, obrazy, wideo i dokumenty"
-        },
-        "store": {
-          "label": "Store",
-          "description": "Dodatki i rzeczy, które zbudowałeś"
         },
         "trash": {
           "label": "Kosz",
@@ -2157,50 +1790,6 @@
         "many": "{count} harmonogramów",
         "other": "{count} harmonogramu"
       }
-    },
-    "social": {
-      "dialogDescription": "Potwierdź to zaproszenie, zanim cokolwiek się wydarzy.",
-      "signInToAccept": "Zaloguj się do Stelli, aby przyjąć to zaproszenie.",
-      "lookingUpInvite": "Sprawdzamy zaproszenie…",
-      "stellaAddOn": "Dodatek Stelli",
-      "stellaUser": "Użytkownik Stelli",
-      "byAuthor": " · od @{username}",
-      "alreadyIn": " · już należysz",
-      "membersLabel": "członków",
-      "memberCount": {
-        "one": "{count} członek",
-        "few": "{count} członkowie",
-        "many": "{count} członków",
-        "other": "{count} członka"
-      },
-      "working": "Pracujemy…",
-      "alreadyJoined": "Już dołączono",
-      "welcomeToCommunity": "Witaj w {community}!",
-      "joinedCommunity": "Dołączyłeś do społeczności!",
-      "friendRequestSent": "Zaproszenie do znajomych wysłane do @{username}.",
-      "joinFailed": "Nie udało się dołączyć do tej społeczności. Zaproszenie mogło wygasnąć.",
-      "friendRequestFailed": "Nie udało się wysłać tego zaproszenia. Spróbuj ponownie.",
-      "store": {
-        "title": "Otwórz dodatek",
-        "confirmLabel": "Zobacz w Store",
-        "sub": "Otwarty przez Ciebie link prowadzi do dodatku Stelli. Nic się nie instaluje — otworzy się tylko jego strona w Store.",
-        "missing": "Ten dodatek jest prywatny albo nie jest już opublikowany."
-      },
-      "join": {
-        "title": "Dołącz do społeczności",
-        "confirmLabel": "Dołącz",
-        "sub": "Zostałeś zaproszony do społeczności: zaufanego kręgu, w którym członkowie dzielą się dodatkami.",
-        "missing": "Nie znaleziono społeczności dla tego kodu zaproszenia. Poproś o nowy link."
-      },
-      "friend": {
-        "title": "Dodaj znajomego",
-        "confirmLabel": "Wyślij zaproszenie do znajomych",
-        "sub": "Zaproszono Cię do połączenia w Stelli.",
-        "missing": "Nie znaleziono użytkownika dla tego linku z zaproszeniem."
-      }
-    },
-    "websiteView": {
-      "storeTitle": "Store"
     }
   },
   "mobile": {

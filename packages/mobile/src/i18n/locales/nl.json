@@ -109,12 +109,6 @@
         "off": "Uit"
       }
     },
-    "voice": {
-      "title": "Stem",
-      "personality": {
-        "label": "Persoonlijkheid"
-      }
-    },
     "notifications": {
       "title": "Geluidsmeldingen",
       "description": "Speelt een geluid af wanneer Stella een agent-taak voltooit."
@@ -444,7 +438,6 @@
       "resultsAriaOne": "{count} resultaat",
       "resultsAriaOther": "{count} resultaten",
       "descriptions": {
-        "voice": "Kies Stella's spreekstijl en persoonlijkheidsstem.",
         "permissions": "Verleen toegang tot toegankelijkheid, schermopname en microfoon op macOS.",
         "shortcuts": "Wijzig de sneltoetsen voor dicteren en spraak.",
         "backup": "Automatische versleutelde back-ups, herstelpunten en momentopnamen op aanvraag.",
@@ -466,9 +459,6 @@
       "loadSoundNotifications": "Instelling voor geluidsmeldingen laden mislukt.",
       "saveSoundNotifications": "Instelling voor geluidsmeldingen bijwerken mislukt.",
       "soundNotificationsUnavailable": "Instellingen voor geluidsmeldingen zijn niet beschikbaar in dit venster.",
-      "loadVoice": "Steminstelling laden mislukt.",
-      "saveVoice": "Steminstelling bijwerken mislukt.",
-      "voiceUnavailable": "Steminstellingen zijn niet beschikbaar in dit venster.",
       "loadMemory": "Geheugeninstelling laden mislukt.",
       "saveMemory": "Geheugeninstelling bijwerken mislukt.",
       "memoryUnavailable": "Geheugeninstellingen zijn niet beschikbaar in dit venster.",
@@ -722,7 +712,6 @@
       "extension": "Voeg Stella toe aan je browser.",
       "browser": "Laat Stella je leren kennen.",
       "theme": "Hoe moet Stella eruitzien?",
-      "personality": "Hoe moet Stella praten?",
       "voice": "Praat in plaats van typen.",
       "enter": "Stella is bijna klaar."
     },
@@ -834,209 +823,6 @@
     "permissionDenied": "Stella heeft hier geen toestemming voor."
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "Nieuw bericht",
-        "emptySubtitle": "Voeg eerst vrienden toe om een gesprek te starten.",
-        "description": "Kies een vriend of start een nieuw groepsgesprek.",
-        "subtitle": "Kies een vriend of start een groep.",
-        "groupTitle": "Nieuwe groep",
-        "groupSubtitle": "Kies vrienden om aan deze groep toe te voegen.",
-        "groupNameLabel": "Groepsnaam",
-        "groupNamePlaceholder": "Groepsnaam (optioneel)",
-        "members": "Leden",
-        "back": "Terug",
-        "creating": "Aanmaken...",
-        "createGroup": "Groep aanmaken",
-        "newGroup": "Nieuwe groep",
-        "friends": "Vrienden",
-        "opening": "Openen..."
-      },
-      "friends": {
-        "title": "Vrienden",
-        "description": "Deel je vriendencode om te verbinden, of voer die van iemand anders in om een verzoek te sturen.",
-        "subtitle": "Deel je gebruikersnaam, of voer die van een vriend in om te verbinden.",
-        "requestSent": "Vriendschapsverzoek verstuurd!",
-        "usernameCopied": "Gebruikersnaam gekopieerd!",
-        "inviteLinkCopied": "Uitnodigingslink gekopieerd — stuur hem overal heen.",
-        "yourUsername": "Je gebruikersnaam",
-        "copy": "Kopiëren",
-        "copyUsernameTitle": "Kopieer je gebruikersnaam",
-        "copyInviteLink": "Uitnodigingslink kopiëren",
-        "copyInviteLinkTitle": "Kopieer een link die Stella opent en je een vriendschapsverzoek stuurt — werkt in iMessage, Discord, overal",
-        "addLabel": "Een vriend toevoegen",
-        "addPlaceholder": "Voer gebruikersnaam in",
-        "add": "Toevoegen",
-        "adding": "Toevoegen...",
-        "requestsCount": "Verzoeken ({count})",
-        "accept": "Accepteren",
-        "decline": "Weigeren",
-        "sent": "Verstuurd",
-        "waitingForResponse": "Wachten op antwoord",
-        "friendsCount": "Vrienden ({count})",
-        "empty": "Nog geen vrienden. Deel je gebruikersnaam of voer hierboven die van iemand anders in om te verbinden.",
-        "message": "Bericht",
-        "opening": "Openen...",
-        "remove": "Verwijderen",
-        "removing": "Verwijderen...",
-        "errors": {
-          "sendRequest": "Kan dat vriendschapsverzoek niet versturen. Controleer de gebruikersnaam en probeer het opnieuw."
-        }
-      },
-      "communities": {
-        "title": "Communities",
-        "description": "Maak een community of word lid met een uitnodigingscode, en deel daarna add-ons met iedereen erin.",
-        "subtitle": "Vertrouwde kringen om te delen. Iedereen in een community ziet wat de leden delen.",
-        "defaultName": "Community",
-        "created": "\"{name}\" aangemaakt!",
-        "joined": "Je bent lid!",
-        "createLabel": "Een community maken",
-        "createPlaceholder": "Geef een nieuwe community een naam",
-        "create": "Aanmaken",
-        "joinLabel": "Word lid met een uitnodigingscode",
-        "joinPlaceholder": "Voer een uitnodigingscode in",
-        "join": "Lid worden",
-        "yourCommunities": "Je communities",
-        "yourCommunitiesCount": "Je communities ({count})",
-        "empty": "Nog geen communities. Maak er een en deel de uitnodigingscode, of word lid met een code die iemand je stuurde.",
-        "createdByYouSuffix": " · door jou aangemaakt",
-        "open": "Openen",
-        "details": "Details",
-        "back": "Terug",
-        "nameLabel": "Communitynaam",
-        "save": "Opslaan",
-        "cancel": "Annuleren",
-        "createdByYou": "Jij hebt deze community aangemaakt.",
-        "memberOf": "Je bent lid van deze community.",
-        "inviteCode": "Uitnodigingscode",
-        "copied": "Gekopieerd!",
-        "copyCode": "Code kopiëren",
-        "copyInviteLink": "Uitnodigingslink kopiëren",
-        "copyInviteLinkTitle": "Kopieer een link die Stella opent en je lid maakt van deze community",
-        "inviteHint": "De link werkt overal — plak hem in een Stella-chat of stuur hem via iMessage of Discord. Iedereen met de link kan lid worden, dus deel hem alleen met mensen die je vertrouwt.",
-        "membersCount": "Leden ({count})",
-        "roleCreator": "Maker",
-        "roleMember": "Lid",
-        "youSuffix": " · jij",
-        "remove": "Verwijderen",
-        "removing": "Verwijderen...",
-        "confirmDelete": "Deze community echt verwijderen?",
-        "delete": "Community verwijderen",
-        "confirmLeave": "Echt verlaten?",
-        "leave": "Community verlaten",
-        "rename": "Naam wijzigen",
-        "openChat": "Chat openen",
-        "errors": {
-          "create": "Kan die community niet aanmaken. Probeer het opnieuw.",
-          "join": "Kan geen lid worden met die uitnodigingscode. Controleer de code en probeer het opnieuw.",
-          "rename": "Kan de naam van de community niet wijzigen. Probeer het opnieuw.",
-          "removeMember": "Kan dat lid niet verwijderen. Probeer het opnieuw.",
-          "delete": "Kan de community niet verwijderen. Probeer het opnieuw.",
-          "leave": "Kan de community niet verlaten. Probeer het opnieuw."
-        },
-        "memberCount": {
-          "one": "{count} lid",
-          "other": "{count} leden"
-        }
-      },
-      "view": {
-        "messages": "Berichten",
-        "signIn": "Inloggen",
-        "signInSubtitle": "Log in om vrienden te berichten en samen met Stella te werken.",
-        "friends": "Vrienden",
-        "communities": "Communities",
-        "newMessage": "Nieuw bericht",
-        "noRooms": "Nog geen gesprekken. Voeg vrienden toe of start een nieuw bericht.",
-        "addFriends": "Vrienden toevoegen",
-        "communityBadge": "Community",
-        "communityBadgeTitle": "Gedeeld met iedereen in deze community",
-        "usernamePlaceholder": "jouw-gebruikersnaam",
-        "editUsername": "Je gebruikersnaam bewerken",
-        "copied": "Gekopieerd!",
-        "clickToCopyUsername": "Klik om je gebruikersnaam te kopiëren",
-        "copyUsername": "Gebruikersnaam kopiëren",
-        "cancel": "Annuleren",
-        "save": "Opslaan",
-        "saving": "Opslaan...",
-        "emptyTitle": "Je berichten",
-        "emptySubtitle": "Kies links een gesprek, of start een nieuw gesprek met een vriend.",
-        "errors": {
-          "startConversation": "Kan dat gesprek niet starten. Probeer het opnieuw.",
-          "createGroup": "Kan de groep niet aanmaken. Probeer het opnieuw."
-        },
-        "usernameErrors": {
-          "empty": "Gebruikersnaam mag niet leeg zijn.",
-          "length": "Gebruikersnaam moet 3-32 tekens bevatten.",
-          "format": "Gebruik kleine letters, cijfers, _ of -. Moet beginnen en eindigen met een letter of cijfer.",
-          "update": "Kan je gebruikersnaam niet bijwerken. Probeer het opnieuw."
-        },
-        "newRequestCount": {
-          "one": "{count} nieuw verzoek",
-          "other": "{count} nieuwe verzoeken"
-        },
-        "friendsWithRequestsTitle": "Vrienden ({countPhrase})",
-        "friendsWithRequestsAria": "Vrienden, {countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "Stella is klaar zonder antwoord.",
-        "stellaFailed": "Stella kon dat verzoek niet voltooien.",
-        "stellaThinking": "Stella denkt na...",
-        "sharedStellaUnavailable": "Gedeelde Stella is niet beschikbaar in deze app-sessie.",
-        "back": "Terug",
-        "backToConversations": "Terug naar gesprekken",
-        "peopleCount": "{count} personen",
-        "startStella": "Stella starten",
-        "startStellaTitle": "Haal Stella bij dit gesprek",
-        "starting": "Starten...",
-        "startAgain": "Opnieuw starten",
-        "pause": "Pauzeren",
-        "resume": "Hervatten",
-        "end": "Beëindigen",
-        "sayHello": "Zeg hallo om het gesprek te starten",
-        "loadingOlder": "Oudere berichten laden…",
-        "armedOnTitle": "Stuur het volgende bericht naar Stella",
-        "armedOffTitle": "Stuur het volgende bericht als gewoon chatbericht",
-        "tellStella": "Zeg het tegen Stella",
-        "tellingStella": "Bezig met Stella",
-        "tellStellaPlaceholder": "Zeg Stella wat je wilt...",
-        "messagePlaceholder": "Bericht aan {name}",
-        "sessionBadge": {
-          "live": "Stella · Live",
-          "paused": "Stella · Gepauzeerd",
-          "ended": "Stella · Beëindigd"
-        },
-        "sessionHint": {
-          "live": "Iedereen hier kan het Stella vertellen.",
-          "paused": "Gepauzeerd — hervat om Stella weer iets te vragen.",
-          "ended": "Deze gedeelde Stella-ruimte is beëindigd."
-        },
-        "errors": {
-          "startStella": "Kon Stella hier niet starten. Probeer het opnieuw.",
-          "updateStella": "Kon Stella nu niet bijwerken. Probeer het opnieuw.",
-          "sendToStella": "Kon dat niet naar Stella sturen. Probeer het opnieuw.",
-          "sendMessage": "Kon je bericht niet versturen. Probeer het opnieuw."
-        }
-      },
-      "composer": {
-        "placeholder": "Schrijf een bericht...",
-        "send": "Versturen"
-      },
-      "inviteCard": {
-        "communityEyebrow": "Community-uitnodiging",
-        "friendEyebrow": "Vriendschapsuitnodiging",
-        "defaultCommunityName": "Community",
-        "defaultUserName": "Stella-gebruiker",
-        "friendDetail": "Tik om een vriendschapsverzoek te sturen",
-        "inviteUnavailable": "Uitnodiging niet beschikbaar",
-        "userNotFound": "Gebruiker niet gevonden",
-        "communityMissing": "Deze community bestaat niet meer of de code is gewijzigd.",
-        "userMissing": "Deze uitnodigingslink hoort niet bij een Stella-gebruiker.",
-        "communityDetail": {
-          "one": "{countLabel} lid · tik om deel te nemen",
-          "other": "{countLabel} leden · tik om deel te nemen"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "Lokaal gebruik is beschikbaar in de Stella-desktopapp.",
       "intro": "Provideraanroepen die op dit apparaat zijn bewaard. Kosten zijn lokale schattingen; de facturering in de backend is leidend.",
@@ -1152,37 +938,6 @@
         "loadFailed": "De app kon niet worden geladen.",
         "loading": "{name} laden…",
         "openFailed": "Kon {name} niet openen"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "Populairst",
-        "name": "Alfabetisch"
-      },
-      "animations": {
-        "idle": "Inactief",
-        "runningRight": "Naar rechts rennen",
-        "runningLeft": "Naar links rennen",
-        "waving": "Zwaaien",
-        "jumping": "Springen",
-        "failed": "Mislukt",
-        "waiting": "Wachten",
-        "running": "Rennen",
-        "review": "Beoordelen"
-      },
-      "card": {
-        "by": "van {creator}",
-        "selections": "{count} keer gekozen",
-        "get": "Ophalen",
-        "select": "Kiezen",
-        "selected": "Gekozen",
-        "remove": "Verwijderen"
-      },
-      "details": {
-        "caption": "van {creator} · {downloads} keer gekozen",
-        "previewLabel": "Voorbeeld van {name}",
-        "animations": "Animaties",
-        "animationStates": "Animatietoestanden"
       }
     },
     "chat": {
@@ -1622,110 +1377,6 @@
     "voice": {
       "signInTitle": "Log in om stem te gebruiken",
       "needsSetupTitle": "Stem moet nog worden ingesteld"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "Nadat Stella iets voor je heeft gewijzigd, deel je het hier met vrienden, een community of de Store."
-      },
-      "recentChanges": {
-        "rowSelectHint": "Klik om mee te delen",
-        "rowDeselectHint": "Klik om uit de selectie te verwijderen",
-        "updated": "Bijgewerkt {time}",
-        "showOlder": "Ouder tonen",
-        "justNow": "Zojuist",
-        "publishEmpty": "Kies wijzigingen om te delen",
-        "publishLabel": "Delen · {countPhrase}",
-        "selectedCount": {
-          "one": "{count} geselecteerd",
-          "other": "{count} geselecteerd"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "Stella-add-on",
-        "unavailableName": "Add-on niet beschikbaar",
-        "unavailableDesc": "Deze add-on is privé of niet meer gepubliceerd.",
-        "viewCta": "Bekijken →"
-      },
-      "creator": {
-        "loading": "Maker laden…",
-        "notFoundTitle": "Maker niet gevonden",
-        "notFoundBodyPrefix": "Niemand heeft de gebruikersnaam",
-        "notFoundBodySuffix": "al geclaimd.",
-        "noAddons": "{username} heeft nog geen add-ons gedeeld.",
-        "version": "Versie {version}",
-        "addonCount": {
-          "zero": "Nog geen add-ons",
-          "one": "{count} add-on",
-          "other": "{count} add-ons"
-        }
-      },
-      "categories": {
-        "appsGames": "Apps en games",
-        "productivity": "Productiviteit",
-        "customization": "Aanpassing",
-        "skillsAgents": "Skills en agents",
-        "integrations": "Integraties",
-        "other": "Overig"
-      },
-      "shareDialog": {
-        "title": "Delen",
-        "titleCircle": "Deel met je kring",
-        "titleCircleUpdate": "Deel een update",
-        "titleStore": "Delen in de Store",
-        "titleStoreUpdate": "Een update indienen",
-        "destinationLede": "Waar moet dit heen? Delen stuurt uitvoerbare code, dus kies bewust je publiek.",
-        "circleOptionName": "Een vriend of community",
-        "circleOptionDesc": "Direct. Gaat meteen naar mensen die je vertrouwt als deelkaart in de chat — geen beoordeling, nooit openbaar.",
-        "storeOptionName": "De Stella Store",
-        "storeOptionDesc": "Openbaar. Eerst beoordeeld door het Stella-team, daarna live in de Store voor iedereen.",
-        "updateExisting": "Een bestaande add-on bijwerken",
-        "existingAddon": "Bestaande add-on",
-        "selectPlaceholder": "Selecteren…",
-        "nameLabel": "Naam",
-        "namePlaceholder": "Voorbeeldmod",
-        "descriptionLabel": "Beschrijving",
-        "optionalHint": "(optioneel)",
-        "descriptionPlaceholderCircle": "Een korte regel voor de deelkaart.",
-        "descriptionPlaceholderStore": "Een korte regel voor de Store-vermelding.",
-        "categoryLabel": "Categorie",
-        "categoryPlaceholder": "Kies een categorie…",
-        "sendTo": "Sturen naar",
-        "noRecipients": "Nog geen vrienden of communities — voeg ze eerst toe via de pagina Berichten.",
-        "communityFallbackName": "Community",
-        "communityTag": "Community",
-        "circleNote": "Wat je deelt komt direct als installeerbare kaart in elke chat. Alleen de mensen die je kiest (en iedereen in die communities) kan het pakken.",
-        "storeNote": "Het Stella-team beoordeelt inzendingen voordat ze voor iedereen live gaan.",
-        "submitPending": "Delen…",
-        "submitCircle": "Nu delen",
-        "submitStore": "Ter beoordeling indienen",
-        "noSourceChangesTitle": "Geen bronwijzigingen",
-        "noSourceChangesBody": "Kies eerst minstens één recente wijziging met broncode.",
-        "pickRecipientTitle": "Kies met wie je deelt",
-        "pickRecipientBody": "Kies minstens één vriend of community.",
-        "pickAddonTitle": "Kies een add-on",
-        "pickAddonBody": "Kies de add-on die je wilt bijwerken.",
-        "nameRequiredTitle": "Naam verplicht",
-        "nameRequiredBody": "Geef je add-on een korte naam voordat je deelt.",
-        "badNameTitle": "Kies een andere naam",
-        "badNameBody": "Gebruik letters of cijfers in de naam zodat we een ID kunnen maken.",
-        "publishBackendMissing": "De publicatiebackend is niet beschikbaar.",
-        "sharingTitle": "Delen",
-        "submittingTitle": "Indienen",
-        "inProgressBody": "Stella laat het weten zodra het klaar is.",
-        "submittedTitle": "Ter beoordeling ingediend",
-        "submittedBody": "{name} is naar het Stella-team gestuurd. Het gaat live in de Store zodra het is goedgekeurd.",
-        "sharedTitle": "Gedeeld",
-        "shareFailedTitle": "Delen mislukt",
-        "submissionFailedTitle": "Indienen mislukt",
-        "sharedBodyDelivered": {
-          "one": "{name} is onderweg naar {count} chat.",
-          "other": "{name} is onderweg naar {count} chats."
-        },
-        "sharedBodyPartial": {
-          "one": "{name} bereikte {delivered} van {count} chat. Open Berichten om de rest opnieuw te proberen.",
-          "other": "{name} bereikte {delivered} van {count} chats. Open Berichten om de rest opnieuw te proberen."
-        }
-      }
     }
   },
   "ui": {
@@ -1803,10 +1454,6 @@
         "files": {
           "label": "Bestanden",
           "description": "Pagina's, afbeeldingen, video en documenten"
-        },
-        "store": {
-          "label": "Store",
-          "description": "Add-ons en dingen die je hebt gebouwd"
         },
         "trash": {
           "label": "Prullenmand",
@@ -2107,48 +1754,6 @@
         "one": "{count} planning",
         "other": "{count} planningen"
       }
-    },
-    "social": {
-      "dialogDescription": "Bevestig deze uitnodiging voordat er iets gebeurt.",
-      "signInToAccept": "Log in bij Stella om deze uitnodiging te accepteren.",
-      "lookingUpInvite": "Uitnodiging opzoeken…",
-      "stellaAddOn": "Stella-add-on",
-      "stellaUser": "Stella-gebruiker",
-      "byAuthor": " · van @{username}",
-      "alreadyIn": " · je doet al mee",
-      "membersLabel": "leden",
-      "memberCount": {
-        "one": "{count} lid",
-        "other": "{count} leden"
-      },
-      "working": "Bezig…",
-      "alreadyJoined": "Al deelgenomen",
-      "welcomeToCommunity": "Welkom bij {community}!",
-      "joinedCommunity": "Je bent lid van de community!",
-      "friendRequestSent": "Vriendschapsverzoek verstuurd naar @{username}.",
-      "joinFailed": "Kon niet deelnemen aan die community. De uitnodiging is mogelijk verlopen.",
-      "friendRequestFailed": "Kon dat vriendschapsverzoek niet versturen. Probeer het opnieuw.",
-      "store": {
-        "title": "Add-on openen",
-        "confirmLabel": "Bekijken in Store",
-        "sub": "Een link die je hebt geopend verwijst naar een Stella-add-on. Er wordt niets geïnstalleerd. Dit opent alleen de Store-pagina.",
-        "missing": "Deze add-on is privé of niet meer gepubliceerd."
-      },
-      "join": {
-        "title": "Deelnemen aan community",
-        "confirmLabel": "Deelnemen",
-        "sub": "Je bent uitgenodigd voor een community: een vertrouwde kring waarin leden add-ons met elkaar delen.",
-        "missing": "Er is geen community gevonden voor deze uitnodigingscode. Vraag om een nieuwe link."
-      },
-      "friend": {
-        "title": "Vriend toevoegen",
-        "confirmLabel": "Vriendschapsverzoek sturen",
-        "sub": "Je bent uitgenodigd om te verbinden op Stella.",
-        "missing": "Er is geen gebruiker gevonden voor deze uitnodigingslink."
-      }
-    },
-    "websiteView": {
-      "storeTitle": "Store"
     }
   },
   "mobile": {

@@ -87,7 +87,6 @@
       "title": "Sprog",
       "description": "Vælg det sprog, Stella bruger i appen og i svar."
     },
-
     "memory": {
       "title": "Hukommelse",
       "description": "Medtag gemte minder og din profil i Stellas modelkontekst. Cloudkopien er den autoritative version og er krypteret under overførsel og lagring; Stella kan også gemme en lokal kopi. Hvis du slår dette fra, udelades hukommelsen fra fremtidige samtaler, men den slettes ikke."
@@ -108,12 +107,6 @@
         "system": "System",
         "on": "Til",
         "off": "Fra"
-      }
-    },
-    "voice": {
-      "title": "Stemme",
-      "personality": {
-        "label": "Personlighed"
       }
     },
     "notifications": {
@@ -445,7 +438,6 @@
       "resultsAriaOne": "{count} resultat",
       "resultsAriaOther": "{count} resultater",
       "descriptions": {
-        "voice": "Vælg Stellas talestil og personlighedsstemme.",
         "permissions": "Giv adgang til tilgængelighed, skærmoptagelse og mikrofon på macOS.",
         "shortcuts": "Skift genveje til diktering og stemme.",
         "backup": "Automatiske krypterede sikkerhedskopier, gendannelsespunkter og øjebliksbilleder efter behov.",
@@ -467,9 +459,6 @@
       "loadSoundNotifications": "Kunne ikke indlæse indstillingen for lydnotifikationer.",
       "saveSoundNotifications": "Kunne ikke opdatere indstillingen for lydnotifikationer.",
       "soundNotificationsUnavailable": "Indstillinger for lydnotifikationer er ikke tilgængelige i dette vindue.",
-      "loadVoice": "Kunne ikke indlæse stemmeindstillingen.",
-      "saveVoice": "Kunne ikke opdatere stemmeindstillingen.",
-      "voiceUnavailable": "Stemmeindstillinger er ikke tilgængelige i dette vindue.",
       "loadMemory": "Kunne ikke indlæse hukommelsesindstillingen.",
       "saveMemory": "Kunne ikke opdatere hukommelsesindstillingen.",
       "memoryUnavailable": "Hukommelsesindstillinger er ikke tilgængelige i dette vindue.",
@@ -723,7 +712,6 @@
       "extension": "Tilføj Stella til din browser.",
       "browser": "Lad Stella lære dig at kende.",
       "theme": "Hvordan skal Stella se ud?",
-      "personality": "Hvordan skal Stella tale?",
       "voice": "Tal i stedet for at skrive.",
       "enter": "Stella er næsten klar."
     },
@@ -835,209 +823,6 @@
     "permissionDenied": "Stella har ikke tilladelse til dette."
   },
   "app": {
-    "social": {
-      "newChat": {
-        "title": "Ny besked",
-        "emptySubtitle": "Tilføj nogle venner først for at starte en samtale.",
-        "description": "Vælg en ven, eller start en ny gruppesamtale.",
-        "subtitle": "Vælg en ven, eller start en gruppe.",
-        "groupTitle": "Ny gruppe",
-        "groupSubtitle": "Vælg venner, der skal med i denne gruppe.",
-        "groupNameLabel": "Gruppenavn",
-        "groupNamePlaceholder": "Gruppenavn (valgfrit)",
-        "members": "Medlemmer",
-        "back": "Tilbage",
-        "creating": "Opretter...",
-        "createGroup": "Opret gruppe",
-        "newGroup": "Ny gruppe",
-        "friends": "Venner",
-        "opening": "Åbner..."
-      },
-      "friends": {
-        "title": "Venner",
-        "description": "Del din vennekode for at forbinde, eller indtast en andens for at sende en anmodning.",
-        "subtitle": "Del dit brugernavn, eller indtast en vens for at forbinde.",
-        "requestSent": "Venneanmodning sendt!",
-        "usernameCopied": "Brugernavn kopieret!",
-        "inviteLinkCopied": "Invitationslink kopieret — send det hvor som helst.",
-        "yourUsername": "Dit brugernavn",
-        "copy": "Kopiér",
-        "copyUsernameTitle": "Kopiér dit brugernavn",
-        "copyInviteLink": "Kopiér invitationslink",
-        "copyInviteLinkTitle": "Kopiér et link, der åbner Stella og sender dig en venneanmodning — virker i iMessage, Discord, alle steder",
-        "addLabel": "Tilføj en ven",
-        "addPlaceholder": "Indtast brugernavn",
-        "add": "Tilføj",
-        "adding": "Tilføjer...",
-        "requestsCount": "Anmodninger ({count})",
-        "accept": "Accepter",
-        "decline": "Afvis",
-        "sent": "Sendt",
-        "waitingForResponse": "Venter på svar",
-        "friendsCount": "Venner ({count})",
-        "empty": "Ingen venner endnu. Del dit brugernavn, eller indtast en andens ovenfor for at forbinde.",
-        "message": "Besked",
-        "opening": "Åbner...",
-        "remove": "Fjern",
-        "removing": "Fjerner...",
-        "errors": {
-          "sendRequest": "Kunne ikke sende den venneanmodning. Tjek brugernavnet, og prøv igen."
-        }
-      },
-      "communities": {
-        "title": "Fællesskaber",
-        "description": "Opret et fællesskab, eller deltag i et med en invitationskode, og del derefter add-ons med alle i det.",
-        "subtitle": "Betroede kredse til deling. Alle i et fællesskab ser, hvad dets medlemmer deler.",
-        "defaultName": "Fællesskab",
-        "created": "\"{name}\" oprettet!",
-        "joined": "Du er med!",
-        "createLabel": "Opret et fællesskab",
-        "createPlaceholder": "Navngiv et nyt fællesskab",
-        "create": "Opret",
-        "joinLabel": "Deltag med en invitationskode",
-        "joinPlaceholder": "Indtast en invitationskode",
-        "join": "Deltag",
-        "yourCommunities": "Dine fællesskaber",
-        "yourCommunitiesCount": "Dine fællesskaber ({count})",
-        "empty": "Ingen fællesskaber endnu. Opret et, og del invitationskoden, eller deltag med en kode, nogen har sendt dig.",
-        "createdByYouSuffix": " · oprettet af dig",
-        "open": "Åbn",
-        "details": "Detaljer",
-        "back": "Tilbage",
-        "nameLabel": "Fællesskabets navn",
-        "save": "Gem",
-        "cancel": "Annuller",
-        "createdByYou": "Du oprettede dette fællesskab.",
-        "memberOf": "Du er medlem af dette fællesskab.",
-        "inviteCode": "Invitationskode",
-        "copied": "Kopieret!",
-        "copyCode": "Kopiér kode",
-        "copyInviteLink": "Kopiér invitationslink",
-        "copyInviteLinkTitle": "Kopiér et link, der åbner Stella og tilmelder dig dette fællesskab",
-        "inviteHint": "Linket virker alle steder — indsæt det i en Stella-chat, eller send det via iMessage eller Discord. Alle med linket kan deltage, så del det kun med folk, du stoler på.",
-        "membersCount": "Medlemmer ({count})",
-        "roleCreator": "Opretter",
-        "roleMember": "Medlem",
-        "youSuffix": " · dig",
-        "remove": "Fjern",
-        "removing": "Fjerner...",
-        "confirmDelete": "Vil du virkelig slette dette fællesskab?",
-        "delete": "Slet fællesskab",
-        "confirmLeave": "Vil du virkelig forlade det?",
-        "leave": "Forlad fællesskab",
-        "rename": "Omdøb",
-        "openChat": "Åbn chat",
-        "errors": {
-          "create": "Kunne ikke oprette det fællesskab. Prøv igen.",
-          "join": "Kunne ikke deltage med den invitationskode. Tjek koden, og prøv igen.",
-          "rename": "Kunne ikke omdøbe fællesskabet. Prøv igen.",
-          "removeMember": "Kunne ikke fjerne det medlem. Prøv igen.",
-          "delete": "Kunne ikke slette fællesskabet. Prøv igen.",
-          "leave": "Kunne ikke forlade fællesskabet. Prøv igen."
-        },
-        "memberCount": {
-          "one": "{count} medlem",
-          "other": "{count} medlemmer"
-        }
-      },
-      "view": {
-        "messages": "Beskeder",
-        "signIn": "Log ind",
-        "signInSubtitle": "Log ind for at skrive med venner og samarbejde sammen med Stella.",
-        "friends": "Venner",
-        "communities": "Fællesskaber",
-        "newMessage": "Ny besked",
-        "noRooms": "Ingen samtaler endnu. Tilføj venner, eller start en ny besked.",
-        "addFriends": "Tilføj venner",
-        "communityBadge": "Fællesskab",
-        "communityBadgeTitle": "Delt med alle i dette fællesskab",
-        "usernamePlaceholder": "dit-brugernavn",
-        "editUsername": "Rediger dit brugernavn",
-        "copied": "Kopieret!",
-        "clickToCopyUsername": "Klik for at kopiere dit brugernavn",
-        "copyUsername": "Kopiér brugernavn",
-        "cancel": "Annuller",
-        "save": "Gem",
-        "saving": "Gemmer...",
-        "emptyTitle": "Dine beskeder",
-        "emptySubtitle": "Vælg en samtale til venstre, eller start en ny med en ven.",
-        "errors": {
-          "startConversation": "Kunne ikke starte den samtale. Prøv igen.",
-          "createGroup": "Kunne ikke oprette gruppen. Prøv igen."
-        },
-        "usernameErrors": {
-          "empty": "Brugernavn må ikke være tomt.",
-          "length": "Brugernavn skal være på 3-32 tegn.",
-          "format": "Brug små bogstaver, tal, _ eller -. Skal starte og slutte med et bogstav eller tal.",
-          "update": "Kunne ikke opdatere dit brugernavn. Prøv igen."
-        },
-        "newRequestCount": {
-          "one": "{count} ny anmodning",
-          "other": "{count} nye anmodninger"
-        },
-        "friendsWithRequestsTitle": "Venner ({countPhrase})",
-        "friendsWithRequestsAria": "Venner, {countPhrase}"
-      },
-      "chat": {
-        "stellaNoReply": "Stella blev færdig uden et svar.",
-        "stellaFailed": "Stella kunne ikke fuldføre den anmodning.",
-        "stellaThinking": "Stella tænker...",
-        "sharedStellaUnavailable": "Delt Stella er ikke tilgængelig i denne app-session.",
-        "back": "Tilbage",
-        "backToConversations": "Tilbage til samtaler",
-        "peopleCount": "{count} personer",
-        "startStella": "Start Stella",
-        "startStellaTitle": "Tag Stella med ind i denne samtale",
-        "starting": "Starter...",
-        "startAgain": "Start igen",
-        "pause": "Sæt på pause",
-        "resume": "Fortsæt",
-        "end": "Afslut",
-        "sayHello": "Sig hej for at starte samtalen",
-        "loadingOlder": "Indlæser ældre beskeder…",
-        "armedOnTitle": "Send den næste besked til Stella",
-        "armedOffTitle": "Send den næste besked som en almindelig chatbesked",
-        "tellStella": "Sig det til Stella",
-        "tellingStella": "Fortæller Stella",
-        "tellStellaPlaceholder": "Fortæl Stella, hvad du vil have...",
-        "messagePlaceholder": "Skriv til {name}",
-        "sessionBadge": {
-          "live": "Stella · Live",
-          "paused": "Stella · På pause",
-          "ended": "Stella · Afsluttet"
-        },
-        "sessionHint": {
-          "live": "Alle her kan sige det til Stella.",
-          "paused": "På pause — fortsæt for at sige noget til Stella igen.",
-          "ended": "Dette delte Stella-rum er afsluttet."
-        },
-        "errors": {
-          "startStella": "Kunne ikke starte Stella her. Prøv igen.",
-          "updateStella": "Kunne ikke opdatere Stella lige nu. Prøv igen.",
-          "sendToStella": "Kunne ikke sende det til Stella. Prøv igen.",
-          "sendMessage": "Kunne ikke sende din besked. Prøv igen."
-        }
-      },
-      "composer": {
-        "placeholder": "Skriv en besked...",
-        "send": "Send"
-      },
-      "inviteCard": {
-        "communityEyebrow": "Invitation til fællesskab",
-        "friendEyebrow": "Venneinvitation",
-        "defaultCommunityName": "Fællesskab",
-        "defaultUserName": "Stella-bruger",
-        "friendDetail": "Tryk for at sende en venneanmodning",
-        "inviteUnavailable": "Invitation ikke tilgængelig",
-        "userNotFound": "Bruger ikke fundet",
-        "communityMissing": "Dette fællesskab findes ikke længere, eller koden er ændret.",
-        "userMissing": "Dette invitationslink passer ikke til en Stella-bruger.",
-        "communityDetail": {
-          "one": "{countLabel} medlem · tryk for at deltage",
-          "other": "{countLabel} medlemmer · tryk for at deltage"
-        }
-      }
-    },
     "usage": {
       "desktopOnly": "Lokalt forbrug er tilgængeligt i Stella-computerappen.",
       "intro": "Udbyderkald gemt på denne enhed. Omkostninger er lokale estimater; backend-fakturering er stadig afgørende.",
@@ -1153,37 +938,6 @@
         "loadFailed": "Appen kunne ikke indlæses.",
         "loading": "Indlæser {name}…",
         "openFailed": "Kunne ikke åbne {name}"
-      }
-    },
-    "pets": {
-      "sort": {
-        "downloads": "Mest populære",
-        "name": "Alfabetisk"
-      },
-      "animations": {
-        "idle": "Inaktiv",
-        "runningRight": "Løb til højre",
-        "runningLeft": "Løb til venstre",
-        "waving": "Vinker",
-        "jumping": "Hopper",
-        "failed": "Mislykkedes",
-        "waiting": "Venter",
-        "running": "Kører",
-        "review": "Gennemgang"
-      },
-      "card": {
-        "by": "af {creator}",
-        "selections": "{count} valg",
-        "get": "Hent",
-        "select": "Vælg",
-        "selected": "Valgt",
-        "remove": "Fjern"
-      },
-      "details": {
-        "caption": "af {creator} · {downloads} valg",
-        "previewLabel": "Forhåndsvisning af {name}",
-        "animations": "Animationer",
-        "animationStates": "Animationstilstande"
       }
     },
     "chat": {
@@ -1623,110 +1377,6 @@
     "voice": {
       "signInTitle": "Log ind for at bruge stemme",
       "needsSetupTitle": "Stemme kræver opsætning"
-    },
-    "store": {
-      "sidePanel": {
-        "emptyState": "Når Stella har lavet en ændring for dig, kan du herfra dele den med venner, et fællesskab eller Store."
-      },
-      "recentChanges": {
-        "rowSelectHint": "Klik for at inkludere i delingen",
-        "rowDeselectHint": "Klik for at fjerne fra markeringen",
-        "updated": "Opdateret {time}",
-        "showOlder": "Vis ældre",
-        "justNow": "Lige nu",
-        "publishEmpty": "Vælg ændringer, der skal deles",
-        "publishLabel": "Del · {countPhrase}",
-        "selectedCount": {
-          "one": "{count} valgt",
-          "other": "{count} valgt"
-        }
-      },
-      "shareCard": {
-        "eyebrow": "Stella-add-on",
-        "unavailableName": "Add-on ikke tilgængelig",
-        "unavailableDesc": "Denne add-on er privat eller ikke længere udgivet.",
-        "viewCta": "Vis →"
-      },
-      "creator": {
-        "loading": "Indlæser skaber…",
-        "notFoundTitle": "Skaber ikke fundet",
-        "notFoundBodyPrefix": "Ingen har taget brugernavnet",
-        "notFoundBodySuffix": "endnu.",
-        "noAddons": "{username} har ikke delt nogen add-ons endnu.",
-        "version": "Version {version}",
-        "addonCount": {
-          "zero": "Ingen add-ons endnu",
-          "one": "{count} add-on",
-          "other": "{count} add-ons"
-        }
-      },
-      "categories": {
-        "appsGames": "Apps og spil",
-        "productivity": "Produktivitet",
-        "customization": "Tilpasning",
-        "skillsAgents": "Færdigheder og agenter",
-        "integrations": "Integrationer",
-        "other": "Andet"
-      },
-      "shareDialog": {
-        "title": "Del",
-        "titleCircle": "Del med din kreds",
-        "titleCircleUpdate": "Del en opdatering",
-        "titleStore": "Del til Store",
-        "titleStoreUpdate": "Indsend en opdatering",
-        "destinationLede": "Hvor skal det hen? Deling sender kørbar kode, så vælg netop det publikum, du mener.",
-        "circleOptionName": "En ven eller et fællesskab",
-        "circleOptionDesc": "Med det samme. Går direkte til folk, du stoler på, som et delingskort i chatten — ingen gennemgang, aldrig vist offentligt.",
-        "storeOptionName": "Stella Store",
-        "storeOptionDesc": "Offentlig. Gennemgås først af Stella-teamet og er derefter live i Store for alle.",
-        "updateExisting": "Opdater en eksisterende add-on",
-        "existingAddon": "Eksisterende add-on",
-        "selectPlaceholder": "Vælg…",
-        "nameLabel": "Navn",
-        "namePlaceholder": "Eksempelmod",
-        "descriptionLabel": "Beskrivelse",
-        "optionalHint": "(valgfrit)",
-        "descriptionPlaceholderCircle": "En kort linje til delingskortet.",
-        "descriptionPlaceholderStore": "En kort linje til visningen i Store.",
-        "categoryLabel": "Kategori",
-        "categoryPlaceholder": "Vælg en kategori…",
-        "sendTo": "Send til",
-        "noRecipients": "Ingen venner eller fællesskaber endnu — tilføj nogle fra Beskeder-siden først.",
-        "communityFallbackName": "Fællesskab",
-        "communityTag": "Fællesskab",
-        "circleNote": "Delinger lander med det samme som et installerbart kort i hver chat. Kun de personer, du vælger (og alle i de fællesskaber), kan hente den.",
-        "storeNote": "Stella-teamet gennemgår indsendelser til Store, før de bliver live for alle.",
-        "submitPending": "Deler…",
-        "submitCircle": "Del nu",
-        "submitStore": "Indsend til gennemgang",
-        "noSourceChangesTitle": "Ingen kildeændringer",
-        "noSourceChangesBody": "Vælg mindst én nylig kildebaseret ændring først.",
-        "pickRecipientTitle": "Vælg nogen at dele med",
-        "pickRecipientBody": "Vælg mindst én ven eller ét fællesskab.",
-        "pickAddonTitle": "Vælg en add-on",
-        "pickAddonBody": "Vælg den add-on, du vil opdatere.",
-        "nameRequiredTitle": "Navn er påkrævet",
-        "nameRequiredBody": "Giv din add-on et kort navn, før du deler.",
-        "badNameTitle": "Vælg et andet navn",
-        "badNameBody": "Brug bogstaver eller tal i navnet, så vi kan danne et id.",
-        "publishBackendMissing": "Udgivelses-backend er ikke tilgængelig.",
-        "sharingTitle": "Deler",
-        "submittingTitle": "Indsender",
-        "inProgressBody": "Stella giver dig besked, når den er færdig.",
-        "submittedTitle": "Indsendt til gennemgang",
-        "submittedBody": "{name} blev sendt til Stella-teamet. Den bliver live i Store, når den er godkendt.",
-        "sharedTitle": "Delt",
-        "shareFailedTitle": "Deling mislykkedes",
-        "submissionFailedTitle": "Indsendelse mislykkedes",
-        "sharedBodyDelivered": {
-          "one": "{name} er på vej til {count} chat.",
-          "other": "{name} er på vej til {count} chats."
-        },
-        "sharedBodyPartial": {
-          "one": "{name} nåede frem til {delivered} af {count} chat. Åbn Beskeder for at prøve resten igen.",
-          "other": "{name} nåede frem til {delivered} af {count} chats. Åbn Beskeder for at prøve resten igen."
-        }
-      }
     }
   },
   "ui": {
@@ -1804,10 +1454,6 @@
         "files": {
           "label": "Filer",
           "description": "Sider, billeder, video og dokumenter"
-        },
-        "store": {
-          "label": "Store",
-          "description": "Add-ons og ting, du har bygget"
         },
         "trash": {
           "label": "Papirkurv",
@@ -2108,48 +1754,6 @@
         "one": "{count} tidsplan",
         "other": "{count} tidsplaner"
       }
-    },
-    "social": {
-      "dialogDescription": "Bekræft denne invitation, før der sker noget.",
-      "signInToAccept": "Log ind på Stella for at acceptere denne invitation.",
-      "lookingUpInvite": "Slår invitationen op…",
-      "stellaAddOn": "Stella-add-on",
-      "stellaUser": "Stella-bruger",
-      "byAuthor": " · af @{username}",
-      "alreadyIn": " · du er allerede med",
-      "membersLabel": "medlemmer",
-      "memberCount": {
-        "one": "{count} medlem",
-        "other": "{count} medlemmer"
-      },
-      "working": "Arbejder…",
-      "alreadyJoined": "Allerede tilmeldt",
-      "welcomeToCommunity": "Velkommen til {community}!",
-      "joinedCommunity": "Du er nu med i fællesskabet!",
-      "friendRequestSent": "Venneanmodning sendt til @{username}.",
-      "joinFailed": "Kunne ikke deltage i det fællesskab. Invitationen er måske udløbet.",
-      "friendRequestFailed": "Kunne ikke sende den venneanmodning. Prøv igen.",
-      "store": {
-        "title": "Åbn add-on",
-        "confirmLabel": "Vis i Store",
-        "sub": "Et link, du åbnede, peger på en Stella-add-on. Der installeres intet. Dette åbner kun dens side i Store.",
-        "missing": "Denne add-on er privat eller ikke længere udgivet."
-      },
-      "join": {
-        "title": "Deltag i fællesskab",
-        "confirmLabel": "Deltag",
-        "sub": "Du er blevet inviteret til et fællesskab: en betroet kreds, hvor medlemmerne deler add-ons med hinanden.",
-        "missing": "Der blev ikke fundet noget fællesskab til denne invitationskode. Bed om et nyt link."
-      },
-      "friend": {
-        "title": "Tilføj ven",
-        "confirmLabel": "Send venneanmodning",
-        "sub": "Du er blevet inviteret til at forbinde på Stella.",
-        "missing": "Der blev ikke fundet nogen bruger til dette invitationslink."
-      }
-    },
-    "websiteView": {
-      "storeTitle": "Store"
     }
   },
   "mobile": {

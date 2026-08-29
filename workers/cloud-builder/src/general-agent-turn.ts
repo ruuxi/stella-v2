@@ -135,10 +135,7 @@ export type TurnComputeUse =
   | Readonly<{
       kind: "sandbox";
       reason:
-        | "native_engine"
-        | "process_tool"
-        | "filesystem_tool"
-        | "interior_build";
+        "native_engine" | "process_tool" | "filesystem_tool" | "interior_build";
       instanceSize: "small" | "large";
       coldStartMs: number;
       restoreMs: number;
@@ -347,6 +344,21 @@ export const selectGeneralAgentTurnPlan = (args: {
   }
   return { kind: "resident_stella", execution: args.execution };
 };
+
+/**
+ * Whether this turn's saved thread candidate has to match its cursor exactly.
+ *
+ * A native engine's candidate is the only carrier of the CLI session state its
+ * turn resumes from, so a registry entry that does not match this cursor means
+ * the state on disk belongs to some other run of the conversation, and running
+ * against it would resume the wrong session. A Stella turn restores nothing
+ * from the candidate: its history is rebuilt from the canonical rows every
+ * turn, so the same mismatch describes a turn it can simply start cold. A turn
+ * dispatched without an engine selection keeps the strict rule it has today.
+ */
+export const requiresExactThreadCandidate = (
+  execution: CloudExecutionSelection | undefined,
+): boolean => execution?.engine !== "stella";
 
 /**
  * Flat facts rather than a request object: admission holds `index.ts`'s

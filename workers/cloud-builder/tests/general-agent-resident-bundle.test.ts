@@ -22,11 +22,19 @@ const FORBIDDEN_MODULES: readonly string[] = [
 
 const FORBIDDEN_SOURCES: readonly string[] = [
   "packages/runtime/kernel/tools/host.ts",
+  // The daemon and its client are executor-side Node processes. A worker
+  // module reaching either would pull `createToolHost` and `node:net` into the
+  // Worker script, so the bridge stays a wire the DO writes to, never a
+  // module it links against.
+  "packages/executor-cloud/src/attached-tool-host.ts",
+  "packages/executor-cloud/src/attached-tool-client.ts",
 ];
 
 const REQUIRED_SOURCES: readonly string[] = [
   ENTRY,
   "src/general-agent-tools.ts",
+  "src/agent-compute-ladder.ts",
+  "../../packages/executor-cloud/src/attached-tool-protocol.ts",
   "../../packages/executor-cloud/src/general-agent-prompt.ts",
   "../../packages/executor-cloud/src/agent-history.ts",
   "../../packages/executor-cloud/src/prune-history.ts",

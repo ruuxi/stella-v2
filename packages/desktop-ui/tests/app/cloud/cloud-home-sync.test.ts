@@ -3,6 +3,7 @@ import type {
   CloudHomeImportOwnership,
   CloudMemoryDocument,
   CloudSkillHead,
+  CloudSkillMirrorDeletion,
   LocalCloudHomeScan,
 } from "@stella/contracts/cloud-home-sync";
 import {
@@ -92,6 +93,20 @@ const skillHead = (
   ...overrides,
 });
 
+const prunes = (status: CloudSkillMirrorDeletion["status"] = "deleted") => {
+  const requested: Array<{ slug: string; expectedRevision: number }> = [];
+  return {
+    requested,
+    deleteSkillMirror: async (args: {
+      slug: string;
+      expectedRevision: number;
+    }): Promise<CloudSkillMirrorDeletion> => {
+      requested.push(args);
+      return { status };
+    },
+  };
+};
+
 const cursorStore = () => {
   const values = new Map<string, string>();
   let importOwner: string | null = null;
@@ -174,6 +189,7 @@ describe("Cloud Home desktop reconciliation", () => {
         return { ...scan, memories: [], skills: [] };
       },
       readSkillHeads: async () => [],
+      deleteSkillMirror: async () => ({ status: "deleted" as const }),
       cursorStore: cursor,
       fetch: fetchImpl,
     };
@@ -235,6 +251,7 @@ describe("Cloud Home desktop reconciliation", () => {
       cursorStore: cursor,
       readImportOwnership: async () => "corrupt",
       readSkillHeads: async () => [],
+      deleteSkillMirror: async () => ({ status: "deleted" as const }),
       scanLocal: async () => {
         scans += 1;
         return scan;
@@ -300,6 +317,7 @@ describe("Cloud Home desktop reconciliation", () => {
       expectedSubject,
       scanLocal: async () => scan,
       readSkillHeads: async () => cloudSkills,
+      deleteSkillMirror: async () => ({ status: "deleted" as const }),
       cursorStore: cursor,
       fetch: fetchImpl,
       now: () => 1234,
@@ -350,6 +368,7 @@ describe("Cloud Home desktop reconciliation", () => {
       expectedSubject,
       scanLocal: async () => scan,
       readSkillHeads: async () => cloudSkills,
+      deleteSkillMirror: async () => ({ status: "deleted" as const }),
       cursorStore: cursor,
       fetch: async (input) => {
         const pathname = new URL(String(input)).pathname;
@@ -399,6 +418,7 @@ describe("Cloud Home desktop reconciliation", () => {
       expectedSubject,
       scanLocal: async () => scan,
       readSkillHeads: async () => [],
+      deleteSkillMirror: async () => ({ status: "deleted" as const }),
       cursorStore: cursor,
       fetch: async (input) => {
         const pathname = new URL(String(input)).pathname;
@@ -460,6 +480,7 @@ describe("Cloud Home desktop reconciliation", () => {
       });
     };
 
+    const prune = prunes();
     const status = await runCloudHomeSync({
       accountScope,
       builderOrigin: "https://builder.example.test",
@@ -467,6 +488,7 @@ describe("Cloud Home desktop reconciliation", () => {
       expectedSubject,
       scanLocal: async () => scan,
       readSkillHeads: async () => cloudSkills,
+      deleteSkillMirror: prune.deleteSkillMirror,
       cursorStore: cursor,
       fetch: fetchImpl,
     });
@@ -481,6 +503,168 @@ describe("Cloud Home desktop reconciliation", () => {
       status.issues.every((issue) => issue.code === "cloud_conflict"),
     ).toBe(true);
     expect(JSON.stringify(status)).not.toContain("cloud authority");
+    // The slug lost the race and lives only on this Mac, so the mirror keeps
+    // the cloud copy instead of reading the loss as a device-root deletion.
+    expect(prune.requested).toEqual([]);
+  });
+
+  it("removes a cloud skill this Mac no longer holds and forgets its cursor row", async () => {
+    const cursor = cursorStore();
+    const accountScope = "account:user-prune";
+    await cursor.confirmImportOwnership(accountScope);
+    const key = await cloudHomeCursorKey(accountScope);
+    cursor.values.set(
+      key,
+      JSON.stringify({
+        schemaVersion: 1,
+        ownerGeneration: "generation-1",
+        memories: {},
+        skills: {
+          "removed-locally": {
+            localTreeSha256: "e".repeat(64),
+            cloudVersionId: "skillver-removed",
+            cloudRevision: 3,
+          },
+        },
+      }),
+    );
+    const prune = prunes();
+    const status = await runCloudHomeSync({
+      accountScope,
+      builderOrigin: "https://builder.example.test",
+      token: "jwt-prune",
+      expectedSubject,
+      scanLocal: async () => ({ ...scan, memories: [] }),
+      readSkillHeads: async () => [
+        skillHead(),
+        skillHead({
+          skillId: "skill-removed-locally",
+          slug: "removed-locally",
+          revision: 3,
+          versionId: "skillver-removed",
+          treeSha256: "e".repeat(64),
+        }),
+      ],
+      deleteSkillMirror: prune.deleteSkillMirror,
+      cursorStore: cursor,
+      fetch: async () =>
+        Response.json({
+          subject: expectedSubject,
+          ownerGeneration: "generation-1",
+          ...memoryLifecycle,
+          documents: [],
+        }),
+    });
+
+    expect(prune.requested).toEqual([
+      { slug: "removed-locally", expectedRevision: 3 },
+    ]);
+    expect(status.phase).toBe("complete");
+    expect(status.skillsCloudWins).toBe(0);
+    expect(cursor.values.get(key) ?? "").not.toContain("removed-locally");
+  });
+
+  it("skips the prune entirely when a scan warning could hide a local skill", async () => {
+    const cursor = cursorStore();
+    const accountScope = "account:user-partial-scan";
+    await cursor.confirmImportOwnership(accountScope);
+    const prune = prunes();
+    const status = await runCloudHomeSync({
+      accountScope,
+      builderOrigin: "https://builder.example.test",
+      token: "jwt-partial-scan",
+      expectedSubject,
+      scanLocal: async () => ({
+        ...scan,
+        memories: [],
+        skills: [],
+        warnings: [
+          {
+            code: "read_failed",
+            path: "~/.stella/skills/custom-research",
+            message: "The skill package could not be read.",
+          },
+        ],
+      }),
+      readSkillHeads: async () => [skillHead()],
+      deleteSkillMirror: prune.deleteSkillMirror,
+      cursorStore: cursor,
+      fetch: async () =>
+        Response.json({
+          subject: expectedSubject,
+          ownerGeneration: "generation-1",
+          ...memoryLifecycle,
+          documents: [],
+        }),
+    });
+
+    expect(prune.requested).toEqual([]);
+    expect(status.phase).toBe("attention");
+  });
+
+  it("leaves a cloud skill that moved past the revision this pass observed", async () => {
+    const cursor = cursorStore();
+    const accountScope = "account:user-prune-race";
+    await cursor.confirmImportOwnership(accountScope);
+    const prune = prunes("conflict");
+    const status = await runCloudHomeSync({
+      accountScope,
+      builderOrigin: "https://builder.example.test",
+      token: "jwt-prune-race",
+      expectedSubject,
+      scanLocal: async () => ({ ...scan, memories: [], skills: [] }),
+      readSkillHeads: async () => [skillHead({ revision: 2 })],
+      deleteSkillMirror: prune.deleteSkillMirror,
+      cursorStore: cursor,
+      fetch: async () =>
+        Response.json({
+          subject: expectedSubject,
+          ownerGeneration: "generation-1",
+          ...memoryLifecycle,
+          documents: [],
+        }),
+    });
+
+    expect(prune.requested).toEqual([
+      { slug: skill.slug, expectedRevision: 2 },
+    ]);
+    expect(status).toMatchObject({ phase: "attention", skillsCloudWins: 1 });
+    expect(status.issues).toContainEqual(
+      expect.objectContaining({ code: "cloud_conflict", item: skill.slug }),
+    );
+  });
+
+  it("reports a prune that never reached the cloud instead of claiming success", async () => {
+    const cursor = cursorStore();
+    const accountScope = "account:user-prune-offline";
+    await cursor.confirmImportOwnership(accountScope);
+    const status = await runCloudHomeSync({
+      accountScope,
+      builderOrigin: "https://builder.example.test",
+      token: "jwt-prune-offline",
+      expectedSubject,
+      scanLocal: async () => ({ ...scan, memories: [], skills: [] }),
+      readSkillHeads: async () => [skillHead()],
+      deleteSkillMirror: async () => {
+        throw new Error("offline");
+      },
+      cursorStore: cursor,
+      fetch: async () =>
+        Response.json({
+          subject: expectedSubject,
+          ownerGeneration: "generation-1",
+          ...memoryLifecycle,
+          documents: [],
+        }),
+    });
+
+    expect(status.phase).toBe("attention");
+    expect(status.issues).toContainEqual(
+      expect.objectContaining({
+        code: "verification_failed",
+        item: skill.slug,
+      }),
+    );
   });
 
   it("resumes after partial failure without re-uploading a confirmed document", async () => {
@@ -526,6 +710,7 @@ describe("Cloud Home desktop reconciliation", () => {
       expectedSubject,
       scanLocal: async () => scan,
       readSkillHeads: async () => cloudSkills,
+      deleteSkillMirror: async () => ({ status: "deleted" as const }),
       cursorStore: cursor,
       fetch: fetchImpl,
     };
@@ -561,6 +746,7 @@ describe("Cloud Home desktop reconciliation", () => {
         skills: [],
       }),
       readSkillHeads: async () => [],
+      deleteSkillMirror: async () => ({ status: "deleted" as const }),
       cursorStore: cursor,
       signal: controller.signal,
       onStatus: (next) => {
@@ -612,6 +798,7 @@ describe("Cloud Home desktop reconciliation", () => {
       expectedSubject,
       scanLocal: async () => ({ ...scan, skills: [] }),
       readSkillHeads: async () => [],
+      deleteSkillMirror: async () => ({ status: "deleted" as const }),
       cursorStore: cursor,
       fetch: async () =>
         Response.json({
@@ -654,6 +841,7 @@ describe("Cloud Home desktop reconciliation", () => {
       expectedSubject,
       scanLocal: async () => scan,
       readSkillHeads: async () => [],
+      deleteSkillMirror: async () => ({ status: "deleted" as const }),
       cursorStore: cursor,
       fetch: fetchImpl,
       signal: controller.signal,

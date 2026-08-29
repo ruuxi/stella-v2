@@ -8,11 +8,14 @@
 // So the only writer is the device sync channel below
 // (`beginSkillWriteInternal` / `commitSkillWriteInternal`), the only reader for
 // a turn is `listMirroredSkillsInternal`, and `listMySkillHeads` exists solely
-// so the device can diff what it already uploaded.
+// so the device can diff what it already uploaded. Deletion propagates the same
+// way: `deleteMyMirroredSkill` tombstones the head once the device root stops
+// holding that slug, because a mirror that only ever grows is not a mirror.
 import { ConvexError, v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
+  mutation,
   query,
   type QueryCtx,
 } from "./_generated/server";
@@ -83,6 +86,12 @@ const skillWriteIntentResultValidator = v.object({
   expiresAt: v.number(),
   conflictRevision: v.optional(v.number()),
   conflictVersionId: v.optional(v.string()),
+});
+
+const skillMirrorDeletionValidator = v.object({
+  skillId: v.string(),
+  status: v.union(v.literal("deleted"), v.literal("conflict")),
+  revision: v.number(),
 });
 
 const skillCatalogEntryValidator = v.object({
@@ -245,6 +254,21 @@ const normalizeFiles = async (args: {
   return { files: normalized, totalSizeBytes };
 };
 
+const skillHeadRow = async (ctx: QueryCtx, skillId: string) =>
+  await ctx.db
+    .query("cloud_skills")
+    .withIndex("by_skillId", (q) => q.eq("skillId", skillId))
+    .unique();
+
+/**
+ * A tombstoned head means the device root no longer holds that skill, so every
+ * writer has to read it as if the row were absent: revision restarts at 1 and
+ * the next upload publishes a fresh head rather than colliding with the
+ * revision the skill carried when it was deleted.
+ */
+const liveSkillHead = <T extends { deletedAt?: number }>(row: T | null) =>
+  row && row.deletedAt === undefined ? row : null;
+
 export const beginSkillWriteInternal = internalMutation({
   args: {
     ownerId: v.string(),
@@ -336,23 +360,21 @@ export const beginSkillWriteInternal = internalMutation({
     }
 
     const skillId = await cloudSkillId(args.ownerId, slug);
-    const existing = await ctx.db
-      .query("cloud_skills")
-      .withIndex("by_skillId", (q) => q.eq("skillId", skillId))
-      .unique();
+    const existing = await skillHeadRow(ctx, skillId);
     if (existing && existing.ownerId !== args.ownerId) {
       throw new ConvexError("Skill identity collision.");
     }
-    const currentRevision = existing?.revision ?? 0;
+    const live = liveSkillHead(existing);
+    const currentRevision = live?.revision ?? 0;
     if (currentRevision !== args.expectedRevision) {
       throw new ConvexError({
         code: "CLOUD_SKILL_REVISION_CONFLICT",
         message: "The cloud skill changed before this upload began.",
         currentRevision,
-        currentVersionId: existing?.activeVersionId ?? null,
+        currentVersionId: live?.activeVersionId ?? null,
       });
     }
-    if (!existing) {
+    if (!live) {
       const rows = await ctx.db
         .query("cloud_skills")
         .withIndex("by_ownerId_and_deletedAt_and_updatedAt", (q) =>
@@ -398,9 +420,7 @@ export const beginSkillWriteInternal = internalMutation({
       source: args.source,
       availability: args.availability,
       baseRevision: currentRevision,
-      ...(existing?.activeVersionId
-        ? { baseVersionId: existing.activeVersionId }
-        : {}),
+      ...(live?.activeVersionId ? { baseVersionId: live.activeVersionId } : {}),
       versionId,
       nextRevision: currentRevision + 1,
       manifestR2Key,
@@ -459,46 +479,50 @@ export const commitSkillWriteInternal = internalMutation({
     ) {
       throw new ConvexError("Skill write receipt does not match its intent.");
     }
-    if (intent.status === "committed" || intent.status === "conflict") {
-      return intentResult(intent);
-    }
-    if (intent.status !== "prepared") {
-      throw new ConvexError("Skill write intent is no longer active.");
-    }
-    if (intent.expiresAt < args.now) {
-      await ctx.db.patch(intent._id, {
-        status: "aborted",
-        updatedAt: args.now,
-      });
-      return intentResult({
-        ...intent,
-        status: "aborted",
-        updatedAt: args.now,
-      });
-    }
-    const skill = await ctx.db
-      .query("cloud_skills")
-      .withIndex("by_skillId", (q) => q.eq("skillId", intent.skillId))
-      .unique();
-    if (
-      (skill?.revision ?? 0) !== intent.baseRevision ||
-      (skill?.activeVersionId ?? undefined) !== intent.baseVersionId
-    ) {
-      const conflictRevision = skill?.revision ?? 0;
-      const conflictVersionId = skill?.activeVersionId;
-      await ctx.db.patch(intent._id, {
-        status: "conflict",
-        conflictRevision,
-        ...(conflictVersionId ? { conflictVersionId } : {}),
-        updatedAt: args.now,
-      });
-      return intentResult({
-        ...intent,
-        status: "conflict",
-        conflictRevision,
-        ...(conflictVersionId ? { conflictVersionId } : {}),
-        updatedAt: args.now,
-      });
+    if (intent.status === "conflict") return intentResult(intent);
+    const skill = await skillHeadRow(ctx, intent.skillId);
+    const live = liveSkillHead(skill);
+    if (intent.status === "committed") {
+      // A committed receipt describes a head that a later device-root deletion
+      // may since have tombstoned. Restoring the identical package on disk
+      // reuses this idempotency key, so replaying it has to republish the head
+      // instead of returning a receipt for a mirror row nobody can read.
+      if (live) return intentResult(intent);
+    } else {
+      if (intent.status !== "prepared") {
+        throw new ConvexError("Skill write intent is no longer active.");
+      }
+      if (intent.expiresAt < args.now) {
+        await ctx.db.patch(intent._id, {
+          status: "aborted",
+          updatedAt: args.now,
+        });
+        return intentResult({
+          ...intent,
+          status: "aborted",
+          updatedAt: args.now,
+        });
+      }
+      if (
+        (live?.revision ?? 0) !== intent.baseRevision ||
+        (live?.activeVersionId ?? undefined) !== intent.baseVersionId
+      ) {
+        const conflictRevision = live?.revision ?? 0;
+        const conflictVersionId = live?.activeVersionId;
+        await ctx.db.patch(intent._id, {
+          status: "conflict",
+          conflictRevision,
+          ...(conflictVersionId ? { conflictVersionId } : {}),
+          updatedAt: args.now,
+        });
+        return intentResult({
+          ...intent,
+          status: "conflict",
+          conflictRevision,
+          ...(conflictVersionId ? { conflictVersionId } : {}),
+          updatedAt: args.now,
+        });
+      }
     }
 
     const existingVersion = await ctx.db
@@ -743,5 +767,56 @@ export const listMySkillHeads = query({
         };
       }),
     );
+  },
+});
+
+/**
+ * Deletion half of the mirror: the device root stopped holding this slug, so
+ * the head is tombstoned and stops reaching cloud turns. The caller passes the
+ * revision it observed, and a head that moved on since then is left alone, so
+ * one device can never erase another device's newer upload out from under it.
+ */
+export const deleteMyMirroredSkill = mutation({
+  args: {
+    clientScope: v.string(),
+    slug: v.string(),
+    expectedRevision: v.number(),
+  },
+  returns: skillMirrorDeletionValidator,
+  handler: async (ctx, args) => {
+    if (!args.clientScope.trim() || args.clientScope.length > 512) {
+      throw new ConvexError("Cloud Home client scope was invalid.");
+    }
+    const ownerId = await requireUserId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
+    if (
+      !Number.isSafeInteger(args.expectedRevision) ||
+      args.expectedRevision < 1
+    ) {
+      throw new ConvexError("expectedRevision must be a published revision.");
+    }
+    // Deriving the id from the caller's own owner id is what keeps this
+    // mutation from naming another account's row at all.
+    const skillId = await cloudSkillId(ownerId, normalizeSkillId(args.slug));
+    const skill = await skillHeadRow(ctx, skillId);
+    if (skill && skill.ownerId !== ownerId) {
+      throw new ConvexError("Skill identity collision.");
+    }
+    const live = liveSkillHead(skill);
+    if (!live) {
+      // Already absent from the mirror, so a replayed prune reports the state
+      // the caller asked for rather than a failure it would keep retrying.
+      return {
+        skillId,
+        status: "deleted" as const,
+        revision: skill?.revision ?? 0,
+      };
+    }
+    if (live.revision !== args.expectedRevision) {
+      return { skillId, status: "conflict" as const, revision: live.revision };
+    }
+    const now = Date.now();
+    await ctx.db.patch(live._id, { deletedAt: now, updatedAt: now });
+    return { skillId, status: "deleted" as const, revision: live.revision };
   },
 });

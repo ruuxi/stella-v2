@@ -149,6 +149,7 @@ export type PublicApiType = {
   };
   "cloud_skills": {
     "listMySkillHeads": FunctionReference<'query', 'public', { clientScope: string; }, any, string | undefined>;
+    "deleteMyMirroredSkill": FunctionReference<'mutation', 'public', { slug: string; expectedRevision: number; clientScope: string; }, any, string | undefined>;
   };
   "conversations": {
     "getOrCreateDefaultConversation": FunctionReference<'mutation', 'public', { title?: string | undefined; }, any, string | undefined>;

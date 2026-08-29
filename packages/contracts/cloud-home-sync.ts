@@ -137,6 +137,14 @@ export type CloudSkillHead = {
   updatedAt: number;
 };
 
+/**
+ * Result of tombstoning one cloud mirror head. `conflict` means the cloud row
+ * advanced past the revision the device observed, so it was left in place.
+ */
+export type CloudSkillMirrorDeletion = {
+  status: "deleted" | "conflict";
+};
+
 export type CloudHomeSyncErrorCode =
   | "not_available"
   | "not_authenticated"

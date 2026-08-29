@@ -25,20 +25,11 @@ export type DesktopBridgeLiveConnectionDetails = {
   foregroundResume: boolean;
 };
 
-export type DesktopLocalChatUpdatedPayload = {
-  conversationId?: string;
-  event?: {
-    _id?: string;
-    timestamp?: number;
-    type?: string;
-  };
-};
-
 /**
- * Foreground-only push channel for transcript changes. Holds one WebSocket
- * subscribed to `localChat:updated` (the desktop broadcasts it on every
- * persisted chat event) and reports connection state so callers can suspend
- * their polling fallbacks while push is live.
+ * Foreground-only push channel for the paired computer's live background-thread
+ * activity, and reports connection state so callers can suspend their polling
+ * fallbacks while push is live. Transcript rows are never carried here: the
+ * cloud journal owns every visible message.
  *
  * Capability-gated: only desktops that advertise `localchat-push` via
  * `mobile:hello` get a socket; against older desktops the handle stays
@@ -47,7 +38,6 @@ export type DesktopLocalChatUpdatedPayload = {
  */
 export function openDesktopBridgeLive(options: {
   access: StoredPhoneAccess;
-  onLocalChatUpdated: (payload: DesktopLocalChatUpdatedPayload) => void;
   onConnectedChange: (
     connected: boolean,
     details: DesktopBridgeLiveConnectionDetails,
@@ -121,7 +111,6 @@ export function openDesktopBridgeLive(options: {
       let opened: { close: () => void } | null = null;
       opened = await openDesktopBridgeEventSocket(bridge, {
         channels: [
-          "localChat:updated",
           ...(options.onThreadActivityUpdated
             ? ["localChat:threadActivityUpdated"]
             : []),
@@ -130,34 +119,6 @@ export function openDesktopBridgeLive(options: {
             : []),
         ],
         onEvent: (channel, data) => {
-          if (channel === "localChat:updated") {
-            const raw = data as {
-              conversationId?: unknown;
-              event?: { _id?: unknown; timestamp?: unknown; type?: unknown };
-            } | null;
-            const event = raw?.event;
-            options.onLocalChatUpdated({
-              ...(typeof raw?.conversationId === "string"
-                ? { conversationId: raw.conversationId }
-                : {}),
-              ...(event
-                ? {
-                    event: {
-                      ...(typeof event._id === "string"
-                        ? { _id: event._id }
-                        : {}),
-                      ...(typeof event.timestamp === "number"
-                        ? { timestamp: event.timestamp }
-                        : {}),
-                      ...(typeof event.type === "string"
-                        ? { type: event.type }
-                        : {}),
-                    },
-                  }
-                : {}),
-            });
-            return;
-          }
           if (channel === "localChat:threadActivityUpdated") {
             const conversationId =
               data && typeof data === "object" && "conversationId" in data

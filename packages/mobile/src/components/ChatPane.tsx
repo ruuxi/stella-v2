@@ -101,6 +101,7 @@ import {
   resolveResponseSpacerHeight,
   shouldPlaceLatestTurn,
 } from "../lib/chat-response-spacer";
+import { resolveChatDataChangeScrollOwner } from "../lib/chat-scroll-ownership";
 import { notifySuccess, tapMedium, tapLight } from "../lib/haptics";
 import {
   pauseReadAloud,
@@ -246,6 +247,7 @@ function useChatScroll(
   const metricsRef = useRef({ offsetY: 0, contentHeight: 0, layoutHeight: 0 });
   const contentHeightRef = useRef(0);
   const followArmedRef = useRef(true);
+  const [isFollowingLatest, setIsFollowingLatest] = useState(true);
   const followRearmBlockedRef = useRef(false);
   const followTargetOffsetRef = useRef<number | null>(null);
   const followRafRef = useRef(0);
@@ -283,6 +285,12 @@ function useChatScroll(
   const lastTargetTimeRef = useRef(0);
 
   const followGentleRef = useRef(false);
+
+  const setFollowArmed = useCallback((armed: boolean) => {
+    if (followArmedRef.current === armed) return;
+    followArmedRef.current = armed;
+    setIsFollowingLatest(armed);
+  }, []);
 
   const stopFollowLoop = useCallback(() => {
     if (followRafRef.current) {
@@ -352,7 +360,7 @@ function useChatScroll(
 
       if (distFromBottom <= atBottomLimit) {
         if (!isDraggingRef.current && !followRearmBlockedRef.current) {
-          followArmedRef.current = true;
+          setFollowArmed(true);
         }
       } else if (
         distFromBottom > nearBottomLimit &&
@@ -360,7 +368,7 @@ function useChatScroll(
         !followRafRef.current &&
         Date.now() > followAnimatingUntilMsRef.current
       ) {
-        followArmedRef.current = false;
+        setFollowArmed(false);
         stopFollowLoop();
       }
 
@@ -372,13 +380,15 @@ function useChatScroll(
       nearBottomLimit,
       onConsumeResponseSpacer,
       scheduleManualScrollSettle,
+      setFollowArmed,
       stopFollowLoop,
     ],
   );
 
   const resetAssistantAutoScroll = useCallback(() => {
-    followRearmBlockedRef.current = false;
-    followArmedRef.current = true;
+    // Reset per-row measurements without claiming follow ownership. A fresh
+    // assistant row may arrive while the user is reading history; only an
+    // explicit tail action may re-arm that released latch.
     assistantLayoutBaselineRef.current = null;
     activeAssistantHeightRef.current = 0;
     stopFollowLoop();
@@ -387,9 +397,9 @@ function useChatScroll(
   const releaseFollow = useCallback(() => {
     pendingSendAnchorRef.current = null;
     followRearmBlockedRef.current = true;
-    followArmedRef.current = false;
+    setFollowArmed(false);
     stopFollowLoop();
-  }, [stopFollowLoop]);
+  }, [setFollowArmed, stopFollowLoop]);
 
   const onScrollBeginDrag = useCallback(() => {
     isDraggingRef.current = true;
@@ -401,9 +411,9 @@ function useChatScroll(
       manualScrollSettleTimerRef.current = null;
     }
 
-    followArmedRef.current = false;
+    setFollowArmed(false);
     stopFollowLoop();
-  }, [stopFollowLoop]);
+  }, [setFollowArmed, stopFollowLoop]);
 
   const onScrollSettle = useCallback(() => {
     isDraggingRef.current = false;
@@ -411,9 +421,9 @@ function useChatScroll(
     const { offsetY, contentHeight, layoutHeight } = metricsRef.current;
     const distFromBottom = Math.max(0, contentHeight - offsetY - layoutHeight);
     if (distFromBottom <= atBottomLimit && !followRearmBlockedRef.current) {
-      followArmedRef.current = true;
+      setFollowArmed(true);
     }
-  }, [atBottomLimit, scheduleManualScrollSettle]);
+  }, [atBottomLimit, scheduleManualScrollSettle, setFollowArmed]);
 
   const prepareAssistantLayoutFollow = useCallback(() => {
     assistantLayoutBaselineRef.current = contentHeightRef.current;
@@ -609,12 +619,13 @@ function useChatScroll(
   const scrollToBottom = useCallback(() => {
     pendingSendAnchorRef.current = null;
     followRearmBlockedRef.current = false;
+    setFollowArmed(true);
     onClearResponseSpacer();
     resetAssistantAutoScroll();
     requestAnimationFrame(() =>
       listRef.current?.scrollToEnd({ animated: true }),
     );
-  }, [onClearResponseSpacer, resetAssistantAutoScroll]);
+  }, [onClearResponseSpacer, resetAssistantAutoScroll, setFollowArmed]);
 
   const getShouldPlaceLatestTurn = useCallback(() => {
     const { offsetY, layoutHeight } = metricsRef.current;
@@ -696,12 +707,12 @@ function useChatScroll(
         staleAtMs: Date.now() + POST_SEND_REANCHOR_WINDOW_MS,
       };
       followRearmBlockedRef.current = false;
-      followArmedRef.current = true;
+      setFollowArmed(true);
       stopFollowLoop();
 
       schedulePlaceLatestTurn();
     },
-    [schedulePlaceLatestTurn, stopFollowLoop],
+    [schedulePlaceLatestTurn, setFollowArmed, stopFollowLoop],
   );
 
   return {
@@ -720,6 +731,7 @@ function useChatScroll(
     releaseFollow,
     nudgeAfterSend,
     awayFromBottom,
+    isFollowingLatest,
   };
 }
 
@@ -2576,6 +2588,7 @@ export function ChatPane({
     releaseFollow,
     nudgeAfterSend,
     awayFromBottom,
+    isFollowingLatest,
   } = useChatScroll(
     listTrailingSlackPx,
     responseSpacerHeightPx,
@@ -2652,6 +2665,19 @@ export function ChatPane({
       setSendPinSuppressForId(null);
     }
   }, [sendPinSuppressForId, streaming, lastMessage?.id]);
+
+  const dataChangeScrollOwner = resolveChatDataChangeScrollOwner({
+    isFollowingLatest,
+    isStreaming: streaming,
+    postSendPlacementPending: sendPinSuppressForId !== null,
+  });
+  const maintainVisibleContentPosition = useMemo(
+    () => ({
+      data: dataChangeScrollOwner === "history-anchor",
+      size: true,
+    }),
+    [dataChangeScrollOwner],
+  );
 
   useEffect(() => {
     const grew = visibleMessages.length > prevLenRef.current;
@@ -3587,16 +3613,20 @@ export function ChatPane({
 
               initialScrollAtEnd
 
-              maintainVisibleContentPosition
+              maintainVisibleContentPosition={maintainVisibleContentPosition}
 
-              maintainScrollAtEnd={{
-                animated: false,
-                on: {
-                  dataChange: !streaming && sendPinSuppressForId === null,
-                  itemLayout: false,
-                  layout: false,
-                },
-              }}
+              maintainScrollAtEnd={
+                dataChangeScrollOwner === "legend-tail"
+                  ? {
+                      animated: false,
+                      on: {
+                        dataChange: true,
+                        itemLayout: false,
+                        layout: false,
+                      },
+                    }
+                  : false
+              }
             />
             {
 

@@ -33,7 +33,8 @@
       "shortcuts": "快捷键",
       "backup": "备份",
       "account": "账户与法律",
-      "audio": "音频"
+      "audio": "音频",
+      "wallet": "Wallet"
     },
     "language": {
       "title": "语言",
@@ -355,7 +356,8 @@
         "microphone": "选择输入设备，启用唤醒词、听写声音和设备端转写。",
         "speaker": "选择播放 Stella 语音的扬声器或耳机。",
         "wakeWord": "监听「Hey Stella」并开始语音对话。",
-        "onDeviceTranscription": "使用本地 Parakeet 模型而非云端转写。"
+        "onDeviceTranscription": "使用本地 Parakeet 模型而非云端转写。",
+        "wallet": "Connect Link, add a card, and see spend history."
       }
     },
     "errors": {
@@ -607,6 +609,28 @@
         "updateChatGptSpeed": "更新 ChatGPT 速度失败。",
         "updateDirectRuntime": "更新直连 {runtime} 设置失败。"
       }
+    },
+    "wallet": {
+      "title": "Wallet",
+      "description": "Connect Link to pay from Stella. You add a card in Link. Stella never stores card numbers.",
+      "statusDisconnected": "Not connected",
+      "statusConnecting": "Finish signing in to Link in your browser.",
+      "statusConnected": "Connected",
+      "connect": "Connect",
+      "disconnect": "Disconnect",
+      "cancel": "Cancel",
+      "pairingOpen": "We opened {url} in your browser.",
+      "cardsTitle": "Cards",
+      "cardsEmpty": "No cards yet. Add one in Link to pay from Stella.",
+      "cardDefault": "Default",
+      "addCard": "Add card",
+      "spendTitle": "Spend history",
+      "spendEmpty": "No spend history yet.",
+      "spendConnectHint": "Connect Link to see spend history here.",
+      "connectHint": "Connect Link to add a card and pay from chat.",
+      "connectFailed": "Could not connect Link.",
+      "disconnectFailed": "Could not disconnect Link.",
+      "addCardFailed": "Could not open Link to add a card."
     }
   },
   "onboarding": {
@@ -1108,6 +1132,27 @@
       "webSearchResults": {
         "caption": "来自网络的结果",
         "listLabel": "网络搜索结果"
+      },
+      "linkWallet": {
+        "cancel": "Cancel",
+        "connect": "Connect",
+        "notNow": "Not now",
+        "later": "Later",
+        "addCard": "Add card",
+        "titleOffer": "Connect Link to pay?",
+        "titlePairing": "Finish signing in to Link",
+        "titleAddCard": "Add a card",
+        "titleConnected": "Link connected",
+        "titleApproval": "Approve in the Link app",
+        "titleError": "Couldn't connect Link",
+        "offerBody": "Add a card in Link so Stella can pay. Stella never stores card numbers.",
+        "pairingBody": "Enter this phrase in your browser if asked.",
+        "pairingOpen": "We opened {url} in your browser.",
+        "addCardBody": "Link is connected. Add a card in Link to pay. Stella never stores the number.",
+        "connectedBody": "Link is connected. Stella can pay through Link.",
+        "approvalBody": "{amount} at {merchant}. Open the Link app to approve.",
+        "errorBody": "Could not connect Link.",
+        "merchantFallback": "a merchant"
       }
     },
     "media": {

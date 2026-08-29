@@ -89,7 +89,6 @@ try {
   ] as const;
   const blockedSafetyReasons: Record<string, string> = {};
   for (const safetyCase of catastrophicSafetyCases) {
-
     const reason = isDangerousCommand(safetyCase.command, root);
     assert.ok(reason, `safety gate allowed ${safetyCase.kind}`);
     blockedSafetyReasons[safetyCase.kind] = reason;
@@ -284,7 +283,7 @@ try {
   const ptyStarted = await handleExecCommand(
     state,
     {
-      cmd: `trap 'printf "PTY_RESIZED:"; stty size' WINCH; printf 'PTY_READY:'; stty size; while :; do sleep 0.1; done`,
+      cmd: `printf 'PTY_READY:'; stty size; while IFS= read -r line; do if [ "$line" = size ]; then printf 'PTY_RESIZED:'; stty size; fi; done`,
       workdir: root,
       tty: true,
       yield_time_ms: 10,
@@ -319,6 +318,13 @@ try {
     ownerLater,
   );
   let resizedOutput = outputBodyOf(resized);
+  resizedOutput += outputBodyOf(
+    await handleWriteStdin(
+      state,
+      { session_id: ptyId, chars: "size\n", yield_time_ms: 500 },
+      ownerLater,
+    ),
+  );
   const resizedDeadline = Date.now() + 3_000;
   while (!/PTY_RESIZED:\s*37 101/u.test(resizedOutput)) {
     assert.ok(

@@ -38,7 +38,15 @@ export const endAssistantScrollFollow = (key?: string): void => {
   notify()
 }
 
-export const clearAssistantScrollFollow = (): void => {
+/**
+ * `expectedKey` makes the clear conditional: the caller passes the key it
+ * observed before an async hop (send acceptance), so a stream that started
+ * in the meantime keeps its follow instead of being cancelled.
+ */
+export const clearAssistantScrollFollow = (
+  expectedKey?: string | null,
+): void => {
+  if (expectedKey !== undefined && activeFollowKey !== expectedKey) return
   if (activeFollowKey === null) return
   activeFollowKey = null
   notify()

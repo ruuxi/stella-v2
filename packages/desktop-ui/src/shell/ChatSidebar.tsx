@@ -43,6 +43,7 @@ import type { ChatContext } from "@/shared/types/electron";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 import type { QueuedUserMessage } from "@/features/chat/hooks/use-streaming-chat";
 import { restoreQueuedTextToComposer } from "@/features/chat/hooks/queued-user-messages";
+import { getAssistantScrollFollowKey } from "@/shell/chat-scroll-follow";
 import { useCapturedChatContext } from "./use-captured-chat-context";
 import {
   updateComposerTextareaExpansion,
@@ -432,6 +433,7 @@ function AccountScopedChatPanelTab({
     // applying Codex's 300px near-bottom threshold, so a visually-bottomed
     // short reply still reframes while deliberate scrollback stays put.
     const shouldNudgeAfterSend = sidebarScroll.getShouldPlaceLatestTurn();
+    const followKeyBeforeSend = getAssistantScrollFollowKey();
     const accepted = await onSend(trimmedMessage, chatContext, selectedText);
     if (!accepted) return;
     setInputText("");
@@ -449,7 +451,7 @@ function AccountScopedChatPanelTab({
     } else if (shouldNudgeAfterSend) {
       // Place the newest user turn above the viewport-derived response
       // spacer, using the same gentle loop as stream-follow.
-      sidebarScroll.nudgeAfterSend();
+      sidebarScroll.nudgeAfterSend(followKeyBeforeSend);
     } else {
       sidebarScroll.releaseFollow();
     }

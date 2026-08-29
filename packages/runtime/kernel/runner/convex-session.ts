@@ -9,8 +9,6 @@ export const createConvexSession = (
   context: RunnerContext,
   options: {
     onAuthTokenSet?: () => void;
-
-    onBeforeAuthTokenClear?: () => void | Promise<void>;
   } = {},
 ) => {
   const disposeConvexClient = () => {
@@ -144,20 +142,10 @@ export const createConvexSession = (
     const next = value?.trim() || null;
     if (next === prev && !setOptions.forceReconnect) return;
 
-    const needsClear = Boolean(prev);
-    const applyNew = () => {
-      context.state.authToken = value;
-
-      disposeConvexClient();
-      if (next) {
-        options.onAuthTokenSet?.();
-      }
-    };
-
-    if (needsClear) {
-      void Promise.resolve(options.onBeforeAuthTokenClear?.()).finally(applyNew);
-    } else {
-      applyNew();
+    context.state.authToken = value;
+    disposeConvexClient();
+    if (next) {
+      options.onAuthTokenSet?.();
     }
   };
 

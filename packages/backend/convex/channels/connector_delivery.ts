@@ -410,24 +410,6 @@ async function deliverExecutionUnavailable(
   });
 }
 
-async function isTargetDeviceStillFresh(
-  ctx: ActionCtx,
-  args: {
-    ownerId: string;
-    targetDeviceId?: string;
-  },
-): Promise<boolean> {
-  if (!args.targetDeviceId) {
-    return false;
-  }
-
-  const freshDevices = (await ctx.runQuery(
-    internal.agent.device_resolver.listFreshDevicesForOwner,
-    { ownerId: args.ownerId, nowMs: Date.now() },
-  )) as Array<{ deviceId: string }>;
-  return freshDevices.some((device) => device.deviceId === args.targetDeviceId);
-}
-
 export const rescueSingleTurn = internalAction({
   args: {
     requestId: v.string(),
@@ -440,7 +422,6 @@ export const rescueSingleTurn = internalAction({
     targetDeviceId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-
     const requestState = (await ctx.runQuery(
       internal.channels.connector_delivery.getRemoteTurnState,
       { requestId: args.requestId },
@@ -460,18 +441,6 @@ export const rescueSingleTurn = internalAction({
     if (!shouldUseOfflineResponderForProvider(args.provider)) {
       console.log(
         `[rescue:trace] Skipping fast rescue for provider=${args.provider}; waiting for desktop claim or orphan watchdog.`,
-      );
-      return null;
-    }
-
-    if (
-      await isTargetDeviceStillFresh(ctx, {
-        ownerId: args.ownerId,
-        targetDeviceId: args.targetDeviceId,
-      })
-    ) {
-      console.log(
-        `[rescue:trace] Skipping fast rescue for ${args.requestId}; target desktop is still online.`,
       );
       return null;
     }
@@ -925,18 +894,6 @@ export const rescueOrphanedTurns = internalAction({
           if (!conversation) {
             console.error(
               `[watchdog] Conversation ${String(conversationId)} not found, skipping`,
-            );
-            continue;
-          }
-
-          if (
-            await isTargetDeviceStillFresh(ctx, {
-              ownerId: conversation.ownerId,
-              targetDeviceId: orphan.targetDeviceId,
-            })
-          ) {
-            console.log(
-              `[watchdog] Skipping mobile fallback for ${orphan.requestId}; target desktop is still online.`,
             );
             continue;
           }

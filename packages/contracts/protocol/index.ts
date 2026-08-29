@@ -122,7 +122,6 @@ export const METHOD_NAMES = {
   DISCOVERY_DETECT_PREFERRED_BROWSER: "discovery.detectPreferredBrowser",
   DISCOVERY_LIST_BROWSER_PROFILES: "discovery.listBrowserProfiles",
   HOST_DEVICE_IDENTITY_GET: "host.deviceIdentity.get",
-  HOST_DEVICE_HEARTBEAT_SIGN: "host.deviceHeartbeat.sign",
   HOST_CREDENTIALS_REQUEST: "host.credentials.request",
   HOST_LLM_CREDENTIALS_REQUEST: "host.llmCredentials.request",
   HOST_CONNECTOR_CREDENTIAL_REQUEST: "host.connectorCredential.request",

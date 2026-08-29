@@ -32,12 +32,14 @@
   --compact-chat-user-tail-radius: var(--compact-chat-user-radius);
   --compact-chat-user-max-width: 85%;
   --compact-chat-user-color: var(--text-strong);
-  --compact-chat-assistant-bg: transparent;
+  --compact-chat-assistant-bg: var(--chat-assistant-bubble-fill);
+  --compact-chat-assistant-color: var(--chat-assistant-bubble-text);
   --compact-chat-assistant-border-width: 0px;
   --compact-chat-assistant-border-color: transparent;
-  --compact-chat-assistant-radius: 0px;
-  --compact-chat-assistant-tail-radius: var(--compact-chat-assistant-radius);
-  --compact-chat-assistant-max-width: 100%;
+  --compact-chat-assistant-radius: 14px;
+  --compact-chat-assistant-tail-radius: 4px;
+  --compact-chat-assistant-max-width: 85%;
+  --compact-chat-assistant-padding: 6px 12px;
 }
 
 /*
@@ -90,6 +92,7 @@
   --compact-chat-user-tail-radius: 4px;
   --compact-chat-user-max-width: 88%;
   --compact-chat-assistant-bg: var(--orb-assistant-surface, var(--surface-raised));
+  --compact-chat-assistant-color: var(--text-strong);
   --compact-chat-assistant-border-width: 1px;
   --compact-chat-assistant-border-color: var(--orb-assistant-border-color, var(--border));
   --compact-chat-assistant-radius: 14px;
@@ -142,15 +145,30 @@
   padding: var(--compact-chat-user-padding);
 }
 
+/* Full-bleed container; the bubble sits on the text block below so inline
+   artifact cards keep the row's whole width, matching the full surface. */
 .chat-conversation-surface .event-item.assistant {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  max-width: 100%;
+  width: 100%;
+  padding-block: 0;
+}
+
+.chat-conversation-surface .assistant-message-text {
   background: var(--compact-chat-assistant-bg);
+  --chat-text-color: var(--compact-chat-assistant-color);
+  color: var(--compact-chat-assistant-color);
   border-style: solid;
   border-width: var(--compact-chat-assistant-border-width);
   border-color: var(--compact-chat-assistant-border-color);
   border-radius: var(--compact-chat-assistant-radius);
   border-bottom-left-radius: var(--compact-chat-assistant-tail-radius);
   max-width: var(--compact-chat-assistant-max-width);
-  width: 100%;
+  width: fit-content;
+  min-width: 0;
+  padding: var(--compact-chat-assistant-padding);
 }
 
 /*

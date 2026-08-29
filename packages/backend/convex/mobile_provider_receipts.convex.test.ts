@@ -11,6 +11,8 @@ const OWNER_ID = "anon:mobile:device:receipt-test-device";
 beforeAll(() => {
   const values: Record<string, string> = {
     OPENROUTER_API_KEY: "mobile-receipt-test-key",
+    // The transcription route this file exercises now goes straight to xAI.
+    XAI_API_KEY: "mobile-receipt-test-xai-key",
     STELLA_INCLUDED_USAGE_UTILIZATION_RATE: "0.5",
     STELLA_FREE_ROLLING_LIMIT_USD: "10",
     STELLA_FREE_ROLLING_WINDOW_HOURS: "5",

@@ -1,6 +1,5 @@
 export const TAU = Math.PI * 2;
 export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-export const r2 = (v) => Math.round(v * 100) / 100;
 
 export function flattenPath(d, step = 1.2) {
   const tk = d.match(/[MLCQZmlcqz]|-?\d*\.?\d+(?:e[-+]?\d+)?/g) ?? [];
@@ -103,14 +102,26 @@ export function profileToRing(prof, radius, center) {
   });
 }
 
-export function toPath(p) {
+/**
+ * Rounding step for path coordinates, in viewBox units.
+ *
+ * The mark's viewBox spans ~258 units, so at a 30px render one unit is ~0.12px
+ * and a 0.1-unit step stays under 0.02px on screen. Coarser steps keep the `d`
+ * strings shorter and let near-still frames emit a byte-identical path, which
+ * lets callers skip the attribute write and the SVG re-rasterize entirely.
+ */
+export const pathQuantumFor = (renderedPx) =>
+  !renderedPx || renderedPx <= 0 ? 100 : renderedPx <= 64 ? 10 : 100;
+
+export function toPath(p, q = 100) {
   const n = p.length;
-  let d = `M${r2(p[0][0])} ${r2(p[0][1])}`;
+  const r = (v) => Math.round(v * q) / q;
+  let d = `M${r(p[0][0])} ${r(p[0][1])}`;
   for (let i = 0; i < n; i++) {
     const a = p[(i - 1 + n) % n], b = p[i], c = p[(i + 1) % n], e = p[(i + 2) % n];
-    d += `C${r2(b[0] + (c[0] - a[0]) / 6)} ${r2(b[1] + (c[1] - a[1]) / 6)} ` +
-         `${r2(c[0] - (e[0] - b[0]) / 6)} ${r2(c[1] - (e[1] - b[1]) / 6)} ` +
-         `${r2(c[0])} ${r2(c[1])}`;
+    d += `C${r(b[0] + (c[0] - a[0]) / 6)} ${r(b[1] + (c[1] - a[1]) / 6)} ` +
+         `${r(c[0] - (e[0] - b[0]) / 6)} ${r(c[1] - (e[1] - b[1]) / 6)} ` +
+         `${r(c[0])} ${r(c[1])}`;
   }
   return d + "Z";
 }
@@ -118,7 +129,12 @@ export function toPath(p) {
 export const lerpRing = (a, b, t) =>
   a.map(([x, y], i) => [x + (b[i][0] - x) * t, y + (b[i][1] - y) * t]);
 
-export const polyPath = (p) => "M" + p.map((q) => `${r2(q[0])} ${r2(q[1])}`).join("L") + "Z";
+export function polyPath(p, q = 100, count = p.length) {
+  const r = (v) => Math.round(v * q) / q;
+  let d = `M${r(p[0][0])} ${r(p[0][1])}`;
+  for (let i = 1; i < count; i++) d += `L${r(p[i][0])} ${r(p[i][1])}`;
+  return d + "Z";
+}
 
 export function fitFace(ring, center, radius) {
   const [cx, cy] = center;

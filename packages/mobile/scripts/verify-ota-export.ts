@@ -10,7 +10,8 @@
  * embeds `sourcesContent` for every bundled module, so the shipped JS can be
  * compared byte-for-byte against git.
  *
- * Usage: bun scripts/verify-ota-export.ts [rev]   (default rev: HEAD)
+ * Usage: bun scripts/verify-ota-export.ts [rev] [ios|android]
+ *   (defaults: rev HEAD, platform ios)
  * Exits non-zero and lists every packages/mobile/src|app file that differs
  * from the rev.
  */
@@ -20,8 +21,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const rev = process.argv[2] ?? "HEAD";
+const platform = process.argv[3] ?? "ios";
+if (platform !== "ios" && platform !== "android") {
+  console.error("Platform must be ios or android.");
+  process.exit(1);
+}
 const mobileRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const bundleDir = join(mobileRoot, "dist", "_expo", "static", "js", "ios");
+const bundleDir = join(mobileRoot, "dist", "_expo", "static", "js", platform);
 
 const maps = readdirSync(bundleDir).filter((f) => f.endsWith(".hbc.map"));
 if (maps.length === 0) {

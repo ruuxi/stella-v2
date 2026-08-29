@@ -5,9 +5,10 @@
 # unimported <ActivityTray/> — ReferenceError on first render, instant
 # release-mode crash on every launch of builds 95/96.
 #
-# This script refuses dirty trees, exports locally, proves (via the Hermes
-# sourcemap's sourcesContent) that the bundle matches HEAD byte-for-byte,
-# and only then publishes with the real commit stamped in the message.
+# This script refuses dirty trees, pins the OTA target to the build the stores
+# actually serve, exports locally, proves (via the Hermes sourcemap's
+# sourcesContent) that the bundle matches HEAD byte-for-byte, and only then
+# publishes with the real commit stamped in the message.
 #
 # Usage: scripts/publish-ota.sh <channel> [platform]
 #   e.g. scripts/publish-ota.sh preview ios
@@ -41,12 +42,28 @@ fi
 SHA="$(git rev-parse --short HEAD)"
 SUBJECT="$(git log -1 --format=%s)"
 
-echo "Exporting release bundle for verification (HEAD ${SHA})..."
-rm -rf dist
-bunx expo export --platform ios --source-maps
+# An update on a channel reaches every installed binary with a matching runtime
+# fingerprint, so targeting the newest EAS build would ship JS to a public app
+# whose native side is older. Resolve the live store build instead and abort
+# unless this tree's fingerprint is identical to it.
+echo "Resolving the public store build instead of the newest EAS build..."
+bun scripts/resolve-public-mobile-builds.ts --platform "${PLATFORM}" \
+  --channel "${CHANNEL}" --verify-local-fingerprint
 
-echo "Verifying exported bundle matches git HEAD..."
-bun scripts/verify-ota-export.ts HEAD
+if [[ "${PLATFORM}" == "all" ]]; then
+  PLATFORMS=(ios android)
+else
+  PLATFORMS=("${PLATFORM}")
+fi
+
+for EXPORT_PLATFORM in "${PLATFORMS[@]}"; do
+  echo "Exporting ${EXPORT_PLATFORM} release bundle for verification (HEAD ${SHA})..."
+  rm -rf dist
+  bunx expo export --platform "${EXPORT_PLATFORM}" --source-maps
+
+  echo "Verifying exported ${EXPORT_PLATFORM} bundle matches git HEAD..."
+  bun scripts/verify-ota-export.ts HEAD "${EXPORT_PLATFORM}"
+done
 
 echo "Publishing ${PLATFORM} to channel '${CHANNEL}' as: ${SHA} ${SUBJECT}"
 # Channels here (development/preview/production) map 1:1 to the default EAS

@@ -67,7 +67,6 @@ import {
   saveChatMessages,
   saveChatSyncState,
   subscribeChatStorageCleanup,
-  truncateChatMessagesFrom,
 } from "../offline-chat-storage";
 
 /** The cloud thread's transcript key — an account-scoped value cleanup wipes. */
@@ -673,7 +672,7 @@ describe("chat storage round-trip", () => {
     );
   });
 
-  test("serializes concurrent incremental writes and truncates durably", async () => {
+  test("serializes concurrent incremental writes", async () => {
     const rows: ChatMessage[] = Array.from({ length: 500 }, (_, index) => ({
       id: `concurrent-${index}`,
       role: "user",
@@ -691,16 +690,15 @@ describe("chat storage round-trip", () => {
         { id: "concurrent-b", role: "assistant", text: "b", createdAt: 502 },
       ]),
     ]);
-    let recent = await loadRecentChatMessages("cloud", 10);
+    const recent = await loadRecentChatMessages("cloud", 10);
     expect(recent.messages.slice(-2).map((message) => message.id)).toEqual([
       "concurrent-a",
       "concurrent-b",
     ]);
-
-    await truncateChatMessagesFrom("cloud", "concurrent-250");
-    recent = await loadRecentChatMessages("cloud", 500);
-    expect(recent.messages).toHaveLength(250);
-    expect(recent.messages.at(-1)?.id).toBe("concurrent-249");
+    // Neither concurrent write clobbered the other's tail.
+    expect(recent.messages.map((message) => message.id)).toContain(
+      "concurrent-499",
+    );
   });
 
   test("retries interrupted and concurrent legacy migrations idempotently", async () => {

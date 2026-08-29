@@ -3894,7 +3894,16 @@ export class BuildSession extends DurableObject<Env> {
         turn.attemptGeneration! >= 1
           ? agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!)
           : undefined;
-      const [current, sandboxId, storedSize, executionMarker] =
+      const computeIdentity =
+        turn.kind === "agent" &&
+        Number.isSafeInteger(turn.attemptGeneration) &&
+        turn.attemptGeneration! >= 1
+          ? {
+              turnId: turn.turnId,
+              attemptGeneration: turn.attemptGeneration!,
+            }
+          : undefined;
+      const [current, storedSandboxId, storedSize, executionMarker, compute] =
         await Promise.all([
           txn.get<TurnRequest>("turn"),
           txn.get<string>("sandboxId"),
@@ -3902,11 +3911,28 @@ export class BuildSession extends DurableObject<Env> {
           markerKey
             ? txn.get<AgentExecutionMarker>(markerKey)
             : Promise.resolve(undefined),
+          computeIdentity
+            ? txn
+                .get(
+                  agentComputeKey(
+                    computeIdentity.turnId,
+                    computeIdentity.attemptGeneration,
+                  ),
+                )
+                .then((value) =>
+                  parsePersistedAgentCompute(value, computeIdentity),
+                )
+            : Promise.resolve(null),
         ]);
+      // The ladder's record names the instance before it exists, so a Stop
+      // arriving mid boot destroys the exact reservation instead of skipping
+      // teardown because the shared key was not written yet. A record still in
+      // `resident` names nothing, which is what keeps a chat-only Stop free.
+      const sandboxId = storedSandboxId ?? compute?.sandboxId;
       if (!sandboxId || !exactTurnIdentityMatches(current, turn)) {
         return undefined;
       }
-      const size = storedSize ?? ("large" as const);
+      const size = storedSize ?? compute?.instanceSize ?? ("large" as const);
       return {
         sandboxId,
         size,
@@ -6033,6 +6059,8 @@ export class BuildSession extends DurableObject<Env> {
         terminal,
         cancellation,
         sandboxId,
+        computePlan,
+        computeRecord,
         baseWorkspaceRevision,
       ] = await Promise.all([
         this.ctx.storage.get<TurnRequest>("turn"),
@@ -6045,6 +6073,12 @@ export class BuildSession extends DurableObject<Env> {
           attemptGeneration: turn.attemptGeneration,
         }),
         this.ctx.storage.get<string>("sandboxId"),
+        this.ctx.storage.get(
+          turnComputePlanKey(turn.turnId, turn.attemptGeneration!),
+        ),
+        this.ctx.storage.get(
+          agentComputeKey(turn.turnId, turn.attemptGeneration!),
+        ),
         this.ctx.storage.get<number>(
           turnStateBaseWorkspaceRevisionKey(
             turn.turnId,
@@ -6060,6 +6094,21 @@ export class BuildSession extends DurableObject<Env> {
         return { kind: "missing-base" as const };
       }
       const running = this.agentTurnExecutions.get(turn.turnId);
+      const identity = {
+        turnId: turn.turnId,
+        attemptGeneration: turn.attemptGeneration!,
+      };
+      // A ladder turn's container is described by the compute record, which is
+      // scoped to this exact attempt. The bare `sandboxId` key is not: a
+      // predecessor attempt's leftover value would read as a live container
+      // this attempt never reserved. Native turns keep reading that key, so
+      // their fence is unchanged.
+      const laddered =
+        parseTurnComputePlan(computePlan, identity)?.plan.kind ===
+        "resident_stella";
+      const attachedSandbox = laddered
+        ? parsePersistedAgentCompute(computeRecord, identity)?.sandboxId
+        : sandboxId;
       const live: TurnBrokerLiveFence = {
         sessionId: turn.turnBrokerRoute!.sessionId,
         ownerId: turn.ownerId,
@@ -6068,7 +6117,7 @@ export class BuildSession extends DurableObject<Env> {
         attemptGeneration: turn.attemptGeneration!,
         active:
           exactTurnIdentityMatches(current, turn) &&
-          Boolean(sandboxId) &&
+          Boolean(attachedSandbox) &&
           running?.cancellation.aborted === false,
         canceled: Boolean(cancellation),
         terminal: terminal === true,

@@ -30,9 +30,10 @@ const unavailable = (accountScope: string, message: string) =>
   });
 
 /**
- * Passive startup bridge for one-way local migration into Cloud Home.
- * Existing divergent cloud heads are never overwritten; a settings status
- * card exposes conflicts and lets the user retry transient failures.
+ * Passive startup bridge that mirrors this Mac's Cloud Home root into the
+ * cloud. Existing divergent cloud heads are never overwritten, and a skill the
+ * root has dropped is tombstoned so cloud turns stop loading it; a settings
+ * status card exposes conflicts and lets the user retry transient failures.
  */
 export function CloudHomeSyncBridge() {
   const convex = useConvex();
@@ -133,6 +134,12 @@ export function CloudHomeSyncBridge() {
         readSkillHeads: async () =>
           await convex.query(cloudHomeApi.listMySkillHeads, {
             clientScope: scopeAtStart,
+          }),
+        deleteSkillMirror: async ({ slug, expectedRevision }) =>
+          await convex.mutation(cloudHomeApi.deleteMyMirroredSkill, {
+            clientScope: scopeAtStart,
+            slug,
+            expectedRevision,
           }),
         cursorStore: uiState,
         signal: controller.signal,

@@ -1,5 +1,8 @@
 import { makeFunctionReference } from "convex/server";
-import type { CloudSkillHead } from "@stella/contracts/cloud-home-sync";
+import type {
+  CloudSkillHead,
+  CloudSkillMirrorDeletion,
+} from "@stella/contracts/cloud-home-sync";
 
 export type CloudMemoryPreference = {
   ownerGeneration: string;
@@ -104,4 +107,11 @@ export const cloudHomeApi = {
     { clientScope: string },
     CloudSkillHead[]
   >("cloud_skills:listMySkillHeads"),
+  // The one cloud skill write the device makes directly, because deleting a
+  // skill leaves no package for the upload channel to carry.
+  deleteMyMirroredSkill: makeFunctionReference<
+    "mutation",
+    { clientScope: string; slug: string; expectedRevision: number },
+    CloudSkillMirrorDeletion
+  >("cloud_skills:deleteMyMirroredSkill"),
 } as const;

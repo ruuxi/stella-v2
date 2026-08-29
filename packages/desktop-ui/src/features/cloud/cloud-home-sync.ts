@@ -1,11 +1,13 @@
 import type {
   CloudHomeImportOwnership,
+  CloudHomeScanWarningCode,
   CloudHomeSyncCursor,
   CloudHomeSyncIssue,
   CloudHomeSyncStatus,
   CloudMemoryDocument,
   CloudMemorySnapshot,
   CloudSkillHead,
+  CloudSkillMirrorDeletion,
   LocalCloudHomeScan,
   LocalCloudMemoryDocument,
   LocalCloudSkillPackage,
@@ -17,6 +19,19 @@ const SCAN_TIMEOUT_MS = 30_000;
 const MAX_HTTP_RESPONSE_BYTES = 4 * 1024 * 1024;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const LIFECYCLE_TOKEN_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$/u;
+/**
+ * Scan warnings that can hide a skill the device root really does hold. Any of
+ * them makes the scanned slug set an incomplete picture of that root, and a
+ * mirror prune driven by an incomplete picture deletes live skills.
+ */
+const SKILL_SCAN_INCOMPLETE_CODES = new Set<CloudHomeScanWarningCode>([
+  "invalid_path",
+  "unsafe_file",
+  "skill_invalid",
+  "skill_too_large",
+  "skill_limit",
+  "read_failed",
+]);
 const MEMORY_SNAPSHOT_KEYS = new Set([
   "subject",
   "ownerGeneration",
@@ -62,6 +77,10 @@ export type RunCloudHomeSyncOptions = {
   token: string;
   scanLocal: () => Promise<LocalCloudHomeScan>;
   readSkillHeads: () => Promise<CloudSkillHead[]>;
+  deleteSkillMirror: (args: {
+    slug: string;
+    expectedRevision: number;
+  }) => Promise<CloudSkillMirrorDeletion>;
   readImportOwnership?: (
     accountScope: string,
   ) => Promise<CloudHomeImportOwnership>;
@@ -1026,6 +1045,76 @@ export const runCloudHomeSync = async (
       };
     }
     publishStatus();
+  }
+
+  // The prune runs only after the upload pass above has finished, on the heads
+  // that pass last observed. Two properties make it safe. Every slug the
+  // conflict branch touched is by definition present in the scanned device
+  // root, so it is never a candidate here; and the delete carries the revision
+  // this pass observed, so a head another device advanced in the meantime is
+  // refused rather than erased. Multi-device convergence is deliberate rather
+  // than exact: if this Mac drops a skill another Mac still holds, that Mac
+  // re-uploads it on its next pass and the skill comes back. The live device
+  // roots, not a tombstone, are the authority. What keeps that from being a
+  // footgun on a fresh Mac is the one-time import-ownership confirmation
+  // above, which is where the user says this root speaks for the account.
+  const deviceSlugs = new Set(scan.skills.map((local) => local.slug));
+  if (
+    !scan.warnings.some((warning) =>
+      SKILL_SCAN_INCOMPLETE_CODES.has(warning.code),
+    )
+  ) {
+    for (const cloud of skillsBySlug.values()) {
+      if (options.signal?.aborted) return interrupted();
+      if (deviceSlugs.has(cloud.slug)) continue;
+      let deletion: CloudSkillMirrorDeletion | null = null;
+      try {
+        deletion = await awaitBounded({
+          operation: () =>
+            options.deleteSkillMirror({
+              slug: cloud.slug,
+              expectedRevision: cloud.revision,
+            }),
+          timeoutMs: HTTP_TIMEOUT_MS,
+          signal: options.signal,
+        });
+      } catch {
+        if (options.signal?.aborted) return interrupted();
+      }
+      if (deletion?.status === "deleted") continue;
+      status =
+        deletion?.status === "conflict"
+          ? {
+              ...status,
+              skillsCloudWins: status.skillsCloudWins + 1,
+              issues: [
+                ...status.issues,
+                safeIssue(
+                  "cloud_conflict",
+                  cloud.slug,
+                  "The cloud skill changed, so it was not removed from Cloud Home.",
+                ),
+              ],
+            }
+          : {
+              ...status,
+              issues: [
+                ...status.issues,
+                safeIssue(
+                  "verification_failed",
+                  cloud.slug,
+                  "The cloud skill could not be removed after it was deleted on this Mac.",
+                ),
+              ],
+            };
+      publishStatus();
+    }
+    // A slug the device root no longer holds keeps no cursor row, so a bounded
+    // cursor never fills with skills this Mac deleted long ago.
+    for (const slug of Object.keys(cursor.skills)) {
+      if (!deviceSlugs.has(slug)) delete cursor.skills[slug];
+    }
+    persistCursor();
   }
 
   if (options.signal?.aborted) return interrupted();

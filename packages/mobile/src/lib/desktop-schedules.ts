@@ -171,13 +171,22 @@ export const scheduleCadence = (
     schedule.intervalMs,
   );
 
+/**
+ * The pairing lookup every bridge call in this module funnels through. A
+ * named export rather than three inline dynamic imports so tests can spy on
+ * this one seam instead of replacing `./phone-access` process-wide.
+ */
+export async function listPairedAccess() {
+  const { listStoredPairedPhoneAccess } = await import("./phone-access");
+  return listStoredPairedPhoneAccess();
+}
+
 /** Load every schedule on the paired computer through the desktop bridge. */
 export async function fetchMobileSchedules(): Promise<MobileSchedule[]> {
   const { resolveDesktopBridge, invokeDesktopBridge } = await import(
     "./desktop-bridge-chat"
   );
-  const { listStoredPairedPhoneAccess } = await import("./phone-access");
-  const paired = await listStoredPairedPhoneAccess();
+  const paired = await listPairedAccess();
   const access = paired[0];
   if (!access) return [];
   const bridge = await resolveDesktopBridge(access);
@@ -205,8 +214,7 @@ export async function mutateMobileSchedule(
   const { resolveDesktopBridge, invokeDesktopBridge } = await import(
     "./desktop-bridge-chat"
   );
-  const { listStoredPairedPhoneAccess } = await import("./phone-access");
-  const paired = await listStoredPairedPhoneAccess();
+  const paired = await listPairedAccess();
   const access = paired[0];
   if (!access) throw new Error("No paired computer.");
   const bridge = await resolveDesktopBridge(access);
@@ -240,8 +248,7 @@ export function subscribeMobileScheduleUpdates(
     try {
       const { resolveDesktopBridge, openDesktopBridgeEventSocket } =
         await import("./desktop-bridge-chat");
-      const { listStoredPairedPhoneAccess } = await import("./phone-access");
-      const paired = await listStoredPairedPhoneAccess();
+      const paired = await listPairedAccess();
       const access = paired[0];
       if (!access || closed) return;
       const bridge = await resolveDesktopBridge(access);

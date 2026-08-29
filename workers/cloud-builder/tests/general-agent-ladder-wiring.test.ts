@@ -185,8 +185,7 @@ const fakeSession = (options: {
   const execs: string[] = [];
   const processes: string[] = [];
   let socketProbes = 0;
-  const resultText = () =>
-    `${JSON.stringify(options.resultFrame ?? {})}\n`;
+  const resultText = () => `${JSON.stringify(options.resultFrame ?? {})}\n`;
   const exec = async (command: string): Promise<ExecResult> => {
     execs.push(command);
     const ok = { success: true, exitCode: 0, stdout: "", stderr: "" };

@@ -30,10 +30,7 @@ import {
   type AttachedToolRequest,
   type AttachedToolResponse,
 } from "@stella/executor-cloud/attached-tool-protocol";
-import type {
-  AttachBoot,
-  SandboxAttachment,
-} from "./agent-compute-ladder.js";
+import type { AttachBoot, SandboxAttachment } from "./agent-compute-ladder.js";
 import type { TurnExecutionContext } from "./turn-cancellation.js";
 
 const DAEMON_ARGV = [

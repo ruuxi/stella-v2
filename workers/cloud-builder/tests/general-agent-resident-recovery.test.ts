@@ -10,7 +10,10 @@ import {
   turnComputePlan,
   turnComputePlanKey,
 } from "../src/general-agent-turn.js";
-import { openSqlStorageFake, type SqlStorageFake } from "./fixtures/sql-storage.js";
+import {
+  openSqlStorageFake,
+  type SqlStorageFake,
+} from "./fixtures/sql-storage.js";
 
 mock.module("cloudflare:workers", () => ({
   DurableObject: class {},

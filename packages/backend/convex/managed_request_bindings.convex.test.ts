@@ -22,7 +22,7 @@ const bind = async (
   await t.mutation(internal.billing.bindManagedProviderRequestInternal, {
     ownerId: "binding-owner",
     ownerGeneration: "legacy",
-    route: "mobile_offline_chat",
+    route: "mobile_transcription",
     requestId: "mobile-request-0001",
     bodyFingerprint: "a".repeat(64),
     now: 1_000,
@@ -54,7 +54,7 @@ describe("managed provider logical request bindings", () => {
             q
               .eq("ownerId", "binding-owner")
               .eq("ownerGeneration", "legacy")
-              .eq("route", "mobile_offline_chat")
+              .eq("route", "mobile_transcription")
               .eq("requestId", "mobile-request-0001"),
         )
         .collect(),
@@ -156,7 +156,7 @@ describe("managed provider logical request bindings", () => {
         await ctx.db.insert("billing_managed_request_bindings", {
           ownerId: "binding-batch-owner",
           ownerGeneration: "legacy",
-          route: "mobile_offline_chat",
+          route: "mobile_transcription",
           requestId: `mobile-request-${String(index).padStart(4, "0")}`,
           bodyFingerprint: index.toString(16).padStart(64, "0"),
           requestFingerprint: (index + 1).toString(16).padStart(64, "0"),

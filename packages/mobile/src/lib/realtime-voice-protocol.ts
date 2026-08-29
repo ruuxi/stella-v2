@@ -147,13 +147,13 @@ const spokenVoiceInstructions = [
   "Keep most spoken turns to one to three short sentences.",
 ].join("\n");
 
-export const buildNormalChatVoiceInstructions = (
+export const buildAttachedChatVoiceInstructions = (
   messages: ChatMessage[],
 ): string => {
   const context = recentChatContext(messages);
   return [
     spokenVoiceInstructions,
-    "The attached normal Stella chat owns every user turn, every tool call, and every answer.",
+    "The attached Stella chat owns every user turn, every tool call, and every answer.",
     "Automatic replies are disabled. When the app supplies a completed attached-chat answer, speak that answer faithfully and naturally. Do not invent work or answer a pending user request independently.",
     context,
   ]

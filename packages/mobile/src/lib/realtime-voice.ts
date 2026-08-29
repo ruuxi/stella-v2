@@ -9,7 +9,7 @@ import { postJson, postText } from "./http";
 import {
   buildComputerVoiceInstructions,
   buildMobileRealtimeSessionUpdate,
-  buildNormalChatVoiceInstructions,
+  buildAttachedChatVoiceInstructions,
   findVoiceActionCompletion,
   managedVoiceConversationId,
   mergeComputerVoiceTools,
@@ -403,7 +403,9 @@ export class MobileRealtimeVoiceSession {
         instructions = buildComputerVoiceInstructions(this.desktopVoice.config);
         tools = mergeComputerVoiceTools(this.desktopVoice.config.tools);
       } else {
-        instructions = buildNormalChatVoiceInstructions(this.options.messages);
+        instructions = buildAttachedChatVoiceInstructions(
+          this.options.messages,
+        );
       }
       const managedConversationId = managedVoiceConversationId(
         this.options.conversationId,
@@ -724,7 +726,7 @@ export class MobileRealtimeVoiceSession {
           this.publish({ transcript });
           if (this.options.execution === "phone") {
             this.userTurnPendingResponse = false;
-            void this.dispatchNormalChatTranscript(event, transcript);
+            void this.dispatchAttachedChatTranscript(event, transcript);
           } else {
             void this.persistComputerTranscript(event, "user", transcript);
           }
@@ -869,7 +871,7 @@ export class MobileRealtimeVoiceSession {
     this.sendToolOutput(callId, output, true);
   }
 
-  private async dispatchNormalChatTranscript(
+  private async dispatchAttachedChatTranscript(
     event: Record<string, unknown>,
     transcript: string,
   ) {

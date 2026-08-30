@@ -1595,15 +1595,8 @@
         "unreadAriaLabel": "{label}, {count} necitite"
       },
       "feedback": {
-        "title": {
-          "manual": "Trimite feedback",
-          "auto": "Cum merge cu Stella?"
-        },
-        "description": {
-          "manual": "Mesajul tău este trimis anonim — nu este legat de contul tău.",
-          "auto": "Ceva ce ar trebui să știm? Trimis anonim — nu este legat de contul tău."
-        },
-        "notNow": "Nu acum",
+        "title": "Trimite feedback",
+        "description": "Mesajul tău este trimis anonim — nu este legat de contul tău.",
         "fieldLabel": "Feedback",
         "placeholder": "Spune-ne ce funcționează, ce nu sau ce ți-ar plăcea să vezi…",
         "send": "Trimite",

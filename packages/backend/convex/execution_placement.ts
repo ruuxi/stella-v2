@@ -3569,6 +3569,43 @@ const parseCloudExecutionSelection = (
   });
 };
 
+type CloudPayloadRejection = { errorCode: string; errorMessage: string };
+
+type CloudPayloadOutcome =
+  | { ok: true; payload: ReturnType<typeof parseCloudPayload> }
+  | ({ ok: false } & CloudPayloadRejection);
+
+/**
+ * The payload is frozen behind its own hash, so a replay parses the same bytes
+ * to the same verdict. A rejection is therefore terminal and must not reach
+ * the reconcile path, which exists for start calls whose outcome is unknown.
+ */
+const readCloudPayload = (input: CloudExecutionInput): CloudPayloadOutcome => {
+  try {
+    return { ok: true, payload: parseCloudPayload(input) };
+  } catch (error) {
+    if (!(error instanceof ConvexError)) throw error;
+    const data =
+      typeof error.data === "object" && error.data !== null
+        ? (error.data as { code?: unknown; message?: unknown })
+        : {};
+    if (data.code !== "INVALID_ARGUMENT" && data.code !== "CONFLICT") {
+      throw error;
+    }
+    return {
+      ok: false,
+      errorCode:
+        data.code === "CONFLICT"
+          ? "CLOUD_PAYLOAD_CONFLICT"
+          : "CLOUD_PAYLOAD_INVALID",
+      errorMessage:
+        typeof data.message === "string"
+          ? data.message
+          : "Cloud execution payload is invalid.",
+    };
+  }
+};
+
 const parseCloudPayload = (input: CloudExecutionInput) => {
   const parsed = JSON.parse(input.payloadJson) as Record<string, unknown>;
   const prompt = typeof parsed.prompt === "string" ? parsed.prompt.trim() : "";
@@ -3650,7 +3687,19 @@ export const executeCloudCommittedDispatchInternal = internalAction({
         });
         return null;
       }
-      const payload = parseCloudPayload(input);
+      const outcome = readCloudPayload(input);
+      if (!outcome.ok) {
+        await ctx.runMutation(markCloudFailedRef, {
+          ...args,
+          attemptId,
+          attemptGeneration,
+          errorCode: outcome.errorCode,
+          errorMessage: outcome.errorMessage,
+          now: Date.now(),
+        });
+        return null;
+      }
+      const payload = outcome.payload;
       if (input.kind === "chat") {
         const chatPayload = payload as {
           prompt: string;

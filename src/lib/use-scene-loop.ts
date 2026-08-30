@@ -8,6 +8,8 @@ export type Scene = {
   /* Sleeps, then throws internally if the scene was cancelled while
      sleeping — scripts never run another step after cancellation. */
   sleep: (ms: number) => Promise<void>;
+  /* Wait for the browser's next paint so visual updates land on real frames. */
+  frame: () => Promise<number>;
   /* Type `text` through `onChar` at `ms` per character. */
   type: (text: string, onChar: (typed: string) => void, ms?: number) => Promise<void>;
 };
@@ -55,16 +57,27 @@ export function useSceneLoop(
   useEffect(() => {
     if (!running) return;
     let cancelled = false;
-    const pending = new Map<number, () => void>();
+    const pendingTimers = new Map<number, () => void>();
+    const pendingFrames = new Map<number, () => void>();
 
     const sleep = (ms: number) =>
       new Promise<void>((resolve, reject) => {
         const timer = window.setTimeout(() => {
-          pending.delete(timer);
+          pendingTimers.delete(timer);
           if (cancelled) reject(new SceneCancel());
           else resolve();
         }, ms);
-        pending.set(timer, () => reject(new SceneCancel()));
+        pendingTimers.set(timer, () => reject(new SceneCancel()));
+      });
+
+    const frame = () =>
+      new Promise<number>((resolve, reject) => {
+        const id = window.requestAnimationFrame((time) => {
+          pendingFrames.delete(id);
+          if (cancelled) reject(new SceneCancel());
+          else resolve(time);
+        });
+        pendingFrames.set(id, () => reject(new SceneCancel()));
       });
 
     const type = async (
@@ -72,16 +85,24 @@ export function useSceneLoop(
       onChar: (typed: string) => void,
       ms = 26,
     ) => {
-      for (let i = 1; i <= text.length; i += 1) {
-        onChar(text.slice(0, i));
-        await sleep(ms);
+      const startedAt = performance.now();
+      let visibleLength = 0;
+      while (visibleLength < text.length) {
+        const now = await frame();
+        const nextLength = Math.min(
+          text.length,
+          Math.max(1, Math.floor((now - startedAt) / ms) + 1),
+        );
+        if (nextLength === visibleLength) continue;
+        visibleLength = nextLength;
+        onChar(text.slice(0, visibleLength));
       }
     };
 
     (async () => {
       await sleep(450);
       while (!cancelled) {
-        await scriptRef.current({ sleep, type });
+        await scriptRef.current({ sleep, frame, type });
         await sleep(restartDelayMs);
         resetRef.current();
         await sleep(700);
@@ -92,11 +113,16 @@ export function useSceneLoop(
 
     return () => {
       cancelled = true;
-      for (const [timer, cancel] of pending) {
+      for (const [timer, cancel] of pendingTimers) {
         window.clearTimeout(timer);
         cancel();
       }
-      pending.clear();
+      pendingTimers.clear();
+      for (const [frameId, cancel] of pendingFrames) {
+        window.cancelAnimationFrame(frameId);
+        cancel();
+      }
+      pendingFrames.clear();
       resetRef.current();
     };
   }, [running, restartDelayMs]);

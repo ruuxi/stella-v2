@@ -24,6 +24,8 @@
 /* Live conversation inside the mini window: transcript pinned to the
    bottom like a real chat, fading out toward the titlebar. */
 .liveChat {
+  position: absolute;
+  inset: 32px 0 0;
   display: grid;
   flex: 1;
   grid-template-rows: minmax(0, 1fr) auto;
@@ -33,6 +35,8 @@
   grid-template-columns: minmax(0, 1fr);
   width: 100%;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   padding: 10px 18px 16px;
 }
 
@@ -41,6 +45,8 @@
   flex-direction: column;
   justify-content: flex-end;
   width: 100%;
+  min-width: 0;
+  min-height: 0;
   max-width: min(23.5rem, 100%);
   margin: 0 auto;
   padding-bottom: 28px;
@@ -55,18 +61,30 @@
   opacity: 0;
 }
 
-/* Each entry grows in from zero height (0fr → 1fr), so earlier messages
-   glide upward as it expands instead of jumping. The bubble itself fades
-   and rises inside. Spacing lives in the inner padding so it expands with
-   the row — a flex gap would still snap into place. */
+/* Row flow settles immediately. Existing rows move into place with a
+   compositor-only FLIP in the component, while the arriving content uses
+   the same opacity/transform pattern as the desktop chat. */
 .entry {
-  display: grid;
-  grid-template-rows: 0fr;
-  /* Isolate each row's height animation so reflow/repaint doesn't cascade to
-     the rest of the transcript and window, which is what made it feel laggy. */
-  contain: layout paint;
-  will-change: grid-template-rows;
-  animation: entryGrow 440ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  flex: 0 0 auto;
+  min-width: 0;
+  contain: paint;
+}
+
+/* Mirrors the real chat's trailing response region. The newest user message,
+   thinking row, and assistant reply all keep breathing room below them while
+   older turns leave through the masked top edge. */
+.responseSpacer {
+  flex: 0 0 clamp(5.5rem, 20vw, 7rem);
+  width: 100%;
+  pointer-events: none;
+}
+
+/* The composer owns the fixed auto-sized grid row. Transcript overflow can
+   only clip at the top; it can never grow or shove this row down. */
+.composerDock {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
 }
 
 .entryInner {
@@ -75,28 +93,68 @@
   min-height: 0;
   overflow: hidden;
   padding-top: 10px;
-  transform: translateZ(0);
   will-change: transform, opacity;
-  animation: entryFade 360ms cubic-bezier(0.22, 1, 0.36, 1) 90ms both;
 }
 
-@keyframes entryGrow {
-  from {
-    grid-template-rows: 0fr;
-  }
-  to {
-    grid-template-rows: 1fr;
-  }
+.entry[data-role="user"] .entryInner {
+  transform-origin: right bottom;
+  animation: userEntry 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-@keyframes entryFade {
+.entry[data-role="assistant"]:not([data-phase="reserved"]) .entryInner {
+  transform-origin: left bottom;
+  animation: assistantEntry 360ms cubic-bezier(0.26, 1.08, 0.42, 1) 40ms both;
+}
+
+.assistantSlot {
+  position: relative;
+}
+
+/* The full reply participates in layout from the send frame onward. The
+   thinking indicator and streamed text are painted on top of that invisible
+   sizer, so neither can move the transcript when it appears or wraps. */
+.assistantSizer {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.assistantVisual {
+  position: absolute;
+  inset: 0;
+}
+
+@keyframes userEntry {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translate3d(0, 10px, 0) scale(0.97);
   }
   to {
     opacity: 1;
-    transform: none;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes assistantEntry {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 9px, 0) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.assistantContent {
+  animation: assistantContentIn 180ms ease-out both;
+}
+
+@keyframes assistantContentIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 
@@ -137,8 +195,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .entry,
-  .entryInner {
+  .entryInner,
+  .assistantContent {
     animation: none;
-    grid-template-rows: 1fr;
   }
 }

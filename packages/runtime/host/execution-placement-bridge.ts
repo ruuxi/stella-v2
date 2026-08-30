@@ -22,7 +22,8 @@ type PlacementCapability =
   | "agent"
   | "computer-use"
   | "local-files"
-  | "local-apps";
+  | "local-apps"
+  | "attachments";
 type PlacementOutcome = "completed" | "failed" | "canceled";
 type LocalInboxState =
   | "claimed"

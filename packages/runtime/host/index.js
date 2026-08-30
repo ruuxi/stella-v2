@@ -17,6 +17,7 @@ import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { connectorLocalFollowupDeliveryId, resolveConnectorFollowupAction, resolveConnectorTerminalFollowup, } from "./connector-followup.js";
 import { ConnectorFollowupOutbox } from "./connector-followup-outbox.js";
 import { createExecutionPlacementBridge, placementLocalAgentThreadId, placementLocalChatRunId, } from "./execution-placement-bridge.js";
+import { placementAttachmentPaths, resolvePlacementAttachments, } from "./placement-attachments.js";
 import { getDesktopDatabasePath, initializeDesktopDatabase, } from "../kernel/storage/database-init.js";
 import { METHOD_NAMES, NOTIFICATION_NAMES, STELLA_RUNTIME_PROTOCOL_VERSION, } from "@stella/contracts/protocol";
 import { createRuntimeUnavailableError, } from "@stella/contracts/protocol/rpc-peer";
@@ -1246,6 +1247,7 @@ export class StellaRuntimeHost {
                         "chat",
                         "agent",
                         "local-files",
+                        "attachments",
                         ...platformCapabilities,
                     ],
                 };
@@ -1262,6 +1264,11 @@ export class StellaRuntimeHost {
                 // mobile binds its optimistic bubble to the dispatch id, so the
                 // two must be the same string or the phone shows the user row twice.
                 const userMessageEventId = dispatch.dispatchId;
+                const attachments = await resolvePlacementAttachments({
+                    paths: placementAttachmentPaths(payload),
+                    resolve: async (path) => await client.action(anyApi.cloud_drive.getMyDriveFileUrl, { path }),
+                    onSkipped: (path, error) => console.warn(`[execution-placement] attachment ${path} could not be resolved from the drive.`, error),
+                });
                 await this.appendLocalChatEvent({
                     conversationId: dispatch.conversationId,
                     eventId: userMessageEventId,
@@ -1302,6 +1309,7 @@ export class StellaRuntimeHost {
                     rejectIfBusy: true,
                     executionPlacementRunId: placementLocalChatRunId(dispatch.dispatchId),
                     ownerGeneration,
+                    ...(attachments.length > 0 ? { attachments } : {}),
                 }, {
                     ensureWorker: true,
                     recordActivity: true,

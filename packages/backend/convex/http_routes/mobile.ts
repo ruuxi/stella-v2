@@ -16,7 +16,11 @@ import {
   normalizeBrowserAuthReturnTarget,
 } from "../lib/browser_auth_callback";
 import { decideAnonymousLinkBinding } from "../lib/mobile_auth_link";
-import { encryptHandoffToken } from "../lib/handoff_crypto";
+import {
+  decryptHandoffToken,
+  encryptHandoffToken,
+  sha256Base64Url,
+} from "../lib/handoff_crypto";
 import {
   errorResponse,
   jsonResponse,
@@ -179,6 +183,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * a row whose `claimHash` no client can reproduce would be unclaimable.
  */
 const CLAIM_HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const CLAIM_SECRET_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 type AuthenticatedAccountOwnerResult =
   | {
@@ -2367,6 +2372,59 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         }
 
         return authNoStoreJsonResponse(result, 200, origin);
+      }),
+    ),
+  });
+
+  // Exchange a completed handoff for its connected-account bearer. The
+  // request id is intentionally insufficient on its own: only the shell that
+  // generated the in-memory claim secret can consume this single-use row.
+  http.route({
+    path: "/api/auth/link/claim",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const parsed = await readJsonBody<{
+          requestId?: unknown;
+          claimSecret?: unknown;
+        }>(request, origin);
+        if (!parsed.ok) return parsed.response;
+
+        const requestId =
+          typeof parsed.body.requestId === "string"
+            ? parsed.body.requestId.trim()
+            : "";
+        const claimSecret =
+          typeof parsed.body.claimSecret === "string"
+            ? parsed.body.claimSecret.trim()
+            : "";
+        if (!requestId || !CLAIM_SECRET_PATTERN.test(claimSecret)) {
+          return errorResponse(400, "Unable to claim sign-in", origin);
+        }
+
+        const result = await ctx.runMutation(
+          internal.mobile_auth.claimLinkRequest,
+          {
+            requestId,
+            claimHash: await sha256Base64Url(claimSecret),
+            nowMs: Date.now(),
+          },
+        );
+        if (!result.ok) {
+          return errorResponse(400, "Unable to claim sign-in", origin);
+        }
+
+        try {
+          const token = await decryptHandoffToken(result.tokenEnc);
+          if (!token.trim()) {
+            throw new Error("The claimed sign-in token was empty.");
+          }
+          return authNoStoreJsonResponse({ token }, 200, origin);
+        } catch {
+          // Never log the encrypted or decrypted credential.
+          console.error("[mobile/auth] Sign-in claim decryption failed");
+          return errorResponse(500, "Unable to claim sign-in", origin);
+        }
       }),
     ),
   });

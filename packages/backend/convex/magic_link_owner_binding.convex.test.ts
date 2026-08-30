@@ -6,6 +6,10 @@ import { describe, expect, it } from "vitest";
 import { components } from "./_generated/api";
 import { authUserIdFromVerificationPayload } from "./auth";
 import betterAuthSchema from "./betterAuth/schema";
+import {
+  encryptHandoffToken,
+  sha256Base64Url,
+} from "./lib/handoff_crypto";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -142,6 +146,57 @@ describe("POST /api/auth/link/send owner proof", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store, max-age=0");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  });
+});
+
+describe("POST /api/auth/link/claim", () => {
+  it("returns a completed handoff token once and never caches it", async () => {
+    const previousSecret = process.env.BETTER_AUTH_SECRET;
+    process.env.BETTER_AUTH_SECRET = "test-handoff-secret";
+    try {
+      const t = convexTest(schema, modules);
+      const requestId = "00000000-0000-4000-8000-000000000001";
+      const claimSecret = "s".repeat(43);
+      const token = "connected-session-token";
+      await t.run(async (ctx) => {
+        await ctx.db.insert("auth_link_requests", {
+          email: "owner@example.com",
+          requestId,
+          status: "completed",
+          toOwnerId: "https://issuer.test|connected-owner",
+          toOwnerGeneration: "legacy",
+          claimHash: await sha256Base64Url(claimSecret),
+          tokenEnc: await encryptHandoffToken(token),
+          completedAt: Date.now(),
+          expiresAt: Date.now() + 60_000,
+          createdAt: Date.now(),
+        });
+      });
+
+      const claim = () =>
+        t.fetch("/api/auth/link/claim", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestId, claimSecret }),
+        });
+
+      const response = await claim();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe(
+        "no-store, max-age=0",
+      );
+      expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+      await expect(response.json()).resolves.toEqual({ token });
+
+      const replay = await claim();
+      expect(replay.status).toBe(400);
+      await expect(replay.json()).resolves.toEqual({
+        error: "Unable to claim sign-in",
+      });
+    } finally {
+      if (previousSecret === undefined) delete process.env.BETTER_AUTH_SECRET;
+      else process.env.BETTER_AUTH_SECRET = previousSecret;
+    }
   });
 });
 

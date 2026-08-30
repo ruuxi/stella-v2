@@ -133,6 +133,7 @@ import type * as lib_billing_money from "../lib/billing_money.js";
 import type * as lib_billing_plans from "../lib/billing_plans.js";
 import type * as lib_browser_auth_callback from "../lib/browser_auth_callback.js";
 import type * as lib_canvas_share_url from "../lib/canvas_share_url.js";
+import type * as lib_chat_attachments from "../lib/chat_attachments.js";
 import type * as lib_cloud_build_callback from "../lib/cloud_build_callback.js";
 import type * as lib_cloud_drive_replacement from "../lib/cloud_drive_replacement.js";
 import type * as lib_cloud_execution from "../lib/cloud_execution.js";
@@ -424,6 +425,7 @@ declare const fullApi: ApiFromModules<{
   "lib/billing_plans": typeof lib_billing_plans;
   "lib/browser_auth_callback": typeof lib_browser_auth_callback;
   "lib/canvas_share_url": typeof lib_canvas_share_url;
+  "lib/chat_attachments": typeof lib_chat_attachments;
   "lib/cloud_build_callback": typeof lib_cloud_build_callback;
   "lib/cloud_drive_replacement": typeof lib_cloud_drive_replacement;
   "lib/cloud_execution": typeof lib_cloud_execution;

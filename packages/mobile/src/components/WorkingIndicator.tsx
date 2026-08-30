@@ -11,16 +11,16 @@ import { fonts } from "../theme/fonts";
 const ENTER_DURATION_MS = 320;
 const EXIT_HOLD_MS = 300;
 const EXIT_ANIMATION_MS = 480;
+/** The assistant's message has already landed above the indicator, so the
+ *  bubble has to be gone almost at once: a lingering indicator under a finished
+ *  reply reads as a bug. Matches the desktop handoff. */
+const EXIT_HANDOFF_MS = 200;
 const SWAP_DURATION_MS = 240;
 const STATUS_MIN_VISIBLE_MS = 2000;
 const INDICATOR_PAD_TOP = 0;
 const INDICATOR_PAD_BOTTOM = 0;
-const INDICATOR_VIEWPORT_SIZE = 34;
+const INDICATOR_VIEWPORT_SIZE = 28;
 const BUBBLE_PAD_VERTICAL = 4;
-/** How far the thinking mark's figure-eight travel reaches past the mark box
- *  on each side. The dots-mode box is widened by this so the travel and the
- *  parked dots stay inside the bubble instead of running off the screen edge. */
-const TRAVEL_OVERHANG = 18;
 
 /**
  * Reserved vertical space above the composer for the working indicator,
@@ -201,7 +201,7 @@ export const WorkingIndicator = memo(function WorkingIndicator({
   });
   // The hold covers the mark as well as the label, because the pose is read
   // off the held label below: without it the mark flapped between the thinking
-  // spinner and the tool star whenever a quick tool started and ended.
+  // ellipsis and the tool star whenever a quick tool started and ended.
   const heldStatus = useMinimumVisibleValue(liveStatus, STATUS_MIN_VISIBLE_MS);
 
   // Snapshot the label while active so the exit animation shows a stable
@@ -211,7 +211,7 @@ export const WorkingIndicator = memo(function WorkingIndicator({
   if (active) frozenStatusRef.current = heldStatus;
   const displayStatus = active ? heldStatus : frozenStatusRef.current;
   // With no label there is nothing to read, so the mark itself carries the
-  // state as the top spinner; a tool label gets the resting star beside it.
+  // state as the thinking ellipsis; a tool label gets the resting star beside it.
   const hasLabel = displayStatus.length > 0;
   const [renderShell, setRenderShell] = useState(active);
   const shellProgress = useRef(new Animated.Value(active ? 1 : 0)).current;
@@ -247,18 +247,19 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     wasActiveRef.current = false;
     if (!renderShell) return clearTimers;
 
+    const exitMs = exitImmediately ? EXIT_HANDOFF_MS : EXIT_ANIMATION_MS;
     const startExit = () => {
       holdTimerRef.current = null;
       Animated.timing(shellProgress, {
         toValue: 0,
-        duration: EXIT_ANIMATION_MS,
+        duration: exitMs,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }).start();
       leaveTimerRef.current = setTimeout(() => {
         leaveTimerRef.current = null;
         setRenderShell(false);
-      }, EXIT_ANIMATION_MS);
+      }, exitMs);
     };
 
     // Skip the hold when the answer has landed so the indicator doesn't trail
@@ -286,9 +287,14 @@ export const WorkingIndicator = memo(function WorkingIndicator({
       {renderShell ? (
         <Animated.View style={[styles.row, shellStyle]} collapsable={false}>
           <View style={[styles.bubble, !hasLabel && styles.bubbleDots]}>
-            <View style={hasLabel ? styles.markBox : styles.markBoxWide}>
+            <View style={styles.markBox}>
+              {
+                // Kept active for as long as the shell is mounted: dropping it
+                // on the exit would run the dots → star morph backwards in full
+                // view while the bubble fades out.
+              }
               <StellaMarkIndicator
-                active={active}
+                active
                 size={INDICATOR_VIEWPORT_SIZE}
                 mode={hasLabel ? "star" : "dots"}
               />
@@ -357,14 +363,6 @@ const makeStyles = (colors: Colors) =>
       height: INDICATOR_VIEWPORT_SIZE,
       justifyContent: "center",
       width: INDICATOR_VIEWPORT_SIZE,
-    },
-    // Dots mode: wide enough to contain the spinner's figure-eight travel and
-    // its parked dots.
-    markBoxWide: {
-      alignItems: "center",
-      height: INDICATOR_VIEWPORT_SIZE,
-      justifyContent: "center",
-      width: INDICATOR_VIEWPORT_SIZE + TRAVEL_OVERHANG * 2,
     },
     swapText: {
       flexShrink: 1,

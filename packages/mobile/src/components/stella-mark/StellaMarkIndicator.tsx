@@ -2,349 +2,226 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
-  useAnimatedProps,
+  cancelAnimation,
   useAnimatedStyle,
-  useFrameCallback,
+  useDerivedValue,
   useReducedMotion,
   useSharedValue,
+  withRepeat,
   withTiming,
-  type SharedValue,
 } from "react-native-reanimated";
-import Svg, {
-  Circle,
-  ClipPath,
-  Defs,
-  Ellipse,
-  LinearGradient,
-  Path,
-  Rect,
-  Stop,
-} from "react-native-svg";
-import { STELLA_STAR_PATH } from "./geometry";
+import { STELLA_ORB_PATH, STELLA_STAR_PATH } from "./geometry";
+import {
+  middleDotScale,
+  morphShrink,
+  sideDotScale,
+  stellaMarkLayout,
+} from "./layout";
 import { MarkLayer } from "./MarkLayer";
 import { shouldRunContinuousAnimation } from "../../lib/continuous-animation";
 import { useAppVisible } from "../../lib/use-app-visible";
 import {
-  CELL,
-  CX,
-  DIAMOND_PATH,
-  DOT_EXTRA,
-  DOT_VIEW_SPAN,
-  INK_RAMP,
-  MID_Y,
+  BREATHE_AMPLITUDE,
+  BREATHE_MS,
+  CLOCK_SPAN_MS,
   MORPH_MS,
-  SHEEN_STOPS,
-  SHEEN_WIDTH,
-  TIP_Y,
-  TRAVEL_MS,
-  ZOOM_PIVOT_Y,
-  computeSpinnerFrame,
-  makeDotState,
-  type SpinnerFrame,
-} from "./top-spinner";
+  dotEntrance,
+  dotWave,
+  easeOutBack,
+  easeOutCubic,
+  morphEnvelope,
+} from "./motion";
 
 /**
- * The character mark at indicator size, in the chat's working row.
+ * Stella's working/thinking indicator: the character mark itself becomes the
+ * middle dot of a three-dot thinking bounce, then unfolds back into the star
+ * when the run settles.
  *
- * Two poses. `dots` runs the top spinner (`top-spinner.ts`) as the thinking
- * ellipsis; `star` is the resting character shown beside a tool's label. The
- * spinner is driven from one Reanimated frame callback that writes a whole
- * `SpinnerFrame` into a shared value, so the pose is computed once per frame on
- * the UI thread and every animated prop just reads a field off it.
+ * ACTIVE in `dots` mode: the star cross-fades into its fully inflated profile
+ * (the orb) while shrinking to dot size, two sibling dots spread out from
+ * underneath it with a staggered ease-out-back, and all three ride one
+ * travelling Gaussian: rise, pop and tone. ACTIVE in `star` mode, and whenever
+ * INACTIVE: the same morph runs backward to the resting star, which then holds
+ * a slow ±1.3% breathe. `star` mode exists because the label carries the
+ * meaning once there is one — bare dots while thinking, resting star plus the
+ * tool label during tool work, matching the desktop rule. No face: at indicator
+ * size the eyes would be sub-pixel, and the desktop rig hides them in dots mode
+ * anyway.
+ *
+ * OTA-SAFE. Everything here is `react-native-svg` + `react-native-reanimated`,
+ * both already in the bundle, so the indicator can be changed over the air —
+ * unlike the SkSL shader it replaced, whose native dependency could only ship
+ * in a fresh store build.
+ *
+ * PERFORMANCE. Two shared values drive everything: `clock` (a linear
+ * millisecond ramp) and `morphT` (a linear 0..1 ramp whose critically damped
+ * shape is applied in the worklet — see `motion.ts`). Every transform and
+ * opacity is computed inside `useAnimatedStyle` worklets on the UI thread, on
+ * plain `Animated.View`s, so no per-frame JS runs and React never re-renders
+ * while the indicator animates. The clock is suspended outright while the app
+ * is backgrounded or reduced motion is on, so a phone in a pocket with a run
+ * still going animates nothing.
+ *
+ * The geometry (`geometry.ts`) is baked from the same source as the desktop
+ * rig, and its viewBox is centred on the mark's own centre, so a View-level
+ * transform is exactly a shape-centre transform.
  */
 
 const DEFAULT_SIZE = 34;
-const FRAME_DT_CAP = 0.05;
-/** The morph out of the spinner has to finish before the loop stops, or the
- *  character would freeze mid-grow. */
-const STOP_GRACE_MS = 120;
 
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-const AnimatedEllipse = Animated.createAnimatedComponent(Ellipse);
-const AnimatedRect = Animated.createAnimatedComponent(Rect);
+/** The morph has to finish before the clock stops, or the mark would freeze
+ *  mid-transition when the work ends. */
+const STOP_GRACE_MS = 400;
 
 export type StellaMarkMode = "dots" | "star";
-
-type FrameValue = SharedValue<SpinnerFrame>;
-
-function InkRamp({ id }: { id: string }) {
-  return (
-    <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-      {INK_RAMP.map((color, index) => (
-        <Stop
-          key={color}
-          offset={index / (INK_RAMP.length - 1)}
-          stopColor={color}
-        />
-      ))}
-    </LinearGradient>
-  );
-}
-
-function OrbitDot({
-  frame,
-  index,
-  behind,
-  fill,
-}: {
-  frame: FrameValue;
-  index: number;
-  behind: boolean;
-  fill: string;
-}) {
-  const animatedProps = useAnimatedProps(() => {
-    const f = frame.value;
-    return {
-      cx: f.dotX[index],
-      cy: f.dotY[index],
-      r: f.dotR[index],
-      opacity: behind ? f.dotBack[index] : f.dotFront[index],
-    };
-  });
-  return <AnimatedCircle animatedProps={animatedProps} fill={fill} />;
-}
-
-/**
- * The orbiting dots, split into a layer behind the body and one in front so
- * they read as circling it. Each dot appears in both layers and is faded out of
- * whichever one it is not currently on, since rn-svg has no z-reordering.
- * The layer is wider than the mark because the parked dots sit outside it.
- */
-function OrbitDotLayer({
-  frame,
-  size,
-  gradientId,
-  behind,
-}: {
-  frame: FrameValue;
-  size: number;
-  gradientId: string;
-  behind: boolean;
-}) {
-  const pxPerUnit = size / CELL;
-  const width = DOT_VIEW_SPAN * pxPerUnit;
-  const layout = useMemo(
-    () => ({
-      position: "absolute" as const,
-      top: 0,
-      left: -DOT_EXTRA * pxPerUnit,
-      width,
-      height: size,
-    }),
-    [pxPerUnit, size, width],
-  );
-  return (
-    <View style={layout} pointerEvents="none">
-      <Svg
-        width={width}
-        height={size}
-        viewBox={`${-DOT_EXTRA} 0 ${DOT_VIEW_SPAN} ${CELL}`}
-      >
-        <Defs>
-          <InkRamp id={gradientId} />
-        </Defs>
-        {[0, 1, 2].map((index) => (
-          <OrbitDot
-            key={index}
-            frame={frame}
-            index={index}
-            behind={behind}
-            fill={`url(#${gradientId})`}
-          />
-        ))}
-      </Svg>
-    </View>
-  );
-}
-
-function SpinnerBody({
-  frame,
-  size,
-  uid,
-}: {
-  frame: FrameValue;
-  size: number;
-  uid: string;
-}) {
-  const inkId = `${uid}-ink`;
-  const sheenId = `${uid}-sheen`;
-  const clipId = `${uid}-clip`;
-
-  const lensProps = useAnimatedProps(() => {
-    const f = frame.value;
-    return { rx: f.lensRx, ry: f.lensRy, opacity: f.lensOpacity };
-  });
-  const sheenProps = useAnimatedProps(() => ({ x: frame.value.sheenX }));
-
-  return (
-    <Svg width={size} height={size} viewBox={`0 0 ${CELL} ${CELL}`}>
-      <Defs>
-        <InkRamp id={inkId} />
-        <LinearGradient id={sheenId} x1="0" y1="0" x2="1" y2="0">
-          {SHEEN_STOPS.map((stop, index) => (
-            <Stop
-              key={index}
-              offset={stop.offset}
-              stopColor={stop.color}
-              stopOpacity={stop.opacity}
-            />
-          ))}
-        </LinearGradient>
-        <ClipPath id={clipId}>
-          <Path d={DIAMOND_PATH} />
-        </ClipPath>
-      </Defs>
-      <AnimatedEllipse
-        animatedProps={lensProps}
-        cx={CX}
-        cy={MID_Y}
-        fill={`url(#${inkId})`}
-      />
-      <Path d={DIAMOND_PATH} fill={`url(#${inkId})`} />
-      <AnimatedRect
-        animatedProps={sheenProps}
-        y={0}
-        width={SHEEN_WIDTH}
-        height={CELL}
-        fill={`url(#${sheenId})`}
-        clipPath={`url(#${clipId})`}
-      />
-    </Svg>
-  );
-}
 
 export function StellaMarkIndicator({
   active,
   size = DEFAULT_SIZE,
   mode = "dots",
 }: {
+  /** True while a run is in flight — the mark runs the thinking bounce. */
   active: boolean;
   size?: number;
+  /** `star` holds the resting mark while a label carries the meaning. */
   mode?: StellaMarkMode;
 }) {
   const reduceMotion = useReducedMotion();
   const appVisible = useAppVisible();
+  // Gradient ids are per-instance: two indicators sharing an id make the second
+  // resolve against the first one's gradient (see StellaMark.tsx).
   const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
-  const pxPerUnit = size / CELL;
 
-  const spinning = active && mode === "dots";
-  const morphTarget = spinning ? 0 : 1;
+  const layout = useMemo(() => stellaMarkLayout(size), [size]);
+  const { dotPx, sideDotPx, pxPerUnit, spreadPx, zoom } = layout;
 
-  // Per-instance phase so two indicators on screen at once don't spin in
-  // lockstep and read as one mechanism.
-  const phase = useMemo(() => Math.random() * TRAVEL_MS, []);
-  const morph = useSharedValue(morphTarget);
-  const dotState = useSharedValue<number[]>(makeDotState());
-  const frame = useSharedValue<SpinnerFrame>(
-    computeSpinnerFrame(0, 0, morphTarget, true, makeDotState()),
-  );
+  /** Linear millisecond ramp; every periodic term derives from it. */
+  const clock = useSharedValue(0);
+  /** Linear 0..1 morph ramp — the spring shape is applied in the worklets. */
+  const morphT = useSharedValue(0);
 
   const [running, setRunning] = useState(() =>
     shouldRunContinuousAnimation({
-      logicalActive: spinning,
+      logicalActive: active,
       appVisible,
       reducedMotion: reduceMotion,
     }),
   );
 
   useEffect(() => {
+    cancelAnimation(clock);
     if (reduceMotion) {
-      morph.value = morphTarget;
+      // Park static: the resting star, no breathe, no bounce.
+      clock.value = 0;
       return;
     }
-    morph.value = withTiming(morphTarget, {
-      duration: MORPH_MS,
-      easing: Easing.inOut(Easing.cubic),
-    });
-  }, [morph, morphTarget, reduceMotion]);
+    if (!running) return;
+    clock.value = 0;
+    clock.value = withRepeat(
+      withTiming(CLOCK_SPAN_MS, {
+        duration: CLOCK_SPAN_MS,
+        easing: Easing.linear,
+      }),
+      -1,
+      false,
+    );
+    return () => cancelAnimation(clock);
+  }, [clock, reduceMotion, running]);
 
-  // The desktop rig suspends on window blur; this is its counterpart. A phone
-  // in a pocket with a task still running kept the UI-thread frame callback
-  // alive for pixels nobody could see.
+  useEffect(() => {
+    cancelAnimation(morphT);
+    if (reduceMotion) {
+      // Reduced motion never leaves the resting star — the dots are the motion.
+      morphT.value = 0;
+      return;
+    }
+    morphT.value = withTiming(active && mode === "dots" ? 1 : 0, {
+      duration: MORPH_MS,
+      easing: Easing.linear,
+    });
+    return () => cancelAnimation(morphT);
+  }, [active, mode, morphT, reduceMotion]);
+
+  // The desktop rig suspends on window blur; this is its counterpart.
   useEffect(() => {
     if (reduceMotion || !appVisible) {
       setRunning(false);
       return;
     }
-    if (spinning) {
+    if (active) {
       setRunning(true);
       return;
     }
-    const timer = setTimeout(
-      () => setRunning(false),
-      MORPH_MS + STOP_GRACE_MS,
-    );
+    const timer = setTimeout(() => setRunning(false), MORPH_MS + STOP_GRACE_MS);
     return () => clearTimeout(timer);
-  }, [appVisible, reduceMotion, spinning]);
+  }, [active, appVisible, reduceMotion]);
 
-  // A stopped mark still has to show something, so park it on a settled frame
-  // rather than leaving whatever pose the last tick happened to write.
-  useEffect(() => {
-    if (running) return;
-    const parked = makeDotState();
-    frame.value = computeSpinnerFrame(
-      0,
-      0,
-      reduceMotion ? morphTarget : 1,
-      true,
-      parked,
-    );
-    dotState.value = parked;
-  }, [dotState, frame, morphTarget, reduceMotion, running]);
+  /** Critically damped 0..1 morph envelope, shared by every layer below. */
+  const envelope = useDerivedValue(() => morphEnvelope(morphT.value));
 
-  const frameCallback = useFrameCallback((info) => {
-    const now = info.timeSinceFirstFrame + phase;
-    const dtSec = Math.min(
-      (info.timeSincePreviousFrame ?? 0) / 1000,
-      FRAME_DT_CAP,
-    );
-    const state = dotState.value;
-    frame.value = computeSpinnerFrame(now, dtSec, morph.value, false, state);
-    dotState.value = state;
-  }, false);
+  // The stage only breathes. The dots state carries its zoom in the pixel sizes
+  // `layout.ts` hands out, so nothing is left resampled once the morph settles.
+  const stageStyle = useAnimatedStyle(() => {
+    const env = envelope.value;
+    const breathe =
+      1 +
+      BREATHE_AMPLITUDE *
+        Math.sin((clock.value / BREATHE_MS) * 2 * Math.PI) *
+        (1 - env);
+    return { transform: [{ scale: breathe }] };
+  });
 
-  useEffect(() => {
-    frameCallback.setActive(running);
-  }, [frameCallback, running]);
-
-  const zoomPivot = (ZOOM_PIVOT_Y - CELL / 2) * pxPerUnit;
-  const leanPivot = (TIP_Y - CELL / 2) * pxPerUnit;
-
-  const stageStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateY: zoomPivot },
-      { scale: frame.value.zoom },
-      { translateY: -zoomPivot },
-    ],
-  }));
-
-  const travelStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: frame.value.tx * pxPerUnit },
-      { translateY: frame.value.ty * pxPerUnit },
-    ],
-  }));
-
-  const bodyStyle = useAnimatedStyle(() => {
-    const f = frame.value;
+  // The character, full size. It shrinks toward the middle dot's box and hands
+  // over to it, so the two are one shape crossing the morph rather than two.
+  const starStyle = useAnimatedStyle(() => {
+    const env = envelope.value;
+    const wave = dotWave(1, clock.value);
     return {
-      opacity: f.bodyOpacity,
+      opacity: (1 - env) * (1 - (1 - wave.opacity) * env),
       transform: [
-        { translateY: leanPivot },
-        { rotate: `${f.lean}deg` },
-        { scaleY: f.bodySy },
-        { translateY: -leanPivot },
+        { translateY: -wave.liftUnits * pxPerUnit * zoom * env },
+        { scale: morphShrink(env, zoom) * (1 + (wave.scale - 1) * env) },
       ],
     };
   });
 
-  const blobStyle = useAnimatedStyle(() => {
-    const f = frame.value;
+  // Middle slot (index 1): the orb the character becomes, drawn at dot size.
+  const middleStyle = useAnimatedStyle(() => {
+    const env = envelope.value;
+    const wave = dotWave(1, clock.value);
     return {
-      opacity: f.blobOpacity,
+      opacity: env * (1 - (1 - wave.opacity) * env),
       transform: [
-        { translateY: f.blobY * pxPerUnit },
-        { scale: f.blobScale },
+        { translateY: -wave.liftUnits * pxPerUnit * zoom * env },
+        { scale: middleDotScale(env, layout) * (1 + (wave.scale - 1) * env) },
+      ],
+    };
+  });
+
+  const leftStyle = useAnimatedStyle(() => {
+    const env = envelope.value;
+    const wave = dotWave(0, clock.value);
+    const entrance = dotEntrance(0, env);
+    return {
+      opacity: wave.opacity * easeOutCubic(entrance),
+      transform: [
+        { translateX: -spreadPx * easeOutBack(entrance) },
+        { translateY: -wave.liftUnits * pxPerUnit * zoom * env },
+        { scale: sideDotScale(env, zoom) * wave.scale },
+      ],
+    };
+  });
+
+  const rightStyle = useAnimatedStyle(() => {
+    const env = envelope.value;
+    const wave = dotWave(2, clock.value);
+    const entrance = dotEntrance(2, env);
+    return {
+      opacity: wave.opacity * easeOutCubic(entrance),
+      transform: [
+        { translateX: spreadPx * easeOutBack(entrance) },
+        { translateY: -wave.liftUnits * pxPerUnit * zoom * env },
+        { scale: sideDotScale(env, zoom) * wave.scale },
       ],
     };
   });
@@ -353,34 +230,58 @@ export function StellaMarkIndicator({
     () => [styles.viewport, { width: size, height: size }],
     [size],
   );
+  const dotBox = useMemo(
+    () => ({
+      height: dotPx,
+      left: (size - dotPx) / 2,
+      position: "absolute" as const,
+      top: (size - dotPx) / 2,
+      width: dotPx,
+    }),
+    [dotPx, size],
+  );
+  const sideDotBox = useMemo(
+    () => ({
+      height: sideDotPx,
+      left: (size - sideDotPx) / 2,
+      position: "absolute" as const,
+      top: (size - sideDotPx) / 2,
+      width: sideDotPx,
+    }),
+    [sideDotPx, size],
+  );
 
   return (
     <View style={viewport} pointerEvents="none">
       <Animated.View style={[styles.stage, stageStyle]}>
-        <OrbitDotLayer
-          frame={frame}
-          size={size}
-          gradientId={`${uid}-dot-back`}
-          behind
-        />
-        <Animated.View style={[styles.layer, travelStyle]}>
-          <Animated.View style={[styles.layer, bodyStyle]}>
-            <SpinnerBody frame={frame} size={size} uid={uid} />
-          </Animated.View>
-          <Animated.View style={[styles.layer, blobStyle]}>
-            <MarkLayer
-              d={STELLA_STAR_PATH}
-              size={size}
-              gradientId={`${uid}-blob`}
-            />
-          </Animated.View>
+        <Animated.View style={[sideDotBox, leftStyle]}>
+          <MarkLayer
+            d={STELLA_ORB_PATH}
+            size={sideDotPx}
+            gradientId={`${uid}-left`}
+          />
         </Animated.View>
-        <OrbitDotLayer
-          frame={frame}
-          size={size}
-          gradientId={`${uid}-dot-front`}
-          behind={false}
-        />
+        <Animated.View style={[sideDotBox, rightStyle]}>
+          <MarkLayer
+            d={STELLA_ORB_PATH}
+            size={sideDotPx}
+            gradientId={`${uid}-right`}
+          />
+        </Animated.View>
+        <Animated.View style={[styles.layer, starStyle]}>
+          <MarkLayer
+            d={STELLA_STAR_PATH}
+            size={size}
+            gradientId={`${uid}-star`}
+          />
+        </Animated.View>
+        <Animated.View style={[dotBox, middleStyle]}>
+          <MarkLayer
+            d={STELLA_ORB_PATH}
+            size={dotPx}
+            gradientId={`${uid}-orb`}
+          />
+        </Animated.View>
       </Animated.View>
     </View>
   );
@@ -389,9 +290,5 @@ export function StellaMarkIndicator({
 const styles = StyleSheet.create({
   layer: { ...StyleSheet.absoluteFillObject },
   stage: { ...StyleSheet.absoluteFillObject },
-  viewport: {
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "visible",
-  },
+  viewport: { alignItems: "center", justifyContent: "center" },
 });

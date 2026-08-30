@@ -881,6 +881,10 @@ export function useChatThread(opts: {
       };
 
       const attachmentPaths = item.attachments.map((entry) => entry.path);
+      const placementAttachments = item.attachments.map((entry) => ({
+        path: entry.path,
+        kind: entry.kind,
+      }));
 
       try {
         assertAuthorityLease();
@@ -917,7 +921,7 @@ export function useChatThread(opts: {
                 dispatchId: item.dispatchId,
                 conversationId: placementConversationId,
                 prompt: withAttachmentPreamble(item.text, attachmentPaths),
-                attachments: attachmentPaths,
+                attachments: placementAttachments,
               }),
               ...(access ? { access } : {}),
             });

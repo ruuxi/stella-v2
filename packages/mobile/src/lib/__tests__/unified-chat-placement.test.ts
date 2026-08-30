@@ -59,6 +59,46 @@ describe("the one chat's placement offer", () => {
     expect("desktopDeviceId" in admission.body).toBe(false);
   });
 
+  test("still offers the computer an image, which either placement can read", () => {
+    const admission = buildAutomaticExecutionAdmission(
+      unifiedChatPlacementAdmission({
+        dispatchId: "mobile:00000000000000002:one-chat",
+        conversationId: "conv:one-chat",
+        prompt: "what is this",
+        attachments: [{ path: "uploads/2026-08-29/receipt.png", kind: "image" }],
+      }),
+    );
+    expect(admission.body.subject).toBe("computer");
+    expect(admission.body.requiredCapabilities).toEqual([
+      "chat",
+      "attachments",
+    ]);
+    expect(JSON.parse(admission.body.payloadJson).attachments).toEqual([
+      "uploads/2026-08-29/receipt.png",
+    ]);
+  });
+
+  test("names the hosted subject for a document, which only the cloud can open", () => {
+    const admission = buildAutomaticExecutionAdmission(
+      unifiedChatPlacementAdmission({
+        dispatchId: "mobile:00000000000000003:one-chat",
+        conversationId: "conv:one-chat",
+        prompt: "is this rent legal",
+        attachments: [
+          { path: "uploads/2026-08-29/receipt.png", kind: "image" },
+          { path: "uploads/2026-08-29/lease.pdf", kind: "file" },
+        ],
+      }),
+    );
+    expect(admission.body.subject).toBe("cloud");
+    // The envelope is unchanged: both placements would read the same paths.
+    // Only the destination differs, and the user never sees it.
+    expect(JSON.parse(admission.body.payloadJson).attachments).toEqual([
+      "uploads/2026-08-29/receipt.png",
+      "uploads/2026-08-29/lease.pdf",
+    ]);
+  });
+
   test("falls back to cloud on the same dispatch when no computer claims it", async () => {
     const { terminal, statusTexts, observedDispatchIds } =
       await observePlacement([

@@ -25,7 +25,8 @@ export type ExecutionCapability =
   | "agent"
   | "computer-use"
   | "local-files"
-  | "local-apps";
+  | "local-apps"
+  | "attachments";
 
 export type ExecutionDispatchState =
   | "queued"

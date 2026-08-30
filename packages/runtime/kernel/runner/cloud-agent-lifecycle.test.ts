@@ -36,6 +36,41 @@ const thread = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("cloud agent lifecycle monitor", () => {
+  test("does not query account-only lifecycle state for anonymous sessions", async () => {
+    let connected = false;
+    let queries = 0;
+    const monitor = trackMonitor(createCloudAgentLifecycleMonitor({
+      convexApi: {
+        cloud_apps: {
+          listMyDeviceAgentThreads: "list",
+          acknowledgeMyDeviceAgentThreadDelivery: "ack",
+        },
+        execution_placement: {
+          getMyExecutionPlacementIdentity: "identity",
+        },
+      },
+      deviceId: "device-1",
+      subscribeQuery: () => () => {},
+      query: async () => {
+        queries += 1;
+        return { ownerGeneration: OWNER_GENERATION };
+      },
+      mutation: async () => ({}),
+      canStart: () => connected,
+      hasDurableLifecycleEvent: () => false,
+      onLifecycleEvent: () => {},
+    }));
+
+    monitor.start();
+    await flush();
+    expect(queries).toBe(0);
+
+    connected = true;
+    monitor.start();
+    await flush();
+    expect(queries).toBe(1);
+  });
+
   test("ignores running rows, routes terminal delivery, and acknowledges it", async () => {
     let update: (value: unknown) => void = () => {
       throw new Error("subscription did not start");

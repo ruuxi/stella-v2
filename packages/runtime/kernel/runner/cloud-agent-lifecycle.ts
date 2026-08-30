@@ -32,6 +32,8 @@ type CloudAgentLifecycleMonitorOptions = {
   onLifecycleEvent: (event: AgentLifecycleEvent) => void | Promise<void>;
   /** Persist exact control authority before a terminal row can be ACKed. */
   onControlReceipt?: (row: CloudAgentThreadRow) => void | Promise<void>;
+  /** Account-only subscriptions must stay dormant for anonymous sessions. */
+  canStart?: () => boolean;
   retryDelayMs?: number;
 };
 
@@ -289,7 +291,7 @@ export const createCloudAgentLifecycleMonitor = (
   };
 
   const scheduleRestart = () => {
-    if (stopped || restartCancel) return;
+    if (stopped || restartCancel || options.canStart?.() === false) return;
     restartCancel = forkDelayedCall(
       options.retryDelayMs ?? RETRY_DELAY_MS,
       () => {
@@ -300,6 +302,10 @@ export const createCloudAgentLifecycleMonitor = (
   };
 
   const start = () => {
+    if (options.canStart?.() === false) {
+      stop();
+      return;
+    }
     stopped = false;
     const startEpoch = ++epoch;
     unsubscribe?.();

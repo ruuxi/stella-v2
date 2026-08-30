@@ -188,6 +188,10 @@ export const createStellaHostRunner = (
       resumeComputerAgentCloudRecords();
     },
   });
+  const setHasConnectedAccount = (value: boolean) => {
+    convexSession.setHasConnectedAccount(value);
+    restartCloudAgentLifecycle();
+  };
   if (options.requestRuntimeAuthRefresh) {
     context.requestRuntimeAuthRefresh = async (payload) => {
       const result = await options.requestRuntimeAuthRefresh?.(payload);
@@ -195,7 +199,7 @@ export const createStellaHostRunner = (
         convexSession.setAuthToken(result.token);
       }
       if (result) {
-        convexSession.setHasConnectedAccount(result.hasConnectedAccount);
+        setHasConnectedAccount(result.hasConnectedAccount);
       }
       return (
         result ?? {
@@ -439,6 +443,9 @@ export const createStellaHostRunner = (
         }
       ).mutation(ref, args);
     },
+    canStart: () =>
+      context.state.hasConnectedAccount === true &&
+      Boolean(context.state.authToken?.trim()),
     hasDurableLifecycleEvent:
       taskOrchestration.hasDurableExternalLifecycleEvent,
     onLifecycleEvent: taskOrchestration.handleExternalAgentLifecycleEvent,
@@ -463,6 +470,13 @@ export const createStellaHostRunner = (
     },
   });
   restartCloudAgentLifecycle = () => {
+    if (
+      context.state.hasConnectedAccount !== true ||
+      !context.state.authToken?.trim()
+    ) {
+      cloudAgentLifecycle.stop();
+      return;
+    }
     queueMicrotask(() => cloudAgentLifecycle.start());
   };
   restartCloudAgentLifecycle();
@@ -556,7 +570,7 @@ export const createStellaHostRunner = (
     setAuthToken: (value) => {
       convexSession.setAuthToken(value);
     },
-    setHasConnectedAccount: convexSession.setHasConnectedAccount,
+    setHasConnectedAccount,
     setCloudSyncEnabled: convexSession.setCloudSyncEnabled,
     setModelCatalogUpdatedAt: convexSession.setModelCatalogUpdatedAt,
     start: runtimeInitialization.start,

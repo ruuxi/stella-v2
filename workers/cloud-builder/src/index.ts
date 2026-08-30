@@ -11190,6 +11190,7 @@ export default {
       /^\/conversations\/([^/]+)\/local-turns\/(begin|finish)$/,
     );
     if (request.method === "POST" && localTurnMatch) {
+      const timingStartedAt = performance.now();
       const auth = await authenticateConversationCaller(
         request,
         env,
@@ -11197,13 +11198,24 @@ export default {
         requestId,
       );
       if (!auth.ok) return auth.response;
-      return await forwardToConversation(
+      const authMs = Math.round(performance.now() - timingStartedAt);
+      const forwardStartedAt = performance.now();
+      const response = await forwardToConversation(
         request,
         env,
         conversationName(localTurnMatch[1]!),
         `/local-turns/${localTurnMatch[2]!}`,
         auth.caller,
       );
+      log("info", "conversation_local_turn_request_timing", {
+        requestId,
+        operation: localTurnMatch[2]!,
+        status: response.status,
+        authMs,
+        durableObjectMs: Math.round(performance.now() - forwardStartedAt),
+        totalMs: Math.round(performance.now() - timingStartedAt),
+      });
+      return response;
     }
     if (url.pathname.startsWith("/cloud-home/")) {
       const auth = await authenticateConversationCaller(

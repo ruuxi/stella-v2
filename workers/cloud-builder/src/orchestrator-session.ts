@@ -6012,6 +6012,14 @@ export class OrchestratorSession extends DurableObject<Env> {
   }
 
   private async handleLocalTurnBegin(request: Request): Promise<Response> {
+    const timingStartedAt = performance.now();
+    let timingCheckpointAt = timingStartedAt;
+    const timings: Record<string, number> = {};
+    const markTiming = (phase: string): void => {
+      const now = performance.now();
+      timings[phase] = Math.round(now - timingCheckpointAt);
+      timingCheckpointAt = now;
+    };
     let body: {
       deviceId?: string;
       expectedOwnerGeneration?: string;
@@ -6026,6 +6034,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     } catch {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
+    markTiming("parseMs");
     if (body.renewOnly === true) {
       const renewal = parseLocalTurnRenewal(body);
       if (!renewal) {
@@ -6064,6 +6073,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       expectedOwnerGeneration,
     );
     if (owner instanceof Response) return owner;
+    markTiming("ownerLookupMs");
     const userMessageJson = body.userMessageJson ?? "";
     if (
       !userMessageJson ||
@@ -6148,6 +6158,7 @@ export class OrchestratorSession extends DurableObject<Env> {
 
     const existing =
       await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+    markTiming("preflightMs");
     if (existing) {
       if (existing.ownerGeneration !== expectedOwnerGeneration) {
         return staleOwnerGenerationResponse();
@@ -6315,6 +6326,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         false,
         beginFingerprint,
       );
+      markTiming("ownerFenceRegisterMs");
     } catch (error) {
       if (error instanceof OwnerFenceLeaseConflictError) {
         return json(
@@ -6411,6 +6423,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       }
       acquired = true;
     });
+    markTiming("leaseAcquireMs");
     if (!acquired) {
       await this.unregisterOwnerTurn(lease);
       if (racedClientReplay === "conflict") {
@@ -6448,6 +6461,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         userMessage,
         userMessageJson,
       );
+      markTiming("initializeMs");
       await this.assertOwnerTurn(lease);
       const finalLease =
         await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
@@ -6460,6 +6474,13 @@ export class OrchestratorSession extends DurableObject<Env> {
       ) {
         throw new OwnerPurgeFenceError();
       }
+      markTiming("finalFenceMs");
+      log("info", "conversation_local_turn_begin_timing", {
+        turnId,
+        replayed: false,
+        ...timings,
+        totalMs: Math.round(performance.now() - timingStartedAt),
+      });
       return json({
         turnId,
         leaseToken: lease.leaseToken,

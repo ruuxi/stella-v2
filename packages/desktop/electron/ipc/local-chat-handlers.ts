@@ -531,43 +531,4 @@ export const registerLocalChatHandlers = (
       ),
   );
 
-  ipcMain.handle(
-    "localChat:getSyncCheckpoint",
-    async (
-      event,
-      payload: {
-        conversationId?: string;
-      },
-    ) =>
-      await withLocalChatClient(
-        options,
-        event,
-        "localChat:getSyncCheckpoint",
-        (client) =>
-          client.getSyncCheckpoint({
-            conversationId: payload?.conversationId ?? "",
-          }),
-      ),
-  );
-
-  ipcMain.handle(
-    "localChat:setSyncCheckpoint",
-    async (
-      event,
-      payload: {
-        conversationId?: string;
-        localMessageId?: string;
-      },
-    ) =>
-      await withLocalChatClient(
-        options,
-        event,
-        "localChat:setSyncCheckpoint",
-        (client) =>
-          client.setSyncCheckpoint({
-            conversationId: payload?.conversationId ?? "",
-            localMessageId: payload?.localMessageId ?? "",
-          }),
-      ),
-  );
 };

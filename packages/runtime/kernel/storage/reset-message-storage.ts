@@ -5,6 +5,9 @@ const SQLITE_BASENAMES = [
   "stella.sqlite",
   "stella.sqlite-shm",
   "stella.sqlite-wal",
+  "stella-runs.sqlite",
+  "stella-runs.sqlite-shm",
+  "stella-runs.sqlite-wal",
 ] as const;
 
 export const resetMessageStorage = async (stellaDataDir: string): Promise<void> => {

@@ -1595,15 +1595,8 @@
         "unreadAriaLabel": "{label}, {count} non lus"
       },
       "feedback": {
-        "title": {
-          "manual": "Envoyer un avis",
-          "auto": "Comment ça se passe avec Stella ?"
-        },
-        "description": {
-          "manual": "Votre message est envoyé anonymement — il n’est pas lié à votre compte.",
-          "auto": "Quelque chose à nous signaler ? Envoyé anonymement — non lié à votre compte."
-        },
-        "notNow": "Pas maintenant",
+        "title": "Envoyer un avis",
+        "description": "Votre message est envoyé anonymement — il n’est pas lié à votre compte.",
         "fieldLabel": "Avis",
         "placeholder": "Dites-nous ce qui marche, ce qui ne marche pas, ou ce que vous aimeriez voir…",
         "send": "Envoyer",

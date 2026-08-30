@@ -1579,15 +1579,8 @@
         "unreadAriaLabel": "{label}, {count} unread"
       },
       "feedback": {
-        "title": {
-          "manual": "Send feedback",
-          "auto": "How's Stella going?"
-        },
-        "description": {
-          "manual": "Your message is sent anonymously — it isn't linked to your account.",
-          "auto": "Anything we should know? Sent anonymously — not linked to your account."
-        },
-        "notNow": "Not now",
+        "title": "Send feedback",
+        "description": "Your message is sent anonymously — it isn't linked to your account.",
         "fieldLabel": "Feedback",
         "placeholder": "Tell us what's working, what isn't, or what you'd love to see…",
         "send": "Send",

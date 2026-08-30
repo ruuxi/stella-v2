@@ -20,7 +20,6 @@ import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state"
 import { useCurrentUser } from "@/global/auth/hooks/use-current-user";
 import { useNickname } from "@/global/auth/hooks/use-nickname";
 import { secureSignOut } from "@/global/auth/services/auth";
-import { feedbackDialog } from "@/shell/sidebar-sections/feedback-dialog-store";
 import { Button } from "@/ui/button";
 import {
   Dialog,
@@ -38,7 +37,6 @@ import {
 } from "@/ui/dropdown-menu";
 import { CustomLogIn as LogIn } from "@/ui/nav-icons";
 import { useSettingsMenu } from "@/shell/topbar/use-settings-menu";
-import { useFeedbackPrompt } from "./use-feedback-prompt";
 import "./topbar-nav.css";
 import "./account-dialogs.css";
 
@@ -85,17 +83,6 @@ export const ShellTopBarAccount = ({ onSignIn }: ShellTopBarAccountProps) => {
     email: convexUser?.email ?? sessionUser?.email ?? undefined,
     name: convexUser?.name ?? sessionUser?.name ?? undefined,
   };
-
-  const {
-    shouldPrompt: shouldAutoPromptFeedback,
-    acknowledge: acknowledgeFeedbackPrompt,
-  } = useFeedbackPrompt();
-
-  useEffect(() => {
-    if (!shouldAutoPromptFeedback) return;
-    feedbackDialog.open();
-    acknowledgeFeedbackPrompt();
-  }, [shouldAutoPromptFeedback, acknowledgeFeedbackPrompt]);
 
   const [billingQueryReady, setBillingQueryReady] = useState(false);
   useEffect(() => {

@@ -1579,15 +1579,8 @@
         "unreadAriaLabel": "{label}, {count} uleste"
       },
       "feedback": {
-        "title": {
-          "manual": "Send tilbakemelding",
-          "auto": "Hvordan går det med Stella?"
-        },
-        "description": {
-          "manual": "Meldingen din sendes anonymt – den knyttes ikke til kontoen din.",
-          "auto": "Er det noe vi bør vite? Sendes anonymt – ikke knyttet til kontoen din."
-        },
-        "notNow": "Ikke nå",
+        "title": "Send tilbakemelding",
+        "description": "Meldingen din sendes anonymt – den knyttes ikke til kontoen din.",
         "fieldLabel": "Tilbakemelding",
         "placeholder": "Fortell oss hva som fungerer, hva som ikke gjør det, eller hva du gjerne vil se…",
         "send": "Send",

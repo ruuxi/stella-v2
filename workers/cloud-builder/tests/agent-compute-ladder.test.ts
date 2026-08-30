@@ -5,6 +5,7 @@ import {
   parsePersistedAgentCompute,
   SandboxOutOfMemoryError,
   type AgentComputeStore,
+  type AgentWorldLeaseHooks,
   type AttachBoot,
   type PersistedAgentCompute,
   type SandboxAttachment,
@@ -32,6 +33,7 @@ const OK: SerializedAgentToolResult = {
 type Journal = {
   readonly phases: string[];
   readonly calls: string[];
+  readonly records: PersistedAgentCompute[];
 };
 
 const harness = (
@@ -40,9 +42,11 @@ const harness = (
     callTool?: (request: AttachedToolRequest) => Promise<AttachedToolResponse>;
     notices?: readonly string[];
     producedFiles?: readonly { path: string; kind: { type: "add" } }[];
+    worldLease?: boolean;
+    retireWorldLease?: AgentWorldLeaseHooks["retire"];
   } = {},
 ) => {
-  const journal: Journal = { phases: [], calls: [] };
+  const journal: Journal = { phases: [], calls: [], records: [] };
   const events: Array<{ kind: string; payload: unknown }> = [];
   let persisted: PersistedAgentCompute | null = null;
 
@@ -51,6 +55,7 @@ const harness = (
     write: async (record) => {
       persisted = record;
       journal.phases.push(record.phase);
+      journal.records.push(structuredClone(record));
     },
   };
 
@@ -90,12 +95,31 @@ const harness = (
   };
 
   const cancellation = createTurnRetryCancellation();
+  const worldLease: AgentWorldLeaseHooks | undefined = options.worldLease
+    ? {
+        leaseId: "world-turn-1-1",
+        acquire: async (identity) => {
+          expect(identity.role).toBe("world");
+          journal.calls.push(`lease:acquire:${identity.leaseId}`);
+          return { generation: "lease-generation-1", expiresAt: 31_000 };
+        },
+        renew: async (identity) => {
+          journal.calls.push(`lease:renew:${identity.leaseId}`);
+          return { expiresAt: 61_000 };
+        },
+        retire: async (identity) => {
+          journal.calls.push(`lease:retire:${identity.leaseId}`);
+          await options.retireWorldLease?.(identity);
+        },
+      }
+    : undefined;
   const ladder = createAgentComputeLadder({
     ...IDENTITY,
     sandboxId: SANDBOX_ID,
     initialInstanceSize: "small",
     store,
     attachment,
+    worldLease,
     context: {
       cancellation,
       signal: AbortSignal.timeout(30_000),
@@ -156,6 +180,104 @@ describe("agent compute ladder", () => {
     expect(journal.calls.filter((entry) => entry.startsWith("boot:"))).toEqual([
       `boot:${SANDBOX_ID}:small`,
     ]);
+  });
+
+  test("the first attach acquires one exact durable world lease", async () => {
+    const { ladder, journal, record } = harness({ worldLease: true });
+
+    await Promise.all([
+      ladder.execute(call("call-1")),
+      ladder.execute(call("call-2")),
+      ladder.execute(call("call-3")),
+    ]);
+
+    expect(
+      journal.calls.filter((entry) => entry.startsWith("lease:acquire:")),
+    ).toEqual(["lease:acquire:world-turn-1-1"]);
+    expect(journal.records[0]).toMatchObject({
+      phase: "attaching",
+      sandboxId: SANDBOX_ID,
+      worldLease: {
+        leaseId: "world-turn-1-1",
+        phase: "registering",
+      },
+    });
+    expect(record()).toMatchObject({
+      schemaVersion: 2,
+      phase: "attached",
+      worldLease: {
+        leaseId: "world-turn-1-1",
+        phase: "registered",
+        generation: "lease-generation-1",
+      },
+    });
+    expect(record()?.worldLease?.expiresAt).toBeGreaterThanOrEqual(31_000);
+  });
+
+  test("a chat-only resident turn never acquires a world lease", async () => {
+    const { ladder, journal, record } = harness({ worldLease: true });
+
+    await ladder.quiesce();
+    await ladder.teardown();
+
+    expect(journal.calls.filter((entry) => entry.startsWith("lease:"))).toEqual(
+      [],
+    );
+    expect(record()).toBeNull();
+    expect(ladder.worldLease()).toBeNull();
+  });
+
+  test("renew updates the exact registered world lease", async () => {
+    const { ladder, journal, record } = harness({ worldLease: true });
+
+    await ladder.execute(call("call-1"));
+    await ladder.renewWorldLease();
+
+    expect(journal.calls).toContain("lease:renew:world-turn-1-1");
+    expect(record()?.worldLease).toEqual({
+      leaseId: "world-turn-1-1",
+      phase: "registered",
+      generation: "lease-generation-1",
+      expiresAt: 61_000,
+    });
+  });
+
+  test("teardown destroys before retiring and leaves no world lease", async () => {
+    const { ladder, journal, record } = harness({ worldLease: true });
+
+    await ladder.execute(call("call-1"));
+    await ladder.teardown();
+
+    const destroyAt = journal.calls.indexOf(`destroy:${SANDBOX_ID}`);
+    const retireAt = journal.calls.indexOf("lease:retire:world-turn-1-1");
+    expect(destroyAt).toBeGreaterThanOrEqual(0);
+    expect(retireAt).toBeGreaterThan(destroyAt);
+    expect(record()?.phase).toBe("quiesced");
+    expect(record()?.worldLease).toBeUndefined();
+    expect(ladder.worldLease()).toBeNull();
+  });
+
+  test("a failed retirement leaves durable unregister debt for retry", async () => {
+    let retires = 0;
+    const { ladder, record } = harness({
+      worldLease: true,
+      retireWorldLease: async () => {
+        retires += 1;
+        if (retires === 1) throw new Error("lost unregister response");
+      },
+    });
+
+    await ladder.execute(call("call-1"));
+    await expect(ladder.teardown()).rejects.toThrow("lost unregister response");
+    expect(record()?.worldLease).toMatchObject({
+      leaseId: "world-turn-1-1",
+      phase: "unregister_pending",
+      generation: "lease-generation-1",
+    });
+
+    await ladder.teardown();
+    expect(retires).toBe(2);
+    expect(record()?.worldLease).toBeUndefined();
   });
 
   test("attachment is sticky: later calls never boot again", async () => {
@@ -379,6 +501,45 @@ describe("persisted compute record", () => {
 
   test("reads back a record written by this attempt", () => {
     expect(parsePersistedAgentCompute(record, IDENTITY)).toEqual(record);
+  });
+
+  test("reads schema v2 with an exact world lease", () => {
+    const versionTwo: PersistedAgentCompute = {
+      schemaVersion: 2,
+      ...IDENTITY,
+      phase: "attached",
+      instanceSize: "small",
+      sandboxId: SANDBOX_ID,
+      attachReason: "process_tool",
+      worldLease: {
+        leaseId: "world-turn-1-1",
+        phase: "registered",
+        generation: "lease-generation-1",
+        expiresAt: 31_000,
+      },
+    };
+
+    expect(parsePersistedAgentCompute(versionTwo, IDENTITY)).toEqual(
+      versionTwo,
+    );
+  });
+
+  test("refuses a resident record that claims a world lease", () => {
+    expect(
+      parsePersistedAgentCompute(
+        {
+          schemaVersion: 2,
+          ...IDENTITY,
+          phase: "resident",
+          instanceSize: "small",
+          worldLease: {
+            leaseId: "world-turn-1-1",
+            phase: "registered",
+          },
+        },
+        IDENTITY,
+      ),
+    ).toBeNull();
   });
 
   test("refuses a record left by another attempt", () => {

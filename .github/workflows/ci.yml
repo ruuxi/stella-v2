@@ -229,6 +229,15 @@ jobs:
           - name: Apps Host worker
             script: apps-host
             test_name: Test worker
+          - name: Browser Gateway worker
+            script: browser-gateway
+            test_name: Test worker including Workerd acceptance
+          - name: Device Code fixture worker
+            script: device-code-fixture
+            test_name: Test worker including Workerd acceptance
+          - name: Canvas Share worker
+            script: canvas-share
+            test_name: Test worker including Workerd acceptance
     steps:
       - uses: actions/checkout@v4
 
@@ -251,6 +260,13 @@ jobs:
 
       - name: Typecheck worker
         run: bun run ${{ matrix.script }}:typecheck
+
+      - name: Check Worker promises are handled
+        run: bun run ${{ matrix.script }}:lint:promises
+
+      - name: Install Apps Host browser
+        if: matrix.script == 'apps-host'
+        run: cd workers/apps-host && bunx playwright install --with-deps chromium
 
       - name: ${{ matrix.test_name }}
         run: bun run ${{ matrix.script }}:test

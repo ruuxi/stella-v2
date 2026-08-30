@@ -21,6 +21,9 @@ Authorization lasts exactly five minutes. `consume` binds an approved grant to
 the Gateway interaction's `consumerId`; an exact retry receives the same
 approved result, while a different consumer receives `already_consumed`. It
 never creates or returns an access or refresh token.
+Creation stores the authorization and its expiry alarm in one Durable Object
+transaction. The alarm also stores the expired state and its cleanup alarm in
+one transaction, so neither durable state can exist without its required wakeup.
 The 256-bit `deviceCode` is returned only over the named service binding and is
 stored by this Worker only as a SHA-256 digest. It never appears in an HTTP URL,
 HTML page, log call, or public response.
@@ -45,3 +48,8 @@ transcript, the client, logs, and evidence never receive the private field.
 
 There is intentionally no dev or production configuration or deploy script.
 `bun run deploy:bn118` is the sole deployment target.
+
+Wrangler-generated binding declarations are committed in
+`worker-configuration.d.ts`; `bun run typecheck` fails if they drift. `bun run
+test:workerd` exercises approval, denial, status, exact-consumer replay,
+persisted restart, and alarm execution in the real local Workers runtime.

@@ -335,6 +335,14 @@ class FakeProductMagicLinkClient extends FakeExistingPrimaryRenderedClient {
   pendingClick = null;
   requestCount = 2;
   responseCount = 2;
+  requests = [
+    { urlSha256: sha256("request-before-1") },
+    { urlSha256: sha256("request-before-2") },
+  ];
+  responses = [
+    { urlSha256: sha256("response-before-1"), status: 200 },
+    { urlSha256: sha256("response-before-2"), status: 200 },
+  ];
   conversationId = "post-login-conversation";
 
   async evaluate(expression, label) {
@@ -354,10 +362,10 @@ class FakeProductMagicLinkClient extends FakeExistingPrimaryRenderedClient {
         exactOrigin: true,
         productOriginSha256: sha256("http://127.0.0.1:57314"),
         onboardingPersisted: true,
-        settingsAuthRoute: true,
+        productAuthDialogRoute: true,
         routeSha256: sha256("/settings?dialog=auth"),
+        authDialogModal: true,
         authDialogReady: true,
-        preChatSurfaceAbsent: true,
         crashSurfaceAbsent: true,
       };
     }
@@ -377,6 +385,7 @@ class FakeProductMagicLinkClient extends FakeExistingPrimaryRenderedClient {
       label.includes("product magic-link form")
     )
       return this.dialogOpen;
+    if (label?.includes("enabled product magic-link submit")) return true;
     if (label?.startsWith("open ")) {
       this.pendingClick = "open";
       return { x: 10, y: 10 };
@@ -475,6 +484,11 @@ class FakeProductMagicLinkClient extends FakeExistingPrimaryRenderedClient {
         this.sent = true;
         this.requestCount += 1;
         this.responseCount += 1;
+        const urlSha256 = sha256(
+          `${REQUIRED_CONVEX.siteUrl}/api/auth/link/send`,
+        );
+        this.requests.push({ urlSha256 });
+        this.responses.push({ urlSha256, status: 200 });
       }
       this.pendingClick = null;
     }
@@ -951,9 +965,9 @@ describe("hash-only CDP transport evidence", () => {
       productDomDriven: true,
       externalCompletionRequired: true,
       onboardingPersistenceVerified: true,
-      settingsAuthRouteVerified: true,
+      productAuthDialogRouteVerified: true,
+      authDialogModalVerified: true,
       authDialogReady: true,
-      preChatSurfaceAbsent: true,
       crashSurfaceAbsent: true,
       credentialMaterialReturned: false,
     });

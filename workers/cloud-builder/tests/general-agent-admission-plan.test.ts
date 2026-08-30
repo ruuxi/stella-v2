@@ -4,6 +4,7 @@ import {
   parseTurnComputePlan,
   turnComputePlanKey,
 } from "../src/general-agent-turn.js";
+import { sandboxLifecycleId } from "../src/sandbox-lifecycle.js";
 
 mock.module("cloudflare:workers", () => ({
   DurableObject: class {},
@@ -13,6 +14,7 @@ mock.module("cloudflare:workers", () => ({
 mock.module("@cloudflare/sandbox", () => ({
   getSandbox: () => ({}),
   Sandbox: class {},
+  ContainerProxy: class {},
 }));
 const { BuildSession } = await import("../src/index.js");
 mock.restore();
@@ -138,6 +140,17 @@ const admit = async (
   return await accept.call(harness.instance, turn);
 };
 
+const expectedSandboxId = async (
+  turn: ReturnType<typeof agentTurn>,
+): Promise<string> =>
+  await sandboxLifecycleId("agent", {
+    ownerId: turn.ownerId,
+    ownerGeneration: turn.ownerGeneration,
+    turnId: turn.turnId,
+    turnToken: turn.turnToken,
+    attemptGeneration: turn.attemptGeneration,
+  });
+
 const storedPlan = (
   harness: ReturnType<typeof admissionHarness>,
   turnId: string,
@@ -165,10 +178,11 @@ describe("agent turn admission records its placement", () => {
 
   test("the kill switch demotes a stella turn to the container path", async () => {
     const harness = admissionHarness({ RESIDENT_GENERAL_AGENT_TURNS: "0" });
+    const turn = agentTurn();
 
-    await admit(harness, agentTurn());
+    await admit(harness, turn);
 
-    expect(harness.values.get("sandboxId")).toBe("agent-turn-1");
+    expect(harness.values.get("sandboxId")).toBe(await expectedSandboxId(turn));
     expect(storedPlan(harness, "turn-1", 1)).toMatchObject({
       plan: { kind: "native_sandbox", reason: "resident_disabled" },
       residentDisabled: true,
@@ -177,15 +191,16 @@ describe("agent turn admission records its placement", () => {
 
   test("a native engine records native placement whatever the switch says", async () => {
     const harness = admissionHarness({ RESIDENT_GENERAL_AGENT_TURNS: "1" });
+    const turn = agentTurn({ execution: ANTHROPIC });
 
-    await admit(harness, agentTurn({ execution: ANTHROPIC }));
+    await admit(harness, turn);
 
     expect(storedPlan(harness, "turn-1", 1)).toMatchObject({
       plan: { kind: "native_sandbox", reason: "native_engine" },
       engine: "anthropic",
       residentDisabled: false,
     });
-    expect(harness.values.get("sandboxId")).toBe("agent-turn-1");
+    expect(harness.values.get("sandboxId")).toBe(await expectedSandboxId(turn));
   });
 
   test("a resident placement reserves no container at admission", async () => {
@@ -211,10 +226,8 @@ describe("agent turn admission records its placement", () => {
 
     await admit(harness, turn);
 
-    expect(
-      harness.values.get(turnComputePlanKey("turn-1", 1)),
-    ).toBeUndefined();
-    expect(harness.values.get("sandboxId")).toBe("agent-turn-1");
+    expect(harness.values.get(turnComputePlanKey("turn-1", 1))).toBeUndefined();
+    expect(harness.values.get("sandboxId")).toBe(await expectedSandboxId(turn));
   });
 
   test("a stored plan pairing stella with native_engine is not trusted", async () => {

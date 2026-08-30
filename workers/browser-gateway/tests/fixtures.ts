@@ -90,6 +90,7 @@ export class FakeBrowser implements BrowserBackend {
   currentPolicy: string | undefined;
   activeHandoff = true;
   verificationResult = true;
+  closeFailuresRemaining = 0;
   currentUrl = "https://app.example/";
   readonly storageMarker = "cookie-private-marker-do-not-expose";
 
@@ -194,6 +195,10 @@ export class FakeBrowser implements BrowserBackend {
     this.contextCloseCount += 1;
   }
   async closeRemote(_sessionId?: string): Promise<void> {
+    if (this.closeFailuresRemaining > 0) {
+      this.closeFailuresRemaining -= 1;
+      throw new Error("injected remote browser close failure");
+    }
     this.closeCount += 1;
     this.currentSession = undefined;
     this.currentPolicy = undefined;

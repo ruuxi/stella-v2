@@ -8,6 +8,7 @@ mock.module("cloudflare:workers", () => ({
 mock.module("@cloudflare/sandbox", () => ({
   getSandbox: () => ({}),
   Sandbox: class {},
+  ContainerProxy: class {},
 }));
 const { BuildSession } = await import("../src/index.js");
 mock.restore();
@@ -44,6 +45,13 @@ const methodBody = (name: string): string => {
 const APP_TURN_BODY = methodBody("runTurn");
 
 describe("app build lane", () => {
+  test("keeps remote authority I/O outside the concurrency gate", () => {
+    expect(APP_TURN_BODY).toContain("APP_TURN_ADMISSION_CLAIM_KEY");
+    expect(APP_TURN_BODY).toContain("assertTurnWritable");
+    expect(APP_TURN_BODY).toContain("assertConvexAppTurnAuthority");
+    expect(APP_TURN_BODY).not.toContain("blockConcurrencyWhile");
+  });
+
   test("never routes traffic to the build it just produced", () => {
     expect(APP_TURN_BODY).toContain("APP_BUILDS.put");
     expect(APP_TURN_BODY).toContain("callbackBody");

@@ -1,34 +1,46 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { allocateWorkerdInspectorPort } from "./helpers/workerd-test-port.ts";
 
 const port = 18_000 + Math.floor(Math.random() * 1_000);
-const child = spawn(
-  process.execPath,
-  [
-    "x",
-    "wrangler",
-    "dev",
-    "--config",
-    "tests/fixtures/cloud-code-workerd.wrangler.jsonc",
-    "--ip",
-    "127.0.0.1",
-    "--port",
-    String(port),
-    "--local",
-    "--show-interactive-dev-session=false",
-  ],
-  { cwd: new URL("..", import.meta.url), stdio: ["ignore", "pipe", "pipe"] },
+const persistencePath = await mkdtemp(
+  join(tmpdir(), "stella-cloud-code-workerd-"),
 );
-
+let child = null;
 let output = "";
-const observe = (chunk) => {
-  output += String(chunk);
-};
-child.stdout.on("data", observe);
-child.stderr.on("data", observe);
-
-const deadline = Date.now() + 30_000;
 try {
+  const inspectorPort = await allocateWorkerdInspectorPort();
+  child = spawn(
+    process.execPath,
+    [
+      "x",
+      "wrangler",
+      "dev",
+      "--config",
+      "tests/fixtures/cloud-code-workerd.wrangler.jsonc",
+      "--ip",
+      "127.0.0.1",
+      "--port",
+      String(port),
+      "--local",
+      "--persist-to",
+      persistencePath,
+      "--inspector-port",
+      String(inspectorPort),
+      "--show-interactive-dev-session=false",
+    ],
+    { cwd: new URL("..", import.meta.url), stdio: ["ignore", "pipe", "pipe"] },
+  );
+  const observe = (chunk) => {
+    output += String(chunk);
+  };
+  child.stdout.on("data", observe);
+  child.stderr.on("data", observe);
+
+  const deadline = Date.now() + 30_000;
   let response;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
@@ -116,11 +128,21 @@ try {
     })}\n`,
   );
 } finally {
-  child.kill("SIGTERM");
-  if (child.exitCode === null) {
-    await Promise.race([
-      once(child, "exit"),
-      new Promise((resolve) => setTimeout(resolve, 5_000)),
-    ]);
+  try {
+    if (child && child.exitCode === null) {
+      child.kill("SIGTERM");
+      await Promise.race([
+        once(child, "exit"),
+        new Promise((resolve) => setTimeout(resolve, 5_000)),
+      ]);
+      if (child.exitCode === null) {
+        child.kill("SIGKILL");
+        await once(child, "exit");
+      }
+    }
+  } finally {
+    if (persistencePath.includes("stella-cloud-code-workerd-")) {
+      await rm(persistencePath, { recursive: true, force: true });
+    }
   }
 }

@@ -12,6 +12,10 @@ import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import {
+  createInteriorBridgePlugin,
+  readInteriorBridgeRuntimeOptions,
+} from "./interior-bridge-runtime.js";
 
 const workspaceRoot = path.resolve(
   process.env.STELLA_INTERIOR_SOURCE_ROOT ?? "/workspace/world/stella",
@@ -25,7 +29,11 @@ export default defineConfig({
   root: workspaceRoot,
   base: "./",
   publicDir: path.join(workspaceRoot, "public"),
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    createInteriorBridgePlugin(readInteriorBridgeRuntimeOptions()),
+    react(),
+    tailwindcss(),
+  ],
   build: {
     outDir: outputRoot,
     emptyOutDir: true,

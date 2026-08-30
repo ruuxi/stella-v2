@@ -1138,7 +1138,7 @@ const appsHostWorkerdObservation = () => ({
   workerName: "stella-v2-apps-host-basic-nightingale-118",
   deploymentIdentity: "preview:basic-nightingale-118",
   runtimeEngine: "workerd",
-  wranglerVersion: "4.113.0",
+  wranglerVersion: "4.127.1",
   bundleSha256: digest("1"),
   bundleBytes: 42_000,
   routeSetSha256: digest("2"),

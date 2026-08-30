@@ -59,6 +59,7 @@ type InteriorPublicBuildConfig = {
   convexUrl: string;
   convexSiteUrl: string;
   appsHost: string;
+  appsAuthHost: string;
 };
 
 const sha256 = (bytes: Uint8Array | string): string =>
@@ -216,6 +217,10 @@ const readPublicBuildConfig = (): InteriorPublicBuildConfig => ({
   appsHost: requireHttpsOrigin(
     process.env.VITE_STELLA_APPS_HOST,
     "VITE_STELLA_APPS_HOST",
+  ),
+  appsAuthHost: requireHttpsOrigin(
+    process.env.VITE_STELLA_APPS_AUTH_HOST,
+    "VITE_STELLA_APPS_AUTH_HOST",
   ),
 });
 

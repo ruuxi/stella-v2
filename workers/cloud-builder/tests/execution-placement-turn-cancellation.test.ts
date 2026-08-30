@@ -25,6 +25,7 @@ mock.module("cloudflare:workers", () => ({
 mock.module("@cloudflare/sandbox", () => ({
   getSandbox: () => ({}),
   Sandbox: class {},
+  ContainerProxy: class {},
 }));
 const { OrchestratorSession } = await import("../src/orchestrator-session.js");
 const { BuildSession } = await import("../src/index.js");
@@ -286,7 +287,7 @@ const buildSessionHarness = (values = new Map<string, unknown>()) => {
     assertTurnWritable: async () => undefined,
     assertConvexAgentTurnAuthority: async () => undefined,
     assertConvexAppTurnAuthority: async () => undefined,
-    unregisterTurnLease: async () => undefined,
+    unregisterTurnLease: async () => true,
     unregisterTurn: async (target: { turnId: string }) => {
       unregistered.push(target.turnId);
     },
@@ -396,6 +397,60 @@ describe("BuildSession sandbox termination", () => {
 
     expect(processKills).toBe(1);
     expect(destroys).toBe(1);
+  });
+
+  test("captures only safe lifecycle diagnostics when SDK errors contain provider HTML and URLs", async () => {
+    const harness = buildSessionHarness();
+    const current = {
+      ...agentTurn("agent-sensitive-error"),
+      workspace: "stella",
+    };
+    const sandboxId = `agent-${current.turnId}`;
+    harness.values.set("turn", current);
+    harness.values.set("sandboxId", sandboxId);
+    harness.values.set("sandboxSize", "large");
+    harness.values.set(`agentExecutionMarker:${current.turnId}:1`, {
+      schemaVersion: 1,
+      turnId: current.turnId,
+      attemptGeneration: 1,
+      sandboxId,
+      size: "large",
+      workspace: "stella",
+      workspaceRoot: "/workspace/stella",
+      startedAt: Date.now(),
+    });
+    const sensitive =
+      "https://provider.invalid/private?token=secret <html>provider failure</html>";
+    harness.instance["sandbox"] = () => ({
+      killAllProcesses: async () => {
+        throw new Error(sensitive);
+      },
+      setKeepAlive: async () => {
+        throw new Error(sensitive);
+      },
+      destroy: async () => {
+        throw new Error(sensitive);
+      },
+    });
+    const captured: string[] = [];
+    const previousError = console.error;
+    console.error = (...parts: unknown[]) => captured.push(parts.join(" "));
+    try {
+      await expect(
+        terminateCurrentAgentSandbox(harness.instance, current),
+      ).rejects.toThrow("Sandbox retirement is pending");
+    } finally {
+      console.error = previousError;
+    }
+    const logs = captured.join("\n");
+    expect(logs).toContain("agent_process_kill_failed");
+    expect(logs).toContain("sandbox_keep_alive_release_failed");
+    expect(logs).toContain("sandbox_destroy_deferred");
+    expect(logs).toContain("failureCode");
+    expect(logs).toContain("detailBytes");
+    expect(logs).not.toContain("provider.invalid");
+    expect(logs).not.toContain("secret");
+    expect(logs).not.toContain("html");
   });
 });
 
@@ -1380,9 +1435,9 @@ describe("execution-placement exact cloud turn cancellation", () => {
       joined: true,
     });
     expect(harness.values.has("turn")).toBe(false);
-    expect(
-      harness.values.has(`agentExecutionMarker:${current.turnId}:1`),
-    ).toBe(false);
+    expect(harness.values.has(`agentExecutionMarker:${current.turnId}:1`)).toBe(
+      false,
+    );
     expect(unregisteredLeaseIds).toEqual(
       expect.arrayContaining([
         `aux-lease:${current.turnId}`,
@@ -1390,9 +1445,9 @@ describe("execution-placement exact cloud turn cancellation", () => {
       ]),
     );
     expect(activeWorkspaceRuns.size).toBe(0);
-    expect(await harness.ledger.matching(request(current.turnId))).toMatchObject(
-      { state: "acknowledged" },
-    );
+    expect(
+      await harness.ledger.matching(request(current.turnId)),
+    ).toMatchObject({ state: "acknowledged" });
 
     const successor = {
       ...agentTurn("agent-after-live-cancel"),
@@ -1591,9 +1646,9 @@ describe("execution-placement exact cloud turn cancellation", () => {
     harness.instance["cleanupTransientWrites"] = async () => {
       cleanups += 1;
     };
-    harness.instance["callOwnerFence"] = async () => {
+    harness.instance["unregisterTurnLease"] = async () => {
       unregisters += 1;
-      return Response.json({ ok: true });
+      return true;
     };
 
     const response = await harness.instance.fetch(
@@ -1664,6 +1719,106 @@ describe("execution-placement exact cloud turn cancellation", () => {
     expect(startCalls).toBe(0);
     expect(harness.values.has("turn")).toBe(false);
     expect(harness.values.has("turnId")).toBe(false);
+  });
+
+  test("a Stop at the remote-authority barrier prevents app sandbox admission", async () => {
+    const harness = buildSessionHarness();
+    const current = {
+      ...appTurn("app-stop-at-authority"),
+      ownerPurgeGeneration: "purge-generation-1",
+      ownerPurgeLeaseId: "lease:app-stop-at-authority",
+    };
+    let release!: () => void;
+    let started!: () => void;
+    const authorityStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    harness.instance["sandbox"] = () => ({});
+    harness.instance["assertTurnWritable"] = async () => {
+      started();
+      await barrier;
+    };
+    const execution = {
+      signal: new AbortController().signal,
+      assertActive: () => undefined,
+    };
+    const run = (BuildSession.prototype as unknown as Record<string, unknown>)[
+      "runTurn"
+    ] as (
+      this: BuildSession & Record<string, unknown>,
+      input: typeof current,
+      context: typeof execution,
+    ) => Promise<Response>;
+    const outcome = run.call(harness.instance, current, execution).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await authorityStarted;
+    await harness.storage.put("terminal", true);
+    release();
+
+    expect(await outcome).toBeInstanceOf(Error);
+    expect(harness.values.has("sandboxId")).toBe(false);
+    expect(harness.values.get("turn")).toEqual(current);
+    expect(harness.values.get("terminal")).toBe(true);
+    expect(harness.values.has("appTurnAdmissionClaim")).toBe(false);
+  });
+
+  test("a successor at the remote-authority barrier cannot be overwritten by the stale app", async () => {
+    const harness = buildSessionHarness();
+    const stale = {
+      ...appTurn("app-staged-stale", "generation-old"),
+      ownerPurgeGeneration: "purge-generation-old",
+      ownerPurgeLeaseId: "lease:stale",
+    };
+    const successor = {
+      ...appTurn("app-staged-successor", "generation-new"),
+      ownerPurgeGeneration: "purge-generation-new",
+      ownerPurgeLeaseId: "lease:successor",
+    };
+    let release!: () => void;
+    let started!: () => void;
+    const authorityStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    harness.instance["sandbox"] = () => ({});
+    harness.instance["assertTurnWritable"] = async () => {
+      started();
+      await barrier;
+    };
+    const execution = {
+      signal: new AbortController().signal,
+      assertActive: () => undefined,
+    };
+    const run = (BuildSession.prototype as unknown as Record<string, unknown>)[
+      "runTurn"
+    ] as (
+      this: BuildSession & Record<string, unknown>,
+      input: typeof stale,
+      context: typeof execution,
+    ) => Promise<Response>;
+    const outcome = run.call(harness.instance, stale, execution).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await authorityStarted;
+    await harness.storage.put({
+      turn: successor,
+      turnId: successor.turnId,
+      terminal: false,
+      sandboxId: "sandbox:successor",
+    });
+    release();
+
+    expect(await outcome).toBeInstanceOf(Error);
+    expect(harness.values.get("turn")).toEqual(successor);
+    expect(harness.values.get("sandboxId")).toBe("sandbox:successor");
   });
 
   test("a paused stale app replay cannot replace its successor watchdog", async () => {
@@ -1828,9 +1983,10 @@ describe("execution-placement exact cloud turn cancellation", () => {
     harness.values.set("turnId", current.turnId);
     harness.values.set("terminal", false);
     harness.values.set("agentWatchdogDeadlineAt", watchdogDeadlineAt);
-    (
-      harness.instance["agentTurnExecutions"] as Map<string, unknown>
-    ).set(current.turnId, {});
+    (harness.instance["agentTurnExecutions"] as Map<string, unknown>).set(
+      current.turnId,
+      {},
+    );
     let alarmRecoveryCalls = 0;
     harness.instance["runAlarmWithLease"] = async () => {
       alarmRecoveryCalls += 1;
@@ -1855,9 +2011,10 @@ describe("execution-placement exact cloud turn cancellation", () => {
       "agentRecoveryPending",
       `${current.turnId}:${current.attemptGeneration}`,
     );
-    (
-      harness.instance["agentTurnExecutions"] as Map<string, unknown>
-    ).set(current.turnId, {});
+    (harness.instance["agentTurnExecutions"] as Map<string, unknown>).set(
+      current.turnId,
+      {},
+    );
     let alarmRecoveryCalls = 0;
     harness.instance["runAlarmWithLease"] = async () => {
       alarmRecoveryCalls += 1;
@@ -3946,6 +4103,11 @@ const residentStopHarness = (turnId: string) => {
 describe("resident placement exact Stop", () => {
   test("a resident Stop touches no container and still ACKs truthfully", async () => {
     const driven = residentStopHarness("agent-resident-stop");
+    // The predecessor mirror deliberately disagrees with the exact resident
+    // compute tuple. Resident is authoritative absence, not permission to
+    // combine this stale id with the new attempt's instance size.
+    driven.harness.values.set("sandboxId", "stale-predecessor-sandbox");
+    driven.harness.values.set("sandboxSize", "small");
     driven.harness.values.set(agentComputeKey(driven.current.turnId, 1), {
       schemaVersion: 1,
       turnId: driven.current.turnId,
@@ -3981,15 +4143,19 @@ describe("resident placement exact Stop", () => {
 
   test("a Stop during attach destroys the exact reserved instance", async () => {
     const driven = residentStopHarness("agent-resident-attaching");
-    // The ladder records the reservation before the platform has an instance to
-    // name, so the shared `sandboxId` key is deliberately absent here.
+    const reserved = `agent-${driven.current.turnId}-attempt-1`;
+    // A predecessor's unscoped compatibility mirror may survive until
+    // resident admission clears it. Exact compute must win even in this
+    // mid-attach Stop window.
+    driven.harness.values.set("sandboxId", "stale-predecessor-sandbox");
+    driven.harness.values.set("sandboxSize", "large");
     driven.harness.values.set(agentComputeKey(driven.current.turnId, 1), {
       schemaVersion: 1,
       turnId: driven.current.turnId,
       attemptGeneration: 1,
       phase: "attaching",
       instanceSize: "small",
-      sandboxId: `agent-${driven.current.turnId}`,
+      sandboxId: reserved,
     });
 
     const response = await driven.harness.instance.fetch(
@@ -3998,8 +4164,8 @@ describe("resident placement exact Stop", () => {
     await driven.running.catch(() => undefined);
 
     expect(driven.destroyed).toEqual([
-      { sandboxId: `agent-${driven.current.turnId}`, size: "small" },
-      { sandboxId: `agent-${driven.current.turnId}`, size: "small" },
+      { sandboxId: reserved, size: "small" },
+      { sandboxId: reserved, size: "small" },
     ]);
     expect(driven.killed).toEqual([]);
     expect(response.status).toBe(200);

@@ -2,10 +2,10 @@
  * The orchestrator's memory and scheduling tools.
  *
  * The DO holds no database. `Remember` and the document half of `Recall` talk
- * straight to the R2 agent home; the transcript half of `Recall` and all of
- * `Schedule` go through Convex HTTP routes authenticated with the builder
- * service secret, because Convex owns the canonical transcript and the
- * schedule rows.
+ * straight to the R2 agent home. The transcript half of `Recall` reads through
+ * the canonical conversation journal owned by the conversation Durable Object;
+ * schedules remain in Convex so owner-wide listing, billing, deletion, and
+ * dispatch share one control-plane authority.
  *
  * Tool definitions are pinned here in code and passed to the loop by the DO —
  * nothing about the orchestrator's execution surface is data-driven.

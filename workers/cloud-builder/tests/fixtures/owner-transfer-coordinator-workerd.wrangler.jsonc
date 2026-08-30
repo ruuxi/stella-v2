@@ -3,6 +3,9 @@
   "main": "./owner-transfer-coordinator-workerd-worker.ts",
   "compatibility_date": "2026-07-22",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "OWNER_TRANSFER_FENCE_TIMEOUT_MS": "1000",
+  },
   "durable_objects": {
     "bindings": [
       {

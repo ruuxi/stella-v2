@@ -1,11 +1,16 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   getSandbox,
-  Sandbox as SandboxBase,
   type DirectoryBackup,
   type ExecutionSession,
   type Sandbox as SandboxType,
 } from "@cloudflare/sandbox";
+import {
+  AppBuildSandbox as AppBuildSandboxBase,
+  ContainerProxy,
+  GeneralAgentSandbox,
+} from "./sandbox-egress-classes.js";
+import { appBuildEgress, generalAgentEgress } from "./sandbox-egress-policy.js";
 import { OrchestratorSession } from "./orchestrator-session.js";
 import { sha256BytesHex, sha256Hex } from "./hash.js";
 import {
@@ -101,6 +106,12 @@ import {
   ownerPurgeBeginDisposition,
   ownerPurgeReleaseDisposition,
 } from "./owner-generation.js";
+import {
+  OwnerFenceStore,
+  type LegacyOwnerFenceActiveMirror,
+  type OwnerFenceLeaseNamespace,
+  type OwnerFenceLeaseRole,
+} from "./owner-fence-store.js";
 import { parseConversationEditRequest } from "./conversation-edit-protocol.js";
 import {
   conversationEditErrorResponse,
@@ -217,7 +228,48 @@ import {
   createAgentComputeLadder,
   parsePersistedAgentCompute,
   type PersistedAgentCompute,
+  type PersistedAgentWorldLease,
 } from "./agent-compute-ladder.js";
+import {
+  advanceSandboxDestroyDebt,
+  clearSandboxDestroyDebt,
+  createSandboxDestroyDebt,
+  isSandboxDestroyDebtKey,
+  isSandboxDestroyDue,
+  listSandboxDestroyDebts,
+  persistSandboxDestroyDebt,
+  readSandboxDestroyDebt,
+  sandboxDestroyDebtKey,
+  SandboxLifecycleDeferredError,
+  sandboxLifecycleFailureFields,
+  sandboxLifecycleId,
+  type SandboxDestroyDebt,
+  type SandboxTarget,
+  type SandboxWorkload,
+} from "./sandbox-lifecycle.js";
+import {
+  PREVIEW_ACCESS_MAX_TTL_MS,
+  PREVIEW_ACCESS_STORAGE_KEY,
+  issuePreviewAccessCapability,
+  previewSafeRequestLogPath,
+  resolvePreviewTunnelRequest,
+  verifyPreviewAccessCapability,
+  verifyPreviewAccessRouteCapability,
+} from "./vite-preview-access.js";
+import {
+  boundedBodyStatus,
+  bufferBoundedJsonRequest,
+  publicJsonBodyLimit,
+  serviceJsonBodyLimit,
+} from "./request-ingress.js";
+import { BoundedBodyError, readBoundedResponseBytes } from "./bounded-body.js";
+import {
+  R2TransferTransformTooLargeError,
+  r2TransferBody,
+  type R2TransferTransform,
+} from "./r2-transfer-body.js";
+import { verifyServiceBearerRequest } from "./service-bearer.js";
+import { evaluateCloudBuilderReadiness } from "./readiness.js";
 import { createAgentSandboxAttachment } from "./agent-sandbox-attachment.js";
 import {
   AgentTurnJournal,
@@ -246,9 +298,13 @@ import {
   type NativeStateCheckpointVersion,
 } from "./native-state-checkpoint.js";
 
-export { Sandbox } from "@cloudflare/sandbox";
+export { ContainerProxy };
 export { OrchestratorSession };
 export { OwnerTransferCoordinator };
+
+/** Existing large general-agent namespace, retained migration-compatibly. */
+export class Sandbox extends GeneralAgentSandbox<Env> {}
+Sandbox.outbound = generalAgentEgress;
 
 /**
  * The small rung of the instance ladder. Container size is declared per class
@@ -256,39 +312,14 @@ export { OwnerTransferCoordinator };
  * the same image is the only way to run a cheap turn cheaply. Behaviorally
  * identical to `Sandbox`.
  */
-export class SandboxSmall extends SandboxBase<Env> {}
+export class SandboxSmall extends GeneralAgentSandbox<Env> {}
+SandboxSmall.outbound = generalAgentEgress;
 
-type Env = {
-  Sandbox: DurableObjectNamespace<SandboxType>;
-  // Optional: a deployment without the binding runs every turn on `Sandbox`,
-  // which is exactly the pre-ladder behavior.
-  SANDBOX_SMALL?: DurableObjectNamespace<SandboxType>;
-  BUILD_SESSIONS: DurableObjectNamespace<BuildSession>;
-  ORCHESTRATOR_SESSIONS: DurableObjectNamespace<OrchestratorSession>;
-  OWNER_TRANSFER_COORDINATORS: DurableObjectNamespace<OwnerTransferCoordinator>;
-  /** Private Browser Run boundary. It alone owns Browser/R2 profile secrets. */
-  BROWSER_GATEWAY?: Fetcher;
-  APP_BUILDS: R2Bucket;
-  APP_ROUTES: KVNamespace;
-  BACKUP_BUCKET: R2Bucket;
-  AGENT_HOME?: R2Bucket;
-  // Rolled-over conversation segments and oversize-row spills. The DO reads it
-  // through its own Env; this worker needs it only for the owner-level sweep
-  // at `POST /owners/purge`.
-  CONVERSATION_ARCHIVE?: R2Bucket;
-  BUILDER_SERVICE_SECRET: string;
-  TURN_TIMEOUT_MS: string;
-  SANDBOX_IDLE_TIMEOUT_MS: string;
-  APPS_HOST_BASE_URL: string;
-  // The Convex site origin. Pinned issuer for every user JWT this worker
-  // verifies, and the JWKS base. Optional in the type so a deployment that has
-  // not set it fails closed on the socket routes instead of failing to boot —
-  // but the socket surface is dead until it is present.
-  STELLA_CONVEX_SITE_URL?: string;
-  STELLA_CONVEX_CLOUD_URL?: string;
-  /** Dev-only proof surface; production deployments omit or disable it. */
-  ENABLE_DEV_ACCEPTANCE_PROBES?: string;
-  STELLA_DEPLOYMENT_IDENTITY?: string;
+/** Permanently offline app-build namespace with baked dependencies. */
+export class AppBuildSandbox extends AppBuildSandboxBase<Env> {}
+AppBuildSandbox.outbound = appBuildEgress;
+
+type Env = Cloudflare.Env & {
   /**
    * Set to `"1"` to let a Stella turn run its agent loop in this Durable
    * Object. Absent means every turn takes the eager-container path, which is
@@ -385,6 +416,11 @@ type TurnRequest = {
     sessionId: string;
     endpoint: string;
   };
+  /** Trusted outer-router facts for the agent-only signed preview proxy. */
+  previewRoute?: {
+    buildSessionName: string;
+    baseUrl: string;
+  };
   /** Worker-issued lease. Callers cannot choose this value. */
   ownerPurgeGeneration?: string;
   ownerPurgeLeaseId?: string;
@@ -435,6 +471,8 @@ type OwnerPurgeFence = {
   rejoinedFromGeneration?: string;
   state: "open" | "blocked";
   mode?: OwnerPurgeMode;
+  /** SQL rows are authoritative; `active` remains a bounded rollback mirror. */
+  leaseStorageVersion?: 2;
   active: Record<
     string,
     {
@@ -442,7 +480,7 @@ type OwnerPurgeFence = {
       sessionId: string;
       turnId: string;
       namespace: "build" | "orchestrator" | "activity";
-      role: "run" | "aux" | "orchestrator" | "activity" | "transfer";
+      role: "run" | "aux" | "orchestrator" | "activity" | "transfer" | "world";
       /** Convex owner-lifecycle generation carried by the admitted activity. */
       ownerGeneration?: string;
       /** Fence generation returned when this exact lease was admitted. */
@@ -453,6 +491,81 @@ type OwnerPurgeFence = {
     }
   >;
 };
+
+type BuildOwnerFenceLeaseReceipt = {
+  schemaVersion: 1;
+  ownerId: string;
+  ownerGeneration: string;
+  turnId: string;
+  leaseId: string;
+  kind: "run" | "aux" | "world";
+  phase: "registering" | "registered" | "unregister_pending";
+  registrationGeneration?: string;
+  slotKey?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+type BuildOwnerFenceLeaseSlot = {
+  schemaVersion: 1;
+  ownerId: string;
+  ownerGeneration: string;
+  turnId: string;
+  leaseId: string;
+  kind: "run" | "aux" | "world";
+};
+
+const BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX = "ownerFenceLeaseReceipt:";
+const BUILD_OWNER_FENCE_LEASE_SLOT_PREFIX = "ownerFenceLeaseSlot:";
+const SANDBOX_WORLD_LEASE_RETIREMENT_PREFIX =
+  "ownerFenceSandboxWorldRetirement:";
+const OWNER_FENCE_LEASE_TTL_MS = 30 * 60_000;
+const OWNER_FENCE_LEASE_RETRY_MS = 30_000;
+const OWNER_FENCE_LEASE_RENEW_LEAD_MS = 5 * 60_000;
+const ownerFenceLeaseReceiptKey = (leaseId: string): string =>
+  `${BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX}${leaseId}`;
+const isBuildOwnerFenceDurabilityKey = (key: string): boolean =>
+  key.startsWith(BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX) ||
+  key.startsWith(BUILD_OWNER_FENCE_LEASE_SLOT_PREFIX) ||
+  key.startsWith(SANDBOX_WORLD_LEASE_RETIREMENT_PREFIX);
+
+type SandboxWorldLeaseRetirement = {
+  schemaVersion: 1;
+  phase: "destroy_pending" | "unregister_pending";
+  target: SandboxTarget;
+  ownerId: string;
+  ownerGeneration: string;
+  turnId: string;
+  attemptGeneration: number;
+  leaseId: string;
+  registrationGeneration?: string;
+  createdAt: number;
+};
+
+type AgentComputeRecoveryClaim = {
+  schemaVersion: 1;
+  turnId: string;
+  attemptGeneration: number;
+  sandboxId: string;
+  leaseId?: string;
+  createdAt: number;
+};
+
+const sandboxWorldLeaseRetirementKey = (target: SandboxTarget): string =>
+  `${SANDBOX_WORLD_LEASE_RETIREMENT_PREFIX}${encodeURIComponent(target.workload)}:${encodeURIComponent(target.size)}:${encodeURIComponent(target.sandboxId)}`;
+const agentComputeRecoveryClaimKey = (
+  turnId: string,
+  attemptGeneration: number,
+): string => `agentComputeRecovery:${turnId}:${attemptGeneration}`;
+
+type AppTurnAdmissionClaim = {
+  schemaVersion: 1;
+  claimId: string;
+  turnId: string;
+  ownerGeneration: string;
+  createdAt: number;
+};
+const APP_TURN_ADMISSION_CLAIM_KEY = "appTurnAdmissionClaim";
 
 type PendingAppBuildPublication = {
   turnId: string;
@@ -778,9 +891,12 @@ const log = (
   );
 };
 
-const authorized = (request: Request, env: Env): boolean =>
-  request.headers.get("authorization") ===
-  `Bearer ${env.BUILDER_SERVICE_SECRET}`;
+const executionFailureFields = (
+  stderr: string,
+): { failureCode: string; stderrBytes: number } => ({
+  failureCode: classifyAgentFailureDiagnostic(stderr),
+  stderrBytes: new TextEncoder().encode(stderr).byteLength,
+});
 
 /**
  * The single spelling of a conversation id, used as the Durable Object name.
@@ -817,6 +933,8 @@ const ORCHESTRATOR_INTERNAL_ORIGIN = "https://orchestrator-session";
 const HEADER_CONVERSATION_ID = "x-stella-conversation-id";
 const HEADER_BUILD_SESSION_NAME = "x-stella-build-session-name";
 const HEADER_TURN_BROKER_ENDPOINT = "x-stella-turn-broker-endpoint";
+const HEADER_PREVIEW_BASE_URL = "x-stella-preview-base-url";
+const HEADER_PREVIEW_CAPABILITY = "x-stella-preview-capability";
 const HEADER_OWNER_FENCE_ID = "x-stella-owner-fence-id";
 
 type ConversationCaller = {
@@ -961,6 +1079,19 @@ const sessionName = (value: string): string =>
     .replace(/[^a-z0-9-]/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 56);
+
+const exactTurnSandboxId = async (
+  prefix: "app" | "agent" | "agent-lg",
+  turn: TurnRequest,
+): Promise<string> =>
+  await sandboxLifecycleId(prefix, {
+    ownerId: turn.ownerId,
+    ownerGeneration: turn.ownerGeneration,
+    turnId: turn.turnId,
+    turnToken: turn.turnToken,
+    attemptGeneration:
+      turn.kind === "agent" ? (turn.attemptGeneration ?? 0) : 1,
+  });
 
 /**
  * The two directories a model-shaped process may own. `world` is the owner's
@@ -1572,14 +1703,15 @@ export class BuildSession extends DurableObject<Env> {
   /**
    * Normal turn cleanup must retain exact cancellation receipts. The key list
    * is captured while input is gated and the deletion is one transaction, so
-   * a crash or concurrent Stop cannot open a tombstone-loss window. Owner
-   * purge intentionally continues to use deleteAll().
+   * a crash or concurrent Stop cannot open a tombstone-loss window. Sandbox
+   * destroy debt is retained too: terminal delivery is never authority to
+   * forget a container whose teardown has not been confirmed.
    */
   private async deleteTurnStoragePreservingExactCancellations(
     expectedTurn?: TurnRequest,
     deleteAlarm = false,
   ): Promise<boolean> {
-    return await this.ctx.blockConcurrencyWhile(async () => {
+    const deleted = await this.ctx.blockConcurrencyWhile(async () => {
       if (
         expectedTurn &&
         !exactTurnIdentityMatches(
@@ -1589,8 +1721,14 @@ export class BuildSession extends DurableObject<Env> {
       ) {
         return false;
       }
-      const keys = [...(await this.ctx.storage.list<unknown>()).keys()].filter(
-        (key) => key !== EXACT_TURN_CANCELLATIONS_KEY,
+      const listed = [...(await this.ctx.storage.list<unknown>()).keys()];
+      const hasDestroyDebt = listed.some(isSandboxDestroyDebtKey);
+      const hasOwnerFenceDebt = listed.some(isBuildOwnerFenceDurabilityKey);
+      const keys = listed.filter(
+        (key) =>
+          key !== EXACT_TURN_CANCELLATIONS_KEY &&
+          !isSandboxDestroyDebtKey(key) &&
+          !isBuildOwnerFenceDurabilityKey(key),
       );
       let deleted = false;
       await this.ctx.storage.transaction(async (txn) => {
@@ -1604,11 +1742,15 @@ export class BuildSession extends DurableObject<Env> {
           return;
         }
         if (keys.length > 0) await txn.delete(keys);
-        if (deleteAlarm) await txn.deleteAlarm();
+        if (deleteAlarm && !hasDestroyDebt && !hasOwnerFenceDebt) {
+          await txn.deleteAlarm();
+        }
         deleted = true;
       });
       return deleted;
     });
+    if (deleted) await this.scheduleDurabilityAlarm();
+    return deleted;
   }
 
   private trackTurn<T>(turnId: string, work: Promise<T>): Promise<T> {
@@ -2002,7 +2144,21 @@ export class BuildSession extends DurableObject<Env> {
       }
       return { sandboxId, size: size ?? ("large" as const) };
     });
-    const sandbox = this.sandbox(target.sandboxId, target.size);
+    const identity = {
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+    };
+    const compute = parsePersistedAgentCompute(
+      await this.ctx.storage.get(
+        agentComputeKey(identity.turnId, identity.attemptGeneration),
+      ),
+      identity,
+    );
+    const sandbox = this.sandbox(
+      target.sandboxId,
+      target.size,
+      compute?.sandboxId === target.sandboxId ? "resident-attachment" : "agent",
+    );
     const executionSessionId = sessionName(
       `agent-run-${turn.turnId}-${target.size}`,
     );
@@ -2029,6 +2185,207 @@ export class BuildSession extends DurableObject<Env> {
       throw new Error("Agent execution recovery marker was invalid.");
     }
     return marker;
+  }
+
+  /**
+   * Fence an admitted attachment whose isolate vanished before it could write
+   * the execution marker. The claim and marker share one storage transaction:
+   * either the restored world becomes archive-authoritative, or recovery owns
+   * teardown, never both.
+   */
+  private async claimOrphanedAgentComputeRecovery(
+    turn: TurnRequest,
+  ): Promise<PersistedAgentCompute | undefined> {
+    const attemptGeneration = turn.attemptGeneration!;
+    const identity = { turnId: turn.turnId, attemptGeneration };
+    const computeKey = agentComputeKey(turn.turnId, attemptGeneration);
+    const markerKey = agentExecutionMarkerKey(turn.turnId, attemptGeneration);
+    const claimKey = agentComputeRecoveryClaimKey(
+      turn.turnId,
+      attemptGeneration,
+    );
+    return await this.ctx.storage.transaction(async (txn) => {
+      const [current, raw, marker, existingClaim] = await Promise.all([
+        txn.get<TurnRequest>("turn"),
+        txn.get(computeKey),
+        txn.get<AgentExecutionMarker>(markerKey),
+        txn.get<AgentComputeRecoveryClaim>(claimKey),
+      ]);
+      if (!exactTurnIdentityMatches(current, turn) || marker) return undefined;
+      if (raw === undefined) return undefined;
+      const compute = parsePersistedAgentCompute(raw, identity);
+      if (!compute) {
+        throw new Error("Agent compute recovery record was invalid.");
+      }
+      if (compute.phase === "resident") return undefined;
+      const sandboxId = compute.sandboxId!;
+      const leaseId = compute.worldLease?.leaseId;
+      if (
+        existingClaim &&
+        (existingClaim.schemaVersion !== 1 ||
+          existingClaim.turnId !== turn.turnId ||
+          existingClaim.attemptGeneration !== attemptGeneration ||
+          existingClaim.sandboxId !== sandboxId ||
+          existingClaim.leaseId !== leaseId)
+      ) {
+        throw new Error("Agent compute recovery claim was invalid.");
+      }
+      if (!existingClaim) {
+        await txn.put(claimKey, {
+          schemaVersion: 1,
+          turnId: turn.turnId,
+          attemptGeneration,
+          sandboxId,
+          ...(leaseId ? { leaseId } : {}),
+          createdAt: Date.now(),
+        } satisfies AgentComputeRecoveryClaim);
+      }
+      return compute;
+    });
+  }
+
+  private async recoverOrphanedAgentCompute(
+    turn: TurnRequest,
+  ): Promise<"none" | "recovered" | "retry"> {
+    let compute: PersistedAgentCompute | undefined;
+    try {
+      compute = await this.claimOrphanedAgentComputeRecovery(turn);
+    } catch (error) {
+      log("error", "agent_compute_recovery_claim_invalid", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        message: errorMessage(error),
+      });
+      await this.setExactTurnAlarm(turn, Date.now() + 30_000);
+      return "retry";
+    }
+    if (!compute) return "none";
+    const target: SandboxTarget = {
+      sandboxId: compute.sandboxId!,
+      size: compute.instanceSize,
+      workload: "resident-attachment",
+    };
+    try {
+      await this.destroySandboxDurably(target, "resident_attach_recovery");
+    } catch (error) {
+      log("error", "agent_compute_recovery_destroy_deferred", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        instanceSize: compute.instanceSize,
+        ...sandboxLifecycleFailureFields(error),
+      });
+      return "retry";
+    }
+    const worldLease: PersistedAgentWorldLease | undefined = compute.worldLease;
+    if (
+      worldLease &&
+      !(await this.retireAgentWorldLease({
+        ownerId: turn.ownerId,
+        ownerGeneration: turn.ownerGeneration,
+        turnId: turn.turnId,
+        leaseId: worldLease.leaseId,
+        ...(worldLease.generation
+          ? { registrationGeneration: worldLease.generation }
+          : {}),
+      }))
+    ) {
+      return "retry";
+    }
+    const attemptGeneration = turn.attemptGeneration!;
+    const computeKey = agentComputeKey(turn.turnId, attemptGeneration);
+    const claimKey = agentComputeRecoveryClaimKey(
+      turn.turnId,
+      attemptGeneration,
+    );
+    let removed = false;
+    await this.ctx.storage.transaction(async (txn) => {
+      const [current, marker, raw, claim, sharedSandboxId] = await Promise.all([
+        txn.get<TurnRequest>("turn"),
+        txn.get<AgentExecutionMarker>(
+          agentExecutionMarkerKey(turn.turnId, attemptGeneration),
+        ),
+        txn.get(computeKey),
+        txn.get<AgentComputeRecoveryClaim>(claimKey),
+        txn.get<string>("sandboxId"),
+      ]);
+      const latest = parsePersistedAgentCompute(raw, {
+        turnId: turn.turnId,
+        attemptGeneration,
+      });
+      if (
+        !exactTurnIdentityMatches(current, turn) ||
+        marker ||
+        !latest ||
+        latest.phase === "resident" ||
+        latest.sandboxId !== compute!.sandboxId ||
+        latest.worldLease?.leaseId !== worldLease?.leaseId ||
+        claim?.schemaVersion !== 1 ||
+        claim.turnId !== turn.turnId ||
+        claim.attemptGeneration !== attemptGeneration ||
+        claim.sandboxId !== compute!.sandboxId
+      ) {
+        return;
+      }
+      await txn.delete([computeKey, claimKey]);
+      if (sharedSandboxId === compute!.sandboxId) {
+        await txn.delete(["sandboxId", "sandboxSize"]);
+      }
+      removed = true;
+    });
+    if (!removed) {
+      await this.setExactTurnAlarm(turn, Date.now() + 1_000);
+      return "retry";
+    }
+    log("info", "agent_compute_orphan_recovered", {
+      turnId: turn.turnId,
+      threadId: turn.threadId,
+      instanceSize: compute.instanceSize,
+      phase: compute.phase,
+    });
+    return "recovered";
+  }
+
+  private async persistAgentExecutionMarker(
+    turn: TurnRequest,
+    marker: AgentExecutionMarker,
+  ): Promise<void> {
+    const claimKey = agentComputeRecoveryClaimKey(
+      turn.turnId,
+      turn.attemptGeneration!,
+    );
+    await this.ctx.storage.transaction(async (txn) => {
+      const [current, claim] = await Promise.all([
+        txn.get<TurnRequest>("turn"),
+        txn.get<AgentComputeRecoveryClaim>(claimKey),
+      ]);
+      if (!exactTurnIdentityMatches(current, turn) || claim) {
+        throw new AgentTurnAuthorityLostError();
+      }
+      await txn.put(
+        agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!),
+        marker,
+      );
+    });
+  }
+
+  private async clearLegacySandboxTupleForResidentAdmission(
+    turn: TurnRequest,
+  ): Promise<void> {
+    const attemptGeneration = turn.attemptGeneration!;
+    const identity = { turnId: turn.turnId, attemptGeneration };
+    await this.ctx.storage.transaction(async (txn) => {
+      const [current, raw] = await Promise.all([
+        txn.get<TurnRequest>("turn"),
+        txn.get(agentComputeKey(turn.turnId, attemptGeneration)),
+      ]);
+      if (!exactTurnIdentityMatches(current, turn)) {
+        throw new AgentTurnAuthorityLostError();
+      }
+      const compute = parsePersistedAgentCompute(raw, identity);
+      if (!compute?.sandboxId) {
+        await txn.delete(["sandboxId", "sandboxSize"]);
+      }
+    });
   }
 
   private async interruptAgentForBuilderFallback(
@@ -2920,48 +3277,262 @@ export class BuildSession extends DurableObject<Env> {
     turn: TurnRequest,
     freshLease = false,
   ): Promise<string> {
-    if (freshLease || !turn.ownerPurgeLeaseId) {
-      turn.ownerPurgeLeaseId = crypto.randomUUID();
-    }
-    const response = await this.callOwnerFence(turn.ownerId, "register", {
-      leaseId: turn.ownerPurgeLeaseId,
-      sessionId: this.ctx.id.toString(),
-      turnId: turn.turnId,
-      ownerGeneration: turn.ownerGeneration,
-      role: freshLease ? "aux" : "run",
-      ...(turn.ownerPurgeGeneration
-        ? { generation: turn.ownerPurgeGeneration }
-        : {}),
+    const kind = freshLease ? "aux" : "run";
+    const slotKey = await this.ownerFenceLeaseSlotKey(turn, kind);
+    const grant = await this.registerBuildOwnerFenceLease({
+      turn,
+      kind,
+      slotKey,
+      role: kind,
+      mutateTurn: true,
     });
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as {
-        code?: unknown;
-      } | null;
-      const rawCode = typeof payload?.code === "string" ? payload.code : "";
-      const code = [
-        "owner_purge_permanent",
-        "owner_purge_temporary",
-        "transfer_busy",
-        "bad_request",
-      ].includes(rawCode)
-        ? rawCode
-        : "unknown";
-      log("info", "agent_turn_owner_fence_registration_rejected", {
+    return grant.generation;
+  }
+
+  private ownerFenceReceiptMatches(
+    receipt: BuildOwnerFenceLeaseReceipt,
+    target: Pick<TurnRequest, "ownerId" | "ownerGeneration" | "turnId">,
+    leaseId: string,
+  ): boolean {
+    return (
+      receipt.schemaVersion === 1 &&
+      receipt.ownerId === target.ownerId &&
+      receipt.ownerGeneration === target.ownerGeneration &&
+      receipt.turnId === target.turnId &&
+      receipt.leaseId === leaseId
+    );
+  }
+
+  private async ownerFenceLeaseSlotKey(
+    turn: TurnRequest,
+    kind: BuildOwnerFenceLeaseReceipt["kind"],
+  ): Promise<string> {
+    const identity = await sha256Hex(
+      JSON.stringify({
+        ownerId: turn.ownerId,
+        ownerGeneration: turn.ownerGeneration,
         turnId: turn.turnId,
-        threadId: turn.threadId,
-        attemptGeneration: turn.attemptGeneration,
-        status: response.status,
-        code,
+        attemptGeneration: turn.attemptGeneration ?? 1,
+        kind,
+      }),
+    );
+    return `${BUILD_OWNER_FENCE_LEASE_SLOT_PREFIX}${identity}`;
+  }
+
+  private async armOwnerFenceLeaseReconciliationAlarm(): Promise<void> {
+    const retryAt = Date.now() + OWNER_FENCE_LEASE_RETRY_MS;
+    await this.ctx.storage.transaction(async (txn) => {
+      const current = await txn.getAlarm();
+      if (current === null || current > retryAt) await txn.setAlarm(retryAt);
+    });
+  }
+
+  private async hasOwnerFenceLeaseRetirementDebt(): Promise<boolean> {
+    const [receipts, sandboxRetirements] = await Promise.all([
+      this.ctx.storage.list<BuildOwnerFenceLeaseReceipt>({
+        prefix: BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX,
+        limit: 512,
+      }),
+      this.ctx.storage.list<SandboxWorldLeaseRetirement>({
+        prefix: SANDBOX_WORLD_LEASE_RETIREMENT_PREFIX,
+        limit: 512,
+      }),
+    ]);
+    return (
+      [...receipts.values()].some(
+        (receipt) => receipt.phase === "unregister_pending",
+      ) ||
+      [...sandboxRetirements.values()].some(
+        (retirement) => retirement.phase === "unregister_pending",
+      )
+    );
+  }
+
+  private async retryOwnerFenceLeaseRetirements(): Promise<void> {
+    const receipts = await this.ctx.storage.list<BuildOwnerFenceLeaseReceipt>({
+      prefix: BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX,
+      limit: 512,
+    });
+    for (const receipt of receipts.values()) {
+      if (receipt.phase !== "unregister_pending") continue;
+      await this.retireBuildOwnerFenceLease(receipt);
+    }
+    const sandboxRetirements =
+      await this.ctx.storage.list<SandboxWorldLeaseRetirement>({
+        prefix: SANDBOX_WORLD_LEASE_RETIREMENT_PREFIX,
+        limit: 512,
+      });
+    for (const [key, retirement] of sandboxRetirements) {
+      if (
+        retirement.schemaVersion !== 1 ||
+        retirement.phase !== "unregister_pending" ||
+        key !== sandboxWorldLeaseRetirementKey(retirement.target)
+      ) {
+        continue;
+      }
+      if (await this.retireAgentWorldLease(retirement)) {
+        await this.ctx.storage.delete(key);
+      }
+    }
+    if (await this.hasOwnerFenceLeaseRetirementDebt()) {
+      await this.armOwnerFenceLeaseReconciliationAlarm();
+    }
+  }
+
+  private async registerBuildOwnerFenceLease(args: {
+    turn: TurnRequest;
+    kind: BuildOwnerFenceLeaseReceipt["kind"];
+    role: "run" | "aux" | "world";
+    slotKey?: string;
+    leaseId?: string;
+    mutateTurn?: boolean;
+  }): Promise<{ generation: string; expiresAt: number; leaseId: string }> {
+    let receipt!: BuildOwnerFenceLeaseReceipt;
+    await this.ctx.storage.transaction(async (txn) => {
+      const slot = args.slotKey
+        ? await txn.get<BuildOwnerFenceLeaseSlot>(args.slotKey)
+        : undefined;
+      if (
+        slot &&
+        (slot.schemaVersion !== 1 ||
+          slot.ownerId !== args.turn.ownerId ||
+          slot.ownerGeneration !== args.turn.ownerGeneration ||
+          slot.turnId !== args.turn.turnId ||
+          slot.kind !== args.kind)
+      ) {
+        throw new OwnerPurgeFenceError();
+      }
+      const leaseId =
+        args.leaseId ??
+        (args.mutateTurn ? args.turn.ownerPurgeLeaseId : undefined) ??
+        slot?.leaseId ??
+        crypto.randomUUID();
+      if (slot && slot.leaseId !== leaseId) throw new OwnerPurgeFenceError();
+      const key = ownerFenceLeaseReceiptKey(leaseId);
+      const current = await txn.get<BuildOwnerFenceLeaseReceipt>(key);
+      if (
+        current &&
+        (!this.ownerFenceReceiptMatches(current, args.turn, leaseId) ||
+          current.kind !== args.kind)
+      ) {
+        throw new OwnerPurgeFenceError();
+      }
+      const now = Date.now();
+      receipt = current ?? {
+        schemaVersion: 1,
+        ownerId: args.turn.ownerId,
+        ownerGeneration: args.turn.ownerGeneration,
+        turnId: args.turn.turnId,
+        leaseId,
+        kind: args.kind,
+        phase: "registering",
+        ...(args.slotKey ? { slotKey: args.slotKey } : {}),
+        createdAt: now,
+        updatedAt: now,
+      };
+      if (receipt.phase === "unregister_pending") {
+        throw new OwnerPurgeFenceError();
+      }
+      const writes: Record<string, unknown> = { [key]: receipt };
+      if (args.slotKey) {
+        writes[args.slotKey] = {
+          schemaVersion: 1,
+          ownerId: args.turn.ownerId,
+          ownerGeneration: args.turn.ownerGeneration,
+          turnId: args.turn.turnId,
+          leaseId,
+          kind: args.kind,
+        } satisfies BuildOwnerFenceLeaseSlot;
+      }
+      await txn.put(writes);
+      if (args.mutateTurn) args.turn.ownerPurgeLeaseId = leaseId;
+    });
+
+    let response: Response;
+    const expiresAt = Date.now() + OWNER_FENCE_LEASE_TTL_MS;
+    try {
+      response = await this.callOwnerFence(args.turn.ownerId, "register", {
+        leaseId: receipt.leaseId,
+        sessionId: this.ctx.id.toString(),
+        turnId: args.turn.turnId,
+        ownerGeneration: args.turn.ownerGeneration,
+        role: args.role,
+        expiresAt,
+        ...(receipt.registrationGeneration
+          ? { generation: receipt.registrationGeneration }
+          : {}),
+      });
+    } catch (error) {
+      log("error", "owner_fence_register_response_lost", {
+        turnId: receipt.turnId,
+        leaseId: receipt.leaseId,
+        kind: receipt.kind,
+        message: errorMessage(error),
       });
       throw new OwnerPurgeFenceError();
     }
-    const body = (await response.json()) as { generation?: string };
-    if (!body.generation) throw new OwnerPurgeFenceError();
-    return body.generation;
+    const body = (await response.json().catch(() => null)) as {
+      generation?: string;
+      expiresAt?: number;
+      code?: unknown;
+    } | null;
+    if (!response.ok || !body?.generation) {
+      const rawCode = typeof body?.code === "string" ? body.code : "";
+      log("info", "agent_turn_owner_fence_registration_rejected", {
+        turnId: args.turn.turnId,
+        threadId: args.turn.threadId,
+        attemptGeneration: args.turn.attemptGeneration,
+        status: response.status,
+        code: rawCode || "unknown",
+        kind: args.kind,
+      });
+      throw new OwnerPurgeFenceError();
+    }
+    let committed = false;
+    await this.ctx.storage.transaction(async (txn) => {
+      const key = ownerFenceLeaseReceiptKey(receipt.leaseId);
+      const current = await txn.get<BuildOwnerFenceLeaseReceipt>(key);
+      if (
+        !current ||
+        current.phase === "unregister_pending" ||
+        !this.ownerFenceReceiptMatches(current, receipt, receipt.leaseId)
+      ) {
+        return;
+      }
+      receipt = {
+        ...current,
+        phase: "registered",
+        registrationGeneration: body.generation,
+        updatedAt: Date.now(),
+      };
+      await txn.put(key, receipt);
+      committed = true;
+    });
+    if (!committed) {
+      await this.callOwnerFence(receipt.ownerId, "unregister", {
+        leaseId: receipt.leaseId,
+        sessionId: this.ctx.id.toString(),
+        turnId: receipt.turnId,
+        ownerGeneration: receipt.ownerGeneration,
+      }).catch(() => undefined);
+      throw new OwnerPurgeFenceError();
+    }
+    if (args.mutateTurn) {
+      args.turn.ownerPurgeLeaseId = receipt.leaseId;
+      args.turn.ownerPurgeGeneration = body.generation;
+    }
+    return {
+      generation: body.generation,
+      expiresAt:
+        typeof body.expiresAt === "number" && Number.isFinite(body.expiresAt)
+          ? body.expiresAt
+          : expiresAt,
+      leaseId: receipt.leaseId,
+    };
   }
 
   private async unregisterTurn(turn: TurnRequest): Promise<void> {
-    if (!turn.ownerPurgeGeneration || !turn.ownerPurgeLeaseId) return;
+    if (!turn.ownerPurgeLeaseId) return;
     const hasTransientWrites =
       Boolean(
         await this.ctx.storage.get<string>(`transientBackup:${turn.turnId}`),
@@ -3019,15 +3590,258 @@ export class BuildSession extends DurableObject<Env> {
   private async unregisterTurnLease(
     turn: TurnRequest,
     leaseId: string,
-    generation: string,
-  ): Promise<void> {
-    await this.callOwnerFence(turn.ownerId, "unregister", {
-      leaseId,
-      sessionId: this.ctx.id.toString(),
+    generation?: string,
+  ): Promise<boolean> {
+    const key = ownerFenceLeaseReceiptKey(leaseId);
+    let receipt = await this.ctx.storage.get<BuildOwnerFenceLeaseReceipt>(key);
+    if (receipt && !this.ownerFenceReceiptMatches(receipt, turn, leaseId)) {
+      throw new OwnerPurgeFenceError();
+    }
+    if (!receipt) {
+      const now = Date.now();
+      receipt = {
+        schemaVersion: 1,
+        ownerId: turn.ownerId,
+        ownerGeneration: turn.ownerGeneration,
+        turnId: turn.turnId,
+        leaseId,
+        kind: "run",
+        phase: "unregister_pending",
+        ...(generation ? { registrationGeneration: generation } : {}),
+        createdAt: now,
+        updatedAt: now,
+      };
+      await this.ctx.storage.put(key, receipt);
+    }
+    return await this.retireBuildOwnerFenceLease(receipt, generation);
+  }
+
+  private async retireBuildOwnerFenceLease(
+    receipt: BuildOwnerFenceLeaseReceipt,
+    generation = receipt.registrationGeneration,
+  ): Promise<boolean> {
+    const key = ownerFenceLeaseReceiptKey(receipt.leaseId);
+    let pending = receipt;
+    await this.ctx.storage.transaction(async (txn) => {
+      const current = await txn.get<BuildOwnerFenceLeaseReceipt>(key);
+      if (
+        current &&
+        !this.ownerFenceReceiptMatches(current, receipt, receipt.leaseId)
+      ) {
+        throw new OwnerPurgeFenceError();
+      }
+      pending = {
+        ...(current ?? receipt),
+        phase: "unregister_pending",
+        updatedAt: Date.now(),
+      };
+      await txn.put(key, pending);
+    });
+    let response: Response;
+    try {
+      response = await this.callOwnerFence(pending.ownerId, "unregister", {
+        leaseId: pending.leaseId,
+        sessionId: this.ctx.id.toString(),
+        turnId: pending.turnId,
+        ownerGeneration: pending.ownerGeneration,
+        ...(generation ? { generation } : {}),
+      });
+    } catch (error) {
+      log("error", "owner_fence_unregister_deferred", {
+        turnId: pending.turnId,
+        leaseId: pending.leaseId,
+        kind: pending.kind,
+        message: errorMessage(error),
+      });
+      await this.armOwnerFenceLeaseReconciliationAlarm();
+      return false;
+    }
+    if (!response.ok) {
+      log("error", "owner_fence_unregister_deferred", {
+        turnId: pending.turnId,
+        leaseId: pending.leaseId,
+        kind: pending.kind,
+        status: response.status,
+      });
+      await this.armOwnerFenceLeaseReconciliationAlarm();
+      return false;
+    }
+    await this.ctx.storage.transaction(async (txn) => {
+      const current = await txn.get<BuildOwnerFenceLeaseReceipt>(key);
+      if (
+        current &&
+        this.ownerFenceReceiptMatches(current, pending, pending.leaseId)
+      ) {
+        await txn.delete(key);
+      }
+      if (pending.slotKey) {
+        const slot = await txn.get<BuildOwnerFenceLeaseSlot>(pending.slotKey);
+        if (slot?.leaseId === pending.leaseId) {
+          await txn.delete(pending.slotKey);
+        }
+      }
+    });
+    return true;
+  }
+
+  /**
+   * Persist the exact world-lease identity beside a resident sandbox destroy
+   * tombstone. Compute records are ordinary turn state and may be deleted
+   * after terminal delivery; this coupling record is durability state and is
+   * retained until confirmed container teardown can retire the owner slot.
+   */
+  private async prepareSandboxWorldLeaseRetirement(
+    target: SandboxTarget,
+  ): Promise<SandboxWorldLeaseRetirement | undefined> {
+    if (target.workload !== "resident-attachment") return undefined;
+    const key = sandboxWorldLeaseRetirementKey(target);
+    const existing =
+      await this.ctx.storage.get<SandboxWorldLeaseRetirement>(key);
+    if (existing) {
+      if (
+        existing.schemaVersion !== 1 ||
+        (existing.phase !== "destroy_pending" &&
+          existing.phase !== "unregister_pending") ||
+        existing.target.sandboxId !== target.sandboxId ||
+        existing.target.size !== target.size ||
+        existing.target.workload !== target.workload
+      ) {
+        throw new Error("Sandbox world-lease retirement record was invalid.");
+      }
+      return existing;
+    }
+    const turn = await this.ctx.storage.get<TurnRequest>("turn");
+    if (
+      !turn ||
+      turn.kind !== "agent" ||
+      !Number.isSafeInteger(turn.attemptGeneration) ||
+      turn.attemptGeneration! < 1
+    ) {
+      return undefined;
+    }
+    const identity = {
       turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+    };
+    const compute = parsePersistedAgentCompute(
+      await this.ctx.storage.get(
+        agentComputeKey(identity.turnId, identity.attemptGeneration),
+      ),
+      identity,
+    );
+    if (compute?.sandboxId !== target.sandboxId || !compute.worldLease) {
+      return undefined;
+    }
+    const record: SandboxWorldLeaseRetirement = {
+      schemaVersion: 1,
+      phase: "destroy_pending",
+      target: { ...target },
+      ownerId: turn.ownerId,
       ownerGeneration: turn.ownerGeneration,
-      generation,
-    }).catch(() => undefined);
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+      leaseId: compute.worldLease.leaseId,
+      ...(compute.worldLease.generation
+        ? { registrationGeneration: compute.worldLease.generation }
+        : {}),
+      createdAt: Date.now(),
+    };
+    return record;
+  }
+
+  /** Local debt first, then an idempotent remote unregister. */
+  private async retireAgentWorldLease(
+    identity: Pick<
+      SandboxWorldLeaseRetirement,
+      | "ownerId"
+      | "ownerGeneration"
+      | "turnId"
+      | "leaseId"
+      | "registrationGeneration"
+    >,
+  ): Promise<boolean> {
+    const key = ownerFenceLeaseReceiptKey(identity.leaseId);
+    let receipt = await this.ctx.storage.get<BuildOwnerFenceLeaseReceipt>(key);
+    const target = {
+      ownerId: identity.ownerId,
+      ownerGeneration: identity.ownerGeneration,
+      turnId: identity.turnId,
+    };
+    if (
+      receipt &&
+      (!this.ownerFenceReceiptMatches(receipt, target, identity.leaseId) ||
+        receipt.kind !== "world")
+    ) {
+      throw new OwnerPurgeFenceError();
+    }
+    if (!receipt) {
+      const now = Date.now();
+      receipt = {
+        schemaVersion: 1,
+        ...target,
+        leaseId: identity.leaseId,
+        kind: "world",
+        phase: "unregister_pending",
+        ...(identity.registrationGeneration
+          ? { registrationGeneration: identity.registrationGeneration }
+          : {}),
+        createdAt: now,
+        updatedAt: now,
+      };
+      await this.ctx.storage.put(key, receipt);
+    }
+    return await this.retireBuildOwnerFenceLease(
+      receipt,
+      identity.registrationGeneration,
+    );
+  }
+
+  /**
+   * The world stays exclusive until the exact container is confirmed gone.
+   * At that boundary, persist unregister debt before the destroy tombstone can
+   * disappear, so an isolate loss cannot strand either the container or slot.
+   */
+  private async retireWorldLeaseAfterConfirmedSandboxDestroy(
+    target: SandboxTarget,
+  ): Promise<boolean> {
+    if (target.workload !== "resident-attachment") return true;
+    const key = sandboxWorldLeaseRetirementKey(target);
+    const retirement =
+      (await this.ctx.storage.get<SandboxWorldLeaseRetirement>(key)) ??
+      (await this.prepareSandboxWorldLeaseRetirement(target));
+    if (!retirement) return true;
+    const pending = {
+      ...retirement,
+      phase: "unregister_pending" as const,
+    };
+    await this.ctx.storage.put(key, pending);
+    await this.ctx.storage.transaction(async (txn) => {
+      const computeKey = agentComputeKey(
+        pending.turnId,
+        pending.attemptGeneration,
+      );
+      const compute = parsePersistedAgentCompute(await txn.get(computeKey), {
+        turnId: pending.turnId,
+        attemptGeneration: pending.attemptGeneration,
+      });
+      if (
+        compute?.schemaVersion === 2 &&
+        compute?.sandboxId === target.sandboxId &&
+        compute.worldLease?.leaseId === pending.leaseId &&
+        compute.worldLease.phase !== "unregister_pending"
+      ) {
+        await txn.put(computeKey, {
+          ...compute,
+          worldLease: {
+            ...compute.worldLease,
+            phase: "unregister_pending",
+          },
+        } satisfies PersistedAgentCompute);
+      }
+    });
+    const retired = await this.retireAgentWorldLease(pending);
+    if (retired) await this.ctx.storage.delete(key);
+    return retired;
   }
 
   private async appendWorkspaceBackupDebt(
@@ -3270,6 +4084,15 @@ export class BuildSession extends DurableObject<Env> {
     }
   }
 
+  /** Shared by alarm and live-unwind owner-fence loss paths. */
+  private async cleanupOwnerPurgedTurnStorage(
+    turn: TurnRequest,
+  ): Promise<boolean> {
+    await this.cleanupTransientWrites(turn);
+    if (!(await this.ownsExactTurn(turn))) return false;
+    return await this.deleteTurnStoragePreservingExactCancellations(turn, true);
+  }
+
   private async settleTerminalTransientWrites(
     turn: TurnRequest,
   ): Promise<boolean> {
@@ -3321,6 +4144,18 @@ export class BuildSession extends DurableObject<Env> {
     if (!turnId || !ownerId || !generation || !leaseId || !ownerGeneration) {
       return json({ error: "Owner purge lease identity required." }, 400);
     }
+    const leaseTurn: TurnRequest = {
+      kind: "agent",
+      ownerId,
+      ownerGeneration,
+      ownerPurgeGeneration: generation,
+      ownerPurgeLeaseId: leaseId,
+      appId: "agent",
+      turnId,
+      prompt: "",
+      turnToken: "",
+      convexCallbackBase: "",
+    };
     if (
       stored &&
       (stored.turnId !== turnId ||
@@ -3334,14 +4169,7 @@ export class BuildSession extends DurableObject<Env> {
       // may still retire its own exact stale lease; leaving that lease active
       // would make the owner-purge coordinator retry this harmless callback
       // forever while the successor remains present.
-      const retired = await this.callOwnerFence(ownerId, "unregister", {
-        leaseId,
-        sessionId: this.ctx.id.toString(),
-        turnId,
-        ownerGeneration,
-        generation,
-      });
-      if (!retired.ok) {
+      if (!(await this.unregisterTurnLease(leaseTurn, leaseId, generation))) {
         return json(
           { canceled: false, reason: "stale_owner_purge_identity", turnId },
           409,
@@ -3359,14 +4187,14 @@ export class BuildSession extends DurableObject<Env> {
       // admitted. In that case there is no execution or transient state to
       // destroy; remove only the exact orphaned owner-fence lease. Never run
       // deleteAll() against a DO that may later admit a successor.
-      await this.callOwnerFence(ownerId, "unregister", {
+      const retired = await this.unregisterTurnLease(
+        leaseTurn,
         leaseId,
-        sessionId: this.ctx.id.toString(),
-        turnId,
-        ownerGeneration,
         generation,
-      });
-      return json({ canceled: true, turnId, unregistered: true, orphan: true });
+      );
+      return retired
+        ? json({ canceled: true, turnId, unregistered: true, orphan: true })
+        : json({ error: "Owner lease retirement is pending." }, 409);
     }
     const turn = stored;
 
@@ -3389,7 +4217,14 @@ export class BuildSession extends DurableObject<Env> {
         return json({ error: "Owner turn is still unwinding." }, 409);
       }
     } else {
-      await (await this.currentSandbox())?.destroy().catch(() => undefined);
+      const target = await this.currentSandboxTarget();
+      if (target) {
+        try {
+          await this.destroySandboxDurably(target, "owner_purge");
+        } catch {
+          return json({ error: "Owner turn is still unwinding." }, 409);
+        }
+      }
     }
 
     const running = [...(this.runningTurns.get(turnId) ?? [])];
@@ -3423,17 +4258,12 @@ export class BuildSession extends DurableObject<Env> {
     }
 
     await this.cleanupTransientWrites(turn);
-    await this.ctx.storage.deleteAll();
+    await this.deleteTurnStoragePreservingExactCancellations(turn, true);
     // Do not depend on a vanished run's `finally`: remove the exact durable
     // lease idempotently from the owner fence here.
-    await this.callOwnerFence(ownerId, "unregister", {
-      leaseId,
-      sessionId: this.ctx.id.toString(),
-      turnId,
-      ownerGeneration,
-      generation,
-    });
-    return json({ canceled: true, turnId, unregistered: true });
+    return (await this.unregisterTurnLease(turn, leaseId, generation))
+      ? json({ canceled: true, turnId, unregistered: true })
+      : json({ error: "Owner lease retirement is pending." }, 409);
   }
 
   private async redeliverOrphan(
@@ -3706,7 +4536,7 @@ export class BuildSession extends DurableObject<Env> {
       sessionId?: string;
       turnId?: string;
       namespace?: "build" | "orchestrator" | "activity";
-      role?: "run" | "aux" | "orchestrator" | "activity" | "transfer";
+      role?: "run" | "aux" | "orchestrator" | "activity" | "transfer" | "world";
       workspace?: string;
       expiresAt?: number;
     };
@@ -3730,20 +4560,66 @@ export class BuildSession extends DurableObject<Env> {
     ) {
       return json({ error: "Owner fence identity does not match." }, 409);
     }
-    if (current.ownerId === undefined) {
-      current.ownerId = scopedOwnerId;
-      await this.ctx.storage.put("ownerPurgeFence", current);
-    }
-    let prunedExpiredLease = false;
     const now = Date.now();
-    for (const [leaseId, lease] of Object.entries(current.active)) {
-      if (lease.expiresAt !== undefined && lease.expiresAt <= now) {
-        delete current.active[leaseId];
-        prunedExpiredLease = true;
+    const leaseStore = new OwnerFenceStore(this.ctx.storage.sql);
+    leaseStore.initialize(now);
+    if (current.ownerId === undefined || current.leaseStorageVersion !== 2) {
+      let migrationFailed = false;
+      await this.ctx.storage.transaction(async (txn) => {
+        if (current.ownerId === undefined) current.ownerId = scopedOwnerId;
+        if (current.leaseStorageVersion !== 2) {
+          const migrated = leaseStore.migrateLegacyActiveMirror({
+            ownerId: scopedOwnerId,
+            fenceGeneration: current.generation,
+            active: current.active as LegacyOwnerFenceActiveMirror,
+            now,
+          });
+          if (migrated.invalid.length > 0 || migrated.conflicts.length > 0) {
+            migrationFailed = true;
+            return;
+          }
+          current.leaseStorageVersion = 2;
+        }
+        const mirror = leaseStore.boundedLegacyActiveMirror(now);
+        if (mirror.status !== "complete") {
+          migrationFailed = true;
+          return;
+        }
+        current.active = mirror.active;
+        await txn.put("ownerPurgeFence", current);
+        const nextExpiry = leaseStore.nextExpiry();
+        if (nextExpiry !== null) {
+          const existingAlarm = await txn.getAlarm();
+          if (existingAlarm === null || existingAlarm > nextExpiry) {
+            await txn.setAlarm(nextExpiry);
+          }
+        }
+      });
+      if (migrationFailed) {
+        log("error", "owner_fence_lease_migration_blocked", {
+          activeLeaseCount: Object.keys(current.active).length,
+        });
+        return json(
+          {
+            code: "lease_migration_blocked",
+            error: "Owner lease migration is blocked.",
+          },
+          503,
+        );
       }
-    }
-    if (prunedExpiredLease) {
-      await this.ctx.storage.put("ownerPurgeFence", current);
+    } else {
+      const expired = leaseStore.expireDueLeases(now);
+      if (expired.length > 0) {
+        const mirror = leaseStore.boundedLegacyActiveMirror(now);
+        if (mirror.status !== "complete") {
+          return json(
+            { code: "lease_capacity", error: "Owner lease capacity exceeded." },
+            503,
+          );
+        }
+        current.active = mirror.active;
+        await this.ctx.storage.put("ownerPurgeFence", current);
+      }
     }
     if (turnStateRoute) {
       const response = await handleTurnStateOwnerRoute({
@@ -3754,7 +4630,7 @@ export class BuildSession extends DurableObject<Env> {
           ownerId: scopedOwnerId,
           generation: current.generation,
           state: current.state,
-          active: current.active,
+          active: current.active as LegacyOwnerFenceActiveMirror,
         },
         storage: this.ctx.storage,
         bucket: this.env.BACKUP_BUCKET,
@@ -3820,43 +4696,104 @@ export class BuildSession extends DurableObject<Env> {
           400,
         );
       }
-      current.active[body.leaseId] = {
-        leaseId: body.leaseId,
-        sessionId: body.sessionId,
-        turnId: body.turnId,
-        ownerGeneration,
-        reservationGeneration: current.generation,
-        namespace:
-          body.namespace === "orchestrator"
+      const namespace: OwnerFenceLeaseNamespace =
+        body.namespace === "orchestrator"
+          ? "orchestrator"
+          : body.namespace === "activity"
+            ? "activity"
+            : "build";
+      const role: OwnerFenceLeaseRole =
+        body.role === "run"
+          ? "run"
+          : body.role === "orchestrator"
             ? "orchestrator"
-            : body.namespace === "activity"
-              ? "activity"
-              : "build",
-        role:
-          body.role === "run"
-            ? "run"
-            : body.role === "orchestrator"
-              ? "orchestrator"
-              : body.role === "transfer"
-                ? "transfer"
-                : body.role === "activity"
-                  ? "activity"
-                  : "aux",
-        ...(typeof body.expiresAt === "number" &&
+            : body.role === "transfer"
+              ? "transfer"
+              : body.role === "activity"
+                ? "activity"
+                : body.role === "world"
+                  ? "world"
+                  : "aux";
+      const expiresAt =
+        typeof body.expiresAt === "number" &&
         Number.isFinite(body.expiresAt) &&
         body.expiresAt > now
-          ? { expiresAt: body.expiresAt }
-          : {}),
+          ? body.expiresAt
+          : now + OWNER_FENCE_LEASE_TTL_MS;
+      const registration = {
+        leaseId: body.leaseId,
+        ownerId: scopedOwnerId,
+        ownerGeneration,
+        reservationGeneration: current.generation,
+        sessionId: body.sessionId,
+        turnId: body.turnId,
+        namespace,
+        role,
+        expiresAt,
+        ...(role === "world" ? { worldSlot: 1 as const } : {}),
       };
-      await this.ctx.storage.put("ownerPurgeFence", current);
-      return json({ generation: current.generation });
+      if (
+        !leaseStore.activeLease(body.leaseId, now) &&
+        leaseStore.activeLeaseCount(now) >= 512
+      ) {
+        return json(
+          { code: "lease_capacity", error: "Owner lease capacity exceeded." },
+          503,
+        );
+      }
+      let result!: ReturnType<OwnerFenceStore["registerLeaseExact"]>;
+      await this.ctx.storage.transaction(async (txn) => {
+        result = leaseStore.registerLeaseExact(registration, now);
+        if (result.status === "replayed") {
+          const renewed = leaseStore.renewLeaseExact(
+            result.lease,
+            expiresAt,
+            now,
+          );
+          if (renewed.status === "renewed") {
+            result = { status: "replayed", lease: renewed.lease };
+          }
+        }
+        if (result.status === "conflict") return;
+        const mirror = leaseStore.boundedLegacyActiveMirror(now);
+        if (mirror.status !== "complete") {
+          throw new Error("Owner fence rollback mirror exceeded its bound.");
+        }
+        current.active = mirror.active;
+        await txn.put("ownerPurgeFence", current);
+        const nextExpiry = leaseStore.nextExpiry();
+        if (nextExpiry !== null) {
+          const existingAlarm = await txn.getAlarm();
+          if (existingAlarm === null || existingAlarm > nextExpiry) {
+            await txn.setAlarm(nextExpiry);
+          }
+        }
+      });
+      if (result.status === "conflict") {
+        return json(
+          {
+            code: result.code === "world_busy" ? "world_busy" : "bad_request",
+            error:
+              result.code === "world_busy"
+                ? "Another world is already attached for this owner."
+                : "Owner lease identity conflicts.",
+          },
+          409,
+        );
+      }
+      return json({
+        generation: current.generation,
+        expiresAt: result.lease.expiresAt,
+      });
     }
     if (path === "unregister") {
       if (!body.leaseId || !body.sessionId || !body.turnId) {
         return json({ error: "Invalid owner lease." }, 400);
       }
-      const active = current.active[body.leaseId];
-      if (!active) return json({ ok: true, alreadyUnregistered: true });
+      const active = leaseStore.lease(body.leaseId);
+      if (!active || active.state === "retired") {
+        return json({ ok: true, alreadyUnregistered: true });
+      }
       if (
         active.sessionId !== body.sessionId ||
         active.turnId !== body.turnId ||
@@ -3865,21 +4802,101 @@ export class BuildSession extends DurableObject<Env> {
       ) {
         return json({ error: "Owner lease identity does not match." }, 409);
       }
-      delete current.active[body.leaseId];
-      await this.ctx.storage.put("ownerPurgeFence", current);
+      await this.ctx.storage.transaction(async (txn) => {
+        const retired = leaseStore.retireLeaseExact(active, now);
+        if (
+          retired.status !== "retired" &&
+          retired.status !== "already_retired"
+        ) {
+          throw new Error("Exact owner lease retirement failed.");
+        }
+        const mirror = leaseStore.boundedLegacyActiveMirror(now);
+        if (mirror.status !== "complete") {
+          throw new Error("Owner fence rollback mirror exceeded its bound.");
+        }
+        current.active = mirror.active;
+        await txn.put("ownerPurgeFence", current);
+      });
       return json({ ok: true });
     }
+    if (path === "renew") {
+      if (
+        current.state !== "open" ||
+        body.generation !== current.generation ||
+        !body.leaseId ||
+        !body.sessionId ||
+        !body.turnId
+      ) {
+        return json({ error: "Owner purge fence changed." }, 409);
+      }
+      const lease = leaseStore.activeLease(body.leaseId, now);
+      if (
+        !lease ||
+        lease.sessionId !== body.sessionId ||
+        lease.turnId !== body.turnId ||
+        !ownerGenerationMatches(lease.ownerGeneration, body.ownerGeneration)
+      ) {
+        return json({ error: "Owner lease identity does not match." }, 409);
+      }
+      const expiresAt = now + OWNER_FENCE_LEASE_TTL_MS;
+      let renewed!: ReturnType<OwnerFenceStore["renewLeaseExact"]>;
+      await this.ctx.storage.transaction(async (txn) => {
+        renewed = leaseStore.renewLeaseExact(lease, expiresAt, now);
+        if (renewed.status !== "renewed") return;
+        const mirror = leaseStore.boundedLegacyActiveMirror(now);
+        if (mirror.status !== "complete") {
+          throw new Error("Owner fence rollback mirror exceeded its bound.");
+        }
+        current.active = mirror.active;
+        await txn.put("ownerPurgeFence", current);
+        const nextExpiry = leaseStore.nextExpiry();
+        if (nextExpiry !== null) {
+          const existingAlarm = await txn.getAlarm();
+          if (existingAlarm === null || existingAlarm > nextExpiry) {
+            await txn.setAlarm(nextExpiry);
+          }
+        }
+      });
+      return renewed.status === "renewed"
+        ? json({ ok: true, expiresAt: renewed.lease.expiresAt })
+        : json({ error: "Owner purge fence changed." }, 409);
+    }
     if (path === "assert") {
-      return current.state === "open" &&
-        body.generation === current.generation &&
-        Boolean(
-          body.leaseId &&
-          ownerGenerationMatches(
-            current.active[body.leaseId]?.ownerGeneration,
-            body.ownerGeneration,
-          ),
-        )
-        ? json({ ok: true })
+      if (
+        current.state !== "open" ||
+        body.generation !== current.generation ||
+        !body.leaseId
+      ) {
+        return json({ error: "Owner purge fence changed." }, 409);
+      }
+      const lease = leaseStore.activeLease(body.leaseId, now);
+      if (
+        !lease ||
+        !ownerGenerationMatches(lease.ownerGeneration, body.ownerGeneration)
+      ) {
+        return json({ error: "Owner purge fence changed." }, 409);
+      }
+      const expiresAt = now + OWNER_FENCE_LEASE_TTL_MS;
+      let renewed!: ReturnType<OwnerFenceStore["renewLeaseExact"]>;
+      await this.ctx.storage.transaction(async (txn) => {
+        renewed = leaseStore.renewLeaseExact(lease, expiresAt, now);
+        if (renewed.status !== "renewed") return;
+        const mirror = leaseStore.boundedLegacyActiveMirror(now);
+        if (mirror.status !== "complete") {
+          throw new Error("Owner fence rollback mirror exceeded its bound.");
+        }
+        current.active = mirror.active;
+        await txn.put("ownerPurgeFence", current);
+        const nextExpiry = leaseStore.nextExpiry();
+        if (nextExpiry !== null) {
+          const existingAlarm = await txn.getAlarm();
+          if (existingAlarm === null || existingAlarm > nextExpiry) {
+            await txn.setAlarm(nextExpiry);
+          }
+        }
+      });
+      return renewed.status === "renewed"
+        ? json({ ok: true, expiresAt: renewed.lease.expiresAt })
         : json({ error: "Owner purge fence changed." }, 409);
     }
     if (path === "assert-transfer") {
@@ -3958,7 +4975,7 @@ export class BuildSession extends DurableObject<Env> {
         generation: current.generation,
         lastReleasedGeneration: current.lastReleasedGeneration,
         requestedGeneration: body.generation,
-        activeLeaseCount: Object.keys(current.active).length,
+        activeLeaseCount: leaseStore.activeLeaseCount(now),
       });
       if (disposition === "already-released") {
         return json({
@@ -3982,11 +4999,17 @@ export class BuildSession extends DurableObject<Env> {
     return json({ error: "Not found." }, 404);
   }
 
-  private sandbox(id: string, size: InstanceSize = "large") {
+  private sandbox(
+    id: string,
+    size: InstanceSize = "large",
+    workload: SandboxWorkload = "app-build",
+  ) {
     const namespace =
-      size === "small" && this.env.SANDBOX_SMALL
-        ? this.env.SANDBOX_SMALL
-        : this.env.Sandbox;
+      workload === "app-build"
+        ? this.env.APP_BUILD_SANDBOX
+        : size === "small" && this.env.SANDBOX_SMALL
+          ? this.env.SANDBOX_SMALL
+          : this.env.Sandbox;
     return getSandbox(namespace, id, {
       transport: "rpc",
       enableDefaultSession: false,
@@ -3996,7 +5019,181 @@ export class BuildSession extends DurableObject<Env> {
         instanceGetTimeoutMS: 60_000,
         portReadyTimeoutMS: 120_000,
       },
-      labels: { service: "stella-v2", workload: "app-build" },
+      labels: { service: "stella-v2", workload },
+    });
+  }
+
+  /**
+   * Convert one exact sandbox target into durable teardown debt before the
+   * first lifecycle RPC leaves this object. `keepAlive` remains enabled for
+   * the whole active lease; only retirement disables it. A reset or platform
+   * timeout therefore leaves an alarm-owned tombstone, never an untracked
+   * container.
+   */
+  private async destroySandboxDurably(
+    target: SandboxTarget,
+    event: string,
+  ): Promise<void> {
+    // Revocation precedes every container lifecycle RPC. A failed or delayed
+    // destroy can never leave the signed proxy usable while retirement waits.
+    await this.ctx.storage.delete(PREVIEW_ACCESS_STORAGE_KEY);
+    const now = Date.now();
+    const preparedRetirement =
+      await this.prepareSandboxWorldLeaseRetirement(target);
+    let debt!: SandboxDestroyDebt;
+    await this.ctx.storage.transaction(async (txn) => {
+      debt =
+        (await readSandboxDestroyDebt(txn, target)) ??
+        createSandboxDestroyDebt(target, now);
+      const debtKey = sandboxDestroyDebtKey(target);
+      const retirementKey = sandboxWorldLeaseRetirementKey(target);
+      const existingRetirement =
+        await txn.get<SandboxWorldLeaseRetirement>(retirementKey);
+      if (
+        existingRetirement &&
+        preparedRetirement &&
+        (existingRetirement.leaseId !== preparedRetirement.leaseId ||
+          existingRetirement.turnId !== preparedRetirement.turnId ||
+          existingRetirement.attemptGeneration !==
+            preparedRetirement.attemptGeneration)
+      ) {
+        throw new Error("Sandbox world-lease retirement identity changed.");
+      }
+      await txn.put({
+        [debtKey]: debt,
+        ...(existingRetirement || !preparedRetirement
+          ? {}
+          : { [retirementKey]: preparedRetirement }),
+      });
+      const existingAlarm = await txn.getAlarm();
+      await txn.setAlarm(
+        existingAlarm === null
+          ? debt.nextAttemptAt
+          : Math.min(existingAlarm, debt.nextAttemptAt),
+      );
+    });
+    const sandbox = this.sandbox(
+      target.sandboxId,
+      target.size,
+      target.workload,
+    );
+    try {
+      // A destroy is still attempted when this advisory transition fails. The
+      // durable tombstone remains authority until destroy itself confirms.
+      const setKeepAlive = (
+        sandbox as typeof sandbox & {
+          setKeepAlive?: (enabled: boolean) => Promise<unknown>;
+        }
+      ).setKeepAlive;
+      if (typeof setKeepAlive === "function") {
+        await withInfrastructureDeadline(
+          setKeepAlive.call(sandbox, false),
+          10_000,
+          "Sandbox keep-alive release did not settle.",
+        ).catch((error) => {
+          log("error", "sandbox_keep_alive_release_failed", {
+            lifecycleReason: event,
+            workload: target.workload,
+            instanceSize: target.size,
+            ...sandboxLifecycleFailureFields(error),
+          });
+        });
+      }
+      await withInfrastructureDeadline(
+        sandbox.destroy(),
+        30_000,
+        "Sandbox destruction did not settle.",
+      );
+    } catch (error) {
+      const advanced = advanceSandboxDestroyDebt(debt, Date.now());
+      await persistSandboxDestroyDebt(this.ctx.storage, advanced);
+      log("error", "sandbox_destroy_deferred", {
+        lifecycleReason: event,
+        workload: target.workload,
+        instanceSize: target.size,
+        attemptCount: advanced.attemptCount,
+        retryDelayMs: Math.max(0, advanced.nextAttemptAt - Date.now()),
+        ...sandboxLifecycleFailureFields(error),
+      });
+      throw new SandboxLifecycleDeferredError();
+    }
+    // This local transition writes unregister debt before the destroy
+    // tombstone is cleared. A reset at any following await therefore leaves
+    // at least one alarm-owned record that can finish retiring the world slot.
+    await this.retireWorldLeaseAfterConfirmedSandboxDestroy(target);
+    await clearSandboxDestroyDebt(this.ctx.storage, debt);
+    log("info", "sandbox_destroyed", {
+      lifecycleReason: event,
+      workload: target.workload,
+      instanceSize: target.size,
+      attempts: debt.attemptCount + 1,
+    });
+  }
+
+  /** Alarm-owned retry pass. Every target is exact; no id-only guessing. */
+  private async retryDueSandboxDestroyDebts(now = Date.now()): Promise<void> {
+    const debts = await listSandboxDestroyDebts(this.ctx.storage);
+    for (const debt of debts) {
+      if (!isSandboxDestroyDue(debt, now)) continue;
+      await this.destroySandboxDurably(debt.target, "alarm_retry").catch(
+        () => undefined,
+      );
+    }
+  }
+
+  /** Re-arm the earliest remaining debt without postponing another alarm. */
+  private async scheduleSandboxDestroyDebtAlarm(): Promise<void> {
+    const debts = await listSandboxDestroyDebts(this.ctx.storage);
+    const next = debts.reduce<number | null>(
+      (earliest, debt) =>
+        earliest === null
+          ? debt.nextAttemptAt
+          : Math.min(earliest, debt.nextAttemptAt),
+      null,
+    );
+    if (next === null) return;
+    const existing = await this.ctx.storage.getAlarm();
+    await this.ctx.storage.setAlarm(
+      existing === null ? next : Math.min(existing, next),
+    );
+  }
+
+  /** Keep the one DO alarm at the earliest lease, teardown, or receipt debt. */
+  private async scheduleDurabilityAlarm(): Promise<void> {
+    await this.scheduleSandboxDestroyDebtAlarm();
+    if (await this.hasOwnerFenceLeaseRetirementDebt()) {
+      await this.armOwnerFenceLeaseReconciliationAlarm();
+    }
+    const fence =
+      await this.ctx.storage.get<OwnerPurgeFence>("ownerPurgeFence");
+    if (fence?.leaseStorageVersion !== 2) return;
+    const store = new OwnerFenceStore(this.ctx.storage.sql);
+    store.initialize();
+    const nextExpiry = store.nextExpiry();
+    if (nextExpiry === null) return;
+    const existing = await this.ctx.storage.getAlarm();
+    await this.ctx.storage.setAlarm(
+      existing === null ? nextExpiry : Math.min(existing, nextExpiry),
+    );
+  }
+
+  /** Expiry is authoritative in SQL and reflected atomically to rollback KV. */
+  private async expireOwnerFenceLeasesForAlarm(
+    now = Date.now(),
+  ): Promise<void> {
+    const fence =
+      await this.ctx.storage.get<OwnerPurgeFence>("ownerPurgeFence");
+    if (fence?.leaseStorageVersion !== 2) return;
+    const store = new OwnerFenceStore(this.ctx.storage.sql);
+    store.initialize(now);
+    await this.ctx.storage.transaction(async (txn) => {
+      store.expireDueLeases(now);
+      const mirror = store.boundedLegacyActiveMirror(now);
+      if (mirror.status !== "complete") {
+        throw new Error("Owner fence rollback mirror exceeded its bound.");
+      }
+      fence.active = mirror.active;
+      await txn.put("ownerPurgeFence", fence);
     });
   }
 
@@ -4005,12 +5202,61 @@ export class BuildSession extends DurableObject<Env> {
    * id: the two container classes are separate namespaces, so destroying by
    * id alone against the wrong one silently leaves a live container behind.
    */
+  private async currentSandboxTarget(): Promise<SandboxTarget | undefined> {
+    const [storedSandboxId, storedSize, turn] = await Promise.all([
+      this.ctx.storage.get<string>("sandboxId"),
+      this.ctx.storage.get<InstanceSize>("sandboxSize"),
+      this.ctx.storage.get<TurnRequest>("turn"),
+    ]);
+    if (
+      turn?.kind === "agent" &&
+      Number.isSafeInteger(turn.attemptGeneration) &&
+      turn.attemptGeneration! >= 1
+    ) {
+      const identity = {
+        turnId: turn.turnId,
+        attemptGeneration: turn.attemptGeneration!,
+      };
+      const compute = parsePersistedAgentCompute(
+        await this.ctx.storage.get(
+          agentComputeKey(identity.turnId, identity.attemptGeneration),
+        ),
+        identity,
+      );
+      // A valid exact compute record is tuple authority as a whole. Resident
+      // means no sandbox; attaching and later phases carry both exact id and
+      // namespace-selecting size. Never combine either with a stale mirror.
+      if (compute) {
+        return compute.sandboxId
+          ? {
+              sandboxId: compute.sandboxId,
+              size: compute.instanceSize,
+              workload: "resident-attachment",
+            }
+          : undefined;
+      }
+      return storedSandboxId
+        ? {
+            sandboxId: storedSandboxId,
+            size: storedSize ?? "large",
+            workload: "agent",
+          }
+        : undefined;
+    }
+    return storedSandboxId
+      ? {
+          sandboxId: storedSandboxId,
+          size: storedSize ?? "large",
+          workload: "app-build",
+        }
+      : undefined;
+  }
+
   private async currentSandbox() {
-    const sandboxId = await this.ctx.storage.get<string>("sandboxId");
-    if (!sandboxId) return undefined;
-    const size =
-      (await this.ctx.storage.get<InstanceSize>("sandboxSize")) ?? "large";
-    return this.sandbox(sandboxId, size);
+    const target = await this.currentSandboxTarget();
+    return target
+      ? this.sandbox(target.sandboxId, target.size, target.workload)
+      : undefined;
   }
 
   /**
@@ -4061,14 +5307,26 @@ export class BuildSession extends DurableObject<Env> {
       // arriving mid boot destroys the exact reservation instead of skipping
       // teardown because the shared key was not written yet. A record still in
       // `resident` names nothing, which is what keeps a chat-only Stop free.
-      const sandboxId = storedSandboxId ?? compute?.sandboxId;
+      // Exact attempt state is authoritative. The shared compatibility key can
+      // still name a predecessor while this attempt is between reservation and
+      // attach; preferring it would destroy the wrong container and falsely
+      // ACK Stop while leaking the current one.
+      const sandboxId = compute ? compute.sandboxId : storedSandboxId;
       if (!sandboxId || !exactTurnIdentityMatches(current, turn)) {
         return undefined;
       }
-      const size = storedSize ?? compute?.instanceSize ?? ("large" as const);
+      const size = compute
+        ? compute.instanceSize
+        : (storedSize ?? ("large" as const));
       return {
         sandboxId,
         size,
+        workload:
+          turn.kind === "agent" && compute
+            ? ("resident-attachment" as const)
+            : turn.kind === "agent"
+              ? ("agent" as const)
+              : ("app-build" as const),
         executorAdmitted:
           executionMarker?.schemaVersion === 1 &&
           executionMarker.turnId === turn.turnId &&
@@ -4078,7 +5336,11 @@ export class BuildSession extends DurableObject<Env> {
       };
     });
     if (!target) return;
-    const sandbox = this.sandbox(target.sandboxId, target.size);
+    const sandbox = this.sandbox(
+      target.sandboxId,
+      target.size,
+      target.workload,
+    );
     if (turn.kind === "agent" && target.executorAdmitted) {
       const size = target.size;
       const executionSessionId = sessionName(
@@ -4092,15 +5354,11 @@ export class BuildSession extends DurableObject<Env> {
         log("error", "agent_process_kill_failed", {
           turnId: turn.turnId,
           sessionId: executionSessionId,
-          message: errorMessage(error),
+          ...sandboxLifecycleFailureFields(error),
         });
       });
     }
-    await withInfrastructureDeadline(
-      sandbox.destroy(),
-      30_000,
-      "Agent sandbox destruction did not settle.",
-    );
+    await this.destroySandboxDurably(target, "agent_termination");
   }
 
   /**
@@ -4153,6 +5411,10 @@ export class BuildSession extends DurableObject<Env> {
           this.env.APPS_HOST_BASE_URL,
           "APPS_HOST_BASE_URL",
         ),
+        VITE_STELLA_APPS_AUTH_HOST: requirePublicOrigin(
+          this.env.TRUSTED_APPS_HOST_BASE_URL,
+          "TRUSTED_APPS_HOST_BASE_URL",
+        ),
         VITE_STELLA_PROTOCOL: "stella",
         USER: "stella-tools",
         LOGNAME: "stella-tools",
@@ -4191,7 +5453,7 @@ export class BuildSession extends DurableObject<Env> {
         log("error", "interior_build_command_failed", {
           turnId: turn.turnId,
           threadId: turn.threadId,
-          stderr: execution.stderr.slice(-4_000),
+          ...executionFailureFields(execution.stderr),
         });
         throw new Error("The Stella interior production build failed.");
       }
@@ -4774,6 +6036,116 @@ export class BuildSession extends DurableObject<Env> {
     });
   }
 
+  private async setExactTurnAlarmNoLaterThan(
+    turn: TurnRequest,
+    scheduledTime: number,
+  ): Promise<boolean> {
+    return await this.mutateExactTurn(turn, async (txn) => {
+      const current = await txn.getAlarm();
+      await txn.setAlarm(
+        current === null ? scheduledTime : Math.min(current, scheduledTime),
+      );
+    });
+  }
+
+  private worldLeaseRenewalAt(expiresAt: number): number {
+    return expiresAt - OWNER_FENCE_LEASE_RENEW_LEAD_MS;
+  }
+
+  /** Renew only the exact compute owned by a live in-memory executor. */
+  private async renewLiveAgentWorldLease(
+    turn: TurnRequest,
+  ): Promise<{ nextAt?: number; retry: boolean }> {
+    const attemptGeneration = turn.attemptGeneration!;
+    const key = agentComputeKey(turn.turnId, attemptGeneration);
+    const compute = parsePersistedAgentCompute(
+      await this.ctx.storage.get(key),
+      { turnId: turn.turnId, attemptGeneration },
+    );
+    const lease = compute?.worldLease;
+    if (
+      compute?.schemaVersion !== 2 ||
+      !lease ||
+      lease.phase !== "registered" ||
+      !lease.generation ||
+      !lease.expiresAt
+    ) {
+      return { retry: false };
+    }
+    const dueAt = this.worldLeaseRenewalAt(lease.expiresAt);
+    if (dueAt > Date.now() + 1_000) {
+      return { nextAt: dueAt, retry: false };
+    }
+    let response: Response;
+    try {
+      response = await this.callOwnerFence(turn.ownerId, "renew", {
+        leaseId: lease.leaseId,
+        sessionId: this.ctx.id.toString(),
+        turnId: turn.turnId,
+        ownerGeneration: turn.ownerGeneration,
+        generation: lease.generation,
+      });
+    } catch (error) {
+      log("error", "agent_world_lease_renew_deferred", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        message: errorMessage(error),
+      });
+      return { retry: true };
+    }
+    const payload = (await response.json().catch(() => null)) as {
+      expiresAt?: unknown;
+    } | null;
+    if (
+      !response.ok ||
+      typeof payload?.expiresAt !== "number" ||
+      !Number.isFinite(payload.expiresAt) ||
+      payload.expiresAt <= Date.now()
+    ) {
+      log("error", "agent_world_lease_renew_deferred", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        status: response.status,
+      });
+      return { retry: true };
+    }
+    const renewedExpiresAt = payload.expiresAt;
+    let committed = false;
+    await this.ctx.storage.transaction(async (txn) => {
+      const [current, raw] = await Promise.all([
+        txn.get<TurnRequest>("turn"),
+        txn.get(key),
+      ]);
+      const latest = parsePersistedAgentCompute(raw, {
+        turnId: turn.turnId,
+        attemptGeneration,
+      });
+      if (
+        !exactTurnIdentityMatches(current, turn) ||
+        latest?.schemaVersion !== 2 ||
+        latest.worldLease?.phase !== "registered" ||
+        latest.worldLease.leaseId !== lease.leaseId ||
+        latest.worldLease.generation !== lease.generation
+      ) {
+        return;
+      }
+      await txn.put(key, {
+        ...latest,
+        worldLease: { ...latest.worldLease, expiresAt: renewedExpiresAt },
+      } satisfies PersistedAgentCompute);
+      committed = true;
+    });
+    return committed
+      ? {
+          nextAt: Math.max(
+            Date.now() + 1_000,
+            this.worldLeaseRenewalAt(renewedExpiresAt),
+          ),
+          retry: false,
+        }
+      : { retry: false };
+  }
+
   private event(
     turn: TurnRequest,
     seq: number | "auto",
@@ -5026,6 +6398,20 @@ export class BuildSession extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
+    await this.retryDueSandboxDestroyDebts();
+    await this.retryOwnerFenceLeaseRetirements();
+    await this.expireOwnerFenceLeasesForAlarm();
+    try {
+      await this.runScheduledTurnAlarm();
+    } finally {
+      // `setAlarm()` is shared by watchdogs, terminal delivery and container
+      // retirement. Whatever the turn path did, outstanding teardown debt
+      // must retain the earliest wake-up.
+      await this.scheduleDurabilityAlarm();
+    }
+  }
+
+  private async runScheduledTurnAlarm(): Promise<void> {
     const turn = await this.ctx.storage.get<TurnRequest>("turn");
     if (!turn) return;
     if (turn.kind === "agent" && this.agentTurnExecutions.has(turn.turnId)) {
@@ -5039,12 +6425,26 @@ export class BuildSession extends DurableObject<Env> {
         Number.isFinite(watchdogDeadlineAt) &&
         watchdogDeadlineAt > Date.now()
       ) {
+        const renewal = await this.renewLiveAgentWorldLease(turn);
+        if (renewal.retry) {
+          await this.setExactTurnAlarm(
+            turn,
+            Math.min(
+              watchdogDeadlineAt,
+              Date.now() + OWNER_FENCE_LEASE_RETRY_MS,
+            ),
+          );
+          return;
+        }
         // setAlarm() can race an alarm delivery that Cloudflare has already
         // begun. That stale callback then observes the successor turn and,
         // without this durable deadline fence, mistakes its live executor for
         // an orphan. Re-arm the real watchdog; only its actual deadline may
         // enter crash recovery while the local Effect fiber is still alive.
-        await this.setExactTurnAlarm(turn, watchdogDeadlineAt);
+        await this.setExactTurnAlarm(
+          turn,
+          Math.min(watchdogDeadlineAt, renewal.nextAt ?? watchdogDeadlineAt),
+        );
         log("info", "agent_watchdog_alarm_rearmed", {
           turnId: turn.turnId,
           threadId: turn.threadId,
@@ -5082,10 +6482,15 @@ export class BuildSession extends DurableObject<Env> {
       const useRunLeaseForRecovery =
         turn.kind === "agent" &&
         (Boolean(
-          await this.ctx.storage.get<AgentExecutionMarker>(
-            agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!),
+          await this.ctx.storage.get(
+            agentComputeKey(turn.turnId, turn.attemptGeneration!),
           ),
         ) ||
+          Boolean(
+            await this.ctx.storage.get<AgentExecutionMarker>(
+              agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!),
+            ),
+          ) ||
           Boolean(
             await this.ctx.storage.get<BuilderFallbackTranscript>(
               builderFallbackTranscriptKey(
@@ -5115,20 +6520,18 @@ export class BuildSession extends DurableObject<Env> {
     } catch (error) {
       if (error instanceof OwnerPurgeFenceError) {
         if (!(await this.ownsExactTurn(turn))) return;
-        const sandbox = await this.currentSandbox();
+        const target = await this.currentSandboxTarget();
         if (await this.ownsExactTurn(turn)) {
-          await sandbox?.destroy().catch(() => undefined);
+          if (target) {
+            await this.destroySandboxDurably(target, "owner_fence_alarm");
+          }
         }
         try {
-          await this.cleanupTransientWrites(turn);
-          if (!(await this.ownsExactTurn(turn))) return;
-          retireOriginalLease = await this.ctx.blockConcurrencyWhile(
-            async () => {
-              if (!(await this.ownsExactTurn(turn))) return false;
-              await this.ctx.storage.deleteAll();
-              return true;
-            },
-          );
+          // Confirmed sandbox teardown may have produced world-unregister
+          // debt. Preserve it (and any destroy tombstone) while deleting the
+          // exact turn, otherwise a transient owner-fence failure would erase
+          // the only names capable of freeing the slot on the next alarm.
+          retireOriginalLease = await this.cleanupOwnerPurgedTurnStorage(turn);
         } catch (cleanupError) {
           log("error", "owner_purge_alarm_cleanup_failed", {
             turnId: turn.turnId,
@@ -5197,9 +6600,14 @@ export class BuildSession extends DurableObject<Env> {
         appPublication,
       );
       if (outcome !== "retrying" && (await this.ownsExactTurn(turn))) {
-        const sandbox = await this.currentSandbox();
+        const target = await this.currentSandboxTarget();
         if (await this.ownsExactTurn(turn)) {
-          await sandbox?.destroy().catch(() => undefined);
+          if (target) {
+            await this.destroySandboxDurably(
+              target,
+              "app_publication_alarm",
+            ).catch(() => undefined);
+          }
         }
         await this.retireTerminalAppTurnStorage(turn);
       }
@@ -5219,8 +6627,13 @@ export class BuildSession extends DurableObject<Env> {
         });
         return;
       }
-      const sandbox = await this.currentSandbox();
-      await sandbox?.destroy().catch(() => undefined);
+      const target = await this.currentSandboxTarget();
+      if (target) {
+        await this.destroySandboxDurably(
+          target,
+          "browser_suspension_alarm",
+        ).catch(() => undefined);
+      }
       if (!(await this.ownsExactTurn(turn))) return;
       if (!(await this.deliverBrowserSuspension(turn, browserSuspension))) {
         return;
@@ -5281,7 +6694,7 @@ export class BuildSession extends DurableObject<Env> {
           } catch (error) {
             log("error", "pending_terminal_sandbox_termination_failed", {
               turnId: turn.turnId,
-              message: errorMessage(error),
+              ...sandboxLifecycleFailureFields(error),
             });
             await this.setExactTurnAlarm(turn, Date.now() + 30_000);
             return;
@@ -5496,6 +6909,8 @@ export class BuildSession extends DurableObject<Env> {
         }
         return;
       }
+      const computeRecovery = await this.recoverOrphanedAgentCompute(turn);
+      if (computeRecovery === "retry") return;
       if (resident) {
         await this.recoverResidentAgentTurn(turn);
         return;
@@ -5535,7 +6950,7 @@ export class BuildSession extends DurableObject<Env> {
       log("error", "timeout_sandbox_termination_failed", {
         turnId: turn.turnId,
         sandboxId,
-        message: errorMessage(error),
+        ...sandboxLifecycleFailureFields(error),
       });
       await this.setExactTurnAlarm(turn, Date.now() + 30_000);
       return;
@@ -5806,7 +7221,7 @@ export class BuildSession extends DurableObject<Env> {
     } catch (error) {
       log("error", "cancel_sandbox_termination_failed", {
         turnId: turn.turnId,
-        message: errorMessage(error),
+        ...sandboxLifecycleFailureFields(error),
       });
       await this.setExactTurnAlarm(turn, Date.now() + 30_000);
       return json(
@@ -6001,7 +7416,8 @@ export class BuildSession extends DurableObject<Env> {
       });
 
       let nativeUpload:
-        Awaited<ReturnType<typeof uploadTurnStateArchive>> | undefined;
+        | Awaited<ReturnType<typeof uploadTurnStateArchive>>
+        | undefined;
       if (prepared.objectKeys.native) {
         nativeUpload = await uploadTurnStateArchive({
           session,
@@ -6635,6 +8051,12 @@ export class BuildSession extends DurableObject<Env> {
     if (url.pathname === "/turn-broker") {
       return await this.handleTurnBroker(request);
     }
+    if (
+      url.pathname === "/vite-preview" ||
+      url.pathname.startsWith("/vite-preview/")
+    ) {
+      return await this.proxyVitePreview(request);
+    }
     if (request.method !== "POST") {
       return json({ error: "Method not allowed." }, 405);
     }
@@ -6671,11 +8093,16 @@ export class BuildSession extends DurableObject<Env> {
     // These fields come only from the authenticated outer gateway. Delete any
     // body-shaped values first so a service caller cannot choose where the
     // sandbox sends its capability or which BuildSession identity it claims.
-    if (turn && typeof turn === "object") delete turn.turnBrokerRoute;
+    if (turn && typeof turn === "object") {
+      delete turn.turnBrokerRoute;
+      delete turn.previewRoute;
+    }
     const brokerSessionId =
       request.headers.get(HEADER_BUILD_SESSION_NAME)?.trim() ?? "";
     const brokerEndpoint =
       request.headers.get(HEADER_TURN_BROKER_ENDPOINT)?.trim() ?? "";
+    const previewBaseUrl =
+      request.headers.get(HEADER_PREVIEW_BASE_URL)?.trim() ?? "";
     if (turn?.kind === "agent" && (brokerSessionId || brokerEndpoint)) {
       try {
         const endpoint = new URL(brokerEndpoint);
@@ -6702,6 +8129,32 @@ export class BuildSession extends DurableObject<Env> {
         };
       } catch {
         return json({ error: "Trusted turn broker route is required." }, 400);
+      }
+    }
+    if (turn?.kind !== "agent" && (brokerSessionId || previewBaseUrl)) {
+      try {
+        const base = new URL(previewBaseUrl);
+        const localHttp =
+          base.protocol === "http:" &&
+          (base.hostname === "127.0.0.1" || base.hostname === "localhost");
+        if (
+          !brokerSessionId ||
+          (base.protocol !== "https:" && !localHttp) ||
+          base.username ||
+          base.password ||
+          base.search ||
+          base.hash ||
+          base.pathname !==
+            `/internal/previews/${encodeURIComponent(brokerSessionId)}/`
+        ) {
+          throw new Error("invalid preview route");
+        }
+        turn.previewRoute = {
+          buildSessionName: brokerSessionId,
+          baseUrl: base.toString(),
+        };
+      } catch {
+        return json({ error: "Trusted preview route is required." }, 400);
       }
     }
     const dispatchOwnerGeneration = normalizeOwnerGeneration(
@@ -6962,6 +8415,7 @@ export class BuildSession extends DurableObject<Env> {
           orphan?: PendingTerminal;
           orphanTurn?: TurnRequest;
         };
+    const exactSandboxId = await exactTurnSandboxId("agent", turn);
     const admission = await this.ctx.blockConcurrencyWhile(
       async (): Promise<Admission> => {
         const current = await this.ctx.storage.get<TurnRequest>("turn");
@@ -7071,9 +8525,7 @@ export class BuildSession extends DurableObject<Env> {
         // A resident turn reserves no container, so it mints no id. Every
         // other turn keeps today's exact name; the id is what both
         // cancellation sweeps destroy.
-        const sandboxId = resident
-          ? undefined
-          : sessionName(`agent-${turn.turnId}`);
+        const sandboxId = resident ? undefined : exactSandboxId;
         // A predecessor whose terminal state never reached Convex left it
         // here. Taking over the DO takes the alarm with it, so this is its last
         // chance; the stale delivery below cannot mutate this successor.
@@ -7187,7 +8639,9 @@ export class BuildSession extends DurableObject<Env> {
   }
 
   private async runEcho(): Promise<Response> {
-    const sandboxId = `m0-${this.ctx.id.toString().slice(0, 24)}`;
+    // Every diagnostic run gets its own lifecycle identity as well; a delayed
+    // destroy alarm from one echo can never target the next echo's container.
+    const sandboxId = `echo-${crypto.randomUUID()}`;
     const sandbox = this.sandbox(sandboxId);
     await this.ctx.storage.put("sandboxId", sandboxId);
     try {
@@ -7203,7 +8657,10 @@ export class BuildSession extends DurableObject<Env> {
       await sandbox.deleteSession(session.id).catch(() => undefined);
       if (!execution.success) {
         return json(
-          { error: "Executor echo failed", detail: execution.stderr },
+          {
+            error: "Executor echo failed.",
+            code: `executor.${classifyAgentFailureDiagnostic(execution.stderr)}`,
+          },
           502,
         );
       }
@@ -7213,15 +8670,99 @@ export class BuildSession extends DurableObject<Env> {
           execution.stdout.trim().split("\n").at(-1) ?? "{}",
         ),
       });
-    } catch (error) {
+    } catch {
       return json(
-        { error: "Sandbox echo failed", detail: errorMessage(error) },
+        { error: "Sandbox echo failed.", code: "sandbox.echo_failed" },
         502,
       );
     } finally {
-      await sandbox.destroy().catch(() => undefined);
-      await this.ctx.storage.deleteAll();
+      await this.destroySandboxDurably(
+        { sandboxId, size: "large", workload: "app-build" },
+        "echo_terminal",
+      ).catch(() => undefined);
+      await this.deleteTurnStoragePreservingExactCancellations(undefined, true);
     }
+  }
+
+  /**
+   * Agent-only Vite access. The outer Worker routes by BuildSession name; this
+   * object re-verifies the signed exact turn/sandbox scope and the durable
+   * active nonce before a single byte reaches the raw tunnel.
+   */
+  private async proxyVitePreview(request: Request): Promise<Response> {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return json({ error: "Method not allowed." }, 405);
+    }
+    const capability = request.headers.get(HEADER_PREVIEW_CAPABILITY) ?? "";
+    const [turn, sandboxId, terminal, activeRecord] = await Promise.all([
+      this.ctx.storage.get<TurnRequest>("turn"),
+      this.ctx.storage.get<string>("sandboxId"),
+      this.ctx.storage.get<boolean>("terminal"),
+      this.ctx.storage.get(PREVIEW_ACCESS_STORAGE_KEY),
+    ]);
+    if (
+      !turn ||
+      turn.kind === "agent" ||
+      terminal === true ||
+      !sandboxId ||
+      !turn.previewRoute
+    ) {
+      return json({ error: "Preview is no longer active." }, 410);
+    }
+    const verified = await verifyPreviewAccessCapability({
+      capability,
+      secret: this.env.BUILDER_SERVICE_SECRET,
+      expected: {
+        buildSessionName: turn.previewRoute.buildSessionName,
+        turnId: turn.turnId,
+        sandboxId,
+      },
+      activeRecord,
+      now: Date.now(),
+    });
+    if (!verified.ok) {
+      return json(
+        { error: "Preview access was rejected.", code: verified.code },
+        verified.code === "expired" || verified.code === "inactive" ? 410 : 403,
+      );
+    }
+    const incoming = new URL(request.url);
+    const target = resolvePreviewTunnelRequest({
+      tunnelUrl: verified.tunnelUrl,
+      proxyPathname: incoming.pathname,
+      search: incoming.search,
+    });
+    if (!target) {
+      return json({ error: "Preview path was rejected." }, 400);
+    }
+    const headers = new Headers();
+    for (const name of ["accept", "accept-language", "range"]) {
+      const value = request.headers.get(name);
+      if (value) headers.set(name, value);
+    }
+    const upstream = await fetch(target, {
+      method: request.method,
+      headers,
+      redirect: "manual",
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (upstream.status >= 300 && upstream.status < 400) {
+      await upstream.body?.cancel().catch(() => undefined);
+      return json({ error: "Preview redirect was rejected." }, 502);
+    }
+    const responseHeaders = new Headers({
+      "cache-control": "private, no-store",
+      "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+      "x-content-type-options": "nosniff",
+    });
+    for (const name of ["content-type", "content-length", "accept-ranges"]) {
+      const value = upstream.headers.get(name);
+      if (value) responseHeaders.set(name, value);
+    }
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: responseHeaders,
+    });
   }
 
   // A spawned general agent's turn: restore its workspace, run the real
@@ -7350,8 +8891,7 @@ export class BuildSession extends DurableObject<Env> {
       turnStateWorkspaceRestoreConfirmationRequired:
         resolved.workspaceConfirmationRequired,
       ...(resolved.restore ? { turnStateThreadRestore: resolved.restore } : {}),
-      turnStateThreadRestoreConfirmationRequired:
-        resolved.confirmationRequired,
+      turnStateThreadRestoreConfirmationRequired: resolved.confirmationRequired,
       descriptor,
     };
   }
@@ -7441,6 +8981,11 @@ export class BuildSession extends DurableObject<Env> {
     }
     const attemptGeneration = turn.attemptGeneration!;
     const identity = { turnId: turn.turnId, attemptGeneration };
+    // `sandboxId`/`sandboxSize` predate resident placement and are not scoped
+    // to an attempt. Clear a predecessor's values before this attempt can
+    // attach; an exact replay that already owns a compute reservation keeps
+    // its shared compatibility mirror.
+    await this.clearLegacySandboxTupleForResidentAdmission(turn);
     await this.event(
       turn,
       "auto",
@@ -7468,7 +9013,7 @@ export class BuildSession extends DurableObject<Env> {
 
     // The same name the container path would have minted, so every teardown,
     // archive and recovery path keyed on it works without a second scheme.
-    const sandboxId = sessionName(`agent-${turn.turnId}`);
+    const sandboxId = await exactTurnSandboxId("agent", turn);
     const workspaceKey = await checkpointKey(turn.ownerId);
     const remembered = asInstanceSize(
       await this.env.APP_ROUTES.get(instanceSizeKey(workspaceKey)),
@@ -7478,6 +9023,15 @@ export class BuildSession extends DurableObject<Env> {
       ? "large"
       : (remembered ??
         initialInstanceSize({ prompt: turn.prompt, restored: true }));
+    const worldLeaseId = `world:${await sha256Hex(
+      JSON.stringify({
+        ownerId: turn.ownerId,
+        ownerGeneration: turn.ownerGeneration,
+        turnId: turn.turnId,
+        attemptGeneration,
+        sandboxId,
+      }),
+    )}`;
 
     let attachedWorkspaceRestore: TurnStateWorkspaceHead | undefined;
     let residentHistory: AgentHistoryRow[] = [];
@@ -7494,7 +9048,7 @@ export class BuildSession extends DurableObject<Env> {
         const attached = await this.attachAgentWorld({
           turn,
           execution,
-          sandbox: this.sandbox(sandboxId, size),
+          sandbox: this.sandbox(sandboxId, size, "resident-attachment"),
           size,
           nativeDescriptor: null,
           history: residentHistory,
@@ -7505,17 +9059,14 @@ export class BuildSession extends DurableObject<Env> {
         // lands after the restore: an eviction before this point recovers by
         // destroying the reservation, and one after it recovers by archiving
         // the disk the way a lost container executor already does.
-        await this.ctx.storage.put(
-          agentExecutionMarkerKey(turn.turnId, attemptGeneration),
-          {
-            schemaVersion: 1,
-            turnId: turn.turnId,
-            attemptGeneration,
-            sandboxId,
-            size,
-            startedAt: Date.now(),
-          } satisfies AgentExecutionMarker,
-        );
+        await this.persistAgentExecutionMarker(turn, {
+          schemaVersion: 1,
+          turnId: turn.turnId,
+          attemptGeneration,
+          sandboxId,
+          size,
+          startedAt: Date.now(),
+        });
         return attached;
       },
       prepareBrokerHandoff: async ({ session }) =>
@@ -7550,10 +9101,96 @@ export class BuildSession extends DurableObject<Env> {
         },
       },
       attachment,
+      worldLease: {
+        leaseId: worldLeaseId,
+        acquire: async ({ leaseId }) => {
+          const grant = await this.registerBuildOwnerFenceLease({
+            turn,
+            kind: "world",
+            role: "world",
+            leaseId,
+          });
+          await this.setExactTurnAlarmNoLaterThan(
+            turn,
+            Math.max(
+              Date.now() + 1_000,
+              this.worldLeaseRenewalAt(grant.expiresAt),
+            ),
+          );
+          return {
+            generation: grant.generation,
+            expiresAt: grant.expiresAt,
+          };
+        },
+        renew: async ({ leaseId, generation }) => {
+          const response = await this.callOwnerFence(turn.ownerId, "renew", {
+            leaseId,
+            sessionId: this.ctx.id.toString(),
+            turnId: turn.turnId,
+            ownerGeneration: turn.ownerGeneration,
+            generation,
+          });
+          const payload = (await response.json().catch(() => null)) as {
+            expiresAt?: unknown;
+          } | null;
+          if (
+            !response.ok ||
+            typeof payload?.expiresAt !== "number" ||
+            !Number.isFinite(payload.expiresAt)
+          ) {
+            throw new OwnerPurgeFenceError();
+          }
+          await this.setExactTurnAlarmNoLaterThan(
+            turn,
+            Math.max(
+              Date.now() + 1_000,
+              this.worldLeaseRenewalAt(payload.expiresAt),
+            ),
+          );
+          return { expiresAt: payload.expiresAt };
+        },
+        retire: async ({ leaseId, generation }) => {
+          const key = ownerFenceLeaseReceiptKey(leaseId);
+          let receipt =
+            await this.ctx.storage.get<BuildOwnerFenceLeaseReceipt>(key);
+          if (
+            receipt &&
+            (!this.ownerFenceReceiptMatches(receipt, turn, leaseId) ||
+              receipt.kind !== "world")
+          ) {
+            throw new OwnerPurgeFenceError();
+          }
+          if (!receipt) {
+            const now = Date.now();
+            receipt = {
+              schemaVersion: 1,
+              ownerId: turn.ownerId,
+              ownerGeneration: turn.ownerGeneration,
+              turnId: turn.turnId,
+              leaseId,
+              kind: "world",
+              phase: "unregister_pending",
+              ...(generation ? { registrationGeneration: generation } : {}),
+              createdAt: now,
+              updatedAt: now,
+            };
+            await this.ctx.storage.put(key, receipt);
+          }
+          if (!(await this.retireBuildOwnerFenceLease(receipt, generation))) {
+            throw new Error("Owner-world lease retirement is pending.");
+          }
+        },
+      },
       context: execution,
       emitEvent: (kind, payload) => {
-        void this.event(turn, "auto", kind, payload, false, execution.signal)
-          .catch(() => undefined);
+        void this.event(
+          turn,
+          "auto",
+          kind,
+          payload,
+          false,
+          execution.signal,
+        ).catch(() => undefined);
       },
     });
 
@@ -7787,7 +9424,7 @@ export class BuildSession extends DurableObject<Env> {
   ): Promise<void> {
     const commandTimeoutMs = Number(this.env.TURN_TIMEOUT_MS);
     const requestStarted = performance.now();
-    let sandbox = this.sandbox(sandboxId);
+    let sandbox = this.sandbox(sandboxId, "large", "agent");
     log("info", "agent_turn_started", {
       turnId: turn.turnId,
       threadId: turn.threadId,
@@ -7974,7 +9611,7 @@ export class BuildSession extends DurableObject<Env> {
           }));
       await this.ctx.storage.put("sandboxSize", size);
       execution.assertActive();
-      sandbox = this.sandbox(sandboxId, size);
+      sandbox = this.sandbox(sandboxId, size, "agent");
       let escalated = false;
       let attempt = await this.runAgentAttempt({
         turn,
@@ -8009,11 +9646,14 @@ export class BuildSession extends DurableObject<Env> {
         await this.ctx.storage.delete(
           agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!),
         );
-        await sandbox.destroy().catch(() => undefined);
+        await this.destroySandboxDurably(
+          { sandboxId, size, workload: "agent" },
+          "agent_oom_resize",
+        ).catch(() => undefined);
         execution.assertActive();
         size = "large";
         escalated = true;
-        const escalatedId = sessionName(`agent-${turn.turnId}-lg`);
+        const escalatedId = await exactTurnSandboxId("agent-lg", turn);
         await this.ctx.storage.put({
           sandboxId: escalatedId,
           sandboxSize: size,
@@ -8061,7 +9701,7 @@ export class BuildSession extends DurableObject<Env> {
           execution.signal,
         ).catch(() => undefined);
         execution.assertActive();
-        sandbox = this.sandbox(escalatedId, size);
+        sandbox = this.sandbox(escalatedId, size, "agent");
         attempt = await this.runAgentAttempt({
           turn,
           execution,
@@ -8096,7 +9736,10 @@ export class BuildSession extends DurableObject<Env> {
         !(await this.ownsExactTurn(turn)) ||
         (await this.ctx.storage.get<boolean>("terminal"))
       ) {
-        await sandbox.destroy().catch(() => undefined);
+        await this.destroySandboxDurably(
+          { sandboxId, size, workload: "agent" },
+          "agent_superseded",
+        ).catch(() => undefined);
         log("info", "agent_turn_superseded", {
           turnId: turn.turnId,
           threadId: turn.threadId,
@@ -8170,7 +9813,10 @@ export class BuildSession extends DurableObject<Env> {
           turnExecution: execution,
         });
         if (interior.outcome === "abandoned") {
-          await sandbox.destroy().catch(() => undefined);
+          await this.destroySandboxDurably(
+            { sandboxId, size, workload: "agent" },
+            "agent_interior_abandoned",
+          ).catch(() => undefined);
           return;
         }
         if (interior.outcome === "published") {
@@ -8272,7 +9918,10 @@ export class BuildSession extends DurableObject<Env> {
         !(await this.ownsExactTurn(turn)) ||
         (await this.ctx.storage.get<boolean>("terminal"))
       ) {
-        await sandbox.destroy().catch(() => undefined);
+        await this.destroySandboxDurably(
+          { sandboxId, size, workload: "agent" },
+          "agent_authority_lost",
+        ).catch(() => undefined);
         return;
       }
       if (checkpointError) {
@@ -8373,7 +10022,10 @@ export class BuildSession extends DurableObject<Env> {
           turn,
           pendingBrowserSuspension,
         );
-        await sandbox.destroy().catch(() => undefined);
+        await this.destroySandboxDurably(
+          { sandboxId, size, workload: "agent" },
+          "agent_browser_suspended",
+        ).catch(() => undefined);
         if (!retained) return;
 
         const delivered = await this.deliverBrowserSuspension(
@@ -8430,7 +10082,10 @@ export class BuildSession extends DurableObject<Env> {
         };
       }
       const delivered = await this.deliverTerminal(turn, pending);
-      await sandbox.destroy().catch(() => undefined);
+      await this.destroySandboxDurably(
+        { sandboxId, size, workload: "agent" },
+        "agent_terminal",
+      ).catch(() => undefined);
       // Storage is the redelivery's only memory: clear it once the terminal
       // state is in Convex, and leave it — with the alarm deliverTerminal
       // re-armed — when it is not.
@@ -8503,11 +10158,7 @@ export class BuildSession extends DurableObject<Env> {
       }
       if (await this.ctx.storage.get<boolean>("terminal")) return;
       try {
-        await withInfrastructureDeadline(
-          sandbox.destroy(),
-          30_000,
-          "Agent sandbox destruction did not settle.",
-        );
+        await this.terminateCurrentAgentSandbox(turn);
       } catch (destroyError) {
         log("error", "agent_sandbox_destruction_deferred", {
           turnId: turn.turnId,
@@ -8556,12 +10207,7 @@ export class BuildSession extends DurableObject<Env> {
       if (await this.ctx.storage.get<boolean>("terminal")) return;
       if (error instanceof OwnerPurgeFenceError) {
         try {
-          await this.cleanupTransientWrites(turn);
-          await this.ctx.blockConcurrencyWhile(async () => {
-            if (!(await this.ownsExactTurn(turn))) return;
-            await this.ctx.storage.deleteAlarm().catch(() => undefined);
-            await this.ctx.storage.deleteAll();
-          });
+          await this.cleanupOwnerPurgedTurnStorage(turn);
         } catch (cleanupError) {
           log("error", "owner_purge_agent_cleanup_failed", {
             turnId: turn.turnId,
@@ -8783,8 +10429,8 @@ export class BuildSession extends DurableObject<Env> {
       turnExecution.signal,
     );
     let cloudSkills:
-      Awaited<ReturnType<typeof materializeCloudSkillSnapshot>> | undefined =
-      undefined;
+      | Awaited<ReturnType<typeof materializeCloudSkillSnapshot>>
+      | undefined = undefined;
     if (args.cloudSkillHome && args.cloudSkillCatalog) {
       turnExecution.assertActive();
       cloudSkills = await materializeCloudSkillSnapshot({
@@ -8943,11 +10589,7 @@ export class BuildSession extends DurableObject<Env> {
               teardownPending,
               Date.now() + 1_000,
             );
-            await withInfrastructureDeadline(
-              sandbox.destroy(),
-              30_000,
-              "Captured session sandbox destruction did not settle.",
-            );
+            await this.terminateCurrentAgentSandbox(turn);
             await this.ctx.storage
               .transaction(async (transaction) => {
                 if (
@@ -9201,27 +10843,94 @@ export class BuildSession extends DurableObject<Env> {
     turnExecution: TurnExecutionContext,
   ): Promise<Response> {
     const commandTimeoutMs = Number(this.env.TURN_TIMEOUT_MS);
-    const firstSandboxId = sessionName(`turn-${turn.turnId}`);
+    const firstSandboxId = await exactTurnSandboxId("app", turn);
     const first = this.sandbox(firstSandboxId);
-    await this.ctx.blockConcurrencyWhile(async () => {
-      turnExecution.assertActive();
-      const turnTokenHash = await sha256Hex(turn.turnToken);
-      turnExecution.assertActive();
-      await this.assertTurnWritable(turn);
-      await this.assertConvexAppTurnAuthority(turn);
-      turnExecution.assertActive();
-      await this.ctx.storage.put({
-        sandboxId: firstSandboxId,
+    turnExecution.assertActive();
+    const turnTokenHash = await sha256Hex(turn.turnToken);
+    turnExecution.assertActive();
+    const claim: AppTurnAdmissionClaim = {
+      schemaVersion: 1,
+      claimId: crypto.randomUUID(),
+      turnId: turn.turnId,
+      ownerGeneration: turn.ownerGeneration,
+      createdAt: Date.now(),
+    };
+    const staged = await this.ctx.storage.transaction(async (txn) => {
+      const [currentTurn, terminal] = await Promise.all([
+        txn.get<TurnRequest>("turn"),
+        txn.get<boolean>("terminal"),
+      ]);
+      if (
+        (currentTurn && !exactTurnIdentityMatches(currentTurn, turn)) ||
+        (currentTurn && terminal)
+      ) {
+        return false;
+      }
+      await txn.put({
+        [APP_TURN_ADMISSION_CLAIM_KEY]: claim,
         turn,
         turnTokenHash,
         turnId: turn.turnId,
         terminal: false,
       });
-      await this.ctx.storage.setAlarm(
-        Date.now() + Math.max(1_000, turn.watchdogMs ?? 15 * 60_000),
-      );
-      turnExecution.assertActive();
+      return true;
     });
+    if (!staged) {
+      throw new AppTurnAuthorityLostError();
+    }
+
+    // Cross-DO and Convex I/O deliberately run outside any concurrency gate.
+    // Stop or a successor may land while either is in flight; the exact claim
+    // below is the only thing that can authorize the container side effect.
+    let committed = false;
+    try {
+      await this.assertTurnWritable(turn);
+      await this.assertConvexAppTurnAuthority(turn);
+      turnExecution.assertActive();
+      committed = await this.ctx.storage.transaction(async (txn) => {
+        const [currentTurn, currentClaim, terminal] = await Promise.all([
+          txn.get<TurnRequest>("turn"),
+          txn.get<AppTurnAdmissionClaim>(APP_TURN_ADMISSION_CLAIM_KEY),
+          txn.get<boolean>("terminal"),
+        ]);
+        if (
+          terminal ||
+          !exactTurnIdentityMatches(currentTurn, turn) ||
+          currentClaim?.schemaVersion !== 1 ||
+          currentClaim.claimId !== claim.claimId ||
+          currentClaim.turnId !== turn.turnId ||
+          currentClaim.ownerGeneration !== turn.ownerGeneration
+        ) {
+          return false;
+        }
+        await txn.put("sandboxId", firstSandboxId);
+        await txn.delete(APP_TURN_ADMISSION_CLAIM_KEY);
+        await txn.setAlarm(
+          Date.now() + Math.max(1_000, turn.watchdogMs ?? 15 * 60_000),
+        );
+        return true;
+      });
+    } finally {
+      if (!committed) {
+        await this.ctx.storage.transaction(async (txn) => {
+          const [currentTurn, currentClaim, terminal] = await Promise.all([
+            txn.get<TurnRequest>("turn"),
+            txn.get<AppTurnAdmissionClaim>(APP_TURN_ADMISSION_CLAIM_KEY),
+            txn.get<boolean>("terminal"),
+          ]);
+          if (currentClaim?.claimId !== claim.claimId) return;
+          await txn.delete(APP_TURN_ADMISSION_CLAIM_KEY);
+          // A failed remote validation should restore pre-admission emptiness.
+          // A Stop has already made the staged turn durable and keeps it so
+          // cancellation acknowledgement/recovery can finish exactly once.
+          if (exactTurnIdentityMatches(currentTurn, turn) && !terminal) {
+            await txn.delete(["turn", "turnTokenHash", "turnId", "terminal"]);
+          }
+        });
+      }
+    }
+    if (!committed) throw new AppTurnAuthorityLostError();
+    turnExecution.assertActive();
     let seq = 0;
     const requestStarted = performance.now();
     log("info", "turn_started", {
@@ -9332,7 +11041,7 @@ export class BuildSession extends DurableObject<Env> {
         log("error", "executor_failed", {
           turnId: turn.turnId,
           appId: turn.appId,
-          stderr: execution.stderr.slice(-4_000),
+          ...executionFailureFields(execution.stderr),
         });
         throw new Error("Stella hit a problem while building. Try again.");
       }
@@ -9368,12 +11077,49 @@ export class BuildSession extends DurableObject<Env> {
       const tunnel = await first.tunnels.get(5173);
       turnExecution.assertActive();
       const firstPreviewMs = Math.round(performance.now() - viteStarted);
+      if (!turn.previewRoute) {
+        throw new Error("Trusted preview route is unavailable.");
+      }
+      const previewAccess = await issuePreviewAccessCapability({
+        identity: {
+          buildSessionName: turn.previewRoute.buildSessionName,
+          turnId: turn.turnId,
+          sandboxId: firstSandboxId,
+        },
+        tunnelUrl: tunnel.url,
+        secret: this.env.BUILDER_SERVICE_SECRET,
+        now: Date.now(),
+        ttlMs: Math.min(
+          PREVIEW_ACCESS_MAX_TTL_MS,
+          Math.max(1_000, turn.watchdogMs ?? 15 * 60_000),
+        ),
+      });
+      await this.ctx.storage.put(
+        PREVIEW_ACCESS_STORAGE_KEY,
+        previewAccess.activeRecord,
+      );
+      turnExecution.assertActive();
+      // Exercise the exact signed route the agent would use. The tunnel URL
+      // remains only in the active DO record and is never emitted to the UI.
+      const signedPreviewUrl = `${turn.previewRoute.baseUrl}${previewAccess.capability}/`;
+      const previewVerification = await this.proxyVitePreview(
+        new Request(signedPreviewUrl, {
+          headers: {
+            [HEADER_PREVIEW_CAPABILITY]: previewAccess.capability,
+          },
+        }),
+      );
+      await previewVerification.body?.cancel().catch(() => undefined);
+      if (!previewVerification.ok) {
+        await this.ctx.storage.delete(PREVIEW_ACCESS_STORAGE_KEY);
+        throw new Error("The signed agent preview did not become ready.");
+      }
       await this.event(
         turn,
         seq++,
         "live_preview",
         {
-          url: tunnel.url,
+          access: "agent_only",
           firstPreviewMs,
         },
         false,
@@ -9534,7 +11280,14 @@ export class BuildSession extends DurableObject<Env> {
         turn,
         pendingPublication,
       );
-      await first.destroy();
+      await this.destroySandboxDurably(
+        {
+          sandboxId: firstSandboxId,
+          size: "large",
+          workload: "app-build",
+        },
+        "app_build_terminal",
+      );
       if (publication === "retrying") {
         return json(
           { ok: true, accepted: true, publicationPending: true, ...result },
@@ -9555,7 +11308,15 @@ export class BuildSession extends DurableObject<Env> {
       });
       return json({ ok: true, ...result });
     } catch (error) {
-      const message = errorMessage(error);
+      const failureCode =
+        error instanceof OwnerPurgeFenceError
+          ? "OWNER_PURGE_FENCE"
+          : error instanceof AppTurnAuthorityLostError
+            ? "APP_TURN_AUTHORITY_LOST"
+            : error instanceof ConvexCallbackError
+              ? "CONVEX_CALLBACK_FAILED"
+              : "APP_BUILD_FAILED";
+      const failureMessage = "Stella hit a problem while building. Try again.";
       const transientBuild = await this.ctx.storage.get<string>(
         `transientBuild:${turn.turnId}`,
       );
@@ -9570,7 +11331,7 @@ export class BuildSession extends DurableObject<Env> {
           callbackBody: {},
           completionSeq: seq++,
           completionResult: {},
-          failureMessage: message,
+          failureMessage,
         };
         await this.ctx.storage.put(
           pendingAppBuildPublicationKey(turn.turnId),
@@ -9580,13 +11341,14 @@ export class BuildSession extends DurableObject<Env> {
           turn,
           cleanupPending,
         );
-        const sandboxId = await this.ctx.storage.get<string>("sandboxId");
-        if (sandboxId) {
-          await this.sandbox(sandboxId)
-            .destroy()
-            .catch(() => undefined);
-        }
-        await first.destroy().catch(() => undefined);
+        await this.destroySandboxDurably(
+          {
+            sandboxId: firstSandboxId,
+            size: "large",
+            workload: "app-build",
+          },
+          "app_build_cleanup",
+        ).catch(() => undefined);
         if (cleanup === "retrying") {
           return json(
             {
@@ -9598,39 +11360,39 @@ export class BuildSession extends DurableObject<Env> {
           );
         }
         await this.retireTerminalAppTurnStorage(turn);
-        return json({ error: "Cloud app turn failed.", detail: message }, 502);
+        return json(
+          { error: "Cloud app turn failed.", code: failureCode },
+          502,
+        );
       }
       if (
         !(error instanceof OwnerPurgeFenceError) &&
         !(await this.ctx.storage.get<boolean>("terminal"))
       ) {
         await this.ctx.storage.put("terminal", true);
-        // Only deliberately-written messages ("Stella …") reach the chat
-        // bubble; raw provider/infra errors stay in the log line below.
-        const friendly = message.startsWith("Stella")
-          ? message
-          : "Stella hit a problem while building. Try again.";
         await this.event(
           turn,
           seq++,
           "failed",
-          { message: friendly },
+          { message: failureMessage },
           true,
         ).catch(() => undefined);
       }
-      const sandboxId = await this.ctx.storage.get<string>("sandboxId");
-      if (sandboxId)
-        await this.sandbox(sandboxId)
-          .destroy()
-          .catch(() => undefined);
-      await first.destroy().catch(() => undefined);
+      await this.destroySandboxDurably(
+        {
+          sandboxId: firstSandboxId,
+          size: "large",
+          workload: "app-build",
+        },
+        "app_build_failed",
+      ).catch(() => undefined);
       await this.retireTerminalAppTurnStorage(turn);
       log("error", "turn_failed", {
         turnId: turn.turnId,
         appId: turn.appId,
-        message,
+        errorCode: failureCode,
       });
-      return json({ error: "Cloud app turn failed.", detail: message }, 502);
+      return json({ error: "Cloud app turn failed.", code: failureCode }, 502);
     } finally {
       await this.unregisterTurn(turn);
     }
@@ -10299,6 +12061,7 @@ const updateCoordinatorTurnState = async (
 };
 
 const OWNER_TRANSFER_SOURCE_METADATA = "stellaTransferSource";
+const OWNER_TRANSFER_METADATA_TRANSFORM_MAX_BYTES = 64 * 1024;
 
 const transferSourceMarker = async (
   sourceKey: string,
@@ -10325,13 +12088,10 @@ const moveR2PrefixPreservingDestination = async (
   sourcePrefix: string,
   destinationPrefix: string,
   budget: OwnerTransferBudget,
-  transform?: (
-    source: R2ObjectBody,
-    destinationKey: string,
-  ) => Promise<
-    | { body: ReadableStream | ArrayBuffer | string; contentType?: string }
-    | undefined
-  >,
+  transform?: {
+    matches: (destinationKey: string) => boolean;
+    run: R2TransferTransform;
+  },
 ): Promise<boolean> => {
   if (!isValidOwnerTransferPrefixPair(sourcePrefix, destinationPrefix)) {
     throw new OwnerProductTransferConflictError(
@@ -10356,14 +12116,30 @@ const moveR2PrefixPreservingDestination = async (
     const source = await bucket.get(listed.key);
     if (!source) continue;
     const marker = await transferSourceMarker(listed.key, source.etag);
-    const replacement = transform
-      ? await transform(source, canonicalKey)
-      : undefined;
-    const body = replacement?.body ?? (await source.arrayBuffer());
+    let transferBody: Awaited<ReturnType<typeof r2TransferBody>>;
+    try {
+      transferBody = await r2TransferBody({
+        source,
+        destinationKey: canonicalKey,
+        ...(transform?.matches(canonicalKey)
+          ? {
+              transform: transform.run,
+              transformMaxBytes: OWNER_TRANSFER_METADATA_TRANSFORM_MAX_BYTES,
+            }
+          : {}),
+      });
+    } catch (error) {
+      if (error instanceof R2TransferTransformTooLargeError) {
+        throw new OwnerProductTransferConflictError(
+          "Owner transfer metadata exceeded its bounded transform limit.",
+        );
+      }
+      throw error;
+    }
     const options: R2PutOptions = {
       onlyIf: { etagDoesNotMatch: "*" },
-      httpMetadata: replacement?.contentType
-        ? { contentType: replacement.contentType }
+      httpMetadata: transferBody.contentType
+        ? { contentType: transferBody.contentType }
         : source.httpMetadata,
       customMetadata: {
         ...(source.customMetadata ?? {}),
@@ -10375,7 +12151,7 @@ const moveR2PrefixPreservingDestination = async (
       const existing = await bucket.head(destinationKey);
       if (isTransferredSource(existing, marker)) return true;
       if (existing) return false;
-      await bucket.put(destinationKey, body, options);
+      await bucket.put(destinationKey, transferBody.body, options);
       return isTransferredSource(await bucket.head(destinationKey), marker);
     };
 
@@ -10676,19 +12452,31 @@ const moveWorldCheckpoint = async (
         `backups/${sourceId}/`,
         `backups/${destinationId}/`,
         budget,
-        async (source, destinationKey) => {
-          if (!destinationKey.endsWith("/meta.json")) return undefined;
-          const metadata = (await source.json().catch(() => null)) as Record<
-            string,
-            unknown
-          > | null;
-          return {
-            body: JSON.stringify({
-              ...(metadata ?? {}),
-              name: destinationName,
-            }),
-            contentType: "application/json",
-          };
+        {
+          matches: (destinationKey) => destinationKey.endsWith("/meta.json"),
+          run: async (sourceBody) => {
+            let metadata: Record<string, unknown> | null = null;
+            try {
+              const decoded = new TextDecoder("utf-8", {
+                fatal: true,
+                ignoreBOM: false,
+              }).decode(sourceBody);
+              const parsed = JSON.parse(decoded) as unknown;
+              metadata =
+                parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                  ? (parsed as Record<string, unknown>)
+                  : null;
+            } catch {
+              metadata = null;
+            }
+            return {
+              body: JSON.stringify({
+                ...(metadata ?? {}),
+                name: destinationName,
+              }),
+              contentType: "application/json",
+            };
+          },
         },
       );
       if (!complete) return { complete: false };
@@ -11106,6 +12894,28 @@ const purgeOwnerStorage = async (
   return { ok: true, deleted, pending: Array.from(new Set(pending)) };
 };
 
+const boundedIngressRequest = async (
+  request: Request,
+  maxBytes: number,
+): Promise<Request | Response> => {
+  try {
+    return await bufferBoundedJsonRequest(request, maxBytes);
+  } catch (error) {
+    const status = boundedBodyStatus(error);
+    if (status === null) throw error;
+    return json(
+      {
+        code: status === 413 ? "request_too_large" : "bad_request",
+        message:
+          status === 413
+            ? "Request body is too large."
+            : "Malformed JSON request.",
+      },
+      status,
+    );
+  }
+};
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -11113,10 +12923,56 @@ export default {
     log("info", "request_started", {
       requestId,
       method: request.method,
-      path: url.pathname,
+      path: previewSafeRequestLogPath(url.pathname),
     });
     if (request.method === "GET" && url.pathname === "/healthz") {
       return json({ ok: true, service: "stella-v2-cloud-builder" });
+    }
+    if (request.method === "GET" && url.pathname === "/readyz") {
+      const readiness = evaluateCloudBuilderReadiness(env);
+      return json(
+        {
+          ok: readiness.ready,
+          service: "stella-v2-cloud-builder",
+          checks: {
+            missing: readiness.missing,
+            invalid: readiness.invalid,
+          },
+        },
+        readiness.ready ? 200 : 503,
+      );
+    }
+
+    const vitePreviewMatch = url.pathname.match(
+      /^\/internal\/previews\/([A-Za-z0-9._~-]{1,128})\/(pv1\.[A-Za-z0-9_-]{1,2048}\.[A-Za-z0-9_-]{43})(\/.*)?$/,
+    );
+    if (vitePreviewMatch) {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return json({ error: "Method not allowed." }, 405);
+      }
+      const routing = await verifyPreviewAccessRouteCapability({
+        capability: vitePreviewMatch[2]!,
+        secret: env.BUILDER_SERVICE_SECRET,
+        expectedBuildSessionName: vitePreviewMatch[1]!,
+        now: Date.now(),
+      }).catch(() => ({ ok: false as const, code: "bad_signature" as const }));
+      if (!routing.ok) {
+        return json({ error: "Preview access was rejected." }, 403);
+      }
+      const forwardedHeaders = new Headers();
+      for (const name of ["accept", "accept-language", "range"]) {
+        const value = request.headers.get(name);
+        if (value) forwardedHeaders.set(name, value);
+      }
+      forwardedHeaders.set(HEADER_PREVIEW_CAPABILITY, vitePreviewMatch[2]!);
+      const suffix = vitePreviewMatch[3] || "/";
+      return await env.BUILD_SESSIONS.getByName(vitePreviewMatch[1]!).fetch(
+        `https://build-session/vite-preview${suffix}${url.search}`,
+        {
+          method: request.method,
+          headers: forwardedHeaders,
+        },
+      );
     }
 
     // ── User-authenticated routes ─────────────────────────────────────────
@@ -11178,8 +13034,11 @@ export default {
         requestId,
       );
       if (!auth.ok) return auth.response;
+      const bodyLimit = publicJsonBodyLimit(request.method, url.pathname)!;
+      const bounded = await boundedIngressRequest(request, bodyLimit);
+      if (bounded instanceof Response) return bounded;
       return await forwardToConversation(
-        request,
+        bounded,
         env,
         conversationName(journalAppendMatch[1]!),
         "/journal",
@@ -11199,9 +13058,12 @@ export default {
       );
       if (!auth.ok) return auth.response;
       const authMs = Math.round(performance.now() - timingStartedAt);
+      const bodyLimit = publicJsonBodyLimit(request.method, url.pathname)!;
+      const bounded = await boundedIngressRequest(request, bodyLimit);
+      if (bounded instanceof Response) return bounded;
       const forwardStartedAt = performance.now();
       const response = await forwardToConversation(
-        request,
+        bounded,
         env,
         conversationName(localTurnMatch[1]!),
         `/local-turns/${localTurnMatch[2]!}`,
@@ -11267,7 +13129,17 @@ export default {
     }
     // Everything past this check is server-to-server. Nothing may fall
     // through it without another explicit authentication boundary.
-    if (!authorized(request, env)) return json({ error: "Unauthorized." }, 401);
+    if (
+      !(await verifyServiceBearerRequest(request, env.BUILDER_SERVICE_SECRET))
+    ) {
+      return json({ error: "Unauthorized." }, 401);
+    }
+    const serviceBodyLimit = serviceJsonBodyLimit(request.method, url.pathname);
+    if (serviceBodyLimit !== null) {
+      const bounded = await boundedIngressRequest(request, serviceBodyLimit);
+      if (bounded instanceof Response) return bounded;
+      request = bounded;
+    }
     if (
       request.method === "POST" &&
       [
@@ -11320,8 +13192,11 @@ export default {
             502,
           );
         }
-        const upstreamBody = await upstream.arrayBuffer();
-        if (upstreamBody.byteLength > 64 * 1024) {
+        let upstreamBody: Uint8Array;
+        try {
+          upstreamBody = await readBoundedResponseBytes(upstream, 64 * 1024);
+        } catch (error) {
+          if (!(error instanceof BoundedBodyError)) throw error;
           return json(
             {
               code: "upstream_failure",
@@ -11825,6 +13700,10 @@ export default {
         `/sessions/${encodeURIComponent(buildSessionName)}/turn-broker`,
         url.origin,
       ).toString();
+      const previewBaseUrl = new URL(
+        `/internal/previews/${encodeURIComponent(buildSessionName)}/`,
+        url.origin,
+      ).toString();
       return env.BUILD_SESSIONS.getByName(buildSessionName).fetch(
         "https://build-session/turn",
         {
@@ -11833,6 +13712,7 @@ export default {
             "content-type": "application/json",
             [HEADER_BUILD_SESSION_NAME]: buildSessionName,
             [HEADER_TURN_BROKER_ENDPOINT]: turnBrokerEndpoint,
+            [HEADER_PREVIEW_BASE_URL]: previewBaseUrl,
           },
           body: await request.text(),
         },

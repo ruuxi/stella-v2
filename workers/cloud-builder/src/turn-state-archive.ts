@@ -743,8 +743,13 @@ const withScratchCleanup = async <T>(
       // Preserve the integrity/R2 failure as the actionable error. Scratch is
       // invocation-unique and root-confined, so a retry cannot consume it.
       console.error(
-        "Turn state archive scratch cleanup also failed.",
-        cleanupError,
+        JSON.stringify({
+          level: "error",
+          event: "turn_state_archive_scratch_cleanup_failed",
+          targetKind: target.kind,
+          errorName:
+            cleanupError instanceof Error ? cleanupError.name : "UnknownError",
+        }),
       );
     }
   }

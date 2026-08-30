@@ -23,6 +23,7 @@ mock.module("cloudflare:workers", () => ({
 mock.module("@cloudflare/sandbox", () => ({
   getSandbox: () => ({}),
   Sandbox: class {},
+  ContainerProxy: class {},
 }));
 const { BuildSession } = await import("../src/index.js");
 mock.restore();
@@ -153,7 +154,15 @@ const recoveryHarness = () => {
         [...values.entries()].filter(([key]) => key.startsWith(prefix)),
       ) as Map<string, T>,
     transaction: async <T>(operation: (txn: unknown) => Promise<T>) =>
-      await operation({ get: storage.get, put, delete: remove }),
+      await operation({
+        get: storage.get,
+        put,
+        delete: remove,
+        getAlarm: async () => alarm,
+        setAlarm: async (at: number) => {
+          alarm = at;
+        },
+      }),
     getAlarm: async () => alarm,
     setAlarm: async (at: number) => {
       alarm = at;
@@ -174,6 +183,9 @@ const recoveryHarness = () => {
   const delivered: Array<Record<string, unknown>> = [];
   const claimed: Array<Record<string, unknown>> = [];
   const fallbackInputs: Array<Record<string, unknown>> = [];
+  const destroyed: Array<Record<string, unknown>> = [];
+  const ownerFenceCalls: Array<Record<string, unknown>> = [];
+  let destroyFailures = 0;
   Object.assign(instance, {
     ctx,
     env: { BUILDER_SERVICE_SECRET: "builder-secret" },
@@ -215,8 +227,35 @@ const recoveryHarness = () => {
     },
     recoverObservedBrowserSuspension: async () => null,
     terminateCurrentAgentSandbox: async () => undefined,
+    destroySandboxDurably: async (target: Record<string, unknown>) => {
+      destroyed.push(structuredClone(target));
+      if (destroyFailures > 0) {
+        destroyFailures -= 1;
+        throw new Error("injected destroy failure");
+      }
+    },
+    callOwnerFence: async (
+      _ownerId: string,
+      path: string,
+      body: Record<string, unknown>,
+    ) => {
+      ownerFenceCalls.push({ path, ...structuredClone(body) });
+      return Response.json({});
+    },
   });
-  return { instance, values, storage, delivered, claimed, fallbackInputs };
+  return {
+    instance,
+    values,
+    storage,
+    delivered,
+    claimed,
+    fallbackInputs,
+    destroyed,
+    ownerFenceCalls,
+    failNextDestroy: () => {
+      destroyFailures += 1;
+    },
+  };
 };
 
 const runAlarm = async (
@@ -313,6 +352,207 @@ describe("resident agent turn recovery", () => {
       kind: "failed",
       payload: { reason: "resident_recovered" },
     });
+  });
+
+  test("an admitted attach without an execution marker destroys and retires before resident recovery", async () => {
+    const harness = recoveryHarness();
+    const turn = residentTurn();
+    seedResidentTurn(harness, turn);
+    const sandboxId = `agent:${turn.turnId}:attempt:1`;
+    const leaseId = "world:orphaned-attach";
+    harness.values.set("sandboxId", "stale-predecessor");
+    harness.values.set("sandboxSize", "large");
+    harness.values.set(agentComputeKey(turn.turnId, 1), {
+      schemaVersion: 2,
+      turnId: turn.turnId,
+      attemptGeneration: 1,
+      phase: "attaching",
+      instanceSize: "small",
+      sandboxId,
+      attachReason: "filesystem_tool",
+      worldLease: { leaseId, phase: "registering" },
+    });
+    harness.values.set(`ownerFenceLeaseReceipt:${leaseId}`, {
+      schemaVersion: 1,
+      ownerId: turn.ownerId,
+      ownerGeneration: turn.ownerGeneration,
+      turnId: turn.turnId,
+      leaseId,
+      kind: "world",
+      phase: "registering",
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+    });
+    const convex = convexStub();
+    const original = globalThis.fetch;
+    globalThis.fetch = convex.fetchStub as typeof fetch;
+    try {
+      await runAlarm(harness.instance, turn);
+    } finally {
+      globalThis.fetch = original;
+    }
+
+    expect(harness.destroyed).toEqual([
+      {
+        sandboxId,
+        size: "small",
+        workload: "resident-attachment",
+      },
+    ]);
+    expect(harness.ownerFenceCalls).toHaveLength(1);
+    expect(harness.ownerFenceCalls[0]).toMatchObject({
+      path: "unregister",
+      leaseId,
+      turnId: turn.turnId,
+    });
+    expect(harness.values.has(agentComputeKey(turn.turnId, 1))).toBe(false);
+    expect(harness.values.has(`ownerFenceLeaseReceipt:${leaseId}`)).toBe(false);
+    expect(harness.values.get("sandboxId")).toBe("stale-predecessor");
+    expect(convex.posted).toHaveLength(1);
+  });
+
+  test("destroy failure retains exact compute and world slot until the retry succeeds", async () => {
+    const harness = recoveryHarness();
+    const turn = residentTurn();
+    seedResidentTurn(harness, turn);
+    const sandboxId = `agent:${turn.turnId}:attempt:1`;
+    const leaseId = "world:destroy-retry";
+    harness.values.set(agentComputeKey(turn.turnId, 1), {
+      schemaVersion: 2,
+      turnId: turn.turnId,
+      attemptGeneration: 1,
+      phase: "attached",
+      instanceSize: "large",
+      sandboxId,
+      attachReason: "process_tool",
+      worldLease: {
+        leaseId,
+        phase: "registered",
+        generation: "lease-generation",
+        expiresAt: Date.now() + 60_000,
+      },
+    });
+    harness.values.set(`ownerFenceLeaseReceipt:${leaseId}`, {
+      schemaVersion: 1,
+      ownerId: turn.ownerId,
+      ownerGeneration: turn.ownerGeneration,
+      turnId: turn.turnId,
+      leaseId,
+      kind: "world",
+      phase: "registered",
+      registrationGeneration: "lease-generation",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    harness.failNextDestroy();
+
+    await runAlarm(harness.instance, turn);
+    expect(harness.values.has(agentComputeKey(turn.turnId, 1))).toBe(true);
+    expect(
+      harness.values.get(`ownerFenceLeaseReceipt:${leaseId}`),
+    ).toMatchObject({ phase: "registered" });
+    expect(harness.ownerFenceCalls).toEqual([]);
+
+    const convex = convexStub();
+    const original = globalThis.fetch;
+    globalThis.fetch = convex.fetchStub as typeof fetch;
+    try {
+      await runAlarm(harness.instance, turn);
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(harness.destroyed).toHaveLength(2);
+    expect(harness.ownerFenceCalls.at(-1)).toMatchObject({
+      path: "unregister",
+      leaseId,
+      generation: "lease-generation",
+    });
+    expect(harness.values.has(agentComputeKey(turn.turnId, 1))).toBe(false);
+    expect(harness.values.has(`ownerFenceLeaseReceipt:${leaseId}`)).toBe(false);
+  });
+
+  test("malformed admitted compute fails closed instead of entering resident recovery", async () => {
+    const harness = recoveryHarness();
+    const turn = residentTurn();
+    seedResidentTurn(harness, turn);
+    harness.values.set(agentComputeKey(turn.turnId, 1), {
+      schemaVersion: 2,
+      turnId: turn.turnId,
+      attemptGeneration: 1,
+      phase: "attaching",
+      instanceSize: "large",
+    });
+
+    await runAlarm(harness.instance, turn);
+
+    expect(harness.destroyed).toEqual([]);
+    expect(harness.delivered).toEqual([]);
+    expect(harness.values.has(agentComputeKey(turn.turnId, 1))).toBe(true);
+  });
+
+  test("shared owner-purge cleanup preserves deferred destroy and world-unregister debt", async () => {
+    const harness = recoveryHarness();
+    const turn = residentTurn();
+    harness.values.set("turn", turn);
+    const leaseId = "world:owner-purge-debt";
+    const receiptKey = `ownerFenceLeaseReceipt:${leaseId}`;
+    const retirementKey =
+      "ownerFenceSandboxWorldRetirement:resident-attachment:small:sandbox-owner-purge";
+    const destroyKey =
+      "sandbox-lifecycle:v1:destroy-pending:resident-attachment:small:sandbox-owner-purge";
+    harness.values.set(receiptKey, {
+      schemaVersion: 1,
+      ownerId: turn.ownerId,
+      ownerGeneration: turn.ownerGeneration,
+      turnId: turn.turnId,
+      leaseId,
+      kind: "world",
+      phase: "unregister_pending",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    harness.values.set(retirementKey, {
+      schemaVersion: 1,
+      phase: "unregister_pending",
+    });
+    harness.values.set(destroyKey, { schemaVersion: 1 });
+    delete harness.instance["deleteTurnStoragePreservingExactCancellations"];
+
+    const cleaned = await (
+      (BuildSession.prototype as unknown as Record<string, unknown>)[
+        "cleanupOwnerPurgedTurnStorage"
+      ] as (this: unknown, turn: unknown) => Promise<boolean>
+    ).call(harness.instance, turn);
+
+    expect(cleaned).toBe(true);
+    expect(harness.values.has("turn")).toBe(false);
+    expect(harness.values.has(receiptKey)).toBe(true);
+    expect(harness.values.has(retirementKey)).toBe(true);
+    expect(harness.values.has(destroyKey)).toBe(true);
+  });
+
+  test("resident admission clears a stale shared sandbox tuple", async () => {
+    const harness = recoveryHarness();
+    const turn = residentTurn();
+    harness.values.set("turn", turn);
+    harness.values.set("sandboxId", "stale-predecessor");
+    harness.values.set("sandboxSize", "small");
+    harness.values.set(agentComputeKey(turn.turnId, 1), {
+      schemaVersion: 2,
+      turnId: turn.turnId,
+      attemptGeneration: 1,
+      phase: "resident",
+      instanceSize: "large",
+    });
+
+    await (
+      (BuildSession.prototype as unknown as Record<string, unknown>)[
+        "clearLegacySandboxTupleForResidentAdmission"
+      ] as (this: unknown, turn: unknown) => Promise<void>
+    ).call(harness.instance, turn);
+
+    expect(harness.values.has("sandboxId")).toBe(false);
+    expect(harness.values.has("sandboxSize")).toBe(false);
   });
 
   test("an evicted attached turn feeds the journal into the builder fallback", async () => {

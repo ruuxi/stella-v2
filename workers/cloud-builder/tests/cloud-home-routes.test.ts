@@ -27,6 +27,54 @@ const bucketWithPutCounter = () => {
 };
 
 describe("Cloud Home user route bounds", () => {
+  test("rejects an oversized chunked control request while it is streaming", async () => {
+    const paths: string[] = [];
+    globalThis.fetch = async (input) => {
+      paths.push(new URL(String(input)).pathname);
+      return Response.json({ ownerGeneration: "generation-1" });
+    };
+    const chunks = [
+      new Uint8Array(40 * 1024).fill(123),
+      new Uint8Array(40 * 1024).fill(125),
+    ];
+    const request = new Request(
+      "https://builder.example.test/cloud-home/memory/wipe/start",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stella-expected-subject": "owner-1",
+        },
+        body: new ReadableStream<Uint8Array>({
+          pull(controller) {
+            const next = chunks.shift();
+            if (next) controller.enqueue(next);
+            else controller.close();
+          },
+        }),
+        duplex: "half",
+      } as RequestInit & { duplex: "half" },
+    );
+
+    const response = await handleUserCloudHomeRoute({
+      request,
+      env: {
+        AGENT_HOME: {} as R2Bucket,
+        BUILDER_SERVICE_SECRET: "service-secret",
+        STELLA_CONVEX_SITE_URL: "https://convex.example.test",
+      },
+      ownerId: "owner-1",
+      subject: "owner-1",
+      withLease: lease,
+    });
+
+    expect(response?.status).toBe(413);
+    expect(await response?.json()).toEqual({
+      error: "Cloud home request is too large.",
+    });
+    expect(paths).toEqual(["/api/cloud/home/access"]);
+  });
+
   test("rejects a delayed account-A memory request after the token switches to B", async () => {
     let fetchCalls = 0;
     globalThis.fetch = async () => {

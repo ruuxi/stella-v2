@@ -8,7 +8,7 @@ import {
   readAppsHostConfig,
 } from "../src/config";
 import worker from "../src/index";
-import { createAcceptanceEnv, createEnv } from "./fixtures";
+import { createAcceptanceEnv, createEnv, createUntrustedEnv } from "./fixtures";
 
 describe("non-production authority configuration", () => {
   test("accepts only the explicit outgoing-bulldog development deployment", () => {
@@ -16,6 +16,31 @@ describe("non-production authority configuration", () => {
     expect(config.deploymentIdentity).toBe(DEV_DEPLOYMENT_IDENTITY);
     expect(config.convexSiteOrigin).toBe(DEV_CONVEX_SITE_ORIGIN);
     expect(config.sharesDisabled).toBeFalse();
+    expect(config.hostRole).toBe("trusted");
+  });
+
+  test("keeps signing secrets off the untrusted asset deployment", () => {
+    const config = readAppsHostConfig(createUntrustedEnv());
+    expect(config.hostRole).toBe("untrusted");
+    expect(config.builderServiceSecret).toBeNull();
+    expect(config.appTokenSigningKey).toBeNull();
+    expect(config.appAuth).not.toBeNull();
+    expect(config.appFetchGate).not.toBeNull();
+    expect(() =>
+      readAppsHostConfig(
+        createUntrustedEnv({ APP_TOKEN_SIGNING_KEY: "x".repeat(48) }),
+      ),
+    ).toThrow(AppsHostConfigurationError);
+  });
+
+  test("keeps asset and route bindings off the trusted authority", () => {
+    for (const binding of ["APP_BUILDS", "APP_ROUTES"] as const) {
+      expect(() =>
+        readAppsHostConfig(
+          createEnv({ [binding]: { get: async () => null } } as never),
+        ),
+      ).toThrow(AppsHostConfigurationError);
+    }
   });
 
   test("accepts only the exact isolated acceptance preview tuple", () => {
@@ -32,6 +57,10 @@ describe("non-production authority configuration", () => {
       [
         "APPS_HOST_ORIGIN",
         "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+      ],
+      [
+        "TRUSTED_APPS_HOST_ORIGIN",
+        "https://stella-v2-apps-auth-dev.lolruuxi.workers.dev",
       ],
       [
         "CLOUD_BUILDER_ORIGIN",
@@ -88,6 +117,7 @@ describe("non-production authority configuration", () => {
       ok: true,
       service: "stella-v2-apps-host",
       deployment: "dev:outgoing-bulldog-865",
+      role: "trusted",
     });
   });
 });

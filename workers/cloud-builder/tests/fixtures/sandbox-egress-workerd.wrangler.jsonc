@@ -1,0 +1,38 @@
+{
+  "name": "stella-sandbox-egress-workerd-acceptance",
+  "main": "./sandbox-egress-workerd-worker.ts",
+  "compatibility_date": "2026-07-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "containers": [
+    {
+      "class_name": "GeneralAgentSandbox",
+      "image": "../../Dockerfile",
+      "instance_type": "standard-2",
+      "max_instances": 1,
+    },
+    {
+      "class_name": "AppBuildSandbox",
+      "image": "../../Dockerfile",
+      "instance_type": "standard-2",
+      "max_instances": 1,
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "GENERAL_AGENT_SANDBOX",
+        "class_name": "GeneralAgentSandbox",
+      },
+      {
+        "name": "APP_BUILD_SANDBOX",
+        "class_name": "AppBuildSandbox",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["GeneralAgentSandbox", "AppBuildSandbox"],
+    },
+  ],
+}

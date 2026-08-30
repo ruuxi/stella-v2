@@ -7,6 +7,7 @@ import {
   type AuthSessionSnapshot,
 } from "@stella/contracts/auth-session";
 import { configurePiRuntime } from "@/platform/electron/device";
+import { getStellaInteriorBridge } from "@/platform/interior/interior-bridge";
 import { authClient } from "@/global/auth/lib/auth-client";
 import {
   clearBrowserSessionToken,
@@ -38,11 +39,15 @@ type AuthSessionResult = {
 
 let identityRevision = 0;
 const initialCachedSession =
-  typeof window !== "undefined" && !window.electronAPI
+  typeof window !== "undefined" &&
+  !window.electronAPI &&
+  !getStellaInteriorBridge()
     ? readBrowserCachedSession()
     : null;
 const initialIdentityIntent =
-  typeof window !== "undefined" && !window.electronAPI
+  typeof window !== "undefined" &&
+  !window.electronAPI &&
+  !getStellaInteriorBridge()
     ? (readBrowserIdentityIntent() ??
       getAuthSessionIdentityIntent(initialCachedSession))
     : null;
@@ -134,6 +139,10 @@ const setCurrentSession = (args: {
 };
 
 const commitBrowserSnapshot = (snapshot: AuthSessionSnapshot): void => {
+  if (getStellaInteriorBridge()) {
+    setCurrentSession({ snapshot });
+    return;
+  }
   if (snapshot.status === "authenticated") {
     writeBrowserIdentityIntent(snapshot.identityIntent);
     writeBrowserCachedSession(snapshot.session);
@@ -152,7 +161,12 @@ const commitBrowserSnapshot = (snapshot: AuthSessionSnapshot): void => {
 };
 
 const scheduleBrowserRetry = (version: number): void => {
-  if (window.electronAPI || browserRetryTimer || !readBrowserSessionToken()) {
+  if (
+    window.electronAPI ||
+    getStellaInteriorBridge() ||
+    browserRetryTimer ||
+    !readBrowserSessionToken()
+  ) {
     return;
   }
   const ceiling = Math.min(
@@ -221,6 +235,48 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
   if (!options.silent) {
     setCurrentSession({ snapshot: currentSession.snapshot, isPending: true });
     emit();
+  }
+  const interiorBridge = getStellaInteriorBridge();
+  if (interiorBridge) {
+    inFlightRefresh = Promise.resolve()
+      .then(async () => {
+        let session = await interiorBridge.getSession();
+        if (session.expiresAt <= Date.now() + 5_000) {
+          await interiorBridge.getToken({ forceRefresh: true });
+          session = await interiorBridge.getSession();
+        }
+        if (session.expiresAt <= Date.now()) {
+          throw new Error("The Stella interior session is expired.");
+        }
+        if (version !== refreshVersion) return;
+        const snapshot = resolveAuthSessionObservation({
+          observation: { kind: "authenticated", session },
+          identityIntent: getAuthSessionIdentityIntent(session),
+          staleSession: getAuthSnapshotSession(currentSession.snapshot),
+        });
+        setCurrentSession({ snapshot, isPending: false });
+      })
+      .catch((error) => {
+        if (version !== refreshVersion) return;
+        setCurrentSession({
+          snapshot: {
+            status: "unknown",
+            identityIntent: currentSession.snapshot.identityIntent,
+            staleSession: getAuthSnapshotSession(currentSession.snapshot),
+            error: {
+              kind: "network",
+              message: error instanceof Error ? error.message : String(error),
+            },
+          },
+          isPending: !currentSession.data,
+        });
+      })
+      .finally(() => {
+        inFlightRefresh = null;
+        if (version === refreshVersion) emit();
+      });
+    await inFlightRefresh;
+    return;
   }
   if (!systemApi?.getAuthSession) {
     inFlightRefresh = Promise.resolve()
@@ -334,7 +390,11 @@ type PendingBrowserAuthHandoff =
   | { kind: "token"; token: string };
 
 const consumePendingBrowserAuthHandoff = (): PendingBrowserAuthHandoff => {
-  if (typeof window === "undefined" || window.electronAPI) {
+  if (
+    typeof window === "undefined" ||
+    window.electronAPI ||
+    getStellaInteriorBridge()
+  ) {
     return { kind: "none" };
   }
   const query = new URLSearchParams(window.location.search);
@@ -406,6 +466,15 @@ export const waitForBrowserAuthHandoff =
   (): Promise<BrowserAuthHandoffResult> => browserAuthHandoffPromise;
 
 export const signInAnonymous = async () => {
+  const interiorBridge = getStellaInteriorBridge();
+  if (interiorBridge) {
+    await interiorBridge.getToken({ forceRefresh: true });
+    await refreshAuthSession();
+    if (!currentSession.data) {
+      throw new Error("The Stella interior session could not be refreshed.");
+    }
+    return;
+  }
   if (!window.electronAPI) {
     if (
       readBrowserSessionToken() ||
@@ -454,6 +523,11 @@ export const signInAnonymous = async () => {
 };
 
 export const signOutAuthSession = async () => {
+  if (getStellaInteriorBridge()) {
+    throw new Error(
+      "Sign out must be completed by the trusted Stella browser shell.",
+    );
+  }
   if (!window.electronAPI) {
     // Send the credential first so the server can revoke the session row, then
     // drop the local copy. Reversing the order would leave a live session with
@@ -483,6 +557,11 @@ export const signOutAuthSession = async () => {
 };
 
 export const deleteAuthUser = async () => {
+  if (getStellaInteriorBridge()) {
+    throw new Error(
+      "Account deletion must be completed by the trusted Stella browser shell.",
+    );
+  }
   if (!window.electronAPI) {
     await authClient.deleteUser();
     clearBrowserSessionToken();

@@ -9,6 +9,7 @@
  */
 
 import { configurePiRuntime } from "@/platform/electron/device";
+import { getStellaInteriorBridge } from "@/platform/interior/interior-bridge";
 import { getJwtExpMs, parseJwtPayload } from "@/shared/lib/jwt";
 import { authClient } from "@/global/auth/lib/auth-client";
 
@@ -73,9 +74,15 @@ export async function getConvexToken(
   inflightTokenPromise = (async () => {
     try {
       if (typeof window === "undefined") return null;
+      const interiorBridge = getStellaInteriorBridge();
       const systemApi = window.electronAPI?.system;
       let token: string | null | undefined;
-      if (systemApi?.getConvexAuthToken) {
+      let scopedTokenExpiresAt: number | null = null;
+      if (interiorBridge) {
+        const scoped = await interiorBridge.getToken({ forceRefresh });
+        token = scoped.token;
+        scopedTokenExpiresAt = scoped.expiresAt;
+      } else if (systemApi?.getConvexAuthToken) {
         await configurePiRuntime();
         token = await systemApi.getConvexAuthToken();
       } else {
@@ -98,15 +105,27 @@ export async function getConvexToken(
       }
 
       cachedToken = token;
-      // Parse JWT exp claim for precise refresh timing
-      try {
-        tokenExpiresAt = getJwtExpMs(token) - REFRESH_MARGIN_MS;
-      } catch (err) {
-        console.debug(
-          "[auth-token] JWT parse failed, using 4-minute cache:",
-          (err as Error).message,
+      if (scopedTokenExpiresAt !== null) {
+        if (scopedTokenExpiresAt <= Date.now()) {
+          cachedToken = null;
+          tokenExpiresAt = 0;
+          return null;
+        }
+        tokenExpiresAt = Math.max(
+          Date.now(),
+          scopedTokenExpiresAt - REFRESH_MARGIN_MS,
         );
-        tokenExpiresAt = Date.now() + 4 * 60 * 1000;
+      } else {
+        // Parse JWT exp claim for precise refresh timing
+        try {
+          tokenExpiresAt = getJwtExpMs(token) - REFRESH_MARGIN_MS;
+        } catch (err) {
+          console.debug(
+            "[auth-token] JWT parse failed, using 4-minute cache:",
+            (err as Error).message,
+          );
+          tokenExpiresAt = Date.now() + 4 * 60 * 1000;
+        }
       }
 
       return token;
@@ -244,6 +263,7 @@ export async function getConvexTokenForIdentity(
   ) {
     return null;
   }
+  if (getStellaInteriorBridge()) return token;
   if (tokenMatchesIdentity(token, expected, expectedIsAnonymous)) return token;
   if (options.forceRefresh) return null;
 
@@ -296,6 +316,7 @@ export async function getConvexTokenForSubject(
   const expected = expectedSubject.trim();
   if (!expected || expected !== expectedSubject) return null;
   let token = await getConvexToken();
+  if (getStellaInteriorBridge()) return token;
   if (token && tokenIdentifier(token) === expected) return token;
   token = await getConvexToken({ forceRefresh: true });
   return token && tokenIdentifier(token) === expected ? token : null;

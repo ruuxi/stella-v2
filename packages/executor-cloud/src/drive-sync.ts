@@ -249,7 +249,7 @@ const readLedger = async (
     throw error;
   }
   const expectedStat = read.stat;
-  const raw = read.bytes.toString("utf8");
+  const raw = new TextDecoder().decode(read.bytes);
   read.bytes.fill(0);
   if (!raw) return { ledger, expectedStat };
   let parsed: unknown;

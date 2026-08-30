@@ -1,0 +1,15 @@
+{
+  "name": "stella-http-r2-boundary-workerd-acceptance",
+  "main": "./http-r2-boundary-workerd-worker.ts",
+  "compatibility_date": "2026-07-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "SERVICE_SECRET": "workerd-boundary-fixture-secret",
+  },
+  "r2_buckets": [
+    {
+      "binding": "OBJECTS",
+      "bucket_name": "stella-http-r2-boundary-workerd-acceptance",
+    },
+  ],
+}

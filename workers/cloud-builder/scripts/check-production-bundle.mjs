@@ -43,10 +43,20 @@ const run = async (command, args) => {
   });
   process.stdout.write(stdout);
   process.stderr.write(stderr);
+  const combinedOutput = `${stdout}\n${stderr}`;
+  if (
+    /(?:ERROR:\s+failed to solve|UnknownLockfileVersion|failed to (?:build|push) container image)/iu.test(
+      combinedOutput,
+    )
+  ) {
+    throw new Error(
+      "Wrangler reported a container-image build failure despite its process exit status.",
+    );
+  }
   if (exitCode !== 0) {
     throw new Error(`Wrangler production bundle dry-run exited ${exitCode}.`);
   }
-  return `${stdout}\n${stderr}`;
+  return combinedOutput;
 };
 
 const outputDirectory = await mkdtemp(
@@ -74,6 +84,8 @@ try {
     outputDirectory,
     "--config",
     "wrangler.jsonc",
+    "--env",
+    "",
   ]);
   if (!output.includes("--dry-run: exiting now.")) {
     throw new Error("Wrangler did not report a dry-run exit.");

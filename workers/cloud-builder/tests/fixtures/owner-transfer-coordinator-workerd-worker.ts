@@ -23,6 +23,11 @@ type FenceRegistration = {
 
 type FenceState = {
   registerDelayMs: number;
+  assertTransferDelayMs: number;
+  unregisterDelayMs: number;
+  failNextRegister: number;
+  failNextAssertTransfer: number;
+  failNextUnregister: number;
   calls: {
     register: number;
     assertTransfer: number;
@@ -33,6 +38,8 @@ type FenceState = {
 };
 
 const COORDINATOR_STATE_KEY = "ownerTransferCoordinator";
+const COORDINATOR_REVISION_KEY = "ownerTransferCoordinatorRevision";
+const COORDINATOR_REMOTE_CLAIM_KEY = "ownerTransferCoordinatorRemoteClaim";
 const TEST_ALARM_COUNT_KEY = "__testOwnerTransferAlarmCount";
 const FENCE_STATE_KEY = "fakeOwnerFence";
 
@@ -54,6 +61,11 @@ const stringField = (body: Record<string, unknown>, key: string): string =>
 
 const emptyFenceState = (): FenceState => ({
   registerDelayMs: 0,
+  assertTransferDelayMs: 0,
+  unregisterDelayMs: 0,
+  failNextRegister: 0,
+  failNextAssertTransfer: 0,
+  failNextUnregister: 0,
   calls: { register: 0, assertTransfer: 0, unregister: 0 },
   generation: 0,
 });
@@ -84,17 +96,28 @@ export class FakeOwnerFence extends DurableObject {
     }
     if (path === "/__test/configure") {
       const body = await asRecord(request);
-      const delay = body.registerDelayMs;
-      if (
-        typeof delay !== "number" ||
-        !Number.isSafeInteger(delay) ||
-        delay < 0 ||
-        delay > 2_000
-      ) {
-        return json({ code: "bad_request" }, 400);
-      }
       const state = await this.state();
-      state.registerDelayMs = delay;
+      const fields = [
+        "registerDelayMs",
+        "assertTransferDelayMs",
+        "unregisterDelayMs",
+        "failNextRegister",
+        "failNextAssertTransfer",
+        "failNextUnregister",
+      ] as const;
+      for (const field of fields) {
+        if (body[field] === undefined) continue;
+        const value = body[field];
+        if (
+          typeof value !== "number" ||
+          !Number.isSafeInteger(value) ||
+          value < 0 ||
+          value > (field.endsWith("DelayMs") ? 5_000 : 10)
+        ) {
+          return json({ code: "bad_request" }, 400);
+        }
+        state[field] = value;
+      }
       await this.persist(state);
       return json({ configured: true });
     }
@@ -105,6 +128,11 @@ export class FakeOwnerFence extends DurableObject {
       state.calls.register += 1;
       await this.persist(state);
       if (state.registerDelayMs > 0) await sleep(state.registerDelayMs);
+      if (state.failNextRegister > 0) {
+        state.failNextRegister -= 1;
+        await this.persist(state);
+        return json({ code: "transfer_unavailable" }, 503);
+      }
 
       const registration = {
         ownerId: stringField(body, "ownerId"),
@@ -143,6 +171,13 @@ export class FakeOwnerFence extends DurableObject {
     if (path === "/owner-fence/assert-transfer") {
       state.calls.assertTransfer += 1;
       await this.persist(state);
+      if (state.assertTransferDelayMs > 0)
+        await sleep(state.assertTransferDelayMs);
+      if (state.failNextAssertTransfer > 0) {
+        state.failNextAssertTransfer -= 1;
+        await this.persist(state);
+        return json({ code: "transfer_unavailable" }, 503);
+      }
       const matches =
         state.active?.ownerId === stringField(body, "ownerId") &&
         request.headers.get("x-stella-owner-fence-id") ===
@@ -158,6 +193,13 @@ export class FakeOwnerFence extends DurableObject {
 
     if (path === "/owner-fence/unregister") {
       state.calls.unregister += 1;
+      await this.persist(state);
+      if (state.unregisterDelayMs > 0) await sleep(state.unregisterDelayMs);
+      if (state.failNextUnregister > 0) {
+        state.failNextUnregister -= 1;
+        await this.persist(state);
+        return json({ code: "transfer_unavailable" }, 503);
+      }
       const generation = stringField(body, "generation");
       const matches =
         state.active?.ownerId === stringField(body, "ownerId") &&
@@ -184,17 +226,22 @@ export class TestOwnerTransferCoordinator extends OwnerTransferCoordinator {
   override async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (path === "/__test/snapshot") {
-      const [state, alarmAt, alarmCount] = await Promise.all([
-        this.ctx.storage.get<OwnerTransferCoordinatorState>(
-          COORDINATOR_STATE_KEY,
-        ),
-        this.ctx.storage.getAlarm(),
-        this.ctx.storage.get<number>(TEST_ALARM_COUNT_KEY),
-      ]);
+      const [state, revision, remoteClaim, alarmAt, alarmCount] =
+        await Promise.all([
+          this.ctx.storage.get<OwnerTransferCoordinatorState>(
+            COORDINATOR_STATE_KEY,
+          ),
+          this.ctx.storage.get<number>(COORDINATOR_REVISION_KEY),
+          this.ctx.storage.get(COORDINATOR_REMOTE_CLAIM_KEY),
+          this.ctx.storage.getAlarm(),
+          this.ctx.storage.get<number>(TEST_ALARM_COUNT_KEY),
+        ]);
       return json({
         bootId: this.bootId,
         objectId: this.ctx.id.toString(),
         state: state ?? null,
+        revision: revision ?? 0,
+        remoteClaim: remoteClaim ?? null,
         alarmAt,
         alarmCount: alarmCount ?? 0,
       });
@@ -213,6 +260,50 @@ export class TestOwnerTransferCoordinator extends OwnerTransferCoordinator {
       const alarmAt = Date.now() + delayMs;
       await this.ctx.storage.setAlarm(alarmAt);
       return json({ scheduled: true, alarmAt });
+    }
+    if (path === "/__test/expire-remote-claim") {
+      const body = await asRecord(request);
+      const delayMs = body.delayMs;
+      if (
+        typeof delayMs !== "number" ||
+        !Number.isSafeInteger(delayMs) ||
+        delayMs < 25 ||
+        delayMs > 5_000
+      ) {
+        return json({ code: "bad_request" }, 400);
+      }
+      const claim = await this.ctx.storage.get<Record<string, unknown>>(
+        COORDINATOR_REMOTE_CLAIM_KEY,
+      );
+      if (!claim) return json({ code: "missing_claim" }, 409);
+      await this.ctx.storage.put(COORDINATOR_REMOTE_CLAIM_KEY, {
+        ...claim,
+        expiresAt: Date.now() - 1,
+      });
+      const alarmAt = Date.now() + delayMs;
+      await this.ctx.storage.setAlarm(alarmAt);
+      return json({ expired: true, alarmAt });
+    }
+    if (path === "/__test/expire-reservations") {
+      const body = await asRecord(request);
+      const delayMs = body.delayMs;
+      if (
+        typeof delayMs !== "number" ||
+        !Number.isSafeInteger(delayMs) ||
+        delayMs < 25 ||
+        delayMs > 5_000
+      ) {
+        return json({ code: "bad_request" }, 400);
+      }
+      const state = await this.ctx.storage.get<OwnerTransferCoordinatorState>(
+        COORDINATOR_STATE_KEY,
+      );
+      if (!state) return json({ code: "missing_state" }, 409);
+      state.reservationsExpireAt = Date.now() - 1;
+      await this.ctx.storage.put(COORDINATOR_STATE_KEY, state);
+      const alarmAt = Date.now() + delayMs;
+      await this.ctx.storage.setAlarm(alarmAt);
+      return json({ expired: true, alarmAt });
     }
     return await super.fetch(request);
   }

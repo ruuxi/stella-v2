@@ -33,6 +33,7 @@ mock.module("@cloudflare/sandbox", () => ({
     return {};
   },
   Sandbox: class {},
+  ContainerProxy: class {},
 }));
 
 const { runResidentStellaLoop } = await import(

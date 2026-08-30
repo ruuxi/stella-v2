@@ -8,6 +8,7 @@ mock.module("cloudflare:workers", () => ({
 mock.module("@cloudflare/sandbox", () => ({
   getSandbox: () => ({}),
   Sandbox: class {},
+  ContainerProxy: class {},
 }));
 const { seedFirstStellaToolWorkspace } = await import("../src/index.js");
 mock.restore();

@@ -125,6 +125,7 @@ import type * as http_shared_xai_realtime from "../http_shared/xai_realtime.js";
 import type * as lib_agent_constants from "../lib/agent_constants.js";
 import type * as lib_anonymous_usage from "../lib/anonymous_usage.js";
 import type * as lib_app_sdk_session from "../lib/app_sdk_session.js";
+import type * as lib_app_session_tokens from "../lib/app_session_tokens.js";
 import type * as lib_async from "../lib/async.js";
 import type * as lib_auth_migration_paths from "../lib/auth_migration_paths.js";
 import type * as lib_billing_date from "../lib/billing_date.js";
@@ -417,6 +418,7 @@ declare const fullApi: ApiFromModules<{
   "lib/agent_constants": typeof lib_agent_constants;
   "lib/anonymous_usage": typeof lib_anonymous_usage;
   "lib/app_sdk_session": typeof lib_app_sdk_session;
+  "lib/app_session_tokens": typeof lib_app_session_tokens;
   "lib/async": typeof lib_async;
   "lib/auth_migration_paths": typeof lib_auth_migration_paths;
   "lib/billing_date": typeof lib_billing_date;

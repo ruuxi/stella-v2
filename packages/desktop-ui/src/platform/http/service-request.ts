@@ -1,5 +1,6 @@
 import { getAuthHeaders } from "@/global/auth/services/auth-token";
 import { getOrCreateDeviceId } from "@/platform/electron/device";
+import { getStellaInteriorBridge } from "@/platform/interior/interior-bridge";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 
 type ServiceRequest = {
@@ -22,9 +23,11 @@ type PostServiceJsonOptions = ServiceRequestOptions & {
 };
 
 const resolveCloudBaseUrl = (): string => {
-  const resolved = readConfiguredConvexSiteUrl(
-    import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
-  );
+  const resolved =
+    getStellaInteriorBridge()?.gatewayOrigin ??
+    readConfiguredConvexSiteUrl(
+      import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
+    );
   if (!resolved) {
     throw new Error("VITE_CONVEX_SITE_URL is not set.");
   }

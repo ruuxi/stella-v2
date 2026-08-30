@@ -6,6 +6,8 @@ export const DEV_APPS_HOST_CONVEX_CLOUD_ORIGIN =
   "https://outgoing-bulldog-865.convex.cloud" as const;
 export const DEV_APPS_HOST_ORIGIN =
   "https://stella-v2-apps-host-dev.lolruuxi.workers.dev" as const;
+export const DEV_TRUSTED_APPS_HOST_ORIGIN =
+  "https://stella-v2-apps-auth-dev.lolruuxi.workers.dev" as const;
 export const DEV_CLOUD_BUILDER_ORIGIN =
   "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev" as const;
 
@@ -17,6 +19,8 @@ export const ACCEPTANCE_APPS_HOST_CONVEX_CLOUD_ORIGIN =
   "https://basic-nightingale-118.convex.cloud" as const;
 export const ACCEPTANCE_APPS_HOST_ORIGIN =
   "https://stella-v2-apps-host-basic-nightingale-118.lolruuxi.workers.dev" as const;
+export const ACCEPTANCE_TRUSTED_APPS_HOST_ORIGIN =
+  "https://stella-v2-apps-auth-basic-nightingale-118.lolruuxi.workers.dev" as const;
 export const ACCEPTANCE_CLOUD_BUILDER_ORIGIN =
   "https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev" as const;
 
@@ -26,6 +30,7 @@ const TRUSTED_APPS_HOST_PROFILES = [
     convexSiteOrigin: DEV_APPS_HOST_CONVEX_SITE_ORIGIN,
     convexCloudOrigin: DEV_APPS_HOST_CONVEX_CLOUD_ORIGIN,
     appsHostOrigin: DEV_APPS_HOST_ORIGIN,
+    trustedAppsHostOrigin: DEV_TRUSTED_APPS_HOST_ORIGIN,
     cloudBuilderOrigin: DEV_CLOUD_BUILDER_ORIGIN,
   },
   {
@@ -33,12 +38,16 @@ const TRUSTED_APPS_HOST_PROFILES = [
     convexSiteOrigin: ACCEPTANCE_APPS_HOST_CONVEX_SITE_ORIGIN,
     convexCloudOrigin: ACCEPTANCE_APPS_HOST_CONVEX_CLOUD_ORIGIN,
     appsHostOrigin: ACCEPTANCE_APPS_HOST_ORIGIN,
+    trustedAppsHostOrigin: ACCEPTANCE_TRUSTED_APPS_HOST_ORIGIN,
     cloudBuilderOrigin: ACCEPTANCE_CLOUD_BUILDER_ORIGIN,
   },
 ] as const;
 
 export type TrustedAppsHostOrigin =
   (typeof TRUSTED_APPS_HOST_PROFILES)[number]["appsHostOrigin"];
+export type TrustedAppsAuthOrigin =
+  (typeof TRUSTED_APPS_HOST_PROFILES)[number]["trustedAppsHostOrigin"];
+export type ManagedAppsOrigin = TrustedAppsHostOrigin | TrustedAppsAuthOrigin;
 
 export type AppsHostTrustEnv = Readonly<{
   STELLA_DEPLOYMENT_IDENTITY?: string;
@@ -46,6 +55,7 @@ export type AppsHostTrustEnv = Readonly<{
   CONVEX_CLOUD_URL?: string;
   STELLA_AUTH_BASE_URL?: string;
   APPS_HOST_ORIGIN?: string;
+  TRUSTED_APPS_HOST_ORIGIN?: string;
   CLOUD_BUILDER_URL?: string;
 }>;
 
@@ -69,13 +79,14 @@ const isExactHttpsOrigin = (value: unknown, expected: string): boolean => {
 
 export const resolveManagedAppsHostOrigin = (
   value: string,
-): TrustedAppsHostOrigin | null => {
+): ManagedAppsOrigin | null => {
   try {
     const origin = new URL(value).origin;
     return (
-      TRUSTED_APPS_HOST_PROFILES.find(
-        (profile) => profile.appsHostOrigin === origin,
-      )?.appsHostOrigin ?? null
+      TRUSTED_APPS_HOST_PROFILES.flatMap((profile) => [
+        profile.appsHostOrigin,
+        profile.trustedAppsHostOrigin,
+      ]).find((candidate) => candidate === origin) ?? null
     );
   } catch {
     return null;
@@ -104,6 +115,10 @@ export const getTrustedAppsHostOrigin = (
     !isExactHttpsOrigin(env.CONVEX_SITE_URL, profile.convexSiteOrigin) ||
     !isExactHttpsOrigin(env.CONVEX_CLOUD_URL, profile.convexCloudOrigin) ||
     !isExactHttpsOrigin(env.APPS_HOST_ORIGIN, profile.appsHostOrigin) ||
+    !isExactHttpsOrigin(
+      env.TRUSTED_APPS_HOST_ORIGIN,
+      profile.trustedAppsHostOrigin,
+    ) ||
     !isExactHttpsOrigin(env.CLOUD_BUILDER_URL, profile.cloudBuilderOrigin)
   )
     return null;
@@ -117,4 +132,16 @@ export const getTrustedAppsHostOrigin = (
   }
 
   return profile.appsHostOrigin;
+};
+
+export const getTrustedAppsAuthOrigin = (
+  env: AppsHostTrustEnv,
+): TrustedAppsAuthOrigin | null => {
+  const untrustedOrigin = getTrustedAppsHostOrigin(env);
+  if (!untrustedOrigin) return null;
+  return (
+    TRUSTED_APPS_HOST_PROFILES.find(
+      (profile) => profile.appsHostOrigin === untrustedOrigin,
+    )?.trustedAppsHostOrigin ?? null
+  );
 };

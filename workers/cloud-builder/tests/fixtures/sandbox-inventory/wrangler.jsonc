@@ -1,0 +1,46 @@
+{
+  "name": "stella-v2-cloud-builder-dev",
+  "vars": {
+    "URL_WITH_COMMENT_CHARS": "https://example.invalid/a//b",
+  },
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "instance_type": "standard-4",
+      "max_instances": 1,
+    },
+    {
+      "class_name": "SandboxSmall",
+      "instance_type": "standard-2",
+      "max_instances": 1,
+    },
+    {
+      "class_name": "AppBuildSandbox",
+      "instance_type": "standard-4",
+      "max_instances": 1,
+    },
+  ],
+  "env": {
+    "bn118": {
+      "name": "stella-v2-cloud-builder-basic-nightingale-118",
+      // Acceptance supports six simultaneous small agent sandboxes.
+      "containers": [
+        {
+          "class_name": "Sandbox",
+          "instance_type": "standard-4",
+          "max_instances": 1,
+        },
+        {
+          "class_name": "SandboxSmall",
+          "instance_type": "standard-2",
+          "max_instances": 6,
+        },
+        {
+          "class_name": "AppBuildSandbox",
+          "instance_type": "standard-4",
+          "max_instances": 1,
+        },
+      ],
+    },
+  },
+}

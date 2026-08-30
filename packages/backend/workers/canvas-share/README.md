@@ -29,16 +29,25 @@ read cookies/localStorage or touch each other. Do not add `allow-same-origin`.
 ## Go-live checklist (not done here — no deploy)
 
 1. Provision the `stella-canvas-shares` R2 bucket (in progress).
-2. Purchase/choose the public domain and wire it in `wrangler.toml` (see the
-   `TODO(domain)` block) or as a custom domain in the dashboard.
+2. Confirm the `stellashare.app` custom domain in `wrangler.jsonc` is active.
 3. Set the backend `CANVAS_SHARE_BASE_URL` env to the same origin (e.g.
    `https://share.example.com`) so returned URLs match what this Worker serves.
-4. `bun install` here, then `wrangler deploy`.
+4. `bun install` here, run the verification commands below, then deliberately
+   run `bun run deploy`.
 
 ## Local dev
 
+This Worker is part of the repository's root Bun workspace. A root
+`bun install --frozen-lockfile` installs its pinned toolchain, and the
+`cloud_workers` CI matrix runs its type-generation check, typecheck, unit test,
+real-Workerd test, and production bundle dry-run.
+
 ```sh
 bun install
+bun run types
 bun run typecheck
-wrangler dev        # requires a wrangler login + R2 bucket / --local
+bun run test
+bun run test:workerd
+bun run build:dry-run
+bun run dev -- --local # requires Wrangler login for non-local resources
 ```

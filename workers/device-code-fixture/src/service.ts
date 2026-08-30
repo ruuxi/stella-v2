@@ -1,9 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { DeviceCodeFixtureBinding } from "./protocol.js";
-import {
-  DeviceCodeFixtureProvider,
-  type AuthorizationNamespace,
-} from "./provider.js";
+import { DeviceCodeFixtureProvider } from "./provider.js";
 import type { DeviceCodeFixtureEnv } from "./authorization-session.js";
 
 /** Named service-binding entrypoint. It has no fetch handler and no public URL. */
@@ -13,8 +10,7 @@ export class DeviceCodeFixtureService
 {
   private provider(): DeviceCodeFixtureProvider {
     return new DeviceCodeFixtureProvider({
-      authorizations: this.env
-        .DEVICE_AUTHORIZATIONS as unknown as AuthorizationNamespace,
+      authorizations: this.env.DEVICE_AUTHORIZATIONS,
       publicOrigin: this.env.PUBLIC_ORIGIN,
     });
   }

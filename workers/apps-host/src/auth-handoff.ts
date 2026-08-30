@@ -4,6 +4,14 @@ import { authHandoffSecurityHeaders } from "./http-security";
 export const BROWSER_AUTH_HANDOFF_SCRIPT_PATH =
   "/_stella/browser-auth-handoff.js" as const;
 
+export const RETIRED_BROWSER_AUTH_STORAGE_KEYS = [
+  "better-auth_session_token",
+  "better-auth_cookie",
+  "better-auth_session_data",
+  "stella_auth_identity_intent",
+  "stella_auth_cached_session",
+] as const;
+
 export const browserAuthHandoffHtml = (): string => `<!doctype html>
 <html lang="en">
 <head>
@@ -39,26 +47,28 @@ export const browserAuthHandoffHtml = (): string => `<!doctype html>
 </html>`;
 
 export const browserAuthHandoffScript = (config: AppsHostConfig): string => {
-  const verifyUrl = new URL(
-    "/api/auth/one-time-token/verify",
-    config.convexSiteOrigin,
-  ).toString();
+  const verifyUrl = "/_stella/auth/exchange";
+  const appsHostOrigin = config.appsHostOrigin;
   return `(() => {
   "use strict";
 
   const VERIFY_URL = ${JSON.stringify(verifyUrl)};
+  const APPS_HOST_ORIGIN = ${JSON.stringify(appsHostOrigin)};
   const TOKEN_PATTERN = /^[A-Za-z0-9._~-]{8,2048}$/;
-  const SESSION_TOKEN_KEY = "better-auth_session_token";
-  // Written by the retired cross-domain cookie mirror. Cleared on every
-  // handoff so a stale mirrored session cannot outlive its transport.
-  const LEGACY_KEYS = ["better-auth_cookie", "better-auth_session_data"];
-  const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9._~+/=-]{8,4096}$/;
+  const RETIRED_AUTH_KEYS = ${JSON.stringify(RETIRED_BROWSER_AUTH_STORAGE_KEYS)};
   const root = document.getElementById("handoff");
   const title = document.getElementById("title");
   const message = document.getElementById("message");
   const retry = document.getElementById("retry");
   let token = null;
   let verifying = false;
+
+  for (const key of RETIRED_AUTH_KEYS) {
+    try { localStorage.removeItem(key); } catch {}
+    try {
+      if (typeof sessionStorage !== "undefined") sessionStorage.removeItem(key);
+    } catch {}
+  }
 
   const showError = (text, canRetry) => {
     root.dataset.state = "error";
@@ -76,7 +86,7 @@ export const browserAuthHandoffScript = (config: AppsHostConfig): string => {
     try {
       const response = await fetch(VERIFY_URL, {
         method: "POST",
-        credentials: "omit",
+        credentials: "include",
         cache: "no-store",
         signal: AbortSignal.timeout(15000),
         headers: {
@@ -86,16 +96,10 @@ export const browserAuthHandoffScript = (config: AppsHostConfig): string => {
         body: JSON.stringify({ token }),
       });
       if (!response.ok) throw new Error("verification rejected");
-      // Better Auth's bearer plugin returns the signed session token here.
-      // Nothing else in the exchange carries a credential, so its absence is
-      // a failed handoff rather than a session with no token.
-      const sessionToken = (response.headers.get("set-auth-token") || "").trim();
-      if (!SESSION_TOKEN_PATTERN.test(sessionToken)) {
-        throw new Error("session token missing");
-      }
-      localStorage.setItem(SESSION_TOKEN_KEY, sessionToken);
-      for (const key of LEGACY_KEYS) localStorage.removeItem(key);
-      const destination = location.pathname.replace(/\\/auth\\/?$/, "/");
+      // The trusted Worker consumes Better Auth's bearer header and converts
+      // it to an HttpOnly origin cookie. The reusable account credential is
+      // therefore never exposed to this document or any custom interior JS.
+      const destination = APPS_HOST_ORIGIN + location.pathname.replace(/\\/auth\\/?$/, "/");
       location.replace(destination);
     } catch {
       showError(

@@ -185,6 +185,66 @@ describe("browser profile session core", () => {
     expect(browser.closeCount).toBe(1);
   });
 
+  test("retries teardown when expiry is terminal but still owns human control", async () => {
+    const store = new MemoryProfileStore();
+    const browser = new FakeBrowser();
+    let now = 3_500_000;
+    const core = new BrowserProfileSessionCore({
+      store,
+      browser,
+      bucket: new MemoryR2().asBucket(),
+      kekV1: TEST_KEK,
+      now: () => now,
+      randomUuid: () => uuid(510),
+    });
+    await core.turn(
+      command(uuid(30), "browser.open", {
+        allowedOrigins: ["https://app.example"],
+        startUrl: "https://app.example/login",
+      }),
+    );
+    const suspended = (await core.turn(
+      command(uuid(31), "browser.login_takeover", {
+        allowedOrigins: ["https://app.example"],
+        displayOrigin: "https://app.example",
+        expiresInMs: 60_000,
+        verification: {
+          expectedOrigin: "https://app.example",
+          authenticatedSelector: "#logout",
+          loggedOutSelector: "#login",
+          resumeUrl: "https://app.example/account",
+        },
+      }),
+    )) as any;
+    const interactionId = suspended.suspension.interactionId as string;
+    browser.closeFailuresRemaining = 1;
+    now += 60_001;
+
+    await expect(core.expireActive()).rejects.toThrow(
+      "injected remote browser close failure",
+    );
+    expect(store.interactions.get(interactionId)).toMatchObject({
+      state: "expired",
+      revision: 2,
+    });
+    expect(store.state).toMatchObject({
+      phase: "HUMAN_CONTROL",
+      activeInteractionId: interactionId,
+    });
+    expect(core.hasActiveCleanupDebt()).toBe(true);
+
+    await core.expireActive();
+    expect(store.interactions.get(interactionId)).toMatchObject({
+      state: "expired",
+      revision: 2,
+    });
+    expect(store.state?.phase).toBe("AGENT_CONTROL");
+    expect(store.state?.activeInteractionId).toBeUndefined();
+    expect(store.state?.browserSessionId).toBeUndefined();
+    expect(browser.closeCount).toBe(1);
+    expect(core.hasActiveCleanupDebt()).toBe(false);
+  });
+
   test("device-code fixture encrypts its private grant and consumes approval exactly once", async () => {
     const store = new MemoryProfileStore();
     const browser = new FakeBrowser();

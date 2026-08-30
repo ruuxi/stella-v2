@@ -4,13 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "typecheck": "tsc --noEmit",
-    "deploy": "wrangler deploy"
+    "dev": "wrangler dev --config wrangler.jsonc",
+    "types": "wrangler types worker-configuration.d.ts --config wrangler.jsonc --strict-vars=false",
+    "types:check": "wrangler types worker-configuration.d.ts --config wrangler.jsonc --strict-vars=false --check",
+    "typecheck": "tsc --noEmit && bun run types:check",
+    "test": "bun test tests/worker.test.mjs",
+    "test:workerd": "bun test tests/workerd-runtime.test.mjs",
+    "build:dry-run": "wrangler deploy --config wrangler.jsonc --dry-run",
+    "deploy": "wrangler deploy --config wrangler.jsonc"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250701.0",
-    "typescript": "^5.6.0",
-    "wrangler": "^4.20.0"
+    "typescript": "6.0.3",
+    "wrangler": "4.127.1"
   }
 }

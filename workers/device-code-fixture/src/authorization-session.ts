@@ -18,12 +18,8 @@ export type StoredAuthorizationInput = Readonly<{
   expiresAt: number;
 }>;
 
-export type DeviceCodeFixtureEnv = Readonly<{
-  DEVICE_AUTHORIZATIONS: DurableObjectNamespace<DeviceAuthorizationSession>;
-  ACTIVATION_PAGE_RATE_LIMITER: RateLimit;
-  ACTIVATION_DECISION_RATE_LIMITER: RateLimit;
-  PUBLIC_ORIGIN: string;
-}>;
+/** Wrangler-generated bindings, named here for the public fixture modules. */
+export type DeviceCodeFixtureEnv = Readonly<Env>;
 
 export class DeviceAuthorizationSession extends DurableObject<DeviceCodeFixtureEnv> {
   private readonly durableState: DurableObjectState;
@@ -46,9 +42,9 @@ export class DeviceAuthorizationSession extends DurableObject<DeviceCodeFixtureE
         expiresAt: input.expiresAt,
       };
       await txn.put(STATE_KEY, state);
+      await txn.setAlarm(input.expiresAt);
       return true;
     });
-    if (created) await this.durableState.storage.setAlarm(input.expiresAt);
     return { created };
   }
 
@@ -93,7 +89,7 @@ export class DeviceAuthorizationSession extends DurableObject<DeviceCodeFixtureE
 
   async alarm(): Promise<void> {
     const now = Date.now();
-    const result = await this.durableState.storage.transaction(async (txn) => {
+    await this.durableState.storage.transaction(async (txn) => {
       const current = await txn.get<AuthorizationState>(STATE_KEY);
       if (current === undefined) return undefined;
       if (current.cleanupAt !== undefined && now >= current.cleanupAt) {
@@ -102,8 +98,10 @@ export class DeviceAuthorizationSession extends DurableObject<DeviceCodeFixtureE
       }
       const expired = expireAuthorization(current, now);
       if (expired !== current) await txn.put(STATE_KEY, expired);
+      if (expired.cleanupAt !== undefined) {
+        await txn.setAlarm(expired.cleanupAt);
+      }
       return expired.cleanupAt;
     });
-    if (result !== undefined) await this.durableState.storage.setAlarm(result);
   }
 }

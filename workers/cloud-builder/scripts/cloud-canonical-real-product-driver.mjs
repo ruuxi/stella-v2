@@ -14483,7 +14483,7 @@ const stepAppsHostWorkerdRuntime = async ({
     observations.workerName === REQUIRED_APPS_HOST_WORKER_NAME &&
       observations.deploymentIdentity === REQUIRED_CONVEX.deployment &&
       observations.runtimeEngine === "workerd" &&
-      observations.wranglerVersion === "4.113.0",
+      observations.wranglerVersion === "4.127.1",
     "Apps Host Workerd acceptance used an unreviewed runtime identity.",
   );
   for (const field of [

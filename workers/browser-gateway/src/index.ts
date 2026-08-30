@@ -1,5 +1,6 @@
 import { BrowserProfileSession } from "./browser-profile-session.js";
 import { GatewayError, publicErrorResponse, safeErrorCode } from "./errors.js";
+import type { BrowserGatewayEnv } from "./profile-session-core.js";
 import {
   PROFILE_ID,
   parseInteraction,
@@ -11,10 +12,6 @@ import {
 import { readJsonBody } from "./request-body.js";
 
 export { BrowserProfileSession };
-
-type Env = {
-  BROWSER_PROFILE_SESSIONS: DurableObjectNamespace<BrowserProfileSession>;
-};
 
 const ROUTES = new Set([
   "/internal/turn/command",
@@ -48,7 +45,7 @@ const profileOwnerFromBody = (
 };
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: BrowserGatewayEnv): Promise<Response> {
     const path = new URL(request.url).pathname;
     try {
       if (!ROUTES.has(path)) {
@@ -81,4 +78,4 @@ export default {
       return publicErrorResponse(error);
     }
   },
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<BrowserGatewayEnv>;

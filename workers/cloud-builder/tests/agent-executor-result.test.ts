@@ -8,6 +8,7 @@ mock.module("cloudflare:workers", () => ({
 mock.module("@cloudflare/sandbox", () => ({
   getSandbox: () => ({}),
   Sandbox: class {},
+  ContainerProxy: class {},
 }));
 const { parseAgentExecutorResult, waitForCloudAgentTurnResultText } =
   await import("../src/index.js");

@@ -198,25 +198,25 @@ import {
   type ExactTurnCancellationRequest,
 } from "./execution-placement-turn-cancellation.js";
 
-type Env = {
-  BUILD_SESSIONS: DurableObjectNamespace;
-  LOADER: WorkerLoader;
-  BUILDER_SERVICE_SECRET: string;
-  // The owner's authoritative cloud home. Kept optional at the binding type
-  // boundary for rolling deploys, but a chat turn without it fails closed.
-  AGENT_HOME?: R2Bucket;
-  // Rolled-over transcript segments and oversize-row spills. Deliberately a
-  // separate bucket from AGENT_HOME: different retention, and a prefix delete
-  // here must never be able to reach the owner's memory documents.
-  CONVERSATION_ARCHIVE?: R2Bucket;
-  // Fallback Convex origin for index flushes and owner lookups that happen
-  // outside a turn (a socket connecting to a DO that has never run one).
-  STELLA_CONVEX_SITE_URL?: string;
-  /** Dev-only, omitted from production deployments. */
-  ENABLE_DEV_ACCEPTANCE_PROBES?: string;
-  /** Exact non-production target identity checked by every probe request. */
-  STELLA_DEPLOYMENT_IDENTITY?: string;
-};
+/**
+ * Binding names/types come from Wrangler. Storage and dev-acceptance fields
+ * remain optional here solely for rolling-deploy compatibility and production
+ * configurations that omit acceptance probes.
+ */
+type Env = Pick<
+  Cloudflare.Env,
+  "BUILD_SESSIONS" | "LOADER" | "BUILDER_SERVICE_SECRET"
+> &
+  Partial<
+    Pick<
+      Cloudflare.Env,
+      | "AGENT_HOME"
+      | "CONVERSATION_ARCHIVE"
+      | "STELLA_CONVEX_SITE_URL"
+      | "ENABLE_DEV_ACCEPTANCE_PROBES"
+      | "STELLA_DEPLOYMENT_IDENTITY"
+    >
+  >;
 
 export type ChatTurnRequest = {
   kind: "chat";
@@ -381,7 +381,11 @@ const CHAT_WATCHDOG_MS = 5 * 60_000;
 const OWNER_PURGE_STALE_LEASE_GRACE_MS = 35_000;
 const LOCAL_TURN_LEASE_MS = 30 * 60_000;
 const LOCAL_TURN_CANCEL_GRACE_MS = 45_000;
-const LOCAL_TURN_BEGIN_MAX_BYTES = 64 * 1024 * 1024;
+// `userMessageJson` is nested inside the outer JSON request, so the Worker
+// temporarily retains the request bytes, decoded outer text, parsed nested
+// string, and parsed message. Keep this aligned with the outer ingress ceiling;
+// larger messages need a streaming/direct-body protocol instead.
+const LOCAL_TURN_BEGIN_MAX_BYTES = 8 * 1024 * 1024;
 const LOCAL_TURN_FINISH_MAX_ROWS = 1_024;
 const LOCAL_TURN_FINISH_MAX_BYTES = APPEND_WINDOW_MAX_BYTES;
 const LOCAL_TURN_LEASE_KEY = "localTurnLease";
@@ -859,7 +863,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     // an isolate restart wipes the in-memory queue, so re-enqueue whatever
     // survived — otherwise an accepted turn (and its Convex "running" row)
     // would be silently lost forever.
-    this.ctx.blockConcurrencyWhile(async () => {
+    void this.ctx.blockConcurrencyWhile(async () => {
       // The schema has to exist before anything can read or write a turn.
       await this.journal.bootstrap();
       this.ownerGeneration = await this.ctx.storage.get<string>(
@@ -2406,11 +2410,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       const callbackIdentity = { ownerId, ownerGeneration, turnId };
       const receiptMatches = Boolean(
         leaseReceipt &&
-          this.ownerFenceReceiptMatches(
-            leaseReceipt,
-            callbackIdentity,
-            leaseId,
-          ),
+        this.ownerFenceReceiptMatches(leaseReceipt, callbackIdentity, leaseId),
       );
       if (leaseReceipt && !receiptMatches) {
         return json({ error: "Owner purge lease identity is stale." }, 409);
@@ -4487,13 +4487,13 @@ export class OrchestratorSession extends DurableObject<Env> {
     ]);
     return Boolean(
       retainedTurnBlocksOwnerTransfer(turn !== undefined, terminal) ||
-        localLease ||
-        queued.size > 0 ||
-        this.live ||
-        this.activeTurnId ||
-        this.currentAgent ||
-        this.currentTurnCancellation ||
-        this.journal.inboxSize().rows > 0,
+      localLease ||
+      queued.size > 0 ||
+      this.live ||
+      this.activeTurnId ||
+      this.currentAgent ||
+      this.currentTurnCancellation ||
+      this.journal.inboxSize().rows > 0,
     );
   }
 
@@ -4512,10 +4512,10 @@ export class OrchestratorSession extends DurableObject<Env> {
     const row = next.rows[0];
     return Boolean(
       row &&
-        row.seq === throughSeq + 1 &&
-        row.kind === "message" &&
-        row.role === "user" &&
-        row.hidden === 0,
+      row.seq === throughSeq + 1 &&
+      row.kind === "message" &&
+      row.role === "user" &&
+      row.hidden === 0,
     );
   }
 

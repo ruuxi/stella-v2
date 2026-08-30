@@ -16,6 +16,7 @@ import {
   turnBrokerStorageKey,
 } from "../src/turn-credential-broker.js";
 import { checkpointKey } from "../src/workspace.js";
+import { issuePreviewAccessCapability } from "../src/vite-preview-access.js";
 import {
   TurnCredentialBrokerClient,
   type TurnBrokerFetch,
@@ -29,6 +30,7 @@ mock.module("cloudflare:workers", () => ({
 mock.module("@cloudflare/sandbox", () => ({
   getSandbox: () => ({}),
   Sandbox: class {},
+  ContainerProxy: class {},
 }));
 const indexModule = await import("../src/index.js");
 const { BuildSession, purgeNativeStateForWorkspace } = indexModule;
@@ -177,8 +179,7 @@ const builderHarness = async (
     execution: {
       engine: options.engine ?? "anthropic",
       provider: options.engine === "stella" ? "crof" : "anthropic",
-      model:
-        options.engine === "stella" ? "crof/stella" : "claude-sonnet-4-6",
+      model: options.engine === "stella" ? "crof/stella" : "claude-sonnet-4-6",
       reasoningEffort: "medium",
     },
     turnBrokerRoute: {
@@ -321,6 +322,72 @@ const gatewaySuspensionResponse = (
 });
 
 describe("native state Builder integration", () => {
+  test("rejects a fabricated preview capability before resolving a named DO and redacts its log", async () => {
+    const fabricated = `pv1.AA.${"A".repeat(43)}`;
+    let resolutions = 0;
+    const captured: string[] = [];
+    const previousInfo = console.info;
+    console.info = (...parts: unknown[]) => captured.push(parts.join(" "));
+    try {
+      const response = await worker.fetch(
+        new Request(
+          `https://builder.example/internal/previews/attacker-session/${fabricated}//attacker.invalid/`,
+        ),
+        {
+          BUILDER_SERVICE_SECRET:
+            "builder-preview-secret-with-at-least-thirty-two-bytes",
+          BUILD_SESSIONS: {
+            getByName: () => {
+              resolutions += 1;
+              return { fetch: async () => new Response("must not run") };
+            },
+          },
+        } as never,
+      );
+      expect(response.status).toBe(403);
+    } finally {
+      console.info = previousInfo;
+    }
+    expect(resolutions).toBe(0);
+    const logs = captured.join("\n");
+    expect(logs).toContain("/internal/previews/:session/:capability");
+    expect(logs).not.toContain(fabricated);
+    expect(logs).not.toContain("attacker.invalid");
+  });
+
+  test("routes a valid preview HMAC only to its bound BuildSession", async () => {
+    const secret = "builder-preview-secret-with-at-least-thirty-two-bytes";
+    const issued = await issuePreviewAccessCapability({
+      identity: {
+        buildSessionName: sessionId,
+        turnId,
+        sandboxId: "app-0123456789abcdef0123456789abcdef01234567",
+      },
+      tunnelUrl: "https://not-returned.trycloudflare.com/",
+      secret,
+      now: Date.now(),
+      ttlMs: 60_000,
+      randomBytes: (bytes) => bytes.fill(11),
+    });
+    const calls: string[] = [];
+    const response = await worker.fetch(
+      new Request(
+        `https://builder.example/internal/previews/${sessionId}/${issued.capability}/src/main.tsx`,
+      ),
+      {
+        BUILDER_SERVICE_SECRET: secret,
+        BUILD_SESSIONS: {
+          getByName: (name: string) => {
+            calls.push(name);
+            return { fetch: async () => new Response("verified-route") };
+          },
+        },
+      } as never,
+    );
+    expect(await response.text()).toBe("verified-route");
+    expect(calls).toEqual([sessionId]);
+  });
+
   test("routes a public broker capability to only its exact named BuildSession", async () => {
     const calls: Array<{ name: string; request: Request }> = [];
     const env = {
@@ -384,7 +451,10 @@ describe("native state Builder integration", () => {
   });
 
   test("durably observes an exact Browser Gateway wait before returning it", async () => {
-    const responses = new Map<string, ReturnType<typeof gatewaySuspensionResponse>>();
+    const responses = new Map<
+      string,
+      ReturnType<typeof gatewaySuspensionResponse>
+    >();
     let gatewayCalls = 0;
     const harness = await builderHarness({
       engine: "stella",
@@ -449,9 +519,7 @@ describe("native state Builder integration", () => {
       params: {},
     });
     expect(conflict.status).toBe(409);
-    expect(conflict.headers.get(TURN_BROKER_RESPONSE_HEADERS.denial)).toBe(
-      "1",
-    );
+    expect(conflict.headers.get(TURN_BROKER_RESPONSE_HEADERS.denial)).toBe("1");
     expect(harness.values.get("observedBrowserSuspension")).toMatchObject({
       suspension: { interactionId: "interaction-1" },
     });
@@ -681,9 +749,9 @@ describe("native state Builder integration", () => {
       harness.executionAbort.abort(new Error("exact turn stopped"));
       const response = await pending;
       expect(response.status).toBe(410);
-      expect(
-        response.headers.get(TURN_BROKER_RESPONSE_HEADERS.denial),
-      ).toBe("1");
+      expect(response.headers.get(TURN_BROKER_RESPONSE_HEADERS.denial)).toBe(
+        "1",
+      );
       expect(client.closed).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;

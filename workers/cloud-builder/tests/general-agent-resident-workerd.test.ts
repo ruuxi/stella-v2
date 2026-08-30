@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NO_WORKSPACE_ATTACHED_MESSAGE } from "../src/general-agent-tools.js";
+import { allocateWorkerdInspectorPort } from "./helpers/workerd-test-port.js";
 
 const packageRoot = new URL("..", import.meta.url);
 const port = 20_000 + Math.floor(Math.random() * 1_000);
@@ -42,12 +43,13 @@ const requestJson = async (
 ): Promise<{ status: number; body: Record<string, any> }> =>
   await requestJsonFrom(origin, path, body);
 
-const spawnWorkerd = (
+const spawnWorkerd = async (
   config: string,
   listenPort: number,
   persistTo: string,
   observe: (chunk: unknown) => void,
-): ChildProcess => {
+): Promise<ChildProcess> => {
+  const inspectorPort = await allocateWorkerdInspectorPort();
   const child = spawn(
     process.execPath,
     [
@@ -63,6 +65,8 @@ const spawnWorkerd = (
       "--local",
       "--persist-to",
       persistTo,
+      "--inspector-port",
+      String(inspectorPort),
       "--show-interactive-dev-session=false",
     ],
     { cwd: packageRoot, stdio: ["ignore", "pipe", "pipe"] },
@@ -112,7 +116,7 @@ describe("resident general-agent turn in workerd", () => {
 
   const startWorkerd = async (): Promise<void> => {
     workerdOutput = "";
-    const child = spawnWorkerd(
+    const child = await spawnWorkerd(
       "tests/fixtures/general-agent-resident-workerd.wrangler.jsonc",
       port,
       persistencePath,
@@ -138,9 +142,12 @@ describe("resident general-agent turn in workerd", () => {
   });
 
   afterAll(async () => {
-    await stopWorkerd();
-    if (persistencePath.includes("stella-resident-turn-workerd-")) {
-      await rm(persistencePath, { recursive: true, force: true });
+    try {
+      await stopWorkerd();
+    } finally {
+      if (persistencePath.includes("stella-resident-turn-workerd-")) {
+        await rm(persistencePath, { recursive: true, force: true });
+      }
     }
   });
 
@@ -237,7 +244,7 @@ describe("wired resident general-agent turn in workerd", () => {
     persistencePath = await mkdtemp(
       join(tmpdir(), "stella-wired-turn-workerd-"),
     );
-    workerd = spawnWorkerd(
+    workerd = await spawnWorkerd(
       "tests/fixtures/general-agent-wired-workerd.wrangler.jsonc",
       wiredPort,
       persistencePath,
@@ -249,10 +256,13 @@ describe("wired resident general-agent turn in workerd", () => {
   });
 
   afterAll(async () => {
-    await stopChild(workerd);
-    workerd = null;
-    if (persistencePath.includes("stella-wired-turn-workerd-")) {
-      await rm(persistencePath, { recursive: true, force: true });
+    try {
+      await stopChild(workerd);
+    } finally {
+      workerd = null;
+      if (persistencePath.includes("stella-wired-turn-workerd-")) {
+        await rm(persistencePath, { recursive: true, force: true });
+      }
     }
   });
 

@@ -5,7 +5,7 @@ import {
   MAX_PROXY_RESPONSE_BYTES,
 } from "../src/http-security";
 import worker from "../src/index";
-import { createEnv } from "./fixtures";
+import { createUntrustedEnv as createEnv } from "./fixtures";
 
 const originalFetch = globalThis.fetch;
 
@@ -21,12 +21,65 @@ const proxyRequest = (
     "https://stella-v2-apps-host-dev.lolruuxi.workers.dev/api/apps/fetch",
     {
       method: "POST",
-      headers: { "content-type": "application/json", origin },
+      headers: {
+        authorization: "Bearer test-capability",
+        "content-type": "application/json",
+        origin,
+      },
       body: JSON.stringify(body),
     },
   );
 
 describe("bounded Stella fetch proxy", () => {
+  test("requires a capability before parsing or forwarding", async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response("unexpected");
+    }) as typeof fetch;
+    const request = proxyRequest({ input: "https://api.example.com/data" });
+    request.headers.delete("authorization");
+    const response = await worker.fetch(request, createEnv());
+    expect(response.status).toBe(401);
+    expect(called).toBeFalse();
+  });
+
+  test("rejects a capability mismatch and one-shot replay before upstream", async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response("unexpected");
+    }) as typeof fetch;
+    const denied = await worker.fetch(
+      proxyRequest({ input: "https://api.example.com/data" }),
+      createEnv({
+        APP_AUTH: {
+          mintInteriorBootstrap: async () => ({
+            bootstrap: "test-interior-bootstrap",
+            expiresAt: Date.now() + 60_000,
+          }),
+          mintAppBootstrap: async () => ({ bootstrap: "test", expiresAt: Date.now() + 60_000 }),
+          mintAnonymousSession: async () => ({}),
+          getInteriorRoute: async () => null,
+          verifyFetchCapability: async () => ({ ok: false }),
+        },
+      }),
+    );
+    expect(denied.status).toBe(401);
+    const replayed = await worker.fetch(
+      proxyRequest({ input: "https://api.example.com/data" }),
+      createEnv({
+        APP_FETCH_GATE: {
+          getByName: () => ({
+            consume: async () => ({ ok: false, reason: "replayed" as const }),
+          }),
+        },
+      }),
+    );
+    expect(replayed.status).toBe(409);
+    expect(called).toBeFalse();
+  });
+
   test("allows only the exact preflight shape from a trusted shell", async () => {
     const accepted = await worker.fetch(
       new Request(
@@ -188,6 +241,7 @@ describe("bounded Stella fetch proxy", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
+          authorization: "Bearer test-capability",
           origin: "http://localhost:57315",
         },
         body: "x".repeat(MAX_PROXY_ENVELOPE_BYTES + 1),

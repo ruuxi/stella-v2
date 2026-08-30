@@ -6,6 +6,7 @@
   "type": "module",
   "workspaces": [
     "packages/*",
+    "packages/backend/workers/*",
     "workers/*"
   ],
   "main": "packages/desktop/dist-electron/electron/main.js",
@@ -71,11 +72,25 @@
     "executor:typecheck": "cd packages/executor-cloud && bun run typecheck",
     "executor:test": "cd packages/executor-cloud && bun run test",
     "cloud-builder:typecheck": "cd workers/cloud-builder && bun run typecheck",
+    "cloud-builder:lint:promises": "eslint --config eslint.workers.config.js workers/cloud-builder/src",
     "cloud-builder:test": "cd workers/cloud-builder && bun run test",
     "cloud-builder:build:dry-run": "cd workers/cloud-builder && bun run build:dry-run",
     "apps-host:typecheck": "cd workers/apps-host && bun run typecheck",
+    "apps-host:lint:promises": "eslint --config eslint.workers.config.js workers/apps-host/src",
     "apps-host:test": "cd workers/apps-host && bun run test",
     "apps-host:build:dry-run": "cd workers/apps-host && bun run build:dry-run",
+    "browser-gateway:typecheck": "cd workers/browser-gateway && bun run typecheck",
+    "browser-gateway:lint:promises": "eslint --config eslint.workers.config.js workers/browser-gateway/src",
+    "browser-gateway:test": "cd workers/browser-gateway && bun run test",
+    "browser-gateway:build:dry-run": "cd workers/browser-gateway && bun run build:dry-run && bun run build:dry-run:bn118",
+    "device-code-fixture:typecheck": "cd workers/device-code-fixture && bun run typecheck",
+    "device-code-fixture:lint:promises": "eslint --config eslint.workers.config.js workers/device-code-fixture/src",
+    "device-code-fixture:test": "cd workers/device-code-fixture && bun run test",
+    "device-code-fixture:build:dry-run": "cd workers/device-code-fixture && bun run build:dry-run:bn118",
+    "canvas-share:typecheck": "cd packages/backend/workers/canvas-share && bun run typecheck",
+    "canvas-share:lint:promises": "eslint --config eslint.workers.config.js packages/backend/workers/canvas-share/src",
+    "canvas-share:test": "cd packages/backend/workers/canvas-share && bun run test && bun run test:workerd",
+    "canvas-share:build:dry-run": "cd packages/backend/workers/canvas-share && bun run build:dry-run",
     "check:ratchet": "node packages/runtime/scripts/check-effect-ratchet.mjs"
   },
   "dependencies": {
@@ -415,6 +430,7 @@
   "trustedDependencies": [
     "@shopify/react-native-skia",
     "better-sqlite3",
+    "bun",
     "cloudflared",
     "electron",
     "electron-winstaller",

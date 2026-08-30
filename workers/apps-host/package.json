@@ -4,15 +4,20 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "deploy:dev": "wrangler deploy --config wrangler.jsonc",
+    "deploy:dev": "wrangler deploy --config wrangler.jsonc --env=\"\" --strict",
+    "deploy:auth-dev": "wrangler deploy --config wrangler.auth.jsonc --env=\"\" --strict",
     "deploy:acceptance": "wrangler deploy --config wrangler.jsonc --env bn118 --strict",
-    "typecheck": "tsc --noEmit",
-    "test": "bun test tests",
+    "deploy:auth-acceptance": "wrangler deploy --config wrangler.auth.jsonc --env bn118 --strict",
+    "typecheck": "tsc --noEmit && bun run types:check",
+    "types:check": "wrangler types worker-configuration.d.ts --config wrangler.jsonc --env-interface AppsHostUntrustedBindings --check && wrangler types worker-configuration.auth.d.ts --config wrangler.auth.jsonc --env-interface AppsHostTrustedBindings --include-runtime=false --check",
+    "test:browser:install": "playwright install chromium",
+    "test": "bun test --preload ./tests/cloudflare-workers-shim.ts tests",
     "build:dry-run": "node scripts/check-production-bundle.mjs"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260723.1",
+    "@cloudflare/workers-types": "5.20260830.1",
+    "playwright": "1.62.1",
     "typescript": "^6.0.3",
-    "wrangler": "4.113.0"
+    "wrangler": "4.127.1"
   }
 }

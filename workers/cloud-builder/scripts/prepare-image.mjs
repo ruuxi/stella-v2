@@ -1,6 +1,7 @@
 import {
   cp,
   mkdir,
+  mkdtemp,
   readFile,
   readdir,
   rm,
@@ -8,6 +9,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,9 +19,50 @@ const workerRoot = path.resolve(
   "..",
 );
 const repoRoot = path.resolve(workerRoot, "..", "..");
-const imageRoot = path.join(workerRoot, ".image");
+const sourceLockPath = path.join(workerRoot, "sandbox-image.bun.lock");
 
-await rm(imageRoot, { recursive: true, force: true });
+let imageRoot = path.join(workerRoot, ".image");
+let refreshLock = false;
+let customOutput = false;
+let generatedRefreshRoot = false;
+for (const argument of process.argv.slice(2)) {
+  if (argument === "--refresh-lock") {
+    refreshLock = true;
+  } else if (argument.startsWith("--output=")) {
+    const output = argument.slice("--output=".length).trim();
+    if (!output) {
+      throw new Error("--output requires a directory.");
+    }
+    imageRoot = path.resolve(output);
+    customOutput = true;
+  } else {
+    throw new Error(`Unknown image preparation argument: ${argument}`);
+  }
+}
+
+// Bun 1.4 discovers parent workspaces before creating a missing nested lock.
+// Refresh outside the monorepo so the image lock is generated from only the
+// staged production workspace rather than accidentally rewriting the root
+// lock. Ordinary image preparation still targets .image for Docker.
+if (refreshLock && !customOutput) {
+  imageRoot = await mkdtemp(path.join(tmpdir(), "stella-image-lock-refresh-"));
+  customOutput = true;
+  generatedRefreshRoot = true;
+}
+
+if (customOutput && !generatedRefreshRoot) {
+  const outputExists = await stat(imageRoot)
+    .then(() => true)
+    .catch((error) => {
+      if (error?.code === "ENOENT") return false;
+      throw error;
+    });
+  if (outputExists) {
+    throw new Error("--output must name a new directory.");
+  }
+} else {
+  await rm(imageRoot, { recursive: true, force: true });
+}
 await mkdir(path.join(imageRoot, "packages"), { recursive: true });
 
 const imagePackages = [
@@ -57,6 +101,51 @@ const isExcluded = (source) =>
 const rootPackage = JSON.parse(
   await readFile(path.join(repoRoot, "package.json"), "utf8"),
 );
+const workerPackage = JSON.parse(
+  await readFile(path.join(workerRoot, "package.json"), "utf8"),
+);
+const dockerfile = await readFile(path.join(workerRoot, "Dockerfile"), "utf8");
+const sandboxPackageVersion =
+  workerPackage.dependencies?.["@cloudflare/sandbox"];
+const imageBunVersion = workerPackage.devDependencies?.bun;
+const imageBunPath = path.join(
+  workerRoot,
+  "node_modules",
+  ".bin",
+  process.platform === "win32" ? "bun.exe" : "bun",
+);
+const bunRuntimeMatch = dockerfile.match(
+  /^FROM\s+docker\.io\/oven\/bun:([^\s-]+)-debian@sha256:[0-9a-f]+\s+AS\s+bun-runtime\s*$/m,
+);
+const bunRuntimeVersion = bunRuntimeMatch?.[1];
+const sandboxBaseMatch = dockerfile.match(
+  /^FROM\s+docker\.io\/cloudflare\/sandbox:([^\s]+)\s*$/m,
+);
+const sandboxBaseVersion = sandboxBaseMatch?.[1];
+if (
+  typeof sandboxPackageVersion !== "string" ||
+  !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(sandboxPackageVersion)
+) {
+  throw new Error(
+    "Cloud image @cloudflare/sandbox dependency must use an exact version.",
+  );
+}
+if (sandboxBaseVersion !== sandboxPackageVersion) {
+  throw new Error(
+    `Cloud image Sandbox SDK ${sandboxPackageVersion} does not match Docker base ${sandboxBaseVersion ?? "<missing>"}.`,
+  );
+}
+if (
+  typeof imageBunVersion !== "string" ||
+  !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(imageBunVersion)
+) {
+  throw new Error("Cloud image Bun build tool must use an exact version.");
+}
+if (bunRuntimeVersion !== imageBunVersion) {
+  throw new Error(
+    `Cloud image Bun build tool ${imageBunVersion} does not match Docker runtime ${bunRuntimeVersion ?? "<missing>"}.`,
+  );
+}
 const exactVersion = (value, label) => {
   const exact = typeof value === "string" ? value.replace(/^[~^]/, "") : "";
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(exact)) {
@@ -150,3 +239,69 @@ await writeFile(
     2,
   )}\n`,
 );
+
+const runBunLockCommand = ({ frozen }) => {
+  const result = spawnSync(
+    imageBunPath,
+    [
+      "install",
+      "--lockfile-only",
+      "--ignore-scripts",
+      "--save-text-lockfile",
+      ...(frozen ? ["--frozen-lockfile"] : []),
+    ],
+    {
+      cwd: imageRoot,
+      encoding: "utf8",
+      stdio: "pipe",
+    },
+  );
+  if (result.status !== 0) {
+    throw new Error(
+      [
+        frozen
+          ? "The checked-in Sandbox image lock no longer matches the staged manifests. Run `bun run image:lock:refresh` and review the dependency diff."
+          : "Unable to refresh the Sandbox image lock.",
+        result.stdout,
+        result.stderr,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+  }
+};
+
+const stagedLockPath = path.join(imageRoot, "bun.lock");
+if (refreshLock) {
+  // Refresh is intentionally explicit: ordinary builds never consult registry
+  // state to choose a dependency version. The generated lock is scoped to the
+  // staged workspaces rather than copying the monorepo's lockfile. Bun 1.4
+  // does not emit a new lockfile when --production and --lockfile-only are
+  // combined, so the lock records every staged dependency while the Docker
+  // install still uses --production.
+  runBunLockCommand({ frozen: false });
+  await cp(stagedLockPath, sourceLockPath);
+} else {
+  await cp(sourceLockPath, stagedLockPath);
+  runBunLockCommand({ frozen: true });
+}
+
+const lockBytes = await readFile(stagedLockPath);
+const lockSha256 = createHash("sha256").update(lockBytes).digest("hex");
+await writeFile(
+  path.join(imageRoot, "image-build.json"),
+  `${JSON.stringify(
+    {
+      schemaVersion: 1,
+      sandboxSdkVersion: sandboxPackageVersion,
+      sandboxBaseImage: `docker.io/cloudflare/sandbox:${sandboxBaseVersion}`,
+      dependencyLockSha256: `sha256:${lockSha256}`,
+    },
+    null,
+    2,
+  )}\n`,
+);
+
+if (generatedRefreshRoot) {
+  await rm(imageRoot, { recursive: true, force: true });
+}

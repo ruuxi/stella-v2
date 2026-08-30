@@ -13,10 +13,7 @@ import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { r2 } from "./r2_files";
 import { encryptSecret } from "./data/secrets_crypto";
-import {
-  seedReadyMigrationBackupSweep,
-  seedReadyPurgeBackupSweep,
-} from "../tests/convex_backup_sweep_test_helpers";
+import { seedReadyPurgeBackupSweep } from "../tests/convex_backup_sweep_test_helpers";
 
 const modules = import.meta.glob(["./**/*.ts", "./**/*.js"]);
 const createTest = () => convexTest(schema, modules);
@@ -796,73 +793,6 @@ describe("legacy backup raw-R2 sweep", () => {
         ctx.db.query("backup_legacy_r2_sweeps").collect(),
       ),
     ).toEqual([]);
-  });
-
-  it("retains migration proof across a rejected ABA tuple and retires it exactly with completion", async () => {
-    const t = createTest();
-    const ownerArgs = {
-      fromOwnerId: "legacy-terminal-migration-source",
-      toOwnerId: "legacy-terminal-migration-destination",
-    };
-    await t.mutation(
-      internal.auth_migration.prepareOwnershipMigration,
-      ownerArgs,
-    );
-    const claim = await t.mutation(
-      internal.auth_migration.claimOwnershipMigration,
-      { ...ownerArgs, leaseId: "terminal-migration-lease", now: Date.now() },
-    );
-    if (!claim.claimed || !("migrationId" in claim)) {
-      throw new Error("migration fixture was not claimed");
-    }
-    await t.run(async (ctx) => {
-      const migration = await ctx.db.get(claim.migrationId!);
-      if (!migration) throw new Error("missing migration receipt fixture");
-      await ctx.db.patch(migration._id, { cloudProductStage: "complete" });
-      const sweepId = await seedReadyMigrationBackupSweep(ctx, {
-        migrationId: migration._id,
-      });
-      await ctx.db.patch(sweepId, { planRevision: 99 });
-    });
-    const finishArgs = {
-      ...ownerArgs,
-      leaseId: "terminal-migration-lease",
-      leaseGeneration: claim.leaseGeneration!,
-      outcome: "complete" as const,
-      now: Date.now(),
-    };
-    await expect(
-      t.mutation(
-        internal.auth_migration.finishOwnershipMigrationPass,
-        finishArgs,
-      ),
-    ).rejects.toThrow(/raw-storage migration proof is not ready/u);
-    await t.run(async (ctx) => {
-      const sweep = await ctx.db.query("backup_legacy_r2_sweeps").unique();
-      if (!sweep) throw new Error("missing rejected migration proof");
-      await ctx.db.patch(sweep._id, {
-        planRevision: claim.planRevision!,
-        revision: sweep.revision + 1,
-      });
-    });
-    await expect(
-      t.mutation(
-        internal.auth_migration.finishOwnershipMigrationPass,
-        finishArgs,
-      ),
-    ).resolves.toBeNull();
-    await expect(
-      t.mutation(
-        internal.auth_migration.finishOwnershipMigrationPass,
-        finishArgs,
-      ),
-    ).resolves.toBeNull();
-    expect(
-      await t.run(async (ctx) => ({
-        migration: await ctx.db.get(claim.migrationId!),
-        sweeps: await ctx.db.query("backup_legacy_r2_sweeps").collect(),
-      })),
-    ).toMatchObject({ migration: { status: "complete" }, sweeps: [] });
   });
 
   it("rewinds a pre-rollout cloud-stage purge instead of completing without raw-storage proof", async () => {

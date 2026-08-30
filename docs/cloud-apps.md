@@ -6,11 +6,12 @@ stack described here is intentionally isolated from Stella v1.
 
 ## Architecture
 
-Convex deployment `flexible-panther-999` is the canonical control plane. It
-owns conversations, turns, ordered events, app/build metadata, per-app user
-storage, billing-plan lookup, quota enforcement, and failure alerts. Desktop,
-the standalone web interior, iOS, Android, and CarPlay all submit through the
-same `cloud_apps:startCloudChat` mutation and subscribe to the same tables.
+Convex deployment `outgoing-bulldog-865` is the development control plane. It
+owns admission, app/build metadata, viewer storage, billing-plan lookup, quota
+enforcement, and failure alerts. The conversation Durable Object owns the
+canonical ordered transcript; clients keep local replicas and reconcile by
+epoch and sequence. Desktop, the standalone web interior, iOS, Android, and
+CarPlay all submit through the same `cloud_apps:startCloudChat` mutation.
 
 `stella-v2-cloud-builder-dev` is the authenticated execution plane, with two
 Durable Object classes:
@@ -320,10 +321,10 @@ public-HTTPS fetch. Apps never receive Convex credentials or Stella secrets.
 
 | Resource         | Development value                                  |
 | ---------------- | -------------------------------------------------- |
-| Convex           | `flexible-panther-999`                             |
+| Convex           | `outgoing-bulldog-865`                             |
 | Builder          | `stella-v2-cloud-builder-dev.lolruuxi.workers.dev` |
 | Apps host        | `stella-v2-apps-host-dev.lolruuxi.workers.dev`     |
-| Interior         | `stella-v2-interior-dev.lolruuxi.workers.dev`      |
+| Trusted app auth | `stella-v2-apps-auth-dev.lolruuxi.workers.dev`     |
 | R2               | `stella-v2-app-builds-dev`                         |
 | KV               | `dc5c7bac2bd04ec7bbd6a89f18a04ee7`                 |
 | Desktop renderer | `http://127.0.0.1:57315`                           |

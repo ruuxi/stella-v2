@@ -7100,6 +7100,7 @@ export const getStorageInternal = internalQuery({
     ownerId: v.string(),
     ownerGeneration: v.string(),
     userId: v.string(),
+    viewerNamespace: v.string(),
     key: v.string(),
   },
   returns: v.any(),
@@ -7110,6 +7111,16 @@ export const getStorageInternal = internalQuery({
       args.ownerId,
       args.ownerGeneration,
     );
+    const namespaced = await ctx.db
+      .query("cloud_app_storage")
+      .withIndex("by_appId_and_viewerNamespace_and_key", (q) =>
+        q
+          .eq("appId", args.appId)
+          .eq("viewerNamespace", args.viewerNamespace)
+          .eq("key", args.key),
+      )
+      .unique();
+    if (namespaced) return namespaced;
     return await ctx.db
       .query("cloud_app_storage")
       .withIndex("by_appId_and_userId_and_key", (q) =>
@@ -7125,6 +7136,7 @@ export const listStorageInternal = internalQuery({
     ownerId: v.string(),
     ownerGeneration: v.string(),
     userId: v.string(),
+    viewerNamespace: v.string(),
   },
   returns: v.any(),
   handler: async (ctx, args) => {
@@ -7134,12 +7146,23 @@ export const listStorageInternal = internalQuery({
       args.ownerId,
       args.ownerGeneration,
     );
-    return await ctx.db
+    const [namespaced, legacy] = await Promise.all([
+      ctx.db
+      .query("cloud_app_storage")
+      .withIndex("by_appId_and_viewerNamespace", (q) =>
+        q.eq("appId", args.appId).eq("viewerNamespace", args.viewerNamespace),
+      )
+      .take(101),
+      ctx.db
       .query("cloud_app_storage")
       .withIndex("by_appId_and_userId", (q) =>
         q.eq("appId", args.appId).eq("userId", args.userId),
       )
-      .take(101);
+      .take(101),
+    ]);
+    const byKey = new Map(legacy.map((row) => [row.key, row]));
+    for (const row of namespaced) byKey.set(row.key, row);
+    return [...byKey.values()].slice(0, 101);
   },
 });
 
@@ -7149,6 +7172,7 @@ export const setStorageInternal = internalMutation({
     ownerId: v.string(),
     ownerGeneration: v.string(),
     userId: v.string(),
+    viewerNamespace: v.string(),
     key: v.string(),
     valueJson: v.string(),
     sizeBytes: v.number(),
@@ -7168,12 +7192,23 @@ export const setStorageInternal = internalMutation({
     if (args.sizeBytes > 16 * 1024) {
       throw new ConvexError("Storage value exceeds the 16 KB per-key limit.");
     }
-    const rows = await ctx.db
+    const [namespacedRows, legacyRows] = await Promise.all([
+      ctx.db
+      .query("cloud_app_storage")
+      .withIndex("by_appId_and_viewerNamespace", (q) =>
+        q.eq("appId", args.appId).eq("viewerNamespace", args.viewerNamespace),
+      )
+      .take(101),
+      ctx.db
       .query("cloud_app_storage")
       .withIndex("by_appId_and_userId", (q) =>
         q.eq("appId", args.appId).eq("userId", args.userId),
       )
-      .take(101);
+      .take(101),
+    ]);
+    const byKey = new Map(legacyRows.map((row) => [row.key, row]));
+    for (const row of namespacedRows) byKey.set(row.key, row);
+    const rows = [...byKey.values()];
     const existing = rows.find((row) => row.key === args.key);
     if (!existing && rows.length >= 100) {
       throw new ConvexError("Storage quota reached: maximum 100 keys.");
@@ -7187,15 +7222,23 @@ export const setStorageInternal = internalMutation({
     }
     if (existing) {
       await ctx.db.patch(existing._id, {
+        viewerNamespace: args.viewerNamespace,
         valueJson: args.valueJson,
         sizeBytes: args.sizeBytes,
         updatedAt: args.now,
       });
+      const staleLegacyDuplicate = legacyRows.find(
+        (row) => row.key === args.key && row._id !== existing._id,
+      );
+      if (staleLegacyDuplicate) {
+        await ctx.db.delete(staleLegacyDuplicate._id);
+      }
     } else {
       await ctx.db.insert("cloud_app_storage", {
         appId: args.appId,
         ownerId: args.ownerId,
         userId: args.userId,
+        viewerNamespace: args.viewerNamespace,
         key: args.key,
         valueJson: args.valueJson,
         sizeBytes: args.sizeBytes,
@@ -7212,6 +7255,7 @@ export const deleteStorageInternal = internalMutation({
     ownerId: v.string(),
     ownerGeneration: v.string(),
     userId: v.string(),
+    viewerNamespace: v.string(),
     key: v.string(),
   },
   returns: v.null(),
@@ -7222,13 +7266,28 @@ export const deleteStorageInternal = internalMutation({
       args.ownerId,
       args.ownerGeneration,
     );
-    const row = await ctx.db
-      .query("cloud_app_storage")
-      .withIndex("by_appId_and_userId_and_key", (q) =>
-        q.eq("appId", args.appId).eq("userId", args.userId).eq("key", args.key),
-      )
-      .unique();
-    if (row) await ctx.db.delete(row._id);
+    const [namespaced, legacy] = await Promise.all([
+      ctx.db
+        .query("cloud_app_storage")
+        .withIndex("by_appId_and_viewerNamespace_and_key", (q) =>
+          q
+            .eq("appId", args.appId)
+            .eq("viewerNamespace", args.viewerNamespace)
+            .eq("key", args.key),
+        )
+        .unique(),
+      ctx.db
+        .query("cloud_app_storage")
+        .withIndex("by_appId_and_userId_and_key", (q) =>
+          q
+            .eq("appId", args.appId)
+            .eq("userId", args.userId)
+            .eq("key", args.key),
+        )
+        .unique(),
+    ]);
+    if (namespaced) await ctx.db.delete(namespaced._id);
+    if (legacy && legacy._id !== namespaced?._id) await ctx.db.delete(legacy._id);
     return null;
   },
 });

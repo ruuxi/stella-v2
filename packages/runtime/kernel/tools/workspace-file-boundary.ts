@@ -505,7 +505,9 @@ export const writeWorkspaceBytesNoFollow = async (
     }
     await opened.handle.truncate(intended.length);
     const verification = await readBounded(opened.handle, intended.length);
-    const matches = verification.equals(intended);
+    const matches =
+      verification.byteLength === intended.byteLength &&
+      verification.every((value, index) => value === intended[index]);
     verification.fill(0);
     if (!matches) {
       throw new Error("Workspace file write verification failed.");

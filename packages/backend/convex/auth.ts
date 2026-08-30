@@ -44,7 +44,7 @@ import {
   assertOwnerDataWriteAllowed,
 } from "./owner_lifecycle";
 import {
-  getTrustedAppsHostOrigin,
+  getTrustedAppsAuthOrigin,
   resolvesToManagedAppsHostOrigin,
 } from "./lib/dev_apps_host_origin";
 import { importPKCS8, SignJWT } from "jose";
@@ -507,7 +507,7 @@ export const authUserIdFromVerificationPayload = async (
 export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
   const siteUrl = getRequiredEnv("SITE_URL");
   const authBaseUrl = getAuthBaseUrl();
-  const trustedAppsHostOrigin = getTrustedAppsHostOrigin(process.env);
+  const trustedAppsHostOrigin = getTrustedAppsAuthOrigin(process.env);
   if (
     !trustedAppsHostOrigin &&
     (resolvesToManagedAppsHostOrigin(siteUrl) ||

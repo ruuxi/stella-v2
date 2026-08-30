@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { MAX_APP_ASSET_BYTES } from "../src/http-security";
 import worker from "../src/index";
-import { createEnv, routeId, TEST_SERVICE_SECRET } from "./fixtures";
+import { createUntrustedEnv as createEnv, routeId } from "./fixtures";
 
 const originalFetch = globalThis.fetch;
 
@@ -29,7 +29,9 @@ describe("hosted asset boundary", () => {
         get: async (key: string) =>
           key === "app:orbit-demo"
             ? {
-                artifactPrefix: `builds/${"a".repeat(64)}/build-123`,
+              artifactPrefix: `builds/${"a".repeat(64)}/build-123`,
+                appId: "app-orbit",
+                slug: "orbit-demo",
                 suspended: false,
               }
             : null,
@@ -47,19 +49,160 @@ describe("hosted asset boundary", () => {
     );
     const csp = response.headers.get("content-security-policy") ?? "";
     expect(response.status).toBe(200);
+    const wrapperHtml = await response.text();
+    expect(wrapperHtml).toContain(
+      'data-raw-src="/_stella/apps-assets/orbit-demo/"',
+    );
+    expect(wrapperHtml).not.toContain(
+      ' src="/_stella/apps-assets/orbit-demo/"',
+    );
+    expect(wrapperHtml).not.toContain("app-orbit");
+    expect(wrapperHtml).toContain(
+      'data-bootstrap-refresh-url="/apps/orbit-demo/_bootstrap"',
+    );
+    expect(requested).toEqual([]);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(csp).toContain("default-src 'none'");
+    expect(csp).toContain("frame-src 'self'");
+    expect(csp).toContain("https://outgoing-bulldog-865.convex.site");
+    const raw = await worker.fetch(
+      new Request(
+        "https://apps.example.com/_stella/apps-assets/orbit-demo/",
+      ),
+      env,
+    );
+    expect(raw.status).toBe(200);
+    expect(raw.headers.get("content-security-policy")).toContain(
+      "sandbox allow-scripts",
+    );
+    expect(raw.headers.get("access-control-allow-origin")).toBeNull();
     expect(requested).toEqual([
       `builds/${"a".repeat(64)}/build-123/index.html`,
     ]);
-    expect(response.headers.get("cache-control")).toBe("no-cache");
-    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
-    expect(csp).toContain("default-src 'self'");
-    expect(csp).toContain("frame-src 'self'");
-    expect(csp).toContain("https://outgoing-bulldog-865.convex.site");
-    expect(csp).toContain(
-      "wss://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
+  });
+
+  test("refreshes only the route-bound app bootstrap from the fixed wrapper origin", async () => {
+    const minted: Array<{ appId: string; slug: string; origin: string }> = [];
+    const env = createEnv({
+      HOST_ROLE: "untrusted",
+      BUILDER_SERVICE_SECRET: undefined,
+      APP_TOKEN_SIGNING_KEY: undefined,
+      APP_FETCH_GATE: {
+        getByName: () => ({ consume: async () => ({ ok: true }) }),
+      },
+      APP_AUTH: {
+        mintInteriorBootstrap: async () => ({
+          bootstrap: "interior",
+          expiresAt: Date.now() + 60_000,
+        }),
+        mintAppBootstrap: async (args) => {
+          minted.push(args);
+          return {
+            bootstrap: "refreshed-bootstrap",
+            expiresAt: Date.now() + 120_000,
+          };
+        },
+        mintAnonymousSession: async () => ({}),
+        verifyFetchCapability: async () => ({ ok: false }),
+        getInteriorRoute: async () => null,
+      },
+      APP_ROUTES: {
+        get: async (key: string) =>
+          key === "app:orbit-demo"
+            ? {
+                artifactPrefix: `builds/${"a".repeat(64)}/build-123`,
+                appId: "server-resolved-app",
+                slug: "orbit-demo",
+                suspended: false,
+              }
+            : null,
+      } as unknown as KVNamespace,
+    });
+    const endpoint =
+      "https://stella-v2-apps-host-dev.lolruuxi.workers.dev/apps/orbit-demo/_bootstrap";
+    const allowed = await worker.fetch(
+      new Request(endpoint, {
+        method: "POST",
+        headers: {
+          origin:
+            "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+          "sec-fetch-site": "same-origin",
+          "sec-fetch-mode": "cors",
+        },
+      }),
+      env,
     );
-    expect(csp).not.toContain("flexible-panther-999");
-    expect(csp).not.toContain("stella-v2-interior-dev");
+    expect(allowed.status).toBe(200);
+    expect(await allowed.json()).toMatchObject({
+      bootstrap: "refreshed-bootstrap",
+    });
+    expect(minted).toEqual([
+      {
+        appId: "server-resolved-app",
+        slug: "orbit-demo",
+        origin:
+          "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+      },
+    ]);
+
+    for (const request of [
+      new Request(endpoint, {
+        method: "POST",
+        headers: {
+          origin: "null",
+          "sec-fetch-site": "cross-site",
+          "sec-fetch-mode": "cors",
+        },
+      }),
+      new Request(endpoint, {
+        method: "POST",
+        headers: {
+          origin:
+            "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+          "sec-fetch-site": "same-origin",
+          "sec-fetch-mode": "cors",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ appId: "caller-chosen-app" }),
+      }),
+    ]) {
+      const denied = await worker.fetch(request, env);
+      expect([400, 403]).toContain(denied.status);
+    }
+    expect(minted).toHaveLength(1);
+  });
+
+  test("sandboxes active non-HTML assets on direct navigation", async () => {
+    const env = createEnv({
+      APP_ROUTES: {
+        get: async () => ({
+          artifactPrefix: `builds/${"a".repeat(64)}/build-123`,
+          appId: "app-orbit",
+          slug: "orbit-demo",
+          suspended: false,
+        }),
+      } as unknown as KVNamespace,
+      APP_BUILDS: {
+        get: async () =>
+          r2Object(
+            '<svg xmlns="http://www.w3.org/2000/svg"><script>top.location="https://attacker.example"</script></svg>',
+            "image/svg+xml",
+          ),
+      } as unknown as R2Bucket,
+    });
+    const response = await worker.fetch(
+      new Request(
+        "https://apps.example.com/_stella/apps-assets/orbit-demo/active.svg",
+      ),
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/svg+xml");
+    expect(response.headers.get("content-security-policy")).toContain(
+      "sandbox allow-scripts",
+    );
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
   });
 
   test("rejects malformed asset paths before reading R2", async () => {
@@ -68,6 +211,8 @@ describe("hosted asset boundary", () => {
       APP_ROUTES: {
         get: async () => ({
           artifactPrefix: `builds/${"a".repeat(64)}/build-123`,
+          appId: "app-orbit",
+          slug: "orbit-demo",
           suspended: false,
         }),
       } as unknown as KVNamespace,
@@ -79,7 +224,9 @@ describe("hosted asset boundary", () => {
       } as unknown as R2Bucket,
     });
     const response = await worker.fetch(
-      new Request("https://apps.example.com/apps/orbit-demo/%5Csecret"),
+      new Request(
+        "https://apps.example.com/_stella/apps-assets/orbit-demo/%5Csecret",
+      ),
       env,
     );
     expect(response.status).toBe(404);
@@ -94,6 +241,8 @@ describe("hosted asset boundary", () => {
           routeKeys.push(key);
           return {
             artifactPrefix: `builds/${"a".repeat(64)}/build-123`,
+            appId: "app-orbit",
+            slug: key.slice("app:".length),
             suspended: false,
           };
         },
@@ -121,6 +270,8 @@ describe("hosted asset boundary", () => {
       APP_ROUTES: {
         get: async () => ({
           artifactPrefix: "backups/private",
+          appId: "app-orbit",
+          slug: "orbit-demo",
           suspended: false,
         }),
       } as unknown as KVNamespace,
@@ -225,6 +376,8 @@ describe("hosted asset boundary", () => {
       APP_ROUTES: {
         get: async () => ({
           artifactPrefix: `builds/${"a".repeat(64)}/build-123`,
+          appId: "app-orbit",
+          slug: "orbit-demo",
           suspended: false,
         }),
       } as unknown as KVNamespace,
@@ -233,7 +386,9 @@ describe("hosted asset boundary", () => {
       } as unknown as R2Bucket,
     });
     const response = await worker.fetch(
-      new Request("https://apps.example.com/apps/orbit-demo/app.js"),
+      new Request(
+        "https://apps.example.com/_stella/apps-assets/orbit-demo/app.js",
+      ),
       env,
     );
     expect(response.status).toBe(503);
@@ -242,19 +397,26 @@ describe("hosted asset boundary", () => {
   test("resolves active interiors only through the pinned authenticated endpoint", async () => {
     const ownerHash = "b".repeat(64);
     const buildId = `interior-${"c".repeat(48)}`;
-    let upstreamUrl = "";
-    let authorization = "";
-    globalThis.fetch = (async (input, init) => {
-      upstreamUrl = String(input);
-      authorization = new Headers(init?.headers).get("authorization") ?? "";
-      return Response.json({
-        mode: "custom",
-        ownerHash,
-        buildId,
-        artifactPrefix: `interiors/${ownerHash}/${buildId}`,
-      });
-    }) as typeof fetch;
+    let requestedRouteId = "";
     const env = createEnv({
+      APP_AUTH: {
+        mintInteriorBootstrap: async () => ({
+          bootstrap: "test-interior-bootstrap",
+          expiresAt: Date.now() + 60_000,
+        }),
+        mintAppBootstrap: async () => ({ bootstrap: "test", expiresAt: Date.now() + 60_000 }),
+        mintAnonymousSession: async () => ({}),
+        verifyFetchCapability: async () => ({ ok: false }),
+        getInteriorRoute: async ({ stableRouteId }) => {
+          requestedRouteId = stableRouteId;
+          return {
+            mode: "custom",
+            ownerHash,
+            buildId,
+            artifactPrefix: `interiors/${ownerHash}/${buildId}`,
+          };
+        },
+      },
       APP_BUILDS: {
         get: async (key: string) =>
           key === `interiors/${ownerHash}/${buildId}/index.html`
@@ -267,22 +429,30 @@ describe("hosted asset boundary", () => {
       env,
     );
     expect(response.status).toBe(200);
-    expect(upstreamUrl).toBe(
-      `https://outgoing-bulldog-865.convex.site/api/cloud/interior-active-route?stableRouteId=${routeId}`,
-    );
-    expect(authorization).toBe(`Bearer ${TEST_SERVICE_SECRET}`);
+    expect(requestedRouteId).toBe(routeId);
     expect(response.headers.get("cache-control")).toBe("no-store");
+    const wrapperHtml = await response.text();
+    expect(wrapperHtml).toContain("test-interior-bootstrap");
+    expect(wrapperHtml).not.toContain("Interior</h1>");
   });
 
   test("does not expose an interior route when the control plane rejects it", async () => {
-    globalThis.fetch = (async () =>
-      Response.json(
-        { error: "Unauthorized" },
-        { status: 401 },
-      )) as typeof fetch;
     const response = await worker.fetch(
       new Request(`https://apps.example.com/stella/${routeId}/`),
-      createEnv(),
+      createEnv({
+        APP_AUTH: {
+          mintInteriorBootstrap: async () => ({
+            bootstrap: "test-interior-bootstrap",
+            expiresAt: Date.now() + 60_000,
+          }),
+          mintAppBootstrap: async () => ({ bootstrap: "test", expiresAt: Date.now() + 60_000 }),
+          mintAnonymousSession: async () => ({}),
+          verifyFetchCapability: async () => ({ ok: false }),
+          getInteriorRoute: async () => {
+            throw new Error("rejected");
+          },
+        },
+      }),
     );
     expect(response.status).toBe(503);
     expect(await response.text()).toBe(

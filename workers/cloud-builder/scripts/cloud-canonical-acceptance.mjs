@@ -4692,7 +4692,7 @@ const validators = {
       ),
       wranglerVersion: exactLiteral(
         observation.wranglerVersion,
-        "4.113.0",
+        "4.127.1",
         "wranglerVersion",
       ),
       bundleSha256: sha256Value(observation.bundleSha256, "bundleSha256"),

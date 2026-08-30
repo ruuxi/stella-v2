@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
+  MAX_REQUEST_BYTES,
   PROFILE_ID,
   parseOwnerPurge,
   parseTurnCommand,
   profileObjectName,
 } from "../src/protocol.js";
+import { readJsonBody } from "../src/request-body.js";
+import { GatewayError } from "../src/errors.js";
 import { suspensionAlarmDeadline } from "../src/suspension-alarm.js";
 import { AUTHORITY, uuid } from "./fixtures.js";
 
@@ -91,5 +94,77 @@ describe("private protocol boundary", () => {
         suspension: { interactionKind: "unknown", expiresAt: 301_000 },
       }),
     ).toBeUndefined();
+  });
+
+  test("stops reading a chunked request as soon as it exceeds the JSON limit", async () => {
+    let pulls = 0;
+    let canceled = false;
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulls += 1;
+          controller.enqueue(new Uint8Array(32 * 1024));
+          if (pulls === 100) controller.close();
+        },
+        cancel() {
+          canceled = true;
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const request = new Request("https://browser-profile/internal", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: stream,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+
+    await expect(readJsonBody(request)).rejects.toMatchObject<
+      Partial<GatewayError>
+    >({ status: 413 });
+    expect(canceled).toBe(true);
+    expect(pulls).toBe(3);
+  });
+
+  test("accepts bounded JSON when transfer size is not declared", async () => {
+    const request = new Request("https://browser-profile/internal", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"ok":'));
+          controller.enqueue(new TextEncoder().encode("true}"));
+          controller.close();
+        },
+      }),
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    expect(await readJsonBody(request)).toEqual({ ok: true });
+  });
+
+  test("rejects an oversized declared body before consuming its stream", async () => {
+    let pulls = 0;
+    const request = new Request("https://browser-profile/internal", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(MAX_REQUEST_BYTES + 1),
+      },
+      body: new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            pulls += 1;
+            controller.enqueue(new Uint8Array([123, 125]));
+            controller.close();
+          },
+        },
+        { highWaterMark: 0 },
+      ),
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    await expect(readJsonBody(request)).rejects.toMatchObject<
+      Partial<GatewayError>
+    >({ status: 413 });
+    expect(pulls).toBe(0);
   });
 });

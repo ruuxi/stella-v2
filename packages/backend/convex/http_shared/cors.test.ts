@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
   ACCEPTANCE_APPS_HOST_ORIGIN,
+  ACCEPTANCE_TRUSTED_APPS_HOST_ORIGIN,
   ACCEPTANCE_CLOUD_BUILDER_ORIGIN,
   DEV_APPS_HOST_ORIGIN,
+  DEV_TRUSTED_APPS_HOST_ORIGIN,
   DEV_CLOUD_BUILDER_ORIGIN,
 } from "../lib/dev_apps_host_origin";
 import { buildCorsAllowedOrigins } from "./cors";
@@ -13,6 +15,7 @@ const validDevEnv = () => ({
   CONVEX_SITE_URL: "https://outgoing-bulldog-865.convex.site",
   CONVEX_CLOUD_URL: "https://outgoing-bulldog-865.convex.cloud",
   APPS_HOST_ORIGIN: DEV_APPS_HOST_ORIGIN,
+  TRUSTED_APPS_HOST_ORIGIN: DEV_TRUSTED_APPS_HOST_ORIGIN,
   CLOUD_BUILDER_URL: DEV_CLOUD_BUILDER_ORIGIN,
 });
 
@@ -21,6 +24,7 @@ const validAcceptanceEnv = () => ({
   CONVEX_SITE_URL: "https://basic-nightingale-118.convex.site",
   CONVEX_CLOUD_URL: "https://basic-nightingale-118.convex.cloud",
   APPS_HOST_ORIGIN: ACCEPTANCE_APPS_HOST_ORIGIN,
+  TRUSTED_APPS_HOST_ORIGIN: ACCEPTANCE_TRUSTED_APPS_HOST_ORIGIN,
   CLOUD_BUILDER_URL: ACCEPTANCE_CLOUD_BUILDER_ORIGIN,
 });
 
@@ -30,12 +34,17 @@ describe("Apps host CORS authority", () => {
       buildCorsAllowedOrigins(validDevEnv()).has(DEV_APPS_HOST_ORIGIN),
       true,
     );
+    assert.equal(
+      buildCorsAllowedOrigins(validDevEnv()).has(DEV_TRUSTED_APPS_HOST_ORIGIN),
+      true,
+    );
   });
 
   test("adds the Apps host only for the exact acceptance contract", () => {
     const origins = buildCorsAllowedOrigins(validAcceptanceEnv());
     assert.equal(origins.has(ACCEPTANCE_APPS_HOST_ORIGIN), true);
     assert.equal(origins.has(DEV_APPS_HOST_ORIGIN), false);
+    assert.equal(origins.has(ACCEPTANCE_TRUSTED_APPS_HOST_ORIGIN), true);
   });
 
   test("does not let generic origin configuration bypass the identity gate", () => {

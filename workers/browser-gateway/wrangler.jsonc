@@ -6,7 +6,14 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
   "preview_urls": false,
-  "observability": { "enabled": true },
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 },
+  },
+  "secrets": {
+    "required": ["BROWSER_PROFILE_KEK_V1"],
+  },
   "vars": {
     "STELLA_DEPLOYMENT_IDENTITY": "dev",
     "BROWSER_KEEP_ALIVE_MS": "600000",
@@ -39,6 +46,14 @@
       "name": "stella-v2-browser-gateway-basic-nightingale-118",
       "workers_dev": false,
       "preview_urls": false,
+      "observability": {
+        "enabled": true,
+        "logs": { "enabled": true, "head_sampling_rate": 1 },
+        "traces": { "enabled": true, "head_sampling_rate": 0.05 },
+      },
+      "secrets": {
+        "required": ["BROWSER_PROFILE_KEK_V1"],
+      },
       "vars": {
         "STELLA_DEPLOYMENT_IDENTITY": "basic-nightingale-118",
         "BROWSER_KEEP_ALIVE_MS": "600000",

@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
   ACCEPTANCE_APPS_HOST_ORIGIN,
+  ACCEPTANCE_TRUSTED_APPS_HOST_ORIGIN,
   ACCEPTANCE_CLOUD_BUILDER_ORIGIN,
   DEV_APPS_HOST_ORIGIN,
+  DEV_TRUSTED_APPS_HOST_ORIGIN,
   DEV_CLOUD_BUILDER_ORIGIN,
   getTrustedAppsHostOrigin,
+  getTrustedAppsAuthOrigin,
   resolveManagedAppsHostOrigin,
   resolvesToManagedAppsHostOrigin,
 } from "./dev_apps_host_origin";
@@ -15,6 +18,7 @@ const validEnv = () => ({
   CONVEX_SITE_URL: "https://outgoing-bulldog-865.convex.site",
   CONVEX_CLOUD_URL: "https://outgoing-bulldog-865.convex.cloud",
   APPS_HOST_ORIGIN: "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+  TRUSTED_APPS_HOST_ORIGIN: DEV_TRUSTED_APPS_HOST_ORIGIN,
   CLOUD_BUILDER_URL: DEV_CLOUD_BUILDER_ORIGIN,
 });
 
@@ -23,12 +27,17 @@ const validAcceptanceEnv = () => ({
   CONVEX_SITE_URL: "https://basic-nightingale-118.convex.site",
   CONVEX_CLOUD_URL: "https://basic-nightingale-118.convex.cloud",
   APPS_HOST_ORIGIN: ACCEPTANCE_APPS_HOST_ORIGIN,
+  TRUSTED_APPS_HOST_ORIGIN: ACCEPTANCE_TRUSTED_APPS_HOST_ORIGIN,
   CLOUD_BUILDER_URL: ACCEPTANCE_CLOUD_BUILDER_ORIGIN,
 });
 
 describe("non-production Apps host origin authority", () => {
   test("trusts the exact outgoing-bulldog development contract", () => {
     assert.equal(getTrustedAppsHostOrigin(validEnv()), DEV_APPS_HOST_ORIGIN);
+    assert.equal(
+      getTrustedAppsAuthOrigin(validEnv()),
+      DEV_TRUSTED_APPS_HOST_ORIGIN,
+    );
     assert.equal(
       getTrustedAppsHostOrigin({
         ...validEnv(),
@@ -42,6 +51,10 @@ describe("non-production Apps host origin authority", () => {
     assert.equal(
       getTrustedAppsHostOrigin(validAcceptanceEnv()),
       ACCEPTANCE_APPS_HOST_ORIGIN,
+    );
+    assert.equal(
+      getTrustedAppsAuthOrigin(validAcceptanceEnv()),
+      ACCEPTANCE_TRUSTED_APPS_HOST_ORIGIN,
     );
     assert.equal(
       getTrustedAppsHostOrigin({
@@ -58,6 +71,7 @@ describe("non-production Apps host origin authority", () => {
       "CONVEX_SITE_URL",
       "CONVEX_CLOUD_URL",
       "APPS_HOST_ORIGIN",
+      "TRUSTED_APPS_HOST_ORIGIN",
       "CLOUD_BUILDER_URL",
     ] as const) {
       const env = validEnv();
@@ -72,6 +86,7 @@ describe("non-production Apps host origin authority", () => {
       { CONVEX_SITE_URL: "https://flexible-panther-999.convex.site" },
       { CONVEX_CLOUD_URL: "https://flexible-panther-999.convex.cloud" },
       { APPS_HOST_ORIGIN: "https://apps.example.com" },
+      { TRUSTED_APPS_HOST_ORIGIN: "https://auth.example.com" },
       { STELLA_AUTH_BASE_URL: "https://auth.example.com" },
     ]) {
       assert.equal(
@@ -86,6 +101,7 @@ describe("non-production Apps host origin authority", () => {
       { CONVEX_SITE_URL: "https://outgoing-bulldog-865.convex.site" },
       { CONVEX_CLOUD_URL: "https://outgoing-bulldog-865.convex.cloud" },
       { APPS_HOST_ORIGIN: DEV_APPS_HOST_ORIGIN },
+      { TRUSTED_APPS_HOST_ORIGIN: DEV_TRUSTED_APPS_HOST_ORIGIN },
       { CLOUD_BUILDER_URL: DEV_CLOUD_BUILDER_ORIGIN },
       { STELLA_AUTH_BASE_URL: "https://outgoing-bulldog-865.convex.site" },
     ]) {
@@ -107,6 +123,10 @@ describe("non-production Apps host origin authority", () => {
       {
         APPS_HOST_ORIGIN:
           "https://stella-v2-apps-host-dev.lolruuxi.workers.dev/path",
+      },
+      {
+        TRUSTED_APPS_HOST_ORIGIN:
+          "https://stella-v2-apps-auth-dev.lolruuxi.workers.dev/path",
       },
     ]) {
       assert.equal(
@@ -133,6 +153,10 @@ describe("non-production Apps host origin authority", () => {
     assert.equal(
       resolvesToManagedAppsHostOrigin(`${DEV_APPS_HOST_ORIGIN}/auth`),
       true,
+    );
+    assert.equal(
+      resolveManagedAppsHostOrigin(`${DEV_TRUSTED_APPS_HOST_ORIGIN}/auth`),
+      DEV_TRUSTED_APPS_HOST_ORIGIN,
     );
     assert.equal(
       resolvesToManagedAppsHostOrigin("https://stella.sh/apps-host"),

@@ -1,0 +1,48 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Cloudflare Worker: canvas-share serving layer.
+  //
+  // Serves published canvas documents from the `stella-canvas-shares` R2
+  // bucket at `GET /c/:slug`. The backend writes/deletes the objects; this
+  // Worker is read-only apart from an optional lazy delete of expired objects.
+  //
+  // DO NOT deploy from here as part of the backend build. Deploy is a separate,
+  // deliberate step once the domain and backend origin are configured.
+  "name": "canvas-share",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-30",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "r2_buckets": [
+    {
+      "binding": "SHARES_BUCKET",
+      "bucket_name": "stella-canvas-shares"
+    }
+  ],
+
+  "vars": {
+    // Global kill-switch. Set to `1`, `true`, or `yes` to make every share
+    // return 503. This is non-secret configuration.
+    "SHARES_DISABLED": ""
+  },
+
+  // Public share domain. CANVAS_SHARE_BASE_URL in the backend must match.
+  "routes": [
+    {
+      "pattern": "stellashare.app",
+      "custom_domain": true
+    }
+  ],
+
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.01
+    }
+  }
+}

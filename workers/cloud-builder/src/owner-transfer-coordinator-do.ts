@@ -25,11 +25,59 @@ const RESERVATION_MS = 9 * 60_000;
 const RESERVATION_RENEW_MS = 4 * 60_000;
 const PASS_MS = 3 * 60_000;
 const STATE_KEY = "ownerTransferCoordinator";
+const STATE_REVISION_KEY = "ownerTransferCoordinatorRevision";
+const REMOTE_CLAIM_KEY = "ownerTransferCoordinatorRemoteClaim";
+const DEFAULT_FENCE_TIMEOUT_MS = 8_000;
+const MIN_FENCE_TIMEOUT_MS = 250;
+const MAX_FENCE_TIMEOUT_MS = 15_000;
+const REMOTE_CLAIM_MIN_MS = 60_000;
 const HEADER_OWNER_FENCE_ID = "x-stella-owner-fence-id";
 
 type CoordinatorEnv = {
   BUILD_SESSIONS: DurableObjectNamespace;
+  /** Test-only override also permits a future deploy-time tightening. */
+  OWNER_TRANSFER_FENCE_TIMEOUT_MS?: string;
 };
+
+type RemoteClaimKind =
+  | "reserve"
+  | "reserve-copy-complete"
+  | "copied"
+  | "abort"
+  | "acknowledge"
+  | "alarm";
+
+type RemoteClaim = {
+  schemaVersion: 1;
+  claimId: string;
+  kind: RemoteClaimKind;
+  operationId: string;
+  expectedRevision: number;
+  claimedAt: number;
+  expiresAt: number;
+  passIdHash?: string;
+};
+
+type ClaimedRemoteOperation = {
+  claim: RemoteClaim;
+  state: OwnerTransferCoordinatorState;
+};
+
+type CoordinatorReleaseDebt = {
+  source: boolean;
+  destination: boolean;
+};
+
+type CoordinatorStateWithReleaseDebt = OwnerTransferCoordinatorState & {
+  releaseDebt?: CoordinatorReleaseDebt;
+};
+
+class ImmediateCoordinatorResponse extends Error {
+  constructor(readonly response: Response) {
+    super("Immediate coordinator response");
+    this.name = "ImmediateCoordinatorResponse";
+  }
+}
 
 type FenceResponse = {
   ok: boolean;
@@ -168,6 +216,162 @@ const parseTurnStateManifest = (
 };
 
 export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
+  private markReleaseDebt(state: OwnerTransferCoordinatorState): void {
+    const extended = state as CoordinatorStateWithReleaseDebt;
+    extended.releaseDebt ??= { source: true, destination: true };
+  }
+
+  private hasReleaseDebt(state: OwnerTransferCoordinatorState): boolean {
+    const debt = (state as CoordinatorStateWithReleaseDebt).releaseDebt;
+    return Boolean(debt?.source || debt?.destination);
+  }
+
+  private applyReservationSnapshot(
+    target: OwnerTransferCoordinatorState,
+    snapshot: OwnerTransferCoordinatorState,
+  ): void {
+    target.sourceReservation = { ...snapshot.sourceReservation };
+    target.destinationReservation = { ...snapshot.destinationReservation };
+    if (snapshot.reservationsExpireAt === undefined) {
+      delete target.reservationsExpireAt;
+    } else {
+      target.reservationsExpireAt = snapshot.reservationsExpireAt;
+    }
+    const snapshotDebt = (snapshot as CoordinatorStateWithReleaseDebt)
+      .releaseDebt;
+    if (snapshotDebt) {
+      (target as CoordinatorStateWithReleaseDebt).releaseDebt = {
+        ...snapshotDebt,
+      };
+    } else {
+      delete (target as CoordinatorStateWithReleaseDebt).releaseDebt;
+    }
+  }
+
+  private fenceTimeoutMs(): number {
+    const configured = Number(this.env.OWNER_TRANSFER_FENCE_TIMEOUT_MS ?? "");
+    return Number.isSafeInteger(configured) &&
+      configured >= MIN_FENCE_TIMEOUT_MS &&
+      configured <= MAX_FENCE_TIMEOUT_MS
+      ? configured
+      : DEFAULT_FENCE_TIMEOUT_MS;
+  }
+
+  private remoteClaimMs(): number {
+    // ensureReservations can make four sequential fence-call rounds in its
+    // failure path. Keep the persisted claim comfortably beyond that bounded
+    // work so a live request can never be mistaken for an abandoned claim.
+    return Math.max(REMOTE_CLAIM_MIN_MS, this.fenceTimeoutMs() * 6);
+  }
+
+  private async currentRevision(
+    storage: Pick<DurableObjectTransaction, "get"> = this.ctx.storage,
+  ): Promise<number> {
+    const value = await storage.get<number>(STATE_REVISION_KEY);
+    return Number.isSafeInteger(value) && (value ?? -1) >= 0 ? value! : 0;
+  }
+
+  private isLiveClaim(claim: RemoteClaim | undefined, now: number): boolean {
+    return Boolean(
+      claim &&
+      claim.schemaVersion === 1 &&
+      claim.claimId &&
+      claim.operationId &&
+      Number.isSafeInteger(claim.expectedRevision) &&
+      claim.expectedRevision >= 1 &&
+      Number.isSafeInteger(claim.expiresAt) &&
+      claim.expiresAt > now,
+    );
+  }
+
+  private claimConflict(): OwnerTransferCoordinatorConflictError {
+    return new OwnerTransferCoordinatorConflictError(
+      "transfer_busy",
+      "Ownership-transfer reservation reconciliation is still in progress.",
+    );
+  }
+
+  private async commitClaim(
+    claimed: ClaimedRemoteOperation,
+    update: (
+      state: OwnerTransferCoordinatorState,
+      txn: DurableObjectTransaction,
+      nextRevision: number,
+    ) => void | Promise<void>,
+    options: { retainClaim?: boolean } = {},
+  ): Promise<RemoteClaim | null> {
+    return await this.ctx.storage.transaction(async (txn) => {
+      const [claim, revision, state] = await Promise.all([
+        txn.get<RemoteClaim>(REMOTE_CLAIM_KEY),
+        this.currentRevision(txn),
+        txn.get<OwnerTransferCoordinatorState>(STATE_KEY),
+      ]);
+      if (
+        !claim ||
+        claim.claimId !== claimed.claim.claimId ||
+        claim.expectedRevision !== claimed.claim.expectedRevision ||
+        revision !== claimed.claim.expectedRevision ||
+        !state ||
+        state.operationId !== claimed.claim.operationId
+      ) {
+        throw this.claimConflict();
+      }
+      const nextRevision = revision + 1;
+      await update(state, txn, nextRevision);
+      state.updatedAt = Date.now();
+      await txn.put(STATE_KEY, state);
+      await txn.put(STATE_REVISION_KEY, nextRevision);
+      if (!options.retainClaim) {
+        await txn.delete(REMOTE_CLAIM_KEY);
+        return null;
+      }
+      const nextClaim = { ...claim, expectedRevision: nextRevision };
+      await txn.put(REMOTE_CLAIM_KEY, nextClaim);
+      return nextClaim;
+    });
+  }
+
+  private async claimRemote(
+    kind: RemoteClaimKind,
+    attempt: OwnerTransferCoordinatorAttempt | null,
+    prepare: (
+      state: OwnerTransferCoordinatorState | undefined,
+      now: number,
+      txn: DurableObjectTransaction,
+    ) => OwnerTransferCoordinatorState,
+  ): Promise<ClaimedRemoteOperation> {
+    return await this.ctx.storage.transaction(async (txn) => {
+      const now = Date.now();
+      const existingClaim = await txn.get<RemoteClaim>(REMOTE_CLAIM_KEY);
+      if (this.isLiveClaim(existingClaim, now)) throw this.claimConflict();
+      if (existingClaim) await txn.delete(REMOTE_CLAIM_KEY);
+      const existingState =
+        await txn.get<OwnerTransferCoordinatorState>(STATE_KEY);
+      const state = prepare(existingState, now, txn);
+      const revision = (await this.currentRevision(txn)) + 1;
+      const claim: RemoteClaim = {
+        schemaVersion: 1,
+        claimId: crypto.randomUUID(),
+        kind,
+        operationId: state.operationId,
+        expectedRevision: revision,
+        claimedAt: now,
+        expiresAt: now + this.remoteClaimMs(),
+        ...(attempt?.passIdHash ? { passIdHash: attempt.passIdHash } : {}),
+      };
+      await txn.put(STATE_KEY, state);
+      await txn.put(STATE_REVISION_KEY, revision);
+      await txn.put(REMOTE_CLAIM_KEY, claim);
+      // A crashed request leaves a durable recovery signal. A live request has
+      // a much shorter explicit deadline and will replace this alarm on commit.
+      const alarmAt = await txn.getAlarm();
+      if (alarmAt === null || alarmAt > claim.expiresAt) {
+        await txn.setAlarm(claim.expiresAt);
+      }
+      return { claim, state };
+    });
+  }
+
   private reservationEnvelope(
     state: OwnerTransferCoordinatorState,
   ): OwnerTransferReservationEnvelope {
@@ -207,10 +411,12 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     path: string,
     body: Record<string, unknown>,
   ): Promise<FenceResponse> {
+    const signal = AbortSignal.timeout(this.fenceTimeoutMs());
     const response = await (
       await this.ownerFence(ownerHash)
     ).fetch(`https://build-session/owner-fence/${path}`, {
       method: "POST",
+      signal,
       headers: {
         "content-type": "application/json",
         [HEADER_OWNER_FENCE_ID]: ownerId,
@@ -249,36 +455,59 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
 
   private async releaseReservations(
     state: OwnerTransferCoordinatorState,
-  ): Promise<void> {
-    await Promise.all(
-      [
-        [
-          state.fromOwnerId,
-          state.fromOwnerHash,
-          state.fromOwnerGeneration,
-          state.sourceReservation,
-        ] as const,
-        [
-          state.toOwnerId,
-          state.toOwnerHash,
-          state.toOwnerGeneration,
-          state.destinationReservation,
-        ] as const,
-      ].map(async ([ownerId, ownerHash, ownerGeneration, reservation]) => {
-        await this.callFence(ownerId, ownerHash, "unregister", {
-          leaseId: reservation.leaseId,
-          sessionId: this.ctx.id.toString(),
-          turnId: `owner-transfer:${state.operationId}`,
-          ...(reservation.generation
-            ? { generation: reservation.generation }
-            : {}),
-          ownerGeneration,
-        }).catch(() => undefined);
+  ): Promise<boolean> {
+    this.markReleaseDebt(state);
+    const extended = state as CoordinatorStateWithReleaseDebt;
+    const debt = extended.releaseDebt!;
+    const targets = [
+      {
+        side: "source" as const,
+        ownerId: state.fromOwnerId,
+        ownerHash: state.fromOwnerHash,
+        ownerGeneration: state.fromOwnerGeneration,
+        reservation: state.sourceReservation,
+      },
+      {
+        side: "destination" as const,
+        ownerId: state.toOwnerId,
+        ownerHash: state.toOwnerHash,
+        ownerGeneration: state.toOwnerGeneration,
+        reservation: state.destinationReservation,
+      },
+    ];
+    const outcomes = await Promise.all(
+      targets.map(async (target) => {
+        if (!debt[target.side]) return { side: target.side, released: true };
+        const result = await this.callFence(
+          target.ownerId,
+          target.ownerHash,
+          "unregister",
+          {
+            leaseId: target.reservation.leaseId,
+            sessionId: this.ctx.id.toString(),
+            turnId: `owner-transfer:${state.operationId}`,
+            ...(target.reservation.generation
+              ? { generation: target.reservation.generation }
+              : {}),
+            ownerGeneration: target.ownerGeneration,
+          },
+        ).catch(() => null);
+        return { side: target.side, released: result?.ok === true };
       }),
     );
+    for (const outcome of outcomes) {
+      if (!outcome.released) continue;
+      debt[outcome.side] = false;
+      delete (
+        outcome.side === "source"
+          ? state.sourceReservation
+          : state.destinationReservation
+      ).generation;
+    }
+    if (debt.source || debt.destination) return false;
+    delete extended.releaseDebt;
     delete state.reservationsExpireAt;
-    delete state.sourceReservation.generation;
-    delete state.destinationReservation.generation;
+    return true;
   }
 
   private async assertReservations(
@@ -333,11 +562,15 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
   ): Promise<
     | {
         ok: true;
+        alarmAt: number;
         renewalBlocked?: { retryable: boolean; code: string };
       }
     | { ok: false; retryable: boolean; code: string }
   > {
     const existing = await this.assertReservations(state);
+    if (existing.ok) {
+      delete (state as CoordinatorStateWithReleaseDebt).releaseDebt;
+    }
     const expiresAt = now + RESERVATION_MS;
     const source = await this.callFence(
       state.fromOwnerId,
@@ -353,10 +586,11 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     if (!source.ok || !source.generation) {
       const classified = classifyOwnerFenceRejection(source.code);
       if (existing.ok && (state.reservationsExpireAt ?? 0) > now) {
-        await this.ctx.storage.setAlarm(
-          Math.min(now + 30_000, state.reservationsExpireAt!),
-        );
-        return { ok: true, renewalBlocked: classified };
+        return {
+          ok: true,
+          alarmAt: Math.min(now + 30_000, state.reservationsExpireAt!),
+          renewalBlocked: classified,
+        };
       }
       await this.releaseReservations(state);
       return { ok: false, ...classified };
@@ -377,40 +611,39 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     if (!destination.ok || !destination.generation) {
       const classified = classifyOwnerFenceRejection(destination.code);
       if (existing.ok && (state.reservationsExpireAt ?? 0) > now) {
-        await this.ctx.storage.setAlarm(
-          Math.min(now + 30_000, state.reservationsExpireAt!),
-        );
-        return { ok: true, renewalBlocked: classified };
+        return {
+          ok: true,
+          alarmAt: Math.min(now + 30_000, state.reservationsExpireAt!),
+          renewalBlocked: classified,
+        };
       }
       await this.releaseReservations(state);
       return { ok: false, ...classified };
     }
     state.destinationReservation.generation = destination.generation;
     state.reservationsExpireAt = expiresAt;
+    delete (state as CoordinatorStateWithReleaseDebt).releaseDebt;
     state.phase =
       state.phase === "copy_complete" ? "copy_complete" : "reserved";
-    await this.ctx.storage.setAlarm(now + RESERVATION_RENEW_MS);
-    return { ok: true };
+    return { ok: true, alarmAt: now + RESERVATION_RENEW_MS };
   }
 
-  private async loadAndBind(
+  private loadAndBindState(
+    existing: OwnerTransferCoordinatorState | undefined,
     attempt: OwnerTransferCoordinatorAttempt,
     now: number,
-  ): Promise<OwnerTransferCoordinatorState> {
-    let state =
-      await this.ctx.storage.get<OwnerTransferCoordinatorState>(STATE_KEY);
-    if (!state) {
-      state = createCoordinatorState(attempt, now, {
+  ): OwnerTransferCoordinatorState {
+    if (!existing) {
+      return createCoordinatorState(attempt, now, {
         source: crypto.randomUUID(),
         destination: crypto.randomUUID(),
       });
-    } else {
-      bindCoordinatorAttempt(state, attempt, now);
     }
-    return state;
+    return bindCoordinatorAttempt(existing, attempt, now);
   }
 
   private conflictResponse(error: unknown): Response {
+    if (error instanceof ImmediateCoordinatorResponse) return error.response;
     if (error instanceof OwnerTransferCoordinatorConflictError) {
       return json({ code: error.code, message: error.message }, 409);
     }
@@ -431,110 +664,170 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
     const passIdHash = attempt.passIdHash;
-    return await this.ctx.blockConcurrencyWhile(async () => {
-      const now = Date.now();
-      let state: OwnerTransferCoordinatorState;
-      try {
-        state = await this.loadAndBind(attempt, now);
+    let claimed: ClaimedRemoteOperation;
+    try {
+      claimed = await this.claimRemote("reserve", attempt, (existing, now) => {
+        const state = this.loadAndBindState(existing, attempt, now);
         if (state.phase === "acknowledged") {
-          return json({ status: "acknowledged", result: state.result });
+          throw new ImmediateCoordinatorResponse(
+            json({ status: "acknowledged", result: state.result }),
+          );
         }
         if (state.phase === "permanent_blocked") {
-          return json(
-            {
-              code: "owner_purge_permanent",
-              message:
-                "An account in this transfer is being permanently deleted.",
-            },
-            409,
+          throw new ImmediateCoordinatorResponse(
+            json(
+              {
+                code: "owner_purge_permanent",
+                message:
+                  "An account in this transfer is being permanently deleted.",
+              },
+              409,
+            ),
           );
         }
-        if (state.phase === "copy_complete") {
-          const asserted = await this.assertReservations(state);
-          if (asserted.ok) {
-            return json({ status: "copy_complete", result: state.result });
-          }
-          state.phase = asserted.retryable
-            ? "retryable_blocked"
-            : "permanent_blocked";
-          await this.releaseReservations(state);
-          await this.ctx.storage.put(STATE_KEY, state);
-          return json(
-            {
-              code: asserted.code,
-              retryable: asserted.retryable,
-              message:
-                "Ownership-transfer acknowledgement lost its reservation.",
-            },
-            409,
-          );
+        if (state.phase !== "copy_complete") {
+          acquireCoordinatorPass(state, passIdHash, now, now + PASS_MS);
+          if (state.phase === "retryable_blocked") state.phase = "reserving";
         }
-        acquireCoordinatorPass(state, passIdHash, now, now + PASS_MS);
-        await this.ctx.storage.put(STATE_KEY, state);
-      } catch (error) {
-        return this.conflictResponse(error);
-      }
+        return state;
+      });
+    } catch (error) {
+      return this.conflictResponse(error);
+    }
 
+    const state = claimed.state;
+    if (state.phase === "copy_complete") {
       try {
-        if (state.phase === "retryable_blocked") state.phase = "reserving";
-        const reservation = await this.ensureReservations(state, now);
-        if (!reservation.ok) {
-          state.phase = reservation.retryable
-            ? "retryable_blocked"
-            : "permanent_blocked";
-          releaseCoordinatorPass(state, passIdHash, Date.now());
-          await this.ctx.storage.put(STATE_KEY, state);
-          return json(
-            {
-              code: reservation.code,
-              retryable: reservation.retryable,
-              message: reservation.retryable
-                ? "Ownership transfer is temporarily blocked."
-                : "Ownership transfer conflicts with permanent account deletion.",
-              ...(reservation.retryable ? { retryAfterMs: 5_000 } : {}),
-            },
-            409,
-          );
+        const asserted = await this.assertReservations(state);
+        if (asserted.ok) {
+          await this.commitClaim(claimed, async (_current, txn) => {
+            await txn.setAlarm(Date.now() + RESERVATION_RENEW_MS);
+          });
+          return json({ status: "copy_complete", result: state.result });
         }
-        if (
-          reservation.renewalBlocked &&
-          (state.reservationsExpireAt ?? 0) < now + PASS_MS
-        ) {
-          releaseCoordinatorPass(state, passIdHash, Date.now());
-          await this.ctx.storage.put(STATE_KEY, state);
-          return json(
-            {
-              code: reservation.renewalBlocked.code,
-              retryable: reservation.renewalBlocked.retryable,
-              retryAfterMs: 5_000,
-              message: "Ownership-transfer reservation is too close to expiry.",
-            },
-            409,
-          );
-        }
-        await this.ctx.storage.put(STATE_KEY, state);
-        return json({
-          status: "reserved",
-          reservation: this.reservationEnvelope(state),
+        state.phase = asserted.retryable
+          ? "retryable_blocked"
+          : "permanent_blocked";
+        const released = await this.releaseReservations(state);
+        await this.commitClaim(claimed, async (current, txn) => {
+          current.phase = state.phase;
+          delete current.activePass;
+          this.applyReservationSnapshot(current, state);
+          if (released) await txn.deleteAlarm();
+          else await txn.setAlarm(Date.now() + 30_000);
         });
-      } catch {
-        // A transport failure does not prove a durable reservation vanished.
-        // Keep its bounded expiry/alarm, but release the per-pass mutex so a
-        // control-plane retry can reconcile the same stable lease promptly.
-        releaseCoordinatorPass(state, passIdHash, Date.now());
-        await this.ctx.storage.put(STATE_KEY, state);
-        await this.ctx.storage.setAlarm(Date.now() + 30_000);
         return json(
           {
-            code: "transfer_unavailable",
-            retryable: true,
-            retryAfterMs: 5_000,
-            message: "Ownership-transfer reservations could not be verified.",
+            code: asserted.code,
+            retryable: asserted.retryable,
+            message: "Ownership-transfer acknowledgement lost its reservation.",
           },
-          503,
+          409,
+        );
+      } catch (error) {
+        try {
+          await this.commitClaim(claimed, async (_current, txn) => {
+            await txn.setAlarm(Date.now() + 30_000);
+          });
+        } catch (commitError) {
+          return this.conflictResponse(commitError);
+        }
+        return this.conflictResponse(error);
+      }
+    }
+
+    const now = Date.now();
+    try {
+      const reservation = await this.ensureReservations(state, now);
+      if (!reservation.ok) {
+        state.phase = reservation.retryable
+          ? "retryable_blocked"
+          : "permanent_blocked";
+        releaseCoordinatorPass(state, passIdHash, Date.now());
+        await this.commitClaim(claimed, async (current, txn) => {
+          current.phase = state.phase;
+          current.activePass = state.activePass;
+          this.applyReservationSnapshot(current, state);
+          if (this.hasReleaseDebt(state)) {
+            await txn.setAlarm(Date.now() + 30_000);
+          } else {
+            await txn.deleteAlarm();
+          }
+        });
+        return json(
+          {
+            code: reservation.code,
+            retryable: reservation.retryable,
+            message: reservation.retryable
+              ? "Ownership transfer is temporarily blocked."
+              : "Ownership transfer conflicts with permanent account deletion.",
+            ...(reservation.retryable ? { retryAfterMs: 5_000 } : {}),
+          },
+          409,
         );
       }
-    });
+      if (
+        reservation.renewalBlocked &&
+        (state.reservationsExpireAt ?? 0) < now + PASS_MS
+      ) {
+        releaseCoordinatorPass(state, passIdHash, Date.now());
+        await this.commitClaim(claimed, async (current, txn) => {
+          current.activePass = state.activePass;
+          current.phase = state.phase;
+          current.reservationsExpireAt = state.reservationsExpireAt;
+          current.sourceReservation = { ...state.sourceReservation };
+          current.destinationReservation = { ...state.destinationReservation };
+          await txn.setAlarm(reservation.alarmAt);
+        });
+        return json(
+          {
+            code: reservation.renewalBlocked.code,
+            retryable: reservation.renewalBlocked.retryable,
+            retryAfterMs: 5_000,
+            message: "Ownership-transfer reservation is too close to expiry.",
+          },
+          409,
+        );
+      }
+      await this.commitClaim(claimed, async (current, txn) => {
+        current.phase = state.phase;
+        current.activePass = state.activePass;
+        current.reservationsExpireAt = state.reservationsExpireAt;
+        current.sourceReservation = { ...state.sourceReservation };
+        current.destinationReservation = { ...state.destinationReservation };
+        await txn.setAlarm(reservation.alarmAt);
+      });
+      return json({
+        status: "reserved",
+        reservation: this.reservationEnvelope(state),
+      });
+    } catch (error) {
+      // A transport failure does not prove a durable reservation vanished.
+      // Keep its bounded expiry/alarm, but release the per-pass mutex so a
+      // control-plane retry can reconcile the same stable lease promptly.
+      releaseCoordinatorPass(state, passIdHash, Date.now());
+      try {
+        await this.commitClaim(claimed, async (current, txn) => {
+          current.activePass = state.activePass;
+          current.phase = state.phase;
+          current.reservationsExpireAt = state.reservationsExpireAt;
+          current.sourceReservation = { ...state.sourceReservation };
+          current.destinationReservation = { ...state.destinationReservation };
+          await txn.setAlarm(Date.now() + 30_000);
+        });
+      } catch (commitError) {
+        return this.conflictResponse(commitError);
+      }
+      return json(
+        {
+          code: "transfer_unavailable",
+          retryable: true,
+          retryAfterMs: 5_000,
+          message: "Ownership-transfer reservations could not be verified.",
+        },
+        503,
+      );
+    }
   }
 
   private async withPassState(
@@ -542,31 +835,46 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     update: (
       state: OwnerTransferCoordinatorState,
       attempt: OwnerTransferCoordinatorAttempt,
-    ) => Response | Promise<Response>,
+    ) => Response,
   ): Promise<Response> {
     const attempt = await parseAttempt(body.attempt);
     if (!attempt?.passIdHash) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
-    return await this.ctx.blockConcurrencyWhile(async () => {
-      try {
-        const state = await this.loadAndBind(attempt, Date.now());
+    try {
+      return await this.ctx.storage.transaction(async (txn) => {
+        const now = Date.now();
+        const remoteClaim = await txn.get<RemoteClaim>(REMOTE_CLAIM_KEY);
+        if (this.isLiveClaim(remoteClaim, now)) throw this.claimConflict();
+        if (remoteClaim) await txn.delete(REMOTE_CLAIM_KEY);
+        const state = this.loadAndBindState(
+          await txn.get<OwnerTransferCoordinatorState>(STATE_KEY),
+          attempt,
+          now,
+        );
         const activePass = state.activePass;
         if (
           activePass?.passIdHash !== attempt.passIdHash ||
           !activePass ||
-          activePass.expiresAt <= Date.now()
+          activePass.expiresAt <= now
         ) {
           throw new OwnerTransferCoordinatorConflictError(
             "transfer_busy",
             "This bounded ownership-transfer pass no longer owns the coordinator.",
           );
         }
-        return await update(state, attempt);
-      } catch (error) {
-        return this.conflictResponse(error);
-      }
-    });
+        const response = update(state, attempt);
+        state.updatedAt = Date.now();
+        await txn.put(STATE_KEY, state);
+        await txn.put(
+          STATE_REVISION_KEY,
+          (await this.currentRevision(txn)) + 1,
+        );
+        return response;
+      });
+    } catch (error) {
+      return this.conflictResponse(error);
+    }
   }
 
   private async workspacePlan(
@@ -576,10 +884,9 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     if (!observation) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
-    return await this.withPassState(body, async (state) => {
+    return await this.withPassState(body, (state) => {
       const plan = claimWorkspacePlan(state, observation);
       state.updatedAt = Date.now();
-      await this.ctx.storage.put(STATE_KEY, state);
       return json({ plan });
     });
   }
@@ -590,7 +897,7 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     if (!HASH_PATTERN.test(workspacePlanId)) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
-    return await this.withPassState(body, async (state) =>
+    return await this.withPassState(body, (state) =>
       json({ plan: state.workspacePlans[workspacePlanId] ?? null }),
     );
   }
@@ -604,7 +911,8 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     if (!HASH_PATTERN.test(workspacePlanId) || !manifest) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
-    return await this.withPassState(body, async (state) => {
+    const worldHash = await sha256Hex(WORLD_REGISTRY_SEGMENT);
+    return await this.withPassState(body, (state) => {
       const plan = state.workspacePlans[workspacePlanId];
       if (!plan || plan.state !== "planned") {
         return json(
@@ -615,7 +923,6 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
           409,
         );
       }
-      const worldHash = await sha256Hex(WORLD_REGISTRY_SEGMENT);
       if (
         manifest.transferOperationId !== state.operationId ||
         manifest.sourceOwnerHash !== state.fromOwnerHash ||
@@ -634,7 +941,9 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
         );
       }
       if (plan.turnState) {
-        if (JSON.stringify(plan.turnState.manifest) !== JSON.stringify(manifest)) {
+        if (
+          JSON.stringify(plan.turnState.manifest) !== JSON.stringify(manifest)
+        ) {
           return json(
             {
               code: "destination_checkpoint_changed",
@@ -651,7 +960,6 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
         phase: "staging",
       };
       state.updatedAt = Date.now();
-      await this.ctx.storage.put(STATE_KEY, state);
       return json({ turnState: plan.turnState, replayed: false });
     });
   }
@@ -679,7 +987,7 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     ) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
-    return await this.withPassState(body, async (state) => {
+    return await this.withPassState(body, (state) => {
       const transfer = state.workspacePlans[workspacePlanId]?.turnState;
       if (
         !transfer ||
@@ -712,7 +1020,6 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
       }
       transfer.cursor = nextCursor as number;
       state.updatedAt = Date.now();
-      await this.ctx.storage.put(STATE_KEY, state);
       return json({ turnState: transfer, replayed: false });
     });
   }
@@ -735,7 +1042,7 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     ) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
-    return await this.withPassState(body, async (state) => {
+    return await this.withPassState(body, (state) => {
       const transfer = state.workspacePlans[workspacePlanId]?.turnState;
       if (
         !transfer ||
@@ -757,7 +1064,6 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
       transfer.phase = "activated";
       transfer.activationReceipt = activationReceipt;
       state.updatedAt = Date.now();
-      await this.ctx.storage.put(STATE_KEY, state);
       return json({ turnState: transfer, replayed });
     });
   }
@@ -783,7 +1089,7 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     ) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
-    return await this.withPassState(body, async (state) => {
+    return await this.withPassState(body, (state) => {
       const plan = state.workspacePlans[workspacePlanId];
       const transfer = plan?.turnState;
       if (
@@ -808,7 +1114,6 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
       transfer.phase = "retired";
       transfer.emptyReceipt = emptyReceipt;
       state.updatedAt = Date.now();
-      await this.ctx.storage.put(STATE_KEY, state);
       return json({ turnState: transfer, replayed });
     });
   }
@@ -822,7 +1127,7 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     if (!HASH_PATTERN.test(workspacePlanId)) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
-    return await this.withPassState(body, async (state) => {
+    return await this.withPassState(body, (state) => {
       const plan = state.workspacePlans[workspacePlanId];
       if (!plan) {
         return json(
@@ -852,21 +1157,51 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
       }
       if (next === "retired" || plan.state !== "retired") plan.state = next;
       state.updatedAt = Date.now();
-      await this.ctx.storage.put(STATE_KEY, state);
       return json({ plan });
     });
   }
 
   private async copied(body: Record<string, unknown>): Promise<Response> {
-    return await this.withPassState(body, async (state, attempt) => {
+    const attempt = await parseAttempt(body.attempt);
+    if (!attempt?.passIdHash) {
+      return json({ code: "bad_request", message: "Malformed request." }, 400);
+    }
+    let claimed: ClaimedRemoteOperation;
+    try {
+      claimed = await this.claimRemote("copied", attempt, (existing, now) => {
+        const state = this.loadAndBindState(existing, attempt, now);
+        const activePass = state.activePass;
+        if (
+          !activePass ||
+          activePass.passIdHash !== attempt.passIdHash ||
+          activePass.expiresAt <= now
+        ) {
+          throw new OwnerTransferCoordinatorConflictError(
+            "transfer_busy",
+            "This bounded ownership-transfer pass no longer owns the coordinator.",
+          );
+        }
+        return state;
+      });
+    } catch (error) {
+      return this.conflictResponse(error);
+    }
+    const state = claimed.state;
+    try {
       const asserted = await this.assertReservations(state);
       if (!asserted.ok) {
         state.phase = asserted.retryable
           ? "retryable_blocked"
           : "permanent_blocked";
         releaseCoordinatorPass(state, attempt.passIdHash!, Date.now());
-        await this.releaseReservations(state);
-        await this.ctx.storage.put(STATE_KEY, state);
+        const released = await this.releaseReservations(state);
+        await this.commitClaim(claimed, async (current, txn) => {
+          current.phase = state.phase;
+          current.activePass = state.activePass;
+          this.applyReservationSnapshot(current, state);
+          if (released) await txn.deleteAlarm();
+          else await txn.setAlarm(Date.now() + 30_000);
+        });
         return json(
           {
             code: asserted.code,
@@ -879,16 +1214,28 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
       state.phase = "copy_complete";
       state.result = body.result;
       releaseCoordinatorPass(state, attempt.passIdHash!, Date.now());
-      await this.ctx.storage.put(STATE_KEY, state);
-      await this.ctx.storage.setAlarm(Date.now() + RESERVATION_RENEW_MS);
+      await this.commitClaim(claimed, async (current, txn) => {
+        current.phase = "copy_complete";
+        current.result = state.result;
+        current.activePass = state.activePass;
+        await txn.setAlarm(Date.now() + RESERVATION_RENEW_MS);
+      });
       return json({ status: "copy_complete", result: state.result });
-    });
+    } catch (error) {
+      try {
+        await this.commitClaim(claimed, async (_current, txn) => {
+          await txn.setAlarm(Date.now() + 30_000);
+        });
+      } catch (commitError) {
+        return this.conflictResponse(commitError);
+      }
+      return this.conflictResponse(error);
+    }
   }
 
   private async yieldPass(body: Record<string, unknown>): Promise<Response> {
-    return await this.withPassState(body, async (state, attempt) => {
+    return await this.withPassState(body, (state, attempt) => {
       releaseCoordinatorPass(state, attempt.passIdHash!, Date.now());
-      await this.ctx.storage.put(STATE_KEY, state);
       return json({ yielded: true });
     });
   }
@@ -899,10 +1246,10 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     if (!attempt?.passIdHash) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
-    return await this.ctx.blockConcurrencyWhile(async () => {
-      try {
-        const now = Date.now();
-        const state = await this.loadAndBind(attempt, now);
+    let claimed: ClaimedRemoteOperation;
+    try {
+      claimed = await this.claimRemote("abort", attempt, (existing, now) => {
+        const state = this.loadAndBindState(existing, attempt, now);
         if (
           state.phase === "copy_complete" ||
           state.phase === "acknowledged" ||
@@ -926,15 +1273,33 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
         }
         state.phase = permanent ? "permanent_blocked" : "retryable_blocked";
         delete state.activePass;
-        await this.ctx.storage.put(STATE_KEY, state);
-        await this.releaseReservations(state);
-        await this.ctx.storage.put(STATE_KEY, state);
-        await this.ctx.storage.deleteAlarm();
-        return json({ aborted: true, permanent });
-      } catch (error) {
-        return this.conflictResponse(error);
-      }
-    });
+        this.markReleaseDebt(state);
+        return state;
+      });
+    } catch (error) {
+      return this.conflictResponse(error);
+    }
+    const released = await this.releaseReservations(claimed.state);
+    try {
+      await this.commitClaim(claimed, async (state, txn) => {
+        this.applyReservationSnapshot(state, claimed.state);
+        if (released) await txn.deleteAlarm();
+        else await txn.setAlarm(Date.now() + 30_000);
+      });
+      return released
+        ? json({ aborted: true, permanent })
+        : json(
+            {
+              code: "transfer_unavailable",
+              retryable: true,
+              retryAfterMs: 5_000,
+              message: "Ownership-transfer teardown is still pending.",
+            },
+            503,
+          );
+    } catch (error) {
+      return this.conflictResponse(error);
+    }
   }
 
   private async acknowledge(body: Record<string, unknown>): Promise<Response> {
@@ -942,64 +1307,125 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     if (!attempt) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
-    return await this.ctx.blockConcurrencyWhile(async () => {
+    let claimed: ClaimedRemoteOperation;
+    try {
+      claimed = await this.claimRemote(
+        "acknowledge",
+        attempt,
+        (existing, now) => {
+          if (!existing) {
+            throw new ImmediateCoordinatorResponse(
+              json(
+                {
+                  code: "owner_transfer_missing",
+                  message: "The ownership-transfer operation was not found.",
+                },
+                404,
+              ),
+            );
+          }
+          const state = bindCoordinatorAttempt(existing, attempt, now);
+          if (
+            state.phase !== "copy_complete" &&
+            state.phase !== "acknowledged"
+          ) {
+            throw new ImmediateCoordinatorResponse(
+              json(
+                {
+                  code: "owner_transfer_incomplete",
+                  message: "The ownership-transfer copy is not complete.",
+                },
+                409,
+              ),
+            );
+          }
+          return state;
+        },
+      );
+    } catch (error) {
+      return this.conflictResponse(error);
+    }
+
+    const state = claimed.state;
+    const replayed = state.phase === "acknowledged";
+    if (state.phase === "copy_complete") {
       try {
-        const state =
-          await this.ctx.storage.get<OwnerTransferCoordinatorState>(STATE_KEY);
-        if (!state) {
+        const asserted = await this.assertReservations(state);
+        if (!asserted.ok) {
+          state.phase = asserted.retryable
+            ? "retryable_blocked"
+            : "permanent_blocked";
+          const released = await this.releaseReservations(state);
+          await this.commitClaim(claimed, async (current, txn) => {
+            current.phase = state.phase;
+            delete current.activePass;
+            this.applyReservationSnapshot(current, state);
+            if (released) await txn.deleteAlarm();
+            else await txn.setAlarm(Date.now() + 30_000);
+          });
           return json(
             {
-              code: "owner_transfer_missing",
-              message: "The ownership-transfer operation was not found.",
-            },
-            404,
-          );
-        }
-        bindCoordinatorAttempt(state, attempt, Date.now());
-        const replayed = state.phase === "acknowledged";
-        if (state.phase !== "copy_complete" && state.phase !== "acknowledged") {
-          return json(
-            {
-              code: "owner_transfer_incomplete",
-              message: "The ownership-transfer copy is not complete.",
+              code: asserted.code,
+              retryable: asserted.retryable,
+              message:
+                "Ownership-transfer acknowledgement lost its reservation.",
             },
             409,
           );
         }
-        if (state.phase === "copy_complete") {
-          const asserted = await this.assertReservations(state);
-          if (!asserted.ok) {
-            state.phase = asserted.retryable
-              ? "retryable_blocked"
-              : "permanent_blocked";
-            await this.releaseReservations(state);
-            await this.ctx.storage.put(STATE_KEY, state);
-            return json(
-              {
-                code: asserted.code,
-                retryable: asserted.retryable,
-                message:
-                  "Ownership-transfer acknowledgement lost its reservation.",
-              },
-              409,
-            );
-          }
-        }
-        state.phase = "acknowledged";
-        state.acknowledgedAt ??= Date.now();
-        delete state.activePass;
-        // Commit the acknowledgement before releasing either reservation. A
-        // crash after this write is recovered by alarm/replayed acknowledge.
-        await this.ctx.storage.put(STATE_KEY, state);
-        await this.ctx.storage.setAlarm(Date.now() + 1_000);
-        await this.releaseReservations(state);
-        await this.ctx.storage.put(STATE_KEY, state);
-        await this.ctx.storage.deleteAlarm();
-        return json({ acknowledged: true, replayed });
       } catch (error) {
+        try {
+          await this.commitClaim(claimed, async (_current, txn) => {
+            await txn.setAlarm(Date.now() + 30_000);
+          });
+        } catch (commitError) {
+          return this.conflictResponse(commitError);
+        }
         return this.conflictResponse(error);
       }
-    });
+    }
+
+    try {
+      const retainedClaim = await this.commitClaim(
+        claimed,
+        async (current, txn) => {
+          current.phase = "acknowledged";
+          current.acknowledgedAt ??= Date.now();
+          delete current.activePass;
+          this.markReleaseDebt(current);
+          // The acknowledgement is committed before either reservation is
+          // released. A crash after this transaction is recovered by alarm.
+          await txn.setAlarm(Date.now() + 1_000);
+        },
+        { retainClaim: true },
+      );
+      claimed = { ...claimed, claim: retainedClaim! };
+    } catch (error) {
+      return this.conflictResponse(error);
+    }
+
+    const released = await this.releaseReservations(state);
+    try {
+      await this.commitClaim(claimed, async (current, txn) => {
+        this.applyReservationSnapshot(current, state);
+        if (released) await txn.deleteAlarm();
+        else await txn.setAlarm(Date.now() + 30_000);
+      });
+      return released
+        ? json({ acknowledged: true, replayed })
+        : json(
+            {
+              code: "transfer_unavailable",
+              retryable: true,
+              retryAfterMs: 5_000,
+              message:
+                "Ownership-transfer acknowledgement teardown is pending.",
+            },
+            503,
+          );
+    } catch (error) {
+      return this.conflictResponse(error);
+    }
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -1034,42 +1460,93 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
   }
 
   async alarm(): Promise<void> {
-    await this.ctx.blockConcurrencyWhile(async () => {
-      const state =
-        await this.ctx.storage.get<OwnerTransferCoordinatorState>(STATE_KEY);
-      if (!state) return;
-      if (
-        state.phase === "acknowledged" ||
-        state.phase === "permanent_blocked" ||
-        state.phase === "retryable_blocked"
-      ) {
-        await this.releaseReservations(state);
-        await this.ctx.storage.put(STATE_KEY, state);
-        await this.ctx.storage.deleteAlarm();
+    const claimed = await this.ctx.storage.transaction(async (txn) => {
+      const now = Date.now();
+      const existingClaim = await txn.get<RemoteClaim>(REMOTE_CLAIM_KEY);
+      if (this.isLiveClaim(existingClaim, now)) {
+        await txn.setAlarm(existingClaim!.expiresAt + 1_000);
+        return null;
+      }
+      if (existingClaim) await txn.delete(REMOTE_CLAIM_KEY);
+      const state = await txn.get<OwnerTransferCoordinatorState>(STATE_KEY);
+      if (!state) {
+        await txn.deleteAlarm();
+        return null;
+      }
+      const revision = (await this.currentRevision(txn)) + 1;
+      const claim: RemoteClaim = {
+        schemaVersion: 1,
+        claimId: crypto.randomUUID(),
+        kind: "alarm",
+        operationId: state.operationId,
+        expectedRevision: revision,
+        claimedAt: now,
+        expiresAt: now + this.remoteClaimMs(),
+      };
+      await txn.put(STATE_REVISION_KEY, revision);
+      await txn.put(REMOTE_CLAIM_KEY, claim);
+      await txn.setAlarm(claim.expiresAt);
+      return { claim, state } satisfies ClaimedRemoteOperation;
+    });
+    if (!claimed) return;
+
+    const state = claimed.state;
+    if (
+      state.phase === "acknowledged" ||
+      state.phase === "permanent_blocked" ||
+      state.phase === "retryable_blocked"
+    ) {
+      const released = await this.releaseReservations(state);
+      await this.commitClaim(claimed, async (current, txn) => {
+        this.applyReservationSnapshot(current, state);
+        if (released) await txn.deleteAlarm();
+        else await txn.setAlarm(Date.now() + 30_000);
+      });
+      return;
+    }
+
+    try {
+      const result = await this.ensureReservations(state, Date.now());
+      if (!result.ok) {
+        state.phase = result.retryable
+          ? "retryable_blocked"
+          : "permanent_blocked";
+        delete state.activePass;
+        await this.commitClaim(claimed, async (current, txn) => {
+          current.phase = state.phase;
+          delete current.activePass;
+          this.applyReservationSnapshot(current, state);
+          if (this.hasReleaseDebt(state)) {
+            await txn.setAlarm(Date.now() + 30_000);
+          } else {
+            await txn.deleteAlarm();
+          }
+        });
         return;
       }
-      try {
-        const result = await this.ensureReservations(state, Date.now());
-        if (!result.ok) {
-          state.phase = result.retryable
-            ? "retryable_blocked"
-            : "permanent_blocked";
-          delete state.activePass;
-          await this.ctx.storage.put(STATE_KEY, state);
-          await this.ctx.storage.deleteAlarm();
-          return;
-        }
-        await this.ctx.storage.put(STATE_KEY, state);
-      } catch {
+      await this.commitClaim(claimed, async (current, txn) => {
+        current.phase = state.phase;
+        current.activePass = state.activePass;
+        current.reservationsExpireAt = state.reservationsExpireAt;
+        current.sourceReservation = { ...state.sourceReservation };
+        current.destinationReservation = { ...state.destinationReservation };
+        await txn.setAlarm(result.alarmAt);
+      });
+    } catch {
+      await this.commitClaim(claimed, async (current, txn) => {
+        current.reservationsExpireAt = state.reservationsExpireAt;
+        current.sourceReservation = { ...state.sourceReservation };
+        current.destinationReservation = { ...state.destinationReservation };
         if ((state.reservationsExpireAt ?? 0) > Date.now()) {
-          await this.ctx.storage.setAlarm(Date.now() + 30_000);
+          await txn.setAlarm(Date.now() + 30_000);
         } else {
-          state.phase = "retryable_blocked";
-          delete state.activePass;
-          await this.ctx.storage.put(STATE_KEY, state);
-          await this.ctx.storage.deleteAlarm();
+          current.phase = "retryable_blocked";
+          delete current.activePass;
+          this.markReleaseDebt(state);
+          this.applyReservationSnapshot(current, state);
+          await txn.setAlarm(Date.now() + 30_000);
         }
-      }
-    });
+      });
+    }
   }
 }

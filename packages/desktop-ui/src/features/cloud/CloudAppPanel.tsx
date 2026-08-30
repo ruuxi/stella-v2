@@ -19,6 +19,8 @@ type AppSession = {
 
 type AppBridgeMessage = {
   source?: string;
+  protocol?: number;
+  nonce?: string;
   id?: string;
   method?: string;
   params?: Record<string, unknown>;
@@ -30,6 +32,13 @@ type AppBridgeMessage = {
 };
 
 const FRAME_LOAD_TIMEOUT_MS = 20_000;
+const APP_BRIDGE_PROTOCOL = 2;
+const STORAGE_BRIDGE_METHODS = new Set([
+  "storage/get",
+  "storage/list",
+  "storage/set",
+  "storage/delete",
+]);
 
 const convexSiteUrl = (): string => {
   const value = readConfiguredConvexSiteUrl(
@@ -63,6 +72,10 @@ export function CloudAppPanel({ slug }: { slug: string }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const sessionRef = useRef<AppSession | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const frameNonce = useMemo(
+    () => crypto.randomUUID(),
+    [accountScope, app?.appId, retryKey],
+  );
   const [frameState, setFrameState] = useState<"loading" | "ready" | "error">(
     "loading",
   );
@@ -132,8 +145,23 @@ export function CloudAppPanel({ slug }: { slug: string }) {
       if (
         event.origin !== appOrigin ||
         event.source !== iframeRef.current?.contentWindow ||
-        message?.source !== "stella-app"
+        message?.protocol !== APP_BRIDGE_PROTOCOL
       ) {
+        return;
+      }
+      if (message.source === "stella-wrapper-ready") {
+        iframeRef.current?.contentWindow?.postMessage(
+          {
+            source: "stella-host-init",
+            protocol: APP_BRIDGE_PROTOCOL,
+            nonce: frameNonce,
+            parentOrigin: new URL(window.location.href).origin,
+          },
+          appOrigin,
+        );
+        return;
+      }
+      if (message.source !== "stella-app" || message.nonce !== frameNonce) {
         return;
       }
       if (message.kind === "stella-operation-result" && message.invocationId) {
@@ -151,7 +179,14 @@ export function CloudAppPanel({ slug }: { slug: string }) {
       const method = message.method;
       const respond = (result?: unknown, error?: string) => {
         iframeRef.current?.contentWindow?.postMessage(
-          { id: message.id, result, error },
+          {
+            source: "stella-host",
+            protocol: APP_BRIDGE_PROTOCOL,
+            nonce: frameNonce,
+            id: message.id,
+            result,
+            error,
+          },
           appOrigin,
         );
       };
@@ -170,7 +205,7 @@ export function CloudAppPanel({ slug }: { slug: string }) {
             respond({ ok: true, eligible: true, ...result });
             return;
           }
-          if (method.startsWith("storage/")) {
+          if (STORAGE_BRIDGE_METHODS.has(method)) {
             const session = await getSession();
             const response = await fetch(
               `${convexSiteUrl()}/api/apps/${method}`,
@@ -205,10 +240,38 @@ export function CloudAppPanel({ slug }: { slug: string }) {
             if (!CLOUD_APPS_HOST) {
               throw new Error("Cloud apps are unavailable in this build.");
             }
+            const session = await getSession();
+            const envelope = message.params ?? {};
+            const capabilityResponse = await fetch(
+              `${convexSiteUrl()}/api/apps/fetch-capability`,
+              {
+                method: "POST",
+                headers: {
+                  authorization: `Bearer ${session.token}`,
+                  "content-type": "application/json",
+                },
+                body: JSON.stringify(envelope),
+              },
+            );
+            const capabilityBody = (await capabilityResponse.json()) as {
+              capability?: string;
+              error?: string;
+            };
+            if (
+              !capabilityResponse.ok ||
+              typeof capabilityBody.capability !== "string"
+            ) {
+              throw new Error(
+                capabilityBody.error ?? "App fetch authorization failed.",
+              );
+            }
             const response = await fetch(`${CLOUD_APPS_HOST}/api/apps/fetch`, {
               method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify(message.params ?? {}),
+              headers: {
+                authorization: `Bearer ${capabilityBody.capability}`,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify(envelope),
             });
             const bytes = new Uint8Array(await response.arrayBuffer());
             let binary = "";
@@ -229,7 +292,14 @@ export function CloudAppPanel({ slug }: { slug: string }) {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [appUrl, getSession, app, publishOperations, completeInvocation]);
+  }, [
+    appUrl,
+    getSession,
+    app,
+    publishOperations,
+    completeInvocation,
+    frameNonce,
+  ]);
 
   useEffect(() => {
     if (!appUrl || frameState !== "ready" || !pendingInvocations?.length) {
@@ -267,6 +337,8 @@ export function CloudAppPanel({ slug }: { slug: string }) {
           iframeRef.current?.contentWindow?.postMessage(
             {
               source: "stella-host",
+              protocol: APP_BRIDGE_PROTOCOL,
+              nonce: frameNonce,
               kind: "stella-operation",
               invocationId: invocation.invocationId,
               name: invocation.name,
@@ -285,6 +357,7 @@ export function CloudAppPanel({ slug }: { slug: string }) {
     pendingInvocations,
     claimInvocation,
     completeInvocation,
+    frameNonce,
   ]);
 
   if (authLoading) {
@@ -338,6 +411,15 @@ export function CloudAppPanel({ slug }: { slug: string }) {
         allow="clipboard-write"
         referrerPolicy="no-referrer"
         onLoad={() => {
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              source: "stella-host-init",
+              protocol: APP_BRIDGE_PROTOCOL,
+              nonce: frameNonce,
+              parentOrigin: new URL(window.location.href).origin,
+            },
+            new URL(frameUrl).origin,
+          );
           setFrameState("ready");
           setFrameError(null);
         }}

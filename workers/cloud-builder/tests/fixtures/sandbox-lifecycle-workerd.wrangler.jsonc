@@ -1,0 +1,24 @@
+{
+  "name": "stella-sandbox-lifecycle-workerd-acceptance",
+  "main": "./sandbox-lifecycle-workerd-worker.ts",
+  "compatibility_date": "2026-07-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LIFECYCLE_PROOF",
+        "class_name": "SandboxLifecycleProof",
+      },
+      {
+        "name": "SANDBOX_PROOF",
+        "class_name": "SandboxSdkProof",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["SandboxLifecycleProof", "SandboxSdkProof"],
+    },
+  ],
+}

@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "types:generate": "wrangler types worker-configuration.d.ts --include-runtime false --env=",
+    "types:check": "wrangler types worker-configuration.d.ts --include-runtime false --env= --check",
+    "typecheck": "bun run types:check && tsc --noEmit",
     "test:unit": "bun test ./tests/config.test.ts ./tests/protocol-boundary.test.ts ./tests/profile-crypto.test.ts ./tests/profile-session-core.test.ts ./tests/safe-observation.test.ts ./tests/network-policy.test.ts ./tests/handoff-navigation-policy.test.ts ./tests/device-code-fixture-client.test.ts",
     "test:workerd": "bun test ./tests/browser-profile-session-workerd.test.ts",
     "test": "bun run test:unit && bun run test:workerd",
@@ -20,8 +22,8 @@
     "tldts": "7.0.30"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260723.1",
+    "@cloudflare/workers-types": "5.20260830.1",
     "typescript": "^6.0.3",
-    "wrangler": "4.113.0"
+    "wrangler": "4.127.1"
   }
 }

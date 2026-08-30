@@ -6,6 +6,10 @@ import {
   utf8Bytes,
   utf8Text,
 } from "./cloud-home-store.js";
+import {
+  BoundedBodyError,
+  readBoundedRequestJson,
+} from "./bounded-body.js";
 
 type CloudHomeRouteEnv = {
   AGENT_HOME?: R2Bucket;
@@ -101,8 +105,34 @@ const makeStore = (
     assertExternalWrite,
   });
 
-const parseJsonObject = async (request: Request) => {
-  const body = (await request.json().catch(() => null)) as unknown;
+const CLOUD_HOME_CONTROL_REQUEST_MAX_BYTES = 64 * 1024;
+const CLOUD_HOME_MEMORY_REQUEST_MAX_BYTES = 1024 * 1024;
+// The accepted decoded package is at most 25 MiB. Base64 expands that by 4/3,
+// and the JSON manifest needs a small fixed allowance on top. Keep the route
+// below one third of the Worker isolate limit while allowing the product-level
+// aggregate validator to return its more precise error.
+const CLOUD_HOME_SKILL_UPLOAD_REQUEST_MAX_BYTES = 40 * 1024 * 1024;
+
+const requestBodyLimit = (pathname: string): number => {
+  if (pathname === "/cloud-home/skills/upload") {
+    return CLOUD_HOME_SKILL_UPLOAD_REQUEST_MAX_BYTES;
+  }
+  if (pathname === "/cloud-home/memory/write") {
+    return CLOUD_HOME_MEMORY_REQUEST_MAX_BYTES;
+  }
+  return CLOUD_HOME_CONTROL_REQUEST_MAX_BYTES;
+};
+
+const parseJsonObject = async (request: Request, pathname: string) => {
+  let body: unknown;
+  try {
+    body = await readBoundedRequestJson(request, requestBodyLimit(pathname));
+  } catch (error) {
+    if (error instanceof BoundedBodyError && error.reason === "too_large") {
+      throw new CloudHomeProtocolError("Cloud home request is too large.", 413);
+    }
+    throw new CloudHomeProtocolError("JSON object required.", 400);
+  }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new CloudHomeProtocolError("JSON object required.", 400);
   }
@@ -267,7 +297,7 @@ export const handleUserCloudHomeRoute = async (args: {
           args.request.method === "POST" &&
           url.pathname === "/cloud-home/memory/wipe/start"
         ) {
-          const body = await parseJsonObject(args.request);
+          const body = await parseJsonObject(args.request, url.pathname);
           if (
             requiredString(body, "expectedOwnerGeneration", 512) !==
             ownerGeneration
@@ -335,7 +365,7 @@ export const handleUserCloudHomeRoute = async (args: {
           args.request.method === "POST" &&
           url.pathname === "/cloud-home/memory/reimport/authorize"
         ) {
-          const body = await parseJsonObject(args.request);
+          const body = await parseJsonObject(args.request, url.pathname);
           if (
             requiredString(body, "expectedOwnerGeneration", 512) !==
             ownerGeneration
@@ -361,7 +391,7 @@ export const handleUserCloudHomeRoute = async (args: {
           args.request.method === "POST" &&
           url.pathname === "/cloud-home/memory/write"
         ) {
-          const body = await parseJsonObject(args.request);
+          const body = await parseJsonObject(args.request, url.pathname);
           if (
             requiredString(body, "expectedOwnerGeneration", 512) !==
             ownerGeneration
@@ -409,7 +439,7 @@ export const handleUserCloudHomeRoute = async (args: {
           args.request.method === "POST" &&
           url.pathname === "/cloud-home/skills/upload"
         ) {
-          const body = await parseJsonObject(args.request);
+          const body = await parseJsonObject(args.request, url.pathname);
           const source = body.source;
           if (
             source !== "desktop_sync" &&

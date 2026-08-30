@@ -5,7 +5,11 @@ import {
   CloudflareDeviceCodeFixtureClient,
   type DeviceCodeFixtureClient,
 } from "./device-code-fixture-client.js";
-import { GatewayError, publicErrorResponse } from "./errors.js";
+import {
+  GatewayError,
+  publicErrorResponse,
+  safeErrorCode,
+} from "./errors.js";
 import {
   BrowserProfileSessionCore,
   type BrowserGatewayEnv,
@@ -151,7 +155,14 @@ export class BrowserProfileSession extends DurableObject<BrowserGatewayEnv> {
           const result = await this.core.decide(
             parseInteraction(body, { requireDecision: true }),
           );
-          await this.durableState.storage.deleteAlarm();
+          if (this.core.hasActiveCleanupDebt()) {
+            const alarm = await this.durableState.storage.getAlarm();
+            if (alarm === null) {
+              await this.durableState.storage.setAlarm(Date.now() + 30_000);
+            }
+          } else {
+            await this.durableState.storage.deleteAlarm();
+          }
           return jsonNoStore(result);
         }
         if (path === "/internal/owners/profile/reset") {
@@ -171,7 +182,26 @@ export class BrowserProfileSession extends DurableObject<BrowserGatewayEnv> {
     });
   }
 
-  async alarm(): Promise<void> {
-    await this.exclusive(() => this.core.expireActive());
+  async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
+    try {
+      await this.exclusive(() => this.core.expireActive());
+    } catch (error) {
+      // Native alarm retries stop after six attempts. Re-arm before the final
+      // attempt is exhausted so a transient Browser Run outage cannot leave a
+      // durable HUMAN_CONTROL cleanup debt permanently stranded.
+      if ((alarmInfo?.retryCount ?? 0) >= 5) {
+        console.error(
+          JSON.stringify({
+            service: "browser-gateway",
+            event: "human_control_cleanup_deferred",
+            code: safeErrorCode(error),
+            retryCount: alarmInfo?.retryCount ?? 0,
+          }),
+        );
+        await this.durableState.storage.setAlarm(Date.now() + 30_000);
+        return;
+      }
+      throw error;
+    }
   }
 }

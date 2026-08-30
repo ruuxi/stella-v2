@@ -1,0 +1,52 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "stella-v2-apps-auth-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "invocation_logs": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+  },
+  "vars": {
+    "STELLA_DEPLOYMENT_IDENTITY": "dev:outgoing-bulldog-865",
+    "HOST_ROLE": "trusted",
+    "SHARES_DISABLED": "false",
+    "CONVEX_SITE_URL": "https://outgoing-bulldog-865.convex.site",
+    "CONVEX_CLOUD_URL": "https://outgoing-bulldog-865.convex.cloud",
+    "APPS_HOST_ORIGIN": "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+    "TRUSTED_APPS_HOST_ORIGIN": "https://stella-v2-apps-auth-dev.lolruuxi.workers.dev",
+    "CLOUD_BUILDER_ORIGIN": "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev"
+  },
+  "secrets": {
+    "required": ["BUILDER_SERVICE_SECRET", "APP_TOKEN_SIGNING_KEY"]
+  },
+  "env": {
+    "bn118": {
+      "name": "stella-v2-apps-auth-basic-nightingale-118",
+      "workers_dev": true,
+      "preview_urls": false,
+      "observability": {
+        "enabled": true,
+        "logs": { "enabled": true, "invocation_logs": true, "head_sampling_rate": 1 },
+        "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+      },
+      "vars": {
+        "STELLA_DEPLOYMENT_IDENTITY": "preview:basic-nightingale-118",
+        "HOST_ROLE": "trusted",
+        "SHARES_DISABLED": "false",
+        "CONVEX_SITE_URL": "https://basic-nightingale-118.convex.site",
+        "CONVEX_CLOUD_URL": "https://basic-nightingale-118.convex.cloud",
+        "APPS_HOST_ORIGIN": "https://stella-v2-apps-host-basic-nightingale-118.lolruuxi.workers.dev",
+        "TRUSTED_APPS_HOST_ORIGIN": "https://stella-v2-apps-auth-basic-nightingale-118.lolruuxi.workers.dev",
+        "CLOUD_BUILDER_ORIGIN": "https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev"
+      },
+      "secrets": {
+        "required": ["BUILDER_SERVICE_SECRET", "APP_TOKEN_SIGNING_KEY"]
+      },
+    }
+  }
+}

@@ -38,15 +38,16 @@ import type {
   SnapshotPointer,
 } from "./profile-store.js";
 
-export type BrowserGatewayEnv = {
-  BROWSER: { fetch: typeof fetch };
-  BROWSER_PROFILES: R2Bucket;
-  BROWSER_PROFILE_KEK_V1: string;
-  BROWSER_KEEP_ALIVE_MS: string;
-  BROWSER_LIVE_VIEW_TTL_MS: string;
-  BROWSER_HANDOFF_TIMEOUT_MS: string;
-  DEVICE_CODE_FIXTURE?: DeviceCodeFixtureBinding;
-  DEVICE_CODE_FIXTURE_ORIGIN?: string;
+type GeneratedBrowserGatewayEnv = Readonly<Env>;
+
+export type BrowserGatewayEnv = Omit<
+  GeneratedBrowserGatewayEnv,
+  "DEVICE_CODE_FIXTURE"
+> & {
+  readonly DEVICE_CODE_FIXTURE?: NonNullable<
+    GeneratedBrowserGatewayEnv["DEVICE_CODE_FIXTURE"]
+  > &
+    DeviceCodeFixtureBinding;
 };
 
 type Clock = () => number;
@@ -1043,24 +1044,39 @@ export class BrowserProfileSessionCore {
     state: ProfileState,
     interaction: InteractionRecord,
   ): Promise<{ state: ProfileState; interaction: InteractionRecord }> {
+    const ownsHumanControl =
+      state.activeInteractionId === interaction.interactionId;
     if (
-      interactionTerminal(interaction.state) ||
+      !ownsHumanControl &&
+      (interactionTerminal(interaction.state) ||
+        interaction.expiresAt > this.now())
+    ) {
+      return { state, interaction };
+    }
+    if (
+      !interactionTerminal(interaction.state) &&
       interaction.expiresAt > this.now()
     ) {
       return { state, interaction };
     }
-    const expired: InteractionRecord = {
-      ...interaction,
-      revision: interaction.revision + 1,
-      state: "expired",
-      updatedAt: this.now(),
-      ...(interaction.kind === "device_code"
-        ? { verification: undefined }
-        : {}),
-    };
-    this.store.putInteraction(expired);
+    const expired: InteractionRecord = interactionTerminal(interaction.state)
+      ? interaction
+      : {
+          ...interaction,
+          revision: interaction.revision + 1,
+          state: "expired",
+          updatedAt: this.now(),
+          ...(interaction.kind === "device_code"
+            ? { verification: undefined }
+            : {}),
+        };
+    if (expired !== interaction) this.store.putInteraction(expired);
     let updated = state;
-    if (state.activeInteractionId === interaction.interactionId) {
+    if (ownsHumanControl) {
+      // Expiry is persisted before remote teardown. If teardown fails, the
+      // interaction is terminal while activeInteractionId remains set; alarm
+      // retries must keep attempting this branch rather than treating the
+      // terminal record as fully cleaned up.
       if (state.browserSessionId) updated = await this.closeBrowser(state);
       updated = {
         ...updated,
@@ -1088,6 +1104,10 @@ export class BrowserProfileSessionCore {
     const interaction = this.store.getInteraction(state.activeInteractionId);
     if (!interaction) return;
     await this.expireIfNeeded(state, interaction);
+  }
+
+  hasActiveCleanupDebt(): boolean {
+    return this.store.getState()?.activeInteractionId !== undefined;
   }
 
   async liveView(envelope: InteractionEnvelope): Promise<unknown> {

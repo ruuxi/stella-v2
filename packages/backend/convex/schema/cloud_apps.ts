@@ -591,11 +591,24 @@ export const cloudAppsSchema = {
     appId: v.string(),
     ownerId: v.string(),
     userId: v.string(),
+    /**
+     * App-scoped pseudonymous namespace carried by the encrypted v2 app
+     * session. Optional while pre-v2 rows are upgraded lazily on first write;
+     * userId remains the private principal locator used by account migration
+     * and purge and is never disclosed to generated app code.
+     */
+    viewerNamespace: v.optional(v.string()),
     key: v.string(),
     valueJson: v.string(),
     sizeBytes: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_appId_and_viewerNamespace_and_key", [
+      "appId",
+      "viewerNamespace",
+      "key",
+    ])
+    .index("by_appId_and_viewerNamespace", ["appId", "viewerNamespace"])
     .index("by_appId_and_userId_and_key", ["appId", "userId", "key"])
     .index("by_appId_and_userId", ["appId", "userId"])
     .index("by_userId_and_updatedAt", ["userId", "updatedAt"])

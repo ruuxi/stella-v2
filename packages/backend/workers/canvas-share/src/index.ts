@@ -13,13 +13,6 @@
  * sandbox escape.
  */
 
-export interface Env {
-  /** R2 bucket binding for `stella-canvas-shares`. */
-  SHARES_BUCKET: R2Bucket;
-  /** Global kill-switch. Any truthy value returns 503 for all shares. */
-  SHARES_DISABLED?: string;
-}
-
 const KEY_PREFIX = "shares";
 /** Slugs are 128-bit base64url tokens (~22 chars); be lenient but strict. */
 const SLUG_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
@@ -54,7 +47,15 @@ const parseSlug = (pathname: string): string | null => {
   // Expect exactly `/c/<slug>`.
   const match = /^\/c\/([^/]+)\/?$/.exec(pathname);
   if (!match) return null;
-  const slug = decodeURIComponent(match[1]);
+  let slug: string;
+  try {
+    slug = decodeURIComponent(match[1]);
+  } catch {
+    // Malformed percent-encoding is an invalid public route, not a Worker
+    // failure. Keep the response indistinguishable from every other invalid
+    // or missing share slug.
+    return null;
+  }
   return SLUG_PATTERN.test(slug) ? slug : null;
 };
 

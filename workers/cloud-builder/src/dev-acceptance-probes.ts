@@ -1,4 +1,5 @@
 import { sha256Hex } from "./hash.js";
+import { fixedWorkSha256SecretEqual } from "./service-bearer.js";
 
 /**
  * Deliberately narrow controls used only by the dedicated preview acceptance
@@ -183,15 +184,6 @@ export const devAcceptanceProbesEnabled = (
   );
 };
 
-const sameSecret = (left: string, right: string): boolean => {
-  if (left.length !== right.length || left.length === 0) return false;
-  let different = 0;
-  for (let index = 0; index < left.length; index += 1) {
-    different |= left.charCodeAt(index) ^ right.charCodeAt(index);
-  }
-  return different === 0;
-};
-
 export const authorizeDevAcceptanceProbe = async (args: {
   env: DevAcceptanceProbeEnvironment;
   suppliedServiceSecret: string | null;
@@ -202,7 +194,12 @@ export const authorizeDevAcceptanceProbe = async (args: {
     return { ok: false, status: 404, code: "probe_disabled" };
   }
   const expectedSecret = args.env.BUILDER_SERVICE_SECRET?.trim() ?? "";
-  if (!sameSecret(args.suppliedServiceSecret ?? "", expectedSecret)) {
+  if (
+    !(await fixedWorkSha256SecretEqual(
+      args.suppliedServiceSecret,
+      expectedSecret,
+    ))
+  ) {
     return { ok: false, status: 404, code: "probe_not_found" };
   }
   const request = parseDevAcceptanceProbeRequest(args.body);

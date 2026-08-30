@@ -31,10 +31,34 @@ import type { TurnComputeUse } from "./general-agent-turn.js";
 import type { TurnExecutionContext } from "./turn-cancellation.js";
 
 export type AgentComputePhase =
-  "resident" | "attaching" | "attached" | "quiesced";
+  | "resident"
+  | "attaching"
+  | "attached"
+  | "quiesced";
 
 export type AttachReason =
-  "process_tool" | "filesystem_tool" | "interior_build";
+  | "process_tool"
+  | "filesystem_tool"
+  | "interior_build";
+
+export type AgentWorldLeasePhase =
+  | "registering"
+  | "registered"
+  | "unregister_pending";
+
+/**
+ * The durable world lease owned by this exact compute attempt.
+ *
+ * `registering` is written before the cross-DO acquire begins, so a lost
+ * response still leaves an exact lease id that recovery can reconcile.
+ * `unregister_pending` is written before retirement, for the same reason.
+ */
+export type PersistedAgentWorldLease = Readonly<{
+  leaseId: string;
+  phase: AgentWorldLeasePhase;
+  generation?: string;
+  expiresAt?: number;
+}>;
 
 /**
  * The durable fact about where this turn's work is happening.
@@ -44,8 +68,7 @@ export type AttachReason =
  * `resident` record has none, which is exactly what makes a Stop on a chat-only
  * turn a true no-op instead of a lookup that boots a container to kill it.
  */
-export type PersistedAgentCompute = Readonly<{
-  schemaVersion: 1;
+type PersistedAgentComputeBase = Readonly<{
   turnId: string;
   attemptGeneration: number;
   phase: AgentComputePhase;
@@ -56,6 +79,19 @@ export type PersistedAgentCompute = Readonly<{
   coldStartMs?: number;
   restoreMs?: number;
 }>;
+
+export type PersistedAgentCompute =
+  | (PersistedAgentComputeBase &
+      Readonly<{
+        /** Legacy records remain readable during the rolling upgrade. */
+        schemaVersion: 1;
+        worldLease?: never;
+      }>)
+  | (PersistedAgentComputeBase &
+      Readonly<{
+        schemaVersion: 2;
+        worldLease?: PersistedAgentWorldLease;
+      }>);
 
 export const agentComputeKey = (
   turnId: string,
@@ -72,6 +108,30 @@ const PHASES: ReadonlySet<string> = new Set([
   "quiesced",
 ]);
 
+const WORLD_LEASE_PHASES: ReadonlySet<string> = new Set([
+  "registering",
+  "registered",
+  "unregister_pending",
+]);
+
+const isOptionalFiniteNumber = (value: unknown): boolean =>
+  value === undefined || (typeof value === "number" && Number.isFinite(value));
+
+const isPersistedAgentWorldLease = (
+  value: unknown,
+): value is PersistedAgentWorldLease => {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.leaseId === "string" &&
+    value.leaseId.length > 0 &&
+    typeof value.phase === "string" &&
+    WORLD_LEASE_PHASES.has(value.phase) &&
+    (value.generation === undefined ||
+      (typeof value.generation === "string" && value.generation.length > 0)) &&
+    isOptionalFiniteNumber(value.expiresAt)
+  );
+};
+
 /**
  * Read back a compute record for this exact attempt. A record left by another
  * attempt names a container this attempt never reserved, and both destroying
@@ -83,7 +143,7 @@ export const parsePersistedAgentCompute = (
 ): PersistedAgentCompute | null => {
   if (!isRecord(value)) return null;
   if (
-    value.schemaVersion !== 1 ||
+    (value.schemaVersion !== 1 && value.schemaVersion !== 2) ||
     value.turnId !== identity.turnId ||
     value.attemptGeneration !== identity.attemptGeneration ||
     typeof value.phase !== "string" ||
@@ -95,6 +155,16 @@ export const parsePersistedAgentCompute = (
   if (value.phase !== "resident" && typeof value.sandboxId !== "string") {
     return null;
   }
+  if (value.schemaVersion === 1 && value.worldLease !== undefined) return null;
+  if (
+    value.schemaVersion === 2 &&
+    value.worldLease !== undefined &&
+    !isPersistedAgentWorldLease(value.worldLease)
+  ) {
+    return null;
+  }
+  // A resident-only turn has never attached, so it cannot own the world.
+  if (value.phase === "resident" && value.worldLease !== undefined) return null;
   return value as unknown as PersistedAgentCompute;
 };
 
@@ -139,6 +209,35 @@ export type SandboxAttachment = Readonly<{
   destroy(sandboxId: string): Promise<void>;
 }>;
 
+export type AgentWorldLeaseIdentity = Readonly<{
+  leaseId: string;
+  role: "world";
+  turnId: string;
+  attemptGeneration: number;
+  sandboxId: string;
+  attachReason: AttachReason;
+}>;
+
+export type AgentWorldLeaseHooks = Readonly<{
+  /** Stable for this exact attempt. Acquisition must be idempotent by this id. */
+  leaseId: string;
+  acquire(
+    identity: AgentWorldLeaseIdentity,
+  ): Promise<Readonly<{ generation: string; expiresAt: number }>>;
+  renew(
+    identity: AgentWorldLeaseIdentity &
+      Readonly<{ generation: string; expiresAt: number }>,
+  ): Promise<Readonly<{ expiresAt: number }>>;
+  /** Must be exact and idempotent, including for a lost acquire response. */
+  retire(
+    identity: AgentWorldLeaseIdentity &
+      Readonly<{
+        generation?: string;
+        expiresAt?: number;
+      }>,
+  ): Promise<void>;
+}>;
+
 export type AgentComputeLadderInput = Readonly<{
   turnId: string;
   attemptGeneration: number;
@@ -147,6 +246,8 @@ export type AgentComputeLadderInput = Readonly<{
   initialInstanceSize: "small" | "large";
   store: AgentComputeStore;
   attachment: SandboxAttachment;
+  /** Optional until BuildSession wires the owner-world fence during rollout. */
+  worldLease?: AgentWorldLeaseHooks;
   context: TurnExecutionContext;
   emitEvent: (kind: string, payload: unknown) => void;
   now?: () => number;
@@ -174,6 +275,10 @@ export type AgentComputeLadder = Readonly<{
   requestInteriorBuild(): void;
   interiorBuildRequested(): boolean;
   attached(): boolean;
+  /** Current durable lease fact, if this turn has begun attaching. */
+  worldLease(): PersistedAgentWorldLease | null;
+  /** Renew the exact registered lease. Intended for the owning DO alarm. */
+  renewWorldLease(): Promise<PersistedAgentWorldLease | null>;
   /** Join the daemon and collect what the turn delivered. Idempotent. */
   quiesce(): Promise<
     Readonly<{
@@ -208,7 +313,7 @@ export const createAgentComputeLadder = (
   } as const;
 
   let record: PersistedAgentCompute = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     ...identity,
     phase: "resident",
     instanceSize: input.initialInstanceSize,
@@ -225,16 +330,94 @@ export const createAgentComputeLadder = (
     await input.store.write(next);
   };
 
+  const leaseIdentity = (
+    lease: PersistedAgentWorldLease,
+  ): AgentWorldLeaseIdentity &
+    Readonly<{ generation?: string; expiresAt?: number }> => ({
+    leaseId: lease.leaseId,
+    role: "world",
+    ...identity,
+    sandboxId: input.sandboxId,
+    attachReason: record.attachReason ?? "process_tool",
+    ...(lease.generation === undefined ? {} : { generation: lease.generation }),
+    ...(lease.expiresAt === undefined ? {} : { expiresAt: lease.expiresAt }),
+  });
+
+  const assertLeaseGrant = (
+    value: Readonly<{ generation: string; expiresAt: number }>,
+  ): void => {
+    if (
+      typeof value.generation !== "string" ||
+      value.generation.length === 0 ||
+      !Number.isFinite(value.expiresAt)
+    ) {
+      throw new AgentComputeUnavailableError(
+        "The owner-world lease returned an invalid grant.",
+      );
+    }
+  };
+
+  const withoutWorldLease = (
+    current: PersistedAgentCompute,
+  ): PersistedAgentCompute => {
+    const { worldLease: _omitted, ...rest } = current;
+    return { ...rest, schemaVersion: 2 };
+  };
+
+  const acquireWorldLease = async (): Promise<void> => {
+    if (!input.worldLease || !record.worldLease) return;
+    const lease = record.worldLease;
+    const grant = await input.worldLease.acquire(leaseIdentity(lease));
+    assertLeaseGrant(grant);
+    await persist({
+      ...record,
+      schemaVersion: 2,
+      worldLease: {
+        leaseId: lease.leaseId,
+        phase: "registered",
+        generation: grant.generation,
+        expiresAt: grant.expiresAt,
+      },
+    });
+  };
+
+  const retireWorldLease = async (): Promise<void> => {
+    if (!input.worldLease || !record.worldLease) return;
+    if (record.worldLease.phase !== "unregister_pending") {
+      await persist({
+        ...record,
+        schemaVersion: 2,
+        worldLease: {
+          ...record.worldLease,
+          phase: "unregister_pending",
+        },
+      });
+    }
+    const lease = record.worldLease;
+    await input.worldLease.retire(leaseIdentity(lease));
+    await persist(withoutWorldLease(record));
+  };
+
   const boot = async (reason: AttachReason): Promise<void> => {
     input.context.assertActive();
     // Durable before the instance exists. A sweep that arrives between this
     // write and the boot returning still knows the id to destroy.
     await persist({
       ...record,
+      schemaVersion: 2,
       phase: "attaching",
       sandboxId: input.sandboxId,
       attachReason: reason,
+      ...(input.worldLease
+        ? {
+            worldLease: {
+              leaseId: input.worldLease.leaseId,
+              phase: "registering" as const,
+            },
+          }
+        : {}),
     });
+    await acquireWorldLease();
     input.context.assertActive();
     const started = now();
     const result = await input.attachment.boot({
@@ -271,7 +454,32 @@ export const createAgentComputeLadder = (
 
   /** Single-flight and sticky: concurrent tool calls share one attach. */
   const ensureAttached = async (reason: AttachReason): Promise<void> => {
-    if (record.phase === "attached") return;
+    if (record.phase === "attached") {
+      const lease = record.worldLease;
+      if (
+        input.worldLease &&
+        lease?.phase === "registered" &&
+        typeof lease.generation === "string" &&
+        typeof lease.expiresAt === "number"
+      ) {
+        const renewed = await input.worldLease.renew({
+          ...leaseIdentity(lease),
+          generation: lease.generation,
+          expiresAt: lease.expiresAt,
+        });
+        if (!Number.isFinite(renewed.expiresAt)) {
+          throw new AgentComputeUnavailableError(
+            "The owner-world lease returned an invalid renewal.",
+          );
+        }
+        await persist({
+          ...record,
+          schemaVersion: 2,
+          worldLease: { ...lease, expiresAt: renewed.expiresAt },
+        });
+      }
+      return;
+    }
     if (record.phase === "quiesced") {
       throw new AgentComputeUnavailableError(
         "This turn's workspace has already been closed.",
@@ -344,13 +552,19 @@ export const createAgentComputeLadder = (
   const recoverFromOom = async (
     error: SandboxOutOfMemoryError,
   ): Promise<void> => {
+    // The durable compute record owns the keep-alive lease. Close that lease
+    // before asking the attachment boundary to destroy the instance, so an
+    // isolate loss during teardown can only recover by retrying destruction.
+    await persist({ ...record, phase: "quiesced" });
     await input.attachment.destroy(input.sandboxId);
+    await retireWorldLease();
     if (admitted) {
-      await persist({ ...record, phase: "quiesced", instanceSize: "large" });
+      await persist({ ...record, instanceSize: "large" });
       throw error;
     }
     await persist({
-      ...record,
+      schemaVersion: 2,
+      ...identity,
       phase: "resident",
       instanceSize: "large",
     });
@@ -405,6 +619,41 @@ export const createAgentComputeLadder = (
       return record.phase === "attached";
     },
 
+    worldLease() {
+      return record.worldLease ?? null;
+    },
+
+    async renewWorldLease() {
+      if (!input.worldLease || record.worldLease?.phase !== "registered") {
+        return record.worldLease ?? null;
+      }
+      const lease = record.worldLease;
+      if (
+        typeof lease.generation !== "string" ||
+        typeof lease.expiresAt !== "number"
+      ) {
+        throw new AgentComputeUnavailableError(
+          "The owner-world lease is not renewable.",
+        );
+      }
+      const renewed = await input.worldLease.renew({
+        ...leaseIdentity(lease),
+        generation: lease.generation,
+        expiresAt: lease.expiresAt,
+      });
+      if (!Number.isFinite(renewed.expiresAt)) {
+        throw new AgentComputeUnavailableError(
+          "The owner-world lease returned an invalid renewal.",
+        );
+      }
+      await persist({
+        ...record,
+        schemaVersion: 2,
+        worldLease: { ...lease, expiresAt: renewed.expiresAt },
+      });
+      return record.worldLease ?? null;
+    },
+
     async quiesce() {
       if (quiesceResult) return quiesceResult;
       if (record.phase !== "attached") {
@@ -437,7 +686,11 @@ export const createAgentComputeLadder = (
       // asking for one here would boot the very instance the sweep exists to
       // avoid.
       if (record.phase === "resident") return;
+      if (record.phase !== "quiesced") {
+        await persist({ ...record, phase: "quiesced" });
+      }
       await input.attachment.destroy(input.sandboxId);
+      await retireWorldLease();
     },
 
     compute() {

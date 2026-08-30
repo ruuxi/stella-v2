@@ -1,0 +1,25 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "stella-device-code-fixture-workerd-harness",
+  "main": "device-code-fixture-workerd-harness.ts",
+  "compatibility_date": "2026-07-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": false },
+  "vars": { "PUBLIC_ORIGIN": "https://device-fixture.test" },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DEVICE_AUTHORIZATIONS",
+        "class_name": "DeviceAuthorizationSessionWorkerdHarness",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1-device-authorization-workerd-harness",
+      "new_sqlite_classes": ["DeviceAuthorizationSessionWorkerdHarness"],
+    },
+  ],
+}

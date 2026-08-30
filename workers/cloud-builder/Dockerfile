@@ -1,4 +1,8 @@
-FROM docker.io/cloudflare/sandbox:0.12.5
+FROM docker.io/oven/bun:1.4.0-debian@sha256:5bb0f9be3a1a36a03e27c9a9dd894a3b1ad26657155c7df4dda771e17bf872ef AS bun-runtime
+
+FROM docker.io/cloudflare/sandbox:0.12.9
+
+COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
 
 USER root
 WORKDIR /opt/stella
@@ -32,7 +36,11 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
 COPY .image/package.json ./
 COPY .image/packages ./packages
 COPY .image/interior-seed.json ./interior-seed.json
-RUN bun install --production
+COPY .image/bun.lock ./bun.lock
+COPY .image/image-build.json ./image-build.json
+RUN node --input-type=commonjs -e \
+      'const fs = require("node:fs"); const crypto = require("node:crypto"); const childProcess = require("node:child_process"); const metadata = JSON.parse(fs.readFileSync("image-build.json", "utf8")); const digest = `sha256:${crypto.createHash("sha256").update(fs.readFileSync("bun.lock")).digest("hex")}`; const bunVersion = childProcess.execFileSync("bun", ["--version"], { encoding: "utf8" }).trim(); if (metadata.dependencyLockSha256 !== digest) throw new Error("Sandbox image lock digest mismatch"); if (metadata.sandboxSdkVersion !== "0.12.9") throw new Error("Sandbox SDK and base image versions differ"); if (bunVersion !== "1.4.0") throw new Error("Sandbox image Bun version differs from the pinned lock runtime");' \
+  && bun install --production --frozen-lockfile
 
 # The checked-in stella-office binaries are macOS-only and are filtered out of
 # the image staging; fetch the matching Linux build instead. The package's own

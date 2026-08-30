@@ -1,6 +1,7 @@
 import type { HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
 import {
+  getTrustedAppsAuthOrigin,
   getTrustedAppsHostOrigin,
   resolveManagedAppsHostOrigin,
   type AppsHostTrustEnv,
@@ -30,12 +31,14 @@ type CorsOriginEnv = AppsHostTrustEnv &
 export const buildCorsAllowedOrigins = (env: CorsOriginEnv): Set<string> => {
   const configured = new Set<string>(DEFAULT_CORS_ALLOWED_ORIGINS);
   const trustedAppsHostOrigin = getTrustedAppsHostOrigin(env);
+  const trustedAppsAuthOrigin = getTrustedAppsAuthOrigin(env);
   const addConfiguredOrigin = (origin: string | undefined) => {
     if (!origin) return;
     const managedAppsHostOrigin = resolveManagedAppsHostOrigin(origin);
     if (
       managedAppsHostOrigin &&
-      managedAppsHostOrigin !== trustedAppsHostOrigin
+      managedAppsHostOrigin !== trustedAppsHostOrigin &&
+      managedAppsHostOrigin !== trustedAppsAuthOrigin
     ) {
       return;
     }
@@ -48,6 +51,7 @@ export const buildCorsAllowedOrigins = (env: CorsOriginEnv): Set<string> => {
     addConfiguredOrigin(origin);
   }
   addConfiguredOrigin(trustedAppsHostOrigin ?? undefined);
+  addConfiguredOrigin(trustedAppsAuthOrigin ?? undefined);
   return configured;
 };
 

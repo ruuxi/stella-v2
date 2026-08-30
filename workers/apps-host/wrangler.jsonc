@@ -3,6 +3,7 @@
   "name": "stella-v2-apps-host-dev",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-22",
+  "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "preview_urls": false,
   "observability": {
@@ -10,20 +11,37 @@
     "logs": {
       "enabled": true,
       "invocation_logs": true,
+      "head_sampling_rate": 1
     },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 },
   },
   "vars": {
     // This Worker has exactly one authorized control-plane target. Runtime
     // validation rejects missing, stale, or production-shaped alternatives.
     "STELLA_DEPLOYMENT_IDENTITY": "dev:outgoing-bulldog-865",
+    "HOST_ROLE": "untrusted",
     "SHARES_DISABLED": "false",
     "CONVEX_SITE_URL": "https://outgoing-bulldog-865.convex.site",
     "CONVEX_CLOUD_URL": "https://outgoing-bulldog-865.convex.cloud",
     "APPS_HOST_ORIGIN": "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+    "TRUSTED_APPS_HOST_ORIGIN": "https://stella-v2-apps-auth-dev.lolruuxi.workers.dev",
     "CLOUD_BUILDER_ORIGIN": "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
   },
-  // BUILDER_SERVICE_SECRET is required at runtime and must be installed as a
-  // Wrangler secret. It is intentionally never represented by a fallback var.
+  "services": [
+    {
+      "binding": "APP_AUTH",
+      "service": "stella-v2-apps-auth-dev",
+      "entrypoint": "AppsAuthService"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "APP_FETCH_GATE", "class_name": "AppFetchGate" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["AppFetchGate"] }
+  ],
   "r2_buckets": [
     {
       "binding": "APP_BUILDS",
@@ -41,16 +59,32 @@
       "name": "stella-v2-apps-host-basic-nightingale-118",
       "workers_dev": true,
       "preview_urls": false,
+      "observability": {
+        "enabled": true,
+        "logs": { "enabled": true, "invocation_logs": true, "head_sampling_rate": 1 },
+        "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+      },
       "vars": {
         "STELLA_DEPLOYMENT_IDENTITY": "preview:basic-nightingale-118",
+        "HOST_ROLE": "untrusted",
         "SHARES_DISABLED": "false",
         "CONVEX_SITE_URL": "https://basic-nightingale-118.convex.site",
         "CONVEX_CLOUD_URL": "https://basic-nightingale-118.convex.cloud",
         "APPS_HOST_ORIGIN": "https://stella-v2-apps-host-basic-nightingale-118.lolruuxi.workers.dev",
+        "TRUSTED_APPS_HOST_ORIGIN": "https://stella-v2-apps-auth-basic-nightingale-118.lolruuxi.workers.dev",
         "CLOUD_BUILDER_ORIGIN": "https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev",
       },
-      "secrets": {
-        "required": ["BUILDER_SERVICE_SECRET"],
+      "services": [
+        {
+          "binding": "APP_AUTH",
+          "service": "stella-v2-apps-auth-basic-nightingale-118",
+          "entrypoint": "AppsAuthService"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "APP_FETCH_GATE", "class_name": "AppFetchGate" }
+        ]
       },
       "r2_buckets": [
         {

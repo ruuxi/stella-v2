@@ -37,6 +37,7 @@ import {
   cloudReadinessNow,
   reportCloudReadiness,
 } from "./cloud-readiness-timing";
+import { getStellaInteriorBridge } from "@/platform/interior/interior-bridge";
 
 export type SocketStatus =
   | "idle"
@@ -447,9 +448,11 @@ export class ConversationSocket {
       outcome: "success",
     });
 
+    const socketBaseUrl =
+      getStellaInteriorBridge()?.gatewayOrigin ?? this.options.baseUrl;
     const url = new URL(
       `/conversations/${encodeURIComponent(this.options.conversationId)}/socket`,
-      this.options.baseUrl,
+      socketBaseUrl,
     );
     // Convex already hands out a `ws:`/`wss:` origin; these two lines only
     // cover a caller that passed the http form. Blanket-forcing `wss:` would

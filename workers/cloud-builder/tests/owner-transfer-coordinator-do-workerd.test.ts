@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { allocateWorkerdInspectorPort } from "./helpers/workerd-test-port.js";
 import { sha256Hex } from "../src/hash.js";
 import { WORLD_REGISTRY_SEGMENT } from "../src/turn-state-registry.js";
 
@@ -71,9 +72,19 @@ const requestJson = async (
         }
       : {}),
   });
+  const responseText = await response.text();
+  let responseBody: Record<string, any>;
+  try {
+    responseBody = JSON.parse(responseText) as Record<string, any>;
+  } catch (error) {
+    throw new Error(
+      `Non-JSON Workerd response for ${path} (${response.status}): ${responseText}`,
+      { cause: error },
+    );
+  }
   return {
     status: response.status,
-    body: (await response.json()) as Record<string, any>,
+    body: responseBody,
   };
 };
 
@@ -110,6 +121,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
 
   const startWorkerd = async (): Promise<void> => {
     workerdOutput = "";
+    const inspectorPort = await allocateWorkerdInspectorPort();
     const child = spawn(
       process.execPath,
       [
@@ -125,6 +137,8 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
         "--local",
         "--persist-to",
         persistencePath,
+        "--inspector-port",
+        String(inspectorPort),
         "--show-interactive-dev-session=false",
       ],
       {
@@ -177,14 +191,17 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
       join(tmpdir(), "stella-owner-transfer-workerd-"),
     );
     await startWorkerd();
-  });
+  }, 30_000);
 
   afterAll(async () => {
-    await stopWorkerd();
-    if (persistencePath.includes("stella-owner-transfer-workerd-")) {
-      await rm(persistencePath, { recursive: true, force: true });
+    try {
+      await stopWorkerd();
+    } finally {
+      if (persistencePath.includes("stella-owner-transfer-workerd-")) {
+        await rm(persistencePath, { recursive: true, force: true });
+      }
     }
-  });
+  }, 30_000);
 
   test("reserves production BuildSession owner fences with exact bound owner identities", async () => {
     const attempt = await coordinatorAttempt({
@@ -389,9 +406,222 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
       status: 200,
       body: { aborted: true, permanent: false },
     });
+    const sourceAfterAbort = await requestJson(
+      realFencePath(attempt.fromOwnerHash, "/owner-fence/assert-transfer"),
+      {
+        ownerId: attempt.fromOwnerId,
+        leaseId: snapshot.body.state.sourceReservation.leaseId,
+        sessionId: snapshot.body.objectId,
+        turnId: `owner-transfer:${attempt.operationId}`,
+        ownerGeneration: attempt.fromOwnerGeneration,
+      },
+    );
+    expect(sourceAfterAbort.status).toBe(409);
+    const destinationAfterAbort = await requestJson(
+      realFencePath(attempt.toOwnerHash, "/owner-fence/assert-transfer"),
+      {
+        ownerId: attempt.toOwnerId,
+        leaseId: snapshot.body.state.destinationReservation.leaseId,
+        sessionId: snapshot.body.objectId,
+        turnId: `owner-transfer:${attempt.operationId}`,
+        ownerGeneration: attempt.toOwnerGeneration,
+      },
+    );
+    expect(destinationAfterAbort.status).toBe(409);
   }, 30_000);
 
-  test("serializes reserve races and preserves renew, ack, abort, and alarms across isolate restarts", async () => {
+  test("bounds a slow fence call, exposes the persisted claim without blocking unrelated events, and retries the stable lease", async () => {
+    const attempt = await coordinatorAttempt({
+      operation: "e",
+      from: "slow-source-owner",
+      to: "slow-destination-owner",
+      pass: "a",
+    });
+    const competing = { ...attempt, passIdHash: hash("b") };
+    expect(
+      await requestJson(fencePath(attempt.fromOwnerHash, "/__test/configure"), {
+        registerDelayMs: 1_500,
+      }),
+    ).toEqual({ status: 200, body: { configured: true } });
+
+    const startedAt = Date.now();
+    const slowReserve = requestJson(coordinatorPath(attempt, "/reserve"), {
+      attempt,
+    });
+    await eventually(
+      async () =>
+        await requestJson(fencePath(attempt.fromOwnerHash, "/__test/snapshot")),
+      (result) => result.body.calls?.register === 1,
+    );
+    const claimed = await requestJson(
+      coordinatorPath(attempt, "/__test/snapshot"),
+    );
+    expect(claimed.body.remoteClaim).toMatchObject({
+      kind: "reserve",
+      operationId: attempt.operationId,
+      expectedRevision: claimed.body.revision,
+    });
+
+    const competingStartedAt = Date.now();
+    const rejected = await requestJson(coordinatorPath(competing, "/reserve"), {
+      attempt: competing,
+    });
+    expect(rejected.status).toBe(409);
+    expect(rejected.body.code).toBe("transfer_busy");
+    expect(Date.now() - competingStartedAt).toBeLessThan(500);
+
+    const timedOut = await slowReserve;
+    const elapsed = Date.now() - startedAt;
+    expect(timedOut.status).toBe(503);
+    expect(timedOut.body.code).toBe("transfer_unavailable");
+    expect(elapsed).toBeGreaterThanOrEqual(850);
+    expect(elapsed).toBeLessThan(2_500);
+    const afterTimeout = await requestJson(
+      coordinatorPath(attempt, "/__test/snapshot"),
+    );
+    expect(afterTimeout.body.remoteClaim).toBeNull();
+    expect(afterTimeout.body.state.activePass).toBe(undefined);
+    expect(afterTimeout.body.alarmAt).toBeGreaterThan(Date.now());
+
+    await pause(600);
+    await requestJson(fencePath(attempt.fromOwnerHash, "/__test/configure"), {
+      registerDelayMs: 0,
+    });
+    const retry = { ...attempt, passIdHash: hash("c") };
+    expect(
+      await requestJson(coordinatorPath(retry, "/reserve"), { attempt: retry }),
+    ).toMatchObject({ status: 200, body: { status: "reserved" } });
+    expect(
+      await requestJson(coordinatorPath(retry, "/abort"), {
+        attempt: retry,
+        permanent: false,
+      }),
+    ).toEqual({
+      status: 200,
+      body: { aborted: true, permanent: false },
+    });
+  }, 30_000);
+
+  test("recovers an interrupted persisted remote claim by alarm after an isolate restart", async () => {
+    const attempt = await coordinatorAttempt({
+      operation: "f",
+      from: "restart-source-owner",
+      to: "restart-destination-owner",
+      pass: "d",
+    });
+    await requestJson(fencePath(attempt.fromOwnerHash, "/__test/configure"), {
+      registerDelayMs: 5_000,
+    });
+    const interruptedReserve = requestJson(
+      coordinatorPath(attempt, "/reserve"),
+      { attempt },
+    ).catch(() => null);
+    await eventually(
+      async () =>
+        await requestJson(fencePath(attempt.fromOwnerHash, "/__test/snapshot")),
+      (result) => result.body.calls?.register === 1,
+    );
+    const beforeRestart = await requestJson(
+      coordinatorPath(attempt, "/__test/snapshot"),
+    );
+    expect(beforeRestart.body.remoteClaim).toMatchObject({
+      kind: "reserve",
+      operationId: attempt.operationId,
+    });
+    await requestJson(fencePath(attempt.fromOwnerHash, "/__test/configure"), {
+      registerDelayMs: 0,
+    });
+    expect(
+      await requestJson(
+        coordinatorPath(attempt, "/__test/expire-remote-claim"),
+        { delayMs: 5_000 },
+      ),
+    ).toMatchObject({ status: 200, body: { expired: true } });
+
+    await restartWorkerd();
+    await interruptedReserve;
+    const recovered = await eventually(
+      async () =>
+        await requestJson(coordinatorPath(attempt, "/__test/snapshot")),
+      (result) =>
+        result.body.alarmCount >= 1 &&
+        result.body.remoteClaim === null &&
+        result.body.state?.phase === "reserved",
+      12_000,
+    );
+    expect(recovered.body.bootId).not.toBe(beforeRestart.body.bootId);
+    expect(recovered.body.state.activePass.passIdHash).toBe(attempt.passIdHash);
+    expect(recovered.body.alarmAt).toBeGreaterThan(Date.now());
+    expect(
+      await requestJson(coordinatorPath(attempt, "/abort"), {
+        attempt,
+        permanent: false,
+      }),
+    ).toEqual({
+      status: 200,
+      body: { aborted: true, permanent: false },
+    });
+  }, 30_000);
+
+  test("keeps alarm release debt after an ambiguous renewal timeout instead of stranding the remote lease", async () => {
+    const attempt = await coordinatorAttempt({
+      operation: "0",
+      from: "alarm-timeout-source",
+      to: "alarm-timeout-destination",
+      pass: "e",
+    });
+    expect(
+      await requestJson(coordinatorPath(attempt, "/reserve"), { attempt }),
+    ).toMatchObject({ status: 200, body: { status: "reserved" } });
+    await requestJson(fencePath(attempt.fromOwnerHash, "/__test/configure"), {
+      registerDelayMs: 1_500,
+    });
+    await requestJson(coordinatorPath(attempt, "/__test/expire-reservations"), {
+      delayMs: 100,
+    });
+    const pendingRelease = await eventually(
+      async () =>
+        await requestJson(coordinatorPath(attempt, "/__test/snapshot")),
+      (result) =>
+        result.body.alarmCount >= 1 &&
+        result.body.state?.phase === "retryable_blocked" &&
+        result.body.remoteClaim === null,
+    );
+    expect(pendingRelease.body.state.releaseDebt).toEqual({
+      source: true,
+      destination: true,
+    });
+    expect(pendingRelease.body.alarmAt).toBeGreaterThan(Date.now());
+
+    await requestJson(fencePath(attempt.fromOwnerHash, "/__test/configure"), {
+      registerDelayMs: 0,
+    });
+    await requestJson(coordinatorPath(attempt, "/__test/schedule-alarm"), {
+      delayMs: 100,
+    });
+    const released = await eventually(
+      async () =>
+        await requestJson(coordinatorPath(attempt, "/__test/snapshot")),
+      (result) =>
+        result.body.alarmCount >= 2 &&
+        result.body.state?.releaseDebt === undefined,
+    );
+    expect(released.body.state.sourceReservation.generation).toBe(undefined);
+    expect(released.body.state.destinationReservation.generation).toBe(
+      undefined,
+    );
+    expect(released.body.alarmAt).toBeNull();
+    expect(
+      (await requestJson(fencePath(attempt.fromOwnerHash, "/__test/snapshot")))
+        .body.active,
+    ).toBe(undefined);
+    expect(
+      (await requestJson(fencePath(attempt.toOwnerHash, "/__test/snapshot")))
+        .body.active,
+    ).toBe(undefined);
+  }, 30_000);
+
+  test("persists an exact reserve claim without holding the object across remote I/O and preserves renew, ack, abort, and alarms across isolate restarts", async () => {
     const first = await coordinatorAttempt({
       operation: "1",
       from: "3",
@@ -441,12 +671,10 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
       return result;
     });
     await pause(100);
-    expect(competingSettled).toBe(false);
-
-    const [reserved, rejected] = await Promise.all([
-      firstReserve,
-      competingReserve,
-    ]);
+    expect(competingSettled).toBe(true);
+    const rejected = await competingReserve;
+    expect(firstFinishedAt).toBe(0);
+    const reserved = await firstReserve;
     expect(reserved).toMatchObject({
       status: 200,
       body: {
@@ -460,7 +688,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     });
     expect(rejected.status).toBe(409);
     expect(rejected.body.code).toBe("transfer_busy");
-    expect(competingFinishedAt).toBeGreaterThanOrEqual(firstFinishedAt);
+    expect(competingFinishedAt).toBeLessThan(firstFinishedAt);
 
     const reboundOwnerId = `${first.fromOwnerId}-rebound`;
     const reboundIdentity = await requestJson(
@@ -519,6 +747,11 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     expect(sourceBeforeAlarm.body.calls.register).toBe(1);
     expect(destinationBeforeAlarm.body.calls.register).toBe(1);
 
+    expect(
+      await requestJson(fencePath(first.fromOwnerHash, "/__test/configure"), {
+        failNextRegister: 1,
+      }),
+    ).toEqual({ status: 200, body: { configured: true } });
     const scheduled = await requestJson(
       coordinatorPath(first, "/__test/schedule-alarm"),
       { delayMs: 100 },
@@ -537,20 +770,41 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
       beforeRestart.body.state.destinationReservation,
     );
     expect(renewed.body.alarmAt).toBeGreaterThan(Date.now());
+    expect(renewed.body.remoteClaim).toBeNull();
 
+    const sourceAfterFailedAlarm = await requestJson(
+      fencePath(first.fromOwnerHash, "/__test/snapshot"),
+    );
+    const destinationAfterFailedAlarm = await requestJson(
+      fencePath(first.toOwnerHash, "/__test/snapshot"),
+    );
+    expect(sourceAfterFailedAlarm.body.calls.register).toBe(2);
+    expect(destinationAfterFailedAlarm.body.calls.register).toBe(1);
+    // Initial acquisition has no generations yet and therefore does not
+    // contact assert-transfer. The first real pair comes from the alarm
+    // before it renews both registrations.
+    expect(sourceAfterFailedAlarm.body.calls.assertTransfer).toBe(1);
+    expect(destinationAfterFailedAlarm.body.calls.assertTransfer).toBe(1);
+
+    await requestJson(coordinatorPath(first, "/__test/schedule-alarm"), {
+      delayMs: 100,
+    });
+    const recoveredRenewal = await eventually(
+      async () => await requestJson(coordinatorPath(first, "/__test/snapshot")),
+      (result) => result.body.alarmCount >= 2,
+    );
+    expect(recoveredRenewal.body.state.phase).toBe("reserved");
+    expect(recoveredRenewal.body.remoteClaim).toBeNull();
     const sourceAfterAlarm = await requestJson(
       fencePath(first.fromOwnerHash, "/__test/snapshot"),
     );
     const destinationAfterAlarm = await requestJson(
       fencePath(first.toOwnerHash, "/__test/snapshot"),
     );
-    expect(sourceAfterAlarm.body.calls.register).toBe(2);
+    expect(sourceAfterAlarm.body.calls.register).toBe(3);
     expect(destinationAfterAlarm.body.calls.register).toBe(2);
-    // Initial acquisition has no generations yet and therefore does not
-    // contact assert-transfer. The first real pair comes from the alarm
-    // before it renews both registrations.
-    expect(sourceAfterAlarm.body.calls.assertTransfer).toBe(1);
-    expect(destinationAfterAlarm.body.calls.assertTransfer).toBe(1);
+    expect(sourceAfterAlarm.body.calls.assertTransfer).toBe(2);
+    expect(destinationAfterAlarm.body.calls.assertTransfer).toBe(2);
 
     const copied = await requestJson(coordinatorPath(first, "/copied"), {
       attempt: first,
@@ -563,28 +817,57 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
         result: { transferred: true, receipt: "workerd-copy" },
       },
     });
+    expect(
+      await requestJson(fencePath(first.fromOwnerHash, "/__test/configure"), {
+        failNextUnregister: 1,
+      }),
+    ).toEqual({ status: 200, body: { configured: true } });
     const acknowledged = await requestJson(coordinatorPath(first, "/ack"), {
       attempt: first,
     });
-    expect(acknowledged).toEqual({
-      status: 200,
-      body: { acknowledged: true, replayed: false },
+    expect(acknowledged).toMatchObject({
+      status: 503,
+      body: { code: "transfer_unavailable", retryable: true },
     });
-    const acknowledgedState = await requestJson(
+    const pendingRelease = await requestJson(
       coordinatorPath(first, "/__test/snapshot"),
     );
-    expect(acknowledgedState.body.state.phase).toBe("acknowledged");
-    expect(acknowledgedState.body.state.result).toEqual({
+    expect(pendingRelease.body.state.phase).toBe("acknowledged");
+    expect(pendingRelease.body.state.result).toEqual({
       transferred: true,
       receipt: "workerd-copy",
     });
-    expect(acknowledgedState.body.state.sourceReservation.generation).toBe(
+    expect(pendingRelease.body.state.sourceReservation.generation).toBe(
+      "fake-fence-generation-1",
+    );
+    expect(pendingRelease.body.state.destinationReservation.generation).toBe(
       undefined,
     );
-    expect(acknowledgedState.body.state.destinationReservation.generation).toBe(
+    expect(pendingRelease.body.state.releaseDebt).toEqual({
+      source: true,
+      destination: false,
+    });
+    expect(pendingRelease.body.alarmAt).toBeGreaterThan(Date.now());
+    await requestJson(coordinatorPath(first, "/__test/schedule-alarm"), {
+      delayMs: 5_000,
+    });
+
+    await restartWorkerd();
+    const releasedByAlarm = await eventually(
+      async () => await requestJson(coordinatorPath(first, "/__test/snapshot")),
+      (result) =>
+        result.body.alarmCount >= 3 &&
+        result.body.state?.releaseDebt === undefined,
+      12_000,
+    );
+    expect(releasedByAlarm.body.bootId).not.toBe(pendingRelease.body.bootId);
+    expect(releasedByAlarm.body.state.sourceReservation.generation).toBe(
       undefined,
     );
-    expect(acknowledgedState.body.alarmAt).toBeNull();
+    expect(releasedByAlarm.body.state.destinationReservation.generation).toBe(
+      undefined,
+    );
+    expect(releasedByAlarm.body.alarmAt).toBeNull();
     const sourceAfterAck = await requestJson(
       fencePath(first.fromOwnerHash, "/__test/snapshot"),
     );
@@ -593,19 +876,18 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     );
     expect(sourceAfterAck.body.active).toBe(undefined);
     expect(destinationAfterAck.body.active).toBe(undefined);
-    expect(sourceAfterAck.body.calls.unregister).toBe(1);
+    expect(sourceAfterAck.body.calls.unregister).toBe(2);
     expect(destinationAfterAck.body.calls.unregister).toBe(1);
 
-    await restartWorkerd();
     const acknowledgedAfterRestart = await requestJson(
       coordinatorPath(first, "/__test/snapshot"),
     );
-    expect(acknowledgedAfterRestart.body.bootId).not.toBe(
-      acknowledgedState.body.bootId,
+    expect(acknowledgedAfterRestart.body.bootId).toBe(
+      releasedByAlarm.body.bootId,
     );
     expect(acknowledgedAfterRestart.body.state.phase).toBe("acknowledged");
     expect(acknowledgedAfterRestart.body.state.result).toEqual(
-      acknowledgedState.body.state.result,
+      pendingRelease.body.state.result,
     );
     expect(
       await requestJson(coordinatorPath(first, "/ack"), { attempt: first }),

@@ -8,6 +8,7 @@ mock.module("cloudflare:workers", () => ({
 mock.module("@cloudflare/sandbox", () => ({
   getSandbox: () => ({}),
   Sandbox: class {},
+  ContainerProxy: class {},
 }));
 const worker = (await import("../src/index.js")).default;
 mock.restore();
@@ -74,11 +75,7 @@ describe("private Browser Gateway control proxy", () => {
     expect(
       (
         await worker.fetch(
-          request(
-            "/internal/interactions/decision",
-            "{}",
-            "Bearer wrong",
-          ),
+          request("/internal/interactions/decision", "{}", "Bearer wrong"),
           env as never,
         )
       ).status,
@@ -93,13 +90,12 @@ describe("private Browser Gateway control proxy", () => {
           env as never,
         )
       ).status,
-    ).toBe(400);
+    ).toBe(413);
     expect(
       (
-        await worker.fetch(
-          request("/internal/owners/profile/reset", "{}"),
-          { BUILDER_SERVICE_SECRET: secret } as never,
-        )
+        await worker.fetch(request("/internal/owners/profile/reset", "{}"), {
+          BUILDER_SERVICE_SECRET: secret,
+        } as never)
       ).status,
     ).toBe(503);
     expect(calls).toBe(0);

@@ -7,16 +7,18 @@
     "./protocol": "./src/protocol.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "types:generate": "wrangler types worker-configuration.d.ts --include-runtime false",
+    "types:check": "wrangler types worker-configuration.d.ts --include-runtime false --check",
+    "typecheck": "bun run types:check && tsc --noEmit",
     "test:unit": "bun test ./tests/config.test.ts ./tests/provider.test.ts ./tests/public-page.test.ts ./tests/state-machine.test.ts",
-    "test:workerd": "bun test ./tests/public-workerd.test.ts",
+    "test:workerd": "bun test ./tests/public-workerd.test.ts ./tests/device-authorization-workerd.test.ts",
     "test": "bun run test:unit && bun run test:workerd",
     "build:dry-run:bn118": "wrangler deploy --dry-run --outdir .wrangler/dry-run-bn118",
     "deploy:bn118": "wrangler deploy --strict"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260723.1",
+    "@cloudflare/workers-types": "5.20260830.1",
     "typescript": "^6.0.3",
-    "wrangler": "4.113.0"
+    "wrangler": "4.127.1"
   }
 }

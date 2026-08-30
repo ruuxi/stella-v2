@@ -1,0 +1,33 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "stella-browser-profile-session-alarm-workerd-fixture",
+  "main": "./browser-profile-session-alarm-workerd.ts",
+  "compatibility_date": "2026-07-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "STELLA_DEPLOYMENT_IDENTITY": "workerd-alarm-fixture",
+    "BROWSER_KEEP_ALIVE_MS": "600000",
+    "BROWSER_LIVE_VIEW_TTL_MS": "300000",
+    "BROWSER_HANDOFF_TIMEOUT_MS": "600000"
+  },
+  "r2_buckets": [
+    {
+      "binding": "BROWSER_PROFILES",
+      "bucket_name": "stella-browser-profiles-alarm-workerd-fixture"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BROWSER_PROFILE_SESSIONS",
+        "class_name": "AlarmFixtureSession"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-alarm-fixture-session",
+      "new_sqlite_classes": ["AlarmFixtureSession"]
+    }
+  ]
+}

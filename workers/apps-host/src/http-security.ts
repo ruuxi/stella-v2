@@ -146,13 +146,16 @@ export const isBlockedTargetHostname = (hostname: string): boolean => {
   return ipv6 ? isNonPublicIpv6(ipv6) : false;
 };
 
-const isTrustedProxyOrigin = (
+const isAllowedProxyCorsOrigin = (
   request: Request,
   origin: string | null,
   config: AppsHostConfig,
 ): origin is string => {
   if (!origin) return false;
-  if (origin === "null") return true; // Packaged Electron file:// renderer.
+  // Sandboxed generated-app iframes intentionally have opaque origins. This is
+  // a CORS transport allowance only; the POST still requires a one-shot
+  // app/viewer/request-bound capability.
+  if (origin === "null") return true;
   if (
     origin === config.appsHostOrigin ||
     origin === "http://localhost:57315" ||
@@ -170,7 +173,7 @@ const isTrustedProxyOrigin = (
 const proxyCorsHeaders = (origin: string): Headers => {
   const headers = new Headers({
     "access-control-allow-origin": origin,
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-headers": "authorization, content-type",
     "access-control-allow-methods": "POST, OPTIONS",
     "access-control-max-age": "600",
   });
@@ -211,9 +214,9 @@ export const handleProxyPreflight = (
   config: AppsHostConfig,
 ): Response => {
   const origin = request.headers.get("origin");
-  if (!isTrustedProxyOrigin(request, origin, config)) {
+  if (!isAllowedProxyCorsOrigin(request, origin, config)) {
     return Response.json(
-      { error: "Stella fetch requires a trusted shell origin." },
+      { error: "Stella fetch is unavailable from this origin." },
       { status: 403, headers: { "cache-control": "no-store" } },
     );
   }
@@ -234,7 +237,11 @@ export const handleProxyPreflight = (
     .split(",")
     .map((header) => header.trim().toLowerCase())
     .filter(Boolean);
-  if (requestedHeaders.some((header) => header !== "content-type")) {
+  if (
+    requestedHeaders.some(
+      (header) => header !== "content-type" && header !== "authorization",
+    )
+  ) {
     return proxyJson(
       origin,
       { error: "That request header is not allowed." },
@@ -412,10 +419,21 @@ export const proxyFetch = async (
   config: AppsHostConfig,
 ): Promise<Response> => {
   const origin = request.headers.get("origin");
-  if (!isTrustedProxyOrigin(request, origin, config)) {
+  if (!isAllowedProxyCorsOrigin(request, origin, config)) {
     return Response.json(
-      { error: "Stella fetch requires a trusted shell origin." },
+      { error: "Stella fetch is unavailable from this origin." },
       { status: 403, headers: { "cache-control": "no-store" } },
+    );
+  }
+  const capability = request.headers
+    .get("authorization")
+    ?.replace(/^Bearer\s+/i, "")
+    .trim();
+  if (!capability || !config.appAuth || !config.appFetchGate) {
+    return proxyJson(
+      origin,
+      { error: "A fetch capability is required." },
+      401,
     );
   }
   const envelope = await readProxyEnvelope(request, origin);
@@ -447,10 +465,73 @@ export const proxyFetch = async (
   }
   const requestedHeaders = new Headers(envelope.init?.headers);
   let upstreamHeaders = new Headers();
+  const canonicalHeaders: Record<string, string> = {};
   for (const name of FORWARDED_REQUEST_HEADERS) {
     const value = requestedHeaders.get(name);
-    if (value) upstreamHeaders.set(name, value);
+    if (value) {
+      upstreamHeaders.set(name, value);
+      canonicalHeaders[name] = value;
+    }
   }
+
+  const requestDocument = JSON.stringify({
+    input: currentTarget.toString(),
+    method,
+    headers: canonicalHeaders,
+    body: requestBody ?? null,
+  });
+  const requestHash = Array.from(
+    new Uint8Array(
+      await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(requestDocument),
+      ),
+    ),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
+  const authorization = await config.appAuth.verifyFetchCapability({
+    capability,
+    origin,
+    method,
+    targetOrigin: currentTarget.origin,
+    targetUrl: currentTarget.toString(),
+    requestHash,
+    now: Date.now(),
+  });
+  if (
+    !authorization.ok ||
+    !authorization.tokenId ||
+    !authorization.appId ||
+    !authorization.viewerNamespace ||
+    !authorization.expiresAt
+  ) {
+    return proxyJson(
+      origin,
+      { error: "The fetch capability is invalid or expired." },
+      401,
+    );
+  }
+  const gate = config.appFetchGate.getByName(
+    `${authorization.appId}:${authorization.viewerNamespace}`,
+  );
+  const consumed = await gate.consume({
+    tokenId: authorization.tokenId,
+    expiresAt: authorization.expiresAt,
+    now: Date.now(),
+  });
+  if (!consumed.ok) {
+    return proxyJson(
+      origin,
+      {
+        error:
+          consumed.reason === "rate_limited"
+            ? "This app has made too many network requests. Try again shortly."
+            : "This fetch capability has already been used.",
+      },
+      consumed.reason === "rate_limited" ? 429 : 409,
+    );
+  }
+  const authorizedTargetOrigin = currentTarget.origin;
 
   let upstream: Response | undefined;
   try {
@@ -480,6 +561,14 @@ export const proxyFetch = async (
         return proxyJson(
           origin,
           { error: "The upstream redirect was blocked." },
+          400,
+        );
+      }
+      if (next.origin !== authorizedTargetOrigin) {
+        await upstream.body?.cancel().catch(() => undefined);
+        return proxyJson(
+          origin,
+          { error: "The upstream redirect left the authorized target." },
           400,
         );
       }
@@ -583,7 +672,7 @@ export const hostedContentSecurityHeaders = (
 export const authHandoffSecurityHeaders = (
   config: AppsHostConfig,
 ): Record<string, string> => ({
-  "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src ${config.convexSiteOrigin}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
+  "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
   "cross-origin-opener-policy": "same-origin",
   "cross-origin-resource-policy": "same-origin",
   "permissions-policy":

@@ -91,7 +91,13 @@ describe("dedicated preview cloud acceptance probes", () => {
   });
 
   test("a missing or wrong service secret cannot arm or abort", async () => {
-    for (const secret of [null, "", "wrong-service-secret"]) {
+    for (const secret of [
+      null,
+      "",
+      "wrong-service-secret",
+      serviceSecret.slice(0, -1),
+      `${serviceSecret}-longer`,
+    ]) {
       expect(
         await authorize({
           secret,

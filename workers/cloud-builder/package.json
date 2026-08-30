@@ -5,9 +5,13 @@
   "type": "module",
   "scripts": {
     "image:prepare": "node scripts/prepare-image.mjs",
-    "deploy:dev": "bun run image:prepare && wrangler deploy",
+    "image:lock:refresh": "node scripts/prepare-image.mjs --refresh-lock",
+    "test:image:reproducibility": "bun test tests/image-preparation.test.ts",
+    "deploy:dev": "bun run image:prepare && wrangler deploy --env=\"\"",
     "deploy:acceptance": "bun run image:prepare && wrangler deploy --env bn118 --strict",
-    "typecheck": "tsc --noEmit",
+    "types:generate": "wrangler types worker-configuration.d.ts --include-runtime false --env=",
+    "types:check": "wrangler types worker-configuration.d.ts --include-runtime false --env= --check",
+    "typecheck": "bun run types:check && tsc --noEmit",
     "test:unit": "bun test tests",
     "test": "bun run test:unit && bun run test:code-workerd",
     "build:dry-run": "node scripts/check-production-bundle.mjs",
@@ -15,7 +19,7 @@
   },
   "dependencies": {
     "@cloudflare/codemode": "0.5.1",
-    "@cloudflare/sandbox": "0.12.5",
+    "@cloudflare/sandbox": "0.12.9",
     "@sinclair/typebox": "0.34.49",
     "@stella/contracts": "workspace:*",
     "@stella/executor-cloud": "workspace:*",
@@ -23,8 +27,9 @@
     "effect": "4.0.0-beta.83"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260723.1",
+    "@cloudflare/workers-types": "5.20260830.1",
+    "bun": "1.4.0",
     "typescript": "^6.0.3",
-    "wrangler": "4.113.0"
+    "wrangler": "4.127.1"
   }
 }

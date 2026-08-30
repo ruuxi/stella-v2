@@ -24,16 +24,53 @@ const wrangler = path.join(
   ".bin",
   process.platform === "win32" ? "wrangler.cmd" : "wrangler",
 );
-const configPath = path.join(workerRoot, "wrangler.jsonc");
 const projectWranglerDirectory = path.join(workerRoot, ".wrangler");
 
-const REQUIRED_CONFIG_VALUES = [
-  '"name": "stella-v2-apps-host-dev"',
-  '"STELLA_DEPLOYMENT_IDENTITY": "dev:outgoing-bulldog-865"',
-  '"CONVEX_SITE_URL": "https://outgoing-bulldog-865.convex.site"',
-  '"CONVEX_CLOUD_URL": "https://outgoing-bulldog-865.convex.cloud"',
-  '"APPS_HOST_ORIGIN": "https://stella-v2-apps-host-dev.lolruuxi.workers.dev"',
-  '"CLOUD_BUILDER_ORIGIN": "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev"',
+const DEPLOY_TARGETS = [
+  {
+    label: "untrusted-dev",
+    config: "wrangler.jsonc",
+    env: "",
+    role: "untrusted",
+    deployment: "dev:outgoing-bulldog-865",
+    worker: "stella-v2-apps-host-dev",
+    appsOrigin: "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+    trustedOrigin: "https://stella-v2-apps-auth-dev.lolruuxi.workers.dev",
+  },
+  {
+    label: "trusted-dev",
+    config: "wrangler.auth.jsonc",
+    env: "",
+    role: "trusted",
+    deployment: "dev:outgoing-bulldog-865",
+    worker: "stella-v2-apps-auth-dev",
+    appsOrigin: "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+    trustedOrigin: "https://stella-v2-apps-auth-dev.lolruuxi.workers.dev",
+  },
+  {
+    label: "untrusted-bn118",
+    config: "wrangler.jsonc",
+    env: "bn118",
+    role: "untrusted",
+    deployment: "preview:basic-nightingale-118",
+    worker: "stella-v2-apps-host-basic-nightingale-118",
+    appsOrigin:
+      "https://stella-v2-apps-host-basic-nightingale-118.lolruuxi.workers.dev",
+    trustedOrigin:
+      "https://stella-v2-apps-auth-basic-nightingale-118.lolruuxi.workers.dev",
+  },
+  {
+    label: "trusted-bn118",
+    config: "wrangler.auth.jsonc",
+    env: "bn118",
+    role: "trusted",
+    deployment: "preview:basic-nightingale-118",
+    worker: "stella-v2-apps-auth-basic-nightingale-118",
+    appsOrigin:
+      "https://stella-v2-apps-host-basic-nightingale-118.lolruuxi.workers.dev",
+    trustedOrigin:
+      "https://stella-v2-apps-auth-basic-nightingale-118.lolruuxi.workers.dev",
+  },
 ];
 const RETIRED_DEPLOYMENTS = /flexible-panther-999|benevolent-minnow-586/i;
 
@@ -88,54 +125,79 @@ const projectWranglerDirectoryExisted = await pathExists(
 
 try {
   await access(wrangler);
-  const configText = await readFile(configPath, "utf8");
-  const configuredEntry = configText.match(/"main"\s*:\s*"([^"]+)"/u)?.[1];
-  if (configuredEntry !== "src/index.ts") {
-    throw new Error(
-      `Production Worker entry changed unexpectedly: ${configuredEntry ?? "missing"}.`,
+  for (const target of DEPLOY_TARGETS) {
+    const configText = await readFile(
+      path.join(workerRoot, target.config),
+      "utf8",
     );
-  }
-  if (RETIRED_DEPLOYMENTS.test(configText)) {
-    throw new Error("Apps host config retained a retired deployment target.");
-  }
-  for (const expected of REQUIRED_CONFIG_VALUES) {
-    if (!configText.includes(expected)) {
+    const configuredEntry = configText.match(/"main"\s*:\s*"([^"]+)"/u)?.[1];
+    if (configuredEntry !== "src/index.ts") {
       throw new Error(
-        `Apps host config is missing its explicit dev gate: ${expected}`,
+        `${target.label} Worker entry changed unexpectedly: ${configuredEntry ?? "missing"}.`,
       );
     }
-  }
-  const output = await run(wrangler, [
-    "deploy",
-    "--dry-run",
-    "--outdir",
-    outputDirectory,
-    "--config",
-    "wrangler.jsonc",
-  ]);
-  if (!output.includes("--dry-run: exiting now.")) {
-    throw new Error("Wrangler did not report a dry-run exit.");
-  }
+    if (RETIRED_DEPLOYMENTS.test(configText)) {
+      throw new Error(
+        `${target.label} config retained a retired deployment target.`,
+      );
+    }
+    for (const expected of [
+      `"name": "${target.worker}"`,
+      `"STELLA_DEPLOYMENT_IDENTITY": "${target.deployment}"`,
+      `"HOST_ROLE": "${target.role}"`,
+      `"APPS_HOST_ORIGIN": "${target.appsOrigin}"`,
+      `"TRUSTED_APPS_HOST_ORIGIN": "${target.trustedOrigin}"`,
+    ]) {
+      if (!configText.includes(expected)) {
+        throw new Error(
+          `${target.label} config is missing its explicit deploy gate: ${expected}`,
+        );
+      }
+    }
 
-  const bundlePath = path.join(outputDirectory, "index.js");
-  const bundle = await stat(bundlePath);
-  if (!bundle.isFile() || bundle.size === 0) {
-    throw new Error("Wrangler did not emit the Apps host bundle.");
+    const targetOutputDirectory = path.join(outputDirectory, target.label);
+    const output = await run(wrangler, [
+      "deploy",
+      "--dry-run",
+      "--outdir",
+      targetOutputDirectory,
+      "--config",
+      target.config,
+      "--env",
+      target.env,
+      "--strict",
+    ]);
+    if (!output.includes("--dry-run: exiting now.")) {
+      throw new Error(
+        `${target.label} did not report a Wrangler dry-run exit.`,
+      );
+    }
+
+    const bundlePath = path.join(targetOutputDirectory, "index.js");
+    const bundle = await stat(bundlePath);
+    if (!bundle.isFile() || bundle.size === 0) {
+      throw new Error(`Wrangler did not emit the ${target.label} bundle.`);
+    }
+    const bundleText = await readFile(bundlePath, "utf8");
+    if (RETIRED_DEPLOYMENTS.test(bundleText)) {
+      throw new Error(
+        `${target.label} bundle retained a retired deployment target.`,
+      );
+    }
+    process.stdout.write(
+      `${JSON.stringify({
+        ok: true,
+        entry: configuredEntry,
+        config: target.config,
+        environment: target.env || "default",
+        role: target.role,
+        worker: target.worker,
+        deployment: target.deployment,
+        deployed: false,
+        bundleBytes: bundle.size,
+      })}\n`,
+    );
   }
-  const bundleText = await readFile(bundlePath, "utf8");
-  if (RETIRED_DEPLOYMENTS.test(bundleText)) {
-    throw new Error("Apps host bundle retained a retired deployment target.");
-  }
-  process.stdout.write(
-    `${JSON.stringify({
-      ok: true,
-      entry: configuredEntry,
-      config: "wrangler.jsonc",
-      deployment: "dev:outgoing-bulldog-865",
-      deployed: false,
-      bundleBytes: bundle.size,
-    })}\n`,
-  );
 } finally {
   await rm(outputDirectory, { recursive: true, force: true });
   if (!projectWranglerDirectoryExisted) {

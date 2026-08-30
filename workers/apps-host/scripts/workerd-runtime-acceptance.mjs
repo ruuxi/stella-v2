@@ -741,7 +741,7 @@ export const runAppsHostWorkerdAcceptance = async ({
       workerName: EXPECTED_WORKER_NAME,
       deploymentIdentity: EXPECTED_DEPLOYMENT,
       runtimeEngine: "workerd",
-      wranglerVersion: "4.113.0",
+      wranglerVersion: "4.127.1",
       bundleSha256,
       bundleBytes: bundleBytes.byteLength,
       routeSetSha256: sha256(`${slug}\n${appPrefix}\n${interiorPrefix}`),

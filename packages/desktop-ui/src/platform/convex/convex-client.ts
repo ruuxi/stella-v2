@@ -1,6 +1,8 @@
 import { ConvexReactClient } from "convex/react";
+import { getStellaInteriorBridge } from "@/platform/interior/interior-bridge";
 import { readConfiguredConvexUrl } from "@/shared/lib/convex-urls";
 
+const interiorBridge = getStellaInteriorBridge();
 const configuredConvexUrl = readConfiguredConvexUrl(
   import.meta.env.VITE_CONVEX_URL as string | undefined,
 );
@@ -16,5 +18,13 @@ if (!configuredConvexUrl) {
 // builds still supply VITE_CONVEX_URL; this loopback target only keeps the
 // provider inert for local packaging milestones and offline source builds.
 export const convexClient = new ConvexReactClient(
-  configuredConvexUrl ?? "http://127.0.0.1:3210",
+  interiorBridge?.gatewayOrigin ??
+    configuredConvexUrl ??
+    "http://127.0.0.1:3210",
+  interiorBridge
+    ? {
+        skipConvexDeploymentUrlCheck: true,
+        expectAuth: true,
+      }
+    : undefined,
 );

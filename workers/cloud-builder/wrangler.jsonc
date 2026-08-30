@@ -8,14 +8,19 @@
     "enabled": true,
     "logs": {
       "enabled": true,
-      "invocation_logs": true
-    }
+      "invocation_logs": true,
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.05,
+    },
   },
   "vars": {
     "SANDBOX_TRANSPORT": "rpc",
     "TURN_TIMEOUT_MS": "900000",
     "SANDBOX_IDLE_TIMEOUT_MS": "600000",
     "APPS_HOST_BASE_URL": "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+    "TRUSTED_APPS_HOST_BASE_URL": "https://stella-v2-apps-auth-dev.lolruuxi.workers.dev",
     // Pinned issuer for the conversation socket's JWT verification, and the
     // fallback Convex origin for index flushes that happen outside a turn.
     // Never the JWKS env var: that is the PRIVATE key set and stays in Convex.
@@ -24,103 +29,124 @@
     // Strictly a dev-target proof seam. Production configs must omit both
     // values; the Worker and DO independently deny the route without them.
     "ENABLE_DEV_ACCEPTANCE_PROBES": "1",
-    "STELLA_DEPLOYMENT_IDENTITY": "dev:outgoing-bulldog-865"
+    "STELLA_DEPLOYMENT_IDENTITY": "dev:outgoing-bulldog-865",
+  },
+  "secrets": {
+    "required": ["BUILDER_SERVICE_SECRET"],
   },
   "worker_loaders": [
     {
-      "binding": "LOADER"
-    }
+      "binding": "LOADER",
+    },
   ],
   "services": [
     {
       // Browser Run, reusable website state, and Live View capabilities stay
       // behind a private Worker boundary. Builder receives only this fetcher.
       "binding": "BROWSER_GATEWAY",
-      "service": "stella-v2-browser-gateway-dev"
-    }
+      "service": "stella-v2-browser-gateway-dev",
+    },
   ],
   "r2_buckets": [
     {
       "binding": "APP_BUILDS",
-      "bucket_name": "stella-v2-app-builds-dev"
+      "bucket_name": "stella-v2-app-builds-dev",
     },
     {
       "binding": "BACKUP_BUCKET",
-      "bucket_name": "stella-v2-app-builds-dev"
+      "bucket_name": "stella-v2-app-builds-dev",
     },
     {
       "binding": "AGENT_HOME",
-      "bucket_name": "stella-v2-agent-home-dev"
+      "bucket_name": "stella-v2-agent-home-dev",
     },
     {
       // Rolled-over conversation segments and oversize-row spills.
       // Deliberately NOT AGENT_HOME: different retention, and a prefix delete
       // during account deletion must not be able to reach memory documents.
       "binding": "CONVERSATION_ARCHIVE",
-      "bucket_name": "stella-v2-conversation-archive-dev"
-    }
+      "bucket_name": "stella-v2-conversation-archive-dev",
+    },
   ],
   "kv_namespaces": [
     {
       "binding": "APP_ROUTES",
-      "id": "dc5c7bac2bd04ec7bbd6a89f18a04ee7"
-    }
+      "id": "dc5c7bac2bd04ec7bbd6a89f18a04ee7",
+    },
   ],
   "containers": [
     {
       "class_name": "Sandbox",
       "image": "./Dockerfile",
       "instance_type": "standard-4",
-      "max_instances": 1
+      "max_instances": 1,
+      // TURN_TIMEOUT_MS plus one minute for exact Stop/teardown settlement.
+      "rollout_active_grace_period": 960,
     },
     {
       "class_name": "SandboxSmall",
       "image": "./Dockerfile",
       "instance_type": "standard-2",
-      "max_instances": 1
-    }
+      "max_instances": 1,
+      "rollout_active_grace_period": 960,
+    },
+    {
+      "class_name": "AppBuildSandbox",
+      "image": "./Dockerfile",
+      "instance_type": "standard-4",
+      "max_instances": 1,
+      "rollout_active_grace_period": 960,
+    },
   ],
   "durable_objects": {
     "bindings": [
       {
         "name": "Sandbox",
-        "class_name": "Sandbox"
+        "class_name": "Sandbox",
       },
       {
         "name": "SANDBOX_SMALL",
-        "class_name": "SandboxSmall"
+        "class_name": "SandboxSmall",
+      },
+      {
+        "name": "APP_BUILD_SANDBOX",
+        "class_name": "AppBuildSandbox",
       },
       {
         "name": "BUILD_SESSIONS",
-        "class_name": "BuildSession"
+        "class_name": "BuildSession",
       },
       {
         "name": "ORCHESTRATOR_SESSIONS",
-        "class_name": "OrchestratorSession"
+        "class_name": "OrchestratorSession",
       },
       {
         "name": "OWNER_TRANSFER_COORDINATORS",
-        "class_name": "OwnerTransferCoordinator"
-      }
-    ]
+        "class_name": "OwnerTransferCoordinator",
+      },
+    ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["Sandbox", "BuildSession"]
+      "new_sqlite_classes": ["Sandbox", "BuildSession"],
     },
     {
       "tag": "v2",
-      "new_sqlite_classes": ["OrchestratorSession"]
+      "new_sqlite_classes": ["OrchestratorSession"],
     },
     {
       "tag": "v3",
-      "new_sqlite_classes": ["SandboxSmall"]
+      "new_sqlite_classes": ["SandboxSmall"],
     },
     {
       "tag": "v4",
-      "new_sqlite_classes": ["OwnerTransferCoordinator"]
-    }
+      "new_sqlite_classes": ["OwnerTransferCoordinator"],
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": ["AppBuildSandbox"],
+    },
   ],
   "env": {
     "bn118": {
@@ -132,105 +158,123 @@
         "TURN_TIMEOUT_MS": "900000",
         "SANDBOX_IDLE_TIMEOUT_MS": "600000",
         "APPS_HOST_BASE_URL": "https://stella-v2-apps-host-basic-nightingale-118.lolruuxi.workers.dev",
+        "TRUSTED_APPS_HOST_BASE_URL": "https://stella-v2-apps-auth-basic-nightingale-118.lolruuxi.workers.dev",
         "STELLA_CONVEX_SITE_URL": "https://basic-nightingale-118.convex.site",
         "STELLA_CONVEX_CLOUD_URL": "https://basic-nightingale-118.convex.cloud",
         "ENABLE_DEV_ACCEPTANCE_PROBES": "1",
-        "STELLA_DEPLOYMENT_IDENTITY": "preview:basic-nightingale-118"
+        "STELLA_DEPLOYMENT_IDENTITY": "preview:basic-nightingale-118",
       },
       "secrets": {
-        "required": ["BUILDER_SERVICE_SECRET"]
+        "required": ["BUILDER_SERVICE_SECRET"],
       },
       "worker_loaders": [
         {
-          "binding": "LOADER"
-        }
+          "binding": "LOADER",
+        },
       ],
       "services": [
         {
           "binding": "BROWSER_GATEWAY",
-          "service": "stella-v2-browser-gateway-basic-nightingale-118"
-        }
+          "service": "stella-v2-browser-gateway-basic-nightingale-118",
+        },
       ],
       "r2_buckets": [
         {
           "binding": "APP_BUILDS",
-          "bucket_name": "stella-v2-app-builds-basic-nightingale-118"
+          "bucket_name": "stella-v2-app-builds-basic-nightingale-118",
         },
         {
           "binding": "BACKUP_BUCKET",
-          "bucket_name": "stella-v2-app-builds-basic-nightingale-118"
+          "bucket_name": "stella-v2-app-builds-basic-nightingale-118",
         },
         {
           "binding": "AGENT_HOME",
-          "bucket_name": "stella-v2-agent-home-basic-nightingale-118"
+          "bucket_name": "stella-v2-agent-home-basic-nightingale-118",
         },
         {
           "binding": "CONVERSATION_ARCHIVE",
-          "bucket_name": "stella-v2-conversation-archive-basic-nightingale-118"
-        }
+          "bucket_name": "stella-v2-conversation-archive-basic-nightingale-118",
+        },
       ],
       "kv_namespaces": [
         {
           "binding": "APP_ROUTES",
-          "id": "7a0ed79419de4637aba5b8c3ff248c0e"
-        }
+          "id": "7a0ed79419de4637aba5b8c3ff248c0e",
+        },
       ],
       "containers": [
         {
           "class_name": "Sandbox",
           "image": "./Dockerfile",
           "instance_type": "standard-4",
-          "max_instances": 1
+          "max_instances": 1,
+          "rollout_active_grace_period": 960,
         },
         {
           "class_name": "SandboxSmall",
           "image": "./Dockerfile",
           "instance_type": "standard-2",
-          "max_instances": 6
-        }
+          "max_instances": 6,
+          "rollout_active_grace_period": 960,
+        },
+        {
+          "class_name": "AppBuildSandbox",
+          "image": "./Dockerfile",
+          "instance_type": "standard-4",
+          "max_instances": 1,
+          "rollout_active_grace_period": 960,
+        },
       ],
       "durable_objects": {
         "bindings": [
           {
             "name": "Sandbox",
-            "class_name": "Sandbox"
+            "class_name": "Sandbox",
           },
           {
             "name": "SANDBOX_SMALL",
-            "class_name": "SandboxSmall"
+            "class_name": "SandboxSmall",
+          },
+          {
+            "name": "APP_BUILD_SANDBOX",
+            "class_name": "AppBuildSandbox",
           },
           {
             "name": "BUILD_SESSIONS",
-            "class_name": "BuildSession"
+            "class_name": "BuildSession",
           },
           {
             "name": "ORCHESTRATOR_SESSIONS",
-            "class_name": "OrchestratorSession"
+            "class_name": "OrchestratorSession",
           },
           {
             "name": "OWNER_TRANSFER_COORDINATORS",
-            "class_name": "OwnerTransferCoordinator"
-          }
-        ]
+            "class_name": "OwnerTransferCoordinator",
+          },
+        ],
       },
       "migrations": [
         {
           "tag": "v1",
-          "new_sqlite_classes": ["Sandbox", "BuildSession"]
+          "new_sqlite_classes": ["Sandbox", "BuildSession"],
         },
         {
           "tag": "v2",
-          "new_sqlite_classes": ["OrchestratorSession"]
+          "new_sqlite_classes": ["OrchestratorSession"],
         },
         {
           "tag": "v3",
-          "new_sqlite_classes": ["SandboxSmall"]
+          "new_sqlite_classes": ["SandboxSmall"],
         },
         {
           "tag": "v4",
-          "new_sqlite_classes": ["OwnerTransferCoordinator"]
-        }
-      ]
-    }
-  }
+          "new_sqlite_classes": ["OwnerTransferCoordinator"],
+        },
+        {
+          "tag": "v5",
+          "new_sqlite_classes": ["AppBuildSandbox"],
+        },
+      ],
+    },
+  },
 }

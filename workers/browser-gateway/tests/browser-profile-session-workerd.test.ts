@@ -33,7 +33,9 @@ const startWorker = async (
   port: number,
   persistenceRoot: string,
   envFile: string,
+  config = "./tests/fixtures/browser-profile-session-workerd.wrangler.jsonc",
 ): Promise<RunningWorker> => {
+  const inspectorPort = freePort();
   const process = Bun.spawn(
     [
       "./node_modules/.bin/wrangler",
@@ -43,12 +45,14 @@ const startWorker = async (
       "127.0.0.1",
       "--port",
       String(port),
+      "--inspector-port",
+      String(inspectorPort),
       "--persist-to",
       persistenceRoot,
       "--env-file",
       envFile,
       "--config",
-      "./tests/fixtures/browser-profile-session-workerd.wrangler.jsonc",
+      config,
       "--show-interactive-dev-session=false",
     ],
     {
@@ -155,5 +159,122 @@ describe("BrowserProfileSession in real workerd", () => {
     expect(removedApprovalRoute.status).toBe(404);
     const serialized = JSON.stringify({ beforeRestart, afterRestart });
     expect(serialized).not.toContain(TEST_KEK);
+
+    let chunksSent = 0;
+    const oversized = await fetch(`${origin}/internal/owners/profile/reset`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            chunksSent += 1;
+            controller.enqueue(new Uint8Array(32 * 1024));
+            if (chunksSent === 3) controller.close();
+          },
+        },
+        { highWaterMark: 0 },
+      ),
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    expect(oversized.status).toBe(413);
+    expect(await oversized.json()).toEqual({
+      schemaVersion: 1,
+      error: {
+        code: "bad_request",
+        message: "The browser request is invalid.",
+      },
+    });
+  }, 120_000);
+
+  test("retries terminal HUMAN_CONTROL teardown after a Workerd restart", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "stella-browser-alarm-workerd-"),
+    );
+    tempRoots.push(root);
+    const persistenceRoot = join(root, "state");
+    const envFile = join(root, ".dev.vars");
+    await Bun.write(envFile, `BROWSER_PROFILE_KEK_V1=${TEST_KEK}\n`);
+    const port = freePort();
+    const origin = `http://127.0.0.1:${port}`;
+    const config =
+      "./tests/fixtures/browser-profile-session-alarm-workerd.wrangler.jsonc";
+    let worker = await startWorker(
+      port,
+      persistenceRoot,
+      envFile,
+      config,
+    );
+
+    const setup = await post(origin, "/__test/setup", {});
+    const partialDeadline = Date.now() + 5_000;
+    let partial: any;
+    while (Date.now() < partialDeadline) {
+      partial = await fetch(`${origin}/__test/state`).then((response) =>
+        response.json(),
+      );
+      if (
+        partial.interaction?.state === "expired" &&
+        partial.state?.active_interaction_id === setup.interactionId
+      ) {
+        break;
+      }
+      await Bun.sleep(20);
+    }
+    expect(partial).toMatchObject({
+      state: {
+        phase: "HUMAN_CONTROL",
+        active_interaction_id: setup.interactionId,
+        browser_session_id: "workerd-browser-session",
+      },
+      interaction: { state: "expired", revision: 2 },
+      closeFailures: 0,
+      closeSuccesses: 0,
+    });
+    const replay = await post(
+      origin,
+      "/__test/replay-expired-decision",
+      {},
+    );
+    expect(replay.receipt).toMatchObject({
+      interactionId: setup.interactionId,
+      interactionRevision: 1,
+      result: "expired",
+    });
+    const afterReplay = await fetch(`${origin}/__test/state`).then(
+      (response) => response.json() as Promise<any>,
+    );
+    expect(afterReplay.state.active_interaction_id).toBe(setup.interactionId);
+    expect(afterReplay.alarm).toBeNumber();
+
+    worker.process.kill();
+    await worker.process.exited;
+    running.splice(running.indexOf(worker), 1);
+    await worker.output;
+    worker = await startWorker(port, persistenceRoot, envFile, config);
+
+    const recoveredDeadline = Date.now() + 10_000;
+    let recovered: any;
+    while (Date.now() < recoveredDeadline) {
+      recovered = await fetch(`${origin}/__test/state`).then((response) =>
+        response.json(),
+      );
+      if (
+        recovered.state?.phase === "AGENT_CONTROL" &&
+        recovered.state?.active_interaction_id === null
+      ) {
+        break;
+      }
+      await Bun.sleep(50);
+    }
+    expect(recovered).toMatchObject({
+      state: {
+        phase: "AGENT_CONTROL",
+        active_interaction_id: null,
+        browser_session_id: null,
+      },
+      interaction: { state: "expired", revision: 2 },
+      closeFailures: 0,
+      closeSuccesses: 1,
+    });
   }, 120_000);
 });

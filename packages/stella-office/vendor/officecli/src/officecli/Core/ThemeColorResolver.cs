@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using DocumentFormat.OpenXml;
@@ -10,7 +10,7 @@ namespace OfficeCli.Core;
 /// Shared theme color resolution. Builds a scheme-color-name → hex dictionary
 /// from an OOXML ColorScheme. Used by both PowerPoint and Word handlers.
 /// </summary>
-public static class ThemeColorResolver
+internal static class ThemeColorResolver
 {
     /// <summary>
     /// Build a map of scheme color names to hex values from a ColorScheme.
@@ -20,6 +20,16 @@ public static class ThemeColorResolver
     /// If true, adds PPT-specific aliases: text1, text2, background1, background2.
     /// Word uses a smaller alias set.
     /// </param>
+    // Strict hex check (3/6/8 chars) to guard the theme → CSS pipeline.
+    private static bool IsHex(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return false;
+        if (s.Length is not (3 or 6 or 8)) return false;
+        foreach (var c in s)
+            if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'))) return false;
+        return true;
+    }
+
     public static Dictionary<string, string> BuildColorMap(
         Drawing.ColorScheme? colorScheme, bool includePptAliases = false)
     {
@@ -33,7 +43,10 @@ public static class ThemeColorResolver
             var sys = color.GetFirstChild<Drawing.SystemColor>();
             var srgb = sys?.LastColor?.Value ?? sys?.Val?.InnerText;
             var hex = rgb ?? srgb;
-            if (hex != null) map[name] = hex;
+            // Hex-gate the theme color at the source — downstream CSS
+            // sinks interpolate these as `#{hex}` into inline style, so
+            // an adversarial theme1.xml otherwise becomes an XSS vector.
+            if (hex != null && IsHex(hex)) map[name] = hex;
         }
 
         Add("dk1", colorScheme.Dark1Color);

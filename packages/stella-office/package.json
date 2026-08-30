@@ -1,6 +1,6 @@
 {
   "name": "stella-office",
-  "version": "1.0.36",
+  "version": "1.0.145",
   "description": "Bundled Office document CLI wrapper for Stella",
   "type": "module",
   "files": [

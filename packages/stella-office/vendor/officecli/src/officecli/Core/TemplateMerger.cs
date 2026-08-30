@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Text.Json;
@@ -16,9 +16,16 @@ namespace OfficeCli.Core;
 /// Merges a template Office document with JSON data by replacing {{key}} placeholders.
 /// Supports DOCX, XLSX, and PPTX formats.
 /// </summary>
-public static class TemplateMerger
+internal static class TemplateMerger
 {
-    private static readonly Regex PlaceholderPattern = new(@"\{\{(\w[\w.]*)\}\}", RegexOptions.Compiled);
+    // Allow optional outer whitespace ({{ name }}), hyphenated keys
+    // ({{user-id}}), inner spaces ({{ first name }}), and array indexing
+    // ({{items[0]}}). Outer \s* is stripped; inner spaces are preserved as
+    // part of the key. The captured group is also Trim()'d at the use site
+    // so a placeholder like "{{  name  }}" resolves the same as "{{name}}".
+    // Match is non-greedy on the inner segment so trailing whitespace
+    // followed by }} is not absorbed into the key.
+    private static readonly Regex PlaceholderPattern = new(@"\{\{\s*(\w[\w.\-\[\] ]*?)\s*\}\}", RegexOptions.Compiled);
 
     /// <summary>
     /// Result of a merge operation.
@@ -57,23 +64,112 @@ public static class TemplateMerger
             };
 
         var data = new Dictionary<string, string>();
+        // Pass 1: literal top-level keys win. {{a.b}} with data {"a.b":"X"}
+        // resolves to "X" regardless of whether {"a":{"b":...}} also exists.
+        // CONSISTENCY(merge-literal-key-precedence): mirrors the hyphen-key
+        // contract (R21) — literal lookup is the canonical path; nested
+        // dot-path flattening is a convenience layered on top, not a
+        // replacement.
         foreach (var kvp in jsonObj)
         {
             data[kvp.Key] = kvp.Value?.ToString() ?? "";
+        }
+        // Pass 2: flatten nested objects into dot paths ("a"→{"b":"v"} →
+        // "a.b":"v") and arrays into bracket paths ("items"→[v0,v1] →
+        // "items[0]":"v0", "items[1]":"v1"). Only fill keys that pass 1 did
+        // NOT already write, so a literal "a.b" or "items[0]" sibling at the
+        // root stays authoritative.
+        foreach (var kvp in jsonObj)
+        {
+            if (kvp.Value is JsonObject nested)
+                FlattenNested(nested, kvp.Key, data);
+            else if (kvp.Value is JsonArray arr)
+                FlattenArray(arr, kvp.Key, data);
         }
         return data;
     }
 
     /// <summary>
-    /// Merge a template document with data. Copies template to output, then replaces placeholders.
+    /// Walk a JsonArray and emit <c>prefix[i]</c> entries for each element.
+    /// Nested objects/arrays recurse so e.g. <c>users[0].name</c> and
+    /// <c>matrix[0][1]</c> resolve. Existing literal sibling keys win, same
+    /// precedence rule as <see cref="FlattenNested"/>.
     /// </summary>
-    public static MergeResult Merge(string templatePath, string outputPath, Dictionary<string, string> data)
+    private static void FlattenArray(JsonArray arr, string prefix, Dictionary<string, string> data)
+    {
+        for (int i = 0; i < arr.Count; i++)
+        {
+            var path = $"{prefix}[{i}]";
+            var item = arr[i];
+            if (item is JsonObject childObj)
+            {
+                FlattenNested(childObj, path, data);
+                if (!data.ContainsKey(path))
+                    data[path] = item.ToString();
+            }
+            else if (item is JsonArray childArr)
+            {
+                FlattenArray(childArr, path, data);
+            }
+            else if (!data.ContainsKey(path))
+            {
+                data[path] = item?.ToString() ?? "";
+            }
+        }
+    }
+
+    /// <summary>
+    /// Recursively walk a JsonObject and write <c>prefix.child</c> entries into
+    /// <paramref name="data"/>, skipping any path a literal sibling already
+    /// populated. Nested arrays are skipped (no canonical placeholder index
+    /// syntax). Primitive leaves use the same <c>ToString()</c> projection as
+    /// the top-level pass for output parity.
+    /// </summary>
+    private static void FlattenNested(JsonObject obj, string prefix, Dictionary<string, string> data)
+    {
+        foreach (var kvp in obj)
+        {
+            var path = $"{prefix}.{kvp.Key}";
+            if (kvp.Value is JsonObject child)
+            {
+                // Recurse first, then write the object's own ToString only
+                // as a last resort (matches how Pass 1 stores top-level
+                // objects: stringified JSON when no deeper match exists).
+                FlattenNested(child, path, data);
+                if (!data.ContainsKey(path))
+                    data[path] = kvp.Value?.ToString() ?? "";
+            }
+            else if (kvp.Value is JsonArray nestedArr)
+            {
+                FlattenArray(nestedArr, path, data);
+            }
+            else if (!data.ContainsKey(path))
+            {
+                data[path] = kvp.Value?.ToString() ?? "";
+            }
+        }
+    }
+
+    /// <summary>
+    /// Merge a template document with data. Copies template to output, then replaces placeholders.
+    /// Refuses to overwrite an existing output unless <paramref name="force"/> is set.
+    /// </summary>
+    public static MergeResult Merge(string templatePath, string outputPath, Dictionary<string, string> data, bool force = false)
     {
         if (!File.Exists(templatePath))
             throw new CliException($"Template file not found: {templatePath}")
             {
                 Code = "file_not_found",
                 Suggestion = "Check the template file path."
+            };
+
+        // Refuse to silently overwrite an existing output unless force is set,
+        // mirroring the `create` command's guard (CommandBuilder.Import.cs:185).
+        if (File.Exists(outputPath) && !force)
+            throw new CliException($"Output file already exists: {outputPath}. Use --force to overwrite.")
+            {
+                Code = "file_exists",
+                Suggestion = "Add --force flag or remove the file first."
             };
 
         File.Copy(templatePath, outputPath, overwrite: true);
@@ -94,25 +190,96 @@ public static class TemplateMerger
 
     private static MergeResult MergeDocx(string filePath, Dictionary<string, string> data)
     {
-        using (var handler = new Handlers.WordHandler(filePath, editable: true))
-        {
-            foreach (var kvp in data)
-            {
-                var placeholder = "{{" + kvp.Key + "}}";
-                handler.Set("/", new Dictionary<string, string>
-                {
-                    ["find"] = placeholder,
-                    ["replace"] = kvp.Value
-                });
-            }
-        }
+        var usedKeys = new HashSet<string>();
+        int totalReplacements = 0;
+
+        // CONSISTENCY(merge-single-pass): walk every <w:t> in body + aux parts
+        // in one pass with a single-pass regex substitute. The earlier
+        // per-key handler.Set(find/replace) loop fed each substituted value
+        // back through the next iteration, so a value like "{{name}}" inside
+        // data["greeting"] would itself be replaced — and only keys whose
+        // placeholder still survived the cascade counted as "used".
+        ReplacePlaceholdersInDocx(filePath, data, usedKeys, count => totalReplacements += count);
 
         // Scan for unresolved placeholders
         var unresolved = ScanUnresolvedDocx(filePath);
-        // Keys that were provided and are not still unresolved were successfully replaced
-        var usedKeys = data.Keys.Where(k => !unresolved.Contains(k)).ToList();
 
-        return new MergeResult(usedKeys.Count, unresolved, usedKeys);
+        return new MergeResult(totalReplacements, unresolved, usedKeys.ToList());
+    }
+
+    private static void ReplacePlaceholdersInDocx(string filePath, Dictionary<string, string> data, HashSet<string> usedKeys, Action<int> bumpReplacements)
+    {
+        using var doc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(filePath, true);
+        var mainPart = doc.MainDocumentPart;
+        if (mainPart == null) return;
+
+        IEnumerable<(DocumentFormat.OpenXml.Packaging.OpenXmlPart Part, DocumentFormat.OpenXml.OpenXmlPartRootElement? Root)> allParts()
+        {
+            if (mainPart.Document != null)
+                yield return (mainPart, mainPart.Document);
+            foreach (var hp in mainPart.HeaderParts)
+                yield return (hp, hp.Header);
+            foreach (var fp in mainPart.FooterParts)
+                yield return (fp, fp.Footer);
+            if (mainPart.FootnotesPart?.Footnotes != null)
+                yield return (mainPart.FootnotesPart, mainPart.FootnotesPart.Footnotes);
+            if (mainPart.EndnotesPart?.Endnotes != null)
+                yield return (mainPart.EndnotesPart, mainPart.EndnotesPart.Endnotes);
+            if (mainPart.WordprocessingCommentsPart?.Comments != null)
+                yield return (mainPart.WordprocessingCommentsPart, mainPart.WordprocessingCommentsPart.Comments);
+        }
+
+        foreach (var (part, root) in allParts())
+        {
+            if (root == null) continue;
+            bool changed = false;
+            foreach (var t in root.Descendants<DocumentFormat.OpenXml.Wordprocessing.Text>())
+            {
+                var original = t.Text ?? "";
+                if (original.Length == 0 || !original.Contains("{{")) continue;
+                var replaced = SinglePassReplace(original, data, out var matched, usedKeys, bumpReplacements);
+                if (matched && replaced != original)
+                {
+                    t.Text = replaced;
+                    t.Space = DocumentFormat.OpenXml.SpaceProcessingModeValues.Preserve;
+                    changed = true;
+                }
+            }
+            if (changed) root.Save();
+        }
+    }
+
+    /// <summary>
+    /// Replace every <c>{{key}}</c> in <paramref name="input"/> in a single
+    /// left-to-right scan. The substituted value is never re-fed through
+    /// the next iteration, so a kvp value containing <c>{{other}}</c> stays
+    /// literal. Tracks which keys actually appeared in the template
+    /// (<paramref name="usedKeys"/>) and the total number of substitutions
+    /// (<paramref name="bumpReplacements"/>). Placeholders whose name is
+    /// not in <paramref name="data"/> are left intact so
+    /// <c>ScanUnresolved*</c> can report them.
+    /// </summary>
+    private static string SinglePassReplace(string input, Dictionary<string, string> data, out bool matched, HashSet<string>? usedKeys = null, Action<int>? bumpReplacements = null)
+    {
+        matched = false;
+        if (string.IsNullOrEmpty(input) || !input.Contains("{{"))
+            return input;
+
+        int localCount = 0;
+        var result = PlaceholderPattern.Replace(input, m =>
+        {
+            var key = m.Groups[1].Value;
+            if (data.TryGetValue(key, out var replacement))
+            {
+                usedKeys?.Add(key);
+                localCount++;
+                return replacement;
+            }
+            return m.Value;
+        });
+        if (localCount > 0) bumpReplacements?.Invoke(localCount);
+        matched = localCount > 0;
+        return result;
     }
 
     private static List<string> ScanUnresolvedDocx(string filePath)
@@ -184,17 +351,7 @@ public static class TemplateMerger
                     var cellText = GetCellText(cell, sst);
                     if (string.IsNullOrEmpty(cellText) || !cellText.Contains("{{")) continue;
 
-                    var newText = cellText;
-                    foreach (var kvp in data)
-                    {
-                        var placeholder = "{{" + kvp.Key + "}}";
-                        if (newText.Contains(placeholder))
-                        {
-                            newText = newText.Replace(placeholder, kvp.Value);
-                            usedKeys.Add(kvp.Key);
-                            totalReplacements++;
-                        }
-                    }
+                    var newText = SinglePassReplace(cellText, data, out _, usedKeys, count => totalReplacements += count);
 
                     if (newText != cellText)
                     {
@@ -341,19 +498,8 @@ public static class TemplateMerger
         var fullText = string.Concat(runs.Select(r => r.Text?.Text ?? ""));
         if (!fullText.Contains("{{")) return 0;
 
-        var newText = fullText;
         int replacements = 0;
-
-        foreach (var kvp in data)
-        {
-            var placeholder = "{{" + kvp.Key + "}}";
-            if (newText.Contains(placeholder))
-            {
-                newText = newText.Replace(placeholder, kvp.Value);
-                usedKeys.Add(kvp.Key);
-                replacements++;
-            }
-        }
+        var newText = SinglePassReplace(fullText, data, out _, usedKeys, count => replacements += count);
 
         if (replacements == 0) return 0;
 

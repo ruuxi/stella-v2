@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using DocumentFormat.OpenXml.Packaging;
@@ -10,7 +10,7 @@ namespace OfficeCli.Core;
 /// Shared Theme Get/Set logic for all document types.
 /// Operates on ThemePart which has identical structure across Word/Excel/PowerPoint.
 /// </summary>
-public static class ThemeHandler
+internal static class ThemeHandler
 {
     // ColorScheme slot names → accessor pairs
     private static readonly (string Key, Func<A.ColorScheme, A.Color2Type?> Get, Action<A.ColorScheme, string> Set)[] ColorSlots =

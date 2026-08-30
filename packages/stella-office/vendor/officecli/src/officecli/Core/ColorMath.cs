@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 namespace OfficeCli.Core;
@@ -8,7 +8,7 @@ namespace OfficeCli.Core;
 /// Extracted from PowerPointHandler.HtmlPreview.Css and WordHandler.HtmlPreview.Css
 /// to eliminate duplication.
 /// </summary>
-public static class ColorMath
+internal static class ColorMath
 {
     /// <summary>Convert RGB (0-255) to HSL (h: 0-1, s: 0-1, l: 0-1).</summary>
     public static void RgbToHsl(int r, int g, int b, out double h, out double s, out double l)
@@ -68,15 +68,21 @@ public static class ColorMath
     }
 
     /// <summary>
+    /// Parse the first 6 hex digits of an RGB string into (R, G, B) byte components (0–255).
+    /// Caller must ensure the input has at least 6 hex digits and no leading '#'.
+    /// Any trailing data (e.g. an 8-digit AARRGGBB alpha tail) is ignored.
+    /// </summary>
+    public static (int R, int G, int B) HexToRgb(string hex) =>
+        (Convert.ToInt32(hex[..2], 16), Convert.ToInt32(hex[2..4], 16), Convert.ToInt32(hex[4..6], 16));
+
+    /// <summary>
     /// Apply OOXML lumMod/lumOff color transform in HSL space.
     /// lumMod and lumOff are in 0–100000 units (percentage × 1000).
     /// Formula: newL = clamp(L × lumMod/100000 + lumOff/100000, 0, 1)
     /// </summary>
     public static string ApplyLumModOff(string hex, int lumMod, int lumOff)
     {
-        var r = Convert.ToInt32(hex[..2], 16);
-        var g = Convert.ToInt32(hex[2..4], 16);
-        var b = Convert.ToInt32(hex[4..6], 16);
+        var (r, g, b) = ColorMath.HexToRgb(hex);
 
         RgbToHsl(r, g, b, out var h, out var s, out var l);
         l = Math.Clamp(l * (lumMod / 100000.0) + (lumOff / 100000.0), 0, 1);
@@ -89,16 +95,14 @@ public static class ColorMath
     }
 
     /// <summary>
-    /// Apply OOXML DrawingML color transforms: tint, shade, lumMod, lumOff, alpha.
+    /// Apply OOXML DrawingML color transforms: tint, shade, lumMod, lumOff, satMod, alpha.
     /// All values in 0–100000 units (percentage × 1000). Pass null to skip a transform.
     /// Input hex is 6-char without '#' prefix. Output includes '#' prefix (or rgba() if alpha &lt; 100000).
     /// </summary>
     public static string ApplyTransforms(string hex, int? tint = null, int? shade = null,
-        int? lumMod = null, int? lumOff = null, int? alpha = null)
+        int? lumMod = null, int? lumOff = null, int? alpha = null, int? satMod = null)
     {
-        var r = Convert.ToInt32(hex[..2], 16);
-        var g = Convert.ToInt32(hex[2..4], 16);
-        var b = Convert.ToInt32(hex[4..6], 16);
+        var (r, g, b) = ColorMath.HexToRgb(hex);
 
         // OOXML spec: tint blends toward white, shade blends toward black
         if (tint.HasValue)
@@ -117,12 +121,16 @@ public static class ColorMath
             b = (int)(b * s);
         }
 
-        // OOXML spec: lumMod/lumOff operate in HSL space
-        if (lumMod.HasValue || lumOff.HasValue)
+        // OOXML spec: lumMod/lumOff and satMod operate in HSL space.
+        // Fold them into a single HSL round-trip so a color with both gets
+        // S and L modulation applied together (no double-convert).
+        if (lumMod.HasValue || lumOff.HasValue || satMod.HasValue)
         {
             var mod = (lumMod ?? 100000) / 100000.0;
             var off = (lumOff ?? 0) / 100000.0;
             RgbToHsl(r, g, b, out var h, out var s, out var l);
+            if (satMod.HasValue)
+                s = Math.Clamp(s * (satMod.Value / 100000.0), 0, 1);
             l = Math.Clamp(l * mod + off, 0, 1);
             HslToRgb(h, s, l, out r, out g, out b);
         }

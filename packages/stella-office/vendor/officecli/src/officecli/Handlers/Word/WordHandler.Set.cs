@@ -1,28 +1,146 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using OfficeCli.Core;
-using A = DocumentFormat.OpenXml.Drawing;
-using DW = DocumentFormat.OpenXml.Drawing.Wordprocessing;
 using M = DocumentFormat.OpenXml.Math;
 
 namespace OfficeCli.Handlers;
 
 public partial class WordHandler
 {
+    // PERF(nav-child-cache): keys whose Set only writes run/paragraph/cell/row/
+    // table PROPERTIES (rPr / pPr / tcPr / trPr / tblPr) and therefore never
+    // adds or removes a <w:r> / <w:tr> / <w:tc> element — the only structure the
+    // run/row/cell nav caches index. A Set restricted to these keys leaves those
+    // caches valid, so a per-run/per-cell attribute-set batch keeps hitting them
+    // (arming the clear guard there would rebuild O(R) per set → O(R²)).
+    //
+    // JUDGMENT (why this is a safe-list, not a structural block-list): the
+    // criterion "does this key add/remove an r/tr/tc element?" is provable per
+    // key. `text` fails it (replaces all runs of a paragraph/cell). Anything not
+    // provably attribute-only — a new key, a field/hyperlink/equation rewrite,
+    // revision accept/reject (deletes inserted runs) — is absent here and thus
+    // clears by default. Missing a genuinely-safe key only over-clears (perf);
+    // wrongly listing an unsafe key would serve a detached element (silent
+    // wrong-content bug), so the list stays conservative.
+    private static readonly HashSet<string> NavCacheSafeSetKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // run rPr
+        "bold", "italic", "underline", "strike", "doublestrike", "color", "size",
+        "fontsize", "font", "highlight", "caps", "smallcaps", "vanish", "hidden",
+        "subscript", "superscript", "vertalign", "position", "kerning", "emboss",
+        "outline", "shadow", "imprint", "rtl", "lang", "charscale", "spacing",
+        "letterspacing",
+        // paragraph pPr
+        "alignment", "align", "halign", "textalignment", "spacebefore", "spaceafter",
+        "linespacing", "linerule", "keepnext", "keeplines", "widowcontrol",
+        "outlinelevel", "contextualspacing", "numid", "numlevel", "bidi",
+        // cell tcPr
+        "valign", "verticalalignment", "width", "nowrap", "textdirection",
+        "gridspan", "vmerge", "hidemark", "fit",
+        // row trPr
+        "height", "rowheight", "cantsplit", "tblheader",
+    };
+
+    // A Set clears the nav child caches unless EVERY property key is provably
+    // attribute-only (in NavCacheSafeSetKeys, or a dotted member of a safe
+    // family like border.*/shading.*/margin.*/indent.*/padding.*). Empty props
+    // (e.g. a pure revision.action routed elsewhere) is treated as "may
+    // restructure" → clears.
+    private static bool ShouldClearNavCacheAfterSet(Dictionary<string, string> properties)
+    {
+        if (properties.Count == 0) return true;
+        foreach (var key in properties.Keys)
+        {
+            if (NavCacheSafeSetKeys.Contains(key)) continue;
+            var lower = key.ToLowerInvariant();
+            var dot = lower.IndexOf('.');
+            var family = dot >= 0 ? lower[..dot] : lower;
+            if (family is "border" or "shading" or "margin" or "indent"
+                or "padding" or "cellmargin" or "font")
+                continue;
+            return true; // a key we can't prove is attribute-only → clear
+        }
+        return false;
+    }
+
     public List<string> Set(string path, Dictionary<string, string> properties)
     {
+        Modified = true;
+        LastSetWarnings = new List<string>();
+        LastUnrecognizedLatex = new List<string>();
+        LastSetNewPath = null;
         var unsupported = new List<string>();
 
-        // Batch Set: if path looks like a selector (not starting with /), Query → Set each
-        if (!string.IsNullOrEmpty(path) && !path.StartsWith("/"))
+        // PERF(nav-child-cache): drop the run/row/cell nav caches on exit when
+        // this Set might rewrite a container's child set (`set text`, revision
+        // accept/reject, field/hyperlink rewrites, …). Property-only sets whose
+        // keys are all attribute-only leave it disarmed. Exit-timing so a set
+        // that repopulates the cache mid-op (navigating through the mutated
+        // segment) still ends clean. See NavCacheSafeSetKeys.
+        using var _navClearGuard = ShouldClearNavCacheAfterSet(properties)
+            ? new NavCacheClearGuard(this)
+            : default;
+
+        // Bare `revision=` key was retired when the namespace split into
+        // revision.type (creation) / revision.action (accept-reject). Reject
+        // up-front with a pointed error so migrating scripts get an actionable
+        // message instead of a generic "unsupported property" deep in dispatch.
+        RejectBareRevisionKey(properties);
+
+        // Revision selector / indexed path → dedicated dispatcher. Handles
+        // `revision`, `revision[@author=X][@type=Y]`, and `/revision[N]` with
+        // a single `--prop revision.action=accept|reject`. Routed before the
+        // generic selector-batch branch so the synthetic /revision[N] path
+        // (which has no real DOM target) doesn't trip Query→recursive-Set.
+        if (IsRevisionSelectorPath(path))
+            return SetRevisionsBySelector(path, properties);
+
+        // Disambiguation guard: revision.action + find is rejected up-front.
+        // Without this, the IsRevisionActionRequest router below grabs the
+        // call and ignores the find=… key entirely, surfacing as "no revision
+        // markers found at <path>" — a confusing error. The right interpretation
+        // is "you tried to combine a creation context (find) with an action verb
+        // (revision.action) — pick one".
+        if (properties.ContainsKey("find") && properties.ContainsKey("revision.action"))
+            throw new ArgumentException(
+                "revision.action is reserved for the /revision selector (e.g. "
+                + "`set /revision --prop revision.action=accept`); it cannot be combined "
+                + "with find. To accept/reject changes produced by a find, run find first "
+                + "(emits ins/del/rPrChange/pPrChange) then use the selector dispatch.");
+
+        // Native-path accept/reject: `set /body/p[N] --prop revision.action=accept`,
+        // `set /body/p[N]/r[M] --prop revision.action=reject`, etc. — accept/reject
+        // every revision marker structurally tied to that element. Routed
+        // BEFORE the rest of the dispatch so the action key isn't shadowed
+        // by the creation-side Set.TrackChange decorator (creation and action
+        // live in disjoint key namespaces: `revision.type` vs `revision.action`).
+        if (IsRevisionActionRequest(properties))
+            return SetRevisionByNativePath(path, properties);
+
+        // Batch Set: route to the shared filter engine when the path is a bare
+        // selector (no `/`) OR a `/`-scoped path that carries a content filter
+        // (e.g. `/body/p[1]/r[bold=true or size=20pt]`). docx Query resolves the
+        // slash-filter path via its bridge, so the same FilterSelector → Set-each
+        // branch works; structural `/`-paths (`/body/p[@paraId=…]/r[2]`) stay
+        // false in IsContentFilterPath and take NavigateToElement below.
+        if (!string.IsNullOrEmpty(path)
+            && (!path.StartsWith("/") || OfficeCli.Core.AttributeFilter.IsContentFilterPath(path)))
         {
-            var targets = Query(path);
+            // FilterSelector narrows with the shared engine: a pure-AND selector
+            // takes the flat path with applyAll:false (comparison ops only — the
+            // handler already matched = / != with its looser semantics, so
+            // set "run[size>14pt]" no longer sets every run); a selector with `or`
+            // is queried bracket-stripped (handler returns broadly) then narrowed
+            // by the boolean expression tree, which applies every predicate.
+            var (targets, _) = OfficeCli.Core.AttributeFilter.FilterSelector(
+                path, Query, keyResolver: null, applyAll: false);
             if (targets.Count == 0)
                 throw new ArgumentException($"No elements matched selector: {path}");
+            LastSelectorSetCount = targets.Count;
             foreach (var target in targets)
             {
                 var targetUnsupported = Set(target.Path, properties);
@@ -32,59 +150,245 @@ public partial class WordHandler
             return unsupported;
         }
 
+        // find / range are two mutually exclusive addressing modes (text match vs
+        // explicit character offsets). Reject the contradiction rather than pick a
+        // silent winner — mirrors the revision-namespace ambiguity rule.
+        if (properties.ContainsKey("find") && properties.ContainsKey("range"))
+            throw new ArgumentException(
+                "'find' and 'range' are mutually exclusive addressing modes — provide one, not both.");
+
+        // Explicit character-range run formatting: same split-run engine as find,
+        // but the [start,end) offsets are supplied directly instead of derived from
+        // a text match — giving a caller with a live text selection unambiguous
+        // run-level formatting even when the selected text repeats. Run-level only;
+        // offsets are 0-based, half-open, relative to the concatenated run text of
+        // the resolved scope (a /body/p[N] path is that paragraph; /body spans all).
+        // Structured to be isomorphic with this handler's own find path
+        // (ProcessWordRange ≡ ProcessFind minus the match step); the cross-handler
+        // range surface itself is CONSISTENCY(char-range).
+        if (properties.TryGetValue("range", out var rangeSpec))
+        {
+            if (properties.ContainsKey("replace") || properties.ContainsKey("text"))
+                throw new ArgumentException(
+                    "range currently supports formatting only (bold, color, size, …); " +
+                    "text insertion/replacement via range is not yet supported.");
+            if (properties.Keys.Any(k => k.StartsWith("revision.", StringComparison.OrdinalIgnoreCase)))
+                throw new ArgumentException(
+                    "range cannot be combined with revision.* — use find (which infers "
+                    + "ins/del) or an explicit /body/p[N]/r[M] path for tracked-change formatting.");
+            var rangeFormatProps = new Dictionary<string, string>(properties, StringComparer.OrdinalIgnoreCase);
+            rangeFormatProps.Remove("range");
+            rangeFormatProps.Remove("scope");
+            rangeFormatProps.Remove("regex");
+            if (rangeFormatProps.Count == 0)
+                throw new ArgumentException(
+                    "'range' requires format properties (e.g. bold, color, size).");
+            var ranges = ParseHelpers.ParseCharRanges(rangeSpec);
+            var rangeEffectivePath = (path is "" or "/") ? "/body" : path;
+            foreach (var u in ProcessWordRange(rangeEffectivePath, ranges, rangeFormatProps))
+                if (!unsupported.Contains(u)) unsupported.Add(u);
+            return unsupported;
+        }
+
         // Unified find: if 'find' key is present (at any path level), route to ProcessFind
         if (properties.TryGetValue("find", out var findText))
         {
             var replace = properties.TryGetValue("replace", out var r) ? r : null;
-            // Separate run-level format properties from paragraph-level properties
+            // Separate run-level format properties from paragraph-level properties.
+            // revision.* creation keys go to a third bucket so each scope (run /
+            // paragraph) can be wrapped in the right *Change marker downstream.
             var formatProps = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var paraProps = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var revisionProps = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (key, value) in properties)
             {
                 var k = key.ToLowerInvariant();
-                if (k is "find" or "replace" or "scope" or "regex") continue;
+                if (k is "find" or "replace" or "regex") continue;
+                // revision.* (creation) carries author/date/id/type for wrapping
+                // matched runs (w:ins/w:del) or capturing rPrChange/pPrChange.
+                // revision.action is for /revision selectors, never for find.
+                if (k.StartsWith("revision.", StringComparison.OrdinalIgnoreCase))
+                {
+                    revisionProps[key] = value;
+                    continue;
+                }
                 // Paragraph-level properties go to paraProps
-                if (k is "style" or "alignment" or "align" or "firstlineindent" or "leftindent" or "indentleft"
+                if (k is "style" or "align" or "alignment" or "firstlineindent" or "leftindent" or "indentleft"
                     or "indent" or "rightindent" or "indentright" or "hangingindent" or "spacebefore"
                     or "spaceafter" or "linespacing" or "keepnext" or "keeplines" or "pagebreakbefore"
-                    or "widowcontrol" or "liststyle" or "start" or "text" or "formula")
+                    or "widowcontrol" or "liststyle" or "start" or "text" or "formula"
+                    or "contextualspacing"
+                    // direction is paragraph-scope (writes <w:bidi/> on pPr +
+                    // <w:rtl/> cascade to runs); routing it as run-level
+                    // would only stamp the run flag and skip the pPr bidi.
+                    or "direction" or "dir" or "bidi")
                     paraProps[key] = value;
                 else
                     formatProps[key] = value;
             }
 
-            if (replace == null && formatProps.Count == 0 && paraProps.Count == 0)
-                throw new ArgumentException("'find' requires either 'replace' and/or format properties (e.g. bold, highlight, color).");
+            // ---- find + revision validation ----
+            // revision.action is reserved for the /revision selector dispatch
+            // — combining it with find is ambiguous (action verb vs creation context).
+            if (revisionProps.ContainsKey("revision.action"))
+                throw new ArgumentException(
+                    "revision.action is reserved for the /revision selector (e.g. "
+                    + "`set /revision --prop revision.action=accept`); it cannot be combined "
+                    + "with find. To accept/reject changes produced by a find, run find first "
+                    + "(emits ins/del/rPrChange/pPrChange) then use the selector dispatch.");
+            // moveFrom/moveTo demand pairing via revision.id across two separate
+            // targets — find has no way to express that pairing, so reject up-front
+            // rather than silently producing one half of a broken pair.
+            if (revisionProps.TryGetValue("revision.type", out var rtype)
+                && (rtype.Equals("moveFrom", StringComparison.OrdinalIgnoreCase)
+                    || rtype.Equals("moveTo", StringComparison.OrdinalIgnoreCase)))
+                throw new ArgumentException(
+                    $"revision.type={rtype} cannot be combined with find: move pairs require "
+                    + "two explicitly-addressed runs sharing a revision.id. "
+                    + "Use `set /body/p[N]/r[M] --prop revision.type=moveFrom --prop revision.id=N` "
+                    + "and the matching moveTo on the destination run.");
+            // Reject revision.type=ins/del on find without an actual action:
+            // there's no destination text to mark as inserted (find matches
+            // existing text — wrapping it as ins would record a fake "added by"
+            // event) and del-without-replace is expressible via `--prop replace=""`.
+            if (rtype != null
+                && (rtype.Equals("ins", StringComparison.OrdinalIgnoreCase)
+                    || rtype.Equals("insertion", StringComparison.OrdinalIgnoreCase)
+                    || rtype.Equals("del", StringComparison.OrdinalIgnoreCase)
+                    || rtype.Equals("deletion", StringComparison.OrdinalIgnoreCase)))
+                throw new ArgumentException(
+                    $"revision.type={rtype} on find is ambiguous — the find path infers "
+                    + "ins/del from the operation: pass `--prop replace=NEW` to record a "
+                    + "del(old)+ins(new) pair, or `--prop replace=` to record a delete-only. "
+                    + "Drop revision.type from --prop and the wrap shape is inferred.");
+            // Explicit revision.id is rejected on find: a single find call can
+            // produce multiple markers (one w:del per matched-run fragment + one
+            // w:ins for the replacement; one w:rPrChange per matched run for
+            // format-only; one w:pPrChange per matched paragraph). A single
+            // shared id would collide and break accept/reject by-id. The handler
+            // auto-allocates from the shared paraId pool — each marker gets a
+            // distinct id, addressable via the @id= selector on the resulting
+            // /revision[@id=N] paths.
+            if (revisionProps.ContainsKey("revision.id"))
+                throw new ArgumentException(
+                    "revision.id cannot be combined with find — a find can produce "
+                    + "multiple markers per match and a shared id would collide. "
+                    + "Drop revision.id from --prop; the handler auto-allocates per marker. "
+                    + "If you need to address a specific marker afterwards, run `query revision` "
+                    + "to read the assigned ids.");
 
-            // Support regex=true as an alternative to r"..." prefix
+            // text= cannot be combined with find: find/replace rewrites only the
+            // matched fragment, while text= would rewrite the whole paragraph
+            // body — the two intents conflict. text= has no
+            // ApplyParagraphLevelProperty case, so previously it was routed to
+            // paraProps and silently dropped while the confirmation still
+            // reported it as applied (a lie). Surface it as unsupported instead
+            // (exit 2 warning) so the caller knows it was not honoured; the
+            // find/replace still proceeds. Mirrors the handler-as-truth
+            // self-report model used by the non-find Set path.
+            // Read via the source dictionary's TryGetValue (not paraProps) so a
+            // TrackingPropertyDictionary marks "text" as accessed — otherwise the
+            // wrapper would also flag it unsupported and we'd double-report.
+            paraProps.Remove("text");
+            if (properties.TryGetValue("text", out _))
+                unsupported.Add("text");
+
+            // Final gate: at least one of replace / format / para / revision-attribution
+            // must be present. Bare `find=x` with nothing to do is a usage error.
+            // Bare revision attribution (e.g. revision.author with no other prop) is
+            // also rejected — there's nothing for the wrap to attribute.
+            if (replace == null && formatProps.Count == 0 && paraProps.Count == 0)
+                throw new ArgumentException(
+                    "'find' requires either 'replace' and/or a format/paragraph property "
+                    + "(e.g. bold, highlight, color, align). When combined with revision.*, "
+                    + "the same rule applies — revision attribution needs a real action to "
+                    + "attribute.");
+
+            // CONSISTENCY(find-regex): canonical site for the `regex=true` → `r"..."`
+            // raw-string normalization. `mark` and the other handlers' Set paths all
+            // copy this pattern verbatim. To change the find/regex protocol,
+            // grep "CONSISTENCY(find-regex)" and update every site project-wide;
+            // do not diverge in a single handler.
             if (properties.TryGetValue("regex", out var regexFlag) && ParseHelpers.IsTruthySafe(regexFlag) && !findText.StartsWith("r\"") && !findText.StartsWith("r'"))
                 findText = $"r\"{findText}\"";
 
             var effectivePath = (path is "" or "/") ? "/body" : path;
-            var matchCount = ProcessFind(effectivePath, findText, replace, formatProps.Count > 0 ? formatProps : new Dictionary<string, string>());
+            var matchCount = ProcessFind(
+                effectivePath,
+                findText,
+                replace,
+                formatProps.Count > 0 ? formatProps : new Dictionary<string, string>(),
+                revisionProps.Count > 0 ? revisionProps : null,
+                out var matchedParagraphs);
             LastFindMatchCount = matchCount;
 
-            // Apply paragraph-level properties to the matched paragraphs
+            // Apply paragraph-level properties to ONLY the paragraphs whose text
+            // actually matched the find pattern. R8-fuzz-1 / R8-fuzz-2: re-resolving
+            // via ResolveParagraphsForFind here ignores the find filter and
+            // mass-rewrites every paragraph under the path (data corruption).
+            //
+            // When revisionProps is present, capture pPrChange per matched
+            // paragraph by routing through BeginTrackChangeIfRequested (same
+            // entry point used by `set /body/p[N] --prop align=center --prop
+            // revision.author=X`), so find + paragraph-prop + revision matches
+            // the non-find behaviour exactly.
             if (paraProps.Count > 0)
             {
-                var paragraphs = ResolveParagraphsForFind(effectivePath);
-                foreach (var para in paragraphs)
+                foreach (var para in matchedParagraphs)
                 {
+                    Action paragraphWrap = _trackChangeNoop;
+                    if (revisionProps.Count > 0)
+                    {
+                        var combined = new Dictionary<string, string>(paraProps, StringComparer.OrdinalIgnoreCase);
+                        foreach (var (rk, rv) in revisionProps) combined[rk] = rv;
+                        var (_, wrap) = BeginTrackChangeIfRequested(para, combined);
+                        paragraphWrap = wrap;
+                    }
                     var pProps = para.ParagraphProperties ?? para.PrependChild(new ParagraphProperties());
                     foreach (var (key, value) in paraProps)
+                    {
                         ApplyParagraphLevelProperty(pProps, key, value);
+                        // CONSISTENCY(rtl-cascade): direction is paragraph-scope
+                        // but Word's UI also stamps <w:rtl/> on every run + the
+                        // paragraph mark when the user toggles direction. See
+                        // WordHandler.I18n.cs.
+                        var k = key.ToLowerInvariant();
+                        if (k is "direction" or "dir" or "bidi")
+                            ApplyDirectionCascade(para, ParseDirectionRtl(value));
+                    }
+                    paragraphWrap();
                 }
             }
 
-            _doc.MainDocumentPart?.Document?.Save();
+            SaveDoc();
             return unsupported;
         }
 
         // Document-level properties
-        if (path == "/" || path == "" || path.Equals("/body", StringComparison.OrdinalIgnoreCase))
+        if (path == "/" || path == "" || path.Equals("/body", StringComparison.OrdinalIgnoreCase)
+            || path.Equals("/document", StringComparison.OrdinalIgnoreCase))
         {
             SetDocumentProperties(properties, unsupported);
-            _doc.MainDocumentPart?.Document?.Save();
+            SaveDoc();
+            return unsupported;
+        }
+
+        // /docDefaults: same routing as /document, but bare keys (font,
+        // fontSize, color, bold, …) implicitly target docDefaults. Prepend
+        // "docdefaults." to any non-prefixed key so TrySetDocDefaults picks
+        // them up. Keys already prefixed pass through unchanged.
+        if (path.Equals("/docDefaults", StringComparison.OrdinalIgnoreCase))
+        {
+            var rewritten = new Dictionary<string, string>(properties.Comparer ?? StringComparer.OrdinalIgnoreCase);
+            foreach (var (k, v) in properties)
+            {
+                if (k.StartsWith("docdefaults.", StringComparison.OrdinalIgnoreCase))
+                    rewritten[k] = v;
+                else
+                    rewritten["docDefaults." + k] = v;
+            }
+            SetDocumentProperties(rewritten, unsupported);
+            SaveDoc();
             return unsupported;
         }
 
@@ -98,111 +402,23 @@ public partial class WordHandler
 
         // Handle /watermark path
         if (path.Equals("/watermark", StringComparison.OrdinalIgnoreCase))
-        {
-            // Find watermark VML shape in headers and modify properties
-            foreach (var hp in _doc.MainDocumentPart?.HeaderParts ?? Enumerable.Empty<HeaderPart>())
-            {
-                if (hp.Header == null) continue;
-                var picts = hp.Header.Descendants<Picture>().ToList();
-                foreach (var pict in picts)
-                {
-                    if (!pict.InnerXml.Contains("WaterMark", StringComparison.OrdinalIgnoreCase)) continue;
+            return SetWatermarkPath(properties);
 
-                    // Rebuild VML with updated properties — parse existing values as defaults
-                    var xml = pict.InnerXml;
-                    foreach (var (key, value) in properties)
-                    {
-                        switch (key.ToLowerInvariant())
-                        {
-                            case "text":
-                                xml = System.Text.RegularExpressions.Regex.Replace(xml,
-                                    @"string=""[^""]*""", $@"string=""{System.Security.SecurityElement.Escape(value)}""");
-                                break;
-                            case "color":
-                                var clr = "#" + SanitizeHex(value);
-                                xml = System.Text.RegularExpressions.Regex.Replace(xml,
-                                    @"fillcolor=""[^""]*""", $@"fillcolor=""{clr}""");
-                                break;
-                            case "font":
-                                xml = System.Text.RegularExpressions.Regex.Replace(xml,
-                                    @"font-family:&quot;[^&]*&quot;", $@"font-family:&quot;{System.Security.SecurityElement.Escape(value)}&quot;");
-                                break;
-                            case "opacity":
-                                xml = System.Text.RegularExpressions.Regex.Replace(xml,
-                                    @"opacity=""[^""]*""", $@"opacity=""{value}""");
-                                break;
-                            case "rotation":
-                                xml = System.Text.RegularExpressions.Regex.Replace(xml,
-                                    @"rotation:\d+", $@"rotation:{value}");
-                                break;
-                            default:
-                                unsupported.Add(key);
-                                break;
-                        }
-                    }
-                    pict.InnerXml = xml;
-                }
-                hp.Header.Save();
-            }
-            return unsupported;
-        }
-
-        // Handle header/footer paths
-        var hfParts = ParsePath(path);
-        if (hfParts.Count >= 1)
-        {
-            var firstName = hfParts[0].Name.ToLowerInvariant();
-            if ((firstName == "header" || firstName == "footer") && hfParts.Count == 1)
-            {
-                SetHeaderFooter(firstName, (hfParts[0].Index ?? 1) - 1, properties, unsupported);
-                return unsupported;
-            }
-        }
-
-        // Chart paths: /chart[N] or /chart[N]/series[K]
-        var chartMatch = System.Text.RegularExpressions.Regex.Match(path, @"^/chart\[(\d+)\](?:/series\[(\d+)\])?$");
-        if (chartMatch.Success)
-        {
-            var chartIdx = int.Parse(chartMatch.Groups[1].Value);
-            var allCharts = GetAllWordCharts();
-            if (allCharts.Count == 0)
-                throw new ArgumentException("No charts in this document");
-            if (chartIdx < 1 || chartIdx > allCharts.Count)
-                throw new ArgumentException($"Chart {chartIdx} not found (total: {allCharts.Count})");
-
-            var chartInfo = allCharts[chartIdx - 1];
-
-            // If series sub-path, prefix all properties with series{N}. for ChartSetter
-            var chartProps = properties;
-            if (chartMatch.Groups[2].Success)
-            {
-                var seriesIdx = int.Parse(chartMatch.Groups[2].Value);
-                chartProps = new Dictionary<string, string>();
-                foreach (var (key, value) in properties)
-                    chartProps[$"series{seriesIdx}.{key}"] = value;
-            }
-
-            if (chartInfo.IsExtended)
-            {
-                // Extended charts (cx:chart) — chart-internal properties are not supported
-                unsupported = chartProps.Keys.ToList();
-            }
-            else
-            {
-                unsupported = Core.ChartHelper.SetChartProperties(chartInfo.StandardPart!, chartProps);
-            }
-            _doc.MainDocumentPart?.Document?.Save();
-            return unsupported;
-        }
-
-        // FormField paths: /formfield[N] or /formfield[name]
-        var ffSetMatch = System.Text.RegularExpressions.Regex.Match(path, @"^/formfield\[(\w+)\]$");
-        if (ffSetMatch.Success)
+        // FormField paths: /formfield[N], /formfield[name], or /formfield[@name=NAME]
+        // Routed BEFORE ParsePath because the generic predicate validator
+        // only accepts positive-integer / last() / [@attr=v] predicates and
+        // would reject the documented /formfield[name] form.
+        // R14-bug4: schema declared /formfield[@name=NAME] as the stable
+        // selector; mirror the [@name=…] arm here so set commands match
+        // the same surface as get.
+        var ffSetMatchEarly = System.Text.RegularExpressions.Regex.Match(path, @"^/formfield\[(?:@name=)?([^\]]+)\]$");
+        if (ffSetMatchEarly.Success)
         {
             var allFormFields = FindFormFields();
-            var indexOrName = ffSetMatch.Groups[1].Value;
+            var indexOrName = ffSetMatchEarly.Groups[1].Value;
+            bool nameForm = path.Contains("@name=", StringComparison.OrdinalIgnoreCase);
             (FieldInfo Field, FormFieldData FfData) target;
-            if (int.TryParse(indexOrName, out var ffIdx))
+            if (!nameForm && int.TryParse(indexOrName, out var ffIdx))
             {
                 if (ffIdx < 1 || ffIdx > allFormFields.Count)
                     throw new ArgumentException($"FormField {ffIdx} not found (total: {allFormFields.Count})");
@@ -218,486 +434,136 @@ public partial class WordHandler
             return SetFormField(target, properties);
         }
 
+        // Positional aliases /numbering/abstractNum[N] and /numbering/num[N]
+        // translate to canonical [@id=K] form (mirrors Get's normalization in
+        // commit 0257e8ca). Without this, Set on positional paths fell
+        // through to generic Navigation, which has no NumberingInstance
+        // branch — and CLI printed "Updated …" while nothing changed on
+        // disk. Tagged CONSISTENCY(numbering-positional-normalize).
+        var numPosSetMatch = System.Text.RegularExpressions.Regex.Match(
+            path, @"^/numbering/(abstractNum|num)\[(\d+)\](.*)$");
+        if (numPosSetMatch.Success)
+        {
+            var kind = numPosSetMatch.Groups[1].Value;
+            var posIdx = int.Parse(numPosSetMatch.Groups[2].Value); // 1-based
+            var rest = numPosSetMatch.Groups[3].Value;
+            var nb = _doc.MainDocumentPart?.NumberingDefinitionsPart?.Numbering;
+            int? canonId = null;
+            if (kind == "abstractNum")
+            {
+                var abs = nb?.Elements<AbstractNum>().ElementAtOrDefault(posIdx - 1);
+                canonId = abs?.AbstractNumberId?.Value;
+            }
+            else
+            {
+                var inst = nb?.Elements<NumberingInstance>().ElementAtOrDefault(posIdx - 1);
+                canonId = inst?.NumberID?.Value;
+            }
+            if (canonId != null)
+                return Set($"/numbering/{kind}[@id={canonId}]{rest}", properties);
+        }
+
+        // Numbering paths: /numbering/abstractNum[@id=N] and
+        // /numbering/abstractNum[@id=N]/level[L]. Intercept BEFORE the generic
+        // ParsePath call below — those paths use [@id=...] / [N starting at 0]
+        // predicates that ParsePath's 1-based positional rule rejects.
+        // Accept both /level[N] (positional, 0-based ilvl) and /lvl[@ilvl=N]
+        // (canonical form returned by Get/Query — see R2 commit 48ee8c8c, R3
+        // commit 2a634aeb). Without the @ilvl branch, Set silently no-ops on
+        // the canonical path: the CLI prints "Updated" but numbering.Save()
+        // never runs because the path falls through to generic Navigation
+        // which has no Level branch in SetElement.
+        var absNumSetMatchEarly = System.Text.RegularExpressions.Regex.Match(
+            path, @"^/numbering/abstractNum\[@id=(\d+)\](?:/(?:level|lvl)\[(?:@ilvl=)?(\d+)\])?$");
+        if (absNumSetMatchEarly.Success) return SetAbstractNumPath(absNumSetMatchEarly, properties);
+
+        // /numbering/num[@id=N] — set abstractNumId on a NumberingInstance.
+        // Without this intercept, generic Navigation finds the <w:num> element
+        // but SetElement has no NumberingInstance branch, so the call returns
+        // an empty unsupported list and the CLI prints "Updated …" while
+        // nothing changes on disk.
+        var numSetMatchEarly = System.Text.RegularExpressions.Regex.Match(
+            path, @"^/numbering/num\[@id=(\d+)\]$");
+        if (numSetMatchEarly.Success) return SetNumPath(numSetMatchEarly, properties);
+
+        // Handle header/footer paths
+        var hfParts = ParsePath(path);
+        if (hfParts.Count >= 1)
+        {
+            var firstName = hfParts[0].Name.ToLowerInvariant();
+            if ((firstName == "header" || firstName == "footer") && hfParts.Count == 1)
+            {
+                // last() resolves to the LAST part by creation order (mirrors
+                // get); otherwise set /header[last()] silently wrote into the
+                // FIRST header (Index == null → 0), losing content.
+                int hfCount = (firstName == "header"
+                    ? _doc.MainDocumentPart?.HeaderParts.Count()
+                    : _doc.MainDocumentPart?.FooterParts.Count()) ?? 0;
+                int hfIdx = hfParts[0].StringIndex == "last()" ? hfCount - 1 : (hfParts[0].Index ?? 1) - 1;
+                SetHeaderFooter(firstName, hfIdx, properties, unsupported);
+                return unsupported;
+            }
+        }
+
+        // Chart axis-by-role sub-path: /chart[N]/axis[@role=ROLE].
+        var chartAxisSetMatch = System.Text.RegularExpressions.Regex.Match(path,
+            @"^/chart\[(\d+)\]/axis\[@role=([a-zA-Z0-9_]+)\]$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (chartAxisSetMatch.Success) return SetChartAxisPath(chartAxisSetMatch, properties);
+
+        // Chart paths: /chart[N] or /chart[N]/series[K]
+        var chartMatch = System.Text.RegularExpressions.Regex.Match(path, @"^/chart\[(\d+)\](?:/series\[(\d+)\])?$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (chartMatch.Success) return SetChartPath(chartMatch, properties);
+
         // Field paths: /field[N]
-        var fieldSetMatch = System.Text.RegularExpressions.Regex.Match(path, @"^/field\[(\d+)\]$");
-        if (fieldSetMatch.Success)
-        {
-            var fieldIdx = int.Parse(fieldSetMatch.Groups[1].Value);
-            var allFields = FindFields();
-            if (fieldIdx < 1 || fieldIdx > allFields.Count)
-                throw new ArgumentException($"Field {fieldIdx} not found (total: {allFields.Count})");
+        var fieldSetMatch = System.Text.RegularExpressions.Regex.Match(path, @"^/field\[(\d+)\]$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (fieldSetMatch.Success) return SetFieldPath(fieldSetMatch, properties);
 
-            var field = allFields[fieldIdx - 1];
+        // TOC paths: /toc[N], /toc (= first), /tableofcontents alias.
+        var tocMatch = System.Text.RegularExpressions.Regex.Match(path,
+            @"^/(?:toc|tableofcontents)(?:\[(\d+)\])?$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (tocMatch.Success) return SetTocPath(tocMatch, properties);
 
-            foreach (var (key, value) in properties)
-            {
-                switch (key.ToLowerInvariant())
-                {
-                    case "instruction" or "instr":
-                        field.InstrCode.Text = value.StartsWith(" ") ? value : $" {value} ";
-                        // Auto-mark dirty when instruction changes
-                        var beginCharI = field.BeginRun.GetFirstChild<FieldChar>();
-                        if (beginCharI != null) beginCharI.Dirty = true;
-                        break;
-                    case "text" or "result":
-                        // Replace result text (between separate and end)
-                        if (field.ResultRuns.Count > 0)
-                        {
-                            // Set text on first result run, clear the rest
-                            var firstResultText = field.ResultRuns[0].GetFirstChild<Text>();
-                            if (firstResultText != null)
-                                firstResultText.Text = value;
-                            else
-                                field.ResultRuns[0].AppendChild(new Text(value) { Space = SpaceProcessingModeValues.Preserve });
-                            for (int ri = 1; ri < field.ResultRuns.Count; ri++)
-                            {
-                                var t = field.ResultRuns[ri].GetFirstChild<Text>();
-                                if (t != null) t.Text = "";
-                            }
-                        }
-                        break;
-                    case "dirty":
-                        var beginCharD = field.BeginRun.GetFirstChild<FieldChar>();
-                        if (beginCharD != null) beginCharD.Dirty = IsTruthy(value);
-                        break;
-                    default:
-                        unsupported.Add(key);
-                        break;
-                }
-            }
-            _doc.MainDocumentPart?.Document?.Save();
-            return unsupported;
-        }
+        // Footnote paths: /footnote[N], /footnote[@footnoteId=N] (incl. -1/0
+        // structural ids — separator/continuation/continuationNotice).
+        var fnSetMatch = System.Text.RegularExpressions.Regex.Match(
+            path, @"/footnote\[(?:@footnoteId=)?(-?\d+)\]$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (fnSetMatch.Success) return SetFootnotePath(fnSetMatch, properties);
 
-        // TOC paths: /toc[N]
-        var tocMatch = System.Text.RegularExpressions.Regex.Match(path, @"/toc\[(\d+)\]$");
-        if (tocMatch.Success)
-        {
-            var tocIdx = int.Parse(tocMatch.Groups[1].Value);
-            var tocParas = FindTocParagraphs();
-            if (tocIdx < 1 || tocIdx > tocParas.Count)
-                throw new ArgumentException($"TOC {tocIdx} not found (total: {tocParas.Count})");
+        // Endnote paths: same shape as footnote.
+        var enSetMatch = System.Text.RegularExpressions.Regex.Match(
+            path, @"/endnote\[(?:@endnoteId=)?(-?\d+)\]$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (enSetMatch.Success) return SetEndnotePath(enSetMatch, properties);
 
-            var tocPara = tocParas[tocIdx - 1];
+        // CONSISTENCY(path-element-case-insensitive): same rule as Query.cs — top-level
+        // element paths (/section[N], /body/sectPr[N], /chart[N], /toc[N], …) match
+        // case-insensitively so /Section[1] is equivalent to /section[1]. styleSetMatch
+        // below remains case-sensitive — style ids are user-defined identifiers.
+        var secSetMatch = System.Text.RegularExpressions.Regex.Match(path, @"^(?:/section\[(\d+|last\(\))\]|/body/sectPr(?:\[(\d+)\])?)$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (secSetMatch.Success) return SetSectionPath(secSetMatch, properties);
 
-            // Rebuild the field code from properties
-            var instrRun = tocPara.Descendants<Run>()
-                .FirstOrDefault(r => r.GetFirstChild<FieldCode>() != null);
-            if (instrRun == null)
-                throw new InvalidOperationException("TOC field code not found");
+        // Style paths: /styles/StyleId (set props on the style itself).
+        // Restrict to a single segment so deeper paths like /styles/<id>/tab[N]
+        // fall through to generic Navigation + SetElement (TabStop branch).
+        var styleSetMatch = System.Text.RegularExpressions.Regex.Match(path, @"^/styles/([^/]+)$");
+        if (styleSetMatch.Success) return SetStylePath(styleSetMatch, properties);
 
-            var fieldCode = instrRun.GetFirstChild<FieldCode>()!;
-            var instr = fieldCode.Text ?? "";
-
-            // Update levels
-            if (properties.TryGetValue("levels", out var newLevels))
-            {
-                var levelsRx = System.Text.RegularExpressions.Regex.Match(instr, @"\\o\s+""[^""]+""");
-                instr = levelsRx.Success
-                    ? instr.Replace(levelsRx.Value, $"\\o \"{newLevels}\"")
-                    : instr.TrimEnd() + $" \\o \"{newLevels}\" ";
-            }
-
-            // Update hyperlinks switch
-            if (properties.TryGetValue("hyperlinks", out var hlSwitch))
-            {
-                if (IsTruthy(hlSwitch) && !instr.Contains("\\h"))
-                    instr = instr.TrimEnd() + " \\h ";
-                else if (!IsTruthy(hlSwitch))
-                    instr = instr.Replace("\\h", "").Replace("  ", " ");
-            }
-
-            // Update page numbers switch (\\z = hide page numbers)
-            if (properties.TryGetValue("pagenumbers", out var pnSwitch))
-            {
-                if (!IsTruthy(pnSwitch) && !instr.Contains("\\z"))
-                    instr = instr.TrimEnd() + " \\z ";
-                else if (IsTruthy(pnSwitch))
-                    instr = instr.Replace("\\z", "").Replace("  ", " ");
-            }
-
-            fieldCode.Text = instr;
-
-            // Mark field as dirty so Word updates it on open
-            var beginRun = tocPara.Descendants<Run>()
-                .FirstOrDefault(r => r.GetFirstChild<FieldChar>()?.FieldCharType?.Value == FieldCharValues.Begin);
-            if (beginRun != null)
-            {
-                var fldChar = beginRun.GetFirstChild<FieldChar>()!;
-                fldChar.Dirty = true;
-            }
-
-            _doc.MainDocumentPart?.Document?.Save();
-            return unsupported;
-        }
-
-        // Footnote paths: /footnote[N] or .../footnote[N]
-        var fnSetMatch = System.Text.RegularExpressions.Regex.Match(path, @"/footnote\[(\d+)\]$");
-        if (fnSetMatch.Success)
-        {
-            var fnId = int.Parse(fnSetMatch.Groups[1].Value);
-            var fn = _doc.MainDocumentPart?.FootnotesPart?.Footnotes?
-                .Elements<Footnote>().FirstOrDefault(f => f.Id?.Value == fnId);
-            if (fn == null)
-            {
-                // Try ordinal lookup (1-based index among user footnotes)
-                var userFns = _doc.MainDocumentPart?.FootnotesPart?.Footnotes?
-                    .Elements<Footnote>().Where(f => f.Id?.Value > 0).ToList();
-                if (userFns != null && fnId >= 1 && fnId <= userFns.Count)
-                    fn = userFns[fnId - 1];
-                else
-                    throw new ArgumentException($"Footnote {fnId} not found");
-            }
-
-            if (properties.TryGetValue("text", out var fnText))
-            {
-                // Find the content paragraph (skip the reference mark run)
-                var contentRuns = fn.Descendants<Run>()
-                    .Where(r => r.GetFirstChild<FootnoteReferenceMark>() == null).ToList();
-                if (contentRuns.Count > 0)
-                {
-                    // Update first content run; keep space as separate element
-                    var textEl = contentRuns[0].GetFirstChild<Text>();
-                    if (textEl != null)
-                    {
-                        textEl.Text = fnText;
-                        textEl.Space = SpaceProcessingModeValues.Preserve;
-                    }
-                    else
-                        contentRuns[0].AppendChild(new Text(fnText) { Space = SpaceProcessingModeValues.Preserve });
-                    // Remove extra runs so text is not duplicated
-                    for (int i = 1; i < contentRuns.Count; i++)
-                        contentRuns[i].Remove();
-                }
-            }
-            // Report any keys besides "text" as unsupported
-            foreach (var k in properties.Keys)
-            {
-                if (!k.Equals("text", StringComparison.OrdinalIgnoreCase))
-                    unsupported.Add(k);
-            }
-            _doc.MainDocumentPart?.FootnotesPart?.Footnotes?.Save();
-            return unsupported;
-        }
-
-        // Endnote paths: /endnote[N] or .../endnote[N]
-        var enSetMatch = System.Text.RegularExpressions.Regex.Match(path, @"/endnote\[(\d+)\]$");
-        if (enSetMatch.Success)
-        {
-            var enId = int.Parse(enSetMatch.Groups[1].Value);
-            var en = _doc.MainDocumentPart?.EndnotesPart?.Endnotes?
-                .Elements<Endnote>().FirstOrDefault(e => e.Id?.Value == enId);
-            if (en == null)
-            {
-                // Try ordinal lookup (1-based index among user endnotes)
-                var userEns = _doc.MainDocumentPart?.EndnotesPart?.Endnotes?
-                    .Elements<Endnote>().Where(e => e.Id?.Value > 0).ToList();
-                if (userEns != null && enId >= 1 && enId <= userEns.Count)
-                    en = userEns[enId - 1];
-                else
-                    throw new ArgumentException($"Endnote {enId} not found");
-            }
-
-            if (properties.TryGetValue("text", out var enText))
-            {
-                var contentRuns = en.Descendants<Run>()
-                    .Where(r => r.GetFirstChild<EndnoteReferenceMark>() == null).ToList();
-                if (contentRuns.Count > 0)
-                {
-                    var textEl = contentRuns[0].GetFirstChild<Text>();
-                    if (textEl != null)
-                    {
-                        textEl.Text = enText;
-                        textEl.Space = SpaceProcessingModeValues.Preserve;
-                    }
-                    else
-                        contentRuns[0].AppendChild(new Text(enText) { Space = SpaceProcessingModeValues.Preserve });
-                    // Remove extra runs so text is not duplicated
-                    for (int i = 1; i < contentRuns.Count; i++)
-                        contentRuns[i].Remove();
-                }
-            }
-            // Report any keys besides "text" as unsupported
-            foreach (var k in properties.Keys)
-            {
-                if (!k.Equals("text", StringComparison.OrdinalIgnoreCase))
-                    unsupported.Add(k);
-            }
-            _doc.MainDocumentPart?.EndnotesPart?.Endnotes?.Save();
-            return unsupported;
-        }
-
-        // Section paths: /section[N]
-        var secSetMatch = System.Text.RegularExpressions.Regex.Match(path, @"^/section\[(\d+)\]$");
-        if (secSetMatch.Success)
-        {
-            var secIdx = int.Parse(secSetMatch.Groups[1].Value);
-            var sectionProps = FindSectionProperties();
-
-            // If no section properties exist and requesting section 1, create one
-            if (sectionProps.Count == 0 && secIdx == 1)
-            {
-                var sBody = _doc.MainDocumentPart?.Document?.Body;
-                if (sBody != null)
-                {
-                    var newSectPr = new SectionProperties();
-                    sBody.AppendChild(newSectPr);
-                    sectionProps = FindSectionProperties();
-                }
-            }
-
-            if (secIdx < 1 || secIdx > sectionProps.Count)
-                throw new ArgumentException($"Section {secIdx} not found (total: {sectionProps.Count})");
-
-            var sectPr = sectionProps[secIdx - 1];
-            foreach (var (key, value) in properties)
-            {
-                switch (key.ToLowerInvariant())
-                {
-                    case "type":
-                        var st = sectPr.GetFirstChild<SectionType>() ?? sectPr.PrependChild(new SectionType());
-                        st.Val = value.ToLowerInvariant() switch
-                        {
-                            "nextpage" or "next" => SectionMarkValues.NextPage,
-                            "continuous" => SectionMarkValues.Continuous,
-                            "evenpage" or "even" => SectionMarkValues.EvenPage,
-                            "oddpage" or "odd" => SectionMarkValues.OddPage,
-                            _ => throw new ArgumentException($"Invalid section break type: '{value}'. Valid values: nextPage, continuous, evenPage, oddPage.")
-                        };
-                        break;
-                    case "pagewidth" or "pageWidth":
-                        EnsureSectPrPageSize(sectPr).Width = ParseTwips(value);
-                        break;
-                    case "pageheight" or "pageHeight":
-                        EnsureSectPrPageSize(sectPr).Height = ParseTwips(value);
-                        break;
-                    case "orientation":
-                    {
-                        var ps = EnsureSectPrPageSize(sectPr);
-                        var isLandscape = value.ToLowerInvariant() == "landscape";
-                        ps.Orient = isLandscape
-                            ? PageOrientationValues.Landscape : PageOrientationValues.Portrait;
-                        // Default to A4 if no dimensions set
-                        var w = ps.Width?.Value ?? 11906u;
-                        var h = ps.Height?.Value ?? 16838u;
-                        // Swap width/height if orientation changes and dimensions are misaligned
-                        if ((isLandscape && w < h) || (!isLandscape && w > h))
-                        {
-                            ps.Width = h;
-                            ps.Height = w;
-                        }
-                        break;
-                    }
-                    case "margintop":
-                        EnsureSectPrPageMargin(sectPr).Top = (int)ParseTwips(value);
-                        break;
-                    case "marginbottom":
-                        EnsureSectPrPageMargin(sectPr).Bottom = (int)ParseTwips(value);
-                        break;
-                    case "marginleft":
-                        EnsureSectPrPageMargin(sectPr).Left = ParseTwips(value);
-                        break;
-                    case "marginright":
-                        EnsureSectPrPageMargin(sectPr).Right = ParseTwips(value);
-                        break;
-                    case "columns" or "cols" or "col":
-                    {
-                        // Equal-width columns: "3" or "3,720" (count,space in twips)
-                        var eqCols = EnsureColumns(sectPr);
-                        var colParts = value.Split(',');
-                        if (!short.TryParse(colParts[0], out var colCount))
-                            throw new ArgumentException($"Invalid 'columns' value: '{value}'. Expected an integer or integer,space (e.g. '3' or '3,720').");
-                        eqCols.ColumnCount = (Int16Value)colCount;
-                        eqCols.EqualWidth = true;
-                        if (colParts.Length > 1)
-                            eqCols.Space = colParts[1];
-                        else
-                            eqCols.Space ??= "720"; // default ~1.27cm
-                        // Remove any individual column definitions for equal width
-                        eqCols.RemoveAllChildren<Column>();
-                        break;
-                    }
-                    case "colwidths":
-                    {
-                        // Custom column widths: "3000,720,2000,720,3000"
-                        // Alternating: width,space,width,space,...,width
-                        var cwCols = EnsureColumns(sectPr);
-                        cwCols.EqualWidth = false;
-                        cwCols.RemoveAllChildren<Column>();
-                        var vals = value.Split(',');
-                        int colCount = 0;
-                        for (int ci = 0; ci < vals.Length; ci += 2)
-                        {
-                            var col = new Column { Width = vals[ci] };
-                            if (ci + 1 < vals.Length)
-                                col.Space = vals[ci + 1];
-                            cwCols.AppendChild(col);
-                            colCount++;
-                        }
-                        cwCols.ColumnCount = (Int16Value)(short)colCount;
-                        break;
-                    }
-                    case "separator" or "sep":
-                    {
-                        var sepCols = EnsureColumns(sectPr);
-                        sepCols.Separator = IsTruthy(value);
-                        break;
-                    }
-                    case "linenumbers" or "linenumbering":
-                    {
-                        var lower = value.ToLowerInvariant();
-                        if (lower == "none" || lower == "off" || lower == "false")
-                        {
-                            sectPr.RemoveAllChildren<LineNumberType>();
-                        }
-                        else
-                        {
-                            var lnNum = sectPr.GetFirstChild<LineNumberType>();
-                            if (lnNum == null)
-                            {
-                                lnNum = new LineNumberType();
-                                sectPr.AppendChild(lnNum);
-                            }
-                            // If value is a number, set CountBy to that number
-                            if (int.TryParse(lower, out var countBy))
-                            {
-                                lnNum.CountBy = (short)countBy;
-                                lnNum.Restart = LineNumberRestartValues.Continuous;
-                            }
-                            else
-                            {
-                                lnNum.CountBy = 1;
-                                lnNum.Restart = lower switch
-                                {
-                                    "continuous" => LineNumberRestartValues.Continuous,
-                                    "restartpage" or "page" => LineNumberRestartValues.NewPage,
-                                    "restartsection" or "section" => LineNumberRestartValues.NewSection,
-                                    _ => LineNumberRestartValues.Continuous
-                                };
-                            }
-                        }
-                        break;
-                    }
-                    default:
-                        unsupported.Add(key);
-                        break;
-                }
-            }
-            _doc.MainDocumentPart?.Document?.Save();
-            return unsupported;
-        }
-
-        // Style paths: /styles/StyleId
-        var styleSetMatch = System.Text.RegularExpressions.Regex.Match(path, @"^/styles/(.+)$");
-        if (styleSetMatch.Success)
-        {
-            var styleId = styleSetMatch.Groups[1].Value;
-            var stylesPart = _doc.MainDocumentPart?.StyleDefinitionsPart
-                ?? _doc.MainDocumentPart!.AddNewPart<DocumentFormat.OpenXml.Packaging.StyleDefinitionsPart>();
-            if (stylesPart.Styles == null) stylesPart.Styles = new Styles();
-            var styles = stylesPart.Styles;
-            var style = styles.Elements<Style>().FirstOrDefault(s =>
-                s.StyleId?.Value == styleId || s.StyleName?.Val?.Value == styleId);
-            if (style == null)
-            {
-                style = new Style { Type = StyleValues.Paragraph, StyleId = styleId, CustomStyle = true };
-                style.AppendChild(new StyleName { Val = styleId });
-                styles.AppendChild(style);
-            }
-
-            foreach (var (key, value) in properties)
-            {
-                switch (key.ToLowerInvariant())
-                {
-                    case "name":
-                        var sn = style.StyleName ?? style.AppendChild(new StyleName());
-                        sn.Val = value;
-                        break;
-                    case "basedon":
-                        var bo = style.BasedOn ?? style.AppendChild(new BasedOn());
-                        bo.Val = value;
-                        break;
-                    case "next":
-                        var ns = style.NextParagraphStyle ?? style.AppendChild(new NextParagraphStyle());
-                        ns.Val = value;
-                        break;
-                    case "font":
-                        var rPr = style.StyleRunProperties ?? style.AppendChild(new StyleRunProperties());
-                        rPr.RunFonts = new RunFonts { Ascii = value, HighAnsi = value, EastAsia = value };
-                        break;
-                    case "size":
-                        var rPr2 = style.StyleRunProperties ?? style.AppendChild(new StyleRunProperties());
-                        rPr2.FontSize = new FontSize { Val = ((int)Math.Round(ParseFontSize(value) * 2, MidpointRounding.AwayFromZero)).ToString() };
-                        break;
-                    case "bold":
-                        var rPr3 = style.StyleRunProperties ?? style.AppendChild(new StyleRunProperties());
-                        rPr3.Bold = IsTruthy(value) ? new Bold() : null;
-                        break;
-                    case "italic":
-                        var rPr4 = style.StyleRunProperties ?? style.AppendChild(new StyleRunProperties());
-                        rPr4.Italic = IsTruthy(value) ? new Italic() : null;
-                        break;
-                    case "color":
-                        var rPr5 = style.StyleRunProperties ?? style.AppendChild(new StyleRunProperties());
-                        rPr5.Color = new Color { Val = SanitizeHex(value) };
-                        break;
-                    case "underline":
-                    {
-                        var rPrU = style.StyleRunProperties ?? style.AppendChild(new StyleRunProperties());
-                        var ulVal = value.ToLowerInvariant() switch
-                        {
-                            "true" or "single" => "single",
-                            "double" => "double",
-                            "false" or "none" => "none",
-                            _ => value
-                        };
-                        rPrU.Underline = new Underline { Val = new UnderlineValues(ulVal) };
-                        break;
-                    }
-                    case "strike" or "strikethrough":
-                        var rPrS = style.StyleRunProperties ?? style.AppendChild(new StyleRunProperties());
-                        rPrS.Strike = IsTruthy(value) ? new Strike() : null;
-                        break;
-                    case "alignment":
-                        var pPr = style.StyleParagraphProperties ?? EnsureStyleParagraphProperties(style);
-                        pPr.Justification = new Justification { Val = ParseJustification(value) };
-                        break;
-                    case "spacebefore" or "spaceBefore":
-                        var pPr2 = style.StyleParagraphProperties ?? EnsureStyleParagraphProperties(style);
-                        var sp2 = pPr2.SpacingBetweenLines ?? (pPr2.SpacingBetweenLines = new SpacingBetweenLines());
-                        sp2.Before = SpacingConverter.ParseWordSpacing(value).ToString();
-                        break;
-                    case "spaceafter" or "spaceAfter":
-                        var pPr3 = style.StyleParagraphProperties ?? EnsureStyleParagraphProperties(style);
-                        var sp3 = pPr3.SpacingBetweenLines ?? (pPr3.SpacingBetweenLines = new SpacingBetweenLines());
-                        sp3.After = SpacingConverter.ParseWordSpacing(value).ToString();
-                        break;
-                    case "linespacing" or "lineSpacing":
-                    {
-                        var pPr4 = style.StyleParagraphProperties ?? EnsureStyleParagraphProperties(style);
-                        var sp4 = pPr4.SpacingBetweenLines ?? (pPr4.SpacingBetweenLines = new SpacingBetweenLines());
-                        var (twips, isMultiplier) = SpacingConverter.ParseWordLineSpacing(value);
-                        sp4.Line = twips.ToString();
-                        sp4.LineRule = isMultiplier
-                            ? new DocumentFormat.OpenXml.EnumValue<LineSpacingRuleValues>(LineSpacingRuleValues.Auto)
-                            : new DocumentFormat.OpenXml.EnumValue<LineSpacingRuleValues>(LineSpacingRuleValues.Exact);
-                        break;
-                    }
-                    case "pbdr.top" or "pbdr.bottom" or "pbdr.left" or "pbdr.right" or "pbdr.between" or "pbdr.bar" or "pbdr.all" or "pbdr":
-                    case "border.all" or "border" or "border.top" or "border.bottom" or "border.left" or "border.right":
-                    {
-                        var pPrB = style.StyleParagraphProperties ?? EnsureStyleParagraphProperties(style);
-                        ApplyStyleParagraphBorders(pPrB, key, value);
-                        break;
-                    }
-                    default:
-                        unsupported.Add(key);
-                        break;
-                }
-            }
-            styles.Save();
-            return unsupported;
-        }
+        // CONSISTENCY(ole-shorthand-set): mirror the /body/ole[N] shorthand
+        // already supported in Get (WordHandler.Query.cs) and Remove
+        // (WordHandler.Mutations.cs). Without this intercept, Set falls through
+        // to NavigateToElement which hits "No ole found at /body" because OLE
+        // lives inside a run, not as a direct child of the body.
+        var wordOleSetMatch = System.Text.RegularExpressions.Regex.Match(
+            path,
+            @"^(?<parent>/body|/header\[\d+\]|/footer\[\d+\])?/(?:ole|object|embed)\[(?<idx>\d+)\]$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (wordOleSetMatch.Success) return SetWordOlePath(wordOleSetMatch, properties);
 
         var parts = ParsePath(path);
         var element = NavigateToElement(parts, out var ctx);
@@ -708,7 +574,14 @@ public partial class WordHandler
         var elementBackup = element.CloneNode(true);
         try
         {
-        return SetElement(element, properties);
+            // Phase 2 trackChange capture: snapshot rPr/pPr BEFORE SetElement
+            // mutates it, strip trackChange.* from the dict so downstream
+            // helpers don't see them, then append rPrChange/pPrChange AFTER
+            // the Set succeeds. See WordHandler.Set.TrackChange.cs.
+            var (effectiveProps, wrapTrackChange) = BeginTrackChangeIfRequested(element, properties);
+            var result = SetElement(element, effectiveProps);
+            wrapTrackChange();
+            return result;
         }
         catch
         {
@@ -720,1238 +593,75 @@ public partial class WordHandler
 
     private List<string> SetElement(OpenXmlElement element, Dictionary<string, string> properties)
     {
-        var unsupported = new List<string>();
-
-        if (element is BookmarkStart bkStart)
+        if (element is Comment cmt) return SetElementComment(cmt, properties);
+        if (element is BookmarkStart bk) return SetElementBookmark(bk, properties);
+        if (element is SdtBlock || element is SdtRun) return SetElementSdt(element, properties);
+        if (element is Run run) return SetElementRun(run, properties);
+        if (element is Hyperlink hl) return SetElementHyperlink(hl, properties);
+        if (element is M.Paragraph mPara) return SetElementMPara(mPara, properties);
+        if (element is M.OfficeMath oMathEl) return SetElementOMath(oMathEl, properties);
+        if (element is Paragraph para) return SetElementParagraph(para, properties);
+        if (element is TableCell cell) return SetElementTableCell(cell, properties);
+        if (element is TableRow row) return SetElementTableRow(row, properties);
+        if (element is Table tbl) return SetElementTable(tbl, properties);
+        if (element is TabStop tabStop) return SetElementTabStop(tabStop, properties);
+        if (element is TextBoxContent txbx) return SetElementTextBoxContent(txbx, properties);
+        // /body/shape[N] resolves to the wps:wsp element. SetShapeProps models the
+        // curated spPr surface (fill/line/width/height/geometry) reusing the Add
+        // builders, and forwards out-of-scope keys as unsupported so Add and
+        // Set track the same prop surface.
+        if (string.Equals(element.LocalName, "wsp", StringComparison.Ordinal)
+            && string.Equals(element.NamespaceUri,
+                "http://schemas.microsoft.com/office/word/2010/wordprocessingShape", StringComparison.Ordinal))
+            return SetShapeProps(element, properties);
+        // /body/group[N] resolves to the wpg:wgp group. Resizing scales the whole
+        // group (grpSpPr ext + ancestor wp:extent, leaving chExt as the baseline
+        // so Word compresses the children) and re-bakes child font sizes.
+        if (string.Equals(element.LocalName, "wgp", StringComparison.Ordinal)
+            && string.Equals(element.NamespaceUri,
+                "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup", StringComparison.Ordinal))
+            return SetGroupProps(element, properties);
+        // Other shape carriers (Drawing host or v:shape descendant) have no
+        // curated Set handler. Without this guard the dispatcher returned an empty
+        // unsupported list → CLI reported "Updated" (exit 0) while writing
+        // nothing. Surface every key as unsupported + a warning so the call
+        // signals the gap clearly, mirroring how Add returns UNSUPPORTED for
+        // shape props it doesn't model.
+        bool isShape = element is Drawing
+            || string.Equals(element.LocalName, "wsp", StringComparison.Ordinal)
+            || string.Equals(element.LocalName, "shape", StringComparison.Ordinal);
+        if (isShape)
         {
-            foreach (var (key, value) in properties)
+            var dropped = new List<string>();
+            foreach (var k in properties.Keys)
             {
-                switch (key.ToLowerInvariant())
-                {
-                    case "name":
-                        // Check for duplicate bookmark names
-                        var existingBk = _doc.MainDocumentPart?.Document?.Body?
-                            .Descendants<BookmarkStart>()
-                            .FirstOrDefault(b => b.Name?.Value == value && b != bkStart);
-                        if (existingBk != null)
-                            throw new ArgumentException($"Bookmark name '{value}' already exists");
-                        bkStart.Name = value;
-                        break;
-                    case "text":
-                        var bkId = bkStart.Id?.Value;
-                        if (bkId != null)
-                        {
-                            var toRemove = new List<OpenXmlElement>();
-                            var sib = bkStart.NextSibling();
-                            while (sib != null)
-                            {
-                                if (sib is BookmarkEnd bkEnd && bkEnd.Id?.Value == bkId)
-                                    break;
-                                toRemove.Add(sib);
-                                sib = sib.NextSibling();
-                            }
-                            foreach (var el in toRemove) el.Remove();
-                            bkStart.InsertAfterSelf(new Run(new Text(value) { Space = SpaceProcessingModeValues.Preserve }));
-                        }
-                        break;
-                    default:
-                        unsupported.Add(key);
-                        break;
-                }
+                dropped.Add(k);
+                LastSetWarnings.Add($"unsupported property on shape: '{k}' (Set does not currently model shape transforms; see Add path for the supported props).");
             }
-
-            _doc.MainDocumentPart?.Document?.Save();
-            return unsupported;
+            return dropped;
         }
-
-        // SDT (Content Control) handling — both SdtBlock and SdtRun
-        if (element is SdtBlock sdtBlock || element is SdtRun)
-        {
-            var sdtProps = element is SdtBlock sb
-                ? sb.SdtProperties
-                : ((SdtRun)element).SdtProperties;
-            sdtProps ??= element.PrependChild(new SdtProperties());
-
-            foreach (var (key, value) in properties)
-            {
-                switch (key.ToLowerInvariant())
-                {
-                    case "alias" or "name":
-                        var existingAlias = sdtProps.GetFirstChild<SdtAlias>();
-                        if (existingAlias != null) existingAlias.Val = value;
-                        else sdtProps.AppendChild(new SdtAlias { Val = value });
-                        break;
-                    case "tag":
-                        var existingTag = sdtProps.GetFirstChild<Tag>();
-                        if (existingTag != null) existingTag.Val = value;
-                        else sdtProps.AppendChild(new Tag { Val = value });
-                        break;
-                    case "lock":
-                        var existingLock = sdtProps.GetFirstChild<DocumentFormat.OpenXml.Wordprocessing.Lock>();
-                        var lockEnum = value.ToLowerInvariant() switch
-                        {
-                            "contentlocked" or "content" => LockingValues.ContentLocked,
-                            "sdtlocked" or "sdt" => LockingValues.SdtLocked,
-                            "sdtcontentlocked" or "both" => LockingValues.SdtContentLocked,
-                            "unlocked" or "none" => LockingValues.Unlocked,
-                            _ => throw new ArgumentException($"Invalid lock value: '{value}'. Valid values: unlocked, contentLocked, sdtLocked, sdtContentLocked.")
-                        };
-                        if (existingLock != null) existingLock.Val = lockEnum;
-                        else sdtProps.AppendChild(new DocumentFormat.OpenXml.Wordprocessing.Lock { Val = lockEnum });
-                        break;
-                    case "text":
-                        // Replace content text
-                        if (element is SdtBlock sdtB)
-                        {
-                            var content = sdtB.SdtContentBlock;
-                            if (content != null)
-                            {
-                                content.RemoveAllChildren();
-                                content.AppendChild(new Paragraph(
-                                    new Run(new Text(value) { Space = SpaceProcessingModeValues.Preserve })));
-                            }
-                        }
-                        else if (element is SdtRun sdtR)
-                        {
-                            var content = sdtR.SdtContentRun;
-                            if (content != null)
-                            {
-                                content.RemoveAllChildren();
-                                content.AppendChild(
-                                    new Run(new Text(value) { Space = SpaceProcessingModeValues.Preserve }));
-                            }
-                        }
-                        // Clear showingPlaceholder flag so Word doesn't display as placeholder style
-                        var plcHdr = (element is SdtBlock sb2 ? sb2.SdtProperties : ((SdtRun)element).SdtProperties)
-                            ?.GetFirstChild<ShowingPlaceholder>();
-                        plcHdr?.Remove();
-                        break;
-                    default:
-                        unsupported.Add(key);
-                        break;
-                }
-            }
-            _doc.MainDocumentPart?.Document?.Save();
-            return unsupported;
-        }
-
-        if (element is Run run)
-        {
-            foreach (var (key, value) in properties)
-            {
-                switch (key.ToLowerInvariant())
-                {
-                    case "text":
-                        var textEl = run.GetFirstChild<Text>();
-                        if (textEl != null) textEl.Text = value;
-                        break;
-                    case "bold":
-                        EnsureRunProperties(run).Bold = IsTruthy(value) ? new Bold() : null;
-                        break;
-                    case "italic":
-                        EnsureRunProperties(run).Italic = IsTruthy(value) ? new Italic() : null;
-                        break;
-                    case "caps":
-                        EnsureRunProperties(run).Caps = IsTruthy(value) ? new Caps() : null;
-                        break;
-                    case "smallcaps":
-                        EnsureRunProperties(run).SmallCaps = IsTruthy(value) ? new SmallCaps() : null;
-                        break;
-                    case "dstrike":
-                        EnsureRunProperties(run).DoubleStrike = IsTruthy(value) ? new DoubleStrike() : null;
-                        break;
-                    case "vanish":
-                        EnsureRunProperties(run).Vanish = IsTruthy(value) ? new Vanish() : null;
-                        break;
-                    case "outline":
-                        EnsureRunProperties(run).Outline = IsTruthy(value) ? new Outline() : null;
-                        break;
-                    case "shadow":
-                        EnsureRunProperties(run).Shadow = IsTruthy(value) ? new Shadow() : null;
-                        break;
-                    case "emboss":
-                        EnsureRunProperties(run).Emboss = IsTruthy(value) ? new Emboss() : null;
-                        break;
-                    case "imprint":
-                        EnsureRunProperties(run).Imprint = IsTruthy(value) ? new Imprint() : null;
-                        break;
-                    case "noproof":
-                        EnsureRunProperties(run).NoProof = IsTruthy(value) ? new NoProof() : null;
-                        break;
-                    case "rtl":
-                        EnsureRunProperties(run).RightToLeftText = IsTruthy(value) ? new RightToLeftText() : null;
-                        break;
-                    case "font":
-                        var rPrFont = EnsureRunProperties(run);
-                        var existingFonts = rPrFont.RunFonts;
-                        if (existingFonts != null)
-                        {
-                            existingFonts.Ascii = value;
-                            existingFonts.HighAnsi = value;
-                            existingFonts.EastAsia = value;
-                        }
-                        else
-                        {
-                            rPrFont.RunFonts = new RunFonts { Ascii = value, HighAnsi = value, EastAsia = value };
-                        }
-                        break;
-                    case "size":
-                        EnsureRunProperties(run).FontSize = new FontSize
-                        {
-                            Val = ((int)Math.Round(ParseFontSize(value) * 2, MidpointRounding.AwayFromZero)).ToString() // half-points
-                        };
-                        break;
-                    case "highlight":
-                        EnsureRunProperties(run).Highlight = new Highlight
-                        {
-                            Val = ParseHighlightColor(value)
-                        };
-                        break;
-                    case "color":
-                        EnsureRunProperties(run).Color = new Color { Val = SanitizeHex(value) };
-                        break;
-                    case "underline":
-                    {
-                        var ulVal = value.ToLowerInvariant() switch
-                        {
-                            "true" => "single",
-                            "false" or "none" => "none",
-                            _ => value
-                        };
-                        EnsureRunProperties(run).Underline = new Underline
-                        {
-                            Val = new UnderlineValues(ulVal)
-                        };
-                        break;
-                    }
-                    case "strike":
-                        EnsureRunProperties(run).Strike = IsTruthy(value) ? new Strike() : null;
-                        break;
-                    case "superscript":
-                        EnsureRunProperties(run).VerticalTextAlignment = IsTruthy(value)
-                            ? new VerticalTextAlignment { Val = VerticalPositionValues.Superscript }
-                            : null;
-                        break;
-                    case "subscript":
-                        EnsureRunProperties(run).VerticalTextAlignment = IsTruthy(value)
-                            ? new VerticalTextAlignment { Val = VerticalPositionValues.Subscript }
-                            : null;
-                        break;
-                    case "charspacing" or "charSpacing" or "letterspacing" or "letterSpacing" or "spacing":
-                    {
-                        // Word spacing: w:rPr/w:spacing @w:val in twips (1/20 pt)
-                        // Accept pt values (e.g. "2pt", "0.5pt") or bare numbers as pt
-                        var csVal = value.TrimEnd();
-                        double csPt;
-                        if (csVal.EndsWith("pt", StringComparison.OrdinalIgnoreCase))
-                            csPt = ParseHelpers.SafeParseDouble(csVal[..^2], "charspacing");
-                        else
-                            csPt = ParseHelpers.SafeParseDouble(csVal, "charspacing");
-                        var twips = (int)Math.Round(csPt * 20, MidpointRounding.AwayFromZero);
-                        EnsureRunProperties(run).Spacing = new Spacing { Val = twips };
-                        break;
-                    }
-                    case "shading":
-                    case "shd":
-                        // shd has w:val, w:fill, w:color — value format: "fill" or "val;fill" or "val;fill;color"
-                        var shdParts = value.Split(';');
-                        var shd = new Shading();
-                        if (shdParts.Length == 1)
-                        {
-                            shd.Val = ShadingPatternValues.Clear;
-                            shd.Fill = SanitizeHex(shdParts[0]);
-                        }
-                        else if (shdParts.Length >= 2)
-                        {
-                            var setRunPat = shdParts[0].TrimStart('#');
-                            if (setRunPat.Length >= 6 && setRunPat.All(char.IsAsciiHexDigit))
-                            { shd.Val = ShadingPatternValues.Clear; shd.Fill = SanitizeHex(shdParts[0]); }
-                            else
-                            {
-                                WarnIfShadingOrderWrong(shdParts[0]); shd.Val = new ShadingPatternValues(shdParts[0]);
-                                shd.Fill = SanitizeHex(shdParts[1]);
-                                if (shdParts.Length >= 3) shd.Color = SanitizeHex(shdParts[2]);
-                            }
-                        }
-                        EnsureRunProperties(run).Shading = shd;
-                        break;
-                    case "alt" or "alttext" or "description":
-                        var drawingAlt = run.GetFirstChild<Drawing>();
-                        if (drawingAlt != null)
-                        {
-                            var docPropsAlt = drawingAlt.Descendants<DW.DocProperties>().FirstOrDefault();
-                            if (docPropsAlt != null) docPropsAlt.Description = value;
-                        }
-                        else unsupported.Add(key);
-                        break;
-                    case "width":
-                        var drawingW = run.GetFirstChild<Drawing>();
-                        if (drawingW != null)
-                        {
-                            var extentW = drawingW.Descendants<DW.Extent>().FirstOrDefault();
-                            if (extentW != null) extentW.Cx = ParseEmu(value);
-                            var extentsW = drawingW.Descendants<A.Extents>().FirstOrDefault();
-                            if (extentsW != null) extentsW.Cx = ParseEmu(value);
-                        }
-                        else unsupported.Add(key);
-                        break;
-                    case "height":
-                        var drawingH = run.GetFirstChild<Drawing>();
-                        if (drawingH != null)
-                        {
-                            var extentH = drawingH.Descendants<DW.Extent>().FirstOrDefault();
-                            if (extentH != null) extentH.Cy = ParseEmu(value);
-                            var extentsH = drawingH.Descendants<A.Extents>().FirstOrDefault();
-                            if (extentsH != null) extentsH.Cy = ParseEmu(value);
-                        }
-                        else unsupported.Add(key);
-                        break;
-                    case "path" or "src":
-                    {
-                        // Replace image source in a run containing a Drawing
-                        var drawingSrc = run.GetFirstChild<Drawing>();
-                        var blip = drawingSrc?.Descendants<A.Blip>().FirstOrDefault();
-                        if (blip == null) { unsupported.Add(key); break; }
-
-                        var mainPartImg = _doc.MainDocumentPart!;
-                        var (wordImgStream, imgType) = OfficeCli.Core.ImageSource.Resolve(value);
-                        using var wordImgDispose = wordImgStream;
-
-                        // Remove old image part to avoid storage bloat
-                        var oldEmbedId = blip.Embed?.Value;
-                        if (oldEmbedId != null)
-                        {
-                            try { mainPartImg.DeletePart(oldEmbedId); } catch { }
-                        }
-
-                        var newImgPart = mainPartImg.AddImagePart(imgType);
-                        newImgPart.FeedData(wordImgStream);
-                        blip.Embed = mainPartImg.GetIdOfPart(newImgPart);
-                        break;
-                    }
-                    case "link":
-                    {
-                        var mainPart3 = _doc.MainDocumentPart!;
-                        if (string.IsNullOrEmpty(value) || value.Equals("none", StringComparison.OrdinalIgnoreCase))
-                        {
-                            // Remove hyperlink wrapper if present
-                            if (run.Parent is Hyperlink existingHlNone)
-                            {
-                                foreach (var childRun in existingHlNone.Elements<Run>().ToList())
-                                    existingHlNone.InsertBeforeSelf(childRun);
-                                existingHlNone.Remove();
-                            }
-                        }
-                        else
-                        {
-                            // Accept both absolute and relative URIs (Open-XML-SDK supports both)
-                            var uri = Uri.TryCreate(value, UriKind.Absolute, out var absUri)
-                                ? absUri
-                                : new Uri(value, UriKind.Relative);
-                            var newRelId = mainPart3.AddHyperlinkRelationship(uri, isExternal: true).Id;
-                            if (run.Parent is Hyperlink existingHl)
-                            {
-                                existingHl.Id = newRelId;
-                            }
-                            else
-                            {
-                                var newHl = new Hyperlink { Id = newRelId };
-                                run.InsertBeforeSelf(newHl);
-                                run.Remove();
-                                newHl.AppendChild(run);
-                            }
-                        }
-                        break;
-                    }
-                    case "textoutline":
-                        ApplyW14TextEffect(run, "textOutline", value, BuildW14TextOutline);
-                        break;
-                    case "textfill":
-                        ApplyW14TextEffect(run, "textFill", value, BuildW14TextFill);
-                        break;
-                    case "w14shadow":
-                        ApplyW14TextEffect(run, "shadow", value, BuildW14Shadow);
-                        break;
-                    case "w14glow":
-                        ApplyW14TextEffect(run, "glow", value, BuildW14Glow);
-                        break;
-                    case "w14reflection":
-                        ApplyW14TextEffect(run, "reflection", value, BuildW14Reflection);
-                        break;
-                    case "formula":
-                    {
-                        // Replace this run with an inline oMath in the same position
-                        var mathContent = FormulaParser.Parse(value);
-                        M.OfficeMath oMath = mathContent is M.OfficeMath dm
-                            ? dm : new M.OfficeMath(mathContent.CloneNode(true));
-                        run.InsertAfterSelf(oMath);
-                        run.Remove();
-                        break;
-                    }
-                    default:
-                        if (!GenericXmlQuery.TryCreateTypedChild(EnsureRunProperties(run), key, value))
-                            unsupported.Add(unsupported.Count == 0
-                                ? $"{key} (valid run props: text, bold, italic, font, size, color, underline, strike, highlight, caps, smallcaps, superscript, subscript, shading, link, formula)"
-                                : key);
-                        break;
-                }
-            }
-        }
-        else if (element is Hyperlink hl)
-        {
-            foreach (var (key, value) in properties)
-            {
-                var k = key.ToLowerInvariant();
-                switch (k)
-                {
-                    case "url":
-                    case "link":
-                    case "href":
-                    {
-                        var mainPartHl = _doc.MainDocumentPart!;
-                        // Delete old relationship to avoid storage bloat
-                        var oldRelId = hl.Id?.Value;
-                        if (oldRelId != null)
-                        {
-                            var oldRel = mainPartHl.HyperlinkRelationships.FirstOrDefault(r => r.Id == oldRelId);
-                            if (oldRel != null)
-                                mainPartHl.DeleteReferenceRelationship(oldRel);
-                        }
-                        var uri = Uri.TryCreate(value, UriKind.Absolute, out var absUri)
-                            ? absUri
-                            : new Uri(value, UriKind.Relative);
-                        var newRelId = mainPartHl.AddHyperlinkRelationship(uri, isExternal: true).Id;
-                        hl.Id = newRelId;
-                        break;
-                    }
-                    case "text":
-                    {
-                        // Update text in all runs within the hyperlink
-                        var runs = hl.Elements<Run>().ToList();
-                        if (runs.Count > 0)
-                        {
-                            // Set text on the first run, remove the rest
-                            var firstRun = runs[0];
-                            var t = firstRun.GetFirstChild<Text>()
-                                ?? firstRun.AppendChild(new Text());
-                            t.Text = value;
-                            t.Space = SpaceProcessingModeValues.Preserve;
-                            for (int i = 1; i < runs.Count; i++)
-                                runs[i].Remove();
-                        }
-                        else
-                        {
-                            // No runs yet, create one
-                            var newRun = new Run(new Text(value) { Space = SpaceProcessingModeValues.Preserve });
-                            hl.AppendChild(newRun);
-                        }
-                        break;
-                    }
-                    default:
-                        unsupported.Add(key);
-                        break;
-                }
-            }
-        }
-        else if (element is M.Paragraph mPara)
-        {
-            foreach (var (key, value) in properties)
-            {
-                var k = key.ToLowerInvariant();
-                switch (k)
-                {
-                    case "formula":
-                    {
-                        // Clear existing oMath children and rebuild from new formula
-                        foreach (var child in mPara.ChildElements.ToList())
-                            child.Remove();
-                        var mathContent = FormulaParser.Parse(value);
-                        M.OfficeMath oMath = mathContent is M.OfficeMath dm
-                            ? dm : new M.OfficeMath(mathContent.CloneNode(true));
-                        mPara.AppendChild(oMath);
-                        break;
-                    }
-                    default:
-                        unsupported.Add(unsupported.Count == 0
-                            ? $"{key} (valid equation props: formula)"
-                            : key);
-                        break;
-                }
-            }
-        }
-        else if (element is Paragraph para)
-        {
-            var pProps = para.ParagraphProperties ?? para.PrependChild(new ParagraphProperties());
-            foreach (var (key, value) in properties)
-            {
-                var k = key.ToLowerInvariant();
-                if (ApplyParagraphLevelProperty(pProps, key, value))
-                {
-                    // handled by paragraph-level helper
-                }
-                else switch (k)
-                {
-                    case "formula":
-                    {
-                        // Replace paragraph content with OMML equation in-place
-                        foreach (var child in para.ChildElements
-                            .Where(c => c is not ParagraphProperties).ToList())
-                            child.Remove();
-                        var mathContent = FormulaParser.Parse(value);
-                        M.OfficeMath oMath = mathContent is M.OfficeMath dm
-                            ? dm : new M.OfficeMath(mathContent.CloneNode(true));
-                        para.AppendChild(new M.Paragraph(oMath));
-                        break;
-                    }
-                    case "liststyle":
-                        ApplyListStyle(para, value);
-                        break;
-                    case "start":
-                        SetListStartValue(para, ParseHelpers.SafeParseInt(value, "start"));
-                        break;
-                    case "size" or "font" or "bold" or "italic" or "color" or "highlight" or "underline" or "strike":
-                        // Apply run-level formatting to all runs in the paragraph
-                        var allParaRuns = para.Descendants<Run>().ToList();
-                        // Also update paragraph mark run properties (rPr inside pPr)
-                        // so new runs inherit the formatting
-                        var markRPr = pProps.ParagraphMarkRunProperties ?? pProps.AppendChild(new ParagraphMarkRunProperties());
-                        ApplyRunFormatting(markRPr, key, value);
-                        foreach (var pRun in allParaRuns)
-                        {
-                            var pRunProps = EnsureRunProperties(pRun);
-                            ApplyRunFormatting(pRunProps, key, value);
-                        }
-                        break;
-                    case "text":
-                        // Set text on paragraph: update first run or create one
-                        var existingRuns = para.Elements<Run>().ToList();
-                        if (existingRuns.Count > 0)
-                        {
-                            var firstText = existingRuns[0].GetFirstChild<Text>();
-                            if (firstText != null) firstText.Text = value;
-                            else existingRuns[0].AppendChild(new Text(value) { Space = SpaceProcessingModeValues.Preserve });
-                            // Remove extra runs
-                            for (int i = 1; i < existingRuns.Count; i++) existingRuns[i].Remove();
-                        }
-                        else
-                        {
-                            // Use paragraph mark run properties as default for new run
-                            var newRun = new Run();
-                            var markProps = pProps.ParagraphMarkRunProperties;
-                            if (markProps != null)
-                            {
-                                var cloned = new RunProperties();
-                                foreach (var child in markProps.ChildElements)
-                                    cloned.AppendChild(child.CloneNode(true));
-                                newRun.PrependChild(cloned);
-                            }
-                            newRun.AppendChild(new Text(value) { Space = SpaceProcessingModeValues.Preserve });
-                            para.AppendChild(newRun);
-                        }
-                        break;
-                    default:
-                        if (!GenericXmlQuery.TryCreateTypedChild(pProps, key, value))
-                            unsupported.Add(unsupported.Count == 0
-                                ? $"{key} (valid paragraph props: text, style, alignment, bold, italic, font, size, color, spaceBefore, spaceAfter, lineSpacing, indent, liststyle, formula)"
-                                : key);
-                        break;
-                }
-            }
-        }
-
-        else if (element is TableCell cell)
-        {
-            var tcPr = cell.TableCellProperties ?? cell.PrependChild(new TableCellProperties());
-            string? deferredText = null;
-            foreach (var (key, value) in properties)
-            {
-                switch (key.ToLowerInvariant())
-                {
-                    case "text":
-                        // Defer text handling until after formatting is applied
-                        deferredText = value;
-                        break;
-                    case "font":
-                    case "size":
-                    case "bold":
-                    case "italic":
-                    case "color":
-                    case "highlight":
-                    case "underline":
-                    case "strike":
-                        // Apply to all runs in all paragraphs in the cell
-                        bool hasRuns = false;
-                        foreach (var cellPara in cell.Elements<Paragraph>())
-                        {
-                            foreach (var cellRun in cellPara.Elements<Run>())
-                            {
-                                hasRuns = true;
-                                var rPr = EnsureRunProperties(cellRun);
-                                switch (key.ToLowerInvariant())
-                                {
-                                    case "font":
-                                        rPr.RunFonts = new RunFonts { Ascii = value, HighAnsi = value, EastAsia = value };
-                                        break;
-                                    case "size":
-                                        rPr.FontSize = new FontSize { Val = ((int)Math.Round(ParseFontSize(value) * 2, MidpointRounding.AwayFromZero)).ToString() };
-                                        break;
-                                    case "bold":
-                                        rPr.Bold = IsTruthy(value) ? new Bold() : null;
-                                        break;
-                                    case "italic":
-                                        rPr.Italic = IsTruthy(value) ? new Italic() : null;
-                                        break;
-                                    case "color":
-                                        rPr.Color = new Color { Val = SanitizeHex(value) };
-                                        break;
-                                    case "highlight":
-                                        rPr.Highlight = new Highlight { Val = ParseHighlightColor(value) };
-                                        break;
-                                    case "underline":
-                                    {
-                                        var ulVal = value.ToLowerInvariant() switch { "true" => "single", "false" or "none" => "none", _ => value };
-                                        rPr.Underline = new Underline { Val = new UnderlineValues(ulVal) };
-                                        break;
-                                    }
-                                    case "strike":
-                                        rPr.Strike = IsTruthy(value) ? new Strike() : null;
-                                        break;
-                                }
-                            }
-                        }
-                        // If no runs exist, store formatting in ParagraphMarkRunProperties on first paragraph
-                        if (!hasRuns)
-                        {
-                            var fp = cell.Elements<Paragraph>().FirstOrDefault();
-                            if (fp == null) { fp = new Paragraph(); cell.AppendChild(fp); }
-                            var pPr = fp.ParagraphProperties ?? fp.PrependChild(new ParagraphProperties());
-                            var pmrp = pPr.ParagraphMarkRunProperties ?? pPr.AppendChild(new ParagraphMarkRunProperties());
-                            switch (key.ToLowerInvariant())
-                            {
-                                case "font":
-                                    pmrp.RemoveAllChildren<RunFonts>();
-                                    pmrp.AppendChild(new RunFonts { Ascii = value, HighAnsi = value, EastAsia = value });
-                                    break;
-                                case "size":
-                                    pmrp.RemoveAllChildren<FontSize>();
-                                    pmrp.AppendChild(new FontSize { Val = ((int)Math.Round(ParseFontSize(value) * 2, MidpointRounding.AwayFromZero)).ToString() });
-                                    break;
-                                case "bold":
-                                    pmrp.RemoveAllChildren<Bold>();
-                                    if (IsTruthy(value)) InsertRunPropInSchemaOrder(pmrp, new Bold());
-                                    break;
-                                case "italic":
-                                    pmrp.RemoveAllChildren<Italic>();
-                                    if (IsTruthy(value)) InsertRunPropInSchemaOrder(pmrp, new Italic());
-                                    break;
-                                case "color":
-                                    pmrp.RemoveAllChildren<Color>();
-                                    InsertRunPropInSchemaOrder(pmrp, new Color { Val = SanitizeHex(value) });
-                                    break;
-                                case "highlight":
-                                    pmrp.RemoveAllChildren<Highlight>();
-                                    InsertRunPropInSchemaOrder(pmrp, new Highlight { Val = ParseHighlightColor(value) });
-                                    break;
-                                case "underline":
-                                {
-                                    var ulVal = value.ToLowerInvariant() switch { "true" => "single", "false" or "none" => "none", _ => value };
-                                    pmrp.RemoveAllChildren<Underline>();
-                                    InsertRunPropInSchemaOrder(pmrp, new Underline { Val = new UnderlineValues(ulVal) });
-                                    break;
-                                }
-                                case "strike":
-                                    pmrp.RemoveAllChildren<Strike>();
-                                    if (IsTruthy(value)) InsertRunPropInSchemaOrder(pmrp, new Strike());
-                                    break;
-                            }
-                        }
-                        break;
-                    case "shd" or "shading" or "fill":
-                        var shdParts = value.Split(';');
-                        if (shdParts.Length >= 3 && shdParts[0].Equals("gradient", StringComparison.OrdinalIgnoreCase))
-                        {
-                            // gradient;startColor;endColor[;angle]  e.g. gradient;FF0000;0000FF;90
-                            var startColor = SanitizeHex(shdParts[1]);
-                            var endColor = SanitizeHex(shdParts[2]);
-                            // Validate color positions don't look like numbers (likely swapped with angle)
-                            if (int.TryParse(shdParts[1], out _) && shdParts[1].Length <= 3)
-                                throw new ArgumentException($"'{shdParts[1]}' looks like an angle, not a color. Format: gradient;STARTCOLOR;ENDCOLOR[;ANGLE]");
-                            if (int.TryParse(shdParts[2], out _) && shdParts[2].Length <= 3)
-                                throw new ArgumentException($"'{shdParts[2]}' looks like an angle, not a color. Format: gradient;STARTCOLOR;ENDCOLOR[;ANGLE]");
-                            int angleDeg = 180;
-                            if (shdParts.Length >= 4)
-                            {
-                                if (!int.TryParse(shdParts[3], out angleDeg))
-                                    throw new ArgumentException($"Invalid gradient angle '{shdParts[3]}', expected integer. Format: gradient;STARTCOLOR;ENDCOLOR[;ANGLE]");
-                            }
-                            ApplyCellGradient(tcPr, startColor, endColor, angleDeg);
-                        }
-                        else
-                        {
-                            // Remove any existing gradient
-                            RemoveCellGradient(tcPr);
-                            var shd = new Shading();
-                            if (shdParts.Length == 1)
-                            {
-                                shd.Val = ShadingPatternValues.Clear;
-                                shd.Fill = OfficeCli.Core.ParseHelpers.SanitizeColorForOoxml(shdParts[0]).Rgb;
-                            }
-                            else if (shdParts.Length >= 2)
-                            {
-                                var cellPat = shdParts[0].TrimStart('#');
-                                if (cellPat.Length >= 6 && cellPat.All(char.IsAsciiHexDigit))
-                                { shd.Val = ShadingPatternValues.Clear; shd.Fill = OfficeCli.Core.ParseHelpers.SanitizeColorForOoxml(shdParts[0]).Rgb; }
-                                else
-                                {
-                                    WarnIfShadingOrderWrong(shdParts[0]); shd.Val = new ShadingPatternValues(shdParts[0]);
-                                    shd.Fill = OfficeCli.Core.ParseHelpers.SanitizeColorForOoxml(shdParts[1]).Rgb;
-                                    if (shdParts.Length >= 3) shd.Color = OfficeCli.Core.ParseHelpers.SanitizeColorForOoxml(shdParts[2]).Rgb;
-                                }
-                            }
-                            tcPr.Shading = shd;
-                        }
-                        break;
-                    case "alignment":
-                        var alignVal = ParseJustification(value);
-                        // Apply alignment to ALL paragraphs in the cell, not just the first
-                        foreach (var cellAlignPara in cell.Elements<Paragraph>())
-                        {
-                            var cpProps = cellAlignPara.ParagraphProperties ?? cellAlignPara.PrependChild(new ParagraphProperties());
-                            cpProps.Justification = new Justification
-                            {
-                                Val = alignVal
-                            };
-                        }
-                        break;
-                    case "valign":
-                        tcPr.TableCellVerticalAlignment = new TableCellVerticalAlignment
-                        {
-                            Val = value.ToLowerInvariant() switch
-                            {
-                                "top" => TableVerticalAlignmentValues.Top,
-                                "center" => TableVerticalAlignmentValues.Center,
-                                "bottom" => TableVerticalAlignmentValues.Bottom,
-                                _ => throw new ArgumentException($"Invalid valign value: '{value}'. Valid values: top, center, bottom.")
-                            }
-                        };
-                        break;
-                    case "width":
-                        tcPr.TableCellWidth = new TableCellWidth { Width = ParseHelpers.SafeParseUint(value, "width").ToString(), Type = TableWidthUnitValues.Dxa };
-                        break;
-                    case "padding":
-                    {
-                        var dxa = ParseHelpers.SafeParseUint(value, "padding").ToString();
-                        var mar = tcPr.TableCellMargin ?? (tcPr.TableCellMargin = new TableCellMargin());
-                        mar.TopMargin = new TopMargin { Width = dxa, Type = TableWidthUnitValues.Dxa };
-                        mar.BottomMargin = new BottomMargin { Width = dxa, Type = TableWidthUnitValues.Dxa };
-                        mar.LeftMargin = new LeftMargin { Width = dxa, Type = TableWidthUnitValues.Dxa };
-                        mar.RightMargin = new RightMargin { Width = dxa, Type = TableWidthUnitValues.Dxa };
-                        break;
-                    }
-                    case "padding.top":
-                    {
-                        var mar = tcPr.TableCellMargin ?? (tcPr.TableCellMargin = new TableCellMargin());
-                        mar.TopMargin = new TopMargin { Width = value, Type = TableWidthUnitValues.Dxa };
-                        break;
-                    }
-                    case "padding.bottom":
-                    {
-                        var mar = tcPr.TableCellMargin ?? (tcPr.TableCellMargin = new TableCellMargin());
-                        mar.BottomMargin = new BottomMargin { Width = value, Type = TableWidthUnitValues.Dxa };
-                        break;
-                    }
-                    case "padding.left":
-                    {
-                        var mar = tcPr.TableCellMargin ?? (tcPr.TableCellMargin = new TableCellMargin());
-                        mar.LeftMargin = new LeftMargin { Width = value, Type = TableWidthUnitValues.Dxa };
-                        break;
-                    }
-                    case "padding.right":
-                    {
-                        var mar = tcPr.TableCellMargin ?? (tcPr.TableCellMargin = new TableCellMargin());
-                        mar.RightMargin = new RightMargin { Width = value, Type = TableWidthUnitValues.Dxa };
-                        break;
-                    }
-                    case "textdirection" or "textdir":
-                        tcPr.TextDirection = new TextDirection
-                        {
-                            Val = value.ToLowerInvariant() switch
-                            {
-                                "btlr" or "vertical" => TextDirectionValues.BottomToTopLeftToRight,
-                                "tbrl" or "vertical-rl" => TextDirectionValues.TopToBottomRightToLeft,
-                                "lrtb" or "horizontal" => TextDirectionValues.LefToRightTopToBottom,
-                                "tbrl-r" or "tb-rl-rotated" => TextDirectionValues.TopToBottomRightToLeftRotated,
-                                "lrtb-r" or "lr-tb-rotated" => TextDirectionValues.LefttoRightTopToBottomRotated,
-                                "tblr-r" or "tb-lr-rotated" => TextDirectionValues.TopToBottomLeftToRightRotated,
-                                _ => throw new ArgumentException($"Invalid textDirection value: '{value}'. Valid values: lrtb, btlr, tbrl, horizontal, vertical.")
-                            }
-                        };
-                        break;
-                    case "nowrap":
-                        tcPr.NoWrap = IsTruthy(value) ? new NoWrap() : null;
-                        break;
-                    case "vmerge":
-                        tcPr.VerticalMerge = new VerticalMerge
-                        {
-                            Val = value.ToLowerInvariant() == "restart" ? MergedCellValues.Restart : MergedCellValues.Continue
-                        };
-                        break;
-                    case var k when k.StartsWith("border"):
-                        ApplyCellBorders(tcPr, key, value);
-                        break;
-                    case "gridspan" or "colspan":
-                        var newSpan = ParseHelpers.SafeParseInt(value, "gridspan");
-                        if (newSpan <= 0)
-                            throw new ArgumentException($"Invalid 'gridspan' value: '{value}'. Must be a positive integer (> 0).");
-                        tcPr.GridSpan = new GridSpan { Val = newSpan };
-                        // Ensure the row has the correct number of tc elements.
-                        // Calculate total grid columns occupied by all cells in this row,
-                        // then remove/add cells so it matches the table grid.
-                        if (element.Parent is TableRow parentRow)
-                        {
-                            var table = parentRow.Parent as Table;
-                            var gridColList = table?.GetFirstChild<TableGrid>()
-                                ?.Elements<GridColumn>().ToList();
-                            var gridCols = gridColList?.Count ?? 0;
-                            if (gridCols > 0)
-                            {
-                                // Calculate the grid column index where this cell starts
-                                int startCol = 0;
-                                foreach (var prevTc in parentRow.Elements<TableCell>())
-                                {
-                                    if (prevTc == element) break;
-                                    startCol += prevTc.TableCellProperties?.GridSpan?.Val?.Value ?? 1;
-                                }
-
-                                // Update cell width to sum of spanned grid columns
-                                int spanWidth = 0;
-                                for (int gi = startCol; gi < startCol + newSpan && gi < gridCols; gi++)
-                                {
-                                    if (int.TryParse(gridColList![gi].Width?.Value, out var gw))
-                                        spanWidth += gw;
-                                }
-                                if (spanWidth > 0)
-                                    tcPr.TableCellWidth = new TableCellWidth { Width = spanWidth.ToString(), Type = TableWidthUnitValues.Dxa };
-
-                                // Calculate total columns occupied by current cells
-                                var totalSpan = parentRow.Elements<TableCell>().Sum(tc =>
-                                    tc.TableCellProperties?.GridSpan?.Val?.Value ?? 1);
-                                // Remove excess cells after the current cell
-                                while (totalSpan > gridCols)
-                                {
-                                    var nextCell = ((TableCell)element).NextSibling<TableCell>();
-                                    if (nextCell == null) break;
-                                    totalSpan -= nextCell.TableCellProperties?.GridSpan?.Val?.Value ?? 1;
-                                    nextCell.Remove();
-                                }
-                            }
-                        }
-                        break;
-                    case "fittext":
-                    {
-                        // FitText goes on w:rPr (RunProperties), not tcPr
-                        var cellWidth = tcPr.TableCellWidth?.Width?.Value;
-                        var fitVal = cellWidth != null && uint.TryParse(cellWidth, out var fw) ? fw : 0u;
-                        foreach (var cellPara in cell.Elements<Paragraph>())
-                        {
-                            foreach (var cellRun in cellPara.Elements<Run>())
-                            {
-                                var rPr = EnsureRunProperties(cellRun);
-                                rPr.RemoveAllChildren<FitText>();
-                                if (IsTruthy(value))
-                                    rPr.AppendChild(new FitText { Val = fitVal });
-                            }
-                            // Also apply to ParagraphMarkRunProperties
-                            var pPr = cellPara.ParagraphProperties;
-                            if (pPr?.ParagraphMarkRunProperties != null)
-                            {
-                                pPr.ParagraphMarkRunProperties.RemoveAllChildren<FitText>();
-                                if (IsTruthy(value))
-                                    pPr.ParagraphMarkRunProperties.AppendChild(new FitText { Val = fitVal });
-                            }
-                        }
-                        break;
-                    }
-                    default:
-                        if (!GenericXmlQuery.TryCreateTypedChild(tcPr, key, value))
-                            unsupported.Add(unsupported.Count == 0
-                                ? $"{key} (valid cell props: text, font, size, bold, italic, color, alignment, valign, width, shd, border, colspan, fitText, textDirection, nowrap, padding)"
-                                : key);
-                        break;
-                }
-            }
-            // Process deferred "text" AFTER formatting so font/size/bold are applied to existing runs first
-            if (deferredText != null)
-            {
-                var firstPara = cell.Elements<Paragraph>().FirstOrDefault();
-                if (firstPara == null)
-                {
-                    firstPara = new Paragraph();
-                    cell.AppendChild(firstPara);
-                }
-                // Preserve RunProperties from first run before replacing
-                var cellExistingRuns = firstPara.Elements<Run>().ToList();
-                var cellRunProps = cellExistingRuns.FirstOrDefault()?.RunProperties?.CloneNode(true) as RunProperties;
-                // Also check ParagraphMarkRunProperties if no run props found
-                if (cellRunProps == null)
-                {
-                    var pmrp = firstPara.ParagraphProperties?.ParagraphMarkRunProperties;
-                    if (pmrp != null) cellRunProps = new RunProperties(pmrp.CloneNode(true).ChildElements.Select(c => c.CloneNode(true)));
-                }
-                foreach (var r in cellExistingRuns) r.Remove();
-                var cellNewRun = new Run(new Text(deferredText) { Space = SpaceProcessingModeValues.Preserve });
-                if (cellRunProps != null) cellNewRun.PrependChild(cellRunProps);
-                firstPara.AppendChild(cellNewRun);
-            }
-        }
-        else if (element is TableRow row)
-        {
-            var trPr = row.TableRowProperties ?? row.PrependChild(new TableRowProperties());
-            foreach (var (key, value) in properties)
-            {
-                switch (key.ToLowerInvariant())
-                {
-                    case "height":
-                        trPr.GetFirstChild<TableRowHeight>()?.Remove();
-                        trPr.AppendChild(new TableRowHeight { Val = ParseTwips(value), HeightType = HeightRuleValues.AtLeast });
-                        break;
-                    case "height.exact":
-                        trPr.GetFirstChild<TableRowHeight>()?.Remove();
-                        trPr.AppendChild(new TableRowHeight { Val = ParseTwips(value), HeightType = HeightRuleValues.Exact });
-                        break;
-                    case "header":
-                        if (IsTruthy(value))
-                        {
-                            if (trPr.GetFirstChild<TableHeader>() == null)
-                                trPr.AppendChild(new TableHeader());
-                        }
-                        else
-                            trPr.RemoveAllChildren<TableHeader>();
-                        break;
-                    default:
-                        // c1, c2, ... shorthand: set text of specific cell by index
-                        if (key.Length >= 2 && key[0] == 'c' && int.TryParse(key.AsSpan(1), out var cIdx))
-                        {
-                            var rowCells = row.Elements<TableCell>().ToList();
-                            if (cIdx < 1 || cIdx > rowCells.Count)
-                                throw new ArgumentException($"Cell c{cIdx} out of range (row has {rowCells.Count} cells)");
-                            var targetPara = rowCells[cIdx - 1].GetFirstChild<Paragraph>()
-                                ?? rowCells[cIdx - 1].AppendChild(new Paragraph());
-                            targetPara.RemoveAllChildren<Run>();
-                            if (!string.IsNullOrEmpty(value))
-                                targetPara.AppendChild(new Run(new Text(value) { Space = SpaceProcessingModeValues.Preserve }));
-                        }
-                        else if (!GenericXmlQuery.TryCreateTypedChild(trPr, key, value))
-                            unsupported.Add(unsupported.Count == 0
-                                ? $"{key} (valid row props: height, height.exact, header, c1, c2, ...)"
-                                : key);
-                        break;
-                }
-            }
-        }
-        else if (element is Table tbl)
-        {
-            var tblPr = tbl.GetFirstChild<TableProperties>() ?? tbl.PrependChild(new TableProperties());
-            foreach (var (key, value) in properties)
-            {
-                switch (key.ToLowerInvariant())
-                {
-                    case "style":
-                        var tblStyle = tblPr.TableStyle ?? (tblPr.TableStyle = new TableStyle());
-                        tblStyle.Val = value;
-                        break;
-                    case "alignment":
-                        tblPr.TableJustification = new TableJustification
-                        {
-                            Val = value.ToLowerInvariant() switch
-                            {
-                                "left" => TableRowAlignmentValues.Left,
-                                "center" => TableRowAlignmentValues.Center,
-                                "right" => TableRowAlignmentValues.Right,
-                                _ => throw new ArgumentException($"Invalid table alignment value: '{value}'. Valid values: left, center, right.")
-                            }
-                        };
-                        break;
-                    case "width":
-                        if (value.EndsWith('%'))
-                        {
-                            var pct = ParseHelpers.SafeParseInt(value.TrimEnd('%'), "width") * 50; // OOXML pct = percent * 50
-                            tblPr.TableWidth = new TableWidth { Width = pct.ToString(), Type = TableWidthUnitValues.Pct };
-                        }
-                        else
-                        {
-                            tblPr.TableWidth = new TableWidth { Width = ParseHelpers.SafeParseUint(value, "width").ToString(), Type = TableWidthUnitValues.Dxa };
-                        }
-                        break;
-                    case "indent":
-                        tblPr.TableIndentation = new TableIndentation { Width = ParseHelpers.SafeParseInt(value, "indent"), Type = TableWidthUnitValues.Dxa };
-                        break;
-                    case "cellspacing":
-                        tblPr.TableCellSpacing = new TableCellSpacing { Width = ParseHelpers.SafeParseUint(value, "cellspacing").ToString(), Type = TableWidthUnitValues.Dxa };
-                        break;
-                    case "layout":
-                        tblPr.TableLayout = new TableLayout
-                        {
-                            Type = value.ToLowerInvariant() == "fixed" ? TableLayoutValues.Fixed : TableLayoutValues.Autofit
-                        };
-                        break;
-                    case "padding":
-                    {
-                        var dxa = value;
-                        var cm = tblPr.TableCellMarginDefault ?? tblPr.AppendChild(new TableCellMarginDefault());
-                        cm.TopMargin = new TopMargin { Width = dxa, Type = TableWidthUnitValues.Dxa };
-                        var paddingVal = ParseHelpers.SafeParseInt(dxa, "padding");
-                        cm.TableCellLeftMargin = new TableCellLeftMargin { Width = (short)Math.Min(paddingVal, short.MaxValue), Type = TableWidthValues.Dxa };
-                        cm.BottomMargin = new BottomMargin { Width = dxa, Type = TableWidthUnitValues.Dxa };
-                        cm.TableCellRightMargin = new TableCellRightMargin { Width = (short)Math.Min(paddingVal, short.MaxValue), Type = TableWidthValues.Dxa };
-                        break;
-                    }
-                    case "firstrow":
-                    case "lastrow":
-                    case "firstcol" or "firstcolumn":
-                    case "lastcol" or "lastcolumn":
-                    case "bandrow" or "bandedrows" or "bandrows":
-                    case "bandcol" or "bandedcols" or "bandcols":
-                    {
-                        var tblLook = tblPr.GetFirstChild<TableLook>();
-                        if (tblLook == null) { tblLook = new TableLook { Val = "04A0" }; tblPr.AppendChild(tblLook); }
-                        var bv = IsTruthy(value);
-                        switch (key.ToLowerInvariant())
-                        {
-                            case "firstrow": tblLook.FirstRow = bv; break;
-                            case "lastrow": tblLook.LastRow = bv; break;
-                            case "firstcol" or "firstcolumn": tblLook.FirstColumn = bv; break;
-                            case "lastcol" or "lastcolumn": tblLook.LastColumn = bv; break;
-                            case "bandrow" or "bandedrows" or "bandrows": tblLook.NoHorizontalBand = !bv; break;
-                            case "bandcol" or "bandedcols" or "bandcols": tblLook.NoVerticalBand = !bv; break;
-                        }
-                        break;
-                    }
-                    case "position" or "floating":
-                    {
-                        // Shorthand: "floating" or "none" to toggle floating table
-                        if (value.Equals("none", StringComparison.OrdinalIgnoreCase)
-                            || value.Equals("false", StringComparison.OrdinalIgnoreCase))
-                        {
-                            tblPr.RemoveAllChildren<TablePositionProperties>();
-                            tblPr.RemoveAllChildren<TableOverlap>();
-                        }
-                        else
-                        {
-                            // "floating" enables floating with defaults
-                            var tpp = tblPr.GetFirstChild<TablePositionProperties>();
-                            if (tpp == null)
-                            {
-                                tpp = new TablePositionProperties();
-                                tblPr.AppendChild(tpp);
-                            }
-                            if (tpp.VerticalAnchor == null)
-                                tpp.VerticalAnchor = VerticalAnchorValues.Page;
-                            if (tpp.HorizontalAnchor == null)
-                                tpp.HorizontalAnchor = HorizontalAnchorValues.Page;
-                        }
-                        break;
-                    }
-                    case "position.x" or "tblpx":
-                    {
-                        var tpp = EnsureTablePositionProperties(tblPr);
-                        var v = value.ToLowerInvariant();
-                        if (v is "left" or "center" or "right" or "inside" or "outside")
-                        {
-                            tpp.TablePositionXAlignment = v switch
-                            {
-                                "left" => HorizontalAlignmentValues.Left,
-                                "center" => HorizontalAlignmentValues.Center,
-                                "right" => HorizontalAlignmentValues.Right,
-                                "inside" => HorizontalAlignmentValues.Inside,
-                                "outside" => HorizontalAlignmentValues.Outside,
-                                _ => throw new ArgumentException($"Invalid position.x alignment: '{value}'")
-                            };
-                            tpp.TablePositionX = null;
-                        }
-                        else
-                        {
-                            tpp.TablePositionX = (int)ParseTwips(value);
-                            tpp.TablePositionXAlignment = null;
-                        }
-                        break;
-                    }
-                    case "position.y" or "tblpy":
-                    {
-                        var tpp = EnsureTablePositionProperties(tblPr);
-                        var v = value.ToLowerInvariant();
-                        if (v is "top" or "center" or "bottom" or "inside" or "outside")
-                        {
-                            tpp.TablePositionYAlignment = v switch
-                            {
-                                "top" => VerticalAlignmentValues.Top,
-                                "center" => VerticalAlignmentValues.Center,
-                                "bottom" => VerticalAlignmentValues.Bottom,
-                                "inside" => VerticalAlignmentValues.Inside,
-                                "outside" => VerticalAlignmentValues.Outside,
-                                _ => throw new ArgumentException($"Invalid position.y alignment: '{value}'")
-                            };
-                            tpp.TablePositionY = null;
-                        }
-                        else
-                        {
-                            tpp.TablePositionY = (int)ParseTwips(value);
-                            tpp.TablePositionYAlignment = null;
-                        }
-                        break;
-                    }
-                    case "position.hanchor" or "position.horizontalanchor":
-                    {
-                        var tpp = EnsureTablePositionProperties(tblPr);
-                        tpp.HorizontalAnchor = value.ToLowerInvariant() switch
-                        {
-                            "margin" => HorizontalAnchorValues.Margin,
-                            "page" => HorizontalAnchorValues.Page,
-                            "text" => HorizontalAnchorValues.Text,
-                            _ => throw new ArgumentException($"Invalid horizontalAnchor: '{value}'. Valid: margin, page, text.")
-                        };
-                        break;
-                    }
-                    case "position.vanchor" or "position.verticalanchor":
-                    {
-                        var tpp = EnsureTablePositionProperties(tblPr);
-                        tpp.VerticalAnchor = value.ToLowerInvariant() switch
-                        {
-                            "margin" => VerticalAnchorValues.Margin,
-                            "page" => VerticalAnchorValues.Page,
-                            "text" => VerticalAnchorValues.Text,
-                            _ => throw new ArgumentException($"Invalid verticalAnchor: '{value}'. Valid: margin, page, text.")
-                        };
-                        break;
-                    }
-                    case "position.leftfromtext" or "position.left":
-                    {
-                        var tpp = EnsureTablePositionProperties(tblPr);
-                        tpp.LeftFromText = (short)ParseTwips(value);
-                        break;
-                    }
-                    case "position.rightfromtext" or "position.right":
-                    {
-                        var tpp = EnsureTablePositionProperties(tblPr);
-                        tpp.RightFromText = (short)ParseTwips(value);
-                        break;
-                    }
-                    case "position.topfromtext" or "position.top":
-                    {
-                        var tpp = EnsureTablePositionProperties(tblPr);
-                        tpp.TopFromText = (short)ParseTwips(value);
-                        break;
-                    }
-                    case "position.bottomfromtext" or "position.bottom":
-                    {
-                        var tpp = EnsureTablePositionProperties(tblPr);
-                        tpp.BottomFromText = (short)ParseTwips(value);
-                        break;
-                    }
-                    case "overlap":
-                    {
-                        tblPr.RemoveAllChildren<TableOverlap>();
-                        if (!value.Equals("none", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var overlapEl = new TableOverlap
-                            {
-                                Val = value.ToLowerInvariant() switch
-                                {
-                                    "overlap" or "true" or "always" => TableOverlapValues.Overlap,
-                                    "never" or "false" => TableOverlapValues.Never,
-                                    _ => throw new ArgumentException($"Invalid overlap: '{value}'. Valid: overlap, never, none.")
-                                }
-                            };
-                            // CT_TblPr schema: tblStyle → tblpPr → tblOverlap → ...
-                            var tppRef = tblPr.GetFirstChild<TablePositionProperties>();
-                            if (tppRef != null) tppRef.InsertAfterSelf(overlapEl);
-                            else
-                            {
-                                var styleRef = tblPr.GetFirstChild<TableStyle>();
-                                if (styleRef != null) styleRef.InsertAfterSelf(overlapEl);
-                                else tblPr.PrependChild(overlapEl);
-                            }
-                        }
-                        break;
-                    }
-                    case "caption":
-                        tblPr.RemoveAllChildren<TableCaption>();
-                        if (!string.IsNullOrEmpty(value))
-                            tblPr.AppendChild(new TableCaption { Val = value });
-                        break;
-                    case "description":
-                        tblPr.RemoveAllChildren<TableDescription>();
-                        if (!string.IsNullOrEmpty(value))
-                            tblPr.AppendChild(new TableDescription { Val = value });
-                        break;
-                    case var k when k.StartsWith("border"):
-                        ApplyTableBorders(tblPr, key, value);
-                        break;
-                    case "colwidths" or "colWidths":
-                    {
-                        var parts = value.Split(',');
-                        var tblGrid = tbl.GetFirstChild<TableGrid>();
-                        if (tblGrid == null)
-                        {
-                            tblGrid = new TableGrid();
-                            tbl.InsertAfter(tblGrid, tblPr);
-                        }
-                        var gridCols = tblGrid.Elements<GridColumn>().ToList();
-                        for (int ci = 0; ci < parts.Length; ci++)
-                        {
-                            var twips = ParseTwips(parts[ci].Trim());
-                            if (ci < gridCols.Count)
-                                gridCols[ci].Width = twips.ToString();
-                            else
-                                tblGrid.AppendChild(new GridColumn { Width = twips.ToString() });
-                            // Also update cell widths in each row for this column
-                            foreach (var tblRow in tbl.Elements<TableRow>())
-                            {
-                                var cells = tblRow.Elements<TableCell>().ToList();
-                                if (ci < cells.Count)
-                                {
-                                    var tcPr = cells[ci].TableCellProperties ?? cells[ci].PrependChild(new TableCellProperties());
-                                    tcPr.TableCellWidth = new TableCellWidth { Width = twips.ToString(), Type = TableWidthUnitValues.Dxa };
-                                }
-                            }
-                        }
-                        break;
-                    }
-                    default:
-                        if (!GenericXmlQuery.TryCreateTypedChild(tblPr, key, value))
-                            unsupported.Add(unsupported.Count == 0
-                                ? $"{key} (valid table props: width, alignment, style, indent, cellspacing, layout, padding, border*, colWidths, firstRow, lastRow, firstCol, lastCol, bandedRows, bandedCols, caption, description)"
-                                : key);
-                        break;
-                }
-            }
-        }
-
-        // Refresh w14:textId on the affected paragraph (content changed)
-        var affectedPara = element as Paragraph ?? element.Ancestors<Paragraph>().FirstOrDefault();
-        if (affectedPara != null)
-            affectedPara.TextId = GenerateParaId();
-
-        _doc.MainDocumentPart?.Document?.Save();
-        return unsupported;
+        return new List<string>();
     }
 
     private void SetHeaderFooter(string kind, int index, Dictionary<string, string> properties, List<string> unsupported)
     {
         var mainPart = _doc.MainDocumentPart!;
         OpenXmlCompositeElement? container;
+        OpenXmlPart partRef;
 
         if (kind == "header")
         {
             var part = mainPart.HeaderParts.ElementAtOrDefault(index)
                 ?? throw new ArgumentException($"Header not found: /header[{index + 1}]");
             container = part.Header;
+            partRef = part;
         }
         else
         {
             var part = mainPart.FooterParts.ElementAtOrDefault(index)
                 ?? throw new ArgumentException($"Footer not found: /footer[{index + 1}]");
             container = part.Footer;
+            partRef = part;
         }
 
         if (container == null)
@@ -1970,25 +680,76 @@ public partial class WordHandler
             var k = key.ToLowerInvariant();
             if (ApplyParagraphLevelProperty(pProps, key, value))
             {
+                // CONSISTENCY(rtl-cascade): direction=rtl on header/footer
+                // must also stamp <w:rtl/> on the paragraph mark and runs.
+                // See WordHandler.I18n.cs.
+                if (k is "direction" or "dir" or "bidi")
+                    ApplyDirectionCascade(firstPara, ParseDirectionRtl(value));
                 // handled by paragraph-level helper
             }
             else switch (k)
             {
                 case "text":
                 {
+                    // CONSISTENCY(xml-text-validation): mirror AppendTextWithBreaks —
+                    // reject XML 1.0 illegal control chars at input time so the resident
+                    // process doesn't accept them into the in-memory DOM only to fail at
+                    // close with "save failed — data may be lost" and lose user work.
+                    ParseHelpers.ValidateXmlText(value, "text", allowSoftBreakChar: true);
+                    // Only replace non-field static text runs. Complex fields are
+                    // a multi-run sequence: [Begin][Instr]([Separate][Result])[End].
+                    // Runs carrying <w:fldChar>/<w:instrText> AND any run nested
+                    // between Separate and End (the field "result" run) must all
+                    // survive — otherwise PAGE/DATE/etc. embedded in header/footer
+                    // are silently destroyed.
+                    var paraRuns = firstPara.Elements<Run>().ToList();
+                    var inField = false;
+                    var fieldRunSet = new HashSet<Run>();
+                    foreach (var r in paraRuns)
+                    {
+                        var fldChar = r.Elements<FieldChar>().FirstOrDefault();
+                        var hasInstr = r.Elements<FieldCode>().Any();
+                        if (fldChar != null || hasInstr)
+                        {
+                            fieldRunSet.Add(r);
+                            if (fldChar?.FieldCharType?.Value == FieldCharValues.Begin) inField = true;
+                            else if (fldChar?.FieldCharType?.Value == FieldCharValues.End) inField = false;
+                        }
+                        else if (inField)
+                        {
+                            fieldRunSet.Add(r);
+                        }
+                    }
                     RunProperties? existingRProps = null;
-                    var existingRun = firstPara.Elements<Run>().FirstOrDefault();
-                    if (existingRun?.RunProperties != null)
-                        existingRProps = (RunProperties)existingRun.RunProperties.CloneNode(true);
-                    foreach (var r in firstPara.Elements<Run>().ToList()) r.Remove();
+                    var firstStaticRun = paraRuns.FirstOrDefault(r => !fieldRunSet.Contains(r));
+                    if (firstStaticRun?.RunProperties != null)
+                        existingRProps = (RunProperties)firstStaticRun.RunProperties.CloneNode(true);
+                    var firstFieldRun = paraRuns.FirstOrDefault(fieldRunSet.Contains);
+                    foreach (var r in paraRuns.Where(r => !fieldRunSet.Contains(r))) r.Remove();
                     var newRun = new Run();
                     if (existingRProps != null)
                         newRun.AppendChild(existingRProps);
-                    newRun.AppendChild(new Text(value) { Space = SpaceProcessingModeValues.Preserve });
-                    firstPara.AppendChild(newRun);
+                    // CONSISTENCY(text-breaks): route through AppendTextWithBreaks
+                    // so \n/\t in value become <w:br/>/<w:tab/>, matching Add and
+                    // body-paragraph Set behavior (WordHandler.Set.Element.cs).
+                    AppendTextWithBreaks(newRun, value);
+                    if (firstFieldRun != null)
+                        firstPara.InsertBefore(newRun, firstFieldRun);
+                    else
+                        firstPara.AppendChild(newRun);
                     break;
                 }
-                case "size" or "font" or "bold" or "italic" or "color" or "highlight" or "underline" or "strike":
+                // Per-script font slots and CS run flags follow the same dispatch
+                // as bare bold/italic/size — ApplyRunFormatting handles the
+                // canonical and alias forms, so they are listed here for the
+                // header/footer route to reach it (mirrors body-paragraph Set
+                // dispatch in Set.Element.cs).
+                case "size" or "fontsize" or "font" or "bold" or "italic" or "color" or "highlight" or "underline" or "strike"
+                  or "font.latin" or "font.ea" or "font.eastasia" or "font.eastasian"
+                  or "font.cs" or "font.complexscript" or "font.complex"
+                  or "bold.cs" or "italic.cs" or "size.cs"
+                  or "font.bold.cs" or "font.italic.cs" or "font.size.cs"
+                  or "boldcs" or "italiccs" or "sizecs":
                     // Apply run-level formatting to all runs in the container
                     foreach (var run in container.Descendants<Run>())
                         ApplyRunFormatting(EnsureRunProperties(run), key, value);
@@ -1996,6 +757,55 @@ public partial class WordHandler
                     var markRPr = pProps.ParagraphMarkRunProperties ?? pProps.AppendChild(new ParagraphMarkRunProperties());
                     ApplyRunFormatting(markRPr, key, value);
                     break;
+                case "type":
+                {
+                    // Mutate the HeaderReference/FooterReference Type attribute
+                    // pointing at this part. Read side (WordHandler.Query.cs:660-666,
+                    // 717-723) only inspects body-level SectionProperties, so the
+                    // write side stays scoped to the same set for round-trip parity.
+                    var newType = value.ToLowerInvariant() switch
+                    {
+                        "first" => HeaderFooterValues.First,
+                        "even" => HeaderFooterValues.Even,
+                        "default" => HeaderFooterValues.Default,
+                        _ => throw new ArgumentException(
+                            $"Invalid {kind} type: '{value}'. Valid values: default, first, even.")
+                    };
+                    var partRid = mainPart.GetIdOfPart(partRef);
+                    var body = mainPart.Document?.Body
+                        ?? throw new InvalidOperationException("Document body not found");
+                    bool found = false;
+                    foreach (var sp in body.Elements<SectionProperties>())
+                    {
+                        if (kind == "header")
+                        {
+                            var ownRef = sp.Elements<HeaderReference>().FirstOrDefault(r => r.Id?.Value == partRid);
+                            if (ownRef == null) continue;
+                            if (ownRef.Type?.Value == newType) { found = true; continue; }
+                            if (sp.Elements<HeaderReference>().Any(r => r != ownRef && r.Type?.Value == newType))
+                                throw new ArgumentException(
+                                    $"Header of type '{value}' already exists in this section.");
+                            ownRef.Type = newType;
+                            found = true;
+                        }
+                        else
+                        {
+                            var ownRef = sp.Elements<FooterReference>().FirstOrDefault(r => r.Id?.Value == partRid);
+                            if (ownRef == null) continue;
+                            if (ownRef.Type?.Value == newType) { found = true; continue; }
+                            if (sp.Elements<FooterReference>().Any(r => r != ownRef && r.Type?.Value == newType))
+                                throw new ArgumentException(
+                                    $"Footer of type '{value}' already exists in this section.");
+                            ownRef.Type = newType;
+                            found = true;
+                        }
+                        // Mirrors AddHeader: Title-page header requires <w:titlePg/> on the section.
+                        if (newType == HeaderFooterValues.First && sp.GetFirstChild<TitlePage>() == null)
+                            sp.AddChild(new TitlePage(), throwOnError: false);
+                    }
+                    if (!found) unsupported.Add(key);
+                    break;
+                }
                 default:
                     unsupported.Add(key);
                     break;
@@ -2046,36 +856,263 @@ public partial class WordHandler
         "thinthicklargegap" => BorderValues.ThinThickLargeGap,
         "thickthinlargegap" => BorderValues.ThickThinLargeGap,
         "thinthickthinlargegap" => BorderValues.ThinThickThinLargeGap,
-        "wave" => BorderValues.Wave,
-        "doublewave" => BorderValues.DoubleWave,
+        // BUG-DUMP23-02: dashSmallGap is a valid ST_Border token (just wasn't
+        // listed). wavy is a colloquial alias for wave. wavyDouble / wavyHeavy
+        // are not part of ECMA-376 ST_Border (the SDK rejects them at validate
+        // time even via the string ctor) — accept them as input aliases and
+        // map to the nearest valid token (DoubleWave) so add/set don't reject
+        // user-supplied style names that show up in real-world docs.
+        "wave" or "wavy" => BorderValues.Wave,
+        "doublewave" or "wavydouble" or "wavyheavy" => BorderValues.DoubleWave,
+        "dashsmallgap" => BorderValues.DashSmallGap,
+        // BUG-R4B(BUG3): outset / inset are valid ST_Border tokens (real-world
+        // tables emit them) and dump→replay rejected them, cascading to a
+        // whole-table add failure. dashDotStroked was likewise a valid
+        // ST_Border value missing from the parser. Add the remaining
+        // line-style ST_Border members so they round-trip.
+        "outset" => BorderValues.Outset,
+        "inset" => BorderValues.Inset,
+        "dashdotstroked" => BorderValues.DashDotStroked,
         "threedembed" or "3demboss" => BorderValues.ThreeDEmboss,
         "threedengrave" or "3dengrave" => BorderValues.ThreeDEngrave,
-        _ => throw new ArgumentException($"Invalid border style: '{style}'. Valid values: single, thick, double, dotted, dashed, none, triple, wave, etc.")
+        // BUG-DUMP-ARTBORDER: ST_Border has a large ART family (hearts, apples,
+        // balloons3Colors, …) with no named SDK fields. Mapping only line-style
+        // tokens above and throwing here dropped art page borders on dump→batch
+        // AND collaterally aborted the whole atomic `set /` command — taking the
+        // valid `background` prop down with it. Be lenient (project input
+        // philosophy): pass any unknown token through the string-backed
+        // BorderValues ctor. Valid ST_Border values round-trip; genuinely bad
+        // tokens produce XML that Word ignores / validate flags — same outcome
+        // as other lenient parses, never a hard reject.
+        _ => new BorderValues(style)
     };
 
-    private static (BorderValues style, uint size, string? color, uint space) ParseBorderValue(string value)
+    // CONSISTENCY(border-empty-segment): space is uint? rather than uint so the
+    // caller can distinguish "not specified" from "explicitly 0" — the OOXML
+    // default for w:space is 0, so writing the attribute when the user did not
+    // ask for it round-trips into a spurious `border.X.space: 0` readback (and
+    // a `STYLE;SZ;;0` artifact in batch dump).
+    private static (BorderValues style, uint size, string? color, uint? space) ParseBorderValue(string value)
     {
-        var parts = value.Split(';');
-        var style = ParseBorderStyle(parts[0]);
-        uint size;
-        if (parts.Length > 1)
-        {
-            if (!uint.TryParse(parts[1], out size))
-                throw new ArgumentException($"Invalid border size '{parts[1]}', expected integer. Format: STYLE[;SIZE[;COLOR[;SPACE]]]");
-        }
-        else
-            size = style == BorderValues.Nil ? 0u : style == BorderValues.Thick ? 12u : 4u;
-        string? color = parts.Length > 2 ? SanitizeHex(parts[2]) : null;
-        uint space = 0u;
-        if (parts.Length > 3 && !uint.TryParse(parts[3], out space))
-            throw new ArgumentException($"Invalid border space '{parts[3]}', expected integer. Format: STYLE[;SIZE[;COLOR[;SPACE]]]");
+        var (style, size, color, space, _) = ParseBorderValueDetailed(value);
         return (style, size, color, space);
     }
 
-    private static T MakeBorder<T>(BorderValues style, uint size, string? color, uint space) where T : BorderType, new()
+    // BUG-DUMP-R36-1: the compound border string carries two optional boolean
+    // segments AFTER space — STYLE;SIZE;COLOR;SPACE;SHADOW;FRAME. w:shadow draws
+    // a drop-shadow, w:frame draws the border on the OUTSIDE edge of text; both
+    // change rendering and were previously dropped on round-trip. Segments are
+    // "true"/"false"/"" (empty = not specified). Back-compat: a 4-field string
+    // returns (null, null) so MakeBorder stamps neither attribute.
+    //
+    // CONSISTENCY(border-shadow-frame): the positional SHADOW/FRAME segments are
+    // skipped if they contain '=' (a theme key=val tail — see
+    // ExtractThemeTail/BUG-DUMP-R41-2) so a string carrying only theme tails
+    // (e.g. "single;12;;;themeColor=accent1") never mis-reads the tail segment
+    // as a boolean shadow/frame value.
+    private static (bool? shadow, bool? frame) ParseBorderShadowFrame(string value)
     {
-        var b = new T { Val = style, Size = size, Space = space };
+        var parts = value.Split(';');
+        bool? Slot(int i) =>
+            (parts.Length > i && !string.IsNullOrEmpty(parts[i].Trim())
+             && !parts[i].Contains('='))
+                ? IsTruthy(parts[i].Trim())
+                : (bool?)null;
+        return (Slot(4), Slot(5));
+    }
+
+    // BUG-DUMP-R41-2 / BUG-DUMP-R41-4: theme-color/theme-fill linkage on a
+    // border or shading carries the document-theme slot (accent1, text1, …)
+    // plus an optional shade/tint, independent of the resolved hex. The
+    // compound border / shading strings are positional (STYLE;SIZE;COLOR;…
+    // resp. VAL;FILL[;COLOR]); to round-trip the theme attrs WITHOUT breaking
+    // the positional parse the emitter appends backward-compatible `key=val`
+    // tail segments (`;themeColor=accent1;themeShade=BF;themeTint=99` for
+    // borders, `;themeFill=text1;themeFillShade=..;themeFillTint=..` plus the
+    // same themeColor/Shade/Tint trio for shading). This helper splits the raw
+    // value into (positionalOnly, themeMap): every `;`-segment containing '='
+    // is harvested into themeMap (key lower-cased), and the remaining segments
+    // are rejoined with ';' so the legacy positional parser sees an unchanged
+    // 4-field (or shorter) string. A value with no theme tail returns the input
+    // verbatim and an empty map — plain borders/shading are untouched.
+    private static (string positional, Dictionary<string, string> theme) ExtractThemeTail(string value)
+    {
+        if (!value.Contains('=')) return (value, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+        var theme = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var kept = new List<string>();
+        foreach (var seg in value.Split(';'))
+        {
+            var eq = seg.IndexOf('=');
+            if (eq > 0)
+            {
+                var k = seg[..eq].Trim();
+                var v = seg[(eq + 1)..].Trim();
+                if (k.Length > 0) theme[k] = v;
+            }
+            else
+                kept.Add(seg);
+        }
+        return (string.Join(';', kept), theme);
+    }
+
+    // BUG-DUMP-R41-2: stamp w:themeColor / w:themeShade / w:themeTint on a
+    // <w:*Border> from the theme map produced by ExtractThemeTail. Only the
+    // keys actually present are written, so a plain border is unaffected.
+    private static void ApplyBorderTheme(BorderType border, Dictionary<string, string> theme)
+    {
+        if (theme.Count == 0) return;
+        if (theme.TryGetValue("themeColor", out var tc) && tc.Length > 0)
+            border.ThemeColor = new EnumValue<ThemeColorValues>(new ThemeColorValues(tc));
+        if (theme.TryGetValue("themeShade", out var tsh) && tsh.Length > 0)
+            border.ThemeShade = tsh;
+        if (theme.TryGetValue("themeTint", out var tt) && tt.Length > 0)
+            border.ThemeTint = tt;
+    }
+
+    // BUG-DUMP-R41-4: stamp the theme shading attrs (w:themeFill /
+    // w:themeFillShade / w:themeFillTint and the w:themeColor / w:themeShade /
+    // w:themeTint trio) on a <w:shd> from the ExtractThemeTail map. Only
+    // present keys are written.
+    private static void ApplyShadingTheme(Shading shd, Dictionary<string, string> theme)
+    {
+        if (theme.Count == 0) return;
+        if (theme.TryGetValue("themeFill", out var tf) && tf.Length > 0)
+            shd.ThemeFill = new EnumValue<ThemeColorValues>(new ThemeColorValues(tf));
+        if (theme.TryGetValue("themeFillShade", out var tfs) && tfs.Length > 0)
+            shd.ThemeFillShade = tfs;
+        if (theme.TryGetValue("themeFillTint", out var tft) && tft.Length > 0)
+            shd.ThemeFillTint = tft;
+        if (theme.TryGetValue("themeColor", out var tc) && tc.Length > 0)
+            shd.ThemeColor = new EnumValue<ThemeColorValues>(new ThemeColorValues(tc));
+        if (theme.TryGetValue("themeShade", out var tsh) && tsh.Length > 0)
+            shd.ThemeShade = tsh;
+        if (theme.TryGetValue("themeTint", out var tt) && tt.Length > 0)
+            shd.ThemeTint = tt;
+    }
+
+    // BUG-DUMP-R43-3: stamp w:themeColor / w:themeShade / w:themeTint on a
+    // <w:color> from the ExtractThemeTail map. Mirrors ApplyBorderTheme /
+    // ApplyShadingTheme. Only present keys are written, so a plain color is
+    // unaffected. Used by AddStyle for style run-color theme linkage.
+    private static void ApplyColorTheme(Color color, Dictionary<string, string> theme)
+    {
+        if (theme.Count == 0) return;
+        if (theme.TryGetValue("themeColor", out var tc) && tc.Length > 0)
+            color.ThemeColor = new EnumValue<ThemeColorValues>(new ThemeColorValues(tc));
+        if (theme.TryGetValue("themeShade", out var tsh) && tsh.Length > 0)
+            color.ThemeShade = tsh;
+        if (theme.TryGetValue("themeTint", out var tt) && tt.Length > 0)
+            color.ThemeTint = tt;
+    }
+
+    // CONSISTENCY(border-size-roundtrip): expose whether the caller provided
+    // a SIZE segment so MakeBorder can suppress w:sz on nil borders that
+    // never had it in the source. Mirrors the w:space "only when given"
+    // pattern. Internal helper — callers that don't care about the flag
+    // use the legacy 4-tuple wrapper above.
+    private static (BorderValues style, uint size, string? color, uint? space, bool sizeProvided) ParseBorderValueDetailed(string value)
+    {
+        // BUG-DUMP-R41-2: strip any trailing theme key=val tail
+        // (themeColor=…/themeShade=…/themeTint=…) before positional parsing so
+        // it never lands in the COLOR/SPACE slots. The theme attrs are applied
+        // separately via ParseBorderTheme → ApplyBorderTheme at the call site.
+        var (value0, _) = ExtractThemeTail(value);
+        value = value0;
+        var parts = value.Split(';');
+        var style = ParseBorderStyle(parts[0]);
+        uint size;
+        bool sizeProvided = parts.Length > 1 && !string.IsNullOrEmpty(parts[1].Trim());
+        // CONSISTENCY(border-empty-segment): mirror the empty-color tolerance
+        // below — WordBatchEmitter's border fold emits "STYLE;;COLOR" whenever a
+        // side has color but no explicit sz attribute (very common in real
+        // .docx files where w:sz is inherited via the style chain). Treat an
+        // empty SIZE segment as "use default" instead of throwing.
+        if (parts.Length > 1 && !string.IsNullOrEmpty(parts[1].Trim()))
+        {
+            // OOXML stores border size in eighth-of-a-point units. Accept bare
+            // integer (already in eighths) plus unit-qualified lengths
+            // ('1pt', '0.5cm', '0.05in') for parity with other Word length
+            // inputs (CONSISTENCY: spacing-units, the project conventions "Spacing
+            // input is lenient").
+            var sz = parts[1].Trim();
+            if (uint.TryParse(sz, out size))
+            { /* bare integer = eighths */ }
+            else if (sz.EndsWith("pt", StringComparison.OrdinalIgnoreCase)
+                     && double.TryParse(sz[..^2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var pts) && pts >= 0)
+                size = (uint)Math.Round(pts * 8);
+            else if (sz.EndsWith("cm", StringComparison.OrdinalIgnoreCase)
+                     && double.TryParse(sz[..^2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var cm) && cm >= 0)
+                size = (uint)Math.Round(cm * (72.0 / 2.54) * 8); // cm → pt → eighths
+            else if (sz.EndsWith("in", StringComparison.OrdinalIgnoreCase)
+                     && double.TryParse(sz[..^2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var inches) && inches >= 0)
+                size = (uint)Math.Round(inches * 72 * 8); // in → pt → eighths
+            else
+                throw new ArgumentException($"Invalid border size '{parts[1]}', expected integer (eighths-of-pt) or unit-qualified length (e.g. '1pt', '0.5cm'). Format: STYLE[;SIZE[;COLOR[;SPACE]]]");
+        }
+        else
+            size = style == BorderValues.Nil ? 0u : style == BorderValues.Thick ? 12u : 4u;
+        // BUG-R7-02: dump emits "nil;0;;0" for nil borders (empty color
+        // segment). SanitizeHex rejects empty input with "Invalid color
+        // value: ''", breaking round-trip on any docx with nil paragraph
+        // borders. Treat an empty color segment as "no color" (null) rather
+        // than a parse error — this matches dump's emit semantics.
+        string? color = (parts.Length > 2 && !string.IsNullOrEmpty(parts[2]))
+            ? SanitizeHex(parts[2])
+            : null;
+        uint? space = null;
+        // CONSISTENCY(border-empty-segment): symmetric with the SIZE/COLOR
+        // tolerance — empty SPACE segment means "no override".
+        if (parts.Length > 3 && !string.IsNullOrEmpty(parts[3]))
+        {
+            if (!uint.TryParse(parts[3], out var spaceVal))
+                throw new ArgumentException($"Invalid border space '{parts[3]}', expected integer. Format: STYLE[;SIZE[;COLOR[;SPACE]]]");
+            space = spaceVal;
+        }
+        return (style, size, color, space, sizeProvided);
+    }
+
+    private static T MakeBorder<T>(BorderValues style, uint size, string? color, uint? space, bool? shadow = null, bool? frame = null, Dictionary<string, string>? theme = null) where T : BorderType, new()
+    {
+        // BUG-R2-P2-7: only emit w:space attribute when the caller actually
+        // provided one. Writing space=0 explicitly round-trips into a
+        // spurious `border.X.space: 0` readback and a `STYLE;SZ;;0` batch
+        // artifact, even though 0 is the OOXML default and the user never
+        // asked for it.
+        // CONSISTENCY(border-size-roundtrip): a bare `nil` value (no sz
+        // segment) round-trips with size=0 default — but emitting w:sz="0"
+        // surfaces a `nil;0` readback on the next dump. Callers that have
+        // sizeProvided info route through MakeBorderTyped below; the legacy
+        // overload stays size-always-stamped for non-nil borders that
+        // genuinely default to size 4.
+        T b;
+        try { b = new T { Val = style }; }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // ParseBorderStyle is lenient (passes unknown tokens via
+            // `new BorderValues(raw)` to support art borders). The SDK's
+            // EnumValue<BorderValues> setter validates on assignment and
+            // throws an enum-type exception with the opaque "specified
+            // value is not valid" message. Convert to a friendly
+            // ArgumentException carrying the bad token.
+            throw new ArgumentException(
+                $"Invalid border style '{style.ToString()}'. " +
+                "Valid styles include: single, double, dashed, dotted, thick, thin, " +
+                "wave, doubleWave, dashSmallGap, dotDash, dotDotDash, triple, outset, " +
+                "inset, dashDotStroked, threeDEmboss, threeDEngrave, none, nil.", ex);
+        }
+        if (!(style == BorderValues.Nil && size == 0)) b.Size = size;
+        if (space.HasValue) b.Space = space.Value;
         if (color != null) b.Color = color;
+        // BUG-DUMP-R36-1: stamp w:shadow / w:frame only when the source carried
+        // them (bool? null = absent) so a plain border round-trips without a
+        // spurious shadow="false"/frame="false" attribute.
+        if (shadow.HasValue) b.Shadow = shadow.Value;
+        if (frame.HasValue) b.Frame = frame.Value;
+        // BUG-DUMP-R41-2: stamp w:themeColor / w:themeShade / w:themeTint from
+        // the theme map (parsed out of the value's key=val tail) so the
+        // border's theme linkage round-trips. Null/empty map = plain border,
+        // untouched.
+        if (theme != null) ApplyBorderTheme(b, theme);
         return b;
     }
 
@@ -2083,80 +1120,324 @@ public partial class WordHandler
     /// Apply a paragraph-level property. Returns true if handled, false if not recognized.
     /// Handles: style, alignment, indent, spacing, keepNext, keepLines, pageBreakBefore, widowControl, shading, pbdr.
     /// </summary>
-    private static bool ApplyParagraphLevelProperty(ParagraphProperties pProps, string key, string? value)
+    private bool ApplyParagraphLevelProperty(ParagraphProperties pProps, string key, string? value, List<string>? warnings = null)
     {
         if (value is null) return false;
         switch (key.ToLowerInvariant())
         {
-            case "style":
+            case "style" or "styleid":
+                // CONSISTENCY(style-dual-key): Get exposes styleId as a
+                // canonical readback key alongside the legacy `style`
+                // (Round 2). Round 7+8 wired the alias trio on AddStyle
+                // and SetStyle for /styles/X; the paragraph-level
+                // Set surface was the missing link.
+                // R7 deferred BT-4: warn (advisory, non-fatal) when the
+                // style id does not exist in the styles part — opening
+                // such a doc in Word shows a "style not found" badge.
+                if (warnings != null && !StyleIdExists(value))
+                    warnings.Add($"style '{value}' not found in styles part — will be referenced as-is");
                 pProps.ParagraphStyleId = new ParagraphStyleId { Val = value };
                 return true;
-            case "alignment" or "align":
+            case "stylename":
+                // CONSISTENCY(style-dual-key): paragraph-level Set on
+                // styleName resolves the display name through the styles
+                // part — mirrors what Get reverses to expose styleName.
+                // Falls back to using the value as styleId verbatim if no
+                // matching display name is found (preserves the lenient-
+                // input pattern used elsewhere).
+                var resolved = ResolveStyleIdFromName(value);
+                pProps.ParagraphStyleId = new ParagraphStyleId { Val = resolved ?? value };
+                return true;
+            case "align" or "alignment" or "jc":
                 pProps.Justification = new Justification { Val = ParseJustification(value) };
                 return true;
             case "firstlineindent":
                 var indent = pProps.Indentation ?? (pProps.Indentation = new Indentation());
-                indent.FirstLine = value; // raw twips, consistent with Get and other indent properties
+                // Lenient input: accept "2cm", "0.5in", "18pt", or bare twips.
+                // BUG-DUMP-NEGIND: ST_SignedTwipsMeasure — see SpacingConverter.
+                indent.FirstLine = SpacingConverter.ParseWordSpacingSigned(value).ToString();
                 indent.Hanging = null;
                 return true;
             case "leftindent" or "indentleft" or "indent":
                 var indentL = pProps.Indentation ?? (pProps.Indentation = new Indentation());
-                indentL.Left = ParseHelpers.SafeParseUint(value, "leftindent").ToString();
+                // CONSISTENCY(lenient-spacing): mirror Add — accept cm/in/pt/twips via SpacingConverter.
+                // BUG-DUMP-NEGIND: signed.
+                indentL.Left = SpacingConverter.ParseWordSpacingSigned(value).ToString();
                 return true;
             case "rightindent" or "indentright":
                 var indentR = pProps.Indentation ?? (pProps.Indentation = new Indentation());
-                indentR.Right = ParseHelpers.SafeParseUint(value, "rightindent").ToString();
+                // BUG-DUMP-NEGIND: signed.
+                indentR.Right = SpacingConverter.ParseWordSpacingSigned(value).ToString();
                 return true;
             case "hangingindent" or "hanging":
                 var indentH = pProps.Indentation ?? (pProps.Indentation = new Indentation());
-                indentH.Hanging = ParseHelpers.SafeParseUint(value, "hangingindent").ToString();
+                indentH.Hanging = SpacingConverter.ParseWordSpacing(value).ToString();
                 indentH.FirstLine = null;
                 return true;
+            // CONSISTENCY(ind-char-units): CJK-convention character-unit
+            // indents (recomputed by Word when font size changes). Mirror
+            // AddStyle's char-unit handlers so dump→batch on Set paragraph
+            // preserves the source's firstLineChars / leftChars / rightChars
+            // / hangingChars attrs.
+            case "firstlinechars":
+            {
+                var indFlc = pProps.Indentation ?? (pProps.Indentation = new Indentation());
+                indFlc.FirstLineChars = ParseHelpers.SafeParseInt(value, "firstLineChars");
+                return true;
+            }
+            case "leftchars" or "startchars":
+            {
+                var indLc = pProps.Indentation ?? (pProps.Indentation = new Indentation());
+                indLc.LeftChars = ParseHelpers.SafeParseInt(value, "leftChars");
+                return true;
+            }
+            case "rightchars" or "endchars":
+            {
+                var indRc = pProps.Indentation ?? (pProps.Indentation = new Indentation());
+                indRc.RightChars = ParseHelpers.SafeParseInt(value, "rightChars");
+                return true;
+            }
+            case "hangingchars":
+            {
+                var indHc = pProps.Indentation ?? (pProps.Indentation = new Indentation());
+                indHc.HangingChars = ParseHelpers.SafeParseInt(value, "hangingChars");
+                return true;
+            }
+            // Toggle props: always replace the element (don't `??=`) so an
+            // existing `<w:foo w:val="false"/>` written by a previous Set or
+            // by external tooling is correctly overridden when the new value
+            // is true. With `??=` the val=false sticks and the toggle never
+            // flips back to true (BUG-LT3).
             case "keepnext" or "keepwithnext":
-                if (IsTruthy(value)) pProps.KeepNext ??= new KeepNext();
+                if (IsTruthy(value)) pProps.KeepNext = new KeepNext();
+                else if (IsExplicitFalseAddOverride(value))
+                    pProps.KeepNext = new KeepNext { Val = OnOffValue.FromBoolean(false) };
                 else pProps.KeepNext = null;
                 return true;
             case "keeplines" or "keeptogether":
-                if (IsTruthy(value)) pProps.KeepLines ??= new KeepLines();
+                if (IsTruthy(value)) pProps.KeepLines = new KeepLines();
+                else if (IsExplicitFalseAddOverride(value))
+                    pProps.KeepLines = new KeepLines { Val = OnOffValue.FromBoolean(false) };
                 else pProps.KeepLines = null;
                 return true;
             case "pagebreakbefore":
-                if (IsTruthy(value)) pProps.PageBreakBefore ??= new PageBreakBefore();
+                if (IsTruthy(value)) pProps.PageBreakBefore = new PageBreakBefore();
+                else if (IsExplicitFalseAddOverride(value))
+                    pProps.PageBreakBefore = new PageBreakBefore { Val = OnOffValue.FromBoolean(false) };
+                else pProps.PageBreakBefore = null;
+                return true;
+            case "outlinelvl" or "outlinelevel":
+            {
+                // OOXML w:outlineLvl/@w:val is ST_DecimalNumber 0..9.
+                // TypedAttributeFallback accepts the full ByteValue range so
+                // val=10 silently produced schema-invalid XML. Mirror Add.
+                if (!int.TryParse(value, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out var olvlS)
+                    || olvlS < 0 || olvlS > 9)
+                    throw new ArgumentException($"Invalid 'outlineLvl' value: '{value}'. Must be 0-9 (OOXML MaxInclusive=9).");
+                pProps.OutlineLevel = new OutlineLevel { Val = olvlS };
+                return true;
+            }
+            case "textalignment":
+            {
+                // OOXML ST_TextAlignment enum (auto/top/center/baseline/bottom).
+                // TypedAttributeFallback wrote the raw string so "banana" 422'd
+                // the file. Validate canonically.
+                pProps.TextAlignment = new TextAlignment
+                {
+                    Val = value.ToLowerInvariant() switch
+                    {
+                        "auto"     => VerticalTextAlignmentValues.Auto,
+                        "top"      => VerticalTextAlignmentValues.Top,
+                        "center"   => VerticalTextAlignmentValues.Center,
+                        "baseline" => VerticalTextAlignmentValues.Baseline,
+                        "bottom"   => VerticalTextAlignmentValues.Bottom,
+                        _ => throw new ArgumentException($"Invalid 'textAlignment' value: '{value}'. Valid: auto, top, center, baseline, bottom."),
+                    },
+                };
+                return true;
+            }
+            case "wordwrap":
+            {
+                // OOXML CT_OnOff toggle (true = wrap, false = no wrap). The
+                // generic fallback treated unrecognized strings as truthy/falsy
+                // silently — reject anything that isn't a recognized boolean.
+                var wwLower = value.ToLowerInvariant();
+                if (wwLower is "true" or "1" or "yes" or "on")
+                    pProps.WordWrap = new WordWrap();
+                else if (wwLower is "false" or "0" or "no" or "off")
+                    pProps.WordWrap = new WordWrap { Val = OnOffValue.FromBoolean(false) };
+                else
+                    throw new ArgumentException($"Invalid 'wordWrap' value: '{value}'. Valid: true, false, 1, 0, yes, no, on, off.");
+                return true;
+            }
+            case "textboxtightwrap":
+            {
+                // OOXML ST_TextboxTightWrap. Curate so the SDK's lenient
+                // EnumValue (which stores invalid strings as extension attrs)
+                // can't slip past — invalid input must throw.
+                pProps.TextBoxTightWrap = new TextBoxTightWrap
+                {
+                    Val = value.ToLowerInvariant() switch
+                    {
+                        "none"             => TextBoxTightWrapValues.None,
+                        "alllines"         => TextBoxTightWrapValues.AllLines,
+                        "firstandlastline" => TextBoxTightWrapValues.FirstAndLastLine,
+                        "firstlineonly"    => TextBoxTightWrapValues.FirstLineOnly,
+                        "lastlineonly"     => TextBoxTightWrapValues.LastLineOnly,
+                        _ => throw new ArgumentException($"Invalid 'textboxTightWrap' value: '{value}'. Valid: none, allLines, firstAndLastLine, firstLineOnly, lastLineOnly."),
+                    },
+                };
+                return true;
+            }
+            // R15 sweep: CT_OnOff paragraph toggles that previously fell through
+            // to GenericXmlQuery.TryCreateTypedChild without strict boolean
+            // validation. Same family as wordWrap above — invalid input silently
+            // produced <w:kinsoku w:val="banana"/> (Get re-read as false).
+            case "kinsoku":
+            case "overflowpunct":
+            case "toplinepunct":
+            case "autospaceDE" or "autospacede":
+            case "autospaceDN" or "autospacedn":
+            case "adjustrightind":
+            case "snaptogrid":
+            case "mirrorindents":
+            case "suppressoverlap":
+            case "suppressautohyphens":
+            case "suppresslinenumbers":
+            {
+                var onOffLower = value.ToLowerInvariant();
+                bool? boolVal = onOffLower switch
+                {
+                    "true" or "1" or "yes" or "on"  => true,
+                    "false" or "0" or "no" or "off" => false,
+                    _ => null,
+                };
+                if (boolVal == null)
+                    throw new ArgumentException($"Invalid '{key}' value: '{value}'. Valid: true, false, 1, 0, yes, no, on, off.");
+                switch (key.ToLowerInvariant())
+                {
+                    case "kinsoku":
+                        pProps.Kinsoku = boolVal.Value
+                            ? new Kinsoku()
+                            : new Kinsoku { Val = OnOffValue.FromBoolean(false) }; break;
+                    case "overflowpunct":
+                        pProps.OverflowPunctuation = boolVal.Value
+                            ? new OverflowPunctuation()
+                            : new OverflowPunctuation { Val = OnOffValue.FromBoolean(false) }; break;
+                    case "toplinepunct":
+                        pProps.TopLinePunctuation = boolVal.Value
+                            ? new TopLinePunctuation()
+                            : new TopLinePunctuation { Val = OnOffValue.FromBoolean(false) }; break;
+                    case "autospacede":
+                        pProps.AutoSpaceDE = boolVal.Value
+                            ? new AutoSpaceDE()
+                            : new AutoSpaceDE { Val = OnOffValue.FromBoolean(false) }; break;
+                    case "autospacedn":
+                        pProps.AutoSpaceDN = boolVal.Value
+                            ? new AutoSpaceDN()
+                            : new AutoSpaceDN { Val = OnOffValue.FromBoolean(false) }; break;
+                    case "adjustrightind":
+                        pProps.AdjustRightIndent = boolVal.Value
+                            ? new AdjustRightIndent()
+                            : new AdjustRightIndent { Val = OnOffValue.FromBoolean(false) }; break;
+                    case "snaptogrid":
+                        pProps.SnapToGrid = boolVal.Value
+                            ? new SnapToGrid()
+                            : new SnapToGrid { Val = OnOffValue.FromBoolean(false) }; break;
+                    case "mirrorindents":
+                        pProps.MirrorIndents = boolVal.Value
+                            ? new MirrorIndents()
+                            : new MirrorIndents { Val = OnOffValue.FromBoolean(false) }; break;
+                    case "suppressoverlap":
+                        pProps.SuppressOverlap = boolVal.Value
+                            ? new SuppressOverlap()
+                            : new SuppressOverlap { Val = OnOffValue.FromBoolean(false) }; break;
+                    case "suppressautohyphens":
+                        pProps.SuppressAutoHyphens = boolVal.Value
+                            ? new SuppressAutoHyphens()
+                            : new SuppressAutoHyphens { Val = OnOffValue.FromBoolean(false) }; break;
+                    case "suppresslinenumbers":
+                        pProps.SuppressLineNumbers = boolVal.Value
+                            ? new SuppressLineNumbers()
+                            : new SuppressLineNumbers { Val = OnOffValue.FromBoolean(false) }; break;
+                }
+                return true;
+            }
+            // fuzz-2: 'break=newPage' is the natural paragraph-context spelling
+            // (mirrors section-context CONSISTENCY(section-type-alias) in
+            // WordHandler.Set.Dispatch.cs:387). For a paragraph this maps to
+            // pageBreakBefore=true; bare break=true also accepted.
+            case "break":
+                bool pbb = value.ToLowerInvariant() switch
+                {
+                    "newpage" or "page" or "nextpage" or "pagebreak" => true,
+                    "none" or "" => false,
+                    _ => IsTruthy(value)
+                };
+                if (pbb) pProps.PageBreakBefore = new PageBreakBefore();
                 else pProps.PageBreakBefore = null;
                 return true;
             case "widowcontrol" or "widoworphan":
-                if (IsTruthy(value)) pProps.WidowControl ??= new WidowControl();
+                if (IsTruthy(value)) pProps.WidowControl = new WidowControl();
                 else pProps.WidowControl = new WidowControl { Val = false };
                 return true;
-            case "shading" or "shd":
-                var shdParts = value.Split(';');
-                var shd = new Shading();
-                if (shdParts.Length == 1)
-                {
-                    shd.Val = ShadingPatternValues.Clear;
-                    shd.Fill = SanitizeHex(shdParts[0]);
-                }
-                else if (shdParts.Length >= 2)
-                {
-                    var setPPat = shdParts[0].TrimStart('#');
-                    if (setPPat.Length >= 6 && setPPat.All(char.IsAsciiHexDigit))
-                    { shd.Val = ShadingPatternValues.Clear; shd.Fill = SanitizeHex(shdParts[0]); }
-                    else
-                    {
-                        WarnIfShadingOrderWrong(shdParts[0]); shd.Val = new ShadingPatternValues(shdParts[0]);
-                        shd.Fill = SanitizeHex(shdParts[1]);
-                        if (shdParts.Length >= 3) shd.Color = SanitizeHex(shdParts[2]);
-                    }
-                }
-                pProps.Shading = shd;
+            case "contextualspacing" or "contextualSpacing":
+                if (IsTruthy(value)) pProps.ContextualSpacing = new ContextualSpacing();
+                else if (IsExplicitFalseAddOverride(value))
+                    pProps.ContextualSpacing = new ContextualSpacing { Val = OnOffValue.FromBoolean(false) };
+                else pProps.ContextualSpacing = null;
+                return true;
+            case "shading" or "shd" or "fill":
+                pProps.Shading = ParseShadingValue(value);
                 return true;
             case "spacebefore":
                 var spacingBefore = pProps.SpacingBetweenLines ?? (pProps.SpacingBetweenLines = new SpacingBetweenLines());
-                spacingBefore.Before = SpacingConverter.ParseWordSpacing(value).ToString();
+                // CONSISTENCY(ind-chars): "Nlines" suffix routes through the
+                // hundredths-of-line attr (w:beforeLines), mirroring the
+                // dedicated `spaceBeforeLines=` key. P1-7.
+                // BUG-DUMP-SPACING-BOTHUNITS: a paragraph may legitimately carry
+                // BOTH w:before (twips) AND w:beforeLines (hundredths-of-line) —
+                // Word stores both and the dump emits both as spaceBefore +
+                // spaceBeforeLines. The old within-axis clear (spaceBefore wipes
+                // BeforeLines) dropped one of the pair on replay: a `set` with
+                // both keys applied in sequence kept only the last writer, so a
+                // table cell's `<w:spacing w:before="144" w:beforeLines="60"/>`
+                // round-tripped as beforeLines-only — the cell shrank, the row
+                // got shorter, and the form reflowed. AddParagraph already keeps
+                // both (no clear); match it here. The "Nlines" suffix still routes
+                // to the lines attr but no longer nulls the twips sibling — both
+                // coexist exactly as the source had them.
+                if (TryParseLinesSuffix(value, out var sblHundredths))
+                    spacingBefore.BeforeLines = int.Parse(sblHundredths, System.Globalization.CultureInfo.InvariantCulture);
+                else
+                    spacingBefore.Before = SpacingConverter.ParseWordSpacing(value).ToString();
                 return true;
             case "spaceafter":
                 var spacingAfter = pProps.SpacingBetweenLines ?? (pProps.SpacingBetweenLines = new SpacingBetweenLines());
-                spacingAfter.After = SpacingConverter.ParseWordSpacing(value).ToString();
+                if (TryParseLinesSuffix(value, out var salHundredths))
+                    spacingAfter.AfterLines = int.Parse(salHundredths, System.Globalization.CultureInfo.InvariantCulture);
+                else
+                    spacingAfter.After = SpacingConverter.ParseWordSpacing(value).ToString();
+                return true;
+            case "spacebeforelines":
+                var spacingBL = pProps.SpacingBetweenLines ?? (pProps.SpacingBetweenLines = new SpacingBetweenLines());
+                spacingBL.BeforeLines = ParseHelpers.SafeParseInt(value, "spaceBeforeLines");
+                return true;
+            // BUG-DUMP-R44-4: auto-spacing on/off toggles (w:beforeAutospacing /
+            // w:afterAutospacing). Mirror AddParagraph; round-trips the bool the
+            // readback emits as spaceBeforeAuto / spaceAfterAuto.
+            case "spacebeforeauto" or "beforeautospacing":
+                var spacingBA = pProps.SpacingBetweenLines ?? (pProps.SpacingBetweenLines = new SpacingBetweenLines());
+                spacingBA.BeforeAutoSpacing = OnOffValue.FromBoolean(IsTruthy(value));
+                return true;
+            case "spaceafterauto" or "afterautospacing":
+                var spacingAA = pProps.SpacingBetweenLines ?? (pProps.SpacingBetweenLines = new SpacingBetweenLines());
+                spacingAA.AfterAutoSpacing = OnOffValue.FromBoolean(IsTruthy(value));
+                return true;
+            case "spaceafterlines":
+                var spacingAL = pProps.SpacingBetweenLines ?? (pProps.SpacingBetweenLines = new SpacingBetweenLines());
+                spacingAL.AfterLines = ParseHelpers.SafeParseInt(value, "spaceAfterLines");
                 return true;
             case "linespacing":
                 var spacingLine = pProps.SpacingBetweenLines ?? (pProps.SpacingBetweenLines = new SpacingBetweenLines());
@@ -2164,22 +1445,171 @@ public partial class WordHandler
                 spacingLine.Line = lsTwips.ToString();
                 spacingLine.LineRule = lsIsMultiplier ? LineSpacingRuleValues.Auto : LineSpacingRuleValues.Exact;
                 return true;
+            case "linerule" or "linespacingrule":
+                // BUG-019: explicit override needed to distinguish AtLeast
+                // from Exact — both serialize as "Npt" via SpacingConverter.
+                var spacingRule = pProps.SpacingBetweenLines ?? (pProps.SpacingBetweenLines = new SpacingBetweenLines());
+                spacingRule.LineRule = ParseLineRule(value);
+                return true;
             case "numId" or "numid":
                 var numPr = pProps.NumberingProperties ?? (pProps.NumberingProperties = new NumberingProperties());
-                numPr.NumberingId = new NumberingId { Val = ParseHelpers.SafeParseInt(value, "numId") };
+                var numIdVal = ParseHelpers.SafeParseInt(value, "numId");
+                // numId=-1 is the OOXML negation marker that overrides inherited
+                // numbering back to "no list"; treat it like 0 (skip existence check).
+                if (numIdVal < -1)
+                    throw new ArgumentException($"numId must be >= -1 (got {numIdVal}). Use numId=0 or numId=-1 to remove numbering.");
+                if (numIdVal > 0)
+                {
+                    var numbering = _doc.MainDocumentPart?.NumberingDefinitionsPart?.Numbering;
+                    var numExists = numbering?.Elements<NumberingInstance>()
+                        .Any(n => n.NumberID?.Value == numIdVal) ?? false;
+                    if (!numExists)
+                        throw new ArgumentException(
+                            $"numId={numIdVal} not found in /numbering. " +
+                            "Create the num first (add /numbering --type num), or use numId=0 to remove numbering.");
+                }
+                numPr.NumberingId = new NumberingId { Val = numIdVal };
                 return true;
-            case "numLevel" or "numlevel" or "ilvl":
+            case "numLevel" or "numlevel" or "ilvl" or "listLevel" or "listlevel":
                 var numPr2 = pProps.NumberingProperties ?? (pProps.NumberingProperties = new NumberingProperties());
-                numPr2.NumberingLevelReference = new NumberingLevelReference { Val = ParseHelpers.SafeParseInt(value, "numLevel") };
+                var ilvlSetVal = ParseHelpers.SafeParseInt(value, "numLevel");
+                // BUG-R4B(BUG2): Word tolerates ilvl > 8 (real-world docs carry
+                // w:ilvl w:val="12"); the old hard reject dropped the whole
+                // paragraph on dump→replay. Clamp to the OOXML-legal range
+                // [0,8] with a warning so the paragraph and its text survive.
+                // Mirrors the HtmlPreview ilvl clamp (HtmlPreview.cs ~1889).
+                if (ilvlSetVal < 0 || ilvlSetVal > 8)
+                {
+                    var clampedSet = Math.Clamp(ilvlSetVal, 0, 8);
+                    warnings?.Add($"ilvl {ilvlSetVal} out of OOXML range 0..8 — clamped to {clampedSet}");
+                    ilvlSetVal = clampedSet;
+                }
+                numPr2.NumberingLevelReference = new NumberingLevelReference { Val = ilvlSetVal };
                 return true;
             case "pbdr.top" or "pbdr.bottom" or "pbdr.left" or "pbdr.right" or "pbdr.between" or "pbdr.bar" or "pbdr.all" or "pbdr":
-            case "border.all" or "border" or "border.top" or "border.bottom" or "border.left" or "border.right":
+            case "border.all" or "border" or "border.top" or "border.bottom" or "border.left" or "border.right" or "border.between" or "border.bar":
+            case "border.color" or "border.sz" or "border.size" or "border.space" or "border.val" or "border.style":
                 ApplyParagraphBorders(pProps, key, value);
+                return true;
+            // Reading direction: "rtl" enables right-to-left layout for Arabic
+            // / Hebrew, "ltr" removes the bidi flag. Maps to <w:bidi/> in pPr.
+            case "direction" or "dir" or "bidi":
+                pProps.BiDi = ParseDirectionRtl(value) ? new BiDi() : null;
                 return true;
             default:
                 return false;
         }
     }
+
+    // R17-consistency: align direction parsing across Word / PPT / Excel and
+    // run-level rtl. Accepts rtl|righttoleft|right-to-left|true|1 (truthy),
+    // ltr|lefttoright|left-to-right|false|0|"" (falsy), all case-insensitive.
+    // Other values (yes/no/auto/2/...) throw — direction is a 2-value enum,
+    // not an open boolean surface.
+    private static bool ParseDirectionRtl(string value) => value.ToLowerInvariant() switch
+    {
+        "rtl" or "righttoleft" or "right-to-left" or "true" or "1" => true,
+        "ltr" or "lefttoright" or "left-to-right" or "false" or "0" or "" => false,
+        _ => throw new ArgumentException($"Invalid direction value: '{value}'. Valid values: rtl, ltr (also accepts true/false, 1/0, righttoleft/lefttoright, right-to-left/left-to-right; case-insensitive).")
+    };
+
+    /// <summary>
+    /// Parse a w:numFmt value (page numbering / list numbering). Accepts the
+    /// common Latin / Roman / Letter forms plus locale-specific scripts —
+    /// notably 'arabicAlpha' / 'arabicAbjad' / 'hindiVowels' / 'hindiNumbers'
+    /// for Arabic-script documents, and CJK ideographic forms for Chinese /
+    /// Japanese / Korean. Falls through to the OOXML enum constructor so the
+    /// full ECMA-376 set (chicago, persian, thaiCounting, etc.) round-trips.
+    /// </summary>
+    private static EnumValue<NumberFormatValues> ParseNumberFormat(string value)
+    {
+        var lower = value.ToLowerInvariant();
+        return lower switch
+        {
+            "decimal" => NumberFormatValues.Decimal,
+            "lowerroman" => NumberFormatValues.LowerRoman,
+            "upperroman" => NumberFormatValues.UpperRoman,
+            "lowerletter" or "loweralpha" => NumberFormatValues.LowerLetter,
+            "upperletter" or "upperalpha" => NumberFormatValues.UpperLetter,
+            "arabicalpha" => NumberFormatValues.ArabicAlpha,
+            "arabicabjad" => NumberFormatValues.ArabicAbjad,
+            "hindivowels" => NumberFormatValues.HindiVowels,
+            "hindiconsonants" => NumberFormatValues.HindiConsonants,
+            "hindinumbers" => NumberFormatValues.HindiNumbers,
+            "hindicounting" => NumberFormatValues.HindiCounting,
+            "thailetters" => NumberFormatValues.ThaiLetters,
+            "thainumbers" => NumberFormatValues.ThaiNumbers,
+            "thaicounting" => NumberFormatValues.ThaiCounting,
+            "chinesecounting" => NumberFormatValues.ChineseCounting,
+            "chinesecountingthousand" => NumberFormatValues.ChineseCountingThousand,
+            "chineselegalsimplified" => NumberFormatValues.ChineseLegalSimplified,
+            "japanesecounting" => NumberFormatValues.JapaneseCounting,
+            "japaneselegal" => NumberFormatValues.JapaneseLegal,
+            // OOXML SDK exposes only one Japanese-digital enum
+            // (JapaneseDigitalTenThousand, ECMA-376 §17.18.59). Accept both
+            // the short "ten" alias and the canonical OOXML wire name.
+            "japanesedigitalten" or "japanesedigitaltenthousand"
+                => NumberFormatValues.JapaneseDigitalTenThousand,
+            "koreancounting" => NumberFormatValues.KoreanCounting,
+            "koreanlegal" => NumberFormatValues.KoreanLegal,
+            "koreandigital" => NumberFormatValues.KoreanDigital,
+            "ideographdigital" => NumberFormatValues.IdeographDigital,
+            "ideographtraditional" => NumberFormatValues.IdeographTraditional,
+            "ideographzodiac" => NumberFormatValues.IdeographZodiac,
+            "ideographenclosedcircle" => NumberFormatValues.IdeographEnclosedCircle,
+            // Hebrew / Thai / Korean / English text and ordinal forms (ECMA-376
+            // §17.18.59 ST_NumberFormat). Previously rejected — required for
+            // Hebrew (hebrew1/2), Thai (bahtText), Japanese iroha ordering,
+            // Korean ganada ordering, and English-language ordinal lists.
+            "hebrew1" => NumberFormatValues.Hebrew1,
+            "hebrew2" => NumberFormatValues.Hebrew2,
+            "bahttext" => NumberFormatValues.BahtText,
+            "dollartext" => NumberFormatValues.DollarText,
+            "iroha" => NumberFormatValues.Iroha,
+            "irohafullwidth" => NumberFormatValues.IrohaFullWidth,
+            "ganada" => NumberFormatValues.Ganada,
+            "ordinal" => NumberFormatValues.Ordinal,
+            "cardinaltext" => NumberFormatValues.CardinalText,
+            "ordinaltext" => NumberFormatValues.OrdinalText,
+            "bullet" or "unordered" or "ul" => NumberFormatValues.Bullet,
+            "decimalzero" => NumberFormatValues.DecimalZero,
+            "decimalfullwidth" => NumberFormatValues.DecimalFullWidth,
+            "decimalenclosedcircle" => NumberFormatValues.DecimalEnclosedCircle,
+            "decimalenclosedcirclechinese" => NumberFormatValues.DecimalEnclosedCircleChinese,
+            "decimalenclosedfullstop" => NumberFormatValues.DecimalEnclosedFullstop,
+            "decimalenclosedparen" => NumberFormatValues.DecimalEnclosedParen,
+            // Page-number and locale formats the Get readback emits verbatim
+            // (pgNumType/@w:fmt, lvl/@w:numFmt) but Add/Set previously rejected,
+            // so a dump→batch round-trip of any document using them aborted the
+            // section/numbering add. numberInDash is the common one — "-1-"
+            // page numbers in government/legal templates.
+            "numberindash" => NumberFormatValues.NumberInDash,
+            "hex" => NumberFormatValues.Hex,
+            "chicago" => NumberFormatValues.Chicago,
+            "decimalhalfwidth" => NumberFormatValues.DecimalHalfWidth,
+            "decimalfullwidth2" => NumberFormatValues.DecimalFullWidth2,
+            "aiueo" => NumberFormatValues.Aiueo,
+            "aiueofullwidth" => NumberFormatValues.AiueoFullWidth,
+            "chosung" => NumberFormatValues.Chosung,
+            "koreandigital2" => NumberFormatValues.KoreanDigital2,
+            "ideographzodiactraditional" => NumberFormatValues.IdeographZodiacTraditional,
+            "ideographlegaltraditional" => NumberFormatValues.IdeographLegalTraditional,
+            "taiwanesecounting" => NumberFormatValues.TaiwaneseCounting,
+            "taiwanesecountingthousand" => NumberFormatValues.TaiwaneseCountingThousand,
+            "taiwanesedigital" => NumberFormatValues.TaiwaneseDigital,
+            "vietnamesecounting" => NumberFormatValues.VietnameseCounting,
+            "russianlower" => NumberFormatValues.RussianLower,
+            "russianupper" => NumberFormatValues.RussianUpper,
+            "custom" => NumberFormatValues.Custom,
+            "none" => NumberFormatValues.None,
+            _ => throw new ArgumentException(
+                $"Unknown numbering format '{value}'. Common values: decimal, lowerRoman, upperRoman, "
+                + "lowerLetter, upperLetter, bullet. Locale-specific: hindiNumbers, hindiVowels, arabicAlpha, "
+                + "arabicAbjad, thaiCounting, chineseCounting, japaneseCounting, koreanCounting, "
+                + "ideographDigital, none.")
+        };
+    }
+
 
     private static void ApplyParagraphBorders(ParagraphProperties pProps, string key, string value)
     {
@@ -2190,33 +1620,85 @@ public partial class WordHandler
             pProps.ParagraphBorders = borders; // typed setter maintains CT_PPr schema order
         }
         var (style, size, color, space) = ParseBorderValue(value);
+        var sf = ParseBorderShadowFrame(value);
+        // BUG-DUMP-R41-2: harvest the theme key=val tail once; passed to every
+        // MakeBorder below so w:themeColor/Shade/Tint round-trip.
+        var (_, bTheme) = ExtractThemeTail(value);
 
         switch (key.ToLowerInvariant())
         {
             case "pbdr.all" or "pbdr" or "border.all" or "border":
-                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space);
-                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space);
-                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space);
-                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space);
-                borders.BetweenBorder = MakeBorder<BetweenBorder>(style, size, color, space);
+                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.BetweenBorder = MakeBorder<BetweenBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "pbdr.top" or "border.top":
-                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space);
+                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "pbdr.bottom" or "border.bottom":
-                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space);
+                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "pbdr.left" or "border.left":
-                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space);
+                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "pbdr.right" or "border.right":
-                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space);
+                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
-            case "pbdr.between":
-                borders.BetweenBorder = MakeBorder<BetweenBorder>(style, size, color, space);
+            case "pbdr.between" or "border.between":
+                borders.BetweenBorder = MakeBorder<BetweenBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
-            case "pbdr.bar":
-                borders.BarBorder = MakeBorder<BarBorder>(style, size, color, space);
+            case "pbdr.bar" or "border.bar":
+                borders.BarBorder = MakeBorder<BarBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                break;
+            default:
+                // Companion form: border.color, border.sz, border.space, border.val
+                // — update the attribute on every already-stored edge so users can
+                // author `border=single border.color=FF border.sz=12` and have all
+                // three land. Lazily creates a `single` border on each missing
+                // edge so the companion props aren't a no-op when called first.
+                ApplyParagraphBorderCompanion(borders, key.ToLowerInvariant(), value);
+                break;
+        }
+    }
+
+    private static void ApplyParagraphBorderCompanion(ParagraphBorders borders, string key, string value)
+    {
+        // key shape: border.<attr> or pbdr.<attr> — must NOT be an edge name.
+        var parts = key.Split('.');
+        if (parts.Length != 2) return;
+        var attr = parts[1];
+        if (attr is "all" or "top" or "bottom" or "left" or "right" or "between" or "bar") return;
+        var sides = new BorderType[]
+        {
+            borders.TopBorder ??= new TopBorder { Val = BorderValues.Single },
+            borders.BottomBorder ??= new BottomBorder { Val = BorderValues.Single },
+            borders.LeftBorder ??= new LeftBorder { Val = BorderValues.Single },
+            borders.RightBorder ??= new RightBorder { Val = BorderValues.Single },
+        };
+        foreach (var b in sides)
+            SetBorderAttr(b, attr, value);
+    }
+
+    private static void SetBorderAttr(BorderType b, string attr, string value)
+    {
+        switch (attr)
+        {
+            case "sz":
+            case "size":
+                b.Size = (uint)ParseHelpers.SafeParseInt(value, attr);
+                break;
+            case "color":
+                var (cHex, _) = ParseHelpers.SanitizeColorForOoxml(value);
+                b.Color = cHex;
+                break;
+            case "space":
+                b.Space = (uint)ParseHelpers.SafeParseInt(value, attr);
+                break;
+            case "val":
+            case "style":
+                b.Val = new EnumValue<BorderValues>(new BorderValues(value));
                 break;
         }
     }
@@ -2226,45 +1708,49 @@ public partial class WordHandler
         var borders = spPr.GetFirstChild<ParagraphBorders>();
         if (borders == null)
         {
-            borders = new ParagraphBorders();
-            // StyleParagraphProperties is also OneSequence — use SetElement pattern
-            // ParagraphBorders element order index is after Indentation and before Shading
-            var afterRef = (OpenXmlElement?)spPr.GetFirstChild<Indentation>()
-                ?? (OpenXmlElement?)spPr.GetFirstChild<SpacingBetweenLines>()
-                ?? (OpenXmlElement?)spPr.GetFirstChild<Justification>();
-            if (afterRef != null)
-                spPr.InsertAfter(borders, afterRef);
-            else
-                spPr.PrependChild(borders);
+            // CT_PPr places <w:pBdr> EARLY (after numPr/suppressLineNumbers,
+            // before tabs/spacing/ind/jc) — the prior hand-rolled "after
+            // Indentation, before Shading" anchor was wrong and landed pBdr
+            // after jc, which strict validators reject. Append, then let
+            // SchemaOrder hoist it to the SDK-authoritative slot.
+            borders = spPr.AppendChild(new ParagraphBorders());
+            Core.SchemaOrder.Place(spPr, borders);
         }
         var (style, size, color, space) = ParseBorderValue(value);
+        var sf = ParseBorderShadowFrame(value);
+        // BUG-DUMP-R41-2: harvest the theme key=val tail once; passed to every
+        // MakeBorder below so w:themeColor/Shade/Tint round-trip.
+        var (_, bTheme) = ExtractThemeTail(value);
 
         switch (key.ToLowerInvariant())
         {
             case "pbdr.all" or "pbdr" or "border.all" or "border":
-                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space);
-                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space);
-                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space);
-                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space);
-                borders.BetweenBorder = MakeBorder<BetweenBorder>(style, size, color, space);
+                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.BetweenBorder = MakeBorder<BetweenBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "pbdr.top" or "border.top":
-                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space);
+                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "pbdr.bottom" or "border.bottom":
-                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space);
+                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "pbdr.left" or "border.left":
-                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space);
+                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "pbdr.right" or "border.right":
-                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space);
+                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
-            case "pbdr.between":
-                borders.BetweenBorder = MakeBorder<BetweenBorder>(style, size, color, space);
+            case "pbdr.between" or "border.between":
+                borders.BetweenBorder = MakeBorder<BetweenBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
-            case "pbdr.bar":
-                borders.BarBorder = MakeBorder<BarBorder>(style, size, color, space);
+            case "pbdr.bar" or "border.bar":
+                borders.BarBorder = MakeBorder<BarBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                break;
+            default:
+                ApplyParagraphBorderCompanion(borders, key.ToLowerInvariant(), value);
                 break;
         }
     }
@@ -2273,68 +1759,249 @@ public partial class WordHandler
     {
         var borders = tblPr.TableBorders ?? tblPr.AppendChild(new TableBorders());
         var (style, size, color, space) = ParseBorderValue(value);
+        var sf = ParseBorderShadowFrame(value);
+        // BUG-DUMP-R41-2: harvest the theme key=val tail once; passed to every
+        // MakeBorder below so w:themeColor/Shade/Tint round-trip.
+        var (_, bTheme) = ExtractThemeTail(value);
 
         switch (key.ToLowerInvariant())
         {
             case "border.all" or "border":
-                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space);
-                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space);
-                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space);
-                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space);
-                borders.InsideHorizontalBorder = MakeBorder<InsideHorizontalBorder>(style, size, color, space);
-                borders.InsideVerticalBorder = MakeBorder<InsideVerticalBorder>(style, size, color, space);
+                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.InsideHorizontalBorder = MakeBorder<InsideHorizontalBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.InsideVerticalBorder = MakeBorder<InsideVerticalBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "border.top":
-                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space);
+                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "border.bottom":
-                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space);
+                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "border.left":
-                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space);
+                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "border.right":
-                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space);
+                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "border.insideh" or "border.horizontal":
-                borders.InsideHorizontalBorder = MakeBorder<InsideHorizontalBorder>(style, size, color, space);
+                borders.InsideHorizontalBorder = MakeBorder<InsideHorizontalBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "border.insidev" or "border.vertical":
-                borders.InsideVerticalBorder = MakeBorder<InsideVerticalBorder>(style, size, color, space);
+                borders.InsideVerticalBorder = MakeBorder<InsideVerticalBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                break;
+            default:
+                // Sub-property form: border.<edge>.<attr> — set a single
+                // attribute on the existing edge border (caller must have
+                // set border.<edge> first; we lazily create a default
+                // `single` border if absent). Mirrors ApplyCellBorderSubProperty.
+                ApplyTableBorderSubProperty(borders, key.ToLowerInvariant(), value);
                 break;
         }
     }
 
-    private static void ApplyCellBorders(TableCellProperties tcPr, string key, string value)
+    private static void ApplyTableBorderSubProperty(TableBorders borders, string key, string value)
     {
-        var borders = tcPr.TableCellBorders ?? tcPr.AppendChild(new TableCellBorders());
-        var (style, size, color, space) = ParseBorderValue(value);
+        var parts = key.Split('.');
+        if (parts.Length != 3 || parts[0] != "border") return;
+        var edge = parts[1];
+        var attr = parts[2];
+        BorderType? b = edge switch
+        {
+            "top"    => borders.TopBorder    ??= new TopBorder    { Val = BorderValues.Single },
+            "bottom" => borders.BottomBorder ??= new BottomBorder { Val = BorderValues.Single },
+            "left" or "start" => borders.LeftBorder  ??= new LeftBorder  { Val = BorderValues.Single },
+            "right" or "end"  => borders.RightBorder ??= new RightBorder { Val = BorderValues.Single },
+            "insideh" or "horizontal" => borders.InsideHorizontalBorder ??= new InsideHorizontalBorder { Val = BorderValues.Single },
+            "insidev" or "vertical"   => borders.InsideVerticalBorder   ??= new InsideVerticalBorder   { Val = BorderValues.Single },
+            _ => null,
+        };
+        if (b == null) return;
+        switch (attr)
+        {
+            case "sz":
+            case "size":
+                b.Size = (uint)ParseHelpers.SafeParseInt(value, key);
+                break;
+            case "color":
+                var (cHex, _) = ParseHelpers.SanitizeColorForOoxml(value);
+                b.Color = cHex;
+                break;
+            case "space":
+                b.Space = (uint)ParseHelpers.SafeParseInt(value, key);
+                break;
+            case "val":
+            case "style":
+                b.Val = new EnumValue<BorderValues>(new BorderValues(value));
+                break;
+        }
+    }
 
-        switch (key.ToLowerInvariant())
+    /// <summary>
+    /// CT_TcPr child schema order. Used by InsertTcPrChildInOrder to insert
+    /// new tcPr children at their schema position rather than the tail.
+    /// Children whose type isn't on this list (mc:AlternateContent and
+    /// extensions, for instance) are tolerated — they sort to the end via
+    /// the IndexOf == -1 sentinel.
+    /// </summary>
+    private static readonly Type[] s_tcPrChildOrder =
+    [
+        typeof(ConditionalFormatStyle),
+        typeof(TableCellWidth),
+        typeof(GridSpan),
+        typeof(HorizontalMerge),
+        typeof(VerticalMerge),
+        typeof(TableCellBorders),
+        typeof(Shading),
+        typeof(NoWrap),
+        typeof(TableCellMargin),
+        typeof(TextDirection),
+        typeof(TableCellFitText),
+        typeof(TableCellVerticalAlignment),
+        typeof(HideMark),
+        // headers/cellIns/cellDel/cellMerge/tcPrChange follow but are rare
+        // enough that we let the SDK's own setters handle them; they get
+        // sentinel positions (-1) and end up at the tail, which is correct
+        // when nothing else past tcPr has been written.
+    ];
+
+    private static void InsertTcPrChildInOrder(TableCellProperties tcPr, OpenXmlElement child)
+    {
+        var targetIdx = Array.IndexOf(s_tcPrChildOrder, child.GetType());
+        if (targetIdx < 0)
+        {
+            tcPr.AppendChild(child);
+            return;
+        }
+        foreach (var sibling in tcPr.ChildElements)
+        {
+            var sibIdx = Array.IndexOf(s_tcPrChildOrder, sibling.GetType());
+            if (sibIdx > targetIdx)
+            {
+                tcPr.InsertBefore(child, sibling);
+                return;
+            }
+        }
+        tcPr.AppendChild(child);
+    }
+
+    private static bool ApplyCellBorders(TableCellProperties tcPr, string key, string value)
+    {
+        // Validate the key shape before mutating tcPr — an unknown border.*
+        // key (e.g. "borderStyle", or a length-2 split that ApplyCellBorderSubProperty
+        // would silently drop) must surface as unsupported rather than leaving
+        // an empty <w:tcBorders/> element behind.
+        var keyLower = key.ToLowerInvariant();
+        bool isWhole = keyLower is "border.all" or "border" or "border.top"
+            or "border.bottom" or "border.left" or "border.right"
+            or "border.tl2br" or "border.tr2bl";
+        bool isSubProp = false;
+        if (!isWhole)
+        {
+            var parts = keyLower.Split('.');
+            if (parts.Length == 3 && parts[0] == "border")
+            {
+                var edge = parts[1];
+                var attr = parts[2];
+                bool edgeOk = edge is "top" or "bottom" or "left" or "start"
+                    or "right" or "end" or "tl2br" or "tr2bl";
+                bool attrOk = attr is "sz" or "size" or "color" or "space" or "val" or "style";
+                isSubProp = edgeOk && attrOk;
+            }
+        }
+        if (!isWhole && !isSubProp) return false;
+
+        // CT_TcPr child sequence is strict: cnfStyle → tcW → gridSpan →
+        // hMerge → vMerge → tcBorders → shd → noWrap → tcMar →
+        // textDirection → tcFitText → vAlign → hideMark → ... → tcPrChange.
+        // Plain AppendChild lands tcBorders at the tail, after shd/vAlign/
+        // tcMar that earlier setter calls already wrote, producing
+        // Sch_UnexpectedElementContentExpectingComplex on tcBorders. Insert
+        // before the first existing sibling that should come after tcBorders.
+        var borders = tcPr.TableCellBorders;
+        if (borders == null)
+        {
+            borders = new TableCellBorders();
+            InsertTcPrChildInOrder(tcPr, borders);
+        }
+        var (style, size, color, space) = ParseBorderValue(value);
+        var sf = ParseBorderShadowFrame(value);
+        // BUG-DUMP-R41-2: harvest the theme key=val tail once; passed to every
+        // MakeBorder below so w:themeColor/Shade/Tint round-trip.
+        var (_, bTheme) = ExtractThemeTail(value);
+
+        switch (keyLower)
         {
             case "border.all" or "border":
-                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space);
-                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space);
-                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space);
-                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space);
+                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "border.top":
-                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space);
+                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "border.bottom":
-                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space);
+                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "border.left":
-                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space);
+                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "border.right":
-                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space);
+                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "border.tl2br":
-                borders.TopLeftToBottomRightCellBorder = MakeBorder<TopLeftToBottomRightCellBorder>(style, size, color, space);
+                borders.TopLeftToBottomRightCellBorder = MakeBorder<TopLeftToBottomRightCellBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
                 break;
             case "border.tr2bl":
-                borders.TopRightToBottomLeftCellBorder = MakeBorder<TopRightToBottomLeftCellBorder>(style, size, color, space);
+                borders.TopRightToBottomLeftCellBorder = MakeBorder<TopRightToBottomLeftCellBorder>(style, size, color, space, sf.shadow, sf.frame, theme: bTheme);
+                break;
+            default:
+                // Sub-property form: border.<edge>.<attr> — set an attribute on
+                // the existing edge border (caller must have set border.<edge>
+                // first; we lazily create a default `single` border if absent).
+                ApplyCellBorderSubProperty(borders, keyLower, value);
+                break;
+        }
+        return true;
+    }
+
+    private static void ApplyCellBorderSubProperty(TableCellBorders borders, string key, string value)
+    {
+        // key shape: border.<edge>.<attr> — e.g. border.top.sz, border.left.color
+        var parts = key.Split('.');
+        if (parts.Length != 3) return;
+        var edge = parts[1];
+        var attr = parts[2];
+        BorderType? b = edge switch
+        {
+            "top" => borders.TopBorder ??= new TopBorder { Val = BorderValues.Single },
+            "bottom" => borders.BottomBorder ??= new BottomBorder { Val = BorderValues.Single },
+            "left" or "start" => borders.LeftBorder ??= new LeftBorder { Val = BorderValues.Single },
+            "right" or "end" => borders.RightBorder ??= new RightBorder { Val = BorderValues.Single },
+            "tl2br" => borders.TopLeftToBottomRightCellBorder ??= new TopLeftToBottomRightCellBorder { Val = BorderValues.Single },
+            "tr2bl" => borders.TopRightToBottomLeftCellBorder ??= new TopRightToBottomLeftCellBorder { Val = BorderValues.Single },
+            _ => null,
+        };
+        if (b == null) return;
+        switch (attr)
+        {
+            case "sz":
+            case "size":
+                b.Size = (uint)ParseHelpers.SafeParseInt(value, key);
+                break;
+            case "color":
+                var (cHex, _) = ParseHelpers.SanitizeColorForOoxml(value);
+                b.Color = cHex;
+                break;
+            case "space":
+                b.Space = (uint)ParseHelpers.SafeParseInt(value, key);
+                break;
+            case "val":
+            case "style":
+                b.Val = new EnumValue<BorderValues>(new BorderValues(value));
                 break;
         }
     }
@@ -2402,17 +2069,20 @@ public partial class WordHandler
         var tpp = tblPr.GetFirstChild<TablePositionProperties>();
         if (tpp == null)
         {
-            tpp = new TablePositionProperties
-            {
-                VerticalAnchor = VerticalAnchorValues.Page,
-                HorizontalAnchor = HorizontalAnchorValues.Page
-            };
-            // CT_TblPr schema order: tblStyle → tblpPr → tblOverlap → ...
-            var tblStyle = tblPr.GetFirstChild<TableStyle>();
-            if (tblStyle != null)
-                tblStyle.InsertAfterSelf(tpp);
-            else
-                tblPr.PrependChild(tpp);
+            // BUG-DUMP-TBLPPR-HORZANCHOR: do NOT bake in default
+            // vertAnchor/horzAnchor=page. Both attributes are OPTIONAL in
+            // ST_TblPPr (Word's default is text/column-relative). Hard-defaulting
+            // them meant a dump→batch of a floating table whose source set only
+            // some tblp.* attrs (e.g. vertAnchor=text + leftFromText, no
+            // horzAnchor) gained a spurious horzAnchor="page" — which re-anchored
+            // the table to the page's left edge, so the following paragraph (a
+            // table's "Notes" caption) wrapped BESIDE the half-width table instead
+            // of flowing below it (visible layout corruption). Create the element
+            // empty; each anchor is set only when the caller explicitly provides
+            // tblp.horzAnchor / tblp.vertAnchor, matching the source faithfully.
+            tpp = new TablePositionProperties();
+            // CONSISTENCY(tblpr-schema-order): tblpPr is rank 1.
+            InsertTblPrChildInOrder(tblPr, tpp);
         }
         return tpp;
     }
@@ -2420,21 +2090,58 @@ public partial class WordHandler
     internal static uint ParseTwips(string value)
     {
         value = value.Trim();
+        // Twips back OOXML length attributes that are uint in the schema (pgSz/@w:w,
+        // pgMar/@w:top, etc.). Negative inputs would wrap silently on the (uint) cast
+        // below — reject them up front in every unit branch with a uniform message.
+        // The integer branch already rejects negatives via SafeParseUint.
         if (value.EndsWith("cm", StringComparison.OrdinalIgnoreCase))
         {
             var num = ParseHelpers.SafeParseDouble(value[..^2], "twips (cm)");
+            if (num < 0)
+                throw new ArgumentException($"length must be non-negative, got {num}cm.");
             return (uint)Math.Round(num * 1440.0 / 2.54);
         }
         if (value.EndsWith("in", StringComparison.OrdinalIgnoreCase))
         {
             var num = ParseHelpers.SafeParseDouble(value[..^2], "twips (in)");
+            if (num < 0)
+                throw new ArgumentException($"length must be non-negative, got {num}in.");
             return (uint)Math.Round(num * 1440);
         }
         if (value.EndsWith("pt", StringComparison.OrdinalIgnoreCase))
         {
             var num = ParseHelpers.SafeParseDouble(value[..^2], "twips (pt)");
+            if (num < 0)
+                throw new ArgumentException($"length must be non-negative, got {num}pt.");
             return (uint)Math.Round(num * 20);
         }
-        return ParseHelpers.SafeParseUint(value, "twips");
+        // BUG-R2b: accept the "dxa" suffix that Get now emits for colWidths/width
+        // so a dxa-qualified value round-trips back through Set. dxa is the OOXML
+        // twip unit, so it strips to a bare integer (no scaling).
+        // BUG-DUMP-FRACTWIPS: a source <w:col w:w="4521.5"> (an authoring-tool
+        // artifact — twips are integer in the schema, but Word tolerates and
+        // rounds fractional widths) made `dump --format batch` emit "4521.5",
+        // which Set's integer-only parse then REJECTED — officecli could not
+        // round-trip a value it itself produced, dropping the multi-column
+        // layout. Accept fractional twips and round, matching the cm/in/pt
+        // branches above (Word rounds the same way).
+        if (value.EndsWith("dxa", StringComparison.OrdinalIgnoreCase))
+            return RoundNonNegativeTwips(value[..^3]);
+        return RoundNonNegativeTwips(value);
+    }
+
+    // Parse a bare twip value, tolerating a fractional component (rounded to the
+    // nearest integer twip) so a source's fractional length round-trips. A plain
+    // integer string still parses exactly; only a non-integer takes the rounding
+    // path. Negative values are rejected, matching the unit branches.
+    private static uint RoundNonNegativeTwips(string s)
+    {
+        s = s.Trim();
+        if (uint.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, out var exact))
+            return exact;
+        var num = ParseHelpers.SafeParseDouble(s, "twips");
+        if (num < 0)
+            throw new ArgumentException($"length must be non-negative, got {num}.");
+        return (uint)Math.Round(num);
     }
 }

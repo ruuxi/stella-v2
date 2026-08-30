@@ -21,6 +21,26 @@ export type RelayBillingUsage = {
   costMicroCents?: number;
 };
 
+/**
+ * Convex rejects extra object fields at runtime. Provider usage also carries
+ * diagnostic fields such as `model`, so project the parser result onto the
+ * persisted billing contract before crossing a mutation boundary.
+ */
+export const normalizeRelayBillingUsage = (
+  usage: RelayBillingUsage,
+): RelayBillingUsage =>
+  Object.fromEntries(
+    [
+      ["inputTokens", usage.inputTokens],
+      ["outputTokens", usage.outputTokens],
+      ["totalTokens", usage.totalTokens],
+      ["cachedInputTokens", usage.cachedInputTokens],
+      ["cacheWriteInputTokens", usage.cacheWriteInputTokens],
+      ["reasoningTokens", usage.reasoningTokens],
+      ["costMicroCents", usage.costMicroCents],
+    ].filter((entry) => entry[1] !== undefined),
+  ) as RelayBillingUsage;
+
 export type RelayBillingReceiptSnapshot = {
   terminalStatus?: RelayBillingTerminalStatus;
   success?: boolean;
@@ -87,7 +107,9 @@ export const relayBillingUsageForDelivery = (args: {
   hasActualUsage: boolean;
   actualUsage?: RelayBillingUsage;
 }): RelayBillingUsage => {
-  if (args.hasActualUsage && args.actualUsage) return args.actualUsage;
+  if (args.hasActualUsage && args.actualUsage) {
+    return normalizeRelayBillingUsage(args.actualUsage);
+  }
   const inputTokens = Math.max(0, args.estimatedInputTokens);
   const outputTokens = args.success
     ? Math.max(0, args.estimatedOutputTokens)

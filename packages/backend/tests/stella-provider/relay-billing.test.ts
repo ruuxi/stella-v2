@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   mergeRelayBillingFinalization,
+  normalizeRelayBillingUsage,
   relayBillingUsageForDelivery,
 } from "../../convex/stella_provider/relay_billing";
 
@@ -49,6 +50,34 @@ describe("resumable relay billing receipts", () => {
         actualUsage,
       }),
     ).toEqual(actualUsage);
+  });
+
+  it("projects provider diagnostics out of Convex billing payloads", () => {
+    const parsedUsage = {
+      inputTokens: 71,
+      outputTokens: 19,
+      totalTokens: 90,
+      cachedInputTokens: 30,
+      reasoningTokens: 7,
+      model: "meta/muse-spark-1.2-contributor",
+    };
+
+    expect(normalizeRelayBillingUsage(parsedUsage)).toEqual({
+      inputTokens: 71,
+      outputTokens: 19,
+      totalTokens: 90,
+      cachedInputTokens: 30,
+      reasoningTokens: 7,
+    });
+    expect(
+      relayBillingUsageForDelivery({
+        estimatedInputTokens: 120,
+        estimatedOutputTokens: 900,
+        success: true,
+        hasActualUsage: true,
+        actualUsage: parsedUsage,
+      }),
+    ).not.toHaveProperty("model");
   });
 
   it("keeps the first terminal result while allowing one unbilled actual-usage upgrade", () => {

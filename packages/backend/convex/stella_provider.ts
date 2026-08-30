@@ -57,7 +57,10 @@ import type {
   RelayBillingTerminalStatus,
   RelayBillingUsage,
 } from "./stella_provider/relay_billing";
-import { relayBillingUsageForDelivery } from "./stella_provider/relay_billing";
+import {
+  normalizeRelayBillingUsage,
+  relayBillingUsageForDelivery,
+} from "./stella_provider/relay_billing";
 import {
   RelayResumeFrameTooLargeError,
   RelayResumeSseParser,
@@ -1743,7 +1746,10 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
           terminalStatus: args.terminalStatus,
           success: args.success,
           durationMs: Date.now() - startedAt,
-          actualUsage: args.actualUsage,
+          actualUsage:
+            args.actualUsage === undefined
+              ? undefined
+              : normalizeRelayBillingUsage(args.actualUsage),
           nowMs: Date.now(),
         },
       );

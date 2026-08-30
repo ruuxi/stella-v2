@@ -1,46 +1,18 @@
 /**
- * Outbound image-attachment normalization.
+ * Image format identification for outbound attachments.
  *
- * iOS photo-library picks (and share-sheet images) frequently arrive as HEIC:
- * expo-image-picker's `quality` re-encode is bypassed for HEIC — its native
- * `readDataAndFileExtension` returns the raw bytes for `UTType.heic` — so the
- * original HEIC base64 rides the bridge untouched. Desktop model providers
- * only accept jpeg/png/gif/webp, so the turn lands with
- * "[Image omitted: it could not be decoded as a valid image…]".
+ * iOS photo-library picks (and share-sheet images) frequently arrive as HEIC
+ * under a `image/jpeg` label: expo-image-picker's `quality` re-encode is
+ * bypassed for HEIC, since its native `readDataAndFileExtension` returns the
+ * raw bytes for `UTType.heic`. Model providers only accept jpeg/png/gif/webp,
+ * and a mislabeled HEIC lands as "[Image omitted: it could not be decoded as a
+ * valid image…]" with nothing to explain why.
  *
- * Every attachment lane must funnel through `toSendableImage` so the payload
- * that leaves the phone is always a provider-decodable format with an honest
- * mime type.
+ * The bytes themselves no longer leave the phone through a prompt — they go to
+ * the drive, and the drive row's content type is what both placements read. So
+ * the one thing that matters is that the type recorded on that row comes from
+ * the magic numbers rather than from what the picker claimed.
  */
-import { standardBase64ToBytes } from "./bridge-envelope";
-
-/** How many images one turn may carry. */
-export const MAX_CHAT_IMAGES = 5;
-
-/**
- * Add picked assets to the composer's pending attachments, capped at
- * {@link MAX_CHAT_IMAGES}. Reports the overflow count so the picker can say
- * how many it dropped rather than silently swallowing them.
- */
-export const appendChatAttachments = <T>(
-  current: readonly T[],
-  incoming: readonly T[],
-  limit = MAX_CHAT_IMAGES,
-): { attachments: T[]; rejected: number } => {
-  const combined = [...current, ...incoming];
-  return {
-    attachments: combined.slice(0, limit),
-    rejected: Math.max(0, combined.length - limit),
-  };
-};
-
-/** Formats the desktop runtime's model providers accept as vision input. */
-export const PROVIDER_SAFE_IMAGE_MIME_TYPES: ReadonlySet<string> = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-]);
 
 const ISO_BMFF_HEIC_BRANDS = new Set([
   "heic",
@@ -107,62 +79,15 @@ export const sniffImageMimeType = (bytes: Uint8Array): string | null => {
   return null;
 };
 
-export type SendableImage = { base64: string; mimeType: string };
-
-export type ImageTranscoder = (input: {
-  /** Local file URI of the original asset, when available. */
-  uri?: string;
-  base64: string;
-  mimeType: string;
-}) => Promise<SendableImage | null>;
-
 /**
- * JPEG re-encode is intentionally inactive: expo-image-manipulator is a
- * native module, and shipping it in package.json changes the fingerprint
- * runtime, cutting current binaries (build 97, runtime 7fda4711…) off from
- * OTA updates. The picker's Compatible mode already delivers JPEG for photo
- * library picks, so this path is a no-op for now.
+ * The content type to record on the drive row for picked bytes. The declared
+ * type is only a fallback: a HEIC mislabeled `image/jpeg` would otherwise reach
+ * a model as JPEG and fail with nothing to explain it.
  *
- * When the next native build (98) is cut, restore `expo-image-manipulator`
- * in package.json and reinstate the manipulateAsync-based transcode here.
- * Returning null makes callers fall back to the original bytes under their
- * honest mime type.
+ * A non-image keeps its declared type. Sniffing only knows image formats, and
+ * a PDF is not improved by being called `application/octet-stream`.
  */
-export const transcodeImageToJpeg: ImageTranscoder = async () => null;
-
-/** Decode just enough of the base64 payload to read the magic numbers. */
-const sniffBase64ImageMimeType = (base64: string): string | null => {
-  // 24 base64 quads → 72 bytes, comfortably past every magic number we check.
-  const head = base64.slice(0, 96);
-  try {
-    return sniffImageMimeType(standardBase64ToBytes(head));
-  } catch {
-    return null;
-  }
-};
-
-/**
- * Normalize a picked/shared image asset into the payload we put on the wire.
- *
- * - Provider-safe bytes pass through untouched (bytes in = bytes out) with a
- *   mime type corrected from the actual magic numbers, so a HEIC mislabeled
- *   as image/jpeg can't sneak past.
- * - Unsupported formats (HEIC/HEIF/TIFF/AVIF/…) are re-encoded to JPEG; when
- *   transcoding isn't available we still send the original bytes under their
- *   honest mime type rather than dropping the attachment.
- *
- * Returns null when the asset has no base64 payload at all.
- */
-export const toSendableImage = async (
-  asset: { uri?: string; base64?: string | null; mimeType?: string | null },
-  transcode: ImageTranscoder = transcodeImageToJpeg,
-): Promise<SendableImage | null> => {
-  const base64 = asset.base64;
-  if (!base64) return null;
-  const mimeType = sniffBase64ImageMimeType(base64) ?? asset.mimeType ?? "image/jpeg";
-  if (PROVIDER_SAFE_IMAGE_MIME_TYPES.has(mimeType)) {
-    return { base64, mimeType };
-  }
-  const transcoded = await transcode({ uri: asset.uri, base64, mimeType });
-  return transcoded ?? { base64, mimeType };
-};
+export const attachmentContentType = (
+  bytes: Uint8Array,
+  declared: string,
+): string => sniffImageMimeType(bytes) ?? declared;

@@ -15,8 +15,22 @@ import {
 } from "./desktop-chat-outbox";
 import {
   restoreOutboxMessages,
+  type DesktopChatOutboxAttachment,
   type DesktopChatOutboxRecord,
 } from "./desktop-chat-outbox-state";
+import {
+  appendAttachments,
+  attachmentsSettled,
+  isAttachmentReady,
+  uploadChatAttachment,
+  withAttachmentPreamble,
+  CHAT_ATTACHMENT_MAX_COUNT,
+  type ComposerAttachment,
+  type PickedAttachment,
+} from "./chat-attachments";
+import { getConvexClient } from "./convex";
+import { File } from "expo-file-system";
+import { useT } from "../i18n/I18nProvider";
 import { hasAiConsent, requestAiConsent } from "./ai-consent";
 import {
   getPreferredPhoneAccess,
@@ -177,7 +191,12 @@ type QueuedSend = {
   promptText?: string;
   /** Raw quoted / "Ask Stella" context delivered as a dedicated model field. */
   selectedText?: string;
-  assets: ImagePicker.ImagePickerAsset[];
+  /**
+   * Drive references for this turn's attachments. Uploaded at pick time, so by
+   * the time a send exists the bytes are already server-side and this is the
+   * whole payload — placement carries paths, never pixels.
+   */
+  attachments: DesktopChatOutboxAttachment[];
   queueSequence?: number;
   /** Mount-local lease preventing an old account hook from dispatching later. */
   canonicalAuthorityLease?: number;
@@ -218,10 +237,15 @@ export type ChatComposerThread = {
   messages: ChatMessage[];
   draft: string;
   setDraft: React.Dispatch<React.SetStateAction<string>>;
-  attachments: ImagePicker.ImagePickerAsset[];
-  setAttachments: React.Dispatch<
-    React.SetStateAction<ImagePicker.ImagePickerAsset[]>
-  >;
+  /** Composer chips, each carrying its own upload state. */
+  attachments: ComposerAttachment[];
+  /** Adds picks and starts their uploads. Reports picks over the turn budget. */
+  addAttachments: (picked: readonly PickedAttachment[]) => { rejected: number };
+  removeAttachment: (id: string) => void;
+  /** Re-runs a failed upload for one chip, leaving the draft untouched. */
+  retryAttachment: (id: string) => void;
+  /** How many files one turn may carry. */
+  maxAttachments: number;
   /** Quoted-text chips pending in the composer (folded into the sent message). */
   quotes: ComposerQuote[];
   /** Add a quoted-text chip (message-menu Quote / assistant "Ask Stella"). */
@@ -348,9 +372,82 @@ export function useChatThread(opts: {
   }, []);
   const historyPageGenerationRef = useRef(0);
   const [draft, setDraft] = useState("");
-  const [attachments, setAttachments] = useState<
-    ImagePicker.ImagePickerAsset[]
-  >([]);
+  const t = useT();
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  const patchAttachment = useCallback(
+    (id: string, next: (current: ComposerAttachment) => ComposerAttachment) => {
+      setAttachments((current) =>
+        current.map((entry) => (entry.id === id ? next(entry) : entry)),
+      );
+    },
+    [],
+  );
+  /**
+   * Uploads a pick immediately rather than at send time. A failure therefore
+   * lands while the composer still holds the draft and the chip, so there is
+   * nothing to restore: the user retries the one file that broke.
+   */
+  const startAttachmentUpload = useCallback(
+    (picked: PickedAttachment) => {
+      const taken = new Set(
+        attachmentsRef.current
+          .map((entry) => (entry.status === "ready" ? entry.drivePath : ""))
+          .filter(Boolean),
+      );
+      void uploadChatAttachment(picked, taken, {
+        client: getConvexClient(),
+        readFile: async (uri) => await new File(uri).bytes(),
+      })
+        .then((drivePath) => {
+          patchAttachment(picked.id, (entry) => ({
+            ...entry,
+            status: "ready",
+            drivePath,
+          }));
+        })
+        .catch((error: unknown) => {
+          patchAttachment(picked.id, (entry) => ({
+            ...entry,
+            status: "failed",
+            message:
+              error instanceof Error && error.message
+                ? error.message
+                : t("chat.attachments.uploadFailed"),
+          }));
+        });
+    },
+    [patchAttachment, t],
+  );
+  const addAttachments = useCallback(
+    (picked: readonly PickedAttachment[]): { rejected: number } => {
+      const pending: ComposerAttachment[] = picked.map((entry) => ({
+        ...entry,
+        status: "uploading",
+      }));
+      const merged = appendAttachments(attachmentsRef.current, pending);
+      const accepted = merged.attachments.filter((entry) =>
+        pending.some((candidate) => candidate.id === entry.id),
+      );
+      setAttachments(merged.attachments);
+      for (const entry of accepted) startAttachmentUpload(entry);
+      return { rejected: merged.rejected };
+    },
+    [startAttachmentUpload],
+  );
+  const retryAttachment = useCallback(
+    (id: string) => {
+      const target = attachmentsRef.current.find((entry) => entry.id === id);
+      if (!target || target.status !== "failed") return;
+      patchAttachment(id, (entry) => ({ ...entry, status: "uploading" }));
+      startAttachmentUpload(target);
+    },
+    [patchAttachment, startAttachmentUpload],
+  );
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((current) => current.filter((entry) => entry.id !== id));
+  }, []);
   // Quoted-text chips pending in the composer (from the message menu's "Quote"
   // or an assistant selection's "Ask Stella"). Kept out of `draft` so the input
   // isn't stuffed with a paragraph; folded into the outgoing text on send.
@@ -494,17 +591,16 @@ export function useChatThread(opts: {
         // persisted (marked `queued`), but the in-memory dispatch queue was lost
         // on relaunch — so without this they'd render forever as "sent" yet never
         // deliver. Rebuild a dispatch for each from its bubble and drain, so a
-        // restart actually sends them. New outbox rows include their attachment
-        // payload; legacy image rows did not, so they remain visible but are not
-        // silently replayed as a text-only "Photo" turn.
+        // restart actually sends them. An outbox row's attachments are drive
+        // paths whose bytes already landed, so a replay carries them intact
+        // without the phone holding a single byte across the restart.
         const outboxByUserMessageId = new Map(
           storedOutbox.map((record) => [record.userMessageId, record]),
         );
         const pendingSends = restored.filter(
           (m) =>
             m.role === "user" &&
-            (outboxByUserMessageId.has(m.id) ||
-              (m.queued === true && !m.hasImage)) &&
+            (outboxByUserMessageId.has(m.id) || m.queued === true) &&
             m.text.trim().length > 0,
         );
         for (const row of pendingSends) {
@@ -514,7 +610,7 @@ export function useChatThread(opts: {
             clientRequestId: stored?.sendId ?? row.id,
             userMessageId: row.id,
             text: stored?.text ?? row.text,
-            assets: (stored?.assets ?? []) as ImagePicker.ImagePickerAsset[],
+            attachments: stored?.attachments ?? [],
             ...(stored ? { queueSequence: stored.sequence } : {}),
             canonicalAuthorityLease: canonicalAuthorityLeaseRef.current,
             ...(stored?.cancelRequestId
@@ -787,16 +883,7 @@ export function useChatThread(opts: {
         );
       };
 
-      // The v1 placement envelope is intentionally text-only. Never strip an
-      // attachment and silently execute a materially different request.
-      if (item.assets.length > 0) {
-        renderReply(
-          "Automatic computer/cloud execution does not support photo attachments yet. Remove the photo and try again.",
-        );
-        acknowledgeDesktopSendIds([item.dispatchId, item.userMessageId]);
-        finishDispatch();
-        return;
-      }
+      const attachmentPaths = item.attachments.map((entry) => entry.path);
 
       try {
         assertAuthorityLease();
@@ -832,7 +919,8 @@ export function useChatThread(opts: {
               ...unifiedChatPlacementAdmission({
                 dispatchId: item.dispatchId,
                 conversationId: placementConversationId,
-                prompt: item.text,
+                prompt: withAttachmentPreamble(item.text, attachmentPaths),
+                attachments: attachmentPaths,
               }),
               ...(access ? { access } : {}),
             });
@@ -1130,8 +1218,21 @@ export function useChatThread(opts: {
       const decoupleQuotes = typed.length > 0 && pendingQuotes.length > 0;
       const rawQuotes = decoupleQuotes ? composeRawQuotes(pendingQuotes) : "";
       const promptText = decoupleQuotes ? typed : text;
-      const assets = supplied ? [] : attachments.slice();
-      if (!text && assets.length === 0) return null;
+      // A send only ever carries settled attachments. An in-flight or failed
+      // upload has no drive path, and admitting the turn without it would
+      // execute a materially different request than the one on screen.
+      const composerAttachments = supplied ? [] : attachments;
+      if (!text && composerAttachments.length === 0) return null;
+      if (!attachmentsSettled(composerAttachments)) return null;
+      const picked = composerAttachments.filter(isAttachmentReady);
+      const sendAttachments: DesktopChatOutboxAttachment[] = picked.map(
+        (entry) => ({
+          path: entry.drivePath,
+          name: entry.name,
+          kind: entry.kind,
+          ...(entry.kind === "image" ? { previewUri: entry.uri } : {}),
+        }),
+      );
 
       if (!hasAiConsent()) {
         requestAiConsent();
@@ -1154,19 +1255,27 @@ export function useChatThread(opts: {
       const admission = admitSend(sendingRef);
 
       const userMessageId = createId();
-      const displayText = promptText || (assets.length ? "Photo" : "");
+      const images = picked.filter((entry) => entry.kind === "image");
+      const documents = picked.filter((entry) => entry.kind === "file");
+      const displayText =
+        promptText ||
+        (images.length ? t("chat.attachments.photoLabel") : "") ||
+        documents.map((entry) => entry.name).join(", ");
       const quotedPreview = rawQuotes
         ? rawQuotes.slice(0, QUOTED_TEXT_PREVIEW_MAX_CHARS)
         : undefined;
-      const thumbs = assets.slice(0, 3).map((a) => a.uri);
+      const thumbs = images.slice(0, 3).map((entry) => entry.uri);
       const createdAt = Date.now();
       const userMsg: ChatMessage = {
         id: userMessageId,
         role: "user",
         text: displayText,
         createdAt,
-        hasImage: assets.length > 0,
+        hasImage: images.length > 0,
         ...(thumbs.length > 0 ? { thumbnailUris: thumbs } : {}),
+        ...(documents.length > 0
+          ? { documentNames: documents.map((entry) => entry.name) }
+          : {}),
         ...(quotedPreview ? { quotedText: quotedPreview } : {}),
         ...(admission === "queue" ? { queued: true } : {}),
       };
@@ -1187,7 +1296,7 @@ export function useChatThread(opts: {
         userMessageId,
         text,
         ...(decoupleQuotes ? { promptText, selectedText: rawQuotes } : {}),
-        assets,
+        attachments: sendAttachments,
         canonicalAuthorityLease: canonicalAuthorityLeaseRef.current,
       };
       pendingEnqueueRef.current.add(userMessageId);
@@ -1198,13 +1307,12 @@ export function useChatThread(opts: {
         text,
         displayText,
         createdAt,
-        assets,
+        attachments: sendAttachments,
         authority: canonicalOutboxAuthority,
       };
       // Transmission gates on this write. If iOS kills the process while
       // AsyncStorage is committing, either no transport happened or hydration
-      // finds this exact stable identity and replays it, including the image
-      // bytes.
+      // finds this exact stable identity and replays it, attachments included.
       void enqueueDesktopChatOutbox(threadId, durableRecord)
         .then((stored) => {
           pendingEnqueueRef.current.delete(userMessageId);
@@ -1427,7 +1535,10 @@ export function useChatThread(opts: {
     draft,
     setDraft,
     attachments,
-    setAttachments,
+    addAttachments,
+    removeAttachment,
+    retryAttachment,
+    maxAttachments: CHAT_ATTACHMENT_MAX_COUNT,
     quotes,
     addQuote,
     removeQuote,

@@ -370,6 +370,7 @@ const reuseEqualMessage = (
     "toolSteps",
     "tasks",
     "thumbnailUris",
+    "documentNames",
     "quotedText",
   ] as const) {
     if (
@@ -420,6 +421,9 @@ const mergeCanonicalMessage = (
     ...(artifacts?.length ? { artifacts } : {}),
     ...(existing.thumbnailUris?.length && !canonical.thumbnailUris?.length
       ? { thumbnailUris: existing.thumbnailUris, hasImage: true }
+      : {}),
+    ...(existing.documentNames?.length && !canonical.documentNames?.length
+      ? { documentNames: existing.documentNames }
       : {}),
     // The desktop→mobile row projection doesn't carry quoted-context chips, so
     // keep the optimistic quote preview across reconciliation instead of losing
@@ -989,6 +993,9 @@ export const reconcileSentDesktopTurn = ({
           // ones the user just attached so the bubble doesn't lose its images.
           ...(message.thumbnailUris?.length
             ? { thumbnailUris: message.thumbnailUris, hasImage: true }
+            : {}),
+          ...(message.documentNames?.length
+            ? { documentNames: message.documentNames }
             : {}),
         },
       );

@@ -489,6 +489,9 @@ function parseRow(row: unknown): ChatMessage | null {
   const thumbnailUris = Array.isArray(o.thumbnailUris)
     ? o.thumbnailUris.filter((v): v is string => typeof v === "string")
     : [];
+  const documentNames = Array.isArray(o.documentNames)
+    ? o.documentNames.filter((v): v is string => typeof v === "string")
+    : [];
   const conversationId =
     typeof o.conversationId === "string" ? o.conversationId : "";
   const artifacts = parseChatArtifacts(o.artifacts, conversationId);
@@ -531,6 +534,7 @@ function parseRow(row: unknown): ChatMessage | null {
     ...(tasks.length > 0 ? { tasks } : {}),
     ...(o.hasImage === true ? { hasImage: true } : {}),
     ...(thumbnailUris.length > 0 ? { thumbnailUris } : {}),
+    ...(documentNames.length > 0 ? { documentNames } : {}),
     ...(typeof o.quotedText === "string" && o.quotedText.trim()
       ? { quotedText: o.quotedText }
       : {}),

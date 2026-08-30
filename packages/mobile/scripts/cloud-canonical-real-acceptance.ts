@@ -793,7 +793,7 @@ export const runMobileCanonicalRealAcceptance = async (): Promise<unknown> => {
       text: prompt,
       displayText: prompt,
       createdAt: Date.now(),
-      assets: [],
+      attachments: [],
       authority: authorityFence,
     });
     const durableStateSha256 = await writeOutbox(outboxFile, enqueued.records);

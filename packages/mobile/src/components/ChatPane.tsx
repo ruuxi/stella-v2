@@ -40,7 +40,14 @@ import { LinearGradient } from "expo-linear-gradient";
 import MaskedView from "@react-native-masked-view/masked-view";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
-import { appendChatAttachments } from "../lib/image-attachments";
+import * as DocumentPicker from "expo-document-picker";
+import {
+  CHAT_ATTACHMENT_MAX_COUNT,
+  driveFileNameFor,
+  type ComposerAttachment,
+  type PickedAttachment,
+} from "../lib/chat-attachments";
+import { useT } from "../i18n";
 import Reanimated, {
   useAnimatedKeyboard,
   useAnimatedStyle,
@@ -1525,6 +1532,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   if (item.role === "user") {
     const thumbs = item.thumbnailUris ?? [];
     const showThumbs = thumbs.length > 0;
+    const documentNames = item.documentNames ?? [];
     const showText = item.text.trim().length > 0;
     const quotedText = item.quotedText?.trim();
     return (
@@ -1588,6 +1596,31 @@ const ChatMessageRow = memo(function ChatMessageRow({
                         style={styles.userThumbImage}
                         contentFit="cover"
                       />
+                    ))}
+                  </View>
+                ) : null}
+                {documentNames.length > 0 ? (
+                  <View
+                    style={[
+                      styles.userDocumentStrip,
+                      showText && styles.userThumbsAbove,
+                    ]}
+                  >
+                    {documentNames.map((name) => (
+                      <View key={name} style={styles.userDocumentChip}>
+                        <Icon
+                          name="file-text"
+                          size={12}
+                          color={colors.textMuted}
+                        />
+                        <Text
+                          style={styles.userDocumentName}
+                          numberOfLines={1}
+                          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                        >
+                          {name}
+                        </Text>
+                      </View>
                     ))}
                   </View>
                 ) : null}
@@ -2718,12 +2751,17 @@ export type ChatPaneProps = {
     request: string,
   ) => Promise<RealtimeVoiceActionDispatch>;
 
-  /** Show a small `+` menu entry for attaching photos. */
+  /** Show a small `+` menu entry for attaching photos and files. */
   enableAttachments: boolean;
   /** Current attachments — only meaningful when `enableAttachments`. */
-  attachments?: ImagePicker.ImagePickerAsset[];
-  /** Replace the attachment list (e.g. add picked or remove one). */
-  onChangeAttachments?: (next: ImagePicker.ImagePickerAsset[]) => void;
+  attachments?: ComposerAttachment[];
+  /** Hands picked files to the owner, which uploads them and reports overflow. */
+  onAddAttachments?: (picked: readonly PickedAttachment[]) => {
+    rejected: number;
+  };
+  onRemoveAttachment?: (id: string) => void;
+  /** Retries one failed upload. Absent means a failed chip can only be removed. */
+  onRetryAttachment?: (id: string) => void;
   /**
    * Optional overall cap for this transport. Picker-level limits reset per
    * launch, so the chat supplies its backend request limit here.
@@ -2835,7 +2873,9 @@ export function ChatPane({
   onRealtimeVoiceAction,
   enableAttachments,
   attachments,
-  onChangeAttachments,
+  onAddAttachments,
+  onRemoveAttachment,
+  onRetryAttachment,
   maxAttachments,
   quotes,
   onAddQuote,
@@ -2853,6 +2893,7 @@ export function ChatPane({
 }: ChatPaneProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const t = useT();
   const readAloud = useReadAloudPreference();
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
@@ -3366,14 +3407,41 @@ export function ChatPane({
     voiceSendResultVersion,
   ]);
 
+  const attachmentLimit = maxAttachments ?? CHAT_ATTACHMENT_MAX_COUNT;
+  const acceptPicked = useCallback(
+    (picked: readonly PickedAttachment[]) => {
+      if (!onAddAttachments || picked.length === 0) return;
+      tapLight();
+      const { rejected } = onAddAttachments(picked);
+      if (rejected > 0) {
+        Alert.alert(
+          t("chat.attachments.tooManyTitle"),
+          t("chat.attachments.tooManyBody", { count: attachmentLimit }),
+        );
+      }
+    },
+    [attachmentLimit, onAddAttachments, t],
+  );
+
+  const imagePickAsAttachment = useCallback(
+    (asset: ImagePicker.ImagePickerAsset): PickedAttachment => ({
+      id: asset.assetId ?? asset.uri,
+      uri: asset.uri,
+      name: driveFileNameFor(asset.fileName ?? asset.uri, "image"),
+      mimeType: asset.mimeType ?? "image/jpeg",
+      sizeBytes: asset.fileSize ?? 0,
+      kind: "image",
+    }),
+    [],
+  );
+
   const pickImage = useCallback(async () => {
-    if (!enableAttachments || !onChangeAttachments) return;
+    if (!enableAttachments || !onAddAttachments) return;
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert(
-        "Photos",
-        "Allow Stella to access your photo library in Settings so you can attach images.",
-        [{ text: "OK" }],
+        t("chat.attachments.photosDeniedTitle"),
+        t("chat.attachments.photosDeniedBody"),
       );
       return;
     }
@@ -3381,8 +3449,7 @@ export function ChatPane({
       mediaTypes: ["images"],
       allowsMultipleSelection: true,
       quality: 0.75,
-      selectionLimit: 5,
-      base64: true,
+      selectionLimit: attachmentLimit,
       // HEIC bypasses the picker's `quality` JPEG re-encode (raw bytes pass
       // through), and desktop model providers can't decode HEIC. Ask PhotoKit
       // for the most compatible representation so library picks arrive as
@@ -3390,65 +3457,67 @@ export function ChatPane({
       preferredAssetRepresentationMode:
         ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
     });
-    if (!result.canceled && result.assets.length > 0) {
-      tapLight();
-      const current = attachments ?? [];
-      const next = appendChatAttachments(
-        current,
-        result.assets,
-        maxAttachments ?? Number.MAX_SAFE_INTEGER,
-      );
-      onChangeAttachments(next.attachments);
-      if (next.rejected > 0 && maxAttachments !== undefined) {
-        Alert.alert(
-          "Too many photos",
-          `You can attach up to ${maxAttachments} photos at a time.`,
-        );
-      }
+    if (!result.canceled) {
+      acceptPicked(result.assets.map(imagePickAsAttachment));
     }
-  }, [attachments, enableAttachments, maxAttachments, onChangeAttachments]);
+  }, [
+    acceptPicked,
+    attachmentLimit,
+    enableAttachments,
+    imagePickAsAttachment,
+    onAddAttachments,
+    t,
+  ]);
 
   const takePhoto = useCallback(async () => {
-    if (!enableAttachments || !onChangeAttachments) return;
+    if (!enableAttachments || !onAddAttachments) return;
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
       Alert.alert(
-        "Camera",
-        "Allow Stella to use the camera in Settings so you can snap a photo.",
-        [{ text: "OK" }],
+        t("chat.attachments.cameraDeniedTitle"),
+        t("chat.attachments.cameraDeniedBody"),
       );
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ["images"],
       quality: 0.75,
-      base64: true,
     });
-    if (!result.canceled && result.assets.length > 0) {
-      tapLight();
-      const current = attachments ?? [];
-      const next = appendChatAttachments(
-        current,
-        result.assets,
-        maxAttachments ?? Number.MAX_SAFE_INTEGER,
-      );
-      onChangeAttachments(next.attachments);
-      if (next.rejected > 0 && maxAttachments !== undefined) {
-        Alert.alert(
-          "Too many photos",
-          `You can attach up to ${maxAttachments} photos at a time.`,
-        );
-      }
+    if (!result.canceled) {
+      acceptPicked(result.assets.map(imagePickAsAttachment));
     }
-  }, [attachments, enableAttachments, maxAttachments, onChangeAttachments]);
+  }, [
+    acceptPicked,
+    enableAttachments,
+    imagePickAsAttachment,
+    onAddAttachments,
+    t,
+  ]);
 
-  const removeAttachment = useCallback(
-    (uri: string) => {
-      if (!onChangeAttachments) return;
-      onChangeAttachments((attachments ?? []).filter((a) => a.uri !== uri));
-    },
-    [attachments, onChangeAttachments],
-  );
+  const pickDocument = useCallback(async () => {
+    if (!enableAttachments || !onAddAttachments) return;
+    const result = await DocumentPicker.getDocumentAsync({
+      multiple: true,
+      // Copied into the app's cache so the URI stays readable after the
+      // picker's security-scoped access is released.
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled) return;
+    acceptPicked(
+      result.assets.map((asset) => {
+        const mimeType = asset.mimeType ?? "application/octet-stream";
+        const kind = mimeType.startsWith("image/") ? "image" : "file";
+        return {
+          id: asset.uri,
+          uri: asset.uri,
+          name: driveFileNameFor(asset.name, kind),
+          mimeType,
+          sizeBytes: asset.size ?? 0,
+          kind,
+        };
+      }),
+    );
+  }, [acceptPicked, enableAttachments, onAddAttachments]);
 
   // Root the in-tree menu overlays measure against (see PlusMenuPopover).
   const rootRef = useRef<View>(null);
@@ -3464,15 +3533,21 @@ export function ChatPane({
     if (enableAttachments) {
       out.push({
         id: "attach-photo",
-        label: "Attach a photo",
+        label: t("chat.attachments.attachPhoto"),
         icon: "image",
         onSelect: () => void pickImage(),
       });
       out.push({
         id: "take-photo",
-        label: "Take a photo",
+        label: t("chat.attachments.takePhoto"),
         icon: "camera",
         onSelect: () => void takePhoto(),
+      });
+      out.push({
+        id: "attach-file",
+        label: t("chat.attachments.attachFile"),
+        icon: "file-text",
+        onSelect: () => void pickDocument(),
       });
     }
     out.push({
@@ -3482,7 +3557,14 @@ export function ChatPane({
       onSelect: () => void readAloud.setEnabled(!readAloud.enabled),
     });
     return out;
-  }, [enableAttachments, pickImage, readAloud, takePhoto]);
+  }, [
+    enableAttachments,
+    pickDocument,
+    pickImage,
+    readAloud,
+    t,
+    takePhoto,
+  ]);
 
   // Floating computer-status control (computer chat only): opens the device
   // sheet. The cloud chat passes no handler, so nothing renders.
@@ -4390,17 +4472,57 @@ export function ChatPane({
           )}
           {showAttachmentStrip && (
             <View style={styles.attachmentStrip}>
-              {(attachments ?? []).map((asset) => (
-                <View key={asset.uri} style={styles.attachmentThumb}>
-                  <Image
-                    source={{ uri: asset.uri }}
-                    style={styles.attachmentImage}
-                    contentFit="cover"
-                  />
+              {(attachments ?? []).map((attachment) => (
+                <View key={attachment.id} style={styles.attachmentThumb}>
+                  {attachment.kind === "image" ? (
+                    <Image
+                      source={{ uri: attachment.uri }}
+                      style={styles.attachmentImage}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <View style={styles.attachmentFile}>
+                      <Icon
+                        name="file-text"
+                        size={18}
+                        color={colors.textMuted}
+                      />
+                      <Text
+                        style={styles.attachmentFileName}
+                        numberOfLines={2}
+                      >
+                        {attachment.name}
+                      </Text>
+                    </View>
+                  )}
+                  {attachment.status !== "ready" && (
+                    <Pressable
+                      style={styles.attachmentStatusScrim}
+                      disabled={attachment.status === "uploading"}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        attachment.status === "uploading"
+                          ? t("chat.attachments.uploading")
+                          : t("chat.attachments.retryUpload")
+                      }
+                      onPress={() => onRetryAttachment?.(attachment.id)}
+                    >
+                      {attachment.status === "uploading" ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      ) : (
+                        <Icon
+                          name="refresh-cw"
+                          size={16}
+                          color="#ffffff"
+                          weight="bold"
+                        />
+                      )}
+                    </Pressable>
+                  )}
                   <Pressable
                     style={styles.attachmentRemove}
-                    accessibilityLabel="Remove attached photo"
-                    onPress={() => removeAttachment(asset.uri)}
+                    accessibilityLabel={t("chat.attachments.remove")}
+                    onPress={() => onRemoveAttachment?.(attachment.id)}
                     hitSlop={4}
                   >
                     <Icon
@@ -4951,6 +5073,29 @@ const makeStyles = (colors: Colors) =>
       height: 84,
       width: 84,
     },
+    userDocumentStrip: {
+      alignSelf: "flex-start",
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 6,
+    },
+    userDocumentChip: {
+      alignItems: "center",
+      backgroundColor: fadeHex(colors.textMuted, 0.14),
+      borderRadius: 999,
+      flexDirection: "row",
+      gap: 4,
+      maxWidth: 200,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    userDocumentName: {
+      color: colors.textMuted,
+      flexShrink: 1,
+      fontFamily: fonts.sans.regular,
+      fontSize: 12,
+      letterSpacing: -0.1,
+    },
 
     assistantRow: { paddingVertical: 4 },
     /**
@@ -5086,6 +5231,37 @@ const makeStyles = (colors: Colors) =>
       width: 64,
     },
     attachmentImage: { borderRadius: 10, height: 64, width: 64 },
+    // A document has no preview to show, so the tile becomes its name.
+    attachmentFile: {
+      alignItems: "center",
+      backgroundColor: fadeHex(colors.textMuted, 0.12),
+      borderRadius: 10,
+      gap: 2,
+      height: 64,
+      justifyContent: "center",
+      paddingHorizontal: 4,
+      width: 64,
+    },
+    attachmentFileName: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.regular,
+      fontSize: 9,
+      letterSpacing: -0.1,
+      textAlign: "center",
+    },
+    // Covers the whole tile while an upload is in flight or broken, so a chip
+    // never reads as ready when it is not.
+    attachmentStatusScrim: {
+      alignItems: "center",
+      backgroundColor: "rgba(0,0,0,0.45)",
+      borderRadius: 10,
+      bottom: 0,
+      justifyContent: "center",
+      left: 0,
+      position: "absolute",
+      right: 0,
+      top: 0,
+    },
     attachmentRemove: {
       alignItems: "center",
       backgroundColor: "rgba(0,0,0,0.55)",

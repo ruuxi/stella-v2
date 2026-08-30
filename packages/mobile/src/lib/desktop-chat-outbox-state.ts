@@ -1,14 +1,17 @@
 import type { ChatMessage } from "../types";
 
-export type DesktopChatOutboxAsset = {
-  uri: string;
-  width: number;
-  height: number;
-  base64?: string | null;
-  mimeType?: string | null;
-  fileName?: string | null;
-  fileSize?: number;
-  type?: "image" | "video" | "livePhoto" | "pairedVideo" | null;
+/**
+ * An attachment a queued row carries. The bytes are not here: they reached the
+ * owner's drive before the row was ever written, so replay only needs the path
+ * that names them. `previewUri` is the local thumbnail and is allowed to be
+ * missing — a picked photo's cache entry does not have to survive a restart for
+ * the turn to.
+ */
+export type DesktopChatOutboxAttachment = {
+  path: string;
+  name: string;
+  kind: "image" | "file";
+  previewUri?: string;
 };
 
 export type DesktopChatOutboxAuthority = {
@@ -24,7 +27,7 @@ export type DesktopChatOutboxRecord = {
   displayText: string;
   createdAt: number;
   sequence: number;
-  assets: DesktopChatOutboxAsset[];
+  attachments: DesktopChatOutboxAttachment[];
   /** Exact server owner fence for canonical journal replay. */
   authority?: DesktopChatOutboxAuthority;
   /** Durable placement cancel intent, retained until the server is terminal. */
@@ -102,36 +105,22 @@ export const partitionDesktopChatOutboxForAuthority = (
   return { active, retained, stale };
 };
 
-const parseAsset = (value: unknown): DesktopChatOutboxAsset | null => {
+const parseAttachment = (
+  value: unknown,
+): DesktopChatOutboxAttachment | null => {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
-  const uri = typeof record.uri === "string" ? record.uri.trim() : "";
-  const width = finiteNumber(record.width);
-  const height = finiteNumber(record.height);
-  if (!uri || width === null || height === null) return null;
+  const path = typeof record.path === "string" ? record.path.trim() : "";
+  const name = typeof record.name === "string" ? record.name.trim() : "";
+  if (!path || path.length > 400 || !name || name.length > 255) return null;
+  const kind = record.kind === "image" ? "image" : "file";
+  const previewUri =
+    typeof record.previewUri === "string" ? record.previewUri.trim() : "";
   return {
-    uri,
-    width,
-    height,
-    ...(typeof record.base64 === "string" || record.base64 === null
-      ? { base64: record.base64 }
-      : {}),
-    ...(typeof record.mimeType === "string" || record.mimeType === null
-      ? { mimeType: record.mimeType }
-      : {}),
-    ...(typeof record.fileName === "string" || record.fileName === null
-      ? { fileName: record.fileName }
-      : {}),
-    ...(finiteNumber(record.fileSize) !== null
-      ? { fileSize: record.fileSize as number }
-      : {}),
-    ...(record.type === "image" ||
-    record.type === "video" ||
-    record.type === "livePhoto" ||
-    record.type === "pairedVideo" ||
-    record.type === null
-      ? { type: record.type }
-      : {}),
+    path,
+    name,
+    kind,
+    ...(previewUri ? { previewUri } : {}),
   };
 };
 
@@ -168,10 +157,12 @@ export const parseDesktopChatOutbox = (
     if (!sendId || !userMessageId || createdAt === null || sequence === null) {
       continue;
     }
-    const assets = Array.isArray(record.assets)
-      ? record.assets
-          .map(parseAsset)
-          .filter((asset): asset is DesktopChatOutboxAsset => Boolean(asset))
+    const attachments = Array.isArray(record.attachments)
+      ? record.attachments
+          .map(parseAttachment)
+          .filter((entry): entry is DesktopChatOutboxAttachment =>
+            Boolean(entry),
+          )
       : [];
     const authority = parseAuthority(record.authority);
     const parsed = {
@@ -181,7 +172,7 @@ export const parseDesktopChatOutbox = (
       displayText,
       createdAt,
       sequence,
-      assets,
+      attachments,
       ...(authority ? { authority } : {}),
       ...(typeof record.cancelRequestId === "string" &&
       record.cancelRequestId.trim()
@@ -258,6 +249,24 @@ export const markDesktopChatOutboxRecordCanceled = (
       : record,
   );
 
+/**
+ * What a restored bubble shows for its attachments. An image counts even when
+ * its local preview is gone: the turn still carries the photo, and claiming
+ * otherwise would render the bubble as text-only.
+ */
+const outboxAttachmentPreview = (record: DesktopChatOutboxRecord) => {
+  const images = record.attachments.filter((entry) => entry.kind === "image");
+  return {
+    hasImage: images.length > 0,
+    thumbnailUris: images
+      .flatMap((entry) => (entry.previewUri ? [entry.previewUri] : []))
+      .slice(0, 3),
+    documentNames: record.attachments
+      .filter((entry) => entry.kind === "file")
+      .map((entry) => entry.name),
+  };
+};
+
 export const restoreOutboxMessages = (
   messages: ChatMessage[],
   outbox: DesktopChatOutboxRecord[],
@@ -267,17 +276,19 @@ export const restoreOutboxMessages = (
   for (const record of parseDesktopChatOutbox(outbox)) {
     if (existingIds.has(record.userMessageId)) continue;
     existingIds.add(record.userMessageId);
+    const preview = outboxAttachmentPreview(record);
     restored.push({
       id: record.userMessageId,
       role: "user",
       text: record.displayText,
       createdAt: record.createdAt,
       queued: true,
-      ...(record.assets.length > 0
-        ? {
-            hasImage: true,
-            thumbnailUris: record.assets.slice(0, 3).map((asset) => asset.uri),
-          }
+      ...(preview.hasImage ? { hasImage: true } : {}),
+      ...(preview.thumbnailUris.length > 0
+        ? { thumbnailUris: preview.thumbnailUris }
+        : {}),
+      ...(preview.documentNames.length > 0
+        ? { documentNames: preview.documentNames }
         : {}),
     });
   }

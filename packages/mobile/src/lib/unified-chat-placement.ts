@@ -14,18 +14,26 @@ import type {
  * - The capability list stays "chat" for the same reason. Requiring
  *   "computer-use" would make any desktop that does not advertise it (a Linux
  *   host, an older build) ineligible for ordinary chat work.
+ * - A turn with attachments adds "attachments", which a desktop only
+ *   advertises once it can resolve a drive path. That gates the old builds out
+ *   of attachment turns specifically, rather than out of chat entirely, and the
+ *   cloud provides the capability itself so the turn still runs.
  */
 export const unifiedChatPlacementAdmission = (args: {
   dispatchId: string;
   conversationId: string;
   prompt: string;
+  attachments?: readonly string[];
 }): AutomaticExecutionAdmissionInput => ({
   idempotencyKey: args.dispatchId,
   conversationId: args.conversationId,
   kind: "chat",
   prompt: args.prompt,
   subject: "computer",
-  requiredCapabilities: ["chat"],
+  requiredCapabilities: args.attachments?.length
+    ? ["chat", "attachments"]
+    : ["chat"],
+  ...(args.attachments?.length ? { attachments: args.attachments } : {}),
 });
 
 /**

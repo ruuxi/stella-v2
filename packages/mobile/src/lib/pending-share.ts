@@ -1,4 +1,4 @@
-import type { ImagePickerAsset } from "expo-image-picker";
+import type { PickedAttachment } from "./chat-attachments";
 
 /**
  * Content shared into Stella from another app (share sheet), parked here
@@ -6,7 +6,7 @@ import type { ImagePickerAsset } from "expo-image-picker";
  */
 export type PendingShare = {
   text?: string;
-  assets?: ImagePickerAsset[];
+  attachments?: PickedAttachment[];
 };
 
 let pending: PendingShare | null = null;

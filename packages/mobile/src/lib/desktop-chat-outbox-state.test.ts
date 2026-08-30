@@ -21,7 +21,7 @@ const pending = (
   text,
   displayText: text,
   createdAt,
-  assets: [],
+  attachments: [],
 });
 
 const authorityA1: DesktopChatOutboxAuthority = {
@@ -184,30 +184,46 @@ describe("chat durable outbox", () => {
     expect(records.map((record) => record.sendId)).toEqual(["send-c"]);
   });
 
-  test("retains cloud image bytes and thumbnail metadata for restart replay", () => {
-    const imageRecord = {
-      ...pending("cloud-image", "Photo", 10),
-      assets: [
+  test("retains the drive paths a restart needs to replay the turn", () => {
+    const outbox = appendDesktopChatOutboxRecord([], {
+      ...pending("cloud-attach", "Look at these", 10),
+      attachments: [
         {
-          uri: "file:///photo.png",
-          width: 100,
-          height: 80,
-          base64: "iVBORw0KGgo=",
-          mimeType: "image/png",
+          path: "uploads/2026-08-29/photo.png",
+          name: "photo.png",
+          kind: "image",
+          previewUri: "file:///photo.png",
+        },
+        {
+          path: "uploads/2026-08-29/lease.pdf",
+          name: "lease.pdf",
+          kind: "file",
         },
       ],
-    };
-    const outbox = appendDesktopChatOutboxRecord([], imageRecord).records;
-    expect(outbox[0]?.assets[0]).toMatchObject({
-      base64: "iVBORw0KGgo=",
-      mimeType: "image/png",
-    });
+    }).records;
+    expect(outbox[0]?.attachments.map((entry) => entry.path)).toEqual([
+      "uploads/2026-08-29/photo.png",
+      "uploads/2026-08-29/lease.pdf",
+    ]);
     expect(restoreOutboxMessages([], outbox)[0]).toMatchObject({
-      id: "cloud-image",
+      id: "cloud-attach",
       queued: true,
       hasImage: true,
       thumbnailUris: ["file:///photo.png"],
+      documentNames: ["lease.pdf"],
     });
+  });
+
+  test("an image whose local preview is gone still reads as an image", () => {
+    const outbox = appendDesktopChatOutboxRecord([], {
+      ...pending("no-preview", "Photo", 11),
+      attachments: [
+        { path: "uploads/2026-08-29/photo.jpg", name: "photo.jpg", kind: "image" },
+      ],
+    }).records;
+    const restored = restoreOutboxMessages([], outbox)[0];
+    expect(restored).toMatchObject({ hasImage: true });
+    expect(restored?.thumbnailUris).toBeUndefined();
   });
 
   test("account switches quarantine other owners and replay only exact scope", () => {

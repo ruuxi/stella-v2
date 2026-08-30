@@ -695,7 +695,7 @@ const runReplayReconnectSwitch = async (
     text: `A-OUTBOX-ISOLATION-${runId}`,
     displayText: `A-OUTBOX-ISOLATION-${runId}`,
     createdAt: Date.now(),
-    assets: [],
+    attachments: [],
     authority: {
       accountScope: authority.accountScope,
       ownerGeneration: authority.ownerGeneration,
@@ -931,7 +931,7 @@ const runCleanHydrate = async (
     text: `GENERATION-CANARY-${runId}`,
     displayText: `GENERATION-CANARY-${runId}`,
     createdAt: Date.now(),
-    assets: [],
+    attachments: [],
     authority: {
       accountScope: authority.accountScope,
       ownerGeneration: authority.ownerGeneration,
@@ -1099,7 +1099,7 @@ const runGenerationRotation = async (
     text: `NEW-GENERATION-GUARD-${runId}`,
     displayText: `NEW-GENERATION-GUARD-${runId}`,
     createdAt: Date.now(),
-    assets: [],
+    attachments: [],
     authority: {
       accountScope: authority.accountScope,
       ownerGeneration: authority.ownerGeneration,

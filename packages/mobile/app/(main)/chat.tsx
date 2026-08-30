@@ -37,7 +37,7 @@ import {
   type ReasoningEffort,
 } from "../../src/lib/desktop-model-prefs";
 import { type DesktopConnection } from "../../src/lib/top-bar-status";
-import { MAX_CHAT_IMAGES } from "../../src/lib/image-attachments";
+import { attachmentsSettled } from "../../src/lib/chat-attachments";
 import { useIsOffline } from "../../src/lib/use-network-status";
 import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
@@ -224,7 +224,7 @@ function ChatSurface(props: {
   });
   const [waking, setWaking] = useState(false);
   const wakeUntilRef = useRef(0);
-  const { setDraft, setAttachments } = thread;
+  const { setDraft, addAttachments } = thread;
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
@@ -240,19 +240,17 @@ function ChatSurface(props: {
       const share = consumePendingShare();
       if (!share) return;
       if (share.text) {
-        setDraft((previous) =>
+        setDraft((previous: string) =>
           previous.trim()
             ? `${previous.trimEnd()} ${share.text}`
             : (share.text ?? ""),
         );
       }
-      if (share.assets?.length) {
-        setAttachments((previous) => [...previous, ...share.assets!]);
-      }
+      if (share.attachments?.length) addAttachments(share.attachments);
     };
     applyShare();
     return subscribePendingShare(applyShare);
-  }, [setAttachments, setDraft]);
+  }, [addAttachments, setDraft]);
 
   const checkStatus = useCallback(async (desktopDeviceId: string) => {
     try {
@@ -391,6 +389,9 @@ function ChatSurface(props: {
     (thread.draft.trim().length > 0 ||
       thread.attachments.length > 0 ||
       thread.quotes.length > 0) &&
+    // A turn is only sendable once every attachment has a drive path. Until
+    // then the chip is still uploading or has failed, and sending would drop it.
+    attachmentsSettled(thread.attachments) &&
     !offline &&
     thread.storageLoaded &&
     thread.authorityReady !== false;
@@ -478,11 +479,13 @@ function ChatSurface(props: {
         offline={offline}
         enableAttachments
         attachments={thread.attachments}
-        onChangeAttachments={thread.setAttachments}
+        onAddAttachments={thread.addAttachments}
+        onRemoveAttachment={thread.removeAttachment}
+        onRetryAttachment={thread.retryAttachment}
         quotes={thread.quotes}
         onAddQuote={thread.addQuote}
         onRemoveQuote={thread.removeQuote}
-        maxAttachments={MAX_CHAT_IMAGES}
+        maxAttachments={thread.maxAttachments}
         dictationAnonymous={false}
         onOpenArtifact={setSelectedArtifact}
         conversationId={thread.conversationId}

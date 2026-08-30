@@ -8,7 +8,8 @@ export type AutomaticExecutionCapability =
   | "agent"
   | "computer-use"
   | "local-files"
-  | "local-apps";
+  | "local-apps"
+  | "attachments";
 
 export type AutomaticExecutionStatusSnapshot = {
   dispatchId: string;
@@ -315,7 +316,30 @@ export type AutomaticExecutionAdmissionInput = {
   /** What the work is about, never which executor runs it. */
   subject?: AutomaticExecutionSubject;
   requiredCapabilities?: AutomaticExecutionCapability[];
+  /**
+   * Drive-relative paths of files already uploaded for this turn. References
+   * only: bytes would blow the envelope's 128 KB ceiling, and the placement
+   * service resolves a path on either placement.
+   */
+  attachments?: readonly string[];
 };
+
+/** Mirrors the server's cap so a turn is never admitted and then truncated. */
+export const AUTOMATIC_EXECUTION_MAX_ATTACHMENTS = 4;
+
+const validAttachmentPath = (path: string): boolean =>
+  path.length > 0 &&
+  path.length <= 400 &&
+  !path.startsWith("/") &&
+  !/^[a-zA-Z]:/.test(path) &&
+  !path.includes("\\") &&
+  // eslint-disable-next-line no-control-regex
+  !/[\u0000-\u001f\u007f]/.test(path) &&
+  path
+    .split("/")
+    .every(
+      (segment) => segment.length > 0 && segment !== "." && segment !== "..",
+    );
 
 export const buildAutomaticExecutionAdmission = (
   input: AutomaticExecutionAdmissionInput,
@@ -325,8 +349,18 @@ export const buildAutomaticExecutionAdmission = (
   const idempotencyKey = input.idempotencyKey.trim();
   const conversationId = input.conversationId.trim();
   const subject = input.subject ?? "portable";
+  const attachments = [...new Set(input.attachments ?? [])];
+  if (attachments.length > AUTOMATIC_EXECUTION_MAX_ATTACHMENTS) {
+    throw new Error(
+      `A turn may carry at most ${AUTOMATIC_EXECUTION_MAX_ATTACHMENTS} attachments.`,
+    );
+  }
+  if (!attachments.every(validAttachmentPath)) {
+    throw new Error("An attachment does not name a drive file.");
+  }
   const payloadJson = JSON.stringify({
     prompt,
+    ...(attachments.length ? { attachments } : {}),
     ...(input.kind === "agent"
       ? { description: input.description?.trim() || prompt.slice(0, 160) }
       : {}),

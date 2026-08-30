@@ -290,6 +290,12 @@ export type ChatMessage = {
    */
   thumbnailUris?: string[];
   /**
+   * User message: names of attached documents. Documents have no preview to
+   * render, so the bubble names them; the bytes are in the owner's drive and
+   * the agent reads them by path.
+   */
+  documentNames?: string[];
+  /**
    * User message: bounded preview of quoted / "Ask Stella" context sent with
    * this turn. Rendered as a chip on the bubble instead of being folded into
    * the visible text; the quote reached the model as a dedicated context field.

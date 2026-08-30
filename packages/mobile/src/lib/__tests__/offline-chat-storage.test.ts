@@ -267,7 +267,7 @@ describe("chat storage round-trip", () => {
       text: "private",
       displayText: "private",
       createdAt: 1,
-      assets: [],
+      attachments: [],
     });
     await beginAccountChatCleanupIntent();
 
@@ -287,7 +287,7 @@ describe("chat storage round-trip", () => {
         text: "blocked",
         displayText: "blocked",
         createdAt: 2,
-        assets: [],
+        attachments: [],
       }),
     ).rejects.toThrow("account cleanup is active");
     expect(

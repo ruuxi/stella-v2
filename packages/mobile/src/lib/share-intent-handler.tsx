@@ -2,8 +2,12 @@ import { useEffect } from "react";
 import { useRouter } from "expo-router";
 import { File } from "expo-file-system";
 import { useShareIntentContext } from "expo-share-intent";
-import type { ImagePickerAsset } from "expo-image-picker";
 import { setPendingShare } from "./pending-share";
+import {
+  CHAT_ATTACHMENT_MAX_COUNT,
+  driveFileNameFor,
+  type PickedAttachment,
+} from "./chat-attachments";
 
 const asFileUri = (path: string) =>
   path.startsWith("file://") ? path : `file://${path}`;
@@ -24,30 +28,32 @@ export function ShareIntentHandler() {
     let cancelled = false;
     void (async () => {
       const text = (shareIntent.webUrl ?? shareIntent.text ?? "").trim();
-      const assets: ImagePickerAsset[] = [];
+      const attachments: PickedAttachment[] = [];
+      // Every kind of file, not just images: the composer uploads whatever it
+      // is to the drive and the agent reads it there.
       for (const file of shareIntent.files ?? []) {
-        if (!file.mimeType?.startsWith("image/")) continue;
         try {
           const uri = asFileUri(file.path);
-          const base64 = await new File(uri).base64();
-          assets.push({
+          const mimeType = file.mimeType ?? "application/octet-stream";
+          const kind = mimeType.startsWith("image/") ? "image" : "file";
+          attachments.push({
+            id: uri,
             uri,
-            base64,
-            mimeType: file.mimeType,
-            width: file.width ?? 0,
-            height: file.height ?? 0,
-            fileName: file.fileName,
-          } as ImagePickerAsset);
+            name: driveFileNameFor(file.fileName ?? file.path, kind),
+            mimeType,
+            sizeBytes: new File(uri).size ?? 0,
+            kind,
+          });
         } catch {
           // Skip unreadable files rather than dropping the whole share.
         }
-        if (assets.length >= 5) break;
+        if (attachments.length >= CHAT_ATTACHMENT_MAX_COUNT) break;
       }
       if (cancelled) return;
-      if (text || assets.length > 0) {
+      if (text || attachments.length > 0) {
         setPendingShare({
           ...(text ? { text } : {}),
-          ...(assets.length > 0 ? { assets } : {}),
+          ...(attachments.length > 0 ? { attachments } : {}),
         });
         router.replace("/chat");
       }

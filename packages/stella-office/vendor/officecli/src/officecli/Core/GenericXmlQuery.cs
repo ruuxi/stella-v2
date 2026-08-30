@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Text.RegularExpressions;
@@ -11,7 +11,7 @@ namespace OfficeCli.Core;
 /// Traverses the OpenXML element tree matching by XML local name and attributes.
 /// Used as a fallback when the element type is not recognized by handler-specific (Scheme A) logic.
 /// </summary>
-public static class GenericXmlQuery
+internal static class GenericXmlQuery
 {
     /// <summary>
     /// Query an OpenXML element tree by XML local name and attribute filters.
@@ -43,7 +43,7 @@ public static class GenericXmlQuery
         }
 
         Traverse(root, localName, nsUri, attributes, containsText, "", results,
-            new Dictionary<string, int>());
+            new Dictionary<string, int>(), 0);
 
         return results;
     }
@@ -51,8 +51,13 @@ public static class GenericXmlQuery
     private static void Traverse(OpenXmlElement element, string targetLocalName,
         string? targetNsUri, Dictionary<string, string> attributes, string? containsText,
         string parentPath, List<DocumentNode> results,
-        Dictionary<string, int> parentCounters)
+        Dictionary<string, int> parentCounters, int depth)
     {
+        // CONSISTENCY(dos-hardening): refuse pathologically deep nesting before
+        // the recursion overflows the stack (an uncatchable crash that would
+        // escape the top-level SafeRun handler). See DocumentLimits.
+        DocumentLimits.EnsureDepth(depth);
+
         var elLocalName = element.LocalName;
 
         // Build counter key (namespace-qualified to avoid collisions)
@@ -62,7 +67,19 @@ public static class GenericXmlQuery
         var idx = parentCounters[counterKey];
         parentCounters[counterKey] = idx + 1;
 
-        var currentPath = $"{parentPath}/{elLocalName}[{idx + 1}]";
+        // Stable-id segment for Word paragraphs (issue #259): every other
+        // path emitter (Get echo, Add result, BuildParaPathSegment) prefers
+        // p[@paraId=X] because positional indexes drift as soon as the
+        // document is edited. Match that canonical form here so generic-
+        // fallback query results compare and round-trip against Get output.
+        // Sibling counters still advance positionally for all other elements;
+        // pptx a:p is Drawing.Paragraph and xlsx has no w:p, so this only
+        // ever fires for Word content.
+        var segment = element is DocumentFormat.OpenXml.Wordprocessing.Paragraph wp
+                      && !string.IsNullOrEmpty(wp.ParagraphId?.Value)
+            ? $"{elLocalName}[@paraId={wp.ParagraphId.Value}]"
+            : $"{elLocalName}[{idx + 1}]";
+        var currentPath = $"{parentPath}/{segment}";
 
         // Check if this element matches
         if (MatchesElement(element, targetLocalName, targetNsUri, attributes, containsText))
@@ -75,7 +92,7 @@ public static class GenericXmlQuery
         foreach (var child in element.ChildElements)
         {
             Traverse(child, targetLocalName, targetNsUri, attributes, containsText,
-                currentPath, results, childCounters);
+                currentPath, results, childCounters, depth + 1);
         }
     }
 
@@ -226,10 +243,22 @@ public static class GenericXmlQuery
             var bracketIdx = part.IndexOf('[');
             if (bracketIdx >= 0)
             {
+                // BUG-R36-01 fix: when ']' is missing (e.g. "slide[") the expression
+                // part[(bracketIdx+1)..^1] produces a negative-length range crash.
+                // Detect and reject unclosed brackets with a clean ArgumentException.
+                var closingIdx = part.IndexOf(']', bracketIdx + 1);
+                if (closingIdx < 0)
+                    throw new ArgumentException($"Malformed path segment '{part}'. Bracket '[' is not closed. Expected format: name[index] or name[@attr=value].");
                 var name = PathAliases.Resolve(part[..bracketIdx]);
                 var indexStr = part[(bracketIdx + 1)..^1];
                 if (!int.TryParse(indexStr, out var idx))
-                    throw new ArgumentException($"Invalid path index '{indexStr}' in segment '{part}'. Expected a numeric index.");
+                    // A predicate in the index slot (row[Score>0], row[not(V)])
+                    // means the caller reached the single-node path navigator
+                    // with a FILTER. get is one-node-by-path by contract;
+                    // point at the verbs that run the selector engine.
+                    throw new ArgumentException(AttributeFilter.IsContentFilterPath($"[{indexStr}]")
+                        ? $"'{part}' is a predicate, but this verb navigates by position and expects a numeric index (e.g. {part[..part.IndexOf('[')]}[2]). Predicates work on 'query' (read) and 'set'/'remove' (mutate matched elements)."
+                        : $"Invalid path index '{indexStr}' in segment '{part}'. Expected a numeric index.");
                 if (idx < 1)
                     throw new ArgumentException($"Invalid path index '{idx}' in segment '{part}'. Index must be >= 1.");
                 segments.Add((name, idx));
@@ -312,6 +341,8 @@ public static class GenericXmlQuery
     /// Uses the SDK's XML parsing to validate: clones the parent (empty), injects
     /// a child XML fragment, checks if the SDK recognizes it as a typed element with Val property.
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075",
+        Justification = "Probing for a SDK-generated 'Val' property by name. OpenXml typed-element classes are referenced elsewhere and preserved by the trimmer; if trimmed away, the probe simply returns null and the caller falls through.")]
     public static bool TryCreateTypedChild(OpenXmlElement parent, string key, string value)
     {
         var nsUri = parent.NamespaceUri;
@@ -321,34 +352,163 @@ public static class GenericXmlQuery
 
         try
         {
-            var existing = parent.ChildElements.FirstOrDefault(e => e.LocalName == key);
-            existing?.Remove();
-
+            // Normalize boolean inputs to OOXML canonical "1"/"0" for typed
+            // ST_OnOff elements (w:kinsoku, w:snapToGrid, w:wordWrap,
+            // w:autoSpaceDE, w:bidi, etc.). The SDK parses "true"/"false"
+            // correctly and Word renders either way, but strict
+            // schema validators expect "1"/"0" and most reference docs emit
+            // that canonical form. Detect by probing if the typed element's
+            // Val property is OnOffValue / TrueFalseValue / similar.
+            value = NormalizeOnOffIfTyped(parent, key, value);
             var escapedVal = System.Security.SecurityElement.Escape(value);
-            var tempElement = parent.CloneNode(false);
-            tempElement.InnerXml = $"<{prefix}:{key} xmlns:{prefix}=\"{nsUri}\" {prefix}:val=\"{escapedVal}\"/>";
-
-            var newChild = tempElement.FirstChild?.CloneNode(true);
-            if (newChild == null || newChild is OpenXmlUnknownElement
-                || !newChild.GetAttributes().Any(a => a.LocalName == "val"))
+            // OOXML attribute namespace handling differs by schema:
+            //   - WordprocessingML: attributeFormDefault="qualified" → w:val
+            //   - SpreadsheetML / DrawingML / PresentationML:
+            //     attributeFormDefault="unqualified" → plain val (no prefix)
+            // Writing prefix:val to an unqualified-attribute schema produces a
+            // foreign extension attribute that schema validation rejects
+            // ("attribute 'x:val' is not declared", "required attribute 'val'
+            // is missing"). Probe unqualified first; if the SDK didn't bind it
+            // to the typed Val property (Word case), retry with the prefix.
+            var newChild = ProbeTypedValChild(parent, prefix, nsUri, key, escapedVal, qualifiedVal: false)
+                ?? ProbeTypedValChild(parent, prefix, nsUri, key, escapedVal, qualifiedVal: true);
+            if (newChild == null)
                 return false;
 
-            // Use schema-aware AddChild for correct element ordering
+            // Schema-aware AddChild rejects elements that don't belong in this
+            // parent (e.g. w:snapToGrid in rPr — it's pPr-only). On rejection,
+            // return false so the caller can try a different container; do NOT
+            // fall back to AppendChild, which bypasses schema and produces
+            // invalid XML in the wrong parent.
             if (parent is OpenXmlCompositeElement composite)
             {
                 if (!composite.AddChild(newChild, throwOnError: false))
-                    parent.AppendChild(newChild);
+                    return false;
             }
             else
             {
                 parent.AppendChild(newChild);
             }
+
+            // Only after AddChild succeeded: remove any older instance the
+            // curated reader didn't notice. Doing this earlier would damage
+            // existing data on a probe that ultimately fails.
+            var existing = parent.ChildElements.FirstOrDefault(e =>
+                e.LocalName == key && !ReferenceEquals(e, newChild));
+            existing?.Remove();
+            // AddChild/AppendChild append; hoist the new child to its
+            // schema-correct slot so strict consumers don't reject e.g.
+            // <w:kern> after <w:sz> in rPr. Existing children are untouched.
+            SchemaOrder.Place(parent, newChild);
             return true;
         }
         catch
         {
             return false;
         }
+    }
+
+    // OOXML boolean (ST_OnOff) values: canonical is "1"/"0". SDK accepts
+    // "true"/"false"/"on"/"off"/"yes"/"no" but emits whatever was input.
+    // Normalize so the typed-child writer emits canonical "1"/"0" instead
+    // of leaking the user's input form to disk.
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075",
+        Justification = "Probing for SDK-generated 'Val' property type. Same justification as TryCreateTypedChild.")]
+    private static string NormalizeOnOffIfTyped(OpenXmlElement parent, string key, string value)
+    {
+        // Cheap guard: only normalize when value is one of the boolean spellings
+        // we know about. Anything else (numbers, enums, strings) passes through.
+        var v = value.Trim();
+        bool? truthy = v.ToLowerInvariant() switch
+        {
+            "1" or "true" or "on" or "yes" => true,
+            "0" or "false" or "off" or "no" => false,
+            _ => null,
+        };
+        if (truthy == null) return value;
+
+        // Probe the typed Val property type. Bail out cheaply on anything
+        // that doesn't smell like an SDK OnOff wrapper (StringValue / Int32Value
+        // / enum types stay as-is).
+        var nsUri  = parent.NamespaceUri;
+        var prefix = parent.Prefix;
+        if (string.IsNullOrEmpty(nsUri) || string.IsNullOrEmpty(prefix)) return value;
+        try
+        {
+            var tempElement = parent.CloneNode(false);
+            tempElement.InnerXml = $"<{prefix}:{key} xmlns:{prefix}=\"{nsUri}\" {prefix}:val=\"1\"/>";
+            var newChild = tempElement.FirstChild;
+            if (newChild is null or OpenXmlUnknownElement) return value;
+            var valProp = newChild.GetType().GetProperty("Val");
+            if (valProp == null) return value;
+            // OnOffValue / TrueFalseValue / TrueFalseBlankValue all live in
+            // DocumentFormat.OpenXml namespace. Match by name to avoid hard
+            // dependency on a single nullable wrapper.
+            var typeName = (Nullable.GetUnderlyingType(valProp.PropertyType) ?? valProp.PropertyType).Name;
+            if (typeName is "OnOffValue" or "TrueFalseValue" or "TrueFalseBlankValue")
+                return truthy.Value ? "1" : "0";
+        }
+        catch
+        {
+            // Probe failure → preserve original (best-effort normalization).
+        }
+        return value;
+    }
+
+    // Build a candidate child via SDK InnerXml parse, return it only if the
+    // SDK recognized the element AND populated its typed Val property (i.e.
+    // bound the val attribute to the schema). A non-null Val proves the
+    // attribute namespace matched the schema; null means SDK kept val as a
+    // foreign extension attribute, which would later fail schema validation.
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075",
+        Justification = "Probing for SDK-generated 'Val' property by name. Same justification as TryCreateTypedChild.")]
+    private static OpenXmlElement? ProbeTypedValChild(OpenXmlElement parent, string prefix, string nsUri,
+        string key, string escapedVal, bool qualifiedVal)
+    {
+        var valAttr = qualifiedVal ? $"{prefix}:val" : "val";
+        var tempElement = parent.CloneNode(false);
+        tempElement.InnerXml = $"<{prefix}:{key} xmlns:{prefix}=\"{nsUri}\" {valAttr}=\"{escapedVal}\"/>";
+        var newChild = tempElement.FirstChild?.CloneNode(true);
+        if (newChild == null || newChild is OpenXmlUnknownElement)
+            return null;
+        // Schema check: only accept "scalar val" typed elements — those that
+        // expose a typed Val property. Composite types (w:tabs, w:rFonts,
+        // w:ind, w:spacing, w:numPr, ...) have no Val property; they'd
+        // otherwise accept the fabricated val= as an unknown extension
+        // attribute and silently produce invalid XML.
+        var valProp = newChild.GetType().GetProperty("Val");
+        if (valProp == null)
+            return null;
+        // Reject if SDK did not bind val to the typed property — either the
+        // attribute landed in the wrong namespace for this schema, or the
+        // value failed enum/format parsing. Either way, the caller's retry
+        // (or fall-through) is preferable to writing a child whose val will
+        // be serialized as a foreign attribute and rejected by validation.
+        if (valProp.GetValue(newChild) == null)
+            return null;
+
+        // BUG-R9A(BUG2): the SDK's typed-val binding is LENIENT — a numeric
+        // Val (UInt32Value, e.g. w:fitText/@w:val which is ST_DecimalNumber)
+        // happily holds the raw string "true", so valProp.GetValue is non-null
+        // even though the attribute is schema-invalid (validation later rejects
+        // "'true' is not a valid 'UInt32'"). Boolean tokens are only legitimate
+        // on boolean wrapper Val types, and those have already been normalized
+        // to "1"/"0" upstream (NormalizeOnOffIfTyped) before reaching this
+        // probe — so a "true"/"false" token still present here against a
+        // non-boolean Val type is exactly the bad bool→non-bool coercion.
+        // Reject it so the caller surfaces an UNSUPPORTED/invalid-value message
+        // instead of silently writing schema-invalid XML. Numeric values
+        // (fitText=2000) and real boolean toggles are unaffected.
+        var trimmedVal = escapedVal.Trim();
+        if ((trimmedVal.Equals("true", StringComparison.OrdinalIgnoreCase)
+             || trimmedVal.Equals("false", StringComparison.OrdinalIgnoreCase)))
+        {
+            var valTypeName = (Nullable.GetUnderlyingType(valProp.PropertyType)
+                ?? valProp.PropertyType).Name;
+            if (valTypeName is not ("OnOffValue" or "TrueFalseValue" or "TrueFalseBlankValue"))
+                return null;
+        }
+        return newChild;
     }
 
     /// <summary>
@@ -432,8 +592,35 @@ public static class GenericXmlQuery
                 SetGenericAttribute(newChild, key, value);
             }
 
-            // Insert: use schema-aware AddChild for correct element ordering,
-            // fall back to manual index-based insertion if specified
+            // Insert. Explicit index → manual positional insertion.
+            //
+            // No index: the placement depends on the child's schema cardinality
+            // and whether a same-name sibling already exists.
+            //
+            // OpenXmlCompositeElement.AddChild places by particle slot and
+            // REPLACES a same-name child. That is correct for a SINGLETON
+            // (maxOccurs == 1, e.g. <w:tblInd> in tblPr) — re-adding it should
+            // overwrite — but WRONG for a REPEATABLE member (e.g. a second
+            // <w:tblStylePr> in a table style, or <w:lvl>/<w:abstractNum>),
+            // which it silently collapses onto the first. The collapse is the
+            // latent bug the dump→batch recursive decomposition exposes; a batch
+            // replay of repeated same-name adds would drop them identically.
+            //
+            // So, with no index:
+            //   • No same-name sibling yet → AddChild: positions the element in
+            //     its correct CT_ slot and cannot collapse (nothing to merge
+            //     onto). Preserves AddChild's ordering for particles the
+            //     reflection-based SchemaOrder comparator can't order (e.g.
+            //     DrawingML/Chart, where the first <c:dPt> must precede
+            //     <c:cat>/<c:val>).
+            //   • Same-name sibling exists AND the child is a singleton
+            //     (maxOccurs == 1) → AddChild again: it overwrites the existing
+            //     one (the intended replace).
+            //   • Same-name sibling exists AND the child is repeatable (or its
+            //     cardinality can't be resolved) → insert right AFTER the last
+            //     same-name sibling. Repeatable members are contiguous in a CT_
+            //     sequence, so this keeps the group together and in its correct
+            //     slot, and never collapses.
             if (index.HasValue)
             {
                 var children = parent.ChildElements.ToList();
@@ -442,15 +629,38 @@ public static class GenericXmlQuery
                 else
                     parent.AppendChild(newChild);
             }
-            else if (parent is OpenXmlCompositeElement composite)
-            {
-                // AddChild uses Metadata.Particle.Set() to find correct schema position
-                if (!composite.AddChild(newChild, throwOnError: false))
-                    parent.AppendChild(newChild); // fallback if schema doesn't define this child
-            }
             else
             {
-                parent.AppendChild(newChild);
+                var sameName = parent.ChildElements.Where(e =>
+                    e.LocalName == newChild.LocalName
+                    && e.NamespaceUri == newChild.NamespaceUri).ToList();
+                bool isSingleton = sameName.Count > 0
+                    && SchemaOrder.GetMaxOccurs(parent, newChild) == 1;
+                if (sameName.Count > 0 && !isSingleton)
+                {
+                    // Repeatable (or unknown cardinality) with an existing
+                    // sibling → append a distinct sibling; never collapse.
+                    sameName[^1].InsertAfterSelf(newChild);
+                }
+                else if (parent is OpenXmlCompositeElement composite)
+                {
+                    // Singleton re-add → drop the existing one first (true
+                    // replace; AddChild alone refuses an already-filled
+                    // single-occurrence slot and falls through to append).
+                    if (isSingleton)
+                        foreach (var ex in sameName) ex.Remove();
+                    // First occurrence or post-removal: AddChild positions in the
+                    // correct CT_ slot.
+                    if (!composite.AddChild(newChild, throwOnError: false))
+                    {
+                        parent.AppendChild(newChild); // schema doesn't define this child
+                        SchemaOrder.Place(parent, newChild);
+                    }
+                }
+                else
+                {
+                    parent.AppendChild(newChild);
+                }
             }
 
             return newChild;

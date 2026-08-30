@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using DocumentFormat.OpenXml.Packaging;
@@ -54,10 +54,15 @@ public partial class PowerPointHandler
                 printProps.PrintWhat = value.ToLowerInvariant() switch
                 {
                     "slides" => PrintOutputValues.Slides,
-                    "handouts" or "handout" => PrintOutputValues.Handouts1,
+                    "handouts" or "handout" or "handouts1" => PrintOutputValues.Handouts1,
+                    "handouts2" => PrintOutputValues.Handouts2,
+                    "handouts3" => PrintOutputValues.Handouts3,
+                    "handouts4" => PrintOutputValues.Handouts4,
+                    "handouts6" => PrintOutputValues.Handouts6,
+                    "handouts9" => PrintOutputValues.Handouts9,
                     "notes" => PrintOutputValues.Notes,
                     "outline" => PrintOutputValues.Outline,
-                    _ => throw new ArgumentException($"Invalid print.what: '{value}'. Valid: slides, handouts, notes, outline")
+                    _ => throw new ArgumentException($"Invalid print.what: '{value}'. Valid: slides, handouts (alias for handouts1), handouts1, handouts2, handouts3, handouts4, handouts6, handouts9, notes, outline")
                 };
                 SavePresentationProperties();
                 return true;
@@ -194,7 +199,7 @@ public partial class PowerPointHandler
         if (pres.FirstSlideNum?.Value != null && pres.FirstSlideNum.Value != 1)
             node.Format["firstSlideNum"] = pres.FirstSlideNum.Value;
         if (pres.RightToLeft?.Value == true)
-            node.Format["rtl"] = true;
+            node.Format["direction"] = "rtl";
         if (pres.CompatibilityMode?.Value == true)
             node.Format["compatMode"] = true;
         if (pres.RemovePersonalInfoOnSave?.Value == true)

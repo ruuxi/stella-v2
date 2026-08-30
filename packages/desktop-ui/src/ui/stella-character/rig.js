@@ -1,5 +1,5 @@
-import { TAU, clamp, toPath, polyPath, spanAt, profileMax } from "./geometry.js";
-import { N, C, BLEED, VIEWBOX, SHAPES, SPARKLE_PATH } from "./shapes.js";
+import { TAU, clamp, toPath, polyPath, lerpRing, spanAt, profileMax } from "./geometry.js";
+import { N, C, BLEED, VIEWBOX, VIEW_CENTER, SHAPES, ORB_RING, SPARKLE_PATH } from "./shapes.js";
 import { EYE_N, EYE_POSES, lerpPose } from "./eyes.js";
 
 /**
@@ -47,94 +47,40 @@ const stepSpring = (s, w, z, dt) => {
 };
 const SUBSTEP = 1 / 120;
 
+const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
 const easeOutBack = (t) => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
 const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const smoothstep = (t) => t * t * (3 - 2 * t);
 const rand = (a, b) => a + Math.random() * (b - a);
 
+/**
+ * The thinking ellipsis: three dots riding one travelling Gaussian, with the
+ * character mark itself as the middle one. `wave` is that Gaussian, sampled for
+ * a slot at a time — rise, pop and tone all come off the same curve, so the
+ * three dots read as one motion passing along the row.
+ */
+const CYCLE = 1400, PHASE0 = 0.119, SIGMA = 0.15;
+const LIFT = 9, POP_LO = 0.84, POP_K = 0.22;
+const DOT_R = 22, DOT_X = 62, DOT_FUDGE = 1.02, DOT_STAGGER = 0.12;
+/** Three dots in a small box are tiny, so the whole group zooms in under
+ *  `ZOOM_SMALL_PX`; the character alone needs no such help. */
+const DOTS_ZOOM = 1.5;
+
 const ZOOM_SMALL_PX = 44, ZOOM_LARGE_PX = 134;
+
+/** Weight at which the silhouette has finished becoming the orb, so the rest of
+ *  the dots' ramp is spent spreading the side dots rather than reshaping. */
+const MORPH_END = 0.62;
 
 const ENV_W = 14, ENV_Z = 1;
 const FADE_W = 11, FADE_Z = 1;
 
-/**
- * The top spinner: the pose the mark holds while thinking, replacing the
- * three-dot ellipsis.
- *
- * A spinning-top diamond travels a figure-eight, leaning as it precesses, with
- * three orbiting dots that drop off at fixed stations on one lap and are
- * collected again on the next — the ellipsis, drawn as something the toy does
- * rather than as punctuation. Authored in its own 100-unit cell and scaled into
- * the rig's viewBox, so its geometry stays readable against the reference
- * design instead of being pre-multiplied into shape-space units.
- */
-const SPIN_CELL = 100;
-const SPIN_CX = 50, SPIN_TIP_Y = 92, SPIN_TOP_Y = 16;
-const SPIN_MID_Y = (SPIN_TIP_Y + SPIN_TOP_Y) / 2;
-const SPIN_HALF_H = (SPIN_TIP_Y - SPIN_TOP_Y) / 2;
-
-const SPIN_SCALE = (C * 2 + BLEED * 2) / SPIN_CELL;
-const SPIN_ZOOM_Y = 56;
-const SPINNER_ZOOM = 1.22;
-
-const SPIN_TILT = 12, SPIN_PRECESS_MS = 2100;
-const SPIN_NUT_AMP = 0, SPIN_NUT_MS = 730;
-const SPIN_SHEEN_MS = 200;
-const SPIN_TRAVEL = 1, SPIN_TRAVEL_MS = 2100;
-const SPIN_BANK = 0, SPIN_BOB = 1;
-const SPIN_ASPECT = 0.68, SPIN_CONCAVITY = 0.6;
-
-const SPIN_HALF_TRAVEL_FRAC = 0.53;
-
-const SPIN_ORBIT_MS = 950;
-const SPIN_DOT_STATIONS = [Math.PI / 2, Math.PI, (3 * Math.PI) / 2];
-const SPIN_PARK_Y = SPIN_MID_Y + 2;
-const SPIN_DROP_W = 10.5, SPIN_DROP_Z = 0.88;
-const SPIN_PICK_MS = 500;
-const SPIN_DOT_SUBSTEP = 1 / 120;
-const SPIN_DROP_ARM_MS = 650;
-const SPIN_DROP_SPEED_CAP = 170;
-const SPIN_DOT_R = 6.4;
-
-const SPIN_INK = ["#ff4ac0", "#a141ff", "#5243ff", "#0e8aff", "#4ffff7"];
-const SPIN_SHEEN = [
-  ["#ffffff", 0, 0], ["#ffffff", 0.1, 0.12], ["#ffffff", 0.17, 0.22],
-  ["#ffffff", 0.1, 0.32], ["#ffffff", 0, 0.46],
-  ["#000000", 0, 0.54], ["#000000", 0.09, 0.66], ["#000000", 0.13, 0.76],
-  ["#000000", 0.09, 0.86], ["#000000", 0, 0.97], ["#ffffff", 0, 1],
-];
-
-/** How small the character shrinks to while the spinner has the stage; the
- *  grow-out from here is what makes the mark appear to become the character. */
-const SPIN_BLOB_MIN = 30 / 92;
-
-function diamondPath(aspect, concavity) {
-  const halfW = SPIN_HALF_H * aspect;
-  const k = 1 - concavity;
-  const wx = halfW * k, wy = SPIN_HALF_H * k;
-  const pTop = [SPIN_CX, SPIN_MID_Y - SPIN_HALF_H], pRight = [SPIN_CX + halfW, SPIN_MID_Y];
-  const pBot = [SPIN_CX, SPIN_MID_Y + SPIN_HALF_H], pLeft = [SPIN_CX - halfW, SPIN_MID_Y];
-  const q = (ctrl, to) => `Q${ctrl[0].toFixed(2)} ${ctrl[1].toFixed(2)} ${to[0].toFixed(2)} ${to[1].toFixed(2)}`;
-  return `M${pTop[0]} ${pTop[1].toFixed(2)} ` +
-    q([SPIN_CX + wx * 0.55, SPIN_MID_Y - wy * 0.55], pRight) + " " +
-    q([SPIN_CX + wx * 0.55, SPIN_MID_Y + wy * 0.55], pBot) + " " +
-    q([SPIN_CX - wx * 0.55, SPIN_MID_Y + wy * 0.55], pLeft) + " " +
-    q([SPIN_CX - wx * 0.55, SPIN_MID_Y - wy * 0.55], pTop) + "Z";
-}
-
-const SPIN_DIAMOND_PATH = diamondPath(SPIN_ASPECT, SPIN_CONCAVITY);
-
-/** Substepped so a long frame cannot overshoot the spring into a visible
- *  wobble; the dot is dropped at speed, which is exactly when that shows. */
-function stepDotSpring(st, txp, typ, w, z, dt) {
-  const sub = Math.max(1, Math.ceil(dt / SPIN_DOT_SUBSTEP));
-  const h = dt / sub;
-  for (let k = 0; k < sub; k++) {
-    st.vx += (-2 * z * w * st.vx - w * w * (st.x - txp)) * h;
-    st.vy += (-2 * z * w * st.vy - w * w * (st.y - typ)) * h;
-    st.x += st.vx * h;
-    st.y += st.vy * h;
-  }
+function wave(now, slot, amount, t0) {
+  let p = (((now - t0) / CYCLE + PHASE0) % 1 + 1) % 1;
+  let d = Math.abs(p - slot / 3);
+  d = Math.min(d, 1 - d);
+  const g = Math.exp(-(d * d) / (2 * SIGMA * SIGMA));
+  return { g, lift: g * LIFT * amount, pop: POP_LO + POP_K * g, tone: 1 - 0.5 * (1 - g) };
 }
 
 const SQ_CYCLE = 1500;
@@ -168,10 +114,10 @@ function squeezeWarp(band, amount, scale = 1) {
   };
 }
 
-export const ACTIVITIES = ["spinner", "twinkle", "orbit", "radar", "progress", "squeeze", "standby"];
+export const ACTIVITIES = ["dots", "twinkle", "orbit", "radar", "progress", "squeeze", "standby"];
 
 const ACTIVITY_OF = {
-  thinking: "spinner",
+  thinking: "dots",
   working: "twinkle",
   writing: "twinkle",
   searching: "orbit",
@@ -187,7 +133,7 @@ const ACTIVITY_OF = {
 };
 
 const BODY_R = {
-  spinner: C,
+  dots: DOT_R,
   twinkle: C,
   orbit: C * 0.9,
   radar: C * 0.94,
@@ -360,6 +306,17 @@ export function createStellaMark(host, opts = {}) {
 
   const inkFill = o.flat ? "var(--fg)" : stops ? `url(#${id}-ink)` : "var(--fg)";
 
+  /** The ellipsis' side dots. The middle one is the character itself, which the
+   *  silhouette morph turns into an orb. */
+  const dots = [0, 1].map(() => {
+    const p = document.createElementNS(SVGNS, "path");
+    p.setAttribute("d", toPath(ORB_RING));
+    p.setAttribute("fill", inkFill);
+    p.style.display = "none";
+    zoomG.appendChild(p);
+    return p;
+  });
+
   const sparks = Array.from({ length: 5 }, () => {
     const p = document.createElementNS(SVGNS, "path");
     p.setAttribute("d", SPARKLE_PATH);
@@ -423,73 +380,6 @@ export function createStellaMark(host, opts = {}) {
   bodyG.appendChild(eyeG);
   zoomG.appendChild(bodyG);
 
-  const spinInkGrad = document.createElementNS(SVGNS, "linearGradient");
-  spinInkGrad.id = `${id}-tink`;
-  spinInkGrad.setAttribute("x1", "0"); spinInkGrad.setAttribute("y1", "0");
-  spinInkGrad.setAttribute("x2", "0"); spinInkGrad.setAttribute("y2", "1");
-  for (let i = 0; i < SPIN_INK.length; i++) {
-    const st = document.createElementNS(SVGNS, "stop");
-    st.setAttribute("offset", (i / (SPIN_INK.length - 1)).toFixed(3));
-    st.setAttribute("stop-color", SPIN_INK[i]);
-    spinInkGrad.appendChild(st);
-  }
-  defs.appendChild(spinInkGrad);
-
-  const spinSheenGrad = document.createElementNS(SVGNS, "linearGradient");
-  spinSheenGrad.id = `${id}-tspin`;
-  spinSheenGrad.setAttribute("x1", "0"); spinSheenGrad.setAttribute("y1", "0");
-  spinSheenGrad.setAttribute("x2", "1"); spinSheenGrad.setAttribute("y2", "0");
-  spinSheenGrad.setAttribute("spreadMethod", "repeat");
-  for (const [color, op, off] of SPIN_SHEEN) {
-    const st = document.createElementNS(SVGNS, "stop");
-    st.setAttribute("offset", off);
-    st.setAttribute("stop-color", color);
-    st.setAttribute("stop-opacity", op);
-    spinSheenGrad.appendChild(st);
-  }
-  defs.appendChild(spinSheenGrad);
-
-  const spinInk = `url(#${id}-tink)`;
-
-  const spinnerRoot = document.createElementNS(SVGNS, "g");
-  spinnerRoot.setAttribute("transform", `translate(${-BLEED} ${-BLEED}) scale(${SPIN_SCALE.toFixed(6)})`);
-  spinnerRoot.style.display = "none";
-  const spinZoomG = document.createElementNS(SVGNS, "g");
-  spinnerRoot.appendChild(spinZoomG);
-  const spinDotBackG = document.createElementNS(SVGNS, "g");
-  spinZoomG.appendChild(spinDotBackG);
-  const spinTravelG = document.createElementNS(SVGNS, "g");
-  const spinLeanG = document.createElementNS(SVGNS, "g");
-  const spinLens = document.createElementNS(SVGNS, "ellipse");
-  spinLens.setAttribute("fill", spinInk);
-  spinLeanG.appendChild(spinLens);
-  const spinCore = document.createElementNS(SVGNS, "path");
-  spinCore.setAttribute("d", SPIN_DIAMOND_PATH);
-  spinCore.setAttribute("fill", spinInk);
-  spinLeanG.appendChild(spinCore);
-  const spinLight = document.createElementNS(SVGNS, "path");
-  spinLight.setAttribute("d", SPIN_DIAMOND_PATH);
-  spinLight.setAttribute("fill", `url(#${id}-tspin)`);
-  spinLeanG.appendChild(spinLight);
-  spinTravelG.appendChild(spinLeanG);
-  spinZoomG.appendChild(spinTravelG);
-  const spinDotFrontG = document.createElementNS(SVGNS, "g");
-  spinZoomG.appendChild(spinDotFrontG);
-  const spinDots = [0, 1, 2].map(() => {
-    const c = document.createElementNS(SVGNS, "circle");
-    c.setAttribute("fill", spinInk);
-    spinDotFrontG.appendChild(c);
-    return c;
-  });
-  zoomG.appendChild(spinnerRoot);
-
-  const spinDotState = [0, 1, 2].map(() => ({
-    mode: "orbit", armedAt: 0, x: 0, y: 0, vx: 0, vy: 0,
-    px: null, py: null, pickAt: 0, fx: 0, fy: 0,
-  }));
-  const spinPhase = Math.random() * SPIN_TRAVEL_MS;
-  let spinLastU = null, spinShown = false, spinLastZoom = "";
-
   const burstG = document.createElementNS(SVGNS, "g");
   zoomG.appendChild(burstG);
 
@@ -525,7 +415,7 @@ export function createStellaMark(host, opts = {}) {
   // Last written value of every attribute the frame touches. A write census
   // over the working state found several of these carrying one value for the
   // whole run, so each write is skipped when nothing changed.
-  let lastPath = "";
+  let lastPath = "", lastZoom = "";
   const lastEyePath = ["", ""];
   let decorHidden = false;
   let sweepShown = false, eyesHidden = false;
@@ -744,7 +634,7 @@ export function createStellaMark(host, opts = {}) {
     } else { gazeX.t = 0; gazeY.t = 0; }
 
     const act = clamp(env.x, 0, 1);
-    const wSpinner = weightOf("spinner");
+    const wDots = weightOf("dots");
     const wTwinkle = weightOf("twinkle");
     const wOrbit = weightOf("orbit");
     const wRadar = weightOf("radar");
@@ -759,7 +649,13 @@ export function createStellaMark(host, opts = {}) {
       faceWarp = squeezeWarp(band, wSqueeze, SQ_FACE_GIVE);
     }
 
-    const layoutRing = buildRing(t, wTwinkle);
+    // Thinking inflates the silhouette all the way to the orb, so the character
+    // reads as the ellipsis' middle dot rather than as a shrunken star.
+    const ring = buildRing(t, wTwinkle);
+    const morph = clamp(wDots / MORPH_END, 0, 1);
+    const layoutRing = morph <= 0 ? ring
+      : morph >= 1 ? ORB_RING
+      : lerpRing(ring, ORB_RING, easeInOutCubic(morph));
     let finalRing = layoutRing;
     if (warp) {
       for (let i = 0; i < N; i++) {
@@ -789,30 +685,21 @@ export function createStellaMark(host, opts = {}) {
       sweepShown = false;
     }
 
-    const spin = updateSpinner(wSpinner, t, dt);
-
+    // The character holds the ellipsis' middle slot, so it rides slot 1 of the
+    // same wave the side dots do.
+    const w1 = wave(t, 1, act, activityStart);
     const bodyR = activity
       ? (BODY_R[activity] ?? C) * clamp(fade.x, 0, 1) +
         (prevActivity ? BODY_R[prevActivity] ?? C : BODY_R[activity] ?? C) * (1 - clamp(fade.x, 0, 1))
       : C;
+    const pop = 1 + (w1.pop - 1) * (wDots / Math.max(act, 0.001));
     const rest = 1 - act;
-    let scale = rest * breathe.x + (bodyR / C) * act;
+    let scale = rest * breathe.x + (bodyR / C) * act * pop;
     let scaleX = scale, scaleY = scale;
     let tx = C + bobX.x * rest;
-    let ty = C + bobY.x * rest;
+    let ty = C + bobY.x * rest - w1.lift * wDots;
     let rot = 0;
-    let bodyAlpha = 1;
-    let shrink = 1;
-
-    if (spin) {
-
-      const grow = easeOutBack(clamp(1 - wSpinner, 0, 1));
-      shrink = SPIN_BLOB_MIN + (1 - SPIN_BLOB_MIN) * grow;
-      scaleX *= shrink; scaleY *= shrink;
-      tx += (spin.x - C) * wSpinner;
-      ty += (spin.y - C) * wSpinner;
-      bodyAlpha *= clamp((0.75 - wSpinner) / 0.5, 0, 1);
-    }
+    let bodyAlpha = 1 - (1 - w1.tone) * wDots;
 
     if (wSqueeze > 0.004) {
 
@@ -838,14 +725,14 @@ export function createStellaMark(host, opts = {}) {
     }
 
     if (glowEl) {
-      const gl = (rest * breathe.x + act * (bodyR / C)) * shrink * (1 + 0.05 * Math.sin(t * 0.0011));
+      const gl = (rest * breathe.x + act * (bodyR / C)) * (1 + 0.05 * Math.sin(t * 0.0011));
       const glowTransform =
         `translate(${tx.toFixed(2)} ${ty.toFixed(2)}) scale(${gl.toFixed(4)}) translate(${-C} ${-C})`;
       if (glowTransform !== lastGlowTransform) {
         glowEl.setAttribute("transform", glowTransform);
         lastGlowTransform = glowTransform;
       }
-      const glowAlphaQ = Math.round((0.55 + 0.45 * wTwinkle) * (1 - wSpinner) * 1000) / 1000;
+      const glowAlphaQ = Math.round((0.55 + 0.45 * wTwinkle) * 1000) / 1000;
       if (glowAlphaQ !== lastGlowAlpha) {
         glowEl.style.opacity = glowAlphaQ.toFixed(3);
         lastGlowAlpha = glowAlphaQ;
@@ -854,7 +741,7 @@ export function createStellaMark(host, opts = {}) {
 
     const face = shape.face;
     const [fSize, fGap, fHeight] = FACE_TUNE[state] ?? FACE_DEFAULT;
-    const hideEyes = wSpinner > 0.5;
+    const hideEyes = wDots > 0.5;
     if (hideEyes !== eyesHidden) {
       eyeG.style.display = hideEyes ? "none" : "";
       eyesHidden = hideEyes;
@@ -897,18 +784,27 @@ export function createStellaMark(host, opts = {}) {
 
     // The decorations are hidden and then selectively redrawn, so the blanket
     // hide only has to run while something is (or just was) drawing them.
-    const decorActive = wOrbit > 0.004 || wRadar > 0.004 || wProgress > 0.004;
+    const decorActive =
+      wDots > 0.004 || wOrbit > 0.004 || wRadar > 0.004 || wProgress > 0.004;
     if (decorActive || !decorHidden) {
       for (const s of sparks) s.style.display = "none";
       for (const r of rings) r.style.display = "none";
+      for (const p of dots) p.style.display = "none";
       decorHidden = !decorActive;
     }
 
+    if (wDots > 0.004) drawDots(wDots, t);
     if (wOrbit > 0.004) drawOrbit(wOrbit, t);
     if (wRadar > 0.004) drawRadar(wRadar, t, (bodyR / C) * C);
     if (wProgress > 0.004) drawProgress(wProgress, t);
 
     stepParticles(dt);
+
+    const small = 1 - smoothstep(clamp((boxW - ZOOM_SMALL_PX) / (ZOOM_LARGE_PX - ZOOM_SMALL_PX), 0, 1));
+    const z = 1 + (DOTS_ZOOM - 1) * wDots * small;
+    const zt = z === 1 ? "" :
+      `translate(${VIEW_CENTER} ${VIEW_CENTER}) scale(${z.toFixed(4)}) translate(${-VIEW_CENTER} ${-VIEW_CENTER})`;
+    if (zt !== lastZoom) { zoomG.setAttribute("transform", zt); lastZoom = zt; }
 
     const settled = !particles.length &&
       Math.abs(env.x - env.t) < 0.001 && Math.abs(env.v) < 0.001 &&
@@ -921,173 +817,25 @@ export function createStellaMark(host, opts = {}) {
     raf = requestAnimationFrame(frame);
   }
 
-  /** Spinner cell coordinates back into the rig's viewBox, so the character
-   *  can grow out of wherever the top happens to be at handoff. */
-  const spinToRig = (x, y, zoom) => [
-    -BLEED + (SPIN_CX + (x - SPIN_CX) * zoom) * SPIN_SCALE,
-    -BLEED + (SPIN_ZOOM_Y + (y - SPIN_ZOOM_Y) * zoom) * SPIN_SCALE,
-  ];
-
-  function updateSpinner(w, t, dt) {
-    if (w <= 0.004) {
-      if (spinShown) {
-        spinnerRoot.style.display = "none";
-        spinShown = false;
-        spinLastU = null;
-        for (const st of spinDotState) { st.mode = "orbit"; st.px = null; st.py = null; }
-      }
-      return null;
+  /**
+   * The two side dots. Each appears on its own staggered slice of the dots
+   * ramp, springing outward with an ease-out-back so the ellipsis lays itself
+   * down left-to-right instead of arriving all at once.
+   */
+  function drawDots(w, t) {
+    const xs = [C - DOT_X, C + DOT_X];
+    for (let i = 0; i < 2; i++) {
+      const k = clamp((w - i * DOT_STAGGER) / (1 - i * DOT_STAGGER), 0, 1);
+      if (k <= 0.004) continue;
+      const app = easeOutCubic(k), spread = easeOutBack(k);
+      const wv = wave(t, i === 0 ? 0 : 2, w, activityStart);
+      const s = (DOT_R * app * wv.pop * DOT_FUDGE) / C;
+      const x = C + (xs[i] - C) * spread, y = C - wv.lift;
+      dots[i].style.display = "";
+      dots[i].setAttribute("transform",
+        `translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${s.toFixed(4)}) translate(${-C} ${-C})`);
+      dots[i].setAttribute("opacity", (app * wv.tone).toFixed(3));
     }
-    if (!spinShown) { spinnerRoot.style.display = ""; spinShown = true; }
-
-    const still = reduced;
-    const small = 1 - smoothstep(clamp((boxW - ZOOM_SMALL_PX) / (ZOOM_LARGE_PX - ZOOM_SMALL_PX), 0, 1));
-    const zoom = 1 + (SPINNER_ZOOM - 1) * small;
-    const zt = `translate(${SPIN_CX} ${SPIN_ZOOM_Y}) scale(${zoom.toFixed(4)}) translate(${-SPIN_CX} ${-SPIN_ZOOM_Y})`;
-    if (zt !== spinLastZoom) { spinZoomG.setAttribute("transform", zt); spinLastZoom = zt; }
-
-    const tt = t + spinPhase;
-
-    const u = (TAU * tt) / SPIN_TRAVEL_MS;
-    const ampX = still ? 0 : ((SPIN_HALF_TRAVEL_FRAC * SPIN_CELL) / zoom) * SPIN_TRAVEL;
-    const ampY = ampX * 0.14;
-    const trX = -ampX * Math.sin(u) * w;
-    const depth = -ampY * Math.sin(2 * u) * w;
-    const hop = (still ? 0 : Math.max(0, SPIN_BOB * Math.sin((TAU * tt) / SPIN_NUT_MS + 1.3))) * w;
-    const trY = depth - hop;
-    const vx = -Math.cos(u);
-
-    const bank = still ? 0 : SPIN_BANK * vx * SPIN_TRAVEL;
-    const theta = still ? 0 : (SPIN_TILT + SPIN_NUT_AMP * Math.sin((TAU * tt) / SPIN_NUT_MS)) * (Math.PI / 180);
-    const phi = (TAU * tt) / SPIN_PRECESS_MS;
-    const sinT = Math.sin(theta), cosT = Math.cos(theta);
-    const precessLean = Math.atan2(sinT * Math.sin(phi), cosT) * (180 / Math.PI);
-    const lean = (bank + precessLean) * w;
-    const axisLen = Math.hypot(sinT * Math.sin(phi), cosT);
-    const facing = sinT * Math.cos(phi);
-
-    const leanRad = lean * (Math.PI / 180);
-    const bodySy = 1 - (1 - axisLen) * w;
-    const bodyD = (SPIN_MID_Y * 0.92 - SPIN_TIP_Y) * bodySy;
-    const bodyX = SPIN_CX + trX - Math.sin(leanRad) * bodyD;
-    const bodyY = SPIN_TIP_Y + trY + Math.cos(leanRad) * bodyD;
-
-    const orbitRx = SPIN_HALF_H * SPIN_ASPECT * 1.75, orbitRy = SPIN_HALF_H * 0.34;
-    const leanCos = Math.cos(leanRad), leanSin = Math.sin(leanRad);
-    const orbitAngleOf = (i) => (TAU * tt) / SPIN_ORBIT_MS + (i * TAU) / 3;
-    const orbitPos = (i) => {
-      const a = orbitAngleOf(i);
-      const ox = orbitRx * Math.sin(a), oy = -orbitRy * Math.cos(a);
-      return [bodyX + ox * leanCos - oy * leanSin, bodyY + ox * leanSin + oy * leanCos];
-    };
-
-    const dotsOn = !still && w > 0.5;
-    const dtSec = Math.min(dt, 0.05);
-    // Dots change mode only on the frame the top sweeps past their station,
-    // and only in the sweep direction — so the drop reads as the top leaving
-    // the dot behind. Even laps drop, odd laps collect.
-    if (dotsOn) {
-      const lap = ((Math.floor(u / TAU) % 2) + 2) % 2;
-      const wrapU = ((u % TAU) + TAU) % TAU;
-      const prevU = spinLastU;
-      const crossed = (a) => {
-        if (prevU === null) return false;
-        const d = wrapU - prevU;
-        return d >= 0 && d < Math.PI && prevU < a && wrapU >= a;
-      };
-      for (let i = 0; i < 3; i++) {
-        const st = spinDotState[i];
-        if (!crossed(SPIN_DOT_STATIONS[i])) continue;
-        if (lap === 0 && st.mode === "orbit") {
-          st.mode = "armedDrop"; st.armedAt = t;
-        } else if (lap === 1 && st.mode === "parked") {
-          st.mode = "toOrbit"; st.vx = 0; st.vy = 0;
-          st.pickAt = t; st.fx = st.x; st.fy = st.y;
-        }
-      }
-      spinLastU = wrapU;
-    }
-
-    for (let i = 0; i < 3; i++) {
-      const dot = spinDots[i];
-      const st = spinDotState[i];
-      if (!dotsOn) {
-        st.mode = "orbit"; st.px = null; st.py = null;
-        dot.style.display = "none";
-        continue;
-      }
-      const stationX = SPIN_CX - Math.sin(SPIN_DOT_STATIONS[i]) * ampX;
-      let front = true, park = 0;
-      if (st.mode === "orbit" || st.mode === "armedDrop") {
-        const [ox, oy] = orbitPos(i);
-        front = Math.cos(orbitAngleOf(i)) >= 0;
-        const vx0 = st.px === null ? 0 : (ox - st.px) / Math.max(dtSec, 1e-3);
-        const vy0 = st.py === null ? 0 : (oy - st.py) / Math.max(dtSec, 1e-3);
-        st.px = ox; st.py = oy;
-        st.x = ox; st.y = oy;
-        if (st.mode === "armedDrop") {
-          const dx = stationX - ox, dy = SPIN_PARK_Y - oy;
-          const dist = Math.hypot(dx, dy) || 1;
-          const speed = Math.hypot(vx0, vy0) || 1;
-          const aligned = (vx0 * dx + vy0 * dy) / (dist * speed);
-          if (aligned > 0.55 || t - st.armedAt > SPIN_DROP_ARM_MS) {
-            st.mode = "toPark";
-            const kv = Math.min(1, SPIN_DROP_SPEED_CAP / speed);
-            st.vx = vx0 * kv; st.vy = vy0 * kv;
-          }
-        }
-      } else if (st.mode === "toPark") {
-        stepDotSpring(st, stationX, SPIN_PARK_Y, SPIN_DROP_W, SPIN_DROP_Z, dtSec);
-        if (Math.hypot(st.x - stationX, st.y - SPIN_PARK_Y) < 0.5 &&
-            Math.hypot(st.vx, st.vy) < 6) {
-          st.mode = "parked"; st.x = stationX; st.y = SPIN_PARK_Y;
-        }
-        park = 1;
-      } else if (st.mode === "parked") {
-        st.x = stationX; st.y = SPIN_PARK_Y;
-        park = 1;
-      } else if (st.mode === "toOrbit") {
-        const [ox, oy] = orbitPos(i);
-        const p = clamp((t - st.pickAt) / SPIN_PICK_MS, 0, 1);
-        const e = easeInOutCubic(p);
-        st.x = st.fx + (ox - st.fx) * e;
-        st.y = st.fy + (oy - st.fy) * e;
-        front = true;
-        if (p >= 1) { st.mode = "orbit"; st.px = null; st.py = null; }
-      }
-      const wantParent = front || park ? spinDotFrontG : spinDotBackG;
-      if (dot.parentNode !== wantParent) wantParent.appendChild(dot);
-      const dep = front || park ? 1 : 0.72;
-      dot.style.display = "";
-      dot.setAttribute("cx", st.x.toFixed(1));
-      dot.setAttribute("cy", st.y.toFixed(1));
-      dot.setAttribute("r", (SPIN_DOT_R * (park ? 1.12 : dep)).toFixed(2));
-      dot.setAttribute("opacity", ((park ? 0.9 : 0.85 * dep) * w).toFixed(3));
-    }
-
-    spinTravelG.setAttribute("transform", `translate(${trX.toFixed(2)} ${trY.toFixed(2)})`);
-    spinLeanG.setAttribute("transform",
-      `translate(${SPIN_CX} ${SPIN_TIP_Y}) rotate(${lean.toFixed(2)}) ` +
-      `scale(1 ${bodySy.toFixed(4)}) translate(${-SPIN_CX} ${-SPIN_TIP_Y})`);
-
-    const sheenPhase = still ? 0 : (((tt / SPIN_SHEEN_MS) % 1) + 1) % 1;
-    spinSheenGrad.setAttribute("gradientTransform", `translate(${(-sheenPhase).toFixed(4)} 0)`);
-
-    spinLeanG.style.opacity = clamp(1 - (1 - w) / 0.45, 0, 1).toFixed(3);
-
-    const halfW = SPIN_HALF_H * SPIN_ASPECT;
-    if (!still) {
-      const open = Math.abs(facing);
-      spinLens.style.display = "";
-      spinLens.setAttribute("cx", SPIN_CX);
-      spinLens.setAttribute("cy", SPIN_MID_Y);
-      spinLens.setAttribute("rx", (halfW * (1.32 + 0.2 * open)).toFixed(2));
-      spinLens.setAttribute("ry", (halfW * (0.16 + 0.55 * open)).toFixed(2));
-      spinLens.setAttribute("opacity", (0.16 + 0.1 * open).toFixed(3));
-    } else spinLens.style.display = "none";
-
-    const [rx, ry] = spinToRig(bodyX, bodyY, zoom);
-    return { x: rx, y: ry };
   }
 
   function drawOrbit(w, t) {

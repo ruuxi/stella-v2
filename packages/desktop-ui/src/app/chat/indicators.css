@@ -249,13 +249,6 @@
   justify-content: center;
 }
 
-/* Thinking runs the top spinner, which travels a figure-eight well outside the
-   mark's own 30px. Widening the slot keeps that travel inside the bubble rather
-   than letting it run past the bubble's left edge. */
-.working-indicator[data-mode="thinking"] .indicator-stella {
-  width: 64px;
-}
-
 .indicator-stella > svg {
   display: block;
   overflow: visible;

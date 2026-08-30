@@ -1579,15 +1579,8 @@
         "unreadAriaLabel": "{label}, {count} okunmamış"
       },
       "feedback": {
-        "title": {
-          "manual": "Geri bildirim gönder",
-          "auto": "Stella nasıl gidiyor?"
-        },
-        "description": {
-          "manual": "Mesajınız anonim olarak gönderilir — hesabınızla ilişkilendirilmez.",
-          "auto": "Bilmemiz gereken bir şey var mı? Anonim gönderilir — hesabınızla ilişkilendirilmez."
-        },
-        "notNow": "Şimdi değil",
+        "title": "Geri bildirim gönder",
+        "description": "Mesajınız anonim olarak gönderilir — hesabınızla ilişkilendirilmez.",
         "fieldLabel": "Geri bildirim",
         "placeholder": "Neyin işe yaradığını, neyin yaramadığını veya ne görmek istediğinizi anlatın…",
         "send": "Gönder",

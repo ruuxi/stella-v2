@@ -26,9 +26,6 @@ const MOBILE_BRIDGE_LOCAL_STORAGE_KEYS = new Set([
     "stella-developer-resource-previews",
     "stella:orb-position",
     "stella:orb-last-seen-message",
-    "stella:feedback:bucketDay",
-    "stella:feedback:activeMs",
-    "stella:feedback:lastPromptAt",
 ]);
 const MOBILE_BRIDGE_LOCAL_STORAGE_PREFIXES = [
     "stella.home.ideasSeen.v2.",

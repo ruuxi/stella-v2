@@ -1579,15 +1579,8 @@
         "unreadAriaLabel": "{label}, {count} ungelesen"
       },
       "feedback": {
-        "title": {
-          "manual": "Feedback senden",
-          "auto": "Wie läuft's mit Stella?"
-        },
-        "description": {
-          "manual": "Deine Nachricht wird anonym gesendet — sie ist nicht mit deinem Konto verknüpft.",
-          "auto": "Sollten wir etwas wissen? Wird anonym gesendet — nicht mit deinem Konto verknüpft."
-        },
-        "notNow": "Jetzt nicht",
+        "title": "Feedback senden",
+        "description": "Deine Nachricht wird anonym gesendet — sie ist nicht mit deinem Konto verknüpft.",
         "fieldLabel": "Feedback",
         "placeholder": "Sag uns, was funktioniert, was nicht, oder was du dir wünschst…",
         "send": "Senden",

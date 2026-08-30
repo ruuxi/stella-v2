@@ -1595,15 +1595,8 @@
         "unreadAriaLabel": "{label}, {count} sin leer"
       },
       "feedback": {
-        "title": {
-          "manual": "Enviar comentarios",
-          "auto": "¿Qué tal va Stella?"
-        },
-        "description": {
-          "manual": "Tu mensaje se envía de forma anónima: no se vincula a tu cuenta.",
-          "auto": "¿Algo que deberíamos saber? Se envía de forma anónima, sin vincularse a tu cuenta."
-        },
-        "notNow": "Ahora no",
+        "title": "Enviar comentarios",
+        "description": "Tu mensaje se envía de forma anónima: no se vincula a tu cuenta.",
         "fieldLabel": "Comentarios",
         "placeholder": "Cuéntanos qué funciona, qué no, o qué te encantaría ver…",
         "send": "Enviar",

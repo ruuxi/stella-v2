@@ -1579,15 +1579,8 @@
         "unreadAriaLabel": "{label}, {count} olästa"
       },
       "feedback": {
-        "title": {
-          "manual": "Skicka feedback",
-          "auto": "Hur går det med Stella?"
-        },
-        "description": {
-          "manual": "Ditt meddelande skickas anonymt — det kopplas inte till ditt konto.",
-          "auto": "Något vi bör veta? Skickas anonymt — kopplas inte till ditt konto."
-        },
-        "notNow": "Inte nu",
+        "title": "Skicka feedback",
+        "description": "Ditt meddelande skickas anonymt — det kopplas inte till ditt konto.",
         "fieldLabel": "Feedback",
         "placeholder": "Berätta vad som fungerar, vad som inte gör det, eller vad du skulle vilja se…",
         "send": "Skicka",

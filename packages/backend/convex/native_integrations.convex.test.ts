@@ -31,6 +31,7 @@ const asOwner = (t: ReturnType<typeof createTest>) =>
 const inputSchema = {
   type: "object",
   properties: {
+    trace_: { type: "string" },
     payload: {
       type: "object",
       properties: {
@@ -42,6 +43,16 @@ const inputSchema = {
     },
   },
   required: ["payload"],
+  additionalProperties: false,
+};
+
+const staleGoogleAdsMutationSchema = {
+  type: "object",
+  properties: {
+    customer_id: { type: "string" },
+    operations: { type: "array", items: { type: "object" } },
+  },
+  required: ["operations"],
   additionalProperties: false,
 };
 
@@ -76,11 +87,40 @@ const publishOutlook = async (t: ReturnType<typeof createTest>) =>
     usagePolicy: "ready",
   });
 
-const storeSession = async (t: ReturnType<typeof createTest>) =>
+const publishGoogleAds = async (t: ReturnType<typeof createTest>) =>
+  await t.mutation(internal.data.integrations.upsertPublicIntegration, {
+    id: "googleads",
+    name: "Google Ads",
+    provider: "composio",
+    category: "advertising",
+    auth: ["OAUTH2"],
+    catalogToolCount: 2,
+    actions: [
+      {
+        name: "GOOGLEADS_MUTATE_CAMPAIGNS",
+        title: "Mutate campaigns",
+        inputSchemaJson: JSON.stringify(staleGoogleAdsMutationSchema),
+      },
+      {
+        name: "GOOGLEADS_MUTATE_AD_GROUPS",
+        title: "Mutate ad groups",
+        inputSchemaJson: JSON.stringify(staleGoogleAdsMutationSchema),
+      },
+    ],
+    description: "Connect Google Ads to Stella.",
+    connector: { type: "composio", toolkit: "googleads", provider: "composio" },
+    enabled: true,
+    usagePolicy: "ready",
+  });
+
+const storeSession = async (
+  t: ReturnType<typeof createTest>,
+  provider = "outlook",
+) =>
   await t.mutation(internal.data.integrations.upsertUserIntegrationForOwner, {
     ownerId,
     ownerGeneration: "legacy",
-    provider: "outlook",
+    provider,
     mode: "composio",
     externalId: "session_existing",
     config: {},
@@ -90,14 +130,36 @@ const runRequest = (
   action: string,
   input: Record<string, unknown>,
   requestId = "native-run-request-0001",
+  id = "outlook",
 ) => ({
   method: "POST",
   headers: {
     "content-type": "application/json",
     "x-stella-request-id": requestId,
   },
-  body: JSON.stringify({ id: "outlook", action, input }),
+  body: JSON.stringify({ id, action, input }),
 });
+
+const connectedToolkitResponse = (toolkit: string) =>
+  new Response(
+    JSON.stringify({
+      items: [{ toolkit: { slug: toolkit }, is_connected: true }],
+    }),
+    { status: 200 },
+  );
+
+const decodeProxyBody = (body: unknown) => {
+  const envelope = JSON.parse(String(body)) as {
+    binary_body: { base64: string };
+  };
+  return JSON.parse(
+    new TextDecoder().decode(
+      Uint8Array.from(atob(envelope.binary_body.base64), (character) =>
+        character.charCodeAt(0),
+      ),
+    ),
+  ) as Record<string, unknown>;
+};
 
 beforeEach(() => {
   process.env.COMPOSIO_API_KEY = "test-composio-key";
@@ -168,6 +230,53 @@ describe("Composio integration catalog and execution", () => {
     expect(retained.status).toBe(200);
     expect(await retained.json()).toMatchObject({
       actions: [{ name: "OUTLOOK_QUERY_EMAILS", inputSchema }],
+    });
+  });
+
+  it("repairs published Google Ads mutation schemas with official top-level options", async () => {
+    const t = createTest();
+    const response = await t.fetch("/api/admin/native-integrations/upsert", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-admin-secret",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        id: "googleads",
+        name: "Google Ads",
+        provider: "composio",
+        category: "advertising",
+        auth: ["OAUTH2"],
+        catalogToolCount: 1,
+        actions: [
+          {
+            name: "GOOGLEADS_MUTATE_CAMPAIGNS",
+            title: "Mutate campaigns",
+            inputSchema: staleGoogleAdsMutationSchema,
+          },
+        ],
+        description: "Connect Google Ads to Stella.",
+        connector: { type: "composio", toolkit: "googleads" },
+        enabled: true,
+        usagePolicy: "ready",
+      }),
+    });
+    expect(response.status).toBe(200);
+
+    const actionResponse = await asOwner(t).fetch(
+      "/api/native-integrations/actions?id=googleads&action=GOOGLEADS_MUTATE_CAMPAIGNS",
+    );
+    expect(actionResponse.status).toBe(200);
+    const payload = (await actionResponse.json()) as {
+      actions: Array<{ inputSchema: Record<string, unknown> }>;
+    };
+    expect(payload.actions[0]?.inputSchema).toMatchObject({
+      required: ["operations"],
+      properties: {
+        validate_only: { type: "boolean" },
+        partial_failure: { type: "boolean" },
+        response_content_type: { type: "string" },
+      },
     });
   });
 
@@ -557,6 +666,165 @@ describe("Composio integration catalog and execution", () => {
     expect(JSON.stringify(consoleMock.mock.calls)).not.toContain(secret);
   });
 
+  it("sends campaign validate-only mutations as exact official Google Ads JSON", async () => {
+    const t = createTest();
+    await publishGoogleAds(t);
+    await storeSession(t, "googleads");
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(connectedToolkitResponse("googleads"))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ status: 200, data: { results: [] }, headers: {} }),
+          { status: 200 },
+        ),
+      );
+
+    const response = await asOwner(t).fetch(
+      "/api/native-integrations/run",
+      runRequest(
+        "GOOGLEADS_MUTATE_CAMPAIGNS",
+        {
+          customer_id: "439-929-3264",
+          operations: [
+            {
+              create: {
+                name: "Stella validation only",
+                campaign_budget: "customers/4399293264/campaignBudgets/1",
+                advertising_channel_type: "SEARCH",
+                manual_cpc: {},
+                network_settings: {
+                  target_google_search: true,
+                  target_search_network: false,
+                },
+              },
+            },
+          ],
+          validate_only: true,
+          partial_failure: false,
+          response_content_type: "MUTABLE_RESOURCE",
+        },
+        "native-run-request-googleads-0001",
+        "googleads",
+      ),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      successful: true,
+      data: { results: [] },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
+      "/session/session_existing/proxy_execute",
+    );
+    const proxyEnvelope = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    ) as Record<string, unknown>;
+    expect(proxyEnvelope).toMatchObject({
+      toolkit_slug: "googleads",
+      endpoint:
+        "https://googleads.googleapis.com/v23/customers/4399293264/campaigns:mutate",
+      method: "POST",
+      binary_body: { content_type: "application/json" },
+    });
+    expect(decodeProxyBody(fetchMock.mock.calls[1]?.[1]?.body)).toEqual({
+      operations: [
+        {
+          create: {
+            name: "Stella validation only",
+            campaignBudget: "customers/4399293264/campaignBudgets/1",
+            advertisingChannelType: "SEARCH",
+            manualCpc: {},
+            networkSettings: {
+              targetGoogleSearch: true,
+              targetSearchNetwork: false,
+            },
+          },
+        },
+      ],
+      validateOnly: true,
+      partialFailure: false,
+      responseContentType: "MUTABLE_RESOURCE",
+    });
+  });
+
+  it("restores reserved Google Ads names through nested repeated operations", async () => {
+    const t = createTest();
+    await publishGoogleAds(t);
+    await storeSession(t, "googleads");
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(connectedToolkitResponse("googleads"))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 200, data: { results: [] } }), {
+          status: 200,
+        }),
+      );
+
+    const response = await asOwner(t).fetch(
+      "/api/native-integrations/run",
+      runRequest(
+        "GOOGLEADS_MUTATE_AD_GROUPS",
+        {
+          customer_id: "4399293264",
+          operations: [
+            {
+              create: {
+                campaign: "customers/4399293264/campaigns/1",
+                name: "First",
+                type: "SEARCH_STANDARD",
+                targeting_setting: {
+                  target_restrictions: [
+                    { targeting_dimension: "AUDIENCE", bid_only: false },
+                  ],
+                },
+              },
+            },
+            {
+              create: {
+                campaign: "customers/4399293264/campaigns/1",
+                name: "Second",
+                type_: "SEARCH_STANDARD",
+              },
+            },
+          ],
+          validate_only: true,
+          partial_failure: false,
+        },
+        "native-run-request-googleads-0001",
+        "googleads",
+      ),
+    );
+    expect(response.status).toBe(200);
+    const providerBody = decodeProxyBody(fetchMock.mock.calls[1]?.[1]?.body);
+    expect(providerBody).toEqual({
+      operations: [
+        {
+          create: {
+            campaign: "customers/4399293264/campaigns/1",
+            name: "First",
+            type: "SEARCH_STANDARD",
+            targetingSetting: {
+              targetRestrictions: [
+                { targetingDimension: "AUDIENCE", bidOnly: false },
+              ],
+            },
+          },
+        },
+        {
+          create: {
+            campaign: "customers/4399293264/campaigns/1",
+            name: "Second",
+            type: "SEARCH_STANDARD",
+          },
+        },
+      ],
+      validateOnly: true,
+      partialFailure: false,
+    });
+    expect(JSON.stringify(providerBody)).not.toContain('"type_"');
+  });
+
   it("rejects oversized Composio responses without executing an action", async () => {
     const t = createTest();
     await publishOutlook(t);
@@ -599,7 +867,10 @@ describe("Composio integration catalog and execution", () => {
         }),
       );
 
-    const input = { payload: { tags: ["work"], status: "draft" } };
+    const input = {
+      trace_: "preserve-exactly",
+      payload: { tags: ["work"], status: "draft" },
+    };
     const response = await asOwner(t).fetch(
       "/api/native-integrations/run",
       runRequest("OUTLOOK_QUERY_EMAILS", input),

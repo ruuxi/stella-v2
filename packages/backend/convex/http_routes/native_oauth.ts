@@ -22,6 +22,11 @@ import {
   MAX_PUBLISHED_INTEGRATION_ACTIONS,
 } from "../lib/native_integration_limits";
 import { composioUserIdForOwner } from "../lib/composio_identity";
+import {
+  buildGoogleAdsMutationProxyRequest,
+  effectiveGoogleAdsActionSchema,
+  normalizeGoogleAdsProxyResponse,
+} from "../lib/google_ads_mutations";
 
 type StoreIntegrationRecord = {
   id?: unknown;
@@ -332,6 +337,7 @@ const optionalTrimmedString = (value: unknown, maxLength: number) => {
 
 export const normalizePublishedIntegrationActions = (
   value: unknown,
+  toolkit = "",
 ):
   | { ok: true; actions: PublishedIntegrationAction[] }
   | { ok: false; error: string } => {
@@ -442,7 +448,9 @@ export const normalizePublishedIntegrationActions = (
         source: "stella_admin",
       };
     }
-    const inputSchemaJson = JSON.stringify(raw.inputSchema);
+    const inputSchemaJson = JSON.stringify(
+      effectiveGoogleAdsActionSchema(toolkit, name, raw.inputSchema),
+    );
     if (
       new TextEncoder().encode(inputSchemaJson).byteLength >
       MAX_INTEGRATION_ACTION_SCHEMA_BYTES
@@ -1161,8 +1169,12 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
       if (!isJsonObject(body)) {
         return jsonResponse({ error: "Invalid integration payload." }, 400);
       }
+      const publishedToolkit = isJsonObject(body.connector)
+        ? readString(body.connector.toolkit)
+        : null;
       const normalizedActions = normalizePublishedIntegrationActions(
         body.actions,
+        (publishedToolkit ?? readString(body.id) ?? "").toLowerCase(),
       );
       if (!normalizedActions.ok) {
         return jsonResponse({ error: normalizedActions.error }, 400);
@@ -1275,9 +1287,16 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
                 origin,
               );
             }
-            const inputSchema = JSON.parse(
+            const storedInputSchema = JSON.parse(
               resolved.action.inputSchemaJson,
             ) as unknown;
+            const inputSchema = isJsonObject(storedInputSchema)
+              ? effectiveGoogleAdsActionSchema(
+                  id,
+                  resolved.action.name,
+                  storedInputSchema,
+                )
+              : storedInputSchema;
             if (!isJsonObject(inputSchema)) throw new Error("invalid schema");
             return jsonResponse(
               {
@@ -1357,7 +1376,16 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
               inputSchemaJson: string;
               updatedAt: number;
             }) => {
-              const inputSchema = JSON.parse(action.inputSchemaJson) as unknown;
+              const storedInputSchema = JSON.parse(
+                action.inputSchemaJson,
+              ) as unknown;
+              const inputSchema = isJsonObject(storedInputSchema)
+                ? effectiveGoogleAdsActionSchema(
+                    id,
+                    action.name,
+                    storedInputSchema,
+                  )
+                : storedInputSchema;
               if (!isJsonObject(inputSchema)) throw new Error("invalid schema");
               return {
                 name: action.name,
@@ -1589,11 +1617,21 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         }
         let inputValidation: "valid" | "invalid" | "invalid_schema";
         try {
+          const storedInputSchema = JSON.parse(
+            resolved.action.inputSchemaJson,
+          ) as unknown;
+          if (!isJsonObject(storedInputSchema)) throw new Error("invalid schema");
           inputValidation = await ctx.runAction(
             internal.node.native_integration_schemas.validateActionInput,
             {
               inputJson: JSON.stringify(body.input),
-              schemaJson: resolved.action.inputSchemaJson,
+              schemaJson: JSON.stringify(
+                effectiveGoogleAdsActionSchema(
+                  connector.toolkit,
+                  action,
+                  storedInputSchema,
+                ),
+              ),
             },
           );
         } catch (error) {
@@ -1621,6 +1659,16 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             "Executable integration action schema is unavailable.",
             origin,
           );
+        }
+        let googleAdsProxyRequest: Record<string, unknown> | null;
+        try {
+          googleAdsProxyRequest = buildGoogleAdsMutationProxyRequest(
+            connector.toolkit,
+            action,
+            body.input,
+          );
+        } catch {
+          return errorResponse(400, "Invalid Google Ads mutation input.", origin);
         }
         const sessionId = await loadComposioSessionId(
           ctx,
@@ -1788,13 +1836,15 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
           );
           try {
             payload = await composioFetch(
-              `/session/${encodeURIComponent(dispatch.sessionId)}/execute`,
+              `/session/${encodeURIComponent(dispatch.sessionId)}/${googleAdsProxyRequest ? "proxy_execute" : "execute"}`,
               {
                 method: "POST",
-                body: JSON.stringify({
-                  tool_slug: action,
-                  arguments: body.input,
-                }),
+                body: JSON.stringify(
+                  googleAdsProxyRequest ?? {
+                    tool_slug: action,
+                    arguments: body.input,
+                  },
+                ),
               },
               composio.config,
               { signal: executeController.signal },
@@ -1815,7 +1865,13 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             clearTimeout(executeTimeout);
           }
           await settle("succeeded");
-          return jsonResponse(payload, 200, origin);
+          return jsonResponse(
+            googleAdsProxyRequest
+              ? normalizeGoogleAdsProxyResponse(payload)
+              : payload,
+            200,
+            origin,
+          );
         } catch (error) {
           // A status-read transport failure also keeps its physical session
           // lease through the hard deadline. Exact terminal settlement is

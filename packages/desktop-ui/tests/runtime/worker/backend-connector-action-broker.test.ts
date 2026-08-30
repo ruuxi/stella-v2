@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ResolvedNativeCatalog } from "@stella/runtime/kernel/connectors/catalog-cache";
 import type { NativeConnectorCatalogEntry } from "@stella/runtime/kernel/connectors/native-integrations";
-import { createBackendConnectorActionBroker } from "@stella/runtime/worker/backend-connector-action-broker";
+import {
+  createBackendConnectorActionBroker,
+  createBackendConnectorActionsBroker,
+} from "@stella/runtime/worker/backend-connector-action-broker";
 
 const composioEntry: NativeConnectorCatalogEntry = {
   id: "outlook",
@@ -78,6 +81,73 @@ const makeBroker = (options: {
   });
 
 describe("backend connector action broker", () => {
+  it("loads authoritative action schemas without rewriting provider fields", async () => {
+    const fetchImpl = vi.fn(async (url, init) => {
+      const requestUrl = new URL(String(url));
+      expect(requestUrl.pathname).toBe("/api/native-integrations/actions");
+      expect(requestUrl.searchParams.get("id")).toBe("googleads");
+      expect(requestUrl.searchParams.get("action")).toBe(
+        "GOOGLEADS_MUTATE_AD_GROUPS",
+      );
+      expect((init?.headers as Record<string, string>).authorization).toBe(
+        "Bearer current-token",
+      );
+      return new Response(
+        JSON.stringify({
+          actionCount: 1,
+          actions: [
+            {
+              name: "GOOGLEADS_MUTATE_AD_GROUPS",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  operations: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        create: {
+                          type: "object",
+                          properties: {
+                            type: { type: "string" },
+                            name_: { type: "string" },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  validate_only: { type: "boolean" },
+                  partial_failure: { type: "boolean" },
+                },
+              },
+            },
+          ],
+          nextCursor: null,
+        }),
+        { status: 200 },
+      );
+    });
+    const broker = createBackendConnectorActionsBroker({
+      stellaDataDir: "/unused",
+      getSiteAuth: () => ({
+        baseUrl: "https://site.invalid",
+        authToken: "current-token",
+      }),
+      refreshSiteAuth: async () => null,
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    const result = await broker({
+      connectorId: "googleads",
+      action: "GOOGLEADS_MUTATE_AD_GROUPS",
+    });
+    expect(result.ok).toBe(true);
+    expect(JSON.stringify(result)).toContain('"type"');
+    expect(JSON.stringify(result)).toContain('"name_"');
+    expect(JSON.stringify(result)).not.toContain('"type_"');
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
   it.each([401, 403])(
     "dispatches a mutating action only once after backend %s",
     async (status) => {

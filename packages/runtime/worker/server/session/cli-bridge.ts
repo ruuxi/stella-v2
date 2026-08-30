@@ -17,7 +17,10 @@ import {
   createSecureCliBridgeEndpoint,
   resolveRuntimePaths,
 } from "../../runtime-paths.js";
-import { createBackendConnectorActionBroker } from "../../backend-connector-action-broker.js";
+import {
+  createBackendConnectorActionBroker,
+  createBackendConnectorActionsBroker,
+} from "../../backend-connector-action-broker.js";
 import { connectorActionBrokerAvailability } from "../../required-cli-bridge.js";
 import * as HostBus from "../host-bus.js";
 import * as SessionConfig from "./config.js";
@@ -119,6 +122,22 @@ export const layer = Layer.effect(
       },
     });
 
+    const listBackendConnectorActions = createBackendConnectorActionsBroker({
+      stellaDataDir: init.stellaDataDirPath,
+      getSiteAuth: () => {
+        const baseUrl = config.get().convexSiteUrl?.trim();
+        const authToken = config.get().authToken?.trim();
+        return baseUrl && authToken ? { baseUrl, authToken } : null;
+      },
+      refreshSiteAuth: async () => {
+        try {
+          return await refreshSiteAuth();
+        } catch {
+          return null;
+        }
+      },
+    });
+
     const requestHostConnectorTokenStore = async (
       request: ConnectorTokenStoreRequest,
     ): Promise<ConnectorTokenStoreResult> =>
@@ -170,6 +189,7 @@ export const layer = Layer.effect(
           },
           handlers: {
             runBackendConnectorAction,
+            listBackendConnectorActions,
             requestConnectorCredential: async (params) => {
               try {
                 return await hostBus.request<

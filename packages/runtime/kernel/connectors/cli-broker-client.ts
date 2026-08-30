@@ -55,6 +55,27 @@ export type BackendConnectorActionResult =
       requestId?: string;
     };
 
+export type BackendConnectorCatalogAction = {
+  name: string;
+  title?: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+};
+
+export type BackendConnectorActionsResult =
+  | {
+      ok: true;
+      actionCount: number;
+      actions: BackendConnectorCatalogAction[];
+      nextCursor: string | null;
+    }
+  | {
+      ok: false;
+      reason: string;
+      status?: number;
+      message?: string;
+    };
+
 export type DesktopPermissionRequestResult =
   | { ok: true; granted: boolean; alreadyGranted: boolean }
   | { ok: false; reason: string };
@@ -271,6 +292,85 @@ export const requestBackendConnectorActionFromBridge = async ({
     ...(typeof record.requestId === "string"
       ? { requestId: record.requestId }
       : {}),
+  };
+};
+
+export const requestBackendConnectorActionsFromBridge = async ({
+  socketPath,
+  connectorId,
+  action,
+  query,
+  limit,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}: {
+  socketPath: string;
+  connectorId: string;
+  action?: string;
+  query?: string;
+  limit?: number;
+  timeoutMs?: number;
+}): Promise<BackendConnectorActionsResult> => {
+  const result = await sendRequest(
+    socketPath,
+    "connector.listBackendActions",
+    { connectorId, action, query, limit },
+    timeoutMs,
+  );
+  if (!result || typeof result !== "object") {
+    return { ok: false, reason: "invalid_response" };
+  }
+  const record = result as Record<string, unknown>;
+  if (record.ok !== true) {
+    return {
+      ok: false,
+      reason:
+        typeof record.reason === "string" && record.reason
+          ? record.reason
+          : "bridge_unavailable",
+      ...(typeof record.status === "number" ? { status: record.status } : {}),
+      ...(typeof record.message === "string"
+        ? { message: record.message }
+        : {}),
+    };
+  }
+  if (!Array.isArray(record.actions)) {
+    return { ok: false, reason: "invalid_response" };
+  }
+  const actions = record.actions.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const candidate = value as Record<string, unknown>;
+    const name = typeof candidate.name === "string" ? candidate.name : "";
+    if (!/^[A-Z][A-Z0-9_]{1,127}$/u.test(name)) return [];
+    const inputSchema =
+      candidate.inputSchema &&
+      typeof candidate.inputSchema === "object" &&
+      !Array.isArray(candidate.inputSchema)
+        ? (candidate.inputSchema as Record<string, unknown>)
+        : undefined;
+    return [
+      {
+        name,
+        ...(typeof candidate.title === "string"
+          ? { title: candidate.title }
+          : {}),
+        ...(typeof candidate.description === "string"
+          ? { description: candidate.description }
+          : {}),
+        ...(inputSchema ? { inputSchema } : {}),
+      },
+    ];
+  });
+  return {
+    ok: true,
+    actionCount:
+      typeof record.actionCount === "number" &&
+      Number.isSafeInteger(record.actionCount) &&
+      record.actionCount >= 0
+        ? record.actionCount
+        : actions.length,
+    actions,
+    nextCursor:
+      typeof record.nextCursor === "string" ? record.nextCursor : null,
   };
 };
 

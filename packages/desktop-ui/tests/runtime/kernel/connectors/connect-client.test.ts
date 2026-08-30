@@ -421,6 +421,187 @@ describe("createReplConnectClient broker round-trip", () => {
     return root;
   };
 
+  it("discovers backend actions and preserves Google Ads request fields", async () => {
+    const root = await makeRoot();
+    await writeCachedServerCatalog(root, [
+      backendEntry("googleads", "Google Ads", "GOOGLEADS"),
+    ]);
+    await enable(root, ["googleads"]);
+    const mutationSchema = {
+      type: "object",
+      additionalProperties: false,
+      required: ["customer_id", "operations"],
+      properties: {
+        customer_id: { type: "string" },
+        operations: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              create: {
+                type: "object",
+                properties: {
+                  type: { type: "string" },
+                  name_: { type: "string" },
+                  nested_values: {
+                    type: "array",
+                    items: { type: "object" },
+                  },
+                },
+              },
+            },
+          },
+        },
+        validate_only: { type: "boolean" },
+        partial_failure: { type: "boolean" },
+        response_content_type: { type: "string" },
+      },
+    };
+    const catalogActions = [
+      {
+        name: "GOOGLEADS_MUTATE_CAMPAIGNS",
+        description: "Mutate campaigns.",
+        inputSchema: mutationSchema,
+      },
+      {
+        name: "GOOGLEADS_MUTATE_AD_GROUPS",
+        description: "Mutate ad groups.",
+        inputSchema: mutationSchema,
+      },
+      {
+        name: "GOOGLEADS_SEARCH_STREAM_GAQL",
+        description: "Run a read-only GAQL query.",
+        inputSchema: {
+          type: "object",
+          required: ["customer_id", "query"],
+          properties: {
+            customer_id: { type: "string" },
+            query: { type: "string" },
+          },
+        },
+      },
+    ];
+    const listBackendConnectorActions = vi.fn(
+      async (params: { action?: string; query?: string }) => {
+        const actions = catalogActions.filter(
+          (candidate) =>
+            (!params.action || candidate.name === params.action) &&
+            (!params.query ||
+              candidate.name
+                .toLowerCase()
+                .includes(params.query.toLowerCase())),
+        );
+        return {
+          ok: true as const,
+          actionCount: catalogActions.length,
+          actions,
+          nextCursor: null,
+        };
+      },
+    );
+    const runBackendConnectorAction = vi.fn(async () => ({
+      ok: true as const,
+      result: { data: { validated: true } },
+    }));
+    const bridge = await startBridge(root, {
+      listBackendConnectorActions,
+      runBackendConnectorAction,
+    });
+    const client = createReplConnectClient({
+      stellaAppDir: root,
+      cliBridgeSocketPath: bridge.socketPath,
+    });
+
+    const listed = await client.actions("googleads", {
+      query: "mutate",
+      limit: 100,
+    });
+    expect(listed.actions.map((action) => action.name)).toEqual([
+      "GOOGLEADS_MUTATE_CAMPAIGNS",
+      "GOOGLEADS_MUTATE_AD_GROUPS",
+    ]);
+    const campaignSchema = await client.schema(
+      "googleads",
+      "GOOGLEADS_MUTATE_CAMPAIGNS",
+    );
+    expect(campaignSchema.inputSchema).toEqual(mutationSchema);
+    expect(campaignSchema.inputSchema.properties).toEqual(
+      expect.objectContaining({
+        validate_only: { type: "boolean" },
+        partial_failure: { type: "boolean" },
+        response_content_type: { type: "string" },
+      }),
+    );
+
+    const campaignArguments = {
+      customer_id: "1234567890",
+      operations: [
+        {
+          create: {
+            name: "Synthetic campaign",
+            nested_values: [{ enabled: false }, { bid: 0 }],
+          },
+        },
+      ],
+      validate_only: true,
+      partial_failure: false,
+      response_content_type: "MUTABLE_RESOURCE",
+    };
+    await client.call(
+      "googleads",
+      "GOOGLEADS_MUTATE_CAMPAIGNS",
+      campaignArguments,
+    );
+    expect(runBackendConnectorAction).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        connectorId: "googleads",
+        action: "GOOGLEADS_MUTATE_CAMPAIGNS",
+        input: campaignArguments,
+      }),
+    );
+
+    const adGroupArguments = {
+      customer_id: "1234567890",
+      operations: [
+        {
+          create: {
+            type: "SEARCH_STANDARD",
+            name_: "preserve_this_key",
+            nested_values: [{ enabled: false }, { bid: 0 }],
+          },
+        },
+      ],
+      validate_only: true,
+      partial_failure: false,
+    };
+    expect(JSON.stringify(adGroupArguments)).toContain('"type"');
+    expect(JSON.stringify(adGroupArguments)).not.toContain('"type_"');
+    await client.call(
+      "googleads",
+      "GOOGLEADS_MUTATE_AD_GROUPS",
+      adGroupArguments,
+    );
+    expect(runBackendConnectorAction).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        connectorId: "googleads",
+        action: "GOOGLEADS_MUTATE_AD_GROUPS",
+        input: adGroupArguments,
+      }),
+    );
+
+    const readInput = {
+      customer_id: "1234567890",
+      query: "SELECT campaign.id FROM campaign LIMIT 1",
+    };
+    await client.call("googleads", "GOOGLEADS_SEARCH_STREAM_GAQL", readInput);
+    expect(runBackendConnectorAction).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        action: "GOOGLEADS_SEARCH_STREAM_GAQL",
+        input: readInput,
+      }),
+    );
+  });
+
   it("executes through the bridge broker and returns the parsed result", async () => {
     const root = await outlookRoot();
     const runBackendConnectorAction = vi.fn(async () => ({

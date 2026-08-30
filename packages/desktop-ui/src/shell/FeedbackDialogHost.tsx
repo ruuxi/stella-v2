@@ -12,7 +12,6 @@ import {
   feedbackDialog,
   useFeedbackDialogOpen,
 } from "@/shell/sidebar-sections/feedback-dialog-store";
-import { useFeedbackPrompt } from "@/shell/sidebar/use-feedback-prompt";
 
 const FeedbackDialog = lazy(() =>
   import("@/shell/sidebar/FeedbackDialog").then((module) => ({
@@ -22,7 +21,6 @@ const FeedbackDialog = lazy(() =>
 
 export function FeedbackDialogHost() {
   const open = useFeedbackDialogOpen();
-  const { acknowledge } = useFeedbackPrompt();
 
   if (!open) return null;
 
@@ -31,7 +29,6 @@ export function FeedbackDialogHost() {
       <FeedbackDialog
         open
         onOpenChange={(next) => feedbackDialog.setOpen(next)}
-        onSubmitted={acknowledge}
       />
     </Suspense>
   );

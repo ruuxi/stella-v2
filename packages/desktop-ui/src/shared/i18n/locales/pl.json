@@ -1641,15 +1641,8 @@
         "unreadAriaLabel": "{label}, nieprzeczytane: {count}"
       },
       "feedback": {
-        "title": {
-          "manual": "Wyślij opinię",
-          "auto": "Jak idzie ze Stellą?"
-        },
-        "description": {
-          "manual": "Twoja wiadomość jest wysyłana anonimowo — nie jest powiązana z Twoim kontem.",
-          "auto": "Coś, o czym powinniśmy wiedzieć? Wysyłane anonimowo — bez powiązania z Twoim kontem."
-        },
-        "notNow": "Nie teraz",
+        "title": "Wyślij opinię",
+        "description": "Twoja wiadomość jest wysyłana anonimowo — nie jest powiązana z Twoim kontem.",
         "fieldLabel": "Opinia",
         "placeholder": "Napisz, co działa, co nie, albo co chciałbyś zobaczyć…",
         "send": "Wyślij",

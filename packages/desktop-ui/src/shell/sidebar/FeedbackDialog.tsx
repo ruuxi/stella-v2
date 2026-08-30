@@ -16,57 +16,17 @@ import { useT } from "@/shared/i18n";
 interface FeedbackDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /**
-   * Distinguishes the auto-prompted variant from the user-initiated dropdown
-   * variant. The auto variant uses softer language and a "Not now" button
-   * label so the prompt feels invited rather than demanded.
-   */
-  variant?: "manual" | "auto";
-  /**
-   * Fired after the backend accepts a submission. The Sidebar uses this to
-   * reset the auto-prompt cooldown so a user who *just* sent feedback isn't
-   * re-prompted in the same 24h window.
-   */
   onSubmitted?: () => void;
 }
 
 export const FEEDBACK_MAX_LENGTH = 32_000;
 
-const TITLE_KEY_BY_VARIANT: Record<
-  NonNullable<FeedbackDialogProps["variant"]>,
-  string
-> = {
-  manual: "shell.sidebar.feedback.title.manual",
-  auto: "shell.sidebar.feedback.title.auto",
-};
-
-const DESCRIPTION_KEY_BY_VARIANT: Record<
-  NonNullable<FeedbackDialogProps["variant"]>,
-  string
-> = {
-  manual: "shell.sidebar.feedback.description.manual",
-  auto: "shell.sidebar.feedback.description.auto",
-};
-
-const CANCEL_LABEL_KEY_BY_VARIANT: Record<
-  NonNullable<FeedbackDialogProps["variant"]>,
-  string
-> = {
-  manual: "common.cancel",
-  auto: "shell.sidebar.feedback.notNow",
-};
-
 interface FeedbackFormProps {
-  variant: "manual" | "auto";
   onCancel: () => void;
   onSubmitted?: () => void;
 }
 
-const FeedbackForm = ({
-  variant,
-  onCancel,
-  onSubmitted,
-}: FeedbackFormProps) => {
+const FeedbackForm = ({ onCancel, onSubmitted }: FeedbackFormProps) => {
   const t = useT();
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -100,7 +60,7 @@ const FeedbackForm = ({
   return (
     <>
       <div className="sidebar-feedback-description">
-        {t(DESCRIPTION_KEY_BY_VARIANT[variant])}
+        {t("shell.sidebar.feedback.description")}
       </div>
       <div className="sidebar-feedback-body">
         <TextField
@@ -128,7 +88,7 @@ const FeedbackForm = ({
           onClick={onCancel}
           disabled={submitting}
         >
-          {t(CANCEL_LABEL_KEY_BY_VARIANT[variant])}
+          {t("common.cancel")}
         </Button>
         <Button
           variant="primary"
@@ -158,18 +118,13 @@ export const FeedbackPanel = ({
   onSubmitted,
 }: FeedbackPanelProps) => (
   <div className="sidebar-feedback-panel">
-    <FeedbackForm
-      variant="manual"
-      onCancel={onDone}
-      onSubmitted={onSubmitted}
-    />
+    <FeedbackForm onCancel={onDone} onSubmitted={onSubmitted} />
   </div>
 );
 
 export const FeedbackDialog = ({
   open,
   onOpenChange,
-  variant = "manual",
   onSubmitted,
 }: FeedbackDialogProps) => {
   const t = useT();
@@ -179,14 +134,10 @@ export const FeedbackDialog = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent fit className="sidebar-feedback-dialog">
         <DialogHeader>
-          <DialogTitle>{t(TITLE_KEY_BY_VARIANT[variant])}</DialogTitle>
+          <DialogTitle>{t("shell.sidebar.feedback.title")}</DialogTitle>
           <DialogCloseButton />
         </DialogHeader>
-        <FeedbackForm
-          variant={variant}
-          onCancel={handleClose}
-          onSubmitted={onSubmitted}
-        />
+        <FeedbackForm onCancel={handleClose} onSubmitted={onSubmitted} />
       </DialogContent>
     </Dialog>
   );

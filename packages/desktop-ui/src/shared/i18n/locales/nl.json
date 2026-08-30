@@ -1609,15 +1609,8 @@
         "unreadAriaLabel": "{label}, {count} ongelezen"
       },
       "feedback": {
-        "title": {
-          "manual": "Feedback sturen",
-          "auto": "Hoe bevalt Stella?"
-        },
-        "description": {
-          "manual": "Je bericht wordt anoniem verstuurd — het wordt niet aan je account gekoppeld.",
-          "auto": "Moeten we iets weten? Wordt anoniem verstuurd — niet gekoppeld aan je account."
-        },
-        "notNow": "Niet nu",
+        "title": "Feedback sturen",
+        "description": "Je bericht wordt anoniem verstuurd — het wordt niet aan je account gekoppeld.",
         "fieldLabel": "Feedback",
         "placeholder": "Vertel ons wat werkt, wat niet, of wat je graag zou zien…",
         "send": "Versturen",

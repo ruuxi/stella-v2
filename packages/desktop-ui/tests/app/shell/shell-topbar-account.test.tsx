@@ -64,13 +64,6 @@ vi.mock("@/shell/sidebar-sections/feedback-dialog-store", () => ({
   feedbackDialog: { open: vi.fn() },
 }));
 
-vi.mock("@/shell/sidebar/use-feedback-prompt", () => ({
-  useFeedbackPrompt: () => ({
-    shouldPrompt: false,
-    acknowledge: vi.fn(),
-  }),
-}));
-
 vi.mock("@/shared/i18n", () => ({
   useT: () => (key: string) => key,
 }));

@@ -1609,15 +1609,8 @@
         "unreadAriaLabel": "{label}, {count} lukematonta"
       },
       "feedback": {
-        "title": {
-          "manual": "Lähetä palautetta",
-          "auto": "Miten Stellan kanssa sujuu?"
-        },
-        "description": {
-          "manual": "Viestisi lähetetään nimettömänä — sitä ei yhdistetä tiliisi.",
-          "auto": "Onko jotain, mitä meidän pitäisi tietää? Lähetetään nimettömänä — ei yhdistetä tiliisi."
-        },
-        "notNow": "Ei nyt",
+        "title": "Lähetä palautetta",
+        "description": "Viestisi lähetetään nimettömänä — sitä ei yhdistetä tiliisi.",
         "fieldLabel": "Palaute",
         "placeholder": "Kerro, mikä toimii, mikä ei tai mitä haluaisit nähdä…",
         "send": "Lähetä",

@@ -1609,15 +1609,8 @@
         "unreadAriaLabel": "{label}, {count} olvasatlan"
       },
       "feedback": {
-        "title": {
-          "manual": "Visszajelzés küldése",
-          "auto": "Hogy megy a Stellával?"
-        },
-        "description": {
-          "manual": "Az üzeneted névtelenül érkezik – nem kapcsolódik a fiókodhoz.",
-          "auto": "Van bármi, amit tudnunk kellene? Névtelenül küldjük – nem kapcsolódik a fiókodhoz."
-        },
-        "notNow": "Most nem",
+        "title": "Visszajelzés küldése",
+        "description": "Az üzeneted névtelenül érkezik – nem kapcsolódik a fiókodhoz.",
         "fieldLabel": "Visszajelzés",
         "placeholder": "Írd meg, mi működik, mi nem, vagy mit szeretnél látni…",
         "send": "Küldés",

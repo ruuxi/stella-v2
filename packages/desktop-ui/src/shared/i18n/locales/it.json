@@ -1625,15 +1625,8 @@
         "unreadAriaLabel": "{label}, {count} non letti"
       },
       "feedback": {
-        "title": {
-          "manual": "Invia feedback",
-          "auto": "Come va con Stella?"
-        },
-        "description": {
-          "manual": "Il tuo messaggio viene inviato in forma anonima: non è collegato al tuo account.",
-          "auto": "C'è qualcosa che dovremmo sapere? Inviato in forma anonima, non collegato al tuo account."
-        },
-        "notNow": "Non ora",
+        "title": "Invia feedback",
+        "description": "Il tuo messaggio viene inviato in forma anonima: non è collegato al tuo account.",
         "fieldLabel": "Feedback",
         "placeholder": "Raccontaci cosa funziona, cosa no, o cosa ti piacerebbe vedere…",
         "send": "Invia",

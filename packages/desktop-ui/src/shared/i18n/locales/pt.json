@@ -1625,15 +1625,8 @@
         "unreadAriaLabel": "{label}, {count} não lidas"
       },
       "feedback": {
-        "title": {
-          "manual": "Enviar comentário",
-          "auto": "Como está indo com a Stella?"
-        },
-        "description": {
-          "manual": "Sua mensagem é enviada de forma anônima — não fica ligada à sua conta.",
-          "auto": "Algo que a gente deveria saber? Enviado de forma anônima, sem ligação com a sua conta."
-        },
-        "notNow": "Agora não",
+        "title": "Enviar comentário",
+        "description": "Sua mensagem é enviada de forma anônima — não fica ligada à sua conta.",
         "fieldLabel": "Comentário",
         "placeholder": "Conte o que está funcionando, o que não está, ou o que você adoraria ver…",
         "send": "Enviar",

@@ -1591,15 +1591,8 @@
         "unreadAriaLabel": "{label}，{count} 条未读"
       },
       "feedback": {
-        "title": {
-          "manual": "发送反馈",
-          "auto": "Stella 用得怎么样？"
-        },
-        "description": {
-          "manual": "你的留言以匿名方式发送 — 不会与你的账户关联。",
-          "auto": "有什么想让我们知道的？匿名发送 — 不会与你的账户关联。"
-        },
-        "notNow": "暂不",
+        "title": "发送反馈",
+        "description": "你的留言以匿名方式发送 — 不会与你的账户关联。",
         "fieldLabel": "反馈",
         "placeholder": "告诉我们哪些好用、哪些不好用，或你希望看到什么…",
         "send": "发送",

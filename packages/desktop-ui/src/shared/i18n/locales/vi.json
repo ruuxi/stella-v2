@@ -1591,15 +1591,8 @@
         "unreadAriaLabel": "{label}, {count} chưa đọc"
       },
       "feedback": {
-        "title": {
-          "manual": "Gửi phản hồi",
-          "auto": "Stella dạo này thế nào?"
-        },
-        "description": {
-          "manual": "Tin nhắn của bạn được gửi ẩn danh — không liên kết với tài khoản của bạn.",
-          "auto": "Có điều gì chúng tôi nên biết không? Gửi ẩn danh — không liên kết với tài khoản của bạn."
-        },
-        "notNow": "Để sau",
+        "title": "Gửi phản hồi",
+        "description": "Tin nhắn của bạn được gửi ẩn danh — không liên kết với tài khoản của bạn.",
         "fieldLabel": "Phản hồi",
         "placeholder": "Hãy cho chúng tôi biết điều gì đang ổn, điều gì chưa ổn, hoặc điều bạn muốn thấy…",
         "send": "Gửi",

@@ -50,8 +50,23 @@ export function useSceneLoop(
       ([entry]) => setRunning(entry.isIntersecting),
       { threshold },
     );
+    // Embedded browsers can defer the observer's initial record until the
+    // page scrolls. Seed the same visibility decision for an on-screen scene.
+    const seedTimer = window.setTimeout(() => {
+      const rect = el.getBoundingClientRect();
+      const visibleHeight = Math.max(
+        0,
+        Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0),
+      );
+      if (rect.height > 0 && visibleHeight / rect.height >= threshold) {
+        setRunning(true);
+      }
+    }, 0);
     io.observe(el);
-    return () => io.disconnect();
+    return () => {
+      window.clearTimeout(seedTimer);
+      io.disconnect();
+    };
   }, [ref, threshold]);
 
   useEffect(() => {

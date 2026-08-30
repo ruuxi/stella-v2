@@ -54,6 +54,7 @@ import mock from "./home-desktop-mock.module.css";
 import { Composer } from "./home-mock-composer";
 import chat from "./stella-mini-chat.module.css";
 import styles from "./home-real-work.module.css";
+import { useMiniChatScroll } from "./use-mini-chat-scroll";
 
 /* ------------------------------------------------------------------ */
 /*  Transcript model                                                   */
@@ -78,10 +79,13 @@ type Connect = {
 };
 
 type Entry =
-  | { kind: "user"; text: string; attachment?: string }
+  | { id?: string; kind: "user"; text: string; attachment?: string }
   | {
+      id?: string;
       kind: "assistant";
       text: string;
+      fullText?: string;
+      phase?: "reserved" | "thinking" | "streaming" | "complete";
       works?: Work[];
       connect?: Connect;
       /** A little page Stella made, shown as a chip with an Open affordance. */
@@ -1664,6 +1668,7 @@ const STACKED_H = 944;
 
 export function HomeRealWork() {
   const sectionRef = useRef<HTMLElement>(null);
+  const { viewportRef, trackRef } = useMiniChatScroll();
   const stageRef = useRef<HTMLDivElement>(null);
   const windowRef = useRef<HTMLDivElement>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -1719,8 +1724,9 @@ export function HomeRealWork() {
 
   const { reduced } = useSceneLoop(
     sectionRef,
-    async ({ sleep, type }) => {
-      const push = (entry: Entry) => setEntries((prev) => [...prev, entry]);
+    async ({ sleep, frame, type }) => {
+      let entryId = 0;
+      const nextId = (kind: string) => `${kind}-${entryId++}`;
       const patchLast = (patch: (entry: Entry) => Entry) =>
         setEntries((prev) => {
           if (prev.length === 0) return prev;
@@ -1752,20 +1758,49 @@ export function HomeRealWork() {
             : entry,
         );
       const reply = async (text: string, thinkMs = 720) => {
-        push({ kind: "assistant", text: "" });
+        const replyId = nextId("assistant");
+        setEntries((prev) => {
+          const next = prev.slice();
+          const last = next[next.length - 1];
+          if (
+            last?.kind === "assistant" &&
+            last.phase === "reserved" &&
+            last.fullText === text
+          ) {
+            next[next.length - 1] = { ...last, phase: "thinking" };
+          } else {
+            next.push({ id: replyId, kind: "assistant", text: "", fullText: text, phase: "thinking" });
+          }
+          return next;
+        });
         await sleep(thinkMs);
-        const words = text.split(" ");
-        for (let w = 1; w <= words.length; w += 1) {
-          const partial = words.slice(0, w).join(" ");
-          patchAssistant({ text: partial });
-          await sleep(32);
+        const startedAt = performance.now();
+        let visibleLength = 0;
+        while (visibleLength < text.length) {
+          const now = await frame();
+          const nextLength = Math.min(
+            text.length,
+            Math.max(1, Math.floor((now - startedAt) / 11) + 1),
+          );
+          if (nextLength === visibleLength) continue;
+          visibleLength = nextLength;
+          patchAssistant({
+            text: text.slice(0, visibleLength),
+            phase: visibleLength === text.length ? "complete" : "streaming",
+          });
         }
       };
-      const ask = async (text: string, attachment?: string, ms = 16) => {
+      const ask = async (text: string, replyText: string, attachment?: string, ms = 16) => {
         await type(text, setComposerTyped, ms);
         await sleep(240);
         setComposerTyped("");
-        push({ kind: "user", text, attachment });
+        const userId = nextId("user");
+        const assistantId = nextId("assistant");
+        setEntries((prev) => [
+          ...prev,
+          { id: userId, kind: "user", text, attachment },
+          { id: assistantId, kind: "assistant", text: "", fullText: replyText, phase: "reserved" },
+        ]);
       };
       const click = async (at: string) => {
         setCursor({ at });
@@ -1776,7 +1811,7 @@ export function HomeRealWork() {
 
       /* Beat 1 — email. Her first time in your inbox, so she asks. */
       await sleep(240);
-      await ask(ASK_EMAIL, undefined, 12);
+      await ask(ASK_EMAIL, REPLY_NEED, undefined, 12);
       await sleep(320);
       await reply(REPLY_NEED);
       await sleep(260);
@@ -1833,7 +1868,7 @@ export function HomeRealWork() {
       await sleep(1400);
 
       /* Beat 2 — something messy in, something to look at out. */
-      await ask(ASK_APTS, ASK_APTS_ATTACHMENT);
+      await ask(ASK_APTS, REPLY_SEC, ASK_APTS_ATTACHMENT);
       await sleep(380);
       await reply(REPLY_SEC, 600);
       await sleep(220);
@@ -1867,7 +1902,7 @@ export function HomeRealWork() {
       await sleep(2200);
 
       /* Beat 3 — your browser, your logins, her hands. */
-      await ask(ASK_GYM);
+      await ask(ASK_GYM, REPLY_GYM);
       await sleep(380);
       await reply(REPLY_GYM);
       await sleep(240);
@@ -2012,51 +2047,73 @@ export function HomeRealWork() {
                   <div
                     className={styles.transcript}
                     data-clearing={clearing || undefined}
+                    ref={viewportRef}
                   >
-                    {shownEntries.map((entry, i) => (
-                      <div key={i} className={chat.entry}>
-                        <div className={chat.entryInner}>
-                          {entry.kind === "user" ? (
-                            <div className={styles.userStack}>
-                              {entry.attachment ? (
-                                <span className={styles.attachChip}>
-                                  <ClipboardList size={11} strokeWidth={2} />
-                                  {entry.attachment}
-                                </span>
-                              ) : null}
-                              <div className={mock.userMessage}>{entry.text}</div>
-                            </div>
-                          ) : (
-                            <div className={styles.assistantBlock}>
-                              <div className={mock.assistantRow}>
-                                {entry.text ? (
-                                  <p className={mock.assistantMessage}>
-                                    {entry.text}
-                                  </p>
-                                ) : (
-                                  <span className={chat.thinking}>
-                                    <i />
-                                    <i />
-                                    <i />
+                    <div className={chat.messageTrack} ref={trackRef}>
+                      {shownEntries.map((entry, i) => (
+                        <div
+                          key={entry.id ?? `static-${i}`}
+                          className={chat.entry}
+                          data-role={entry.kind}
+                          data-phase={entry.kind === "assistant" ? entry.phase : undefined}
+                        >
+                          <div className={chat.entryInner}>
+                            {entry.kind === "user" ? (
+                              <div className={styles.userStack}>
+                                {entry.attachment ? (
+                                  <span className={styles.attachChip}>
+                                    <ClipboardList size={11} strokeWidth={2} />
+                                    {entry.attachment}
                                   </span>
-                                )}
+                                ) : null}
+                                <div className={mock.userMessage}>{entry.text}</div>
                               </div>
-                              {entry.connect ? (
-                                <ConnectCard connect={entry.connect} />
-                              ) : null}
-                              {entry.works?.length ? (
-                                <div className={styles.workGroup}>
-                                  {entry.works.map((work) => (
-                                    <WorkRow key={work.id} work={work} />
-                                  ))}
+                            ) : (
+                              <div className={styles.assistantBlock}>
+                                <div className={`${mock.assistantRow} ${entry.fullText ? chat.assistantSlot : ""}`}>
+                                  {entry.fullText ? (
+                                    <>
+                                      <p className={`${mock.assistantMessage} ${chat.assistantSizer}`}>
+                                        {entry.fullText}
+                                      </p>
+                                      {entry.phase !== "reserved" ? (
+                                        <div className={chat.assistantVisual}>
+                                          {entry.text ? (
+                                            <p className={mock.assistantMessage}>{entry.text}</p>
+                                          ) : (
+                                            <span className={chat.thinking}>
+                                              <i /><i /><i />
+                                            </span>
+                                          )}
+                                        </div>
+                                      ) : null}
+                                    </>
+                                  ) : entry.text ? (
+                                    <p className={mock.assistantMessage}>{entry.text}</p>
+                                  ) : (
+                                    <span className={chat.thinking}>
+                                      <i /><i /><i />
+                                    </span>
+                                  )}
                                 </div>
-                              ) : null}
-                              {entry.page ? <PagePill name={entry.page} /> : null}
-                            </div>
-                          )}
+                                {entry.connect ? <ConnectCard connect={entry.connect} /> : null}
+                                {entry.works?.length ? (
+                                  <div className={styles.workGroup}>
+                                    {entry.works.map((work) => (
+                                      <WorkRow key={work.id} work={work} />
+                                    ))}
+                                  </div>
+                                ) : null}
+                                {entry.page ? <PagePill name={entry.page} /> : null}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                      {shownEntries.length > 0 ? (
+                        <div className={chat.responseSpacer} aria-hidden="true" />
+                      ) : null}
+                    </div>
                   </div>
                   <ActivityPill pill={pill} />
                   <Composer

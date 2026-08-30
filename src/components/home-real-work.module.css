@@ -262,16 +262,17 @@
 }
 
 .transcript {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
+  position: relative;
   width: 100%;
   margin: 0 auto;
   padding-bottom: 16px;
   overflow: hidden;
+  transition: opacity 420ms ease;
+}
+
+.transcript[data-overflow] {
   mask-image: linear-gradient(180deg, transparent 0, #000 14%);
   -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 14%);
-  transition: opacity 420ms ease;
 }
 
 .transcript[data-clearing] {

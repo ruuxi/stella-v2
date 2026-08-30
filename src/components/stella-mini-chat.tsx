@@ -3,7 +3,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   type RefObject,
@@ -13,6 +12,7 @@ import { HomeMiniChatMock } from "./home-desktop-mock";
 import mock from "./home-desktop-mock.module.css";
 import { Composer } from "./home-mock-composer";
 import styles from "./stella-mini-chat.module.css";
+import { useMiniChatScroll } from "./use-mini-chat-scroll";
 
 export type StellaMiniChatExchange = {
   user: string;
@@ -43,9 +43,7 @@ export function StellaMiniChat({
   observeRef?: RefObject<HTMLElement | null>;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const transcriptRef = useRef<HTMLDivElement>(null);
-  const positionsRef = useRef(new Map<string, number>());
-  const movementAnimationsRef = useRef(new Map<string, Animation>());
+  const { viewportRef, trackRef } = useMiniChatScroll();
   const loopRef = observeRef ?? rootRef;
   const [messages, setMessages] = useState<Message[]>([]);
   const [composerTyped, setComposerTyped] = useState("");
@@ -57,58 +55,6 @@ export function StellaMiniChat({
     setClearing(false);
     onActiveIndexChange?.(-1);
   }, [onActiveIndexChange]);
-
-  /* The transcript is bottom-anchored, so new or wrapping content moves the
-     rows above it. FLIP that layout delta with compositor-only transforms. */
-  useLayoutEffect(() => {
-    const transcript = transcriptRef.current;
-    if (!transcript) return;
-
-    const nextPositions = new Map<string, number>();
-    for (const child of Array.from(transcript.children)) {
-      if (!(child instanceof HTMLElement)) continue;
-      const id = child.dataset.messageId;
-      if (!id) continue;
-
-      const top = child.offsetTop;
-      nextPositions.set(id, top);
-      const previousTop = positionsRef.current.get(id);
-      if (previousTop === undefined) continue;
-
-      const delta = previousTop - top;
-      if (Math.abs(delta) < 0.5) continue;
-      movementAnimationsRef.current.get(id)?.cancel();
-      const animation = child.animate(
-        [
-          { transform: `translate3d(0, ${delta}px, 0)` },
-          { transform: "translate3d(0, 0, 0)" },
-        ],
-        {
-          duration: 360,
-          easing: "cubic-bezier(0.16, 1, 0.3, 1)",
-        },
-      );
-      movementAnimationsRef.current.set(id, animation);
-      const forget = () => {
-        if (movementAnimationsRef.current.get(id) === animation) {
-          movementAnimationsRef.current.delete(id);
-        }
-      };
-      animation.addEventListener("finish", forget, { once: true });
-      animation.addEventListener("cancel", forget, { once: true });
-    }
-    positionsRef.current = nextPositions;
-  }, [messages]);
-
-  useEffect(
-    () => () => {
-      for (const animation of movementAnimationsRef.current.values()) {
-        animation.cancel();
-      }
-      movementAnimationsRef.current.clear();
-    },
-    [],
-  );
 
   const { reduced } = useSceneLoop(
     loopRef,
@@ -214,55 +160,57 @@ export function StellaMiniChat({
           <div
             className={styles.liveTranscript}
             data-clearing={clearing || undefined}
-            ref={transcriptRef}
+            ref={viewportRef}
           >
-            {shownMessages.map((message) => (
-              <div
-                key={message.id}
-                className={styles.entry}
-                data-message-id={message.id}
-                data-role={message.role}
-                data-phase={
-                  message.role === "assistant" ? message.phase : undefined
-                }
-              >
-                <div className={styles.entryInner}>
-                  {message.role === "user" ? (
-                    <div className={mock.userMessage}>{message.text}</div>
-                  ) : (
-                    <div
-                      className={`${mock.assistantRow} ${styles.assistantSlot}`}
-                    >
-                      <p
-                        className={`${mock.assistantMessage} ${styles.assistantSizer}`}
+            <div className={styles.messageTrack} ref={trackRef}>
+              {shownMessages.map((message) => (
+                <div
+                  key={message.id}
+                  className={styles.entry}
+                  data-message-id={message.id}
+                  data-role={message.role}
+                  data-phase={
+                    message.role === "assistant" ? message.phase : undefined
+                  }
+                >
+                  <div className={styles.entryInner}>
+                    {message.role === "user" ? (
+                      <div className={mock.userMessage}>{message.text}</div>
+                    ) : (
+                      <div
+                        className={`${mock.assistantRow} ${styles.assistantSlot}`}
                       >
-                        {message.fullText}
-                      </p>
-                      {message.phase !== "reserved" ? (
-                        <div className={styles.assistantVisual}>
-                          {message.text ? (
-                            <p
-                              className={`${mock.assistantMessage} ${styles.assistantContent}`}
-                            >
-                              {message.text}
-                            </p>
-                          ) : (
-                            <span className={styles.thinking}>
-                              <i />
-                              <i />
-                              <i />
-                            </span>
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
+                        <p
+                          className={`${mock.assistantMessage} ${styles.assistantSizer}`}
+                        >
+                          {message.fullText}
+                        </p>
+                        {message.phase !== "reserved" ? (
+                          <div className={styles.assistantVisual}>
+                            {message.text ? (
+                              <p
+                                className={`${mock.assistantMessage} ${styles.assistantContent}`}
+                              >
+                                {message.text}
+                              </p>
+                            ) : (
+                              <span className={styles.thinking}>
+                                <i />
+                                <i />
+                                <i />
+                              </span>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-            {shownMessages.length > 0 ? (
-              <div className={styles.responseSpacer} aria-hidden="true" />
-            ) : null}
+              ))}
+              {shownMessages.length > 0 ? (
+                <div className={styles.responseSpacer} aria-hidden="true" />
+              ) : null}
+            </div>
           </div>
           <Composer
             showContext={false}

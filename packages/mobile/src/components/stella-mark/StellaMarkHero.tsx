@@ -12,6 +12,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { STELLA_STAR_PATH } from "./geometry";
 import { MarkLayer } from "./MarkLayer";
+import { StellaFace } from "./StellaFace";
 import {
   BREATHE_AMPLITUDE,
   CLOCK_SPAN_MS,
@@ -28,13 +29,19 @@ import { useAppVisible } from "../../lib/use-app-visible";
  * over to live mic/output level, so the same rig serves as the voice
  * visualizer. `energy` stays a `SharedValue` rather than a prop so the audio
  * meter can drive it on the UI thread without re-rendering React at frame rate.
+ *
+ * A `faceColor` gives the character eyes, which idle, blink and look around.
+ * Without one it stays a silhouette, which is what the voice overlay wants: the
+ * mark is a level meter there, not a character.
  */
 export function StellaMarkHero({
   size,
   energy,
+  faceColor,
 }: {
   size: number;
   energy?: SharedValue<number>;
+  faceColor?: string;
 }) {
   const reduceMotion = useReducedMotion();
   const appVisible = useAppVisible();
@@ -91,6 +98,13 @@ export function StellaMarkHero({
           size={size}
           gradientId={`${uid}-hero`}
         />
+        {faceColor ? (
+          <StellaFace
+            size={size}
+            color={faceColor}
+            active={appVisible && !reduceMotion}
+          />
+        ) : null}
       </Animated.View>
     </View>
   );

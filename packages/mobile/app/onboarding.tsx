@@ -107,7 +107,9 @@ export default function OnboardingScreen() {
         </View>
 
         <Animated.View style={[styles.stage, stepStyle]}>
-          {step === 0 ? <WelcomeStep styles={styles} t={t} /> : null}
+          {step === 0 ? (
+            <WelcomeStep styles={styles} colors={colors} t={t} />
+          ) : null}
           {step === 1 ? (
             <ThemeStep styles={styles} colors={colors} t={t} />
           ) : null}
@@ -162,15 +164,17 @@ type Translate = ReturnType<typeof useT>;
 
 function WelcomeStep({
   styles,
+  colors,
   t,
 }: {
   styles: OnboardingStyles;
+  colors: Colors;
   t: Translate;
 }) {
   return (
     <View style={styles.stepBody}>
       <View style={styles.creatureSlot}>
-        <StellaMarkHero size={HERO_SIZE} />
+        <StellaMarkHero size={HERO_SIZE} faceColor={colors.background} />
       </View>
       <Text style={styles.title}>{t("mobile.onboarding.welcomeTitle")}</Text>
       <Text style={styles.body}>{t("mobile.onboarding.welcomeBody")}</Text>

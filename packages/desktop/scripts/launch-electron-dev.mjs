@@ -8,6 +8,8 @@ import {
 
 const DEV_SERVER_URL =
   process.env.STELLA_DEV_SERVER_URL?.trim() || "http://127.0.0.1:57314";
+const DEV_IN_APP_BROWSER_BOOTSTRAP_SESSION = "stella-app-bridge-development";
+const DEV_IN_APP_BROWSER_INIT_PORT = "39042";
 const START_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 100;
 
@@ -47,20 +49,24 @@ for (const inheritedLiveKey of [
   "STELLA_GIT_BIN",
   "STELLA_HOST_EXECUTABLE_PATH",
   "STELLA_LAUNCHER_PROTECTED_STORAGE_BIN",
+  "STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION",
+  "STELLA_IN_APP_BROWSER_INIT_PORT",
+  "STELLA_RUNTIME_STATE_DIR",
 ]) {
   delete devEnvironment[inheritedLiveKey];
 }
 const child = spawn(
   responsibilityLauncher ?? electronBinary,
-  responsibilityLauncher
-    ? [electronBinary, ".", "--dev"]
-    : [".", "--dev"],
+  responsibilityLauncher ? [electronBinary, ".", "--dev"] : [".", "--dev"],
   {
     cwd: path.resolve(import.meta.dirname, "..", "..", ".."),
     env: {
       ...devEnvironment,
       NODE_ENV: "development",
       STELLA_DEV_SERVER_URL: DEV_SERVER_URL,
+      STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION:
+        DEV_IN_APP_BROWSER_BOOTSTRAP_SESSION,
+      STELLA_IN_APP_BROWSER_INIT_PORT: DEV_IN_APP_BROWSER_INIT_PORT,
     },
     stdio: "inherit",
     windowsHide: true,

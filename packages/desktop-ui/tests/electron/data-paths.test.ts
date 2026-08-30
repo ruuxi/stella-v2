@@ -27,17 +27,27 @@ describe("resolveDesktopStellaDataDirPath", () => {
     );
   });
 
-  it("defaults packaged and development durable data to ~/.stella", () => {
+  it("defaults packaged durable data to ~/.stella", () => {
     expect(
       resolveDesktopStellaDataDirPath({
+        mode: "production",
         homeDir: HOME,
       }),
     ).toBe(path.join(HOME, ".stella"));
   });
 
-  it("dev defaults to the real home directory when none is supplied", () => {
-    expect(resolveDesktopStellaDataDirPath({})).toBe(
-      path.join(os.homedir(), ".stella"),
+  it("defaults development durable data to an isolated home", () => {
+    expect(
+      resolveDesktopStellaDataDirPath({
+        mode: "development",
+        homeDir: HOME,
+      }),
+    ).toBe(path.join(HOME, ".stella-development"));
+  });
+
+  it("development uses the real home directory when none is supplied", () => {
+    expect(resolveDesktopStellaDataDirPath({ mode: "development" })).toBe(
+      path.join(os.homedir(), ".stella-development"),
     );
   });
 
@@ -45,6 +55,7 @@ describe("resolveDesktopStellaDataDirPath", () => {
     const override = path.join(HOME, "stella-dev-home");
     expect(
       resolveDesktopStellaDataDirPath({
+        mode: "development",
         configuredStatePath: override,
         homeDir: HOME,
       }),
@@ -54,15 +65,17 @@ describe("resolveDesktopStellaDataDirPath", () => {
   it("blank overrides fall through to the mode default", () => {
     expect(
       resolveDesktopStellaDataDirPath({
+        mode: "development",
         configuredStatePath: "   ",
         homeDir: HOME,
       }),
-    ).toBe(path.join(HOME, ".stella"));
+    ).toBe(path.join(HOME, ".stella-development"));
   });
 
   it("resolves relative overrides to absolute paths", () => {
     expect(
       resolveDesktopStellaDataDirPath({
+        mode: "development",
         configuredStatePath: "relative-dir",
         homeDir: HOME,
       }),
@@ -74,7 +87,9 @@ describe("resolveDesktopStellaDataDirPath", () => {
       new URL("../../../desktop/electron/bootstrap.ts", import.meta.url),
       "utf8",
     );
-    const lockIndex = bootstrapSource.indexOf("app.requestSingleInstanceLock()");
+    const lockIndex = bootstrapSource.indexOf(
+      "app.requestSingleInstanceLock()",
+    );
     const serviceConstructionIndex = bootstrapSource.indexOf(
       "createBootstrapContext({",
     );

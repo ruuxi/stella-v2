@@ -36,6 +36,16 @@ const getBootstrapSession = (env: NodeJS.ProcessEnv) =>
   env.STELLA_BROWSER_SESSION?.trim() ||
   STELLA_BROWSER_BRIDGE_SESSION;
 
+const getBootstrapPort = (env: NodeJS.ProcessEnv): number => {
+  const raw = env.STELLA_IN_APP_BROWSER_INIT_PORT?.trim();
+  if (!raw) return STELLA_IN_APP_BROWSER_INIT_PORT;
+  if (!/^[1-9]\d*$/.test(raw)) return STELLA_IN_APP_BROWSER_INIT_PORT;
+  const port = Number(raw);
+  return Number.isSafeInteger(port) && port <= 65_535
+    ? port
+    : STELLA_IN_APP_BROWSER_INIT_PORT;
+};
+
 export const getStellaBrowserSocketDir = (
   env: NodeJS.ProcessEnv = process.env,
 ): string => {
@@ -54,7 +64,7 @@ export const getStellaInAppBrowserInitEndpoint = (
   process.platform === "win32"
     ? Object.freeze({
         host: "127.0.0.1",
-        port: STELLA_IN_APP_BROWSER_INIT_PORT,
+        port: getBootstrapPort(env),
       })
     : Object.freeze({
         path: path.join(

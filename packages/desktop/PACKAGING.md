@@ -27,13 +27,18 @@ inherited live-install paths, ignores generic `STELLA_DATA_DIR`, and uses its
 isolated Electron user-data directory; a deliberate dev override must use
 `STELLA_V2_DEV_DATA_DIR`.
 
-Packaged and ordinary development builds default durable user data to
-`~/.stella`, including `stella.sqlite`, memories, skills, prompts, connectors,
-preferences, and user-created outputs. Electron `userData` remains separate:
-on macOS it uses `~/Library/Application Support/Stella` for packaged builds and
+Packaged builds default durable user data to `~/.stella`. Ordinary development
+defaults to the isolated `~/.stella-development` home, including
+`stella.sqlite`, memories, skills, prompts, connectors, preferences, and
+user-created outputs. Electron `userData` remains separate: on macOS it uses
+`~/Library/Application Support/Stella` for packaged builds and
 `Stella Development` for development, and contains only replaceable
 Chromium/session/runtime state. `STELLA_DATA_DIR` may explicitly redirect a
-packaged build; development only honors `STELLA_V2_DEV_DATA_DIR`.
+packaged build; development only honors `STELLA_V2_DEV_DATA_DIR`. The Vite UI
+state bridge uses the same development root, so a plain dev-server tab cannot
+write production UI state either. Development also receives its own in-app
+browser bootstrap endpoint, allowing the installed app and dev app to run at
+the same time without competing for one socket or loopback port.
 
 ## Runtime sidecar and packaged binaries
 

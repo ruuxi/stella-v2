@@ -61,13 +61,22 @@ if (isDev) {
 const configuredStatePath = isDev
   ? process.env.STELLA_V2_DEV_DATA_DIR?.trim()
   : process.env.STELLA_DATA_DIR?.trim();
-// Packaged and development builds share the durable `~/.stella` home (see
-// data-paths.ts) so SQLite, bundled-skill reconciliation, the runtime worker,
-// and prompt-facing paths all agree on one tree. Electron's userData remains a
-// separate platform app-data profile for Chromium/session/runtime state only.
+// SQLite, bundled-skill reconciliation, the runtime worker, and prompt-facing
+// paths agree on one mode-specific tree. Development defaults to a separate
+// durable home; Electron userData remains a second, replaceable profile for
+// Chromium/auth/runtime state.
 const stellaDataDirPath = resolveDesktopStellaDataDirPath({
+  mode: isDev ? "development" : "production",
   configuredStatePath,
 });
+// Establish the selected roots before logging or service construction. The
+// worker and Electron main share STELLA_DATA_DIR. Dev runtime control files and
+// logs also use the short isolated data root; Electron's Application Support
+// path is too long for macOS' bounded Unix-domain socket paths.
+process.env.STELLA_DATA_DIR = stellaDataDirPath;
+if (isDev) {
+  process.env.STELLA_RUNTIME_STATE_DIR = stellaDataDirPath;
+}
 const useDevServer = isDev;
 const installDevBrokenPipeGuards = () => {
   if (!isDev) {

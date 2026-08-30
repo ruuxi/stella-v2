@@ -2,8 +2,8 @@
  * Shared UI state Vite plugin — gives plain-browser dev tabs (`bun run dev`)
  * the same durable renderer state as the Electron app.
  *
- * The dev server runs its own `UiStateStore` instance against
- * `~/.stella/ui-state.json` (the Electron main process runs another; the two
+ * The dev server runs its own `UiStateStore` instance against the isolated
+ * development data home (the Electron main process runs another; the two
  * converge through per-key read-merge-write flushes plus file watching):
  *
  *   - Every served HTML page gets an inline `window.__stellaUiState` snapshot
@@ -20,6 +20,7 @@
 import type { Plugin, ViteDevServer } from "vite";
 import { UiStateStore } from "@stella/runtime/kernel/ui-state/store";
 import { resolveRuntimeStatePath } from "@stella/runtime/kernel/home/stella-paths";
+import { resolveDesktopStellaDataDirPath } from "@stella/desktop/electron/data-paths.js";
 import {
   UI_STATE_DEV_ENDPOINT,
   UI_STATE_DEV_EVENT,
@@ -58,7 +59,13 @@ const readJsonBody = async (
 export function uiStateSharedStore(): Plugin {
   let store: UiStateStore | null = null;
   const getStore = () => {
-    store ??= new UiStateStore(resolveRuntimeStatePath());
+    const devDataDir = resolveDesktopStellaDataDirPath({
+      mode: "development",
+      configuredStatePath: process.env.STELLA_V2_DEV_DATA_DIR,
+    });
+    store ??= new UiStateStore(
+      resolveRuntimeStatePath(undefined, undefined, devDataDir),
+    );
     return store;
   };
 
@@ -92,9 +99,7 @@ export function uiStateSharedStore(): Plugin {
     apply: "serve",
 
     transformIndexHtml() {
-      const snapshot = escapeInlineJson(
-        JSON.stringify(getStore().snapshot()),
-      );
+      const snapshot = escapeInlineJson(JSON.stringify(getStore().snapshot()));
       return [
         {
           tag: "script",

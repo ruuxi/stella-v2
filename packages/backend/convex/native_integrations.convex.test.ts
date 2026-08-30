@@ -685,12 +685,12 @@ describe("Composio integration catalog and execution", () => {
       runRequest(
         "GOOGLEADS_MUTATE_CAMPAIGNS",
         {
-          customer_id: "439-929-3264",
+          customer_id: "123-456-7890",
           operations: [
             {
               create: {
                 name: "Stella validation only",
-                campaign_budget: "customers/4399293264/campaignBudgets/1",
+                campaign_budget: "customers/1234567890/campaignBudgets/1",
                 advertising_channel_type: "SEARCH",
                 manual_cpc: {},
                 network_settings: {
@@ -723,7 +723,7 @@ describe("Composio integration catalog and execution", () => {
     expect(proxyEnvelope).toMatchObject({
       toolkit_slug: "googleads",
       endpoint:
-        "https://googleads.googleapis.com/v23/customers/4399293264/campaigns:mutate",
+        "https://googleads.googleapis.com/v23/customers/1234567890/campaigns:mutate",
       method: "POST",
       binary_body: { content_type: "application/json" },
     });
@@ -732,7 +732,7 @@ describe("Composio integration catalog and execution", () => {
         {
           create: {
             name: "Stella validation only",
-            campaignBudget: "customers/4399293264/campaignBudgets/1",
+            campaignBudget: "customers/1234567890/campaignBudgets/1",
             advertisingChannelType: "SEARCH",
             manualCpc: {},
             networkSettings: {
@@ -766,11 +766,11 @@ describe("Composio integration catalog and execution", () => {
       runRequest(
         "GOOGLEADS_MUTATE_AD_GROUPS",
         {
-          customer_id: "4399293264",
+          customer_id: "1234567890",
           operations: [
             {
               create: {
-                campaign: "customers/4399293264/campaigns/1",
+                campaign: "customers/1234567890/campaigns/1",
                 name: "First",
                 type: "SEARCH_STANDARD",
                 targeting_setting: {
@@ -782,7 +782,7 @@ describe("Composio integration catalog and execution", () => {
             },
             {
               create: {
-                campaign: "customers/4399293264/campaigns/1",
+                campaign: "customers/1234567890/campaigns/1",
                 name: "Second",
                 type_: "SEARCH_STANDARD",
               },
@@ -801,7 +801,7 @@ describe("Composio integration catalog and execution", () => {
       operations: [
         {
           create: {
-            campaign: "customers/4399293264/campaigns/1",
+            campaign: "customers/1234567890/campaigns/1",
             name: "First",
             type: "SEARCH_STANDARD",
             targetingSetting: {
@@ -813,7 +813,7 @@ describe("Composio integration catalog and execution", () => {
         },
         {
           create: {
-            campaign: "customers/4399293264/campaigns/1",
+            campaign: "customers/1234567890/campaigns/1",
             name: "Second",
             type: "SEARCH_STANDARD",
           },

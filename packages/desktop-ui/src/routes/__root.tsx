@@ -25,6 +25,7 @@ import { ChatColumn } from "@/app/chat/ChatColumn";
 import { OPEN_CONNECT_DIALOG_EVENT } from "@/global/integrations/connect-action";
 import { conversationTabs } from "@/features/chat/services/conversation-tabs-store";
 import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { SIGN_IN_TOAST_ACTION } from "@/shared/lib/auth-cta";
 import { resolveOwnershipMigrationGate } from "@/global/auth/lib/cloud-session-mode";
 import { cloudApi } from "@/features/cloud/cloud-api";
 import {
@@ -189,6 +190,7 @@ function RootLayout() {
   const {
     cloudMode,
     error: authBootstrapError,
+    authBootstrapStatus,
     isLoading: isAuthLoading,
     accountScope,
     ownerSubject,
@@ -669,15 +671,54 @@ function RootLayout() {
   }
 
   return (
-    <ModelCatalogUpdatedAtProvider>
-      <ChatRuntimeProvider
-        activeConversationId={conversationId}
-        isOnChatRoute={isOnChatRoute}
-        navigateToConversation={navigateToConversation}
-      >
-        <RootChrome conversationId={conversationId} />
-      </ChatRuntimeProvider>
-    </ModelCatalogUpdatedAtProvider>
+    <>
+      {authBootstrapStatus === "reauth_required" ? (
+        <div
+          role="status"
+          style={{
+            position: "fixed",
+            zIndex: 10000,
+            left: "50%",
+            top: 12,
+            transform: "translateX(-50%)",
+            padding: "8px 14px",
+            borderRadius: 999,
+            background: "rgba(32, 28, 39, 0.94)",
+            color: "white",
+            fontSize: 13,
+            boxShadow: "0 8px 30px rgba(0, 0, 0, 0.3)",
+          }}
+        >
+          Your session expired.{" "}
+          <button
+            type="button"
+            onClick={SIGN_IN_TOAST_ACTION.onClick}
+            style={{
+              margin: 0,
+              padding: 0,
+              border: 0,
+              background: "transparent",
+              color: "inherit",
+              font: "inherit",
+              textDecoration: "underline",
+              cursor: "pointer",
+            }}
+          >
+            Sign in again
+          </button>{" "}
+          to reconnect your account.
+        </div>
+      ) : null}
+      <ModelCatalogUpdatedAtProvider>
+        <ChatRuntimeProvider
+          activeConversationId={conversationId}
+          isOnChatRoute={isOnChatRoute}
+          navigateToConversation={navigateToConversation}
+        >
+          <RootChrome conversationId={conversationId} />
+        </ChatRuntimeProvider>
+      </ModelCatalogUpdatedAtProvider>
+    </>
   );
 }
 

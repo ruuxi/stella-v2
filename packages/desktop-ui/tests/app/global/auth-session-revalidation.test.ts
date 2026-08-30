@@ -12,6 +12,15 @@ vi.mock("@/platform/electron/device", () => ({
 
 type AuthSessionModule = typeof import("@/global/auth/services/auth-session");
 
+const authenticated = (session: unknown) => ({
+  status: "authenticated" as const,
+  identityIntent:
+    (session as { user?: { isAnonymous?: boolean } }).user?.isAnonymous === true
+      ? ("anonymous" as const)
+      : ("connected" as const),
+  session,
+});
+
 const flush = async () => {
   await act(async () => {
     await Promise.resolve();
@@ -33,9 +42,14 @@ describe("desktop auth session revalidation", () => {
     vi.resetModules();
     nowMs = 10_000_000;
     vi.spyOn(Date, "now").mockImplementation(() => nowMs);
-    getAuthSession = vi.fn().mockResolvedValue({ user: { id: "u1" } });
+    getAuthSession = vi
+      .fn()
+      .mockResolvedValue(authenticated({ user: { id: "u1" } }));
     (window as unknown as { electronAPI?: unknown }).electronAPI = {
-      system: { getAuthSession },
+      system: {
+        getAuthSession,
+        signOutAuth: vi.fn().mockResolvedValue({ ok: true }),
+      },
     };
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -114,10 +128,12 @@ describe("desktop auth session revalidation", () => {
     const firstRevision = mod.getAuthSessionSnapshot().identityRevision;
     expect(firstRevision).toBeGreaterThan(0);
 
-    getAuthSession.mockResolvedValue({
-      user: { id: "u1" },
-      session: { id: "rotated-session" },
-    });
+    getAuthSession.mockResolvedValue(
+      authenticated({
+        user: { id: "u1" },
+        session: { id: "rotated-session" },
+      }),
+    );
     nowMs += 120_000;
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
@@ -125,7 +141,7 @@ describe("desktop auth session revalidation", () => {
     await flush();
     expect(mod.getAuthSessionSnapshot().identityRevision).toBe(firstRevision);
 
-    getAuthSession.mockResolvedValue({ user: { id: "u2" } });
+    getAuthSession.mockResolvedValue(authenticated({ user: { id: "u2" } }));
     nowMs += 120_000;
     await act(async () => {
       window.dispatchEvent(new Event("online"));
@@ -134,5 +150,58 @@ describe("desktop auth session revalidation", () => {
     expect(mod.getAuthSessionSnapshot().identityRevision).toBe(
       firstRevision + 1,
     );
+  });
+
+  it("keeps the connected identity visible when Electron IPC cannot return a verdict", async () => {
+    await mountHook();
+    const before = mod.getAuthSessionSnapshot();
+    getAuthSession.mockRejectedValue(new Error("IPC unavailable"));
+
+    await mod.refreshAuthSession({ silent: true });
+
+    expect(mod.getAuthSessionSnapshot()).toMatchObject({
+      status: "unknown",
+      data: { user: { id: "u1" } },
+      isPending: false,
+      identityRevision: before.identityRevision,
+    });
+  });
+
+  it("keeps the cached display identity while requiring reauthentication", async () => {
+    await mountHook();
+    getAuthSession.mockResolvedValue({
+      status: "reauth_required",
+      identityIntent: "connected",
+      staleSession: { user: { id: "u1" } },
+      reason: "session_rejected",
+    });
+
+    await mod.refreshAuthSession({ silent: true });
+
+    expect(mod.getAuthSessionSnapshot()).toMatchObject({
+      status: "reauth_required",
+      data: { user: { id: "u1" } },
+      isPending: false,
+    });
+  });
+
+  it("does not let a late refresh resurrect an identity after sign-out", async () => {
+    await mountHook();
+    let release!: (value: ReturnType<typeof authenticated>) => void;
+    const late = new Promise<ReturnType<typeof authenticated>>((resolve) => {
+      release = resolve;
+    });
+    getAuthSession.mockReturnValue(late);
+
+    const refresh = mod.refreshAuthSession({ silent: true });
+    await Promise.resolve();
+    await mod.signOutAuthSession();
+    release(authenticated({ user: { id: "late-user" } }));
+    await refresh;
+
+    expect(mod.getAuthSessionSnapshot()).toMatchObject({
+      status: "anonymous_required",
+      data: null,
+    });
   });
 });

@@ -1,9 +1,20 @@
 import { useEffect, useSyncExternalStore } from "react";
+import {
+  getAuthSessionIdentityIntent,
+  getAuthSnapshotSession,
+  isRecognizedAuthRejection,
+  resolveAuthSessionObservation,
+  type AuthSessionSnapshot,
+} from "@stella/contracts/auth-session";
 import { configurePiRuntime } from "@/platform/electron/device";
 import { authClient } from "@/global/auth/lib/auth-client";
 import {
   clearBrowserSessionToken,
+  readBrowserCachedSession,
+  readBrowserIdentityIntent,
   readBrowserSessionToken,
+  writeBrowserCachedSession,
+  writeBrowserIdentityIntent,
 } from "./auth-storage";
 import {
   consumeBrowserAuthHandoffToken,
@@ -16,6 +27,8 @@ import {
 } from "../lib/auth-session-scope";
 
 type AuthSessionResult = {
+  snapshot: AuthSessionSnapshot;
+  status: AuthSessionSnapshot["status"];
   data: unknown | null;
   isPending: boolean;
   error: Error | null;
@@ -24,30 +37,151 @@ type AuthSessionResult = {
 };
 
 let identityRevision = 0;
-let currentIdentityScope = resolveAuthSessionCacheScope(null);
+const initialCachedSession =
+  typeof window !== "undefined" && !window.electronAPI
+    ? readBrowserCachedSession()
+    : null;
+const initialIdentityIntent =
+  typeof window !== "undefined" && !window.electronAPI
+    ? (readBrowserIdentityIntent() ??
+      getAuthSessionIdentityIntent(initialCachedSession))
+    : null;
+let currentIdentityScope = resolveAuthSessionCacheScope(
+  initialCachedSession as AuthSessionScopeData,
+);
+if (initialCachedSession) identityRevision = 1;
+const initialSnapshot: AuthSessionSnapshot = {
+  status: "unknown",
+  identityIntent: initialIdentityIntent,
+  staleSession: initialCachedSession,
+  error: { kind: "ipc", message: "Auth session initialization is pending." },
+};
 let currentSession: AuthSessionResult = {
-  data: null,
-  isPending: true,
+  snapshot: initialSnapshot,
+  status: initialSnapshot.status,
+  data: initialCachedSession,
+  isPending: !initialCachedSession,
   error: null,
   identityRevision,
 };
 const listeners = new Set<() => void>();
 let inFlightRefresh: Promise<void> | null = null;
+let initialRefreshRequested = false;
 // Monotonic guard so a slow optimistic-then-revalidate sequence can never
 // clobber the result of a newer refresh (e.g. a sign-in fired mid-revalidation).
 let refreshVersion = 0;
+let browserRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let browserRetryAttempt = 0;
+let ipcRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let ipcRetryAttempt = 0;
 
-const setCurrentSession = (
-  next: Omit<AuthSessionResult, "identityRevision">,
-): void => {
+const browserErrorObservation = (error: unknown) => {
+  const value = error as {
+    status?: unknown;
+    statusCode?: unknown;
+    code?: unknown;
+    message?: unknown;
+  } | null;
+  const statusValue = value?.status ?? value?.statusCode;
+  const status =
+    typeof statusValue === "number"
+      ? statusValue
+      : typeof statusValue === "string"
+        ? Number.parseInt(statusValue, 10)
+        : undefined;
+  const code =
+    typeof value?.code === "string" ? value.code.slice(0, 80) : undefined;
+  if (isRecognizedAuthRejection({ status, code })) {
+    return { kind: "rejected" as const };
+  }
+  return {
+    kind: "unknown" as const,
+    error: {
+      kind: status ? ("http" as const) : ("network" as const),
+      message:
+        typeof value?.message === "string"
+          ? value.message.slice(0, 160)
+          : "Could not read the browser session.",
+      ...(status ? { status } : {}),
+      ...(code ? { code } : {}),
+    },
+  };
+};
+
+const setCurrentSession = (args: {
+  snapshot: AuthSessionSnapshot;
+  isPending?: boolean;
+}): void => {
+  const data = getAuthSnapshotSession(args.snapshot);
   const nextIdentity = advanceAuthIdentityRevision({
     currentScope: currentIdentityScope,
     currentRevision: identityRevision,
-    nextSessionData: next.data as AuthSessionScopeData,
+    nextSessionData: data as AuthSessionScopeData,
   });
   currentIdentityScope = nextIdentity.scope;
   identityRevision = nextIdentity.revision;
-  currentSession = { ...next, identityRevision };
+  currentSession = {
+    snapshot: args.snapshot,
+    status: args.snapshot.status,
+    data,
+    isPending: args.isPending ?? (args.snapshot.status === "unknown" && !data),
+    error:
+      args.snapshot.status === "unknown"
+        ? new Error(args.snapshot.error.message)
+        : null,
+    identityRevision,
+  };
+};
+
+const commitBrowserSnapshot = (snapshot: AuthSessionSnapshot): void => {
+  if (snapshot.status === "authenticated") {
+    writeBrowserIdentityIntent(snapshot.identityIntent);
+    writeBrowserCachedSession(snapshot.session);
+    browserRetryAttempt = 0;
+    if (browserRetryTimer) clearTimeout(browserRetryTimer);
+    browserRetryTimer = null;
+  } else if (snapshot.status === "reauth_required") {
+    clearBrowserSessionToken();
+    writeBrowserIdentityIntent("connected");
+  } else if (snapshot.status === "anonymous_required") {
+    clearBrowserSessionToken();
+    writeBrowserIdentityIntent("anonymous");
+    writeBrowserCachedSession(null);
+  }
+  setCurrentSession({ snapshot });
+};
+
+const scheduleBrowserRetry = (version: number): void => {
+  if (window.electronAPI || browserRetryTimer || !readBrowserSessionToken()) {
+    return;
+  }
+  const ceiling = Math.min(
+    60_000,
+    2_000 * 2 ** Math.min(browserRetryAttempt, 5),
+  );
+  browserRetryAttempt += 1;
+  const jitter = 0.8 + Math.random() * 0.4;
+  browserRetryTimer = setTimeout(
+    () => {
+      browserRetryTimer = null;
+      if (version === refreshVersion) void refreshAuthSession({ silent: true });
+    },
+    Math.round(ceiling * jitter),
+  );
+};
+
+const scheduleIpcRetry = (version: number): void => {
+  if (ipcRetryTimer) return;
+  const ceiling = Math.min(60_000, 2_000 * 2 ** Math.min(ipcRetryAttempt, 5));
+  ipcRetryAttempt += 1;
+  const jitter = 0.8 + Math.random() * 0.4;
+  ipcRetryTimer = setTimeout(
+    () => {
+      ipcRetryTimer = null;
+      if (version === refreshVersion) void refreshAuthSession({ silent: true });
+    },
+    Math.round(ceiling * jitter),
+  );
 };
 
 const emit = () => {
@@ -66,8 +200,8 @@ type RefreshOptions = {
   // Background revalidation (window focus / regain, network reconnect): keep the
   // last-known session visible instead of flipping `isPending` to true, so the
   // signed-in/out gating and UI don't flash "loading" while we re-check with the
-  // server. The committed result is still the authoritative revalidated session
-  // (it can downgrade to signed-out if the server rejected the session).
+  // server. The committed result only changes identity after a recognized
+  // server verdict; transport failures preserve the cached owner.
   silent?: boolean;
 };
 
@@ -85,11 +219,7 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
   const systemApi = window.electronAPI?.system;
   const version = ++refreshVersion;
   if (!options.silent) {
-    setCurrentSession({
-      data: currentSession.data,
-      isPending: true,
-      error: null,
-    });
+    setCurrentSession({ snapshot: currentSession.snapshot, isPending: true });
     emit();
   }
   if (!systemApi?.getAuthSession) {
@@ -97,23 +227,40 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
       .then(async () => {
         const result = await authClient.getSession();
         if (version !== refreshVersion) return;
-        setCurrentSession({
-          data: result.data ?? null,
-          isPending: false,
-          error: result.error
-            ? new Error(
-                result.error.message ?? "Could not read the browser session.",
-              )
-            : null,
+        const identityIntent =
+          readBrowserIdentityIntent() ??
+          getAuthSessionIdentityIntent(readBrowserCachedSession());
+        const snapshot = resolveAuthSessionObservation({
+          observation: result.error
+            ? browserErrorObservation(result.error)
+            : result.data === null || result.data === undefined
+              ? { kind: "no_session" }
+              : { kind: "authenticated", session: result.data },
+          identityIntent,
+          staleSession: readBrowserCachedSession(),
         });
+        commitBrowserSnapshot(snapshot);
+        if (snapshot.status === "unknown") scheduleBrowserRetry(version);
       })
       .catch((error) => {
         if (version !== refreshVersion) return;
-        setCurrentSession({
-          data: null,
-          isPending: false,
-          error: error instanceof Error ? error : new Error(String(error)),
+        const snapshot = resolveAuthSessionObservation({
+          observation: {
+            kind: "unknown",
+            error: {
+              kind: "network",
+              message: error instanceof Error ? error.message : String(error),
+            },
+          },
+          identityIntent:
+            readBrowserIdentityIntent() ??
+            currentSession.snapshot.identityIntent,
+          staleSession:
+            readBrowserCachedSession() ??
+            getAuthSnapshotSession(currentSession.snapshot),
         });
+        commitBrowserSnapshot(snapshot);
+        scheduleBrowserRetry(version);
       })
       .finally(() => {
         inFlightRefresh = null;
@@ -128,42 +275,49 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
     .then(async () => {
       // First read. With optimistic hydration the host may return a persisted
       // session immediately (no network) while it revalidates in the background.
-      const first = await systemApi.getAuthSession();
+      const first = await systemApi.getAuthSession({ allowCached });
       if (version !== refreshVersion) {
         return;
       }
-      if (allowCached && first) {
+      if (allowCached && getAuthSnapshotSession(first)) {
         // Surface the cached session right away (isPending:false) so Convex sees
         // isAuthenticated && !isLoading and starts fetching the access token /
         // running authenticated queries before get-session revalidation settles.
-        setCurrentSession({ data: first, isPending: false, error: null });
+        setCurrentSession({ snapshot: first, isPending: false });
         emit();
       }
       // Authoritative follow-up read. The host returns the revalidated session
       // here (joining its in-flight revalidation, or the recorded result),
-      // downgrading to null if it rejected the revalidation (401/403/404). This
-      // also protects authoritative callers (sign-in / link) from ever emitting
-      // a stale optimistic value: they skip the early emit above and only commit
-      // this revalidated result.
+      // moving to reauth/anonymous-required only after a recognized verdict.
+      // This also protects authoritative callers (sign-in / link) from ever
+      // emitting a stale optimistic value: they skip the early emit above and
+      // only commit this revalidated result.
       const revalidated = await systemApi.getAuthSession();
       if (version !== refreshVersion) {
         return;
       }
-      setCurrentSession({
-        data: revalidated,
-        isPending: false,
-        error: null,
-      });
+      setCurrentSession({ snapshot: revalidated, isPending: false });
+      ipcRetryAttempt = 0;
+      if (ipcRetryTimer) clearTimeout(ipcRetryTimer);
+      ipcRetryTimer = null;
     })
     .catch((error) => {
       if (version !== refreshVersion) {
         return;
       }
       setCurrentSession({
-        data: null,
-        isPending: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        snapshot: {
+          status: "unknown",
+          identityIntent: currentSession.snapshot.identityIntent,
+          staleSession: getAuthSnapshotSession(currentSession.snapshot),
+          error: {
+            kind: "ipc",
+            message: error instanceof Error ? error.message : String(error),
+          },
+        },
+        isPending: !currentSession.data,
       });
+      scheduleIpcRetry(version);
     })
     .finally(() => {
       inFlightRefresh = null;
@@ -253,8 +407,26 @@ export const waitForBrowserAuthHandoff =
 
 export const signInAnonymous = async () => {
   if (!window.electronAPI) {
+    if (
+      readBrowserSessionToken() ||
+      readBrowserIdentityIntent() === "connected"
+    ) {
+      throw new Error(
+        "Anonymous sign-in is not allowed while an existing identity is present.",
+      );
+    }
     const result = await authClient.signIn.anonymous();
     if (result.error) {
+      const failure = browserErrorObservation(result.error);
+      console.warn("[auth] Browser anonymous sign-in failed.", {
+        kind: failure.kind,
+        ...(failure.kind === "unknown"
+          ? {
+              status: failure.error.status,
+              code: failure.error.code,
+            }
+          : {}),
+      });
       throw new Error(
         result.error.message ?? "Could not start a browser session.",
       );
@@ -264,6 +436,7 @@ export const signInAnonymous = async () => {
         "The browser session token was not returned by the auth service.",
       );
     }
+    writeBrowserIdentityIntent("anonymous");
     await refreshAuthSession();
     if (!currentSession.data) {
       throw new Error(
@@ -287,6 +460,8 @@ export const signOutAuthSession = async () => {
     // no client able to sign it out.
     await authClient.signOut();
     clearBrowserSessionToken();
+    writeBrowserIdentityIntent("anonymous");
+    writeBrowserCachedSession(null);
   } else {
     if (!window.electronAPI.system.signOutAuth) {
       throw new Error("Desktop sign-out is unavailable.");
@@ -296,7 +471,14 @@ export const signOutAuthSession = async () => {
   // Invalidate any in-flight optimistic refresh so a late revalidated emit
   // can't resurrect the signed-out session.
   refreshVersion += 1;
-  setCurrentSession({ data: null, isPending: false, error: null });
+  setCurrentSession({
+    snapshot: {
+      status: "anonymous_required",
+      identityIntent: "anonymous",
+      reason: "explicit_sign_out",
+    },
+    isPending: false,
+  });
   emit();
 };
 
@@ -304,6 +486,8 @@ export const deleteAuthUser = async () => {
   if (!window.electronAPI) {
     await authClient.deleteUser();
     clearBrowserSessionToken();
+    writeBrowserIdentityIntent("anonymous");
+    writeBrowserCachedSession(null);
   } else {
     if (!window.electronAPI.system.deleteAuthUser) {
       throw new Error("Desktop account deletion is unavailable.");
@@ -311,7 +495,14 @@ export const deleteAuthUser = async () => {
     await window.electronAPI.system.deleteAuthUser();
   }
   refreshVersion += 1;
-  setCurrentSession({ data: null, isPending: false, error: null });
+  setCurrentSession({
+    snapshot: {
+      status: "anonymous_required",
+      identityIntent: "anonymous",
+      reason: "explicit_sign_out",
+    },
+    isPending: false,
+  });
   emit();
 };
 
@@ -398,13 +589,10 @@ export function useDesktopAuthSession() {
   // waits for an OTT handoff to settle so an older cached/anonymous identity is
   // never surfaced while the intended account exchange is still in flight.
   useEffect(() => {
-    if (currentSession.isPending && !inFlightRefresh) {
-      void waitForBrowserAuthHandoff().then((handoff) => {
-        if (
-          handoff !== "failed" &&
-          currentSession.isPending &&
-          !inFlightRefresh
-        ) {
+    if (!initialRefreshRequested) {
+      initialRefreshRequested = true;
+      void waitForBrowserAuthHandoff().then(() => {
+        if (!inFlightRefresh) {
           void refreshAuthSession({ allowCached: true });
         }
       });

@@ -108,6 +108,88 @@ describe("browser auth session handoff", () => {
     });
   });
 
+  it("preserves the existing identity when a magic-link handoff fails", async () => {
+    window.localStorage.setItem(
+      "stella_auth_cached_session",
+      JSON.stringify({ user: { id: "existing-owner", isAnonymous: false } }),
+    );
+    window.localStorage.setItem("stella_auth_identity_intent", "connected");
+    window.localStorage.setItem(
+      "better-auth_session_token",
+      "existing.bearer.token",
+    );
+    window.history.replaceState(null, "", "/cloud#ott=short");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const mod = await import("@/global/auth/services/auth-session");
+
+    expect(await mod.waitForBrowserAuthHandoff()).toBe("failed");
+    expect(mod.getAuthSessionSnapshot()).toMatchObject({
+      status: "unknown",
+      data: { user: { id: "existing-owner" } },
+      isPending: false,
+    });
+    expect(window.localStorage.getItem("better-auth_session_token")).toBe(
+      "existing.bearer.token",
+    );
+  });
+
+  it("requires reauthentication only for a recognized browser rejection", async () => {
+    window.localStorage.setItem(
+      "stella_auth_cached_session",
+      JSON.stringify({ user: { id: "existing-owner", isAnonymous: false } }),
+    );
+    window.localStorage.setItem("stella_auth_identity_intent", "connected");
+    window.localStorage.setItem(
+      "better-auth_session_token",
+      "existing.bearer.token",
+    );
+    authMocks.getSession.mockResolvedValue({
+      data: null,
+      error: {
+        status: 401,
+        code: "SESSION_EXPIRED",
+        message: "Session expired",
+      },
+    });
+
+    const mod = await import("@/global/auth/services/auth-session");
+    await mod.refreshAuthSession();
+
+    expect(mod.getAuthSessionSnapshot()).toMatchObject({
+      status: "reauth_required",
+      data: { user: { id: "existing-owner" } },
+    });
+    expect(window.localStorage.getItem("better-auth_session_token")).toBeNull();
+  });
+
+  it("treats an unrecognized browser 404 as stale, not signed out", async () => {
+    window.localStorage.setItem(
+      "stella_auth_cached_session",
+      JSON.stringify({ user: { id: "existing-owner", isAnonymous: false } }),
+    );
+    window.localStorage.setItem("stella_auth_identity_intent", "connected");
+    window.localStorage.setItem(
+      "better-auth_session_token",
+      "existing.bearer.token",
+    );
+    authMocks.getSession.mockResolvedValue({
+      data: null,
+      error: { status: 404, code: "NOT_FOUND", message: "Missing route" },
+    });
+
+    const mod = await import("@/global/auth/services/auth-session");
+    await mod.refreshAuthSession();
+
+    expect(mod.getAuthSessionSnapshot()).toMatchObject({
+      status: "unknown",
+      data: { user: { id: "existing-owner" } },
+    });
+    expect(window.localStorage.getItem("better-auth_session_token")).toBe(
+      "existing.bearer.token",
+    );
+  });
+
   it("does not accept an OTT from the query string", async () => {
     window.history.replaceState(
       null,

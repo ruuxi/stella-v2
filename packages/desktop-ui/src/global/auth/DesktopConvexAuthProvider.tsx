@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { canBootstrapAnonymous } from "@stella/contracts/auth-session";
 import {
   createContext,
   useCallback,
@@ -23,7 +24,8 @@ import {
 } from "@/global/auth/services/auth-session";
 import { convexClient } from "@/platform/convex/convex-client";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
-import { decideAutomaticAnonymousBootstrap } from "./browser-auth-handoff";
+import { SIGN_IN_TOAST_ACTION } from "@/shared/lib/auth-cta";
+import { showToast } from "@/ui/toast";
 
 const CONVEX_TOKEN_ISSUER = readConfiguredConvexSiteUrl(
   import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
@@ -40,6 +42,7 @@ export type AuthBootstrapStatus =
   | "loading_session"
   | "creating_anonymous_session"
   | "ready"
+  | "reauth_required"
   | "failed";
 
 type AuthBootstrapState = {
@@ -144,9 +147,11 @@ export function useDesktopConvexAuth() {
 
 function DesktopAuthRuntimeEffects({
   retryAttempt,
+  scheduleRetry,
   setAuthBootstrapState,
 }: {
   retryAttempt: number;
+  scheduleRetry: () => void;
   setAuthBootstrapState: (state: AuthBootstrapState) => void;
 }) {
   const session = useDesktopAuthSession();
@@ -160,24 +165,29 @@ function DesktopAuthRuntimeEffects({
     }
 
     let cancelled = false;
-    void decideAutomaticAnonymousBootstrap(waitForBrowserAuthHandoff(), () =>
-      Boolean(getAuthSessionSnapshot().data),
-    ).then(async (decision) => {
+    let retryTimer: number | null = null;
+    void waitForBrowserAuthHandoff().then(async (handoff) => {
       if (cancelled) return;
-      if (decision === "handoff_failed") {
-        setAuthBootstrapState({
-          status: "failed",
-          error: "Stella could not finish browser sign-in. Please try again.",
+      if (handoff === "failed") {
+        showToast({
+          title: "Couldn’t finish sign in",
+          description:
+            "Your existing Stella session is still active. You can try signing in again.",
+          variant: "error",
+          action: SIGN_IN_TOAST_ACTION,
         });
-        return;
       }
 
       // Re-read after the handoff barrier instead of trusting the render-time
       // snapshot. The OTT exchange and the cold-start revalidation can both
       // finish while this effect is waiting.
       const snapshot = getAuthSessionSnapshot();
-      if (snapshot.isPending) {
+      if (snapshot.isPending && !snapshot.data) {
         setAuthBootstrapState({ status: "loading_session", error: null });
+        return;
+      }
+      if (snapshot.status === "reauth_required") {
+        setAuthBootstrapState({ status: "reauth_required", error: null });
         return;
       }
       if (snapshot.data) {
@@ -200,6 +210,11 @@ function DesktopAuthRuntimeEffects({
         return;
       }
 
+      if (!canBootstrapAnonymous(snapshot.snapshot)) {
+        setAuthBootstrapState({ status: "loading_session", error: null });
+        return;
+      }
+
       if (attemptedAnonAuthRef.current) return;
       attemptedAnonAuthRef.current = true;
       setAuthBootstrapState({
@@ -208,23 +223,29 @@ function DesktopAuthRuntimeEffects({
       });
       try {
         await signInAnonymous();
-      } catch (error) {
+      } catch {
         if (cancelled) return;
         attemptedAnonAuthRef.current = false;
         setAuthBootstrapState({
-          status: "failed",
-          error:
-            error instanceof Error
-              ? error.message
-              : "Stella could not create an anonymous cloud session.",
+          status: "loading_session",
+          error: null,
         });
+        retryTimer = window.setTimeout(scheduleRetry, 2_000);
       }
     });
 
     return () => {
       cancelled = true;
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
-  }, [retryAttempt, session.data, session.isPending, setAuthBootstrapState]);
+  }, [
+    retryAttempt,
+    scheduleRetry,
+    session.data,
+    session.isPending,
+    session.status,
+    setAuthBootstrapState,
+  ]);
 
   useEffect(() => {
     const systemApi = window.electronAPI?.system;
@@ -237,9 +258,9 @@ function DesktopAuthRuntimeEffects({
     void systemApi.setCloudSyncEnabled({ enabled: true });
   }, []);
 
-  // Main pushes this when it discovers the stored bearer is gone or rejected
-  // (local sign-out, revoked session). Drop the cached Convex JWT and re-read
-  // the session so the shell converges instead of holding a dead identity.
+  // Main pushes this when a background retry reaches a new verdict. Drop the
+  // cached Convex JWT and re-read the snapshot so the shell converges without
+  // interpreting the notification itself as a sign-out.
   useEffect(() => {
     const systemApi = window.electronAPI?.system;
     if (!systemApi?.onAuthSessionInvalidated) {
@@ -275,6 +296,9 @@ export function DesktopConvexAuthProvider({
           },
     );
   const [retryAttempt, setRetryAttempt] = useState(0);
+  const scheduleRetry = useCallback(() => {
+    setRetryAttempt((attempt) => attempt + 1);
+  }, []);
   const retryAuthBootstrap = useCallback(() => {
     clearCachedToken();
     setAuthBootstrapState({ status: "loading_session", error: null });
@@ -299,6 +323,7 @@ export function DesktopConvexAuthProvider({
           {enableRuntimeEffects ? (
             <DesktopAuthRuntimeEffects
               retryAttempt={retryAttempt}
+              scheduleRetry={scheduleRetry}
               setAuthBootstrapState={setAuthBootstrapState}
             />
           ) : null}

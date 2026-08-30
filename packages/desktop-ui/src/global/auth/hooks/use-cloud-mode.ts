@@ -59,6 +59,7 @@ export function useCloudMode() {
     ownerSubject,
     identityRevision: session.identityRevision,
     error: authBootstrap.error,
+    authBootstrapStatus: authBootstrap.status,
     retryAuthBootstrap: authBootstrap.retryAuthBootstrap,
   };
 }

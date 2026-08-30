@@ -618,7 +618,9 @@ export type ElectronSystemApi = {
     convexUrl?: string;
     convexSiteUrl?: string;
   }) => Promise<{ deviceId: string | null }>;
-  getAuthSession: () => Promise<unknown | null>;
+  getAuthSession: (options?: {
+    allowCached?: boolean;
+  }) => Promise<import("@stella/contracts/auth-session").AuthSessionSnapshot>;
   signInAnonymous: () => Promise<unknown>;
   signOutAuth: () => Promise<{ ok: boolean }>;
   deleteAuthUser: () => Promise<{ ok: boolean }>;

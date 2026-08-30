@@ -1066,7 +1066,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       convexUrl?: string;
       convexSiteUrl?: string;
     }) => ipcRenderer.invoke("host:configurePiRuntime", config),
-    getAuthSession: () => ipcRenderer.invoke(IPC_AUTH_GET_SESSION),
+    getAuthSession: (options?: { allowCached?: boolean }) =>
+      ipcRenderer.invoke(IPC_AUTH_GET_SESSION, options),
     signInAnonymous: () => ipcRenderer.invoke(IPC_AUTH_SIGN_IN_ANONYMOUS),
     signOutAuth: () =>
       ipcRenderer.invoke(IPC_AUTH_SIGN_OUT) as Promise<{ ok: boolean }>,

@@ -549,11 +549,13 @@ export const registerSystemHandlers = (options) => {
         }
         return { deviceId: options.getDeviceId() };
     });
-    ipcMain.handle(IPC_AUTH_GET_SESSION, async (event) => {
+    ipcMain.handle(IPC_AUTH_GET_SESSION, async (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "auth:getSession")) {
             throw new Error("Blocked untrusted auth session request.");
         }
-        return await options.authService.getBetterAuthSession();
+        return await options.authService.getAuthSessionSnapshot({
+            allowCached: payload?.allowCached === true,
+        });
     });
     ipcMain.handle(IPC_AUTH_SIGN_IN_ANONYMOUS, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "auth:signInAnonymous")) {

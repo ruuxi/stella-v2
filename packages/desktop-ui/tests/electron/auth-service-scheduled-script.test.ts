@@ -33,6 +33,8 @@ import { AuthService } from "@stella/desktop/electron/services/auth-service.js";
 
 const SITE_URL = "https://example.convex.site";
 const BEARER_KEY = "better-auth_session_token";
+const SESSION_KEY = "better-auth_session_data";
+const IDENTITY_INTENT_KEY = "auth_identity_intent";
 
 const createJwt = (expiresAtSeconds: number, label = "signature") =>
   [
@@ -229,7 +231,10 @@ describe("AuthService main-process token authority", () => {
     installAuthRoutes({
       "/convex/token": () => json({ token: futureJwt() }),
       "/get-session": () =>
-        json({ user: { id: "anon", isAnonymous: true }, session: { id: "s1" } }),
+        json({
+          user: { id: "anon", isAnonymous: true },
+          session: { id: "s1" },
+        }),
     });
     configure(service);
     service.setAuthStorageItem(BEARER_KEY, "bearer-anon");
@@ -271,14 +276,23 @@ describe("AuthService main-process token authority", () => {
     expect(runner.setAuthToken).toHaveBeenLastCalledWith(connectedToken);
   });
 
-  it("clears the credential and pushes an invalidation when the bearer is rejected", async () => {
+  it("requires reauthentication and pushes an invalidation when a connected bearer is rejected", async () => {
     const { onSessionInvalidated, runner, service } = createService();
     installAuthRoutes({
-      "/convex/token": () => new Response("nope", { status: 401 }),
+      "/convex/token": () =>
+        json(
+          { code: "UNAUTHORIZED", message: "Session expired" },
+          { status: 401 },
+        ),
       "/get-session": connectedSession,
     });
     configure(service);
     service.setAuthStorageItem(BEARER_KEY, "bearer-revoked");
+    service.setAuthStorageItem(IDENTITY_INTENT_KEY, "connected");
+    service.setAuthStorageItem(
+      SESSION_KEY,
+      JSON.stringify({ user: { id: "u1" }, session: { id: "s1" } }),
+    );
 
     await expect(service.refreshRuntimeAuth()).resolves.toEqual({
       authenticated: false,
@@ -344,6 +358,33 @@ describe("AuthService main-process token authority", () => {
     expect(handedToRunner.filter(Boolean)).toEqual([]);
   });
 
+  it("does not let a late session verdict overwrite a newer sign-out", async () => {
+    const { service } = createService();
+    const gate: { release: (() => void) | null } = { release: null };
+    installAuthRoutes({
+      "/get-session": async () => {
+        await new Promise<void>((resolve) => {
+          gate.release = resolve;
+        });
+        return connectedSession();
+      },
+      "/sign-out": () => json({ ok: true }),
+    });
+    configure(service);
+    service.setAuthStorageItem(BEARER_KEY, "bearer-1");
+    service.setAuthStorageItem(IDENTITY_INTENT_KEY, "connected");
+
+    const inflight = service.getAuthSessionSnapshot();
+    await vi.waitFor(() => expect(gate.release).not.toBeNull());
+    await service.signOut();
+    gate.release?.();
+
+    await expect(inflight).resolves.toMatchObject({
+      status: "anonymous_required",
+      reason: "explicit_sign_out",
+    });
+  });
+
   it("remints on power resume when the cached token has gone stale", async () => {
     const { service } = createService();
     const minted: string[] = [];
@@ -379,5 +420,162 @@ describe("AuthService main-process token authority", () => {
       hasConnectedAccount: false,
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["network", () => Promise.reject(new TypeError("fetch failed"))],
+    ["http 500", () => json({ code: "UPSTREAM_FAILURE" }, { status: 500 })],
+    ["route 404", () => json({ code: "NOT_FOUND" }, { status: 404 })],
+    [
+      "malformed 200",
+      () =>
+        new Response("{", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    ],
+  ])("keeps a connected cached identity stale on %s", async (_label, route) => {
+    const { onSessionInvalidated, service } = createService();
+    installAuthRoutes({ "/get-session": route });
+    configure(service);
+    service.setAuthStorageItem(BEARER_KEY, "bearer-1");
+    service.setAuthStorageItem(IDENTITY_INTENT_KEY, "connected");
+    service.setAuthStorageItem(
+      SESSION_KEY,
+      JSON.stringify({ user: { id: "u1" }, session: { id: "s1" } }),
+    );
+
+    await expect(service.getAuthSessionSnapshot()).resolves.toMatchObject({
+      status: "unknown",
+      identityIntent: "connected",
+      staleSession: { user: { id: "u1" } },
+    });
+    expect(onSessionInvalidated).not.toHaveBeenCalled();
+    await expect(service.signInAnonymous()).rejects.toThrow(
+      "Anonymous sign-in is not allowed",
+    );
+    service.stopAuthRefreshLoop();
+  });
+
+  it("turns a recognized connected-session rejection into reauth, never anonymous", async () => {
+    const { service } = createService();
+    const anonymousSignIns = vi.fn();
+    installAuthRoutes({
+      "/get-session": () => json({ code: "SESSION_EXPIRED" }, { status: 401 }),
+      "/sign-in/anonymous": anonymousSignIns,
+    });
+    configure(service);
+    service.setAuthStorageItem(BEARER_KEY, "bearer-1");
+    service.setAuthStorageItem(IDENTITY_INTENT_KEY, "connected");
+    service.setAuthStorageItem(
+      SESSION_KEY,
+      JSON.stringify({ user: { id: "u1" }, session: { id: "s1" } }),
+    );
+
+    await expect(service.getAuthSessionSnapshot()).resolves.toMatchObject({
+      status: "reauth_required",
+      identityIntent: "connected",
+      staleSession: { user: { id: "u1" } },
+    });
+    await expect(service.signInAnonymous()).rejects.toThrow(
+      "Anonymous sign-in is not allowed",
+    );
+    expect(anonymousSignIns).not.toHaveBeenCalled();
+  });
+
+  it("replaces a definitively dead anonymous identity exactly once", async () => {
+    const { service } = createService();
+    let replacementCreated = false;
+    const anonymousSignIn = vi.fn(() => {
+      replacementCreated = true;
+      return json(
+        { ok: true },
+        { headers: { "set-auth-token": "bearer-anon-2" } },
+      );
+    });
+    installAuthRoutes({
+      "/get-session": () =>
+        replacementCreated
+          ? json({
+              user: { id: "anon-2", isAnonymous: true },
+              session: { id: "s2" },
+            })
+          : json({ code: "INVALID_SESSION" }, { status: 401 }),
+      "/sign-in/anonymous": anonymousSignIn,
+      "/convex/token": () => json({ token: futureJwt("anon-2") }),
+    });
+    configure(service);
+    service.setAuthStorageItem(BEARER_KEY, "bearer-anon-1");
+    service.setAuthStorageItem(IDENTITY_INTENT_KEY, "anonymous");
+    service.setAuthStorageItem(
+      SESSION_KEY,
+      JSON.stringify({
+        user: { id: "anon-1", isAnonymous: true },
+        session: { id: "s1" },
+      }),
+    );
+
+    await expect(service.getAuthSessionSnapshot()).resolves.toMatchObject({
+      status: "anonymous_required",
+      reason: "anonymous_rejected",
+    });
+    await service.signInAnonymous();
+    expect(anonymousSignIn).toHaveBeenCalledTimes(1);
+    await expect(service.getAuthSessionSnapshot()).resolves.toMatchObject({
+      status: "authenticated",
+      identityIntent: "anonymous",
+    });
+  });
+
+  it("allows first install to create exactly one anonymous identity", async () => {
+    const { service } = createService();
+    const anonymousSignIn = vi.fn(() =>
+      json({ ok: true }, { headers: { "set-auth-token": "bearer-anon" } }),
+    );
+    installAuthRoutes({
+      "/sign-in/anonymous": anonymousSignIn,
+      "/convex/token": () => json({ token: futureJwt("anon") }),
+      "/get-session": () =>
+        json({
+          user: { id: "anon", isAnonymous: true },
+          session: { id: "s1" },
+        }),
+    });
+    configure(service);
+
+    await expect(service.getAuthSessionSnapshot()).resolves.toMatchObject({
+      status: "anonymous_required",
+      reason: "first_install",
+    });
+    await service.signInAnonymous();
+    expect(anonymousSignIn).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows explicit sign-out to create exactly one anonymous identity", async () => {
+    const { service } = createService();
+    const anonymousSignIn = vi.fn(() =>
+      json({ ok: true }, { headers: { "set-auth-token": "bearer-anon" } }),
+    );
+    installAuthRoutes({
+      "/sign-out": () => json({ ok: true }),
+      "/sign-in/anonymous": anonymousSignIn,
+      "/convex/token": () => json({ token: futureJwt("anon") }),
+      "/get-session": () =>
+        json({
+          user: { id: "anon", isAnonymous: true },
+          session: { id: "s-anon" },
+        }),
+    });
+    configure(service);
+    service.setAuthStorageItem(BEARER_KEY, "bearer-connected");
+    service.setAuthStorageItem(IDENTITY_INTENT_KEY, "connected");
+
+    await service.signOut();
+    await expect(service.getAuthSessionSnapshot()).resolves.toMatchObject({
+      status: "anonymous_required",
+      reason: "explicit_sign_out",
+    });
+    await service.signInAnonymous();
+    expect(anonymousSignIn).toHaveBeenCalledTimes(1);
   });
 });

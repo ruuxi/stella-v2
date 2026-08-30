@@ -12,6 +12,17 @@ import path from "node:path";
 import type { PiRunnerTarget } from "@stella/runtime/kernel/lifecycle-targets";
 import { readConfiguredConvexSiteUrl } from "@stella/contracts/convex-urls";
 import {
+  getAuthSessionIdentityIntent,
+  getAuthSnapshotSession,
+  isRecognizedAuthRejection,
+  resolveAuthSessionObservation,
+  resolveMissingCredentialSnapshot,
+  type AuthIdentityIntent,
+  type AuthSessionError,
+  type AuthSessionObservation,
+  type AuthSessionSnapshot,
+} from "@stella/contracts/auth-session";
+import {
   deleteProtectedValue,
   protectValue,
   unprotectValue,
@@ -30,6 +41,9 @@ const HOST_AUTH_TOKEN_SCHEDULE_FALLBACK_MS = 3 * 60 * 1000;
 const HOST_AUTH_TOKEN_RETRY_BASE_MS = 5_000;
 const HOST_AUTH_TOKEN_RETRY_MAX_MS = 5 * 60 * 1000;
 const HOST_AUTH_TOKEN_RETRY_JITTER = 0.2;
+const SESSION_REFRESH_RETRY_BASE_MS = 2_000;
+const SESSION_REFRESH_RETRY_MAX_MS = 60_000;
+const SESSION_REFRESH_RETRY_JITTER = 0.2;
 /**
  * Every `/api/auth` call is bounded. A hung request used to be able to wedge
  * the single-flight mint promise, which then blocked every later caller.
@@ -40,6 +54,8 @@ const AUTH_STORAGE_FILE = "better-auth-storage.json";
 const BETTER_AUTH_SESSION_DATA_STORAGE_KEY = "better-auth_session_data";
 /** The one opaque Better Auth bearer. The only credential stored on disk. */
 const BETTER_AUTH_TOKEN_STORAGE_KEY = "better-auth_session_token";
+/** Non-secret owner intent. Missing credentials may not erase this decision. */
+const AUTH_IDENTITY_INTENT_STORAGE_KEY = "auth_identity_intent";
 /**
  * The last known Convex site URL. `configurePiRuntime` is driven by the
  * renderer, so without this the main process could not mint on its own before
@@ -49,6 +65,48 @@ const BETTER_AUTH_TOKEN_STORAGE_KEY = "better-auth_session_token";
 const CONVEX_SITE_URL_STORAGE_KEY = "convex_site_url";
 const AUTH_BASE_PATH = "/api/auth";
 const DESKTOP_AUTH_ORIGIN = "http://127.0.0.1:57314";
+
+const boundedString = (
+  value: unknown,
+  maxLength: number,
+): string | undefined =>
+  typeof value === "string" && value.trim()
+    ? value.trim().slice(0, maxLength)
+    : undefined;
+
+const readAuthFailure = async (
+  response: Response,
+): Promise<{ error: AuthSessionError; isRecognizedRejection: boolean }> => {
+  const requestId = boundedString(
+    response.headers.get("x-request-id") ??
+      response.headers.get("x-convex-request-id"),
+    128,
+  );
+  let code: string | undefined;
+  let message: string | undefined;
+  if (response.headers.get("content-type")?.includes("application/json")) {
+    const body = (await response.json().catch(() => null)) as {
+      code?: unknown;
+      message?: unknown;
+      error?: { code?: unknown };
+    } | null;
+    code = boundedString(body?.code ?? body?.error?.code, 80)?.toUpperCase();
+    message = boundedString(body?.message, 160);
+  }
+  return {
+    isRecognizedRejection: isRecognizedAuthRejection({
+      status: response.status,
+      code,
+    }),
+    error: {
+      kind: "http",
+      status: response.status,
+      ...(code ? { code } : {}),
+      ...(requestId ? { requestId } : {}),
+      message: message ?? `Auth request failed with HTTP ${response.status}.`,
+    },
+  };
+};
 
 const decodeBase64UrlJson = (value: string): unknown => {
   try {
@@ -67,9 +125,8 @@ type AuthServiceOptions = {
   onAuthCallback: (url: string) => void;
   onSecondInstanceFocus: () => void;
   /**
-   * The stored bearer was rejected by the server, so this device is signed
-   * out locally. Renderers learn about it from this push rather than by
-   * polling, because nothing they did triggered it.
+   * Main reached a new auth verdict while no renderer request was pending.
+   * Renderers re-read the discriminated snapshot after this push.
    */
   onSessionInvalidated?: () => void;
 };
@@ -84,6 +141,10 @@ export class AuthService {
   private hostAuthTokenMintPromise: Promise<string | null> | null = null;
   private hostAuthTokenRefreshTimer: ReturnType<typeof setTimeout> | null =
     null;
+  private sessionRefreshRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private sessionRefreshPromise: Promise<AuthSessionSnapshot> | null = null;
+  private sessionRefreshRetryAttempt = 0;
+  private lastSessionSnapshot: AuthSessionSnapshot | null = null;
   private pendingCredentialResync = false;
   private credentialResyncPromise: Promise<void> | null = null;
   private trailingResyncPromise: Promise<void> | null = null;
@@ -207,12 +268,41 @@ export class AuthService {
     this.hostAuthToken = null;
   }
 
+  private clearBearerPreservingCachedIdentity() {
+    this.invalidateCredentialEpoch();
+    this.setAuthStorageItem(BETTER_AUTH_TOKEN_STORAGE_KEY, null);
+    this.hostAuthToken = null;
+  }
+
   private invalidateCredentialEpoch() {
     this.credentialEpoch += 1;
   }
 
   private getBearerToken(): string {
     return this.getAuthStorageItem(BETTER_AUTH_TOKEN_STORAGE_KEY)?.trim() ?? "";
+  }
+
+  private getStoredSession(): unknown | null {
+    const stored = this.getAuthStorageItem(
+      BETTER_AUTH_SESSION_DATA_STORAGE_KEY,
+    );
+    if (!stored) return null;
+    try {
+      const parsed = JSON.parse(stored) as unknown;
+      return getAuthSessionIdentityIntent(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private getIdentityIntent(): AuthIdentityIntent | null {
+    const stored = this.getAuthStorageItem(AUTH_IDENTITY_INTENT_STORAGE_KEY);
+    if (stored === "anonymous" || stored === "connected") return stored;
+    return getAuthSessionIdentityIntent(this.getStoredSession());
+  }
+
+  private setIdentityIntent(intent: AuthIdentityIntent) {
+    this.setAuthStorageItem(AUTH_IDENTITY_INTENT_STORAGE_KEY, intent);
   }
 
   /**
@@ -312,49 +402,177 @@ export class AuthService {
     this.setHostHasConnectedAccount(!isAnonymous);
   }
 
-  private async fetchBetterAuthSessionFromNetwork(): Promise<unknown | null> {
-    const response = await this.authFetch("/get-session", {
-      method: "GET",
-      headers: { accept: "application/json" },
-    });
-    if (
-      response.status === 401 ||
-      response.status === 403 ||
-      response.status === 404
-    ) {
-      this.setAuthStorageItem(BETTER_AUTH_SESSION_DATA_STORAGE_KEY, null);
-      this.applySessionDerivedState(null);
-      return null;
+  private async fetchBetterAuthSessionFromNetwork(): Promise<AuthSessionObservation> {
+    let response: Response;
+    try {
+      response = await this.authFetch("/get-session", {
+        method: "GET",
+        headers: { accept: "application/json" },
+      });
+    } catch (error) {
+      return {
+        kind: "unknown",
+        error: {
+          kind: "network",
+          message:
+            error instanceof Error
+              ? error.message.slice(0, 160)
+              : "The auth service could not be reached.",
+        },
+      };
     }
     if (!response.ok) {
-      // Deliberately thrown rather than downgraded: a 5xx says nothing about
-      // whether the session is still valid, and treating it as a sign-out
-      // would cost the user their session over an upstream blip.
-      throw new Error(`Session request failed with HTTP ${response.status}.`);
+      const failure = await readAuthFailure(response);
+      if (failure.isRecognizedRejection) return { kind: "rejected" };
+      console.warn("[auth] Session verification did not return a verdict.", {
+        status: failure.error.status,
+        code: failure.error.code,
+        requestId: failure.error.requestId,
+      });
+      return { kind: "unknown", error: failure.error };
     }
-    const data = await response.json().catch(() => null);
-    if (data) {
+    if (response.status === 204) return { kind: "no_session" };
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      return {
+        kind: "unknown",
+        error: {
+          kind: "malformed",
+          message: "The auth service returned malformed session data.",
+        },
+      };
+    }
+    return data === null
+      ? { kind: "no_session" }
+      : { kind: "authenticated", session: data };
+  }
+
+  private clearSessionRetryTimer() {
+    if (!this.sessionRefreshRetryTimer) return;
+    clearTimeout(this.sessionRefreshRetryTimer);
+    this.sessionRefreshRetryTimer = null;
+  }
+
+  private scheduleSessionRetry() {
+    if (this.sessionRefreshRetryTimer || !this.getBearerToken()) return;
+    const ceiling = Math.min(
+      SESSION_REFRESH_RETRY_MAX_MS,
+      SESSION_REFRESH_RETRY_BASE_MS *
+        2 ** Math.min(this.sessionRefreshRetryAttempt, 5),
+    );
+    this.sessionRefreshRetryAttempt += 1;
+    const jitter = 1 + (Math.random() * 2 - 1) * SESSION_REFRESH_RETRY_JITTER;
+    const timer = setTimeout(
+      () => {
+        this.sessionRefreshRetryTimer = null;
+        void this.revalidateAuthSession().then((snapshot) => {
+          if (snapshot.status !== "unknown") this.notifySessionInvalidated();
+        });
+      },
+      Math.round(ceiling * jitter),
+    );
+    timer.unref?.();
+    this.sessionRefreshRetryTimer = timer;
+  }
+
+  private commitSessionSnapshot(snapshot: AuthSessionSnapshot) {
+    this.lastSessionSnapshot = snapshot;
+    if (snapshot.status === "authenticated") {
+      this.setIdentityIntent(snapshot.identityIntent);
       this.setAuthStorageItem(
         BETTER_AUTH_SESSION_DATA_STORAGE_KEY,
-        JSON.stringify(data),
+        JSON.stringify(snapshot.session),
       );
+      this.applySessionDerivedState(snapshot.session);
+      this.sessionRefreshRetryAttempt = 0;
+      this.clearSessionRetryTimer();
+    } else if (snapshot.status === "unknown") {
+      this.scheduleSessionRetry();
+    } else if (snapshot.status === "reauth_required") {
+      this.clearBearerPreservingCachedIdentity();
+      this.stopAuthRefreshLoop();
     } else {
-      // Authenticated-but-empty means no active session.
-      this.setAuthStorageItem(BETTER_AUTH_SESSION_DATA_STORAGE_KEY, null);
+      this.setIdentityIntent("anonymous");
+      this.clearStoredCredentials();
+      this.stopAuthRefreshLoop();
     }
-    this.applySessionDerivedState(data ?? null);
-    return data;
+    return snapshot;
+  }
+
+  private async revalidateAuthSession(): Promise<AuthSessionSnapshot> {
+    if (this.sessionRefreshPromise) return await this.sessionRefreshPromise;
+    const epoch = this.credentialEpoch;
+    const identityIntent = this.getIdentityIntent();
+    const staleSession = this.getStoredSession();
+    const pending = (async () => {
+      if (!this.getBearerToken()) {
+        return this.commitSessionSnapshot(
+          resolveMissingCredentialSnapshot({ identityIntent, staleSession }),
+        );
+      }
+      const observation = await this.fetchBetterAuthSessionFromNetwork();
+      if (epoch !== this.credentialEpoch) {
+        return (
+          this.lastSessionSnapshot ??
+          resolveMissingCredentialSnapshot({
+            identityIntent: this.getIdentityIntent(),
+            staleSession: this.getStoredSession(),
+          })
+        );
+      }
+      return this.commitSessionSnapshot(
+        resolveAuthSessionObservation({
+          observation,
+          identityIntent,
+          staleSession,
+        }),
+      );
+    })().finally(() => {
+      if (this.sessionRefreshPromise === pending) {
+        this.sessionRefreshPromise = null;
+      }
+    });
+    this.sessionRefreshPromise = pending;
+    return await pending;
+  }
+
+  async getAuthSessionSnapshot(options: { allowCached?: boolean } = {}) {
+    const identityIntent = this.getIdentityIntent();
+    const staleSession = this.getStoredSession();
+    if (!this.getBearerToken()) {
+      return this.commitSessionSnapshot(
+        resolveMissingCredentialSnapshot({ identityIntent, staleSession }),
+      );
+    }
+    if (options.allowCached && staleSession) {
+      const optimistic: AuthSessionSnapshot = {
+        status: "unknown",
+        identityIntent,
+        staleSession,
+        error: {
+          kind: "network",
+          message: "Session verification is pending.",
+        },
+      };
+      this.lastSessionSnapshot = optimistic;
+      void this.revalidateAuthSession();
+      return optimistic;
+    }
+    return await this.revalidateAuthSession();
   }
 
   async getBetterAuthSession(): Promise<unknown | null> {
-    if (!this.getBearerToken()) {
-      this.applySessionDerivedState(null);
-      return null;
-    }
-    return await this.fetchBetterAuthSessionFromNetwork();
+    return getAuthSnapshotSession(await this.getAuthSessionSnapshot());
   }
 
   async signInAnonymous() {
+    if (this.getBearerToken() || this.getIdentityIntent() === "connected") {
+      throw new Error(
+        "Anonymous sign-in is not allowed while an existing credential or connected identity exists.",
+      );
+    }
     const response = await this.authFetch("/sign-in/anonymous", {
       method: "POST",
       headers: {
@@ -364,9 +582,16 @@ export class AuthService {
       body: JSON.stringify({}),
     });
     if (!response.ok) {
+      const failure = await readAuthFailure(response);
+      console.warn("[auth] Anonymous sign-in failed.", {
+        status: failure.error.status,
+        code: failure.error.code,
+        requestId: failure.error.requestId,
+      });
       throw new Error(`Anonymous sign-in failed with HTTP ${response.status}.`);
     }
     const body = await response.json().catch(() => ({ ok: true }));
+    this.setIdentityIntent("anonymous");
     await this.resyncAfterCredentialChange();
     return body;
   }
@@ -386,8 +611,14 @@ export class AuthService {
       );
       return null;
     });
+    this.setIdentityIntent("anonymous");
     this.clearStoredCredentials();
     this.stopAuthRefreshLoop();
+    this.lastSessionSnapshot = resolveMissingCredentialSnapshot({
+      identityIntent: "anonymous",
+      staleSession: null,
+      anonymousReason: "explicit_sign_out",
+    });
     return { ok: response?.ok !== false };
   }
 
@@ -403,8 +634,14 @@ export class AuthService {
     if (!response.ok) {
       throw new Error(`Account deletion failed with HTTP ${response.status}.`);
     }
+    this.setIdentityIntent("anonymous");
     this.clearStoredCredentials();
     this.stopAuthRefreshLoop();
+    this.lastSessionSnapshot = resolveMissingCredentialSnapshot({
+      identityIntent: "anonymous",
+      staleSession: null,
+      anonymousReason: "explicit_sign_out",
+    });
     return { ok: true };
   }
 
@@ -421,16 +658,19 @@ export class AuthService {
     if (!normalized) {
       throw new Error("Missing session token.");
     }
+    this.setIdentityIntent("connected");
     this.setAuthStorageItem(BETTER_AUTH_TOKEN_STORAGE_KEY, normalized);
+    this.lastSessionSnapshot = {
+      status: "unknown",
+      identityIntent: "connected",
+      staleSession: this.getStoredSession(),
+      error: { kind: "network", message: "Session verification is pending." },
+    };
     await this.resyncAfterCredentialChange();
     return { ok: true };
   }
 
-  /**
-   * A 401/403 is a verdict about the credential; anything else is noise. The
-   * previous shape collapsed every failure to `null`, so a device whose
-   * session had been revoked kept being served its stale cached JWT.
-   */
+  /** Only a recognized invalid-session response is an identity verdict. */
   async getConvexAuthTokenResult(): Promise<
     | { ok: true; token: string }
     | { ok: false; reason: "unauthorized" | "http" | "network" }
@@ -444,10 +684,16 @@ export class AuthService {
     } catch {
       return { ok: false, reason: "network" };
     }
-    if (response.status === 401 || response.status === 403) {
-      return { ok: false, reason: "unauthorized" };
-    }
     if (!response.ok) {
+      const failure = await readAuthFailure(response);
+      if (failure.isRecognizedRejection) {
+        return { ok: false, reason: "unauthorized" };
+      }
+      console.warn("[auth] Convex token mint did not return a verdict.", {
+        status: failure.error.status,
+        code: failure.error.code,
+        requestId: failure.error.requestId,
+      });
       return { ok: false, reason: "http" };
     }
     const data = (await response.json().catch(() => null)) as {
@@ -515,6 +761,7 @@ export class AuthService {
     const runner = this.options.runnerTarget.getRunner();
     this.invalidateCredentialEpoch();
     this.clearHostAuthTokenRefreshTimer();
+    this.clearSessionRetryTimer();
     this.pendingCredentialResync = false;
     this.refreshRetryAttempt = 0;
     this.sessionStateDerived = false;
@@ -673,12 +920,17 @@ export class AuthService {
           return result.token;
         }
         if (result.reason === "unauthorized") {
-          // The server rejected the bearer itself (revoked, deleted, or
-          // rotated out). Keeping it would leave the user in a state where
-          // every call fails but the UI still claims a session.
-          console.info("[auth] Stored session rejected; signing out locally.");
-          this.clearStoredCredentials();
-          this.stopAuthRefreshLoop();
+          // Preserve connected identity intent and cached display identity;
+          // only anonymous identities may rotate into a new anonymous owner.
+          const snapshot = resolveAuthSessionObservation({
+            observation: { kind: "rejected" },
+            identityIntent: this.getIdentityIntent(),
+            staleSession: this.getStoredSession(),
+          });
+          console.info("[auth] Stored session was affirmatively rejected.", {
+            nextStatus: snapshot.status,
+          });
+          this.commitSessionSnapshot(snapshot);
           this.notifySessionInvalidated();
         }
         return null;
@@ -811,10 +1063,13 @@ export class AuthService {
 
   private armHostAuthTokenRefresh(delayMs: number) {
     this.clearHostAuthTokenRefreshTimer();
-    const timer = setTimeout(() => {
-      this.hostAuthTokenRefreshTimer = null;
-      void this.runScheduledHostAuthRefresh();
-    }, Math.max(0, delayMs));
+    const timer = setTimeout(
+      () => {
+        this.hostAuthTokenRefreshTimer = null;
+        void this.runScheduledHostAuthRefresh();
+      },
+      Math.max(0, delayMs),
+    );
     timer.unref?.();
     this.hostAuthTokenRefreshTimer = timer;
   }
@@ -823,7 +1078,8 @@ export class AuthService {
   private armHostAuthTokenRetry() {
     const ceiling = Math.min(
       HOST_AUTH_TOKEN_RETRY_MAX_MS,
-      HOST_AUTH_TOKEN_RETRY_BASE_MS * 2 ** Math.min(this.refreshRetryAttempt, 8),
+      HOST_AUTH_TOKEN_RETRY_BASE_MS *
+        2 ** Math.min(this.refreshRetryAttempt, 8),
     );
     this.refreshRetryAttempt += 1;
     const jitter = 1 + (Math.random() * 2 - 1) * HOST_AUTH_TOKEN_RETRY_JITTER;

@@ -197,15 +197,21 @@ const seedConversation = async (
   return conversationId;
 };
 
-const registerReadyDesktop = async (t: TestHarness) => {
+const registerReadyDesktop = async (
+  t: TestHarness,
+  options: { extraCapabilities?: readonly string[] } = {},
+) => {
   const signer = createDeviceProofs();
   const capabilities = [
-    "agent",
-    "chat",
-    "computer-use",
-    "local-apps",
-    "local-files",
-  ] as const;
+    ...new Set([
+      "agent",
+      "chat",
+      "computer-use",
+      "local-apps",
+      "local-files",
+      ...(options.extraCapabilities ?? []),
+    ]),
+  ].sort();
   const body = hashBody([
     signer.publicKey,
     protocolVersion,
@@ -252,9 +258,14 @@ const submitMobile = async (
     idempotencyKey: string;
     prompt?: string;
     subject?: "portable" | "computer" | "cloud";
+    attachments?: readonly string[];
+    requiredCapabilities?: readonly string[];
   },
 ) => {
-  const payloadJson = JSON.stringify({ prompt: args.prompt ?? "hello" });
+  const payloadJson = JSON.stringify({
+    prompt: args.prompt ?? "hello",
+    ...(args.attachments ? { attachments: args.attachments } : {}),
+  });
   return await t.mutation(refs.submitInternal, {
     ownerId,
     ownerGeneration,
@@ -267,7 +278,7 @@ const submitMobile = async (
     conversationId: args.conversationId,
     requestingDeviceId: mobileDeviceId,
     pairGrantDeviceId: deviceId,
-    requiredCapabilities: [],
+    requiredCapabilities: args.requiredCapabilities ?? [],
     now: Date.now(),
   });
 };
@@ -2812,5 +2823,183 @@ describe("automatic execution placement", () => {
         .length,
     }));
     expect(after).toEqual({ ...before, presence: 0 });
+  });
+});
+
+/**
+ * Placement is invisible to the user, so a turn's attachments have to survive
+ * both routes identically. These assert the envelope's own identity: the same
+ * payload bytes reach the desktop claimant and the cloud turn row, and neither
+ * route may quietly shorten the list the payload hash covers.
+ */
+describe("chat attachments across both placements", () => {
+  const IMAGE = "uploads/2026-08-29/receipt.png";
+  const DOCUMENT = "uploads/2026-08-29/lease.pdf";
+  const attachments = [IMAGE, DOCUMENT];
+
+  it("hands the desktop claimant the exact attachment list it was sent", async () => {
+    const t = createTest();
+    const conversationId = await seedConversation(t, "conv-attach-computer");
+    const signer = await registerReadyDesktop(t, {
+      extraCapabilities: ["attachments"],
+    });
+    const dispatch = await submitMobile(t, {
+      conversationId,
+      idempotencyKey: "mobile:attach-computer",
+      prompt: "is this rent legal",
+      subject: "computer",
+      attachments,
+      requiredCapabilities: ["chat", "attachments"],
+    });
+    expect(dispatch).toMatchObject({
+      state: "offering",
+      subject: "computer",
+    });
+    const claimed = await claim(t, signer, dispatch.dispatchId);
+    expect(JSON.parse(claimed.result.payloadJson)).toEqual({
+      prompt: "is this rent legal",
+      attachments,
+    });
+    expect(claimed.result.payloadHash).toBe(sha256(claimed.result.payloadJson));
+  });
+
+  it("carries the same list into the cloud turn when no computer claims it", async () => {
+    const t = createTest();
+    const conversationId = await seedConversation(t, "conv-attach-cloud");
+    const dispatch = await submitMobile(t, {
+      conversationId,
+      idempotencyKey: "mobile:attach-cloud",
+      prompt: "is this rent legal",
+      subject: "computer",
+      attachments,
+      requiredCapabilities: ["chat", "attachments"],
+    });
+    expect(dispatch).toMatchObject({
+      state: "cloud_committed",
+      placement: "cloud",
+      fallbackReason: "no-eligible-paired-computer",
+    });
+    await t.action(refs.executeCloud, {
+      ownerId,
+      ownerGeneration,
+      dispatchId: dispatch.dispatchId,
+    });
+    await t.run(async (ctx) => {
+      const turns = await ctx.db
+        .query("agent_turns")
+        .withIndex("by_ownerId_and_clientMsgId", (q) =>
+          q.eq("ownerId", ownerId).eq("clientMsgId", dispatch.dispatchId),
+        )
+        .collect();
+      expect(turns).toHaveLength(1);
+      const scheduled = await ctx.db.system
+        .query("_scheduled_functions")
+        .collect();
+      expect(
+        scheduled.find((entry) =>
+          entry.name.includes("runOrchestratorTurnInternal"),
+        )?.args[0],
+      ).toMatchObject({
+        conversationId,
+        turnId: turns[0]?.turnId,
+        prompt: "is this rent legal",
+        clientMsgId: dispatch.dispatchId,
+        attachments,
+      });
+    });
+  });
+
+  it("still runs the turn on a desktop that predates attachment support, by using the cloud", async () => {
+    const t = createTest();
+    const conversationId = await seedConversation(t, "conv-attach-old-desktop");
+    // A desktop registered without "attachments" is reachable and ready; it
+    // simply cannot resolve a drive path. Gating the capability rather than
+    // bumping the protocol version keeps it eligible for text-only turns.
+    await registerReadyDesktop(t);
+    const dispatch = await submitMobile(t, {
+      conversationId,
+      idempotencyKey: "mobile:attach-old-desktop",
+      subject: "computer",
+      attachments: [IMAGE],
+      requiredCapabilities: ["chat", "attachments"],
+    });
+    expect(dispatch).toMatchObject({
+      state: "cloud_committed",
+      placement: "cloud",
+      subject: "computer",
+    });
+    await t.action(refs.executeCloud, {
+      ownerId,
+      ownerGeneration,
+      dispatchId: dispatch.dispatchId,
+    });
+    expect(
+      await asOwner(t).query(refs.status, { dispatchId: dispatch.dispatchId }),
+    ).toMatchObject({ state: "cloud_running" });
+
+    const textOnly = await submitMobile(t, {
+      conversationId,
+      idempotencyKey: "mobile:attach-old-desktop-text",
+      subject: "computer",
+    });
+    expect(textOnly).toMatchObject({ state: "offering" });
+  });
+
+  it("fails the turn rather than truncating an over-budget list", async () => {
+    const t = createTest();
+    const conversationId = await seedConversation(t, "conv-attach-over-budget");
+    const dispatch = await submitMobile(t, {
+      conversationId,
+      idempotencyKey: "mobile:attach-over-budget",
+      subject: "portable",
+      attachments: Array.from(
+        { length: 5 },
+        (_, index) => `uploads/2026-08-29/p${index}.png`,
+      ),
+    });
+    expect(dispatch).toMatchObject({ state: "cloud_committed" });
+    await t.action(refs.executeCloud, {
+      ownerId,
+      ownerGeneration,
+      dispatchId: dispatch.dispatchId,
+    });
+    expect(
+      await asOwner(t).query(refs.status, { dispatchId: dispatch.dispatchId }),
+    ).toMatchObject({
+      state: "failed",
+      errorMessage: "A chat turn may carry at most 4 attachments.",
+    });
+    await t.run(async (ctx) => {
+      expect(
+        await ctx.db
+          .query("agent_turns")
+          .withIndex("by_ownerId_and_clientMsgId", (q) =>
+            q.eq("ownerId", ownerId).eq("clientMsgId", dispatch.dispatchId),
+          )
+          .collect(),
+      ).toHaveLength(0);
+    });
+  });
+
+  it("fails a path that could never resolve to a drive row", async () => {
+    const t = createTest();
+    const conversationId = await seedConversation(t, "conv-attach-bad-path");
+    const dispatch = await submitMobile(t, {
+      conversationId,
+      idempotencyKey: "mobile:attach-bad-path",
+      subject: "portable",
+      attachments: ["uploads/../../etc/passwd"],
+    });
+    await t.action(refs.executeCloud, {
+      ownerId,
+      ownerGeneration,
+      dispatchId: dispatch.dispatchId,
+    });
+    expect(
+      await asOwner(t).query(refs.status, { dispatchId: dispatch.dispatchId }),
+    ).toMatchObject({
+      state: "failed",
+      errorMessage: "A chat attachment does not name a drive file.",
+    });
   });
 });

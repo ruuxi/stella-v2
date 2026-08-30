@@ -17,18 +17,16 @@ const makeDb = (): DatabaseSync => {
   const db = new DatabaseSync(":memory:");
   databases.push(db);
   db.exec(`
-    CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
-    CREATE TABLE message (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
+    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER);
+    CREATE TABLE entry (
+      conversation_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      id TEXT NOT NULL,
       role TEXT NOT NULL,
       type TEXT NOT NULL,
-      created_at INTEGER NOT NULL
-    );
-    CREATE TABLE part (
-      id TEXT PRIMARY KEY,
-      message_id TEXT NOT NULL,
-      data_json TEXT NOT NULL
+      search_text TEXT,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (conversation_id, seq)
     );
   `);
   return db;
@@ -37,22 +35,21 @@ const makeDb = (): DatabaseSync => {
 describe("Recall read queries", () => {
   it("expands multiple transcript hits in one batched query", () => {
     const db = makeDb();
-    const insertMessage = db.prepare(
-      "INSERT INTO message (id, session_id, role, type, created_at) VALUES (?, ?, ?, ?, ?)",
+    const insertEntry = db.prepare(
+      `INSERT INTO entry (conversation_id, seq, id, role, type, search_text, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
-    const insertPart = db.prepare(
-      "INSERT INTO part (id, message_id, data_json) VALUES (?, ?, ?)",
-    );
-    for (const [id, atMs, text] of [
-      ["m1", 100, "before one"],
-      ["m2", 200, "hit one"],
-      ["m3", 300, "after one"],
-      ["m4", 1_000, "before two"],
-      ["m5", 1_100, "hit two"],
-      ["m6", 1_200, "after two"],
-    ] as const) {
-      insertMessage.run(id, "conv-1", "user", "user_message", atMs);
-      insertPart.run(`p-${id}`, id, JSON.stringify({ text }));
+    for (const [index, [id, atMs, text]] of (
+      [
+        ["m1", 100, "before one"],
+        ["m2", 200, "hit one"],
+        ["m3", 300, "after one"],
+        ["m4", 1_000, "before two"],
+        ["m5", 1_100, "hit two"],
+        ["m6", 1_200, "after two"],
+      ] as const
+    ).entries()) {
+      insertEntry.run("conv-1", index + 1, id, "user", "user_message", text, atMs);
     }
 
     const rows = listTranscriptNeighborsBatch(
@@ -70,7 +67,7 @@ describe("Recall read queries", () => {
     ]);
   });
 
-  it("reports missing or unbackfilled FTS instead of permitting LIKE fallback", () => {
+  it("reports missing or unbuilt FTS instead of permitting LIKE fallback", () => {
     const db = makeDb();
     expect(readRecallFtsHealth(db as never)).toMatchObject({
       healthy: false,
@@ -82,11 +79,9 @@ describe("Recall read queries", () => {
   it("proves MATCH execution instead of trusting table names and flags", () => {
     const db = makeDb();
     db.exec(`
-      CREATE TABLE message_text_fts (text TEXT);
-      CREATE TABLE thread_search_fts (text TEXT);
-      INSERT INTO settings (key, value) VALUES
-        ('transcript_fts_backfilled_v1', '1'),
-        ('thread_search_fts_backfilled_v2', '1');
+      CREATE TABLE entry_fts (search_text TEXT);
+      CREATE TABLE thread_fts (search_text TEXT);
+      INSERT INTO meta (key, value, updated_at) VALUES ('fts_ready', '1', 0);
     `);
 
     expect(readRecallFtsHealth(db as never)).toMatchObject({
@@ -102,11 +97,9 @@ describe("Recall read queries", () => {
   it("reports healthy only when both FTS indexes execute MATCH", () => {
     const db = makeDb();
     db.exec(`
-      CREATE VIRTUAL TABLE message_text_fts USING fts5(text);
-      CREATE VIRTUAL TABLE thread_search_fts USING fts5(text);
-      INSERT INTO settings (key, value) VALUES
-        ('transcript_fts_backfilled_v1', '1'),
-        ('thread_search_fts_backfilled_v2', '1');
+      CREATE VIRTUAL TABLE entry_fts USING fts5(search_text);
+      CREATE VIRTUAL TABLE thread_fts USING fts5(search_text);
+      INSERT INTO meta (key, value, updated_at) VALUES ('fts_ready', '1', 0);
     `);
 
     expect(readRecallFtsHealth(db as never)).toEqual({

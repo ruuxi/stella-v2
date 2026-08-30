@@ -1,4 +1,18 @@
+/**
+ * Ephemeral stream-resume buffer for in-flight runs.
+ *
+ * This is 30-minute scratch state, so it lives in its own database file
+ * (`stella-runs.sqlite`) instead of churning the durable store's WAL. The
+ * table is created idempotently by the constructor; there is no migration
+ * history to keep for a buffer whose contents expire within the hour.
+ */
+
+import path from "node:path";
+import { createRequire } from "node:module";
+import { ensurePrivateDirSync } from "../shared/private-fs.js";
 import type { SqliteDatabase, SqliteStatement } from "./shared.js";
+
+const RUN_EVENT_DB_FILE = "stella-runs.sqlite";
 
 export type RunEventRecord = {
   runId: string;
@@ -15,6 +29,27 @@ export type BufferedRunRecord = {
 };
 
 const DEFAULT_RETENTION_MS = 30 * 60 * 1000;
+
+export const getRunEventDatabasePath = (stellaDataDir: string): string =>
+  path.join(stellaDataDir, RUN_EVENT_DB_FILE);
+
+/** Open (or create) the ephemeral run-event database. */
+export const openRunEventDatabase = (stellaDataDir: string): SqliteDatabase => {
+  ensurePrivateDirSync(stellaDataDir);
+  const runtimeRequire = createRequire(import.meta.url);
+  const sqliteModule = runtimeRequire(
+    process.versions.bun ? "bun:sqlite" : "node:sqlite",
+  );
+  const Database = sqliteModule.Database ?? sqliteModule.DatabaseSync;
+  if (!Database) {
+    throw new Error("No compatible SQLite runtime is available.");
+  }
+  const db = new Database(getRunEventDatabasePath(stellaDataDir)) as SqliteDatabase;
+  db.exec("PRAGMA journal_mode = WAL;");
+  db.exec("PRAGMA synchronous = NORMAL;");
+  db.exec("PRAGMA busy_timeout = 5000;");
+  return db;
+};
 
 type Statements = {
   insert: SqliteStatement;
@@ -38,6 +73,19 @@ export class RunEventLog {
       sweepIntervalMs?: number;
     } = {},
   ) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS run_event_log (
+        run_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (run_id, seq)
+      );
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_run_event_log_created
+      ON run_event_log(created_at);
+    `);
     this.statements = {
       insert: db.prepare(`
         INSERT OR IGNORE INTO run_event_log (run_id, seq, payload_json, created_at)
@@ -76,7 +124,7 @@ export class RunEventLog {
       try {
         this.sweepExpired();
       } catch {
-
+        /* the next sweep retries */
       }
     }, intervalMs);
     this.sweepTimer.unref?.();
@@ -90,54 +138,50 @@ export class RunEventLog {
     }
   }
 
-  listBufferedRuns(): Array<{
-    runId: string;
-    conversationId: string;
-    updatedAt: number;
-    hasTerminalEvent: boolean;
-  }> {
+  listBufferedRuns(): BufferedRunRecord[] {
     if (this.disposed) return [];
     const rows = this.db
-      .prepare(`
-        SELECT run_id, seq, payload_json, created_at
-        FROM run_event_log
-        ORDER BY created_at DESC, seq DESC
-      `)
+      .prepare(
+        `SELECT
+           run_id,
+           MAX(created_at) AS updated_at,
+           MAX(
+             CASE WHEN json_extract(payload_json, '$.type') = 'run-finished'
+             THEN 1 ELSE 0 END
+           ) AS has_terminal,
+           (
+             SELECT json_extract(inner.payload_json, '$.conversationId')
+             FROM run_event_log AS inner
+             WHERE inner.run_id = run_event_log.run_id
+               AND json_type(inner.payload_json, '$.conversationId') = 'text'
+             ORDER BY inner.created_at DESC, inner.seq DESC
+             LIMIT 1
+           ) AS conversation_id
+         FROM run_event_log
+         GROUP BY run_id
+         ORDER BY updated_at DESC`,
+      )
       .all() as Array<{
       run_id: string;
-      seq: number;
-      payload_json: string;
-      created_at: number;
+      updated_at: number;
+      has_terminal: number;
+      conversation_id: string | null;
     }>;
-    const byRun = new Map<string, BufferedRunRecord>();
-    for (const row of rows) {
-      try {
-        const parsed = JSON.parse(row.payload_json) as {
-          conversationId?: unknown;
-          type?: unknown;
-        };
-        const existing = byRun.get(row.run_id);
-        const conversationId =
-          typeof parsed.conversationId === "string"
-            ? parsed.conversationId.trim()
-            : "";
-        if (!existing && conversationId) {
-          byRun.set(row.run_id, {
-            runId: row.run_id,
-            conversationId,
-            updatedAt: row.created_at,
-            hasTerminalEvent: parsed.type === "run-finished",
-          });
-        } else if (existing) {
-          existing.hasTerminalEvent =
-            existing.hasTerminalEvent || parsed.type === "run-finished";
-          existing.updatedAt = Math.max(existing.updatedAt, row.created_at);
-        }
-      } catch {
-
-      }
-    }
-    return [...byRun.values()].sort((left, right) => right.updatedAt - left.updatedAt);
+    return rows.flatMap((row) => {
+      const conversationId =
+        typeof row.conversation_id === "string"
+          ? row.conversation_id.trim()
+          : "";
+      if (!conversationId) return [];
+      return [
+        {
+          runId: row.run_id,
+          conversationId,
+          updatedAt: row.updated_at,
+          hasTerminalEvent: row.has_terminal === 1,
+        },
+      ];
+    });
   }
 
   append(args: {
@@ -181,9 +225,7 @@ export class RunEventLog {
       | undefined;
     const oldest = oldestRow?.min_seq ?? null;
     const exhausted =
-      oldest != null &&
-      Number.isFinite(args.lastSeq) &&
-      args.lastSeq < oldest - 1;
+      oldest != null && Number.isFinite(args.lastSeq) && args.lastSeq < oldest - 1;
 
     const rows = this.statements.selectAfter.all(runId, args.lastSeq) as Array<{
       seq: number;

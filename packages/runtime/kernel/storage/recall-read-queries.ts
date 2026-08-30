@@ -1,4 +1,4 @@
-import type { TranscriptSearchHit } from "./runtime-store.js";
+import type { TranscriptSearchHit } from "./search.js";
 import type { SqliteDatabase } from "./shared.js";
 
 const TRANSCRIPT_TEXT_CAP = 4_000;
@@ -12,7 +12,7 @@ export type RecallFtsHealth = {
 
 const probeRecallFtsMatch = (
   db: SqliteDatabase,
-  table: "message_text_fts" | "thread_search_fts",
+  table: "entry_fts" | "thread_fts",
 ): string | undefined => {
   try {
     db.prepare(`SELECT rowid FROM ${table} WHERE ${table} MATCH ? LIMIT 1`).get(
@@ -29,31 +29,23 @@ export const readRecallFtsHealth = (db: SqliteDatabase): RecallFtsHealth => {
     const tableRows = db
       .prepare(
         `SELECT name FROM sqlite_master
-         WHERE type = 'table' AND name IN ('message_text_fts', 'thread_search_fts')`,
+         WHERE type = 'table' AND name IN ('entry_fts', 'thread_fts')`,
       )
       .all() as Array<{ name?: string }>;
     const tables = new Set(tableRows.map((row) => row.name));
-    const flagRows = db
-      .prepare(
-        `SELECT key FROM settings
-         WHERE key IN ('transcript_fts_backfilled_v1', 'thread_search_fts_backfilled_v2')`,
-      )
-      .all() as Array<{ key?: string }>;
-    const flags = new Set(flagRows.map((row) => row.key));
-    const transcriptProbeError = tables.has("message_text_fts")
-      ? probeRecallFtsMatch(db, "message_text_fts")
+    const readyRow = db
+      .prepare("SELECT value FROM meta WHERE key = 'fts_ready'")
+      .get() as { value?: string } | undefined;
+    const indexed = readyRow?.value === "1";
+    const transcriptProbeError = tables.has("entry_fts")
+      ? probeRecallFtsMatch(db, "entry_fts")
       : undefined;
-    const threadProbeError = tables.has("thread_search_fts")
-      ? probeRecallFtsMatch(db, "thread_search_fts")
+    const threadProbeError = tables.has("thread_fts")
+      ? probeRecallFtsMatch(db, "thread_fts")
       : undefined;
     const transcriptReady =
-      tables.has("message_text_fts") &&
-      flags.has("transcript_fts_backfilled_v1") &&
-      !transcriptProbeError;
-    const threadsReady =
-      tables.has("thread_search_fts") &&
-      flags.has("thread_search_fts_backfilled_v2") &&
-      !threadProbeError;
+      tables.has("entry_fts") && indexed && !transcriptProbeError;
+    const threadsReady = tables.has("thread_fts") && indexed && !threadProbeError;
     return {
       healthy: transcriptReady && threadsReady,
       transcriptReady,
@@ -64,12 +56,12 @@ export const readRecallFtsHealth = (db: SqliteDatabase): RecallFtsHealth => {
               !transcriptReady
                 ? transcriptProbeError
                   ? `transcript FTS MATCH probe failed: ${transcriptProbeError}`
-                  : "transcript FTS missing or not backfilled"
+                  : "transcript FTS missing or not built"
                 : "",
               !threadsReady
                 ? threadProbeError
                   ? `thread FTS MATCH probe failed: ${threadProbeError}`
-                  : "thread FTS missing or not backfilled"
+                  : "thread FTS missing or not built"
                 : "",
             ]
               .filter(Boolean)
@@ -123,24 +115,21 @@ export const listTranscriptNeighborsBatch = (
        ), ranked AS (
          SELECT
            targets.target_index AS targetIndex,
-           message.session_id AS conversationId,
-           message.role AS role,
-           message.created_at AS atMs,
-           substr(json_extract(part.data_json, '$.text'), 1, ${TRANSCRIPT_TEXT_CAP}) AS text,
-           CASE WHEN message.created_at < targets.target_ms THEN 'before' ELSE 'after' END AS side,
+           entry.conversation_id AS conversationId,
+           entry.role AS role,
+           entry.created_at AS atMs,
+           substr(entry.search_text, 1, ${TRANSCRIPT_TEXT_CAP}) AS text,
+           CASE WHEN entry.created_at < targets.target_ms THEN 'before' ELSE 'after' END AS side,
            ROW_NUMBER() OVER (
              PARTITION BY targets.target_index,
-               CASE WHEN message.created_at < targets.target_ms THEN 'before' ELSE 'after' END
-             ORDER BY ABS(message.created_at - targets.target_ms) ASC
+               CASE WHEN entry.created_at < targets.target_ms THEN 'before' ELSE 'after' END
+             ORDER BY ABS(entry.created_at - targets.target_ms) ASC
            ) AS distanceRank
          FROM targets
-         JOIN message ON message.session_id = targets.conversation_id
-         JOIN part ON part.message_id = message.id
-         WHERE message.role IN ('user', 'assistant')
-           AND message.type IN ('user_message', 'assistant_message')
-           AND json_extract(part.data_json, '$.text') IS NOT NULL
-           AND message.created_at != targets.target_ms
-           AND message.created_at BETWEEN targets.target_ms - ? AND targets.target_ms + ?
+         JOIN entry ON entry.conversation_id = targets.conversation_id
+         WHERE entry.search_text IS NOT NULL
+           AND entry.created_at != targets.target_ms
+           AND entry.created_at BETWEEN targets.target_ms - ? AND targets.target_ms + ?
        )
        SELECT targetIndex, conversationId, role, atMs, text
        FROM ranked
@@ -153,7 +142,7 @@ export const listTranscriptNeighborsBatch = (
   for (const row of rows) {
     const text = typeof row.text === "string" ? row.text.trim() : "";
     if (!text || !grouped[row.targetIndex]) continue;
-    grouped[row.targetIndex].push({
+    grouped[row.targetIndex]!.push({
       conversationId: row.conversationId,
       role: row.role === "assistant" ? "assistant" : "user",
       atMs: row.atMs,

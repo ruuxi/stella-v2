@@ -12,6 +12,7 @@ import {
   SessionStore,
 } from "@stella/runtime/kernel/storage/session-store";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
+import { rebuildSearchIndexes } from "@stella/runtime/kernel/storage/schema";
 
 type TestContext = {
   rootPath: string;
@@ -199,7 +200,11 @@ describe("searchTranscripts", () => {
 describe("transcript FTS index", () => {
   const ftsRowCount = (db: SqliteDatabase): number =>
     (
-      db.prepare("SELECT COUNT(*) AS count FROM message_text_fts").get() as {
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM entry WHERE search_text IS NOT NULL",
+        )
+        .get() as {
         count: number;
       }
     ).count;
@@ -264,7 +269,7 @@ describe("transcript FTS index", () => {
     );
     expect(store.searchTranscripts({ query: "zanzibar" })).toHaveLength(1);
 
-    db.prepare("DELETE FROM session WHERE id = ?").run("conv-1");
+    db.prepare("DELETE FROM conversation WHERE id = ?").run("conv-1");
 
     expect(store.searchTranscripts({ query: "zanzibar" })).toEqual([]);
     expect(ftsRowCount(db)).toBe(0);
@@ -280,13 +285,10 @@ describe("transcript FTS index", () => {
       1_000,
     );
 
-    db.exec("DELETE FROM message_text_fts;");
-    db.prepare("DELETE FROM settings WHERE key = ?").run(
-      "transcript_fts_backfilled_v1",
-    );
+    db.exec("INSERT INTO entry_fts(entry_fts, rank) VALUES ('delete-all', 0);");
     expect(store.searchTranscripts({ query: "torque" })).toEqual([]);
 
-    initializeDesktopDatabase(db);
+    rebuildSearchIndexes(db);
 
     expect(ftsRowCount(db)).toBe(1);
     expect(
@@ -303,10 +305,10 @@ describe("transcript FTS index", () => {
       "the secret is zanzibar",
       1_000,
     );
-    db.exec("DROP TRIGGER trg_message_text_fts_part_insert;");
-    db.exec("DROP TRIGGER trg_message_text_fts_part_update;");
-    db.exec("DROP TRIGGER trg_message_text_fts_part_delete;");
-    db.exec("DROP TABLE message_text_fts;");
+    db.exec("DROP TRIGGER trg_entry_fts_insert;");
+    db.exec("DROP TRIGGER trg_entry_fts_update;");
+    db.exec("DROP TRIGGER trg_entry_fts_delete;");
+    db.exec("DROP TABLE entry_fts;");
 
     const fallbackStore = new SessionStore(db);
 

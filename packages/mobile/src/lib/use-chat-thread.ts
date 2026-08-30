@@ -24,6 +24,7 @@ import {
   isAttachmentReady,
   uploadChatAttachment,
   withAttachmentPreamble,
+  withAttachmentStatus,
   CHAT_ATTACHMENT_MAX_COUNT,
   type ComposerAttachment,
   type PickedAttachment,
@@ -376,14 +377,6 @@ export function useChatThread(opts: {
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
-  const patchAttachment = useCallback(
-    (id: string, next: (current: ComposerAttachment) => ComposerAttachment) => {
-      setAttachments((current) =>
-        current.map((entry) => (entry.id === id ? next(entry) : entry)),
-      );
-    },
-    [],
-  );
   /**
    * Uploads a pick immediately rather than at send time. A failure therefore
    * lands while the composer still holds the draft and the chip, so there is
@@ -401,24 +394,26 @@ export function useChatThread(opts: {
         readFile: async (uri) => await new File(uri).bytes(),
       })
         .then((drivePath) => {
-          patchAttachment(picked.id, (entry) => ({
-            ...entry,
-            status: "ready",
-            drivePath,
-          }));
+          setAttachments((current) =>
+            withAttachmentStatus(current, picked.id, {
+              status: "ready",
+              drivePath,
+            }),
+          );
         })
         .catch((error: unknown) => {
-          patchAttachment(picked.id, (entry) => ({
-            ...entry,
-            status: "failed",
-            message:
-              error instanceof Error && error.message
-                ? error.message
-                : t("chat.attachments.uploadFailed"),
-          }));
+          setAttachments((current) =>
+            withAttachmentStatus(current, picked.id, {
+              status: "failed",
+              message:
+                error instanceof Error && error.message
+                  ? error.message
+                  : t("chat.attachments.uploadFailed"),
+            }),
+          );
         });
     },
-    [patchAttachment, t],
+    [t],
   );
   const addAttachments = useCallback(
     (picked: readonly PickedAttachment[]): { rejected: number } => {
@@ -440,10 +435,12 @@ export function useChatThread(opts: {
     (id: string) => {
       const target = attachmentsRef.current.find((entry) => entry.id === id);
       if (!target || target.status !== "failed") return;
-      patchAttachment(id, (entry) => ({ ...entry, status: "uploading" }));
+      setAttachments((current) =>
+        withAttachmentStatus(current, id, { status: "uploading" }),
+      );
       startAttachmentUpload(target);
     },
-    [patchAttachment, startAttachmentUpload],
+    [startAttachmentUpload],
   );
   const removeAttachment = useCallback((id: string) => {
     setAttachments((current) => current.filter((entry) => entry.id !== id));

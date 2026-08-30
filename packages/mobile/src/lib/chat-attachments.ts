@@ -43,21 +43,35 @@ export type PickedAttachment = {
 };
 
 /**
- * A chip's whole lifecycle. Modelled as a discriminated union so `drivePath`
- * cannot be read off an attachment that has not landed and `message` cannot be
- * read off one that has.
+ * A chip's whole lifecycle. A discriminated union so `drivePath` cannot be read
+ * off an attachment that has not landed and `message` cannot be read off one
+ * that has.
  */
-export type ComposerAttachment = PickedAttachment &
-  (
-    | { status: "uploading" }
-    | { status: "ready"; drivePath: string }
-    | { status: "failed"; message: string }
-  );
+export type AttachmentStatus =
+  | { status: "uploading" }
+  | { status: "ready"; drivePath: string }
+  | { status: "failed"; message: string };
+
+export type ComposerAttachment = PickedAttachment & AttachmentStatus;
 
 export type ReadyAttachment = PickedAttachment & {
   status: "ready";
   drivePath: string;
 };
+
+/**
+ * Advance one chip. Pure so the whole lifecycle (upload, failure, retry) is
+ * testable without a composer, and so a stale reply cannot resurrect a chip the
+ * user already removed: an id that is gone matches nothing.
+ */
+export const withAttachmentStatus = (
+  attachments: readonly ComposerAttachment[],
+  id: string,
+  status: AttachmentStatus,
+): ComposerAttachment[] =>
+  attachments.map((entry) =>
+    entry.id === id ? { ...entry, ...status } : entry,
+  );
 
 export const isAttachmentReady = (
   attachment: ComposerAttachment,

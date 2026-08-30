@@ -717,6 +717,12 @@ export type ElectronSystemApi = {
     source?: string;
     kind?: string;
   }) => void;
+  reportTiming: (payload: {
+    phase: string;
+    elapsedMs: number;
+    durationMs?: number;
+    outcome?: "hit" | "miss" | "success" | "unavailable";
+  }) => void;
   openLogs: () => Promise<{ ok: boolean; path?: string; error?: string }>;
   getWakeWordEnabled: () => Promise<boolean>;
   setWakeWordEnabled: (enabled: boolean) => Promise<{ enabled: boolean }>;

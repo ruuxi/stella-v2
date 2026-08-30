@@ -33,6 +33,10 @@ import {
   type ReadyFrame,
   type ServerFrame,
 } from "./conversation-protocol";
+import {
+  cloudReadinessNow,
+  reportCloudReadiness,
+} from "./cloud-readiness-timing";
 
 export type SocketStatus =
   | "idle"
@@ -72,6 +76,16 @@ export type ConversationSocketOptions = {
   /** Resolves the owner's Convex JWT. `forceRefresh` bypasses every cache. */
   getToken: (options?: { forceRefresh?: boolean }) => Promise<string | null>;
   onEvent: (event: ConversationSocketEvent) => void;
+  /** Structurally validated SQLite replica head used for a delta resume. */
+  initialCursor?: ConversationSocketCursor;
+};
+
+export type ConversationSocketCursor = {
+  epoch: number;
+  lastSeq: number;
+  headSeq: number;
+  floorSeq: number;
+  windowStartSeq: number;
 };
 
 const MAX_BACKOFF_MS = 30_000;
@@ -177,6 +191,27 @@ export class ConversationSocket {
 
   constructor(options: ConversationSocketOptions) {
     this.options = options;
+    const cursor = options.initialCursor;
+    if (
+      cursor &&
+      Number.isSafeInteger(cursor.epoch) &&
+      cursor.epoch >= 0 &&
+      Number.isSafeInteger(cursor.lastSeq) &&
+      cursor.lastSeq >= -1 &&
+      Number.isSafeInteger(cursor.headSeq) &&
+      cursor.headSeq === cursor.lastSeq &&
+      Number.isSafeInteger(cursor.floorSeq) &&
+      cursor.floorSeq >= 0 &&
+      Number.isSafeInteger(cursor.windowStartSeq) &&
+      cursor.windowStartSeq >= cursor.floorSeq &&
+      (cursor.lastSeq < 0 || cursor.windowStartSeq <= cursor.lastSeq)
+    ) {
+      this.epoch = cursor.epoch;
+      this.lastSeq = cursor.lastSeq;
+      this.headSeq = cursor.headSeq;
+      this.floorSeq = cursor.floorSeq;
+      this.windowStartSeq = cursor.windowStartSeq;
+    }
   }
 
   start(): void {
@@ -393,6 +428,7 @@ export class ConversationSocket {
   private async connect(): Promise<void> {
     if (this.stopped) return;
     this.setStatus("connecting", { retryable: true });
+    const tokenStartedAt = cloudReadinessNow();
     let token: string | null = null;
     try {
       token = await this.options.getToken({ forceRefresh: this.attempt > 0 });
@@ -406,6 +442,10 @@ export class ConversationSocket {
       this.scheduleReconnect("Waiting for your session…");
       return;
     }
+    reportCloudReadiness("cloud.socket-token", {
+      startedAt: tokenStartedAt,
+      outcome: "success",
+    });
 
     const url = new URL(
       `/conversations/${encodeURIComponent(this.options.conversationId)}/socket`,
@@ -434,11 +474,13 @@ export class ConversationSocket {
       return;
     }
     this.socket = socket;
+    reportCloudReadiness("cloud.socket-created", { outcome: "success" });
     this.lastFrameAtMs = Date.now();
 
     socket.onopen = () => {
       if (this.socket !== socket) return;
       this.lastFrameAtMs = Date.now();
+      reportCloudReadiness("cloud.socket-open", { outcome: "success" });
       this.startKeepalive();
     };
     socket.onmessage = (event) => {
@@ -586,6 +628,7 @@ export class ConversationSocket {
   }
 
   private handleReady(ready: ReadyFrame): void {
+    reportCloudReadiness("cloud.socket-ready", { outcome: "success" });
     this.liveSinceMs = Date.now();
     this.authRetryUsed = false;
     this.reauthInFlight = false;

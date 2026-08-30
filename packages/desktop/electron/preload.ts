@@ -97,6 +97,7 @@ import {
   IPC_BACKUP_RUN_NOW,
   IPC_DIAGNOSTICS_RECORD_HEAP_TRACE,
   IPC_DIAGNOSTICS_REPORT_ERROR,
+  IPC_DIAGNOSTICS_REPORT_TIMING,
   IPC_DIAGNOSTICS_OPEN_LOGS,
   IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED,
   IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED,
@@ -1231,6 +1232,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
       source?: string;
       kind?: string;
     }) => ipcRenderer.send(IPC_DIAGNOSTICS_REPORT_ERROR, payload),
+    reportTiming: (payload: {
+      phase: string;
+      elapsedMs: number;
+      durationMs?: number;
+      outcome?: "hit" | "miss" | "success" | "unavailable";
+    }) => ipcRenderer.send(IPC_DIAGNOSTICS_REPORT_TIMING, payload),
     openLogs: () =>
       ipcRenderer.invoke(IPC_DIAGNOSTICS_OPEN_LOGS) as Promise<{
         ok: boolean;

@@ -56,6 +56,7 @@ import {
 } from "./conversation-store";
 import { cloudConversationOutboxStorageKey } from "./conversation-outbox";
 import type { SocketStatus } from "./conversation-socket";
+import { reportCloudReadiness } from "./cloud-readiness-timing";
 
 export type CloudRealtimeConfig = {
   /** Builder origin the socket connects to. Null disables realtime. */
@@ -89,7 +90,7 @@ export const useCloudRealtimeConfig = (): CloudRealtimeConfig => {
     return queries;
   }, [cloudMode]);
   const results = useQueries(request);
-  return useMemo(() => {
+  const config = useMemo(() => {
     if (!cloudMode) return OFFLINE_CONFIG;
     const value = results.realtime;
     if (value === undefined) return OFFLINE_CONFIG;
@@ -107,6 +108,13 @@ export const useCloudRealtimeConfig = (): CloudRealtimeConfig => {
       resolved: true,
     };
   }, [cloudMode, results.realtime]);
+  useEffect(() => {
+    if (!cloudMode || !config.resolved) return;
+    reportCloudReadiness("cloud.realtime-config", {
+      outcome: config.socketBaseUrl ? "success" : "unavailable",
+    });
+  }, [cloudMode, config.resolved, config.socketBaseUrl]);
+  return config;
 };
 
 const IDLE_STATE: ConversationState = {

@@ -20,7 +20,7 @@ import { deleteLocalLlmCredential, getLocalLlmCredential, listLocalLlmCredential
 import { cleanupRetiredLocalLlmOAuthCredentials, deleteLocalLlmOAuthCredential, getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, saveLocalLlmOAuthCredential, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { getOAuthProvider, getOAuthProviders, } from "@stella/runtime/ai/utils/oauth";
 import { isRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
-import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_APPLY_SESSION_TOKEN, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_CONVEX_TOKEN, IPC_AUTH_GET_SESSION, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_BACKUP_GET_STATUS, IPC_BACKUP_LIST, IPC_BACKUP_RESTORE, IPC_BACKUP_RUN_NOW, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT, IPC_SYSTEM_OPEN_FDA, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_MODELS, IPC_PREFERENCES_LIST_CODEX_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SYNC_MODE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SYNC_MODE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_USER_APPS_LIST, IPC_USER_APPS_START, IPC_USER_APPS_STOP, IPC_VOICE_PREFERENCES_CHANGED, } from "@stella/contracts/desktop/ipc-channels";
+import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_APPLY_SESSION_TOKEN, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_CONVEX_TOKEN, IPC_AUTH_GET_SESSION, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_BACKUP_GET_STATUS, IPC_BACKUP_LIST, IPC_BACKUP_RESTORE, IPC_BACKUP_RUN_NOW, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_REPORT_TIMING, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT, IPC_SYSTEM_OPEN_FDA, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_MODELS, IPC_PREFERENCES_LIST_CODEX_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SYNC_MODE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SYNC_MODE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_USER_APPS_LIST, IPC_USER_APPS_START, IPC_USER_APPS_STOP, IPC_VOICE_PREFERENCES_CHANGED, } from "@stella/contracts/desktop/ipc-channels";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
 import { hasMacPermission, clearPermissionCache, getMicrophonePermissionStatus, requestMacPermission, resetMacMicrophonePermissions, resetMacPermission, } from "../utils/macos-permissions.js";
 import { waitForConnectedRunner } from "./runtime-availability.js";
@@ -691,6 +691,27 @@ export const registerSystemHandlers = (options) => {
             source: payload?.source,
             errorMessage: payload?.message,
             ...(payload?.stack ? { stack: payload.stack } : {}),
+        });
+    });
+    ipcMain.on(IPC_DIAGNOSTICS_REPORT_TIMING, (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_DIAGNOSTICS_REPORT_TIMING)) {
+            return;
+        }
+        const phase = typeof payload?.phase === "string" ? payload.phase : "";
+        const elapsedMs = Number(payload?.elapsedMs);
+        const durationMs = payload?.durationMs === undefined ? undefined : Number(payload.durationMs);
+        const outcome = payload?.outcome;
+        if (!/^cloud\.[a-z0-9.-]{1,72}$/.test(phase) ||
+            !Number.isFinite(elapsedMs) || elapsedMs < 0 || elapsedMs > 600000 ||
+            (durationMs !== undefined && (!Number.isFinite(durationMs) || durationMs < 0 || durationMs > 600000)) ||
+            (outcome !== undefined && !["hit", "miss", "success", "unavailable"].includes(outcome))) {
+            return;
+        }
+        getMainLogger()?.process("renderer.cloud_readiness", {
+            phase,
+            elapsedMs: Math.round(elapsedMs),
+            ...(durationMs === undefined ? {} : { durationMs: Math.round(durationMs) }),
+            ...(outcome === undefined ? {} : { outcome }),
         });
     });
     ipcMain.handle(IPC_DIAGNOSTICS_OPEN_LOGS, async (event) => {

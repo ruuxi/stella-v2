@@ -98,7 +98,7 @@ const fakeApi = (
 };
 
 describe("cloud conversation renderer derived cache", () => {
-  test("keeps cache stale-labelled until canonical rows replace equal-seq bytes", async () => {
+  test("promotes a compatible cache at ready and appends only the delta", async () => {
     const exact = authority(crypto.randomUUID());
     const conversationId = `conversation-${crypto.randomUUID()}`;
     const api = fakeApi({
@@ -135,17 +135,18 @@ describe("cloud conversation renderer derived cache", () => {
     // Cache cannot deliver privileged behavior when no canonical socket exists.
     expect(store.cancelTurn("turn-cache")).toBe(false);
 
-    dispatch(store, ready(conversationId, 4, 1));
-    expect(store.getSnapshot().recordsSource).toBe("cached-stale");
+    dispatch(store, ready(conversationId, 4, 2));
+    expect(store.getSnapshot().recordsSource).toBe("canonical");
     dispatch(store, {
       type: "records",
-      records: [message(0, "canonical-0"), message(1, "canonical-1")],
+      records: [message(2, "canonical-2")],
     });
     expect(store.getSnapshot()).toMatchObject({
       recordsSource: "canonical",
       records: [
-        { seq: 0, payload: { content: "canonical-0" } },
-        { seq: 1, payload: { content: "canonical-1" } },
+        { seq: 0, payload: { content: "cached-0" } },
+        { seq: 1, payload: { content: "cached-1" } },
+        { seq: 2, payload: { content: "canonical-2" } },
       ],
     });
     dispatch(store, {
@@ -189,7 +190,7 @@ describe("cloud conversation renderer derived cache", () => {
       epoch: 2,
       headSeq: 0,
       records: [],
-      recordsSource: "none",
+      recordsSource: "canonical",
     });
     await vi.waitFor(() => expect(api.purgeConversation).toHaveBeenCalled());
 
@@ -240,7 +241,48 @@ describe("cloud conversation renderer derived cache", () => {
       epoch: 2,
       title: "Canonical title",
       records: [],
-      recordsSource: "none",
+      recordsSource: "canonical",
+    });
+  });
+
+  test("persists an explicit canonical empty snapshot", async () => {
+    const exact = authority(crypto.randomUUID());
+    const conversationId = `conversation-${crypto.randomUUID()}`;
+    const replace = vi.fn<CloudConversationCacheRendererApi["replace"]>(
+      async (input) => ({
+        status: "applied",
+        version: {
+          epoch: input.epoch,
+          headSeq: input.headSeq,
+          floorSeq: input.floorSeq,
+          revision: 1,
+        },
+      }),
+    );
+    const api = fakeApi(null, replace);
+    setCloudConversationCacheApiForTests(api);
+    retireCloudConversationClientAuthority(exact.accountScope);
+    activateCloudConversationClientAuthority(exact);
+    const store = conversationStore(
+      conversationId,
+      exact.accountScope,
+      exact.ownerGeneration,
+    );
+    stores.add(store);
+    await vi.waitFor(() => expect(api.read).toHaveBeenCalled());
+
+    dispatch(store, ready(conversationId, 3, -1));
+    expect(store.getSnapshot()).toMatchObject({
+      epoch: 3,
+      headSeq: -1,
+      records: [],
+      recordsSource: "canonical",
+    });
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledTimes(1));
+    expect(replace.mock.calls[0]?.[0]).toMatchObject({
+      epoch: 3,
+      headSeq: -1,
+      records: [],
     });
   });
 

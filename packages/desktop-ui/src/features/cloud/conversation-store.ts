@@ -23,6 +23,7 @@ import {
 } from "./conversation-protocol";
 import {
   ConversationSocket,
+  type ConversationSocketCursor,
   type ConversationSocketEvent,
   type SocketStatus,
 } from "./conversation-socket";
@@ -37,6 +38,10 @@ import type {
   CloudConversationCacheVersion,
 } from "@stella/contracts/cloud-conversation-cache";
 import { cloudConversationCacheClient } from "./cloud-conversation-cache-client";
+import {
+  cloudReadinessNow,
+  reportCloudReadiness,
+} from "./cloud-readiness-timing";
 
 export type {
   CloudConversationOutboxAuthority,
@@ -608,6 +613,7 @@ class ConversationStore {
   activateCache(): void {
     if (this.authorityRetired || this.cacheHydrationStarted) return;
     this.cacheHydrationStarted = true;
+    const cacheReadStartedAt = cloudReadinessNow();
     const generation = this.cacheOperationGeneration;
     void cloudConversationCacheClient
       .read(this.cacheAuthority)
@@ -627,10 +633,22 @@ class ConversationStore {
               revision: cached.revision,
             }
           : null;
+        reportCloudReadiness("cloud.cache-read", {
+          startedAt: cacheReadStartedAt,
+          outcome: cached ? "hit" : "miss",
+        });
         // A live canonical reducer may have won while the disk read was in
         // flight. Never replace it with older cache bytes; use it to rebuild.
         if (this.state.recordsSource === "canonical") {
-          this.scheduleCacheWrite();
+          const incompatible =
+            cached !== null &&
+            (this.state.epoch === null ||
+              cached.epoch !== this.state.epoch ||
+              cached.headSeq > this.state.headSeq ||
+              (cached.records[0]?.seq ?? cached.floorSeq) <
+                this.state.floorSeq);
+          if (incompatible) this.purgeCache();
+          else this.scheduleCacheWrite();
           return;
         }
         if (!cached) return;
@@ -675,11 +693,16 @@ class ConversationStore {
         });
       })
       .catch(() => {
+        reportCloudReadiness("cloud.cache-read", {
+          startedAt: cacheReadStartedAt,
+          outcome: "unavailable",
+        });
         // Derived cache failure never changes cloud availability.
       })
       .finally(() => {
         if (generation === this.cacheOperationGeneration) {
           this.cacheHydrated = true;
+          this.ensureSocket();
         }
       });
   }
@@ -825,15 +848,27 @@ class ConversationStore {
       this.authorityRetired ||
       this.socket ||
       this.subscribers <= 0 ||
-      !this.baseUrl
+      !this.baseUrl ||
+      !this.cacheHydrated
     ) {
       return;
     }
+    const initialCursor: ConversationSocketCursor | undefined =
+      this.state.recordsSource === "cached-stale" && this.state.epoch !== null
+        ? {
+            epoch: this.state.epoch,
+            lastSeq: this.state.headSeq,
+            headSeq: this.state.headSeq,
+            floorSeq: this.state.floorSeq,
+            windowStartSeq: this.state.records[0]?.seq ?? this.state.floorSeq,
+          }
+        : undefined;
     this.socket = new ConversationSocket({
       conversationId: this.conversationId,
       baseUrl: this.baseUrl,
       getToken: (options) => getConvexToken(options ?? {}),
       onEvent: (event) => this.onEvent(event),
+      ...(initialCursor ? { initialCursor } : {}),
     });
     this.socket.start();
   }
@@ -849,7 +884,8 @@ class ConversationStore {
       status: "idle",
       live: null,
       loadingOlder: false,
-      recordsSource: this.state.records.length ? "cached-stale" : "none",
+      recordsSource:
+        this.state.recordsSource === "none" ? "none" : "cached-stale",
     });
   }
 
@@ -893,9 +929,9 @@ class ConversationStore {
               }
             : event.status === "live"
               ? {}
-              : this.state.records.length
-                ? { recordsSource: "cached-stale" as const }
-                : { recordsSource: "none" as const }),
+              : this.state.recordsSource === "none"
+                ? { recordsSource: "none" as const }
+                : { recordsSource: "cached-stale" as const }),
         });
         return;
       }
@@ -917,16 +953,17 @@ class ConversationStore {
         const records = dropCached ? EMPTY_RECORDS : this.state.records;
         if (dropCached) this.purgeCache();
         const oldest = records[0]?.seq ?? event.ready.windowStartSeq;
+        // The socket resumed from the structurally validated cache cursor. If
+        // it reached `ready` without an epoch/window reset, the retained bytes
+        // are now server-attested and can accept only the delta that follows.
+        // This applies equally to an explicit cached empty conversation.
+        this.cacheContainsUnverifiedRecords = false;
         this.patch({
           title: event.ready.title,
           epoch: event.ready.epoch,
           headSeq: event.ready.headSeq,
           floorSeq: event.ready.floorSeq,
-          recordsSource: records.length
-            ? this.cacheContainsUnverifiedRecords
-              ? "cached-stale"
-              : "canonical"
-            : "none",
+          recordsSource: "canonical",
           hasOlder: oldest > event.ready.floorSeq,
           ...(dropCached
             ? {

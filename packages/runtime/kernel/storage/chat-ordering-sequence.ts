@@ -32,6 +32,9 @@ import type { SqliteDatabase } from "./shared.js";
 /** Rows backfilled per short transaction. Keeps each write-lock hold brief. */
 const BACKFILL_CHUNK_SIZE = 5000;
 
+const COMPLETION_TABLE = "message_ordering_migration_state";
+const COMPLETION_ROW_ID = 0;
+
 const hasColumn = (
   db: SqliteDatabase,
   table: string,
@@ -43,16 +46,68 @@ const hasColumn = (
   return rows.some((row) => row.name === column);
 };
 
-const hasNullSequences = (db: SqliteDatabase): boolean => {
+const schemaObjectExists = (
+  db: SqliteDatabase,
+  type: "index" | "table" | "trigger",
+  name: string,
+): boolean => {
   const row = db
     .prepare(
       `SELECT 1 AS present
-         FROM message
-        WHERE ordering_sequence IS NULL
+         FROM sqlite_master
+        WHERE type = ? AND name = ?
+        LIMIT 1`,
+    )
+    .get(type, name) as { present?: unknown } | undefined;
+  return Boolean(row);
+};
+
+/**
+ * The steady-state proof is deliberately metadata-only. The trigger is
+ * installed last, in the same transaction that finishes every NULL row and
+ * seeds the counter, so its presence plus the counter row proves the legacy
+ * migration reached its atomic commit. The durable marker makes subsequent
+ * launches O(1) without rescanning the message table.
+ */
+const completionInvariantsHold = (db: SqliteDatabase): boolean => {
+  if (!hasColumn(db, "message", "ordering_sequence")) return false;
+  if (
+    !schemaObjectExists(db, "trigger", "trg_message_ordering_sequence") ||
+    !schemaObjectExists(db, "index", "idx_message_sequence_unique") ||
+    !schemaObjectExists(db, "index", "idx_message_session_sequence")
+  ) {
+    return false;
+  }
+  const counter = db
+    .prepare(
+      `SELECT 1 AS present
+         FROM message_ordering_counter
+        WHERE id = 0 AND next_sequence >= 1
         LIMIT 1`,
     )
     .get() as { present?: unknown } | undefined;
+  return Boolean(counter);
+};
+
+const hasCompletionMarker = (db: SqliteDatabase): boolean => {
+  if (!schemaObjectExists(db, "table", COMPLETION_TABLE)) return false;
+  const row = db
+    .prepare(
+      `SELECT 1 AS present
+         FROM message_ordering_migration_state
+        WHERE id = ? AND completed = 1
+        LIMIT 1`,
+    )
+    .get(COMPLETION_ROW_ID) as { present?: unknown } | undefined;
   return Boolean(row);
+};
+
+const markComplete = (db: SqliteDatabase): void => {
+  db.prepare(
+    `INSERT INTO message_ordering_migration_state (id, completed)
+     VALUES (?, 1)
+     ON CONFLICT(id) DO UPDATE SET completed = 1`,
+  ).run(COMPLETION_ROW_ID);
 };
 
 /**
@@ -62,8 +117,11 @@ const hasNullSequences = (db: SqliteDatabase): boolean => {
  * key — gate on this.
  */
 export const chatOrderingSequenceIsComplete = (db: SqliteDatabase): boolean => {
-  if (!hasColumn(db, "message", "ordering_sequence")) return false;
-  return !hasNullSequences(db);
+  try {
+    return hasCompletionMarker(db) && completionInvariantsHold(db);
+  } catch {
+    return false;
+  }
 };
 
 /** Install the column, counter, and both indexes (no trigger yet). Short lock. */
@@ -81,6 +139,12 @@ const installSchema = (db: SqliteDatabase): void => {
       CREATE TABLE IF NOT EXISTS message_ordering_counter (
         id            INTEGER PRIMARY KEY CHECK (id = 0),
         next_sequence INTEGER NOT NULL
+      );
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS message_ordering_migration_state (
+        id        INTEGER PRIMARY KEY CHECK (id = 0),
+        completed INTEGER NOT NULL CHECK (completed IN (0, 1))
       );
     `);
     // Uniqueness assertion (never-reuse tripwire) — partial, so it is a no-op
@@ -155,16 +219,40 @@ const backfillChunk = (db: SqliteDatabase, limit: number): number => {
  * straight to the trigger check), chunked/resumable, and order-preserving.
  */
 export const installChatOrderingSequence = (db: SqliteDatabase): void => {
+  // Fast path for every launch after the first successful migration. These are
+  // schema/one-row lookups only; no message-table query is permitted here.
+  if (chatOrderingSequenceIsComplete(db)) return;
+
   installSchema(db);
+
+  // Upgrade databases migrated by the previous implementation without paying
+  // another full-table scan. That implementation installed the trigger last,
+  // atomically with the final NULL-row update and counter seed, so these
+  // invariants are an affirmative completion proof.
+  if (completionInvariantsHold(db)) {
+    db.exec("BEGIN IMMEDIATE;");
+    try {
+      markComplete(db);
+      db.exec("COMMIT;");
+      return;
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK;");
+      } catch {
+        // Preserve the original failure.
+      }
+      throw error;
+    }
+  }
 
   // Chunked bulk backfill under short, interleavable locks. Bounded by the row
   // count observed at the start (plus generous slack) so a pathological writer
   // inserting NULL rows faster than a chunk drains them can never livelock the
   // loop — whatever remains is finished by the final atomic step below, which
   // holds the write lock and therefore blocks concurrent inserts to completion.
-  const totalRow = db
-    .prepare(`SELECT COUNT(*) AS n FROM message`)
-    .get() as { n?: number };
+  const totalRow = db.prepare(`SELECT COUNT(*) AS n FROM message`).get() as {
+    n?: number;
+  };
   const total = typeof totalRow?.n === "number" ? totalRow.n : 0;
   const maxChunks = Math.ceil(total / BACKFILL_CHUNK_SIZE) + 8;
   for (let i = 0; i < maxChunks; i += 1) {
@@ -223,6 +311,7 @@ export const installChatOrderingSequence = (db: SqliteDatabase): void => {
          WHERE id = 0;
       END;
     `);
+    markComplete(db);
     db.exec("COMMIT;");
   } catch (error) {
     try {
@@ -301,6 +390,7 @@ export const uninstallChatOrderingSequence = (db: SqliteDatabase): void => {
     db.exec("DROP TRIGGER IF EXISTS trg_message_ordering_sequence;");
     db.exec("DROP INDEX IF EXISTS idx_message_sequence_unique;");
     db.exec("DROP INDEX IF EXISTS idx_message_session_sequence;");
+    db.exec("DROP TABLE IF EXISTS message_ordering_migration_state;");
     db.exec("DROP TABLE IF EXISTS message_ordering_counter;");
     if (hasColumn(db, "message", "ordering_sequence")) {
       db.exec("UPDATE message SET ordering_sequence = NULL;");

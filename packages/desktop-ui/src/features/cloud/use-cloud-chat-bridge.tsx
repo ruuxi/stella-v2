@@ -499,13 +499,10 @@ export function useCloudChatBridge({
         : null,
     activeToolName,
     pendingUserMessageId,
-    isInitialLoading: Boolean(
-      enabled &&
-        conversationId &&
-        conversation.state.records.length === 0 &&
-        (conversation.state.status === "idle" ||
-          conversation.state.status === "connecting"),
-    ),
+    // The local replica (including an explicit known-empty snapshot) paints
+    // immediately. Cloud reconciliation is connection status, not a reason to
+    // replace the entire chat surface with a blocking history spinner.
+    isInitialLoading: false,
     sendMessage,
     cancelCurrentStream,
     extraTail,

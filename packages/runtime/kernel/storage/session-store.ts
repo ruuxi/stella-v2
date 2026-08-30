@@ -22,6 +22,7 @@ import {
 } from "../runtime-threads.js";
 import { slugify } from "../shared/slug.js";
 import { createDesktopDatabase } from "./database.js";
+import { chatOrderingSequenceIsComplete } from "./chat-ordering-sequence.js";
 import type { SqliteDatabase } from "./shared.js";
 import {
   DEFAULT_CONVERSATION_SETTING_KEY,
@@ -1732,32 +1733,21 @@ export class SessionStore {
   /**
    * Whether chat timeline ordering keys on the monotonic `ordering_sequence`.
    * There is NO feature flag — sequence ordering is the default. This is the
-   * SAFETY GATE for graceful degradation: it is true only when the column
-   * exists AND every row is backfilled. If the unconditional startup migration
-   * failed (disk/IO/busy) or is mid-backfill, the column is absent or has NULL
-   * rows, and the store transparently falls back to the legacy `(created_at,
-   * id)` ordering so queries keep working and no row is mis-placed/dropped —
-   * rather than emitting `ORDER BY ordering_sequence` against a missing column
-   * or a NULL that sorts to an end. Cached per store (the column only
+   * SAFETY GATE for graceful degradation: it is true only when the durable
+   * completion marker and the trigger/counter/index invariants all exist. The
+   * marker is written atomically after the final backfill, so checking it is a
+   * hard guarantee without rescanning every message on every startup. If the
+   * migration failed or is incomplete, the store transparently falls back to
+   * legacy `(created_at, id)` ordering. Cached per store (the schema only
    * transitions absent→present→complete once, before the store serves queries).
    */
   get orderingBySequence() {
     if (this.#orderingBySequenceCache === null) {
-      let ok = false;
       try {
-        const cols = this.db.prepare("PRAGMA table_info(message);").all();
-        if (cols.some((col) => col.name === "ordering_sequence")) {
-          const nullRow = this.db
-            .prepare(
-              `SELECT 1 AS present FROM message WHERE ordering_sequence IS NULL LIMIT 1`,
-            )
-            .get();
-          ok = !nullRow;
-        }
+        this.#orderingBySequenceCache = chatOrderingSequenceIsComplete(this.db);
       } catch {
-        ok = false;
+        this.#orderingBySequenceCache = false;
       }
-      this.#orderingBySequenceCache = ok;
     }
     return this.#orderingBySequenceCache;
   }

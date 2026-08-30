@@ -1,9 +1,11 @@
+import { useEffect } from "react";
 import { useConvexAuth, useQuery } from "convex/react";
 import { cloudApi } from "@/features/cloud/cloud-api";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { useAuthBootstrapState } from "../DesktopConvexAuthProvider";
 import { resolveCloudSessionMode } from "../lib/cloud-session-mode";
 import { useAuthSessionState } from "./use-auth-session-state";
+import { reportCloudReadiness } from "@/features/cloud/cloud-readiness-timing";
 
 /**
  * The one authority predicate for conversation storage and routing.
@@ -22,9 +24,7 @@ export function useCloudMode() {
     import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
   );
   const ownerSubject =
-    tokenIssuer && expectedSubject
-      ? `${tokenIssuer}|${expectedSubject}`
-      : null;
+    tokenIssuer && expectedSubject ? `${tokenIssuer}|${expectedSubject}` : null;
   const shouldConfirmIdentity = Boolean(
     authBootstrap.status === "ready" &&
       !session.isLoading &&
@@ -52,6 +52,33 @@ export function useCloudMode() {
     authBootstrapReady: authBootstrap.status === "ready",
     authBootstrapFailed: authBootstrap.status === "failed",
   });
+  useEffect(() => {
+    if (authBootstrap.status === "ready") {
+      reportCloudReadiness("cloud.auth-bootstrap-ready", {
+        outcome: "success",
+      });
+    }
+    if (!session.isLoading && session.hasSession) {
+      reportCloudReadiness("cloud.session-ready", { outcome: "success" });
+    }
+    if (!convex.isLoading && convex.isAuthenticated) {
+      reportCloudReadiness("cloud.convex-auth-ready", { outcome: "success" });
+    }
+    if (identityConfirmed === true) {
+      reportCloudReadiness("cloud.identity-confirmed", { outcome: "success" });
+    }
+    if (mode.cloudMode) {
+      reportCloudReadiness("cloud.mode-ready", { outcome: "success" });
+    }
+  }, [
+    authBootstrap.status,
+    convex.isAuthenticated,
+    convex.isLoading,
+    identityConfirmed,
+    mode.cloudMode,
+    session.hasSession,
+    session.isLoading,
+  ]);
   return {
     ...mode,
     accountScope: session.cacheScope,

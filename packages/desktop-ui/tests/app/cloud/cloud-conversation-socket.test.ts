@@ -64,6 +64,60 @@ afterEach(() => {
 });
 
 describe("cloud conversation journal compatibility", () => {
+  test("resumes the real socket URL from a validated cache cursor", async () => {
+    Object.defineProperty(globalThis, "WebSocket", {
+      configurable: true,
+      writable: true,
+      value: FakeWebSocket,
+    });
+    const events: ConversationSocketEvent[] = [];
+    const socket = new ConversationSocket({
+      conversationId: "conversation-resume",
+      baseUrl: "https://builder.example.test",
+      getToken: async () => "header.payload.signature",
+      onEvent: (event) => events.push(event),
+      initialCursor: {
+        epoch: 7,
+        lastSeq: 42,
+        headSeq: 42,
+        floorSeq: 10,
+        windowStartSeq: 20,
+      },
+    });
+
+    try {
+      socket.start();
+      await Promise.resolve();
+      await Promise.resolve();
+      const transport = FakeWebSocket.instances[0];
+      if (!transport) throw new Error("socket was not created");
+      const url = new URL(transport.url);
+      expect(url.searchParams.get("since")).toBe("42");
+      expect(url.searchParams.get("epoch")).toBe("7");
+      transport.open();
+      transport.receive({
+        type: "ready",
+        protocol: 1,
+        conversationId: "conversation-resume",
+        epoch: 7,
+        headSeq: 42,
+        windowStartSeq: 20,
+        floorSeq: 10,
+        title: "Resumed",
+        activity: "idle",
+        authExpiresAtMs: 3_600_000,
+        serverTimeMs: 0,
+        live: null,
+      });
+      expect(events.some((event) => event.type === "reset")).toBe(false);
+      expect(
+        transport.sent.some((entry) => entry.includes('"type":"backfill"')),
+      ).toBe(false);
+    } finally {
+      socket.stop();
+    }
+  });
+
   test("retains the raw sequence of an unknown future record", () => {
     const frame = decodeServerFrame(
       JSON.stringify({

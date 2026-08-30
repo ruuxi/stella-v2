@@ -249,6 +249,8 @@ export const IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED =
 export const IPC_DIAGNOSTICS_RECORD_HEAP_TRACE =
   "diagnostics:recordHeapTrace" as const;
 export const IPC_DIAGNOSTICS_REPORT_ERROR = "diagnostics:reportError" as const;
+export const IPC_DIAGNOSTICS_REPORT_TIMING =
+  "diagnostics:reportTiming" as const;
 export const IPC_DIAGNOSTICS_OPEN_LOGS = "diagnostics:openLogs" as const;
 export const IPC_PROMPT_PRESETS_LIST = "promptPresets:list" as const;
 export const IPC_PROMPT_PRESETS_READ = "promptPresets:read" as const;

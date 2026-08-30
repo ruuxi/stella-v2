@@ -2829,8 +2829,8 @@ describe("automatic execution placement", () => {
 /**
  * Placement is invisible to the user, so a turn's attachments have to survive
  * both routes identically. These assert the envelope's own identity: the same
- * payload bytes reach the desktop claimant and the cloud turn row, and neither
- * route may quietly shorten the list the payload hash covers.
+ * list reaches the desktop claimant's payload and the cloud turn's orchestrator
+ * dispatch, and neither route may quietly shorten what the payload hash covers.
  */
 describe("chat attachments across both placements", () => {
   const IMAGE = "uploads/2026-08-29/receipt.png";

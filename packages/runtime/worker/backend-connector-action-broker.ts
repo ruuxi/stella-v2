@@ -11,6 +11,7 @@ import {
   isNativeConnectorEnabled,
 } from "../kernel/connectors/native-integrations.js";
 import type { BackendConnectorActionResult } from "../kernel/connectors/cli-broker-client.js";
+import type { BackendConnectorActionsResult } from "../kernel/connectors/cli-broker-client.js";
 import {
   redactSensitiveText,
   sanitizeSensitiveData,
@@ -31,6 +32,7 @@ const MAX_INPUT_DEPTH = 20;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const ACTION_TIMEOUT_MS = 30_000;
 const SAFE_ACTION = /^[A-Z][A-Z0-9_]{1,127}$/u;
+const SAFE_CONNECTOR_ID = /^[a-z0-9][a-z0-9_-]{0,127}$/u;
 const SAFE_REQUEST_ID = /^[A-Za-z0-9._:-]{1,128}$/u;
 
 const isPlainJsonValue = (value: unknown, depth = 0): boolean => {
@@ -136,6 +138,183 @@ const requestIdFromResponse = (response: Response, fallback: string) => {
     response.headers.get("x-request-id") ?? response.headers.get("request-id");
   return candidate && SAFE_REQUEST_ID.test(candidate) ? candidate : fallback;
 };
+
+export const createBackendConnectorActionsBroker =
+  (options: BackendConnectorActionBrokerOptions) =>
+  async (params: {
+    connectorId: string;
+    action?: string;
+    query?: string;
+    limit?: number;
+    signal?: AbortSignal;
+  }): Promise<BackendConnectorActionsResult> => {
+    const connectorId = params.connectorId.trim().toLowerCase();
+    const action = params.action?.trim();
+    const query = params.query?.trim();
+    const limit = params.limit ?? 100;
+    if (
+      !SAFE_CONNECTOR_ID.test(connectorId) ||
+      (action !== undefined && !SAFE_ACTION.test(action)) ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 100
+    ) {
+      return {
+        ok: false,
+        reason: "action_not_allowed",
+        message: "The connector action catalog request is not valid.",
+      };
+    }
+
+    let auth = options.getSiteAuth();
+    const initialStatus = auth ? jwtStatus(auth.authToken) : "expired";
+    if (!auth || initialStatus === "expired" || initialStatus === "malformed") {
+      auth = await options.refreshSiteAuth();
+    }
+    if (!auth?.baseUrl.trim() || !auth.authToken.trim()) {
+      return {
+        ok: false,
+        reason: "not_signed_in",
+        message: "Sign in to Stella before using this integration.",
+      };
+    }
+    const refreshedStatus = jwtStatus(auth.authToken);
+    if (refreshedStatus === "expired" || refreshedStatus === "malformed") {
+      return {
+        ok: false,
+        reason: "auth_expired",
+        message: "Stella sign-in refresh did not return a usable session.",
+      };
+    }
+
+    const url = new URL(
+      `${auth.baseUrl.replace(/\/+$/u, "")}/api/native-integrations/actions`,
+    );
+    url.searchParams.set("id", connectorId);
+    if (action) url.searchParams.set("action", action);
+    if (!action && query) url.searchParams.set("query", query);
+    if (!action) url.searchParams.set("limit", String(limit));
+
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort("timeout"),
+      ACTION_TIMEOUT_MS,
+    );
+    const abort = () => controller.abort(params.signal?.reason ?? "cancelled");
+    params.signal?.addEventListener("abort", abort, { once: true });
+    let response: Response;
+    try {
+      response = await (options.fetchImpl ?? fetch)(url, {
+        headers: {
+          accept: "application/json",
+          authorization: `Bearer ${auth.authToken}`,
+        },
+        signal: controller.signal,
+      });
+    } catch (error) {
+      clearTimeout(timeout);
+      params.signal?.removeEventListener("abort", abort);
+      return {
+        ok: false,
+        reason: "backend_error",
+        message: controller.signal.aborted
+          ? "The connector action catalog request was cancelled or timed out."
+          : redactSensitiveText(
+              error instanceof Error
+                ? error.message
+                : "The connector service could not be reached.",
+            ),
+      };
+    }
+
+    let payload: unknown;
+    try {
+      payload = await readBoundedJson(response);
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "backend_error",
+        status: response.status,
+        message:
+          (error as Error).message === "response_too_large"
+            ? "Connector action catalog exceeded the safe size limit."
+            : "Connector action catalog was not valid JSON.",
+      };
+    } finally {
+      clearTimeout(timeout);
+      params.signal?.removeEventListener("abort", abort);
+    }
+    if (!response.ok) {
+      const backendMessage =
+        payload && typeof payload === "object" && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>).error
+          : null;
+      return {
+        ok: false,
+        reason: response.status === 401 ? "auth_expired" : "backend_error",
+        status: response.status,
+        message: redactSensitiveText(
+          typeof backendMessage === "string" && backendMessage.trim()
+            ? backendMessage.slice(0, 1_000)
+            : response.status === 401
+              ? "Stella sign-in expired. Sign in again before using this integration."
+              : `Integration action catalog failed (${response.status}).`,
+        ),
+      };
+    }
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return {
+        ok: false,
+        reason: "backend_error",
+        message: "Connector action catalog response was invalid.",
+      };
+    }
+    const record = payload as Record<string, unknown>;
+    if (!Array.isArray(record.actions)) {
+      return {
+        ok: false,
+        reason: "backend_error",
+        message: "Connector action catalog response was invalid.",
+      };
+    }
+    const actions = record.actions.flatMap((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value))
+        return [];
+      const candidate = value as Record<string, unknown>;
+      const name = typeof candidate.name === "string" ? candidate.name : "";
+      if (!SAFE_ACTION.test(name)) return [];
+      const inputSchema =
+        candidate.inputSchema &&
+        typeof candidate.inputSchema === "object" &&
+        !Array.isArray(candidate.inputSchema)
+          ? (candidate.inputSchema as Record<string, unknown>)
+          : undefined;
+      return [
+        {
+          name,
+          ...(typeof candidate.title === "string"
+            ? { title: candidate.title }
+            : {}),
+          ...(typeof candidate.description === "string"
+            ? { description: candidate.description }
+            : {}),
+          ...(inputSchema ? { inputSchema } : {}),
+        },
+      ];
+    });
+    return {
+      ok: true,
+      actionCount:
+        typeof record.actionCount === "number" &&
+        Number.isSafeInteger(record.actionCount) &&
+        record.actionCount >= 0
+          ? record.actionCount
+          : actions.length,
+      actions,
+      nextCursor:
+        typeof record.nextCursor === "string" ? record.nextCursor : null,
+    };
+  };
 
 export const createBackendConnectorActionBroker =
   (options: BackendConnectorActionBrokerOptions) =>

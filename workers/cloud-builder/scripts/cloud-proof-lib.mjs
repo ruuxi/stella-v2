@@ -35,7 +35,7 @@ export const REQUIRED_REAL_PRODUCT_CONFIRMATION =
   "run-real-preview:basic-nightingale-118";
 
 export const FORBIDDEN_TARGET_PATTERN =
-  /(?:flexible-panther-999|benevolent-minnow-586|impartial-crab-34|stella-v2-cloud-builder-dev|stella-v2-apps-host-dev|stella-v2-(?:app-builds|agent-home|conversation-archive)-dev)/i;
+  /(?:outgoing-bulldog-865|flexible-panther-999|benevolent-minnow-586|impartial-crab-34|stella-v2-cloud-builder-dev|stella-v2-apps-host-dev|stella-v2-(?:app-builds|agent-home|conversation-archive)-dev)/i;
 
 const SECRET_KEY_PATTERN =
   /(?:authorization|cookie|credential|jwt|password|secret|session|token)/i;

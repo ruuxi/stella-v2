@@ -19,12 +19,12 @@
     // Pinned issuer for the conversation socket's JWT verification, and the
     // fallback Convex origin for index flushes that happen outside a turn.
     // Never the JWKS env var: that is the PRIVATE key set and stays in Convex.
-    "STELLA_CONVEX_SITE_URL": "https://impartial-crab-34.convex.site",
-    "STELLA_CONVEX_CLOUD_URL": "https://impartial-crab-34.convex.cloud",
+    "STELLA_CONVEX_SITE_URL": "https://outgoing-bulldog-865.convex.site",
+    "STELLA_CONVEX_CLOUD_URL": "https://outgoing-bulldog-865.convex.cloud",
     // Strictly a dev-target proof seam. Production configs must omit both
     // values; the Worker and DO independently deny the route without them.
     "ENABLE_DEV_ACCEPTANCE_PROBES": "1",
-    "STELLA_DEPLOYMENT_IDENTITY": "dev:impartial-crab-34"
+    "STELLA_DEPLOYMENT_IDENTITY": "dev:outgoing-bulldog-865"
   },
   "worker_loaders": [
     {

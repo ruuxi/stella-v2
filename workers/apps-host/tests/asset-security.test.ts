@@ -54,7 +54,7 @@ describe("hosted asset boundary", () => {
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("frame-src 'self'");
-    expect(csp).toContain("https://impartial-crab-34.convex.site");
+    expect(csp).toContain("https://outgoing-bulldog-865.convex.site");
     expect(csp).toContain(
       "wss://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
     );
@@ -268,7 +268,7 @@ describe("hosted asset boundary", () => {
     );
     expect(response.status).toBe(200);
     expect(upstreamUrl).toBe(
-      `https://impartial-crab-34.convex.site/api/cloud/interior-active-route?stableRouteId=${routeId}`,
+      `https://outgoing-bulldog-865.convex.site/api/cloud/interior-active-route?stableRouteId=${routeId}`,
     );
     expect(authorization).toBe(`Bearer ${TEST_SERVICE_SECRET}`);
     expect(response.headers.get("cache-control")).toBe("no-store");

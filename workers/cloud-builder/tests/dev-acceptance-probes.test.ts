@@ -74,7 +74,7 @@ describe("dedicated preview cloud acceptance probes", () => {
     for (const env of [
       { ...enabledEnv, ENABLE_DEV_ACCEPTANCE_PROBES: undefined },
       { ...enabledEnv, ENABLE_DEV_ACCEPTANCE_PROBES: "0" },
-      { ...enabledEnv, STELLA_DEPLOYMENT_IDENTITY: "dev:impartial-crab-34" },
+      { ...enabledEnv, STELLA_DEPLOYMENT_IDENTITY: "dev:outgoing-bulldog-865" },
       {
         ...enabledEnv,
         STELLA_DEPLOYMENT_IDENTITY: "preview:another-preview-123",

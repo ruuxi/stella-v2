@@ -541,7 +541,7 @@ export const runAppsHostWorkerdAcceptance = async ({
       "Apps Host CSP omitted pinned Convex.",
     );
     assert(
-      !/impartial-crab-34|flexible-panther-999|benevolent-minnow-586/iu.test(
+      !/outgoing-bulldog-865|impartial-crab-34|flexible-panther-999|benevolent-minnow-586/iu.test(
         csp,
       ),
       "Apps Host CSP retained a forbidden target.",

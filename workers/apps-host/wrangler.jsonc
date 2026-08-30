@@ -15,10 +15,10 @@
   "vars": {
     // This Worker has exactly one authorized control-plane target. Runtime
     // validation rejects missing, stale, or production-shaped alternatives.
-    "STELLA_DEPLOYMENT_IDENTITY": "dev:impartial-crab-34",
+    "STELLA_DEPLOYMENT_IDENTITY": "dev:outgoing-bulldog-865",
     "SHARES_DISABLED": "false",
-    "CONVEX_SITE_URL": "https://impartial-crab-34.convex.site",
-    "CONVEX_CLOUD_URL": "https://impartial-crab-34.convex.cloud",
+    "CONVEX_SITE_URL": "https://outgoing-bulldog-865.convex.site",
+    "CONVEX_CLOUD_URL": "https://outgoing-bulldog-865.convex.cloud",
     "APPS_HOST_ORIGIN": "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
     "CLOUD_BUILDER_ORIGIN": "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
   },

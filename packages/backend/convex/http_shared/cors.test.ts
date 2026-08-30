@@ -9,9 +9,9 @@ import {
 import { buildCorsAllowedOrigins } from "./cors";
 
 const validDevEnv = () => ({
-  STELLA_DEPLOYMENT_IDENTITY: "dev:impartial-crab-34",
-  CONVEX_SITE_URL: "https://impartial-crab-34.convex.site",
-  CONVEX_CLOUD_URL: "https://impartial-crab-34.convex.cloud",
+  STELLA_DEPLOYMENT_IDENTITY: "dev:outgoing-bulldog-865",
+  CONVEX_SITE_URL: "https://outgoing-bulldog-865.convex.site",
+  CONVEX_CLOUD_URL: "https://outgoing-bulldog-865.convex.cloud",
   APPS_HOST_ORIGIN: DEV_APPS_HOST_ORIGIN,
   CLOUD_BUILDER_URL: DEV_CLOUD_BUILDER_ORIGIN,
 });

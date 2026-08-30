@@ -22,7 +22,7 @@ describe("browser auth handoff landing", () => {
       "script-src 'self'",
     );
     expect(response.headers.get("content-security-policy")).toContain(
-      "connect-src https://impartial-crab-34.convex.site",
+      "connect-src https://outgoing-bulldog-865.convex.site",
     );
     expect(response.headers.get("content-security-policy")).not.toContain(
       "flexible-panther-999",
@@ -52,7 +52,7 @@ describe("browser auth handoff landing", () => {
     expect(clearIndex).toBeGreaterThan(-1);
     expect(verifyIndex).toBeGreaterThan(clearIndex);
     expect(script).toContain(
-      "https://impartial-crab-34.convex.site/api/auth/one-time-token/verify",
+      "https://outgoing-bulldog-865.convex.site/api/auth/one-time-token/verify",
     );
     expect(script).not.toContain("Better-Auth-Cookie");
     expect(script).not.toContain("/cross-domain/");
@@ -66,7 +66,7 @@ describe("browser auth handoff landing", () => {
 
   test("HTML never embeds the configured auth origin or a credential", () => {
     const html = browserAuthHandoffHtml();
-    expect(html).not.toContain("impartial-crab-34");
+    expect(html).not.toContain("outgoing-bulldog-865");
     expect(html).not.toContain("ott=");
   });
 
@@ -114,7 +114,7 @@ describe("browser auth handoff landing", () => {
     let posted = false;
     const fetch = async (url: string, init: RequestInit) => {
       expect(url).toBe(
-        "https://impartial-crab-34.convex.site/api/auth/one-time-token/verify",
+        "https://outgoing-bulldog-865.convex.site/api/auth/one-time-token/verify",
       );
       expect(cleanedUrl).toBe(`/stella/${routeId}/auth`);
       expect(init.method).toBe("POST");

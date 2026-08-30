@@ -29,9 +29,9 @@ const projectWranglerDirectory = path.join(workerRoot, ".wrangler");
 
 const REQUIRED_CONFIG_VALUES = [
   '"name": "stella-v2-apps-host-dev"',
-  '"STELLA_DEPLOYMENT_IDENTITY": "dev:impartial-crab-34"',
-  '"CONVEX_SITE_URL": "https://impartial-crab-34.convex.site"',
-  '"CONVEX_CLOUD_URL": "https://impartial-crab-34.convex.cloud"',
+  '"STELLA_DEPLOYMENT_IDENTITY": "dev:outgoing-bulldog-865"',
+  '"CONVEX_SITE_URL": "https://outgoing-bulldog-865.convex.site"',
+  '"CONVEX_CLOUD_URL": "https://outgoing-bulldog-865.convex.cloud"',
   '"APPS_HOST_ORIGIN": "https://stella-v2-apps-host-dev.lolruuxi.workers.dev"',
   '"CLOUD_BUILDER_ORIGIN": "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev"',
 ];
@@ -131,7 +131,7 @@ try {
       ok: true,
       entry: configuredEntry,
       config: "wrangler.jsonc",
-      deployment: "dev:impartial-crab-34",
+      deployment: "dev:outgoing-bulldog-865",
       deployed: false,
       bundleBytes: bundle.size,
     })}\n`,

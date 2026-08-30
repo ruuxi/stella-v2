@@ -11,9 +11,9 @@ import {
 } from "./dev_apps_host_origin";
 
 const validEnv = () => ({
-  STELLA_DEPLOYMENT_IDENTITY: "dev:impartial-crab-34",
-  CONVEX_SITE_URL: "https://impartial-crab-34.convex.site",
-  CONVEX_CLOUD_URL: "https://impartial-crab-34.convex.cloud",
+  STELLA_DEPLOYMENT_IDENTITY: "dev:outgoing-bulldog-865",
+  CONVEX_SITE_URL: "https://outgoing-bulldog-865.convex.site",
+  CONVEX_CLOUD_URL: "https://outgoing-bulldog-865.convex.cloud",
   APPS_HOST_ORIGIN: "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
   CLOUD_BUILDER_URL: DEV_CLOUD_BUILDER_ORIGIN,
 });
@@ -27,12 +27,12 @@ const validAcceptanceEnv = () => ({
 });
 
 describe("non-production Apps host origin authority", () => {
-  test("trusts the exact impartial-crab development contract", () => {
+  test("trusts the exact outgoing-bulldog development contract", () => {
     assert.equal(getTrustedAppsHostOrigin(validEnv()), DEV_APPS_HOST_ORIGIN);
     assert.equal(
       getTrustedAppsHostOrigin({
         ...validEnv(),
-        STELLA_AUTH_BASE_URL: "https://impartial-crab-34.convex.site",
+        STELLA_AUTH_BASE_URL: "https://outgoing-bulldog-865.convex.site",
       }),
       DEV_APPS_HOST_ORIGIN,
     );
@@ -83,11 +83,11 @@ describe("non-production Apps host origin authority", () => {
 
   test("rejects mixed development and acceptance tuples", () => {
     for (const override of [
-      { CONVEX_SITE_URL: "https://impartial-crab-34.convex.site" },
-      { CONVEX_CLOUD_URL: "https://impartial-crab-34.convex.cloud" },
+      { CONVEX_SITE_URL: "https://outgoing-bulldog-865.convex.site" },
+      { CONVEX_CLOUD_URL: "https://outgoing-bulldog-865.convex.cloud" },
       { APPS_HOST_ORIGIN: DEV_APPS_HOST_ORIGIN },
       { CLOUD_BUILDER_URL: DEV_CLOUD_BUILDER_ORIGIN },
-      { STELLA_AUTH_BASE_URL: "https://impartial-crab-34.convex.site" },
+      { STELLA_AUTH_BASE_URL: "https://outgoing-bulldog-865.convex.site" },
     ]) {
       assert.equal(
         getTrustedAppsHostOrigin({ ...validAcceptanceEnv(), ...override }),
@@ -98,8 +98,8 @@ describe("non-production Apps host origin authority", () => {
 
   test("requires canonical origins without paths or trailing separators", () => {
     for (const override of [
-      { CONVEX_SITE_URL: "https://impartial-crab-34.convex.site/" },
-      { CONVEX_CLOUD_URL: "https://impartial-crab-34.convex.cloud/" },
+      { CONVEX_SITE_URL: "https://outgoing-bulldog-865.convex.site/" },
+      { CONVEX_CLOUD_URL: "https://outgoing-bulldog-865.convex.cloud/" },
       {
         APPS_HOST_ORIGIN:
           "https://stella-v2-apps-host-dev.lolruuxi.workers.dev/",

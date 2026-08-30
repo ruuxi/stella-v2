@@ -11,7 +11,7 @@ import worker from "../src/index";
 import { createAcceptanceEnv, createEnv } from "./fixtures";
 
 describe("non-production authority configuration", () => {
-  test("accepts only the explicit impartial-crab development deployment", () => {
+  test("accepts only the explicit outgoing-bulldog development deployment", () => {
     const config = readAppsHostConfig(createEnv());
     expect(config.deploymentIdentity).toBe(DEV_DEPLOYMENT_IDENTITY);
     expect(config.convexSiteOrigin).toBe(DEV_CONVEX_SITE_ORIGIN);
@@ -28,7 +28,7 @@ describe("non-production authority configuration", () => {
   test("rejects mixed development and acceptance tuples", () => {
     for (const [field, value] of [
       ["CONVEX_SITE_URL", DEV_CONVEX_SITE_ORIGIN],
-      ["CONVEX_CLOUD_URL", "https://impartial-crab-34.convex.cloud"],
+      ["CONVEX_CLOUD_URL", "https://outgoing-bulldog-865.convex.cloud"],
       [
         "APPS_HOST_ORIGIN",
         "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
@@ -87,7 +87,7 @@ describe("non-production authority configuration", () => {
     expect(await response.json()).toEqual({
       ok: true,
       service: "stella-v2-apps-host",
-      deployment: "dev:impartial-crab-34",
+      deployment: "dev:outgoing-bulldog-865",
     });
   });
 });

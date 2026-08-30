@@ -23,11 +23,11 @@ export type AppsHostConfig = {
   builderServiceSecret: string;
 };
 
-export const DEV_DEPLOYMENT_IDENTITY = "dev:impartial-crab-34" as const;
+export const DEV_DEPLOYMENT_IDENTITY = "dev:outgoing-bulldog-865" as const;
 export const DEV_CONVEX_SITE_ORIGIN =
-  "https://impartial-crab-34.convex.site" as const;
+  "https://outgoing-bulldog-865.convex.site" as const;
 export const DEV_CONVEX_CLOUD_ORIGIN =
-  "https://impartial-crab-34.convex.cloud" as const;
+  "https://outgoing-bulldog-865.convex.cloud" as const;
 export const DEV_APPS_HOST_ORIGIN =
   "https://stella-v2-apps-host-dev.lolruuxi.workers.dev" as const;
 export const DEV_CLOUD_BUILDER_ORIGIN =

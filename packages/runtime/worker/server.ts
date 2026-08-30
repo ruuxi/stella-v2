@@ -128,7 +128,10 @@ import {
   createSecureCliBridgeEndpoint,
   resolveRuntimePaths,
 } from "./runtime-paths.js";
-import { createBackendConnectorActionBroker } from "./backend-connector-action-broker.js";
+import {
+  createBackendConnectorActionBroker,
+  createBackendConnectorActionsBroker,
+} from "./backend-connector-action-broker.js";
 import {
   afterRequiredCliBridgeReady,
   connectorActionBrokerAvailability,
@@ -843,6 +846,21 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
           }
         },
       });
+      const listBackendConnectorActions = createBackendConnectorActionsBroker({
+        stellaDataDir: init.stellaDataDirPath,
+        getSiteAuth: () => {
+          const baseUrl = state.init?.convexSiteUrl?.trim();
+          const authToken = state.init?.authToken?.trim();
+          return baseUrl && authToken ? { baseUrl, authToken } : null;
+        },
+        refreshSiteAuth: async () => {
+          try {
+            return await refreshSiteAuth();
+          } catch {
+            return null;
+          }
+        },
+      });
       const requestHostConnectorTokenStore = async (
         request: ConnectorTokenStoreRequest,
       ) =>
@@ -889,6 +907,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         },
         handlers: {
           runBackendConnectorAction,
+          listBackendConnectorActions,
           requestConnectorCredential: async (params) => {
             try {
               return await peer.request<

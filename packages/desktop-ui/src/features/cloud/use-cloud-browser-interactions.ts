@@ -5,6 +5,7 @@ import type {
   CloudBrowserInteractionDetail,
   CloudBrowserInteractionSummary,
 } from "@stella/contracts/cloud-browser";
+import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { cloudBrowserApi } from "./cloud-browser-api";
 
 const EMPTY_INTERACTIONS: readonly CloudBrowserInteractionSummary[] = [];
@@ -18,9 +19,10 @@ const newRequestId = (): string =>
 
 export function usePendingCloudBrowserInteractions(): readonly CloudBrowserInteractionSummary[] {
   const { isAuthenticated } = useConvexAuth();
+  const { hasConnectedAccount } = useAuthSessionState();
   const interactions = useQuery(
     cloudBrowserApi.listMyPendingBrowserInteractions,
-    isAuthenticated ? {} : "skip",
+    isAuthenticated && hasConnectedAccount ? {} : "skip",
   );
   return interactions ?? EMPTY_INTERACTIONS;
 }

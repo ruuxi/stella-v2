@@ -1,0 +1,767 @@
+/* ──────────────────────────────────────────────────────────────────
+   Single-chat section — text on the left, mini-window mock on the
+   right. The mock includes the Stella sidebar inside the window
+   alongside the chat column. The inline working indicator lives in
+   the context-chip bar above the composer.
+
+   Theme is "dusk" — deep plum surface, warm cream text, rose accent.
+   All tokens scoped to .mini-window so nothing leaks.
+   ────────────────────────────────────────────────────────────────── */
+
+/* Hero copy sits next to the codex-frame on the page background, not
+   on top of it — keep the text in the site's default dark color. */
+.single-chat-hero__eyebrow {
+  font-family: var(--font-display), "Cormorant Garamond", Georgia, serif;
+  font-style: italic;
+  font-size: 18px;
+  font-weight: 450;
+  letter-spacing: -0.01em;
+}
+
+.single-chat-hero__title {
+  font-family: var(--font-display), "Cormorant Garamond", Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  font-size: clamp(2rem, 4vw, 3rem);
+  margin: 0.4rem 0 0.8rem;
+}
+
+.single-chat-hero__lede {
+  font-size: clamp(0.95rem, 1.1vw, 1.05rem);
+  line-height: 1.55;
+  max-width: 34rem;
+}
+
+.single-chat-hero__lede--sub {
+  margin-top: 1rem;
+  opacity: 0.78;
+}
+
+/* Side-by-side layout: copy on the left, mock-in-codex-frame on the
+   right. Stacks under 880px. */
+.single-chat-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(2rem, 4vw, 3.5rem);
+}
+
+.single-chat-stage .single-chat-hero__copy {
+  margin: 0;
+}
+
+.single-chat-stage .single-chat-hero__mock {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Codex-frame wrapper around the mini window — matches the blue
+   gradient card used by the other sections. The frame hugs the
+   mini-window with comfortable inner padding, and centers it inside
+   the right column. */
+.single-chat-hero__frame {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: clamp(1rem, 2.4vw, 2rem);
+}
+
+.single-chat-hero__frame .mini-window {
+  box-shadow:
+    0 24px 60px -18px rgba(15, 8, 24, 0.55),
+    0 6px 18px rgba(15, 8, 24, 0.35);
+}
+
+@media (max-width: 880px) {
+  .single-chat-stage {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
+  }
+}
+
+/* ─── Mini window — dusk theme ───────────────────────────────── */
+.mini-window {
+  --mini-bg: #1f1828;
+  --mini-bg-top: #271e30;
+  --mini-sidebar-bg: #1a141f;
+  --mini-surface: #2e2438;
+  --mini-border: rgba(255, 215, 220, 0.10);
+  --mini-border-strong: rgba(255, 215, 220, 0.18);
+  --mini-text-strong: #f3e9ec;
+  --mini-text-base: rgba(243, 233, 236, 0.86);
+  --mini-text-weak: rgba(243, 233, 236, 0.58);
+  --mini-text-weaker: rgba(243, 233, 236, 0.36);
+  --mini-accent: #ff6f8e;
+  --mini-accent-soft: rgba(255, 111, 142, 0.18);
+  --mini-user-bubble: rgba(255, 111, 142, 0.14);
+  --mini-user-bubble-border: rgba(255, 111, 142, 0.32);
+
+  width: 100%;
+  max-width: 520px;
+  height: clamp(560px, 74vh, 640px);
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, var(--mini-bg-top) 0%, var(--mini-bg) 100%);
+  color: var(--mini-text-base);
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--mini-border);
+  box-shadow:
+    0 30px 80px -20px rgba(15, 8, 24, 0.55),
+    0 6px 18px rgba(15, 8, 24, 0.35);
+  font-family: var(--font-sans), "Manrope", system-ui, sans-serif;
+}
+
+/* ─── Title bar ──────────────────────────────────────────────── */
+.mini-window__titlebar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--mini-border);
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+.mini-window__traffic {
+  display: inline-flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.mini-window__traffic span {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  display: block;
+}
+
+.mini-window__traffic span:first-child { background: #ff6058; }
+.mini-window__traffic span:nth-child(2) { background: #ffbd2e; }
+.mini-window__traffic span:nth-child(3) { background: #28c941; }
+
+.mini-window__title-spacer {
+  flex: 1;
+}
+
+/* ─── Body row: sidebar + main column ────────────────────────── */
+.mini-window__body {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.mini-window__main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: linear-gradient(180deg, var(--mini-bg-top) 0%, var(--mini-bg) 100%);
+}
+
+/* ─── Sidebar ────────────────────────────────────────────────── */
+.mini-sidebar {
+  display: flex;
+  flex-direction: column;
+  background: var(--mini-sidebar-bg);
+  border-right: 1px solid var(--mini-border);
+  padding: 12px 8px 10px;
+  min-height: 0;
+}
+
+.mini-sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 10px;
+}
+
+.mini-sidebar__brand-logo {
+  width: 17px;
+  height: 17px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.65;
+}
+
+.mini-sidebar__brand-logo img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.mini-sidebar__brand-text {
+  font-family: var(--font-display), "Cormorant Garamond", Georgia, serif;
+  font-style: italic;
+  font-size: 19px;
+  font-weight: 450;
+  letter-spacing: -0.02em;
+  color: var(--mini-text-weak);
+}
+
+.mini-sidebar__nav,
+.mini-sidebar__footer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mini-sidebar__nav {
+  margin-top: 4px;
+}
+
+.mini-sidebar__footer {
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.mini-sidebar__account-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 8px;
+  color: var(--mini-text-weak);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.mini-sidebar__account-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--mini-text-strong);
+}
+
+.mini-sidebar__footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 6px 2px 0;
+}
+
+.mini-sidebar__footer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.mini-sidebar__footer-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: var(--mini-text-weak);
+}
+
+.mini-sidebar__footer-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.mini-sidebar__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  color: var(--mini-text-weak);
+  font-size: 12.5px;
+  font-weight: 500;
+  user-select: none;
+}
+
+.mini-sidebar__item--active {
+  background: rgba(255, 111, 142, 0.10);
+  color: var(--mini-text-strong);
+}
+
+.mini-sidebar__item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.mini-sidebar__item--active .mini-sidebar__item-icon {
+  color: var(--mini-accent);
+}
+
+.mini-sidebar__footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 6px 2px 0;
+}
+
+.mini-sidebar__footer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.mini-sidebar__footer-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: var(--mini-text-weak);
+}
+
+.mini-sidebar__footer-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.mini-sidebar__avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(255, 111, 142, 0.28);
+  color: var(--mini-text-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+/* Narrow viewport: collapse the in-window sidebar to an icon rail,
+   matching the desktop app's mobile persistent rail. Scoped to the
+   single-chat mock so it doesn't fight `.mini-window__body--solo`. */
+@media (max-width: 640px) {
+  .single-chat-hero__frame .mini-window__body {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .single-chat-hero__frame .mini-sidebar {
+    padding: 10px 4px 8px;
+    align-items: center;
+  }
+
+  .single-chat-hero__frame .mini-sidebar__brand {
+    justify-content: center;
+    gap: 0;
+    padding: 4px 0 8px;
+  }
+
+  .single-chat-hero__frame .mini-sidebar__brand-text,
+  .single-chat-hero__frame .mini-sidebar__item-label {
+    display: none;
+  }
+
+  .single-chat-hero__frame .mini-sidebar__nav,
+  .single-chat-hero__frame .mini-sidebar__footer {
+    width: 100%;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .single-chat-hero__frame .mini-sidebar__item {
+    justify-content: center;
+    gap: 0;
+    padding: 8px 0;
+  }
+
+  .single-chat-hero__frame .mini-sidebar__account-trigger {
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    padding: 4px 0;
+  }
+
+  .single-chat-hero__frame .mini-sidebar__account-label {
+    display: none;
+  }
+}
+
+/* ─── Chat body ──────────────────────────────────────────────── */
+.mini-window__chat {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 14px 8px;
+  scrollbar-width: none;
+}
+
+.mini-window__chat::-webkit-scrollbar {
+  display: none;
+}
+
+.mini-chat {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mini-chat__row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mini-chat__row--user {
+  align-items: flex-end;
+}
+
+.mini-chat__row--stella {
+  align-items: flex-start;
+}
+
+/* ─── Bubbles ────────────────────────────────────────────────── */
+.mini-chat__bubble {
+  font-size: 13.5px;
+  line-height: 1.55;
+  letter-spacing: -0.005em;
+  word-wrap: break-word;
+}
+
+.mini-chat__bubble--user {
+  background: var(--mini-user-bubble);
+  border: 1px solid var(--mini-user-bubble-border);
+  color: var(--mini-text-strong);
+  padding: 8px 12px;
+  border-radius: 16px;
+  border-bottom-right-radius: 4px;
+  max-width: 85%;
+}
+
+.mini-chat__bubble--stella {
+  background: transparent;
+  border: none;
+  color: var(--mini-text-base);
+  padding: 2px 0;
+  max-width: 95%;
+}
+
+/* Just-sent entry animation — mirrors `user-message-enter` on desktop. */
+.mini-chat__row--just-sent .mini-chat__bubble--user {
+  animation: mini-chat-user-enter 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: right bottom;
+}
+
+@keyframes mini-chat-user-enter {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+    transform: translate3d(0, 10px, 0) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.mini-chat__cursor {
+  display: inline-block;
+  width: 2px;
+  height: 0.9em;
+  margin-left: 1px;
+  background: var(--mini-accent);
+  vertical-align: -0.1em;
+  border-radius: 1px;
+  animation: mini-chat-cursor-blink 1s steps(2, start) infinite;
+}
+
+@keyframes mini-chat-cursor-blink {
+  to {
+    opacity: 0;
+  }
+}
+
+/* ─── Composer wrap ──────────────────────────────────────────── */
+.mini-window__composer-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 12px 12px;
+}
+
+/* ─── Context-chip bar above the composer ──────────────────── */
+/* Working indicator slot sits on the LEFT, chips on the right. When
+   the indicator is active the chips shift right and collapse their
+   labels — exact behaviour of .composer-context-actions--suggestions
+   on desktop. */
+.mini-context-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 0 4px 0 20px;
+  overflow: hidden;
+}
+
+.mini-context-bar__indicator {
+  flex: 0 0 auto;
+  max-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    max-width 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 200ms ease;
+}
+
+.mini-context-bar[data-working] .mini-context-bar__indicator {
+  max-width: 320px;
+  opacity: 1;
+}
+
+.mini-context-bar__chips {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    opacity 200ms ease,
+    transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* When work is in flight, hide the chips outright — keeps the bar
+   focused on the working indicator. */
+.mini-context-bar[data-working] .mini-context-bar__chips {
+  opacity: 0;
+  transform: translateX(8px);
+  pointer-events: none;
+}
+
+/* ─── Suggestion chip ──────────────────────────────────────── */
+.mini-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  background: transparent;
+  border: 1px dashed rgba(243, 233, 236, 0.28);
+  border-radius: 999px;
+  color: var(--mini-text-weak);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    padding 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.mini-context-chip:hover {
+  background: rgba(243, 233, 236, 0.06);
+  color: var(--mini-text-base);
+  border-color: rgba(243, 233, 236, 0.42);
+}
+
+.mini-context-chip__plus {
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.65;
+}
+
+.mini-context-chip__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.mini-context-chip__label {
+  font-weight: 600;
+}
+
+.mini-context-chip__meta {
+  font-weight: 400;
+  font-size: 10.5px;
+  opacity: 0.7;
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    max-width 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 200ms ease,
+    margin-left 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ─── Working indicator (no bubble around the orb) ───────────── */
+.mini-working {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  color: var(--mini-text-base);
+  font-size: 12.5px;
+}
+
+.mini-working__orb {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--mini-accent);
+}
+
+.mini-working__orb canvas {
+  display: block !important;
+  width: 20px !important;
+  height: 20px !important;
+}
+
+.mini-working__status {
+  position: relative;
+  display: inline-grid;
+  grid-template-areas: "stack";
+  align-items: center;
+  min-width: 0;
+  max-width: 240px;
+}
+
+.mini-working__status-layer {
+  grid-area: stack;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  background: linear-gradient(
+    90deg,
+    var(--mini-text-weak) 0%,
+    var(--mini-text-strong) 50%,
+    var(--mini-text-weak) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: mini-working-shimmer 2.2s linear infinite;
+}
+
+@keyframes mini-working-shimmer {
+  from {
+    background-position: 220% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+.mini-working__status-layer--in {
+  animation:
+    mini-working-shimmer 2.2s linear infinite,
+    mini-working-status-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.mini-working__status-layer--out {
+  animation:
+    mini-working-shimmer 2.2s linear infinite,
+    mini-working-status-out 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  pointer-events: none;
+}
+
+@keyframes mini-working-status-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes mini-working-status-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-6px); }
+}
+
+/* ─── Composer pill ──────────────────────────────────────────── */
+.mini-composer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  background: rgba(243, 233, 236, 0.03);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid var(--mini-border-strong);
+  border-radius: 999px;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.mini-composer--focus {
+  border-color: rgba(255, 111, 142, 0.5);
+  background: rgba(255, 111, 142, 0.06);
+}
+
+.mini-composer__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(243, 233, 236, 0.06);
+  color: var(--mini-text-weak);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mini-composer__btn:hover:not(:disabled) {
+  background: rgba(243, 233, 236, 0.12);
+  color: var(--mini-text-base);
+}
+
+.mini-composer__send {
+  background: var(--mini-accent);
+  color: #2b1923;
+}
+
+.mini-composer__send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mini-composer__mic {
+  background: transparent;
+}
+
+.mini-composer__input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--mini-text-strong);
+  padding: 2px 4px;
+}
+
+.mini-composer__input::placeholder {
+  color: var(--mini-text-weaker);
+}

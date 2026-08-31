@@ -1,0 +1,36 @@
+"use client";
+
+import { AuroraCanvas } from "./aurora-canvas";
+import { DownloadButton } from "./download-button";
+import { WindowsInstallNote } from "./windows-install-note";
+import styles from "./home-hero.module.css";
+
+/* Editorial hero ported from the fromyou-ai landing page: a single
+ * left-aligned content block (headline, body, download) sitting on an aurora
+ * that pours in from the right. The whole block reveals together on landing
+ * (a soft blur + rise) in lockstep with the desktop mock below. */
+export function HomeHero() {
+  return (
+    <main className={styles.hero} aria-labelledby="hero-title">
+      <AuroraCanvas className={styles.aurora} />
+      <div className={styles.auroraReflection} aria-hidden="true" />
+
+      <section className={styles.inner}>
+        <div className={styles.content}>
+          <h1 id="hero-title" className={styles.title}>
+            Stella, your <span className={styles.accent}>personal assistant.</span>
+          </h1>
+
+          <p className={styles.intro}>
+            The AI that does anything. Free to use.
+          </p>
+
+          <div className={styles.cta}>
+            <DownloadButton />
+          </div>
+          <WindowsInstallNote />
+        </div>
+      </section>
+    </main>
+  );
+}

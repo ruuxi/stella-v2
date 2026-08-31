@@ -82,7 +82,7 @@ const MEDIA_SUBSCRIPTION_QUERY = "api.media_jobs.getByJobId";
  * backend. The backend just points callers at the right URL.
  *
  * Pages live at /docs/media (overview) and /docs/media/{images,video,audio,music,3d}.
- * See `stella-website/src/lib/media-docs.ts` for the source content.
+ * See `packages/website/src/lib/media-docs.ts` for the source content.
  */
 const MEDIA_DOCS_URL = "https://stella.sh/docs/media";
 

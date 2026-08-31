@@ -1,0 +1,1586 @@
+@import "tailwindcss";
+
+:root {
+  --page-background: #ffffff;
+  --page-foreground: #0f1728;
+  --page-muted: #44546c;
+  --page-border: rgba(82, 104, 134, 0.18);
+  --page-border-strong: rgba(82, 104, 134, 0.28);
+  --page-accent: #1d78f2;
+  --page-accent-hover: #0f65d7;
+  --page-accent-foreground: #f7fbff;
+  --page-panel: rgba(255, 255, 255, 0.42);
+  --page-panel-strong: rgba(255, 255, 255, 0.7);
+  --page-dark: #101826;
+  --page-dark-foreground: #edf6ff;
+  --page-dark-muted: rgba(237, 246, 255, 0.62);
+  --page-quote: rgba(103, 127, 158, 0.08);
+  --page-glow-cyan: rgba(99, 212, 255, 0.24);
+  --page-glow-blue: rgba(79, 118, 255, 0.18);
+  --page-glow-mint: rgba(123, 245, 219, 0.16);
+
+  --page-max-width: 2560px;
+  /* Single text / control width for `.section-kicker` and matching blocks */
+  --section-kicker-measure: 22rem;
+  /* Shared chrome for `.demo-panel` (full + portrait) */
+  --demo-panel-padding: 1.5rem;
+  /* Inset for demo visuals inside the panel — matches `.selfmod-layout` */
+  --demo-panel-inner-padding: 0.9rem 1.3rem 1.3rem;
+  --page-margin: clamp(1rem, 4.098vw, 6.5rem);
+  --page-cell-padding: clamp(0.8rem, 1.6vw, 1.5rem);
+  --page-radius: 0.45rem;
+
+  --shadow-soft: 0 24px 50px rgba(18, 18, 15, 0.08);
+  --shadow-card: 0 18px 30px rgba(18, 18, 15, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.copy-prompt {
+  position: relative;
+  display: inline-flex;
+}
+
+html {
+  scroll-behavior: smooth;
+  /* Reserve gutter so `100vw` / layout don’t jump when the scrollbar appears */
+  scrollbar-gutter: stable;
+}
+
+/* While Lenis drives scrolling, native smooth scrolling must not fight its
+   per-frame positioning. Lenis only mounts outside reduced-motion, so users
+   who opt out keep the native smooth behavior above. */
+html.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+/* The site sits on a flat `--page-background` color; ambient
+ * decoration lives in `<PageBackground />` at the top of the document,
+ * which paints a top blue wash + three blurred elongated triangles.
+ * Per-page wrappers (`.stella-page`, `.legal-doc-page`, etc.) stay
+ * transparent so the body color + PageBackground show through. */
+body {
+  position: relative;
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--page-background);
+  color: var(--page-foreground);
+  font-family: var(--font-sans), "Manrope", system-ui, sans-serif;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+:where(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--font-display), "Cormorant Garamond", Georgia, serif;
+  font-weight: 300;
+}
+
+.page-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 70svh;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* Soft blue wash anchored to the top of the page. Fades out partway
+ * down the first screen, then disappears entirely before the page mock
+ * below it. */
+.page-background__wash {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 55svh;
+  background: linear-gradient(
+    180deg,
+    rgba(79, 159, 218, 0.32) 0%,
+    rgba(79, 159, 218, 0.18) 45%,
+    rgba(79, 159, 218, 0) 100%
+  );
+}
+
+/* Three rounded-triangle blurs that drift across the upper band of
+ * the page. Sized to roughly the same vertical region as the wash so
+ * the whole composition reads as one cohesive band of color. */
+.page-background__blurs {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 70svh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(18, 125, 164, 0.18);
+  color: var(--page-foreground);
+}
+
+.stella-page {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  overflow-x: clip;
+}
+
+/* ── Embedded mode ──
+ * When the website is loaded inside Stella's desktop `WebContentsView`
+ * (Store, Billing, etc.) the view is kept OPAQUE on the desktop side — a
+ * translucent web layer is a major scroll/interaction lag source on Windows
+ * (Chromium falls off the Direct Composition fast path). So instead of
+ * letting the desktop's gradient canvas show through a transparent body, we
+ * recreate that soft gradient here, painted inside the webview from the
+ * theme tokens the desktop pushes in via URL params (initial paint) or the
+ * `stellaDesktopStore.onThemeChanged` bridge (live updates). */
+html[data-embedded="true"] {
+  background: var(--embedded-bg, #f2f4f8) !important;
+}
+
+html[data-embedded="true"] body {
+  background:
+    radial-gradient(
+      circle at 16% 8%,
+      color-mix(in srgb, var(--embedded-primary, #0f62fe) 13%, transparent) 0,
+      transparent 42%
+    ),
+    radial-gradient(
+      circle at 88% 14%,
+      color-mix(in srgb, var(--embedded-primary, #0f62fe) 9%, transparent) 0,
+      transparent 46%
+    ),
+    radial-gradient(
+      circle at 50% 92%,
+      color-mix(in srgb, var(--embedded-fg, #161616) 6%, transparent) 0,
+      transparent 50%
+    ),
+    var(--embedded-bg, #f2f4f8) !important;
+  color: var(--embedded-fg, var(--page-foreground));
+}
+
+html[data-embedded="true"] .page-background {
+  display: none;
+}
+
+/* When the Stella desktop app embeds /billing or /store inside its own
+   chrome, hide the marketing site header — the desktop already provides
+   navigation, and the duplicated brand/nav looks broken. */
+html[data-embedded="true"] .site-header {
+  display: none;
+}
+
+.grid-shell {
+  width: min(100%, var(--page-max-width));
+  padding-inline: var(--page-margin);
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.grid-shell {
+  position: relative;
+  gap: 1.25rem;
+  padding-block: clamp(1.3rem, 2.8vw, 2.4rem);
+}
+
+.grid-shell--dense {
+  padding-block: clamp(0.7rem, 1.6vw, 1.4rem);
+}
+
+.grid-shell > * {
+  min-width: 0;
+  padding-inline: var(--page-cell-padding);
+}
+
+.section-border {
+  border-bottom: 1px solid var(--page-border);
+}
+
+.site-header {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  z-index: 50;
+  padding-block: clamp(0.15rem, 0.45vw, 0.4rem) clamp(0.2rem, 0.55vw, 0.5rem);
+  background: transparent;
+  border-bottom: none;
+}
+
+.site-header .brand-mark__logo {
+  width: clamp(1.85rem, 3.4vw, 2.35rem) !important;
+  height: clamp(1.85rem, 3.4vw, 2.35rem) !important;
+}
+
+.site-header .brand-mark__logo-img {
+  width: clamp(1.85rem, 3.4vw, 2.35rem) !important;
+  height: clamp(1.85rem, 3.4vw, 2.35rem) !important;
+}
+
+.site-header .brand-text {
+  font-size: clamp(1.05rem, 1.9vw, 1.35rem);
+}
+
+.site-header .brand-mark {
+  transform: translateY(7px);
+}
+
+.brand-wrap,
+.footer-brand {
+  position: relative;
+}
+
+.brand-mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.brand-mark--footer::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(-1 * var(--page-cell-padding));
+  top: 50%;
+  width: 1px;
+  height: 1.9rem;
+  transform: translateY(-50%);
+  background: rgba(18, 18, 15, 0.16);
+}
+
+.brand-mark img {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.site-header .brand-mark {
+  gap: 0;
+}
+
+.site-header .brand-mark__logo {
+  display: flex;
+  width: clamp(2.65rem, 5.5vw, 3.35rem);
+  height: clamp(2.65rem, 5.5vw, 3.35rem);
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.site-header .brand-mark__logo-img {
+  width: clamp(2.65rem, 5.5vw, 3.35rem) !important;
+  height: clamp(2.65rem, 5.5vw, 3.35rem) !important;
+}
+
+.brand-mark--footer img {
+  width: 2rem;
+  height: 2rem;
+}
+
+.brand-text {
+  font-family: var(--font-display), serif;
+  font-size: clamp(1.5rem, 3.2vw, 2rem);
+  font-weight: 300;
+  letter-spacing: -0.06em;
+}
+
+.site-nav {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.site-nav__inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.site-nav a,
+.site-nav button.site-nav__signin {
+  padding: 0.48rem 0.62rem;
+  color: rgba(18, 18, 15, 0.68);
+  font-size: 0.86rem;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
+}
+
+.site-nav button.site-nav__signin {
+  appearance: none;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.site-nav > .button {
+  margin-inline-start: 0.25rem;
+}
+
+.site-nav__toggle {
+  display: none;
+  appearance: none;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-inline-start: 0.15rem;
+  padding: 0;
+  border: 1px solid rgba(18, 18, 15, 0.14);
+  background: rgba(255, 255, 255, 0.6);
+  color: rgba(18, 18, 15, 0.78);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease;
+}
+
+.site-nav__toggle:hover {
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--page-foreground);
+}
+
+.site-nav__toggle:focus-visible {
+  outline: 2px solid rgba(79, 118, 255, 0.55);
+  outline-offset: 2px;
+}
+
+.site-nav__backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  appearance: none;
+  border: none;
+  padding: 0;
+  background: rgba(12, 18, 30, 0.32);
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+}
+
+.site-nav__sheet {
+  display: none;
+  position: absolute;
+  top: calc(100% + 0.6rem);
+  right: 0;
+  z-index: 91;
+  min-width: min(18rem, calc(100vw - 2rem));
+  padding: 0.55rem;
+  border: 1px solid rgba(82, 104, 134, 0.16);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.96),
+      rgba(244, 249, 255, 0.96)
+    ),
+    var(--page-panel);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(18px);
+}
+
+.site-nav__sheet ul {
+  display: grid;
+  gap: 0.1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-nav__sheet a {
+  display: block;
+  padding: 0.7rem 0.85rem;
+  color: var(--page-foreground);
+  font-size: 0.92rem;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+  transition: background-color 150ms ease;
+}
+
+.site-nav__sheet a:hover {
+  background: rgba(18, 18, 15, 0.05);
+}
+
+/* Hover-revealed category menus in the desktop top bar. */
+.site-nav__group {
+  position: relative;
+  display: inline-flex;
+}
+
+.site-nav__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  padding: 0.48rem 0.62rem;
+  color: rgba(18, 18, 15, 0.68);
+  font-size: 0.86rem;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.site-nav__group:hover .site-nav__trigger,
+.site-nav__group:focus-within .site-nav__trigger {
+  color: var(--page-foreground);
+}
+
+.site-nav__trigger svg {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.site-nav__group:hover .site-nav__trigger svg,
+.site-nav__group:focus-within .site-nav__trigger svg {
+  transform: rotate(180deg);
+}
+
+.site-nav__menu {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  /* Transparent bridge keeps the hover path continuous across the gap. */
+  padding-top: 0.45rem;
+  z-index: 60;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  translate: 0 -6px;
+  transition:
+    opacity 180ms ease,
+    translate 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 180ms;
+}
+
+.site-nav__group:hover .site-nav__menu,
+.site-nav__group:focus-within .site-nav__menu {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  translate: 0 0;
+  transition:
+    opacity 180ms ease,
+    translate 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s;
+}
+
+.site-nav__panel {
+  display: grid;
+  gap: 0.05rem;
+  min-width: 12rem;
+  padding: 0.4rem;
+  border: 1px solid rgba(82, 104, 134, 0.16);
+  border-radius: var(--page-radius);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.96),
+      rgba(244, 249, 255, 0.96)
+    ),
+    var(--page-panel);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(18px);
+}
+
+.site-nav__panel a {
+  display: block;
+  padding: 0.5rem 0.7rem;
+  border-radius: calc(var(--page-radius) - 0.15rem);
+  color: var(--page-foreground);
+  font-size: 0.82rem;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  transition: background-color 150ms ease;
+}
+
+.site-nav__panel a:hover {
+  background: rgba(18, 18, 15, 0.05);
+  color: var(--page-foreground);
+}
+
+/* Right-anchored popover variant for the account menu at the header's edge. */
+.site-nav__menu--end {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.site-nav__panel-action {
+  display: block;
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  padding: 0.5rem 0.7rem;
+  border-radius: calc(var(--page-radius) - 0.15rem);
+  color: var(--page-foreground);
+  font-size: 0.82rem;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.site-nav__panel-action:hover {
+  background: rgba(18, 18, 15, 0.05);
+}
+
+.site-nav__panel-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.site-nav__sheet-group + .site-nav__sheet-group {
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(82, 104, 134, 0.12);
+}
+
+.site-nav__sheet-title {
+  margin: 0;
+  padding: 0.3rem 0.85rem 0.15rem;
+  color: var(--page-muted);
+  font-size: 0.68rem;
+  font-weight: 300;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+@media (max-width: 860px) {
+  .site-nav__inline {
+    display: none;
+  }
+
+  .site-nav__toggle {
+    display: inline-flex;
+  }
+
+  .site-nav__backdrop {
+    display: block;
+  }
+
+  .site-nav__sheet[data-open="true"] {
+    display: block;
+  }
+}
+
+@media (max-width: 420px) {
+  .site-header .brand-mark {
+    gap: 0.35rem;
+  }
+
+  .brand-text {
+    font-size: 1.2rem;
+  }
+
+  .site-nav button.site-nav__signin {
+    padding: 0.4rem 0.5rem;
+    font-size: 0.72rem;
+    letter-spacing: -0.04em;
+  }
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  border-radius: 0.45rem;
+  border: 1px solid transparent;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.button:hover {
+  transform: translateY(-1px);
+}
+
+/* Primary CTAs wear the landing hero's "Download Stella" treatment: a pale
+   glass chip lit by the page's cyan/blue/mint glows, accent-blue display type,
+   hairline border, no drop shadow. `.button--download` is the same recipe —
+   kept as its own selector so the hero markup is unchanged — and every other
+   primary/accent CTA inherits it verbatim so the site has exactly one
+   primary button. */
+.button--primary,
+.button--accent,
+.button--download {
+  gap: 0.55rem;
+  padding: 0.7rem 1.85rem;
+  border-radius: var(--page-radius);
+  border-color: var(--page-border);
+  font-family: var(--font-display), "Cormorant Garamond", Georgia, serif;
+  font-style: italic;
+  font-weight: 300;
+  font-size: 1.5rem;
+  letter-spacing: -0.005em;
+  color: var(--page-accent);
+  background:
+    radial-gradient(circle at top left, var(--page-glow-cyan), transparent 28%),
+    radial-gradient(circle at 82% 10%, var(--page-glow-blue), transparent 26%),
+    radial-gradient(circle at 50% 100%, var(--page-glow-mint), transparent 30%),
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.7),
+      rgba(255, 255, 255, 0.18)
+    ),
+    var(--page-background);
+  box-shadow: none;
+}
+
+.button--primary:hover,
+.button--accent:hover,
+.button--download:hover {
+  background:
+    radial-gradient(circle at top left, var(--page-glow-cyan), transparent 26%),
+    radial-gradient(circle at 82% 10%, var(--page-glow-blue), transparent 24%),
+    radial-gradient(circle at 50% 100%, var(--page-glow-mint), transparent 28%),
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.78),
+      rgba(255, 255, 255, 0.22)
+    ),
+    var(--page-background);
+  border-color: var(--page-border-strong);
+  box-shadow: none;
+}
+
+.button--primary,
+.button--accent {
+  align-self: flex-start;
+}
+
+/* One primary button on the whole site, at the landing hero's exact metrics:
+   the hero's own override in `home-hero.module.css` sets these same clamps,
+   so the hero is untouched and every other primary CTA — the replaced blue
+   ones and the "Download Stella" buttons alike — now matches it pixel for
+   pixel at any viewport. */
+.button--primary,
+.button--accent,
+.button--download {
+  padding-block: clamp(0.7rem, 1.1vw, 0.85rem);
+  padding-inline: clamp(1.7rem, 2.6vw, 2.3rem);
+  font-size: clamp(1.2rem, 1.4vw, 1.35rem);
+}
+
+.button--primary svg,
+.button--accent svg,
+.button--download svg {
+  opacity: 0.85;
+  margin-inline-start: 0.1rem;
+}
+
+.download-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.download-menu > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.download-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.download-menu__options {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.65rem);
+  inset-inline-start: 0;
+  display: grid;
+  min-width: 19rem;
+  gap: 0.3rem;
+  padding: 0.45rem;
+  border: 1px solid var(--page-border-strong);
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, var(--page-background) 94%, transparent);
+  box-shadow: 0 18px 48px -24px rgba(15, 36, 72, 0.45);
+  backdrop-filter: blur(18px);
+}
+
+.download-menu__option {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.45rem;
+  color: var(--page-foreground);
+  text-decoration: none;
+  transition: background-color 150ms ease;
+}
+
+.download-menu__option:hover,
+.download-menu__option:focus-visible {
+  background: var(--page-panel-strong);
+  outline: none;
+}
+
+.download-menu__option strong {
+  font-family: var(--font-sans), "Manrope", system-ui, sans-serif;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.download-menu__option span {
+  color: var(--page-muted);
+  font-family: var(--font-sans), "Manrope", system-ui, sans-serif;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 720px) {
+  .download-menu__options {
+    min-width: min(19rem, calc(100vw - 44px));
+  }
+}
+
+.button--compact {
+  padding: 0.45rem 0.85rem;
+  font-size: 0.82rem;
+}
+
+.button--ghost {
+  align-self: flex-start;
+  padding: 0.95rem 1.3rem;
+  font-size: 1rem;
+  border-color: var(--page-border);
+  background: var(--page-panel-strong);
+  color: var(--page-foreground);
+}
+
+.button--ghost:hover {
+  border-color: var(--page-border-strong);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.stella-animation-container {
+  --ascii-font-size: 7px;
+  --ascii-line-height: 7px;
+  --ascii-font-family: "SF Mono", "Menlo", "Monaco", "Courier New", monospace;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  background: transparent;
+  font-smooth: never;
+  -webkit-font-smoothing: none;
+  animation: breathing 8s ease-in-out infinite;
+}
+
+.ascii-canvas {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  image-rendering: pixelated;
+  opacity: 0.95;
+  z-index: 2;
+}
+
+.stella-animation-container .char-dark {
+  color: var(--primary, var(--page-foreground));
+}
+
+.stella-animation-container .char-medium-dark {
+  color: var(--accent, var(--page-muted));
+}
+
+.stella-animation-container .char-medium {
+  color: var(--ring, var(--page-accent));
+}
+
+.stella-animation-container .char-bright {
+  color: var(--spinner-color-2, #66dcff);
+}
+
+.stella-animation-container .char-brightest {
+  color: var(--spinner-color-3, #8ff7db);
+}
+
+.ascii-color-swatch {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.section-kicker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  max-width: var(--section-kicker-measure);
+  width: 100%;
+  min-width: 0;
+  padding-inline: var(--page-cell-padding);
+}
+
+.section-kicker span {
+  color: rgba(18, 18, 15, 0.46);
+  font-family: var(--font-display), serif;
+  font-size: 0.95rem;
+  font-style: italic;
+  letter-spacing: -0.03em;
+}
+
+.section-kicker h2 {
+  margin: 0;
+  font-family: var(--font-display), serif;
+  font-size: clamp(2.4rem, 5vw, 4.2rem);
+  font-weight: 300;
+  line-height: 1.08;
+  letter-spacing: -0.05em;
+}
+
+.section-kicker__desc {
+  margin: 0;
+  color: var(--page-muted);
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.section-kicker__concept-stack {
+  display: grid;
+}
+
+.section-kicker__concept-meta {
+  grid-area: 1 / 1;
+  visibility: hidden;
+}
+
+.section-kicker__concept-meta[data-active] {
+  visibility: visible;
+}
+
+.section-kicker__concept-meta h3 {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-display), serif;
+  /* Small display heading scale. */
+  font-size: clamp(1.15rem, 2vw, 1.35rem);
+  font-weight: 300;
+  letter-spacing: -0.04em;
+  line-height: 1.2;
+  color: rgba(15, 23, 40, 0.92);
+}
+
+.radial-demo__feature-rail--kicker {
+  margin-top: 0.5rem;
+}
+
+.canvas-showcase__tabs--kicker {
+  margin-top: 0.5rem;
+}
+
+.download-reassurance {
+  margin: 0.75rem 0 0;
+  color: color-mix(in oklch, var(--page-foreground) 70%, transparent);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.install-panels {
+  display: grid;
+  gap: 1rem;
+}
+
+.install-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--page-muted);
+  font-size: 0.78rem;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+}
+
+.editor-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.editor-pill {
+  border: 1px solid rgba(82, 104, 134, 0.14);
+  border-radius: 999px;
+  padding: 0.45rem 0.72rem;
+  background: rgba(255, 255, 255, 0.62);
+  font-size: 0.78rem;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+}
+
+.terminal-install {
+  margin: 0;
+  overflow-x: auto;
+  border-radius: 999px;
+  border: 1px solid rgba(46, 68, 99, 0.18);
+  background: linear-gradient(180deg, #152131, #101926);
+  color: #edf6ff;
+  padding: 0.85rem 1rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 24px rgba(11, 23, 40, 0.14);
+}
+
+.product-demos-slot,
+.product-demos-slot > * {
+  width: 100%;
+  min-width: 0;
+  padding-inline: var(--page-cell-padding);
+}
+
+.section-deferred-render {
+  content-visibility: auto;
+  contain-intrinsic-size: 960px;
+}
+
+.home-deferred-slot {
+  min-height: 960px;
+}
+
+.home-deferred-slot:has(> *) {
+  min-height: 0;
+}
+
+/* Homepage post-hero story sections, modeled on the Atlas-style rhythm:
+   oversized headline above, side-anchored media with a soft fade, and one
+   compact explanatory copy block beside the mock. */
+.grid-shell.home-atlas-section {
+  --atlas-ink: #0c111d;
+  --atlas-muted: #283344;
+  --atlas-blue: #2563eb;
+  --atlas-bg: var(--page-background);
+  padding-block: clamp(5.5rem, 11vw, 12rem);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.04),
+      rgba(255, 255, 255, 0.22) 44%,
+      rgba(255, 255, 255, 0.04)
+    ),
+    var(--atlas-bg);
+}
+
+.grid-shell.home-atlas-section > * {
+  grid-column: 1 / -1;
+}
+
+.home-atlas-heading {
+  width: min(100%, 78rem);
+  margin: 0 auto clamp(2.4rem, 5.5vw, 5.8rem);
+  text-align: center;
+}
+
+.home-atlas-heading h2 {
+  max-width: 13ch;
+  margin: 0 auto;
+  color: var(--atlas-ink);
+  font-size: clamp(2.9rem, 7.4vw, 7.35rem);
+  font-weight: 360;
+  line-height: 0.94;
+  letter-spacing: 0px;
+  text-wrap: balance;
+  word-spacing: 0;
+}
+
+.home-atlas-scene {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(18rem, 0.82fr);
+  align-items: center;
+  gap: clamp(2rem, 5vw, 5.5rem);
+  width: min(100%, 86rem);
+  margin: 0 auto;
+}
+
+.home-atlas-scene--reverse {
+  grid-template-columns: minmax(18rem, 0.82fr) minmax(0, 1.18fr);
+}
+
+.home-atlas-media {
+  position: relative;
+  min-width: 0;
+  isolation: isolate;
+}
+
+.home-atlas-media--left {
+  margin-left: calc(-1 * min(var(--page-margin), 5.25rem));
+}
+
+.home-atlas-media--right {
+  margin-right: calc(-1 * min(var(--page-margin), 5.25rem));
+}
+
+.home-atlas-copy {
+  display: flex;
+  max-width: 32rem;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-self: start;
+}
+
+.home-atlas-copy--right {
+  justify-self: end;
+}
+
+/* Site-wide kicker / eyebrow system: the small line that introduces a
+   section heading. Cormorant italic, quiet ink, no badge chrome — the same
+   display voice as the hero and the download button, one step below the H2
+   it sits above. Page-level variants (.learn-eyebrow, .fix-eyebrow,
+   .go-eyebrow, the agents/storage/voice module eyebrows) share these rules;
+   only margins differ. */
+.site-kicker,
+.home-atlas-kicker {
+  display: block;
+  margin: 0;
+  color: color-mix(in oklch, var(--page-foreground) 64%, transparent);
+  font-family: var(--font-display), "Cormorant Garamond", Georgia, serif;
+  font-size: clamp(1.1rem, 1rem + 0.45vw, 1.35rem);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.home-atlas-kicker {
+  margin-bottom: 1rem;
+  color: color-mix(in oklch, var(--atlas-ink) 64%, transparent);
+}
+
+.home-atlas-copy p {
+  margin: 0;
+  color: var(--atlas-ink);
+  font-size: clamp(1.25rem, 2vw, 1.7rem);
+  font-weight: 360;
+  line-height: 1.36;
+  letter-spacing: 0;
+  text-wrap: balance;
+}
+
+@media (max-width: 900px) {
+  .home-atlas-section {
+    padding-block: clamp(4.5rem, 12vw, 7.5rem);
+  }
+
+  .home-atlas-heading {
+    margin-bottom: 2rem;
+    text-align: center;
+  }
+
+  .home-atlas-heading h2 {
+    max-width: 15ch;
+    margin: 0 auto;
+    font-size: clamp(2.15rem, 7.5vw, 3.25rem);
+    line-height: 1;
+  }
+
+  .home-atlas-scene,
+  .home-atlas-scene--reverse {
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+
+  .home-atlas-scene--reverse .home-atlas-media {
+    order: 1;
+  }
+
+  .home-atlas-scene--reverse .home-atlas-copy {
+    order: 2;
+  }
+
+  .home-atlas-media--left,
+  .home-atlas-media--right {
+    margin-inline: 0;
+  }
+
+  .home-atlas-copy,
+  .home-atlas-copy--right {
+    justify-self: stretch;
+    max-width: 100%;
+  }
+
+  .home-atlas-copy p {
+    max-width: 32rem;
+    font-size: clamp(1.08rem, 4.6vw, 1.45rem);
+  }
+}
+
+.site-footer {
+  align-items: start;
+  padding-bottom: 3rem;
+}
+
+.legal-links,
+.footer-column ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.footer-operator {
+  margin: 0.85rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: rgba(18, 18, 15, 0.52);
+}
+
+.legal-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.85rem;
+  font-size: 0.8rem;
+  color: rgba(18, 18, 15, 0.62);
+}
+
+.legal-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.legal-links a:hover,
+.footer-column a:hover,
+.site-nav a:hover,
+.site-nav button.site-nav__signin:hover {
+  color: var(--page-foreground);
+  opacity: 1;
+}
+
+.footer-columns {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.footer-column h3 {
+  margin: 0 0 0.9rem;
+  font-size: 0.82rem;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+}
+
+.footer-column ul {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.footer-column a {
+  color: rgba(18, 18, 15, 0.62);
+  font-size: 0.9rem;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+}
+
+.reveal {
+  animation: fade-up 720ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.reveal-delay-1 {
+  animation-delay: 120ms;
+}
+
+.reveal-delay-2 {
+  animation-delay: 220ms;
+}
+
+/* Shared loading primitives. Content-shaped placeholders that mirror
+   real layout exactly, with a single calm opacity pulse instead of a
+   gradient shimmer (reads as template UI). Reduced-motion safe. */
+@keyframes loading-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+
+.loading-block {
+  display: block;
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--page-foreground) 6%, transparent);
+  animation: loading-pulse 1.6s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * 80ms);
+}
+
+.loading-text {
+  display: inline-block;
+  height: 0.85em;
+  width: var(--w, 4ch);
+  vertical-align: -0.08em;
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--page-foreground) 10%, transparent);
+  animation: loading-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-block,
+  .loading-text {
+    animation: none;
+    opacity: 0.85;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Apple-style scroll-triggered section reveal.                      */
+/* Activated only after the client mounts and adds `has-reveal` to   */
+/* <html>, so SSR / no-JS / reduced-motion users see content as-is.  */
+/* ---------------------------------------------------------------- */
+
+.has-reveal [data-reveal] {
+  opacity: 0;
+  transform: translate3d(0, 18px, 0) scale(0.992);
+  filter: blur(6px);
+  will-change: opacity, transform, filter;
+  transition:
+    opacity 620ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 700ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 560ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.has-reveal [data-reveal][data-revealed] {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+/* Children inside a revealed section cascade in slightly behind the
+   parent for a layered, considered feel. Index is set per-child via
+   `--reveal-index` so the order is intentional, not source-order. */
+.has-reveal [data-reveal] [data-reveal-child] {
+  opacity: 0;
+  transform: translate3d(0, 14px, 0);
+  filter: blur(4px);
+  will-change: opacity, transform, filter;
+  transition:
+    opacity 540ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 620ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 480ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(110ms + var(--reveal-index, 0) * 60ms);
+}
+
+/* Product sections hold their position — the section and its mock fade
+   in place rather than sliding up, so a window never reads as drifting
+   around the page (the section slide + child slide used to compound). */
+.has-reveal .home-atlas-section[data-reveal] {
+  transform: none;
+}
+
+.has-reveal [data-reveal] .home-atlas-media[data-reveal-child] {
+  transform: none;
+}
+
+.has-reveal [data-reveal][data-revealed] [data-reveal-child] {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+/* Once revealed, drop the GPU promotion so static sections don't
+   keep an extra compositor layer around. */
+.has-reveal [data-reveal][data-revealed],
+.has-reveal [data-reveal][data-revealed] [data-reveal-child] {
+  will-change: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .has-reveal [data-reveal],
+  .has-reveal [data-reveal] [data-reveal-child] {
+    opacity: 1;
+    transform: none;
+    filter: none;
+    transition: none;
+  }
+}
+
+/* Low-power devices keep the reveal motion but drop the blur — animating
+   `filter: blur()` is the single most expensive part of the scroll.
+   Opacity + transform stay on the compositor and remain smooth. */
+html[data-low-power] .has-reveal [data-reveal],
+html[data-low-power] .has-reveal [data-reveal] [data-reveal-child] {
+  filter: none !important;
+  transition:
+    opacity 560ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 640ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+@keyframes breathing {
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.008);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* ── Download password modal ─────────────────────────────── */
+
+.dl-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 40, 0.35);
+  backdrop-filter: blur(6px);
+  animation: fade-up 200ms ease both;
+}
+
+.dl-modal {
+  position: relative;
+  width: min(380px, calc(100% - 2rem));
+  border: 1px solid rgba(82, 104, 134, 0.16);
+  border-radius: 1.1rem;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.97),
+    rgba(246, 250, 255, 0.96)
+  );
+  box-shadow:
+    0 24px 60px rgba(15, 23, 40, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+  padding: 2rem 1.6rem 1.6rem;
+  text-align: center;
+}
+
+.dl-modal__close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(82, 104, 134, 0.08);
+  color: rgba(15, 23, 40, 0.5);
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.dl-modal__close:hover {
+  background: rgba(82, 104, 134, 0.16);
+  color: rgba(15, 23, 40, 0.8);
+}
+
+.dl-modal__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: 999px;
+  background: rgba(29, 120, 242, 0.1);
+  color: var(--page-accent);
+  margin-bottom: 0.9rem;
+}
+
+.dl-modal__title {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-display), serif;
+  font-size: 1.3rem;
+  font-weight: 300;
+  letter-spacing: -0.04em;
+  line-height: 1.2;
+}
+
+.dl-modal__desc {
+  margin: 0 0 1.2rem;
+  color: var(--page-muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.dl-modal__form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.dl-modal__input {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid rgba(82, 104, 134, 0.2);
+  border-radius: 0.55rem;
+  background: rgba(255, 255, 255, 0.8);
+  font-size: 0.9rem;
+  letter-spacing: -0.02em;
+  outline: none;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.dl-modal__input:focus {
+  border-color: rgba(29, 120, 242, 0.45);
+  box-shadow: 0 0 0 3px rgba(29, 120, 242, 0.1);
+}
+
+.dl-modal__input--error {
+  border-color: rgba(220, 38, 38, 0.5);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.08);
+}
+
+.dl-modal__error {
+  color: #dc2626;
+  font-size: 0.78rem;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  text-align: left;
+}
+
+.dl-modal__submit {
+  width: 100%;
+  margin-top: 0.2rem;
+}
+
+@media (max-width: 767px) {
+  .section-deferred-render {
+    contain-intrinsic-size: 480px;
+  }
+
+  .home-deferred-slot {
+    min-height: 480px;
+  }
+}
+
+@media (min-width: 768px) {
+  .grid-shell {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .site-header {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .brand-wrap {
+    grid-column: 1;
+  }
+
+  .site-nav {
+    grid-column: 2 / 4;
+  }
+
+  .section-kicker,
+  .product-demos-slot,
+  .install-panels,
+  .footer-columns {
+    grid-column: 2 / 4;
+  }
+
+  .install-panels {
+    grid-template-columns: 1fr 1fr;
+    align-items: end;
+  }
+
+  .footer-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .grid-shell {
+    grid-template-columns: 560fr 560fr 373fr 373fr 373fr;
+  }
+
+  .site-nav {
+    grid-column: 2 / 6;
+  }
+
+  .site-header {
+    grid-template-columns: 560fr 560fr 373fr 373fr 373fr;
+  }
+
+  .section-kicker {
+    grid-column: 1;
+  }
+
+  .install-panels,
+  .product-demos-slot,
+  .footer-columns {
+    grid-column: 2 / 6;
+  }
+
+  .footer-brand {
+    grid-column: 1;
+  }
+
+  .footer-columns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

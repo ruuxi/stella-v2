@@ -1,0 +1,44 @@
+keyword,match_type,reason
+job,broad,Employment intent
+jobs,broad,Employment intent
+career,broad,Employment intent
+careers,broad,Employment intent
+salary,broad,Employment intent
+internship,broad,Employment intent
+course,broad,Education intent
+courses,broad,Education intent
+tutorial,broad,Education intent
+tutorials,broad,Education intent
+class,broad,Education intent
+classes,broad,Education intent
+degree,broad,Education intent
+definition,broad,Informational intent
+meaning,broad,Informational intent
+wiki,broad,Informational intent
+wikipedia,broad,Informational intent
+crack,broad,Piracy intent
+cracked,broad,Piracy intent
+torrent,broad,Piracy intent
+apk,broad,Unsupported platform
+android,broad,Unsupported primary product
+iphone,broad,Unsupported primary product
+ios,broad,Unsupported primary product
+customer service,phrase,Support intent
+phone number,phrase,Support intent
+login,broad,Existing-user navigation
+sign in,phrase,Existing-user navigation
+api documentation,phrase,Developer API intent
+api docs,phrase,Developer API intent
+buzz block,phrase,Irrelevant search term observed in launch data
+opencode,broad,Retired competitor focus
+claude code,phrase,Retired coding-agent focus
+coding agent,phrase,Retired coding-agent focus
+cursor,broad,Retired coding-agent focus
+coworking space,phrase,Physical office-space intent
+coworking spaces,phrase,Physical office-space intent
+coworking office,phrase,Physical office-space intent
+office rental,phrase,Physical office-space intent
+shared office,phrase,Physical office-space intent
+desk rental,phrase,Physical office-space intent
+near me,phrase,Local office-space intent
+wework,broad,Physical office-space brand intent

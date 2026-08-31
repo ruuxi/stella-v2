@@ -1,0 +1,228 @@
+/* ────────────────────────────────────────────────────────────────────
+ * Canonical Stella sidebar — mirrors `desktop/src/shell/sidebar/
+ * sidebar.css`. Used by `<StellaSidebar />` and any mock that drops
+ * the component in without inheriting selfmod/radial-specific styles.
+ * ──────────────────────────────────────────────────────────────────── */
+
+.stella-sidebar {
+  --stella-sidebar-icon-box: 20px;
+  --stella-sidebar-icon-glyph: 18px;
+  --stella-sidebar-brand-logo-size: 19px;
+  --stella-sidebar-inset-x: 12px;
+  --stella-sidebar-inset-top: 12px;
+  --stella-sidebar-inset-bottom: 8px;
+  --stella-sidebar-row-x: 9px;
+  --stella-sidebar-row-y: 8px;
+  --stella-sidebar-row-gap: 11px;
+
+  display: flex;
+  flex-direction: column;
+  width: 180px;
+  flex-shrink: 0;
+  min-height: 0;
+  background: var(--glass-bg, rgba(255, 255, 255, 0.62));
+  backdrop-filter: var(--glass-blur, blur(14px));
+  -webkit-backdrop-filter: var(--glass-blur, blur(14px));
+  overflow: hidden;
+  font-family: var(--font-sans, "Manrope", system-ui, sans-serif);
+  color: var(--text-base, rgba(28, 41, 64, 0.9));
+  transition: width 0.36s cubic-bezier(0.32, 0.72, 0.16, 1);
+}
+
+.stella-sidebar *,
+.stella-sidebar *::before,
+.stella-sidebar *::after {
+  box-sizing: border-box;
+}
+
+.stella-sidebar[data-rail="true"] {
+  width: 52px;
+}
+
+.stella-sidebar__stack {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.stella-sidebar__titlebar {
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.stella-sidebar__brand {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--stella-sidebar-row-gap);
+  padding:
+    var(--stella-sidebar-inset-top)
+    var(--stella-sidebar-inset-x)
+    10px
+    calc(var(--stella-sidebar-inset-x) + var(--stella-sidebar-row-x));
+  background: none;
+  border: none;
+  cursor: default;
+  font-family: inherit;
+}
+
+.stella-sidebar__brand-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--stella-sidebar-brand-logo-size);
+  height: var(--stella-sidebar-brand-logo-size);
+  flex-shrink: 0;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.stella-sidebar__brand-logo img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.stella-sidebar__brand-text {
+  color: var(--text-weak, rgba(48, 66, 92, 0.66));
+  font-family: var(--font-display, "Cormorant Garamond", Georgia, serif);
+  font-size: 20px;
+  font-weight: 450;
+  font-style: italic;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  text-transform: none;
+}
+
+.stella-sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 var(--stella-sidebar-inset-x);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.stella-sidebar__nav::-webkit-scrollbar {
+  display: none;
+}
+
+.stella-sidebar__nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--stella-sidebar-row-gap);
+  padding: var(--stella-sidebar-row-y) var(--stella-sidebar-row-x);
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  border: none;
+  color: var(--text-base, rgba(28, 41, 64, 0.9));
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  width: 100%;
+  cursor: default;
+}
+
+.stella-sidebar__nav-item.active {
+  background: color-mix(in oklch, var(--foreground, #0f1728) 8%, transparent);
+  color: var(--text-strong, rgba(15, 23, 40, 0.92));
+}
+
+.stella-sidebar__nav-item.active .stella-sidebar__nav-icon {
+  color: var(--interactive, var(--primary, #3f7ff5));
+}
+
+.stella-sidebar__nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--stella-sidebar-icon-box);
+  height: var(--stella-sidebar-icon-box);
+  flex-shrink: 0;
+  color: var(--text-weak, rgba(48, 66, 92, 0.66));
+}
+
+.stella-sidebar__nav-icon svg {
+  width: var(--stella-sidebar-icon-glyph);
+  height: var(--stella-sidebar-icon-glyph);
+}
+
+.stella-sidebar__footer {
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--stella-sidebar-inset-x) var(--stella-sidebar-inset-bottom);
+  margin-top: auto;
+}
+
+.stella-sidebar__account-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--stella-sidebar-row-gap);
+  width: 100%;
+  min-width: 0;
+  padding: var(--stella-sidebar-row-y) var(--stella-sidebar-row-x);
+  border-radius: var(--radius-md, 8px);
+  border: none;
+  background: transparent;
+  color: var(--text-base, rgba(28, 41, 64, 0.9));
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: default;
+}
+
+.stella-sidebar__account-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stella-sidebar__account-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border-weak, rgba(84, 112, 146, 0.14));
+  background: oklch(0.88 0.06 250);
+  color: oklch(0.32 0.05 250);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* Icon rail — labels hide; icons stay centered. */
+.stella-sidebar[data-rail="true"] .stella-sidebar__brand {
+  justify-content: center;
+  padding: 18px 0 8px;
+}
+
+.stella-sidebar[data-rail="true"] .stella-sidebar__brand-text,
+.stella-sidebar[data-rail="true"] .stella-sidebar__nav-item > span:not(.stella-sidebar__nav-icon),
+.stella-sidebar[data-rail="true"] .stella-sidebar__account-label {
+  display: none;
+}
+
+.stella-sidebar[data-rail="true"] .stella-sidebar__nav {
+  padding: 0 8px 12px;
+}
+
+.stella-sidebar[data-rail="true"] .stella-sidebar__nav-item,
+.stella-sidebar[data-rail="true"] .stella-sidebar__account-trigger {
+  justify-content: center;
+  padding: 10px;
+}
+
+.stella-sidebar[data-rail="true"] .stella-sidebar__footer {
+  padding-inline: 8px;
+}

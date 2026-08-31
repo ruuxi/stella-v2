@@ -1,0 +1,283 @@
+/* Layout specifics for the /storage mini-mocks. The generic surface
+   primitives live in `mock-ui.module.css`; only sizing, stacking and the
+   two device frames are page-specific. */
+
+.frame {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  max-width: 33rem;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.tall {
+  min-height: 17.5rem;
+}
+
+/* ── 1 · Local chat ─────────────────────────────────────────────── */
+
+.chatList {
+  padding: 7px 6px;
+  gap: 1px;
+}
+
+.chatItem {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+  border-radius: 7px;
+}
+
+.chatItem[data-active="true"] {
+  background: color-mix(in srgb, var(--mw-ink) 6%, transparent);
+}
+
+.chatItemTitle {
+  overflow: hidden;
+  color: var(--mw-ink);
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chatItemMeta {
+  color: var(--mw-ink-faint);
+  font-size: 10.5px;
+}
+
+.transcript {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px 14px 14px;
+}
+
+.ask {
+  align-self: flex-end;
+  max-width: 88%;
+  padding: 7px 11px;
+  border: 1px solid var(--mw-line-strong);
+  border-radius: 13px;
+  border-bottom-right-radius: 5px;
+  background: var(--mw-sunken);
+  color: var(--mw-ink);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.reply {
+  max-width: 94%;
+  margin: 0;
+  color: var(--mw-ink);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.replyFiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+/* ── 3 · Connector thread ───────────────────────────────────────── */
+
+.handoff {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: stretch;
+  padding: 7px 9px;
+  border: 1px solid var(--mw-line-strong);
+  border-radius: 9px;
+  background: var(--mw-sunken);
+}
+
+.handoffText {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.metaRight {
+  align-self: flex-end;
+}
+
+/* ── 4 · Phone ↔ desktop ────────────────────────────────────────── */
+
+/* The desktop window keeps the full stage width — same as every other mock on
+   the page, so the left edge never jogs on scroll — and the phone tucks under
+   its bottom-right corner. No out-of-frame overhang to depend on. */
+.pair {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.pairDesk {
+  width: 100%;
+}
+
+.phone {
+  z-index: 3;
+  display: flex;
+  width: 9.1rem;
+  min-width: 0;
+  flex-direction: column;
+  margin: -1.5rem 1.3rem 0 auto;
+  overflow: hidden;
+  border: 1px solid rgba(15, 30, 60, 0.2);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.08),
+    0 22px 46px -20px rgba(12, 22, 38, 0.5);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
+    sans-serif;
+  color: #101a2b;
+}
+
+.phoneStatus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px 3px;
+  color: #101a2b;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.phoneStatusIcons {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  opacity: 0.62;
+}
+
+.phoneHeader {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 7px;
+  border-bottom: 1px solid rgba(15, 30, 60, 0.08);
+  color: rgba(71, 86, 110, 0.98);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.phonePaired {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  padding: 1px 6px;
+  border: 1px solid rgba(29, 120, 242, 0.28);
+  border-radius: 999px;
+  background: rgba(29, 120, 242, 0.08);
+  color: #1d78f2;
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+.phoneBody {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 9px 10px;
+}
+
+.phoneAsk {
+  align-self: flex-end;
+  max-width: 94%;
+  padding: 5px 8px;
+  border-radius: 11px;
+  border-bottom-right-radius: 4px;
+  background: #1d78f2;
+  color: #fff;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.phoneReply {
+  max-width: 98%;
+  margin: 0;
+  color: #101a2b;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.phoneHome {
+  width: 34%;
+  height: 3px;
+  margin: 1px auto 6px;
+  border-radius: 999px;
+  background: rgba(15, 30, 60, 0.22);
+}
+
+/* ── 2 · Segmented control (Settings › Backups) ─────────────────── */
+
+.segment {
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 2px;
+  border: 1px solid var(--mw-line-strong);
+  border-radius: 7px;
+  background: var(--mw-sunken);
+  font-size: 11px;
+}
+
+.segment span {
+  padding: 2px 8px;
+  border-radius: 5px;
+  color: var(--mw-ink-weak);
+}
+
+.segment span[data-selected="true"] {
+  background: var(--mw-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+  color: var(--mw-ink);
+  font-weight: 600;
+}
+
+/* ── 5 · Routing legend (deliberately not a window) ─────────────── */
+
+.panel {
+  border-style: dashed;
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 11px 13px 0;
+  color: var(--mw-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.panelHead svg {
+  color: var(--mw-accent);
+}
+
+@media (max-width: 560px) {
+  .phone {
+    width: 8.4rem;
+    margin-right: 0.8rem;
+    border-radius: 18px;
+  }
+}

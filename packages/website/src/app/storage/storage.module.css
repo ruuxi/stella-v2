@@ -1,0 +1,223 @@
+.page {
+  --ink: #0c1b33;
+  --muted: #54627a;
+  --blue: #2563eb;
+}
+
+/* ── Shared section frame ─────────────────────────────── */
+
+.section {
+  row-gap: clamp(1.6rem, 3vw, 2.6rem);
+  padding-block: clamp(3rem, 7vw, 6.5rem);
+}
+
+.section > * {
+  grid-column: 1 / -1;
+}
+
+/* Shares the site-wide kicker system (see .site-kicker in globals.css). */
+.eyebrow {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  margin: 0;
+  color: color-mix(in oklch, var(--ink) 64%, transparent);
+  font-family: var(--font-display), "Cormorant Garamond", Georgia, serif;
+  font-size: clamp(1.1rem, 1rem + 0.45vw, 1.35rem);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+/* ── Hero ────────────────────────────────────────────── */
+
+.heroSection {
+  padding-block: clamp(3.5rem, 9vw, 8rem) clamp(2rem, 5vw, 4rem);
+}
+
+.heroSection > * {
+  grid-column: 1 / -1;
+}
+
+.hero {
+  display: grid;
+  gap: clamp(1rem, 2vw, 1.4rem);
+  width: min(100%, 60rem);
+  margin-inline: auto;
+  text-align: center;
+  justify-items: center;
+}
+
+.hero h1 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(2.4rem, 6vw, 5rem);
+  font-weight: 650;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.hero p {
+  max-width: 38rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: clamp(1.02rem, 1.3vw, 1.22rem);
+  line-height: 1.7;
+}
+
+/* ── Split rows: copy + visual ───────────────────────── */
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  align-items: center;
+  gap: clamp(1.6rem, 4vw, 4.5rem);
+  width: min(100%, 74rem);
+  margin-inline: auto;
+}
+
+.row--flip {
+  /* Mirrors the base ratio so the mock keeps the same width whichever side
+     it sits on — windows that resize every scroll-stop read as different
+     products. */
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+}
+
+.row--flip .copy {
+  order: 2;
+}
+
+.copy {
+  display: grid;
+  gap: 1.05rem;
+}
+
+.copy h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(1.85rem, 3.4vw, 3.1rem);
+  font-weight: 650;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.copy p {
+  max-width: 34rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: clamp(1rem, 1.2vw, 1.14rem);
+  line-height: 1.72;
+}
+
+/* ── Visual stage ────────────────────────────────────── */
+
+/* The mock window carries its own chrome and shadow (see
+   `mock-window.module.css`), so the stage stays frameless — a soft ambient
+   wash plus a fading grid, the way the landing-page mocks sit on the page. */
+.visual {
+  position: relative;
+  display: grid;
+  place-items: center;
+  /* Sized by its mock — a fixed stage height left up to 41% of the box empty
+     and made the page rhythm read as accidental. */
+  min-height: 0;
+  padding: clamp(1rem, 2.4vw, 2rem);
+}
+
+.visual::before {
+  content: "";
+  position: absolute;
+  inset: -6% -4%;
+  z-index: 0;
+  background:
+    radial-gradient(
+      62% 58% at 50% 42%,
+      rgba(214, 232, 250, 0.7),
+      rgba(226, 238, 250, 0.28) 58%,
+      transparent 78%
+    );
+  pointer-events: none;
+}
+
+.visual::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(82, 104, 134, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(82, 104, 134, 0.07) 1px, transparent 1px);
+  background-size: 3.4rem 3.4rem;
+  -webkit-mask-image: radial-gradient(
+    70% 65% at 50% 45%,
+    rgba(0, 0, 0, 0.55),
+    transparent 76%
+  );
+  mask-image: radial-gradient(
+    70% 65% at 50% 45%,
+    rgba(0, 0, 0, 0.55),
+    transparent 76%
+  );
+  pointer-events: none;
+}
+
+/* ── Closing CTA ─────────────────────────────────────── */
+
+.closingSection {
+  padding-block: clamp(3rem, 7vw, 6rem);
+}
+
+.closingSection > * {
+  grid-column: 1 / -1;
+}
+
+.closing {
+  display: grid;
+  gap: 1.1rem;
+  width: min(100%, 48rem);
+  margin-inline: auto;
+  justify-items: center;
+  text-align: center;
+}
+
+.closing h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(1.9rem, 4vw, 3.4rem);
+  font-weight: 650;
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.closing p {
+  max-width: 34rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: clamp(1rem, 1.2vw, 1.16rem);
+  line-height: 1.7;
+}
+
+.closingCta {
+  margin-top: 0.5rem;
+}
+
+/* ── Responsive ──────────────────────────────────────── */
+
+@media (max-width: 880px) {
+  .row {
+    grid-template-columns: 1fr;
+    gap: clamp(1.4rem, 5vw, 2.2rem);
+  }
+
+  .row--flip .copy {
+    order: 0;
+  }
+
+  .row--flip {
+    grid-template-columns: 1fr;
+  }
+}

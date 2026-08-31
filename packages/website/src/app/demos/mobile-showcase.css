@@ -1,0 +1,1689 @@
+/* ── Mobile showcase ─────────────────────────────────────── */
+
+.mobile-demo-panel {
+  overflow: visible;
+}
+
+.mobile-showcase {
+  display: grid;
+  gap: 1.5rem;
+  padding: var(--demo-panel-inner-padding);
+}
+
+/* ── Left column ─────────────────────────────────────────── */
+
+.mobile-showcase__left {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.mobile-showcase__header {
+  display: grid;
+  gap: 0.85rem;
+}
+
+/* ── Phone wrapper & mockup ──────────────────────────────── */
+
+.mobile-showcase__phone-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.mobile-phone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  border: 1px solid rgba(84, 112, 146, 0.18);
+  border-radius: 2.2rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(246, 250, 255, 0.94) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 24px 60px rgba(47, 80, 130, 0.12),
+    0 0 0 1px rgba(84, 112, 146, 0.06);
+  overflow: hidden;
+}
+
+.mobile-phone__status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.55rem 1.5rem 0;
+  min-height: 1.8rem;
+}
+
+.mobile-phone__time {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: rgba(15, 23, 40, 0.72);
+  letter-spacing: -0.02em;
+}
+
+.mobile-phone__status-icons {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: rgba(15, 23, 40, 0.52);
+}
+
+.mobile-phone__battery {
+  display: block;
+  width: 1.2rem;
+  height: 0.55rem;
+  border-radius: 2px;
+  border: 1px solid rgba(15, 23, 40, 0.35);
+  position: relative;
+}
+
+.mobile-phone__battery::before {
+  content: "";
+  position: absolute;
+  inset: 1.5px;
+  border-radius: 1px;
+  background: rgba(15, 23, 40, 0.35);
+  width: 70%;
+}
+
+.mobile-phone__battery::after {
+  content: "";
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1.5px;
+  height: 0.25rem;
+  border-radius: 0 1px 1px 0;
+  background: rgba(15, 23, 40, 0.35);
+}
+
+.mobile-phone__header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 1rem 0.6rem;
+  border-bottom: 1px solid rgba(84, 112, 146, 0.1);
+}
+
+.mobile-phone__avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: rgba(29, 120, 242, 0.1);
+  flex-shrink: 0;
+}
+
+.mobile-phone__avatar img {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.mobile-phone__contact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.mobile-phone__name {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: rgba(15, 23, 40, 0.92);
+  letter-spacing: -0.03em;
+}
+
+/* ── Chat messages ──────────────────────────────────────── */
+
+.mobile-phone__chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0.6rem;
+  padding: 0.85rem 0.75rem;
+}
+
+.mobile-msg {
+  max-width: 82%;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  letter-spacing: -0.015em;
+  animation: mobile-msg-in 400ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.mobile-msg--user {
+  align-self: flex-end;
+  border-radius: 1rem 1rem 0.25rem 1rem;
+  background: var(--page-accent);
+  color: white;
+  box-shadow: 0 6px 18px rgba(29, 120, 242, 0.22);
+}
+
+.mobile-msg--stella {
+  align-self: flex-start;
+  border-radius: 1rem 1rem 1rem 0.25rem;
+  background: rgba(255, 255, 255, 0.88);
+  color: rgba(25, 40, 61, 0.88);
+  border: 1px solid rgba(84, 112, 146, 0.1);
+}
+
+.mobile-msg:nth-child(1) { animation-delay: 0ms; }
+.mobile-msg:nth-child(2) { animation-delay: 100ms; }
+.mobile-msg:nth-child(3) { animation-delay: 200ms; }
+.mobile-msg:nth-child(4) { animation-delay: 300ms; }
+
+@keyframes mobile-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ── Composer ────────────────────────────────────────────── */
+
+.mobile-phone__composer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin: 0 0.65rem 0.85rem;
+  padding: 0.38rem 0.38rem 0.38rem 0.85rem;
+  border: 1px solid rgba(84, 112, 146, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.mobile-phone__composer span {
+  color: rgba(48, 66, 92, 0.42);
+  font-size: 0.74rem;
+}
+
+.mobile-phone__composer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--page-accent);
+  color: white;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+/* ── Desktop action card ─────────────────────────────────── */
+
+.mobile-desktop-card {
+  width: 100%;
+  border: 1px solid rgba(84, 112, 146, 0.14);
+  border-radius: 1rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(246, 250, 255, 0.85));
+  box-shadow: 0 12px 32px rgba(47, 80, 130, 0.08);
+  overflow: hidden;
+}
+
+.mobile-desktop-card__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid rgba(84, 112, 146, 0.1);
+  color: rgba(15, 23, 40, 0.72);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.mobile-desktop-card__live {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #34d399;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mobile-desktop-card__live::before {
+  content: "";
+  display: block;
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: #34d399;
+  animation: live-pulse 2s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.mobile-desktop-card__screen {
+  padding: 0.75rem;
+}
+
+.mobile-desktop-card__taskbar {
+  display: flex;
+  gap: 0.3rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid rgba(84, 112, 146, 0.08);
+  margin-bottom: 0.7rem;
+}
+
+.mobile-desktop-card__taskbar span {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: rgba(129, 149, 182, 0.35);
+}
+
+.mobile-desktop-card__taskbar span:first-child { background: #ffb457; }
+.mobile-desktop-card__taskbar span:nth-child(2) { background: #7bc8ff; }
+.mobile-desktop-card__taskbar span:nth-child(3) { background: #53d8b1; }
+
+.mobile-desktop-card__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.5rem 0;
+}
+
+.mobile-desktop-card__action {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: rgba(15, 23, 40, 0.82);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.mobile-desktop-card__action svg {
+  color: var(--page-accent);
+  flex-shrink: 0;
+}
+
+.mobile-desktop-card__detail {
+  margin: 0;
+  color: rgba(44, 64, 92, 0.58);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  padding-left: 1.6rem;
+}
+
+.mobile-desktop-card__footer {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.85rem;
+  border-top: 1px solid rgba(84, 112, 146, 0.08);
+  color: rgba(44, 64, 92, 0.48);
+  font-size: 0.62rem;
+  font-family: var(--font-mono), monospace;
+  letter-spacing: 0.01em;
+}
+
+.mobile-desktop-card__pulse {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--page-accent);
+  animation: live-pulse 2s ease-in-out infinite;
+}
+
+/* ── Messaging channels ─────────────────────────────────── */
+
+.mobile-channels {
+  max-width: var(--section-kicker-measure);
+  width: 100%;
+}
+
+.mobile-channels__label {
+  display: block;
+  color: rgba(44, 64, 92, 0.48);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin-bottom: 0.75rem;
+}
+
+.mobile-channels__list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.8rem;
+}
+
+.mobile-channel {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 1.3rem 1.1rem;
+  border: 1px solid rgba(84, 112, 146, 0.13);
+  border-radius: 0.65rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(248, 251, 255, 0.78));
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.mobile-channel:hover {
+  border-color: rgba(29, 120, 242, 0.22);
+  background: rgba(255, 255, 255, 0.95);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(29, 120, 242, 0.08);
+}
+
+.mobile-channel__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(29, 120, 242, 0.72);
+  flex-shrink: 0;
+}
+
+.mobile-channel__name {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: rgba(15, 23, 40, 0.72);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+/* Tighter viewports: icon-only channel row (no "Message Stella from" label). */
+@media (max-width: 1300px) {
+  .mobile-channels {
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .mobile-channels__label {
+    display: none;
+  }
+
+  .mobile-channels__list {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.45rem;
+    width: fit-content;
+  }
+
+  .mobile-channel {
+    width: auto;
+    gap: 0;
+    padding: 0.55rem;
+    flex: 0 0 auto;
+    justify-content: center;
+    min-width: 2.25rem;
+    min-height: 2.25rem;
+  }
+
+  .mobile-channel__name {
+    display: none;
+  }
+}
+
+@media (max-width: 800px) {
+  .mobile-channels {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1300px) {
+  .mobile-showcase {
+    grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  }
+
+  .mobile-showcase__phone-wrap {
+    justify-content: stretch;
+    min-width: 0;
+  }
+
+  .mobile-showcase__phone-wrap .mobile-phone,
+  .mobile-showcase .mobile-phone {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* ── Stella app variant ──────────────────────────────────── */
+
+.mobile-phone--stella-app {
+  background: #edf3fb;
+  border-color: rgba(82, 104, 134, 0.14);
+}
+
+/* Chat */
+
+.stella-app-chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0.5rem;
+  padding: 0.85rem 0.65rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.stella-app-chat__gradient {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 15% 25%, rgba(99, 212, 255, 0.09), transparent 50%),
+    radial-gradient(ellipse at 85% 75%, rgba(123, 245, 219, 0.06), transparent 50%);
+  pointer-events: none;
+}
+
+.stella-app-msg {
+  position: relative;
+  z-index: 1;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  letter-spacing: 0.02em;
+  animation: mobile-msg-in 400ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.stella-app-msg:nth-child(2) { animation-delay: 0ms; }
+.stella-app-msg:nth-child(3) { animation-delay: 100ms; }
+.stella-app-msg:nth-child(4) { animation-delay: 200ms; }
+.stella-app-msg:nth-child(5) { animation-delay: 300ms; }
+
+.stella-app-msg--user {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 0.5rem 0.65rem;
+  border-radius: 0.75rem;
+  background: rgba(29, 120, 242, 0.12);
+  color: rgba(15, 23, 40, 0.88);
+}
+
+.stella-app-msg--stella {
+  align-self: flex-start;
+  max-width: 90%;
+  padding: 0.25rem 0;
+  color: rgba(15, 23, 40, 0.82);
+}
+
+/* Composer — pill shape with glass effect */
+
+.stella-app-composer {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0.55rem 0.85rem;
+  padding: 0.35rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(82, 104, 134, 0.12);
+  box-shadow: 0 2px 8px rgba(47, 80, 130, 0.06);
+}
+
+.stella-app-composer__add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  border: 1.5px dashed rgba(95, 113, 134, 0.35);
+  color: rgba(95, 113, 134, 0.55);
+  flex-shrink: 0;
+}
+
+.stella-app-composer__input {
+  flex: 1;
+  color: rgba(15, 23, 40, 0.3);
+  font-size: 0.68rem;
+  padding-left: 0.2rem;
+}
+
+.stella-app-composer__send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  background: #1d78f2;
+  color: white;
+  flex-shrink: 0;
+}
+
+/* ── Discord variant ─────────────────────────────────────── */
+
+.mobile-phone--discord {
+  background: #313338;
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 24px 60px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
+.mobile-phone--discord .mobile-phone__status-bar {
+  background: #1e1f22;
+}
+
+.mobile-phone--discord .mobile-phone__time {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.mobile-phone--discord .mobile-phone__status-icons {
+  color: rgba(255, 255, 255, 0.52);
+}
+
+.mobile-phone--discord .mobile-phone__battery {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.mobile-phone--discord .mobile-phone__battery::before {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.mobile-phone--discord .mobile-phone__battery::after {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+/* Layout: server sidebar + main content */
+
+.discord-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.discord-sidebar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  width: 2.8rem;
+  padding: 0.5rem 0;
+  background: #1e1f22;
+  flex-shrink: 0;
+}
+
+.discord-sidebar__icon {
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 999px;
+  background: #313338;
+  flex-shrink: 0;
+  transition: border-radius 150ms ease;
+}
+
+.discord-sidebar__icon--home {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #5865f2;
+  color: white;
+}
+
+.discord-sidebar__icon--active {
+  border-radius: 0.5rem;
+  background: #5865f2;
+}
+
+.discord-sidebar__divider {
+  width: 1.2rem;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0.1rem 0;
+}
+
+.discord-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Header */
+
+.discord-header {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.6rem 0.7rem;
+  background: #2b2d31;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.discord-header__back {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 1.1rem;
+  font-weight: 300;
+  margin-right: 0.2rem;
+}
+
+.discord-header__hash {
+  color: rgba(255, 255, 255, 0.25);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.discord-header__channel {
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* Chat */
+
+.discord-chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0;
+  padding: 0.6rem 0.6rem;
+  background: #313338;
+  overflow: hidden;
+}
+
+.discord-date-divider {
+  display: flex;
+  align-items: center;
+  margin: 0.3rem 0 0.5rem;
+}
+
+.discord-date-divider::before,
+.discord-date-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.discord-date-divider span {
+  padding: 0 0.5rem;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.discord-msg {
+  display: flex;
+  gap: 0.55rem;
+  padding: 0.2rem 0.35rem;
+  margin-top: 0.65rem;
+  border-radius: 0.25rem;
+  animation: mobile-msg-in 400ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.discord-msg:nth-child(2) { animation-delay: 0ms; }
+.discord-msg:nth-child(3) { animation-delay: 100ms; }
+.discord-msg:nth-child(4) { animation-delay: 200ms; }
+.discord-msg:nth-child(5) { animation-delay: 300ms; }
+
+.discord-msg--grouped {
+  margin-top: 0;
+  padding-left: 2.7rem;
+}
+
+.discord-msg__avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: #5865f2;
+  flex-shrink: 0;
+}
+
+.discord-msg__avatar img {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.discord-msg__user-avatar {
+  color: white;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.discord-msg__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.discord-msg__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.discord-msg__name {
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.discord-msg__name[data-role="stella"] {
+  color: #5865f2;
+}
+
+.discord-msg__name[data-role="user"] {
+  color: #57f287;
+}
+
+.discord-msg__badge {
+  padding: 0 0.25rem;
+  border-radius: 0.2rem;
+  background: #5865f2;
+  color: white;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.1rem;
+  vertical-align: middle;
+}
+
+.discord-msg__time {
+  color: rgba(255, 255, 255, 0.22);
+  font-size: 0.55rem;
+  font-weight: 500;
+}
+
+.discord-msg__text {
+  color: #dbdee1;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+
+/* Composer */
+
+.discord-composer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: auto 0.55rem 0.55rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.5rem;
+  background: #383a40;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 0.7rem;
+}
+
+.discord-composer__plus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.85rem;
+  font-weight: 400;
+  flex-shrink: 0;
+}
+
+/* Tab bar */
+
+.discord-tabbar {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 0.45rem 0;
+  background: #1e1f22;
+  border-top: 1px solid rgba(0, 0, 0, 0.25);
+}
+
+.discord-tabbar__item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.discord-tabbar__item--active {
+  color: white;
+}
+
+/* ── Slack variant ──────────────────────────────────────── */
+
+.mobile-phone--slack {
+  background: #fff;
+  border-color: rgba(84, 112, 146, 0.15);
+}
+
+/* Header */
+
+.slack-header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.65rem 0.8rem;
+  background: #4a154b;
+}
+
+.slack-header__back {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 1.2rem;
+  font-weight: 300;
+}
+
+.slack-header__info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.slack-header__channel {
+  color: white;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.slack-header__detail {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.58rem;
+  letter-spacing: -0.01em;
+}
+
+/* Chat */
+
+.slack-chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0;
+  padding: 0.7rem 0.6rem;
+  background: #fff;
+  overflow: hidden;
+}
+
+.slack-msg {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.35rem 0.3rem;
+  margin-top: 0.6rem;
+  border-radius: 0.35rem;
+  animation: mobile-msg-in 400ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.slack-msg:nth-child(1) { animation-delay: 0ms; }
+.slack-msg:nth-child(2) { animation-delay: 100ms; }
+.slack-msg:nth-child(3) { animation-delay: 200ms; }
+.slack-msg:nth-child(4) { animation-delay: 300ms; }
+
+.slack-msg--grouped {
+  margin-top: 0;
+  padding-left: 2.55rem;
+}
+
+.slack-msg__avatar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 0.35rem;
+  background: rgba(29, 120, 242, 0.1);
+  flex-shrink: 0;
+}
+
+.slack-msg__avatar img {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.slack-msg__online {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: #2bac76;
+  border: 1.5px solid white;
+}
+
+.slack-msg__user-avatar {
+  color: #611f69;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.slack-msg__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.slack-msg__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.slack-msg__name {
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: rgba(15, 23, 40, 0.92);
+  letter-spacing: -0.02em;
+}
+
+.slack-msg__app {
+  padding: 0 0.2rem;
+  border-radius: 0.18rem;
+  background: rgba(15, 23, 40, 0.07);
+  color: rgba(15, 23, 40, 0.45);
+  font-size: 0.48rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1rem;
+  vertical-align: middle;
+}
+
+.slack-msg__time {
+  color: rgba(15, 23, 40, 0.3);
+  font-size: 0.55rem;
+  font-weight: 500;
+}
+
+.slack-msg__text {
+  color: rgba(15, 23, 40, 0.78);
+  font-size: 0.74rem;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+}
+
+/* Reactions */
+
+.slack-reactions {
+  display: flex;
+  gap: 0.3rem;
+  margin-top: 0.25rem;
+}
+
+.slack-reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid rgba(15, 23, 40, 0.1);
+  border-radius: 999px;
+  background: rgba(29, 120, 242, 0.06);
+  font-size: 0.58rem;
+  color: rgba(15, 23, 40, 0.55);
+}
+
+/* Composer */
+
+.slack-composer {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: auto 0.55rem 0.55rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid rgba(84, 112, 146, 0.2);
+  border-radius: 0.5rem;
+  background: white;
+  color: rgba(15, 23, 40, 0.32);
+  font-size: 0.7rem;
+}
+
+.slack-composer__attach {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 40, 0.06);
+  color: rgba(15, 23, 40, 0.4);
+  font-size: 0.85rem;
+  font-weight: 400;
+  flex-shrink: 0;
+}
+
+/* Tab bar */
+
+.slack-tabbar {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 0.3rem 0 0.45rem;
+  background: white;
+  border-top: 1px solid rgba(84, 112, 146, 0.1);
+}
+
+.slack-tabbar__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.2rem 0.5rem;
+  color: rgba(15, 23, 40, 0.35);
+  font-size: 0.5rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.slack-tabbar__item--active {
+  color: #4a154b;
+}
+
+/* ── Telegram variant ───────────────────────────────────── */
+
+.mobile-phone--telegram {
+  background: #e7ebee;
+  border-color: rgba(84, 112, 146, 0.12);
+}
+
+.mobile-phone--telegram .mobile-phone__status-bar {
+  background: #2aabee;
+}
+
+.mobile-phone--telegram .mobile-phone__time {
+  color: white;
+}
+
+.mobile-phone--telegram .mobile-phone__status-icons {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.mobile-phone--telegram .mobile-phone__battery {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.mobile-phone--telegram .mobile-phone__battery::before {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.mobile-phone--telegram .mobile-phone__battery::after {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+/* Header */
+
+.telegram-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  background: linear-gradient(180deg, #2aabee, #229ed9);
+}
+
+.telegram-header__back {
+  color: white;
+  font-size: 1.2rem;
+  font-weight: 300;
+  flex-shrink: 0;
+}
+
+.telegram-header__center {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.telegram-header__avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+}
+
+.telegram-header__avatar img {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.telegram-header__info {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.telegram-header__name {
+  color: white;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.telegram-header__status {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.56rem;
+  letter-spacing: 0.01em;
+}
+
+.telegram-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  color: white;
+  flex-shrink: 0;
+}
+
+/* Chat — wallpaper-style background */
+
+.telegram-chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0.35rem;
+  padding: 0.7rem 0.5rem;
+  background:
+    radial-gradient(ellipse at 20% 80%, rgba(126, 195, 169, 0.3), transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(100, 180, 220, 0.25), transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(160, 200, 180, 0.15), transparent 60%),
+    linear-gradient(180deg, #b7d5cb 0%, #9fc7c0 30%, #a8cfc4 70%, #b5d4c8 100%);
+  overflow: hidden;
+}
+
+/* Bubbles */
+
+.telegram-msg {
+  max-width: 82%;
+  padding: 0.35rem 0.5rem 0.15rem;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  position: relative;
+  animation: mobile-msg-in 400ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.telegram-msg:nth-child(1) { animation-delay: 0ms; }
+.telegram-msg:nth-child(2) { animation-delay: 100ms; }
+.telegram-msg:nth-child(3) { animation-delay: 200ms; }
+.telegram-msg:nth-child(4) { animation-delay: 300ms; }
+.telegram-msg:nth-child(5) { animation-delay: 400ms; }
+
+.telegram-msg--stella {
+  align-self: flex-start;
+  border-radius: 0.15rem 0.8rem 0.8rem 0.8rem;
+  background: white;
+  color: rgba(15, 23, 40, 0.88);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06);
+}
+
+.telegram-msg--user {
+  align-self: flex-end;
+  border-radius: 0.8rem 0.15rem 0.8rem 0.8rem;
+  background: #eeffde;
+  color: rgba(15, 23, 40, 0.88);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+.telegram-msg__sender {
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #2aabee;
+  margin-bottom: 0.05rem;
+}
+
+.telegram-msg__text {
+  display: block;
+}
+
+.telegram-msg__meta-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.15rem;
+  margin-top: 0.1rem;
+  padding-bottom: 0.05rem;
+}
+
+.telegram-msg__time {
+  font-size: 0.5rem;
+  color: rgba(15, 23, 40, 0.3);
+}
+
+.telegram-msg--user .telegram-msg__time {
+  color: rgba(60, 120, 60, 0.5);
+}
+
+.telegram-msg__checks {
+  font-size: 0.5rem;
+  color: #4fae4e;
+  letter-spacing: -0.15em;
+}
+
+/* Composer */
+
+.telegram-composer {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.5rem;
+  background: white;
+  border-top: 1px solid rgba(84, 112, 146, 0.06);
+}
+
+.telegram-composer__emoji {
+  color: rgba(82, 125, 163, 0.5);
+  display: flex;
+  flex-shrink: 0;
+}
+
+.telegram-composer__input {
+  flex: 1;
+  color: rgba(15, 23, 40, 0.3);
+  font-size: 0.7rem;
+}
+
+.telegram-composer__attach {
+  color: rgba(82, 125, 163, 0.5);
+  display: flex;
+  flex-shrink: 0;
+}
+
+.telegram-composer__mic {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  background: #2aabee;
+  color: white;
+  flex-shrink: 0;
+}
+
+/* ── Teams variant ──────────────────────────────────────── */
+
+.mobile-phone--teams {
+  background: #f5f5f5;
+  border-color: rgba(84, 112, 146, 0.12);
+}
+
+.teams-header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.7rem;
+  background: #464eb8;
+}
+
+.teams-header__back {
+  color: white;
+  font-size: 1.2rem;
+  font-weight: 300;
+}
+
+.teams-header__avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+}
+
+.teams-header__avatar img {
+  width: 1rem;
+  height: 1rem;
+}
+
+.teams-header__info {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.teams-header__name {
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.teams-header__status {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.55rem;
+}
+
+.teams-chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0;
+  padding: 0.7rem 0.65rem;
+  background: #f5f5f5;
+  overflow: hidden;
+}
+
+.teams-msg {
+  display: flex;
+  gap: 0.45rem;
+  padding: 0.3rem 0.25rem;
+  margin-top: 0.55rem;
+  animation: mobile-msg-in 400ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.teams-msg:nth-child(1) { animation-delay: 0ms; }
+.teams-msg:nth-child(2) { animation-delay: 100ms; }
+.teams-msg:nth-child(3) { animation-delay: 200ms; }
+.teams-msg:nth-child(4) { animation-delay: 300ms; }
+
+.teams-msg--grouped {
+  margin-top: 0;
+  padding-left: 2.35rem;
+}
+
+.teams-msg__avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 999px;
+  background: #464eb8;
+  flex-shrink: 0;
+}
+
+.teams-msg__avatar img {
+  width: 1rem;
+  height: 1rem;
+}
+
+.teams-msg__user-avatar {
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.teams-msg__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.teams-msg__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.teams-msg__name {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: rgba(15, 23, 40, 0.88);
+  letter-spacing: -0.02em;
+}
+
+.teams-msg__time {
+  color: rgba(15, 23, 40, 0.35);
+  font-size: 0.55rem;
+}
+
+.teams-msg__text {
+  color: rgba(15, 23, 40, 0.78);
+  font-size: 0.74rem;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  background: white;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0 0.5rem 0.5rem 0.5rem;
+  box-shadow: 0 0.5px 2px rgba(0, 0, 0, 0.06);
+}
+
+.teams-msg--grouped .teams-msg__text {
+  border-radius: 0.5rem;
+}
+
+.teams-composer {
+  display: flex;
+  align-items: center;
+  margin: auto 0.55rem 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid rgba(84, 112, 146, 0.15);
+  border-radius: 0.4rem;
+  background: white;
+  color: rgba(15, 23, 40, 0.32);
+  font-size: 0.7rem;
+}
+
+.teams-tabbar {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 0.3rem 0 0.45rem;
+  background: white;
+  border-top: 1px solid rgba(84, 112, 146, 0.08);
+}
+
+.teams-tabbar__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.2rem 0.5rem;
+  color: rgba(15, 23, 40, 0.35);
+  font-size: 0.48rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.teams-tabbar__item--active {
+  color: #464eb8;
+}
+
+/* ── iMessage variant ──────────────────────────────────── */
+
+.mobile-phone--imessage .mobile-msg--stella {
+  align-self: flex-end;
+  border-radius: 1rem 1rem 0.25rem 1rem;
+  background: #007aff;
+  color: white;
+  border: none;
+  box-shadow: 0 6px 18px rgba(0, 122, 255, 0.18);
+}
+
+.mobile-phone--imessage .mobile-msg--user {
+  align-self: flex-start;
+  border-radius: 1rem 1rem 1rem 0.25rem;
+  background: #e9e9eb;
+  color: rgba(15, 23, 40, 0.92);
+  box-shadow: none;
+}
+
+/* ── Phone-only visual (section layout) ──────────────────── */
+
+.mobile-phone-row {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.mobile-phone-col {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.8rem;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.mobile-phone-label {
+  font-family: var(--font-display), serif;
+  font-size: clamp(1.2rem, 1.8vw, 1.5rem);
+  font-weight: 400;
+  color: var(--page-muted);
+  letter-spacing: -0.04em;
+  text-align: center;
+}
+
+.mobile-phone-swap {
+  position: relative;
+  width: 100%;
+}
+
+.mobile-phone-visual {
+  display: flex;
+  justify-content: center;
+  animation: phone-swap-in 500ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes phone-swap-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.mobile-phone-visual .mobile-phone {
+  width: 100%;
+  height: 46rem;
+}
+
+/* ── Single-phone mobile layout ────────────────────────── */
+
+.mobile-phone-single {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  width: 100%;
+  max-width: 280px;
+  margin: 0 auto;
+}
+
+.mobile-phone-single .mobile-phone-swap {
+  width: 100%;
+  /* Fixed height prevents layout shift when platform cycles */
+  height: min(46rem, 86svh);
+  overflow: hidden;
+}
+
+.mobile-phone-single .mobile-phone-visual .mobile-phone {
+  height: min(46rem, 86svh);
+  max-height: 86svh;
+}
+
+/* Compact phone internals on mobile */
+.mobile-phone-single .mobile-phone__chat,
+.mobile-phone-single .stella-app-chat,
+.mobile-phone-single .discord-chat,
+.mobile-phone-single .slack-chat,
+.mobile-phone-single .telegram-chat,
+.mobile-phone-single .teams-chat {
+  overflow: hidden;
+}
+
+/* ── Mobile: compact channels, tighter phone ───────────── */
+
+@media (max-width: 767px) {
+  .mobile-channels__list {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .mobile-channel {
+    padding: 0.7rem 0.8rem;
+    flex: 0 0 auto;
+  }
+
+  .mobile-channel__name {
+    font-size: 0.8rem;
+  }
+}
+
+/* ── Desktop: side-by-side, phone fills height ───────────── */
+
+@media (min-width: 768px) {
+  .mobile-showcase {
+    grid-template-columns: 1fr auto;
+    gap: 2rem;
+    padding: 1.5rem;
+    min-height: 36rem;
+  }
+
+  .mobile-showcase__left {
+    justify-content: center;
+    gap: 1.6rem;
+  }
+
+  .mobile-showcase__phone-wrap {
+    align-self: stretch;
+    display: flex;
+    align-items: stretch;
+  }
+
+  .mobile-phone {
+    width: 300px;
+    height: 100%;
+  }
+
+  .mobile-desktop-card {
+    max-width: 380px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .mobile-showcase {
+    grid-template-columns: 1fr 320px;
+    gap: 3rem;
+    padding: 2rem;
+  }
+
+  .mobile-phone {
+    width: 320px;
+  }
+}
+
+@media (min-width: 1024px) and (max-width: 1300px) {
+  .mobile-showcase {
+    grid-template-columns: minmax(0, max-content) minmax(380px, 1fr);
+  }
+
+  .mobile-showcase__phone-wrap .mobile-phone,
+  .mobile-showcase .mobile-phone {
+    width: 100%;
+    max-width: none;
+  }
+}

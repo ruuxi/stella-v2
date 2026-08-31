@@ -1,0 +1,600 @@
+/* ──────────────────────────────────────────────────────────────────────
+   "An app that becomes you" — full-bleed self-mod section.
+
+   Sits outside .grid-shell so the interactive Stella surface can span
+   the entire viewport. The header above it borrows the same eyebrow +
+   display-italic h2 treatment as the rest of the site (`.section-kicker`)
+   so it reads as a peer of the other sections, just unframed.
+
+   The mock is the interactive `StellaAppMock` (floating transformation
+   pills). We scope theme variables on `.self-mod-hero__stage-inner` so
+   it matches the app without leaking into the rest of the site.
+   ────────────────────────────────────────────────────────────────────── */
+
+.self-mod-hero {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(3rem, 6vw, 5rem);
+  padding: clamp(5.5rem, 11vw, 9rem) 0 clamp(4.5rem, 9vw, 7rem);
+  isolation: isolate;
+}
+
+.self-mod-hero--placeholder {
+  min-height: clamp(36rem, 80vw, 56rem);
+}
+
+/* ── Heading ─────────────────────────────────────────────────────── */
+
+.self-mod-hero__copy {
+  width: min(100%, 56rem);
+  padding: 0 clamp(1.25rem, 4vw, 2.5rem);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.self-mod-hero__eyebrow {
+  color: rgba(18, 18, 15, 0.46);
+  font-family: var(--font-display), serif;
+  font-size: 0.95rem;
+  font-style: italic;
+  letter-spacing: -0.03em;
+}
+
+.self-mod-hero__title {
+  margin: 0;
+  font-family: var(--font-display), serif;
+  font-size: clamp(3.4rem, 12vw, 8.6rem);
+  font-weight: 300;
+  font-style: italic;
+  line-height: 0.88;
+  letter-spacing: -0.07em;
+  color: inherit;
+}
+
+.self-mod-hero__lede {
+  margin: 0.6rem auto 0;
+  max-width: 36rem;
+  color: var(--page-muted, rgba(18, 18, 15, 0.6));
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+/* ── Stage ───────────────────────────────────────────────────────── */
+
+.self-mod-hero__stage {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 0 clamp(1rem, 4vw, 3rem);
+}
+
+.self-mod-hero__stage-inner {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  min-height: 520px;
+  max-height: 760px;
+  border-radius: 0;
+  overflow: visible;
+  box-shadow:
+    0 30px 80px -32px rgba(15, 23, 42, 0.28),
+    0 12px 36px -20px rgba(15, 23, 42, 0.14);
+
+  /* Typography + shared chrome — color tokens live on `.sam-root[data-theme]`
+     in `stella-mock-themes.css` so each transformation reads as a real
+     Stella desktop theme. Cozy keeps its own palette via `[data-cozy]`. */
+  --font-family-sans: var(--font-sans), system-ui, sans-serif;
+  --font-family-display: var(--font-display), Georgia, serif;
+  --font-family-mono: var(--font-mono), ui-monospace, monospace;
+
+  --glass-blur: blur(40px) saturate(180%);
+
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+/* Floating pills use position: absolute; z-index: 30 — keep them
+   above the main column and Mochi overlay, and don't clip at the root. */
+.self-mod-hero__stage-inner .sam-root[data-interactive="true"] {
+  overflow: visible;
+}
+.self-mod-hero__stage-inner .sam-pill {
+  z-index: 50;
+}
+
+/* Soft cross-fade when a transformation toggle changes */
+.self-mod-hero__stage-inner .sam-root {
+  transition:
+    background-color 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    background-image 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.self-mod-hero__stage-inner .sam-sidebar,
+.self-mod-hero__stage-inner .sam-header,
+.self-mod-hero__stage-inner .sam-composer,
+.self-mod-hero__stage-inner .sam-body {
+  transition:
+    width 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    background 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.self-mod-hero__stage-inner .sam-body-default,
+.self-mod-hero__stage-inner .sam-cards,
+.self-mod-hero__stage-inner .sam-body-cozy,
+.self-mod-hero__stage-inner .sam-body-create,
+.self-mod-hero__stage-inner .sam-sidebar-default,
+.self-mod-hero__stage-inner .sam-sidebar-modern,
+.self-mod-hero__stage-inner .sam-sidebar-cozy,
+.self-mod-hero__stage-inner .sam-composer-form,
+.self-mod-hero__stage-inner .sam-cozy {
+  animation-duration: 0.55s !important;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+@media (max-width: 900px) {
+  .self-mod-hero__stage-inner {
+    aspect-ratio: auto;
+    min-height: 600px;
+    border-radius: 0;
+  }
+}
+
+/* The frame around the self-mod mock keeps the centered hero rhythm —
+   no codex-stage 2-col layout — but borrows the gradient and squared
+   corners so it reads as a peer of the other product mocks. */
+.self-mod-hero__frame {
+  width: min(100%, 1240px);
+  margin: 0 auto;
+  display: flex;
+  justify-content: center;
+  padding: clamp(1rem, 2.4vw, 2rem);
+}
+
+@media (max-width: 640px) {
+  .self-mod-hero {
+    padding-top: 4rem;
+    padding-bottom: 3rem;
+  }
+
+  .self-mod-hero__stage {
+    padding: 0 1rem;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Mobile mock — mini-window shell (light theme, no sidebar).
+   See self-mod-hero-mobile.tsx.
+   ────────────────────────────────────────────────────────────────────── */
+
+.smhm {
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1.1rem;
+}
+
+/* Collapse the sidebar to icon-only rail — this mock is mobile-only. */
+.mini-window--self-mod .mini-window__body {
+  grid-template-columns: 48px minmax(0, 1fr);
+}
+.mini-window--self-mod .mini-sidebar {
+  padding: 10px 4px 8px;
+  align-items: center;
+}
+.mini-window--self-mod .mini-sidebar__brand {
+  justify-content: center;
+  gap: 0;
+  padding: 4px 0 8px;
+}
+.mini-window--self-mod .mini-sidebar__brand-text,
+.mini-window--self-mod .mini-sidebar__item-label {
+  display: none;
+}
+.mini-window--self-mod .mini-sidebar__nav,
+.mini-window--self-mod .mini-sidebar__footer {
+  width: 100%;
+}
+.mini-window--self-mod .mini-sidebar__item {
+  justify-content: center;
+  gap: 0;
+  padding: 8px 0;
+}
+.mini-window--self-mod .mini-sidebar__account-trigger {
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 4px 0;
+}
+.mini-window--self-mod .mini-sidebar__account-label {
+  display: none;
+}
+
+/* Workspaces section — shown only in the "rail" variant. Small dots
+   stacked between the brand and the nav, like the desktop workspace
+   rail collapsed to icons. */
+.mini-sidebar__workspaces {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--mini-border);
+  width: 100%;
+}
+.mini-sidebar__workspace {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  background: var(--mini-accent-soft);
+  border: 1px solid var(--mini-border);
+}
+.mini-sidebar__workspace--active {
+  background: var(--mini-text-strong);
+  border-color: var(--mini-text-strong);
+}
+
+/* Tabs strip — appears above the chat in the "tabs" variant. */
+.smhm-tabs-strip {
+  display: flex;
+  gap: 4px;
+  padding: 10px 14px 6px;
+  border-bottom: 1px solid var(--mini-border);
+}
+
+/* Cozy variant — full-window takeover. The sidebar is hidden and
+   the main column gets the dark rainy-window background. */
+.mini-window--self-mod[data-variant="cozy"] .mini-window__body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.mini-window--self-mod[data-variant="cozy"],
+.mini-window--self-mod[data-variant="cozy"] {
+  background:
+    radial-gradient(95% 70% at 78% 105%, rgba(255, 255, 255, 0.08), transparent 60%),
+    radial-gradient(70% 60% at 12% -10%, rgba(255, 255, 255, 0.05), transparent 65%),
+    linear-gradient(168deg, #2a2c33 0%, #1b1d22 55%, #0c0d10 100%);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.mini-window--self-mod[data-variant="cozy"] .mini-window__main {
+  background: transparent;
+}
+
+.mini-window--self-mod[data-variant="cozy"] .mini-window__titlebar {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.mini-window--self-mod[data-theme] .mini-composer__mic {
+  background: transparent;
+}
+
+/* ── Tabs strip ──────────────────────────────────────────────────── */
+
+.smhm-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  padding: 5px 11px;
+  border-radius: 999px;
+  color: var(--mini-text-weak);
+  cursor: pointer;
+}
+
+.smhm-tab[data-active] {
+  background: var(--mini-accent);
+  color: #fff;
+}
+
+/* (Removed: the old `.smhm-home*` default-body styles — chip rows,
+   thread cards, and blue-gradient orbs — lived here. The mock now
+   uses the real `.mini-chat` from the single-chat mini-window.) */
+
+/* ── Dashboard variant — clean surface cards, no decorative gradients ── */
+
+.smhm-dash {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+
+.smhm-dash__card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: var(--mini-surface);
+  border: 1px solid var(--mini-border);
+}
+
+.smhm-dash__card--tall {
+  grid-row: span 2;
+  justify-content: space-between;
+}
+
+.smhm-dash__card--wide {
+  grid-column: span 2;
+}
+
+.smhm-dash__eyebrow {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mini-text-weak);
+}
+
+.smhm-dash__figure {
+  font-family: var(--font-display, Georgia), serif;
+  font-style: italic;
+  font-weight: 400;
+  font-size: 1.7rem;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--mini-text-strong);
+}
+
+.smhm-dash__card--tall .smhm-dash__figure {
+  font-size: 2.4rem;
+}
+
+.smhm-dash__detail {
+  font-size: 11.5px;
+  letter-spacing: -0.01em;
+  color: var(--mini-text-base);
+  line-height: 1.4;
+}
+
+/* ── Cozy variant — rainy-window takeover (mirrors desktop mock) ──── */
+
+.smhm-cozy {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  color: #f5f6f9;
+}
+
+/* Cool silver pool of moonlight behind the cat. */
+.smhm-cozy__lamp {
+  position: absolute;
+  right: -22%;
+  bottom: -28%;
+  width: 96%;
+  aspect-ratio: 1;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at center,
+    rgba(240, 244, 252, 0.22) 0%,
+    rgba(200, 210, 225, 0.1) 32%,
+    transparent 60%
+  );
+  filter: blur(2px);
+}
+
+/* Slow cool rain streaks down the window. */
+.smhm-cozy__rain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.45;
+}
+.smhm-cozy__drop {
+  position: absolute;
+  top: -20%;
+  left: calc(8% + var(--drop-i) * 9%);
+  width: 1px;
+  height: 22px;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgba(232, 238, 248, 0.6)
+  );
+  border-radius: 1px;
+  animation: smhmCozyRain 5.4s linear infinite;
+  animation-delay: calc(var(--drop-i) * -0.31s);
+}
+
+@keyframes smhmCozyRain {
+  0%   { transform: translateY(0); opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { transform: translateY(220%); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smhm-cozy__drop {
+    animation: none;
+  }
+}
+
+/* Header — minimalist brand left, text nav top-right (no chrome). */
+.smhm-cozy__header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 8px;
+  z-index: 2;
+}
+
+.smhm-cozy__brand {
+  font-family: var(--font-display, Georgia), serif;
+  font-style: italic;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #f5f6f9;
+}
+
+.smhm-cozy__nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.smhm-cozy__nav-item {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: rgba(245, 246, 249, 0.55);
+}
+
+.smhm-cozy__nav-item.is-active {
+  color: #f5f6f9;
+  font-weight: 600;
+}
+
+/* Cat — sits in the silver pool, between header and headline. */
+.smhm-cozy__cat {
+  position: relative;
+  width: 64%;
+  max-width: 11rem;
+  height: auto;
+  margin: 6px auto 0;
+  z-index: 1;
+  filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.5));
+}
+
+.smhm-cozy__text {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 8px 16px 0;
+  z-index: 1;
+}
+
+.smhm-cozy__headline {
+  font-family: var(--font-display, Georgia), serif;
+  font-style: italic;
+  font-weight: 300;
+  font-size: 1.4rem;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: #f5f6f9;
+}
+
+.smhm-cozy__headline-em {
+  font-family: var(--font-display, Georgia), serif;
+  font-style: italic;
+  font-weight: 300;
+  font-size: 1.4rem;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: rgba(245, 246, 249, 0.62);
+}
+
+/* Dark glass composer, anchored to the bottom of the takeover. */
+.smhm-cozy__compose {
+  position: relative;
+  margin: auto 12px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 6px 10px;
+  border-radius: 22px;
+  background: rgba(28, 30, 36, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 8px 24px -14px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(14px) saturate(140%);
+  z-index: 2;
+}
+
+.smhm-cozy__compose-attach,
+.smhm-cozy__compose-send {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+
+.smhm-cozy__compose-attach {
+  background: transparent;
+  color: rgba(245, 246, 249, 0.7);
+}
+
+.smhm-cozy__compose-send {
+  background: #f5f6f9;
+  color: #0a0a0a;
+  box-shadow: 0 4px 10px -4px rgba(0, 0, 0, 0.6);
+}
+
+.smhm-cozy__compose-send:disabled {
+  opacity: 0.85;
+}
+
+.smhm-cozy__compose-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  font-size: 12.5px;
+  color: #f5f6f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.smhm-cozy__compose-placeholder {
+  color: rgba(245, 246, 249, 0.45);
+}
+
+/* ── Pill toggle (below the window) ─────────────────────────────── */
+
+.smhm__pills {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  padding: 0 0.25rem;
+}
+
+.smhm__pill {
+  appearance: none;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(255, 255, 255, 0.78);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: rgba(15, 23, 40, 0.78);
+  padding: 0.6rem 0.75rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background-color 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.smhm__pill[data-active] {
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(15, 23, 42, 0.92);
+  color: #fff;
+}

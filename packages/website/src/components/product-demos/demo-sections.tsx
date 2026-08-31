@@ -1,0 +1,264 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
+import { useViewportActivity } from "@/components/use-viewport-activity";
+import { RADIAL_WEDGES, CANVAS_CONCEPTS } from "./data";
+import { DeferInView } from "./defer-in-view";
+import { RadialDialInteractive } from "./radial-dial-interactive";
+
+function DemoChunkPlaceholder() {
+  return (
+    <div
+      className="demo-showcase-chunk-placeholder"
+      style={{ minHeight: "clamp(14rem, 38vw, 26rem)" }}
+      aria-busy="true"
+      aria-label="Loading interactive demo"
+    />
+  );
+}
+
+const RadialDialVisual = dynamic(
+  () =>
+    import("./radial-dial-showcase").then((m) => ({
+      default: m.RadialDialVisual,
+    })),
+  { loading: () => <DemoChunkPlaceholder /> },
+);
+
+const CanvasVisual = dynamic(
+  () =>
+    import("./canvas-showcase").then((m) => ({
+      default: m.CanvasVisual,
+    })),
+  { loading: () => <DemoChunkPlaceholder /> },
+);
+
+const MobilePhoneVisual = dynamic(
+  () =>
+    import("./mobile-showcase").then((m) => ({
+      default: m.MobilePhoneVisual,
+    })),
+  { loading: () => <DemoChunkPlaceholder /> },
+);
+
+/* ── Radial dial section ───────────────────────────── */
+
+const RADIAL_CYCLE_MS = 3200;
+
+export function RadialDialSection() {
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [autoplay, setAutoplay] = useState(true);
+  const { ref, isActive } = useViewportActivity<HTMLDivElement>({
+    rootMargin: "360px 0px",
+  });
+
+  useEffect(() => {
+    if (!isActive || !autoplay) return;
+    const timer = window.setInterval(() => {
+      setSelectedIndex((i) => (i + 1) % RADIAL_WEDGES.length);
+    }, RADIAL_CYCLE_MS);
+    return () => window.clearInterval(timer);
+  }, [isActive, autoplay]);
+
+  const handleSelect = useCallback((index: number) => {
+    setAutoplay(false);
+    setSelectedIndex(index);
+  }, []);
+
+  return (
+    <section className="radial-hero codex-section" data-reveal suppressHydrationWarning>
+      <div className="codex-stage">
+        <header
+          className="radial-hero__copy codex-stage__copy"
+          data-reveal-child
+          style={{ ["--reveal-index" as string]: 0 }}
+        >
+          <span className="radial-hero__eyebrow">Anywhere</span>
+          <h2 className="radial-hero__title">Stella, on call.</h2>
+          <p className="radial-hero__lede">
+            One gesture summons Stella anywhere on your screen. Flick toward
+            an action — no menus, no window switching.
+          </p>
+        </header>
+
+        <div
+          className="codex-stage__mock"
+          data-reveal-child
+          style={{ ["--reveal-index" as string]: 1 }}
+        >
+          <div className="codex-frame">
+            <div className="radial-hero__stage">
+              <div className="radial-hero__dial" aria-label="Stella radial dial">
+                <RadialDialInteractive
+                  selectedIndex={selectedIndex}
+                  onSelect={handleSelect}
+                />
+                <div className="radial-dial-caption" aria-live="polite">
+                  {RADIAL_WEDGES.map((wedge, i) => {
+                    const active = i === selectedIndex;
+                    return (
+                      <div
+                        key={wedge.id}
+                        className={[
+                          "radial-dial-caption__inner",
+                          "radial-dial-caption__inner--stacked",
+                          active
+                            ? "radial-dial-caption__inner--active radial-dial-caption__inner--enter"
+                            : "radial-dial-caption__inner--inactive",
+                        ].join(" ")}
+                        aria-hidden={!active}
+                      >
+                        <strong>{wedge.heading}</strong>
+                        <p>{wedge.detail}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div ref={ref} className="radial-hero__mock">
+                <DeferInView fallback={<DemoChunkPlaceholder />}>
+                  <RadialDialVisual
+                    selectedIndex={selectedIndex}
+                    isActive={isActive}
+                  />
+                </DeferInView>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Canvas section ───────────────────────────────── */
+
+export function CanvasSection() {
+  const [conceptIndex, setConceptIndex] = useState(0);
+  const { ref, isActive } = useViewportActivity<HTMLDivElement>({
+    rootMargin: "360px 0px",
+  });
+
+  useEffect(() => {
+    if (!isActive) return;
+    const timer = window.setInterval(() => {
+      setConceptIndex((i) => (i + 1) % CANVAS_CONCEPTS.length);
+    }, 5500);
+    return () => window.clearInterval(timer);
+  }, [isActive]);
+
+  return (
+    <section
+      className="canvas-hero canvas-hero--stacked codex-section"
+      data-reveal
+      suppressHydrationWarning
+    >
+      <div className="canvas-hero__stack">
+        <header
+          className="canvas-hero__copy canvas-hero__copy--stacked"
+          data-reveal-child
+          style={{ ["--reveal-index" as string]: 0 }}
+        >
+          <span className="canvas-hero__eyebrow">Display</span>
+          <h2 className="canvas-hero__title">Ask. Watch it appear.</h2>
+          <p className="canvas-hero__lede">
+            The chat stays in the centre. Whatever Stella is making — a
+            sheet, a doc, or a few side quests at once — opens beside it in
+            a panel that&apos;s always there.
+          </p>
+        </header>
+
+        <div
+          className="canvas-hero__menu"
+          role="tablist"
+          aria-label="Display examples"
+          data-reveal-child
+          style={{ ["--reveal-index" as string]: 1 }}
+        >
+          {CANVAS_CONCEPTS.map((concept, index) => (
+            <button
+              key={concept.id}
+              type="button"
+              role="tab"
+              aria-selected={conceptIndex === index}
+              className="canvas-hero__menu-item"
+              data-active={conceptIndex === index || undefined}
+              onClick={() => setConceptIndex(index)}
+            >
+              {concept.label}
+            </button>
+          ))}
+        </div>
+
+        <div
+          className="canvas-hero__mock-wrap"
+          data-reveal-child
+          style={{ ["--reveal-index" as string]: 2 }}
+        >
+          <div className="codex-frame canvas-hero__frame">
+            <div ref={ref} className="canvas-hero__mock">
+              <DeferInView fallback={<DemoChunkPlaceholder />}>
+                <CanvasVisual
+                  conceptIndex={conceptIndex}
+                  isActive={isActive}
+                />
+              </DeferInView>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Mobile section ─────────────────── */
+
+export function MobileSection() {
+  const { ref } = useViewportActivity<HTMLDivElement>({
+    rootMargin: "360px 0px",
+  });
+
+  return (
+    <section className="mobile-hero codex-section" data-reveal suppressHydrationWarning>
+      <div className="codex-stage">
+        <header
+          className="mobile-hero__copy codex-stage__copy"
+          data-reveal-child
+          style={{ ["--reveal-index" as string]: 0 }}
+        >
+          <span className="mobile-hero__eyebrow">Anywhere</span>
+          <h2 className="mobile-hero__title">
+            Control your computer from anywhere
+          </h2>
+          <p className="mobile-hero__lede">
+            Away from your desk? Message Stella from the mobile app and
+            she&apos;ll take action on your computer in real time.
+          </p>
+        </header>
+
+        <div
+          className="codex-stage__mock"
+          data-reveal-child
+          style={{ ["--reveal-index" as string]: 1 }}
+        >
+          <div className="codex-frame">
+            <div className="mobile-hero__stage">
+              <div ref={ref} className="mobile-hero__mock">
+                <DeferInView fallback={<DemoChunkPlaceholder />}>
+                  <div className="mobile-phone-single">
+                    <div className="mobile-phone-swap">
+                      <MobilePhoneVisual activeConvo={0} platform="stella" />
+                    </div>
+                    <span className="mobile-phone-label">Stella App</span>
+                  </div>
+                </DeferInView>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}

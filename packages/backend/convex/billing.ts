@@ -6670,7 +6670,7 @@ export const syncManagedModelPricesFromModelsDev = internalAction({
  * `billing_usage_windows` row without recomputing window expiration. When
  * supplied, callers MUST bucket the value (e.g. floor to a minute) so
  * `useQuery` subscribers don't invalidate on every render — see
- * `projects/stella-website/src/app/billing/billing-client.tsx` for the
+ * `packages/website/src/app/billing/billing-client.tsx` for the
  * canonical pattern
  * (60-second `setInterval`).
  */

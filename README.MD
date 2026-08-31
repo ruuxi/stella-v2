@@ -85,10 +85,7 @@ Service-compatible keyring for credential storage.
 - `packages/mobile` — iOS / Android app
 - `packages/desktop` and `packages/desktop-ui` — desktop application
 - `packages/runtime` and `packages/contracts` — shared runtime and contracts
-
-## Related repos
-
-- [stella-website](https://github.com/ruuxi/stella-website) — marketing site
+- `packages/website` — product website, account, billing, and Store surfaces
 
 ## Thanks
 

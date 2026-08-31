@@ -1,0 +1,213 @@
+.root {
+  min-width: 0;
+  width: 100%;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.window {
+  width: min(100%, 25rem) !important;
+  height: clamp(26rem, 52vw, 35.5rem) !important;
+  min-height: 0 !important;
+}
+
+/* Live conversation inside the mini window. */
+.liveChat {
+  position: absolute;
+  inset: 32px 0 0;
+  display: grid;
+  flex: 1;
+  grid-template-rows: minmax(0, 1fr) auto;
+  /* Pin the single column to the window width. Without an explicit column the
+     implicit track is content-sized, so the nowrap typed request in the
+     composer would stretch it — and the composer pill — as it grows. */
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 10px 18px 16px;
+}
+
+.liveTranscript {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: min(23.5rem, 100%);
+  margin: 0 auto;
+  padding-bottom: 28px;
+  overflow: hidden;
+  transition: opacity 420ms ease;
+}
+
+.liveTranscript[data-overflow] {
+  mask-image: linear-gradient(180deg, transparent 0, #000 14%);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 14%);
+}
+
+/* The track starts at the top while the conversation is short. Once it is
+   taller than the viewport, useMiniChatScroll moves this whole layer toward
+   one continuously updated target, matching the desktop's scroll-follow. */
+.messageTrack {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+}
+
+/* The whole conversation breathes out before the loop restarts. */
+.liveTranscript[data-clearing] {
+  opacity: 0;
+}
+
+/* Rows keep ordinary flow inside the moving track; each arriving turn uses
+   the same opacity/transform pattern as the desktop chat. */
+.entry {
+  flex: 0 0 auto;
+  min-width: 0;
+  contain: paint;
+}
+
+/* Mirrors the real chat's trailing response region. The newest user message,
+   thinking row, and assistant reply all keep breathing room below them while
+   older turns leave through the masked top edge. */
+.responseSpacer {
+  flex: 0 0 clamp(5.5rem, 20vw, 7rem);
+  width: 100%;
+  pointer-events: none;
+}
+
+/* The composer owns the fixed auto-sized grid row. Transcript overflow can
+   only clip at the top; it can never grow or shove this row down. */
+.composerDock {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+}
+
+.entryInner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 10px;
+  will-change: transform, opacity;
+}
+
+.entry[data-role="user"] .entryInner {
+  transform-origin: right bottom;
+  animation: userEntry 440ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.entry[data-role="assistant"]:not([data-phase="reserved"]) .entryInner {
+  transform-origin: left bottom;
+  animation: assistantEntry 360ms cubic-bezier(0.26, 1.08, 0.42, 1) 40ms both;
+}
+
+.assistantSlot {
+  position: relative;
+}
+
+/* The full reply participates in layout from the send frame onward. The
+   thinking indicator and streamed text are painted on top of that invisible
+   sizer, so neither can move the transcript when it appears or wraps. */
+.assistantSizer {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.assistantVisual {
+  position: absolute;
+  inset: 0;
+}
+
+@keyframes userEntry {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.965);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes assistantEntry {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 9px, 0) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.assistantContent {
+  animation: assistantContentIn 180ms ease-out both;
+}
+
+@keyframes assistantContentIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Assistant "thinking" dots. */
+.thinking {
+  display: inline-flex;
+  gap: 4px;
+  padding: 7px 2px;
+}
+
+.thinking i {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--mock-foreground) 38%, transparent);
+  animation: thinkingPulse 1.05s ease-in-out infinite;
+}
+
+.thinking i:nth-child(2) {
+  animation-delay: 0.14s;
+}
+
+.thinking i:nth-child(3) {
+  animation-delay: 0.28s;
+}
+
+@keyframes thinkingPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entry,
+  .entryInner,
+  .assistantContent {
+    animation: none;
+  }
+}

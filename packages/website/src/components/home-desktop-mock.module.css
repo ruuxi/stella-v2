@@ -1,0 +1,947 @@
+.shell {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: clamp(1.2rem, 2vw, 1.8rem);
+  /* No top padding: the main window sits right under the hero CTA so its
+     first third peeks into the bottom of the first screen. */
+  padding-block: 0 clamp(1.2rem, 2.6vw, 2.4rem);
+}
+
+.showcase {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: stretch;
+  width: 100%;
+  max-width: 82rem;
+  margin-inline: auto;
+  padding: clamp(0.55rem, 1.2vw, 0.85rem);
+  border: 1px solid rgba(82, 104, 134, 0.16);
+  background:
+    radial-gradient(
+      circle at 20% 16%,
+      rgba(255, 255, 255, 0.62),
+      transparent 34%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.46),
+      rgba(227, 235, 246, 0.52)
+    );
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.75) inset,
+    0 38px 90px -50px rgba(12, 22, 38, 0.46);
+  /* The full app window slides up into view from below, settling into
+     place. Delay is aligned with the hero CTA reveal so the window
+     appears together with the download button. */
+  transform-origin: bottom center;
+  animation: mockRise 1150ms cubic-bezier(0.22, 1, 0.36, 1)
+    var(--mock-emerge-delay, 4500ms) both;
+}
+
+@keyframes mockRise {
+  0% {
+    opacity: 0;
+    transform: translateY(96px) scale(0.96);
+    filter: blur(6px);
+  }
+  55% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+.window {
+  position: relative;
+  z-index: 1;
+  aspect-ratio: 1.58;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--page-foreground) 14%, transparent);
+  border-radius: 0;
+  background: var(--mock-background);
+  color: var(--mock-text-base);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.08),
+    0 20px 60px rgba(12, 22, 38, 0.14);
+  isolation: isolate;
+}
+
+/* Host for the stacked skin surfaces inside the main window. */
+.surfaceHost {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.miniStage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.15rem;
+  min-width: 0;
+  justify-content: center;
+  padding-top: 0.25rem;
+}
+
+
+.miniWindow {
+  position: relative;
+  width: min(100%, 26rem);
+  height: 31.5rem;
+  min-height: 410px;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--page-foreground) 14%, transparent);
+  border-radius: 12px;
+  background: var(--mock-background);
+  color: var(--mock-text-base);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.08),
+    0 18px 48px rgba(12, 22, 38, 0.12);
+  isolation: isolate;
+}
+
+.workspaceStage {
+  display: flex;
+  min-width: 0;
+  justify-content: center;
+  padding-top: 0.25rem;
+}
+
+.workspacePanelFrame {
+  width: min(100%, 20rem);
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.06),
+    0 1px 2px rgba(15, 23, 42, 0.03),
+    0 6px 18px rgba(15, 23, 42, 0.04);
+  contain: layout paint;
+}
+
+.workspacePanel {
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden auto;
+  border: 1px solid var(--mock-panel-border);
+  border-radius: 12px;
+  background: var(--mock-panel-bg-gradient);
+  box-shadow: var(--mock-panel-highlight);
+  color: var(--mock-text-base);
+  scrollbar-width: none;
+}
+
+.workspacePanel::-webkit-scrollbar {
+  display: none;
+}
+
+.workspaceDivider {
+  flex-shrink: 0;
+  height: 1px;
+  margin: 0 12px;
+  background: var(--mock-panel-border);
+}
+
+.workspaceSection {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  padding: 10px 12px 12px;
+}
+
+.workspaceSectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 18px;
+  margin-bottom: 6px;
+}
+
+.workspaceSectionTitle {
+  flex: 1;
+  min-width: 0;
+  color: var(--mock-text-strong);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
+    sans-serif;
+  font-size: 13px;
+  font-weight: 300;
+  letter-spacing: 0;
+}
+
+.workspaceList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workspaceTaskList {
+  gap: 10px;
+}
+
+.workspaceFileButton {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.workspaceFileButton:hover {
+  background: color-mix(in oklch, var(--mock-foreground) 5%, transparent);
+  color: var(--mock-text-strong);
+}
+
+.workspaceTaskIconWrap {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: var(--mock-text-weak);
+}
+
+.workspaceTaskLabel,
+.workspaceRowLabel,
+.workspaceFileName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspaceTaskRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 1px 0;
+  color: var(--mock-text-base);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
+    sans-serif;
+  font-size: 13px;
+  font-weight: 300;
+  line-height: 1.4;
+}
+
+.workspaceTaskIconWrap {
+  height: calc(1em * 1.4);
+}
+
+.workspaceTaskIcon {
+  color: var(--mock-text-weak);
+}
+
+.workspaceTaskIcon[data-state="running"] {
+  animation: workspaceSpin 1.1s linear infinite;
+}
+
+.workspaceTaskIcon[data-state="done"] {
+  color: var(--mock-text-base);
+}
+
+.workspaceRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 3px 0;
+  color: var(--mock-text-base);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
+    sans-serif;
+  font-size: 13px;
+  font-weight: 300;
+  line-height: 1.35;
+}
+
+.workspaceFileButton {
+  gap: 8px;
+  margin: -4px -6px;
+  padding: 4px 6px;
+}
+
+.workspaceFileName {
+  font-variant-numeric: tabular-nums;
+}
+
+.workspaceRowMeta {
+  flex-shrink: 0;
+  color: var(--mock-text-weak);
+  font-size: 11.5px;
+  font-weight: 300;
+  letter-spacing: 0;
+}
+
+@keyframes workspaceSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.gradient {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  image-rendering: auto;
+}
+
+/* Overlay canvas that holds the outgoing theme's gradient during a
+   scroll-driven theme change, then fades out for a smooth crossfade. */
+.gradientFade {
+  z-index: -1;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Chrome colors ease between themes alongside the gradient crossfade.
+   Zero-specificity :where() so explicit hover transitions still win. */
+.window,
+.miniWindow,
+.workspaceStage,
+.workspacePanel,
+.composer {
+  transition:
+    background-color 620ms ease,
+    border-color 620ms ease,
+    box-shadow 620ms ease;
+}
+
+:where(.window, .miniWindow, .workspaceStage)
+  :where(h3, p, span, button, li, aside, header, div, strong, time) {
+  transition:
+    color 620ms ease,
+    background-color 620ms ease,
+    border-color 620ms ease,
+    fill 620ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gradientFade {
+    transition: none !important;
+  }
+
+  .showcase {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+.topbar {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  color: var(--mock-text-base);
+  user-select: none;
+}
+
+.miniTopbar {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 2;
+  height: 32px;
+  user-select: none;
+}
+
+.miniTopbar::before {
+  content: "";
+  position: absolute;
+  top: 11px;
+  left: 13px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #ff5f57;
+  box-shadow:
+    16px 0 #ffbd2e,
+    32px 0 #28c840,
+    inset 0 0 0 0.5px rgba(0, 0, 0, 0.18),
+    16px 0 0 0 rgba(0, 0, 0, 0.12),
+    32px 0 0 0 rgba(0, 0, 0, 0.12);
+}
+
+.topbarLeft,
+.profileCluster,
+.topbarRight,
+.nav {
+  display: inline-flex;
+  align-items: center;
+}
+
+.topbarLeft {
+  gap: 4px;
+  height: 100%;
+  min-width: 0;
+  padding-left: 84px;
+}
+
+/* Window-level traffic lights: the one piece of chrome every skin keeps,
+   floating above whatever chrome the active skin draws. */
+.trafficLights {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 4;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #ff5f57;
+  box-shadow:
+    18px 0 #ffbd2e,
+    36px 0 #28c840,
+    inset 0 0 0 0.5px rgba(0, 0, 0, 0.18),
+    18px 0 0 0 rgba(0, 0, 0, 0.12),
+    36px 0 0 0 rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+}
+
+.topbarRight {
+  gap: 2px;
+  height: 100%;
+  padding: 0 8px;
+}
+
+.profileCluster {
+  gap: 2px;
+  height: 100%;
+  margin-left: auto;
+}
+
+.iconButton,
+.accountButton,
+.composerButton,
+.submitButton {
+  appearance: none;
+  border: none;
+  font-family: inherit;
+  cursor: default;
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--mock-text-weak);
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.iconButton:hover,
+.accountButton:hover,
+.navItem:hover {
+  background: var(--mock-nav-hover);
+  color: var(--mock-text-strong);
+}
+
+.nav {
+  gap: 2px;
+  height: 100%;
+  padding-right: 4px;
+}
+
+.navItem {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 5px;
+  color: var(--mock-text-weak);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
+    sans-serif;
+  font-size: 13px;
+  font-weight: 300;
+  line-height: 24px;
+  letter-spacing: 0;
+  white-space: nowrap;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.navItem[data-active="true"] {
+  color: var(--mock-text-strong);
+  font-weight: 300;
+}
+
+.accountButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--mock-text-weak);
+  font-size: 13.5px;
+  font-weight: 300;
+  letter-spacing: -0.005em;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 23px;
+  height: 23px;
+  border: 1px solid var(--mock-border-weak);
+  border-radius: 50%;
+  background: color-mix(in oklch, var(--mock-foreground) 6%, transparent);
+  color: var(--mock-text-strong);
+  font-size: 10px;
+  font-weight: 300;
+  letter-spacing: 0.04em;
+}
+
+.chatSurface {
+  display: flex;
+  min-height: 100%;
+  padding-top: 32px;
+}
+
+.homeContent {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 780px;
+  margin-inline: auto;
+  padding: 48px 24px;
+}
+
+.homeContent h3 {
+  width: 100%;
+  margin: 0 0 32px;
+  color: var(--mock-text-strong);
+  font-family: var(--font-display), "Cormorant Garamond", Georgia, serif;
+  font-size: clamp(2rem, 4vw, 42px);
+  font-weight: 300;
+  line-height: 1.2;
+  letter-spacing: 0;
+  text-align: center;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+.chatContent {
+  display: grid;
+  flex: 1;
+  grid-template-rows: minmax(0, 1fr) 92px;
+  width: 100%;
+  max-width: 100%;
+  margin-inline: auto;
+  padding: 42px 18px 1px;
+}
+
+.chatTranscript {
+  display: flex;
+  flex-direction: column;
+  align-self: end;
+  gap: 10px;
+  width: 100%;
+  max-width: min(23.5rem, 100%);
+  margin: 0 auto;
+  transform: translateY(-34px);
+}
+
+.userMessage {
+  align-self: flex-end;
+  max-width: 82%;
+  padding: 5px 12px;
+  border: 1px solid color-mix(in oklch, var(--mock-primary) 18%, transparent);
+  border-radius: 18px 18px 6px 18px;
+  background: color-mix(
+    in oklch,
+    var(--mock-primary) 13%,
+    var(--mock-background)
+  );
+  color: var(--mock-text-strong);
+  font-size: 13px;
+  line-height: 1.75;
+  letter-spacing: 0.032em;
+  box-shadow: var(--mock-panel-highlight);
+}
+
+.assistantRow {
+  display: flex;
+  align-items: flex-start;
+  align-self: flex-start;
+  max-width: 88%;
+}
+
+.assistantMessage {
+  margin: 0;
+  color: var(--mock-text-strong);
+  font-size: 13px;
+  line-height: 1.75;
+  letter-spacing: 0.032em;
+}
+
+.composerWrap.chatComposerWrap {
+  align-self: end;
+  width: 100%;
+  margin-bottom: 0;
+  margin-inline: auto;
+  padding: 0;
+  transform: translateY(-14px);
+}
+
+.composerWrap.chatComposerWrap .composer {
+  width: 100%;
+  max-width: none;
+}
+
+.composerWrap.chatComposerWrap .contextStrip {
+  width: 100%;
+  max-width: none;
+  padding-left: 20px;
+}
+
+.composerWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 4px 24px 10px;
+}
+
+.composer {
+  display: flex;
+  width: 100%;
+  max-width: min(34rem, calc(100% - 108px));
+  min-height: 0;
+  overflow: clip;
+  border: 1px solid var(--mock-panel-border);
+  border-radius: var(--mock-composer-radius, 999px);
+  background: var(--mock-panel-bg-gradient);
+  box-shadow: var(--mock-shadow), var(--mock-panel-highlight);
+  transition: border-radius 620ms ease;
+}
+
+.contextStrip {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: min(34rem, calc(100% - 108px));
+  min-height: 28px;
+  padding: 0 4px 4px 20px;
+  overflow: hidden;
+}
+
+.contextChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px 3px 6px;
+  border: 1px dashed
+    color-mix(in oklch, var(--mock-foreground) 22%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mock-text-weak);
+  font-size: 12px;
+  font-weight: 300;
+  line-height: 1.3;
+}
+
+.contextPlus {
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.contextIcon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.composerForm {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 40px;
+  padding: 5px 7px;
+}
+
+.composerButton,
+.micButton,
+.submitButton {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 999px;
+}
+
+.composerButton {
+  background: color-mix(in oklch, var(--mock-foreground) 6%, transparent);
+  color: var(--mock-text-weak);
+}
+
+.micButton {
+  background: transparent;
+  color: var(--mock-text-base);
+}
+
+.submitButton {
+  background: var(--mock-primary);
+  color: var(--mock-primary-foreground);
+  opacity: 0.45;
+}
+
+.submitButton[data-armed="true"] {
+  opacity: 1;
+  transition: opacity 200ms ease;
+}
+
+/* Live request being typed into the mock composer. */
+.typedText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  padding: 2px 4px;
+  color: var(--mock-text-strong);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.typedCaret {
+  display: inline-block;
+  width: 1.5px;
+  height: 0.95em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: currentColor;
+  animation: mockCaretBlink 1.06s step-end infinite;
+}
+
+@keyframes mockCaretBlink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.placeholder {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  color: var(--mock-text-weaker);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.backToChat {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 5px 4px;
+  border: none;
+  background: transparent;
+  color: var(--mock-text-base);
+  font-size: 13px;
+  font-weight: 300;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+@media (min-width: 1024px) {
+  .showcase {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    margin-bottom: clamp(4.5rem, 8vw, 7rem);
+  }
+
+  .window {
+    grid-column: 1;
+  }
+
+  .miniStage {
+    position: absolute;
+    right: clamp(1.1rem, 2.2vw, 2rem);
+    bottom: clamp(-4.5rem, -5vw, -3.4rem);
+    z-index: 5;
+    width: min(31vw, 23rem);
+    padding-top: 0;
+  }
+
+  .workspaceStage {
+    position: absolute;
+    left: clamp(1.1rem, 2.2vw, 2rem);
+    bottom: clamp(-4.5rem, -5vw, -3.4rem);
+    z-index: 4;
+    width: min(24vw, 18rem);
+    padding-top: 0;
+    justify-content: flex-start;
+  }
+
+  .miniWindow {
+    width: 100%;
+    height: clamp(29rem, 43vw, 41rem);
+    min-height: 0;
+  }
+
+  .workspacePanelFrame {
+    width: 100%;
+  }
+
+  .workspacePanel {
+    max-height: clamp(32rem, 45vw, 42rem);
+  }
+}
+
+@media (max-width: 760px) {
+  .shell {
+    padding-block: 1.4rem 2rem;
+  }
+
+  .window {
+    aspect-ratio: auto;
+    min-height: 380px;
+    border-radius: 10px;
+  }
+
+  .miniWindow {
+    width: min(100%, 21.5rem);
+    height: 26rem;
+    min-height: 350px;
+    border-radius: 10px;
+  }
+
+  .workspacePanelFrame {
+    width: min(100%, 21.5rem);
+  }
+
+  .topbarLeft {
+    padding-left: 12px;
+  }
+
+  .trafficLights,
+  .profileCluster,
+  .topbarRight,
+  .iconButton {
+    display: none;
+  }
+
+  .nav {
+    gap: 1px;
+    overflow: hidden;
+  }
+
+  .navItem {
+    padding-inline: 8px;
+    font-size: 12px;
+  }
+
+  .homeContent {
+    padding: 38px 8px 40px;
+  }
+
+  .homeContent h3 {
+    margin-bottom: 20px;
+  }
+
+  .homeContent .composerWrap {
+    padding: 2px 6px 8px;
+  }
+
+  .homeContent .composer,
+  .homeContent .contextStrip {
+    max-width: calc(100% - 10px);
+  }
+
+  .homeContent .contextStrip {
+    min-height: 22px;
+    padding: 0 2px 2px 14px;
+  }
+
+  .homeContent .contextChip {
+    padding: 2px 6px 2px 5px;
+    font-size: 10.5px;
+    line-height: 1.2;
+  }
+
+  .homeContent .contextIcon {
+    width: 14px;
+    height: 14px;
+  }
+
+  .homeContent .composerForm {
+    min-height: 34px;
+    gap: 5px;
+    padding: 4px 5px;
+  }
+
+  .homeContent .composerButton,
+  .homeContent .micButton,
+  .homeContent .submitButton {
+    width: 22px;
+    height: 22px;
+  }
+
+}

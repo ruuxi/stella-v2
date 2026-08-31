@@ -1,0 +1,233 @@
+@media (min-width: 768px) {
+  .selfmod-shell__body {
+    grid-template-columns: 170px minmax(0, 1fr);
+  }
+
+  .selfmod-shell[data-modern] .selfmod-shell__body {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .selfmod-shell[data-cozy] .selfmod-shell__body {
+    grid-template-columns: 184px minmax(0, 1fr);
+  }
+
+  .selfmod-shell__sidebar {
+    border-right: 1px solid rgba(84, 112, 146, 0.12);
+    border-bottom: 0;
+  }
+
+  .radial-demo {
+    grid-template-columns: minmax(20rem, 0.78fr) minmax(0, 1.12fr);
+    align-items: center;
+  }
+
+  .radial-demo--visual-only {
+    grid-template-columns: 1fr;
+  }
+
+  .canvas-showcase {
+    grid-template-columns: minmax(16rem, 0.34fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .canvas-showcase--visual-only {
+    grid-template-columns: 1fr;
+  }
+
+  .shell-preview__body {
+    grid-template-columns: 170px minmax(0, 1fr) minmax(11.5rem, 13rem);
+  }
+
+  .shell-preview__body--chat {
+    grid-template-columns: 170px minmax(17rem, 0.84fr) minmax(22rem, 1.16fr);
+  }
+
+  .shell-preview__body--multitask {
+    grid-template-columns: 170px minmax(0, 1fr);
+  }
+
+  .shell-activity {
+    border-left: 1px solid rgba(84, 112, 146, 0.12);
+  }
+}
+
+@media (min-width: 1024px) {
+  .canvas-showcase {
+    grid-template-columns: minmax(15rem, 0.26fr) minmax(0, 1fr);
+  }
+
+  .canvas-showcase--visual-only {
+    grid-template-columns: 1fr;
+  }
+
+  .shell-preview__body {
+    grid-template-columns: 170px minmax(0, 1fr) minmax(10.25rem, 11.75rem);
+  }
+
+  .shell-preview__body--chat {
+    grid-template-columns: 170px minmax(18rem, 0.82fr) minmax(24rem, 1.18fr);
+  }
+
+  .shell-preview__body--multitask {
+    grid-template-columns: 170px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .mode-window--browser .mode-window__body,
+  .full-shell-preview-card__body {
+    grid-template-columns: 1fr;
+  }
+
+  .auto-panel-preview {
+    border-left: 0;
+    border-top: 1px solid rgba(84, 112, 146, 0.12);
+  }
+
+  .demo-panel {
+    padding: 0.75rem;
+  }
+
+  .demo-panel--full {
+    min-height: 22rem;
+  }
+
+  .demo-panel--portrait {
+    min-height: 30rem;
+    padding: 1rem;
+  }
+
+  .demo-panel--portrait > div {
+    padding: 0.5rem;
+  }
+
+  .radial-demo__surface {
+    min-height: 14rem;
+  }
+
+  .selfmod-shell__body {
+    height: 32rem;
+    min-height: 32rem;
+    max-height: 32rem;
+  }
+
+  .selfmod-shell__titlebar,
+  .radial-desktop-mock__titlebar,
+  .radial-result-fullshell__titlebar,
+  .mode-window__titlebar,
+  .full-shell-preview-card__titlebar,
+  .shell-preview__titlebar {
+    display: none;
+  }
+
+  .selfmod-shell__body,
+  .shell-preview__body {
+    border-radius: 0.9rem;
+  }
+
+  .selfmod-shell__sidebar {
+    display: none;
+  }
+
+  .selfmod-shell__main {
+    border-left: 0;
+  }
+
+  .radial-desktop-mock__screen {
+    min-height: 16rem;
+  }
+
+  .radial-desktop-mock__page {
+    min-height: 14rem;
+    padding: 0.75rem;
+  }
+
+  .radial-mock-page__content {
+    max-width: 100%;
+  }
+
+  .shell-preview__body {
+    height: 28rem;
+    min-height: 28rem;
+    max-height: 28rem;
+  }
+
+  /* Canvas hero ("Ask. Watch it appear.") needs more vertical room on
+     mobile because the "All at once" tab packs three turns + a task
+     list + composer. Apply to every canvas tab so switching between
+     them doesn't cause a layout shift. */
+  .canvas-hero .shell-preview__body--chat {
+    height: 34rem;
+    min-height: 34rem;
+    max-height: 34rem;
+  }
+
+  /* Tighten multitask content so it never overlaps the composer. */
+  .shell-preview__body--multitask .shell-chat--wide .shell-chat__messages {
+    gap: 0.7rem;
+  }
+
+  .shell-preview__body--multitask .shell-event-item {
+    font-size: 0.78rem;
+    line-height: 1.4;
+  }
+
+  .shell-preview__body--multitask .shell-event-item--user {
+    padding: 0.45rem 0.6rem;
+  }
+
+  .shell-preview__body--multitask .shell-tasks {
+    gap: 0.3rem;
+  }
+
+  .shell-preview__body--multitask .shell-tasks__item {
+    font-size: 0.7rem;
+    padding: 0.35rem 0.5rem;
+  }
+
+  .shell-preview__sidebar {
+    display: none;
+  }
+
+  .shell-activity {
+    display: none;
+  }
+
+  .shell-preview__body {
+    grid-template-columns: 1fr;
+  }
+
+  .shell-preview__body--chat {
+    grid-template-columns: 1fr;
+  }
+
+  .radial-demo__mode-window {
+    height: 18rem;
+    min-height: 18rem;
+    max-height: 18rem;
+  }
+
+  .mode-window__body {
+    min-height: 12rem;
+  }
+
+  .full-shell-preview-card {
+    min-height: auto;
+  }
+
+  .radial-demo__halo--one {
+    width: 12rem;
+    height: 12rem;
+  }
+
+  .radial-demo__halo--two {
+    width: 16rem;
+    height: 16rem;
+  }
+
+  .mobile-phone-visual .mobile-phone {
+    width: 100%;
+    height: auto;
+    max-height: 80svh;
+  }
+}

@@ -12,7 +12,7 @@ const targetPath = getBundledBinaryPath();
 if (!existsSync(sourcePath)) {
   console.error(`Error: OfficeCli binary not found at ${sourcePath}`);
   console.error(
-    "Build the vendored OfficeCli source first (for example: `npm run build:native` in `desktop/stella-office`).",
+    "Build the vendored OfficeCLI source first (for example: `npm run build:native` in `packages/stella-office`).",
   );
   process.exit(1);
 }

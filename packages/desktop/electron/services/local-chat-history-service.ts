@@ -2,7 +2,6 @@ import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { fileChange } from "@stella/contracts/file-changes";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
@@ -504,13 +503,6 @@ export class LocalChatHistoryService {
         `${firstReport.slug}.html`,
       );
       void (async () => {
-        let kind: "add" | "update" = "add";
-        try {
-          await fs.access(filePath);
-          kind = "update";
-        } catch {
-          kind = "add";
-        }
         await fs.mkdir(path.dirname(filePath), { recursive: true });
         await fs.writeFile(filePath, firstReport.html, "utf8");
         const bytes = Buffer.byteLength(firstReport.html, "utf8");
@@ -535,7 +527,6 @@ export class LocalChatHistoryService {
             title: firstReport.title,
             createdAt: timestamp,
             bytes,
-            fileChanges: [fileChange(filePath, { type: kind })],
             agentType: "orchestrator",
           },
         });

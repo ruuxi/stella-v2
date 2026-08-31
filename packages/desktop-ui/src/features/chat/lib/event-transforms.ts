@@ -6,10 +6,6 @@ import {
 import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine"
 import { normalizeDisplayStatusText } from '../status-utils'
 import type {
-  FileChangeRecord,
-  ProducedFileRecord,
-} from "@stella/contracts/file-changes"
-import type {
   Attachment,
   ChannelEnvelope,
   EventRecord,
@@ -89,8 +85,6 @@ type AgentStartedEventPayload = AgentLifecycleFields & {
 type AgentCompletedEventPayload = AgentLifecycleFields & {
   agentId: string
   result?: string
-  fileChanges?: FileChangeRecord[]
-  producedFiles?: ProducedFileRecord[]
 }
 
 type AgentFailedEventPayload = AgentLifecycleFields & {

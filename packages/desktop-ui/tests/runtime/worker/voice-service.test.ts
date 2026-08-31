@@ -146,10 +146,9 @@ describe("VoiceRuntimeService direct tool execution", () => {
     expect(runner.executeTool).not.toHaveBeenCalled();
   });
 
-  it("preserves file metadata from html tool results for chat artifacts", async () => {
+  it("preserves dedicated html details without generic file metadata", async () => {
     const { service, runner, localEvents } = makeService();
     const filePath = "/Users/me/.stella/outputs/html/nvidia-news.html";
-    const fileChanges = [{ path: filePath, kind: { type: "add" as const } }];
 
     runner.getVoiceOrchestratorConfig.mockResolvedValueOnce({
       instructions: "orchestrator instructions",
@@ -171,9 +170,7 @@ describe("VoiceRuntimeService direct tool execution", () => {
         createdAt: 1_234,
         bytes: 4096,
       },
-      fileChanges,
     });
-
     const result = await service.executeTool({
       requestId: "voice-session-1",
       conversationId: "conv-1",
@@ -192,8 +189,8 @@ describe("VoiceRuntimeService direct tool execution", () => {
         slug: "nvidia-news",
         title: "NVIDIA News",
       },
-      fileChanges,
     });
+    expect(result).not.toHaveProperty("fileChanges");
     const toolResult = localEvents.find(
       (event) => event.type === "tool_result",
     );
@@ -208,8 +205,8 @@ describe("VoiceRuntimeService direct tool execution", () => {
         slug: "nvidia-news",
         title: "NVIDIA News",
       },
-      fileChanges,
     });
+    expect(toolResult?.payload).not.toHaveProperty("fileChanges");
   });
 
   it("preserves image_gen job metadata for inline image cards", async () => {
@@ -277,11 +274,8 @@ describe("VoiceRuntimeService direct tool execution", () => {
     });
   });
 
-  it("preserves generic artifact side effects from other tools", async () => {
+  it("preserves office preview refs without generic file metadata", async () => {
     const { service, runner, localEvents } = makeService();
-    const producedFiles = [
-      { path: "/Users/me/Desktop/deck.pptx", kind: { type: "add" as const } },
-    ];
     const officePreviewRef = {
       sessionId: "office-session-1",
       title: "deck.pptx",
@@ -304,9 +298,7 @@ describe("VoiceRuntimeService direct tool execution", () => {
       details: {
         officePreviewRef,
       },
-      producedFiles,
     });
-
     const result = await service.executeTool({
       requestId: "voice-session-1",
       conversationId: "conv-1",
@@ -317,8 +309,8 @@ describe("VoiceRuntimeService direct tool execution", () => {
 
     expect(result).toMatchObject({
       details: { officePreviewRef },
-      producedFiles,
     });
+    expect(result).not.toHaveProperty("producedFiles");
     const toolResult = localEvents.find(
       (event) => event.type === "tool_result",
     );
@@ -326,11 +318,11 @@ describe("VoiceRuntimeService direct tool execution", () => {
       toolName: "exec_command",
       agentType: "orchestrator",
       officePreviewRef,
-      producedFiles,
       details: {
         officePreviewRef,
       },
     });
+    expect(toolResult?.payload).not.toHaveProperty("producedFiles");
   });
 
   it("marks text orchestrator history stale after persisted voice transcript", () => {

@@ -172,7 +172,7 @@ describe("mobile message replay acceptance", () => {
       eventId: "artifact-assistant",
       type: "assistant_message",
       timestamp: 200,
-      payload: { text: "done" },
+      payload: { text: "done: [report](/tmp/middle.pdf)" },
     });
 
     const delta = service.syncMessages({

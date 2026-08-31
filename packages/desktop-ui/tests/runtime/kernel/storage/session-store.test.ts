@@ -1343,7 +1343,7 @@ describe("session-store", () => {
   });
 
   it("keeps structured arrays schema-valid when projecting tool payloads", () => {
-    const fileChanges = Array.from({ length: 24 }, (_, index) => ({
+    const items = Array.from({ length: 24 }, (_, index) => ({
       path: `/tmp/${"nested/".repeat(100)}file-${index}.txt`,
       kind: "created",
     }));
@@ -1351,16 +1351,13 @@ describe("session-store", () => {
       _id: "large-file-event",
       timestamp: 1,
       type: "tool_result",
-      payload: { fileChanges },
+      payload: { items },
     });
 
-    expect(event.payload.fileChanges.length).toBeGreaterThan(0);
-    expect(event.payload.fileChanges.length).toBeLessThan(fileChanges.length);
-    expect(event.payload.fileChanges).toEqual(
-      fileChanges.slice(0, event.payload.fileChanges.length),
-    );
+    expect(event.payload.items.length).toBeGreaterThan(0);
+    expect(event.payload.items.length).toBeLessThan(items.length);
     expect(
-      event.payload.fileChanges.every(
+      event.payload.items.every(
         (entry: unknown) =>
           typeof entry === "object" &&
           entry !== null &&
@@ -1371,33 +1368,6 @@ describe("session-store", () => {
       truncated: true,
       fullDetailAvailable: true,
     });
-  });
-
-  it("preserves artifact identity when the general eager projection cannot fit", () => {
-    const fileChange = {
-      path: `/tmp/${"deep/".repeat(150)}result.html`,
-      kind: { type: "add" },
-    };
-    const event = projectLocalChatUpdateEvent({
-      _id: "large-artifact-event",
-      timestamp: 1,
-      type: "tool_result",
-      payload: {
-        fileChanges: Array.from({ length: 10 }, () => fileChange),
-        producedFiles: Array.from({ length: 10 }, () => fileChange),
-        output: "x".repeat(100_000),
-      },
-    });
-
-    expect(event.payload.fileChanges).toEqual([fileChange]);
-    expect(event.payload.producedFiles).toEqual([fileChange]);
-    expect(event.payload.__stellaEagerProjection).toEqual({
-      truncated: true,
-      fullDetailAvailable: true,
-    });
-    expect(
-      new TextEncoder().encode(JSON.stringify(event.payload)).byteLength,
-    ).toBeLessThanOrEqual(4_096);
   });
 
   it("keeps bounded and lazy tool detail owned by the correct assistant", () => {
@@ -2051,7 +2021,7 @@ describe("session-store", () => {
     ).toEqual(["agent-0", "agent-1", "agent-2"]);
   });
 
-  it("listFiles returns only events whose payload carries fileChanges or producedFiles", () => {
+  it("listFiles returns only responses containing local Markdown links", () => {
     const { store } = createTestContext();
     const conversationId = store.getOrCreateDefaultConversationId();
 
@@ -2072,11 +2042,11 @@ describe("session-store", () => {
 
     store.appendEvent({
       conversationId,
-      type: "tool_result",
+      type: "assistant_message",
       timestamp: 1_020,
       requestId: "tool-2",
       payload: {
-        toolName: "apply_patch",
+        text: "Created [source](/repo/src/new.ts)",
         fileChanges: [{ kind: { type: "create" }, path: "/repo/src/new.ts" }],
       },
     });
@@ -2099,6 +2069,7 @@ describe("session-store", () => {
       timestamp: 1_030,
       payload: {
         agentId: "general-1",
+        result: "Created [report](/out/report.pdf)",
         producedFiles: [
           { path: "/out/report.pdf", mimeType: "application/pdf" },
         ],
@@ -2117,7 +2088,7 @@ describe("session-store", () => {
       files.map((event) => event._id),
     );
     expect(files.map((event) => event.type)).toEqual([
-      "tool_result",
+      "assistant_message",
       "agent-completed",
     ]);
     expect(files[0]?.timestamp).toBe(1_020);
@@ -2132,11 +2103,11 @@ describe("session-store", () => {
       const ts = 1_000 + i * 10;
       store.appendEvent({
         conversationId,
-        type: "tool_result",
+        type: "assistant_message",
         timestamp: ts,
         requestId: `tool-${i}`,
         payload: {
-          toolName: "apply_patch",
+          text: `Created [file](/repo/file-${i}.ts)`,
           fileChanges: [
             { kind: { type: "create" }, path: `/repo/file-${i}.ts` },
           ],

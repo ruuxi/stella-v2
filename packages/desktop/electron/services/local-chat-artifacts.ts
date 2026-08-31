@@ -1,85 +1,40 @@
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
-import {
-  isFileChangeRecordArray,
-  isProducedFileRecordArray,
-  type FileChangeRecord,
-} from "@stella/contracts/file-changes";
+import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import { isUiHiddenChatMessagePayload } from "@stella/contracts/chat-event-visibility";
 import {
   isMapRouteArtifact,
   type MapRouteArtifact,
 } from "@stella/contracts/map-artifact";
 
-/**
- * Inline "background work" card for the mobile chat — the companion to the
- * desktop's inline agent card. Derived from the turn's `agent-started`
- * lifecycle events; `done` once every covered thread has an `agent-completed`
- * at/after its spawn (or has been silent past the stale cutoff). This is a
- * mobile-bridge-only payload, intentionally NOT part of the shared
- * `DisplayPayload` contract (which doubles as the desktop workspace-panel tab
- * contract — this card isn't an openable tab).
- */
 export type MobileAgentWorkPayload = {
   kind: "agent-work";
   state: "running" | "done";
-  /** Spawn-order membership, used to reconcile aggregate identity as siblings
-   * are discovered. Older mobile clients safely ignore this additive field. */
+
   agentIds: string[];
-  /** Number of background threads this card covers. */
+
   total: number;
   completed: number;
-  /** Title line (a single task's description, or "Working on N tasks"). */
+
   title: string;
-  /** Status line ("Working in background" / "N of M done" / "Finished"). */
+
   subtitle: string;
-  /**
-   * The single covered thread's latest activation was a `send_input`
-   * follow-up (a steer), not a fresh spawn — mobile's settled row shows the
-   * arrow tell instead of the done check, matching the desktop
-   * `BackgroundWorkCard`. Never set on multi-thread tallies. Additive; older
-   * mobile clients safely ignore it.
-   */
+
   followUp?: boolean;
   createdAt: number;
-  /**
-   * Per-agent produced-file sections — the mobile analogue of the desktop
-   * `AgentCompletionCard`. Each covered agent's `agent-completed` rollup
-   * files (deduped by path, noise-filtered, deliverables first) ride the
-   * card so mobile folds them into the lifecycle card with per-agent
-   * attribution instead of loose file rows. A section only exists once its
-   * agent actually completed, so files reveal at completion by construction.
-   *
-   * Always present (possibly empty) on bridges that consolidate: its
-   * presence tells mobile that any loose file artifacts remaining on the
-   * row are orchestrator-direct and safe to render standalone. Older mobile
-   * clients ignore the extra field.
-   */
+
   agents?: MobileAgentWorkFileSection[];
 };
 
-/** One agent's completion rollup on the mobile agent-completion card. */
 export type MobileAgentWorkFileSection = {
   agentId: string;
-  /** Section header — the agent's task description (or group label). */
+
   title: string;
-  /** Display payloads for the files this agent's completion(s) revealed. */
+
   files: DisplayPayload[];
-  /**
-   * Compact one-line excerpt of the agent's `result` text from its latest
-   * `agent-completed` rollup. Mirrors the desktop `AgentCompletionCard`
-   * fileless summary — mobile renders it on the distinct completion card so a
-   * result-only (no files) completion still surfaces. Absent when the agent
-   * produced no result text.
-   */
+
   summary?: string;
 };
 
-/**
- * What the mobile sync transport can carry inline under a message. Besides
- * the shared display payloads this includes the bridge-only agent-work card
- * and the `map-route` artifact (rendered on mobile as an inline map card via
- * the hosted stella.sh embed).
- */
 export type MobileSyncArtifact =
   | DisplayPayload
   | MobileAgentWorkPayload
@@ -88,43 +43,27 @@ export type MobileSyncArtifactEntry =
   | MobileSyncArtifact
   | { id: string; payload: MobileSyncArtifact };
 
-/**
- * One settled tool call, projected for the mobile inline tool-activity trace.
- * The desktop renders the same run via `deriveToolActivity`; mobile reruns the
- * (pure) phrasing on these steps. Only the handful of arg keys the per-call
- * title needs are carried — never raw tool args (which can hold file contents).
- */
 export type MobileToolStep = {
   id: string;
   toolName: string;
   status: "completed" | "error";
-  /** Pruned string args used only to build the per-call title (path, query…). */
+
   args?: Record<string, string>;
-  /**
-   * Bounded human-readable result preview, carried only for tools whose
-   * result the phone renders directly (Schedule receipts). The runtime
-   * already caps and redacts this value — never carry the raw result.
-   */
+
   resultPreview?: string;
 };
 
-/**
- * One background task (spawned agent) for the mobile activity pill + tray.
- * Folded from the same `agent-*` lifecycle events the inline agent card reads;
- * carried on the message that spawned it and collected conversation-wide on
- * mobile. The desktop equivalent is the footer/tray `TaskItem`.
- */
 export type MobileTask = {
   id: string;
   title: string;
   status: "running" | "completed" | "error" | "canceled";
-  /** Live narration while running ("Reading file…"). */
+
   statusText?: string;
   createdAt: number;
   completedAt?: number;
-  /** Recent bounded, current-attempt agent-authored messages. */
+
   assistantMessages: string[];
-  /** Legacy mobile wire alias. Contains authored messages, never summaries. */
+
   reasoningSummaries: string[];
 };
 
@@ -141,16 +80,16 @@ export type LocalChatSyncMessageWithArtifacts = {
   requestId?: string;
   deviceId?: string;
   artifacts?: MobileSyncArtifactEntry[];
-  /** Settled tool calls for this turn, oldest first (assistant rows only). */
+
   toolSteps?: MobileToolStep[];
-  /** Background tasks spawned by this turn (collected into the activity tray). */
+
   tasks?: MobileTask[];
 };
 
 export type LocalChatMobileSyncCursor = {
   timestamp: number;
   id: string;
-  /** Authoritative durable order. Absent only on decoded legacy v1 cursors. */
+
   sequence?: number;
 };
 
@@ -349,42 +288,13 @@ const DEVELOPER_EXTS = new Set([
   "yml",
 ]);
 
-// Any `.html` under the declared outputs tree crosses as a canvas artifact
-// (canvases in `outputs/html/`, but also reports written straight into
-// `outputs/`) — mirrors the renderer's `HTML_OUTPUT_PATH_RE` widening in
-// `derive-turn-resource.ts`.
 const HTML_OUTPUT_PATH_RE =
   /(?:^|\/)(?:\.stella|state)\/outputs\/(?:.+\/)?([^/]+)\.html$/;
 
-/** Declared deliverables home. Mirrors `path-to-viewer.ts`
- *  `DECLARED_OUTPUTS_RE` (duplicated: that renderer module resolves imports
- *  through the `@/` alias, which the electron main build doesn't). */
 const DECLARED_OUTPUTS_RE = /(?:^|[\\/])(?:\.stella|state)[\\/]outputs[\\/]/;
 
 const isDeclaredOutputPath = (filePath: string): boolean =>
   DECLARED_OUTPUTS_RE.test(filePath);
-
-const NOISE_PATH_SEGMENTS = new Set(["node_modules", "__pycache__"]);
-const NOISE_EXTS = new Set(["log", "tmp", "lock", "pid"]);
-
-/**
- * Snapshot-detected `producedFiles` sweep up incidental writes (browser
- * profiles, launch logs, caches, scratch dirs) alongside real deliverables;
- * keep them off every mobile artifact surface. Explicit `fileChanges`
- * (deliberate tool edits) are NOT run through this — only indirect snapshot
- * detections. Mirrors `path-to-viewer.ts` `isNoiseProducedPath`.
- */
-const isNoiseProducedPath = (filePath: string): boolean => {
-  const trimmed = filePath.trim();
-  if (!trimmed) return true;
-  for (const segment of trimmed.split(/[\\/]/)) {
-    if (!segment) continue;
-    if (segment.startsWith(".") && segment !== ".stella") return true;
-    if (NOISE_PATH_SEGMENTS.has(segment)) return true;
-  }
-  const ext = extensionOf(trimmed);
-  return ext != null && NOISE_EXTS.has(ext);
-};
 
 const asNonEmptyString = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
@@ -422,27 +332,6 @@ const titleFromHtmlSlug = (slug: string): string => {
   return title || "Canvas";
 };
 
-const resolveFileChange = (
-  record: FileChangeRecord,
-  timestamp: number,
-): { filePath: string; timestamp: number } | null => {
-  if (record.kind.type === "delete") return null;
-  const filePath =
-    record.kind.type === "update" && record.kind.move_path
-      ? record.kind.move_path
-      : record.path;
-  const trimmed = asNonEmptyString(filePath);
-  return trimmed ? { filePath: trimmed, timestamp } : null;
-};
-
-/**
- * A `tool_result` stamped with a non-orchestrator `agentType` is a delegated
- * agent's mid-run write forwarded into the conversation stream — it
- * contributes nothing loose (its files arrive consolidated on the run's
- * `agent-completed` rollup instead). Missing `agentType` (legacy persisted
- * events, always orchestrator-direct) keeps rendering inline. Mirrors the
- * renderer gate in `derive-turn-resource.ts` (`de4bd52c1`).
- */
 const isDelegatedToolResult = (event: ArtifactEventRecord): boolean => {
   if (event.type !== "tool_result") return false;
   const agentType = asNonEmptyString(event.payload?.agentType);
@@ -627,8 +516,6 @@ const imageGenPayload = (event: ArtifactEventRecord): DisplayPayload | null => {
   };
 };
 
-/** A no-signal thread spawned longer ago than this is presumed settled
- *  rather than pinned as forever-working. Mirrors the desktop card. */
 const AGENT_WORK_STALE_MS = 5 * 60_000;
 
 const GENERIC_TASK_DESCRIPTION = /^(task|agent|work|help|do this|follow up)$/i;
@@ -655,7 +542,6 @@ const isMobileTaskLifecycleEvent = (type: string): boolean =>
   type === "agent-progress" ||
   terminalTaskStatus(type) !== null;
 
-/** Latest terminal timestamp per agent id across the synced set. */
 const buildSettledAtMsById = (
   messages: readonly ArtifactMessageRecord[],
 ): Map<string, number> => {
@@ -673,19 +559,8 @@ const buildSettledAtMsById = (
   return settledAt;
 };
 
-/** Cap on files per agent section — deliverables rank first, so truncation
- *  drops incidental writes, not the asked-for files. */
 const AGENT_SECTION_FILE_LIMIT = 8;
 
-/**
- * Fold every `agent-completed` event across the synced context into a
- * per-agent display-payload list for the agent-work card's file sections.
- * Files are deduped by path (first sighting wins, preserving the rollup's
- * order), snapshot-detected `producedFiles` are noise-filtered, and declared
- * deliverables (`~/.stella/outputs/**`) lead so the section cap truncates
- * scratch instead of the files the user asked for — mirroring the desktop
- * `agent-completion.ts` derivation.
- */
 const buildAgentFilesById = (
   messages: readonly ArtifactMessageRecord[],
   options?: MobileArtifactOptions,
@@ -698,32 +573,22 @@ const buildAgentFilesById = (
       const payload = event.payload;
       const agentId = trimmedString(payload?.agentId);
       if (!payload || !agentId) continue;
-      const fileChanges = isFileChangeRecordArray(payload.fileChanges)
-        ? payload.fileChanges
-        : [];
-      const producedFiles = isProducedFileRecordArray(payload.producedFiles)
-        ? payload.producedFiles
-        : [];
       const candidates = byAgent.get(agentId) ?? new Map<string, Candidate>();
       byAgent.set(agentId, candidates);
-      const consider = (record: FileChangeRecord, noiseFiltered: boolean) => {
-        const resolved = resolveFileChange(record, event.timestamp);
-        if (!resolved) return;
-        if (noiseFiltered && isNoiseProducedPath(resolved.filePath)) return;
-        if (candidates.has(resolved.filePath)) return;
+      const result = typeof payload.result === "string" ? payload.result : "";
+      for (const filePath of extractLocalFileLinkPaths(result)) {
+        if (candidates.has(filePath)) continue;
         const display = payloadFromFilePath(
-          resolved.filePath,
-          resolved.timestamp,
+          filePath,
+          event.timestamp,
           options,
         );
-        if (!display) return;
-        candidates.set(resolved.filePath, {
-          filePath: resolved.filePath,
+        if (!display) continue;
+        candidates.set(filePath, {
+          filePath,
           payload: display,
         });
-      };
-      for (const record of fileChanges) consider(record, false);
-      for (const record of producedFiles) consider(record, true);
+      }
     }
   }
 
@@ -744,24 +609,17 @@ const buildAgentFilesById = (
   return files;
 };
 
-/** Cap for the fileless completion summary excerpt (whitespace-collapsed). */
 const AGENT_SUMMARY_EXCERPT_CAP = 200;
 
-/**
- * Collapse an agent's result to a compact one-line plain-text excerpt for the
- * card. Mobile renders it as plain Text (not Markdown), so block/inline markdown
- * is reduced to text first (mirrors the desktop summary's inline reduction), and
- * the cap counts code points so an emoji/astral char is never split into a `�`.
- */
 const toAgentSummaryExcerpt = (result: string): string => {
   const inline = result
-    .replace(/```[\s\S]*?```/g, " ") // fenced code blocks
-    .replace(/`([^`]*)`/g, "$1") // inline code -> text
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1") // links/images -> label
-    .replace(/^\s{0,3}#{1,6}\s+/gm, "") // heading markers
-    .replace(/^\s{0,3}>\s?/gm, "") // blockquote markers
-    .replace(/^\s{0,3}(?:[-*+]|\d+\.)\s+/gm, "") // list markers
-    .replace(/(\*\*|__|\*|_|~~)/g, "") // emphasis
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/^\s{0,3}(?:[-*+]|\d+\.)\s+/gm, "")
+    .replace(/(\*\*|__|\*|_|~~)/g, "")
     .replace(/\s+/g, " ")
     .trim();
   const points = [...inline];
@@ -769,12 +627,6 @@ const toAgentSummaryExcerpt = (result: string): string => {
   return `${points.slice(0, AGENT_SUMMARY_EXCERPT_CAP).join("").trimEnd()}…`;
 };
 
-/**
- * Latest `agent-completed` result excerpt per agent — mirrors the desktop
- * `agent-completion.ts` summary derivation so mobile's completion card can show
- * a result-only completion. A re-run finishing without a result clears the
- * older excerpt rather than leaving stale text on the newer completion.
- */
 const buildAgentSummariesById = (
   messages: readonly ArtifactMessageRecord[],
 ): Map<string, string> => {
@@ -797,24 +649,11 @@ const buildAgentSummariesById = (
   return summaries;
 };
 
-/**
- * Stable identity for a turn's agent-work card. Agent ids are discovered over
- * time, so keying by the whole set (`agent-work:a,b`) replaced the already
- * visible `agent-work:a` card when a sibling started. The first spawned agent
- * is the insertion identity for the aggregate; later starts and terminal
- * events only update that card's payload.
- */
 const agentWorkArtifactId = (agentIds: readonly string[]): string => {
   const first = agentIds.map((id) => id.trim()).find(Boolean);
   return first ? `agent-work:${first}` : "agent-work";
 };
 
-/**
- * Background-work card for a turn, from its `agent-started` events. Completion
- * is scoped per run (an `agent-completed` at/after the thread's spawn on this
- * turn) so a thread reused via `send_input` doesn't inherit a prior run's
- * completion. Returns null for turns that started no background work.
- */
 const deriveAgentWorkPayload = (
   message: Pick<ArtifactMessageRecord, "toolEvents">,
   settledAtMsById: ReadonlyMap<string, number>,
@@ -824,16 +663,10 @@ const deriveAgentWorkPayload = (
 ): { id: string; payload: MobileAgentWorkPayload } | null => {
   const threadIds: string[] = [];
   const descriptions: Record<string, string> = {};
-  // Timestamp of the description currently stored per agent, so a later
-  // `send_input` re-activation (a steer) overwrites an earlier one — matching
-  // desktop `getBackgroundWork`, which reads the LATEST occurrence's label. A
-  // follow-up carries its title in `statusText`; a plain spawn in `description`.
+
   const descriptionAtMs: Record<string, number> = {};
   const spawnedAtMs: Record<string, number> = {};
-  // Whether each agent's LATEST activation was a `send_input` follow-up —
-  // a steer flips the card to its follow-up variant; a later fresh spawn
-  // resets it (matching desktop `getBackgroundWork` reading the latest
-  // occurrence).
+
   const followUpByAgentId: Record<string, boolean> = {};
   const activationAtMs: Record<string, number> = {};
   let createdAt = 0;
@@ -860,8 +693,7 @@ const deriveAgentWorkPayload = (
     if (event.timestamp > (spawnedAtMs[agentId] ?? 0)) {
       spawnedAtMs[agentId] = event.timestamp;
     }
-    // Card ordering is anchored when the aggregate first becomes visible.
-    // Later sibling starts must not rewrite its insertion timestamp.
+
     if (createdAt === 0 || event.timestamp < createdAt) {
       createdAt = event.timestamp;
     }
@@ -898,17 +730,11 @@ const deriveAgentWorkPayload = (
     subtitle = state === "running" ? "Working in background" : "Finished";
   }
 
-  // Per-agent completion-file sections, in spawn order. A section exists
-  // only once its agent's `agent-completed` rollup landed, so the pill
-  // reveal is completion-scoped by construction. Always attached (possibly
-  // empty): the field's presence tells mobile this bridge consolidates and
-  // any loose file artifacts left on the row are orchestrator-direct.
   const agents: MobileAgentWorkFileSection[] = [];
   for (const id of threadIds) {
     const files = filesByAgentId.get(id) ?? [];
     const summary = summariesByAgentId.get(id);
-    // A section exists once the agent's completion landed with EITHER files OR
-    // a result excerpt, so a result-only completion still gets a card section.
+
     if (files.length === 0 && !summary) continue;
     agents.push({
       agentId: id,
@@ -947,7 +773,6 @@ type TaskBuild = {
   completedAt?: number;
 };
 
-/** Fold every turn's `agent-*` lifecycle events into one task per agent id. */
 const buildMobileTasksById = (
   messages: readonly ArtifactMessageRecord[],
   nowMs: number,
@@ -1016,8 +841,6 @@ const buildMobileTasksById = (
 
   const tasks = new Map<string, MobileTask>();
   for (const build of builds.values()) {
-    // A long-silent running thread aged out of the loaded window — settle it so
-    // the tray doesn't shimmer "running" forever (mirrors the agent card).
     const status =
       build.status === "running" &&
       nowMs - build.spawnedAt > AGENT_WORK_STALE_MS
@@ -1025,9 +848,7 @@ const buildMobileTasksById = (
         : build.status;
     const assistantMessages = assistantMessagesByAgentId?.get(build.id);
     const authoredMessages = assistantMessages ? [...assistantMessages] : [];
-    // Live decoration beats the folded spawn text: `agent-progress` ticks are
-    // no longer persisted, so mid-run statusText only exists in the renderer's
-    // decoration snapshot mirrored via `publishTaskDecoration`.
+
     const statusText =
       status === "running"
         ? statusTextByAgentId?.get(build.id) || build.statusText
@@ -1048,7 +869,6 @@ const buildMobileTasksById = (
   return tasks;
 };
 
-/** Task ids touched by this message's lifecycle events, resolved globally. */
 const deriveMobileTasksForMessage = (
   message: Pick<ArtifactMessageRecord, "toolEvents">,
   tasksById: ReadonlyMap<string, MobileTask>,
@@ -1114,8 +934,6 @@ const withTaskAnchorMessages = (
   );
 };
 
-// Arg keys the mobile per-call title reads (see the mobile `tool-activity`
-// port). Everything else is dropped so raw tool args never cross the bridge.
 const TITLE_ARG_KEYS = [
   "path",
   "file_path",
@@ -1142,12 +960,6 @@ const pickTitleArgs = (args: unknown): Record<string, string> | undefined => {
   return Object.keys(out).length > 0 ? out : undefined;
 };
 
-/**
- * Pair a turn's `tool_request` / `tool_result` events by request id and project
- * the settled ones (a result arrived) for the mobile tool-activity trace. The
- * in-flight call is intentionally omitted — it's owned by the live working
- * indicator, exactly as on desktop.
- */
 export const deriveMobileToolSteps = (
   message: Pick<ArtifactMessageRecord, "toolEvents">,
 ): MobileToolStep[] => {
@@ -1180,9 +992,7 @@ export const deriveMobileToolSteps = (
       const existing = byId.get(requestId);
       if (!existing) continue;
       existing.status = payload.error ? "error" : "completed";
-      // Schedule receipts ride the step so the phone can render the tool's
-      // human-readable result as a plain text line (desktop parity). The
-      // runtime's `resultPreview` is already bounded + redacted.
+
       if (
         typeof payload.toolName === "string" &&
         [
@@ -1215,11 +1025,6 @@ export const deriveMobileToolSteps = (
   return steps;
 };
 
-/**
- * Lift successful direct or code-deferred `map-route` artifacts (see
- * `runtime/kernel/tools/defs/map.ts`) for mobile inline map cards. Legacy
- * `node_repl` rows remain readable after the public rename.
- */
 const mapArtifactPayloads = (
   event: ArtifactEventRecord,
 ): MapRouteArtifact[] => {
@@ -1239,17 +1044,18 @@ const mapArtifactPayloads = (
 };
 
 export const deriveMobileArtifactsForMessage = (
-  message: Pick<ArtifactMessageRecord, "toolEvents">,
+  message: Pick<
+    ArtifactMessageRecord,
+    "toolEvents" | "payload" | "timestamp" | "type"
+  >,
   options?: MobileArtifactOptions,
 ): MobileSyncArtifact[] => deriveMobileArtifactsForMessages([message], options);
 
-/**
- * File/media artifacts across a group of message records (one turn's
- * assistant segments), deduped with a single `seen` set so a file written
- * across several segments yields one artifact.
- */
 export const deriveMobileArtifactsForMessages = (
-  messages: readonly Pick<ArtifactMessageRecord, "toolEvents">[],
+  messages: readonly Pick<
+    ArtifactMessageRecord,
+    "toolEvents" | "payload" | "timestamp" | "type"
+  >[],
   options?: MobileArtifactOptions,
 ): MobileSyncArtifact[] => {
   const artifacts: MobileSyncArtifact[] = [];
@@ -1262,6 +1068,17 @@ export const deriveMobileArtifactsForMessages = (
       seen,
       options,
     );
+    if (message.type === "assistant_message") {
+      for (const filePath of extractLocalFileLinkPaths(
+        textFromPayload(message.payload),
+      )) {
+        pushArtifact(
+          artifacts,
+          seen,
+          payloadFromFilePath(filePath, message.timestamp, options),
+        );
+      }
+    }
   }
 
   return artifacts.slice(0, ARTIFACT_LIMIT_PER_MESSAGE);
@@ -1277,10 +1094,6 @@ const collectMobileArtifactsFromEvents = (
     const payload = event.payload;
     if (!payload) continue;
 
-    // Consolidation: delegated agents' mid-run tool_results and the
-    // `agent-completed` rollups contribute nothing loose — their files ride
-    // the agent-work card's per-agent sections (see `buildAgentFilesById`),
-    // revealed together at completion like the desktop completion card.
     if (event.type === "agent-completed" || isDelegatedToolResult(event)) {
       continue;
     }
@@ -1329,33 +1142,6 @@ const collectMobileArtifactsFromEvents = (
       });
     }
 
-    const fileChanges = isFileChangeRecordArray(payload.fileChanges)
-      ? payload.fileChanges
-      : [];
-    const producedFiles = isProducedFileRecordArray(payload.producedFiles)
-      ? payload.producedFiles
-      : [];
-    for (const record of fileChanges) {
-      const resolved = resolveFileChange(record, event.timestamp);
-      if (!resolved) continue;
-      pushArtifact(
-        artifacts,
-        seen,
-        payloadFromFilePath(resolved.filePath, resolved.timestamp, options),
-      );
-    }
-    for (const record of producedFiles) {
-      const resolved = resolveFileChange(record, event.timestamp);
-      // Snapshot-detected writes get the noise filter (deliberate
-      // `fileChanges` above do not) — mirrors the desktop produced-file
-      // surfaces.
-      if (!resolved || isNoiseProducedPath(resolved.filePath)) continue;
-      pushArtifact(
-        artifacts,
-        seen,
-        payloadFromFilePath(resolved.filePath, resolved.timestamp, options),
-      );
-    }
   }
 };
 
@@ -1368,8 +1154,7 @@ export const buildMobileSyncMessages = (
   statusTextByAgentId?: ReadonlyMap<string, string>,
 ): LocalChatSyncMessageWithArtifacts[] => {
   const rows: LocalChatSyncMessageWithArtifacts[] = [];
-  // Terminal state is scoped per run (see deriveAgentWorkPayload); precompute
-  // the latest terminal timestamp per thread across the whole context once.
+
   const settledAtMsById = buildSettledAtMsById(taskContextMessages);
   const nowMs = Date.now();
   const tasksById = buildMobileTasksById(
@@ -1378,19 +1163,10 @@ export const buildMobileSyncMessages = (
     assistantMessagesByAgentId,
     statusTextByAgentId,
   );
-  // Completion files resolve across the whole context so a fire-and-forget
-  // agent completing on a later row still files onto its spawning row's card.
+
   const filesByAgentId = buildAgentFilesById(taskContextMessages, options);
   const summaryByAgentId = buildAgentSummariesById(taskContextMessages);
-  // TURN-level file-artifact consolidation. The store anchors tool events on
-  // the assistant SEGMENT that preceded them, so a multi-segment turn (the
-  // orchestrator streams text, runs tools, streams more text) would hang its
-  // file cards off a mid-turn bubble. Desktop derives inline artifact cards
-  // at TURN granularity and presents them on the turn's reply; the phone's
-  // live send path likewise reads the turn's LAST assistant row. Attach the
-  // whole turn's file artifacts to that last visible assistant row so both
-  // the live reply and the synced transcript carry them. Single-segment
-  // turns and user-anchored (fire-and-forget) events keep today's placement.
+
   const fileArtifactsByMessageId = new Map<string, MobileSyncArtifact[]>();
   {
     let turnSegments: ArtifactMessageRecord[] = [];
@@ -1446,9 +1222,7 @@ export const buildMobileSyncMessages = (
               );
             }),
           );
-          // Tool results anchored to an earlier assistant segment happened
-          // before the final segment's text. Keeping offset zero on that final
-          // row preserves the original call position across sync/reload.
+
           return {
             ...artifact,
             textOffset:
@@ -1495,14 +1269,12 @@ export const buildMobileSyncMessages = (
       filesByAgentId,
       summaryByAgentId,
     );
-    // Background tasks spawned by this turn (collected into the activity tray).
+
     const tasks = deriveMobileTasksForMessage(message, tasksById);
-    // Settled tool calls for the inline tool-activity trace (assistant turns).
+
     const toolSteps =
       role === "assistant" ? deriveMobileToolSteps(message) : [];
-    // Inline the agent card on the assistant turn that spawned it. For a
-    // fire-and-forget turn (no assistant message — the start event lands on
-    // the user_message), it's emitted as its own assistant bubble below.
+
     const artifacts: MobileSyncArtifactEntry[] =
       role === "assistant" && agentWork
         ? [...fileArtifacts, agentWork]
@@ -1526,8 +1298,7 @@ export const buildMobileSyncMessages = (
             : {}),
           ...(artifacts.length > 0 ? { artifacts } : {}),
           ...(toolSteps.length > 0 ? { toolSteps } : {}),
-          // Carried for the activity tray (collected conversation-wide); never
-          // forces a row to render on its own — it rides one that already does.
+
           ...(tasks.length > 0 ? { tasks } : {}),
         });
       }
@@ -1560,8 +1331,7 @@ export const buildMobileSyncMessages = (
           : {}),
         ...(message.requestId ? { requestId: message.requestId } : {}),
         artifacts: [agentWork],
-        // Fire-and-forget turn: the user row may not render, so carry its tasks
-        // on the agent bubble (collected by id, so any overlap dedupes).
+
         ...(tasks.length > 0 ? { tasks } : {}),
       });
     }

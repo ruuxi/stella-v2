@@ -13,27 +13,18 @@ import { StellaFileLink } from "../../../src/app/chat/StellaFileLink";
 import { withI18n } from "../../helpers/i18n";
 
 describe("parseStellaFileUrl", () => {
-  it("extracts the absolute path from the canonical form", () => {
-    expect(parseStellaFileUrl("stella://file/Users/sam/report.pdf")).toBe(
+  it("accepts ordinary absolute Markdown destinations", () => {
+    expect(parseStellaFileUrl("/Users/sam/report.pdf")).toBe(
       "/Users/sam/report.pdf",
     );
-  });
-
-  it("tolerates an extra slash before the path", () => {
-    expect(parseStellaFileUrl("stella://file//Users/sam/report.pdf")).toBe(
-      "/Users/sam/report.pdf",
+    expect(parseStellaFileUrl("C:/Users/sam/report.pdf")).toBe(
+      "C:/Users/sam/report.pdf",
     );
   });
 
   it("decodes percent-encoded segments", () => {
-    expect(parseStellaFileUrl("stella://file/Users/sam/My%20File.pdf")).toBe(
+    expect(parseStellaFileUrl("/Users/sam/My%20File.pdf")).toBe(
       "/Users/sam/My File.pdf",
-    );
-  });
-
-  it("accepts windows-style absolute paths", () => {
-    expect(parseStellaFileUrl("stella://file/C:/Users/sam/report.pdf")).toBe(
-      "C:/Users/sam/report.pdf",
     );
   });
 
@@ -88,9 +79,7 @@ describe("displayPayloadForStellaFile", () => {
 });
 
 describe("stella-file chat rendering round-trip", () => {
-  // Mirrors the exact Streamdown recipe in `Markdown.tsx`: default remark
-  // plugins + the stella-file rewriter, default rehype plugins (prop
-  // omitted so `allowedTags` engages), and the component mapping.
+
   const render = (markdown: string) =>
     renderToStaticMarkup(
       withI18n(
@@ -114,24 +103,17 @@ describe("stella-file chat rendering round-trip", () => {
       ),
     );
 
-  it("renders a markdown-form reference as an inline clickable link", () => {
-    const html = render(
-      "Here's [the report](stella://file/Users/sam/.stella/outputs/report.pdf) you asked for.",
-    );
+  it("renders an ordinary absolute-path Markdown link", () => {
+    const html = render("Here's [the report](/Users/sam/report.pdf).");
     expect(html).toContain("markdown-stella-file");
     expect(html).toContain(">the report</a>");
-    expect(html).toContain("/Users/sam/.stella/outputs/report.pdf");
-    expect(html).not.toContain("[blocked]");
+    expect(html).toContain("/Users/sam/report.pdf");
   });
 
-  it("renders a bare stella://file URI with the filename as label", () => {
-    const html = render(
-      "Saved to stella://file/Users/sam/Movies/demo.mp4, take a look.",
-    );
+  it("renders an angle-bracket destination containing spaces", () => {
+    const html = render("Here's [the report](</Users/sam/My Reports/final report.pdf>).");
     expect(html).toContain("markdown-stella-file");
-    expect(html).toContain(">demo.mp4</a>");
-    // The raw URI must not remain visible in the prose.
-    expect(html).not.toContain("stella://file/");
+    expect(html).toContain("/Users/sam/My Reports/final report.pdf");
   });
 
   it("leaves invalid references as plain text", () => {
@@ -140,9 +122,9 @@ describe("stella-file chat rendering round-trip", () => {
   });
 
   it("does not rewrite references inside code spans", () => {
-    const html = render("Use `stella://file/Users/sam/a.pdf` as the format.");
+    const html = render("Use `[report](/Users/sam/a.pdf)` as the format.");
     expect(html).not.toContain("markdown-stella-file");
-    expect(html).toContain("stella://file/Users/sam/a.pdf");
+    expect(html).toContain("[report](/Users/sam/a.pdf)");
   });
 
   it("keeps normal links untouched", () => {

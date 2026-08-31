@@ -1,5 +1,4 @@
 import type { OfficePreviewRef } from "./office-preview.js";
-import type { FileChangeRecord, ProducedFileRecord } from "./file-changes.js";
 import type { AgentModelConfigSnapshot } from "./agent-engine.js";
 
 export type EventRecord = {
@@ -216,8 +215,6 @@ export type ToolResultPayload = {
   requestId?: string;
   agentType?: string;
   officePreviewRef?: OfficePreviewRef;
-  fileChanges?: FileChangeRecord[];
-  producedFiles?: ProducedFileRecord[];
   /**
    * Structured `web` tool fields, spread onto the persisted payload when
    * the tool ran in search mode (see `runtime/kernel/tools/defs/web.ts`).

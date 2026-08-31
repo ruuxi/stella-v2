@@ -19,11 +19,7 @@ import {
   purgeDeferredDelete,
 } from "@stella/runtime/kernel/tools/deferred-delete";
 import type { LocalChatHistoryService } from "../services/local-chat-history-service.js";
-import {
-  isFileChangeRecordArray,
-  isProducedFileRecordArray,
-  type FileChangeRecord,
-} from "@stella/contracts/file-changes";
+import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 import { planDisplayFileRead } from "./display-read-limit.js";
 
@@ -106,16 +102,6 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 
 const ALLOWED_EXTENSIONS = new Set(Object.keys(MIME_BY_EXTENSION));
 
-const resolvedPathForChange = (record: FileChangeRecord): string | null => {
-  if (record.kind.type === "delete") return null;
-  const filePath =
-    record.kind.type === "update" && record.kind.move_path
-      ? record.kind.move_path
-      : record.path;
-  if (!filePath || !path.isAbsolute(filePath)) return null;
-  return path.resolve(filePath);
-};
-
 export const isDisplayReadPathInLocalChatFiles = (
   events: ReadonlyArray<LocalChatEventRecord>,
   requestedPath: string,
@@ -125,22 +111,14 @@ export const isDisplayReadPathInLocalChatFiles = (
     const payload = event.payload;
     if (!payload || typeof payload !== "object") continue;
 
-    if (
-      typeof payload.filePath === "string" &&
-      path.isAbsolute(payload.filePath) &&
-      path.resolve(payload.filePath) === resolvedRequestedPath
-    ) {
-      return true;
-    }
-
-    const fileChanges = isFileChangeRecordArray(payload.fileChanges)
-      ? payload.fileChanges
-      : [];
-    const producedFiles = isProducedFileRecordArray(payload.producedFiles)
-      ? payload.producedFiles
-      : [];
-    for (const record of [...fileChanges, ...producedFiles]) {
-      if (resolvedPathForChange(record) === resolvedRequestedPath) {
+    const responseText =
+      event.type === "assistant_message" && typeof payload.text === "string"
+        ? payload.text
+        : event.type === "agent-completed" && typeof payload.result === "string"
+          ? payload.result
+          : "";
+    for (const filePath of extractLocalFileLinkPaths(responseText)) {
+      if (path.resolve(filePath) === resolvedRequestedPath) {
         return true;
       }
     }

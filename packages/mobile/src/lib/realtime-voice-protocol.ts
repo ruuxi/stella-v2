@@ -57,8 +57,6 @@ export type RealtimeVoiceToolCall = {
 export type RealtimeVoiceToolResult = {
   output: string;
   details?: unknown;
-  fileChanges?: unknown[];
-  producedFiles?: unknown[];
   error?: string;
 };
 

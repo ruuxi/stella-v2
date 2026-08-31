@@ -698,12 +698,6 @@ export const layer = Layer.effect(
                   result: details ?? ev.resultPreview,
                   resultPreview: ev.resultPreview,
                   ...(details ? details : {}),
-                  ...(ev.fileChanges?.length
-                    ? { fileChanges: ev.fileChanges }
-                    : {}),
-                  ...(ev.producedFiles?.length
-                    ? { producedFiles: ev.producedFiles }
-                    : {}),
                   ...(ev.agentType ? { agentType: ev.agentType } : {}),
                   // Attributes the tool result to a spawned agent's thread so
                   // per-agent file lists (left sidebar Activity tray) can pick

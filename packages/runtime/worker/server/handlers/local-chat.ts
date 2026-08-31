@@ -3,7 +3,6 @@ import path from "node:path";
 import { Effect } from "effect";
 import { METHOD_NAMES } from "@stella/contracts/protocol";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-import { fileChange } from "@stella/contracts/file-changes";
 import { prepareStoredLocalChatPayload } from "../../../kernel/storage/local-chat-payload.js";
 import type { LocalChatEventRecord } from "../../../kernel/storage/shared.js";
 import { ChatStoreUnavailableError } from "../errors.js";
@@ -111,13 +110,6 @@ export const localChatHandlers: WorkerRpcHandlers = {
             "html",
             `${slug}.html`,
           );
-          let kind: "add" | "update" = "add";
-          try {
-            await fsPromises.access(filePath);
-            kind = "update";
-          } catch {
-            kind = "add";
-          }
           await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
           await fsPromises.writeFile(filePath, reportHtml, "utf8");
           const bytes = Buffer.byteLength(reportHtml, "utf8");
@@ -142,7 +134,6 @@ export const localChatHandlers: WorkerRpcHandlers = {
               title: reportTitle,
               createdAt: timestamp,
               bytes,
-              fileChanges: [fileChange(filePath, { type: kind })],
               agentType: AGENT_IDS.ORCHESTRATOR,
             },
           });

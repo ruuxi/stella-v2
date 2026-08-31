@@ -23,6 +23,9 @@ env:
   R2_PUBLIC_BASE_URL: https://pub-a319aaada8144dc9be5a83625033769c.r2.dev
   STELLA_V2_RELEASE_PREFIX: desktop-v2/releases
   STELLA_V2_STABLE_PREFIX: desktop-v2/stable
+  BUN_INSTALL_CACHE_DIR: ${{ github.workspace }}/.cache/bun-install
+  ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+  ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.cache/electron-builder
 
 jobs:
   validate_stable_tag:
@@ -102,10 +105,65 @@ jobs:
           path: release-pins
           retention-days: 7
 
+  build-desktop-js:
+    needs: validate_stable_tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Restore Bun package cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.BUN_INSTALL_CACHE_DIR }}
+          key: bun-install-v1-1.4.0-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - name: Install dependencies
+        env:
+          STELLA_SKIP_BROWSER_HYDRATE: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+
+      - name: Build and validate shared desktop JavaScript
+        env:
+          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
+          VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run build
+          bun run electron:typecheck
+          node packages/desktop/scripts/dev-electron-build.mjs --once
+
+      - name: Archive shared desktop JavaScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -czf stella-v2-desktop-js.tar.gz \
+            packages/desktop-ui/dist \
+            packages/desktop/dist-electron
+
+      - name: Upload shared desktop JavaScript
+        uses: actions/upload-artifact@v4
+        with:
+          name: stella-v2-desktop-js
+          path: stella-v2-desktop-js.tar.gz
+          retention-days: 7
+          if-no-files-found: error
+
   build:
     needs:
       - validate_stable_tag
       - resolve-binary-pins
+      - build-desktop-js
     strategy:
       fail-fast: false
       matrix:
@@ -142,6 +200,20 @@ jobs:
         with:
           bun-version: 1.4.0
 
+      - name: Restore Bun package cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.BUN_INSTALL_CACHE_DIR }}
+          key: bun-install-v1-1.4.0-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - name: Restore Electron packaging tool cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.ELECTRON_CACHE }}
+            ${{ env.ELECTRON_BUILDER_CACHE }}
+          key: desktop-v2-electron-tools-v1-${{ matrix.platform }}-${{ hashFiles('bun.lock', 'package.json') }}
+
       - name: Install Linux native build dependencies
         if: runner.os == 'Linux'
         shell: bash
@@ -174,6 +246,15 @@ jobs:
           name: stella-v2-release-pins
           path: release-pins
 
+      - name: Restore immutable bundled inputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/native/out/${{ matrix.nativeDir }}
+            packages/stella-browser/out/${{ matrix.sourcePlatform }}
+            packages/stella-office/bin
+          key: desktop-v2-inputs-v1-${{ matrix.sourcePlatform }}-${{ hashFiles('release-pins/native-helpers-manifest.json', 'release-pins/stella-browser-manifest.json', 'packages/stella-office/package.json', 'packages/stella-office/scripts/download-native.js', 'packages/stella-office/scripts/shared.js') }}
+
       - name: Hydrate pinned native helpers, Stella Browser, and OfficeCLI
         shell: bash
         run: |
@@ -181,19 +262,48 @@ jobs:
           browser_sha="$(cat release-pins/stella-browser-source-sha.txt)"
           node packages/desktop/scripts/download-native-helpers.mjs \
             --manifest-file release-pins/native-helpers-manifest.json \
-            --platform "${{ matrix.sourcePlatform }}" \
-            --force
+            --platform "${{ matrix.sourcePlatform }}"
           test -f "packages/native/out/${{ matrix.nativeDir }}/.stella-native-helpers.json"
           node packages/desktop/scripts/download-stella-browser.mjs \
             --manifest-file release-pins/stella-browser-manifest.json \
             --expected-source-sha "$browser_sha" \
-            --platform "${{ matrix.sourcePlatform }}" \
-            --force
+            --platform "${{ matrix.sourcePlatform }}"
           test -f "packages/stella-browser/out/${{ matrix.sourcePlatform }}/.stella-browser.json"
           node packages/stella-office/scripts/download-native.js \
-            --platform "${{ matrix.sourcePlatform }}" \
-            --force
+            --platform "${{ matrix.sourcePlatform }}"
           test -f packages/stella-office/bin/.stella-office.json
+
+      - name: Restore managed command-line runtimes
+        id: managed-runtimes-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/desktop/resources/bun/current
+            packages/desktop/resources/git/current
+            packages/desktop/resources/node/current
+            packages/desktop/resources/python/current
+          key: desktop-v2-runtimes-v1-${{ matrix.sourcePlatform }}-${{ hashFiles('packages/desktop/scripts/prepare-packaged-runtimes.mjs', 'release-pins/git-runtime-manifest.json') }}
+
+      - name: Prepare managed command-line runtimes
+        if: steps.managed-runtimes-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run packaging:prepare-runtimes -- \
+            --platform "${{ matrix.sourcePlatform }}" \
+            --git-manifest-file release-pins/git-runtime-manifest.json
+
+      - name: Download shared desktop JavaScript
+        uses: actions/download-artifact@v4
+        with:
+          name: stella-v2-desktop-js
+          path: shared-desktop-js
+
+      - name: Extract shared desktop JavaScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xzf shared-desktop-js/stella-v2-desktop-js.tar.gz
 
       - name: Reconstruct DigiCert client authentication certificate
         if: runner.os == 'Windows'
@@ -294,20 +404,6 @@ jobs:
             "$keychain_path"
           security list-keychains -d user -s "$keychain_path" login.keychain-db
           echo "CSC_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
-
-      - name: Build renderer, Electron main, and managed runtimes
-        env:
-          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
-          VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          bun run packaging:prepare-runtimes -- \
-            --platform "${{ matrix.sourcePlatform }}" \
-            --git-manifest-file release-pins/git-runtime-manifest.json
-          bun run build
-          bun run electron:typecheck
-          node packages/desktop/scripts/dev-electron-build.mjs --once
 
       - name: Build signed and notarized macOS release
         if: runner.os == 'macOS'

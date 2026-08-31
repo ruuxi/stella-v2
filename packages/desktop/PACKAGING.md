@@ -39,11 +39,12 @@ packaged build; development only honors `STELLA_V2_DEV_DATA_DIR`.
 
 The Electron main/preload code lives in ASAR. The Bun sidecar does not: the
 build copies the compiled runtime to `Contents/Resources/runtime`, where an
-external process can read it. Every release downloads checksum-pinned,
+external process can read it. Every release resolves checksum-pinned,
 target-architecture builds of Bun, ripgrep, uv, Git, Node (including npm), and
-Python (including pip). The small tools live under `Resources/bin`; complete
-runtime trees live under `Resources/runtimes`. Packaging never copies a host
-binary into a differently targeted artifact.
+Python (including pip); CI reuses an exact content-keyed runtime cache and only
+downloads them on a cache miss. The small tools live under `Resources/bin`;
+complete runtime trees live under `Resources/runtimes`. Packaging never copies
+a host binary into a differently targeted artifact.
 
 Before runtime initialization, Electron sets the absolute managed-runtime
 variables and prepends their private directories to the child-process PATH.
@@ -187,9 +188,10 @@ M4 stops locally. To run the real release:
    `VITE_CONVEX_SITE_URL` for connected release builds. Confirm the configured
    R2 public base URL serves byte ranges and exposes only the intended
    `desktop-v2/stable/<platform>` feeds to this client.
-5. Run the retained native-helper and Stella Browser workflows first so their
-   immutable manifests contain `darwin-arm64`, `darwin-x64`, `win-x64`, and
-   `linux-x64`.
+5. Native-helper and Stella Browser workflows publish automatically when their
+   source paths change. Before tagging, confirm the corresponding workflow has
+   completed and its immutable manifest contains `darwin-arm64`, `darwin-x64`,
+   `win-x64`, and `linux-x64`; manual dispatch remains available for recovery.
 6. Run the desktop workflow manually and confirm all build jobs, the Windows
    signature gate, and the verification artifact pass while the publish job is
    skipped.

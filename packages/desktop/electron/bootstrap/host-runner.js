@@ -42,6 +42,39 @@ const ensureStellaDataDirSeededOnce = (stellaAppDir, stellaDataDirPath) => {
     }
     return stellaDataDirSeedingPromise;
 };
+export const loadStellaDeviceIdentity = async (context) => {
+    const { state } = context;
+    const stellaDataDirPath = state.stellaDataDirPath;
+    if (!stellaDataDirPath) {
+        throw new Error("Stella data directory is not initialized.");
+    }
+    const existingPromise = state.deviceIdentityPromise;
+    if (existingPromise) {
+        return await existingPromise;
+    }
+    const loadPromise = getOrCreateDeviceIdentity(stellaDataDirPath).then((identity) => {
+        state.deviceId = identity.deviceId;
+        return identity;
+    });
+    state.deviceIdentityPromise = loadPromise;
+    try {
+        return await loadPromise;
+    }
+    finally {
+        if (state.deviceIdentityPromise === loadPromise) {
+            state.deviceIdentityPromise = null;
+        }
+    }
+};
+
+export const loadStellaDeviceId = async (context) => {
+    if (context.state.deviceId) {
+        return context.state.deviceId;
+    }
+    const identity = await loadStellaDeviceIdentity(context);
+    return identity.deviceId;
+};
+
 // macOS attributes TCC (Accessibility) checks to the "responsible process",
 // which is inherited at spawn time. The detached runtime worker outlives the
 // Electron process that spawned it, so any desktop_automation daemon spawned
@@ -320,7 +353,7 @@ export const initializeStellaHostRunner = async (context) => {
     // them. One-shot cached so host-runner resets don't re-pay it.
     await ensureStellaDataDirSeededOnce(stellaAppDir, stellaDataDirPath);
     await services.securityPolicyService.loadPolicy();
-    const loadDeviceIdentity = async () => await getOrCreateDeviceIdentity(stellaDataDirPath);
+    const loadDeviceIdentity = async () => await loadStellaDeviceIdentity(context);
     const clearSupersededDeviceId = async () => await clearStoredSupersededDeviceId(stellaDataDirPath);
     clearHostRunnerSubscriptions(context);
     context.state.officePreviewBridgeStop?.();

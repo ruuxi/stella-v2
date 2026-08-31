@@ -20,6 +20,12 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { open, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
+import { Deferred, Effect } from "effect";
+import {
+  runToolEffect,
+  sleepWithAbortEffect,
+  toolsRuntime,
+} from "@stella/runtime/kernel/tools/effect-runtime.js";
 
 const MAX_HANDOFF_BYTES = 16 * 1024;
 const MAX_HANDOFF_FUTURE_MS = 30 * 60_000 + 10_000;
@@ -243,23 +249,6 @@ export type TurnBrokerFetch = (
   init?: RequestInit,
 ) => Promise<Response>;
 
-const sleep = (milliseconds: number, signal?: AbortSignal): Promise<void> =>
-  new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(signal.reason ?? new Error("Turn broker request aborted."));
-      return;
-    }
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(signal?.reason ?? new Error("Turn broker request aborted."));
-    };
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, milliseconds);
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
-
 const validCheckpoint = (
   checkpoint: TurnBrokerNativeStateCheckpoint,
 ): boolean => {
@@ -333,8 +322,7 @@ const canonicalSuspensionTranscript = (
       !entry ||
       typeof entry !== "object" ||
       Array.isArray(entry) ||
-      Object.keys(entry).sort().join(",") !==
-        "ordinal,payloadJson,role" ||
+      Object.keys(entry).sort().join(",") !== "ordinal,payloadJson,role" ||
       entry.ordinal !== ordinal ||
       !["user", "assistant", "toolResult"].includes(entry.role) ||
       typeof entry.payloadJson !== "string"
@@ -553,7 +541,8 @@ export class TurnCredentialBrokerClient {
   #fetch: TurnBrokerFetch;
   #tail: Promise<void> = Promise.resolve();
   #closedReason: Error | undefined;
-  #activeRequests = new AbortController();
+  #closedLatch = Deferred.makeUnsafe<void>();
+  #requestSignal: AbortSignal;
 
   constructor(handoff: TurnBrokerHandoff, fetchImpl: TurnBrokerFetch = fetch) {
     this.identity = {
@@ -570,6 +559,25 @@ export class TurnCredentialBrokerClient {
     this.#capability = handoff.capability;
     this.#nextSequence = handoff.initialSequence;
     this.#fetch = fetchImpl;
+    let requestSignal: AbortSignal | undefined;
+    toolsRuntime.runFork(
+      Effect.raceFirst(
+        Effect.tryPromise({
+          try: (effectSignal) => {
+            requestSignal = effectSignal;
+            return new Promise<void>(() => undefined);
+          },
+          catch: (error) => error,
+        }),
+        Deferred.await(this.#closedLatch),
+      ),
+    );
+    if (!requestSignal) {
+      throw new Error(
+        "Turn credential broker did not acquire its abort signal.",
+      );
+    }
+    this.#requestSignal = requestSignal;
   }
 
   get closed(): boolean {
@@ -578,10 +586,27 @@ export class TurnCredentialBrokerClient {
 
   close(reason = new Error("Turn credential broker closed.")): void {
     if (!this.#closedReason) this.#closedReason = reason;
-    if (!this.#activeRequests.signal.aborted) {
-      this.#activeRequests.abort(this.#closedReason);
-    }
+    Deferred.doneUnsafe(this.#closedLatch, Effect.void);
     this.#capability = "";
+  }
+
+  async #sleep(milliseconds: number, signal?: AbortSignal): Promise<void> {
+    await runToolEffect(
+      Effect.raceFirst(
+        sleepWithAbortEffect(milliseconds, signal, (activeSignal) =>
+          activeSignal.reason instanceof Error
+            ? activeSignal.reason
+            : new Error("Turn broker request aborted."),
+        ),
+        Deferred.await(this.#closedLatch).pipe(
+          Effect.flatMap(() =>
+            Effect.fail(
+              this.#closedReason ?? new Error("Turn credential broker closed."),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   async fetchTarget(
@@ -614,7 +639,6 @@ export class TurnCredentialBrokerClient {
       const method = init.method;
       const pathValue = targetPath(target);
       const sequence = this.#nextSequence;
-      const requestSignal = this.#activeRequests.signal;
       const onCallerAbort = () =>
         this.close(
           init.signal?.reason ?? new Error("Turn broker request aborted."),
@@ -653,7 +677,7 @@ export class TurnCredentialBrokerClient {
               ...init,
               method,
               headers,
-              signal: requestSignal,
+              signal: this.#requestSignal,
               // A Builder redirect must never receive the bearer capability on
               // another origin. The authenticated broker endpoint is exact.
               redirect: "manual",
@@ -675,7 +699,7 @@ export class TurnCredentialBrokerClient {
                 );
               }
               try {
-                await sleep(delayMs, requestSignal);
+                await this.#sleep(delayMs, this.#requestSignal);
               } catch (error) {
                 lastError = error;
                 break;
@@ -699,11 +723,11 @@ export class TurnCredentialBrokerClient {
             if (
               options.replaySafe &&
               !(error instanceof TerminalBrokerResponseError) &&
-              !requestSignal.aborted &&
+              !this.#requestSignal.aborted &&
               Date.now() < retryDeadline
             ) {
               try {
-                await sleep(delayMs, requestSignal);
+                await this.#sleep(delayMs, this.#requestSignal);
               } catch (sleepError) {
                 lastError = sleepError;
                 break;

@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { forkAbortTimer } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { runStubTurn } from "./stub-turn.js";
 import { runAppTurn } from "./app-turn.js";
@@ -56,8 +57,8 @@ if (agentTurn) {
 // Keep stdout for compatibility and diagnostics, but never let a lost pipe ACK
 // hold the one-shot executor past Builder's durable-recovery alarm. Agent turns
 // already flushed the authoritative root-only result above.
-const forcedExit = setTimeout(() => process.exit(0), 1_000);
+const cancelForcedExit = forkAbortTimer(1_000, () => process.exit(0));
 process.stdout.write(`${serialized}\n`, () => {
-  clearTimeout(forcedExit);
+  cancelForcedExit();
   process.exit(0);
 });

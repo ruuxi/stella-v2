@@ -5,6 +5,11 @@ import type {
   Process,
   ProcessOptions,
 } from "@cloudflare/sandbox";
+import { Effect } from "effect";
+import {
+  runToolEffect,
+  sleepWithAbortEffect,
+} from "@stella/runtime/kernel/tools/effect-runtime.js";
 
 export const CLOUD_MODEL_UID = 42_424;
 export const CLOUD_MODEL_GID = 42_424;
@@ -151,56 +156,32 @@ const withLocalDeadline = <T>(
   message: string,
   signal?: AbortSignal,
 ): Promise<T> =>
-  new Promise<T>((resolve, reject) => {
-    let settled = false;
-    const cleanup = () => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-    };
-    const onAbort = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(
-        signal?.reason instanceof Error
-          ? signal.reason
+  runToolEffect(
+    Effect.raceFirst(
+      Effect.tryPromise({
+        try: (effectSignal) =>
+          Promise.resolve().then(() => {
+            if (signal?.aborted) {
+              throw signal.reason instanceof Error
+                ? signal.reason
+                : new Error("Captured session process was canceled.");
+            }
+            effectSignal.throwIfAborted();
+            return operation();
+          }),
+        catch: (error) => error,
+      }),
+      sleepWithAbortEffect(timeoutMs, signal, (activeSignal) =>
+        activeSignal.reason instanceof Error
+          ? activeSignal.reason
           : new Error("Captured session process was canceled."),
-      );
-    };
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(new LocalCaptureDeadlineError(message));
-    }, timeoutMs);
-    if (signal?.aborted) {
-      onAbort();
-      return;
-    }
-    signal?.addEventListener("abort", onAbort, { once: true });
-    void Promise.resolve()
-      .then(() => {
-        // An abort can land after the synchronous `signal.aborted` check but
-        // before this microtask. Never admit detached work after the deadline
-        // has already won and teardown has started.
-        if (settled) return undefined as T;
-        return operation();
-      })
-      .then(
-        (value) => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          resolve(value);
-        },
-        (error: unknown) => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          reject(error);
-        },
-      );
-  });
+      ).pipe(
+        Effect.flatMap(() =>
+          Effect.fail(new LocalCaptureDeadlineError(message)),
+        ),
+      ),
+    ),
+  );
 
 export const strictSessionExec = (
   session: StrictExecSession,
@@ -289,9 +270,12 @@ export const capturedSessionExec = async (
         "Captured session process teardown exceeded its local deadline.",
       );
     } catch (abandonError) {
-      throw new Error("Captured session process could not be safely quiesced.", {
-        cause: abandonError,
-      });
+      throw new Error(
+        "Captured session process could not be safely quiesced.",
+        {
+          cause: abandonError,
+        },
+      );
     }
     throw new CapturedSessionAbandonedError({
       cause,
@@ -378,11 +362,12 @@ export const capturedSessionExec = async (
             }
             const delayMs = Math.min(pollDelayMs, deadlineAt - Date.now());
             if (delayMs <= 0) continue;
-            await withLocalDeadline(
-              () => new Promise<void>((resolve) => setTimeout(resolve, delayMs)),
-              delayMs + 25,
-              "Captured session process exceeded its local command deadline.",
-              options.signal,
+            await runToolEffect(
+              sleepWithAbortEffect(delayMs, options.signal, (activeSignal) =>
+                activeSignal.reason instanceof Error
+                  ? activeSignal.reason
+                  : new Error("Captured session process was canceled."),
+              ),
             );
             pollDelayMs = Math.min(5_000, Math.ceil(pollDelayMs * 2.5));
           }

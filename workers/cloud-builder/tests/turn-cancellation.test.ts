@@ -93,7 +93,8 @@ describe("Effect-owned cloud turn retry cancellation", () => {
     const reason = new Error("stop broker I/O");
     await execution.interrupt(reason);
     expect(execution.signal.aborted).toBe(true);
-    expect(execution.signal.reason).toBe(reason);
+    expect(execution.signal.reason).toBeInstanceOf(DOMException);
+    expect(execution.cancellation.reason).toBe(reason);
   });
 
   test("a replayed Stop join waits for the same promise-native unwind", async () => {

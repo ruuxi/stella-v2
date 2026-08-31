@@ -20,3 +20,38 @@ for (const key of Object.keys(process.env)) {
     delete process.env[key];
   }
 }
+
+// Newer Node releases expose a global localStorage getter that resolves to
+// undefined unless --localstorage-file is configured. jsdom can inherit that
+// descriptor instead of installing its own Storage object, so browser tests
+// need a deterministic per-worker fallback.
+if (typeof window !== "undefined") {
+  let hasUsableStorage = false;
+  try {
+    hasUsableStorage = typeof window.localStorage?.getItem === "function";
+  } catch {
+    hasUsableStorage = false;
+  }
+
+  if (!hasUsableStorage) {
+    const entries = new Map<string, string>();
+    const storage: Storage = {
+      get length() {
+        return entries.size;
+      },
+      clear: () => entries.clear(),
+      getItem: (key) => entries.get(String(key)) ?? null,
+      key: (index) => [...entries.keys()][index] ?? null,
+      removeItem: (key) => {
+        entries.delete(String(key));
+      },
+      setItem: (key, value) => {
+        entries.set(String(key), String(value));
+      },
+    };
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: storage,
+    });
+  }
+}

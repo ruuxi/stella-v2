@@ -5,9 +5,7 @@ import {
   TURN_BROKER_NATIVE_STATE_CHECKPOINT_PATH,
   type TurnBrokerHandoff,
 } from "@stella/contracts/turn-credential-broker";
-import {
-  CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER,
-} from "@stella/contracts/cloud-model-diagnostic";
+import { CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER } from "@stella/contracts/cloud-model-diagnostic";
 import { access, link, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -199,6 +197,111 @@ describe("executor turn credential broker", () => {
     expect(queuedError).toBeInstanceOf(Error);
     expect((queuedError as Error).message).toContain("turn canceled");
     expect(calls).toBe(1);
+  });
+
+  test("keeps cancellation live while a checkpoint response body is draining", async () => {
+    let observedSignal: AbortSignal | undefined;
+    let responseStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      responseStarted = resolve;
+    });
+    const client = new TurnCredentialBrokerClient(
+      handoff(),
+      async (_input, init) => {
+        observedSignal = init?.signal ?? undefined;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"schemaVersion":'));
+              observedSignal?.addEventListener(
+                "abort",
+                () => controller.error(observedSignal?.reason),
+                { once: true },
+              );
+              responseStarted();
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+    const active = client.commitNativeStateCheckpoint({
+      engine: "anthropic",
+      sessionId: "native-session-1",
+      cursor: `v1:${"a".repeat(64)}`,
+      tree: {
+        algorithm: "sha256",
+        digest: "b".repeat(64),
+        entries: 4,
+        bytes: 128,
+      },
+      mac: "d".repeat(64),
+    });
+    const observed = active.then(
+      () => "resolved" as const,
+      (error: unknown) => error,
+    );
+    await started;
+    // Let the fetch promise settle and the checkpoint decoder enter its next
+    // body read. Cancellation must remain live beyond response headers.
+    await Bun.sleep(1);
+    client.close(new Error("turn canceled while draining"));
+
+    const outcome = await Promise.race([
+      observed,
+      Bun.sleep(100).then(() => "still-pending" as const),
+    ]);
+    expect(outcome).toBeInstanceOf(Error);
+    expect((outcome as Error).message).toContain("ambiguous");
+    expect(observedSignal?.aborted).toBe(true);
+  });
+
+  test("aborts a real streamed relay transport after returning its headers", async () => {
+    const upstream = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode('{"type":"response.output_text"}'),
+              );
+            },
+          }),
+        );
+      },
+    });
+    const client = new TurnCredentialBrokerClient(
+      handoff({
+        endpoint: `http://127.0.0.1:${upstream.port}/turn-broker`,
+      }),
+    );
+    try {
+      const response = await client.fetchTarget("/api/stella/relay/responses", {
+        method: "POST",
+        body: "{}",
+      });
+      const reader = response.body!.getReader();
+      expect(new TextDecoder().decode((await reader.read()).value)).toContain(
+        "response.output_text",
+      );
+      const pendingRead = reader.read().then(
+        () => "resolved" as const,
+        (error: unknown) => error,
+      );
+      client.close(new Error("turn canceled after relay headers"));
+
+      const outcome = await Promise.race([
+        pendingRead,
+        Bun.sleep(100).then(() => "still-pending" as const),
+      ]);
+      expect(outcome).toBeInstanceOf(Error);
+      expect(client.closed).toBe(true);
+    } finally {
+      client.close();
+      upstream.stop(true);
+    }
   });
 
   test("refuses broker redirects without sending the capability to the redirect origin", async () => {
@@ -455,17 +558,15 @@ describe("executor turn credential broker", () => {
 
   test("reports only bounded local proxy stages and strips upstream spoofing", async () => {
     const secret = "credential-canary-never-return";
-    const successful = new TurnCredentialBrokerClient(
-      handoff(),
-      async () =>
-        Response.json(
-          { ok: true },
-          {
-            headers: {
-              [CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER]: "model_broker_closed",
-            },
+    const successful = new TurnCredentialBrokerClient(handoff(), async () =>
+      Response.json(
+        { ok: true },
+        {
+          headers: {
+            [CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER]: "model_broker_closed",
           },
-        ),
+        },
+      ),
     );
     const successProxy = startTurnCredentialProxy(successful);
     try {
@@ -478,7 +579,9 @@ describe("executor turn credential broker", () => {
         },
       );
       expect(response.status).toBe(200);
-      expect(response.headers.get(CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER)).toBeNull();
+      expect(
+        response.headers.get(CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER),
+      ).toBeNull();
       expect(successProxy.modelResolutionStage()).toBe("broker_responded");
     } finally {
       successProxy.close();
@@ -556,7 +659,9 @@ describe("executor turn credential broker", () => {
         },
       );
       expect(response.status).toBe(200);
-      expect(response.headers.get(CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER)).toBeNull();
+      expect(
+        response.headers.get(CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER),
+      ).toBeNull();
       expect(response.headers.get("content-encoding")).toBeNull();
       expect(response.headers.get("content-length")).not.toBe("999");
       expect(await response.text()).toBe(streamedText);

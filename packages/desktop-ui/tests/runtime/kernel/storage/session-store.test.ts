@@ -29,27 +29,6 @@ type TestContext = {
 
 const activeContexts = new Set<TestContext>();
 
-const appendUserThreadMessages = (
-  store: SessionStore,
-  threadId: string,
-  count: number,
-) => {
-  for (let index = 0; index < count; index += 1) {
-    store.appendThreadMessage({
-      threadKey: threadId,
-      timestamp: 8_500 + index,
-      role: "user",
-      content: `Graph message ${index}`,
-      payload: {
-        role: "user",
-        content: `Graph message ${index}`,
-        timestamp: 8_500 + index,
-      },
-    });
-  }
-  return store.loadThreadMessages(threadId);
-};
-
 const createTestContext = (): TestContext => {
   const rootPath = path.join(
     os.tmpdir(),
@@ -201,9 +180,9 @@ describe("session-store", () => {
 
     appendSpy.mockRestore();
     expect(store.loadRawThreadMessages(threadId)).toEqual([]);
-    expect(
-      db.prepare("SELECT COUNT(*) AS count FROM blob").get()?.count,
-    ).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM blob").get()?.count).toBe(
+      0,
+    );
   });
 
   it("imports a legacy database into the v1 schema once and drops the old tables", async () => {
@@ -1909,7 +1888,10 @@ describe("session-store", () => {
     const patched = store.mergeEventPayload({
       conversationId,
       eventId: hidden._id,
-      patch: { metadata: { ui: { visibility: "hidden" } }, note: "still hidden" },
+      patch: {
+        metadata: { ui: { visibility: "hidden" } },
+        note: "still hidden",
+      },
     });
     expect(patched?.payload?.note).toBe("still hidden");
     expect(
@@ -2163,7 +2145,6 @@ describe("session-store", () => {
   });
 
   it("keeps each assistant message in a single user turn as its own row", () => {
-
     const { store } = createTestContext();
     const conversationId = store.getOrCreateDefaultConversationId();
     const userMessageId = "user-web-turn";

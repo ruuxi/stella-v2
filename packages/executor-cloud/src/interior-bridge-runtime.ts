@@ -85,13 +85,21 @@ export const createInteriorBridgeRuntimeSource = (
     const activeAuthority = await authorityPromise;
     return new Promise((resolve, reject) => {
       const id = crypto.randomUUID();
-      const timeout = window.setTimeout(() => {
+      const timeoutSignal = AbortSignal.timeout(15000);
+      const onTimeout = () => {
         pending.delete(id);
         reject(new Error("The Stella interior bridge timed out."));
-      }, 15000);
+      };
+      timeoutSignal.addEventListener("abort", onTimeout, { once: true });
       pending.set(id, {
-        resolve: (value) => { window.clearTimeout(timeout); resolve(value); },
-        reject: (error) => { window.clearTimeout(timeout); reject(error); },
+        resolve: (value) => {
+          timeoutSignal.removeEventListener("abort", onTimeout);
+          resolve(value);
+        },
+        reject: (error) => {
+          timeoutSignal.removeEventListener("abort", onTimeout);
+          reject(error);
+        },
       });
       window.parent.postMessage({
         source: CHILD_SOURCE,

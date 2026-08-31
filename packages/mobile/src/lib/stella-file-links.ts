@@ -1,14 +1,15 @@
 import { parseLocalFileLinkTarget } from "@stella/contracts/local-file-links";
+import type { ChatArtifact, MobileDisplayPayload } from "../types";
 
 export const parseStellaFileUrl = parseLocalFileLinkTarget;
 
-const basenameOf = (filePath) => {
+const basenameOf = (filePath: string) => {
   const cleaned = filePath.trim().split(/[?#]/)[0] ?? filePath.trim();
   const slash = Math.max(cleaned.lastIndexOf("/"), cleaned.lastIndexOf("\\"));
   return slash === -1 ? cleaned : cleaned.slice(slash + 1);
 };
 
-const extensionOf = (filePath) => {
+const extensionOf = (filePath: string) => {
   const tail = basenameOf(filePath);
   const dot = tail.lastIndexOf(".");
   return dot <= 0 || dot === tail.length - 1
@@ -36,12 +37,10 @@ const OFFICE_SHEET_EXTS = new Set(["xlsx", "xlsm"]);
 const OFFICE_SLIDES_EXTS = new Set(["ppt", "pptx"]);
 const DELIMITED_TABLE_EXTS = new Set(["csv", "tsv"]);
 
-/**
- * @param {string} filePath
- * @param {number} createdAt
- * @returns {import("../types").MobileDisplayPayload}
- */
-export const displayPayloadForStellaFile = (filePath, createdAt) => {
+export const displayPayloadForStellaFile = (
+  filePath: string,
+  createdAt: number,
+): MobileDisplayPayload => {
   const title = basenameOf(filePath);
   const ext = extensionOf(filePath);
   if (ext === "html" || ext === "htm") {
@@ -106,12 +105,10 @@ export const displayPayloadForStellaFile = (filePath, createdAt) => {
   return { kind: "markdown", filePath, title, createdAt };
 };
 
-/**
- * @param {string} filePath
- * @param {string} conversationId
- * @returns {import("../types").ChatArtifact}
- */
-export const stellaFileChatArtifact = (filePath, conversationId) => {
+export const stellaFileChatArtifact = (
+  filePath: string,
+  conversationId: string,
+): ChatArtifact => {
   const payload = displayPayloadForStellaFile(filePath, Date.now());
   return {
     id: `${conversationId}:${payload.kind}:${filePath}`,

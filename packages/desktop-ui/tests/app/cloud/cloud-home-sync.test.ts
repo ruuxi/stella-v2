@@ -676,7 +676,7 @@ describe("Cloud Home desktop reconciliation", () => {
     let memoryPosts = 0;
     let skillPosts = 0;
     let allowSkillCommit = false;
-    const fetchImpl: typeof fetch = async (input, init) => {
+    const fetchImpl: typeof fetch = async (input, _init) => {
       const url = new URL(String(input));
       if (url.pathname === "/cloud-home/memory") {
         return Response.json({

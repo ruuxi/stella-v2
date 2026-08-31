@@ -227,6 +227,7 @@
         "@react-native-async-storage/async-storage": "2.2.0",
         "@react-native-masked-view/masked-view": "^0.3.2",
         "@react-navigation/native": "^7.1.33",
+        "@stella/contracts": "workspace:*",
         "better-auth": "^1.4.9",
         "convex": "^1.44.0",
         "expo": "~55.0.24",
@@ -333,7 +334,7 @@
     },
     "packages/stella-office": {
       "name": "stella-office",
-      "version": "1.0.36",
+      "version": "1.0.145",
       "bin": {
         "stella-office": "./bin/stella-office.js",
       },

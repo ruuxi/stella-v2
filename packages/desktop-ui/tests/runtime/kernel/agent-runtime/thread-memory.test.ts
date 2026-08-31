@@ -16,6 +16,13 @@ import {
 } from "@stella/runtime/kernel/agent-runtime/resident-context.js";
 
 describe("buildSystemPrompt", () => {
+  const platformPrompt =
+    process.platform === "win32"
+      ? "You are running on Windows."
+      : process.platform === "darwin"
+        ? "You are running on macOS."
+        : "You are running on Linux.";
+
   it("adds structured file-editing guidance when apply_patch is available", () => {
     const prompt = buildSystemPrompt({
       systemPrompt: "system",
@@ -27,7 +34,7 @@ describe("buildSystemPrompt", () => {
 
     expect(prompt).toContain("Prefer `apply_patch`");
     expect(prompt).toContain("Do not use shell heredocs");
-    expect(prompt).toContain("You are running on macOS.");
+    expect(prompt).toContain(platformPrompt);
   });
 
   it("omits file-editing guidance when apply_patch is unavailable", () => {
@@ -40,7 +47,7 @@ describe("buildSystemPrompt", () => {
     });
 
     expect(prompt).not.toContain("Prefer `apply_patch`");
-    expect(prompt).toContain("You are running on macOS.");
+    expect(prompt).toContain(platformPrompt);
   });
 });
 

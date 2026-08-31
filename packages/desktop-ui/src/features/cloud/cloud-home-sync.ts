@@ -42,6 +42,14 @@ const MEMORY_SNAPSHOT_KEYS = new Set([
   "documents",
 ]);
 
+const hasAsciiControlCharacter = (value: string): boolean => {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+};
+
 const isSafeCursorMemoryName = (name: string): boolean =>
   Boolean(
     name &&
@@ -49,7 +57,7 @@ const isSafeCursorMemoryName = (name: string): boolean =>
       name.toLowerCase().endsWith(".md") &&
       !name.startsWith("/") &&
       !name.includes("\\") &&
-      !/[\u0000-\u001f\u007f]/u.test(name) &&
+      !hasAsciiControlCharacter(name) &&
       name
         .split("/")
         .every(
@@ -601,7 +609,7 @@ export const runCloudHomeSync = async (
     expectedSubject !== options.expectedSubject ||
     expectedSubject.length > 1_024 ||
     expectedSubject.normalize("NFC") !== expectedSubject ||
-    /[\u0000-\u001f\u007f]/u.test(expectedSubject)
+    hasAsciiControlCharacter(expectedSubject)
   ) {
     return {
       ...emptyStatus(accountScope || null),

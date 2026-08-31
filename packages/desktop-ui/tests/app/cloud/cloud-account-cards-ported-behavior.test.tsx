@@ -48,6 +48,7 @@ const requiredHandler = (
 };
 
 vi.mock("convex/react", () => ({
+  ConvexReactClient: vi.fn(),
   useConvexAuth: () => ({ isAuthenticated: mocks.authenticated }),
   useQuery: (ref: unknown, args: unknown) => {
     mocks.queryCalls.push({ ref, args });
@@ -278,10 +279,7 @@ describe("ported cloud account cards", () => {
   });
 
   it("publishes the selected engine immediately after the mutation", async () => {
-    mocks.queries.set(
-      API.cloud.listMyEngineConnections,
-      engineConnections(),
-    );
+    mocks.queries.set(API.cloud.listMyEngineConnections, engineConnections());
     await render();
 
     await act(async () => {
@@ -349,10 +347,10 @@ describe("ported cloud account cards", () => {
     );
     expect(input).not.toBeNull();
     await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
-        input,
-        "ABCD-EFGH-IJKL",
-      );
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(input, "ABCD-EFGH-IJKL");
       input?.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => {

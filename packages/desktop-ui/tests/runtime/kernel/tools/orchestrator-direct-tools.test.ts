@@ -24,10 +24,6 @@ import { loadParsedAgentsFromDir } from "@stella/runtime/kernel/agents/markdown-
 import { loadStellaRuntimeAgents } from "@stella/runtime/extensions/stella-runtime/index";
 import { SPAWN_AGENT_MODEL_DESCRIPTION } from "@stella/runtime/kernel/tools/defs/task.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-import {
-  ORCHESTRATED_ORCHESTRATOR_ID,
-  resolveAgentForWorkingMode,
-} from "@stella/runtime/kernel/runner/context";
 
 type TestHostContext = {
   rootPath: string;
@@ -182,45 +178,18 @@ describe("working orchestrator surface", () => {
     expect(description).not.toContain("Luna");
   });
 
-  it("ships a bundled working-agent prompt and the General execution tools", () => {
+  it("ships the bundled coordinator prompt and its bounded tools", () => {
     const orchestrator = loadParsedAgentsFromDir(metadataDir).find(
       (agent) => agent.id === AGENT_IDS.ORCHESTRATOR,
     );
 
-    expect(orchestrator?.maxAgentDepth).toBe(1);
+    expect(orchestrator?.maxAgentDepth).toBe(2);
     expect(orchestrator?.systemPrompt).toContain(
-      "Complete requests directly with your own tools.",
+      "Execution happens through background agents",
     );
     expect(orchestrator?.toolsAllowlist).toEqual(
       expect.arrayContaining([
-        "exec_command",
-        "write_stdin",
-        "node_repl",
-        "apply_patch",
-        "web",
-        "RequestCredential",
-        "Read",
-        "spawn_agent",
-        "send_input",
-        "pause_agent",
-        "agent_status",
-      ]),
-    );
-  });
-
-  it("ships a separate coordinator prompt with two-level General ownership", () => {
-    const agents = loadParsedAgentsFromDir(metadataDir);
-    const orchestrated = agents.find(
-      (agent) => agent.id === ORCHESTRATED_ORCHESTRATOR_ID,
-    );
-
-    expect(orchestrated?.maxAgentDepth).toBe(2);
-    expect(orchestrated?.systemPrompt).toContain(
-      "Execution happens through background agents",
-    );
-    expect(orchestrated?.toolsAllowlist).toEqual(
-      expect.arrayContaining([
-        "node_repl",
+        "code",
         "web",
         "Read",
         "Recall",
@@ -231,17 +200,9 @@ describe("working orchestrator surface", () => {
         "agent_status",
       ]),
     );
-    expect(orchestrated?.toolsAllowlist).not.toEqual(
+    expect(orchestrator?.toolsAllowlist).not.toEqual(
       expect.arrayContaining(["exec_command", "write_stdin", "apply_patch"]),
     );
-
-    expect(
-      resolveAgentForWorkingMode(agents, AGENT_IDS.ORCHESTRATOR, "direct")?.id,
-    ).toBe(AGENT_IDS.ORCHESTRATOR);
-    expect(
-      resolveAgentForWorkingMode(agents, AGENT_IDS.ORCHESTRATOR, "orchestrated")
-        ?.id,
-    ).toBe(ORCHESTRATED_ORCHESTRATOR_ID);
   });
 
   it("registers the full bundled agent set and ignores user data-dir files", async () => {
@@ -253,8 +214,7 @@ describe("working orchestrator surface", () => {
       "You are Stella, the World's best Personal AI Assistant and Secretary.",
     );
     expect(
-      agents.find((agent) => agent.id === ORCHESTRATED_ORCHESTRATOR_ID)
-        ?.systemPrompt,
+      agents.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)?.systemPrompt,
     ).toContain("Execution happens through background agents");
     expect(
       agents.find((agent) => agent.id === AGENT_IDS.GENERAL)?.systemPrompt,
@@ -278,7 +238,7 @@ describe("working orchestrator surface", () => {
     ).toContain("World's best Personal AI Assistant");
   });
 
-  it("offers direct execution plus personal tools and keeps child agents one level deep", async () => {
+  it("offers coordinator tools and keeps child agents one level deep", async () => {
     const { host } = await createTestHost();
     const agents = loadParsedAgentsFromDir(metadataDir);
     const advertised = (agentType: string, parentOwned = false) => {
@@ -293,12 +253,8 @@ describe("working orchestrator surface", () => {
 
     const orchestrator = advertised(AGENT_IDS.ORCHESTRATOR);
     for (const toolName of [
-      "exec_command",
-      "write_stdin",
-      "node_repl",
-      "apply_patch",
+      "code",
       "web",
-      "RequestCredential",
       "Read",
       "Recall",
       "Remember",
@@ -321,7 +277,7 @@ describe("working orchestrator surface", () => {
 
     const childGeneral = advertised(AGENT_IDS.GENERAL, true);
     expect(childGeneral.has("exec_command")).toBe(true);
-    expect(childGeneral.has("node_repl")).toBe(true);
+    expect(childGeneral.has("code")).toBe(true);
     expect(childGeneral.has("apply_patch")).toBe(true);
     expect(childGeneral.has("spawn_agent")).toBe(false);
     expect(childGeneral.has("send_input")).toBe(false);
@@ -332,10 +288,8 @@ describe("working orchestrator surface", () => {
   it("builds the real orchestrated provider request with only the bounded deferred surface", async () => {
     const { host } = await createTestHost();
     const agents = loadParsedAgentsFromDir(metadataDir);
-    const orchestrated = resolveAgentForWorkingMode(
-      agents,
-      AGENT_IDS.ORCHESTRATOR,
-      "orchestrated",
+    const orchestrated = agents.find(
+      (agent) => agent.id === AGENT_IDS.ORCHESTRATOR,
     );
     const buildProviderTools = (toolsAllowlist: string[] | undefined) =>
       createPiTools({
@@ -359,9 +313,9 @@ describe("working orchestrator surface", () => {
       "Recall",
       "Remember",
       "agent_status",
+      "code",
       "html",
       "image_gen",
-      "node_repl",
       "pause_agent",
       "send_input",
       "spawn_agent",
@@ -374,16 +328,16 @@ describe("working orchestrator surface", () => {
       ).toBe(false);
     }
     expect(providerTools.some((tool) => tool.name === "map")).toBe(false);
-    const nodeRepl = providerTools.find((tool) => tool.name === "node_repl");
+    const code = providerTools.find((tool) => tool.name === "code");
     for (const toolName of BUILT_IN_DEMOTED_TOOL_NAMES) {
-      expect(nodeRepl?.description, toolName).toContain(`tools.${toolName}(`);
+      expect(code?.description, toolName).toContain(`tools.${toolName}(`);
     }
-    expect(nodeRepl?.description).toContain("tools.map(");
+    expect(code?.description).toContain("tools.map(");
 
-    // Reconstruct the old/no-REPL profile to prove the never-strand fallback
+    // Reconstruct the no-code profile to prove the never-strand fallback
     // and account for the exact provider payload reduction.
     const fallbackTools = buildProviderTools(
-      orchestrated?.toolsAllowlist?.filter((name) => name !== "node_repl"),
+      orchestrated?.toolsAllowlist?.filter((name) => name !== "code"),
     );
     expect(fallbackTools.map((tool) => tool.name).sort()).toEqual([
       "Read",
@@ -443,7 +397,7 @@ describe("working orchestrator surface", () => {
     ]);
     const deferredWithProbe = buildProviderTools(orchestrated?.toolsAllowlist);
     const fallbackWithProbe = buildProviderTools(
-      orchestrated?.toolsAllowlist?.filter((name) => name !== "node_repl"),
+      orchestrated?.toolsAllowlist?.filter((name) => name !== "code"),
     );
     expect(
       deferredWithProbe.some((tool) => tool.name === "schema_bloat_probe"),
@@ -467,7 +421,7 @@ describe("working orchestrator surface", () => {
     for (const toolName of [
       "exec_command",
       "write_stdin",
-      "node_repl",
+      "code",
       "apply_patch",
       "web",
       "Read",
@@ -480,7 +434,7 @@ describe("working orchestrator surface", () => {
       expect(entry?.demoted, toolName).toBeUndefined();
     }
     // The demoted surface: connector status, scheduling, watch-script
-    // authoring, and map. node_repl lifts map details back onto its outer
+    // authoring, and map. code lifts map details back onto its outer
     // result so the existing inline artifact contract remains intact.
     expect(
       catalog
@@ -496,8 +450,8 @@ describe("working orchestrator surface", () => {
       "schedule_remove",
       "schedule_update",
     ]);
-    // Voice has no node_repl: background/configuration deferred tools stay
-    // out, while map retains its eager no-REPL fallback.
+    // Voice has no code tool: background/configuration deferred tools stay
+    // out, while map retains its eager fallback.
     const voiceCatalog = catalog.filter(
       (tool) => !tool.demoted || tool.name === "map",
     );
@@ -534,7 +488,7 @@ describe("working orchestrator surface", () => {
   it("describes the real nested schedule union only on demand", async () => {
     const { host, rootPath } = await createTestHost();
     const result = await host.executeTool(
-      "node_repl",
+      "code",
       {
         code: [
           'const docs = await tools.$describe("schedule_add");',
@@ -545,7 +499,7 @@ describe("working orchestrator surface", () => {
         ...makeOrchestratorContext(),
         agentId: "agent-schedule-describe",
         stellaAppDir: rootPath,
-        allowedToolNames: ["node_repl", "schedule_add"],
+        allowedToolNames: ["code", "schedule_add"],
       },
     );
 
@@ -649,7 +603,7 @@ describe("working orchestrator surface", () => {
       ...makeOrchestratorContext(),
       agentId: "agent-github-action",
       stellaAppDir: rootPath,
-      allowedToolNames: ["node_repl", toolName],
+      allowedToolNames: ["code", toolName],
       connectorDeliveryTarget: {
         requestId: "connector-request-1",
         conversationId: "connector-conversation-1",
@@ -657,7 +611,7 @@ describe("working orchestrator surface", () => {
       },
     };
     const result = await host.executeTool(
-      "node_repl",
+      "code",
       {
         code: [
           'const hit = (await tools.$search({ query: "create github pull request" }))[0];',
@@ -682,10 +636,14 @@ describe("working orchestrator surface", () => {
     const compact = JSON.parse(payload.compact);
     expect(compact.name).toBe(toolName);
     expect(Object.keys(compact).sort()).toEqual([
+      "access",
       "description",
+      "dotNotation",
       "name",
       "signature",
     ]);
+    expect(compact.access).toBe(`tools.${toolName}`);
+    expect(compact.dotNotation).toBe(true);
     expect(compact).not.toHaveProperty("inputSchema");
     expect(
       payload.docs.inputSchema.properties.reviewers.items.oneOf,
@@ -709,7 +667,7 @@ describe("working orchestrator surface", () => {
     });
 
     const denied = await host.executeTool(
-      "node_repl",
+      "code",
       { code: `await tools.$describe("${toolName}")` },
       {
         ...allowedContext,
@@ -721,7 +679,7 @@ describe("working orchestrator surface", () => {
     expect(denied.error).not.toContain("reviewers");
 
     const unknown = await host.executeTool(
-      "node_repl",
+      "code",
       { code: 'await tools.$describe("github_nonexistent_secret_action")' },
       allowedContext,
     );
@@ -748,7 +706,7 @@ describe("working orchestrator surface", () => {
     ]);
 
     const result = await host.executeTool(
-      "node_repl",
+      "code",
       {
         code: [
           'const name = "oversized_schema_probe";',
@@ -774,7 +732,7 @@ describe("working orchestrator surface", () => {
         ...makeOrchestratorContext(),
         agentId: "agent-oversized-schema",
         stellaAppDir: rootPath,
-        allowedToolNames: ["node_repl", "oversized_schema_probe"],
+        allowedToolNames: ["code", "oversized_schema_probe"],
       },
     );
 

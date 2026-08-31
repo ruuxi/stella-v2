@@ -270,9 +270,14 @@ export const createToolHost = ({
       if (browserSessionFactory) {
         return createBrowserOnlyComputerUseSession();
       }
-      throw new Error(
-        `Typed Computer Use is not available on ${process.platform}.`,
-      );
+      // The persistent code runtime and its deferred tool catalog remain
+      // useful on Linux even though native Typed Computer Use is unavailable.
+      // Fail only if a cell actually attempts a computer operation.
+      return createComputerUseSession(async () => {
+        throw new Error(
+          `Typed Computer Use is not available on ${process.platform}.`,
+        );
+      });
     },
     ...(browserSessionFactory ? { browserSessionFactory } : {}),
     disposeSession: async (sessionId) => {

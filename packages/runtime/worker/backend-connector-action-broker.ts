@@ -14,7 +14,6 @@ import type {
   BackendConnectorActionResult,
   BackendConnectorActionsResult,
 } from "../kernel/connectors/cli-broker-client.js";
-import { forkDelayed } from "./effect-runtime.js";
 import {
   redactSensitiveText,
   sanitizeSensitiveData,
@@ -37,6 +36,11 @@ const ACTION_TIMEOUT_MS = 30_000;
 const SAFE_ACTION = /^[A-Z][A-Z0-9_]{1,127}$/u;
 const SAFE_CONNECTOR_ID = /^[a-z0-9][a-z0-9_-]{0,127}$/u;
 const SAFE_REQUEST_ID = /^[A-Za-z0-9._:-]{1,128}$/u;
+
+const actionRequestSignal = (signal?: AbortSignal): AbortSignal => {
+  const timeoutSignal = AbortSignal.timeout(ACTION_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+};
 
 const isPlainJsonValue = (value: unknown, depth = 0): boolean => {
   if (depth > MAX_INPUT_DEPTH) return false;
@@ -198,13 +202,7 @@ export const createBackendConnectorActionsBroker =
     if (!action && query) url.searchParams.set("query", query);
     if (!action) url.searchParams.set("limit", String(limit));
 
-    const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort("timeout"),
-      ACTION_TIMEOUT_MS,
-    );
-    const abort = () => controller.abort(params.signal?.reason ?? "cancelled");
-    params.signal?.addEventListener("abort", abort, { once: true });
+    const requestSignal = actionRequestSignal(params.signal);
     let response: Response;
     try {
       response = await (options.fetchImpl ?? fetch)(url, {
@@ -212,15 +210,13 @@ export const createBackendConnectorActionsBroker =
           accept: "application/json",
           authorization: `Bearer ${auth.authToken}`,
         },
-        signal: controller.signal,
+        signal: requestSignal,
       });
     } catch (error) {
-      clearTimeout(timeout);
-      params.signal?.removeEventListener("abort", abort);
       return {
         ok: false,
         reason: "backend_error",
-        message: controller.signal.aborted
+        message: requestSignal.aborted
           ? "The connector action catalog request was cancelled or timed out."
           : redactSensitiveText(
               error instanceof Error
@@ -243,9 +239,6 @@ export const createBackendConnectorActionsBroker =
             ? "Connector action catalog exceeded the safe size limit."
             : "Connector action catalog was not valid JSON.",
       };
-    } finally {
-      clearTimeout(timeout);
-      params.signal?.removeEventListener("abort", abort);
     }
     if (!response.ok) {
       const backendMessage =
@@ -435,17 +428,7 @@ export const createBackendConnectorActionBroker =
     }
 
     let response: Response;
-    // Effect-ratchet pin (1 new AbortController): fetch needs a REAL
-    // AbortSignal, so the seam controller stays — it composes the caller's
-    // cooperative signal with the action deadline. The deadline itself is a
-    // forked fiber canceled when the request settles (the old
-    // `clearTimeout`), with the same ACTION_TIMEOUT_MS.
-    const controller = new AbortController();
-    const timeout = forkDelayed(ACTION_TIMEOUT_MS, () =>
-      controller.abort("timeout"),
-    );
-    const abort = () => controller.abort(params.signal?.reason ?? "cancelled");
-    params.signal?.addEventListener("abort", abort, { once: true });
+    const requestSignal = actionRequestSignal(params.signal);
     try {
       response = await (options.fetchImpl ?? fetch)(
         `${auth.baseUrl.replace(/\/+$/u, "")}/api/native-integrations/run`,
@@ -462,16 +445,14 @@ export const createBackendConnectorActionBroker =
             action,
             input: params.input,
           }),
-          signal: controller.signal,
+          signal: requestSignal,
         },
       );
     } catch (error) {
-      timeout.cancel();
-      params.signal?.removeEventListener("abort", abort);
       return {
         ok: false,
         reason: "backend_error",
-        message: controller.signal.aborted
+        message: requestSignal.aborted
           ? "The connector action was cancelled or timed out."
           : redactSensitiveText(
               error instanceof Error
@@ -497,9 +478,6 @@ export const createBackendConnectorActionBroker =
             : "Connector response was not valid JSON.",
         requestId: responseRequestId,
       };
-    } finally {
-      timeout.cancel();
-      params.signal?.removeEventListener("abort", abort);
     }
     if (!response.ok) {
       const backendMessage =

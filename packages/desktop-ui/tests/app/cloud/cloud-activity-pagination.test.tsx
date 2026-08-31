@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   mode: {
     cloudMode: true,
     accountScope: "account:owner-a",
+    ownerSubject: "owner-a",
     identityRevision: 1,
   },
   running: [] as unknown[],
@@ -74,6 +75,7 @@ describe("cloud Activity pagination hook", () => {
     mocks.page.loadMore.mockReset();
     mocks.mode.cloudMode = true;
     mocks.mode.accountScope = "account:owner-a";
+    mocks.mode.ownerSubject = "owner-a";
     mocks.mode.identityRevision = 1;
     mocks.running = [];
     mocks.lastOptions = null;
@@ -136,6 +138,7 @@ describe("cloud Activity pagination hook", () => {
     mocks.page.data = [thread("stale-a", "owner-a")];
     mocks.page.canLoadMore = true;
     mocks.mode.accountScope = "account:owner-b";
+    mocks.mode.ownerSubject = "owner-b";
     mocks.mode.identityRevision = 2;
 
     const activity = await render();

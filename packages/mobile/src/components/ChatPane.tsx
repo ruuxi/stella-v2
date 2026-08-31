@@ -1134,7 +1134,9 @@ function UserMessageText({
   // are width:fit-content, so clamping the first four lines can shrink the
   // box and would otherwise oscillate if we keyed off the text layout width.
   useEffect(() => {
-    if (shouldRemeasureUserMessageWidth(measuredWidthRef.current, windowWidth)) {
+    if (
+      shouldRemeasureUserMessageWidth(measuredWidthRef.current, windowWidth)
+    ) {
       measuredWidthRef.current = windowWidth;
       setMeasuring(true);
       return;
@@ -1273,7 +1275,9 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
         />
       ) : (
         <View style={generatedImageStyles.placeholder}>
-          {failed || generationState === "failed" || generationState === "canceled" ? (
+          {failed ||
+          generationState === "failed" ||
+          generationState === "canceled" ? (
             <Text style={{ color: colors.textMuted }}>
               {generationState === "canceled"
                 ? "Image generation canceled"
@@ -1528,6 +1532,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
     }
     return receipts;
   }, [item.toolSteps]);
+  const hasText = item.text.trim().length > 0;
+  const mountedEmptyRef = useRef(!hasText);
 
   if (item.role === "user") {
     const thumbs = item.thumbnailUris ?? [];
@@ -1642,12 +1648,10 @@ const ChatMessageRow = memo(function ChatMessageRow({
       </View>
     );
   }
-  const hasText = item.text.trim().length > 0;
   // The reply row is appended empty when the turn dispatches and gains its text
   // when the message lands, so "mounted empty" is exactly "this message arrived
   // while the user was watching" — the cue for the landing entrance. Rows
   // restored from history mount with their text and render settled.
-  const mountedEmptyRef = useRef(!hasText);
   // Desktop-parity consolidation: agent lifecycle cards are expanded per
   // agent, noise writes are filtered and declared deliverables lead. The
   // minimal agent rows no longer surface file pills — agent-produced files
@@ -2821,7 +2825,6 @@ export type ChatPaneProps = {
    * Steady-state polls and send-path pulls must not set this.
    */
   catchingUp?: boolean;
-
 };
 
 export type ComposerModelPickerConfig = {
@@ -3399,13 +3402,7 @@ export function ChatPane({
     voiceSendResultReadyRef.current = false;
     voiceSendTargetRef.current = null;
     submit();
-  }, [
-    dictation.status,
-    draft,
-    attachments,
-    submit,
-    voiceSendResultVersion,
-  ]);
+  }, [dictation.status, draft, attachments, submit, voiceSendResultVersion]);
 
   const attachmentLimit = maxAttachments ?? CHAT_ATTACHMENT_MAX_COUNT;
   const acceptPicked = useCallback(
@@ -3557,14 +3554,7 @@ export function ChatPane({
       onSelect: () => void readAloud.setEnabled(!readAloud.enabled),
     });
     return out;
-  }, [
-    enableAttachments,
-    pickDocument,
-    pickImage,
-    readAloud,
-    t,
-    takePhoto,
-  ]);
+  }, [enableAttachments, pickDocument, pickImage, readAloud, t, takePhoto]);
 
   // Floating computer-status control (computer chat only): opens the device
   // sheet. The cloud chat passes no handler, so nothing renders.
@@ -4487,10 +4477,7 @@ export function ChatPane({
                         size={18}
                         color={colors.textMuted}
                       />
-                      <Text
-                        style={styles.attachmentFileName}
-                        numberOfLines={2}
-                      >
+                      <Text style={styles.attachmentFileName} numberOfLines={2}>
                         {attachment.name}
                       </Text>
                     </View>

@@ -126,7 +126,7 @@ export const startTurnExecution = <T>(args: {
   cleanupTimeoutMs?: number;
 }): TurnExecution<T> => {
   const cancellation = createTurnRetryCancellation();
-  const requestController = new AbortController();
+  let requestSignal: AbortSignal | undefined;
   let resolveSettled!: (value: T | PromiseLike<T>) => void;
   let rejectSettled!: (reason?: unknown) => void;
   let workStarted = false;
@@ -137,38 +137,29 @@ export const startTurnExecution = <T>(args: {
 
   const execution = Effect.tryPromise({
     try: (effectSignal) => {
+      requestSignal = effectSignal;
       workStarted = true;
-      const relayEffectAbort = () => {
-        if (!requestController.signal.aborted) {
-          requestController.abort(
-            effectSignal.reason ?? new Error("Turn execution interrupted."),
-          );
-        }
-      };
-      if (effectSignal.aborted) relayEffectAbort();
-      else effectSignal.addEventListener("abort", relayEffectAbort, { once: true });
       let work: Promise<T>;
       try {
         work = args.work({
           cancellation,
-          signal: requestController.signal,
+          signal: effectSignal,
           assertActive: () =>
-            assertTurnExecutionActive(cancellation, requestController.signal),
+            assertTurnExecutionActive(cancellation, effectSignal),
         });
       } catch (error) {
-        effectSignal.removeEventListener("abort", relayEffectAbort);
         rejectSettled(error);
         throw error;
       }
-      void work.finally(() => {
-        effectSignal.removeEventListener("abort", relayEffectAbort);
-      }).catch(() => undefined);
       void work.then(resolveSettled, rejectSettled);
       return work;
     },
     catch: (error) => error,
   });
   const fiber = toolsRuntime.runFork(execution);
+  if (!requestSignal) {
+    throw new Error("Turn execution did not acquire its Effect abort signal.");
+  }
   const joined = runToolEffect(Fiber.join(fiber));
   // `join()` below observes the outcome. Keep a handler attached immediately
   // so a detached DO turn cannot create an unhandled rejection meanwhile.
@@ -203,14 +194,11 @@ export const startTurnExecution = <T>(args: {
   return {
     settled,
     cancellation,
-    signal: requestController.signal,
+    signal: requestSignal,
     interrupt: (reason?: unknown) => {
       if (interruption) return interruption;
       const interruptReason = reason ?? new Error("Turn was canceled.");
       cancellation.abort(interruptReason);
-      if (!requestController.signal.aborted) {
-        requestController.abort(interruptReason);
-      }
       interruption = (async () => {
         await runToolEffect(Fiber.interrupt(fiber)).catch(() => undefined);
         if (!workStarted) rejectSettled(cancellationError(interruptReason));

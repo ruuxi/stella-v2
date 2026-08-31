@@ -274,6 +274,9 @@ const getPlatformIdentityPrompt = () => {
   if (process.platform === "darwin") {
     return "You are running on macOS.";
   }
+  if (process.platform === "linux") {
+    return "You are running on Linux.";
+  }
   return null;
 };
 const hasToolGuidance = (context, toolNames) => {

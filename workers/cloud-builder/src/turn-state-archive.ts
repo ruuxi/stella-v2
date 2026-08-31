@@ -1,4 +1,10 @@
 import type { ExecutionSession } from "@cloudflare/sandbox";
+import { Effect, Fiber } from "effect";
+import {
+  forkAbortTimer,
+  runToolEffect,
+  toolsRuntime,
+} from "@stella/runtime/kernel/tools/effect-runtime.js";
 import { NATIVE_STATE_DIRECTORY } from "./native-state-checkpoint.js";
 import {
   TURN_STATE_OBJECT_FORMAT,
@@ -236,25 +242,37 @@ const boundedArchivePipe = (
   cancel: () => void;
   finish: () => void;
 } => {
-  const controller = new AbortController();
-  const abortTimeout = setTimeout(
-    () => controller.abort("Turn state archive stream timed out."),
+  let completed: Promise<void> | undefined;
+  const pipeFiber = toolsRuntime.runFork(
+    Effect.tryPromise({
+      try: (signal) => {
+        completed = source.pipeTo(destination, { signal });
+        return completed;
+      },
+      catch: (error) => error,
+    }),
+  );
+  if (!completed) {
+    throw new Error("Turn state archive stream did not start.");
+  }
+  const interruptPipe = () => {
+    toolsRuntime.runFork(Fiber.interrupt(pipeFiber));
+  };
+  const cancelAbortTimeout = forkAbortTimer(
     ARCHIVE_STREAM_TIMEOUT_MS,
+    interruptPipe,
   );
   let rejectDeadline!: (reason: Error) => void;
   const deadline = new Promise<never>((_resolve, reject) => {
     rejectDeadline = reject;
   });
-  const hardTimeout = setTimeout(
+  const cancelHardTimeout = forkAbortTimer(
+    ARCHIVE_STREAM_TIMEOUT_MS + ARCHIVE_STREAM_CANCEL_GRACE_MS,
     () =>
       rejectDeadline(
         new Error("Turn state archive stream did not settle after timeout."),
       ),
-    ARCHIVE_STREAM_TIMEOUT_MS + ARCHIVE_STREAM_CANCEL_GRACE_MS,
   );
-  const completed = source.pipeTo(destination, {
-    signal: controller.signal,
-  });
   const failed = completed.then<never>(
     () => new Promise<never>(() => undefined),
     (error: unknown) => Promise.reject(error),
@@ -268,10 +286,10 @@ const boundedArchivePipe = (
     completed,
     failed,
     deadline,
-    cancel: () => controller.abort("Turn state archive stream cancelled."),
+    cancel: interruptPipe,
     finish: () => {
-      clearTimeout(abortTimeout);
-      clearTimeout(hardTimeout);
+      cancelAbortTimeout();
+      cancelHardTimeout();
     },
   };
 };
@@ -279,20 +297,13 @@ const boundedArchivePipe = (
 const settleWithinArchiveCancelGrace = async (
   work: PromiseLike<unknown>,
 ): Promise<void> => {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      Promise.resolve(work).then(
-        () => undefined,
-        () => undefined,
-      ),
-      new Promise<void>((resolve) => {
-        timeout = setTimeout(resolve, ARCHIVE_STREAM_CANCEL_GRACE_MS);
-      }),
-    ]);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
-  }
+  await Promise.race([
+    Promise.resolve(work).then(
+      () => undefined,
+      () => undefined,
+    ),
+    runToolEffect(Effect.sleep(ARCHIVE_STREAM_CANCEL_GRACE_MS)),
+  ]);
 };
 
 const cancelReadableStream = async (

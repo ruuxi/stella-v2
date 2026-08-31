@@ -233,6 +233,7 @@ export function isTransientTransportError(error: unknown): boolean {
 
   const message = error.message;
   if (
+    (error.name === "TypeError" && /^terminated$/i.test(message.trim())) ||
     /(?:socket|connection).*(?:closed|closure|reset|refused|terminated|timed?\s*out|unexpected)|(?:closed|reset).*(?:socket|connection)|unexpected\s+eof|premature\s+close|fetch\s+failed|failed\s+to\s+fetch|network\s+(?:error|offline)|internet\s+connection\s+appears\s+to\s+be\s+offline|load\s+failed/i.test(
       message,
     )

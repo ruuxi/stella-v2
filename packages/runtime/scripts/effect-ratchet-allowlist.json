@@ -39,7 +39,6 @@
   "kernel/tools/media-artifact-store.ts": 1,
   "kernel/tools/search.ts": 1,
   "kernel/tools/shell.ts": 2,
-  "worker/backend-connector-action-broker.ts": 1,
   "worker/cli-bridge-server.ts": 1,
   "worker/user-apps/project-service.ts": 5,
   "workers/cloud-builder/src/archive.ts": {
@@ -49,9 +48,6 @@
     "new AbortController": 1
   },
   "workers/cloud-builder/src/cloud-code-worker-executor.ts": {
-    "setTimeout(": 1
-  },
-  "workers/cloud-builder/src/conversation-hub.ts": {
     "setTimeout(": 1
   },
   "workers/cloud-builder/src/index-flush.ts": {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { Database, type SQLQueryBindings } from "bun:sqlite";
 
 // AsyncStorage's non-native fallback talks to `window.localStorage`; give the
 // bun test runtime an in-memory one before the storage module is exercised.
@@ -72,23 +72,23 @@ import {
 /** The cloud thread's transcript key — an account-scoped value cleanup wipes. */
 const CLOUD_TRANSCRIPT_KEY = "stella-mobile-offline-chat-v1";
 
-const sqliteAdapter = (database: DatabaseSync) => ({
+const sqliteAdapter = (database: Database) => ({
   execAsync: async (sql: string) => {
     database.exec(sql);
   },
   runAsync: async (sql: string, ...params: unknown[]) => {
-    const result = database.prepare(sql).run(...(params as SQLInputValue[]));
+    const result = database.prepare(sql).run(...(params as SQLQueryBindings[]));
     return {
       changes: Number(result.changes),
       lastInsertRowId: Number(result.lastInsertRowid),
     };
   },
   getFirstAsync: async <T>(sql: string, ...params: unknown[]) =>
-    (database.prepare(sql).get(...(params as SQLInputValue[])) as
+    (database.prepare(sql).get(...(params as SQLQueryBindings[])) as
       | T
       | undefined) ?? null,
   getAllAsync: async <T>(sql: string, ...params: unknown[]) =>
-    database.prepare(sql).all(...(params as SQLInputValue[])) as T[],
+    database.prepare(sql).all(...(params as SQLQueryBindings[])) as T[],
   withTransactionAsync: async (task: () => Promise<void>) => {
     database.exec("BEGIN IMMEDIATE");
     try {
@@ -180,7 +180,7 @@ describe("chat storage round-trip", () => {
   });
 
   test("recovers an interrupted SQLite account cleanup before serving rows", async () => {
-    const database = new DatabaseSync(":memory:");
+    const database = new Database(":memory:");
     const adapter = sqliteAdapter(database);
     let failDeleteOnce = true;
     await __setTranscriptDatabaseForTests({
@@ -753,7 +753,7 @@ describe("chat storage round-trip", () => {
   });
 
   test("uses real SQLite keysets and preserves unloaded rows", async () => {
-    const database = new DatabaseSync(":memory:");
+    const database = new Database(":memory:");
     try {
       await __setTranscriptDatabaseForTests(sqliteAdapter(database));
       const rows: ChatMessage[] = Array.from(
@@ -845,7 +845,7 @@ describe("chat storage round-trip", () => {
   });
 
   test("rebalances SQLite order keys after repeated middle insertion", async () => {
-    const database = new DatabaseSync(":memory:");
+    const database = new Database(":memory:");
     try {
       await __setTranscriptDatabaseForTests(sqliteAdapter(database));
       const before: ChatMessage = {

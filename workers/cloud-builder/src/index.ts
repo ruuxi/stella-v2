@@ -1,4 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
+import { Effect } from "effect";
+import {
+  runToolEffect,
+  sleepWithAbort,
+} from "@stella/runtime/kernel/tools/effect-runtime.js";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import {
   getSandbox,
@@ -151,9 +156,11 @@ import {
   strictSessionExec,
 } from "./strict-session-process.js";
 import {
+  createTurnRetryCancellation,
   startTurnExecution,
   type TurnExecution,
   type TurnExecutionContext,
+  type TurnRetryCancellation,
 } from "./turn-cancellation.js";
 import {
   TURN_BROKER_HEADERS,
@@ -864,17 +871,17 @@ const withInfrastructureDeadline = async <T>(
   timeoutMs: number,
   message: string,
 ): Promise<T> => {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+  return await runToolEffect(
+    Effect.raceFirst(
+      Effect.tryPromise({
+        try: () => operation,
+        catch: (error) => error,
       }),
-    ]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
+      Effect.sleep(timeoutMs).pipe(
+        Effect.flatMap(() => Effect.fail(new Error(message))),
+      ),
+    ),
+  );
 };
 
 const log = (
@@ -1563,23 +1570,28 @@ const readCloudAgentTurnResultText = async (
 export const waitForCloudAgentTurnResultText = async (
   session: Pick<ExecutionSession, "readFile">,
   signals: readonly AbortSignal[],
+  cancellation?: TurnRetryCancellation,
 ): Promise<string> => {
-  const aborted = (): unknown =>
-    signals.find((signal) => signal.aborted)?.reason;
+  const abortError = (): Error | undefined => {
+    if (cancellation?.aborted) {
+      return cancellation.reason instanceof Error
+        ? cancellation.reason
+        : new Error("Agent result observation was canceled.");
+    }
+    const signal = signals.find((candidate) => candidate.aborted);
+    if (!signal) return undefined;
+    return signal.reason instanceof Error
+      ? signal.reason
+      : new Error("Agent result observation was canceled.");
+  };
+  const combinedSignal =
+    signals.length > 0 ? AbortSignal.any([...signals]) : undefined;
   while (true) {
-    const reason = aborted();
-    if (reason !== undefined) {
-      throw reason instanceof Error
-        ? reason
-        : new Error("Agent result observation was canceled.");
-    }
+    const reason = abortError();
+    if (reason) throw reason;
     const recorded = await readCloudAgentTurnResultText(session);
-    const afterReadReason = aborted();
-    if (afterReadReason !== undefined) {
-      throw afterReadReason instanceof Error
-        ? afterReadReason
-        : new Error("Agent result observation was canceled.");
-    }
+    const afterReadReason = abortError();
+    if (afterReadReason) throw afterReadReason;
     if (recorded !== undefined) {
       // `writeFile()` can make the destination visible before every byte has
       // landed. Never let a partial-but-readable root result win the race and
@@ -1595,31 +1607,14 @@ export const waitForCloudAgentTurnResultText = async (
         // The executor is still publishing the file. Poll the fixed path again.
       }
     }
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(done, 250);
-      const listeners = signals.map((signal) => {
-        const listener = () => {
-          cleanup();
-          reject(
-            signal.reason instanceof Error
-              ? signal.reason
-              : new Error("Agent result observation was canceled."),
-          );
-        };
-        signal.addEventListener("abort", listener, { once: true });
-        return { signal, listener };
-      });
-      function cleanup() {
-        clearTimeout(timer);
-        for (const { signal, listener } of listeners) {
-          signal.removeEventListener("abort", listener);
-        }
-      }
-      function done() {
-        cleanup();
-        resolve();
-      }
-    });
+    const signalDelay = sleepWithAbort(250, combinedSignal, (activeSignal) =>
+      activeSignal.reason instanceof Error
+        ? activeSignal.reason
+        : new Error("Agent result observation was canceled."),
+    );
+    await (cancellation
+      ? Promise.race([signalDelay, cancellation.sleep(250)])
+      : signalDelay);
   }
 };
 
@@ -4230,18 +4225,12 @@ export class BuildSession extends DurableObject<Env> {
 
     const running = [...(this.runningTurns.get(turnId) ?? [])];
     if (running.length > 0) {
-      let graceTimer: ReturnType<typeof setTimeout> | undefined;
-      const graceExpired = new Promise<boolean>((resolve) => {
-        graceTimer = setTimeout(
-          () => resolve(false),
-          OWNER_PURGE_STALE_LEASE_GRACE_MS,
-        );
-      });
       const settled = await Promise.race([
         Promise.allSettled(running).then(() => true),
-        graceExpired,
+        runToolEffect(
+          Effect.sleep(OWNER_PURGE_STALE_LEASE_GRACE_MS).pipe(Effect.as(false)),
+        ),
       ]);
-      if (graceTimer !== undefined) clearTimeout(graceTimer);
       if (!settled) {
         return json({ error: "Owner turn is still unwinding." }, 409);
       }
@@ -10544,7 +10533,7 @@ export class BuildSession extends DurableObject<Env> {
       const executorProcessId = sessionName(
         `agent-executor-${turn.turnId}-${turn.attemptGeneration}`,
       );
-      const resultPollController = new AbortController();
+      const resultPollCancellation = createTurnRetryCancellation();
       const captureOutcome = capturedSessionExec(
         sandbox,
         ["bun", "packages/executor-cloud/src/cli.ts", "--agent-turn"],
@@ -10668,10 +10657,11 @@ export class BuildSession extends DurableObject<Env> {
         (error: unknown) =>
           ({ kind: "execution_error" as const, error }) as const,
       );
-      const resultFileOutcome = waitForCloudAgentTurnResultText(session, [
-        resultPollController.signal,
-        turnExecution.signal,
-      ]).then(
+      const resultFileOutcome = waitForCloudAgentTurnResultText(
+        session,
+        [turnExecution.signal],
+        resultPollCancellation,
+      ).then(
         (resultText) => ({ kind: "result_file" as const, resultText }) as const,
         (error: unknown) =>
           ({ kind: "result_file_error" as const, error }) as const,
@@ -10680,7 +10670,7 @@ export class BuildSession extends DurableObject<Env> {
         captureOutcome,
         resultFileOutcome,
       ]);
-      resultPollController.abort(
+      resultPollCancellation.abort(
         new Error("Agent process observation already settled."),
       );
       if (firstOutcome.kind === "execution") {
@@ -10697,8 +10687,10 @@ export class BuildSession extends DurableObject<Env> {
         recordedExecutorResultText = firstOutcome.resultText;
         const captureAfterFile = await Promise.race([
           captureOutcome,
-          new Promise<{ kind: "capture_pending" }>((resolve) =>
-            setTimeout(() => resolve({ kind: "capture_pending" }), 1_000),
+          runToolEffect(
+            Effect.sleep(1_000).pipe(
+              Effect.as({ kind: "capture_pending" as const }),
+            ),
           ),
         ]);
         if (captureAfterFile.kind === "execution") {
@@ -12415,9 +12407,9 @@ const moveWorldCheckpoint = async (
     throw new OwnerProductTransferConflictError(
       planBody?.message ?? "The durable workspace transfer plan was rejected.",
       planBody?.code === "destination_checkpoint_changed" ||
-        planBody?.code === "owner_purge_permanent" ||
-        planBody?.code === "owner_purge_temporary" ||
-        planBody?.code === "transfer_busy"
+      planBody?.code === "owner_purge_permanent" ||
+      planBody?.code === "owner_purge_temporary" ||
+      planBody?.code === "transfer_busy"
         ? planBody.code
         : "owner_transfer_conflict",
     );

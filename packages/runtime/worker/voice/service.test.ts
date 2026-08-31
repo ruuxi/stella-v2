@@ -297,12 +297,12 @@ describe("voice conversation ownership", () => {
             }),
           notifyOrchestratorHistoryChanged: () => undefined,
           appendCloudJournal: cloudWriter.append,
-          beginVoiceToolCallReceipt: (args: Parameters<
-            SessionStore["beginVoiceToolCallReceipt"]
-          >[0]) => store.beginVoiceToolCallReceipt(args),
-          completeVoiceToolCallReceipt: (args: Parameters<
-            SessionStore["completeVoiceToolCallReceipt"]
-          >[0]) => store.completeVoiceToolCallReceipt(args),
+          beginVoiceToolCallReceipt: (
+            args: Parameters<SessionStore["beginVoiceToolCallReceipt"]>[0],
+          ) => store.beginVoiceToolCallReceipt(args),
+          completeVoiceToolCallReceipt: (
+            args: Parameters<SessionStore["completeVoiceToolCallReceipt"]>[0],
+          ) => store.completeVoiceToolCallReceipt(args),
           getVoiceOrchestratorConfig: async () => ({
             instructions: "Use tools.",
             tools: [
@@ -334,10 +334,12 @@ describe("voice conversation ownership", () => {
       args: { query: "private voice content" },
     });
 
-    const row = database
-      .prepare("SELECT COUNT(*) AS count FROM runtime_thread_entries")
-      .get() as { count: number };
-    expect(row.count).toBe(0);
+    const legacyTable = database
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+      )
+      .get("runtime_thread_entries");
+    expect(legacyTable).toBeNull();
     expect(store.countCloudJournalOutbox()).toBe(2);
     const receiptRow = database
       .prepare("SELECT COUNT(*) AS count FROM voice_tool_call_receipts")

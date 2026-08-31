@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -22,7 +29,11 @@ import { sealNativeState } from "./native-state-integrity.js";
 
 describe("native engine reasoning selection", () => {
   it("fails closed when a restored native session is absent or behind canonical history", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "stella-native-parity-"));
+    const testRoot = await mkdtemp(
+      path.join(tmpdir(), "stella-native-parity-"),
+    );
+    const root = path.join(testRoot, "native");
+    await mkdir(root, { mode: 0o700 });
     const row = {
       turnId: "turn-1",
       role: "assistant",
@@ -93,7 +104,7 @@ describe("native engine reasoning selection", () => {
         }),
       ).rejects.toThrow("does not match");
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(testRoot, { recursive: true, force: true });
     }
   });
 

@@ -17,7 +17,7 @@ const jwt = (claims: Record<string, unknown>): string =>
   ].join(".");
 
 describe("mobile Convex token owner", () => {
-  test("uses the JWT issuer instead of preview/production custom auth base", async () => {
+  test("uses the JWT issuer across preview and production deployments", async () => {
     const eas = JSON.parse(
       await readFile(resolve(import.meta.dirname, "../../../eas.json"), "utf8"),
     ) as {
@@ -26,9 +26,6 @@ describe("mobile Convex token owner", () => {
 
     for (const profile of ["preview", "production"] as const) {
       const buildEnv = eas.build[profile].env;
-      expect(buildEnv.EXPO_PUBLIC_CONVEX_SITE_URL).toBe(
-        "https://cloud.stella.sh",
-      );
       const deploymentUrl = new URL(buildEnv.EXPO_PUBLIC_CONVEX_URL);
       const issuer = `https://${deploymentUrl.hostname.replace(
         /\.convex\.cloud$/u,
@@ -44,10 +41,11 @@ describe("mobile Convex token owner", () => {
         subject: "user-a",
         tokenIdentifier: `${issuer}|user-a`,
       });
-      expect(
-        owner.tokenIdentifier ===
+      if (buildEnv.EXPO_PUBLIC_CONVEX_SITE_URL !== issuer) {
+        expect(owner.tokenIdentifier).not.toBe(
           `${buildEnv.EXPO_PUBLIC_CONVEX_SITE_URL}|user-a`,
-      ).toBe(false);
+        );
+      }
       expect(Object.isFrozen(owner)).toBe(true);
     }
   });

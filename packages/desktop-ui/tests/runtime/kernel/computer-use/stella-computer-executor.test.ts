@@ -115,45 +115,48 @@ describe("shared Stella computer executor", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("shuts down an isolated CLI session through the generated command surface", async () => {
-    const root = path.join(
-      os.tmpdir(),
-      `stella-computer-shutdown-${process.pid}-${Date.now()}`,
-    );
-    temporaryRoots.push(root);
-    process.env.STELLA_DATA_DIR = path.join(root, "data");
-    process.env.HOME = path.join(root, "home");
-    const sessionId = "diagnostics-poll-session";
-    const sessionDir = path.join(
-      process.env.STELLA_DATA_DIR,
-      "stella-computer",
-      "sessions",
-      sessionId,
-    );
-    mkdirSync(sessionDir, { recursive: true });
-    const child = spawn(
-      process.execPath,
-      ["-e", "setInterval(() => {}, 1000)"],
-      { detached: true, stdio: "ignore" },
-    );
-    child.unref();
-    writeFileSync(path.join(sessionDir, "automation.pid"), String(child.pid));
+  it.runIf(process.platform === "darwin" || process.platform === "win32")(
+    "shuts down an isolated CLI session through the generated command surface",
+    async () => {
+      const root = path.join(
+        os.tmpdir(),
+        `stella-computer-shutdown-${process.pid}-${Date.now()}`,
+      );
+      temporaryRoots.push(root);
+      process.env.STELLA_DATA_DIR = path.join(root, "data");
+      process.env.HOME = path.join(root, "home");
+      const sessionId = "diagnostics-poll-session";
+      const sessionDir = path.join(
+        process.env.STELLA_DATA_DIR,
+        "stella-computer",
+        "sessions",
+        sessionId,
+      );
+      mkdirSync(sessionDir, { recursive: true });
+      const child = spawn(
+        process.execPath,
+        ["-e", "setInterval(() => {}, 1000)"],
+        { detached: true, stdio: "ignore" },
+      );
+      child.unref();
+      writeFileSync(path.join(sessionDir, "automation.pid"), String(child.pid));
 
-    const result = await executeStellaComputerCommand([
-      "--session",
-      sessionId,
-      "shutdown-session",
-      "--json",
-    ]);
+      const result = await executeStellaComputerCommand([
+        "--session",
+        sessionId,
+        "shutdown-session",
+        "--json",
+      ]);
 
-    expect(result.exitCode).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      ok: true,
-      sessionId,
-      stopped: true,
-    });
-    expect(existsSync(path.join(sessionDir, "automation.pid"))).toBe(false);
-  });
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        ok: true,
+        sessionId,
+        stopped: true,
+      });
+      expect(existsSync(path.join(sessionDir, "automation.pid"))).toBe(false);
+    },
+  );
 
   it("keeps command validation and session option errors in the shared path", async () => {
     const missingSession = await executeStellaComputerCommand(["--session"]);
@@ -165,8 +168,14 @@ describe("shared Stella computer executor", () => {
       stderr: "--session requires a value.\n",
     });
     expect(unknown.exitCode).toBe(1);
-    expect(unknown.stderr).toContain("Unknown command: not-a-command");
-    expect(unknown.stderr).toContain("Usage:");
+    if (process.platform === "darwin" || process.platform === "win32") {
+      expect(unknown.stderr).toContain("Unknown command: not-a-command");
+      expect(unknown.stderr).toContain("Usage:");
+    } else {
+      expect(unknown.stderr).toContain(
+        "stella-computer is currently only available on macOS.",
+      );
+    }
   });
 
   it("keeps the CLI as a thin adapter over the same executor output", async () => {

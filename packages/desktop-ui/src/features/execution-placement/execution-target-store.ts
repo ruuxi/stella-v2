@@ -28,9 +28,26 @@ const parse = (value: string | null): DesktopExecutionTarget => {
   return AUTOMATIC;
 };
 
-if (typeof window !== "undefined") {
-  current = parse(window.localStorage.getItem(STORAGE_KEY));
-}
+const readStoredTarget = (): DesktopExecutionTarget => {
+  if (typeof window === "undefined") return AUTOMATIC;
+  try {
+    return parse(window.localStorage.getItem(STORAGE_KEY));
+  } catch {
+    // Storage can be unavailable in sandboxed/private renderer contexts.
+    return AUTOMATIC;
+  }
+};
+
+const storeTarget = (target: DesktopExecutionTarget): void => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(target));
+  } catch {
+    // The in-memory selection remains usable when persistence is unavailable.
+  }
+};
+
+current = readStoredTarget();
 
 export const executionTargetStore = {
   getSnapshot: () => current,
@@ -42,9 +59,7 @@ export const executionTargetStore = {
     const normalized = parse(JSON.stringify(next));
     if (JSON.stringify(normalized) === JSON.stringify(current)) return;
     current = normalized;
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
-    }
+    storeTarget(normalized);
     for (const listener of listeners) listener();
   },
   reset() {

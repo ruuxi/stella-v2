@@ -7,6 +7,7 @@
     ".": "./index.ts",
     "./browser-extension": "./browser-extension.js",
     "./browser-bridge-status": "./browser-bridge-status.ts",
+    "./local-file-links": "./local-file-links.ts",
     "./model-mentions": "./model-mentions.js",
     "./protocol": "./protocol/index.ts",
     "./protocol/*": "./protocol/*.ts",

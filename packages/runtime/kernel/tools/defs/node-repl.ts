@@ -91,19 +91,10 @@ export const createNodeReplTool = (
     forceCellDetails = false,
     maps: readonly MapRouteArtifact[] = [],
   ) => {
-    const tracked = {
-      ...(observation.fileChanges && observation.fileChanges.length > 0
-        ? { fileChanges: [...observation.fileChanges] }
-        : {}),
-      ...(observation.producedFiles && observation.producedFiles.length > 0
-        ? { producedFiles: [...observation.producedFiles] }
-        : {}),
-    };
     if (observation.status === "failed") {
       return {
         error: observation.error ?? "Node REPL cell failed.",
         details: observationDetails(observation, forceCellDetails, maps),
-        ...tracked,
       };
     }
     if (observation.status === "running") {
@@ -111,7 +102,6 @@ export const createNodeReplTool = (
       return {
         result: `${text}${text ? "\n" : ""}[node_repl running: cellId=${JSON.stringify(observation.cellId)} generation=${observation.generation} cursor=${observation.cursor} elapsedMs=${observation.elapsedMs}]`,
         details: observationDetails(observation, forceCellDetails, maps),
-        ...tracked,
       };
     }
     const details = observationDetails(observation, forceCellDetails, maps);
@@ -124,7 +114,6 @@ export const createNodeReplTool = (
     return {
       result: modelText(observation),
       ...(hasDetails ? { details } : {}),
-      ...tracked,
     };
   };
   return {

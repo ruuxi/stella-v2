@@ -53,6 +53,8 @@ Pause and ask the user only when the action would:
 
 When the deliverable is something the user reads — a summary, report, plan, or writeup — default to a single self-contained `.html` file rather than `.md`, unless the user asked for markdown or another format. Internal files (skills, memory, notes) stay markdown.
 
+At the end of your final response, link only files the user should open using `[name](</absolute/path>)`; don't list routine changes, intermediate files, or scratch output.
+
 ## Reporting
 
 Return early when something genuinely blocks progress; name what's missing instead of guessing.

@@ -99,13 +99,11 @@ const summarizeMcpLedgerValue = (value, maxChars) => {
 export class ClaudeCodeProcessEndedError extends Error {
   exitCode;
 
-  fileChanges;
   mcpCalls;
-  constructor(message, exitCode = null, fileChanges = [], mcpCalls = []) {
+  constructor(message, exitCode = null, mcpCalls = []) {
     super(message);
     this.name = "ClaudeCodeProcessEndedError";
     this.exitCode = exitCode;
-    this.fileChanges = fileChanges;
     this.mcpCalls = mcpCalls;
   }
 }
@@ -113,35 +111,29 @@ export class ClaudeCodeProcessEndedError extends Error {
 export class ClaudeCodeMalformedResultError extends Error {
   kind;
 
-  fileChanges;
   mcpCalls;
-  constructor(message, kind, fileChanges = [], mcpCalls = []) {
+  constructor(message, kind, mcpCalls = []) {
     super(message);
     this.name = "ClaudeCodeMalformedResultError";
     this.kind = kind;
-    this.fileChanges = fileChanges;
     this.mcpCalls = mcpCalls;
   }
 }
 
 export class ClaudeCodeSteeringInterruptError extends Error {
-  fileChanges;
   mcpCalls;
-  constructor(fileChanges = [], mcpCalls = []) {
+  constructor(mcpCalls = []) {
     super("Claude Code turn interrupted for steering.");
     this.name = "ClaudeCodeSteeringInterruptError";
-    this.fileChanges = fileChanges;
     this.mcpCalls = mcpCalls;
   }
 }
 
 export class ClaudeCodeCompactionLoopError extends Error {
-  fileChanges;
   mcpCalls;
-  constructor(fileChanges = [], mcpCalls = []) {
+  constructor(mcpCalls = []) {
     super(CLAUDE_CODE_COMPACTION_LOOP_MESSAGE);
     this.name = "ClaudeCodeCompactionLoopError";
-    this.fileChanges = fileChanges;
     this.mcpCalls = mcpCalls;
   }
 }
@@ -152,11 +144,9 @@ const asRecoverableStepError = (error) =>
     : null;
 
 const buildSideEffectReconciliationPrompt = (
-  mutations,
   mcpCalls = [],
   referenceContext,
 ) => {
-  const paths = [...new Set(mutations.map((change) => change.path))];
   return [
     "The previous step was interrupted after side-effecting work may already have been applied.",
     mcpCalls.length > 0
@@ -174,14 +164,8 @@ const buildSideEffectReconciliationPrompt = (
           "Some of these calls may have already completed even if Claude Code did not receive the result.",
         ].join("\n")
       : "",
-    paths.length > 0
-      ? [
-          "File operations were already applied to:",
-          ...paths.map((p) => `- ${p}`),
-        ].join("\n")
-      : "",
-    "Do NOT redo, repeat, or revert those tool calls or file operations.",
-    "If you are unsure what was applied, inspect the current state of the affected files first.",
+    "Do NOT redo, repeat, or revert those tool calls.",
+    "If you are unsure what was applied, inspect the current state first.",
     referenceContext?.trim()
       ? [
           "Original request context, for reference only — do not re-execute work that already completed:",
@@ -705,30 +689,6 @@ export const getClaudeCodeTextDeltaFromStreamEvent = (event) => {
   return null;
 };
 
-const CLAUDE_CODE_NATIVE_FILE_TOOLS = {
-  Write: { pathKey: "file_path", kind: { type: "add" } },
-  Edit: { pathKey: "file_path", kind: { type: "update" } },
-  MultiEdit: { pathKey: "file_path", kind: { type: "update" } },
-  NotebookEdit: { pathKey: "notebook_path", kind: { type: "update" } },
-};
-
-export const collectClaudeCodeNativeFileChanges = (event) => {
-  if (event.type !== "assistant") return [];
-  const message = asObject(event.message);
-  const content = Array.isArray(message?.content) ? message.content : [];
-  const out = [];
-  for (const raw of content) {
-    const block = asObject(raw);
-    if (block?.type !== "tool_use" || typeof block.name !== "string") continue;
-    const spec = CLAUDE_CODE_NATIVE_FILE_TOOLS[block.name];
-    if (!spec) continue;
-    const input = asObject(block.input);
-    const filePath = input?.[spec.pathKey];
-    if (typeof filePath !== "string" || !filePath.trim()) continue;
-    out.push({ path: filePath.trim(), kind: spec.kind });
-  }
-  return out;
-};
 const updateClaudeCodeNativeToolActivity = (event, activeToolUseIds) => {
   const before = activeToolUseIds.size;
   const updateFromContent = (content) => {
@@ -777,16 +737,6 @@ const observeFinalizedClaudeToolUses = (event, observe) => {
       toolName: block.name,
       toolArgs: asObject(block.input) ?? {},
     });
-  }
-};
-const fileChangeDedupeKey = (record) =>
-  `${record.kind.type}:${record.path}:${record.kind.type === "update" ? (record.kind.move_path ?? "") : ""}`;
-const mergeFileChanges = (target, seen, records) => {
-  for (const record of records ?? []) {
-    const key = fileChangeDedupeKey(record);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    target.push(record);
   }
 };
 const mergeMcpCalls = (target, records) => {
@@ -1113,8 +1063,6 @@ class ClaudeCodeSessionRuntime {
     const effectiveSystemPrompt = request.vanilla
       ? ""
       : buildClaudeCodeNativeToolRuntimePrompt(request.systemPrompt);
-    const turnFileChanges = [];
-    const turnFileChangeKeys = new Set();
     const prompt = buildInitialPrompt(session, request);
 
     session.modelOverride = undefined;
@@ -1190,21 +1138,6 @@ class ClaudeCodeSessionRuntime {
           if (toolName === "NoResponse" && !toolResult.error) {
             session.allowEmptyNativeFinal = true;
           }
-          mergeFileChanges(
-            turnFileChanges,
-            turnFileChangeKeys,
-            toolResult.fileChanges,
-          );
-          if (pending) {
-            const pendingKeys = new Set(
-              pending.fileChanges.map(fileChangeDedupeKey),
-            );
-            mergeFileChanges(
-              pending.fileChanges,
-              pendingKeys,
-              toolResult.fileChanges,
-            );
-          }
           return toolResult;
         },
         onToolResponseWritten: request.onToolResponseWritten,
@@ -1219,16 +1152,10 @@ class ClaudeCodeSessionRuntime {
         [],
         { remaining: MAX_STEP_RECOVERIES_PER_TURN },
       );
-      mergeFileChanges(
-        turnFileChanges,
-        turnFileChangeKeys,
-        response.fileChanges,
-      );
       return {
         text: response.message,
         sessionId: response.sessionId,
         usage: response.usage,
-        ...(turnFileChanges.length > 0 ? { fileChanges: turnFileChanges } : {}),
       };
     } finally {
       session.activeMcpTurn = undefined;
@@ -1246,8 +1173,6 @@ class ClaudeCodeSessionRuntime {
   ) {
     let currentPrompt = prompt;
     let currentPromptImages = promptImages;
-    const failedAttemptFileChanges = [];
-    const failedAttemptFileChangeKeys = new Set();
     const failedAttemptMcpCalls = [];
     for (;;) {
       try {
@@ -1257,27 +1182,16 @@ class ClaudeCodeSessionRuntime {
           effectiveSystemPrompt,
           currentPrompt,
           currentPromptImages,
-          failedAttemptFileChanges,
           failedAttemptMcpCalls,
         );
-        if (failedAttemptFileChanges.length === 0) {
-          return result;
-        }
-        mergeFileChanges(
-          failedAttemptFileChanges,
-          failedAttemptFileChangeKeys,
-          result.fileChanges,
-        );
-        return { ...result, fileChanges: failedAttemptFileChanges };
+        return result;
       } catch (error) {
         if (request.abortSignal?.aborted) {
           throw error;
         }
         const recoverable = asRecoverableStepError(error);
         const hasPossibleSideEffects = Boolean(
-          recoverable &&
-            (recoverable.fileChanges.length > 0 ||
-              recoverable.mcpCalls.length > 0),
+          recoverable && recoverable.mcpCalls.length > 0,
         );
 
         if (
@@ -1289,11 +1203,6 @@ class ClaudeCodeSessionRuntime {
         if (!recoverable) {
           throw error;
         }
-        mergeFileChanges(
-          failedAttemptFileChanges,
-          failedAttemptFileChangeKeys,
-          recoverable.fileChanges,
-        );
         mergeMcpCalls(failedAttemptMcpCalls, recoverable.mcpCalls);
         if (recoveryBudget.remaining <= 0) {
           throw withStepRecoveryExhausted(error);
@@ -1302,12 +1211,8 @@ class ClaudeCodeSessionRuntime {
         if (recoverable instanceof ClaudeCodeProcessEndedError) {
           this.resetStreamingProcess(request.sessionKey, session);
 
-          if (
-            failedAttemptFileChanges.length > 0 ||
-            failedAttemptMcpCalls.length > 0
-          ) {
+          if (failedAttemptMcpCalls.length > 0) {
             currentPrompt = buildSideEffectReconciliationPrompt(
-              failedAttemptFileChanges,
               failedAttemptMcpCalls,
             );
             currentPromptImages = [];
@@ -1316,7 +1221,6 @@ class ClaudeCodeSessionRuntime {
         }
         currentPrompt = hasPossibleSideEffects
           ? buildSideEffectReconciliationPrompt(
-              failedAttemptFileChanges,
               failedAttemptMcpCalls,
             )
           : buildResultRetryPrompt();
@@ -1363,7 +1267,6 @@ class ClaudeCodeSessionRuntime {
     effectiveSystemPrompt,
     prompt,
     promptImages,
-    observedMutations = [],
     observedMcpCalls = [],
   ) {
     return await this.executeStepWithMode(
@@ -1374,7 +1277,6 @@ class ClaudeCodeSessionRuntime {
       session.resumeReady,
       true,
       promptImages,
-      observedMutations,
       observedMcpCalls,
     );
   }
@@ -1387,14 +1289,12 @@ class ClaudeCodeSessionRuntime {
     useResume,
     allowCompactionLoopRestart = true,
     promptImages = [],
-    observedMutations = [],
     observedMcpCalls = [],
   ) {
 
-    const buildReseedPrompt = (mutations, mcpCalls) =>
-      mutations.length > 0 || mcpCalls.length > 0
+    const buildReseedPrompt = (mcpCalls) =>
+      mcpCalls.length > 0
         ? buildSideEffectReconciliationPrompt(
-            mutations,
             mcpCalls,
             request.resumeFallbackPrompt ?? prompt,
           )
@@ -1425,7 +1325,6 @@ class ClaudeCodeSessionRuntime {
           true,
           allowCompactionLoopRestart,
           promptImages,
-          observedMutations,
           observedMcpCalls,
         );
       }
@@ -1438,11 +1337,10 @@ class ClaudeCodeSessionRuntime {
           session,
           request,
           effectiveSystemPrompt,
-          buildReseedPrompt(observedMutations, observedMcpCalls),
+          buildReseedPrompt(observedMcpCalls),
           false,
           allowCompactionLoopRestart,
           promptImages,
-          observedMutations,
           observedMcpCalls,
         );
       }
@@ -1451,9 +1349,6 @@ class ClaudeCodeSessionRuntime {
         error instanceof ClaudeCodeCompactionLoopError
       ) {
 
-        const mutations = [...observedMutations];
-        const mutationKeys = new Set(mutations.map(fileChangeDedupeKey));
-        mergeFileChanges(mutations, mutationKeys, error.fileChanges);
         const mcpCalls = [...observedMcpCalls];
         mergeMcpCalls(mcpCalls, error.mcpCalls);
         this.resetStreamingProcess(request.sessionKey, session);
@@ -1464,21 +1359,13 @@ class ClaudeCodeSessionRuntime {
           session,
           request,
           effectiveSystemPrompt,
-          buildReseedPrompt(mutations, mcpCalls),
+          buildReseedPrompt(mcpCalls),
           false,
           false,
           promptImages,
-          mutations,
           mcpCalls,
         );
-        if (error.fileChanges.length === 0) {
-          return result;
-        }
-
-        const combined = [...error.fileChanges];
-        const combinedKeys = new Set(combined.map(fileChangeDedupeKey));
-        mergeFileChanges(combined, combinedKeys, result.fileChanges);
-        return { ...result, fileChanges: combined };
+        return result;
       }
       throw error;
     }
@@ -1823,11 +1710,6 @@ class ClaudeCodeSessionRuntime {
             });
           }
           current.emitStreamDelta(parsedLine);
-          const nativeFileChanges =
-            collectClaudeCodeNativeFileChanges(parsedLine);
-          if (nativeFileChanges.length > 0) {
-            current.fileChanges.push(...nativeFileChanges);
-          }
         }
         if (parsedLine.type === "result") {
           const completed = processState.pending.shift();
@@ -1837,10 +1719,7 @@ class ClaudeCodeSessionRuntime {
           this.detachAbortListener(completed);
           if (completed.steeringInterrupted) {
             completed.reject(
-              new ClaudeCodeSteeringInterruptError(
-                completed.fileChanges,
-                completed.mcpCalls,
-              ),
+              new ClaudeCodeSteeringInterruptError(completed.mcpCalls),
             );
             continue;
           }
@@ -1853,19 +1732,8 @@ class ClaudeCodeSessionRuntime {
                 !completed.request.vanilla && session.allowEmptyNativeFinal,
               ),
             );
-            completed.resolve(
-              completed.fileChanges.length > 0
-                ? { ...stepResult, fileChanges: completed.fileChanges }
-                : stepResult,
-            );
+            completed.resolve(stepResult);
           } catch (error) {
-
-            if (
-              error instanceof ClaudeCodeMalformedResultError &&
-              completed.fileChanges.length > 0
-            ) {
-              error.fileChanges.push(...completed.fileChanges);
-            }
             if (error instanceof ClaudeCodeMalformedResultError) {
               mergeMcpCalls(error.mcpCalls, completed.mcpCalls);
             }
@@ -1910,7 +1778,6 @@ class ClaudeCodeSessionRuntime {
           new ClaudeCodeProcessEndedError(
             wrapped.message,
             null,
-            pending.fileChanges,
             pending.mcpCalls,
           ),
         );
@@ -1943,7 +1810,6 @@ class ClaudeCodeSessionRuntime {
             : new ClaudeCodeProcessEndedError(
                 message,
                 code,
-                pending.fileChanges,
                 pending.mcpCalls,
               ),
         );
@@ -1976,7 +1842,6 @@ class ClaudeCodeSessionRuntime {
         resolve,
         reject,
         emitStreamDelta: createClaudeCodeStreamEmitter(request.onStream),
-        fileChanges: [],
         mcpCalls: [],
         activeNativeToolUseIds: new Set(),
       };
@@ -2037,7 +1902,6 @@ class ClaudeCodeSessionRuntime {
           new ClaudeCodeProcessEndedError(
             `Failed to write Claude Code prompt: ${normalizeErrorMessage(error)}`,
             null,
-            pending.fileChanges,
             pending.mcpCalls,
           ),
         );
@@ -2134,10 +1998,7 @@ class ClaudeCodeSessionRuntime {
     }
     if (index >= 0) {
       pending.reject(
-        new ClaudeCodeSteeringInterruptError(
-          pending.fileChanges,
-          pending.mcpCalls,
-        ),
+        new ClaudeCodeSteeringInterruptError(pending.mcpCalls),
       );
     }
   }
@@ -2290,10 +2151,7 @@ class ClaudeCodeSessionRuntime {
       this.detachAbortListener(pending);
 
       pending.reject(
-        new ClaudeCodeCompactionLoopError(
-          pending.fileChanges,
-          pending.mcpCalls,
-        ),
+        new ClaudeCodeCompactionLoopError(pending.mcpCalls),
       );
     }
   }

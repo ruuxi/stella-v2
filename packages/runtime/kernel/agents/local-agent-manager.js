@@ -4,20 +4,6 @@ import { AGENT_ORCHESTRATION_TOOL_NAMES } from "../tools/defs/task.js";
 import { sanitizeForLogs, truncate } from "../tools/utils.js";
 import { getOrCreateSubagentSession } from "../agent-runtime/subagent-session.js";
 const formatTaskUpdateStatusText = (text) => truncate(text.replace(/\s+/g, " ").trim(), 200);
-const fileRecordKey = (record) => `${record.kind.type}:${record.path}:${record.kind.type === "update" ? (record.kind.move_path ?? "") : ""}`;
-const mergeUniqueFileRecords = (existing, incoming) => {
-    if (!incoming?.length) return existing;
-    if (!existing?.length) return [...incoming];
-    const out = [];
-    const seen = new Set();
-    for (const record of [...existing, ...incoming]) {
-        const key = fileRecordKey(record);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(record);
-    }
-    return out;
-};
 const ENV_ASSIGNMENT_RE = /\b([A-Za-z_][A-Za-z0-9_]*)=(?:"[^"]*"|'[^']*'|[^\s]+)/g;
 const SECRET_FLAG_RE =
     /(\s--?(?:api[-_]?key|token|secret|password|passwd|authorization))(?:=|\s+)(?:"[^"]*"|'[^']*'|[^\s]+)/gi;
@@ -918,8 +904,6 @@ export class LocalAgentManager {
             if (!isCurrentAttempt()) return;
             task.completedAt = Date.now();
 
-            task.bankedFileChanges = mergeUniqueFileRecords(task.bankedFileChanges, result.fileChanges);
-            task.bankedProducedFiles = mergeUniqueFileRecords(task.bankedProducedFiles, result.producedFiles);
             if (attempt.controller.signal.aborted || task.status === "canceled") {
                 task.status = "canceled";
                 task.error = task.error ?? "Canceled";
@@ -933,8 +917,6 @@ export class LocalAgentManager {
                 task.status = "completed";
                 task.result = result.result;
 
-                task.fileChanges = task.bankedFileChanges;
-                task.producedFiles = task.bankedProducedFiles;
             }
         } catch (error) {
             if (!isCurrentAttempt()) return;
@@ -984,12 +966,8 @@ export class LocalAgentManager {
                         parentAgentId: task.parentAgentId,
                         attemptGeneration: task.attemptGeneration,
                         result: task.result,
-                        ...(task.fileChanges?.length ? { fileChanges: task.fileChanges } : {}),
-                        ...(task.producedFiles?.length ? { producedFiles: task.producedFiles } : {}),
                     };
                     this.emitAgentLifecycleEventOnce(completedEvent);
-                    task.bankedFileChanges = undefined;
-                    task.bankedProducedFiles = undefined;
                     task.descendantWakePending = false;
                     this.persistTask(task);
                 }

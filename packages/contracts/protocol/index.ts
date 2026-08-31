@@ -9,10 +9,6 @@ import type {
   TaskLifecycleStatus,
 } from "@stella/contracts/agent-runtime";
 import type {
-  FileChangeRecord,
-  ProducedFileRecord,
-} from "@stella/contracts/file-changes";
-import type {
   RuntimeListModelsRequest,
   RuntimeModelCatalogModel,
   RuntimeModelCatalogSnapshot,
@@ -432,8 +428,6 @@ export type RuntimeVoiceToolCallPayload = {
 export type RuntimeVoiceToolCallResult = {
   output: string;
   details?: unknown;
-  fileChanges?: FileChangeRecord[];
-  producedFiles?: ProducedFileRecord[];
   error?: string;
 };
 

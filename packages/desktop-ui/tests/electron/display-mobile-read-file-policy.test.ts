@@ -3,21 +3,14 @@ import { isDisplayReadPathInLocalChatFiles } from "@stella/desktop/electron/ipc/
 import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 
 describe("mobile display read file policy", () => {
-  it("allows paths recorded in recent local chat file events", () => {
+  it("allows paths linked in recent assistant responses", () => {
     const events: LocalChatEventRecord[] = [
       {
         _id: "event-1",
         timestamp: 1_000,
-        type: "tool_result",
+        type: "assistant_message",
         payload: {
-          toolName: "apply_patch",
-          fileChanges: [
-            { path: "/repo/src/original.ts", kind: { type: "update" } },
-            {
-              path: "/repo/src/old.ts",
-              kind: { type: "update", move_path: "/repo/src/moved.ts" },
-            },
-          ],
+          text: "[original](/repo/src/original.ts) [moved](/repo/src/moved.ts)",
         },
       },
       {
@@ -25,9 +18,7 @@ describe("mobile display read file policy", () => {
         timestamp: 2_000,
         type: "agent-completed",
         payload: {
-          producedFiles: [
-            { path: "/repo/out/report.pdf", kind: { type: "add" } },
-          ],
+          result: "[report](/repo/out/report.pdf)",
         },
       },
     ];
@@ -43,7 +34,7 @@ describe("mobile display read file policy", () => {
     ).toBe(true);
   });
 
-  it("rejects unrecorded and deleted paths", () => {
+  it("rejects paths that were touched but not linked", () => {
     const events: LocalChatEventRecord[] = [
       {
         _id: "event-1",

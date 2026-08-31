@@ -1,17 +1,8 @@
 import { spawn } from "child_process";
 import path from "path";
-import os from "os";
 import { StringDecoder } from "node:string_decoder";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "fs";
-import { readdir, stat } from "fs/promises";
-import {
-  fileChange,
-  isNoiseProducedPath,
-  MAX_PRODUCED_FILES_PER_COMMAND,
-  type FileChangeRecord,
-  type ProducedFileRecord,
-} from "@stella/contracts/file-changes";
 import type {
   ToolContext,
   ToolResult,
@@ -27,8 +18,6 @@ import {
 } from "./head-tail-output-buffer.js";
 import { isDangerousCommand } from "./command-safety.js";
 import { getStellaComputerSessionId } from "./stella-computer-session.js";
-import { inferShellMentionedPaths } from "./path-inference.js";
-import { isKnownSafeCommand } from "./safe-commands.js";
 import { sanitizeToolVisibleText } from "./safety.js";
 import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import { purgeExpiredDeferredDeletes } from "./deferred-delete.js";
@@ -41,13 +30,6 @@ export type ShellState = {
 
   prunedSessions: Map<string, PrunedShellSession>;
 
-  prunedProducedFiles: Map<
-    string,
-    {
-      prunedAt: number;
-      pending: Promise<ProducedFileRecord[] | undefined>;
-    }
-  >;
   secretStateRoot: string;
   stellaBrowserBinPath?: string;
   stellaOfficeBinPath?: string;
@@ -129,10 +111,6 @@ type ManagedShellRecord = ShellRecord & {
   pty?: SpawnedPtyShell;
   stdinOpen: boolean;
   owner?: ShellSessionOwner;
-  startSnapshot?: FileSnapshot | null;
-  externalCandidateSnapshots?: ExternalCandidateSnapshot[];
-  producedFilesReported?: boolean;
-  producedFilesCollection?: Promise<ProducedFileRecord[] | undefined>;
 
   outputCursorBytes: number;
 
@@ -158,33 +136,6 @@ type PrunedShellSession = {
   owner?: ShellSessionOwner;
 };
 
-type FileSnapshotEntry = {
-  size: number;
-  mtimeMs: number;
-};
-
-type FileSnapshot = {
-  root: string;
-  files: Map<string, FileSnapshotEntry>;
-  complete: boolean;
-};
-
-type ExternalCandidateSnapshot =
-  | {
-      path: string;
-      kind: "missing";
-    }
-  | {
-      path: string;
-      kind: "file";
-      entry: FileSnapshotEntry;
-    }
-  | {
-      path: string;
-      kind: "directory";
-      snapshot: FileSnapshot | null;
-    };
-
 export const DEFAULT_EXEC_YIELD_MS = 10_000;
 export const DEFAULT_WRITE_STDIN_YIELD_MS = 250;
 const MAX_EXEC_YIELD_MS = 30_000;
@@ -198,26 +149,8 @@ export const MAX_RETAINED_COMPLETED_SHELLS = 64;
 const MAX_PRUNED_SESSION_RECEIPTS = 16;
 export const COMPLETED_SHELL_TTL_MS = 30 * 60_000;
 export const PRUNED_SHELL_RECEIPT_TTL_MS = 10 * 60_000;
-const PRUNED_PRODUCED_FILES_TTL_MS = 30 * 60_000;
 const MAX_ACCEPTED_WRITE_IDS = 256;
 const ACCEPTED_WRITE_ID_TTL_MS = 10 * 60_000;
-const MAX_SNAPSHOT_FILES = 20_000;
-const SNAPSHOT_IGNORED_DIRS = new Set([
-  ".git",
-  ".hg",
-  ".svn",
-  "node_modules",
-  ".next",
-  ".turbo",
-  "target",
-  "dist",
-  "build",
-  "coverage",
-  ".cache",
-  "electron-user-data",
-
-  "dist-electron",
-]);
 
 const APPROX_BYTES_PER_TOKEN = 4;
 
@@ -226,326 +159,6 @@ export const approxTokenCount = (text: string): number =>
 
 const OFFICE_PREVIEW_REF_MARKER = "__STELLA_OFFICE_PREVIEW_REF__";
 const DEFERRED_DELETE_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
-
-const normalizeSnapshotRoot = (cwd: string): string | null => {
-  const resolved = path.resolve(cwd);
-  try {
-    if (!existsSync(resolved)) return null;
-  } catch {
-    return null;
-  }
-  return resolved;
-};
-
-const shouldSkipSnapshotDir = (relativeDir: string): boolean => {
-  const normalized = relativeDir.split(path.sep).join("/");
-  return (
-    SNAPSHOT_IGNORED_DIRS.has(normalized) ||
-    normalized.split("/").some((segment) => SNAPSHOT_IGNORED_DIRS.has(segment))
-  );
-};
-
-const snapshotFiles = async (
-  cwd: string,
-  signal?: AbortSignal,
-): Promise<FileSnapshot | null> => {
-  const root = normalizeSnapshotRoot(cwd);
-  if (!root) return null;
-
-  const files = new Map<string, FileSnapshotEntry>();
-  let complete = true;
-
-  const walk = async (dir: string): Promise<void> => {
-    if (!complete || signal?.aborted) {
-      complete = false;
-      return;
-    }
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      if (!complete || signal?.aborted) {
-        complete = false;
-        return;
-      }
-      const fullPath = path.join(dir, entry.name);
-      const relativePath = path.relative(root, fullPath);
-      if (entry.isDirectory()) {
-        if (!shouldSkipSnapshotDir(relativePath)) {
-          await walk(fullPath);
-        }
-        continue;
-      }
-      if (!entry.isFile()) continue;
-      if (files.size >= MAX_SNAPSHOT_FILES) {
-        complete = false;
-        return;
-      }
-      try {
-        const info = await stat(fullPath);
-        files.set(fullPath, {
-          size: info.size,
-          mtimeMs: info.mtimeMs,
-        });
-      } catch {
-
-      }
-    }
-  };
-
-  await walk(root);
-  return { root, files, complete };
-};
-
-const resolveShellSnapshotRoot = (
-  cwd: string,
-  context?: ToolContext,
-): string => {
-  const resolvedCwd = normalizeSnapshotRoot(cwd);
-  const resolvedStellaAppDir = context?.stellaAppDir?.trim()
-    ? normalizeSnapshotRoot(context.stellaAppDir)
-    : null;
-  if (
-    resolvedCwd &&
-    resolvedStellaAppDir &&
-    (resolvedCwd === resolvedStellaAppDir ||
-      resolvedCwd.startsWith(`${resolvedStellaAppDir}${path.sep}`))
-  ) {
-    return resolvedStellaAppDir;
-  }
-  return resolvedCwd ?? cwd;
-};
-
-const isSameOrInsidePath = (candidate: string, root: string): boolean => {
-  const relative = path.relative(root, candidate);
-  return (
-    relative === "" ||
-    (!relative.startsWith("..") && !path.isAbsolute(relative))
-  );
-};
-
-const isBroadExternalCandidate = (candidate: string): boolean => {
-  const resolved = path.resolve(candidate);
-  return (
-    resolved === path.parse(resolved).root ||
-    resolved === os.homedir() ||
-    resolved === path.dirname(os.homedir())
-  );
-};
-
-const diffFileSnapshots = (
-  before: FileSnapshot | null,
-  after: FileSnapshot | null,
-): FileChangeRecord[] | undefined => {
-  if (
-    !before ||
-    !after ||
-    !before.complete ||
-    !after.complete ||
-    before.root !== after.root
-  ) {
-    return undefined;
-  }
-  const changes: FileChangeRecord[] = [];
-  for (const [filePath, afterEntry] of after.files) {
-    const beforeEntry = before.files.get(filePath);
-    if (!beforeEntry) {
-      changes.push(fileChange(filePath, { type: "add" }));
-      continue;
-    }
-    if (
-      beforeEntry.size !== afterEntry.size ||
-      beforeEntry.mtimeMs !== afterEntry.mtimeMs
-    ) {
-      changes.push(fileChange(filePath, { type: "update" }));
-    }
-  }
-  for (const filePath of before.files.keys()) {
-    if (!after.files.has(filePath)) {
-      changes.push(fileChange(filePath, { type: "delete" }));
-    }
-  }
-  return changes.length > 0 ? changes : undefined;
-};
-
-const snapshotExternalCandidate = async (
-  candidatePath: string,
-  signal?: AbortSignal,
-): Promise<ExternalCandidateSnapshot> => {
-  try {
-    const info = await stat(candidatePath);
-    if (info.isDirectory()) {
-      return {
-        path: candidatePath,
-        kind: "directory",
-        snapshot: await snapshotFiles(candidatePath, signal),
-      };
-    }
-    if (info.isFile()) {
-      return {
-        path: candidatePath,
-        kind: "file",
-        entry: {
-          size: info.size,
-          mtimeMs: info.mtimeMs,
-        },
-      };
-    }
-  } catch {
-
-  }
-  return { path: candidatePath, kind: "missing" };
-};
-
-const snapshotExternalCandidates = async (
-  candidatePaths: string[],
-  snapshotRoot: string,
-  signal?: AbortSignal,
-): Promise<ExternalCandidateSnapshot[] | undefined> => {
-  const root = path.resolve(snapshotRoot);
-  const paths = [
-    ...new Set(candidatePaths.map((candidate) => path.resolve(candidate))),
-  ].filter(
-    (candidate) =>
-      !isSameOrInsidePath(candidate, root) &&
-      !isBroadExternalCandidate(candidate),
-  );
-  if (paths.length === 0) return undefined;
-  return Promise.all(
-    paths.map((candidate) => snapshotExternalCandidate(candidate, signal)),
-  );
-};
-
-const diffExternalCandidateSnapshots = async (
-  beforeSnapshots: ExternalCandidateSnapshot[] | undefined,
-): Promise<ProducedFileRecord[] | undefined> => {
-  if (!beforeSnapshots || beforeSnapshots.length === 0) return undefined;
-  const changes: ProducedFileRecord[] = [];
-
-  for (const before of beforeSnapshots) {
-    const after = await snapshotExternalCandidate(before.path);
-    if (after.kind === "missing") {
-      if (before.kind !== "missing") {
-        changes.push(fileChange(before.path, { type: "delete" }));
-      }
-      continue;
-    }
-
-    if (after.kind === "file") {
-      if (before.kind !== "file") {
-        changes.push(fileChange(after.path, { type: "add" }));
-        continue;
-      }
-      if (
-        before.entry.size !== after.entry.size ||
-        before.entry.mtimeMs !== after.entry.mtimeMs
-      ) {
-        changes.push(fileChange(after.path, { type: "update" }));
-      }
-      continue;
-    }
-
-    if (before.kind === "directory") {
-      changes.push(
-        ...(diffFileSnapshots(before.snapshot, after.snapshot) ?? []),
-      );
-      continue;
-    }
-    if (after.snapshot?.complete) {
-      for (const filePath of after.snapshot.files.keys()) {
-        changes.push(fileChange(filePath, { type: "add" }));
-      }
-    }
-  }
-
-  return changes.length > 0 ? changes : undefined;
-};
-
-const mergeProducedFiles = (
-  ...groups: Array<ProducedFileRecord[] | undefined>
-): ProducedFileRecord[] | undefined => {
-  const out: ProducedFileRecord[] = [];
-  const seen = new Set<string>();
-  for (const group of groups) {
-    if (!group) continue;
-    for (const file of group) {
-      if (isNoiseProducedPath(file.path)) continue;
-      const key = `${file.kind.type}:${file.path}:${file.kind.type === "update" ? (file.kind.move_path ?? "") : ""}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(file);
-    }
-  }
-  if (out.length > MAX_PRODUCED_FILES_PER_COMMAND) return undefined;
-  return out.length > 0 ? out : undefined;
-};
-
-const snapshotShellSideEffects = async (
-  args: Record<string, unknown>,
-  snapshotRoot: string,
-  context?: ToolContext,
-  signal?: AbortSignal,
-): Promise<{
-  rootSnapshot: FileSnapshot | null;
-  externalCandidateSnapshots?: ExternalCandidateSnapshot[];
-}> => {
-  const rootSnapshot = await snapshotFiles(snapshotRoot, signal);
-  const externalCandidateSnapshots = await snapshotExternalCandidates(
-    inferShellMentionedPaths(args, context),
-    snapshotRoot,
-    signal,
-  );
-  return { rootSnapshot, externalCandidateSnapshots };
-};
-
-const shouldSnapshotShellSideEffects = (command: string): boolean =>
-  !isKnownSafeCommand(command);
-
-const takeCompletedProducedFiles = async (
-  record: ManagedShellRecord,
-  signal?: AbortSignal,
-): Promise<ProducedFileRecord[] | undefined> => {
-  if (record.running || record.producedFilesReported) return undefined;
-  if (
-    !record.startSnapshot &&
-    (!record.externalCandidateSnapshots ||
-      record.externalCandidateSnapshots.length === 0)
-  ) {
-    record.producedFilesReported = true;
-    record.child = undefined;
-    record.pty = undefined;
-    return undefined;
-  }
-  if (!record.producedFilesCollection) {
-    const startSnapshot = record.startSnapshot;
-    const externalCandidateSnapshots = record.externalCandidateSnapshots;
-    record.producedFilesCollection = (async () =>
-      mergeProducedFiles(
-
-        startSnapshot
-          ? diffFileSnapshots(
-              startSnapshot,
-              await snapshotFiles(startSnapshot.root),
-            )
-          : undefined,
-        await diffExternalCandidateSnapshots(externalCandidateSnapshots),
-      ))().finally(() => {
-
-      record.startSnapshot = null;
-      record.externalCandidateSnapshots = undefined;
-      record.child = undefined;
-      record.pty = undefined;
-    });
-  }
-  const produced = await record.producedFilesCollection;
-  if (signal?.aborted || record.producedFilesReported) return undefined;
-  record.producedFilesReported = true;
-  record.producedFilesCollection = undefined;
-  return produced;
-};
 
 const retainPrunedSessionReceipt = (
   state: ShellState,
@@ -579,12 +192,6 @@ const pruneCompletedShellSessions = (
       state.prunedSessions.delete(id);
     }
   }
-  for (const [id, recovery] of state.prunedProducedFiles) {
-    if (now - recovery.prunedAt >= PRUNED_PRODUCED_FILES_TTL_MS) {
-      state.prunedProducedFiles.delete(id);
-    }
-  }
-
   const completed = [...state.shells.values()]
     .filter((record) => !record.running)
     .sort(
@@ -600,12 +207,6 @@ const pruneCompletedShellSessions = (
     if (!expired && retainedCompleted <= MAX_RETAINED_COMPLETED_SHELLS) break;
     if (record.pendingInteractions > 0) continue;
 
-    if (!record.producedFilesReported) {
-      state.prunedProducedFiles.set(record.id, {
-        prunedAt: now,
-        pending: takeCompletedProducedFiles(record).catch(() => undefined),
-      });
-    }
     retainPrunedSessionReceipt(state, record, now);
     state.shells.delete(record.id);
     retainedCompleted -= 1;
@@ -616,32 +217,6 @@ export const cleanupShellSessions = (
   state: ShellState,
   now = Date.now(),
 ): void => pruneCompletedShellSessions(state, now);
-
-export const drainCompletedProducedFiles = async (
-  state: ShellState,
-  sessionIds?: Iterable<string>,
-): Promise<ProducedFileRecord[]> => {
-  const requestedIds = sessionIds ? [...new Set(sessionIds)] : undefined;
-  const records = requestedIds
-    ? requestedIds
-        .map((id) => state.shells.get(id))
-        .filter((record): record is ManagedShellRecord => Boolean(record))
-    : [...state.shells.values()];
-  const drained: ProducedFileRecord[] = [];
-  for (const record of records) {
-    const produced = await takeCompletedProducedFiles(record);
-    if (produced) drained.push(...produced);
-  }
-  const prunedIds = requestedIds ?? [...state.prunedProducedFiles.keys()];
-  for (const id of prunedIds) {
-    const recovery = state.prunedProducedFiles.get(id);
-    if (!recovery) continue;
-    const produced = await recovery.pending;
-    state.prunedProducedFiles.delete(id);
-    if (produced) drained.push(...produced);
-  }
-  return drained;
-};
 
 export const extractOfficePreviewRef = (
   output: string,
@@ -793,7 +368,6 @@ export function createShellState(
     shells: new Map(),
     workerGeneration: crypto.randomUUID().slice(0, 8),
     prunedSessions: new Map(),
-    prunedProducedFiles: new Map(),
     secretStateRoot,
     stellaBrowserBinPath: options?.stellaBrowserBinPath,
     stellaOfficeBinPath: options?.stellaOfficeBinPath,
@@ -1878,8 +1452,6 @@ export const startShell = (
   cwd: string,
   envOverrides?: Record<string, string>,
   onClose?: () => void,
-  startSnapshot?: FileSnapshot | null,
-  externalCandidateSnapshots?: ExternalCandidateSnapshot[],
   onActivity?: (record: ManagedShellRecord, delta?: ShellOutputDelta) => void,
   launchOptions: ShellLaunchOptions = {},
 ) => {
@@ -1906,8 +1478,6 @@ export const startShell = (
       waiters: new Set(),
       exitWatchers: new Set(),
       stdinOpen: false,
-      startSnapshot,
-      externalCandidateSnapshots,
       kill: () => {},
       outputCursorBytes: Buffer.byteLength(safeLaunchError, "utf8"),
       unreadCursorStart: 0,
@@ -1945,8 +1515,6 @@ export const startShell = (
     waiters: new Set(),
     exitWatchers: new Set(),
     stdinOpen: false,
-    startSnapshot,
-    externalCandidateSnapshots,
     kill: () => {},
     outputCursorBytes: 0,
     unreadCursorStart: 0,
@@ -2648,40 +2216,6 @@ export const handleExecCommand = async (
   if (!prepared.command.trim()) {
     return { error: "cmd is required." };
   }
-  let beforeSideEffects: {
-    rootSnapshot: FileSnapshot | null;
-    externalCandidateSnapshots?: ExternalCandidateSnapshot[];
-  } = { rootSnapshot: null };
-  if (shouldSnapshotShellSideEffects(prepared.command)) {
-    const snapshotAbort = new AbortController();
-    const snapshotOutcome = await runUntilExecDeadline(
-      () =>
-        snapshotShellSideEffects(
-          { cmd: prepared.command, workdir: prepared.cwd },
-          resolveShellSnapshotRoot(prepared.cwd, context),
-          context,
-          snapshotAbort.signal,
-        ),
-      deadlineAt,
-      signal,
-    );
-    if (snapshotOutcome.status === "completed") {
-      beforeSideEffects = snapshotOutcome.value;
-    } else {
-      snapshotAbort.abort(
-        snapshotOutcome.status === "aborted"
-          ? snapshotOutcome.error
-          : new Error("exec_command pre-snapshot deadline reached"),
-      );
-      if (snapshotOutcome.status === "aborted") {
-        return { error: toolErrorMessage(snapshotOutcome.error) };
-      }
-      if (snapshotOutcome.status === "failed") {
-        throw snapshotOutcome.error;
-      }
-
-    }
-  }
   let emittedUpdateChunks = 0;
   const emitOneUpdate = (
     record: ManagedShellRecord,
@@ -2726,8 +2260,6 @@ export const handleExecCommand = async (
     prepared.cwd,
     prepared.envOverrides,
     undefined,
-    beforeSideEffects.rootSnapshot,
-    beforeSideEffects.externalCandidateSnapshots,
     emitUpdate,
     prepared.launchOptions,
   );
@@ -2764,36 +2296,10 @@ export const handleExecCommand = async (
 
     const drained = drainUnreadOutput(record);
     const payload = buildExecToolPayload(state, record, drained, callStartedAt);
-    let producedFiles: ProducedFileRecord[] | undefined;
-    if (!record.running) {
-      const collectionDelivery = new AbortController();
-      const collectionOutcome = await runUntilExecDeadline(
-        () => takeCompletedProducedFiles(record, collectionDelivery.signal),
-        deadlineAt,
-        signal,
-      );
-      if (collectionOutcome.status === "completed") {
-        producedFiles = collectionOutcome.value;
-      } else {
-        collectionDelivery.abort(
-          collectionOutcome.status === "aborted"
-            ? collectionOutcome.error
-            : new Error("exec_command post-snapshot deadline reached"),
-        );
-        if (collectionOutcome.status === "aborted") {
-          return { error: toolErrorMessage(collectionOutcome.error) };
-        }
-        if (collectionOutcome.status === "failed") {
-          throw collectionOutcome.error;
-        }
-
-      }
-    }
     return {
       result: formatExecToolResult(payload, drained),
       details: buildExecToolDetails(payload, drained),
       modelOutputTokens,
-      ...(producedFiles ? { producedFiles } : {}),
     };
   } finally {
     interaction.release();
@@ -2968,12 +2474,10 @@ export const handleWriteStdin = async (
       callStartedAt,
       receipt,
     );
-    const producedFiles = await takeCompletedProducedFiles(record, signal);
     return {
       result: formatExecToolResult(payload, drained),
       details: buildExecToolDetails(payload, drained),
       modelOutputTokens,
-      ...(producedFiles ? { producedFiles } : {}),
     };
   } finally {
     record.activeInteractionReceipt = undefined;
@@ -3003,21 +2507,11 @@ export const handleBash = async (
   const envOverrides = prepared.envOverrides;
 
   if (runInBackground) {
-    const beforeSideEffects = shouldSnapshotShellSideEffects(command)
-      ? await snapshotShellSideEffects(
-          { cmd: command, workdir: cwd },
-          resolveShellSnapshotRoot(cwd, context),
-          context,
-        )
-      : { rootSnapshot: null };
     const record = startShell(
       state,
       command,
       cwd,
       envOverrides,
-      undefined,
-      beforeSideEffects.rootSnapshot,
-      beforeSideEffects.externalCandidateSnapshots,
     );
     setShellOwner(record, context);
     const extracted = extractOfficePreviewRef(record.output || "");
@@ -3038,35 +2532,10 @@ export const handleBash = async (
     };
   }
 
-  const shouldSnapshotSideEffects = shouldSnapshotShellSideEffects(command);
-  const snapshotRoot = shouldSnapshotSideEffects
-    ? resolveShellSnapshotRoot(cwd, context)
-    : null;
-  const beforeSideEffects =
-    shouldSnapshotSideEffects && snapshotRoot
-      ? await snapshotShellSideEffects(
-          { cmd: command, workdir: cwd },
-          snapshotRoot,
-          context,
-        )
-      : { rootSnapshot: null };
   const output = await runShell(state, command, cwd, timeout, envOverrides);
-  const producedFiles =
-    shouldSnapshotSideEffects && snapshotRoot
-      ? mergeProducedFiles(
-          diffFileSnapshots(
-            beforeSideEffects.rootSnapshot,
-            await snapshotFiles(snapshotRoot),
-          ),
-          await diffExternalCandidateSnapshots(
-            beforeSideEffects.externalCandidateSnapshots,
-          ),
-        )
-      : undefined;
   const extracted = extractOfficePreviewRef(sanitizeToolVisibleText(output));
   return {
     result: truncate(extracted.cleanedOutput),
-    ...(producedFiles ? { producedFiles } : {}),
     ...(extracted.officePreviewRef
       ? {
           details: {
@@ -3124,11 +2593,7 @@ export const handleShellStatus = async (
   result += `\nCommand: ${record.command.slice(0, 200)}`;
   result += `\n\n--- Output (last ${Math.min(tail_lines, lines.length)} lines) ---\n${tail}`;
 
-  const producedFiles = await takeCompletedProducedFiles(record);
-  return {
-    result,
-    ...(producedFiles ? { producedFiles } : {}),
-  };
+  return { result };
 };
 
 export const handleKillShell = async (

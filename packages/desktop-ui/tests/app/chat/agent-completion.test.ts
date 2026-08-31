@@ -50,13 +50,15 @@ const completed = (
     type: "agent-completed",
     payload: {
       agentId,
-      result: "done",
+      result: paths.length
+        ? paths.map((path, index) => `[file ${index + 1}](${path})`).join(" ")
+        : "done",
       producedFiles: paths.map((path) => ({ kind: { type: "add" }, path })),
     },
   });
 
 describe("deriveAgentCompletionFiles", () => {
-  it("groups produced files per agent from a row's agent-completed events", () => {
+  it("groups response-linked files per agent from agent-completed events", () => {
     const files = deriveAgentCompletionFiles([
       completed("a1", ["/out/report.md"]),
       completed("a2", ["/out/chart.png", "/out/data.csv"]),
@@ -371,13 +373,21 @@ describe("buildAgentCompletionSections", () => {
     expect(/[\uD800-\uDBFF]…$/.test(summary)).toBe(false);
   });
 
-  it("a noise-only producedFiles rollup still yields a (fileless) section", () => {
+  it("unlinked producedFiles metadata still yields a fileless section", () => {
     const sections = buildAgentCompletionSections(
       [
-        completed("a1", [
-          "/Users/me/stella/.stella-launch.log",
-          "/Users/me/.stella/outputs/demos/.brave-profile/Local State",
-        ]),
+        ev({
+          _id: "completed:a1:100",
+          timestamp: 100,
+          type: "agent-completed",
+          payload: {
+            agentId: "a1",
+            result: "done",
+            producedFiles: [
+              { path: "/Users/me/stella/.stella-launch.log" },
+            ],
+          },
+        }),
       ],
       new Map(),
     );
@@ -387,14 +397,23 @@ describe("buildAgentCompletionSections", () => {
     expect(sections[0]!.summary).toBe("done");
   });
 
-  it("drops profile/log noise from a completion's producedFiles pills", () => {
+  it("shows only the deliverable linked by the completion response", () => {
     const sections = buildAgentCompletionSections(
       [
-        completed("a1", [
-          "/Users/me/stella/.stella-launch.log",
-          "/Users/me/.stella/outputs/demos/.brave-profile/Local State",
-          "/Users/me/.stella/outputs/demos/demo1.mp4",
-        ]),
+        ev({
+          _id: "completed:a1:100",
+          timestamp: 100,
+          type: "agent-completed",
+          payload: {
+            agentId: "a1",
+            result:
+              "[demo](/Users/me/.stella/outputs/demos/demo1.mp4)",
+            producedFiles: [
+              { path: "/Users/me/stella/.stella-launch.log" },
+              { path: "/Users/me/.stella/outputs/demos/demo1.mp4" },
+            ],
+          },
+        }),
       ],
       new Map(),
     );

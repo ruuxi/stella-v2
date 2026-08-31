@@ -84,8 +84,9 @@ describe("loadParsedAgentsFromDir", () => {
 
     for (const agentId of ["orchestrator", "orchestrator-orchestrated"]) {
       const prompt = agents.find((agent) => agent.id === agentId)?.systemPrompt;
-      expect(prompt).toContain("Link URLs in markdown.");
-      expect(prompt).toContain("`stella://file/<absolute path>`");
+      expect(prompt).toContain("At the end of your final response");
+      expect(prompt).toContain("[name](</absolute/path>)");
+      expect(prompt).toContain("only files the user should open");
     }
   });
 

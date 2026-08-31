@@ -23,12 +23,9 @@ describe("mobile office preview policy", () => {
       {
         _id: "event-1",
         timestamp: 1_000,
-        type: "tool_result",
+        type: "assistant_message",
         payload: {
-          fileChanges: [
-            { path: "/repo/report.docx", kind: { type: "add" } },
-            { path: "/repo/deleted.docx", kind: { type: "delete" } },
-          ],
+          text: "[report](/repo/report.docx)",
         },
       },
     ];

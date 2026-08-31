@@ -100,7 +100,6 @@ import {
   DEFAULT_ASSISTANT_WORKING_MODE,
   type AssistantWorkingMode,
 } from "@stella/contracts/local-preferences";
-import { fileChange } from "@stella/contracts/file-changes";
 import { prepareStoredLocalChatPayload } from "../kernel/storage/local-chat-payload.js";
 import { getAssistantWorkingMode } from "../kernel/preferences/local-preferences.js";
 import { collectAllSignals } from "../discovery/collect-all.js";
@@ -1802,12 +1801,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
                 result: details ?? ev.resultPreview,
                 resultPreview: ev.resultPreview,
                 ...(details ? details : {}),
-                ...(ev.fileChanges?.length
-                  ? { fileChanges: ev.fileChanges }
-                  : {}),
-                ...(ev.producedFiles?.length
-                  ? { producedFiles: ev.producedFiles }
-                  : {}),
                 ...(ev.agentType ? { agentType: ev.agentType } : {}),
 
                 ...(ev.agentId ? { agentId: ev.agentId } : {}),
@@ -2474,13 +2467,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
           "html",
           `${slug}.html`,
         );
-        let kind: "add" | "update" = "add";
-        try {
-          await fsPromises.access(filePath);
-          kind = "update";
-        } catch {
-          kind = "add";
-        }
         await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
         await fsPromises.writeFile(filePath, reportHtml, "utf8");
         const bytes = Buffer.byteLength(reportHtml, "utf8");
@@ -2505,7 +2491,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
             title: reportTitle,
             createdAt: timestamp,
             bytes,
-            fileChanges: [fileChange(filePath, { type: kind })],
             agentType: AGENT_IDS.ORCHESTRATOR,
           },
         });

@@ -9,7 +9,6 @@ export declare const buildPayloadFromBarePath: (
   filePath: string,
   createdAt: number,
   options?: {
-    produced?: boolean;
     developerResourcesEnabled?: boolean;
     patch?: string;
   },
@@ -19,7 +18,7 @@ export declare const extractMarkdownLinkPaths: (
 ) => string[];
 export declare const collectTurnSourceDiffPayloads: (
   toolEvents: EventRecord[],
-  options?: { developerResourcesEnabled?: boolean },
+  options?: { developerResourcesEnabled?: boolean; assistantText?: string },
 ) => DisplayPayload[];
 export declare const deriveTurnResource: (
   toolEvents: EventRecord[],

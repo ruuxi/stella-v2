@@ -1,21 +1,16 @@
 /**
  * Per-agent completion card derivation.
  *
- * A delegated agent's produced files ride a single `agent-completed` event
- * (which carries `agentId`, `result`, `fileChanges[]`, `producedFiles[]`). The
+ * A delegated agent's user-facing files are linked in the `result` of its
+ * `agent-completed` event. The
  * background-task lifecycle selector folds that payload back onto the card
  * created by the matching `agent-started` occurrence, so completion enriches
  * the existing spawn-anchored card instead of inserting another timeline row.
  *
  * Two structural facts make this clean and append-only by construction:
- *   1. Each `agent-completed` event carries ONLY files not yet revealed by an
- *      earlier completion: the manager banks every run's collected records
- *      (including runs a `send_input` follow-up aborted before their rollup
- *      could fire) and drains the bank when a completion event is actually
- *      emitted. A `send_input` re-run's completion therefore lands on a LATER
- *      row with the files produced since the last emitted rollup — never
- *      re-showing what an earlier completion already revealed, and never
- *      losing what an interrupted run produced.
+ *   1. The response itself is the source of truth, so intermediate tool and
+ *      scratch files never become completion-card artifacts unless the agent
+ *      deliberately links them.
  *   2. Each `agent-completed` event attaches to exactly one message row (see
  *      `group-events-into-messages`) — though during the SQLite/stream
  *      handoff the same underlying event can briefly be projected onto both

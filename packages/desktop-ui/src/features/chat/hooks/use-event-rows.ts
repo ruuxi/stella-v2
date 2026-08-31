@@ -641,6 +641,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         const mapArtifacts = deriveTurnMapArtifacts(toolEvents);
         const sourceDiffPayloads = collectTurnSourceDiffPayloads(toolEvents, {
           developerResourcesEnabled: developerResourcePreviewsEnabled,
+          assistantText: text,
         });
         const officePreviewRef = getOfficePreviewRef(toolEvents);
         const voiceSession = payload?.metadata?.voiceSession;

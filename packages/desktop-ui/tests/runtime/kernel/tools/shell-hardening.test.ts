@@ -643,30 +643,4 @@ describe("shell hardening", () => {
     expect(mocks.readdir).not.toHaveBeenCalled();
   });
 
-  it("does not let a stalled completion snapshot exceed the original yield deadline", async () => {
-    const root = createTempDir();
-    mocks.readdir
-      .mockImplementationOnce(async () => [])
-      .mockImplementationOnce(() => new Promise<never>(() => undefined));
-    const startedAt = Date.now();
-
-    const result = await handleExecCommand(
-      createShellState(root),
-      {
-        cmd: "printf artifact > completed.txt",
-        workdir: root,
-        yield_time_ms: 50,
-      },
-      {
-        conversationId: "c-slow-post-snapshot",
-        deviceId: "d-slow-post-snapshot",
-        requestId: "r-slow-post-snapshot",
-        stellaAppDir: root,
-      },
-    );
-
-    expect(Date.now() - startedAt).toBeLessThan(500);
-    expect(result.error).toBeUndefined();
-    expect(result.details).toMatchObject({ running: false, exit_code: 0 });
-  });
 });

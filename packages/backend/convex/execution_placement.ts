@@ -31,6 +31,7 @@ import {
   executionDispatchStateValidator,
   executionIngressValidator,
   executionPlacementValidator,
+  executionPresenceTransportValidator,
   executionRequestKindValidator,
   executionSubjectValidator,
   executionTargetModeValidator,
@@ -52,6 +53,8 @@ export const EXECUTION_PURGE_CANCEL_GRACE_MS =
 export const EXECUTION_PAYLOAD_TTL_MS = 15 * 60_000;
 export const EXECUTION_ROUTING_POLICY_VERSION = 2;
 export const EXECUTION_PROTOCOL_VERSION = 1;
+export const EXECUTION_SOCKET_CONFIRMATION_LEASE_MS = 30_000;
+export const EXECUTION_SOCKET_MAX_AUTH_LEASE_MS = 2 * 60 * 60_000;
 
 const MAX_DEVICE_ID_LENGTH = 256;
 const MAX_SESSION_ID_LENGTH = 128;
@@ -83,6 +86,7 @@ type NoEligibleComputerAction = "cloud" | "blocked";
 type DeviceProofOperation =
   | "presence-register"
   | "presence-heartbeat"
+  | "presence-socket-connect"
   | "presence-drain"
   | "presence-clear"
   | "execution-submit"
@@ -744,6 +748,18 @@ const hasCapabilities = (
   required: readonly ExecutionCapability[],
 ) => required.every((capability) => presence.capabilities.includes(capability));
 
+const presenceIsOnline = (
+  presence: Doc<"desktop_execution_presence">,
+  now: number,
+) =>
+  presence.presenceTransport === "socket"
+    ? Boolean(
+        presence.socketConnectionId &&
+          presence.socketLeaseExpiresAt &&
+          presence.socketLeaseExpiresAt > now,
+      )
+    : presence.leaseExpiresAt > now;
+
 const findEligiblePairedPresence = async (
   ctx: QueryCtx,
   args: {
@@ -781,7 +797,7 @@ const findEligiblePairedPresence = async (
       !presence ||
       presence.ownerGeneration !== args.ownerGeneration ||
       presence.status !== "ready" ||
-      presence.leaseExpiresAt <= args.now ||
+      !presenceIsOnline(presence, args.now) ||
       presence.protocolVersion !== EXECUTION_PROTOCOL_VERSION ||
       !hasCapabilities(presence, args.requiredCapabilities)
     ) {
@@ -820,7 +836,7 @@ const findEligibleOwnedPresence = async (
     !presence ||
     presence.ownerGeneration !== args.ownerGeneration ||
     presence.status !== "ready" ||
-    presence.leaseExpiresAt <= args.now ||
+    !presenceIsOnline(presence, args.now) ||
     presence.protocolVersion !== EXECUTION_PROTOCOL_VERSION ||
     !hasCapabilities(presence, args.requiredCapabilities)
   ) {
@@ -1389,7 +1405,7 @@ export const submitMyDesktopExecution = mutation({
       signature: args.signature,
     });
     const now = Date.now();
-    if (proof.presence.leaseExpiresAt <= now) {
+    if (!presenceIsOnline(proof.presence, now)) {
       forbidden("This desktop execution presence is no longer live.");
     }
     let payload: unknown;
@@ -1451,15 +1467,27 @@ export const getMyExecutionPlacementIdentity = query({
     ownerGeneration: v.string(),
     protocolVersion: v.number(),
     serverTime: v.number(),
+    presenceSocketBaseUrl: v.optional(v.string()),
   }),
   handler: async (ctx) => {
     const ownerId = await requirePlacementOwner(ctx);
     const lifecycle = await assertOwnerMigrationWriteAllowed(ctx, ownerId);
+    // Coordinate rollout: a new desktop must not stop its legacy heartbeat
+    // until the Worker route and Durable Object migration are deployed.
+    const builderUrl =
+      process.env.EXECUTION_PRESENCE_SOCKET_ENABLED === "1"
+        ? process.env.CLOUD_BUILDER_URL?.trim().replace(/\/+$/, "")
+        : undefined;
+    const presenceSocketBaseUrl =
+      builderUrl && /^https:\/\/[^/]+$/u.test(builderUrl)
+        ? `${builderUrl.replace(/^https:/u, "wss:")}/execution-devices`
+        : undefined;
     return {
       ownerId,
       ownerGeneration: lifecycle.generation,
       protocolVersion: EXECUTION_PROTOCOL_VERSION,
       serverTime: Date.now(),
+      ...(presenceSocketBaseUrl ? { presenceSocketBaseUrl } : {}),
     };
   },
 });
@@ -1491,7 +1519,7 @@ export const listMyExecutionDestinations = query({
       const online = Boolean(
         presence &&
         presence.ownerGeneration === lifecycle.generation &&
-        presence.leaseExpiresAt > now,
+        presenceIsOnline(presence, now),
       );
       const ready = Boolean(
         online &&
@@ -1561,6 +1589,7 @@ export const registerMyExecutionPresence = mutation({
     appVersion: v.string(),
     deviceName: v.optional(v.string()),
     platform: v.optional(v.string()),
+    presenceTransport: v.optional(executionPresenceTransportValidator),
     capabilities: v.array(executionCapabilityValidator),
     status: v.union(v.literal("ready"), v.literal("draining")),
     sequence: v.number(),
@@ -1638,6 +1667,7 @@ export const registerMyExecutionPresence = mutation({
       agentSlotCapacity,
       availableChatSlots,
       availableAgentSlots,
+      ...(args.presenceTransport ? [args.presenceTransport] : []),
       ...(deviceName || platform ? [deviceName ?? null, platform ?? null] : []),
     ]);
     if (!constantTimeEqual(expectedBodyHash, args.bodyHash)) {
@@ -1727,6 +1757,9 @@ export const registerMyExecutionPresence = mutation({
       agentSlotCapacity,
       availableChatSlots,
       availableAgentSlots,
+      ...(args.presenceTransport
+        ? { presenceTransport: args.presenceTransport }
+        : {}),
       leaseExpiresAt,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -1800,7 +1833,10 @@ export const heartbeatMyExecutionPresence = mutation({
       signature: args.signature,
     });
     const now = Date.now();
-    const leaseExpiresAt = now + EXECUTION_PRESENCE_LEASE_MS;
+    const leaseExpiresAt =
+      proof.presence.presenceTransport === "socket"
+        ? proof.presence.leaseExpiresAt
+        : now + EXECUTION_PRESENCE_LEASE_MS;
     if (!proof.replayed) {
       await ctx.db.patch(proof.presence._id, {
         status: args.status,
@@ -1825,6 +1861,182 @@ export const heartbeatMyExecutionPresence = mutation({
         : leaseExpiresAt,
       replayed: proof.replayed,
     };
+  },
+});
+
+export const connectMyExecutionPresenceSocket = mutation({
+  args: {
+    ownerGeneration: v.string(),
+    deviceId: v.string(),
+    presenceSessionId: v.string(),
+    sequence: v.number(),
+    connectionId: v.string(),
+    nonce: v.string(),
+    bodyHash: v.string(),
+    signature: v.string(),
+  },
+  returns: v.object({ ok: v.literal(true), replayed: v.boolean() }),
+  handler: async (ctx, args) => {
+    const ownerId = await requirePlacementOwner(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId, args.ownerGeneration);
+    const connectionId = boundedTrimmed(args.connectionId, "connectionId", 128);
+    const nonce = boundedTrimmed(args.nonce, "nonce", 128);
+    const expectedBodyHash = await bodyHash([connectionId, nonce]);
+    if (!constantTimeEqual(expectedBodyHash, args.bodyHash)) {
+      conflict("Presence socket proof does not match its connection.");
+    }
+    const proof = await verifyExistingDeviceProof(ctx, {
+      ownerId,
+      ownerGeneration: args.ownerGeneration,
+      deviceId: args.deviceId,
+      presenceSessionId: args.presenceSessionId,
+      sequence: args.sequence,
+      operation: "presence-socket-connect",
+      bodyHash: expectedBodyHash,
+      signature: args.signature,
+    });
+    if (proof.presence.presenceTransport !== "socket") {
+      conflict("This execution presence does not use socket liveness.");
+    }
+    const replayed =
+      proof.replayed && proof.presence.socketConnectionId === connectionId;
+    if (proof.replayed && !replayed) {
+      conflict("The replayed socket proof no longer names this connection.");
+    }
+    if (!replayed) {
+      const now = Date.now();
+      const socketLeaseExpiresAt =
+        now + EXECUTION_SOCKET_CONFIRMATION_LEASE_MS;
+      await ctx.db.patch(proof.presence._id, {
+        socketConnectionId: connectionId,
+        socketConnectedAt: now,
+        socketLeaseExpiresAt,
+        proofSeq: proof.sequence,
+        lastProofOperation: "presence-socket-connect",
+        lastProofBodyHash: expectedBodyHash,
+        updatedAt: now,
+      });
+      await ctx.scheduler.runAt(
+        socketLeaseExpiresAt,
+        disconnectExecutionPresenceSocketRef,
+        {
+          ownerId,
+          deviceId: proof.deviceId,
+          presenceSessionId: proof.presenceSessionId,
+          connectionId,
+          now: socketLeaseExpiresAt,
+          expectedLeaseExpiresAt: socketLeaseExpiresAt,
+        },
+      );
+    }
+    return { ok: true as const, replayed };
+  },
+});
+
+export const isExecutionPresenceSocketCurrentInternal = internalQuery({
+  args: {
+    ownerId: v.string(),
+    deviceId: v.string(),
+    presenceSessionId: v.string(),
+    connectionId: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const presence = await loadPresence(ctx, args.ownerId, args.deviceId);
+    return Boolean(
+      presence &&
+        presence.presenceTransport === "socket" &&
+        presence.presenceSessionId === args.presenceSessionId &&
+        presence.socketConnectionId === args.connectionId &&
+        presenceIsOnline(presence, Date.now()),
+    );
+  },
+});
+
+const disconnectExecutionPresenceSocketRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    deviceId: string;
+    presenceSessionId: string;
+    connectionId: string;
+    now: number;
+    expectedLeaseExpiresAt?: number;
+  }
+>("execution_placement:disconnectExecutionPresenceSocketInternal");
+
+export const confirmExecutionPresenceSocketInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    deviceId: v.string(),
+    presenceSessionId: v.string(),
+    connectionId: v.string(),
+    authExpiresAtMs: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const presence = await loadPresence(ctx, args.ownerId, args.deviceId);
+    const now = Date.now();
+    if (
+      !presence ||
+      presence.presenceTransport !== "socket" ||
+      presence.presenceSessionId !== args.presenceSessionId ||
+      presence.socketConnectionId !== args.connectionId ||
+      !Number.isSafeInteger(args.authExpiresAtMs) ||
+      args.authExpiresAtMs <= now ||
+      args.authExpiresAtMs > now + EXECUTION_SOCKET_MAX_AUTH_LEASE_MS
+    ) {
+      return false;
+    }
+    await ctx.db.patch(presence._id, {
+      socketLeaseExpiresAt: args.authExpiresAtMs,
+      updatedAt: now,
+    });
+    await ctx.scheduler.runAt(
+      args.authExpiresAtMs,
+      disconnectExecutionPresenceSocketRef,
+      {
+        ownerId: args.ownerId,
+        deviceId: args.deviceId,
+        presenceSessionId: args.presenceSessionId,
+        connectionId: args.connectionId,
+        now: args.authExpiresAtMs,
+        expectedLeaseExpiresAt: args.authExpiresAtMs,
+      },
+    );
+    return true;
+  },
+});
+
+export const disconnectExecutionPresenceSocketInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    deviceId: v.string(),
+    presenceSessionId: v.string(),
+    connectionId: v.string(),
+    now: v.number(),
+    expectedLeaseExpiresAt: v.optional(v.number()),
+  },
+  returns: v.object({ disconnected: v.boolean() }),
+  handler: async (ctx, args) => {
+    const presence = await loadPresence(ctx, args.ownerId, args.deviceId);
+    if (
+      !presence ||
+      presence.presenceTransport !== "socket" ||
+      presence.presenceSessionId !== args.presenceSessionId ||
+      presence.socketConnectionId !== args.connectionId ||
+      (args.expectedLeaseExpiresAt !== undefined &&
+        (presence.socketLeaseExpiresAt !== args.expectedLeaseExpiresAt ||
+          args.now < args.expectedLeaseExpiresAt))
+    ) {
+      return { disconnected: false };
+    }
+    await ctx.db.patch(presence._id, {
+      socketConnectionId: undefined,
+      socketLeaseExpiresAt: undefined,
+      updatedAt: args.now,
+    });
+    return { disconnected: true };
   },
 });
 
@@ -1982,6 +2194,8 @@ export const clearMyExecutionPresence = mutation({
       status: "draining",
       availableChatSlots: 0,
       availableAgentSlots: 0,
+      socketConnectionId: undefined,
+      socketLeaseExpiresAt: undefined,
       leaseExpiresAt: now,
       proofSeq: proof.sequence,
       lastProofOperation: "presence-clear",
@@ -2132,7 +2346,7 @@ export const claimMyExecutionOffer = mutation({
       }
       if (
         proof.presence.status !== "ready" ||
-        proof.presence.leaseExpiresAt <= now ||
+        !presenceIsOnline(proof.presence, now) ||
         !hasCapabilities(proof.presence, dispatch.requiredCapabilities)
       ) {
         conflict("This runtime is no longer eligible for the execution.");
@@ -2935,6 +3149,8 @@ export const quiesceOwnerExecutionPlacementForPurgeInternal = internalMutation({
         status: "draining",
         availableChatSlots: 0,
         availableAgentSlots: 0,
+        socketConnectionId: undefined,
+        socketLeaseExpiresAt: undefined,
         leaseExpiresAt: Math.min(presence.leaseExpiresAt, args.now),
         purgeOperationId: args.operationId,
         purgeGeneration: args.generation,
@@ -3215,6 +3431,8 @@ export const quiesceOwnerExecutionPlacementForMigrationInternal =
           status: "draining",
           availableChatSlots: 0,
           availableAgentSlots: 0,
+          socketConnectionId: undefined,
+          socketLeaseExpiresAt: undefined,
           leaseExpiresAt: Math.min(presence.leaseExpiresAt, args.now),
           migrationId: args.migrationId,
           updatedAt: args.now,

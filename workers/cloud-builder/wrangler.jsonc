@@ -124,6 +124,10 @@
         "name": "OWNER_TRANSFER_COORDINATORS",
         "class_name": "OwnerTransferCoordinator",
       },
+      {
+        "name": "DEVICE_PRESENCE",
+        "class_name": "DevicePresence",
+      },
     ],
   },
   "migrations": [
@@ -146,6 +150,10 @@
     {
       "tag": "v5",
       "new_sqlite_classes": ["AppBuildSandbox"],
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": ["DevicePresence"],
     },
   ],
   "env": {
@@ -251,6 +259,10 @@
             "name": "OWNER_TRANSFER_COORDINATORS",
             "class_name": "OwnerTransferCoordinator",
           },
+          {
+            "name": "DEVICE_PRESENCE",
+            "class_name": "DevicePresence",
+          },
         ],
       },
       "migrations": [
@@ -273,6 +285,10 @@
         {
           "tag": "v5",
           "new_sqlite_classes": ["AppBuildSandbox"],
+        },
+        {
+          "tag": "v6",
+          "new_sqlite_classes": ["DevicePresence"],
         },
       ],
     },

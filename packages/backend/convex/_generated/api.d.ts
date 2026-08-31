@@ -103,6 +103,7 @@ import type * as http_routes_cloud_integrations from "../http_routes/cloud_integ
 import type * as http_routes_cloud_projects from "../http_routes/cloud_projects.js";
 import type * as http_routes_desktop_releases from "../http_routes/desktop_releases.js";
 import type * as http_routes_dictation from "../http_routes/dictation.js";
+import type * as http_routes_execution_presence from "../http_routes/execution_presence.js";
 import type * as http_routes_media from "../http_routes/media.js";
 import type * as http_routes_mobile from "../http_routes/mobile.js";
 import type * as http_routes_music from "../http_routes/music.js";
@@ -397,6 +398,7 @@ declare const fullApi: ApiFromModules<{
   "http_routes/cloud_projects": typeof http_routes_cloud_projects;
   "http_routes/desktop_releases": typeof http_routes_desktop_releases;
   "http_routes/dictation": typeof http_routes_dictation;
+  "http_routes/execution_presence": typeof http_routes_execution_presence;
   "http_routes/media": typeof http_routes_media;
   "http_routes/mobile": typeof http_routes_mobile;
   "http_routes/music": typeof http_routes_music;

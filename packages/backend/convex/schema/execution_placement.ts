@@ -50,6 +50,8 @@ export const executionPresenceStatusValidator = v.union(
   v.literal("draining"),
 );
 
+export const executionPresenceTransportValidator = v.literal("socket");
+
 export const executionDispatchStateValidator = v.union(
   v.literal("queued"),
   v.literal("offering"),
@@ -79,6 +81,7 @@ export const executionOfferStatusValidator = v.union(
 export const executionDeviceProofOperationValidator = v.union(
   v.literal("presence-register"),
   v.literal("presence-heartbeat"),
+  v.literal("presence-socket-connect"),
   v.literal("presence-drain"),
   v.literal("presence-clear"),
   v.literal("execution-submit"),
@@ -114,6 +117,12 @@ export const executionPlacementSchema = {
     agentSlotCapacity: v.number(),
     availableChatSlots: v.number(),
     availableAgentSlots: v.number(),
+    /** Absent on pre-socket clients, which continue to use the bounded lease. */
+    presenceTransport: v.optional(executionPresenceTransportValidator),
+    /** Exact live Worker connection. Its absence means a socket client is offline. */
+    socketConnectionId: v.optional(v.string()),
+    socketConnectedAt: v.optional(v.number()),
+    socketLeaseExpiresAt: v.optional(v.number()),
     leaseExpiresAt: v.number(),
     purgeOperationId: v.optional(v.string()),
     purgeGeneration: v.optional(v.string()),

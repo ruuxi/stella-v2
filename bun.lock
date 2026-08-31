@@ -323,6 +323,7 @@
         "json5": "^2.2.3",
         "parse5": "^8.0.0",
         "turndown": "^7.2.0",
+        "ws": "^8.21.0",
       },
       "devDependencies": {
         "@types/turndown": "^5.0.5",

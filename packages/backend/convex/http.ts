@@ -23,6 +23,7 @@ import { registerCloudDriveRoutes } from "./http_routes/cloud_drive";
 import { registerCloudProjectRoutes } from "./http_routes/cloud_projects";
 import { registerCloudIntegrationRoutes } from "./http_routes/cloud_integrations";
 import { registerAppsSdkRoutes } from "./http_routes/apps_sdk";
+import { registerExecutionPresenceRoutes } from "./http_routes/execution_presence";
 import { STELLA_PROMPTS_PATH, stellaPrompts } from "./stella_prompts_http";
 
 // Stella provider endpoints
@@ -88,6 +89,7 @@ registerCloudDriveRoutes(http);
 registerCloudProjectRoutes(http);
 registerCloudIntegrationRoutes(http);
 registerAppsSdkRoutes(http);
+registerExecutionPresenceRoutes(http);
 
 registerStripeRoutes(http);
 

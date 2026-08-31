@@ -18,6 +18,10 @@ import {
 } from "./sandbox-egress-classes.js";
 import { appBuildEgress, generalAgentEgress } from "./sandbox-egress-policy.js";
 import { OrchestratorSession } from "./orchestrator-session.js";
+import {
+  DevicePresence,
+  HEADER_EXECUTION_DEVICE_ID,
+} from "./device-presence.js";
 import { sha256BytesHex, sha256Hex } from "./hash.js";
 import {
   APP_BUILD_ROOT,
@@ -309,6 +313,7 @@ import {
 export { ContainerProxy };
 export { OrchestratorSession };
 export { OwnerTransferCoordinator };
+export { DevicePresence };
 
 /** Existing large general-agent namespace, retained migration-compatibly. */
 export class Sandbox extends GeneralAgentSandbox<Env> {}
@@ -1079,6 +1084,28 @@ const forwardToConversation = async (
   return await env.ORCHESTRATOR_SESSIONS.getByName(conversationId).fetch(
     forwarded,
   );
+};
+
+const forwardToDevicePresence = async (
+  request: Request,
+  env: Env,
+  deviceId: string,
+  caller: ConversationCaller,
+): Promise<Response> => {
+  const forwarded = new Request("https://device-presence/socket", request);
+  stripStellaHeaders(forwarded.headers);
+  forwarded.headers.set(HEADER_OWNER, caller.ownerId);
+  forwarded.headers.set(HEADER_TOKEN_EXP, String(caller.expiresAtMs));
+  forwarded.headers.set(HEADER_EXECUTION_DEVICE_ID, deviceId);
+  forwarded.headers.delete("authorization");
+  try {
+    forwarded.headers.set("sec-websocket-protocol", SUBPROTOCOL);
+  } catch {
+    // The verified token has already been removed; the DO needs only the offer.
+  }
+  return await env.DEVICE_PRESENCE.getByName(
+    `${caller.ownerId}:${deviceId}`,
+  ).fetch(forwarded);
 };
 
 const sessionName = (value: string): string =>
@@ -12977,6 +13004,27 @@ export default {
     // gate would 401 every client. Both verify the JWT themselves and forward
     // the proven identity to the DO in x-stella-* headers, stripping whatever
     // the client sent under those names first.
+    const presenceMatch = url.pathname.match(
+      /^\/execution-devices\/([A-Za-z0-9._~-]{1,256})\/presence$/,
+    );
+    if (presenceMatch) {
+      if (request.method !== "GET" || !isWebSocketUpgrade(request)) {
+        return json({ error: "This endpoint speaks WebSocket only." }, 426);
+      }
+      const auth = await authenticateConversationCaller(
+        request,
+        env,
+        true,
+        requestId,
+      );
+      if (!auth.ok) return auth.response;
+      return await forwardToDevicePresence(
+        request,
+        env,
+        presenceMatch[1]!,
+        auth.caller,
+      );
+    }
     const socketMatch = url.pathname.match(
       /^\/conversations\/([^/]+)\/socket$/,
     );

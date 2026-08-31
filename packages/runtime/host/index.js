@@ -1235,6 +1235,7 @@ export class StellaRuntimeHost {
             appVersion: "stella-desktop-v2",
             deviceName: hostname().trim().slice(0, 96) || undefined,
             platform: process.platform,
+            getAuthToken: () => this.getConfiguredHostAuthToken(),
             getAvailability: async () => {
                 const health = await this.getWorkerHealth({
                     ensureWorker: false,

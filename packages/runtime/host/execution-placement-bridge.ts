@@ -6,11 +6,17 @@ import {
   sign,
 } from "node:crypto";
 import { anyApi } from "convex/server";
+import WebSocket from "ws";
 import type { SqliteDatabase } from "../kernel/storage/shared.js";
-import { forkInterval, type HostTimerHandle } from "./effect-runtime.js";
+import {
+  forkDelayed,
+  forkInterval,
+  type HostTimerHandle,
+} from "./effect-runtime.js";
 
 const PROTOCOL_VERSION = 1;
 const HEARTBEAT_INTERVAL_MS = 25_000;
+const PRESENCE_SOCKET_RECONNECT_MAX_MS = 30_000;
 const EXECUTION_LEASE_RENEWAL_FAILSAFE_MS = 2 * 60_000;
 const CLAIM_ACK_RETRY_BASE_MS = 1_000;
 const CLAIM_ACK_RETRY_MAX_MS = 15_000;
@@ -102,6 +108,7 @@ type PlacementBridgeOptions = {
   appVersion: string;
   deviceName?: string;
   platform?: string;
+  getAuthToken?: () => string | null;
   getAvailability: () =>
     ExecutionPlacementAvailability | Promise<ExecutionPlacementAvailability>;
   runExecution: (args: {
@@ -713,6 +720,12 @@ export class ExecutionPlacementBridge {
   private stopped = false;
   private lifecycleEpoch = 0;
   private heartbeatTask: Promise<void> | null = null;
+  private presenceSocket: WebSocket | null = null;
+  private presenceSocketBaseUrl: string | null = null;
+  private presenceSocketReconnectTimer: HostTimerHandle | null = null;
+  private presenceSocketPingTimer: HostTimerHandle | null = null;
+  private presenceSocketReconnectAttempt = 0;
+  private advertisedAvailability = "";
   private stopTask: Promise<void> | null = null;
   private readonly renewalFailureSince = new Map<string, number>();
   private readonly claimAckRetry = new Map<
@@ -915,6 +928,7 @@ export class ExecutionPlacementBridge {
       agentCapacity,
       ready ? chatCapacity : 0,
       ready ? agentCapacity : 0,
+      ...(this.presenceSocketBaseUrl ? ["socket"] : []),
       ...(this.options.deviceName || this.options.platform
         ? [this.options.deviceName ?? null, this.options.platform ?? null]
         : []),
@@ -931,6 +945,7 @@ export class ExecutionPlacementBridge {
           ? { deviceName: this.options.deviceName }
           : {}),
         ...(this.options.platform ? { platform: this.options.platform } : {}),
+        ...(this.presenceSocketBaseUrl ? { presenceTransport: "socket" } : {}),
         capabilities,
         status,
         chatSlotCapacity: chatCapacity,
@@ -939,6 +954,142 @@ export class ExecutionPlacementBridge {
         availableAgentSlots: ready ? agentCapacity : 0,
       },
     );
+    this.advertisedAvailability = JSON.stringify([
+      status,
+      chatCapacity,
+      agentCapacity,
+      ready ? chatCapacity : 0,
+      ready ? agentCapacity : 0,
+    ]);
+  }
+
+  private closePresenceSocket() {
+    this.presenceSocketReconnectTimer?.cancel();
+    this.presenceSocketReconnectTimer = null;
+    this.presenceSocketPingTimer?.cancel();
+    this.presenceSocketPingTimer = null;
+    const socket = this.presenceSocket;
+    this.presenceSocket = null;
+    if (socket && socket.readyState < WebSocket.CLOSING) {
+      socket.close(1000, "desktop_stopped");
+    }
+  }
+
+  private schedulePresenceSocketReconnect() {
+    if (
+      this.stopped ||
+      !this.started ||
+      !this.sessionReady ||
+      !this.presenceSocketBaseUrl ||
+      this.presenceSocketReconnectTimer
+    ) {
+      return;
+    }
+    const attempt = this.presenceSocketReconnectAttempt++;
+    const delay = Math.min(
+      PRESENCE_SOCKET_RECONNECT_MAX_MS,
+      500 * 2 ** Math.min(attempt, 6),
+    );
+    this.presenceSocketReconnectTimer = forkDelayed(delay, () => {
+      this.presenceSocketReconnectTimer = null;
+      this.openPresenceSocket();
+    });
+  }
+
+  private openPresenceSocket() {
+    if (
+      this.stopped ||
+      !this.started ||
+      !this.sessionReady ||
+      !this.presenceSocketBaseUrl ||
+      this.presenceSocket
+    ) {
+      return;
+    }
+    const token = this.options.getAuthToken?.()?.trim();
+    if (!token) {
+      this.schedulePresenceSocketReconnect();
+      return;
+    }
+    const session = this.requireSession();
+    const url = `${this.presenceSocketBaseUrl}/${encodeURIComponent(this.options.deviceIdentity.deviceId)}/presence`;
+    const socket = new WebSocket(url, ["stella.v1", `stella.token.${token}`]);
+    this.presenceSocket = socket;
+    let connectionId = "";
+    let nonce = "";
+
+    socket.on("message", (data) => {
+      void (async () => {
+        let frame: Record<string, unknown>;
+        try {
+          const value = JSON.parse(data.toString());
+          if (!value || typeof value !== "object" || Array.isArray(value))
+            return;
+          frame = value as Record<string, unknown>;
+        } catch {
+          socket.close(4000, "bad_response");
+          return;
+        }
+        if (frame.type === "challenge") {
+          connectionId =
+            typeof frame.connectionId === "string" ? frame.connectionId : "";
+          nonce = typeof frame.nonce === "string" ? frame.nonce : "";
+          if (!connectionId || !nonce) {
+            socket.close(4000, "bad_response");
+            return;
+          }
+          socket.send(
+            JSON.stringify({
+              type: "begin",
+              presenceSessionId: session.presenceSessionId,
+            }),
+          );
+          return;
+        }
+        if (frame.type === "prove") {
+          if (frame.connectionId !== connectionId || !nonce) {
+            socket.close(4000, "bad_response");
+            return;
+          }
+          await this.enqueueSigned(
+            "presence-socket-connect",
+            [connectionId, nonce],
+            anyApi.execution_placement.connectMyExecutionPresenceSocket,
+            { connectionId, nonce },
+          );
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: "ready" }));
+          }
+          return;
+        }
+        if (frame.type === "connected") {
+          this.presenceSocketReconnectAttempt = 0;
+          this.presenceSocketPingTimer?.cancel();
+          this.presenceSocketPingTimer = forkInterval(10_000, () => {
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: "ping" }));
+            }
+          });
+        }
+      })().catch((error) => {
+        this.log("warn", "Execution placement presence socket failed.", error);
+        socket.close(4500, "presence_failed");
+      });
+    });
+    socket.on("close", () => {
+      if (this.presenceSocket !== socket) return;
+      this.presenceSocket = null;
+      this.presenceSocketPingTimer?.cancel();
+      this.presenceSocketPingTimer = null;
+      this.schedulePresenceSocketReconnect();
+    });
+    socket.on("error", (error) => {
+      this.log(
+        "warn",
+        "Execution placement presence socket disconnected.",
+        error,
+      );
+    });
   }
 
   /**
@@ -1020,24 +1171,37 @@ export class ExecutionPlacementBridge {
           0,
           Math.min(16, availability.agentSlots),
         );
-        await this.enqueueSigned(
-          "presence-heartbeat",
-          [
-            ready ? "ready" : "draining",
-            chatCapacity,
-            agentCapacity,
-            ready ? chatCapacity : 0,
-            ready ? agentCapacity : 0,
-          ],
-          anyApi.execution_placement.heartbeatMyExecutionPresence,
-          {
-            status: ready ? "ready" : "draining",
-            chatSlotCapacity: chatCapacity,
-            agentSlotCapacity: agentCapacity,
-            availableChatSlots: ready ? chatCapacity : 0,
-            availableAgentSlots: ready ? agentCapacity : 0,
-          },
-        );
+        const advertisedAvailability = JSON.stringify([
+          ready ? "ready" : "draining",
+          chatCapacity,
+          agentCapacity,
+          ready ? chatCapacity : 0,
+          ready ? agentCapacity : 0,
+        ]);
+        if (
+          !this.presenceSocketBaseUrl ||
+          advertisedAvailability !== this.advertisedAvailability
+        ) {
+          await this.enqueueSigned(
+            "presence-heartbeat",
+            [
+              ready ? "ready" : "draining",
+              chatCapacity,
+              agentCapacity,
+              ready ? chatCapacity : 0,
+              ready ? agentCapacity : 0,
+            ],
+            anyApi.execution_placement.heartbeatMyExecutionPresence,
+            {
+              status: ready ? "ready" : "draining",
+              chatSlotCapacity: chatCapacity,
+              agentSlotCapacity: agentCapacity,
+              availableChatSlots: ready ? chatCapacity : 0,
+              availableAgentSlots: ready ? agentCapacity : 0,
+            },
+          );
+          this.advertisedAvailability = advertisedAvailability;
+        }
       } catch (error) {
         identityRefreshNeeded = true;
         this.log("warn", "Execution placement heartbeat failed.", error);
@@ -1344,6 +1508,7 @@ export class ExecutionPlacementBridge {
         await Promise.allSettled([...this.executionTasks.values()]);
         await this.registerPresence();
         this.sessionReady = true;
+        this.openPresenceSocket();
         this.subscribe();
         await this.reconcileInbox();
       }
@@ -1351,6 +1516,7 @@ export class ExecutionPlacementBridge {
     }
 
     this.clearSubscriptions();
+    this.closePresenceSocket();
     this.renewalFailureSince.clear();
     this.claimAckRetry.clear();
     this.sessionReady = false;
@@ -1359,6 +1525,11 @@ export class ExecutionPlacementBridge {
     await this.signedQueue;
     this.ownerId = identity.ownerId;
     this.ownerGeneration = identity.ownerGeneration;
+    this.presenceSocketBaseUrl =
+      typeof identity.presenceSocketBaseUrl === "string" &&
+      identity.presenceSocketBaseUrl.startsWith("wss://")
+        ? identity.presenceSocketBaseUrl.replace(/\/+$/u, "")
+        : null;
     const nextSession = this.inbox.openSession({
       ownerId: identity.ownerId,
       ownerGeneration: identity.ownerGeneration,
@@ -1374,6 +1545,7 @@ export class ExecutionPlacementBridge {
     await Promise.allSettled([...this.executionTasks.values()]);
     await this.registerPresence();
     this.sessionReady = true;
+    this.openPresenceSocket();
     this.subscribe();
     await this.reconcileInbox();
   }
@@ -1468,6 +1640,11 @@ export class ExecutionPlacementBridge {
     }
     this.ownerId = identity.ownerId;
     this.ownerGeneration = identity.ownerGeneration;
+    this.presenceSocketBaseUrl =
+      typeof identity.presenceSocketBaseUrl === "string" &&
+      identity.presenceSocketBaseUrl.startsWith("wss://")
+        ? identity.presenceSocketBaseUrl.replace(/\/+$/u, "")
+        : null;
     const session = this.inbox.openSession({
       ownerId: identity.ownerId,
       ownerGeneration: identity.ownerGeneration,
@@ -1490,6 +1667,7 @@ export class ExecutionPlacementBridge {
       throw new Error("Execution placement stopped while registering.");
     }
     this.sessionReady = true;
+    this.openPresenceSocket();
     this.subscribe();
     await this.reconcileInbox();
     this.heartbeatTimer = forkInterval(HEARTBEAT_INTERVAL_MS, () => {
@@ -1517,6 +1695,7 @@ export class ExecutionPlacementBridge {
     this.sessionReady = false;
     this.heartbeatTimer?.cancel();
     this.heartbeatTimer = null;
+    this.closePresenceSocket();
     this.clearSubscriptions();
     this.renewalFailureSince.clear();
     this.claimAckRetry.clear();

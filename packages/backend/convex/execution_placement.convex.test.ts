@@ -16,11 +16,26 @@ const mobileDeviceId = "mobile-placement-test";
 const protocolVersion = 1;
 
 const refs = {
+  identity: makeFunctionReference<"query">(
+    "execution_placement:getMyExecutionPlacementIdentity",
+  ),
   register: makeFunctionReference<"mutation">(
     "execution_placement:registerMyExecutionPresence",
   ),
   heartbeat: makeFunctionReference<"mutation">(
     "execution_placement:heartbeatMyExecutionPresence",
+  ),
+  connectSocket: makeFunctionReference<"mutation">(
+    "execution_placement:connectMyExecutionPresenceSocket",
+  ),
+  socketCurrent: makeFunctionReference<"query">(
+    "execution_placement:isExecutionPresenceSocketCurrentInternal",
+  ),
+  confirmSocket: makeFunctionReference<"mutation">(
+    "execution_placement:confirmExecutionPresenceSocketInternal",
+  ),
+  disconnectSocket: makeFunctionReference<"mutation">(
+    "execution_placement:disconnectExecutionPresenceSocketInternal",
   ),
   clear: makeFunctionReference<"mutation">(
     "execution_placement:clearMyExecutionPresence",
@@ -154,6 +169,7 @@ const asAnonymousOwner = (t: TestHarness) =>
 type ProofOperation =
   | "presence-register"
   | "presence-heartbeat"
+  | "presence-socket-connect"
   | "presence-clear"
   | "execution-submit"
   | "claim"
@@ -215,6 +231,7 @@ const registerReadyDesktop = async (
     platform?: string;
     pairMobile?: boolean;
     extraCapabilities?: readonly string[];
+    presenceTransport?: "socket";
   } = {},
 ) => {
   const registeredDeviceId = options.deviceId ?? deviceId;
@@ -239,6 +256,7 @@ const registerReadyDesktop = async (
     1,
     1,
     1,
+    ...(options.presenceTransport ? [options.presenceTransport] : []),
     ...(options.deviceName || options.platform
       ? [options.deviceName ?? null, options.platform ?? null]
       : []),
@@ -252,6 +270,9 @@ const registerReadyDesktop = async (
     appVersion: "test",
     ...(options.deviceName ? { deviceName: options.deviceName } : {}),
     ...(options.platform ? { platform: options.platform } : {}),
+    ...(options.presenceTransport
+      ? { presenceTransport: options.presenceTransport }
+      : {}),
     capabilities,
     status: "ready",
     chatSlotCapacity: 1,
@@ -417,6 +438,130 @@ const claim = async (
 };
 
 describe("automatic execution placement", () => {
+  it("advertises socket presence only after the coordinated rollout switch", async () => {
+    const t = createTest();
+    const previousUrl = process.env.CLOUD_BUILDER_URL;
+    const previousEnabled = process.env.EXECUTION_PRESENCE_SOCKET_ENABLED;
+    process.env.CLOUD_BUILDER_URL = "https://builder.example.test";
+    delete process.env.EXECUTION_PRESENCE_SOCKET_ENABLED;
+    try {
+      expect(await asOwner(t).query(refs.identity, {})).not.toHaveProperty(
+        "presenceSocketBaseUrl",
+      );
+      process.env.EXECUTION_PRESENCE_SOCKET_ENABLED = "1";
+      expect(await asOwner(t).query(refs.identity, {})).toMatchObject({
+        presenceSocketBaseUrl:
+          "wss://builder.example.test/execution-devices",
+      });
+    } finally {
+      if (previousUrl === undefined) delete process.env.CLOUD_BUILDER_URL;
+      else process.env.CLOUD_BUILDER_URL = previousUrl;
+      if (previousEnabled === undefined) {
+        delete process.env.EXECUTION_PRESENCE_SOCKET_ENABLED;
+      } else {
+        process.env.EXECUTION_PRESENCE_SOCKET_ENABLED = previousEnabled;
+      }
+    }
+  });
+
+  it("uses exact socket connection state instead of the legacy lease", async () => {
+    const t = createTest();
+    const signer = await registerReadyDesktop(t, {
+      deviceId: "desktop-socket-presence",
+      pairMobile: false,
+      presenceTransport: "socket",
+    });
+    const destinationBefore = await asOwner(t).query(refs.destinations, {});
+    expect(destinationBefore).toEqual([
+      expect.objectContaining({
+        deviceId: signer.deviceId,
+        online: false,
+        ready: false,
+      }),
+    ]);
+
+    const connectionId = "presence-connection-1";
+    const nonce = "presence-challenge-1";
+    const connectBody = hashBody([connectionId, nonce]);
+    await asOwner(t).mutation(refs.connectSocket, {
+      ownerGeneration,
+      deviceId: signer.deviceId,
+      presenceSessionId: signer.presenceSessionId,
+      connectionId,
+      nonce,
+      ...signer.proof("presence-socket-connect", connectBody),
+    });
+    const provisionalLeaseExpiresAt = await t.run(async (ctx) => {
+      const presence = await ctx.db
+        .query("desktop_execution_presence")
+        .withIndex("by_ownerId_and_deviceId", (q) =>
+          q.eq("ownerId", ownerId).eq("deviceId", signer.deviceId),
+        )
+        .unique();
+      return presence!.socketLeaseExpiresAt!;
+    });
+    const authExpiresAtMs = Date.now() + 60_000;
+    expect(
+      await t.mutation(refs.confirmSocket, {
+        ownerId,
+        deviceId: signer.deviceId,
+        presenceSessionId: signer.presenceSessionId,
+        connectionId,
+        authExpiresAtMs,
+      }),
+    ).toBe(true);
+    expect(
+      await t.mutation(refs.disconnectSocket, {
+        ownerId,
+        deviceId: signer.deviceId,
+        presenceSessionId: signer.presenceSessionId,
+        connectionId,
+        now: provisionalLeaseExpiresAt,
+        expectedLeaseExpiresAt: provisionalLeaseExpiresAt,
+      }),
+    ).toEqual({ disconnected: false });
+    expect(
+      await t.query(refs.socketCurrent, {
+        ownerId,
+        deviceId: signer.deviceId,
+        presenceSessionId: signer.presenceSessionId,
+        connectionId,
+      }),
+    ).toBe(true);
+    expect(await asOwner(t).query(refs.destinations, {})).toEqual([
+      expect.objectContaining({
+        deviceId: signer.deviceId,
+        online: true,
+        ready: true,
+      }),
+    ]);
+
+    expect(
+      await t.mutation(refs.disconnectSocket, {
+        ownerId,
+        deviceId: signer.deviceId,
+        presenceSessionId: signer.presenceSessionId,
+        connectionId: "replaced-connection",
+        now: Date.now(),
+      }),
+    ).toEqual({ disconnected: false });
+    expect(
+      await t.mutation(refs.disconnectSocket, {
+        ownerId,
+        deviceId: signer.deviceId,
+        presenceSessionId: signer.presenceSessionId,
+        connectionId,
+        now: Date.now(),
+      }),
+    ).toEqual({ disconnected: true });
+    expect(await asOwner(t).query(refs.destinations, {})).toEqual([
+      expect.objectContaining({
+        deviceId: signer.deviceId,
+        online: false,
+        ready: false,
+      }),
+    ]);
+  });
   it("offers an explicit desktop request to exactly one selected live computer", async () => {
     const t = createTest();
     const conversationId = await seedConversation(

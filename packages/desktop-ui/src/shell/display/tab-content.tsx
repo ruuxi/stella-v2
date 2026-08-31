@@ -507,10 +507,10 @@ const SourceDiffPatchBlock = ({ patch }: { patch: string }) => {
 };
 
 /**
- * Block variant for tools that emit fileChanges without a unified
- * diff body (write/edit-style tools). Reads the current bytes and
- * renders them as added lines — matches the existing "generated file"
- * preview semantics.
+ * Block variant for file artifacts without a unified diff body
+ * (write/edit-style tools). Reads the current bytes and renders them
+ * as added lines — matches the existing "generated file" preview
+ * semantics.
  */
 const SourceDiffFileBytesBlock = ({ filePath }: { filePath: string }) => {
   const t = useT();

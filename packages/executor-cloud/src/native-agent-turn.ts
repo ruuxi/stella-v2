@@ -6,14 +6,12 @@ import {
   mkdtemp,
   mkdir,
   readFile,
-  readdir,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { FileChangeRecord } from "@stella/contracts/file-changes";
 import type {
   AgentModelReasoningEffort,
   CloudExecutionSelection,
@@ -36,7 +34,6 @@ export type NativeAgentTurnResult = {
   error?: string;
   usage: { inputTokens: number; outputTokens: number; llmCalls: number };
   messages: AgentMessage[];
-  editedFiles: FileChangeRecord[];
   /**
    * Builder checkpoint input. Only Claude can produce durable native state;
    * Codex is deliberately reconstructed from canonical history each turn.
@@ -49,7 +46,7 @@ export type NativeAgentTurnResult = {
 
 type NativeCliTurnResult = Omit<
   NativeAgentTurnResult,
-  "editedFiles" | "messages" | "nativeStateCheckpoint"
+  "messages" | "nativeStateCheckpoint"
 > & { sessionId: string };
 
 type NativeEvent = (kind: string, payload: unknown) => void;
@@ -84,22 +81,6 @@ export const createCloudClaudeMcpConfig = async (
     throw error;
   }
 };
-
-const INTERNAL_DIRS = new Set([
-  ".git",
-  ".stella",
-  "node_modules",
-  "__pycache__",
-  ".cache",
-  ".next",
-  ".turbo",
-  "coverage",
-  "dist",
-  "build",
-  "out",
-  "target",
-  "vendor",
-]);
 
 export const CLOUD_NATIVE_STATE_ROOT = "/home/stella-native-state/anthropic";
 const EMPTY_NATIVE_HISTORY_CURSOR = "v1:empty";
@@ -185,55 +166,6 @@ const deterministicUuid = (value: string): string => {
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
   const hex = bytes.toString("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-};
-
-type FileStamp = { size: number; mtimeMs: number };
-
-const snapshotFiles = async (root: string): Promise<Map<string, FileStamp>> => {
-  const files = new Map<string, FileStamp>();
-  const walk = async (directory: string): Promise<void> => {
-    const entries = await readdir(directory, { withFileTypes: true }).catch(
-      () => [],
-    );
-    for (const entry of entries) {
-      if (INTERNAL_DIRS.has(entry.name)) continue;
-      const absolute = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        await walk(absolute);
-      } else if (entry.isFile()) {
-        const details = await stat(absolute).catch(() => null);
-        if (details) {
-          files.set(absolute, {
-            size: details.size,
-            mtimeMs: details.mtimeMs,
-          });
-        }
-      }
-    }
-  };
-  await walk(root);
-  return files;
-};
-
-const changedFiles = (
-  before: ReadonlyMap<string, FileStamp>,
-  after: ReadonlyMap<string, FileStamp>,
-): FileChangeRecord[] => {
-  const records: FileChangeRecord[] = [];
-  for (const [absolute, current] of after) {
-    const previous = before.get(absolute);
-    if (
-      !previous ||
-      previous.size !== current.size ||
-      previous.mtimeMs !== current.mtimeMs
-    ) {
-      records.push({
-        path: absolute,
-        kind: { type: previous ? "update" : "add" },
-      });
-    }
-  }
-  return records;
 };
 
 type ProcessResult = {
@@ -900,14 +832,8 @@ export const runNativeAgentTurn = async (options: {
         tree: checkpoint.tree,
         mac: checkpoint.mac,
       },
-      // Claude can mutate the workspace only through Stella's MCP ToolHost,
-      // which already reports precise file changes and produced files.
-      editedFiles: [],
     };
   }
-  // Native Codex keeps its normal tool surface, so a workspace snapshot is
-  // still the authoritative way to discover changes made by that process.
-  const before = await snapshotFiles(WORLD_ROOT);
   const result = await runCodex({
     inputPrompt: options.prompt,
     history: options.history,
@@ -918,7 +844,6 @@ export const runNativeAgentTurn = async (options: {
     threadId: options.threadId,
     emitEvent: options.emitEvent,
   });
-  const after = await snapshotFiles(WORLD_ROOT);
   const messages = transcript({
     prompt: options.prompt,
     finalText: result.finalText || result.error || "",
@@ -930,6 +855,5 @@ export const runNativeAgentTurn = async (options: {
   return {
     ...publicResult,
     messages,
-    editedFiles: changedFiles(before, after),
   };
 };

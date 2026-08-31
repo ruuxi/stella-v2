@@ -61,6 +61,9 @@ const withoutSandboxFileFields = (
   details: Record<string, unknown> | null,
 ): Record<string, unknown> | null => {
   if (!details) return null;
+  // `fileChanges` / `producedFiles` are legacy fields written by pre-v2
+  // attached-tool daemons; the live protocol no longer carries them, but
+  // historical journal rows still do, so keep stripping them from display.
   const {
     filePath: _filePath,
     fileChanges: _fileChanges,

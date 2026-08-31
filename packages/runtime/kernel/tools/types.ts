@@ -10,10 +10,6 @@ import type {
   SpawnReasoningEffort,
 } from "@stella/contracts/agent-engine";
 import type {
-  FileChangeRecord,
-  ProducedFileRecord,
-} from "@stella/contracts/file-changes";
-import type {
   LocalCronJobCreateInput,
   LocalCronJobRecord,
   LocalCronJobUpdatePatch,
@@ -95,15 +91,6 @@ export type ToolContext = {
   allowedToolNames?: string[];
   /** External adapters acknowledge image delivery after transcript storage. */
   deferImageDeliveryAck?: boolean;
-  /**
-   * Per-command ceiling on snapshot-detected `producedFiles`. The default
-   * (`MAX_PRODUCED_FILES_PER_COMMAND`) is tuned for the desktop, where a batch
-   * over the cap is almost always environment churn and reaches the user
-   * unfiltered. Hosts that re-filter every produced file downstream — the
-   * cloud drive re-checks path, size and quota per file — can raise it so a
-   * deliberate large batch survives collection.
-   */
-  maxProducedFilesPerCommand?: number;
   connectorDeliveryTarget?: {
     requestId: string;
     conversationId: string;
@@ -121,42 +108,8 @@ export type ToolResult = {
    * and persisted; provider context assembly applies this limit later.
    */
   modelOutputTokens?: number;
-  /**
-   * Normalized record of any filesystem mutations the tool performed.
-   *
-   * The runtime worker hoists this field into the persisted `tool_result`
-   * event payload, and the chat surface walks the records to build a per-turn
-   * `editedFilePaths` list without having to know which specific tool
-   * produced the change.
-   *
-   * Tools that don't mutate the filesystem leave this `undefined`.
-   * Shell-like tools should use `producedFiles` for snapshot-detected outputs
-   * rather than treating arbitrary CLI side effects as explicit edits.
-   */
-  fileChanges?: FileChangeRecord[];
-  /**
-   * User-facing output files detected from a tool side effect. This is for
-   * artifacts Stella should show to the user even when they were produced by
-   * shell/CLI work rather than an explicit file-edit tool.
-   */
-  producedFiles?: ProducedFileRecord[];
-  /**
-   * Set when the per-command cap withheld a snapshot-detected batch instead
-   * of delivering it. `producedFiles` is then absent, and this says how much
-   * was withheld — so a surface can report "31 files produced, none shown"
-   * rather than showing nothing and implying the command produced nothing.
-   */
-  producedFilesOmitted?: ProducedFilesOmission;
   /** Trusted-host-only image bytes; omitted from JSON, logs, and transcripts. */
   [TOOL_RESULT_AUTHORIZED_IMAGES]?: readonly AuthorizedToolImage[];
-};
-
-/** See `ToolResult.producedFilesOmitted`. */
-export type ProducedFilesOmission = {
-  /** Files withheld, counted after noise filtering and dedup. */
-  count: number;
-  /** The per-command cap that withheld them. */
-  limit: number;
 };
 
 export type ToolUpdateCallback = (update: ToolResult) => void;

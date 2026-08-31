@@ -31,11 +31,10 @@ import {
   TOOL_RESULT_AUTHORIZED_IMAGES,
   type ToolResult,
 } from "@stella/runtime/kernel/tools/types.js";
-import type { FileChangeRecord } from "@stella/contracts/file-changes";
 import type { TurnBrokerInput } from "@stella/contracts/turn-credential-broker";
 import {
   ATTACHED_TOOL_DIR,
-  ATTACHED_TOOL_MAX_FILE_RECORDS,
+  ATTACHED_TOOL_MAX_DELIVERED_FILES,
   ATTACHED_TOOL_MAX_IMAGES,
   ATTACHED_TOOL_PROTOCOL_VERSION,
   ATTACHED_TOOL_REQUEST_MAX_BYTES,
@@ -49,7 +48,6 @@ import {
   parseAttachedToolRequest,
   type AttachedToolControlResponse,
   type AttachedToolResponse,
-  type ProducedFilesOmitted,
   type SerializedAgentToolResult,
   type SerializedAuthorizedImage,
 } from "./attached-tool-protocol.js";
@@ -151,11 +149,6 @@ const serializeImages = (
       sourcePath: image.sourcePath,
     }));
 
-const bounded = (
-  records: readonly FileChangeRecord[] | undefined,
-): readonly FileChangeRecord[] =>
-  (records ?? []).slice(0, ATTACHED_TOOL_MAX_FILE_RECORDS);
-
 export const serializeToolResult = (
   result: ToolResult,
 ): SerializedAgentToolResult => ({
@@ -164,25 +157,7 @@ export const serializeToolResult = (
     : { kind: "ok", text: resultText(result) },
   details: result.details ?? null,
   authorizedImages: serializeImages(result),
-  fileChanges: bounded(result.fileChanges),
-  producedFiles: bounded(result.producedFiles),
-  producedFilesOmitted: result.producedFilesOmitted
-    ? {
-        count: result.producedFilesOmitted.count,
-        limit: result.producedFilesOmitted.limit,
-      }
-    : null,
 });
-
-/**
- * What the turn accumulated across every bridged call, kept here rather than
- * in the worker because only this side can walk the files the commands wrote.
- */
-type TurnFileLedger = {
-  readonly edited: FileChangeRecord[];
-  readonly detected: FileChangeRecord[][];
-  withheld: number;
-};
 
 const readFrame = (socket: Socket, maxBytes: number): Promise<unknown> =>
   new Promise((resolve, reject) => {
@@ -232,8 +207,8 @@ const writeFrame = (socket: Socket, frame: unknown): Promise<void> =>
 
 export type AttachedToolHostReport = Readonly<{
   bootNotices: readonly string[];
-  producedFiles: readonly FileChangeRecord[];
-  producedFilesOmitted: ProducedFilesOmitted | null;
+  /** Drive paths whose delivery to the drive succeeded. */
+  deliveredFiles: readonly string[];
 }>;
 
 export type AttachedToolDispatcher = Readonly<{
@@ -259,7 +234,7 @@ export const createAttachedToolDispatcher = (args: {
     toolName: string,
     params: Record<string, unknown>,
   ) => Promise<SerializedAgentToolResult>;
-  quiesce: () => Promise<AttachedToolHostReport>;
+  quiesce: (linkedPaths: readonly string[]) => Promise<AttachedToolHostReport>;
 }): AttachedToolDispatcher => {
   const belongsToTurn = (request: {
     turnId: string;
@@ -326,12 +301,11 @@ export const createAttachedToolDispatcher = (args: {
         notices: args.bootNotices,
       };
     }
-    const report = await args.quiesce();
+    const report = await args.quiesce(request.linkedPaths);
     return {
       version: ATTACHED_TOOL_PROTOCOL_VERSION,
       status: "quiesced",
-      producedFiles: report.producedFiles,
-      producedFilesOmitted: report.producedFilesOmitted,
+      deliveredFiles: report.deliveredFiles,
     };
   };
 
@@ -429,10 +403,8 @@ export const runAttachedToolHost = (
         agentId: input.threadId,
         agentDepth: 1,
         maxAgentDepth: 1,
-        maxProducedFilesPerCommand: 200,
       };
 
-      const ledger: TurnFileLedger = { edited: [], detected: [], withheld: 0 };
       const calls = new Map<string, CallState>();
       const notice = driveHydrationNotice(driveSync);
       const bootNotices = notice ? [notice] : [];
@@ -456,24 +428,18 @@ export const runAttachedToolHost = (
           calls.set(key, { kind: "lost", error: asError(error).message });
           throw asError(error);
         }
-        if (result.fileChanges) ledger.edited.push(...result.fileChanges);
-        if (result.producedFiles?.length) {
-          ledger.detected.push([...result.producedFiles]);
-        }
-        if (result.producedFilesOmitted) {
-          ledger.withheld += result.producedFilesOmitted.count;
-        }
         const serialized = serializeToolResult(result);
         calls.set(key, { kind: "done", result: serialized });
         return serialized;
       };
 
-      const quiesce = async (): Promise<AttachedToolHostReport> => {
+      const quiesce = async (
+        linkedPaths: readonly string[],
+      ): Promise<AttachedToolHostReport> => {
         await toolHost.shutdown();
         const collected = await collectProducedFiles({
           workspaceRoot: WORLD_DRIVE_ROOT,
-          edited: ledger.edited,
-          detected: ledger.detected,
+          linked: linkedPaths,
           gitAware: false,
           drivePrefix: "",
           processIdentity: {
@@ -482,14 +448,8 @@ export const runAttachedToolHost = (
           },
         }).catch(() => null);
         const files = collected?.files ?? [];
-        const withheld = ledger.withheld + (collected?.withheld ?? 0);
         if (files.length === 0) {
-          return {
-            bootNotices,
-            producedFiles: [],
-            producedFilesOmitted:
-              withheld > 0 ? { count: withheld, limit: 200 } : null,
-          };
+          return { bootNotices, deliveredFiles: [] };
         }
         const delivery = await reportProducedFiles({
           turnId: input.turnId,
@@ -501,12 +461,10 @@ export const runAttachedToolHost = (
         const refused = new Set(delivery.skipped.map((entry) => entry.path));
         return {
           bootNotices,
-          producedFiles: files
+          deliveredFiles: files
             .filter((file) => !refused.has(file.path))
-            .slice(0, ATTACHED_TOOL_MAX_FILE_RECORDS)
-            .map((file) => ({ path: file.path, kind: { type: "add" } })),
-          producedFilesOmitted:
-            withheld > 0 ? { count: withheld, limit: 200 } : null,
+            .slice(0, ATTACHED_TOOL_MAX_DELIVERED_FILES)
+            .map((file) => file.path),
         };
       };
 
@@ -520,8 +478,8 @@ export const runAttachedToolHost = (
         bootNotices,
         calls,
         execute,
-        quiesce: async () => {
-          const report = await quiesce();
+        quiesce: async (linkedPaths) => {
+          const report = await quiesce(linkedPaths);
           await Effect.runPromise(Deferred.succeed(done, report));
           return report;
         },

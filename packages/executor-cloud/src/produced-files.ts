@@ -1,28 +1,24 @@
 /**
  * Produced-file reporting for a cloud agent turn.
  *
- * The runtime already tells us what a turn touched: file-edit tools emit
- * `fileChanges` and shell-like tools emit snapshot-detected `producedFiles`.
- * Walking those records is both cheaper and far more accurate than diffing
- * the workspace, which cannot tell a deliverable from a dependency install.
+ * The agent's own reply names what a turn delivered: the file list is derived
+ * from the markdown links in the turn's final assistant message(s), the same
+ * contract the local lane uses. A linked path is deliberate by construction —
+ * the model wrote it into the reply — which is what a filesystem diff could
+ * never tell apart from a dependency install.
  *
  * Reported files are registered in Convex and, when small enough, uploaded to
  * R2 so the chat surface can hand them back to the user. Anything larger stays
  * in the checkpointed workspace and is reported as metadata only.
  *
- * A recorded path is a string the agent chose, so every candidate is opened
+ * A linked path is a string the agent chose, so every candidate is opened
  * component-by-component beneath the workspace descriptor and required to be
  * a singly-linked, workspace-owned regular file. Small-file bytes are retained
- * from that authorization; delivery never reopens the recorded pathname.
+ * from that authorization; delivery never reopens the linked pathname.
  */
 
 import { spawn } from "node:child_process";
 import path from "node:path";
-import {
-  isNoiseProducedPath,
-  MAX_PRODUCED_FILES_PER_COMMAND,
-  type FileChangeRecord,
-} from "@stella/contracts/file-changes";
 import { isolateToolProcessLaunch } from "@stella/runtime/kernel/tools/process-isolation.js";
 import type { ToolProcessIdentity } from "@stella/runtime/kernel/tools/types.js";
 import {
@@ -62,13 +58,6 @@ export type ProducedFileCollection = {
   files: ProducedFileReport[];
   /** Deliverables the cap left behind, as drive paths, for the agent's report. */
   omitted: string[];
-  /**
-   * Files held back as churn rather than by the report's size: a single
-   * command's snapshot batch too large to be anything the user asked for.
-   * Counted, not named — naming a render loop's 150 pages is the noise the
-   * withholding exists to keep out.
-   */
-  withheld: number;
 };
 
 /** The wire shape of one file in the C4 report and the `output_files` event. */
@@ -83,39 +72,10 @@ export const toDriveFile = (file: ProducedFileReport) => ({
 const INLINE_LIMIT_BYTES = 8 * 1024 * 1024;
 /** A turn that "produced" more than this is reporting churn, not deliverables. */
 const MAX_REPORTED_FILES = 25;
-/**
- * How many files one command's snapshot detections may contribute at all. The
- * threshold is the runtime's own and so is its all-or-nothing shape — a
- * command that deliberately writes user-facing output writes a handful, a
- * batch past that is a render loop or an install, and inside such a batch
- * there is no per-path signal that separates a deliverable from the rest, so
- * taking an arbitrary dozen of it delivers noise rather than less noise.
- *
- * What is new is where it is applied: after this module's filtering rather
- * than in the runtime, which is the whole reason the runtime's ceiling is
- * raised for cloud turns. A command that writes thirty files of which twenty
- * are build output, gitignored, or outside the workspace is a ten-file command
- * by the time it gets here, and it delivers all ten.
- */
-const PER_COMMAND_MAX = MAX_PRODUCED_FILES_PER_COMMAND;
 
-// The tool host's private state directory, which `isNoiseProducedPath` lets
-// through by design — on the desktop it is the deliverables home, but in a
-// cloud workspace it holds shell state, not deliverables.
+// The tool host's private state directory: in a cloud workspace it holds
+// shell state, not deliverables, so a link into it is never delivered.
 const STATE_DIR_SEGMENT = ".stella";
-
-// Build output and vendored dependencies survive `isNoiseProducedPath` because
-// they are neither dot-directories nor node_modules. Only snapshot detections
-// are filtered on them: a deliberate write into `out/` is a deliverable.
-const BUILD_DIR_SEGMENTS = new Set([
-  "dist",
-  "build",
-  "out",
-  "target",
-  "coverage",
-  "vendor",
-  "__pycache__",
-]);
 
 const CONTENT_TYPES: Record<string, string> = {
   csv: "text/csv",
@@ -231,41 +191,17 @@ const filterGitIgnored = async (
   });
 
 /**
- * Turn the turn's tool records into the deliverables worth reporting.
+ * Turn the reply's linked paths into the deliverables worth reporting.
  *
- * `edited` records are deliberate tool edits and are only held to the state
- * directory: running them through `isNoiseProducedPath` — a filter the
- * contract documents as being for snapshot detections only — would silently
- * swallow the `.github/workflows/deploy.yml` or `run.log` the user asked for.
- * `detected` records come from shell snapshots and keep the full filtering.
+ * `linked` paths come from markdown links in the turn's final assistant
+ * message(s): each is deliberate — the model wrote it into the reply — so no
+ * churn heuristics apply. They are still agent-chosen strings, so each one is
+ * resolved against the workspace root and refused if it escapes it or names
+ * the tool host's state directory, before the descriptor-boundary
+ * authorization below ever sees it.
  *
- * The 25-file report is spent in a deliberate order rather than in arrival
- * order, because arrival order hands it to whichever command ran first. A
- * command that renders 150 PNG pages out of a PDF and a command that writes
- * the summary the user asked for are both snapshot detections; ranked by how
- * many files each produced, the summary is delivered and the page renders
- * queue behind it. Deliberate edits precede both, and whatever the order
- * cannot fit comes back as `omitted` so the turn can say so.
- *
- * Ranking alone is not containment, though: with nothing to rank against, the
- * 150 page renders would simply take the whole report, and every file in it
- * becomes a real drive row charged to the user's file quota — then outranks
- * their own documents in the next turn's hydration, because it is newer. So a
- * snapshot batch past `PER_COMMAND_MAX` is withheld outright and counted in
- * `withheld` rather than contributing its first twelve. Deliberate edits are
- * never withheld: a genuinely large batch the agent meant to write is exactly
- * what the report's own cap is for.
- *
- * De-duplication across batches therefore happens *after* the withhold
- * decision, not during collection. Two commands routinely name the same file —
- * a script that writes `summary.md` alongside thirty intermediates, then a
- * `sed -i` over `summary.md` — and a dedup that ran while collecting would let
- * the thirty-one-file batch claim the path first and then take it down with it
- * when it was withheld, leaving the one file the user asked for in no batch at
- * all: not delivered, not in `omitted`, and named nowhere in the report. Each
- * batch is de-duplicated only against itself, which is also what makes its
- * length mean "what this command produced" for the withhold test; the surviving
- * paths are then de-duplicated in delivery order.
+ * The 25-file report is spent in link order, and whatever it cannot fit comes
+ * back as `omitted` so the turn can say so.
  *
  * `gitAware` runs the surviving paths past `.gitignore`, which is only
  * meaningful for a project checkout.
@@ -274,86 +210,28 @@ export const collectProducedFiles = async (options: {
   workspaceRoot: string;
   /** Fixed Cloud identity used for both subprocesses and workspace ownership. */
   processIdentity: ToolProcessIdentity;
-  /** Deliberate tool edits (`fileChanges`). */
-  edited: FileChangeRecord[];
-  /** Snapshot-detected writes (`producedFiles`), one array per command. */
-  detected: FileChangeRecord[][];
+  /** Untrusted paths linked in the turn's final assistant message(s). */
+  linked: readonly string[];
   gitAware: boolean;
   /** Drive folder this workspace's files land under; "" for the drive itself. */
   drivePrefix: string;
 }): Promise<ProducedFileCollection> => {
   assertStrictProcessIdentity(options.processIdentity);
-  const collect = (
-    records: FileChangeRecord[],
-    snapshot: boolean,
-  ): string[] => {
-    // Scoped to this batch: a path two commands both wrote is one entry here
-    // and one entry there, and which of them survives is settled below, once
-    // it is known which batches survive at all.
-    const seen = new Set<string>();
-    const kept: string[] = [];
-    for (const record of records) {
-      if (record.kind.type === "delete") continue;
-      const target =
-        record.kind.type === "update" && record.kind.move_path
-          ? record.kind.move_path
-          : record.path;
-      const relative = toWorkspaceRelative(
-        path.resolve(options.workspaceRoot, target),
-        options.workspaceRoot,
-      );
-      if (!relative || seen.has(relative)) continue;
-      if (snapshot && isNoiseProducedPath(relative)) continue;
-      const segments = relative.split("/");
-      if (segments.includes(STATE_DIR_SEGMENT)) continue;
-      if (
-        snapshot &&
-        segments.some((segment) => BUILD_DIR_SEGMENTS.has(segment))
-      ) {
-        continue;
-      }
-      seen.add(relative);
-      kept.push(relative);
-    }
-    return kept;
-  };
-  const commands = options.detected
-    .map((records) => collect(records, true))
-    .filter((batch) => batch.length > 0)
-    // Fewest files first — the size of a command's batch is the one signal
-    // separating "the file the user asked for" from the churn around it, and
-    // it is the same signal the runtime's per-command cap is built on. Sort is
-    // stable, so commands that produced as much as each other stay in the
-    // order they ran.
-    .sort((a, b) => a.length - b.length);
+  const seen = new Set<string>();
   const candidates: string[] = [];
-  const claimed = new Set<string>();
-  const claim = (batch: string[]): void => {
-    for (const relative of batch) {
-      if (claimed.has(relative)) continue;
-      claimed.add(relative);
-      candidates.push(relative);
-    }
-  };
-  // Deliberate edits first: when the cap bites, it must cost snapshot churn
-  // before it costs a file the agent was asked to write.
-  claim(collect(options.edited, false));
-  const withheldPaths = new Set<string>();
-  for (const batch of commands) {
-    if (batch.length > PER_COMMAND_MAX) {
-      for (const relative of batch) withheldPaths.add(relative);
-      continue;
-    }
-    claim(batch);
+  for (const linked of options.linked) {
+    const trimmed = linked.trim();
+    if (!trimmed) continue;
+    const relative = toWorkspaceRelative(
+      path.resolve(options.workspaceRoot, trimmed),
+      options.workspaceRoot,
+    );
+    if (!relative || seen.has(relative)) continue;
+    if (relative.split("/").includes(STATE_DIR_SEGMENT)) continue;
+    seen.add(relative);
+    candidates.push(relative);
   }
-  // Only the paths no surviving batch delivers. A file the user asked for that
-  // a churn batch happened to touch as well is delivered, and counting it here
-  // would tell them it was held back.
-  let withheld = 0;
-  for (const relative of withheldPaths) {
-    if (!claimed.has(relative)) withheld += 1;
-  }
-  if (candidates.length === 0) return { files: [], omitted: [], withheld };
+  if (candidates.length === 0) return { files: [], omitted: [] };
 
   const tracked = options.gitAware
     ? await filterGitIgnored(
@@ -428,7 +306,7 @@ export const collectProducedFiles = async (options: {
     }
     files.push(report);
   }
-  return { files, omitted, withheld };
+  return { files, omitted };
 };
 
 /** What the drive did with a turn's report, per path. */

@@ -7,6 +7,7 @@ import {
   attachedToolFingerprint,
   decodeAttachedToolFrame,
   encodeAttachedToolFrame,
+  parseAttachedToolControlRequest,
   parseAttachedToolControlResponse,
   parseAttachedToolRequest,
   parseAttachedToolResponse,
@@ -28,9 +29,6 @@ const result = (overrides: Record<string, unknown> = {}) => ({
   outcome: { kind: "ok", text: "hello" },
   details: null,
   authorizedImages: [],
-  fileChanges: [],
-  producedFiles: [],
-  producedFilesOmitted: null,
   ...overrides,
 });
 
@@ -117,9 +115,12 @@ describe("attached tool protocol", () => {
     ).toThrow(AttachedToolProtocolError);
   });
 
-  test("refuses file records that are not file changes", () => {
+  test("refuses a v1 result still carrying file-change fields", () => {
     expect(() =>
-      parseSerializedAgentToolResult(result({ fileChanges: [{ path: 1 }] })),
+      parseSerializedAgentToolResult(result({ fileChanges: [] })),
+    ).toThrow(AttachedToolProtocolError);
+    expect(() =>
+      parseSerializedAgentToolResult(result({ producedFiles: [] })),
     ).toThrow(AttachedToolProtocolError);
   });
 
@@ -135,14 +136,44 @@ describe("attached tool protocol", () => {
     ).toThrow(AttachedToolProtocolError);
   });
 
-  test("parses a quiesce report and its omission counter", () => {
+  test("parses a quiesced report of delivered drive paths", () => {
     const parsed = parseAttachedToolControlResponse({
       version: ATTACHED_TOOL_PROTOCOL_VERSION,
       status: "quiesced",
-      producedFiles: [{ path: "/world/out.txt", kind: { type: "add" } }],
-      producedFilesOmitted: { count: 3, limit: 200 },
+      deliveredFiles: ["out.txt"],
     });
     expect(parsed.status).toBe("quiesced");
+    expect(
+      parsed.status === "quiesced" ? parsed.deliveredFiles : [],
+    ).toEqual(["out.txt"]);
+    expect(() =>
+      parseAttachedToolControlResponse({
+        version: ATTACHED_TOOL_PROTOCOL_VERSION,
+        status: "quiesced",
+        producedFiles: [],
+      }),
+    ).toThrow(AttachedToolProtocolError);
+  });
+
+  test("requires linkedPaths on a quiesce control request", () => {
+    const base = {
+      version: ATTACHED_TOOL_PROTOCOL_VERSION,
+      turnId: "turn-1",
+      attemptGeneration: 1,
+      control: "quiesce",
+    };
+    expect(
+      parseAttachedToolControlRequest({
+        ...base,
+        linkedPaths: ["/world/drive/report.md"],
+      }),
+    ).toMatchObject({ control: "quiesce", linkedPaths: ["/world/drive/report.md"] });
+    expect(() => parseAttachedToolControlRequest(base)).toThrow(
+      AttachedToolProtocolError,
+    );
+    expect(() =>
+      parseAttachedToolControlRequest({ ...base, linkedPaths: [42] }),
+    ).toThrow(AttachedToolProtocolError);
   });
 
   test("fingerprints the same call identically regardless of key order", async () => {

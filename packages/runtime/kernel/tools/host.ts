@@ -39,7 +39,6 @@ import {
 import { log, logError, recoverStaleSecretFiles } from "./utils.js";
 import {
   createShellState,
-  drainCompletedProducedFiles,
   listRunningShellSessionsOwnedBy,
   readShellExitSnapshot,
   shutdownManagedShells,
@@ -707,23 +706,6 @@ export const createToolHost = ({
     /** Terminal facts about an exited session; null while it still runs. */
     readShellExitSnapshot: (sessionId: string) =>
       readShellExitSnapshot(shellState, sessionId),
-    // Pull deliverables from background/long-running shell sessions that
-    // finished after their last poll (so their produced files were never
-    // drained inline) into the agent-completed rollup. Optionally scoped to
-    // the sessions a run touched.
-    drainCompletedShellProducedFiles: (
-      access: ShellSessionAccess | null,
-      sessionIds?: string[],
-      signal?: AbortSignal,
-      deadlineAt?: number,
-    ) =>
-      drainCompletedProducedFiles(
-        shellState,
-        access,
-        sessionIds,
-        signal,
-        deadlineAt,
-      ),
     /** Finalize and detach browser ownership for one completed agent run. */
     endBrowserTurn: (
       runId: string,

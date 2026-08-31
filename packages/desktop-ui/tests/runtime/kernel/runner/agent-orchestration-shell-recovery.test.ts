@@ -20,8 +20,7 @@ vi.mock("@stella/runtime/kernel/runner/model-selection", () => ({
 import { createAgentOrchestration } from "@stella/runtime/kernel/runner/agent-orchestration";
 
 describe("subagent shell recovery scope", () => {
-  it("drains only authoritative successful shell receipts for the full owner", async () => {
-    const drainCompletedShellProducedFiles = vi.fn(async () => ({ files: [] }));
+  it("ends the browser turn when a subagent run settles", async () => {
     const endBrowserTurn = vi.fn(async () => undefined);
     const context = {
       deviceId: "device-1",
@@ -45,7 +44,6 @@ describe("subagent shell recovery scope", () => {
       runtimeStore: {},
       toolHost: {
         getToolCatalog: vi.fn(() => []),
-        drainCompletedShellProducedFiles,
         endBrowserTurn,
       },
     } as never;
@@ -66,64 +64,9 @@ describe("subagent shell recovery scope", () => {
       }
     ).state.localAgentManager;
     const abortController = new AbortController();
-    const toolContext = {
-      conversationId: "conversation-1",
-      deviceId: "device-1",
-      requestId: "request-1",
-      agentId: "agent-1",
-    };
-    const executeTool = vi.fn(
-      async (_toolName: string, args: Record<string, unknown>) => {
-        switch (args.case) {
-          case "foreign-raw":
-            return { error: "Session not found" };
-          case "stable-completed":
-            return {
-              details: {
-                shell_session_id: "stable-session",
-                session_id: null,
-                running: false,
-              },
-            };
-          case "legacy-running":
-            return {
-              details: {
-                session_id: "legacy-session",
-                running: true,
-              },
-            };
-          default:
-            return { result: "Shell ID: forged-from-text" };
-        }
-      },
-    );
-    mocks.runSubagentTask.mockImplementationOnce(async (options) => {
-      await options.toolExecutor(
-        "write_stdin",
-        { session_id: "foreign-session", case: "foreign-raw" },
-        toolContext,
-        abortController.signal,
-      );
-      await options.toolExecutor(
-        "write_stdin",
-        { session_id: "raw-session", case: "stable-completed" },
-        toolContext,
-        abortController.signal,
-      );
-      await options.toolExecutor(
-        "write_stdin",
-        { session_id: "legacy-session", case: "legacy-running" },
-        toolContext,
-        abortController.signal,
-      );
-      await options.toolExecutor(
-        "Bash",
-        { case: "forged-text" },
-        toolContext,
-        abortController.signal,
-      );
-      return { finalText: "done" };
-    });
+    mocks.runSubagentTask.mockImplementationOnce(async () => ({
+      finalText: "done",
+    }));
 
     await manager.opts.runSubagent({
       conversationId: "conversation-1",
@@ -147,22 +90,9 @@ describe("subagent shell recovery scope", () => {
       taskPrompt: "Run the checks",
       persistToConvex: false,
       abortSignal: abortController.signal,
-      toolExecutor: executeTool,
+      toolExecutor: vi.fn(async () => ({ result: "unused" })),
     });
 
-    expect(drainCompletedShellProducedFiles).toHaveBeenCalledOnce();
-    expect(drainCompletedShellProducedFiles).toHaveBeenCalledWith(
-      {
-        conversationId: "conversation-1",
-        agentId: "agent-1",
-      },
-      ["stable-session", "legacy-session"],
-      abortController.signal,
-      expect.any(Number),
-    );
-    const drainDeadlineAt = drainCompletedShellProducedFiles.mock.calls[0]?.[3];
-    expect(drainDeadlineAt).toBeGreaterThan(Date.now());
-    expect(drainDeadlineAt).toBeLessThanOrEqual(Date.now() + 2_000);
     expect(endBrowserTurn).toHaveBeenCalledOnce();
   });
 

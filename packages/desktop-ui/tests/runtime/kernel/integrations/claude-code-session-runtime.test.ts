@@ -7,7 +7,6 @@ import {
   claudeCodeSessionHasActiveProcess,
   createClaudeNativeToolUseCorrelator,
   repairPartialToolInputJson,
-  collectClaudeCodeNativeFileChanges,
   createClaudeCodeStreamEmitter,
   getClaudeCodeModelRoundFromStreamEvent,
   getClaudeCodeModelFallbackFromStreamEvent,
@@ -356,84 +355,6 @@ describe("claude-code-session-runtime", () => {
     });
   });
 
-  describe("collectClaudeCodeNativeFileChanges", () => {
-    const assistantToolUse = (
-      blocks: Array<Record<string, unknown>>,
-    ): Record<string, unknown> => ({
-      type: "assistant",
-      message: { role: "assistant", content: blocks },
-    });
-
-    it("collects Write/Edit/MultiEdit/NotebookEdit file paths", () => {
-      expect(
-        collectClaudeCodeNativeFileChanges(
-          assistantToolUse([
-            {
-              type: "tool_use",
-              name: "Write",
-              input: { file_path: "/tmp/a.txt", content: "x" },
-            },
-            {
-              type: "tool_use",
-              name: "Edit",
-              input: {
-                file_path: "/tmp/b.ts",
-                old_string: "a",
-                new_string: "b",
-              },
-            },
-            {
-              type: "tool_use",
-              name: "MultiEdit",
-              input: { file_path: "/tmp/c.ts", edits: [] },
-            },
-            {
-              type: "tool_use",
-              name: "NotebookEdit",
-              input: { notebook_path: "/tmp/d.ipynb" },
-            },
-          ]),
-        ),
-      ).toEqual([
-        { path: "/tmp/a.txt", kind: { type: "add" } },
-        { path: "/tmp/b.ts", kind: { type: "update" } },
-        { path: "/tmp/c.ts", kind: { type: "update" } },
-        { path: "/tmp/d.ipynb", kind: { type: "update" } },
-      ]);
-    });
-
-    it("ignores non-file tools, missing paths, and non-assistant events", () => {
-      expect(
-        collectClaudeCodeNativeFileChanges(
-          assistantToolUse([
-            {
-              type: "tool_use",
-              name: "Bash",
-              input: { command: "touch /tmp/e.txt" },
-            },
-            { type: "tool_use", name: "Write", input: { content: "no path" } },
-            { type: "text", text: "hello" },
-          ]),
-        ),
-      ).toEqual([]);
-      expect(
-        collectClaudeCodeNativeFileChanges({
-          type: "user",
-          message: {
-            role: "user",
-            content: [
-              {
-                type: "tool_use",
-                name: "Write",
-                input: { file_path: "/tmp/f.txt" },
-              },
-            ],
-          },
-        }),
-      ).toEqual([]);
-    });
-  });
-
   it("surfaces vanilla-mode native file writes on the turn result", async () => {
     const dir = fs.mkdtempSync(
       path.join(os.tmpdir(), "stella-fake-claude-files-"),
@@ -494,10 +415,7 @@ describe("claude-code-session-runtime", () => {
       });
 
       expect(result.text).toBe("Wrote the report.");
-      expect(result.fileChanges).toEqual([
-        { path: "/tmp/report.html", kind: { type: "add" } },
-        { path: "/tmp/notes.md", kind: { type: "update" } },
-      ]);
+      expect(result).not.toHaveProperty("fileChanges");
     } finally {
       shutdownClaudeCodeRuntime();
       process.env.PATH = previousPath;
@@ -1566,10 +1484,7 @@ describe("claude-code-session-runtime", () => {
       });
 
       expect(result.text).toBe("Reconciled without redoing edits.");
-      // The interrupted attempt's file write still reaches the turn result.
-      expect(result.fileChanges).toEqual([
-        { path: "/tmp/mutated.md", kind: { type: "update" } },
-      ]);
+      expect(result).not.toHaveProperty("fileChanges");
       const prompts = fs
         .readFileSync(logPath, "utf8")
         .trim()
@@ -1578,11 +1493,7 @@ describe("claude-code-session-runtime", () => {
           (line) => JSON.parse(line) as { spawnCount: number; content: string },
         );
       expect(prompts).toHaveLength(2);
-      // The retry must NOT replay the original (mutating) prompt.
-      expect(prompts[1]?.content).not.toContain("Apply the hardening edits.");
-      expect(prompts[1]?.content).toContain(
-        "Do NOT redo, repeat, or revert those tool calls or file operations",
-      );
+      expect(prompts[1]?.content).toBe("Apply the hardening edits.");
     } finally {
       shutdownClaudeCodeRuntime();
       process.env.PATH = previousPath;
@@ -1652,10 +1563,7 @@ describe("claude-code-session-runtime", () => {
       });
 
       expect(result.text).toBe("Recovered final answer.");
-      // Files written during the malformed attempt are not dropped.
-      expect(result.fileChanges).toEqual([
-        { path: "/tmp/report.md", kind: { type: "add" } },
-      ]);
+      expect(result).not.toHaveProperty("fileChanges");
     } finally {
       shutdownClaudeCodeRuntime();
       process.env.PATH = previousPath;
@@ -1739,9 +1647,7 @@ describe("claude-code-session-runtime", () => {
       });
 
       expect(result.text).toBe("Reconciled after resume loss.");
-      expect(result.fileChanges).toEqual([
-        { path: "/tmp/guarded.md", kind: { type: "update" } },
-      ]);
+      expect(result).not.toHaveProperty("fileChanges");
       const records = fs
         .readFileSync(logPath, "utf8")
         .trim()
@@ -1757,16 +1663,6 @@ describe("claude-code-session-runtime", () => {
       expect(records).toHaveLength(3);
       expect(records[1]?.argv).toContain("--resume");
       expect(records[2]?.argv).not.toContain("--resume");
-      // The reseed must reconcile, never replay the fallback wholesale.
-      expect(
-        records[2]?.content.startsWith("The previous step was interrupted"),
-      ).toBe(true);
-      expect(records[2]?.content).toContain(
-        "Do NOT redo, repeat, or revert those tool calls or file operations",
-      );
-      expect(records[2]?.content).toContain("/tmp/guarded.md");
-      // Task context survives as reference-only material.
-      expect(records[2]?.content).toContain("for reference only");
       expect(records[2]?.content).toContain("HISTORY SEED");
     } finally {
       shutdownClaudeCodeRuntime();
@@ -1854,10 +1750,7 @@ describe("claude-code-session-runtime", () => {
       });
 
       expect(result.text).toBe("Recovered after loop.");
-      // The interrupted attempt's write survives onto the turn result.
-      expect(result.fileChanges).toEqual([
-        { path: "/tmp/looped.md", kind: { type: "update" } },
-      ]);
+      expect(result).not.toHaveProperty("fileChanges");
       const records = fs
         .readFileSync(logPath, "utf8")
         .trim()
@@ -1872,15 +1765,6 @@ describe("claude-code-session-runtime", () => {
         );
       expect(records).toHaveLength(2);
       expect(records[1]?.argv).not.toContain("--resume");
-      // The reseed reconciles instead of replaying resumeFallbackPrompt.
-      expect(
-        records[1]?.content.startsWith("The previous step was interrupted"),
-      ).toBe(true);
-      expect(records[1]?.content).toContain(
-        "Do NOT redo, repeat, or revert those tool calls or file operations",
-      );
-      expect(records[1]?.content).toContain("/tmp/looped.md");
-      expect(records[1]?.content).toContain("for reference only");
       expect(records[1]?.content).toContain("LOOP SEED");
     } finally {
       shutdownClaudeCodeRuntime();

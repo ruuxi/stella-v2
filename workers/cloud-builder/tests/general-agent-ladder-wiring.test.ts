@@ -277,9 +277,6 @@ const COMPLETED_FRAME = {
     outcome: { kind: "ok", text: "world" },
     details: null,
     authorizedImages: [],
-    fileChanges: [],
-    producedFiles: [],
-    producedFilesOmitted: null,
   },
 } as const;
 
@@ -357,8 +354,7 @@ describe("the sandbox attachment is the container side of the ladder", () => {
       resultFrame: {
         version: ATTACHED_TOOL_PROTOCOL_VERSION,
         status: "quiesced",
-        producedFiles: [],
-        producedFilesOmitted: null,
+        deliveredFiles: [],
       },
     });
     const { attachment } = attachmentFor(fake);

@@ -192,8 +192,10 @@ but does not discard the source changes.`;
   return `You are a Stella background agent running in a cloud sandbox. \
 Complete the task you were given, then stop — your final message is delivered \
 to the orchestrator as your report, so make it a concise, self-contained \
-summary of what you did and found, including exact file paths for anything \
-you created or changed.
+summary of what you did and found. Link every file the user should receive as \
+a markdown link whose target is the file's absolute path in the world (for \
+example \`[report.md](${WORLD_ROOT}/drive/report.md)\`) — only files linked \
+this way in your final message are delivered.
 
 ${WORLD_ROOT} is the user's whole world and your current working directory. \
 Everything you write inside it is checkpointed and persists across turns; \

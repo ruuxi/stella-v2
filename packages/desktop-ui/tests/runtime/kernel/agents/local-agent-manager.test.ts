@@ -380,7 +380,7 @@ describe("LocalAgentManager Exec fs locking", () => {
     ]);
   });
 
-  it("emits completed terminal events with the agent result and file changes", async () => {
+  it("emits completed terminal events with the agent result only", async () => {
     const events: AgentLifecycleEvent[] = [];
     const manager = new LocalAgentManager({
       maxConcurrent: 1,
@@ -427,14 +427,11 @@ describe("LocalAgentManager Exec fs locking", () => {
         agentType: "general",
         description: "agent task",
         result: "Agent finished the delegated work.",
-        fileChanges: [
-          {
-            path: "/repo/src/agent-change.ts",
-            kind: { type: "update" },
-          },
-        ],
       }),
     );
+    expect(
+      events.find((event) => event.type === "agent-completed"),
+    ).not.toHaveProperty("fileChanges");
   });
 
   it("threads per-spawn model and engine selections into the agent context fetch", async () => {
@@ -1191,8 +1188,6 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
           };
         }
         if (runCount === 2) {
-          // Follow-up run re-reports one banked write (dedupe) and adds a
-          // new one.
           return {
             runId: args.runId,
             result: `done-${runCount}`,
@@ -1208,7 +1203,6 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
             ],
           };
         }
-        // Post-drain run: only its own new file.
         return {
           runId: args.runId,
           result: `done-${runCount}`,
@@ -1251,30 +1245,14 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
     releaseFirstRun?.();
     await waitForCompletions(1);
 
-    // The first EMITTED completion must carry run 1's banked files merged
-    // with run 2's, deduped by path+kind.
+    // Completions no longer carry file rollups; artifacts are derived
+    // from links in the result text instead.
     const first = completions()[0]!;
-    expect(first.fileChanges).toEqual([
-      {
-        path: "/home/u/.stella/outputs/demos/review.html",
-        kind: { type: "update" },
-      },
-    ]);
-    expect(first.producedFiles).toEqual([
-      {
-        path: "/home/u/.stella/outputs/demos/demo1.mp4",
-        kind: { type: "add" },
-      },
-      {
-        path: "/home/u/.stella/outputs/demos/demo2.mp4",
-        kind: { type: "add" },
-      },
-    ]);
+    expect(first).not.toHaveProperty("fileChanges");
+    expect(first).not.toHaveProperty("producedFiles");
 
-    // Resume the now-idle thread: the bank was drained when the first
-    // completion emitted, so the resumed run's own completion only reveals
-    // the new run's files (append-only property). No audience-split
-    // duplicates exist under the state-based completion rule.
+    // Resume the now-idle thread. No audience-split duplicates exist
+    // under the state-based completion rule.
     await manager.sendAgentMessage(
       task.threadId,
       "export a final pdf",
@@ -1288,12 +1266,7 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
     expect(second.audience).toBeUndefined();
     expect(second.result).toBe("done-3");
     expect(second.fileChanges).toBeUndefined();
-    expect(second.producedFiles).toEqual([
-      {
-        path: "/home/u/.stella/outputs/demos/final.pdf",
-        kind: { type: "add" },
-      },
-    ]);
+    expect(second.producedFiles).toBeUndefined();
   });
 
   it("advances snapshot lastActivityAt on tool lifecycle during one long tool call", async () => {

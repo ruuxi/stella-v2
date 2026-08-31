@@ -38,27 +38,6 @@ import { sanitizeForLogs, truncate } from "../tools/utils.js";
 import { getOrCreateSubagentSession } from "../agent-runtime/subagent-session.js";
 import { isCloudAgentStartAdmissionError } from "../runner/computer-agent-cloud-records.js";
 const formatTaskUpdateStatusText = (text) => truncate(text.replace(/\s+/g, " ").trim(), 200);
-const fileRecordKey = (record) =>
-    `${record.kind.type}:${record.path}:${record.kind.type === "update" ? (record.kind.move_path ?? "") : ""}`;
-/**
- * Append-merge file records, deduped by `(kind, path, move_path)` — the same
- * identity the runner's per-run collectors use. First occurrence wins so a
- * banked record from an interrupted run keeps its original position when the
- * completing run re-reports the same write.
- */
-const mergeUniqueFileRecords = (existing, incoming) => {
-    if (!incoming?.length) return existing;
-    if (!existing?.length) return [...incoming];
-    const out = [];
-    const seen = new Set();
-    for (const record of [...existing, ...incoming]) {
-        const key = fileRecordKey(record);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(record);
-    }
-    return out;
-};
 const ENV_ASSIGNMENT_RE = /\b([A-Za-z_][A-Za-z0-9_]*)=(?:"[^"]*"|'[^']*'|[^\s]+)/g;
 const SECRET_FLAG_RE =
     /(\s--?(?:api[-_]?key|token|secret|password|passwd|authorization))(?:=|\s+)(?:"[^"]*"|'[^']*'|[^\s]+)/gi;
@@ -1558,11 +1537,6 @@ export class LocalAgentManager {
             }
             if (!isCurrentAttempt()) return;
             task.completedAt = Date.now();
-            // Bank this run's collected file records immediately, before any
-            // branch below decides the run's fate. A queued follow-up can land
-            // too late to steer; banking lets those files survive the boundary.
-            task.bankedFileChanges = mergeUniqueFileRecords(task.bankedFileChanges, result.fileChanges);
-            task.bankedProducedFiles = mergeUniqueFileRecords(task.bankedProducedFiles, result.producedFiles);
             if (attempt.controller.signal.aborted || task.status === "canceled") {
                 task.status = "canceled";
                 task.error = task.error ?? "Canceled";
@@ -1575,13 +1549,6 @@ export class LocalAgentManager {
             } else {
                 task.status = "completed";
                 task.result = result.result;
-                // Completion rollup = banked records from queued-follow-up
-                // boundaries + this run's records. Drained
-                // when the `agent-completed` event is actually emitted, so files
-                // are never re-revealed across rollups but survive completions
-                // that get skipped (e.g. a queued follow-up re-entering the loop).
-                task.fileChanges = task.bankedFileChanges;
-                task.producedFiles = task.bankedProducedFiles;
             }
         } catch (error) {
             if (!isCurrentAttempt()) return;
@@ -1730,11 +1697,7 @@ export class LocalAgentManager {
                         attemptGeneration: task.attemptGeneration,
                         ...(task.ownerGeneration ? { ownerGeneration: task.ownerGeneration } : {}),
                         result: task.result,
-                        ...(task.fileChanges?.length ? { fileChanges: task.fileChanges } : {}),
-                        ...(task.producedFiles?.length ? { producedFiles: task.producedFiles } : {}),
                     };
-                    // The rollup is now captured on the event — drain the bank so a
-                    // send_input re-run's later completion only reveals new files.
                     try {
                         await this.emitAgentLifecycleEventOnce(completedEvent);
                         if (!isCurrentAttempt()) return;
@@ -1747,8 +1710,6 @@ export class LocalAgentManager {
                         // The unacknowledged cloud terminal receipt is now the
                         // delivery owner. Its monitor retries this same event id.
                     }
-                    task.bankedFileChanges = undefined;
-                    task.bankedProducedFiles = undefined;
                     task.descendantWakePending = false;
                     this.persistTask(task);
                 }

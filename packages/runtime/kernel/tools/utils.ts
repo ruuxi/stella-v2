@@ -18,7 +18,6 @@ import {
   truncateHead,
   truncateStringToBytesFromStart,
 } from "./truncate.js";
-import type { ProducedFilesOmission } from "./types.js";
 
 // Constants
 export const MAX_OUTPUT = DEFAULT_MAX_BYTES;
@@ -37,22 +36,6 @@ export const logError = (message: string, fields?: unknown) => {
 };
 
 export const sanitizeForLogs = (value: unknown) => sanitizeSensitiveData(value);
-
-/**
- * Fold two produced-file omission signals into one. Tools that run several
- * nested tools under a single ToolResult (`node_repl`, `multi_tool_use`)
- * would otherwise have to pick one signal and drop the rest — the same silent
- * swallow the per-command cap itself used to do. Counts add up; the limit is
- * shared (it comes from one ToolContext), so the larger one stands.
- */
-export const mergeProducedFilesOmissions = (
-  a: ProducedFilesOmission | undefined,
-  b: ProducedFilesOmission | undefined,
-): ProducedFilesOmission | undefined => {
-  if (!a) return b;
-  if (!b) return a;
-  return { count: a.count + b.count, limit: Math.max(a.limit, b.limit) };
-};
 
 export const toPosix = (value: string) => value.replace(/\\/g, "/");
 

@@ -36,8 +36,7 @@ export const createShellToolHandlers = (
 ): Record<string, ToolHandler> => ({
   Bash: (args, context, extras) =>
     handleBash(shellState, args, context, extras?.signal),
-  ShellStatus: (args, context, extras) =>
-    handleShellStatus(shellState, args, context, extras?.signal),
+  ShellStatus: (args, context) => handleShellStatus(shellState, args, context),
   KillShell: (args, context) => handleKillShell(shellState, args, context),
 });
 

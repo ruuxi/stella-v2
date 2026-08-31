@@ -11,7 +11,6 @@ import type { SubagentSession } from "./subagent-session.js";
 import type { BackgroundCompactionScheduler } from "./compaction-scheduler.js";
 import type {
   AgentToolRequest,
-  ProducedFilesOmission,
   ToolContext,
   ToolMetadata,
   ToolResult,
@@ -27,10 +26,6 @@ import type {
   RuntimePromptMessage,
   RuntimeAgentEventPayload,
 } from "@stella/contracts/protocol";
-import type {
-  FileChangeRecord,
-  ProducedFileRecord,
-} from "@stella/contracts/file-changes";
 import type {
   ProviderStreamLifecycleEvent,
   ProviderStreamSettlementEvent,
@@ -83,8 +78,6 @@ export type RuntimeToolEndEvent = {
   /** True when the tool reported an error envelope for this call. */
   isError?: boolean;
   details?: unknown;
-  fileChanges?: FileChangeRecord[];
-  producedFiles?: ProducedFileRecord[];
   /**
    * Spawned-agent thread id (`task.threadId`) stamped by the subagent
    * runner so persisted `tool_result` payloads can be attributed to the
@@ -169,8 +162,6 @@ export type RuntimeEndEvent = {
   userMessageId: string;
   finalText: string;
   persisted: boolean;
-  fileChanges?: FileChangeRecord[];
-  producedFiles?: ProducedFileRecord[];
   uiVisibility?: "visible" | "hidden";
   responseTarget?: RuntimeAgentEventPayload["responseTarget"];
 };
@@ -351,12 +342,4 @@ export type SubagentRunResult = {
   result: string;
   interrupted?: boolean;
   error?: string;
-  fileChanges?: FileChangeRecord[];
-  producedFiles?: ProducedFileRecord[];
-  /**
-   * Set when the per-command cap withheld a background shell session's whole
-   * produced-file batch. Those files are on disk and in no list, so this
-   * count is the only thing that can say they exist.
-   */
-  producedFilesOmitted?: ProducedFilesOmission;
 };

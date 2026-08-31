@@ -13,7 +13,6 @@ const completion: AgentLifecycleEvent = {
   agentType: "general",
   description: "Build the report",
   result: "Finished",
-  fileChanges: [{ path: "report.md", kind: { type: "add" } }],
 };
 
 describe("agent lifecycle transcript ownership", () => {

@@ -18,15 +18,11 @@ const OK: SerializedAgentToolResult = {
   outcome: { kind: "ok", text: "done" },
   details: null,
   authorizedImages: [],
-  fileChanges: [],
-  producedFiles: [],
-  producedFilesOmitted: null,
 };
 
 const REPORT: AttachedToolHostReport = {
   bootNotices: [],
-  producedFiles: [],
-  producedFilesOmitted: null,
+  deliveredFiles: [],
 };
 
 const toolFrame = (overrides: Record<string, unknown> = {}) => ({
@@ -45,13 +41,16 @@ const controlFrame = (control: "boot_report" | "quiesce") => ({
   turnId: IDENTITY.turnId,
   attemptGeneration: IDENTITY.attemptGeneration,
   control,
+  ...(control === "quiesce" ? { linkedPaths: [] } : {}),
 });
 
 const dispatcher = (
   options: {
     calls?: Map<string, CallState>;
     execute?: () => Promise<SerializedAgentToolResult>;
-    quiesce?: () => Promise<AttachedToolHostReport>;
+    quiesce?: (
+      linkedPaths: readonly string[],
+    ) => Promise<AttachedToolHostReport>;
     bootNotices?: readonly string[];
   } = {},
 ) => {
@@ -153,27 +152,30 @@ describe("attached tool dispatcher", () => {
     expect(runs).toEqual([]);
   });
 
-  test("quiesce joins the host and returns what it delivered", async () => {
+  test("quiesce forwards the linked paths and returns what it delivered", async () => {
     let joined = 0;
+    let receivedLinkedPaths: readonly string[] | undefined;
     const { instance } = dispatcher({
-      quiesce: async () => {
+      quiesce: async (linkedPaths) => {
         joined += 1;
+        receivedLinkedPaths = linkedPaths;
         return {
           bootNotices: [],
-          producedFiles: [
-            { path: "/world/drive/out.txt", kind: { type: "add" } },
-          ],
-          producedFilesOmitted: { count: 2, limit: 200 },
+          deliveredFiles: ["out.txt"],
         };
       },
     });
 
-    const response = await instance.answer(controlFrame("quiesce"));
+    const response = await instance.answer({
+      ...controlFrame("quiesce"),
+      linkedPaths: ["/world/drive/out.txt"],
+    });
 
     expect(joined).toBe(1);
+    expect(receivedLinkedPaths).toEqual(["/world/drive/out.txt"]);
     expect(response).toMatchObject({
       status: "quiesced",
-      producedFilesOmitted: { count: 2, limit: 200 },
+      deliveredFiles: ["out.txt"],
     });
   });
 });

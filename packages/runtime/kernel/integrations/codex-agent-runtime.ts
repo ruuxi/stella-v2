@@ -18,20 +18,13 @@
  *   Cancellation stays cooperative at the seam: the caller's `AbortSignal`
  *   still drives `turn/interrupt` plus the abort ladder unchanged.
  */
-import {
-  execFile,
-  spawn,
-  type ChildProcessWithoutNullStreams,
-} from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
-import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
-import { setupGitEnvironment } from "../../git-environment.js";
 import {
   DEFAULT_CODEX_SERVICE_TIER,
   type AgentModelReasoningEffort,
@@ -39,7 +32,6 @@ import {
   type CodexServiceTier,
 } from "@stella/contracts/agent-engine";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-import type { FileChangeRecord } from "@stella/contracts/file-changes";
 import { redactSensitiveText } from "@stella/contracts/sensitive-data";
 import type {
   RuntimeAttachmentRef,
@@ -82,7 +74,6 @@ const CODEX_AGENT_MESSAGE_COMPLETION_GRACE_MS = 750;
 export const CODEX_LIGHT_MODEL = "gpt-5.4-mini";
 /** Cheap model reserved for automatic utility work, not explicit agent spawns. */
 export const CODEX_UTILITY_MODEL = "gpt-5.6-luna";
-const execFileAsync = promisify(execFile);
 
 type JsonRpcId = number | string;
 type JsonRpcError = {
@@ -311,7 +302,6 @@ export type CodexAgentRuntimeEngine = AgentRuntimeEngine;
 export type CodexAgentTurnResult = {
   text: string;
   sessionId: string;
-  fileChanges?: FileChangeRecord[];
 };
 
 export type CodexCommandExecutionActivity = {
@@ -396,214 +386,6 @@ export const buildCodexPromptFromMessages = (args: {
     .map(formatCodexPromptMessage)
     .filter((section) => section.trim().length > 0)
     .join("\n\n");
-
-const absoluteChangePath = (cwd: string | undefined, value: string): string => {
-  const trimmed = value.trim();
-  if (path.isAbsolute(trimmed)) return trimmed;
-  return path.resolve(cwd ?? process.cwd(), trimmed);
-};
-
-const codexChangeKindToFileChangeKind = (
-  kind: CodexPatchChangeKind,
-  cwd?: string,
-): FileChangeRecord["kind"] => {
-  if (kind.type === "add" || kind.type === "delete") return { type: kind.type };
-  return {
-    type: "update",
-    ...(kind.move_path
-      ? { move_path: absoluteChangePath(cwd, kind.move_path) }
-      : {}),
-  };
-};
-
-export const fileChangesFromCodexItem = (
-  item: CodexThreadItem,
-  cwd?: string,
-): FileChangeRecord[] => {
-  if (item.type !== "fileChange" || item.status !== "completed") return [];
-  return item.changes.map((change) => ({
-    path: absoluteChangePath(cwd, change.path),
-    kind: codexChangeKindToFileChangeKind(change.kind, cwd),
-  }));
-};
-
-type WorktreeEntry = {
-  path: string;
-  status: string;
-  movePath?: string;
-};
-
-type WorktreeSnapshot = {
-  repoRoot: string;
-  entries: Map<string, WorktreeEntry>;
-  fingerprints: Map<string, string | null>;
-};
-
-const normalizeGitPath = (value: string): string =>
-  value.trim().replace(/\\/g, "/");
-
-const statusKeyForEntry = (entry: WorktreeEntry): string =>
-  entry.movePath ?? entry.path;
-
-const absoluteRepoPath = (repoRoot: string, repoRelativePath: string): string =>
-  path.resolve(repoRoot, repoRelativePath);
-
-const parseStatusLine = (line: string): WorktreeEntry | null => {
-  if (!line || line.length < 4) return null;
-  const status = line.slice(0, 2);
-  const rawPath = line.slice(3).trim();
-  if (!rawPath) return null;
-  const renameMarker = rawPath.lastIndexOf(" -> ");
-  if (renameMarker >= 0) {
-    return {
-      status,
-      path: normalizeGitPath(rawPath.slice(0, renameMarker)),
-      movePath: normalizeGitPath(rawPath.slice(renameMarker + 4)),
-    };
-  }
-  return {
-    status,
-    path: normalizeGitPath(rawPath),
-  };
-};
-
-const parseGitStatus = (stdout: string): Map<string, WorktreeEntry> => {
-  const entries = new Map<string, WorktreeEntry>();
-  for (const line of stdout.replace(/\r?\n$/, "").split(/\r?\n/)) {
-    const entry = parseStatusLine(line);
-    if (!entry) continue;
-    entries.set(statusKeyForEntry(entry), entry);
-  }
-  return entries;
-};
-
-const runGit = async (
-  repoRoot: string,
-  args: string[],
-): Promise<{ ok: boolean; stdout: string }> => {
-  const { env, gitLocation } = setupGitEnvironment(process.env);
-  try {
-    const result = await execFileAsync(gitLocation, args, {
-      cwd: repoRoot,
-      env,
-      encoding: "utf8",
-      maxBuffer: 10 * 1024 * 1024,
-      windowsHide: true,
-    });
-    return { ok: true, stdout: String(result.stdout ?? "") };
-  } catch {
-    return { ok: false, stdout: "" };
-  }
-};
-
-const fingerprintFile = async (
-  repoRoot: string,
-  repoRelativePath: string,
-): Promise<string | null> => {
-  try {
-    const data = await readFile(absoluteRepoPath(repoRoot, repoRelativePath));
-    return crypto.createHash("sha256").update(data).digest("hex");
-  } catch {
-    return null;
-  }
-};
-
-const snapshotWorktree = async (
-  repoRoot: string | undefined,
-): Promise<WorktreeSnapshot | null> => {
-  const root = repoRoot?.trim();
-  if (!root) return null;
-  const inside = await runGit(root, ["rev-parse", "--is-inside-work-tree"]);
-  if (!inside.ok || inside.stdout.trim() !== "true") {
-    return null;
-  }
-  const status = await runGit(root, [
-    "-c",
-    "core.quotepath=false",
-    "status",
-    "--porcelain",
-    "--untracked-files=all",
-  ]);
-  if (!status.ok) return null;
-  const entries = parseGitStatus(status.stdout);
-  const fingerprints = new Map<string, string | null>();
-  for (const [key, entry] of entries) {
-    fingerprints.set(
-      key,
-      await fingerprintFile(root, statusKeyForEntry(entry)),
-    );
-  }
-  return { repoRoot: root, entries, fingerprints };
-};
-
-const entryToChange = (
-  snapshot: WorktreeSnapshot,
-  entry: WorktreeEntry,
-): FileChangeRecord => {
-  const status = entry.status;
-  const changePath = absoluteRepoPath(snapshot.repoRoot, entry.path);
-  const movePath = entry.movePath
-    ? absoluteRepoPath(snapshot.repoRoot, entry.movePath)
-    : undefined;
-  if (status === "??" || status.includes("A")) {
-    return { path: movePath ?? changePath, kind: { type: "add" } };
-  }
-  if (status.includes("D") && !status.includes("A")) {
-    return { path: changePath, kind: { type: "delete" } };
-  }
-  return {
-    path: changePath,
-    kind: {
-      type: "update",
-      ...(movePath ? { move_path: movePath } : {}),
-    },
-  };
-};
-
-const diffWorktreeSnapshots = (
-  before: WorktreeSnapshot | null,
-  after: WorktreeSnapshot | null,
-): FileChangeRecord[] => {
-  if (!before || !after || before.repoRoot !== after.repoRoot) {
-    return [];
-  }
-  const changes: FileChangeRecord[] = [];
-  const keys = new Set([...before.entries.keys(), ...after.entries.keys()]);
-  for (const key of keys) {
-    const beforeEntry = before.entries.get(key);
-    const afterEntry = after.entries.get(key);
-    const beforeFingerprint = before.fingerprints.get(key);
-    const afterFingerprint = after.fingerprints.get(key);
-    if (!beforeEntry && afterEntry) {
-      changes.push(entryToChange(after, afterEntry));
-      continue;
-    }
-    if (beforeEntry && !afterEntry) {
-      if (beforeFingerprint === afterFingerprint) continue;
-      const absolutePath = absoluteRepoPath(
-        before.repoRoot,
-        statusKeyForEntry(beforeEntry),
-      );
-      changes.push({
-        path: absolutePath,
-        kind: fs.existsSync(absolutePath)
-          ? { type: "update" }
-          : { type: "delete" },
-      });
-      continue;
-    }
-    if (!beforeEntry || !afterEntry) continue;
-    if (
-      beforeEntry.status !== afterEntry.status ||
-      beforeEntry.path !== afterEntry.path ||
-      beforeEntry.movePath !== afterEntry.movePath ||
-      beforeFingerprint !== afterFingerprint
-    ) {
-      changes.push(entryToChange(after, afterEntry));
-    }
-  }
-  return changes;
-};
 
 const normalizeCodexRuntimeReasoningEffort = (
   value: unknown,
@@ -753,21 +535,6 @@ const truncateStderr = (chunks: Buffer[]): string => {
   const text = Buffer.concat(chunks).toString("utf8");
   if (text.length <= MAX_STDERR_CAPTURE) return text;
   return text.slice(text.length - MAX_STDERR_CAPTURE);
-};
-
-const appendUniqueFileChanges = (
-  target: FileChangeRecord[],
-  changes: FileChangeRecord[],
-) => {
-  const seen = new Set(
-    target.map((change) => `${change.path}\0${JSON.stringify(change.kind)}`),
-  );
-  for (const change of changes) {
-    const key = `${change.path}\0${JSON.stringify(change.kind)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    target.push(change);
-  }
 };
 
 const textFromUnknown = (value: unknown): string => {
@@ -1492,9 +1259,7 @@ const statusFromCodexItem = (item: CodexThreadItem): string | null => {
     case "commandExecution":
       return null;
     case "fileChange":
-      return item.status === "completed"
-        ? `Codex changed ${item.changes.length} file${item.changes.length === 1 ? "" : "s"}`
-        : `Codex file change ${item.status}`;
+      return null;
     case "dynamicToolCall":
       return null;
     case "mcpToolCall":
@@ -1586,10 +1351,6 @@ export const runCodexAgentTurn = async (request: {
     prompt: request.prompt,
     attachments: request.attachments,
   });
-  const snapshotBefore = request.cwd
-    ? await snapshotWorktree(request.cwd)
-    : null;
-  const fileChanges: FileChangeRecord[] = [];
   let finalText = "";
   // Tracks whether each streamed agentMessage item is a commentary preamble
   // (keyed by item id). Codex streams a visible commentary preamble before a
@@ -1837,10 +1598,6 @@ export const runCodexAgentTurn = async (request: {
               scheduleCompletionGrace?.();
             }
           }
-          appendUniqueFileChanges(
-            fileChanges,
-            fileChangesFromCodexItem(item, request.cwd ?? request.stellaAppDir),
-          );
           return;
         }
         default:
@@ -1910,7 +1667,6 @@ export const runCodexAgentTurn = async (request: {
           activeTurnWork.delete(workKey);
           refreshTurnIdleTimer?.();
         }
-        appendUniqueFileChanges(fileChanges, toolResult.fileChanges ?? []);
         const response = {
           contentItems: [
             { type: "inputText", text: buildToolResultText(toolResult) },
@@ -2019,17 +1775,6 @@ export const runCodexAgentTurn = async (request: {
     refreshTurnIdleTimer?.();
     await turnCompleted;
 
-    const snapshotAfter =
-      request.cwd && snapshotBefore
-        ? await snapshotWorktree(request.cwd)
-        : null;
-    if (snapshotBefore && snapshotAfter) {
-      appendUniqueFileChanges(
-        fileChanges,
-        diffWorktreeSnapshots(snapshotBefore, snapshotAfter),
-      );
-    }
-
     if (request.abortSignal?.aborted) {
       throw new Error("Aborted");
     }
@@ -2047,7 +1792,6 @@ export const runCodexAgentTurn = async (request: {
     return {
       text: finalText.trim(),
       sessionId: threadId,
-      ...(fileChanges.length ? { fileChanges } : {}),
     };
   } finally {
     cancelTurnIdleTimer?.();

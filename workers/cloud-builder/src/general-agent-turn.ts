@@ -706,6 +706,8 @@ export type ResidentStellaLoopInput = Readonly<{
    */
   commit?: (
     sealed: SealedTurnTranscript,
+    /** The turn's final assistant text; the delivery file list derives from its links. */
+    finalText: string,
   ) => Promise<Exclude<TurnDurability, { kind: "none" }>>;
 }>;
 
@@ -866,7 +868,7 @@ export const runResidentStellaLoop = async (
 
   const sealed = await journal.seal({ suspended: false });
   const durability = input.commit
-    ? await input.commit(sealed)
+    ? await input.commit(sealed, finalText)
     : ({
         kind: "transcript_only",
         transcript: await control.appendAndVerifyTranscript(sealed),

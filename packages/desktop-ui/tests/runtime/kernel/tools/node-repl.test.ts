@@ -644,7 +644,7 @@ describe("code tool (local Node kernel)", () => {
     }
   });
 
-  it("drains unawaited nested tools before returning and preserves tracking", async () => {
+  it("drains unawaited nested tools before returning", async () => {
     let releaseNested!: () => void;
     let markNestedStarted!: () => void;
     const nestedStarted = new Promise<void>((resolve) => {
@@ -693,10 +693,6 @@ describe("code tool (local Node kernel)", () => {
       releaseNested();
       await expect(evaluation).resolves.toEqual({
         result: "'cell complete'",
-        fileChanges: [{ path: "/workspace/app.ts", kind: { type: "update" } }],
-        producedFiles: [
-          { path: "/workspace/report.pdf", kind: { type: "add" } },
-        ],
       });
     } finally {
       await registry.dispose();
@@ -827,7 +823,7 @@ describe("code tool (local Node kernel)", () => {
     }
   });
 
-  it("hoists nested tool file tracking onto the code result", async () => {
+  it("does not hoist nested tool file tracking onto the code result", async () => {
     const registry = new NodeReplKernelRegistry({
       sessionFactory: () => ({ request: async () => ({}) }),
       executeTool: async () => ({
@@ -844,10 +840,6 @@ describe("code tool (local Node kernel)", () => {
         tool.execute({ code: `await tools.fake_tool({})` }, context),
       ).resolves.toEqual({
         result: "'edited'",
-        fileChanges: [{ path: "/workspace/app.ts", kind: { type: "update" } }],
-        producedFiles: [
-          { path: "/workspace/report.pdf", kind: { type: "add" } },
-        ],
       });
     } finally {
       await registry.dispose();

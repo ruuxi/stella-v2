@@ -43,9 +43,9 @@ export type ChatColumnConversation = {
     loadOlder: () => void;
   };
   /**
-   * File-carrying events (`tool_result` / `agent-completed` whose
-   * payload has a non-empty `fileChanges` or `producedFiles` array)
-   * for the conversation. Fed by `useConversationFiles` in local mode
+   * File-carrying events (`assistant_message` / `agent-completed`
+   * whose text plausibly carries markdown file links) for the
+   * conversation. Fed by `useConversationFiles` in local mode
    * and a `displayEvents` filter in cloud mode. The Recent Files
    * surfaces and Activity tray search read from this rather than scanning
    * `events`.

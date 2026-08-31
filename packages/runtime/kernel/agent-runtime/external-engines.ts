@@ -14,7 +14,6 @@ import type {
   ToolUpdateCallback,
 } from "../tools/types.js";
 import {
-  ClaudeCodeSteeringInterruptError,
   runClaudeCodeTurn,
   shutdownClaudeCodeRuntime,
 } from "../integrations/claude-code-session-runtime.js";
@@ -1104,7 +1103,6 @@ const runClaudeHostedTurn = async (args: {
   finalText: string;
   sessionId: string;
   latestAttempt: boolean;
-  fileChanges?: SubagentRunResult["fileChanges"];
 }> => {
   const { runId, threadKey, runEvents } = args.session;
   // Orchestrator sessions own the response-target tracker; subagent sessions
@@ -1382,22 +1380,6 @@ const runClaudeHostedTurn = async (args: {
       : args.opts.agentContext.spawnReasoningEffort,
   );
 
-  // Native-tool file writes (vanilla mode) accumulated across the main turn
-  // and any queued follow-up turns, deduped by path + change kind.
-  const collectedFileChanges: NonNullable<SubagentRunResult["fileChanges"]> =
-    [];
-  const collectedFileChangeKeys = new Set<string>();
-  const collectTurnFileChanges = (
-    fileChanges: SubagentRunResult["fileChanges"],
-  ) => {
-    for (const change of fileChanges ?? []) {
-      const key = `${change.kind.type}:${change.path}:${change.kind.type === "update" ? (change.kind.move_path ?? "") : ""}`;
-      if (collectedFileChangeKeys.has(key)) continue;
-      collectedFileChangeKeys.add(key);
-      collectedFileChanges.push(change);
-    }
-  };
-
   type ClaudeTurnResult = Awaited<ReturnType<typeof runClaudeCodeTurn>>;
   let finalResult: ClaudeTurnResult | null = null;
   let activeSessionId = persistedSessionId;
@@ -1473,7 +1455,6 @@ const runClaudeHostedTurn = async (args: {
         executeTool: executeClaudeTool,
       });
       assistantUpdateBuffer.discard();
-      collectTurnFileChanges(result.fileChanges);
       activeSessionId = result.sessionId;
       finalResult = result;
       completedThisTurn = true;
@@ -1481,14 +1462,6 @@ const runClaudeHostedTurn = async (args: {
       if (wasSteered && !args.opts.abortSignal?.aborted) {
         // The partial reply belonged to the superseded instruction. The
         // queued steering message starts a new visible response boundary.
-        if (error instanceof ClaudeCodeSteeringInterruptError) {
-          // The interrupt error class lives in the untyped session runtime,
-          // so `instanceof` cannot narrow the catch binding for TS.
-          collectTurnFileChanges(
-            (error as { fileChanges?: SubagentRunResult["fileChanges"] })
-              .fileChanges,
-          );
-        }
         assistantUpdateBuffer.discard();
       } else {
         assistantUpdateBuffer.flushOnTermination();
@@ -1608,9 +1581,6 @@ const runClaudeHostedTurn = async (args: {
     finalText: finalResult.text,
     sessionId: finalResult.sessionId,
     latestAttempt,
-    ...(collectedFileChanges.length > 0
-      ? { fileChanges: collectedFileChanges }
-      : {}),
   };
 };
 
@@ -1625,7 +1595,6 @@ const runCodexHostedTurn = async (args: {
   finalText: string;
   sessionId: string;
   latestAttempt: boolean;
-  fileChanges?: SubagentRunResult["fileChanges"];
 }> => {
   const { runId, threadKey, runEvents } = args.session;
   const responseTargetTracker =
@@ -2077,9 +2046,6 @@ const runCodexHostedTurn = async (args: {
     finalText: finalResult.text,
     sessionId: finalResult.sessionId,
     latestAttempt,
-    ...(finalResult.fileChanges?.length
-      ? { fileChanges: finalResult.fileChanges }
-      : {}),
   };
 };
 
@@ -2247,9 +2213,6 @@ export const runExternalSubagentTurn = async (
         return { runId: session.runId, result: "", interrupted: true };
       }
       const finalized = await session.finalizeSuccess(result.finalText);
-      if (result.fileChanges?.length) {
-        finalized.fileChanges = result.fileChanges;
-      }
       return finalized;
     } catch (error) {
       const interruptedReason = resolveInterruptionReason({
@@ -2328,13 +2291,6 @@ export const runExternalSubagentTurn = async (
       return { runId: session.runId, result: "", interrupted: true };
     }
     const finalized = await session.finalizeSuccess(result.finalText);
-    // Vanilla-mode Claude Code executes its own file tools, so no Stella
-    // tool-end events carry these writes — surface them on the run result
-    // (same contract as the Codex branch above) so the agent-completed
-    // rollup and the chat finish card get the produced artifacts.
-    if (result.fileChanges?.length) {
-      finalized.fileChanges = result.fileChanges;
-    }
     return finalized;
   } catch (error) {
     const interruptedReason = resolveInterruptionReason({

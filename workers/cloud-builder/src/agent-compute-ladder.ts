@@ -26,7 +26,6 @@ import {
   isAttachedToolName,
   type AttachedToolName,
 } from "@stella/executor-cloud/attached-tool-protocol";
-import type { FileChangeRecord } from "@stella/contracts/file-changes";
 import type { TurnComputeUse } from "./general-agent-turn.js";
 import type { TurnExecutionContext } from "./turn-cancellation.js";
 
@@ -205,6 +204,8 @@ export type SandboxAttachment = Readonly<{
     control: "boot_report" | "quiesce";
     turnId: string;
     attemptGeneration: number;
+    /** Required for `quiesce`: untrusted reply-linked paths to deliver. */
+    linkedPaths?: readonly string[];
   }): Promise<AttachedToolControlResponse>;
   destroy(sandboxId: string): Promise<void>;
 }>;
@@ -279,13 +280,14 @@ export type AgentComputeLadder = Readonly<{
   worldLease(): PersistedAgentWorldLease | null;
   /** Renew the exact registered lease. Intended for the owning DO alarm. */
   renewWorldLease(): Promise<PersistedAgentWorldLease | null>;
-  /** Join the daemon and collect what the turn delivered. Idempotent. */
-  quiesce(): Promise<
-    Readonly<{
-      producedFiles: readonly FileChangeRecord[];
-      producedFilesOmitted: Readonly<{ count: number; limit: number }> | null;
-    }>
-  >;
+  /**
+   * Join the daemon and deliver what the reply linked. Idempotent.
+   * `linkedPaths` are the untrusted paths extracted from the turn's final
+   * assistant message(s); the daemon authorizes each one before delivery.
+   */
+  quiesce(
+    linkedPaths?: readonly string[],
+  ): Promise<Readonly<{ deliveredFiles: readonly string[] }>>;
   /**
    * Attach after the loop for a resident turn that asked for the interior
    * build. Constraint 3: the build is squashfs work inside the container, so a
@@ -527,18 +529,12 @@ export const createAgentComputeLadder = (
         },
         details: null,
         authorizedImages: [],
-        fileChanges: [],
-        producedFiles: [],
-        producedFilesOmitted: null,
       };
     }
     return {
       outcome: { kind: "error", message: response.error },
       details: null,
       authorizedImages: [],
-      fileChanges: [],
-      producedFiles: [],
-      producedFilesOmitted: null,
     };
   };
 
@@ -654,25 +650,23 @@ export const createAgentComputeLadder = (
       return record.worldLease ?? null;
     },
 
-    async quiesce() {
+    async quiesce(linkedPaths) {
       if (quiesceResult) return quiesceResult;
       if (record.phase !== "attached") {
-        quiesceResult = { producedFiles: [], producedFilesOmitted: null };
+        quiesceResult = { deliveredFiles: [] };
         return quiesceResult;
       }
       const response = await input.attachment.control({
         sandboxId: input.sandboxId,
         control: "quiesce",
+        linkedPaths: linkedPaths ?? [],
         ...identity,
       });
       await persist({ ...record, phase: "quiesced" });
       quiesceResult =
         response.status === "quiesced"
-          ? {
-              producedFiles: response.producedFiles,
-              producedFilesOmitted: response.producedFilesOmitted,
-            }
-          : { producedFiles: [], producedFilesOmitted: null };
+          ? { deliveredFiles: response.deliveredFiles }
+          : { deliveredFiles: [] };
       return quiesceResult;
     },
 

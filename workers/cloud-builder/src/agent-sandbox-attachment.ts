@@ -17,6 +17,7 @@
 import type { ExecutionSession } from "@cloudflare/sandbox";
 import {
   ATTACHED_TOOL_HOST_INPUT_PATH,
+  ATTACHED_TOOL_PROTOCOL_VERSION,
   ATTACHED_TOOL_REQUEST_PATH,
   ATTACHED_TOOL_RESPONSE_MAX_BYTES,
   ATTACHED_TOOL_RESULT_PATH,
@@ -248,12 +249,22 @@ export const createAgentSandboxAttachment = (
 
     control: async (args): Promise<AttachedToolControlResponse> =>
       parseAttachedToolControlResponse(
-        await roundTrip({
-          version: 1,
-          turnId: args.turnId,
-          attemptGeneration: args.attemptGeneration,
-          control: args.control,
-        }),
+        await roundTrip(
+          args.control === "quiesce"
+            ? {
+                version: ATTACHED_TOOL_PROTOCOL_VERSION,
+                turnId: args.turnId,
+                attemptGeneration: args.attemptGeneration,
+                control: "quiesce",
+                linkedPaths: args.linkedPaths ?? [],
+              }
+            : {
+                version: ATTACHED_TOOL_PROTOCOL_VERSION,
+                turnId: args.turnId,
+                attemptGeneration: args.attemptGeneration,
+                control: "boot_report",
+              },
+        ),
       ),
 
     destroy: async (sandboxId): Promise<void> => {

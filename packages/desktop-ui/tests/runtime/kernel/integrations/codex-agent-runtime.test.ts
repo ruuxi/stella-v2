@@ -15,7 +15,6 @@ import {
   CODEX_LIGHT_MODEL,
   CODEX_UTILITY_MODEL,
   extractCodexDeveloperInstructions,
-  fileChangesFromCodexItem,
   getCodexRuntimePreferences,
   runCodexAgentTurn,
   shutdownCodexAppServerRuntime,
@@ -1610,32 +1609,4 @@ describe("Codex agent runtime", () => {
     }
   });
 
-  it("normalizes Codex file_change items to Stella file changes", () => {
-    const changes = fileChangesFromCodexItem(
-      {
-        id: "patch-1",
-        type: "fileChange",
-        status: "completed",
-        changes: [
-          { path: "src/new.ts", kind: { type: "add" } },
-          {
-            path: "/repo/src/existing.ts",
-            kind: { type: "update", move_path: null },
-          },
-        ],
-      },
-      "/repo",
-    );
-
-    expect(changes).toEqual([
-      {
-        path: path.resolve("/repo", "src/new.ts"),
-        kind: { type: "add" },
-      },
-      {
-        path: "/repo/src/existing.ts",
-        kind: { type: "update" },
-      },
-    ]);
-  });
 });

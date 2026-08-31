@@ -1,9 +1,9 @@
 /**
  * Hook over the file-events stream for a conversation
  * (`localChat:listFiles` IPC, backed by `SessionStore.listFiles`).
- * Returns the raw file-carrying events (`tool_result` /
- * `agent-completed` with non-empty `fileChanges` / `producedFiles`);
- * `deriveConversationFiles` further dedupes them by path.
+ * Returns the raw file-carrying events (`assistant_message` /
+ * `agent-completed` whose text plausibly carries markdown file
+ * links); `deriveConversationFiles` further dedupes them by path.
  *
  * Window growth is purely file-event-count based. File events are even
  * sparser than activity events (only fire when a tool actually

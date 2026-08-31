@@ -194,7 +194,7 @@ describe("local-files-store", () => {
       });
       await waitFor(() => expect(listFiles).toHaveBeenCalledTimes(2));
 
-      // An `agent-completed` (carries `producedFiles`) refetches too.
+      // An `agent-completed` (its result text can carry file links) refetches too.
       updateListener?.({
         conversationId: "c1",
         event: { _id: "ac-1", timestamp: 1_020, type: "agent-completed" },

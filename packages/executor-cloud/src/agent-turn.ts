@@ -31,7 +31,7 @@ import type {
   AgentToolCall,
 } from "@stella/runtime/kernel/agent-core/types.js";
 import type { TSchema } from "@sinclair/typebox";
-import type { FileChangeRecord } from "@stella/contracts/file-changes";
+import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import {
   isCloudBrowserResumeReceipt,
@@ -809,35 +809,8 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
         agentId: input.threadId,
         agentDepth: 1,
         maxAgentDepth: 1,
-        // The desktop default (12) assumes an over-cap batch reaches the user
-        // unfiltered. Here it does not: `collectProducedFiles` re-applies noise
-        // filtering, build/state exclusion, gitignore awareness and workspace
-        // containment before anything is counted, so a runtime cap below that
-        // drops batches that are mostly install churn around a real
-        // deliverable. Raising it moves the same threshold downstream of those
-        // filters rather than removing it — `collectProducedFiles` still
-        // withholds a whole snapshot batch that is over the cap once filtered,
-        // which is what keeps churn out of the user's drive, and this ceiling
-        // is what still cuts a genuine `git checkout` flood before it is even
-        // walked.
-        maxProducedFilesPerCommand: 200,
       };
 
-      // What the turn touched, straight from the tools that touched it: a
-      // filesystem diff cannot separate deliverables from install churn. The
-      // two kinds stay apart because they earn different trust — an edit tool
-      // wrote what the agent meant to write, a shell snapshot guessed.
-      const editedFiles: FileChangeRecord[] = [];
-      // One array per command, not one flat list: how many files a single
-      // command produced is what tells the deliverable apart from the churn
-      // around it, and flattening throws that away before the report is
-      // ranked.
-      const detectedFiles: FileChangeRecord[][] = [];
-      // A command whose produced files the runtime withheld delivers nothing
-      // and, without this, says nothing either — indistinguishable from a
-      // command that produced nothing. The agent is the only party that can
-      // tell the user its files are sitting in the workspace.
-      let runtimeWithheldFiles = 0;
       const cloudCodeToolCallIds: string[] = [];
 
       const catalog = toolHost.getToolCatalog("general", {});
@@ -848,15 +821,6 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
           .filter((tool): tool is ToolMetadata => Boolean(tool)),
         ...cloudPinnedWorkspaceTools(),
       ];
-      const recordToolResult = (result: ToolResult): void => {
-        if (result.fileChanges) editedFiles.push(...result.fileChanges);
-        if (result.producedFiles?.length) {
-          detectedFiles.push(result.producedFiles);
-        }
-        if (result.producedFilesOmitted) {
-          runtimeWithheldFiles += result.producedFilesOmitted.count;
-        }
-      };
       const executeCloudTool = async (
         toolCallId: string,
         name: string,
@@ -880,7 +844,6 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
           signal,
           onUpdate,
         );
-        recordToolResult(result);
         return result;
       };
       const tools: AgentTool[] = cloudToolMetadata.map((meta) => ({
@@ -1034,7 +997,6 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
               }
             });
           }
-          editedFiles.push(...native.editedFiles);
           llmCalls = native.usage.llmCalls;
           inputTokens = native.usage.inputTokens;
           outputTokens = native.usage.outputTokens;
@@ -1246,34 +1208,6 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
         execution.errorMessage = eventFailure.message;
       }
 
-      // Background commands that finished after their last poll still hold
-      // their deliverables; pull those in before reporting.
-      const drainOutcome = yield* Effect.promise(async () => {
-        try {
-          return {
-            ok: true as const,
-            value: await toolHost.drainCompletedShellProducedFiles({
-              conversationId: context.conversationId,
-              ...(context.agentId ? { agentId: context.agentId } : {}),
-            }),
-          };
-        } catch (error) {
-          return { ok: false as const, error: asError(error) };
-        }
-      });
-      // Already merged across however many background commands finished late,
-      // so it ranks as one batch — the grouping it arrives with.
-      if (drainOutcome.ok) {
-        if (drainOutcome.value.files.length > 0) {
-          detectedFiles.push(drainOutcome.value.files);
-        }
-        if (drainOutcome.value.omitted) {
-          runtimeWithheldFiles += drainOutcome.value.omitted.count;
-        }
-      } else if (!execution.errorMessage) {
-        execution.errorMessage = drainOutcome.error.message;
-      }
-
       // Delivery is best-effort: the bytes are already in the checkpointed
       // workspace, so a failed registration costs visibility, not work — but
       // it has to be visible in the report rather than silently dropped.
@@ -1283,10 +1217,13 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
           stored: Set<string>;
           notice: string;
         }> => {
+          // The file list is the reply's own: markdown links in the turn's
+          // final assistant text, the same contract the local lane uses. Each
+          // linked path is still an agent-chosen string; `collectProducedFiles`
+          // authorizes every one beneath the workspace boundary.
           const collected = await collectProducedFiles({
             workspaceRoot: WORLD_DRIVE_ROOT,
-            edited: editedFiles,
-            detected: detectedFiles,
+            linked: extractLocalFileLinkPaths(execution.finalText),
             gitAware: false,
             drivePrefix: "",
             processIdentity: {
@@ -1299,18 +1236,10 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
           // The system prompt promises the user that workspace files are
           // delivered, so a cap that holds some back has to say so rather than
           // let the agent report success over a shorter list.
-          // Two different caps can hold files back — the report's own size,
-          // which names the paths it left behind, and the per-command ceiling
-          // (the runtime's, and collection's own post-filter one), which
-          // withholds a whole batch and only counts it.
-          const withheld = runtimeWithheldFiles + (collected?.withheld ?? 0);
           const truncated =
-            (omitted.length > 0
+            omitted.length > 0
               ? `\n\nHeads up: only ${files.length} of the files from this turn were delivered. ${omitted.length} more (${omitted.slice(0, 5).join(", ")}${omitted.length > 5 ? ", …" : ""}) are in the workspace but were not.`
-              : "") +
-            (withheld > 0
-              ? `\n\nHeads up: ${withheld} files produced by a single command were above the per-command limit, so they were not collected for delivery. They are in the workspace.`
-              : "");
+              : "";
           if (files.length === 0) {
             return { files, stored: new Set<string>(), notice: truncated };
           }

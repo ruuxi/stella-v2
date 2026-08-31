@@ -17,9 +17,6 @@
  * parsers, and must never reach a Node builtin.
  */
 
-import type { FileChangeRecord } from "@stella/contracts/file-changes";
-import { isFileChangeRecordArray } from "@stella/contracts/file-changes";
-
 /**
  * The tools the daemon serves.
  *
@@ -51,7 +48,14 @@ const ATTACHED_TOOL_NAME_SET: ReadonlySet<string> = new Set(
 export const isAttachedToolName = (value: unknown): value is AttachedToolName =>
   typeof value === "string" && ATTACHED_TOOL_NAME_SET.has(value);
 
-export const ATTACHED_TOOL_PROTOCOL_VERSION = 1;
+/**
+ * v2: tool results no longer carry `fileChanges` / `producedFiles` /
+ * `producedFilesOmitted`; the quiesce control request carries the untrusted
+ * `linkedPaths` derived from the reply's markdown links, and the quiesced
+ * response reports the delivered drive paths. A mixed-version daemon/DO pair
+ * fails closed on the version check rather than silently dropping fields.
+ */
+export const ATTACHED_TOOL_PROTOCOL_VERSION = 2;
 
 /**
  * Everything the bridge touches lives here, outside the world root. The world
@@ -76,8 +80,11 @@ export const ATTACHED_TOOL_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 export const ATTACHED_TOOL_MAX_IMAGES = 8;
 export const ATTACHED_TOOL_RESPONSE_MAX_BYTES = 48 * 1024 * 1024;
 
-/** Bounds the file records one call may report. */
-export const ATTACHED_TOOL_MAX_FILE_RECORDS = 512;
+/** Bounds the linked paths one quiesce request may carry. */
+export const ATTACHED_TOOL_MAX_LINKED_PATHS = 512;
+const MAX_LINKED_PATH_LENGTH = 4096;
+/** Bounds the delivered drive paths one quiesced response may report. */
+export const ATTACHED_TOOL_MAX_DELIVERED_FILES = 512;
 
 const MAX_ID_LENGTH = 256;
 const MAX_ERROR_LENGTH = 8 * 1024;
@@ -96,16 +103,11 @@ export type SerializedAuthorizedImage = Readonly<{
   sourcePath: string;
 }>;
 
-export type ProducedFilesOmitted = Readonly<{
-  count: number;
-  limit: number;
-}>;
-
 /**
  * A `ToolResult` reduced to what survives JSON and what the worker still needs:
- * the model-visible outcome, the details blob, authorized image bytes, and the
- * file records final output reporting is built from. Nothing here is a live
- * handle, so a lost daemon cannot leave the worker holding one.
+ * the model-visible outcome, the details blob, and authorized image bytes.
+ * Nothing here is a live handle, so a lost daemon cannot leave the worker
+ * holding one.
  */
 export type SerializedAgentToolResult = Readonly<{
   outcome:
@@ -113,9 +115,6 @@ export type SerializedAgentToolResult = Readonly<{
     | Readonly<{ kind: "error"; message: string }>;
   details: unknown;
   authorizedImages: readonly SerializedAuthorizedImage[];
-  fileChanges: readonly FileChangeRecord[];
-  producedFiles: readonly FileChangeRecord[];
-  producedFilesOmitted: ProducedFilesOmitted | null;
 }>;
 
 export type AttachedToolRequest = Readonly<{
@@ -154,12 +153,25 @@ export type AttachedToolResponse =
  * The daemon's answer to a boot, quiesce, or receipt question. These share the
  * socket with tool calls, so they share its parser discipline.
  */
-export type AttachedToolControlRequest = Readonly<{
-  version: typeof ATTACHED_TOOL_PROTOCOL_VERSION;
-  turnId: string;
-  attemptGeneration: number;
-  control: "boot_report" | "quiesce";
-}>;
+export type AttachedToolControlRequest =
+  | Readonly<{
+      version: typeof ATTACHED_TOOL_PROTOCOL_VERSION;
+      turnId: string;
+      attemptGeneration: number;
+      control: "boot_report";
+    }>
+  | Readonly<{
+      version: typeof ATTACHED_TOOL_PROTOCOL_VERSION;
+      turnId: string;
+      attemptGeneration: number;
+      control: "quiesce";
+      /**
+       * Untrusted paths linked in the turn's final assistant message(s). The
+       * daemon authorizes each one beneath the workspace boundary before
+       * anything is delivered.
+       */
+      linkedPaths: readonly string[];
+    }>;
 
 export type AttachedToolControlResponse =
   | Readonly<{
@@ -170,8 +182,8 @@ export type AttachedToolControlResponse =
   | Readonly<{
       version: typeof ATTACHED_TOOL_PROTOCOL_VERSION;
       status: "quiesced";
-      producedFiles: readonly FileChangeRecord[];
-      producedFilesOmitted: ProducedFilesOmitted | null;
+      /** Drive paths whose delivery to the drive succeeded. */
+      deliveredFiles: readonly string[];
     }>
   | Readonly<{
       version: typeof ATTACHED_TOOL_PROTOCOL_VERSION;
@@ -247,33 +259,24 @@ const boundedError = (value: unknown, field: string): string => {
   return value;
 };
 
-const fileRecords = (
+const boundedPaths = (
   value: unknown,
   field: string,
-): readonly FileChangeRecord[] => {
+  maxEntries: number,
+): readonly string[] => {
   if (
     !Array.isArray(value) ||
-    value.length > ATTACHED_TOOL_MAX_FILE_RECORDS ||
-    !isFileChangeRecordArray(value)
+    value.length > maxEntries ||
+    !value.every(
+      (entry) =>
+        typeof entry === "string" &&
+        entry.length > 0 &&
+        entry.length <= MAX_LINKED_PATH_LENGTH,
+    )
   ) {
     throw new AttachedToolProtocolError(field);
   }
-  return value;
-};
-
-const omission = (value: unknown): ProducedFilesOmitted | null => {
-  if (value === null) return null;
-  const row = record(value, "producedFilesOmitted");
-  exactKeys(row, ["count", "limit"], "producedFilesOmitted");
-  if (
-    !Number.isSafeInteger(row.count) ||
-    (row.count as number) < 0 ||
-    !Number.isSafeInteger(row.limit) ||
-    (row.limit as number) < 0
-  ) {
-    throw new AttachedToolProtocolError("producedFilesOmitted");
-  }
-  return { count: row.count as number, limit: row.limit as number };
+  return value as readonly string[];
 };
 
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/u;
@@ -312,18 +315,7 @@ export const parseSerializedAgentToolResult = (
   value: unknown,
 ): SerializedAgentToolResult => {
   const row = record(value, "result");
-  exactKeys(
-    row,
-    [
-      "outcome",
-      "details",
-      "authorizedImages",
-      "fileChanges",
-      "producedFiles",
-      "producedFilesOmitted",
-    ],
-    "result",
-  );
+  exactKeys(row, ["outcome", "details", "authorizedImages"], "result");
   const outcomeRow = record(row.outcome, "outcome");
   let outcome: SerializedAgentToolResult["outcome"];
   if (outcomeRow.kind === "ok") {
@@ -345,9 +337,6 @@ export const parseSerializedAgentToolResult = (
     outcome,
     details: row.details ?? null,
     authorizedImages: authorizedImages(row.authorizedImages),
-    fileChanges: fileRecords(row.fileChanges, "fileChanges"),
-    producedFiles: fileRecords(row.producedFiles, "producedFiles"),
-    producedFilesOmitted: omission(row.producedFilesOmitted),
   };
 };
 
@@ -432,20 +421,38 @@ export const parseAttachedToolControlRequest = (
   value: unknown,
 ): AttachedToolControlRequest => {
   const row = record(value, "control");
-  exactKeys(
-    row,
-    ["version", "turnId", "attemptGeneration", "control"],
-    "control",
-  );
-  if (row.control !== "boot_report" && row.control !== "quiesce") {
-    throw new AttachedToolProtocolError("control");
+  if (row.control === "boot_report") {
+    exactKeys(
+      row,
+      ["version", "turnId", "attemptGeneration", "control"],
+      "control",
+    );
+    return {
+      version: versionOf(row.version),
+      turnId: boundedId(row.turnId, "turnId"),
+      attemptGeneration: attemptGenerationOf(row.attemptGeneration),
+      control: "boot_report",
+    };
   }
-  return {
-    version: versionOf(row.version),
-    turnId: boundedId(row.turnId, "turnId"),
-    attemptGeneration: attemptGenerationOf(row.attemptGeneration),
-    control: row.control,
-  };
+  if (row.control === "quiesce") {
+    exactKeys(
+      row,
+      ["version", "turnId", "attemptGeneration", "control", "linkedPaths"],
+      "control",
+    );
+    return {
+      version: versionOf(row.version),
+      turnId: boundedId(row.turnId, "turnId"),
+      attemptGeneration: attemptGenerationOf(row.attemptGeneration),
+      control: "quiesce",
+      linkedPaths: boundedPaths(
+        row.linkedPaths,
+        "linkedPaths",
+        ATTACHED_TOOL_MAX_LINKED_PATHS,
+      ),
+    };
+  }
+  throw new AttachedToolProtocolError("control");
 };
 
 export const parseAttachedToolControlResponse = (
@@ -467,16 +474,15 @@ export const parseAttachedToolControlResponse = (
     return { version, status: "boot_report", notices: row.notices };
   }
   if (row.status === "quiesced") {
-    exactKeys(
-      row,
-      ["version", "status", "producedFiles", "producedFilesOmitted"],
-      "control",
-    );
+    exactKeys(row, ["version", "status", "deliveredFiles"], "control");
     return {
       version,
       status: "quiesced",
-      producedFiles: fileRecords(row.producedFiles, "producedFiles"),
-      producedFilesOmitted: omission(row.producedFilesOmitted),
+      deliveredFiles: boundedPaths(
+        row.deliveredFiles,
+        "deliveredFiles",
+        ATTACHED_TOOL_MAX_DELIVERED_FILES,
+      ),
     };
   }
   if (row.status === "failed") {

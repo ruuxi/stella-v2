@@ -16,7 +16,6 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-import { fileChange } from "@stella/contracts/file-changes";
 import type { ToolDefinition } from "../types.js";
 
 export type HtmlToolOptions = {
@@ -79,14 +78,6 @@ export const createHtmlTool = (options: HtmlToolOptions): ToolDefinition => {
       const dir = path.join(stellaDataDir, "outputs", "html");
       const filePath = path.join(dir, `${slug}.html`);
 
-      let kind: "add" | "update";
-      try {
-        await fs.access(filePath);
-        kind = "update";
-      } catch {
-        kind = "add";
-      }
-
       await fs.mkdir(dir, { recursive: true });
       await fs.writeFile(filePath, html, "utf8");
 
@@ -101,7 +92,6 @@ export const createHtmlTool = (options: HtmlToolOptions): ToolDefinition => {
           createdAt,
           bytes: Buffer.byteLength(html, "utf8"),
         },
-        fileChanges: [fileChange(filePath, { type: kind })],
       };
     },
   };

@@ -485,12 +485,6 @@ export class VoiceRuntimeService {
     const result: RuntimeVoiceToolCallResult = {
       output,
       ...(details !== undefined ? { details } : {}),
-      ...(rawResult.fileChanges?.length
-        ? { fileChanges: rawResult.fileChanges }
-        : {}),
-      ...(rawResult.producedFiles?.length
-        ? { producedFiles: rawResult.producedFiles }
-        : {}),
       ...(rawResult.error
         ? { error: sanitizeToolError(rawResult.error) }
         : {}),

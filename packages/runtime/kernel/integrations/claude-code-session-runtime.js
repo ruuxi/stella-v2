@@ -148,19 +148,12 @@ const summarizeMcpLedgerValue = (value, maxChars) => {
  */
 export class ClaudeCodeProcessEndedError extends Error {
   exitCode;
-  /**
-   * Native-tool file writes observed on the failed step before the process
-   * ended (vanilla mode only; takeover mode strips CC's file tools). Recovery
-   * merges these into the eventual turn result and switches to a
-   * non-mutating reconciliation prompt instead of replaying the step.
-   */
-  fileChanges;
+
   mcpCalls;
-  constructor(message, exitCode = null, fileChanges = [], mcpCalls = []) {
+  constructor(message, exitCode = null, mcpCalls = []) {
     super(message);
     this.name = "ClaudeCodeProcessEndedError";
     this.exitCode = exitCode;
-    this.fileChanges = fileChanges;
     this.mcpCalls = mcpCalls;
   }
 }
@@ -169,14 +162,12 @@ export class ClaudeCodeProcessEndedError extends Error {
  */
 export class ClaudeCodeMalformedResultError extends Error {
   kind;
-  /** Native-tool file writes observed on the failed step (vanilla mode). */
-  fileChanges;
+
   mcpCalls;
-  constructor(message, kind, fileChanges = [], mcpCalls = []) {
+  constructor(message, kind, mcpCalls = []) {
     super(message);
     this.name = "ClaudeCodeMalformedResultError";
     this.kind = kind;
-    this.fileChanges = fileChanges;
     this.mcpCalls = mcpCalls;
   }
 }
@@ -187,12 +178,10 @@ export class ClaudeCodeMalformedResultError extends Error {
  * retry/nudge path.
  */
 export class ClaudeCodeSteeringInterruptError extends Error {
-  fileChanges;
   mcpCalls;
-  constructor(fileChanges = [], mcpCalls = []) {
+  constructor(mcpCalls = []) {
     super("Claude Code turn interrupted for steering.");
     this.name = "ClaudeCodeSteeringInterruptError";
-    this.fileChanges = fileChanges;
     this.mcpCalls = mcpCalls;
   }
 }
@@ -200,16 +189,14 @@ export class ClaudeCodeSteeringInterruptError extends Error {
  * The CLI re-compacted past `MAX_COMPACTIONS_PER_TURN` within one Stella
  * turn. Handled inside `executeStepWithMode` (fresh-session
  * reseed), NOT by the step-recovery budget — a reseeded session that loops
- * again fails loudly. Carries the failed step's observed native file writes
- * so the reseed can reconcile instead of replaying them.
+ * again fails loudly. Carries the failed step's observed MCP calls so the
+ * reseed can reconcile instead of replaying them.
  */
 export class ClaudeCodeCompactionLoopError extends Error {
-  fileChanges;
   mcpCalls;
-  constructor(fileChanges = [], mcpCalls = []) {
+  constructor(mcpCalls = []) {
     super(CLAUDE_CODE_COMPACTION_LOOP_MESSAGE);
     this.name = "ClaudeCodeCompactionLoopError";
-    this.fileChanges = fileChanges;
     this.mcpCalls = mcpCalls;
   }
 }
@@ -224,22 +211,19 @@ const asRecoverableStepError = (error) =>
  * just forwarded), so the nudge only needs to ask for a well-formed restate.
  */
 /**
- * Recovery prompt for a step that died AFTER native file writes were already
+ * Recovery prompt for a step that died AFTER side-effecting work was already
  * observed. Blind-replaying the original prompt (or the history-seeded
- * `resumeFallbackPrompt`) could re-run those mutations, so the retry must
- * reconcile instead of redo. Names the affected paths so the model can
- * verify what already landed.
+ * `resumeFallbackPrompt`) could re-run those side effects, so the retry must
+ * reconcile instead of redo.
  *
  * `referenceContext` is included (framed as reference-only) when the retry
  * lands on a FRESH session that has no transcript — a bare reconciliation
  * directive would otherwise arrive without any task context.
  */
 const buildSideEffectReconciliationPrompt = (
-  mutations,
   mcpCalls = [],
   referenceContext,
 ) => {
-  const paths = [...new Set(mutations.map((change) => change.path))];
   return [
     "The previous step was interrupted after side-effecting work may already have been applied.",
     mcpCalls.length > 0
@@ -257,14 +241,8 @@ const buildSideEffectReconciliationPrompt = (
           "Some of these calls may have already completed even if Claude Code did not receive the result.",
         ].join("\n")
       : "",
-    paths.length > 0
-      ? [
-          "File operations were already applied to:",
-          ...paths.map((p) => `- ${p}`),
-        ].join("\n")
-      : "",
-    "Do NOT redo, repeat, or revert those tool calls or file operations.",
-    "If you are unsure what was applied, inspect the current state of the affected files first.",
+    "Do NOT redo, repeat, or revert those tool calls.",
+    "If you are unsure what was applied, inspect the current state first.",
     referenceContext?.trim()
       ? [
           "Original request context, for reference only — do not re-execute work that already completed:",
@@ -860,41 +838,7 @@ export const getClaudeCodeTextDeltaFromStreamEvent = (event) => {
   }
   return null;
 };
-/**
- * Claude Code native file tools whose stream-json `tool_use` inputs name the
- * file they touch. `Write` may create or overwrite; without a filesystem
- * probe we call it an `add` (the chat artifact card treats add/update the
- * same for display). Bash writes are inherently untrackable from the stream.
- */
-const CLAUDE_CODE_NATIVE_FILE_TOOLS = {
-  Write: { pathKey: "file_path", kind: { type: "add" } },
-  Edit: { pathKey: "file_path", kind: { type: "update" } },
-  MultiEdit: { pathKey: "file_path", kind: { type: "update" } },
-  NotebookEdit: { pathKey: "notebook_path", kind: { type: "update" } },
-};
-/**
- * Extract native-tool file writes from one parsed stream-json line. Vanilla
- * mode is the only mode where Claude Code runs its own Write/Edit tools, but
- * the collector is safe to run on every line: takeover mode strips CC's
- * tools (`--tools ""`), so its assistant messages never carry these blocks.
- */
-export const collectClaudeCodeNativeFileChanges = (event) => {
-  if (event.type !== "assistant") return [];
-  const message = asObject(event.message);
-  const content = Array.isArray(message?.content) ? message.content : [];
-  const out = [];
-  for (const raw of content) {
-    const block = asObject(raw);
-    if (block?.type !== "tool_use" || typeof block.name !== "string") continue;
-    const spec = CLAUDE_CODE_NATIVE_FILE_TOOLS[block.name];
-    if (!spec) continue;
-    const input = asObject(block.input);
-    const filePath = input?.[spec.pathKey];
-    if (typeof filePath !== "string" || !filePath.trim()) continue;
-    out.push({ path: filePath.trim(), kind: spec.kind });
-  }
-  return out;
-};
+
 const updateClaudeCodeNativeToolActivity = (event, activeToolUseIds) => {
   const before = activeToolUseIds.size;
   const updateFromContent = (content) => {
@@ -943,16 +887,6 @@ const observeFinalizedClaudeToolUses = (event, observe) => {
       toolName: block.name,
       toolArgs: asObject(block.input) ?? {},
     });
-  }
-};
-const fileChangeDedupeKey = (record) =>
-  `${record.kind.type}:${record.path}:${record.kind.type === "update" ? (record.kind.move_path ?? "") : ""}`;
-const mergeFileChanges = (target, seen, records) => {
-  for (const record of records ?? []) {
-    const key = fileChangeDedupeKey(record);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    target.push(record);
   }
 };
 const mergeMcpCalls = (target, records) => {
@@ -1301,8 +1235,6 @@ class ClaudeCodeSessionRuntime {
     const effectiveSystemPrompt = request.vanilla
       ? ""
       : buildClaudeCodeNativeToolRuntimePrompt(request.systemPrompt);
-    const turnFileChanges = [];
-    const turnFileChangeKeys = new Set();
     const prompt = buildInitialPrompt(session, request);
     // Every user message reattempts the configured model: a fallback from a
     // previous turn does not stick to the session. The next
@@ -1383,21 +1315,6 @@ class ClaudeCodeSessionRuntime {
           if (toolName === "NoResponse" && !toolResult.error) {
             session.allowEmptyNativeFinal = true;
           }
-          mergeFileChanges(
-            turnFileChanges,
-            turnFileChangeKeys,
-            toolResult.fileChanges,
-          );
-          if (pending) {
-            const pendingKeys = new Set(
-              pending.fileChanges.map(fileChangeDedupeKey),
-            );
-            mergeFileChanges(
-              pending.fileChanges,
-              pendingKeys,
-              toolResult.fileChanges,
-            );
-          }
           return toolResult;
         },
         onToolResponseWritten: request.onToolResponseWritten,
@@ -1412,16 +1329,10 @@ class ClaudeCodeSessionRuntime {
         [],
         { remaining: MAX_STEP_RECOVERIES_PER_TURN },
       );
-      mergeFileChanges(
-        turnFileChanges,
-        turnFileChangeKeys,
-        response.fileChanges,
-      );
       return {
         text: response.message,
         sessionId: response.sessionId,
         usage: response.usage,
-        ...(turnFileChanges.length > 0 ? { fileChanges: turnFileChanges } : {}),
       };
     } finally {
       session.activeMcpTurn = undefined;
@@ -1436,14 +1347,13 @@ class ClaudeCodeSessionRuntime {
    *   step's result. Respawn and resend the same prompt; the spawn path
    *   resumes the persisted transcript when possible and otherwise falls back
    *   to reseeding from `resumeFallbackPrompt`. If the failed attempt had
-   *   already applied native file writes, the retry switches to a
-   *   non-mutating reconciliation prompt so those edits are never replayed.
+   *   already made MCP calls, the retry switches to a non-mutating
+   *   reconciliation prompt so those side effects are never replayed.
    * - `malformed_result`: the CLI answered without final text. The session
    *   process is still alive with full context, so send a corrective nudge.
    *
-   * Native file writes observed on failed attempts are merged into the
-   * eventual step result so recoveries never drop artifacts. Aborted runs
-   * never retry; exhausted budgets rethrow with an actionable message.
+   * Aborted runs never retry; exhausted budgets rethrow with an actionable
+   * message.
    */
   async executeStepWithRecovery(
     session,
@@ -1455,8 +1365,6 @@ class ClaudeCodeSessionRuntime {
   ) {
     let currentPrompt = prompt;
     let currentPromptImages = promptImages;
-    const failedAttemptFileChanges = [];
-    const failedAttemptFileChangeKeys = new Set();
     const failedAttemptMcpCalls = [];
     for (;;) {
       try {
@@ -1466,27 +1374,16 @@ class ClaudeCodeSessionRuntime {
           effectiveSystemPrompt,
           currentPrompt,
           currentPromptImages,
-          failedAttemptFileChanges,
           failedAttemptMcpCalls,
         );
-        if (failedAttemptFileChanges.length === 0) {
-          return result;
-        }
-        mergeFileChanges(
-          failedAttemptFileChanges,
-          failedAttemptFileChangeKeys,
-          result.fileChanges,
-        );
-        return { ...result, fileChanges: failedAttemptFileChanges };
+        return result;
       } catch (error) {
         if (request.abortSignal?.aborted) {
           throw error;
         }
         const recoverable = asRecoverableStepError(error);
         const hasPossibleSideEffects = Boolean(
-          recoverable &&
-            (recoverable.fileChanges.length > 0 ||
-              recoverable.mcpCalls.length > 0),
+          recoverable && recoverable.mcpCalls.length > 0,
         );
         // A normal refusal/overload can retry the configured model and then
         // fall back. Once any tool call started, the same prompt is never
@@ -1500,11 +1397,6 @@ class ClaudeCodeSessionRuntime {
         if (!recoverable) {
           throw error;
         }
-        mergeFileChanges(
-          failedAttemptFileChanges,
-          failedAttemptFileChangeKeys,
-          recoverable.fileChanges,
-        );
         mergeMcpCalls(failedAttemptMcpCalls, recoverable.mcpCalls);
         if (recoveryBudget.remaining <= 0) {
           throw withStepRecoveryExhausted(error);
@@ -1512,16 +1404,9 @@ class ClaudeCodeSessionRuntime {
         recoveryBudget.remaining -= 1;
         if (recoverable instanceof ClaudeCodeProcessEndedError) {
           this.resetStreamingProcess(request.sessionKey, session);
-          // Never blind-replay a prompt whose attempt already mutated files:
-          // the respawned session must reconcile, not redo. (Bash-side writes
-          // stay invisible to this guard — the stream only names file-tool
-          // paths.)
-          if (
-            failedAttemptFileChanges.length > 0 ||
-            failedAttemptMcpCalls.length > 0
-          ) {
+
+          if (failedAttemptMcpCalls.length > 0) {
             currentPrompt = buildSideEffectReconciliationPrompt(
-              failedAttemptFileChanges,
               failedAttemptMcpCalls,
             );
             currentPromptImages = [];
@@ -1530,7 +1415,6 @@ class ClaudeCodeSessionRuntime {
         }
         currentPrompt = hasPossibleSideEffects
           ? buildSideEffectReconciliationPrompt(
-              failedAttemptFileChanges,
               failedAttemptMcpCalls,
             )
           : buildResultRetryPrompt();
@@ -1588,7 +1472,6 @@ class ClaudeCodeSessionRuntime {
     effectiveSystemPrompt,
     prompt,
     promptImages,
-    observedMutations = [],
     observedMcpCalls = [],
   ) {
     return await this.executeStepWithMode(
@@ -1599,16 +1482,15 @@ class ClaudeCodeSessionRuntime {
       session.resumeReady,
       true,
       promptImages,
-      observedMutations,
       observedMcpCalls,
     );
   }
   /**
-   * `observedMutations` carries native file writes already applied by
-   * earlier attempts of THIS step. Every reseed path below (missing resume,
-   * compaction loop) must honor it: once mutations are known, the reseed
+   * `observedMcpCalls` carries side effects already applied by earlier
+   * attempts of THIS step. Every reseed path below (missing resume,
+   * compaction loop) must honor it: once side effects are known, the reseed
    * prompt is the reconciliation prompt — never `resumeFallbackPrompt`,
-   * whose history+request would replay the mutations on the fresh session.
+   * whose history+request would replay them on the fresh session.
    */
   async executeStepWithMode(
     session,
@@ -1618,15 +1500,12 @@ class ClaudeCodeSessionRuntime {
     useResume,
     allowCompactionLoopRestart = true,
     promptImages = [],
-    observedMutations = [],
     observedMcpCalls = [],
   ) {
-    // Reseeded sessions have no transcript, so a mutation-guarded reseed
-    // embeds the would-be seed prompt as reference-only context.
-    const buildReseedPrompt = (mutations, mcpCalls) =>
-      mutations.length > 0 || mcpCalls.length > 0
+
+    const buildReseedPrompt = (mcpCalls) =>
+      mcpCalls.length > 0
         ? buildSideEffectReconciliationPrompt(
-            mutations,
             mcpCalls,
             request.resumeFallbackPrompt ?? prompt,
           )
@@ -1657,7 +1536,6 @@ class ClaudeCodeSessionRuntime {
           true,
           allowCompactionLoopRestart,
           promptImages,
-          observedMutations,
           observedMcpCalls,
         );
       }
@@ -1670,11 +1548,10 @@ class ClaudeCodeSessionRuntime {
           session,
           request,
           effectiveSystemPrompt,
-          buildReseedPrompt(observedMutations, observedMcpCalls),
+          buildReseedPrompt(observedMcpCalls),
           false,
           allowCompactionLoopRestart,
           promptImages,
-          observedMutations,
           observedMcpCalls,
         );
       }
@@ -1682,17 +1559,7 @@ class ClaudeCodeSessionRuntime {
         allowCompactionLoopRestart &&
         error instanceof ClaudeCodeCompactionLoopError
       ) {
-        // The session context can no longer fit and Claude Code keeps
-        // re-compacting. Abandon the CLI conversation and restart the turn on
-        // a fresh session seeded from the checkpoint-compacted Stella
-        // history — or, if this or an earlier attempt already applied native
-        // file writes, from the reconciliation prompt so they never replay.
-        // The caller persists the fresh session id at turn end, replacing
-        // the looping one. At most once per step, so a fresh session that
-        // still loops fails loudly instead of cycling.
-        const mutations = [...observedMutations];
-        const mutationKeys = new Set(mutations.map(fileChangeDedupeKey));
-        mergeFileChanges(mutations, mutationKeys, error.fileChanges);
+
         const mcpCalls = [...observedMcpCalls];
         mergeMcpCalls(mcpCalls, error.mcpCalls);
         this.resetStreamingProcess(request.sessionKey, session);
@@ -1703,21 +1570,13 @@ class ClaudeCodeSessionRuntime {
           session,
           request,
           effectiveSystemPrompt,
-          buildReseedPrompt(mutations, mcpCalls),
+          buildReseedPrompt(mcpCalls),
           false,
           false,
           promptImages,
-          mutations,
           mcpCalls,
         );
-        if (error.fileChanges.length === 0) {
-          return result;
-        }
-        // Keep the interrupted attempt's writes on the step result.
-        const combined = [...error.fileChanges];
-        const combinedKeys = new Set(combined.map(fileChangeDedupeKey));
-        mergeFileChanges(combined, combinedKeys, result.fileChanges);
-        return { ...result, fileChanges: combined };
+        return result;
       }
       throw error;
     }
@@ -2082,11 +1941,6 @@ class ClaudeCodeSessionRuntime {
             });
           }
           current.emitStreamDelta(parsedLine);
-          const nativeFileChanges =
-            collectClaudeCodeNativeFileChanges(parsedLine);
-          if (nativeFileChanges.length > 0) {
-            current.fileChanges.push(...nativeFileChanges);
-          }
         }
         if (parsedLine.type === "result") {
           const completed = processState.pending.shift();
@@ -2096,10 +1950,7 @@ class ClaudeCodeSessionRuntime {
           this.detachAbortListener(completed);
           if (completed.steeringInterrupted) {
             completed.reject(
-              new ClaudeCodeSteeringInterruptError(
-                completed.fileChanges,
-                completed.mcpCalls,
-              ),
+              new ClaudeCodeSteeringInterruptError(completed.mcpCalls),
             );
             continue;
           }
@@ -2112,20 +1963,8 @@ class ClaudeCodeSessionRuntime {
                 !completed.request.vanilla && session.allowEmptyNativeFinal,
               ),
             );
-            completed.resolve(
-              completed.fileChanges.length > 0
-                ? { ...stepResult, fileChanges: completed.fileChanges }
-                : stepResult,
-            );
+            completed.resolve(stepResult);
           } catch (error) {
-            // Carry file writes observed during the failed step so a nudge
-            // recovery still reports them on the eventual turn result.
-            if (
-              error instanceof ClaudeCodeMalformedResultError &&
-              completed.fileChanges.length > 0
-            ) {
-              error.fileChanges.push(...completed.fileChanges);
-            }
             if (error instanceof ClaudeCodeMalformedResultError) {
               mergeMcpCalls(error.mcpCalls, completed.mcpCalls);
             }
@@ -2171,7 +2010,6 @@ class ClaudeCodeSessionRuntime {
           new ClaudeCodeProcessEndedError(
             wrapped.message,
             null,
-            pending.fileChanges,
             pending.mcpCalls,
           ),
         );
@@ -2205,7 +2043,6 @@ class ClaudeCodeSessionRuntime {
             : new ClaudeCodeProcessEndedError(
                 message,
                 code,
-                pending.fileChanges,
                 pending.mcpCalls,
               ),
         );
@@ -2238,7 +2075,6 @@ class ClaudeCodeSessionRuntime {
         resolve,
         reject,
         emitStreamDelta: createClaudeCodeStreamEmitter(request.onStream),
-        fileChanges: [],
         mcpCalls: [],
         activeNativeToolUseIds: new Set(),
       };
@@ -2302,7 +2138,6 @@ class ClaudeCodeSessionRuntime {
           new ClaudeCodeProcessEndedError(
             `Failed to write Claude Code prompt: ${normalizeErrorMessage(error)}`,
             null,
-            pending.fileChanges,
             pending.mcpCalls,
           ),
         );
@@ -2414,10 +2249,7 @@ class ClaudeCodeSessionRuntime {
     }
     if (index >= 0) {
       pending.reject(
-        new ClaudeCodeSteeringInterruptError(
-          pending.fileChanges,
-          pending.mcpCalls,
-        ),
+        new ClaudeCodeSteeringInterruptError(pending.mcpCalls),
       );
     }
   }
@@ -2577,14 +2409,10 @@ class ClaudeCodeSessionRuntime {
     killProcess(processState.child);
     for (const pending of failed) {
       this.detachAbortListener(pending);
-      // Typed and file-change-aware: the reseed path must know which native
-      // writes this step already applied so it reconciles instead of
-      // replaying them, and reports them on the eventual result.
+      // Typed: the reseed path must know which MCP calls this step already
+      // made so it reconciles instead of replaying them.
       pending.reject(
-        new ClaudeCodeCompactionLoopError(
-          pending.fileChanges,
-          pending.mcpCalls,
-        ),
+        new ClaudeCodeCompactionLoopError(pending.mcpCalls),
       );
     }
   }

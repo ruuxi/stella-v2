@@ -38,16 +38,7 @@ import {
   realpathSync,
   writeFileSync,
 } from "fs";
-import { readdir, stat } from "fs/promises";
-import {
-  fileChange,
-  isNoiseProducedPath,
-  MAX_PRODUCED_FILES_PER_COMMAND,
-  type FileChangeRecord,
-  type ProducedFileRecord,
-} from "@stella/contracts/file-changes";
 import type {
-  ProducedFilesOmission,
   ToolContext,
   ToolProcessIdentity,
   ToolResult,
@@ -65,20 +56,11 @@ import { runToolEffect, toolsRuntime } from "./effect-runtime.js";
 import { acquireAbortLatch } from "../agent-core/abort-bridge.js";
 import { isDangerousCommand } from "./command-safety.js";
 import { getStellaComputerSessionId } from "./stella-computer-session.js";
-import { inferShellMentionedPaths } from "./path-inference.js";
-import { isKnownSafeCommand } from "./safe-commands.js";
 import { sanitizeToolVisibleText } from "./safety.js";
 import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import { purgeExpiredDeferredDeletes } from "./deferred-delete.js";
 import { resolveToolFallbackCwd } from "./cwd.js";
 import { isolateToolProcessLaunch } from "./process-isolation.js";
-
-type PrunedProducedFilesRecovery = {
-  prunedAt: number;
-  owner?: ShellSessionOwner;
-  claimed: boolean;
-  source: ProducedFilesSource;
-};
 
 export type ShellState = {
   shells: Map<string, ManagedShellRecord>;
@@ -86,8 +68,6 @@ export type ShellState = {
   workerGeneration: string;
   /** Compact receipts retained after completed shell records are pruned. */
   prunedSessions: Map<string, PrunedShellSession>;
-  /** Produced-file recovery detached from pruned shell output records. */
-  prunedProducedFiles: Map<string, PrunedProducedFilesRecovery>;
   secretStateRoot: string;
   stellaBrowserBinPath?: string;
   stellaOfficeBinPath?: string;
@@ -197,13 +177,6 @@ export type ManagedShellRecord = ShellRecord & {
    * polling `running`.
    */
   exitLatch: Deferred.Deferred<void>;
-  startSnapshot?: FileSnapshot | null;
-  externalCandidateSnapshots?: ExternalCandidateSnapshot[];
-  producedFilesReported?: boolean;
-  /** One bounded producer generation, retained as ready until atomically claimed. */
-  producedFilesCollection?: ProducedFilesCollectionState;
-  /** Cap resolved from the host's ToolContext when the shell was started. */
-  producedFileLimit: number;
   /** Total UTF-8 bytes observed since process start. */
   outputCursorBytes: number;
   /** Cursor at which the next interaction-result drain begins. */
@@ -229,37 +202,6 @@ type PrunedShellSession = {
   owner?: ShellSessionOwner;
 };
 
-type FileSnapshotEntry = {
-  size: number;
-  mtimeMs: number;
-};
-
-type FileSnapshot = {
-  root: string;
-  files: Map<string, FileSnapshotEntry>;
-  complete: boolean;
-};
-
-type ExternalCandidateSnapshot =
-  | {
-      path: string;
-      kind: "unavailable";
-    }
-  | {
-      path: string;
-      kind: "missing";
-    }
-  | {
-      path: string;
-      kind: "file";
-      entry: FileSnapshotEntry;
-    }
-  | {
-      path: string;
-      kind: "directory";
-      snapshot: FileSnapshot | null;
-    };
-
 // Stella defaults: 10s for exec_command, 250ms for write_stdin. Letting
 // short commands finish on the first call dramatically reduces the
 // "got a session_id, must call write_stdin to drain" round-trip the model
@@ -278,41 +220,10 @@ export const EXEC_UPDATE_MAX_BYTES = 8 * 1024;
 const MAX_EXEC_UPDATE_CHUNKS = 10_000;
 export const MAX_RETAINED_COMPLETED_SHELLS = 64;
 const MAX_PRUNED_SESSION_RECEIPTS = 16;
-export const MAX_PRUNED_PRODUCED_FILE_RECOVERIES = 64;
 export const COMPLETED_SHELL_TTL_MS = 30 * 60_000;
 export const PRUNED_SHELL_RECEIPT_TTL_MS = 10 * 60_000;
-const PRUNED_PRODUCED_FILES_TTL_MS = 30 * 60_000;
 const MAX_ACCEPTED_WRITE_IDS = 256;
 const ACCEPTED_WRITE_ID_TTL_MS = 10 * 60_000;
-const PRODUCED_FILE_DELIVERY_WAIT_MS = 2_000;
-export const PRODUCED_FILE_COLLECTION_ATTEMPT_MS = 5_000;
-const MAX_SNAPSHOT_FILES = 20_000;
-// Bound traversal independently of file count: a tree with hundreds of
-// thousands of empty directories must not monopolize a tool deadline.
-export const MAX_SNAPSHOT_ENTRIES = 50_000;
-const MAX_EXTERNAL_SNAPSHOT_CANDIDATES = 256;
-const MAX_SNAPSHOT_DIRECTORY_CONCURRENCY = 8;
-const MAX_SNAPSHOT_STAT_CONCURRENCY = 32;
-const MAX_EXTERNAL_SNAPSHOT_CONCURRENCY = 8;
-const SNAPSHOT_IGNORED_DIRS = new Set([
-  ".git",
-  ".hg",
-  ".svn",
-  "node_modules",
-  ".next",
-  ".turbo",
-  "target",
-  "dist",
-  "build",
-  "coverage",
-  ".cache",
-  "electron-user-data",
-  // Electron build output (`desktop/dist-electron`) — segment-exact matching
-  // means the plain "dist" entry above doesn't cover it. Dev-instance builds
-  // copy the whole runtime-extension tree (agents/skills manifests) in here,
-  // which showed up in production as phantom "update" produced files.
-  "dist-electron",
-]);
 
 const APPROX_BYTES_PER_TOKEN = 4;
 /**
@@ -324,758 +235,6 @@ export const approxTokenCount = (text: string): number =>
 
 const OFFICE_PREVIEW_REF_MARKER = "__STELLA_OFFICE_PREVIEW_REF__";
 const DEFERRED_DELETE_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
-
-// Snapshot root selection is lexical. Existence/readability is checked by the
-// bounded async walk itself; a synchronous `existsSync` here could block the
-// event loop on a stalled FUSE/network mount and defeat every caller deadline.
-const normalizeSnapshotRoot = (cwd: string): string => path.resolve(cwd);
-
-const shouldSkipSnapshotDir = (relativeDir: string): boolean => {
-  const normalized = relativeDir.split(path.sep).join("/");
-  return (
-    SNAPSHOT_IGNORED_DIRS.has(normalized) ||
-    normalized.split("/").some((segment) => SNAPSHOT_IGNORED_DIRS.has(segment))
-  );
-};
-
-type SnapshotBudgetInterruption =
-  | { kind: "deadline" }
-  | { kind: "aborted"; error: unknown };
-
-/**
- * One absolute budget shared by every read in a snapshot phase. Nothing in
- * the walk gets to restart a relative timeout: directory traversal, stats,
- * and mentioned external candidates all consume the same wall-clock bound.
- */
-type SnapshotBudget = {
-  readonly deadlineAtMonotonic: number;
-  readonly signal?: AbortSignal;
-  interruption?: SnapshotBudgetInterruption;
-};
-
-const createSnapshotBudget = (
-  deadlineAt: number,
-  signal?: AbortSignal,
-): SnapshotBudget => ({
-  // Convert the caller's public wall-clock deadline exactly once. Snapshot
-  // progress thereafter uses the monotonic clock, so a wall-clock adjustment
-  // cannot prematurely expire or indefinitely extend a filesystem walk.
-  deadlineAtMonotonic: performance.now() + Math.max(0, deadlineAt - Date.now()),
-  ...(signal ? { signal } : {}),
-});
-
-const readSnapshotBudgetInterruption = (
-  budget: SnapshotBudget,
-): SnapshotBudgetInterruption | undefined => {
-  // A caller abort is stronger than a coincident best-effort deadline. Check
-  // it first and let it replace a deadline observed by a sibling batch.
-  if (budget.signal?.aborted) {
-    budget.interruption = {
-      kind: "aborted",
-      error: budget.signal.reason ?? new Error("Aborted"),
-    };
-  } else if (
-    !budget.interruption &&
-    performance.now() >= budget.deadlineAtMonotonic
-  ) {
-    budget.interruption = { kind: "deadline" };
-  }
-  return budget.interruption;
-};
-
-/**
- * Bound one filesystem batch with the tools tree's Effect runtime. The raw
- * fs promise may be uninterruptible at the Node boundary, but once the race
- * loses it is detached from all returned snapshot state: it cannot hold a
- * caller, mutate a cached collection, or manufacture a partial diff later.
- */
-const runSnapshotBudgetOperation = async <T>(
-  budget: SnapshotBudget,
-  operation: () => Promise<T>,
-): Promise<ExecDeadlineOutcome<T>> => {
-  const interrupted = readSnapshotBudgetInterruption(budget);
-  if (interrupted?.kind === "aborted") {
-    return { status: "aborted", error: interrupted.error };
-  }
-  if (interrupted?.kind === "deadline") return { status: "deadline" };
-
-  const outcome = await runUntilDuration(
-    operation,
-    budget.deadlineAtMonotonic - performance.now(),
-    budget.signal,
-  );
-  if (outcome.status === "aborted") {
-    budget.interruption = { kind: "aborted", error: outcome.error };
-    return outcome;
-  }
-  if (outcome.status === "deadline") {
-    // Prefer an abort that raced the timer but became observable immediately
-    // after Effect selected its winner.
-    const afterRace = readSnapshotBudgetInterruption(budget);
-    if (afterRace?.kind === "aborted") {
-      return { status: "aborted", error: afterRace.error };
-    }
-    budget.interruption = { kind: "deadline" };
-    return outcome;
-  }
-  if (outcome.status === "completed") {
-    const afterOperation = readSnapshotBudgetInterruption(budget);
-    if (afterOperation?.kind === "aborted") {
-      return { status: "aborted", error: afterOperation.error };
-    }
-    if (afterOperation?.kind === "deadline") {
-      return { status: "deadline" };
-    }
-  }
-  return outcome;
-};
-
-const chunksOf = <T>(items: T[], size: number): T[][] => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
-
-const snapshotFiles = async (
-  cwd: string,
-  budget: SnapshotBudget,
-): Promise<FileSnapshot | null> => {
-  const root = normalizeSnapshotRoot(cwd);
-  const files = new Map<string, FileSnapshotEntry>();
-  const pendingDirectories = [root];
-  let visitedEntries = 0;
-  let complete = true;
-
-  while (pendingDirectories.length > 0 && complete) {
-    if (readSnapshotBudgetInterruption(budget)) {
-      complete = false;
-      break;
-    }
-    const directories = pendingDirectories.splice(
-      0,
-      MAX_SNAPSHOT_DIRECTORY_CONCURRENCY,
-    );
-    const directoryOutcome = await runSnapshotBudgetOperation(budget, () =>
-      Promise.all(
-        directories.map(async (directory) => {
-          try {
-            return {
-              kind: "ready" as const,
-              directory,
-              entries: await readdir(directory, { withFileTypes: true }),
-            };
-          } catch (error) {
-            return { kind: "failed" as const, directory, error };
-          }
-        }),
-      ),
-    );
-    if (directoryOutcome.status !== "completed") {
-      complete = false;
-      break;
-    }
-
-    const filePaths: string[] = [];
-    for (const directoryRead of directoryOutcome.value) {
-      if (directoryRead.kind === "failed") {
-        // Missing, unreadable, or transiently changing roots all make this
-        // snapshot unusable. Consumers reject every incomplete diff.
-        complete = false;
-        break;
-      }
-      for (const entry of directoryRead.entries) {
-        visitedEntries += 1;
-        if (visitedEntries > MAX_SNAPSHOT_ENTRIES) {
-          complete = false;
-          break;
-        }
-        const fullPath = path.join(directoryRead.directory, entry.name);
-        const relativePath = path.relative(root, fullPath);
-        if (entry.isDirectory()) {
-          if (!shouldSkipSnapshotDir(relativePath)) {
-            pendingDirectories.push(fullPath);
-          }
-          continue;
-        }
-        if (!entry.isFile()) continue;
-        if (files.size + filePaths.length >= MAX_SNAPSHOT_FILES) {
-          complete = false;
-          break;
-        }
-        filePaths.push(fullPath);
-      }
-      if (!complete) break;
-    }
-    if (!complete) break;
-
-    for (const fileBatch of chunksOf(
-      filePaths,
-      MAX_SNAPSHOT_STAT_CONCURRENCY,
-    )) {
-      const statOutcome = await runSnapshotBudgetOperation(budget, () =>
-        Promise.all(
-          fileBatch.map(async (filePath) => {
-            try {
-              return {
-                kind: "ready" as const,
-                filePath,
-                info: await stat(filePath),
-              };
-            } catch (error) {
-              return { kind: "failed" as const, filePath, error };
-            }
-          }),
-        ),
-      );
-      if (statOutcome.status !== "completed") {
-        complete = false;
-        break;
-      }
-      if (statOutcome.value.some((entry) => entry.kind === "failed")) {
-        // Never turn an EACCES/transient stat failure into a delete. The map
-        // can be partial internally, but `complete: false` makes it unusable.
-        complete = false;
-        break;
-      }
-      for (const entry of statOutcome.value) {
-        if (entry.kind !== "ready") continue;
-        files.set(entry.filePath, {
-          size: entry.info.size,
-          mtimeMs: entry.info.mtimeMs,
-        });
-      }
-    }
-  }
-
-  return { root, files, complete };
-};
-
-const resolveShellSnapshotRoot = (
-  cwd: string,
-  context?: ToolContext,
-): string => {
-  if (context?.storageMode === "cloud") {
-    const workspaceRoot = context.toolWorkspaceRoot?.trim();
-    if (!workspaceRoot || !path.isAbsolute(workspaceRoot)) {
-      throw new Error("Cloud shell snapshots require a workspace boundary.");
-    }
-    return normalizeSnapshotRoot(workspaceRoot);
-  }
-  const resolvedCwd = normalizeSnapshotRoot(cwd);
-  const resolvedStellaAppDir = context?.stellaAppDir?.trim()
-    ? normalizeSnapshotRoot(context.stellaAppDir)
-    : null;
-  if (
-    resolvedStellaAppDir &&
-    (resolvedCwd === resolvedStellaAppDir ||
-      resolvedCwd.startsWith(`${resolvedStellaAppDir}${path.sep}`))
-  ) {
-    return resolvedStellaAppDir;
-  }
-  return resolvedCwd;
-};
-
-const isSameOrInsidePath = (candidate: string, root: string): boolean => {
-  const relative = path.relative(root, candidate);
-  return (
-    relative === "" ||
-    (!relative.startsWith("..") && !path.isAbsolute(relative))
-  );
-};
-
-const isBroadExternalCandidate = (candidate: string): boolean => {
-  const resolved = path.resolve(candidate);
-  return (
-    resolved === path.parse(resolved).root ||
-    resolved === os.homedir() ||
-    resolved === path.dirname(os.homedir())
-  );
-};
-
-const diffFileSnapshots = (
-  before: FileSnapshot | null,
-  after: FileSnapshot | null,
-): FileChangeRecord[] | undefined => {
-  if (
-    !before ||
-    !after ||
-    !before.complete ||
-    !after.complete ||
-    before.root !== after.root
-  ) {
-    return undefined;
-  }
-  const changes: FileChangeRecord[] = [];
-  for (const [filePath, afterEntry] of after.files) {
-    const beforeEntry = before.files.get(filePath);
-    if (!beforeEntry) {
-      changes.push(fileChange(filePath, { type: "add" }));
-      continue;
-    }
-    if (
-      beforeEntry.size !== afterEntry.size ||
-      beforeEntry.mtimeMs !== afterEntry.mtimeMs
-    ) {
-      changes.push(fileChange(filePath, { type: "update" }));
-    }
-  }
-  for (const filePath of before.files.keys()) {
-    if (!after.files.has(filePath)) {
-      changes.push(fileChange(filePath, { type: "delete" }));
-    }
-  }
-  return changes.length > 0 ? changes : undefined;
-};
-
-const snapshotExternalCandidate = async (
-  candidatePath: string,
-  budget: SnapshotBudget,
-): Promise<ExternalCandidateSnapshot> => {
-  if (readSnapshotBudgetInterruption(budget)) {
-    return { path: candidatePath, kind: "unavailable" };
-  }
-  const statOutcome = await runSnapshotBudgetOperation(budget, () =>
-    stat(candidatePath),
-  );
-  if (statOutcome.status === "failed") {
-    if ((statOutcome.error as NodeJS.ErrnoException)?.code === "ENOENT") {
-      // A genuinely missing path is useful: if it appears after the command,
-      // we can report it as a produced file. Other I/O failures are
-      // unavailable, never a synthetic delete.
-      return { path: candidatePath, kind: "missing" };
-    }
-    return { path: candidatePath, kind: "unavailable" };
-  }
-  if (statOutcome.status !== "completed") {
-    return { path: candidatePath, kind: "unavailable" };
-  }
-  const info = statOutcome.value;
-  if (info.isDirectory()) {
-    return {
-      path: candidatePath,
-      kind: "directory",
-      snapshot: await snapshotFiles(candidatePath, budget),
-    };
-  }
-  if (info.isFile()) {
-    return {
-      path: candidatePath,
-      kind: "file",
-      entry: {
-        size: info.size,
-        mtimeMs: info.mtimeMs,
-      },
-    };
-  }
-  return { path: candidatePath, kind: "unavailable" };
-};
-
-const snapshotExternalCandidates = async (
-  candidatePaths: string[],
-  snapshotRoot: string,
-  budget: SnapshotBudget,
-): Promise<ExternalCandidateSnapshot[] | undefined> => {
-  const root = path.resolve(snapshotRoot);
-  const paths = [
-    ...new Set(candidatePaths.map((candidate) => path.resolve(candidate))),
-  ].filter(
-    (candidate) =>
-      !isSameOrInsidePath(candidate, root) &&
-      !isBroadExternalCandidate(candidate),
-  );
-  if (paths.length === 0) return undefined;
-  // An inferred command can mention arbitrarily many paths. Skip the
-  // external slice rather than take a misleading partial baseline.
-  if (paths.length > MAX_EXTERNAL_SNAPSHOT_CANDIDATES) return undefined;
-  const snapshots: ExternalCandidateSnapshot[] = [];
-  for (const candidates of chunksOf(paths, MAX_EXTERNAL_SNAPSHOT_CONCURRENCY)) {
-    if (readSnapshotBudgetInterruption(budget)) return undefined;
-    snapshots.push(
-      ...(await Promise.all(
-        candidates.map((candidate) =>
-          snapshotExternalCandidate(candidate, budget),
-        ),
-      )),
-    );
-    if (readSnapshotBudgetInterruption(budget)) return undefined;
-  }
-  return snapshots;
-};
-
-const diffExternalCandidateSnapshots = async (
-  beforeSnapshots: ExternalCandidateSnapshot[] | undefined,
-  budget: SnapshotBudget,
-): Promise<{
-  files?: ProducedFileRecord[];
-  complete: boolean;
-}> => {
-  if (!beforeSnapshots || beforeSnapshots.length === 0) {
-    return { complete: true };
-  }
-  const changes: ProducedFileRecord[] = [];
-
-  const comparable = beforeSnapshots.filter(
-    (before) => before.kind !== "unavailable",
-  );
-  for (const beforeBatch of chunksOf(
-    comparable,
-    MAX_EXTERNAL_SNAPSHOT_CONCURRENCY,
-  )) {
-    if (readSnapshotBudgetInterruption(budget)) return { complete: false };
-    const afterBatch = await Promise.all(
-      beforeBatch.map((before) =>
-        snapshotExternalCandidate(before.path, budget),
-      ),
-    );
-    if (readSnapshotBudgetInterruption(budget)) return { complete: false };
-
-    for (let index = 0; index < beforeBatch.length; index += 1) {
-      const before = beforeBatch[index];
-      const after = afterBatch[index];
-      if (!before || !after || after.kind === "unavailable") {
-        // Discard the whole external diff on any unavailable after-state so a
-        // partial batch can never manufacture deletes.
-        return { complete: false };
-      }
-      if (after.kind === "missing") {
-        if (before.kind !== "missing") {
-          changes.push(fileChange(before.path, { type: "delete" }));
-        }
-        continue;
-      }
-
-      if (after.kind === "file") {
-        if (before.kind !== "file") {
-          changes.push(fileChange(after.path, { type: "add" }));
-          continue;
-        }
-        if (
-          before.entry.size !== after.entry.size ||
-          before.entry.mtimeMs !== after.entry.mtimeMs
-        ) {
-          changes.push(fileChange(after.path, { type: "update" }));
-        }
-        continue;
-      }
-
-      if (before.kind === "directory") {
-        if (!before.snapshot?.complete) continue;
-        if (!after.snapshot?.complete) return { complete: false };
-        changes.push(
-          ...(diffFileSnapshots(before.snapshot, after.snapshot) ?? []),
-        );
-        continue;
-      }
-      if (!after.snapshot?.complete) return { complete: false };
-      for (const filePath of after.snapshot.files.keys()) {
-        changes.push(fileChange(filePath, { type: "add" }));
-      }
-    }
-  }
-
-  return {
-    complete: true,
-    ...(changes.length > 0 ? { files: changes } : {}),
-  };
-};
-
-/**
- * The `producedFiles` / `producedFilesOmitted` slice of a `ToolResult`, so
- * every shell handler can spread one object instead of rebuilding the pair.
- */
-type ProducedFilesOutcome = {
-  producedFiles?: ProducedFileRecord[];
-  producedFilesOmitted?: ProducedFilesOmission;
-};
-
-type ProducedFilesCollectionAttempt =
-  | { kind: "ready"; outcome: ProducedFilesOutcome }
-  | { kind: "retryable" };
-
-/**
- * Identity-stable producer state. A caller only waits on `promise`; timing
- * out or aborting that wait never replaces the producer. The producer itself
- * either publishes `ready` on this exact object or clears the record back to
- * retryable/idle, preserving the original baselines for a later drain.
- */
-type ProducedFilesCollectionState = {
-  phase: "producing" | "ready";
-  promise: Promise<ProducedFilesCollectionAttempt>;
-  outcome?: ProducedFilesOutcome;
-};
-
-type ProducedFilesSource = Pick<
-  ManagedShellRecord,
-  | "running"
-  | "startSnapshot"
-  | "externalCandidateSnapshots"
-  | "producedFilesReported"
-  | "producedFilesCollection"
-  | "producedFileLimit"
-  | "child"
-  | "pty"
->;
-
-type PreparedProducedFilesClaim = {
-  ready: boolean;
-  claim: () => ProducedFilesOutcome;
-};
-
-const publishProducedFilesCollectionAttempt = (
-  record: ProducedFilesSource,
-  state: ProducedFilesCollectionState,
-  attempt: ProducedFilesCollectionAttempt,
-): void => {
-  if (record.producedFilesCollection !== state) return;
-  if (attempt.kind === "ready") {
-    state.phase = "ready";
-    state.outcome = attempt.outcome;
-    // Release potentially large baselines, but retain this ready state until
-    // one authorized caller atomically claims its outcome.
-    record.startSnapshot = null;
-    record.externalCandidateSnapshots = undefined;
-  } else {
-    // A failed, incomplete, or timed-out attempt is retryable. Keep its
-    // baselines and clear only this generation.
-    record.producedFilesCollection = undefined;
-  }
-  record.child = undefined;
-  record.pty = undefined;
-};
-
-/**
- * Per-command cap on snapshot-detected produced files. Belongs to the host,
- * not to the runtime: the desktop default assumes an over-cap batch reaches
- * the user unfiltered, while a host that re-filters every file downstream can
- * afford a larger deliberate batch.
- */
-const resolveProducedFileLimit = (context?: ToolContext): number => {
-  const requested = context?.maxProducedFilesPerCommand;
-  return typeof requested === "number" && Number.isFinite(requested)
-    ? Math.max(0, Math.floor(requested))
-    : MAX_PRODUCED_FILES_PER_COMMAND;
-};
-
-/**
- * Merge + sanitize snapshot-detected produced files. Every shell
- * `producedFiles` emission (foreground exec, background completion via
- * `takeCompletedProducedFiles`, `write_stdin` / shell-status drains) funnels
- * through here, so collection semantics live in one place:
- *
- *  1. Dedupe across the root-workspace diff and external-candidate diffs.
- *  2. Drop noise paths (`isNoiseProducedPath`: hidden/profile/cache dirs,
- *     logs, locks) so they never persist into `tool_result` payloads.
- *  3. Bulk-churn guard: if a single command still "produced" more than
- *     `limit` files, the diff is most likely environment churn (spawned app
- *     bootstrap seeding its data dir, git checkout/worktree mtime rewrites,
- *     dependency installs) — not deliverables. Withhold the whole batch,
- *     since no per-path signal separates the churn from the three files the
- *     user asked for; deliberate writes still surface via explicit
- *     `fileChanges` from Write/Edit/apply_patch, which never pass through
- *     snapshot detection.
- *
- * The withholding is *reported*, never silent: a genuinely large deliberate
- * batch (a loop writing 31 charts) also trips the guard, and a caller that
- * sees neither files nor a count cannot tell "produced nothing" from
- * "produced 31 and I dropped them". Hosts that can afford the batch raise
- * `limit` via `ToolContext.maxProducedFilesPerCommand` instead.
- */
-const mergeProducedFiles = (
-  limit: number,
-  ...groups: Array<ProducedFileRecord[] | undefined>
-): ProducedFilesOutcome => {
-  const out: ProducedFileRecord[] = [];
-  const seen = new Set<string>();
-  for (const group of groups) {
-    if (!group) continue;
-    for (const file of group) {
-      if (isNoiseProducedPath(file.path)) continue;
-      const key = `${file.kind.type}:${file.path}:${file.kind.type === "update" ? (file.kind.move_path ?? "") : ""}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(file);
-    }
-  }
-  if (out.length > limit) {
-    return { producedFilesOmitted: { count: out.length, limit } };
-  }
-  return out.length > 0 ? { producedFiles: out } : {};
-};
-
-const producedFilesOmittedNotice = (omission: ProducedFilesOmission): string =>
-  `Note: ${omission.count} produced files were detected for this command, above the per-command delivery limit of ${omission.limit}, so none were attached to this result.`;
-
-const snapshotShellSideEffects = async (
-  args: Record<string, unknown>,
-  snapshotRoot: string,
-  context: ToolContext | undefined,
-  budget: SnapshotBudget,
-): Promise<{
-  rootSnapshot: FileSnapshot | null;
-  externalCandidateSnapshots?: ExternalCandidateSnapshot[];
-}> => {
-  const rootSnapshot = await snapshotFiles(snapshotRoot, budget);
-  const externalCandidateSnapshots =
-    context?.storageMode === "cloud"
-      ? undefined
-      : await snapshotExternalCandidates(
-          inferShellMentionedPaths(args, context),
-          snapshotRoot,
-          budget,
-        );
-  return { rootSnapshot, externalCandidateSnapshots };
-};
-
-const shouldSnapshotShellSideEffects = (command: string): boolean =>
-  !isKnownSafeCommand(command);
-
-const hasProducedFileSources = (record: ProducedFilesSource): boolean =>
-  Boolean(record.startSnapshot?.complete) ||
-  Boolean(
-    record.externalCandidateSnapshots &&
-      record.externalCandidateSnapshots.some(
-        (candidate) =>
-          candidate.kind === "missing" ||
-          candidate.kind === "file" ||
-          (candidate.kind === "directory" &&
-            Boolean(candidate.snapshot?.complete)),
-      ),
-  );
-
-/**
- * Start (or reuse) collection owned by the completed shell record. Individual
- * callers race this promise with their own signal/deadline below; leaving the
- * producer independent means one canceled exec/write cannot consume or poison
- * a result that a later run-finalizer can still deliver.
- */
-const ensureCompletedProducedFilesCollection = (
-  record: ProducedFilesSource,
-): ProducedFilesCollectionState => {
-  if (record.producedFilesCollection) return record.producedFilesCollection;
-
-  const startSnapshot = record.startSnapshot;
-  const externalCandidateSnapshots = record.externalCandidateSnapshots;
-  const budget = createSnapshotBudget(
-    Date.now() + PRODUCED_FILE_COLLECTION_ATTEMPT_MS,
-  );
-  const promise = (async (): Promise<ProducedFilesCollectionAttempt> => {
-    let rootFiles: ProducedFileRecord[] | undefined;
-    // A missing/incomplete start snapshot can never produce a trustworthy
-    // root diff. Known-safe commands deliberately set it to null; do not turn
-    // their completion into an unconditional full-tree walk.
-    if (startSnapshot?.complete) {
-      const after = await snapshotFiles(startSnapshot.root, budget);
-      if (!after?.complete) return { kind: "retryable" };
-      rootFiles = diffFileSnapshots(startSnapshot, after);
-    }
-    const external = await diffExternalCandidateSnapshots(
-      externalCandidateSnapshots,
-      budget,
-    );
-    if (!external.complete) return { kind: "retryable" };
-    return {
-      kind: "ready",
-      outcome: mergeProducedFiles(
-        record.producedFileLimit,
-        rootFiles,
-        external.files,
-      ),
-    };
-  })().catch((): ProducedFilesCollectionAttempt => ({ kind: "retryable" }));
-  const state: ProducedFilesCollectionState = {
-    phase: "producing",
-    promise,
-  };
-  record.producedFilesCollection = state;
-  void promise.then((attempt) => {
-    publishProducedFilesCollectionAttempt(record, state, attempt);
-  });
-  return state;
-};
-
-const prepareCompletedProducedFilesClaim = async (
-  record: ProducedFilesSource,
-  signal?: AbortSignal,
-  deadlineAt = Date.now() + PRODUCED_FILE_DELIVERY_WAIT_MS,
-): Promise<PreparedProducedFilesClaim> => {
-  const deferredClaim = {
-    ready: false,
-    claim: (): ProducedFilesOutcome => ({}),
-  };
-  const emptyClaim = {
-    ready: true,
-    claim: (): ProducedFilesOutcome => ({}),
-  };
-  if (signal?.aborted) {
-    throw signal.reason ?? new Error("Aborted");
-  }
-  if (Date.now() >= deadlineAt) return deferredClaim;
-  if (record.running) return deferredClaim;
-  if (record.producedFilesReported) return emptyClaim;
-  if (!hasProducedFileSources(record) && !record.producedFilesCollection) {
-    record.producedFilesReported = true;
-    record.child = undefined;
-    record.pty = undefined;
-    return emptyClaim;
-  }
-  const state = ensureCompletedProducedFilesCollection(record);
-  let produced = state.outcome;
-  if (state.phase === "producing") {
-    const outcome = await runUntilExecDeadline(
-      () => state.promise,
-      deadlineAt,
-      signal,
-    );
-    if (outcome.status === "aborted") {
-      throw outcome.error;
-    }
-    if (outcome.status === "failed") {
-      throw outcome.error;
-    }
-    if (outcome.status === "deadline") {
-      return deferredClaim;
-    }
-    if (outcome.value.kind === "retryable") {
-      publishProducedFilesCollectionAttempt(record, state, outcome.value);
-      return deferredClaim;
-    }
-    publishProducedFilesCollectionAttempt(record, state, outcome.value);
-    if (signal?.aborted) {
-      throw signal.reason ?? new Error("Aborted");
-    }
-    produced = outcome.value.outcome;
-  }
-  if (!produced || record.producedFilesCollection !== state) {
-    return deferredClaim;
-  }
-  return {
-    ready: true,
-    claim: () => {
-      if (record.producedFilesReported) return {};
-      if (record.producedFilesCollection !== state || state.phase !== "ready") {
-        return {};
-      }
-      record.producedFilesReported = true;
-      record.producedFilesCollection = undefined;
-      return produced;
-    },
-  };
-};
-
-const takeCompletedProducedFiles = async (
-  record: ProducedFilesSource,
-  signal?: AbortSignal,
-  deadlineAt = Date.now() + PRODUCED_FILE_DELIVERY_WAIT_MS,
-): Promise<ProducedFilesOutcome> => {
-  const prepared = await prepareCompletedProducedFilesClaim(
-    record,
-    signal,
-    deadlineAt,
-  );
-  return prepared.claim();
-};
 
 const retainPrunedSessionReceipt = (
   state: ShellState,
@@ -1101,8 +260,7 @@ const retainPrunedSessionReceipt = (
 };
 
 /**
- * Keep the active-shell map bounded while detaching produced-file recovery
- * into its own bounded/TTL map. Running shells and records with queued
+ * Keep the active-shell map bounded. Running shells and records with queued
  * interactions are never candidates; the release path retries pruning after
  * the interaction completes.
  */
@@ -1113,14 +271,6 @@ const pruneCompletedShellSessions = (
   for (const [id, receipt] of state.prunedSessions) {
     if (now - receipt.prunedAt >= PRUNED_SHELL_RECEIPT_TTL_MS) {
       state.prunedSessions.delete(id);
-    }
-  }
-  for (const [id, recovery] of state.prunedProducedFiles) {
-    if (
-      !recovery.claimed &&
-      now - recovery.prunedAt >= PRUNED_PRODUCED_FILES_TTL_MS
-    ) {
-      state.prunedProducedFiles.delete(id);
     }
   }
 
@@ -1139,49 +289,6 @@ const pruneCompletedShellSessions = (
     if (!expired && retainedCompleted <= MAX_RETAINED_COMPLETED_SHELLS) break;
     if (record.pendingInteractions > 0) continue;
 
-    if (
-      !record.producedFilesReported &&
-      (hasProducedFileSources(record) || record.producedFilesCollection)
-    ) {
-      while (
-        state.prunedProducedFiles.size >= MAX_PRUNED_PRODUCED_FILE_RECOVERIES
-      ) {
-        const oldestUnclaimed = [...state.prunedProducedFiles.entries()]
-          .filter(([, recovery]) => !recovery.claimed)
-          .sort((left, right) => left[1].prunedAt - right[1].prunedAt)[0];
-        if (!oldestUnclaimed) break;
-        state.prunedProducedFiles.delete(oldestUnclaimed[0]);
-      }
-      // If every bounded slot is actively claimed, retain the rich record and
-      // retry pruning after those drains release instead of dropping recovery.
-      if (
-        state.prunedProducedFiles.size >= MAX_PRUNED_PRODUCED_FILE_RECOVERIES
-      ) {
-        continue;
-      }
-      const recovery = {
-        prunedAt: now,
-        ...(record.owner ? { owner: record.owner } : {}),
-        claimed: false,
-        source: record,
-      };
-      state.prunedProducedFiles.set(record.id, recovery);
-      const collection = ensureCompletedProducedFilesCollection(record);
-      void collection.promise.then((attempt) => {
-        const current = state.prunedProducedFiles.get(record.id);
-        if (
-          current === recovery &&
-          !current.claimed &&
-          attempt.kind === "ready" &&
-          !attempt.outcome.producedFiles?.length &&
-          !attempt.outcome.producedFilesOmitted
-        ) {
-          // Empty/failed outcomes carry no recoverable user value and should
-          // not occupy the bounded map until its TTL.
-          state.prunedProducedFiles.delete(record.id);
-        }
-      });
-    }
     retainPrunedSessionReceipt(state, record, now);
     state.shells.delete(record.id);
     retainedCompleted -= 1;
@@ -1193,133 +300,6 @@ export const cleanupShellSessions = (
   state: ShellState,
   now = Date.now(),
 ): void => pruneCompletedShellSessions(state, now);
-
-/**
- * Drain completed-but-unreported produced files from managed shell sessions.
- *
- * Long-running/background commands that finish AFTER the model's last poll
- * leave their deliverables sitting on the record with `producedFilesReported`
- * still false — the foreground `write_stdin` / shell-status drain never runs
- * for them, so those files (e.g. a video render written after the tool
- * nominally completed) would only ride individual `tool_result` entries and
- * never reach the agent-completed rollup. This lets the agent finalizer pull
- * such late deliverables in before the rollup emits.
- *
- * `access` is the full conversation/agent owner key (`null` is reserved for
- * likewise-unowned direct harness sessions). Scope with `sessionIds` to the
- * sessions a run actually touched; omitting ids sweeps only sessions matching
- * that owner. Uses the same prepared/atomic produced-file claim, so the
- * one-shot `producedFilesReported` flag, `isNoiseProducedPath` guards,
- * per-command dedup, and the per-command cap all still apply, and a session
- * already drained inline yields nothing here.
- *
- * The withholding travels with the files, for the same reason it does on the
- * inline drains: a session whose batch the cap held back contributes no files
- * at all, and a rollup that sees an empty list cannot tell that from a
- * background command that wrote nothing. `omitted` sums the withheld counts
- * across the swept sessions and carries the largest limit that did the
- * withholding, so the rollup can say how many files are still on disk.
- */
-export const drainCompletedProducedFiles = async (
-  state: ShellState,
-  access: ShellSessionAccess | null,
-  sessionIds?: Iterable<string>,
-  signal?: AbortSignal,
-  deadlineAt = Date.now() + PRODUCED_FILE_DELIVERY_WAIT_MS,
-): Promise<{
-  files: ProducedFileRecord[];
-  omitted?: ProducedFilesOmission;
-}> => {
-  const requestedIds = sessionIds ? [...new Set(sessionIds)] : undefined;
-  const records = requestedIds
-    ? requestedIds
-        .map((id) => state.shells.get(id))
-        .filter(
-          (record): record is ManagedShellRecord =>
-            Boolean(record) && shellOwnerMatchesAccess(record?.owner, access),
-        )
-    : [...state.shells.values()].filter((record) =>
-        shellOwnerMatchesAccess(record.owner, access),
-      );
-  const files: ProducedFileRecord[] = [];
-  let count = 0;
-  let limit = 0;
-  const collect = (produced: ProducedFilesOutcome | undefined) => {
-    if (!produced) return;
-    if (produced.producedFiles) files.push(...produced.producedFiles);
-    if (produced.producedFilesOmitted) {
-      count += produced.producedFilesOmitted.count;
-      limit = Math.max(limit, produced.producedFilesOmitted.limit);
-    }
-  };
-  const prunedIds = requestedIds ?? [...state.prunedProducedFiles.keys()];
-  const claims: Array<{ id: string; recovery: PrunedProducedFilesRecovery }> =
-    [];
-  for (const id of prunedIds) {
-    const recovery = state.prunedProducedFiles.get(id);
-    if (
-      !recovery ||
-      recovery.claimed ||
-      !shellOwnerMatchesAccess(recovery.owner, access)
-    ) {
-      continue;
-    }
-    recovery.claimed = true;
-    claims.push({ id, recovery });
-  }
-  let liveClaims: PreparedProducedFilesClaim[];
-  let claimOutcomes: Array<{
-    id: string;
-    recovery: PrunedProducedFilesRecovery;
-    prepared: PreparedProducedFilesClaim;
-  }>;
-  try {
-    [liveClaims, claimOutcomes] = await Promise.all([
-      Promise.all(
-        records.map((record) =>
-          prepareCompletedProducedFilesClaim(record, signal, deadlineAt),
-        ),
-      ),
-      Promise.all(
-        claims.map(async ({ id, recovery }) => ({
-          id,
-          recovery,
-          prepared: await prepareCompletedProducedFilesClaim(
-            recovery.source,
-            signal,
-            deadlineAt,
-          ),
-        })),
-      ),
-    ]);
-  } catch (error) {
-    for (const { id, recovery } of claims) {
-      const current = state.prunedProducedFiles.get(id);
-      if (current === recovery) current.claimed = false;
-    }
-    throw error;
-  }
-  if (signal?.aborted) {
-    for (const { id, recovery } of claims) {
-      const current = state.prunedProducedFiles.get(id);
-      if (current === recovery) current.claimed = false;
-    }
-    throw signal.reason ?? new Error("Aborted");
-  }
-  for (const prepared of liveClaims) {
-    if (prepared.ready) collect(prepared.claim());
-  }
-  for (const { id, recovery, prepared } of claimOutcomes) {
-    const current = state.prunedProducedFiles.get(id);
-    if (prepared.ready) {
-      if (current === recovery) state.prunedProducedFiles.delete(id);
-      collect(prepared.claim());
-      continue;
-    }
-    if (current === recovery) current.claimed = false;
-  }
-  return { files, ...(count > 0 ? { omitted: { count, limit } } : {}) };
-};
 
 export const extractOfficePreviewRef = (
   output: string,
@@ -1538,7 +518,6 @@ export function createShellState(
     shells: new Map(),
     workerGeneration: crypto.randomUUID().slice(0, 8),
     prunedSessions: new Map(),
-    prunedProducedFiles: new Map(),
     secretStateRoot,
     stellaBrowserBinPath: options?.stellaBrowserBinPath,
     stellaOfficeBinPath: options?.stellaOfficeBinPath,
@@ -2730,11 +1709,8 @@ export const startShell = (
   cwd: string,
   envOverrides?: Record<string, string>,
   onClose?: () => void,
-  startSnapshot?: FileSnapshot | null,
-  externalCandidateSnapshots?: ExternalCandidateSnapshot[],
   onActivity?: (record: ManagedShellRecord, delta?: ShellOutputDelta) => void,
   launchOptions: ShellLaunchOptions = {},
-  producedFileLimit: number = MAX_PRODUCED_FILES_PER_COMMAND,
   processIdentity?: ToolProcessIdentity,
 ) => {
   maybeSweepDeferredDeletes(state);
@@ -2763,9 +1739,6 @@ export const startShell = (
       exitWatchers: new Set(),
       stdinOpen: false,
       exitLatch,
-      startSnapshot,
-      externalCandidateSnapshots,
-      producedFileLimit,
       kill: () => {},
       outputCursorBytes: Buffer.byteLength(safeLaunchError, "utf8"),
       unreadCursorStart: 0,
@@ -2804,9 +1777,6 @@ export const startShell = (
     exitWatchers: new Set(),
     stdinOpen: false,
     exitLatch: Deferred.makeUnsafe<void>(),
-    startSnapshot,
-    externalCandidateSnapshots,
-    producedFileLimit,
     kill: () => {},
     outputCursorBytes: 0,
     unreadCursorStart: 0,
@@ -3310,67 +2280,6 @@ const resolveExecYieldTime = (
   return Math.max(0, Math.min(raw, maxMs));
 };
 
-type ExecDeadlineOutcome<T> =
-  | { status: "completed"; value: T }
-  | { status: "failed"; error: unknown }
-  | { status: "deadline" }
-  | { status: "aborted"; error: unknown };
-
-const runUntilDuration = async <T>(
-  operation: () => Promise<T>,
-  remainingMs: number,
-  signal?: AbortSignal,
-): Promise<ExecDeadlineOutcome<T>> => {
-  if (signal?.aborted) {
-    return { status: "aborted", error: signal.reason ?? new Error("Aborted") };
-  }
-  if (remainingMs <= 0) return { status: "deadline" };
-  return await runToolEffect(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const abortLatch = yield* acquireAbortLatch(signal);
-        const operationOutcome = Effect.tryPromise({
-          try: operation,
-          catch: (error) => error,
-        }).pipe(
-          Effect.match({
-            onFailure: (error): ExecDeadlineOutcome<T> => ({
-              status: "failed",
-              error,
-            }),
-            onSuccess: (value): ExecDeadlineOutcome<T> => ({
-              status: "completed",
-              value,
-            }),
-          }),
-        );
-        const deadlineOutcome = Effect.sleep(remainingMs).pipe(
-          Effect.as<ExecDeadlineOutcome<T>>({ status: "deadline" }),
-        );
-        const abortOutcome = Deferred.await(abortLatch).pipe(
-          Effect.map(
-            (reason): ExecDeadlineOutcome<T> => ({
-              status: "aborted",
-              error: reason ?? new Error("Aborted"),
-            }),
-          ),
-        );
-        return yield* Effect.raceFirst(
-          Effect.raceFirst(operationOutcome, deadlineOutcome),
-          abortOutcome,
-        );
-      }),
-    ),
-  );
-};
-
-const runUntilExecDeadline = async <T>(
-  operation: () => Promise<T>,
-  deadlineAt: number,
-  signal?: AbortSignal,
-): Promise<ExecDeadlineOutcome<T>> =>
-  runUntilDuration(operation, deadlineAt - Date.now(), signal);
-
 const toolErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
@@ -3410,7 +2319,6 @@ type ExecToolPayload = {
   cwd: string;
   command: string;
   hint?: string;
-  produced_files_omitted?: ProducedFilesOmission;
 };
 
 const buildExecToolPayload = (
@@ -3698,28 +2606,6 @@ export const handleExecCommand = async (
   if (!prepared.command.trim()) {
     return { error: "cmd is required." };
   }
-  let beforeSideEffects: {
-    rootSnapshot: FileSnapshot | null;
-    externalCandidateSnapshots?: ExternalCandidateSnapshot[];
-  } = { rootSnapshot: null };
-  if (shouldSnapshotShellSideEffects(prepared.command)) {
-    const snapshotBudget = createSnapshotBudget(deadlineAt, signal);
-    beforeSideEffects = await snapshotShellSideEffects(
-      { cmd: prepared.command, workdir: prepared.cwd },
-      resolveShellSnapshotRoot(prepared.cwd, context),
-      context,
-      snapshotBudget,
-    );
-    const interruption = readSnapshotBudgetInterruption(snapshotBudget);
-    if (interruption?.kind === "aborted") {
-      return { error: toolErrorMessage(interruption.error) };
-    }
-    if (interruption?.kind === "deadline") {
-      // Produced-file tracking is best effort. Once its budget is exhausted,
-      // start the requested process immediately so the caller still receives
-      // a session id by the advertised yield deadline.
-    }
-  }
   let emittedUpdateChunks = 0;
   const emitOneUpdate = (
     record: ManagedShellRecord,
@@ -3764,11 +2650,8 @@ export const handleExecCommand = async (
     prepared.cwd,
     prepared.envOverrides,
     undefined,
-    beforeSideEffects.rootSnapshot,
-    beforeSideEffects.externalCandidateSnapshots,
     emitUpdate,
     prepared.launchOptions,
-    resolveProducedFileLimit(context),
     prepared.processIdentity,
   );
   setShellOwner(record, context);
@@ -3820,24 +2703,10 @@ export const handleExecCommand = async (
 
     const drained = drainUnreadOutput(record);
     const payload = buildExecToolPayload(state, record, drained, callStartedAt);
-    let produced: ProducedFilesOutcome = {};
-    if (!record.running) {
-      try {
-        produced = await takeCompletedProducedFiles(record, signal, deadlineAt);
-      } catch (error) {
-        return { error: toolErrorMessage(error) };
-      }
-    }
-    // Also expose withholding on the model-visible payload. The agent is the
-    // component that can tell the user the files remain in the workspace.
-    if (produced.producedFilesOmitted) {
-      payload.produced_files_omitted = produced.producedFilesOmitted;
-    }
     return {
       result: formatExecToolResult(payload, drained),
       details: buildExecToolDetails(payload, drained),
       modelOutputTokens,
-      ...produced,
     };
   } finally {
     interaction.release();
@@ -4057,24 +2926,10 @@ export const handleWriteStdin = async (
       callStartedAt,
       receipt,
     );
-    let produced: ProducedFilesOutcome;
-    try {
-      produced = await takeCompletedProducedFiles(
-        record,
-        signal,
-        interactionDeadlineAt,
-      );
-    } catch (error) {
-      return { error: toolErrorMessage(error) };
-    }
-    if (produced.producedFilesOmitted) {
-      payload.produced_files_omitted = produced.producedFilesOmitted;
-    }
     return {
       result: formatExecToolResult(payload, drained),
       details: buildExecToolDetails(payload, drained),
       modelOutputTokens,
-      ...produced,
     };
   } finally {
     record.activeInteractionReceipt = undefined;
@@ -4106,30 +2961,6 @@ export const handleBash = async (
   const cwd = prepared.cwd;
   const runInBackground = Boolean(args.run_in_background ?? false);
   const envOverrides = prepared.envOverrides;
-  const shouldSnapshotSideEffects = shouldSnapshotShellSideEffects(command);
-  const snapshotRoot = shouldSnapshotSideEffects
-    ? resolveShellSnapshotRoot(cwd, context)
-    : null;
-  let beforeSideEffects: {
-    rootSnapshot: FileSnapshot | null;
-    externalCandidateSnapshots?: ExternalCandidateSnapshot[];
-  } = { rootSnapshot: null };
-  if (snapshotRoot) {
-    const snapshotDeadlineAt =
-      Date.now() +
-      Math.min(PRODUCED_FILE_COLLECTION_ATTEMPT_MS, Math.max(0, timeout));
-    const snapshotBudget = createSnapshotBudget(snapshotDeadlineAt, signal);
-    beforeSideEffects = await snapshotShellSideEffects(
-      { cmd: command, workdir: cwd },
-      snapshotRoot,
-      context,
-      snapshotBudget,
-    );
-    const interruption = readSnapshotBudgetInterruption(snapshotBudget);
-    if (interruption?.kind === "aborted") {
-      return { error: toolErrorMessage(interruption.error) };
-    }
-  }
 
   if (runInBackground) {
     const record = startShell(
@@ -4138,11 +2969,8 @@ export const handleBash = async (
       cwd,
       envOverrides,
       undefined,
-      beforeSideEffects.rootSnapshot,
-      beforeSideEffects.externalCandidateSnapshots,
       undefined,
       prepared.launchOptions,
-      resolveProducedFileLimit(context),
       prepared.processIdentity,
     );
     setShellOwner(record, context);
@@ -4173,32 +3001,10 @@ export const handleBash = async (
     prepared.launchOptions,
     prepared.processIdentity,
   );
-  let produced: ProducedFilesOutcome = {};
-  if (shouldSnapshotSideEffects && snapshotRoot) {
-    const snapshotDeadlineAt = Date.now() + PRODUCED_FILE_COLLECTION_ATTEMPT_MS;
-    const snapshotBudget = createSnapshotBudget(snapshotDeadlineAt, signal);
-    const afterRoot = await snapshotFiles(snapshotRoot, snapshotBudget);
-    const external = await diffExternalCandidateSnapshots(
-      beforeSideEffects.externalCandidateSnapshots,
-      snapshotBudget,
-    );
-    const interruption = readSnapshotBudgetInterruption(snapshotBudget);
-    if (interruption?.kind === "aborted") {
-      return { error: toolErrorMessage(interruption.error) };
-    }
-    produced = mergeProducedFiles(
-      resolveProducedFileLimit(context),
-      diffFileSnapshots(beforeSideEffects.rootSnapshot, afterRoot),
-      external.complete ? external.files : undefined,
-    );
-  }
   const extracted = extractOfficePreviewRef(sanitizeToolVisibleText(output));
-  const text = produced.producedFilesOmitted
-    ? `${truncate(extracted.cleanedOutput)}\n\n${producedFilesOmittedNotice(produced.producedFilesOmitted)}`
-    : truncate(extracted.cleanedOutput);
+  const text = truncate(extracted.cleanedOutput);
   return {
     result: text,
-    ...produced,
     ...(extracted.officePreviewRef
       ? {
           details: {
@@ -4214,9 +3020,7 @@ export const handleShellStatus = async (
   state: ShellState,
   args: Record<string, unknown>,
   context?: ToolContext,
-  signal?: AbortSignal,
 ): Promise<ToolResult> => {
-  const snapshotDeadlineAt = Date.now() + PRODUCED_FILE_DELIVERY_WAIT_MS;
   cleanupShellSessions(state);
   const shellId = String(args.shell_id ?? "");
 
@@ -4259,23 +3063,7 @@ export const handleShellStatus = async (
   result += `\nCommand: ${record.command.slice(0, 200)}`;
   result += `\n\n--- Output (last ${Math.min(tail_lines, lines.length)} lines) ---\n${tail}`;
 
-  let produced: ProducedFilesOutcome;
-  try {
-    produced = await takeCompletedProducedFiles(
-      record,
-      signal,
-      snapshotDeadlineAt,
-    );
-  } catch (error) {
-    return { error: toolErrorMessage(error) };
-  }
-  if (produced.producedFilesOmitted) {
-    result += `\n\n${producedFilesOmittedNotice(produced.producedFilesOmitted)}`;
-  }
-  return {
-    result,
-    ...produced,
-  };
+  return { result };
 };
 
 export const handleKillShell = async (

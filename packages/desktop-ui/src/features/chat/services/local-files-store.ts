@@ -126,10 +126,10 @@ const refreshEntry = (entry: LocalFilesWindowEntry): Promise<void> => {
 };
 
 /**
- * The only event types that can carry `fileChanges` / `producedFiles` (or the
- * html canvas artifact, which is itself a `tool_result`), i.e. the only events
- * a files window is ever derived from (mirrors the backend `listFiles` filter
- * and `deriveConversationFiles`).
+ * The only event types a files window is ever derived from: the html canvas
+ * artifact (itself a `tool_result`) and completion events whose text can
+ * carry markdown file links (mirrors the backend `listFiles` filter and
+ * `deriveConversationFiles`).
  */
 const FILE_BEARING_EVENT_TYPES = new Set<EventRecord["type"]>([
   "tool_result",

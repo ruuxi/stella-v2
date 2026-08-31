@@ -450,7 +450,7 @@ describe("task lifecycle deduping", () => {
     expect(canceledPrompt).toContain("error: Canceled by user");
   });
 
-  it("includes external engine file changes in completed follow-ups", () => {
+  it("does not append external engine file changes to completed follow-ups", () => {
     const prompt = buildAgentEventPrompt({
       type: "agent-completed",
       conversationId: "conversation-1",
@@ -469,8 +469,8 @@ describe("task lifecycle deduping", () => {
 
     expect(prompt).toContain("[Agent completed]");
     expect(prompt).toContain("result: Cursor finished the delegated work.");
-    expect(prompt).toContain("explicit file changes:");
-    expect(prompt).toContain("- update: /repo/src/cursor-change.ts");
+    expect(prompt).not.toContain("explicit file changes:");
+    expect(prompt).not.toContain("/repo/src/cursor-change.ts");
   });
 
   it("suppresses the follow-up turn when the orchestrator pauses a task itself", () => {

@@ -187,37 +187,6 @@ export const getRuntimeToolMetadata = (opts: {
   return resolved;
 };
 
-const mergeToolSideEffectsIntoDetails = (
-  details: unknown,
-  fileChanges: ToolResult["fileChanges"],
-  producedFiles: ToolResult["producedFiles"],
-  // Carried alongside `producedFiles` because it is the *absence* of them
-  // that needs explaining: a surface reading only the two lists above cannot
-  // tell a command that produced nothing from one whose batch was withheld.
-  producedFilesOmitted: ToolResult["producedFilesOmitted"],
-): unknown => {
-  if (
-    (!fileChanges || fileChanges.length === 0) &&
-    (!producedFiles || producedFiles.length === 0) &&
-    !producedFilesOmitted
-  ) {
-    return details;
-  }
-  const sideEffects = {
-    ...(fileChanges && fileChanges.length > 0 ? { fileChanges } : {}),
-    ...(producedFiles && producedFiles.length > 0 ? { producedFiles } : {}),
-    ...(producedFilesOmitted ? { producedFilesOmitted } : {}),
-  };
-  if (details && typeof details === "object" && !Array.isArray(details)) {
-    return { ...(details as Record<string, unknown>), ...sideEffects };
-  }
-  // Wrap non-object details so the worker server hoists structured side
-  // effects to the top level of the persisted event payload while
-  // still preserving the original details under `result`.
-  if (details === undefined || details === null) return sideEffects;
-  return { result: details, ...sideEffects };
-};
-
 const formatToolResult = (
   toolResult: ToolResult,
   toolName: string,
@@ -226,26 +195,16 @@ const formatToolResult = (
     const error = sanitizeToolError(toolResult.error);
     return {
       text: `Error: ${error}`,
-      details: mergeToolSideEffectsIntoDetails(
-        sanitizeToolResult(toolResult.details ?? { error }),
-        toolResult.fileChanges,
-        toolResult.producedFiles,
-        toolResult.producedFilesOmitted,
-      ),
+      details: sanitizeToolResult(toolResult.details ?? { error }),
     };
   }
 
   const result = sanitizeToolResult(toolResult.result);
   return {
     text: sanitizeToolVisibleText(textFromUnknown(result)),
-    details: mergeToolSideEffectsIntoDetails(
-      sanitizeToolResult(
-        toolResult.details ??
-          (COMMAND_OUTPUT_TOOL_NAMES.has(toolName) ? undefined : result),
-      ),
-      toolResult.fileChanges,
-      toolResult.producedFiles,
-      toolResult.producedFilesOmitted,
+    details: sanitizeToolResult(
+      toolResult.details ??
+        (COMMAND_OUTPUT_TOOL_NAMES.has(toolName) ? undefined : result),
     ),
   };
 };

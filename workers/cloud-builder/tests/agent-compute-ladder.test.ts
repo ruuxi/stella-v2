@@ -10,11 +10,12 @@ import {
   type PersistedAgentCompute,
   type SandboxAttachment,
 } from "../src/agent-compute-ladder.js";
-import type {
-  AttachedToolControlResponse,
-  AttachedToolRequest,
-  AttachedToolResponse,
-  SerializedAgentToolResult,
+import {
+  ATTACHED_TOOL_PROTOCOL_VERSION,
+  type AttachedToolControlResponse,
+  type AttachedToolRequest,
+  type AttachedToolResponse,
+  type SerializedAgentToolResult,
 } from "@stella/executor-cloud/attached-tool-protocol";
 import { createTurnRetryCancellation } from "../src/turn-cancellation.js";
 
@@ -25,9 +26,6 @@ const OK: SerializedAgentToolResult = {
   outcome: { kind: "ok", text: "listed" },
   details: null,
   authorizedImages: [],
-  fileChanges: [],
-  producedFiles: [],
-  producedFilesOmitted: null,
 };
 
 type Journal = {
@@ -41,7 +39,7 @@ const harness = (
     boot?: (args: { instanceSize: "small" | "large" }) => Promise<AttachBoot>;
     callTool?: (request: AttachedToolRequest) => Promise<AttachedToolResponse>;
     notices?: readonly string[];
-    producedFiles?: readonly { path: string; kind: { type: "add" } }[];
+    deliveredFiles?: readonly string[];
     worldLease?: boolean;
     retireWorldLease?: AgentWorldLeaseHooks["retire"];
   } = {},
@@ -71,7 +69,7 @@ const harness = (
       return options.callTool
         ? await options.callTool(request)
         : {
-            version: 1,
+            version: ATTACHED_TOOL_PROTOCOL_VERSION,
             status: "completed",
             toolCallId: request.toolCallId,
             fingerprint: request.fingerprint,
@@ -81,12 +79,15 @@ const harness = (
     control: async ({ control }): Promise<AttachedToolControlResponse> => {
       journal.calls.push(`control:${control}`);
       return control === "boot_report"
-        ? { version: 1, status: "boot_report", notices: options.notices ?? [] }
+        ? {
+            version: ATTACHED_TOOL_PROTOCOL_VERSION,
+            status: "boot_report",
+            notices: options.notices ?? [],
+          }
         : {
-            version: 1,
+            version: ATTACHED_TOOL_PROTOCOL_VERSION,
             status: "quiesced",
-            producedFiles: options.producedFiles ?? [],
-            producedFilesOmitted: null,
+            deliveredFiles: options.deliveredFiles ?? [],
           };
     },
     destroy: async (sandboxId) => {
@@ -326,7 +327,7 @@ describe("agent compute ladder", () => {
   test("a pending replay is reported, never re-run", async () => {
     const { ladder, journal } = harness({
       callTool: async (request) => ({
-        version: 1,
+        version: ATTACHED_TOOL_PROTOCOL_VERSION,
         status: "pending",
         toolCallId: request.toolCallId,
         fingerprint: request.fingerprint,
@@ -377,7 +378,7 @@ describe("agent compute ladder", () => {
         calls += 1;
         if (calls === 1) {
           return {
-            version: 1,
+            version: ATTACHED_TOOL_PROTOCOL_VERSION,
             status: "completed",
             toolCallId: request.toolCallId,
             fingerprint: request.fingerprint,
@@ -400,14 +401,14 @@ describe("agent compute ladder", () => {
 
   test("quiesce joins the daemon once and reports what it delivered", async () => {
     const { ladder, journal } = harness({
-      producedFiles: [{ path: "/world/drive/out.txt", kind: { type: "add" } }],
+      deliveredFiles: ["out.txt"],
     });
 
     await ladder.execute(call("call-1"));
-    const first = await ladder.quiesce();
-    const again = await ladder.quiesce();
+    const first = await ladder.quiesce(["/world/drive/out.txt"]);
+    const again = await ladder.quiesce(["/world/drive/out.txt"]);
 
-    expect(first.producedFiles).toHaveLength(1);
+    expect(first.deliveredFiles).toEqual(["out.txt"]);
     expect(again).toEqual(first);
     expect(
       journal.calls.filter((entry) => entry === "control:quiesce"),

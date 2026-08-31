@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import {
   getSandbox,
   type DirectoryBackup,
@@ -9229,12 +9230,13 @@ export class BuildSession extends DurableObject<Env> {
         onAgentStarted: (abort) => {
           this.residentAgentAborts.set(turn.turnId, abort);
         },
-        commit: async (sealed) =>
+        commit: async (sealed, finalText) =>
           await this.commitResidentTurnDurability({
             turn,
             execution,
             ladder,
             sealed,
+            finalText,
             control,
             commandTimeoutMs,
           }),
@@ -9261,6 +9263,8 @@ export class BuildSession extends DurableObject<Env> {
     execution: TurnExecutionContext;
     ladder: ReturnType<typeof createAgentComputeLadder>;
     sealed: SealedTurnTranscript;
+    /** The turn's final assistant text; delivered files derive from its links. */
+    finalText: string;
     control: ReturnType<typeof createAgentControlPlane>;
     commandTimeoutMs: number;
   }): Promise<Exclude<TurnDurability, { kind: "none" }>> {
@@ -9284,7 +9288,7 @@ export class BuildSession extends DurableObject<Env> {
     if (interior.outcome === "failed") {
       throw new AgentTurnError(interior.error);
     }
-    await ladder.quiesce();
+    await ladder.quiesce(extractLocalFileLinkPaths(args.finalText));
     execution.assertActive();
     const checkpoint = await this.runResidentTurnStateCheckpoint({
       turn,

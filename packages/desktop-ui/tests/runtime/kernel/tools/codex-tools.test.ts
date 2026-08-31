@@ -1423,42 +1423,6 @@ EOF`,
     }
   });
 
-  it("code preserves file tracking from nested tool calls", async () => {
-    const root = await createTempDir();
-    const target = path.join(root, "nested-edit.txt");
-    const host = createToolHost({ stellaAppDir: root });
-    const patch = `*** Begin Patch\n*** Add File: ${target}\n+tracked through code\n*** End Patch`;
-
-    try {
-      const result = await host.executeTool(
-        "code",
-        {
-          code: `await tools.apply_patch({input: ${JSON.stringify(patch)}})`,
-        },
-        {
-          conversationId: "c-node-tools",
-          deviceId: "d-node-tools",
-          requestId: "r-node-tools",
-          agentId: "a-node-tools",
-          agentType: "general",
-          stellaAppDir: root,
-          toolWorkspaceRoot: root,
-          allowedToolNames: ["code", "apply_patch"],
-        },
-      );
-
-      expect(result.error).toBeUndefined();
-      expect(result.fileChanges).toEqual([
-        { path: target, kind: { type: "add" } },
-      ]);
-      await expect(readFile(target, "utf8")).resolves.toBe(
-        "tracked through code\n",
-      );
-    } finally {
-      await host.shutdown();
-    }
-  });
-
   it("web uses the configured search backend", async () => {
     const root = await createTempDir();
     const host = createToolHost({

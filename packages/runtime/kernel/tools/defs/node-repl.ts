@@ -69,22 +69,10 @@ export const createCodeTool = (options: CodeToolOptions): ToolDefinition => {
     observation: NodeReplCellObservation,
     forceCellDetails = false,
   ) => {
-    const tracked = {
-      ...(observation.fileChanges && observation.fileChanges.length > 0
-        ? { fileChanges: [...observation.fileChanges] }
-        : {}),
-      ...(observation.producedFiles && observation.producedFiles.length > 0
-        ? { producedFiles: [...observation.producedFiles] }
-        : {}),
-      ...(observation.producedFilesOmitted
-        ? { producedFilesOmitted: observation.producedFilesOmitted }
-        : {}),
-    };
     if (observation.status === "failed") {
       return {
         error: observation.error ?? "Code cell failed.",
         details: observationDetails(observation, forceCellDetails),
-        ...tracked,
       };
     }
     if (observation.status === "running") {
@@ -92,7 +80,6 @@ export const createCodeTool = (options: CodeToolOptions): ToolDefinition => {
       return {
         result: `${text}${text ? "\n" : ""}[code running: cellId=${JSON.stringify(observation.cellId)} generation=${observation.generation} cursor=${observation.cursor} elapsedMs=${observation.elapsedMs}]`,
         details: observationDetails(observation, forceCellDetails),
-        ...tracked,
       };
     }
     const details = observationDetails(observation, forceCellDetails);
@@ -105,7 +92,6 @@ export const createCodeTool = (options: CodeToolOptions): ToolDefinition => {
     return {
       result: modelText(observation),
       ...(hasDetails ? { details } : {}),
-      ...tracked,
     };
   };
   return {

@@ -17,17 +17,10 @@ import {
   type MapRouteArtifact,
 } from "@stella/contracts/map-artifact";
 import type {
-  FileChangeRecord,
-  ProducedFileRecord,
-} from "@stella/contracts/file-changes";
-
-import type {
-  ProducedFilesOmission,
   ToolContext,
   ToolResult,
   ToolUpdateCallback,
 } from "../tools/types.js";
-import { mergeProducedFilesOmissions } from "../tools/utils.js";
 import { acquireAbortLatch } from "../agent-core/abort-bridge.js";
 import {
   isAgentToolSuspendedError,
@@ -151,9 +144,6 @@ export type NodeReplEvaluationResult = Readonly<{
   content: readonly NodeReplContentItem[];
   generation: number;
   reset?: NodeReplResetReceipt;
-  fileChanges?: readonly FileChangeRecord[];
-  producedFiles?: readonly ProducedFileRecord[];
-  producedFilesOmitted?: ProducedFilesOmission;
   mapArtifacts?: readonly MapRouteArtifact[];
   responseMeta?: BrowserUseResponseMeta;
 }>;
@@ -171,9 +161,6 @@ export type NodeReplCellObservation = Readonly<{
   content?: readonly NodeReplContentItem[];
   reset?: NodeReplResetReceipt;
   error?: string;
-  fileChanges?: readonly FileChangeRecord[];
-  producedFiles?: readonly ProducedFileRecord[];
-  producedFilesOmitted?: ProducedFilesOmission;
   mapArtifacts?: readonly MapRouteArtifact[];
   responseMeta?: BrowserUseResponseMeta;
 }>;
@@ -385,9 +372,6 @@ type ActiveEvaluation = {
   onToolUpdate?: ToolUpdateCallback;
   onResponseMeta?: (meta: BrowserUseResponseMeta) => void;
   resetRequestedAt?: number;
-  fileChanges: FileChangeRecord[];
-  producedFiles: ProducedFileRecord[];
-  producedFilesOmitted?: ProducedFilesOmission;
   mapArtifacts: MapRouteArtifact[];
   responseMeta?: BrowserUseResponseMeta;
   content: NodeReplContentItem[];
@@ -984,8 +968,6 @@ class NodeReplKernel {
         onContent,
         content: [],
         nextContentCursor: 1,
-        fileChanges: [],
-        producedFiles: [],
         mapArtifacts: [],
         browserActivity: {
           callCount: 0,
@@ -1783,14 +1765,6 @@ class NodeReplKernel {
         },
       );
       if (!this.closed && this.active === active) {
-        if (result.fileChanges) active.fileChanges.push(...result.fileChanges);
-        if (result.producedFiles) {
-          active.producedFiles.push(...result.producedFiles);
-        }
-        active.producedFilesOmitted = mergeProducedFilesOmissions(
-          active.producedFilesOmitted,
-          result.producedFilesOmitted,
-        );
         const details =
           result.details &&
           typeof result.details === "object" &&
@@ -2206,15 +2180,6 @@ class NodeReplKernel {
       content,
       generation: this.generation,
       ...(terminalReset ? { reset: terminalReset } : {}),
-      ...(active.fileChanges.length > 0
-        ? { fileChanges: active.fileChanges }
-        : {}),
-      ...(active.producedFiles.length > 0
-        ? { producedFiles: active.producedFiles }
-        : {}),
-      ...(active.producedFilesOmitted
-        ? { producedFilesOmitted: active.producedFilesOmitted }
-        : {}),
       ...(active.mapArtifacts.length > 0
         ? { mapArtifacts: active.mapArtifacts }
         : {}),
@@ -2715,17 +2680,6 @@ export class NodeReplKernelRegistry {
         ...(content.length > 0 ? { content } : {}),
         ...(cell.outcome.value.reset
           ? { reset: cell.outcome.value.reset }
-          : {}),
-        ...(cell.outcome.value.fileChanges
-          ? { fileChanges: cell.outcome.value.fileChanges }
-          : {}),
-        ...(cell.outcome.value.producedFiles
-          ? { producedFiles: cell.outcome.value.producedFiles }
-          : {}),
-        ...(cell.outcome.value.producedFilesOmitted
-          ? {
-              producedFilesOmitted: cell.outcome.value.producedFilesOmitted,
-            }
           : {}),
         ...(cell.outcome.value.mapArtifacts
           ? { mapArtifacts: cell.outcome.value.mapArtifacts }

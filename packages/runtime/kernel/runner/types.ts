@@ -419,23 +419,6 @@ export type RunnerContext = {
     registerExtensionTools: (tools: ToolDefinition[]) => void;
     /** Sweep user-extension tools (F1 hot-reload). Built-ins are untouched. */
     unregisterExtensionTools: () => void;
-    /**
-     * Drain completed-but-unreported produced files from background/
-     * long-running shell sessions so late deliverables reach the
-     * agent-completed rollup. Optionally scoped to specific session ids.
-     *
-     * `omitted` is set when the per-command cap withheld a session's whole
-     * batch: the files are absent, and only this says so.
-     */
-    drainCompletedShellProducedFiles: (
-      access: import("../tools/shell.js").ShellSessionAccess | null,
-      sessionIds?: string[],
-      signal?: AbortSignal,
-      deadlineAt?: number,
-    ) => Promise<{
-      files: import("@stella/contracts/file-changes").ProducedFileRecord[];
-      omitted?: import("../tools/types").ProducedFilesOmission;
-    }>;
     /** Running sessions owned by one conversation/thread across its runs. */
     listRunningShellSessionsOwnedBy: (
       access: import("../tools/shell.js").ShellSessionAccess,

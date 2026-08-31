@@ -10,7 +10,6 @@ import {
   type ToolContext,
   type ToolResult,
 } from "./types.js";
-import { fileChange } from "@stella/contracts/file-changes";
 import {
   expandHomePath,
   detectLineEnding,
@@ -506,7 +505,6 @@ export const handleWrite = async (
     );
     return {
       result: created ? `Created ${filePath}` : `Wrote ${filePath}`,
-      fileChanges: [fileChange(filePath, { type: created ? "add" : "update" })],
     };
   } catch (error) {
     return { error: `Error writing file: ${(error as Error).message}` };
@@ -538,7 +536,6 @@ export const handleEdit = async (
       const action = applied.linesRemoved === 0 ? "Inserted after" : "Replaced";
       return {
         result: `${action} ${range} in ${filePath} (-${applied.linesRemoved}/+${applied.linesAdded} lines)`,
-        fileChanges: [fileChange(filePath, { type: "update" })],
       };
     }
 
@@ -562,7 +559,6 @@ export const handleEdit = async (
     }
     return {
       result: `Replaced ${replacements} occurrence(s) in ${filePath}`,
-      fileChanges: [fileChange(filePath, { type: "update" })],
     };
   } catch (error) {
     return { error: (error as Error).message };

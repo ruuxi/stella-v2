@@ -59,8 +59,7 @@ describe("cloud produced-file boundary", () => {
     const collected = await collectProducedFiles({
       workspaceRoot,
       processIdentity,
-      edited: [{ path: outputPath, kind: { type: "add" } }],
-      detected: [],
+      linked: [outputPath],
       gitAware: false,
       drivePrefix: "",
     });
@@ -116,11 +115,45 @@ describe("cloud produced-file boundary", () => {
     const collected = await collectProducedFiles({
       workspaceRoot,
       processIdentity,
-      edited: [
-        { path: symlinkPath, kind: { type: "add" } },
-        { path: linkedPath, kind: { type: "add" } },
+      linked: [symlinkPath, linkedPath],
+      gitAware: false,
+      drivePrefix: "",
+    });
+
+    expect(collected.files).toEqual([]);
+  });
+
+  test("delivers only files linked in the final message", async () => {
+    const { workspaceRoot, processIdentity } = await makeFixture();
+    const linkedPath = path.join(workspaceRoot, "report.md");
+    const unlinkedPath = path.join(workspaceRoot, "scratch.txt");
+    await writeFile(linkedPath, "final report");
+    await writeFile(unlinkedPath, "intermediate scratch");
+
+    const collected = await collectProducedFiles({
+      workspaceRoot,
+      processIdentity,
+      linked: [linkedPath],
+      gitAware: false,
+      drivePrefix: "",
+    });
+
+    expect(collected.files.map((file) => file.path)).toEqual(["report.md"]);
+  });
+
+  test("refuses linked paths that resolve outside the workspace root", async () => {
+    const { root, workspaceRoot, processIdentity } = await makeFixture();
+    const outsidePath = path.join(root, "private.txt");
+    await writeFile(outsidePath, "private executor bytes");
+
+    const collected = await collectProducedFiles({
+      workspaceRoot,
+      processIdentity,
+      linked: [
+        outsidePath,
+        path.join(workspaceRoot, "..", "private.txt"),
+        "../private.txt",
       ],
-      detected: [],
       gitAware: false,
       drivePrefix: "",
     });

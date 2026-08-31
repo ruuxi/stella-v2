@@ -19,7 +19,8 @@
   },
   "vars": {
     "ENVIRONMENT": "development",
-    "STELLA_CONVEX_SITE_URL": "https://outgoing-bulldog-865.convex.site",
+    // Canonical development deployment used by source builds and test traffic.
+    "STELLA_CONVEX_SITE_URL": "https://impartial-crab-34.convex.site",
     "ENABLE_SERVER_BEARER": "1"
   },
   "secrets": {

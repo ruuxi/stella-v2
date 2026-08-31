@@ -41,6 +41,7 @@ import { STELLA_BROWSER_EXTENSION_STORE_URL } from "@stella/contracts/browser-ex
 import { scheduleGlobalInputHooksAfterAppReady } from "./global-input-hooks.js";
 import { randomUUID } from "crypto";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
+import { loadStellaDeviceId } from "./host-runner.js";
 const DEFAULT_STELLA_WEB_URL = "https://stella.sh";
 
 const POST_READY_NATIVE_DELAY_MS = 4_000;
@@ -228,6 +229,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     });
     registerSystemHandlers({
         getDeviceId: () => state.deviceId,
+        loadDeviceId: () => loadStellaDeviceId(context),
         authService: services.authService,
         backupService: services.backupService,
         getStellaHostRunner: lifecycle.getRunner,

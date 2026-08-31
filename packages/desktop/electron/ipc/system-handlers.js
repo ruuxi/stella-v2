@@ -448,11 +448,11 @@ export const registerSystemHandlers = (options) => {
     if (stellaAppDir) {
         cleanupRetiredLocalLlmOAuthCredentials(stellaAppDir);
     }
-    ipcMain.handle("device:getId", (event) => {
+    ipcMain.handle("device:getId", async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "device:getId")) {
             throw new Error("Blocked untrusted device:getId request.");
         }
-        return options.getDeviceId();
+        return options.getDeviceId() ?? await options.loadDeviceId();
     });
     ipcMain.handle(IPC_APP_QUIT_FOR_RESTART, (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_APP_QUIT_FOR_RESTART)) {

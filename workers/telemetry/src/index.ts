@@ -107,9 +107,7 @@ const readBoundedJson = async (request: Request): Promise<unknown> =>
 const bearerToken = (request: Request): string | null => {
   const authorization = request.headers.get("authorization");
   if (!authorization || authorization.length > 8_199) return null;
-  return (
-    (authorization && /^Bearer ([^\s]+)$/iu.exec(authorization)?.[1]) || null
-  );
+  return /^Bearer ([^\s]+)$/iu.exec(authorization)?.[1] ?? null;
 };
 
 const authenticate = async (

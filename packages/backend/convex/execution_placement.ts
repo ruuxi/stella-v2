@@ -1295,18 +1295,17 @@ export const submitMyBrowserExecution = mutation({
     } catch {
       invalid("Execution payload must be valid JSON.");
     }
-    if (
-      !payload ||
-      typeof payload !== "object" ||
-      Array.isArray(payload) ||
-      (payload as Record<string, unknown>).expectedOwnerGeneration !==
-        expectedOwnerGeneration
-    ) {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       conflict(
         "Browser execution payload generation does not match its admission authority.",
       );
     }
     const payloadRecord = payload as Record<string, unknown>;
+    if (payloadRecord.expectedOwnerGeneration !== expectedOwnerGeneration) {
+      conflict(
+        "Browser execution payload generation does not match its admission authority.",
+      );
+    }
     const requestedTargetMode = args.requestedTargetMode ?? "automatic";
     const requestedExecutorDeviceId =
       args.requestedExecutorDeviceId?.trim() || undefined;

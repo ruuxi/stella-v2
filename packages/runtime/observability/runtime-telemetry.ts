@@ -159,7 +159,6 @@ export const updateRuntimeTelemetryAuth = (authToken: string | null): void => {
   if (config) configureRuntimeTelemetry({ ...config, authToken });
 };
 
-/** Best-effort, metadata-only enqueue. This function never throws. */
 export const recordRuntimeTelemetry = (event: TelemetryEventBody): void => {
   if (client) void client.record(event);
 };

@@ -144,7 +144,8 @@ const createBrowserStorageAdapter = (): WriteAdapter | null => {
           }
         }
       } catch {
-        // Private/restricted browser storage may become unavailable at runtime.
+        // Restricted/private browsing can revoke storage after the adapter
+        // was created.
       }
     },
     clear: () => {
@@ -153,9 +154,7 @@ const createBrowserStorageAdapter = (): WriteAdapter | null => {
           if (!key.startsWith("better-auth")) storage.removeItem(key);
         }
         managedKeys.clear();
-      } catch {
-        // Best effort, matching localStorage's restricted-context behavior.
-      }
+      } catch {}
     },
   };
 };

@@ -1,10 +1,5 @@
-/**
- * One browser/native capability boundary for the shared renderer.
- *
- * `website` is deliberately a build capability rather than an inference from
- * a missing preload: plain Vite development remains a desktop-renderer host
- * with its existing dev-server persistence and onboarding semantics.
- */
+/** Website vs desktop vs Vite-without-preload. Vite remaining a desktop
+ * renderer host is intentional: do not infer website from a missing preload. */
 export type StellaHostKind = "desktop" | "website" | "browser-dev";
 
 const websiteBuild = import.meta.env.VITE_STELLA_WEB_BUILD === "1";

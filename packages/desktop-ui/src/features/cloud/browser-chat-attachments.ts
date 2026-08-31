@@ -36,6 +36,12 @@ const revokePreview = (entry: BrowserAttachmentUpload): void => {
   if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
 };
 
+const IN_FLIGHT: ReadonlySet<BrowserAttachmentUpload["status"]> = new Set([
+  "pending",
+  "uploading",
+  "finalizing",
+]);
+
 const waitForUploadChange = (): Promise<void> =>
   new Promise((resolve) => {
     const listener = () => {
@@ -46,16 +52,24 @@ const waitForUploadChange = (): Promise<void> =>
   });
 
 export const waitForCloudAttachmentUploads = async (): Promise<void> => {
-  while (
-    uploads.some((entry) =>
-      ["pending", "uploading", "finalizing"].includes(entry.status),
-    )
-  ) {
+  while (uploads.some((entry) => IN_FLIGHT.has(entry.status))) {
     await waitForUploadChange();
   }
   const failed = uploads.find((entry) => entry.status === "error");
   if (failed)
     throw new Error(failed.error || `Couldn’t upload ${failed.name}.`);
+};
+
+const rejectReason = (file: File): string | null => {
+  if (file.size <= 0) return "This file is empty.";
+  const isImage = file.type.startsWith("image/");
+  if (isImage && file.size > BROWSER_IMAGE_SOURCE_MAX_BYTES) {
+    return "This image is too large to resize safely in the browser.";
+  }
+  if (!isImage && file.size > BROWSER_ATTACHMENT_MAX_BYTES) {
+    return "This file is larger than 20 MB.";
+  }
+  return null;
 };
 
 const safeName = (name: string): string => {
@@ -229,6 +243,7 @@ export const browserAttachmentUploads = {
     const room = Math.max(0, BROWSER_ATTACHMENT_MAX_FILES - uploads.length);
     for (const file of files.slice(0, room)) {
       const id = `upload-${crypto.randomUUID()}`;
+      const error = rejectReason(file);
       const entry: BrowserAttachmentUpload = {
         id,
         file,
@@ -239,22 +254,8 @@ export const browserAttachmentUploads = {
           ? URL.createObjectURL(file)
           : null,
         progress: 0,
-        status:
-          file.size > 0 &&
-          (file.size <= BROWSER_ATTACHMENT_MAX_BYTES ||
-            (file.type.startsWith("image/") &&
-              file.size <= BROWSER_IMAGE_SOURCE_MAX_BYTES))
-            ? "pending"
-            : "error",
-        error:
-          file.size <= 0
-            ? "This file is empty."
-            : file.size > BROWSER_IMAGE_SOURCE_MAX_BYTES &&
-                file.type.startsWith("image/")
-              ? "This image is too large to resize safely in the browser."
-              : file.size > BROWSER_ATTACHMENT_MAX_BYTES
-                ? "This file is larger than 20 MB."
-                : null,
+        status: error ? "error" : "pending",
+        error,
       };
       uploads = [...uploads, entry];
       notify();
@@ -262,15 +263,15 @@ export const browserAttachmentUploads = {
     }
   },
   retry(id: string) {
-    const entry = uploads.find((candidate) => candidate.id === id);
+    const entry = uploads.find((upload) => upload.id === id);
     if (entry?.status === "error") void uploadOne(entry);
   },
   remove(id: string) {
-    const entry = uploads.find((candidate) => candidate.id === id);
+    const entry = uploads.find((upload) => upload.id === id);
     activeRequests.get(id)?.abort();
     if (entry?.path) cloudAttachmentsStore.remove(entry.path);
     if (entry) revokePreview(entry);
-    uploads = uploads.filter((candidate) => candidate.id !== id);
+    uploads = uploads.filter((upload) => upload.id !== id);
     notify();
   },
   clearReady(paths: ReadonlySet<string>) {
@@ -296,6 +297,4 @@ export const useBrowserAttachmentUploads = () =>
   );
 
 export const hasPendingCloudAttachmentUploads = (): boolean =>
-  uploads.some((entry) =>
-    ["pending", "uploading", "finalizing"].includes(entry.status),
-  );
+  uploads.some((entry) => IN_FLIGHT.has(entry.status));

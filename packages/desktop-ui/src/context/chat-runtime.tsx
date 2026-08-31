@@ -70,9 +70,6 @@ export function ChatRuntimeProvider({
     traceEnabled: isTraceDiagnosticsEnabled(),
   });
 
-  // Broadcast a derived PetOverlayStatus alongside the existing working
-  // indicator so the floating pet always mirrors the same agent state
-  // the chat surface displays.
   return (
     <ChatRuntimeContext.Provider value={runtime}>
       {platformCapabilities.nativeBridges ? (

@@ -38,37 +38,40 @@ const emit = (metric: InferenceMetric | ToolMetric): void => {
   console.log(`${TELEMETRY_METRIC_PREFIX}${JSON.stringify(metric)}`);
 };
 
-const ownerKey = async (ownerId: string): Promise<string> =>
-  await hashSha256Hex(`stella:telemetry-owner:v1\0${ownerId}`);
+const ownerKey = (ownerId: string): Promise<string> =>
+  hashSha256Hex(`stella:telemetry-owner:v1\0${ownerId}`);
+
+const emitSafely = async (work: () => Promise<void>): Promise<void> => {
+  try {
+    await work();
+  } catch {
+    // Never roll back the billing/usage transaction for a log line.
+    console.warn("Stella telemetry metric emission failed");
+  }
+};
 
 export const emitInferenceTelemetryMetric = async (
   input: Omit<InferenceMetric, "kind" | "ownerKey"> & { ownerId: string },
 ): Promise<void> => {
-  try {
+  await emitSafely(async () => {
     const { ownerId, ...metric } = input;
     emit({
       kind: "inference.completed",
       ownerKey: await ownerKey(ownerId),
       ...metric,
     });
-  } catch {
-    // Observability is never allowed to roll back the billing transaction.
-    console.warn("Stella telemetry metric emission failed");
-  }
+  });
 };
 
 export const emitToolTelemetryMetric = async (
   input: Omit<ToolMetric, "kind" | "ownerKey"> & { ownerId: string },
 ): Promise<void> => {
-  try {
+  await emitSafely(async () => {
     const { ownerId, ...metric } = input;
     emit({
       kind: "tool.completed",
       ownerKey: await ownerKey(ownerId),
       ...metric,
     });
-  } catch {
-    // Observability is never allowed to roll back the usage transaction.
-    console.warn("Stella telemetry metric emission failed");
-  }
+  });
 };

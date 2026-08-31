@@ -170,10 +170,9 @@ const DesktopFullShell = () => {
   const { completed: onboardingDone, hydrated: onboardingHydrated } =
     useOnboardingState();
   // Returning users resolve `onboardingDone` synchronously from shared UI state,
-  // so seed `hasEnteredApp` synchronously too — otherwise the chat-surface /
-  // RouterProvider mount is deferred to a separate macrotask by the
-  // setTimeout(0) effect below. The splash stays up until `appReady`, so there
-  // is no flash. The onboarding -> app transition still defers via the
+  // so seed `hasEnteredApp` synchronously too. Otherwise the chat surface /
+  // RouterProvider mount waits on the setTimeout(0) below. The splash stays up
+  // until `appReady`, so there is no flash.
   const [hasEnteredApp, setHasEnteredApp] = useState(() =>
     readLocalOnboardingCompleted(),
   );

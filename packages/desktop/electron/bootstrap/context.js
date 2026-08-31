@@ -59,6 +59,7 @@ export const createBootstrapContext = (config) => {
         deferredStartupSequence: null,
         startHostRunner: null,
         deviceId: null,
+        deviceIdentityPromise: null,
         isQuitting: false,
         localChatUpdateUnsubscribe: null,
         threadActivityUpdateUnsubscribe: null,

@@ -1561,15 +1561,8 @@
         "unreadAriaLabel": "{label}, {count} belum dibaca"
       },
       "feedback": {
-        "title": {
-          "manual": "Kirim masukan",
-          "auto": "Bagaimana Stella sejauh ini?"
-        },
-        "description": {
-          "manual": "Pesan Anda dikirim secara anonim — tidak terkait dengan akun Anda.",
-          "auto": "Ada yang perlu kami tahu? Dikirim anonim — tidak terkait dengan akun Anda."
-        },
-        "notNow": "Nanti saja",
+        "title": "Kirim masukan",
+        "description": "Pesan Anda dikirim secara anonim — tidak terkait dengan akun Anda.",
         "fieldLabel": "Masukan",
         "placeholder": "Ceritakan apa yang sudah bagus, apa yang belum, atau apa yang ingin Anda lihat…",
         "send": "Kirim",

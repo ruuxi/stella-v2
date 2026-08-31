@@ -1,33 +1,6 @@
-export const STELLA_FILE_URL_PREFIX = "stella://file";
+import { parseLocalFileLinkTarget } from "@stella/contracts/local-file-links";
 
-const isWindowsAbsolutePath = (candidate) => /^[A-Za-z]:[\\/]/.test(candidate);
-
-const isAbsoluteLocalPath = (candidate) =>
-  candidate.startsWith("/") || isWindowsAbsolutePath(candidate);
-
-export const parseStellaFileUrl = (url) => {
-  if (typeof url !== "string") return null;
-  const trimmed = url.trim();
-  if (!trimmed.toLowerCase().startsWith(STELLA_FILE_URL_PREFIX)) return null;
-  let rest = trimmed.slice(STELLA_FILE_URL_PREFIX.length);
-  if (rest.startsWith("/")) {
-
-    rest = rest.replace(/^\/+/, "");
-  } else if (rest.length > 0) {
-
-    return null;
-  }
-  if (!rest) return null;
-  let decoded = rest;
-  try {
-    decoded = decodeURIComponent(rest);
-  } catch {
-
-  }
-  const path = isWindowsAbsolutePath(decoded) ? decoded : `/${decoded}`;
-  if (!isAbsoluteLocalPath(path) || path === "/") return null;
-  return path;
-};
+export const parseStellaFileUrl = parseLocalFileLinkTarget;
 
 const basenameOf = (filePath) => {
   const cleaned = filePath.trim().split(/[?#]/)[0] ?? filePath.trim();

@@ -1,7 +1,7 @@
 import { isOfficePreviewRef } from "@stella/contracts/office-preview";
-import { isFileChangeRecordArray, isProducedFileRecordArray, } from "@stella/contracts/file-changes";
-import { kindForPath, basenameOf, extensionOf, fileArtifactPayloadForPath, isDeclaredOutputPath, isDeveloperResourceExtension, isNoiseProducedPath, pickPrimaryEditedPath, } from "@/features/workspace-display/path-to-viewer";
-import { isToolRequest, isToolResult } from "./event-transforms";
+import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
+import { kindForPath, basenameOf, extensionOf, fileArtifactPayloadForPath, isDeveloperResourceExtension, pickPrimaryEditedPath, } from "@/features/workspace-display/path-to-viewer";
+import { isToolResult } from "./event-transforms";
 const asNonEmptyString = (value) => {
     if (typeof value !== "string")
         return null;
@@ -22,76 +22,6 @@ const requestedSizeFromRecord = (value) => {
         ? { width, height }
         : null;
 };
-const normalizePosixPath = (candidate) => {
-    const trimmed = candidate.trim();
-    if (!trimmed)
-        return trimmed;
-    const leadingSlash = trimmed.startsWith("/");
-    const segments = [];
-    for (const part of trimmed.split("/")) {
-        if (!part || part === ".")
-            continue;
-        if (part === "..") {
-            if (segments.length > 0)
-                segments.pop();
-            continue;
-        }
-        segments.push(part);
-    }
-    return `${leadingSlash ? "/" : ""}${segments.join("/")}`;
-};
-const resolvePathAgainstCwd = (candidate, cwd) => {
-    const trimmed = asNonEmptyString(candidate);
-    const base = asNonEmptyString(cwd);
-    if (!trimmed || !base || !base.startsWith("/"))
-        return null;
-    if (trimmed.startsWith("/"))
-        return normalizePosixPath(trimmed);
-    return normalizePosixPath(`${base.replace(/\/+$/g, "")}/${trimmed}`);
-};
-const resolveRelativePathFromKnownAbsolute = (candidate, absoluteCandidates) => {
-    const trimmed = asNonEmptyString(candidate);
-    if (!trimmed || trimmed.startsWith("/"))
-        return null;
-
-    if (trimmed.startsWith("../"))
-        return null;
-    const suffix = normalizePosixPath(trimmed).replace(/^\/+/, "");
-    if (!suffix)
-        return null;
-    const matches = absoluteCandidates.filter((existing) => existing === suffix || existing.endsWith(`/${suffix}`));
-    return matches.length === 1 ? matches[0] : null;
-};
-
-const isDelegatedToolResult = (event) => {
-    if (!isToolResult(event))
-        return false;
-    const agentType = event.payload.agentType;
-    return (typeof agentType === "string" &&
-        agentType.trim().length > 0 &&
-        agentType !== "orchestrator");
-};
-const fileChangesForResult = (event) => {
-    if (!isToolResult(event) || isDelegatedToolResult(event))
-        return [];
-    const candidate = event.payload
-        ?.fileChanges;
-    return isFileChangeRecordArray(candidate) ? candidate : [];
-};
-
-const postChangePathForRecord = (record) => record.kind.type === "update" && record.kind.move_path
-    ? record.kind.move_path
-    : record.path;
-const producedFilesForResult = (event) => {
-    if (!isToolResult(event) || isDelegatedToolResult(event))
-        return [];
-    const candidate = event.payload
-        ?.producedFiles;
-    if (!isProducedFileRecordArray(candidate))
-        return [];
-
-    return candidate.filter((record) => !isNoiseProducedPath(postChangePathForRecord(record)));
-};
 const officeRefForResult = (event) => {
     if (!isToolResult(event))
         return null;
@@ -100,18 +30,6 @@ const officeRefForResult = (event) => {
     return isOfficePreviewRef(ref) ? ref : null;
 };
 
-const resolveFileChange = (record, timestamp) => {
-    const kindType = record.kind.type;
-    if (kindType === "delete")
-        return null;
-    const path = kindType === "update" && record.kind.move_path
-        ? record.kind.move_path
-        : record.path;
-    const trimmed = asNonEmptyString(path);
-    if (!trimmed)
-        return null;
-    return { path: trimmed, kind: kindType, timestamp };
-};
 
 const imageGenPayloadsByPath = (toolEvents) => {
     const byPath = new Map();
@@ -204,43 +122,6 @@ const titleFromHtmlSlug = (slug) => {
         .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
         .join(" ");
 };
-const fileChangeHtmlOutputPayload = (toolEvents) => {
-    let latest = null;
-    for (const event of toolEvents) {
-
-        if (!isToolResult(event))
-            continue;
-        if (event.payload.error)
-            continue;
-        for (const record of [
-            ...fileChangesForResult(event),
-            ...producedFilesForResult(event),
-        ]) {
-            const resolved = resolveFileChange(record, event.timestamp);
-            if (!resolved)
-                continue;
-            const match = HTML_OUTPUT_PATH_RE.exec(resolved.path);
-            if (!match)
-                continue;
-            if (!latest || resolved.timestamp >= latest.createdAt) {
-                latest = {
-                    filePath: resolved.path,
-                    slug: match[1],
-                    createdAt: resolved.timestamp,
-                };
-            }
-        }
-    }
-    if (!latest)
-        return null;
-    return {
-        kind: "canvas-html",
-        filePath: latest.filePath,
-        title: titleFromHtmlSlug(latest.slug),
-        slug: latest.slug,
-        createdAt: latest.createdAt,
-    };
-};
 const normalizeNumImages = (value) => {
     if (typeof value !== "number" || !Number.isFinite(value))
         return null;
@@ -324,8 +205,6 @@ export const buildPayloadFromBarePath = (filePath, createdAt, options) => {
         case "office-document":
         case "office-spreadsheet":
         case "office-slides":
-            if (options?.produced !== true)
-                return null;
             return (fileArtifactPayloadForPath(filePath, createdAt) ?? {
                 kind: "media",
                 asset: {
@@ -368,94 +247,24 @@ export const buildPayloadFromBarePath = (filePath, createdAt, options) => {
             return null;
     }
 };
-const patchInputForToolCall = (toolEvents, toolCallId) => {
-    if (!toolCallId)
-        return undefined;
-    const request = toolEvents.find((event) => isToolRequest(event) &&
-        event.payload.toolName === "apply_patch" &&
-        event.requestId === toolCallId);
-    const args = request && isToolRequest(request) ? request.payload.args : null;
-    const input = args?.input ?? args?.patch;
-    return typeof input === "string" && input.trim().length > 0
-        ? input
-        : undefined;
-};
-const requestIdForEvent = (event) => {
-    if (typeof event.requestId === "string" && event.requestId.trim()) {
-        return event.requestId;
-    }
-    const payloadRequestId = event.payload?.requestId;
-    return typeof payloadRequestId === "string" && payloadRequestId.trim()
-        ? payloadRequestId
-        : undefined;
-};
-
-const MARKDOWN_LINK_RE = /\[[^\]]*?\]\(\s*(?:<([^>]+)>|([^()<>\s]+))\s*\)/g;
-const NON_FILE_URL_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
-export const extractMarkdownLinkPaths = (assistantText) => {
-    if (!assistantText)
-        return [];
-    const out = [];
-    for (const match of assistantText.matchAll(MARKDOWN_LINK_RE)) {
-        const raw = match[1] ?? match[2];
-        if (!raw)
-            continue;
-        let decoded;
-        try {
-            decoded = decodeURI(raw);
-        }
-        catch {
-            decoded = raw;
-        }
-        const trimmed = decoded.trim();
-        if (!trimmed)
-            continue;
-        if (NON_FILE_URL_RE.test(trimmed))
-            continue;
-        out.push(trimmed);
-    }
-    return out;
-};
-const resolveReferencedMarkdownPath = (rawLinkPath, turnCwd, absoluteCandidates) => {
-    const trimmed = asNonEmptyString(rawLinkPath);
-    if (!trimmed)
-        return null;
-    if (trimmed.startsWith("/"))
-        return normalizePosixPath(trimmed);
-    return (resolvePathAgainstCwd(trimmed, turnCwd) ??
-        resolveRelativePathFromKnownAbsolute(trimmed, absoluteCandidates) ??
-        trimmed);
-};
+export const extractMarkdownLinkPaths = extractLocalFileLinkPaths;
 
 export const collectTurnSourceDiffPayloads = (toolEvents, options) => {
     if (options?.developerResourcesEnabled !== true)
         return [];
-    if (toolEvents.length === 0)
-        return [];
     const seen = new Set();
     const payloads = [];
-    for (const event of toolEvents) {
-        const records = fileChangesForResult(event);
-        for (const record of records) {
-            const resolved = resolveFileChange(record, event.timestamp);
-            if (!resolved)
-                continue;
-            if (!isDeveloperResourceExtension(extensionOf(resolved.path)))
-                continue;
-            if (seen.has(resolved.path))
-                continue;
-            seen.add(resolved.path);
-            const patch = isToolResult(event) && event.payload.toolName === "apply_patch"
-                ? patchInputForToolCall(toolEvents, requestIdForEvent(event))
-                : undefined;
-            payloads.push({
-                kind: "source-diff",
-                filePath: resolved.path,
-                title: basenameOf(resolved.path),
-                ...(patch ? { patch } : {}),
-                createdAt: resolved.timestamp,
-            });
-        }
+    const createdAt = toolEvents[toolEvents.length - 1]?.timestamp ?? Date.now();
+    for (const filePath of extractLocalFileLinkPaths(options.assistantText ?? "")) {
+        if (!isDeveloperResourceExtension(extensionOf(filePath)) || seen.has(filePath))
+            continue;
+        seen.add(filePath);
+        payloads.push({
+            kind: "source-diff",
+            filePath,
+            title: basenameOf(filePath),
+            createdAt,
+        });
     }
     return payloads;
 };
@@ -463,8 +272,7 @@ export const deriveTurnResource = (toolEvents, assistantText = "", turnCwd, opti
     if (toolEvents.length === 0 && !assistantText)
         return null;
 
-    const htmlPayload = orchestratorHtmlPayload(toolEvents) ??
-        fileChangeHtmlOutputPayload(toolEvents);
+    const htmlPayload = orchestratorHtmlPayload(toolEvents);
     if (htmlPayload)
         return htmlPayload;
 
@@ -489,90 +297,10 @@ export const deriveTurnResource = (toolEvents, assistantText = "", turnCwd, opti
         }
     }
 
-    const editedPaths = [];
-    const editedSeen = new Set();
-    for (const event of toolEvents) {
-        if (isOrchestratorInlineImageGenResult(event))
-            continue;
-        const records = fileChangesForResult(event);
-        for (const record of records) {
-            const resolved = resolveFileChange(record, event.timestamp);
-            if (!resolved)
-                continue;
-            if (editedSeen.has(resolved.path))
-                continue;
-            editedSeen.add(resolved.path);
-            editedPaths.push(resolved.path);
-            if (!payloadByPath.has(resolved.path)) {
-                const patch = isToolResult(event) && event.payload.toolName === "apply_patch"
-                    ? patchInputForToolCall(toolEvents, requestIdForEvent(event))
-                    : undefined;
-                const inferred = buildPayloadFromBarePath(resolved.path, resolved.timestamp, {
-                    developerResourcesEnabled: options?.developerResourcesEnabled,
-                    ...(patch ? { patch } : {}),
-                });
-                if (inferred) {
-                    payloadByPath.set(resolved.path, inferred);
-                }
-            }
-        }
-    }
-
-    const producedPaths = [];
-    const producedSeen = new Set();
-    for (const event of toolEvents) {
-        if (isOrchestratorInlineImageGenResult(event))
-            continue;
-        const records = producedFilesForResult(event);
-        for (const record of records) {
-            const resolved = resolveFileChange(record, event.timestamp);
-            if (!resolved)
-                continue;
-            if (producedSeen.has(resolved.path) || editedSeen.has(resolved.path))
-                continue;
-            producedSeen.add(resolved.path);
-            producedPaths.push(resolved.path);
-            if (!payloadByPath.has(resolved.path)) {
-                const inferred = buildPayloadFromBarePath(resolved.path, resolved.timestamp, {
-                    produced: true,
-                    developerResourcesEnabled: options?.developerResourcesEnabled,
-                });
-                if (inferred) {
-                    payloadByPath.set(resolved.path, inferred);
-                }
-            }
-        }
-    }
-
-    const referencedPaths = [];
-    const referencedSeen = new Set();
-    const absoluteCandidates = [
-        ...editedPaths,
-        ...producedPaths,
-        ...referencedFromOffice.keys(),
-    ]
-        .filter((candidate) => candidate.startsWith("/"))
-        .map(normalizePosixPath);
-    const pushReferenced = (path) => {
-        if (!path || referencedSeen.has(path) || editedSeen.has(path))
-            return;
-        referencedSeen.add(path);
-        referencedPaths.push(path);
-    };
-    for (const sourcePath of referencedFromOffice.keys())
-        pushReferenced(sourcePath);
-    for (const linkPath of extractMarkdownLinkPaths(assistantText)) {
-        pushReferenced(resolveReferencedMarkdownPath(linkPath, turnCwd, absoluteCandidates));
-    }
-
-    const rankedProducedPaths = [
-        ...producedPaths.filter(isDeclaredOutputPath),
-        ...producedPaths.filter((path) => !isDeclaredOutputPath(path)),
-    ];
     const candidatePaths = [
-        ...editedPaths,
-        ...rankedProducedPaths,
-        ...referencedPaths,
+        ...imagePayloads.keys(),
+        ...referencedFromOffice.keys(),
+        ...extractLocalFileLinkPaths(assistantText),
     ];
     if (candidatePaths.length === 0)
         return null;

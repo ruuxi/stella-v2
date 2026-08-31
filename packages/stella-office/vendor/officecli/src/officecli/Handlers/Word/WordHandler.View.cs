@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Text;
@@ -13,6 +13,22 @@ namespace OfficeCli.Handlers;
 public partial class WordHandler
 {
     // ==================== View Helpers ====================
+
+    /// <summary>
+    /// CONSISTENCY(ole-stats): OLE objects can live in the body, headers,
+    /// or footers. Stats counters previously only walked the body and
+    /// undercounted documents that embed OLEs in header/footer regions.
+    /// Centralize the cross-part walk so all stats counters stay aligned.
+    /// </summary>
+    private int CountAllOleObjects()
+    {
+        var mainPart = _doc.MainDocumentPart;
+        if (mainPart == null) return 0;
+        int total = mainPart.Document?.Body?.Descendants<EmbeddedObject>().Count() ?? 0;
+        total += mainPart.HeaderParts.Sum(h => h.Header?.Descendants<EmbeddedObject>().Count() ?? 0);
+        total += mainPart.FooterParts.Sum(f => f.Footer?.Descendants<EmbeddedObject>().Count() ?? 0);
+        return total;
+    }
 
     /// <summary>
     /// Represents a body element with optional SDT context.
@@ -105,6 +121,22 @@ public partial class WordHandler
                                 ?? false;
                             value = isChecked ? "true" : "false";
                         }
+                        else if (fieldType == "dropdown" && string.IsNullOrEmpty(value))
+                        {
+                            // No cached result run — the displayed value is the
+                            // selected listEntry, indexed by <w:result>/<w:default>
+                            // (defaults to 0 = first entry).
+                            var ddl = ffData.GetFirstChild<DropDownListFormField>()!;
+                            var entries = ddl.Elements<ListEntryFormField>().ToList();
+                            if (entries.Count > 0)
+                            {
+                                int sel = ddl.GetFirstChild<DropDownListSelection>()?.Val?.Value
+                                          ?? ddl.GetFirstChild<DefaultDropDownListItemIndex>()?.Val?.Value
+                                          ?? 0;
+                                if (sel < 0 || sel >= entries.Count) sel = 0;
+                                value = entries[sel].Val?.Value ?? "";
+                            }
+                        }
                         result.Add((name, fieldType, value));
                     }
                     beginRun = null;
@@ -187,10 +219,117 @@ public partial class WordHandler
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Build paragraph text with #OCLI_NOTEVAL!{instr} markers replacing any
+    /// dynamic complex field (PAGE, REF, SEQ, TOC, …) that has no cached
+    /// result run. Returns null when the paragraph contains no such
+    /// unevaluated field so callers fall back to normal text extraction.
+    /// Form fields (FORMTEXT etc) are handled separately by
+    /// GetParagraphTextWithFormFields and short-circuit before this.
+    /// </summary>
+    private static string? TryGetParagraphTextWithFieldSentinels(Paragraph para)
+    {
+        // fldSimple form: a dynamic field is "unevaluated" if its body is
+        // empty OR its w:dirty bit is set. The sentinel replaces both forms
+        // so view text doesn't show stale text alongside an evaluated=false
+        // signal in get --json.
+        bool FldSimpleNeedsSentinel(SimpleField fs)
+        {
+            if (!IsDynamicFieldInstruction(fs.Instruction?.Value?.Trim() ?? "")) return false;
+            if (fs.Dirty?.Value == true) return true;
+            return fs.Descendants<Text>().All(t => string.IsNullOrEmpty(t.Text));
+        }
+        if (para.Descendants<SimpleField>().Any(FldSimpleNeedsSentinel))
+        {
+            var sbS = new StringBuilder();
+            foreach (var child in para.ChildElements)
+            {
+                if (child is SimpleField fs)
+                {
+                    var instr = fs.Instruction?.Value?.Trim() ?? "";
+                    if (FldSimpleNeedsSentinel(fs))
+                        sbS.Append("#OCLI_NOTEVAL!{").Append(instr).Append('}');
+                    else
+                        sbS.Append(string.Concat(fs.Descendants<Text>().Select(x => x.Text)));
+                }
+                else if (child is Run run)
+                    sbS.Append(string.Concat(run.Elements<Text>().Select(x => x.Text)));
+            }
+            return sbS.ToString();
+        }
+
+        // Quick reject: skip the walk if the paragraph has no fldChar at all.
+        var anyFldChar = para.Descendants<FieldChar>().Any();
+        if (!anyFldChar) return null;
+        // Also skip form fields — those go through GetParagraphTextWithFormFields.
+        if (para.Descendants<FieldChar>().Any(fc => fc.FormFieldData != null)) return null;
+
+        var sb = new StringBuilder();
+        bool sawUnevaluated = false;
+        Run? beginRun = null;
+        bool beginDirty = false;
+        FieldCode? instrCode = null;
+        bool inResult = false;
+        bool hasResult = false;
+
+        foreach (var run in para.Descendants<Run>())
+        {
+            var fldChar = run.GetFirstChild<FieldChar>();
+            if (fldChar != null)
+            {
+                var charType = fldChar.FieldCharType?.Value;
+                if (charType == FieldCharValues.Begin)
+                { beginRun = run; beginDirty = fldChar.Dirty?.Value == true; instrCode = null; inResult = false; hasResult = false; }
+                else if (charType == FieldCharValues.Separate) inResult = true;
+                else if (charType == FieldCharValues.End)
+                {
+                    if (beginRun != null && instrCode != null)
+                    {
+                        var instr = instrCode.Text?.Trim() ?? "";
+                        // Dirty fields with a cached result are also "not
+                        // really evaluated" — drop the stale result and
+                        // inject the sentinel so view text matches the
+                        // get --json `evaluated:false` signal.
+                        if ((!hasResult || beginDirty) && IsDynamicFieldInstruction(instr))
+                        {
+                            sb.Append("#OCLI_NOTEVAL!{").Append(instr).Append('}');
+                            sawUnevaluated = true;
+                        }
+                    }
+                    beginRun = null; beginDirty = false; instrCode = null; inResult = false; hasResult = false;
+                }
+            }
+            else if (beginRun != null)
+            {
+                if (!inResult)
+                {
+                    var fc = run.GetFirstChild<FieldCode>();
+                    if (fc != null) instrCode = fc;
+                }
+                else
+                {
+                    var t = string.Concat(run.Elements<Text>().Select(x => x.Text));
+                    if (t.Length > 0)
+                    {
+                        // Hold result text — emit only at End if not dirty
+                        hasResult = true;
+                        if (!beginDirty) sb.Append(t);
+                    }
+                }
+            }
+            else
+            {
+                sb.Append(string.Concat(run.Elements<Text>().Select(x => x.Text)));
+            }
+        }
+        return sawUnevaluated ? sb.ToString() : null;
+    }
+
     // ==================== Semantic Layer ====================
 
-    public string ViewAsText(int? startLine = null, int? endLine = null, int? maxLines = null, HashSet<string>? cols = null)
+    public string ViewAsText(int? startLine = null, int? endLine = null, int? maxLines = null, HashSet<string>? cols = null, string? range = null)
     {
+        Core.ViewRangeGuard.RejectTextRange(range, "docx");
         var body = _doc.MainDocumentPart?.Document?.Body;
         if (body == null) return "(empty document)";
 
@@ -203,6 +342,7 @@ public partial class WordHandler
 
         // Track which SdtBlocks we've seen for indexing
         var sdtIndexMap = new Dictionary<SdtBlock, int>();
+        var listCounter = new OrderedListNumberingState();
 
         foreach (var item in bodyElements)
         {
@@ -236,6 +376,12 @@ public partial class WordHandler
             }
             else if (IsStructuralElement(element))
             {
+                // sectPr is a layout descriptor, not user-visible content —
+                // surfacing it in 'view text' adds noise without payload
+                // ([/body/sectPr] [sectPr]). Skip it; annotated/outline
+                // views still emit it via the same IsStructuralElement
+                // gate when those modes want layout context.
+                if (element.LocalName == "sectPr") continue;
                 path = $"/body/{element.LocalName}";
             }
             else
@@ -244,7 +390,16 @@ public partial class WordHandler
                 continue;
             }
 
-            if (startLine.HasValue && lineNum < startLine.Value) continue;
+            if (startLine.HasValue && lineNum < startLine.Value)
+            {
+                // Advance list numbering for paragraphs BEFORE the window so the
+                // first emitted item shows its real marker (e.g. "18.") instead
+                // of restarting at 1. listCounter is shared engine state;
+                // skipping these paragraphs without advancing it desynced a
+                // windowed view from the full view.
+                if (element is Paragraph preWinPara) GetListPrefix(preWinPara, listCounter);
+                continue;
+            }
             if (endLine.HasValue && lineNum > endLine.Value) break;
 
             if (maxLines.HasValue && emitted >= maxLines.Value)
@@ -260,10 +415,47 @@ public partial class WordHandler
                 if (oMathParaChild != null)
                 {
                     var mathText = FormulaParser.ToReadableText(oMathParaChild);
-                    sb.AppendLine($"[{path}] {sdtLabel}[Equation] {mathText}");
+                    // A block-equation paragraph can still be a list item; call
+                    // GetListPrefix so the shared counter advances identically
+                    // across text / annotated / json (off-by-one otherwise) and
+                    // the marker shows on the equation line.
+                    var listPrefix = GetListPrefix(para, listCounter);
+                    sb.AppendLine($"[{path}] {sdtLabel}{listPrefix}[Equation] {mathText}");
+                }
+                else if (para.Descendants<EmbeddedObject>().Any())
+                {
+                    // CONSISTENCY(word-text-ole): OLE paragraphs emit a
+                    // visible placeholder per OLE object so they are
+                    // distinguishable from empty paragraphs. Iterate all
+                    // EmbeddedObjects in the paragraph — a single paragraph
+                    // may contain more than one OLE run. Mirrors
+                    // ViewAsAnnotated's word-annotated-ole handling.
+                    var listPrefix = GetListPrefix(para, listCounter);
+                    foreach (var embObj in para.Descendants<EmbeddedObject>())
+                    {
+                        var oleEl = embObj.Descendants()
+                            .FirstOrDefault(e => e.LocalName == "OLEObject");
+                        var progId = oleEl?.GetAttributes()
+                            .FirstOrDefault(a => a.LocalName == "ProgID").Value;
+                        if (string.IsNullOrEmpty(progId)) progId = "Object";
+                        sb.AppendLine($"[{path}] {sdtLabel}{listPrefix}[OLE: {progId}]");
+                    }
                 }
                 else
                 {
+                    // Check for unevaluated dynamic fields first — inject
+                    // #OCLI_NOTEVAL!{instr} sentinel where Word would render
+                    // a value, so view text stops silently dropping the field.
+                    // Matches xlsx's #OCLI_NOTEVAL! treatment of unevaluated
+                    // formulas.
+                    var fieldSentinelText = TryGetParagraphTextWithFieldSentinels(para);
+                    if (fieldSentinelText != null)
+                    {
+                        var listPrefixFs = GetListPrefix(para, listCounter);
+                        sb.AppendLine($"[{path}] {sdtLabel}{listPrefixFs}{fieldSentinelText}");
+                        emitted++;
+                        continue;
+                    }
                     // Check for formfields first
                     var ffText = GetParagraphTextWithFormFields(para);
 
@@ -272,23 +464,26 @@ public partial class WordHandler
                     if (mathElements.Count > 0 && string.IsNullOrWhiteSpace(GetParagraphText(para)))
                     {
                         var mathText = string.Concat(mathElements.Select(FormulaParser.ToReadableText));
-                        sb.AppendLine($"[{path}] {sdtLabel}[Equation] {mathText}");
+                        // Inline-math-only list item: advance the shared counter
+                        // and show the marker, same as the text/ffield branches.
+                        var listPrefix = GetListPrefix(para, listCounter);
+                        sb.AppendLine($"[{path}] {sdtLabel}{listPrefix}[Equation] {mathText}");
                     }
                     else if (ffText != null)
                     {
-                        var listPrefix = GetListPrefix(para);
+                        var listPrefix = GetListPrefix(para, listCounter);
                         sb.AppendLine($"[{path}] {sdtLabel}{listPrefix}{ffText}");
                     }
                     else if (mathElements.Count > 0)
                     {
                         var text = GetParagraphTextWithMath(para);
-                        var listPrefix = GetListPrefix(para);
+                        var listPrefix = GetListPrefix(para, listCounter);
                         sb.AppendLine($"[{path}] {sdtLabel}{listPrefix}{text}");
                     }
                     else
                     {
                         var text = GetParagraphText(para);
-                        var listPrefix = GetListPrefix(para);
+                        var listPrefix = GetListPrefix(para, listCounter);
                         sb.AppendLine($"[{path}] {sdtLabel}{listPrefix}{text}");
                     }
                 }
@@ -326,6 +521,7 @@ public partial class WordHandler
 
         // Track which SdtBlocks we've seen for indexing
         var sdtIndexMap = new Dictionary<SdtBlock, int>();
+        var listCounter = new OrderedListNumberingState();
 
         foreach (var item in bodyElements)
         {
@@ -362,7 +558,16 @@ public partial class WordHandler
                 path = $"/body/?[{lineNum}]";
             }
 
-            if (startLine.HasValue && lineNum < startLine.Value) continue;
+            if (startLine.HasValue && lineNum < startLine.Value)
+            {
+                // Advance list numbering for paragraphs BEFORE the window so the
+                // first emitted item shows its real marker (e.g. "18.") instead
+                // of restarting at 1. listCounter is shared engine state;
+                // skipping these paragraphs without advancing it desynced a
+                // windowed view from the full view.
+                if (element is Paragraph preWinPara) GetListPrefix(preWinPara, listCounter);
+                continue;
+            }
             if (endLine.HasValue && lineNum > endLine.Value) break;
 
             if (maxLines.HasValue && emitted >= maxLines.Value)
@@ -383,7 +588,10 @@ public partial class WordHandler
                 if (oMathParaChild != null)
                 {
                     var latex = FormulaParser.ToLatex(oMathParaChild);
-                    sb.AppendLine($"[{path}] [Equation: \"{latex}\"] ← display");
+                    // Block-equation list item: advance the shared counter and
+                    // show the marker so the marker sequence matches view text.
+                    var listPrefixEq = GetListPrefix(para, listCounter);
+                    sb.AppendLine($"[{path}] {listPrefixEq}[Equation: \"{latex}\"] ← display");
                     emitted++;
                     continue;
                 }
@@ -396,7 +604,9 @@ public partial class WordHandler
                 if (inlineMath.Count > 0 && runs.Count == 0)
                 {
                     var latex = string.Concat(inlineMath.Select(FormulaParser.ToLatex));
-                    sb.AppendLine($"[{path}] [Equation: \"{latex}\"] ← {styleName} | inline");
+                    // Inline-math-only list item: advance counter + show marker.
+                    var listPrefixIm = GetListPrefix(para, listCounter);
+                    sb.AppendLine($"[{path}] {listPrefixIm}[Equation: \"{latex}\"] ← {styleName} | inline");
                     emitted++;
                     continue;
                 }
@@ -409,10 +619,30 @@ public partial class WordHandler
                     continue;
                 }
 
-                var listPrefix = GetListPrefix(para);
+                var listPrefix = GetListPrefix(para, listCounter);
 
                 // Build a set of runs that are part of formfield sequences for annotation
                 var formFieldRunMap = BuildFormFieldRunMap(para);
+
+                // OLE paragraphs: emit one annotated line per OLE object in the
+                // paragraph. A single paragraph may contain multiple OLE runs —
+                // iterating all EmbeddedObject descendants ensures none are
+                // silently dropped. CONSISTENCY(word-annotated-ole): mirrors
+                // the paragraph-level emission fix in ViewAsText above.
+                var oleRuns = runs.Where(r => r.GetFirstChild<EmbeddedObject>() != null).ToList();
+                if (oleRuns.Count > 0)
+                {
+                    foreach (var oleRun in oleRuns)
+                    {
+                        var oleEl = oleRun.GetFirstChild<EmbeddedObject>()!
+                            .Descendants().FirstOrDefault(e => e.LocalName == "OLEObject");
+                        var progId = oleEl?.GetAttributes()
+                            .FirstOrDefault(a => a.LocalName == "ProgID").Value ?? "";
+                        sb.AppendLine($"[{path}] {listPrefix}[OLE: {progId}] ← {styleName}");
+                        emitted++;
+                    }
+                    continue;
+                }
 
                 foreach (var run in runs)
                 {
@@ -529,10 +759,12 @@ public partial class WordHandler
         var paragraphs = GetBodyElements(body).OfType<Paragraph>().ToList();
         var tables = GetBodyElements(body).OfType<Table>().ToList();
         var imageCount = body.Descendants<Drawing>().Count();
+        var oleCount = CountAllOleObjects();
         var equationCount = body.Descendants().Count(e => e.LocalName == "oMathPara" || e is M.Paragraph);
         var formFieldCount = FindFormFields().Count;
         var contentControlCount = body.Descendants<SdtBlock>().Count() + body.Descendants<SdtRun>().Count();
         var statsLine = $"File: {Path.GetFileName(_filePath)} | {paragraphs.Count} paragraphs | {tables.Count} tables | {imageCount} images";
+        if (oleCount > 0) statsLine += $" | {oleCount} OLE object{(oleCount == 1 ? "" : "s")}";
         if (equationCount > 0) statsLine += $" | {equationCount} equations";
         if (formFieldCount > 0) statsLine += $" | {formFieldCount} formfields";
         if (contentControlCount > 0) statsLine += $" | {contentControlCount} content controls";
@@ -556,22 +788,21 @@ public partial class WordHandler
         sb.AppendLine();
 
         // Heading structure
+        var styleLevels = BuildStyleOutlineLevels();
         int lineNum = 0;
         foreach (var para in paragraphs)
         {
             lineNum++;
-            var styleName = GetStyleName(para);
+            var level = GetParagraphOutlineLevel(para, styleLevels, out var styleName);
+            if (level < 0) continue;
             var text = GetParagraphText(para);
-
-            if (styleName.Contains("Heading") || styleName.Contains("标题")
-                || styleName.StartsWith("heading", StringComparison.OrdinalIgnoreCase)
-                || styleName == "Title" || styleName == "Subtitle")
-            {
-                var level = GetHeadingLevel(styleName);
-                var indent = level <= 1 ? "" : new string(' ', (level - 1) * 2);
-                var prefix = level == 0 ? "■" : "├──";
-                sb.AppendLine($"{indent}{prefix} [{lineNum}] \"{text}\" ({styleName})");
-            }
+            // Skip outline markers carrying no text (e.g. a trailing empty
+            // paragraph that inherited an outlineLvl) so they don't surface
+            // as phantom headings — consistent with TOC generation.
+            if (string.IsNullOrWhiteSpace(text)) continue;
+            var indent = level <= 1 ? "" : new string(' ', (level - 1) * 2);
+            var prefix = level == 0 ? "■" : "├──";
+            sb.AppendLine($"{indent}{prefix} [{lineNum}] \"{text}\" ({styleName})");
         }
 
         return sb.ToString().TrimEnd();
@@ -599,7 +830,10 @@ public partial class WordHandler
             styleCounts[style] = styleCounts.GetValueOrDefault(style) + 1;
 
             var runs = GetAllRuns(para);
-            if (runs.Count == 0 && string.IsNullOrWhiteSpace(GetParagraphText(para)))
+            // CONSISTENCY(empty-para-math): equation paragraphs use m:oMathPara/m:oMath
+            // and have no plain runs/text — they must NOT count as empty.
+            if (runs.Count == 0 && string.IsNullOrWhiteSpace(GetParagraphText(para))
+                && FindMathElements(para).Count == 0)
             {
                 emptyParagraphs++;
                 continue;
@@ -651,6 +885,12 @@ public partial class WordHandler
         sb.AppendLine($"Empty Paragraphs: {emptyParagraphs}");
         sb.AppendLine($"Consecutive Spaces: {doubleSpaces}");
 
+        // CONSISTENCY(ole-stats): Excel/PPT ViewAsStats report OLE object
+        // counts with this exact line format ("OLE Objects: N"). Word must
+        // match so users get a uniform cross-handler stats view.
+        var oleCount = CountAllOleObjects();
+        if (oleCount > 0) sb.AppendLine($"OLE Objects: {oleCount}");
+
         return sb.ToString().TrimEnd();
     }
 
@@ -658,6 +898,11 @@ public partial class WordHandler
     {
         var body = _doc.MainDocumentPart?.Document?.Body;
         if (body == null) return new JsonObject();
+
+        // CONSISTENCY(ole-stats-json): Excel/PPT ViewAsStatsJson always expose
+        // the oleObjects field. Word must too. Count via EmbeddedObject — same
+        // source the text-version ViewAsStats() uses.
+        var oleObjectsCount = CountAllOleObjects();
 
         var paragraphs = GetBodyElements(body).OfType<Paragraph>().ToList();
         var styleCounts = new Dictionary<string, int>();
@@ -671,7 +916,9 @@ public partial class WordHandler
             styleCounts[style] = styleCounts.GetValueOrDefault(style) + 1;
 
             var runs = GetAllRuns(para);
-            if (runs.Count == 0 && string.IsNullOrWhiteSpace(GetParagraphText(para)))
+            // CONSISTENCY(empty-para-math): see ViewAsStats — equation paragraphs aren't empty.
+            if (runs.Count == 0 && string.IsNullOrWhiteSpace(GetParagraphText(para))
+                && FindMathElements(para).Count == 0)
             {
                 emptyParagraphs++;
                 continue;
@@ -705,7 +952,8 @@ public partial class WordHandler
             ["words"] = totalWords,
             ["totalCharacters"] = totalChars,
             ["emptyParagraphs"] = emptyParagraphs,
-            ["consecutiveSpaces"] = doubleSpaces
+            ["consecutiveSpaces"] = doubleSpaces,
+            ["oleObjects"] = oleObjectsCount
         };
 
         var styles = new JsonObject();
@@ -734,6 +982,7 @@ public partial class WordHandler
         var paragraphs = GetBodyElements(body).OfType<Paragraph>().ToList();
         var tables = GetBodyElements(body).OfType<Table>().ToList();
         var imageCount = body.Descendants<Drawing>().Count();
+        var oleCount = CountAllOleObjects();
         var equationCount = body.Descendants().Count(e => e.LocalName == "oMathPara" || e is M.Paragraph);
 
         var formFieldCount = FindFormFields().Count;
@@ -747,6 +996,7 @@ public partial class WordHandler
             ["images"] = imageCount,
             ["equations"] = equationCount
         };
+        if (oleCount > 0) result["oleObjects"] = oleCount;
         if (formFieldCount > 0) result["formfields"] = formFieldCount;
         if (contentControlCount > 0) result["contentControls"] = contentControlCount;
 
@@ -759,34 +1009,32 @@ public partial class WordHandler
         var footers = GetFooterTexts();
         if (footers.Count > 0) result["footers"] = new JsonArray(footers.Select(f => (JsonNode)JsonValue.Create(f)!).ToArray());
 
+        var styleLevels = BuildStyleOutlineLevels();
         var headingsArray = new JsonArray();
         int lineNum = 0;
         foreach (var para in paragraphs)
         {
             lineNum++;
-            var styleName = GetStyleName(para);
+            var level = GetParagraphOutlineLevel(para, styleLevels, out var styleName);
+            if (level < 0) continue;
             var text = GetParagraphText(para);
-
-            if (styleName.Contains("Heading") || styleName.Contains("标题")
-                || styleName.StartsWith("heading", StringComparison.OrdinalIgnoreCase)
-                || styleName == "Title" || styleName == "Subtitle")
+            if (string.IsNullOrWhiteSpace(text)) continue;
+            headingsArray.Add((JsonNode)new JsonObject
             {
-                headingsArray.Add((JsonNode)new JsonObject
-                {
-                    ["line"] = lineNum,
-                    ["text"] = text,
-                    ["style"] = styleName,
-                    ["level"] = GetHeadingLevel(styleName)
-                });
-            }
+                ["line"] = lineNum,
+                ["text"] = text,
+                ["style"] = styleName,
+                ["level"] = level
+            });
         }
         result["headings"] = headingsArray;
 
         return result;
     }
 
-    public JsonNode ViewAsTextJson(int? startLine = null, int? endLine = null, int? maxLines = null, HashSet<string>? cols = null)
+    public JsonNode ViewAsTextJson(int? startLine = null, int? endLine = null, int? maxLines = null, HashSet<string>? cols = null, string? range = null)
     {
+        Core.ViewRangeGuard.RejectTextRange(range, "docx");
         var body = _doc.MainDocumentPart?.Document?.Body;
         if (body == null) return new JsonObject { ["elements"] = new JsonArray() };
 
@@ -796,6 +1044,7 @@ public partial class WordHandler
         int emitted = 0;
         var bodyElements = GetBodyElementsWithSdtContext(body).ToList();
         var sdtIndexMap = new Dictionary<SdtBlock, int>();
+        var listCounter = new OrderedListNumberingState();
 
         foreach (var item in bodyElements)
         {
@@ -835,12 +1084,24 @@ public partial class WordHandler
             }
             else if (IsStructuralElement(element))
             {
+                // CONSISTENCY(view-text-sectpr): same skip rationale as
+                // ViewAsText — sectPr is layout metadata, not content.
+                if (element.LocalName == "sectPr") continue;
                 path = $"/body/{element.LocalName}";
                 type = element.LocalName;
             }
             else continue;
 
-            if (startLine.HasValue && lineNum < startLine.Value) continue;
+            if (startLine.HasValue && lineNum < startLine.Value)
+            {
+                // Advance list numbering for paragraphs BEFORE the window so the
+                // first emitted item shows its real marker (e.g. "18.") instead
+                // of restarting at 1. listCounter is shared engine state;
+                // skipping these paragraphs without advancing it desynced a
+                // windowed view from the full view.
+                if (element is Paragraph preWinPara) GetListPrefix(preWinPara, listCounter);
+                continue;
+            }
             if (endLine.HasValue && lineNum > endLine.Value) break;
             if (maxLines.HasValue && emitted >= maxLines.Value) break;
 
@@ -851,7 +1112,11 @@ public partial class WordHandler
                 var oMathParaChild = para.ChildElements.FirstOrDefault(e => e.LocalName == "oMathPara" || e is M.Paragraph);
                 if (oMathParaChild != null)
                 {
-                    text = FormulaParser.ToReadableText(oMathParaChild);
+                    // Block-equation list item: advance the shared counter and
+                    // prepend the marker so the json marker sequence matches
+                    // view text / annotated (off-by-one otherwise).
+                    var listPrefixEq = GetListPrefix(para, listCounter);
+                    text = listPrefixEq + FormulaParser.ToReadableText(oMathParaChild);
                     type = "equation";
                 }
                 else
@@ -861,13 +1126,13 @@ public partial class WordHandler
 
                     var mathElements = FindMathElements(para);
                     if (mathElements.Count > 0 && string.IsNullOrWhiteSpace(GetParagraphText(para)))
-                        text = string.Concat(mathElements.Select(FormulaParser.ToReadableText));
+                        text = GetListPrefix(para, listCounter) + string.Concat(mathElements.Select(FormulaParser.ToReadableText));
                     else if (ffText != null)
-                        text = GetListPrefix(para) + ffText;
+                        text = GetListPrefix(para, listCounter) + ffText;
                     else if (mathElements.Count > 0)
-                        text = GetParagraphTextWithMath(para);
+                        text = GetListPrefix(para, listCounter) + GetParagraphTextWithMath(para);
                     else
-                        text = GetListPrefix(para) + GetParagraphText(para);
+                        text = GetListPrefix(para, listCounter) + GetParagraphText(para);
 
                     if (ffList.Count > 0)
                     {
@@ -915,6 +1180,121 @@ public partial class WordHandler
         int issueNum = 0;
         int lineNum = -1;
 
+        // Style integrity: schema treats w:styleId as plain string, so duplicate
+        // ids / dangling basedOn / cycles slip past `validate`. Surface them here
+        // as structure issues — Word silently picks "first match wins" for dupes
+        // and falls back to Normal for dangling refs, both invisible to users.
+        var stylesPart = _doc.MainDocumentPart?.StyleDefinitionsPart?.Styles;
+        if (stylesPart != null)
+        {
+            var allStyles = stylesPart.Elements<Style>().ToList();
+            var seenIds = new Dictionary<string, int>(StringComparer.Ordinal);
+            var seenNames = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            foreach (var s in allStyles)
+            {
+                var id = s.StyleId?.Value;
+                if (!string.IsNullOrEmpty(id))
+                {
+                    seenIds.TryGetValue(id, out var c);
+                    seenIds[id] = c + 1;
+                }
+                var name = s.StyleName?.Val?.Value;
+                if (!string.IsNullOrEmpty(name))
+                {
+                    seenNames.TryGetValue(name, out var c);
+                    seenNames[name] = c + 1;
+                }
+            }
+
+            foreach (var (id, count) in seenIds.Where(kv => kv.Value > 1))
+            {
+                issues.Add(new DocumentIssue
+                {
+                    Id = $"S{++issueNum}",
+                    Type = IssueType.Structure,
+                    Severity = IssueSeverity.Error,
+                    Path = $"/styles/{id}",
+                    Message = $"Duplicate styleId ({count} occurrences)",
+                    Suggestion = "Rename or remove duplicates; Word silently keeps only the first."
+                });
+            }
+            foreach (var (name, count) in seenNames.Where(kv => kv.Value > 1))
+            {
+                issues.Add(new DocumentIssue
+                {
+                    Id = $"S{++issueNum}",
+                    Type = IssueType.Structure,
+                    Severity = IssueSeverity.Error,
+                    Path = "/styles",
+                    Message = $"Duplicate style name '{name}' ({count} occurrences)",
+                    Suggestion = "Rename so each style has a unique display name."
+                });
+            }
+
+            var idSet = new HashSet<string>(
+                allStyles.Select(s => s.StyleId?.Value).Where(v => !string.IsNullOrEmpty(v))!,
+                StringComparer.Ordinal);
+            foreach (var s in allStyles)
+            {
+                var id = s.StyleId?.Value ?? "";
+                void CheckRef(string? target, string kind)
+                {
+                    if (string.IsNullOrEmpty(target) || idSet.Contains(target)) return;
+                    issues.Add(new DocumentIssue
+                    {
+                        Id = $"S{++issueNum}",
+                        Type = IssueType.Structure,
+                        Severity = IssueSeverity.Warning,
+                        Path = $"/styles/{id}",
+                        Message = $"Dangling {kind} reference: '{target}' does not exist",
+                        Suggestion = $"Remove or repoint the {kind} reference."
+                    });
+                }
+                CheckRef(s.BasedOn?.Val?.Value, "basedOn");
+                CheckRef(s.NextParagraphStyle?.Val?.Value, "next");
+                CheckRef(s.LinkedStyle?.Val?.Value, "link");
+            }
+
+            // basedOn cycle detection (A -> B -> A). DAG-walk with per-style
+            // visited set; bail at first revisit so depth stays bounded even on
+            // pathological inputs.
+            var basedOnMap = allStyles
+                .Where(s => !string.IsNullOrEmpty(s.StyleId?.Value) && !string.IsNullOrEmpty(s.BasedOn?.Val?.Value))
+                .ToDictionary(s => s.StyleId!.Value!, s => s.BasedOn!.Val!.Value!, StringComparer.Ordinal);
+            var reportedCycle = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var startId in basedOnMap.Keys)
+            {
+                if (reportedCycle.Contains(startId)) continue;
+                var path = new List<string>();
+                var inPath = new HashSet<string>(StringComparer.Ordinal);
+                var cur = startId;
+                while (cur != null && basedOnMap.TryGetValue(cur, out var parent))
+                {
+                    path.Add(cur);
+                    if (!inPath.Add(cur)) break;
+                    if (inPath.Contains(parent))
+                    {
+                        path.Add(parent);
+                        var cycleStart = path.IndexOf(parent);
+                        var cycleNodes = path.Skip(cycleStart).ToList();
+                        foreach (var n in cycleNodes) reportedCycle.Add(n);
+                        issues.Add(new DocumentIssue
+                        {
+                            Id = $"S{++issueNum}",
+                            Type = IssueType.Structure,
+                            Severity = IssueSeverity.Error,
+                            Path = $"/styles/{cycleNodes[0]}",
+                            Message = $"basedOn cycle: {string.Join(" -> ", cycleNodes)}",
+                            Suggestion = "Break the cycle by clearing one style's basedOn."
+                        });
+                        break;
+                    }
+                    cur = parent;
+                }
+            }
+        }
+
         foreach (var para in GetBodyElements(body).OfType<Paragraph>())
         {
             lineNum++;
@@ -922,7 +1302,9 @@ public partial class WordHandler
             var runs = GetAllRuns(para);
 
             // Empty paragraph
-            if (runs.Count == 0 && string.IsNullOrWhiteSpace(GetParagraphText(para)))
+            // CONSISTENCY(empty-para-math): equation paragraphs aren't empty.
+            if (runs.Count == 0 && string.IsNullOrWhiteSpace(GetParagraphText(para))
+                && FindMathElements(para).Count == 0)
             {
                 issues.Add(new DocumentIssue
                 {
@@ -939,7 +1321,12 @@ public partial class WordHandler
             if (pProps != null && IsNormalStyle(styleName))
             {
                 var indent = pProps.Indentation;
-                if (indent?.FirstLine == null || indent.FirstLine.Value == "0")
+                // w:firstLineChars is the character-relative twin of w:firstLine
+                // (200 = 2 characters, exactly what the suggestion below asks
+                // for) and satisfies the check on its own — CJK documents carry
+                // the indent that way and never emit w:firstLine.
+                var hasFirstLineChars = indent?.FirstLineChars != null && indent.FirstLineChars.Value > 0;
+                if (!hasFirstLineChars && (indent?.FirstLine == null || indent.FirstLine.Value == "0"))
                 {
                     // Skip paragraphs where first-line indent is not expected:
                     // - hanging indent (e.g. bibliography entries)
@@ -1023,7 +1410,90 @@ public partial class WordHandler
             if (limit.HasValue && issues.Count >= limit.Value) break;
         }
 
-        // Filter by type
+        // Dynamic fields written but not rendered — same observability pattern
+        // as xlsx's formula_not_evaluated. Word renders PAGE/REF/SEQ/TOC/...
+        // into a `<fldChar separate>` … result-runs … `<fldChar end>` cache
+        // when it opens the document. A fresh authoring round with no Word
+        // pass leaves the cache empty, and `view text` silently drops the
+        // field — agents can't tell "this { PAGE } is blank because Word
+        // hasn't seen it yet" from "the paragraph is genuinely empty".
+        foreach (var field in FindFields())
+        {
+            if (limit.HasValue && issues.Count >= limit.Value) break;
+            var instr = field.InstrCode.Text?.Trim() ?? "";
+            if (!IsDynamicFieldInstruction(instr)) continue;
+            var resultText = string.Join("", field.ResultRuns.SelectMany(r => r.Elements<Text>()).Select(t => t.Text));
+            var isDirty = field.BeginRun.GetFirstChild<FieldChar>()?.Dirty?.Value == true;
+            var hasResult = field.SeparateRun != null && resultText.Length > 0;
+            if (!isDirty && hasResult) continue;
+            // Mirror xlsx formula_cache_stale vs formula_not_evaluated split.
+            // Word's dirty bit means "Word will re-render on open" — when the
+            // result run is still populated, the cache exists but Word itself
+            // is flagging it as stale. That's the field-side analogue of
+            // cached <v> disagreeing with computed value.
+            var isStale = isDirty && hasResult;
+            issues.Add(new DocumentIssue
+            {
+                Id = $"U{++issueNum}",
+                Type = IssueType.Content,
+                Subtype = isStale ? Core.IssueSubtypes.FieldCacheStale : Core.IssueSubtypes.FieldNotEvaluated,
+                Severity = IssueSeverity.Warning,
+                Path = "/body",
+                Message = isStale
+                    ? "Field marked dirty with cached result (Word will re-render on open; cached value may differ from re-evaluation)"
+                    : "Field written but not evaluated (no cached result, Word has not rendered it)",
+                Context = "{ " + instr + " }",
+                Suggestion = "Open the document in Word once (or run a TOC update) so the result run is populated."
+            });
+        }
+
+        // <w:fldSimple instr="..."> form — same observability gap. Some
+        // authoring tools (and our own AddDefault path) emit fldSimple
+        // instead of the complex fldChar triad. Scan header / footer /
+        // footnote / endnote parts (mirrors FindFields), and check the
+        // w:dirty attribute for the same semantics as complex-field dirty
+        // (cached but Word will re-render).
+        var simpleContainers = new List<OpenXmlElement>();
+        if (body != null) simpleContainers.Add(body);
+        foreach (var hp in _doc.MainDocumentPart?.HeaderParts ?? Enumerable.Empty<DocumentFormat.OpenXml.Packaging.HeaderPart>())
+            if (hp.Header != null) simpleContainers.Add(hp.Header);
+        foreach (var fp in _doc.MainDocumentPart?.FooterParts ?? Enumerable.Empty<DocumentFormat.OpenXml.Packaging.FooterPart>())
+            if (fp.Footer != null) simpleContainers.Add(fp.Footer);
+        if (_doc.MainDocumentPart?.FootnotesPart?.Footnotes is { } footnotes)
+            simpleContainers.Add(footnotes);
+        if (_doc.MainDocumentPart?.EndnotesPart?.Endnotes is { } endnotes)
+            simpleContainers.Add(endnotes);
+        foreach (var container in simpleContainers)
+        {
+            foreach (var fld in container.Descendants<SimpleField>())
+            {
+                if (limit.HasValue && issues.Count >= limit.Value) break;
+                var instr = fld.Instruction?.Value?.Trim() ?? "";
+                if (!IsDynamicFieldInstruction(instr)) continue;
+                var resultText = string.Join("", fld.Descendants<Text>().Select(t => t.Text));
+                var isDirty = fld.Dirty?.Value == true;
+                var hasResult = resultText.Length > 0;
+                if (!isDirty && hasResult) continue;
+                var isStale = isDirty && hasResult;
+                issues.Add(new DocumentIssue
+                {
+                    Id = $"U{++issueNum}",
+                    Type = IssueType.Content,
+                    Subtype = isStale ? Core.IssueSubtypes.FieldCacheStale : Core.IssueSubtypes.FieldNotEvaluated,
+                    Severity = IssueSeverity.Warning,
+                    Path = "/body",
+                    Message = isStale
+                        ? "Field marked dirty with cached result (Word will re-render on open; cached value may differ from re-evaluation)"
+                        : "Field written but not evaluated (no cached result, Word has not rendered it)",
+                    Context = "{ " + instr + " }",
+                    Suggestion = "Open the document in Word once (or run a TOC update) so the result run is populated."
+                });
+            }
+            if (limit.HasValue && issues.Count >= limit.Value) break;
+        }
+
+        // Filter by type. Accepts both broad bucket (format/content/structure)
+        // AND specific subtype identifiers (field_not_evaluated, …).
         if (issueType != null)
         {
             var type = issueType.ToLowerInvariant() switch
@@ -1035,6 +1505,8 @@ public partial class WordHandler
             };
             if (type.HasValue)
                 issues = issues.Where(i => i.Type == type.Value).ToList();
+            else
+                issues = issues.Where(i => string.Equals(i.Subtype, issueType, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
         return limit.HasValue ? issues.Take(limit.Value).ToList() : issues;
@@ -1183,9 +1655,16 @@ public partial class WordHandler
             var lockEl = sdtProps.GetFirstChild<DocumentFormat.OpenXml.Wordprocessing.Lock>();
             var lockVal = lockEl?.Val?.InnerText;
 
-            // Determine SDT type
+            // Determine SDT type. Mirrors the classifier in
+            // WordHandler.Navigation.cs (SdtToNode) — checkbox first, text last
+            // as fallback. CONSISTENCY(sdt-type-classifier): both sites must
+            // recognize the same set of w:sdtPr content markers.
+            var checkBoxEl = sdtProps.GetFirstChild<DocumentFormat.OpenXml.Office2010.Word.SdtContentCheckBox>();
             string sdtType;
-            if (sdtProps.GetFirstChild<SdtContentDropDownList>() != null) sdtType = "dropdown";
+            if (sdtProps.GetFirstChild<SdtContentGroup>() != null) sdtType = "group";
+            else if (sdtProps.GetFirstChild<SdtContentPicture>() != null) sdtType = "picture";
+            else if (checkBoxEl != null) sdtType = "checkbox";
+            else if (sdtProps.GetFirstChild<SdtContentDropDownList>() != null) sdtType = "dropdown";
             else if (sdtProps.GetFirstChild<SdtContentComboBox>() != null) sdtType = "combobox";
             else if (sdtProps.GetFirstChild<SdtContentDate>() != null) sdtType = "date";
             else if (sdtProps.GetFirstChild<SdtContentText>() != null) sdtType = "text";
@@ -1203,7 +1682,15 @@ public partial class WordHandler
             }
 
             var editable = IsSdtEditable(sdtProps);
-            var displayValue = string.IsNullOrEmpty(text) ? "(empty)" : text;
+            // A checkbox reports its state, not the ☒/☐ glyph it renders —
+            // same shape as the legacy FORMCHECKBOX entry below.
+            bool? sdtChecked = checkBoxEl == null
+                ? null
+                : checkBoxEl.Checked?.Val?.InnerText == "1"
+                  || string.Equals(checkBoxEl.Checked?.Val?.InnerText, "true", StringComparison.OrdinalIgnoreCase);
+            var displayValue = sdtChecked.HasValue
+                ? null
+                : (string.IsNullOrEmpty(text) ? "(empty)" : text);
 
             entries.Add(new FormFieldEntry(
                 Kind: "sdt",
@@ -1213,7 +1700,8 @@ public partial class WordHandler
                 Alias: alias ?? tag,
                 Value: displayValue,
                 Items: items,
-                Lock: lockVal));
+                Lock: lockVal,
+                Checked: sdtChecked));
         }
 
         // 2. Collect legacy form fields
@@ -1224,7 +1712,7 @@ public partial class WordHandler
             var ffPath = $"/formfield[{i + 1}]";
             var ffNode = FormFieldToNode(ff, ffPath);
 
-            var ffType = ffNode.Format.TryGetValue("formfieldType", out var ftObj) ? ftObj?.ToString() ?? "text" : "text";
+            var ffType = ffNode.Format.TryGetValue("type", out var ftObj) ? ftObj?.ToString() ?? "text" : "text";
             var ffName = ffNode.Format.TryGetValue("name", out var nameObj) ? nameObj?.ToString() : null;
             var ffEditable = ffNode.Format.TryGetValue("editable", out var edObj) && edObj is true;
 

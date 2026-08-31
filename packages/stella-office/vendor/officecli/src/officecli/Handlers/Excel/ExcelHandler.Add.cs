@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Text.RegularExpressions;
@@ -18,1754 +18,135 @@ public partial class ExcelHandler
 {
     public string Add(string parentPath, string type, InsertPosition? position, Dictionary<string, string> properties)
     {
+        Modified = true;
         var index = position?.Index;
-        // Normalize to case-insensitive lookup so camelCase keys (e.g. minColor) match lowercase lookups
-        if (properties != null && properties.Comparer != StringComparer.OrdinalIgnoreCase)
+        // Normalize to case-insensitive lookup so camelCase keys (e.g. minColor) match lowercase lookups.
+        // Preserve TrackingPropertyDictionary so handler-as-truth read
+        // tracking survives — its comparer wraps OrdinalIgnoreCase already.
+        if (properties != null
+            && properties is not OfficeCli.Core.TrackingPropertyDictionary
+            && properties.Comparer != StringComparer.OrdinalIgnoreCase)
             properties = new Dictionary<string, string>(properties, StringComparer.OrdinalIgnoreCase);
         properties ??= new Dictionary<string, string>();
 
         parentPath = NormalizeExcelPath(parentPath);
         parentPath = ResolveSheetIndexInPath(parentPath);
+
+        // Reject element types that belong to a different document format up
+        // front. Without this, "add /xlsx --type slide" fell into AddDefault,
+        // tried to resolve the parent sheet from an empty path segment, and
+        // produced a misleading "Sheet not found: " error with an empty name.
+        // Naming the wrong-format type explicitly tells the caller where to
+        // look (e.g. use the .pptx variant) instead of sending them on a
+        // sheet-permission hunt.
+        var typeLower = type.ToLowerInvariant();
+        if (typeLower is "slide" or "slidemaster" or "slidelayout" or "notes"
+            or "paragraph" or "p" or "field"
+            or "section" or "header" or "footer")
+        {
+            var sourceFormat = typeLower switch
+            {
+                "slide" or "slidemaster" or "slidelayout" or "notes" => "pptx",
+                "paragraph" or "p" or "field" => "docx/pptx",
+                "section" or "header" or "footer" => "docx",
+                _ => "another format"
+            };
+            throw new ArgumentException(
+                $"Invalid element type '{type}' for xlsx files (belongs to {sourceFormat}). " +
+                "Valid values: sheet, row, cell, col, namedrange, comment, validation, autofilter, " +
+                "cf, databar, colorscale, iconset, formulacf, cellis, ole, picture, shape, slicer, " +
+                "sparkline, table, chart, pivottable.");
+        }
+
         switch (type.ToLowerInvariant())
         {
             case "sheet":
-                var workbookPart = _doc.WorkbookPart
-                    ?? throw new InvalidOperationException("Workbook not found");
-                var sheets = GetWorkbook().GetFirstChild<Sheets>()
-                    ?? GetWorkbook().AppendChild(new Sheets());
-
-                var name = properties.GetValueOrDefault("name", $"Sheet{sheets.Elements<Sheet>().Count() + 1}");
-                if (sheets.Elements<Sheet>().Any(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)))
-                {
-                    if (_initialSheetNames.Contains(name))
-                    {
-                        // Sheet existed when the file was opened — treat as idempotent no-op
-                        return $"/{name}";
-                    }
-                    throw new ArgumentException($"A sheet named '{name}' already exists. Sheet names must be unique.");
-                }
-                var newWorksheetPart = workbookPart.AddNewPart<WorksheetPart>();
-                newWorksheetPart.Worksheet = new Worksheet(new SheetData());
-                newWorksheetPart.Worksheet.Save();
-
-                var sheetId = sheets.Elements<Sheet>().Any()
-                    ? sheets.Elements<Sheet>().Max(s => s.SheetId?.Value ?? 0) + 1
-                    : 1;
-                var relId = workbookPart.GetIdOfPart(newWorksheetPart);
-
-                var newSheet = new Sheet { Id = relId, SheetId = (uint)sheetId, Name = name };
-                if (properties.TryGetValue("position", out var posStr)
-                    && int.TryParse(posStr, out var pos)
-                    && pos >= 0
-                    && pos < sheets.Elements<Sheet>().Count())
-                {
-                    var refSheet = sheets.Elements<Sheet>().ElementAt(pos);
-                    sheets.InsertBefore(newSheet, refSheet);
-                }
-                else
-                {
-                    sheets.AppendChild(newSheet);
-                }
-                GetWorkbook().Save();
-                return $"/{name}";
+                return AddSheet(parentPath, type, position, properties);
 
             case "row":
-                var segments = parentPath.TrimStart('/').Split('/', 2);
-                var sheetName = segments[0];
-                var worksheet = FindWorksheet(sheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {sheetName}");
-                var sheetData = GetSheet(worksheet).GetFirstChild<SheetData>()
-                    ?? GetSheet(worksheet).AppendChild(new SheetData());
-
-                var rowIdx = index ?? ((int)(sheetData.Elements<Row>().LastOrDefault()?.RowIndex?.Value ?? 0) + 1);
-
-                // If inserting at an existing position, shift rows down first
-                bool needsShift = index.HasValue && sheetData.Elements<Row>().Any(r => r.RowIndex?.Value >= (uint)rowIdx);
-                if (needsShift)
-                    ShiftRowsDown(worksheet, rowIdx);
-
-                var newRow = new Row { RowIndex = (uint)rowIdx };
-
-                // Create cells if cols specified
-                if (properties.TryGetValue("cols", out var colsStr))
-                {
-                    if (!int.TryParse(colsStr, out var cols) || cols <= 0)
-                        throw new ArgumentException($"Invalid 'cols' value: '{colsStr}'. Expected a positive integer (number of columns to create).");
-                    for (int c = 0; c < cols; c++)
-                    {
-                        var colLetter = IndexToColumnName(c + 1);
-                        newRow.AppendChild(new Cell { CellReference = $"{colLetter}{rowIdx}" });
-                    }
-                }
-
-                // Re-fetch sheetData after potential shift
-                sheetData = GetSheet(worksheet).GetFirstChild<SheetData>()
-                    ?? GetSheet(worksheet).AppendChild(new SheetData());
-                var afterRow = sheetData.Elements<Row>().LastOrDefault(r => (r.RowIndex?.Value ?? 0) < (uint)rowIdx);
-                if (afterRow != null)
-                    afterRow.InsertAfterSelf(newRow);
-                else
-                    sheetData.InsertAt(newRow, 0);
-
-                SaveWorksheet(worksheet);
-                return $"/{sheetName}/row[{rowIdx}]";
+                return AddRow(parentPath, type, position, properties);
 
             case "cell":
-                var cellSegments = parentPath.TrimStart('/').Split('/', 2);
-                var cellSheetName = cellSegments[0];
-                var cellWorksheet = FindWorksheet(cellSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {cellSheetName}");
-                var cellSheetData = GetSheet(cellWorksheet).GetFirstChild<SheetData>()
-                    ?? GetSheet(cellWorksheet).AppendChild(new SheetData());
+                return AddCell(parentPath, type, position, properties);
 
-                string cellRef;
-                if (properties.ContainsKey("ref"))
-                {
-                    cellRef = properties["ref"];
-                }
-                else if (properties.ContainsKey("address"))
-                {
-                    cellRef = properties["address"];
-                }
-                else
-                {
-                    // Auto-assign next available cell in row 1
-                    var existingRefs = cellSheetData.Descendants<Cell>()
-                        .Where(c => c.CellReference?.Value != null)
-                        .Select(c => c.CellReference!.Value!)
-                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                    int colIdx = 1;
-                    while (existingRefs.Contains(IndexToColumnName(colIdx) + "1"))
-                        colIdx++;
-                    cellRef = IndexToColumnName(colIdx) + "1";
-                }
-                var cell = FindOrCreateCell(cellSheetData, cellRef);
-
-                if (properties.TryGetValue("value", out var value))
-                {
-                    cell.CellValue = new CellValue(value);
-                    if (!double.TryParse(value, out _))
-                        cell.DataType = new EnumValue<CellValues>(CellValues.String);
-                }
-                if (properties.TryGetValue("formula", out var formula))
-                {
-                    cell.CellFormula = new CellFormula(formula.TrimStart('='));
-                    cell.CellValue = null;
-                }
-                if (properties.TryGetValue("type", out var cellType))
-                {
-                    if (cellType.Equals("richtext", StringComparison.OrdinalIgnoreCase) ||
-                        cellType.Equals("rich", StringComparison.OrdinalIgnoreCase))
-                    {
-                        // Build a SharedString rich text entry from run1=text:prop=val, run2=text, etc.
-                        var wbPart = _doc.WorkbookPart
-                            ?? throw new InvalidOperationException("Workbook not found");
-                        var sstPart = wbPart.GetPartsOfType<SharedStringTablePart>().FirstOrDefault()
-                            ?? wbPart.AddNewPart<SharedStringTablePart>();
-                        SharedStringTable sst;
-                        if (sstPart.SharedStringTable != null)
-                            sst = sstPart.SharedStringTable;
-                        else
-                        {
-                            sst = new SharedStringTable();
-                            sstPart.SharedStringTable = sst;
-                        }
-
-                        var ssi = new SharedStringItem();
-                        // Collect run1, run2, ... keys in order
-                        var runKeys = properties.Keys
-                            .Where(k => k.StartsWith("run", StringComparison.OrdinalIgnoreCase) && k.Length > 3 &&
-                                        int.TryParse(k.AsSpan(3), out _))
-                            .OrderBy(k => int.Parse(k.AsSpan(3).ToString()))
-                            .ToList();
-                        foreach (var runKey in runKeys)
-                        {
-                            var runVal = properties[runKey];
-                            // Format: "text:prop=val;prop=val" or just "text"
-                            var colonIdx = runVal.IndexOf(':');
-                            string runText;
-                            string[] runProps;
-                            if (colonIdx >= 0)
-                            {
-                                runText = runVal[..colonIdx];
-                                runProps = runVal[(colonIdx + 1)..].Split(';');
-                            }
-                            else
-                            {
-                                runText = runVal;
-                                runProps = [];
-                            }
-                            var run = new Run();
-                            var rp = new RunProperties();
-                            foreach (var prop in runProps)
-                            {
-                                var eqIdx = prop.IndexOf('=');
-                                if (eqIdx < 0) continue;
-                                var pKey = prop[..eqIdx].Trim().ToLowerInvariant();
-                                var pVal = prop[(eqIdx + 1)..].Trim();
-                                switch (pKey)
-                                {
-                                    case "bold" when ParseHelpers.IsTruthy(pVal): rp.AppendChild(new Bold()); break;
-                                    case "italic" when ParseHelpers.IsTruthy(pVal): rp.AppendChild(new Italic()); break;
-                                    case "strike" when ParseHelpers.IsTruthy(pVal): rp.AppendChild(new Strike()); break;
-                                    case "underline":
-                                    {
-                                        var ul = new Underline();
-                                        if (pVal.Equals("double", StringComparison.OrdinalIgnoreCase)) ul.Val = UnderlineValues.Double;
-                                        rp.AppendChild(ul);
-                                        break;
-                                    }
-                                    case "size" or "fontsize":
-                                        if (double.TryParse(pVal.TrimEnd('p', 't'), out var sz))
-                                            rp.AppendChild(new FontSize { Val = sz });
-                                        break;
-                                    case "color":
-                                        rp.AppendChild(new Color { Rgb = new HexBinaryValue(ParseHelpers.NormalizeArgbColor(pVal)) });
-                                        break;
-                                    case "font" or "fontname":
-                                        rp.AppendChild(new RunFont { Val = pVal });
-                                        break;
-                                }
-                            }
-                            if (rp.HasChildren)
-                            {
-                                ReorderRunProperties(rp);
-                                run.AppendChild(rp);
-                            }
-                            run.AppendChild(new Text(runText) { Space = SpaceProcessingModeValues.Preserve });
-                            ssi.AppendChild(run);
-                        }
-
-                        if (!ssi.HasChildren)
-                        {
-                            // No runs defined, fall back to plain text
-                            var textVal = cell.CellValue?.Text ?? "";
-                            ssi.AppendChild(new Text(textVal) { Space = SpaceProcessingModeValues.Preserve });
-                        }
-
-                        sst.AppendChild(ssi);
-                        sst.Count = (uint)sst.Elements<SharedStringItem>().Count();
-                        sst.UniqueCount = sst.Count;
-
-                        var newIdx = sst.Elements<SharedStringItem>().Count() - 1;
-                        cell.CellValue = new CellValue(newIdx.ToString());
-                        cell.DataType = new EnumValue<CellValues>(CellValues.SharedString);
-                    }
-                    else
-                    {
-                        cell.DataType = cellType.ToLowerInvariant() switch
-                        {
-                            "string" or "str" => new EnumValue<CellValues>(CellValues.String),
-                            "number" or "num" => null,
-                            "boolean" or "bool" => new EnumValue<CellValues>(CellValues.Boolean),
-                            _ => throw new ArgumentException($"Invalid cell 'type' value '{cellType}'. Valid types: string, number, boolean, richtext.")
-                        };
-                        // Convert boolean string values to OOXML-compliant 1/0
-                        if (cellType.Equals("boolean", StringComparison.OrdinalIgnoreCase) || cellType.Equals("bool", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var boolText = cell.CellValue?.Text?.Trim().ToLowerInvariant();
-                            if (boolText == "true" || boolText == "yes" || boolText == "1")
-                                cell.CellValue = new CellValue("1");
-                            else if (boolText == "false" || boolText == "no" || boolText == "0")
-                                cell.CellValue = new CellValue("0");
-                        }
-                    }
-                }
-                if (properties.TryGetValue("clear", out _))
-                {
-                    cell.CellValue = null;
-                    cell.CellFormula = null;
-                }
-
-                // Array formula support during Add
-                if (properties.TryGetValue("arrayformula", out var arrFormula))
-                {
-                    var arrRef = properties.GetValueOrDefault("ref", cellRef);
-                    cell.CellFormula = new CellFormula(arrFormula.TrimStart('='))
-                    {
-                        FormulaType = CellFormulaValues.Array,
-                        Reference = arrRef
-                    };
-                    cell.CellValue = null;
-                }
-
-                // Hyperlink support during Add
-                if (properties.TryGetValue("link", out var linkUrl) && !string.IsNullOrEmpty(linkUrl))
-                {
-                    var ws = GetSheet(cellWorksheet);
-                    var hlUri = new Uri(linkUrl, UriKind.RelativeOrAbsolute);
-                    var hlRel = cellWorksheet.AddHyperlinkRelationship(hlUri, isExternal: true);
-                    var hyperlinksEl = ws.GetFirstChild<Hyperlinks>();
-                    if (hyperlinksEl == null)
-                    {
-                        hyperlinksEl = new Hyperlinks();
-                        // Insert in correct OOXML schema position: after conditionalFormatting, before printOptions/pageMargins/pageSetup/drawing etc.
-                        OpenXmlElement? insertBefore = ws.GetFirstChild<PrintOptions>();
-                        insertBefore ??= ws.GetFirstChild<PageMargins>();
-                        insertBefore ??= ws.GetFirstChild<PageSetup>();
-                        insertBefore ??= ws.GetFirstChild<SpreadsheetDrawing>();
-                        if (insertBefore != null)
-                            ws.InsertBefore(hyperlinksEl, insertBefore);
-                        else
-                            ws.AppendChild(hyperlinksEl);
-                    }
-                    hyperlinksEl.AppendChild(new Hyperlink { Reference = cellRef.ToUpperInvariant(), Id = hlRel.Id });
-                }
-
-                // Apply style properties if any
-                var cellStyleProps = new Dictionary<string, string>();
-                foreach (var (key, val) in properties)
-                {
-                    if (ExcelStyleManager.IsStyleKey(key))
-                        cellStyleProps[key] = val;
-                }
-                if (cellStyleProps.Count > 0)
-                {
-                    var cellWbPart = _doc.WorkbookPart
-                        ?? throw new InvalidOperationException("Workbook not found");
-                    var styleManager = new ExcelStyleManager(cellWbPart);
-                    cell.StyleIndex = styleManager.ApplyStyle(cell, cellStyleProps);
-                }
-
-                DeleteCalcChainIfPresent();
-                SaveWorksheet(cellWorksheet);
-                return $"/{cellSheetName}/{cellRef}";
-
-            case "namedrange" or "definedname":
-            {
-                var nrName = properties.GetValueOrDefault("name", "");
-                if (string.IsNullOrEmpty(nrName))
-                    throw new ArgumentException("'name' property is required for namedrange");
-                var refVal = properties.GetValueOrDefault("ref", "");
-
-                var workbook = GetWorkbook();
-                var definedNames = workbook.GetFirstChild<DefinedNames>();
-                if (definedNames == null)
-                {
-                    definedNames = new DefinedNames();
-                    // OOXML schema order: ...sheets, functionGroups, externalReferences, definedNames, calcPr, oleSize, customWorkbookViews, pivotCaches...
-                    // Insert before calcPr, oleSize, customWorkbookViews, pivotCaches, or any later element
-                    var insertBefore = (DocumentFormat.OpenXml.OpenXmlElement?)workbook.GetFirstChild<CalculationProperties>()
-                        ?? (DocumentFormat.OpenXml.OpenXmlElement?)workbook.GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.OleSize>()
-                        ?? (DocumentFormat.OpenXml.OpenXmlElement?)workbook.GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.CustomWorkbookViews>()
-                        ?? (DocumentFormat.OpenXml.OpenXmlElement?)workbook.GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.PivotCaches>();
-                    if (insertBefore != null)
-                        workbook.InsertBefore(definedNames, insertBefore);
-                    else
-                        workbook.AppendChild(definedNames);
-                }
-
-                var dn = new DefinedName(refVal) { Name = nrName };
-
-                if (properties.TryGetValue("scope", out var scope) && !string.IsNullOrEmpty(scope))
-                {
-                    var nrSheets = workbook.GetFirstChild<Sheets>()?.Elements<Sheet>().ToList();
-                    var nrSheetIdx = nrSheets?.FindIndex(s =>
-                        s.Name?.Value?.Equals(scope, StringComparison.OrdinalIgnoreCase) == true) ?? -1;
-                    if (nrSheetIdx >= 0) dn.LocalSheetId = (uint)nrSheetIdx;
-                }
-                if (properties.TryGetValue("comment", out var nrComment))
-                    dn.Comment = nrComment;
-
-                definedNames.AppendChild(dn);
-                workbook.Save();
-
-                var nrIdx = definedNames.Elements<DefinedName>().ToList().IndexOf(dn) + 1;
-                return $"/namedrange[{nrIdx}]";
-            }
+            case "namedrange" or "definedname" or "name":
+                return AddNamedRange(parentPath, type, position, properties);
 
             case "comment" or "note":
-            {
-                var cmtSegments = parentPath.TrimStart('/').Split('/', 2);
-                var cmtSheetName = cmtSegments[0];
-                // Extract cell reference from path if present (e.g., /Sheet1/A1 -> A1)
-                string? cmtRefFromPath = null;
-                if (cmtSegments.Length > 1 && Regex.IsMatch(cmtSegments[1], @"^[A-Z]+\d+$", RegexOptions.IgnoreCase))
-                    cmtRefFromPath = cmtSegments[1];
-                var cmtWorksheet = FindWorksheet(cmtSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {cmtSheetName}");
-
-                var cmtRef = properties.GetValueOrDefault("ref") ?? cmtRefFromPath
-                    ?? throw new ArgumentException("Property 'ref' is required for comment");
-                var cmtText = properties.GetValueOrDefault("text", "");
-                var cmtAuthor = properties.GetValueOrDefault("author", "Author");
-
-                var commentsPart = cmtWorksheet.WorksheetCommentsPart
-                    ?? cmtWorksheet.AddNewPart<WorksheetCommentsPart>();
-
-                if (commentsPart.Comments == null)
-                {
-                    commentsPart.Comments = new Comments(
-                        new Authors(new Author(cmtAuthor)),
-                        new CommentList()
-                    );
-                }
-
-                var comments = commentsPart.Comments;
-                var authors = comments.GetFirstChild<Authors>()!;
-                var commentList = comments.GetFirstChild<CommentList>()!;
-
-                uint authorId = 0;
-                var existingAuthors = authors.Elements<Author>().ToList();
-                var authorIdx = existingAuthors.FindIndex(a => a.Text == cmtAuthor);
-                if (authorIdx >= 0)
-                    authorId = (uint)authorIdx;
-                else
-                {
-                    authors.AppendChild(new Author(cmtAuthor));
-                    authorId = (uint)existingAuthors.Count;
-                }
-
-                var comment = new Comment { Reference = cmtRef.ToUpperInvariant(), AuthorId = authorId };
-                comment.CommentText = new CommentText(
-                    new Run(
-                        new RunProperties(new FontSize { Val = 9 }, new Color { Indexed = 81 },
-                            new RunFont { Val = "Tahoma" }),
-                        new Text(cmtText) { Space = SpaceProcessingModeValues.Preserve }
-                    )
-                );
-                commentList.AppendChild(comment);
-                commentsPart.Comments.Save();
-
-                if (!cmtWorksheet.VmlDrawingParts.Any())
-                {
-                    var vmlPart = cmtWorksheet.AddNewPart<VmlDrawingPart>();
-                    using var writer = new System.IO.StreamWriter(vmlPart.GetStream());
-                    writer.Write("<xml xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\" xmlns:x=\"urn:schemas-microsoft-com:office:excel\"><o:shapelayout v:ext=\"edit\"><o:idmap v:ext=\"edit\" data=\"1\"/></o:shapelayout><v:shapetype id=\"_x0000_t202\" coordsize=\"21600,21600\" o:spt=\"202\" path=\"m,l,21600r21600,l21600,xe\"><v:stroke joinstyle=\"miter\"/><v:path gradientshapeok=\"t\" o:connecttype=\"rect\"/></v:shapetype></xml>");
-                }
-
-                var cmtIdx = commentList.Elements<Comment>().ToList().IndexOf(comment) + 1;
-                return $"/{cmtSheetName}/comment[{cmtIdx}]";
-            }
+                return AddComment(parentPath, type, position, properties);
 
             case "validation":
             case "datavalidation":
-            {
-                var dvSegments = parentPath.TrimStart('/').Split('/', 2);
-                var dvSheetName = dvSegments[0];
-                var dvWorksheet = FindWorksheet(dvSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {dvSheetName}");
-
-                var dvSqref = properties.GetValueOrDefault("sqref")
-                    ?? properties.GetValueOrDefault("ref")
-                    ?? throw new ArgumentException("Property 'sqref' (or 'ref') is required for validation");
-
-                var dv = new DataValidation
-                {
-                    SequenceOfReferences = new ListValue<StringValue>(
-                        dvSqref.Split(' ').Select(s => new StringValue(s)))
-                };
-
-                if (properties.TryGetValue("type", out var dvType))
-                {
-                    dv.Type = dvType.ToLowerInvariant() switch
-                    {
-                        "list" => DataValidationValues.List,
-                        "whole" => DataValidationValues.Whole,
-                        "decimal" => DataValidationValues.Decimal,
-                        "date" => DataValidationValues.Date,
-                        "time" => DataValidationValues.Time,
-                        "textlength" => DataValidationValues.TextLength,
-                        "custom" => DataValidationValues.Custom,
-                        _ => throw new ArgumentException($"Unknown validation type: {dvType}. Use: list, whole, decimal, date, time, textLength, custom")
-                    };
-                }
-
-                if (properties.TryGetValue("operator", out var dvOp))
-                {
-                    dv.Operator = dvOp.ToLowerInvariant() switch
-                    {
-                        "between" => DataValidationOperatorValues.Between,
-                        "notbetween" => DataValidationOperatorValues.NotBetween,
-                        "equal" => DataValidationOperatorValues.Equal,
-                        "notequal" => DataValidationOperatorValues.NotEqual,
-                        "greaterthan" => DataValidationOperatorValues.GreaterThan,
-                        "lessthan" => DataValidationOperatorValues.LessThan,
-                        "greaterthanorequal" => DataValidationOperatorValues.GreaterThanOrEqual,
-                        "lessthanorequal" => DataValidationOperatorValues.LessThanOrEqual,
-                        _ => throw new ArgumentException($"Unknown operator: {dvOp}")
-                    };
-                }
-
-                if (properties.TryGetValue("formula1", out var dvFormula1))
-                {
-                    if (dv.Type?.Value == DataValidationValues.List && !dvFormula1.StartsWith("\""))
-                        dv.Formula1 = new Formula1($"\"{dvFormula1}\"");
-                    else
-                        dv.Formula1 = new Formula1(dvFormula1);
-                }
-
-                if (properties.TryGetValue("formula2", out var dvFormula2))
-                    dv.Formula2 = new Formula2(dvFormula2);
-
-                // Build case-insensitive lookup for validation properties
-                var dvProps = new Dictionary<string, string>(properties, StringComparer.OrdinalIgnoreCase);
-
-                dv.AllowBlank = !dvProps.TryGetValue("allowBlank", out var dvAllowBlank)
-                    || IsTruthy(dvAllowBlank);
-                dv.ShowErrorMessage = !dvProps.TryGetValue("showError", out var dvShowError)
-                    || IsTruthy(dvShowError);
-                dv.ShowInputMessage = !dvProps.TryGetValue("showInput", out var dvShowInput)
-                    || IsTruthy(dvShowInput);
-
-                if (dvProps.TryGetValue("errorTitle", out var dvErrorTitle))
-                    dv.ErrorTitle = dvErrorTitle;
-                if (dvProps.TryGetValue("error", out var dvError))
-                    dv.Error = dvError;
-                if (dvProps.TryGetValue("promptTitle", out var dvPromptTitle))
-                    dv.PromptTitle = dvPromptTitle;
-                if (dvProps.TryGetValue("prompt", out var dvPrompt))
-                    dv.Prompt = dvPrompt;
-
-                var wsEl = GetSheet(dvWorksheet);
-                var dvs = wsEl.GetFirstChild<DataValidations>();
-                if (dvs == null)
-                {
-                    dvs = new DataValidations();
-                    var insertAfter = wsEl.GetFirstChild<Hyperlinks>() as OpenXmlElement
-                        ?? wsEl.Elements<ConditionalFormatting>().LastOrDefault() as OpenXmlElement
-                        ?? wsEl.GetFirstChild<SheetData>() as OpenXmlElement;
-                    if (insertAfter is Hyperlinks)
-                        insertAfter.InsertBeforeSelf(dvs);
-                    else if (insertAfter != null)
-                        insertAfter.InsertAfterSelf(dvs);
-                    else
-                        wsEl.AppendChild(dvs);
-                }
-
-                dvs.AppendChild(dv);
-                dvs.Count = (uint)dvs.Elements<DataValidation>().Count();
-
-                SaveWorksheet(dvWorksheet);
-                var dvIndex = dvs.Elements<DataValidation>().ToList().IndexOf(dv) + 1;
-                return $"/{dvSheetName}/validation[{dvIndex}]";
-            }
+                return AddValidation(parentPath, type, position, properties);
 
             case "autofilter":
-            {
-                var afSegments = parentPath.TrimStart('/').Split('/', 2);
-                var afSheetName = afSegments[0];
-                var afWorksheet = FindWorksheet(afSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {afSheetName}");
-
-                var afRange = properties.GetValueOrDefault("range")
-                    ?? throw new ArgumentException("AutoFilter requires 'range' property (e.g. range=A1:F100)");
-
-                var wsElement = GetSheet(afWorksheet);
-                var autoFilter = wsElement.GetFirstChild<AutoFilter>();
-                if (autoFilter == null)
-                {
-                    autoFilter = new AutoFilter();
-                    // AutoFilter goes after SheetData (after MergeCells if present)
-                    var mergeCellsEl = wsElement.GetFirstChild<MergeCells>();
-                    var sheetDataEl = wsElement.GetFirstChild<SheetData>();
-                    if (mergeCellsEl != null)
-                        mergeCellsEl.InsertAfterSelf(autoFilter);
-                    else if (sheetDataEl != null)
-                        sheetDataEl.InsertAfterSelf(autoFilter);
-                    else
-                        wsElement.AppendChild(autoFilter);
-                }
-                autoFilter.Reference = afRange.ToUpperInvariant();
-
-                SaveWorksheet(afWorksheet);
-                return $"/{afSheetName}/autofilter";
-            }
+                return AddAutoFilter(parentPath, type, position, properties);
 
             case "cf":
-            {
-                // Dispatch to specific CF type based on "type" property
-                var cfType = properties.GetValueOrDefault("type", "databar").ToLowerInvariant();
-                return cfType switch
-                {
-                    "iconset" => Add(parentPath, "iconset", position, properties),
-                    "colorscale" => Add(parentPath, "colorscale", position, properties),
-                    "formula" => Add(parentPath, "formulacf", position, properties),
-                    "topn" or "top10" => Add(parentPath, "topn", position, properties),
-                    "aboveaverage" => Add(parentPath, "aboveaverage", position, properties),
-                    "uniquevalues" => Add(parentPath, "uniquevalues", position, properties),
-                    "duplicatevalues" => Add(parentPath, "duplicatevalues", position, properties),
-                    "containstext" => Add(parentPath, "containstext", position, properties),
-                    "dateoccurring" or "timeperiod" => Add(parentPath, "dateoccurring", position, properties),
-                    _ => Add(parentPath, "conditionalformatting", position, properties)
-                };
-            }
+                return AddCf(parentPath, type, position, properties);
 
             case "databar":
             case "conditionalformatting":
-            {
-                // Dispatch to specific CF type if "type" property is specified
-                if (properties.TryGetValue("type", out var cfTypeVal))
-                {
-                    var cfTypeLower = cfTypeVal.ToLowerInvariant();
-                    if (cfTypeLower is "iconset") return Add(parentPath, "iconset", position, properties);
-                    if (cfTypeLower is "colorscale") return Add(parentPath, "colorscale", position, properties);
-                    if (cfTypeLower is "formula") return Add(parentPath, "formulacf", position, properties);
-                    if (cfTypeLower is "topn" or "top10") return Add(parentPath, "topn", position, properties);
-                    if (cfTypeLower is "aboveaverage") return Add(parentPath, "aboveaverage", position, properties);
-                    if (cfTypeLower is "uniquevalues") return Add(parentPath, "uniquevalues", position, properties);
-                    if (cfTypeLower is "duplicatevalues") return Add(parentPath, "duplicatevalues", position, properties);
-                    if (cfTypeLower is "containstext") return Add(parentPath, "containstext", position, properties);
-                    if (cfTypeLower is "dateoccurring" or "timeperiod") return Add(parentPath, "dateoccurring", position, properties);
-                }
-                var cfSegments = parentPath.TrimStart('/').Split('/', 2);
-                var cfSheetName = cfSegments[0];
-                var cfWorksheet = FindWorksheet(cfSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {cfSheetName}");
-
-                var sqref = properties.GetValueOrDefault("sqref") ?? properties.GetValueOrDefault("range") ?? properties.GetValueOrDefault("ref", "A1:A10");
-                var minVal = properties.ContainsKey("min") ? properties["min"] : (string?)null;
-                var maxVal = properties.ContainsKey("max") ? properties["max"] : (string?)null;
-                var cfColor = properties.GetValueOrDefault("color", "638EC6");
-                var normalizedColor = ParseHelpers.NormalizeArgbColor(cfColor);
-
-                var cfRule = new ConditionalFormattingRule
-                {
-                    Type = ConditionalFormatValues.DataBar,
-                    Priority = NextCfPriority(GetSheet(cfWorksheet))
-                };
-                var dataBar = new DataBar();
-                dataBar.Append(new ConditionalFormatValueObject
-                {
-                    Type = minVal != null ? ConditionalFormatValueObjectValues.Number : ConditionalFormatValueObjectValues.Min,
-                    Val = minVal
-                });
-                dataBar.Append(new ConditionalFormatValueObject
-                {
-                    Type = maxVal != null ? ConditionalFormatValueObjectValues.Number : ConditionalFormatValueObjectValues.Max,
-                    Val = maxVal
-                });
-                dataBar.Append(new DocumentFormat.OpenXml.Spreadsheet.Color { Rgb = normalizedColor });
-                cfRule.Append(dataBar);
-
-                var cf = new ConditionalFormatting(cfRule)
-                {
-                    SequenceOfReferences = new ListValue<StringValue>(
-                        sqref.Split(' ').Select(s => new StringValue(s)))
-                };
-
-                var wsElement = GetSheet(cfWorksheet);
-                InsertConditionalFormatting(wsElement, cf);
-
-                SaveWorksheet(cfWorksheet);
-                var dbCfCount = wsElement.Elements<ConditionalFormatting>().Count();
-                return $"/{cfSheetName}/cf[{dbCfCount}]";
-            }
+                return AddDataBar(parentPath, type, position, properties);
 
             case "colorscale":
-            {
-                var csSegments = parentPath.TrimStart('/').Split('/', 2);
-                var csSheetName = csSegments[0];
-                var csWorksheet = FindWorksheet(csSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {csSheetName}");
-
-                var csSqref = properties.GetValueOrDefault("sqref") ?? properties.GetValueOrDefault("range", "A1:A10");
-                var minColor = properties.GetValueOrDefault("mincolor", "F8696B");
-                var maxColor = properties.GetValueOrDefault("maxcolor", "63BE7B");
-                var midColor = properties.GetValueOrDefault("midcolor");
-
-                var normalizedMinColor = ParseHelpers.NormalizeArgbColor(minColor);
-                var normalizedMaxColor = ParseHelpers.NormalizeArgbColor(maxColor);
-
-                var colorScale = new ColorScale();
-                colorScale.Append(new ConditionalFormatValueObject { Type = ConditionalFormatValueObjectValues.Min });
-                if (midColor != null)
-                    colorScale.Append(new ConditionalFormatValueObject { Type = ConditionalFormatValueObjectValues.Percentile, Val = "50" });
-                colorScale.Append(new ConditionalFormatValueObject { Type = ConditionalFormatValueObjectValues.Max });
-                colorScale.Append(new DocumentFormat.OpenXml.Spreadsheet.Color { Rgb = normalizedMinColor });
-                if (midColor != null)
-                {
-                    var normalizedMidColor = ParseHelpers.NormalizeArgbColor(midColor);
-                    colorScale.Append(new DocumentFormat.OpenXml.Spreadsheet.Color { Rgb = normalizedMidColor });
-                }
-                colorScale.Append(new DocumentFormat.OpenXml.Spreadsheet.Color { Rgb = normalizedMaxColor });
-
-                var csRule = new ConditionalFormattingRule
-                {
-                    Type = ConditionalFormatValues.ColorScale,
-                    Priority = NextCfPriority(GetSheet(csWorksheet))
-                };
-                csRule.Append(colorScale);
-
-                var csCf = new ConditionalFormatting(csRule)
-                {
-                    SequenceOfReferences = new ListValue<StringValue>(
-                        csSqref.Split(' ').Select(s => new StringValue(s)))
-                };
-
-                var csWsElement = GetSheet(csWorksheet);
-                InsertConditionalFormatting(csWsElement, csCf);
-
-                SaveWorksheet(csWorksheet);
-                var csCfCount = csWsElement.Elements<ConditionalFormatting>().Count();
-                return $"/{csSheetName}/cf[{csCfCount}]";
-            }
+                return AddColorScale(parentPath, type, position, properties);
 
             case "iconset":
-            {
-                var isSegments = parentPath.TrimStart('/').Split('/', 2);
-                var isSheetName = isSegments[0];
-                var isWorksheet = FindWorksheet(isSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {isSheetName}");
-
-                var isSqref = properties.GetValueOrDefault("sqref") ?? properties.GetValueOrDefault("range", "A1:A10");
-                var iconSetName = properties.GetValueOrDefault("iconset") ?? properties.GetValueOrDefault("icons", "3TrafficLights1");
-                var reverse = properties.TryGetValue("reverse", out var revVal) && IsTruthy(revVal);
-                var showValue = !properties.TryGetValue("showvalue", out var svVal) || IsTruthy(svVal);
-
-                var iconSetVal = ParseIconSetValues(iconSetName);
-
-                var iconSet = new IconSet { IconSetValue = iconSetVal };
-                if (reverse) iconSet.Reverse = true;
-                if (!showValue) iconSet.ShowValue = false;
-
-                // Add threshold values based on icon count
-                var iconCount = GetIconCount(iconSetName);
-                for (int i = 0; i < iconCount; i++)
-                {
-                    if (i == 0)
-                        iconSet.Append(new ConditionalFormatValueObject
-                        {
-                            Type = ConditionalFormatValueObjectValues.Percent,
-                            Val = "0"
-                        });
-                    else
-                        iconSet.Append(new ConditionalFormatValueObject
-                        {
-                            Type = ConditionalFormatValueObjectValues.Percent,
-                            Val = (i * 100 / iconCount).ToString()
-                        });
-                }
-
-                var isRule = new ConditionalFormattingRule
-                {
-                    Type = ConditionalFormatValues.IconSet,
-                    Priority = NextCfPriority(GetSheet(isWorksheet))
-                };
-                isRule.Append(iconSet);
-
-                var isCf = new ConditionalFormatting(isRule)
-                {
-                    SequenceOfReferences = new ListValue<StringValue>(
-                        isSqref.Split(' ').Select(s => new StringValue(s)))
-                };
-
-                var isWsElement = GetSheet(isWorksheet);
-                InsertConditionalFormatting(isWsElement, isCf);
-
-                SaveWorksheet(isWorksheet);
-                var isCfCount = isWsElement.Elements<ConditionalFormatting>().Count();
-                return $"/{isSheetName}/cf[{isCfCount}]";
-            }
+                return AddIconSet(parentPath, type, position, properties);
 
             case "formulacf":
-            {
-                var fcfSegments = parentPath.TrimStart('/').Split('/', 2);
-                var fcfSheetName = fcfSegments[0];
-                var fcfWorksheet = FindWorksheet(fcfSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {fcfSheetName}");
+                return AddFormulaCf(parentPath, type, position, properties);
 
-                var fcfSqref = properties.GetValueOrDefault("sqref") ?? properties.GetValueOrDefault("range", "A1:A10");
-                var fcfFormula = properties.GetValueOrDefault("formula")
-                    ?? throw new ArgumentException("Formula-based conditional formatting requires 'formula' property (e.g. formula=$A1>100)");
+            case "cellis":
+                return AddCellIs(parentPath, type, position, properties);
 
-                // Build DifferentialFormat (dxf) for the formatting
-                var dxf = new DifferentialFormat();
-                if (properties.TryGetValue("font.color", out var fontColor))
-                {
-                    var normalizedFontColor = ParseHelpers.NormalizeArgbColor(fontColor);
-                    dxf.Append(new Font(new DocumentFormat.OpenXml.Spreadsheet.Color { Rgb = normalizedFontColor }));
-                }
-                else if (properties.TryGetValue("font.bold", out var fontBold) && IsTruthy(fontBold))
-                {
-                    dxf.Append(new Font(new Bold()));
-                }
-
-                if (properties.TryGetValue("fill", out var fillColor))
-                {
-                    var normalizedFillColor = ParseHelpers.NormalizeArgbColor(fillColor);
-                    dxf.Append(new Fill(new PatternFill(
-                        new BackgroundColor { Rgb = normalizedFillColor })
-                    { PatternType = PatternValues.Solid }));
-                }
-
-                // Handle font.bold when font.color is also set
-                if (properties.TryGetValue("font.color", out _) && properties.TryGetValue("font.bold", out var fb2) && IsTruthy(fb2))
-                {
-                    var existingFont = dxf.GetFirstChild<Font>();
-                    existingFont?.Append(new Bold());
-                }
-
-                // Add dxf to stylesheet (ensure it exists)
-                var fcfWbPart = _doc.WorkbookPart
-                    ?? throw new InvalidOperationException("Workbook not found");
-                var fcfStyleMgr = new ExcelStyleManager(fcfWbPart);
-                fcfStyleMgr.EnsureStylesPart();
-                var stylesheet = fcfWbPart.WorkbookStylesPart!.Stylesheet!;
-
-                var dxfs = stylesheet.GetFirstChild<DifferentialFormats>();
-                if (dxfs == null)
-                {
-                    dxfs = new DifferentialFormats { Count = 0 };
-                    stylesheet.Append(dxfs);
-                }
-                dxfs.Append(dxf);
-                dxfs.Count = (uint)dxfs.Elements<DifferentialFormat>().Count();
-                stylesheet.Save();
-
-                var dxfId = dxfs.Count!.Value - 1;
-
-                var fcfRule = new ConditionalFormattingRule
-                {
-                    Type = ConditionalFormatValues.Expression,
-                    Priority = NextCfPriority(GetSheet(fcfWorksheet)),
-                    FormatId = dxfId
-                };
-                fcfRule.Append(new Formula(fcfFormula));
-
-                var fcfCf = new ConditionalFormatting(fcfRule)
-                {
-                    SequenceOfReferences = new ListValue<StringValue>(
-                        fcfSqref.Split(' ').Select(s => new StringValue(s)))
-                };
-
-                var fcfWsElement = GetSheet(fcfWorksheet);
-                InsertConditionalFormatting(fcfWsElement, fcfCf);
-
-                SaveWorksheet(fcfWorksheet);
-                var fcfCfCount = fcfWsElement.Elements<ConditionalFormatting>().Count();
-                return $"/{fcfSheetName}/cf[{fcfCfCount}]";
-            }
+            case "ole":
+            case "oleobject":
+            case "object":
+            case "embed":
+                return AddOle(parentPath, type, position, properties);
 
             case "picture":
             case "image":
-            {
-                var picSegments = parentPath.TrimStart('/').Split('/', 2);
-                var picSheetName = picSegments[0];
-                var picWorksheet = FindWorksheet(picSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {picSheetName}");
-
-                var imgPath = properties.GetValueOrDefault("path", "") ?? "";
-                if (string.IsNullOrEmpty(imgPath))
-                    imgPath = properties.GetValueOrDefault("src", "");
-                if (string.IsNullOrEmpty(imgPath))
-                    throw new ArgumentException("picture requires a 'path' or 'src' property");
-
-                var (px, py, pw, ph) = ParseAnchorBounds(properties, "0", "0", "5", "5");
-                var alt = properties.GetValueOrDefault("alt", "");
-
-                var picDrawingsPart = picWorksheet.DrawingsPart
-                    ?? picWorksheet.AddNewPart<DrawingsPart>();
-
-                if (picDrawingsPart.WorksheetDrawing == null)
-                {
-                    picDrawingsPart.WorksheetDrawing = new XDR.WorksheetDrawing();
-                    picDrawingsPart.WorksheetDrawing.Save();
-
-                    if (GetSheet(picWorksheet).GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.Drawing>() == null)
-                    {
-                        var drawingRelId = picWorksheet.GetIdOfPart(picDrawingsPart);
-                        GetSheet(picWorksheet).Append(new DocumentFormat.OpenXml.Spreadsheet.Drawing { Id = drawingRelId });
-                        SaveWorksheet(picWorksheet);
-                    }
-                }
-
-                var (xlImgStream, imgPartType) = OfficeCli.Core.ImageSource.Resolve(imgPath);
-                using var xlImgDispose = xlImgStream;
-
-                var imgPart = picDrawingsPart.AddImagePart(imgPartType);
-                imgPart.FeedData(xlImgStream);
-                var imgRelId = picDrawingsPart.GetIdOfPart(imgPart);
-
-                var picId = picDrawingsPart.WorksheetDrawing.Descendants<XDR.NonVisualDrawingProperties>()
-                    .Select(p => (uint?)p.Id?.Value ?? 0u).DefaultIfEmpty(0u).Max() + 1;
-                var anchor = new XDR.TwoCellAnchor(
-                    new XDR.FromMarker(
-                        new XDR.ColumnId(px.ToString()),
-                        new XDR.ColumnOffset("0"),
-                        new XDR.RowId(py.ToString()),
-                        new XDR.RowOffset("0")
-                    ),
-                    new XDR.ToMarker(
-                        new XDR.ColumnId((px + pw).ToString()),
-                        new XDR.ColumnOffset("0"),
-                        new XDR.RowId((py + ph).ToString()),
-                        new XDR.RowOffset("0")
-                    ),
-                    new XDR.Picture(
-                        new XDR.NonVisualPictureProperties(
-                            new XDR.NonVisualDrawingProperties { Id = picId, Name = $"Picture {picId}", Description = alt },
-                            new XDR.NonVisualPictureDrawingProperties(new Drawing.PictureLocks { NoChangeAspect = true })
-                        ),
-                        new XDR.BlipFill(
-                            new Drawing.Blip { Embed = imgRelId },
-                            new Drawing.Stretch(new Drawing.FillRectangle())
-                        ),
-                        new XDR.ShapeProperties(
-                            new Drawing.Transform2D(
-                                new Drawing.Offset { X = 0, Y = 0 },
-                                new Drawing.Extents { Cx = 0, Cy = 0 }
-                            ),
-                            new Drawing.PresetGeometry(new Drawing.AdjustValueList()) { Preset = Drawing.ShapeTypeValues.Rectangle }
-                        )
-                    ),
-                    new XDR.ClientData()
-                );
-
-                picDrawingsPart.WorksheetDrawing.AppendChild(anchor);
-                picDrawingsPart.WorksheetDrawing.Save();
-
-                var picAnchors = picDrawingsPart.WorksheetDrawing.Elements<XDR.TwoCellAnchor>()
-                    .Where(a => a.Descendants<XDR.Picture>().Any()).ToList();
-                var picIdx = picAnchors.IndexOf(anchor) + 1;
-
-                return $"/{picSheetName}/picture[{picIdx}]";
-            }
+            case "img":
+                return AddPicture(parentPath, type, position, properties);
 
             case "shape" or "textbox":
-            {
-                var shpSegments = parentPath.TrimStart('/').Split('/', 2);
-                var shpSheetName = shpSegments[0];
-                var shpWorksheet = FindWorksheet(shpSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {shpSheetName}");
-
-                var (sx, sy, sw, sh) = ParseAnchorBounds(properties, "1", "1", "5", "3");
-                var shpText = properties.GetValueOrDefault("text", "") ?? "";
-                var shpName = properties.GetValueOrDefault("name", "");
-
-                var shpDrawingsPart = shpWorksheet.DrawingsPart
-                    ?? shpWorksheet.AddNewPart<DrawingsPart>();
-
-                if (shpDrawingsPart.WorksheetDrawing == null)
-                {
-                    shpDrawingsPart.WorksheetDrawing = new XDR.WorksheetDrawing();
-                    shpDrawingsPart.WorksheetDrawing.Save();
-
-                    if (GetSheet(shpWorksheet).GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.Drawing>() == null)
-                    {
-                        var drawingRelId = shpWorksheet.GetIdOfPart(shpDrawingsPart);
-                        GetSheet(shpWorksheet).Append(new DocumentFormat.OpenXml.Spreadsheet.Drawing { Id = drawingRelId });
-                        SaveWorksheet(shpWorksheet);
-                    }
-                }
-
-                var shpId = shpDrawingsPart.WorksheetDrawing.Descendants<XDR.NonVisualDrawingProperties>()
-                    .Select(p => (uint?)p.Id?.Value ?? 0u).DefaultIfEmpty(0u).Max() + 1;
-                if (string.IsNullOrEmpty(shpName)) shpName = $"Shape {shpId}";
-
-                // Build ShapeProperties
-                var spPr = new XDR.ShapeProperties(
-                    new Drawing.Transform2D(
-                        new Drawing.Offset { X = 0, Y = 0 },
-                        new Drawing.Extents { Cx = 0, Cy = 0 }
-                    ),
-                    new Drawing.PresetGeometry(new Drawing.AdjustValueList()) { Preset = Drawing.ShapeTypeValues.Rectangle }
-                );
-
-                // Fill
-                if (properties.TryGetValue("fill", out var shpFill))
-                {
-                    if (shpFill.Equals("none", StringComparison.OrdinalIgnoreCase))
-                        spPr.AppendChild(new Drawing.NoFill());
-                    else
-                    {
-                        var (rgb, alpha) = ParseHelpers.SanitizeColorForOoxml(shpFill);
-                        var solidFill = new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = rgb });
-                        spPr.AppendChild(solidFill);
-                    }
-                }
-
-                // Line/border
-                if (properties.TryGetValue("line", out var shpLine))
-                {
-                    if (shpLine.Equals("none", StringComparison.OrdinalIgnoreCase))
-                        spPr.AppendChild(new Drawing.Outline(new Drawing.NoFill()));
-                    else
-                    {
-                        var (lRgb, _) = ParseHelpers.SanitizeColorForOoxml(shpLine);
-                        spPr.AppendChild(new Drawing.Outline(new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = lRgb })));
-                    }
-                }
-
-                // Effects (shadow, glow, reflection, softEdge) — shape-level only for shapes with fill
-                // For fill=none shapes, shadow/glow go to text-level (rPr) below
-                var isNoFillShape = properties.TryGetValue("fill", out var fillCheck) && fillCheck.Equals("none", StringComparison.OrdinalIgnoreCase);
-                Drawing.EffectList? shpEffectList = null;
-                if (!isNoFillShape)
-                {
-                    if (properties.TryGetValue("shadow", out var shpShadow) && !shpShadow.Equals("none", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var normalizedShadow = shpShadow.Replace(':', '-');
-                        if (IsValidBooleanString(normalizedShadow) && IsTruthy(normalizedShadow)) normalizedShadow = "000000";
-                        shpEffectList ??= new Drawing.EffectList();
-                        shpEffectList.AppendChild(OfficeCli.Core.DrawingEffectsHelper.BuildOuterShadow(normalizedShadow, OfficeCli.Core.DrawingEffectsHelper.BuildRgbColor));
-                    }
-                    if (properties.TryGetValue("glow", out var shpGlow) && !shpGlow.Equals("none", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var normalizedGlow = shpGlow.Replace(':', '-');
-                        if (IsValidBooleanString(normalizedGlow) && IsTruthy(normalizedGlow)) normalizedGlow = "4472C4";
-                        shpEffectList ??= new Drawing.EffectList();
-                        shpEffectList.AppendChild(OfficeCli.Core.DrawingEffectsHelper.BuildGlow(normalizedGlow, OfficeCli.Core.DrawingEffectsHelper.BuildRgbColor));
-                    }
-                }
-                if (properties.TryGetValue("reflection", out var shpRefl) && !shpRefl.Equals("none", StringComparison.OrdinalIgnoreCase))
-                {
-                    shpEffectList ??= new Drawing.EffectList();
-                    shpEffectList.AppendChild(OfficeCli.Core.DrawingEffectsHelper.BuildReflection(shpRefl));
-                }
-                if (properties.TryGetValue("softedge", out var shpSoft) && !shpSoft.Equals("none", StringComparison.OrdinalIgnoreCase))
-                {
-                    shpEffectList ??= new Drawing.EffectList();
-                    shpEffectList.AppendChild(OfficeCli.Core.DrawingEffectsHelper.BuildSoftEdge(shpSoft));
-                }
-                if (shpEffectList != null)
-                    spPr.AppendChild(shpEffectList);
-
-                // Build TextBody with runs
-                var bodyPr = new Drawing.BodyProperties { Anchor = Drawing.TextAnchoringTypeValues.Center };
-                if (properties.TryGetValue("margin", out var shpMargin))
-                {
-                    var mEmu = (int)(ParseHelpers.SafeParseDouble(shpMargin, "margin") * 12700);
-                    bodyPr.LeftInset = mEmu; bodyPr.RightInset = mEmu;
-                    bodyPr.TopInset = mEmu; bodyPr.BottomInset = mEmu;
-                }
-                var txBody = new XDR.TextBody(bodyPr, new Drawing.ListStyle());
-
-                var lines = shpText.Replace("\\n", "\n").Split('\n');
-                foreach (var line in lines)
-                {
-                    var rPr = new Drawing.RunProperties { Language = "en-US" };
-
-                    // Schema order: attributes → solidFill → effectLst → latin/ea
-                    if (properties.TryGetValue("size", out var shpSize))
-                        rPr.FontSize = (int)Math.Round(ParseHelpers.SafeParseDouble(shpSize, "size") * 100);
-                    if (properties.TryGetValue("bold", out var shpBold) && IsTruthy(shpBold))
-                        rPr.Bold = true;
-                    if (properties.TryGetValue("italic", out var shpItalic) && IsTruthy(shpItalic))
-                        rPr.Italic = true;
-
-                    // Fill (color) before fonts
-                    if (properties.TryGetValue("color", out var shpColor))
-                    {
-                        var (cRgb, _) = ParseHelpers.SanitizeColorForOoxml(shpColor);
-                        rPr.AppendChild(new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = cRgb }));
-                    }
-
-                    // Text-level effects for fill=none shapes
-                    var isNoFill = properties.TryGetValue("fill", out var f) && f.Equals("none", StringComparison.OrdinalIgnoreCase);
-                    if (isNoFill)
-                    {
-                        Drawing.EffectList? txtEffects = null;
-                        if (properties.TryGetValue("shadow", out var ts) && !ts.Equals("none", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var normalizedTs = ts.Replace(':', '-');
-                            if (IsValidBooleanString(normalizedTs) && IsTruthy(normalizedTs)) normalizedTs = "000000";
-                            txtEffects ??= new Drawing.EffectList();
-                            txtEffects.AppendChild(OfficeCli.Core.DrawingEffectsHelper.BuildOuterShadow(normalizedTs, OfficeCli.Core.DrawingEffectsHelper.BuildRgbColor));
-                        }
-                        if (properties.TryGetValue("glow", out var tg) && !tg.Equals("none", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var normalizedTg = tg.Replace(':', '-');
-                            if (IsValidBooleanString(normalizedTg) && IsTruthy(normalizedTg)) normalizedTg = "4472C4";
-                            txtEffects ??= new Drawing.EffectList();
-                            txtEffects.AppendChild(OfficeCli.Core.DrawingEffectsHelper.BuildGlow(normalizedTg, OfficeCli.Core.DrawingEffectsHelper.BuildRgbColor));
-                        }
-                        if (txtEffects != null)
-                            rPr.AppendChild(txtEffects);
-                    }
-
-                    // Fonts last (schema order)
-                    if (properties.TryGetValue("font", out var shpFont))
-                    {
-                        rPr.AppendChild(new Drawing.LatinFont { Typeface = shpFont });
-                        rPr.AppendChild(new Drawing.EastAsianFont { Typeface = shpFont });
-                    }
-
-                    var pPr = new Drawing.ParagraphProperties();
-                    if (properties.TryGetValue("align", out var shpAlign))
-                    {
-                        pPr.Alignment = shpAlign.ToLowerInvariant() switch
-                        {
-                            "center" or "c" or "ctr" => Drawing.TextAlignmentTypeValues.Center,
-                            "right" or "r" => Drawing.TextAlignmentTypeValues.Right,
-                            _ => Drawing.TextAlignmentTypeValues.Left
-                        };
-                    }
-
-                    txBody.AppendChild(new Drawing.Paragraph(
-                        pPr,
-                        new Drawing.Run(rPr, new Drawing.Text(line))
-                    ));
-                }
-
-                var shape = new XDR.Shape(
-                    new XDR.NonVisualShapeProperties(
-                        new XDR.NonVisualDrawingProperties { Id = shpId, Name = shpName },
-                        new XDR.NonVisualShapeDrawingProperties()
-                    ),
-                    spPr,
-                    txBody
-                );
-
-                var shpAnchor = new XDR.TwoCellAnchor(
-                    new XDR.FromMarker(
-                        new XDR.ColumnId(sx.ToString()),
-                        new XDR.ColumnOffset("0"),
-                        new XDR.RowId(sy.ToString()),
-                        new XDR.RowOffset("0")
-                    ),
-                    new XDR.ToMarker(
-                        new XDR.ColumnId((sx + sw).ToString()),
-                        new XDR.ColumnOffset("0"),
-                        new XDR.RowId((sy + sh).ToString()),
-                        new XDR.RowOffset("0")
-                    ),
-                    shape,
-                    new XDR.ClientData()
-                );
-
-                shpDrawingsPart.WorksheetDrawing.AppendChild(shpAnchor);
-                shpDrawingsPart.WorksheetDrawing.Save();
-
-                var shpAnchors = shpDrawingsPart.WorksheetDrawing.Elements<XDR.TwoCellAnchor>()
-                    .Where(a => a.Descendants<XDR.Shape>().Any()).ToList();
-                var shpIdx = shpAnchors.IndexOf(shpAnchor) + 1;
-
-                return $"/{shpSheetName}/shape[{shpIdx}]";
-            }
+                return AddShape(parentPath, type, position, properties);
 
             case "table" or "listobject":
-            {
-                var tblSegments = parentPath.TrimStart('/').Split('/', 2);
-                var tblSheetName = tblSegments[0];
-                var tblWorksheet = FindWorksheet(tblSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {tblSheetName}");
-
-                var rangeRef = (properties.GetValueOrDefault("ref") ?? properties.GetValueOrDefault("range")
-                    ?? throw new ArgumentException("Property 'ref' or 'range' is required for table")).ToUpperInvariant();
-
-                var existingTableIds = _doc.WorkbookPart!.WorksheetParts
-                    .SelectMany(wp => wp.TableDefinitionParts)
-                    .Select(tdp => tdp.Table?.Id?.Value ?? 0);
-                var tableId = existingTableIds.Any() ? existingTableIds.Max() + 1 : 1;
-
-                var tableName = properties.GetValueOrDefault("name", $"Table{tableId}");
-                var displayName = properties.GetValueOrDefault("displayName", tableName);
-                var styleName = properties.GetValueOrDefault("style", "TableStyleMedium2");
-                var hasHeader = !properties.TryGetValue("headerRow", out var hrVal) || IsTruthy(hrVal);
-                var hasTotalRow = properties.TryGetValue("totalRow", out var trVal) && IsTruthy(trVal);
-
-                var rangeParts = rangeRef.Split(':');
-                var (startCol, startRow) = ParseCellReference(rangeParts[0]);
-                var (endCol, endRow) = ParseCellReference(rangeParts[1]);
-                var startColIdx = ColumnNameToIndex(startCol);
-                var endColIdx = ColumnNameToIndex(endCol);
-                var colCount = endColIdx - startColIdx + 1;
-
-                string[] colNames;
-                if (properties.TryGetValue("columns", out var tblColsStr))
-                {
-                    var userColNames = tblColsStr.Split(',').Select(c => c.Trim()).ToArray();
-                    // Pad with default names if fewer columns provided than range requires
-                    colNames = new string[colCount];
-                    for (int i = 0; i < colCount; i++)
-                        colNames[i] = i < userColNames.Length ? userColNames[i] : $"Column{i + 1}";
-                }
-                else
-                {
-                    colNames = new string[colCount];
-                    if (hasHeader)
-                    {
-                        var tblSheetData = GetSheet(tblWorksheet).GetFirstChild<SheetData>();
-                        var headerRow = tblSheetData?.Elements<Row>().FirstOrDefault(r => r.RowIndex?.Value == (uint)startRow);
-                        for (int i = 0; i < colCount; i++)
-                        {
-                            var colLetter = IndexToColumnName(startColIdx + i);
-                            var cellRefStr = $"{colLetter}{startRow}";
-                            var headerCell = headerRow?.Elements<Cell>().FirstOrDefault(c => c.CellReference?.Value == cellRefStr);
-                            colNames[i] = (headerCell != null ? GetCellDisplayValue(headerCell) : null) ?? $"Column{i + 1}";
-                            if (string.IsNullOrEmpty(colNames[i]))
-                                colNames[i] = $"Column{i + 1}";
-                        }
-                    }
-                    else
-                    {
-                        for (int i = 0; i < colCount; i++)
-                            colNames[i] = $"Column{i + 1}";
-                    }
-                }
-
-                var tableDefPart = tblWorksheet.AddNewPart<TableDefinitionPart>();
-                var table = new Table
-                {
-                    Id = (uint)tableId,
-                    Name = tableName,
-                    DisplayName = displayName,
-                    Reference = rangeRef,
-                    TotalsRowShown = hasTotalRow
-                };
-                if (hasTotalRow)
-                    table.TotalsRowCount = 1;
-
-                table.AppendChild(new AutoFilter { Reference = rangeRef });
-
-                var tableColumns = new TableColumns { Count = (uint)colCount };
-                for (int i = 0; i < colCount; i++)
-                    tableColumns.AppendChild(new TableColumn { Id = (uint)(i + 1), Name = colNames[i] });
-                table.AppendChild(tableColumns);
-
-                table.AppendChild(new TableStyleInfo
-                {
-                    Name = styleName,
-                    ShowFirstColumn = false,
-                    ShowLastColumn = false,
-                    ShowRowStripes = true,
-                    ShowColumnStripes = false
-                });
-
-                // Generate total row content in SheetData when totalRow is enabled
-                if (hasTotalRow)
-                {
-                    var tblSheetData = GetSheet(tblWorksheet).GetFirstChild<SheetData>()
-                        ?? GetSheet(tblWorksheet).AppendChild(new SheetData());
-                    var totalRowIdx = (uint)endRow;
-                    var totalRow = tblSheetData.Elements<Row>()
-                        .FirstOrDefault(r => r.RowIndex?.Value == totalRowIdx);
-                    if (totalRow == null)
-                    {
-                        totalRow = new Row { RowIndex = totalRowIdx };
-                        // Insert in correct position
-                        var lastRow = tblSheetData.Elements<Row>()
-                            .Where(r => r.RowIndex?.Value < totalRowIdx)
-                            .LastOrDefault();
-                        if (lastRow != null)
-                            lastRow.InsertAfterSelf(totalRow);
-                        else
-                            tblSheetData.AppendChild(totalRow);
-                    }
-
-                    var tblCols = tableColumns.Elements<TableColumn>().ToList();
-                    for (int ci = 0; ci < tblCols.Count; ci++)
-                    {
-                        var colLetter = IndexToColumnName(startColIdx + ci);
-                        var cellRefStr = $"{colLetter}{totalRowIdx}";
-                        var existingCell = totalRow.Elements<Cell>()
-                            .FirstOrDefault(c => c.CellReference?.Value == cellRefStr);
-                        if (existingCell == null)
-                        {
-                            existingCell = new Cell { CellReference = cellRefStr };
-                            totalRow.AppendChild(existingCell);
-                        }
-
-                        if (ci == 0)
-                        {
-                            // First column: label "Total"
-                            tblCols[ci].TotalsRowLabel = "Total";
-                            existingCell.CellValue = new CellValue("Total");
-                            existingCell.DataType = new EnumValue<CellValues>(CellValues.String);
-                        }
-                        else
-                        {
-                            // Other columns: SUBTOTAL(109, range) formula for SUM
-                            tblCols[ci].TotalsRowFunction = TotalsRowFunctionValues.Sum;
-                            var dataStartRow = hasHeader ? startRow + 1 : startRow;
-                            var dataEndRow = (int)totalRowIdx - 1;
-                            var formulaRange = $"{colLetter}{dataStartRow}:{colLetter}{dataEndRow}";
-                            existingCell.CellFormula = new CellFormula($"SUBTOTAL(109,{formulaRange})");
-                        }
-                    }
-                }
-
-                tableDefPart.Table = table;
-                tableDefPart.Table.Save();
-
-                var tblWs = GetSheet(tblWorksheet);
-                var tableParts = tblWs.GetFirstChild<TableParts>();
-                if (tableParts == null)
-                {
-                    tableParts = new TableParts();
-                    tblWs.AppendChild(tableParts);
-                }
-                tableParts.AppendChild(new TablePart { Id = tblWorksheet.GetIdOfPart(tableDefPart) });
-                tableParts.Count = (uint)tableParts.Elements<TablePart>().Count();
-                tblWs.Save();
-
-                var tblIdx = tblWorksheet.TableDefinitionParts.ToList().IndexOf(tableDefPart) + 1;
-                return $"/{tblSheetName}/table[{tblIdx}]";
-            }
+                return AddTable(parentPath, type, position, properties);
 
             case "chart":
-            {
-                var chartSegments = parentPath.TrimStart('/').Split('/', 2);
-                var chartSheetName = chartSegments[0];
-                var chartWorksheet = FindWorksheet(chartSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {chartSheetName}");
+                return AddChart(parentPath, type, position, properties);
 
-                // Parse chart data
-                var chartType = properties.FirstOrDefault(kv =>
-                    kv.Key.Equals("charttype", StringComparison.OrdinalIgnoreCase)
-                    || kv.Key.Equals("type", StringComparison.OrdinalIgnoreCase)).Value
-                    ?? "column";
-                var chartTitle = properties.GetValueOrDefault("title");
-
-                // Support dataRange: read cell data from worksheet and build series with cell references
-                string[]? categories;
-                List<(string name, double[] values)> seriesData;
-                var dataRangeStr = properties.FirstOrDefault(kv =>
-                    kv.Key.Equals("datarange", StringComparison.OrdinalIgnoreCase)
-                    || kv.Key.Equals("dataRange", StringComparison.OrdinalIgnoreCase)
-                    || kv.Key.Equals("range", StringComparison.OrdinalIgnoreCase)).Value;
-                if (!string.IsNullOrEmpty(dataRangeStr))
-                {
-                    (seriesData, categories) = ParseDataRangeForChart(dataRangeStr, chartSheetName, properties);
-                }
-                else
-                {
-                    categories = ChartHelper.ParseCategories(properties);
-                    seriesData = ChartHelper.ParseSeriesData(properties);
-                }
-
-                if (seriesData.Count == 0)
-                    throw new ArgumentException("Chart requires data. Use: data=\"Series1:1,2,3;Series2:4,5,6\" " +
-                        "or dataRange=\"Sheet1!A1:D5\" or series1=\"Revenue:100,200,300\"");
-
-                // Create DrawingsPart if needed
-                var drawingsPart = chartWorksheet.DrawingsPart
-                    ?? chartWorksheet.AddNewPart<DrawingsPart>();
-
-                if (drawingsPart.WorksheetDrawing == null)
-                {
-                    drawingsPart.WorksheetDrawing = new XDR.WorksheetDrawing();
-                    drawingsPart.WorksheetDrawing.Save();
-
-                    if (GetSheet(chartWorksheet).GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.Drawing>() == null)
-                    {
-                        var drawingRelId = chartWorksheet.GetIdOfPart(drawingsPart);
-                        GetSheet(chartWorksheet).Append(
-                            new DocumentFormat.OpenXml.Spreadsheet.Drawing { Id = drawingRelId });
-                        SaveWorksheet(chartWorksheet);
-                    }
-                }
-
-                // Position via TwoCellAnchor (shared by both standard and extended charts)
-                var fromCol = properties.TryGetValue("x", out var xStr) ? ParseHelpers.SafeParseInt(xStr, "x") : 0;
-                var fromRow = properties.TryGetValue("y", out var yStr) ? ParseHelpers.SafeParseInt(yStr, "y") : 0;
-                var toCol = properties.TryGetValue("width", out var wStr) ? fromCol + ParseHelpers.SafeParseInt(wStr, "width") : fromCol + 8;
-                var toRow = properties.TryGetValue("height", out var hStr) ? fromRow + ParseHelpers.SafeParseInt(hStr, "height") : fromRow + 15;
-
-                // Extended chart types (cx:chart) — funnel, treemap, sunburst, boxWhisker, histogram
-                if (ChartExBuilder.IsExtendedChartType(chartType))
-                {
-                    var cxChartSpace = ChartExBuilder.BuildExtendedChartSpace(
-                        chartType, chartTitle, categories, seriesData, properties);
-                    var extChartPart = drawingsPart.AddNewPart<ExtendedChartPart>();
-                    extChartPart.ChartSpace = cxChartSpace;
-                    extChartPart.ChartSpace.Save();
-
-                    var cxRelId = drawingsPart.GetIdOfPart(extChartPart);
-                    var cxAnchor = new XDR.TwoCellAnchor();
-                    cxAnchor.Append(new XDR.FromMarker(
-                        new XDR.ColumnId(fromCol.ToString()),
-                        new XDR.ColumnOffset("0"),
-                        new XDR.RowId(fromRow.ToString()),
-                        new XDR.RowOffset("0")));
-                    cxAnchor.Append(new XDR.ToMarker(
-                        new XDR.ColumnId(toCol.ToString()),
-                        new XDR.ColumnOffset("0"),
-                        new XDR.RowId(toRow.ToString()),
-                        new XDR.RowOffset("0")));
-
-                    var cxGraphicFrame = new XDR.GraphicFrame();
-                    var cxExistingIds = drawingsPart.WorksheetDrawing.Descendants<XDR.NonVisualDrawingProperties>()
-                        .Select(p => (uint?)p.Id?.Value ?? 0u)
-                        .DefaultIfEmpty(1u)
-                        .Max();
-                    var cxFrameId = cxExistingIds + 1;
-                    cxGraphicFrame.NonVisualGraphicFrameProperties = new XDR.NonVisualGraphicFrameProperties(
-                        new XDR.NonVisualDrawingProperties
-                        {
-                            Id = cxFrameId,
-                            Name = chartTitle ?? "Chart"
-                        },
-                        new XDR.NonVisualGraphicFrameDrawingProperties()
-                    );
-                    cxGraphicFrame.Transform = new XDR.Transform(
-                        new Drawing.Offset { X = 0, Y = 0 },
-                        new Drawing.Extents { Cx = 0, Cy = 0 }
-                    );
-
-                    var cxChartRef = new DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing.RelId { Id = cxRelId };
-                    cxGraphicFrame.Append(new Drawing.Graphic(
-                        new Drawing.GraphicData(cxChartRef)
-                        {
-                            Uri = "http://schemas.microsoft.com/office/drawing/2014/chartex"
-                        }
-                    ));
-
-                    cxAnchor.Append(cxGraphicFrame);
-                    cxAnchor.Append(new XDR.ClientData());
-                    drawingsPart.WorksheetDrawing.Append(cxAnchor);
-                    drawingsPart.WorksheetDrawing.Save();
-
-                    // Count all charts (both regular and extended)
-                    var totalCharts = CountExcelCharts(drawingsPart);
-                    return $"/{chartSheetName}/chart[{totalCharts}]";
-                }
-
-                // Build chart content BEFORE adding part (invalid type throws, must not leave empty part)
-                var chartSpace = ChartHelper.BuildChartSpace(chartType, chartTitle, categories, seriesData, properties);
-                var chartPart = drawingsPart.AddNewPart<ChartPart>();
-                chartPart.ChartSpace = chartSpace;
-                chartPart.ChartSpace.Save();
-
-                // Apply deferred properties (axisTitle, dataLabels, etc.) via SetChartProperties
-                var deferredProps = properties
-                    .Where(kv => ChartHelper.DeferredAddKeys.Contains(kv.Key))
-                    .ToDictionary(kv => kv.Key, kv => kv.Value);
-                if (deferredProps.Count > 0)
-                    ChartHelper.SetChartProperties(chartPart, deferredProps);
-
-                var anchor = new XDR.TwoCellAnchor();
-                anchor.Append(new XDR.FromMarker(
-                    new XDR.ColumnId(fromCol.ToString()),
-                    new XDR.ColumnOffset("0"),
-                    new XDR.RowId(fromRow.ToString()),
-                    new XDR.RowOffset("0")));
-                anchor.Append(new XDR.ToMarker(
-                    new XDR.ColumnId(toCol.ToString()),
-                    new XDR.ColumnOffset("0"),
-                    new XDR.RowId(toRow.ToString()),
-                    new XDR.RowOffset("0")));
-
-                var chartRelId = drawingsPart.GetIdOfPart(chartPart);
-                var graphicFrame = new XDR.GraphicFrame();
-                // Compute a unique cNvPr ID: use max existing ID + 1 to avoid duplicates after deletion
-                var existingIds = drawingsPart.WorksheetDrawing.Descendants<XDR.NonVisualDrawingProperties>()
-                    .Select(p => (uint?)p.Id?.Value ?? 0u)
-                    .DefaultIfEmpty(1u)
-                    .Max();
-                var chartFrameId = existingIds + 1;
-                graphicFrame.NonVisualGraphicFrameProperties = new XDR.NonVisualGraphicFrameProperties(
-                    new XDR.NonVisualDrawingProperties
-                    {
-                        Id = chartFrameId,
-                        Name = chartTitle ?? "Chart"
-                    },
-                    new XDR.NonVisualGraphicFrameDrawingProperties()
-                );
-                graphicFrame.Transform = new XDR.Transform(
-                    new Drawing.Offset { X = 0, Y = 0 },
-                    new Drawing.Extents { Cx = 0, Cy = 0 }
-                );
-
-                var chartRef = new C.ChartReference { Id = chartRelId };
-                graphicFrame.Append(new Drawing.Graphic(
-                    new Drawing.GraphicData(chartRef)
-                    {
-                        Uri = "http://schemas.openxmlformats.org/drawingml/2006/chart"
-                    }
-                ));
-
-                anchor.Append(graphicFrame);
-                anchor.Append(new XDR.ClientData());
-                drawingsPart.WorksheetDrawing.Append(anchor);
-                drawingsPart.WorksheetDrawing.Save();
-
-                // Legend is already handled inside BuildChartSpace
-
-                var chartIdx = CountExcelCharts(drawingsPart);
-                return $"/{chartSheetName}/chart[{chartIdx}]";
-            }
+            // BUG-002: schema chart-series.json declares operations.add on a
+            // chart parent, but only pptx had a dispatch entry ("series").
+            // Accept the schema element name and the pptx alias alike.
+            case "series" or "chart-series" or "chartseries":
+                return AddChartSeries(parentPath, properties);
 
             case "pivottable" or "pivot":
-            {
-                var ptSegments = parentPath.TrimStart('/').Split('/', 2);
-                var ptSheetName = ptSegments[0];
-                var ptWorksheet = FindWorksheet(ptSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {ptSheetName}");
+                return AddPivotTable(parentPath, type, position, properties);
 
-                // Source: "Sheet1!A1:D100" or "A1:D100" (same sheet)
-                var sourceSpec = properties.GetValueOrDefault("source", "")
-                    ?? properties.GetValueOrDefault("src", "")
-                    ?? throw new ArgumentException("pivottable requires 'source' property (e.g. source=Sheet1!A1:D100)");
-                if (string.IsNullOrEmpty(sourceSpec))
-                    throw new ArgumentException("pivottable requires 'source' property (e.g. source=Sheet1!A1:D100)");
-
-                string sourceSheetName;
-                string sourceRef;
-                if (sourceSpec.Contains('!'))
-                {
-                    var srcParts = sourceSpec.Split('!', 2);
-                    sourceSheetName = srcParts[0].Trim('\'', '"');
-                    sourceRef = srcParts[1];
-                }
-                else
-                {
-                    sourceSheetName = ptSheetName;
-                    sourceRef = sourceSpec;
-                }
-
-                var sourceWorksheet = FindWorksheet(sourceSheetName)
-                    ?? throw new ArgumentException($"Source sheet not found: {sourceSheetName}");
-
-                var ptPosition = properties.GetValueOrDefault("position", "")
-                    ?? properties.GetValueOrDefault("pos", "");
-                if (string.IsNullOrEmpty(ptPosition))
-                {
-                    // Auto-position: place after the source data range
-                    var rangeEnd = sourceRef.Split(':').Last();
-                    var colEndMatch = System.Text.RegularExpressions.Regex.Match(rangeEnd, @"([A-Za-z]+)");
-                    var nextCol = colEndMatch.Success ? IndexToColumnName(ColumnNameToIndex(colEndMatch.Value.ToUpperInvariant()) + 2) : "H";
-                    ptPosition = $"{nextCol}1";
-                }
-
-                var ptIdx = PivotTableHelper.CreatePivotTable(
-                    _doc.WorkbookPart!, ptWorksheet, sourceWorksheet,
-                    sourceSheetName, sourceRef, ptPosition, properties);
-
-                return $"/{ptSheetName}/pivottable[{ptIdx}]";
-            }
+            case "slicer":
+                return AddSlicer(parentPath, type, position, properties);
 
             case "col" or "column":
-            {
-                var colSegments = parentPath.TrimStart('/').Split('/', 2);
-                var colSheetName = colSegments[0];
-                var colWorksheet = FindWorksheet(colSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {colSheetName}");
-
-                // Determine insert column: index (1-based) or name from properties
-                string insertColName;
-                if (properties.TryGetValue("name", out var colNameProp) && !string.IsNullOrEmpty(colNameProp))
-                {
-                    insertColName = colNameProp.ToUpperInvariant();
-                }
-                else if (index.HasValue)
-                {
-                    insertColName = IndexToColumnName(index.Value);
-                }
-                else
-                {
-                    // Append after last used column
-                    var ws = GetSheet(colWorksheet);
-                    var sheetDataForCol = ws.GetFirstChild<SheetData>();
-                    int maxColIdx = 0;
-                    if (sheetDataForCol != null)
-                    {
-                        foreach (var r in sheetDataForCol.Elements<Row>())
-                            foreach (var cx in r.Elements<Cell>())
-                            {
-                                if (cx.CellReference?.Value == null) continue;
-                                var (c, _) = ParseCellReference(cx.CellReference.Value);
-                                var ci = ColumnNameToIndex(c);
-                                if (ci > maxColIdx) maxColIdx = ci;
-                            }
-                    }
-                    insertColName = IndexToColumnName(maxColIdx + 1);
-                }
-
-                var insertColIdx = ColumnNameToIndex(insertColName);
-
-                // Shift existing columns right if needed
-                var colSheetData = GetSheet(colWorksheet).GetFirstChild<SheetData>();
-                bool colNeedsShift = colSheetData != null && colSheetData.Elements<Row>()
-                    .Any(r => r.Elements<Cell>().Any(c =>
-                    {
-                        if (c.CellReference?.Value == null) return false;
-                        var (col, _) = ParseCellReference(c.CellReference.Value);
-                        return ColumnNameToIndex(col) >= insertColIdx;
-                    }));
-                if (colNeedsShift)
-                    ShiftColumnsRight(colWorksheet, insertColIdx);
-
-                // Optionally set column width
-                if (properties.TryGetValue("width", out var widthStr) && double.TryParse(widthStr, out var width))
-                {
-                    var ws = GetSheet(colWorksheet);
-                    var columns = ws.GetFirstChild<Columns>() ?? ws.PrependChild(new Columns());
-                    columns.AppendChild(new Column
-                    {
-                        Min = (uint)insertColIdx,
-                        Max = (uint)insertColIdx,
-                        Width = width,
-                        CustomWidth = true
-                    });
-                }
-
-                SaveWorksheet(colWorksheet);
-                return $"/{colSheetName}/col[{insertColName}]";
-            }
+                return AddCol(parentPath, type, position, properties);
 
             case "pagebreak":
-            {
-                // Route to rowbreak or colbreak based on properties
-                if (properties.ContainsKey("col") || properties.ContainsKey("column"))
-                    return Add(parentPath, "colbreak", position, properties);
-                return Add(parentPath, "rowbreak", position, properties);
-            }
+                return AddPageBreak(parentPath, type, position, properties);
 
             case "rowbreak":
-            {
-                var rbSegments = parentPath.TrimStart('/').Split('/', 2);
-                var rbSheetName = rbSegments[0];
-                var rbWorksheet = FindWorksheet(rbSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {rbSheetName}");
-                var rbWs = GetSheet(rbWorksheet);
-
-                var rbRowIdx = uint.Parse(properties.GetValueOrDefault("row") ?? properties.GetValueOrDefault("index")
-                    ?? throw new ArgumentException("'row' property is required for rowbreak"));
-
-                var rowBreaks = rbWs.GetFirstChild<RowBreaks>();
-                if (rowBreaks == null)
-                {
-                    rowBreaks = new RowBreaks();
-                    rbWs.AppendChild(rowBreaks);
-                }
-                rowBreaks.AppendChild(new Break
-                {
-                    Id = rbRowIdx,
-                    Max = 16383u,
-                    ManualPageBreak = true
-                });
-                rowBreaks.Count = (uint)rowBreaks.Elements<Break>().Count();
-                rowBreaks.ManualBreakCount = rowBreaks.Count;
-                SaveWorksheet(rbWorksheet);
-
-                var rbIdx = rowBreaks.Elements<Break>().ToList()
-                    .FindIndex(b => b.Id?.Value == rbRowIdx) + 1;
-                return $"/{rbSheetName}/rowbreak[{rbIdx}]";
-            }
+                return AddRowBreak(parentPath, type, position, properties);
 
             case "colbreak":
-            {
-                var cbSegments = parentPath.TrimStart('/').Split('/', 2);
-                var cbSheetName = cbSegments[0];
-                var cbWorksheet = FindWorksheet(cbSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {cbSheetName}");
-                var cbWs = GetSheet(cbWorksheet);
-
-                var cbColStr = properties.GetValueOrDefault("col") ?? properties.GetValueOrDefault("column")
-                    ?? properties.GetValueOrDefault("index")
-                    ?? throw new ArgumentException("'col' property is required for colbreak");
-                // Accept both numeric index (e.g. "3") and column letter (e.g. "C")
-                var cbColIdx = uint.TryParse(cbColStr, out var cbNumVal)
-                    ? cbNumVal
-                    : (uint)ColumnNameToIndex(cbColStr.ToUpperInvariant());
-
-                var colBreaks = cbWs.GetFirstChild<ColumnBreaks>();
-                if (colBreaks == null)
-                {
-                    colBreaks = new ColumnBreaks();
-                    cbWs.AppendChild(colBreaks);
-                }
-                colBreaks.AppendChild(new Break
-                {
-                    Id = cbColIdx,
-                    Max = 1048575u,
-                    ManualPageBreak = true
-                });
-                colBreaks.Count = (uint)colBreaks.Elements<Break>().Count();
-                colBreaks.ManualBreakCount = colBreaks.Count;
-                SaveWorksheet(cbWorksheet);
-
-                var cbBrkIdx = colBreaks.Elements<Break>().ToList()
-                    .FindIndex(b => b.Id?.Value == cbColIdx) + 1;
-                return $"/{cbSheetName}/colbreak[{cbBrkIdx}]";
-            }
+                return AddColBreak(parentPath, type, position, properties);
 
             case "run":
-            {
-                // Add a rich text run to a cell: parentPath = /SheetName/CellRef
-                var runSegments = parentPath.TrimStart('/').Split('/', 2);
-                if (runSegments.Length < 2)
-                    throw new ArgumentException("Parent path must be /SheetName/CellRef for adding a run");
-                var runSheetName = runSegments[0];
-                var runCellRef = runSegments[1].ToUpperInvariant();
-                var runWorksheet = FindWorksheet(runSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {runSheetName}");
-                var runSheetData = GetSheet(runWorksheet).GetFirstChild<SheetData>()
-                    ?? GetSheet(runWorksheet).AppendChild(new SheetData());
-                var runCell = FindOrCreateCell(runSheetData, runCellRef);
-
-                var runWbPart = _doc.WorkbookPart
-                    ?? throw new InvalidOperationException("Workbook not found");
-                var runSstPart = runWbPart.GetPartsOfType<SharedStringTablePart>().FirstOrDefault()
-                    ?? runWbPart.AddNewPart<SharedStringTablePart>();
-                SharedStringTable runSst;
-                if (runSstPart.SharedStringTable != null)
-                    runSst = runSstPart.SharedStringTable;
-                else
-                {
-                    runSst = new SharedStringTable();
-                    runSstPart.SharedStringTable = runSst;
-                }
-
-                SharedStringItem? runSsi = null;
-                if (runCell.DataType?.Value == CellValues.SharedString &&
-                    int.TryParse(runCell.CellValue?.Text, out var existingSstIdx))
-                {
-                    runSsi = runSst.Elements<SharedStringItem>().ElementAtOrDefault(existingSstIdx);
-                }
-                if (runSsi == null)
-                {
-                    runSsi = new SharedStringItem();
-                    runSst.AppendChild(runSsi);
-                    var newSstIdx = runSst.Elements<SharedStringItem>().Count() - 1;
-                    runCell.CellValue = new CellValue(newSstIdx.ToString());
-                    runCell.DataType = new EnumValue<CellValues>(CellValues.SharedString);
-                }
-
-                var newRun = new Run();
-                var newRunProps = new RunProperties();
-                var runText = properties.GetValueOrDefault("text", "");
-
-                foreach (var (rKey, rVal) in properties)
-                {
-                    switch (rKey.ToLowerInvariant())
-                    {
-                        case "bold" when ParseHelpers.IsTruthy(rVal):
-                            newRunProps.AppendChild(new Bold()); break;
-                        case "italic" when ParseHelpers.IsTruthy(rVal):
-                            newRunProps.AppendChild(new Italic()); break;
-                        case "strike" when ParseHelpers.IsTruthy(rVal):
-                            newRunProps.AppendChild(new Strike()); break;
-                        case "underline":
-                            if (!string.IsNullOrEmpty(rVal) && rVal != "false" && rVal != "none")
-                            {
-                                var ul = new Underline();
-                                if (rVal.ToLowerInvariant() == "double") ul.Val = UnderlineValues.Double;
-                                newRunProps.AppendChild(ul);
-                            }
-                            break;
-                        case "superscript" when ParseHelpers.IsTruthy(rVal):
-                            newRunProps.AppendChild(new VerticalTextAlignment { Val = VerticalAlignmentRunValues.Superscript }); break;
-                        case "subscript" when ParseHelpers.IsTruthy(rVal):
-                            newRunProps.AppendChild(new VerticalTextAlignment { Val = VerticalAlignmentRunValues.Subscript }); break;
-                        case "size" or "fontsize":
-                            if (double.TryParse(rVal.TrimEnd('p', 't'), out var runSz))
-                                newRunProps.AppendChild(new FontSize { Val = runSz });
-                            break;
-                        case "color":
-                            newRunProps.AppendChild(new Color { Rgb = new HexBinaryValue(ParseHelpers.NormalizeArgbColor(rVal)) });
-                            break;
-                        case "font" or "fontname":
-                            newRunProps.AppendChild(new RunFont { Val = rVal }); break;
-                    }
-                }
-                if (newRunProps.HasChildren)
-                {
-                    ReorderRunProperties(newRunProps);
-                    newRun.AppendChild(newRunProps);
-                }
-                newRun.AppendChild(new Text(runText) { Space = SpaceProcessingModeValues.Preserve });
-                runSsi.AppendChild(newRun);
-
-                runSst.Count = (uint)runSst.Elements<SharedStringItem>().Count();
-                runSst.UniqueCount = runSst.Count;
-
-                SaveWorksheet(runWorksheet);
-                var runIndex = runSsi.Elements<Run>().Count();
-                return $"/{runSheetName}/{runCellRef}/run[{runIndex}]";
-            }
+                return AddRun(parentPath, type, position, properties);
 
             case "topn":
             case "aboveaverage":
@@ -1773,327 +154,20 @@ public partial class ExcelHandler
             case "duplicatevalues":
             case "containstext":
             case "dateoccurring":
-            {
-                var cfNewSegments = parentPath.TrimStart('/').Split('/', 2);
-                var cfNewSheetName = cfNewSegments[0];
-                var cfNewWorksheet = FindWorksheet(cfNewSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {cfNewSheetName}");
-                var cfNewSqref = properties.GetValueOrDefault("sqref") ?? properties.GetValueOrDefault("range") ?? properties.GetValueOrDefault("ref", "A1:A10");
-                var cfNewPriority = NextCfPriority(GetSheet(cfNewWorksheet));
-
-                ConditionalFormattingRule cfNewRule;
-                var typeLower = type.ToLowerInvariant();
-
-                switch (typeLower)
-                {
-                    case "topn":
-                    {
-                        var rank = uint.TryParse(properties.GetValueOrDefault("rank", "10"), out var r) ? r : 10u;
-                        var percent = ParseHelpers.IsTruthy(properties.GetValueOrDefault("percent", "false"));
-                        var bottom = ParseHelpers.IsTruthy(properties.GetValueOrDefault("bottom", "false"));
-                        cfNewRule = new ConditionalFormattingRule
-                        {
-                            Type = ConditionalFormatValues.Top10,
-                            Priority = cfNewPriority,
-                            Rank = rank,
-                            Percent = percent ? true : null,
-                            Bottom = bottom ? true : null
-                        };
-                        break;
-                    }
-                    case "aboveaverage":
-                    {
-                        var aboveBelow = properties.GetValueOrDefault("above", "true");
-                        cfNewRule = new ConditionalFormattingRule
-                        {
-                            Type = ConditionalFormatValues.AboveAverage,
-                            Priority = cfNewPriority,
-                            AboveAverage = ParseHelpers.IsTruthy(aboveBelow) ? null : false
-                        };
-                        break;
-                    }
-                    case "uniquevalues":
-                    {
-                        cfNewRule = new ConditionalFormattingRule
-                        {
-                            Type = ConditionalFormatValues.UniqueValues,
-                            Priority = cfNewPriority
-                        };
-                        break;
-                    }
-                    case "duplicatevalues":
-                    {
-                        cfNewRule = new ConditionalFormattingRule
-                        {
-                            Type = ConditionalFormatValues.DuplicateValues,
-                            Priority = cfNewPriority
-                        };
-                        break;
-                    }
-                    case "containstext":
-                    {
-                        var text = properties.GetValueOrDefault("text", "");
-                        cfNewRule = new ConditionalFormattingRule
-                        {
-                            Type = ConditionalFormatValues.ContainsText,
-                            Priority = cfNewPriority,
-                            Text = text,
-                            Operator = ConditionalFormattingOperatorValues.ContainsText
-                        };
-                        var firstCell = cfNewSqref.Split(':')[0].TrimStart('$');
-                        cfNewRule.AppendChild(new Formula($"NOT(ISERROR(SEARCH(\"{text}\",{firstCell})))"));
-                        break;
-                    }
-                    case "dateoccurring":
-                    {
-                        var period = properties.GetValueOrDefault("period", "today");
-                        var normalizedPeriod = period.ToLowerInvariant() switch
-                        {
-                            "today" => "today",
-                            "yesterday" => "yesterday",
-                            "tomorrow" => "tomorrow",
-                            "last7days" => "last7Days",
-                            "thisweek" => "thisWeek",
-                            "lastweek" => "lastWeek",
-                            "nextweek" => "nextWeek",
-                            "thismonth" => "thisMonth",
-                            "lastmonth" => "lastMonth",
-                            "nextmonth" => "nextMonth",
-                            _ => period
-                        };
-                        cfNewRule = new ConditionalFormattingRule
-                        {
-                            Type = ConditionalFormatValues.TimePeriod,
-                            Priority = cfNewPriority,
-                            TimePeriod = new EnumValue<TimePeriodValues>(normalizedPeriod switch
-                            {
-                                "today" => TimePeriodValues.Today,
-                                "yesterday" => TimePeriodValues.Yesterday,
-                                "tomorrow" => TimePeriodValues.Tomorrow,
-                                "last7Days" => TimePeriodValues.Last7Days,
-                                "thisWeek" => TimePeriodValues.ThisWeek,
-                                "lastWeek" => TimePeriodValues.LastWeek,
-                                "nextWeek" => TimePeriodValues.NextWeek,
-                                "thisMonth" => TimePeriodValues.ThisMonth,
-                                "lastMonth" => TimePeriodValues.LastMonth,
-                                "nextMonth" => TimePeriodValues.NextMonth,
-                                _ => TimePeriodValues.Today
-                            })
-                        };
-                        break;
-                    }
-                    default:
-                        throw new ArgumentException($"Unsupported CF type: {typeLower}");
-                }
-
-                // Build DXF formatting if fill/font properties are provided
-                var cfNewDxf = new DifferentialFormat();
-                bool cfNewHasDxf = false;
-                if (properties.TryGetValue("font.color", out var cfNewFontColor))
-                {
-                    var normalizedFontColor = ParseHelpers.NormalizeArgbColor(cfNewFontColor);
-                    cfNewDxf.Append(new Font(new DocumentFormat.OpenXml.Spreadsheet.Color { Rgb = normalizedFontColor }));
-                    cfNewHasDxf = true;
-                }
-                else if (properties.TryGetValue("font.bold", out var cfNewFontBold) && IsTruthy(cfNewFontBold))
-                {
-                    cfNewDxf.Append(new Font(new Bold()));
-                    cfNewHasDxf = true;
-                }
-                if (properties.TryGetValue("fill", out var cfNewFillColor))
-                {
-                    var normalizedFillColor = ParseHelpers.NormalizeArgbColor(cfNewFillColor);
-                    cfNewDxf.Append(new Fill(new PatternFill(
-                        new BackgroundColor { Rgb = normalizedFillColor })
-                    { PatternType = PatternValues.Solid }));
-                    cfNewHasDxf = true;
-                }
-                if (properties.TryGetValue("font.color", out _) && properties.TryGetValue("font.bold", out var cfNewFb2) && IsTruthy(cfNewFb2))
-                {
-                    var existingFont = cfNewDxf.GetFirstChild<Font>();
-                    existingFont?.Append(new Bold());
-                }
-
-                if (cfNewHasDxf)
-                {
-                    var cfNewWbPart = _doc.WorkbookPart
-                        ?? throw new InvalidOperationException("Workbook not found");
-                    var cfNewStyleMgr = new ExcelStyleManager(cfNewWbPart);
-                    cfNewStyleMgr.EnsureStylesPart();
-                    var cfNewStylesheet = cfNewWbPart.WorkbookStylesPart!.Stylesheet!;
-                    var cfNewDxfs = cfNewStylesheet.GetFirstChild<DifferentialFormats>();
-                    if (cfNewDxfs == null)
-                    {
-                        cfNewDxfs = new DifferentialFormats { Count = 0 };
-                        cfNewStylesheet.Append(cfNewDxfs);
-                    }
-                    cfNewDxfs.Append(cfNewDxf);
-                    cfNewDxfs.Count = (uint)cfNewDxfs.Elements<DifferentialFormat>().Count();
-                    cfNewStylesheet.Save();
-                    cfNewRule.FormatId = cfNewDxfs.Count!.Value - 1;
-                }
-
-                var cfNewFormatting = new ConditionalFormatting(cfNewRule)
-                {
-                    SequenceOfReferences = new ListValue<StringValue>(
-                        cfNewSqref.Split(' ').Select(s => new StringValue(s)))
-                };
-
-                var cfNewWs = GetSheet(cfNewWorksheet);
-                InsertConditionalFormatting(cfNewWs, cfNewFormatting);
-
-                SaveWorksheet(cfNewWorksheet);
-                var cfNewCount = cfNewWs.Elements<ConditionalFormatting>().Count();
-                return $"/{cfNewSheetName}/cf[{cfNewCount}]";
-            }
+            case "cfextended":
+                return AddCfExtended(parentPath, type, position, properties);
 
             case "sparkline":
-            {
-                var spkSegments = parentPath.TrimStart('/').Split('/', 2);
-                var spkSheetName = spkSegments[0];
-                var spkWorksheet = FindWorksheet(spkSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {spkSheetName}");
-
-                var spkCell = properties.GetValueOrDefault("cell")
-                    ?? throw new ArgumentException("Sparkline requires 'cell' property (e.g. F1)");
-                var spkRange = properties.GetValueOrDefault("range")
-                    ?? properties.GetValueOrDefault("data")
-                    ?? throw new ArgumentException("Sparkline requires 'range' (or 'data') property (e.g. A1:E1)");
-
-                // Determine sparkline type
-                var spkTypeStr = properties.GetValueOrDefault("type", "line").ToLowerInvariant();
-                var spkType = spkTypeStr switch
-                {
-                    "column" => X14.SparklineTypeValues.Column,
-                    "stacked" => X14.SparklineTypeValues.Stacked,
-                    _ => X14.SparklineTypeValues.Line
-                };
-
-                // Build the SparklineGroup
-                var spkGroup = new X14.SparklineGroup();
-                // Only set Type attribute for non-line (line is default in OOXML)
-                if (spkType != X14.SparklineTypeValues.Line)
-                    spkGroup.Type = spkType;
-
-                // Series color
-                var spkColor = properties.GetValueOrDefault("color", "4472C4");
-                spkGroup.SeriesColor = new X14.SeriesColor { Rgb = ParseHelpers.NormalizeArgbColor(spkColor) };
-
-                // Negative color
-                if (properties.TryGetValue("negativecolor", out var negColor))
-                    spkGroup.NegativeColor = new X14.NegativeColor { Rgb = ParseHelpers.NormalizeArgbColor(negColor) };
-
-                // Boolean flags
-                if (properties.TryGetValue("markers", out var markersVal) && ParseHelpers.IsTruthy(markersVal))
-                    spkGroup.Markers = true;
-                if (properties.TryGetValue("highpoint", out var highVal) && ParseHelpers.IsTruthy(highVal))
-                    spkGroup.High = true;
-                if (properties.TryGetValue("lowpoint", out var lowVal) && ParseHelpers.IsTruthy(lowVal))
-                    spkGroup.Low = true;
-                if (properties.TryGetValue("firstpoint", out var firstVal) && ParseHelpers.IsTruthy(firstVal))
-                    spkGroup.First = true;
-                if (properties.TryGetValue("lastpoint", out var lastVal) && ParseHelpers.IsTruthy(lastVal))
-                    spkGroup.Last = true;
-                if (properties.TryGetValue("negative", out var negVal) && ParseHelpers.IsTruthy(negVal))
-                    spkGroup.Negative = true;
-
-                // Marker colors
-                if (properties.TryGetValue("highmarkercolor", out var highMC))
-                    spkGroup.HighMarkerColor = new X14.HighMarkerColor { Rgb = ParseHelpers.NormalizeArgbColor(highMC) };
-                if (properties.TryGetValue("lowmarkercolor", out var lowMC))
-                    spkGroup.LowMarkerColor = new X14.LowMarkerColor { Rgb = ParseHelpers.NormalizeArgbColor(lowMC) };
-                if (properties.TryGetValue("firstmarkercolor", out var firstMC))
-                    spkGroup.FirstMarkerColor = new X14.FirstMarkerColor { Rgb = ParseHelpers.NormalizeArgbColor(firstMC) };
-                if (properties.TryGetValue("lastmarkercolor", out var lastMC))
-                    spkGroup.LastMarkerColor = new X14.LastMarkerColor { Rgb = ParseHelpers.NormalizeArgbColor(lastMC) };
-                if (properties.TryGetValue("markerscolor", out var markersMC))
-                    spkGroup.MarkersColor = new X14.MarkersColor { Rgb = ParseHelpers.NormalizeArgbColor(markersMC) };
-
-                // Line weight
-                if (properties.TryGetValue("lineweight", out var lwVal) && double.TryParse(lwVal, out var lw))
-                    spkGroup.LineWeight = lw;
-
-                // Build the Sparkline element
-                // Ensure range includes sheet reference
-                var spkFormulaRef = spkRange.Contains('!') ? spkRange : $"{spkSheetName}!{spkRange}";
-                var sparkline = new X14.Sparkline
-                {
-                    Formula = new DocumentFormat.OpenXml.Office.Excel.Formula(spkFormulaRef),
-                    ReferenceSequence = new DocumentFormat.OpenXml.Office.Excel.ReferenceSequence(spkCell)
-                };
-                var sparklines = new X14.Sparklines();
-                sparklines.Append(sparkline);
-                spkGroup.Append(sparklines);
-
-                // Add to worksheet extension list
-                var spkWs = GetSheet(spkWorksheet);
-                var spkExtList = spkWs.GetFirstChild<WorksheetExtensionList>()
-                    ?? spkWs.AppendChild(new WorksheetExtensionList());
-
-                // Find existing sparkline extension or create new one
-                var spkExt = spkExtList.Elements<WorksheetExtension>()
-                    .FirstOrDefault(e => e.Uri == "{05C60535-1F16-4fd2-B633-E4A46CF9E463}");
-                X14.SparklineGroups spkGroups;
-                if (spkExt != null)
-                {
-                    spkGroups = spkExt.GetFirstChild<X14.SparklineGroups>()
-                        ?? spkExt.AppendChild(new X14.SparklineGroups());
-                }
-                else
-                {
-                    spkExt = new WorksheetExtension { Uri = "{05C60535-1F16-4fd2-B633-E4A46CF9E463}" };
-                    spkExt.AddNamespaceDeclaration("x14", "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main");
-                    spkGroups = new X14.SparklineGroups();
-                    spkExt.Append(spkGroups);
-                    spkExtList.Append(spkExt);
-                }
-
-                spkGroups.Append(spkGroup);
-                SaveWorksheet(spkWorksheet);
-
-                // Count all sparkline groups to determine index
-                var allSpkGroups = spkGroups.Elements<X14.SparklineGroup>().ToList();
-                var spkIdx = allSpkGroups.IndexOf(spkGroup) + 1;
-                return $"/{spkSheetName}/sparkline[{spkIdx}]";
-            }
+                return AddSparkline(parentPath, type, position, properties);
 
             default:
-            {
-                // Generic fallback: create typed element via SDK schema validation
-                // Parse parentPath: /<SheetName>/xmlPath...
-                var fbSegments = parentPath.TrimStart('/').Split('/', 2);
-                var fbSheetName = fbSegments[0];
-                var fbWorksheet = FindWorksheet(fbSheetName);
-                if (fbWorksheet == null)
-                    throw new ArgumentException($"Sheet not found: {fbSheetName}");
-
-                OpenXmlElement fbParent = GetSheet(fbWorksheet);
-                if (fbSegments.Length > 1 && !string.IsNullOrEmpty(fbSegments[1]))
-                {
-                    var xmlSegments = GenericXmlQuery.ParsePathSegments(fbSegments[1]);
-                    fbParent = GenericXmlQuery.NavigateByPath(fbParent!, xmlSegments)
-                        ?? throw new ArgumentException($"Parent element not found: {parentPath}");
-                }
-
-                var created = GenericXmlQuery.TryCreateTypedElement(fbParent!, type, properties, index);
-                if (created == null)
-                    throw new ArgumentException(
-                        $"Unknown element type '{type}' for {parentPath}. " +
-                        "Valid types: sheet, row, cell, shape, chart, autofilter, databar, colorscale, iconset, formulacf, comment, namedrange, table, picture, validation, pivottable. " +
-                        "Use 'officecli xlsx add' for details.");
-
-                SaveWorksheet(fbWorksheet);
-
-                var siblings = fbParent.ChildElements.Where(e => e.LocalName == created.LocalName).ToList();
-                var createdIdx = siblings.IndexOf(created) + 1;
-                return $"{parentPath}/{created.LocalName}[{createdIdx}]";
-            }
+                return AddDefault(parentPath, type, position, properties);
         }
     }
 
-
-    public string Move(string sourcePath, string? targetParentPath, InsertPosition? position)
+    public string Move(string sourcePath, string? targetParentPath, InsertPosition? position, Dictionary<string, string>? properties = null)
     {
+        // xlsx has no track-change concept; `properties` is accepted for IDocumentHandler parity but ignored.
         var index = position?.Index;
         var segments = sourcePath.TrimStart('/').Split('/', 2);
         var sheetName = segments[0];
@@ -2102,7 +176,9 @@ public partial class ExcelHandler
 
         if (segments.Length < 2)
         {
-            // Move (reorder) the sheet within the workbook
+            // Move (reorder) the sheet within the workbook.
+            // CONSISTENCY(move-anchor): mirrors PowerPointHandler.Move slide reorder —
+            // supports --index / --after /Sheet2 / --before /Sheet3.
             var workbook = GetWorkbook();
             var sheets = workbook.GetFirstChild<Sheets>()
                 ?? throw new InvalidOperationException("Workbook has no sheets element");
@@ -2110,13 +186,82 @@ public partial class ExcelHandler
                 string.Equals(s.Name?.Value, sheetName, StringComparison.OrdinalIgnoreCase))
                 ?? throw new ArgumentException($"Sheet not found: {sheetName}");
 
-            var targetIndex = index ?? throw new ArgumentException("--index is required when moving a sheet");
+            // Resolve after/before anchor BEFORE removing sheetEl.
+            static string ExtractAnchorSheetName(string raw) =>
+                (raw.StartsWith("/") ? raw[1..] : raw).Split('/', 2)[0];
+
+            Sheet? afterAnchor = null, beforeAnchor = null;
+            if (position?.After != null)
+            {
+                var anchorName = ExtractAnchorSheetName(position.After);
+                afterAnchor = sheets.Elements<Sheet>().FirstOrDefault(s =>
+                    string.Equals(s.Name?.Value, anchorName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"After anchor not found: {position.After}");
+            }
+            else if (position?.Before != null)
+            {
+                var anchorName = ExtractAnchorSheetName(position.Before);
+                beforeAnchor = sheets.Elements<Sheet>().FirstOrDefault(s =>
+                    string.Equals(s.Name?.Value, anchorName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"Before anchor not found: {position.Before}");
+            }
+            else if (index == null)
+            {
+                throw new ArgumentException("One of --index, --after, or --before is required when moving a sheet");
+            }
+
+            // Self-move guard: moving a sheet after/before itself is a no-op.
+            // Removing first detaches sheetEl, then InsertAfterSelf/InsertBeforeSelf
+            // throws "parent is null" and the sheet is lost (data loss).
+            if (ReferenceEquals(afterAnchor, sheetEl) || ReferenceEquals(beforeAnchor, sheetEl))
+                return $"/{sheetName}";
+
+            // localSheetId on <definedName> is a 0-based position into
+            // <sheets>; capture the pre-move order so scoped names can be
+            // remapped to the sheets' new positions after the reorder.
+            var preMoveOrder = sheets.Elements<Sheet>().ToList();
+
             sheetEl.Remove();
-            var sheetList = sheets.Elements<Sheet>().ToList();
-            if (targetIndex >= 0 && targetIndex < sheetList.Count)
-                sheetList[targetIndex].InsertBeforeSelf(sheetEl);
+
+            if (afterAnchor != null)
+            {
+                afterAnchor.InsertAfterSelf(sheetEl);
+            }
+            else if (beforeAnchor != null)
+            {
+                beforeAnchor.InsertBeforeSelf(sheetEl);
+            }
             else
-                sheets.AppendChild(sheetEl);
+            {
+                var targetIndex = index!.Value;
+                var sheetList = sheets.Elements<Sheet>().ToList();
+                if (targetIndex >= 0 && targetIndex < sheetList.Count)
+                    sheetList[targetIndex].InsertBeforeSelf(sheetEl);
+                else
+                    sheets.AppendChild(sheetEl);
+            }
+
+            // Remap sheet-scoped defined names (printArea, print titles,
+            // scoped named ranges) from old positions to new ones — an
+            // unremapped localSheetId silently rebinds the name to whatever
+            // sheet now occupies the old position.
+            var postMoveOrder = sheets.Elements<Sheet>().ToList();
+            var definedNames = workbook.GetFirstChild<DefinedNames>();
+            if (definedNames != null)
+            {
+                foreach (var dn in definedNames.Elements<DefinedName>())
+                {
+                    var lid = dn.LocalSheetId?.Value;
+                    if (lid == null || lid >= preMoveOrder.Count) continue;
+                    var newIdx = postMoveOrder.IndexOf(preMoveOrder[(int)lid.Value]);
+                    if (newIdx >= 0 && newIdx != lid.Value) dn.LocalSheetId = (uint)newIdx;
+                }
+            }
+
+            // Mark the document modified so Dispose flushes it. Without this,
+            // a `using (h) h.Move(...)` (no explicit Save) is silently dropped
+            // by the !Modified byte-preserving discard path in Dispose.
+            Modified = true;
             workbook.Save();
             return $"/{sheetName}";
         }
@@ -2125,17 +270,18 @@ public partial class ExcelHandler
         var sheetData = GetSheet(worksheet).GetFirstChild<SheetData>()
             ?? throw new ArgumentException("Sheet has no data");
 
-        // Determine target
-        string effectiveParentPath;
+        // Determine the target sheet's SheetData. The result path is built from
+        // the resolved target SHEET (below), NOT the raw --to: a row/col/cell
+        // lives directly under a sheet, so a non-sheet --to like /Sheet1/row[2]
+        // must not leak into the result path (it used to produce a doubled
+        // /Sheet1/row[2]/row[3]). Only the sheet segment of --to is meaningful.
         SheetData targetSheetData;
         if (string.IsNullOrEmpty(targetParentPath))
         {
-            effectiveParentPath = $"/{sheetName}";
             targetSheetData = sheetData;
         }
         else
         {
-            effectiveParentPath = targetParentPath;
             var tgtSegments = targetParentPath.TrimStart('/').Split('/', 2);
             var tgtWorksheet = FindWorksheet(tgtSegments[0])
                 ?? throw new ArgumentException($"Target sheet not found: {tgtSegments[0]}");
@@ -2150,16 +296,74 @@ public partial class ExcelHandler
             var rowIdx = int.Parse(rowMatch.Groups[1].Value);
             // Try ordinal lookup first (Nth row element), then fall back to RowIndex
             var allRows = sheetData.Elements<Row>().ToList();
-            var row = (rowIdx >= 1 && rowIdx <= allRows.Count ? allRows[rowIdx - 1] : null)
+            var row = (rowIdx >= 1 && rowIdx <= allRows.Count ? allRows[PathIndex.ToArrayIndex(rowIdx)] : null)
                 ?? sheetData.Elements<Row>().FirstOrDefault(r => r.RowIndex?.Value == (uint)rowIdx)
                 ?? throw new ArgumentException($"Row {rowIdx} not found");
+
+            // Resolve --before / --after anchors to a 0-based document-order
+            // position in the target sheet. Anchor must be /<TargetSheet>/row[K].
+            // Resolved BEFORE removing the moved row so the anchor is found by
+            // its current position.
+            int? targetIndex = index;
+            string targetSheetName = string.IsNullOrEmpty(targetParentPath)
+                ? sheetName
+                : targetParentPath.TrimStart('/').Split('/', 2)[0];
+            if (targetIndex == null && position != null && (position.After != null || position.Before != null))
+            {
+                int FindAnchorRowPos(string anchorPath)
+                {
+                    var aSegs = anchorPath.TrimStart('/').Split('/', 2);
+                    if (aSegs.Length < 2)
+                        throw new ArgumentException(
+                            $"Anchor must be a row path like /{targetSheetName}/row[K], got: {anchorPath}");
+                    if (!aSegs[0].Equals(targetSheetName, StringComparison.OrdinalIgnoreCase))
+                        throw new ArgumentException(
+                            $"Anchor sheet '{aSegs[0]}' must match target sheet '{targetSheetName}'");
+                    var am = Regex.Match(aSegs[1], @"^row\[(\d+)\]$");
+                    if (!am.Success)
+                        throw new ArgumentException(
+                            $"Anchor must be a row path like /{targetSheetName}/row[K], got: {anchorPath}");
+                    var anchorRowIdx = uint.Parse(am.Groups[1].Value);
+                    var pos = targetSheetData.Elements<Row>().ToList()
+                        .FindIndex(r => r.RowIndex?.Value == anchorRowIdx);
+                    if (pos < 0)
+                        throw new ArgumentException($"Anchor row {anchorRowIdx} not found in {targetSheetName}");
+                    return pos;
+                }
+                if (position.Before != null) targetIndex = FindAnchorRowPos(position.Before);
+                else targetIndex = FindAnchorRowPos(position.After!) + 1;
+            }
+
+            // If the moved row sits before the anchor in the same sheet,
+            // removing it shifts everything (including the anchor) up by one.
+            // Adjust the resolved target index so it still points at the
+            // intended slot in post-remove document order.
+            if (targetIndex.HasValue && targetSheetData == sheetData)
+            {
+                var srcPos = sheetData.Elements<Row>().ToList().IndexOf(row);
+                if (srcPos >= 0 && srcPos < targetIndex.Value)
+                    targetIndex = targetIndex.Value - 1;
+            }
+
+            // Snapshot every row's old RowIndex (per sheet) so we can build
+            // an oldToNew renumber map after the reposition + renumber. The
+            // map drives formula and range-ref rewriting so cross-row
+            // references follow the moved content.
+            var srcOldIdx = sheetData.Elements<Row>().ToDictionary(r => r, r => (int)(r.RowIndex?.Value ?? 0));
+            Dictionary<Row, int>? tgtOldIdx = null;
+            if (targetSheetData != sheetData)
+                tgtOldIdx = targetSheetData.Elements<Row>().ToDictionary(r => r, r => (int)(r.RowIndex?.Value ?? 0));
+
+            // Mark modified before the first irreversible mutation so Dispose
+            // flushes (the !Modified path would otherwise discard the move).
+            Modified = true;
             row.Remove();
 
-            if (index.HasValue)
+            if (targetIndex.HasValue)
             {
                 var rows = targetSheetData.Elements<Row>().ToList();
-                if (index.Value >= 0 && index.Value < rows.Count)
-                    rows[index.Value].InsertBeforeSelf(row);
+                if (targetIndex.Value >= 0 && targetIndex.Value < rows.Count)
+                    rows[targetIndex.Value].InsertBeforeSelf(row);
                 else
                     targetSheetData.AppendChild(row);
             }
@@ -2168,12 +372,311 @@ public partial class ExcelHandler
                 targetSheetData.AppendChild(row);
             }
 
+            // Renumber every row in document order so Excel reads them in the
+            // intended sequence — Excel ignores XML document order and uses
+            // <row r='N'> as the source of truth. Without renumbering, a move
+            // operation appears to do nothing on reopen.
+            //
+            // Limitation: this collapses any gaps the original sheet may have
+            // had (e.g. rows 1, 3, 5 → rows 1, 2, 3). Sheets with intentional
+            // RowIndex gaps are unusual; if the user needs gap preservation,
+            // they should perform the move via direct cell-level set ops.
+            RenumberRowsAndCellRefs(targetSheetData);
+            if (targetSheetData != sheetData)
+                RenumberRowsAndCellRefs(sheetData);
+
+            // Build oldToNew row-index maps and apply to formula text +
+            // range-bearing structures (mergeCells, CF/DV sqref, autoFilter,
+            // hyperlinks, table refs). Without this, formulas like A1==A3
+            // would still read literal A3 after the move, defeating the
+            // 'follow content' contract.
+            var srcMap = BuildRowRenumberMap(srcOldIdx);
+            var srcSheetWs = worksheet;
+            ApplyRowRenumberToSheet(srcSheetWs, sheetName, srcMap);
+            if (targetSheetData != sheetData && tgtOldIdx != null)
+            {
+                var tgtMap = BuildRowRenumberMap(tgtOldIdx);
+                var tgtWsPart = GetWorksheets().FirstOrDefault(w => GetSheet(w.Part).GetFirstChild<SheetData>() == targetSheetData).Part;
+                if (tgtWsPart != null)
+                    ApplyRowRenumberToSheet(tgtWsPart, GetWorksheets().First(w => w.Part == tgtWsPart).Name, tgtMap);
+            }
+
             SaveWorksheet(worksheet);
-            var rowIndex = row.RowIndex?.Value ?? (uint)(targetSheetData.Elements<Row>().ToList().IndexOf(row) + 1);
-            return $"{effectiveParentPath}/row[{rowIndex}]";
+            if (targetSheetData != sheetData)
+            {
+                var tgtWs = GetWorksheets().FirstOrDefault(w => GetSheet(w.Part).GetFirstChild<SheetData>() == targetSheetData).Part;
+                if (tgtWs != null) SaveWorksheet(tgtWs);
+            }
+            var newRowIndex = row.RowIndex?.Value ?? 0u;
+            return $"/{targetSheetName}/row[{newRowIndex}]";
         }
 
-        throw new ArgumentException($"Move not supported for: {elementRef}. Supported: row[N]");
+        // Move col[L]: shuffle cells across the affected column band, renumber
+        // <col> metadata, and remap formulas + range refs via FormulaRefShifter
+        // ApplyColRenumberMap. Same scope rules as row move (single sheet,
+        // anchor must be col[L] in same sheet).
+        var colMatch = Regex.Match(elementRef, @"^col\[([A-Za-z]+)\]$", RegexOptions.IgnoreCase);
+        if (colMatch.Success)
+        {
+            var srcColLetter = colMatch.Groups[1].Value.ToUpperInvariant();
+            var srcColIdx = ColumnNameToIndex(srcColLetter);
+
+            // Resolve target. Default behavior (no position): append after the
+            // last used column.
+            int? targetColIdx = null;
+            if (position?.Index.HasValue == true)
+                targetColIdx = position.Index!.Value;
+            else if (position?.Before != null || position?.After != null)
+            {
+                int FindAnchorColIdx(string anchorPath)
+                {
+                    var aSegs = anchorPath.TrimStart('/').Split('/', 2);
+                    if (aSegs.Length < 2)
+                        throw new ArgumentException(
+                            $"Anchor must be a col path like /{sheetName}/col[L], got: {anchorPath}");
+                    if (!aSegs[0].Equals(sheetName, StringComparison.OrdinalIgnoreCase))
+                        throw new ArgumentException(
+                            $"Anchor sheet '{aSegs[0]}' must match source sheet '{sheetName}'");
+                    var am = Regex.Match(aSegs[1], @"^col\[([A-Za-z]+)\]$", RegexOptions.IgnoreCase);
+                    if (!am.Success)
+                        throw new ArgumentException(
+                            $"Anchor must be a col path like /{sheetName}/col[L], got: {anchorPath}");
+                    return ColumnNameToIndex(am.Groups[1].Value.ToUpperInvariant());
+                }
+                if (position.Before != null) targetColIdx = FindAnchorColIdx(position.Before);
+                else targetColIdx = FindAnchorColIdx(position.After!) + 1;
+            }
+            else
+            {
+                // Append after last used column.
+                int maxCol = 1;
+                foreach (var r in sheetData.Elements<Row>())
+                    foreach (var c in r.Elements<Cell>())
+                        if (c.CellReference?.Value != null)
+                            maxCol = Math.Max(maxCol, ColumnNameToIndex(ParseCellReference(c.CellReference.Value).Column));
+                targetColIdx = maxCol + 1;
+            }
+
+            int target = targetColIdx!.Value;
+            if (target == srcColIdx || target == srcColIdx + 1)
+            {
+                // No-op: moving a col to its own slot or right after itself.
+                return $"/{sheetName}/col[{srcColLetter}]";
+            }
+
+            // Mark modified before mutating so Dispose flushes (past the no-op
+            // early return above; the !Modified path would else discard the move).
+            Modified = true;
+
+            // Build the col renumber map. Two cases:
+            //   src < target: cols (src+1)..(target-1) shift left by 1; src moves to (target-1).
+            //   src > target: cols target..(src-1) shift right by 1; src moves to target.
+            var colMap = new Dictionary<int, int>();
+            if (srcColIdx < target)
+            {
+                for (int i = srcColIdx + 1; i < target; i++) colMap[i] = i - 1;
+                colMap[srcColIdx] = target - 1;
+            }
+            else
+            {
+                for (int i = target; i < srcColIdx; i++) colMap[i] = i + 1;
+                colMap[srcColIdx] = target;
+            }
+
+            // Apply map to cell references in sheetData.
+            foreach (var r in sheetData.Elements<Row>())
+            {
+                foreach (var c in r.Elements<Cell>())
+                {
+                    if (c.CellReference?.Value == null) continue;
+                    var (col, row) = ParseCellReference(c.CellReference.Value);
+                    var oldIdx = ColumnNameToIndex(col);
+                    if (colMap.TryGetValue(oldIdx, out var newIdx))
+                        c.CellReference = $"{IndexToColumnName(newIdx)}{row}";
+                }
+                // After remap, cells in a row may be out of left-to-right order;
+                // OOXML expects ascending CellReference within a row.
+                var sortedCells = r.Elements<Cell>()
+                    .OrderBy(c => c.CellReference?.Value == null ? 0 : ColumnNameToIndex(ParseCellReference(c.CellReference.Value).Column))
+                    .ToList();
+                r.RemoveAllChildren<Cell>();
+                foreach (var c in sortedCells) r.AppendChild(c);
+            }
+
+            // Apply map to <col> metadata (width/style entries).
+            var ws = GetSheet(worksheet);
+            var columns = ws.GetFirstChild<Columns>();
+            if (columns != null)
+            {
+                foreach (var colEl in columns.Elements<Column>().ToList())
+                {
+                    var minOld = (int)(colEl.Min?.Value ?? 0);
+                    var maxOld = (int)(colEl.Max?.Value ?? 0);
+                    // Only handle the simple case of single-column entries
+                    // (min == max). Multi-col runs spanning the moved band are
+                    // left as-is — user-meaningful collisions are rare and
+                    // post-renumber a multi-col run can't always be expressed
+                    // as a single Column element either.
+                    if (minOld == maxOld && colMap.TryGetValue(minOld, out var newIdx))
+                    {
+                        colEl.Min = (uint)newIdx;
+                        colEl.Max = (uint)newIdx;
+                    }
+                }
+                // Sort col entries ascending for OOXML schema validity.
+                var sortedCols = columns.Elements<Column>()
+                    .OrderBy(c => c.Min?.Value ?? 0).ToList();
+                columns.RemoveAllChildren<Column>();
+                foreach (var c in sortedCols) columns.AppendChild(c);
+            }
+
+            // Remap formulas + range-bearing structures via the col shifter.
+            ApplyColRenumberToSheet(worksheet, sheetName, colMap);
+
+            DeleteCalcChainIfPresent();
+            SaveWorksheet(worksheet);
+            int newSrcIdx = colMap[srcColIdx];
+            return $"/{sheetName}/col[{IndexToColumnName(newSrcIdx)}]";
+        }
+
+        throw new ArgumentException($"Move not supported for: {elementRef}. Supported: row[N], col[L]");
+    }
+
+    /// <summary>
+    /// Build {old → new} row-index map from a snapshot taken before the
+    /// move + renumber. Rows whose old and new index match are omitted (the
+    /// shifter treats absent keys as no-op).
+    /// </summary>
+    private static Dictionary<int, int> BuildRowRenumberMap(Dictionary<Row, int> oldIdxByRow)
+    {
+        var map = new Dictionary<int, int>(oldIdxByRow.Count);
+        foreach (var (row, oldIdx) in oldIdxByRow)
+        {
+            int newIdx = (int)(row.RowIndex?.Value ?? 0u);
+            if (newIdx != 0 && newIdx != oldIdx)
+                map[oldIdx] = newIdx;
+        }
+        return map;
+    }
+
+    /// <summary>
+    /// Apply an oldToNew row-index map to every formula and range-bearing
+    /// structure on the sheet (mergeCells, CF/DV sqref, autoFilter,
+    /// hyperlinks, table refs). Range refs whose endpoints invert after
+    /// renumber are left unchanged (best-effort: post-renumber they no
+    /// longer express a contiguous A1 region).
+    /// </summary>
+    private void ApplyRowRenumberToSheet(WorksheetPart worksheet, string sheetName, IReadOnlyDictionary<int, int> map)
+    {
+        if (map.Count == 0) return;
+        // Drawing markers use 0-based row indices; the renumber map is keyed by
+        // 1-based row indices. Translate so anchored pictures/charts follow the
+        // rows they sit on (parity with insert/delete's rowMarkerShift).
+        ApplySheetRangeMutations(
+            worksheet, sheetName,
+            refMapper: r => RemapRowsInRangeRef(r, map),
+            formulaTextMapper: f => Core.FormulaRefShifter.ApplyRowRenumberMap(f, sheetName, sheetName, map),
+            rowMarkerShift: m => map.TryGetValue(m + 1, out var n) ? n - 1 : m,
+            crossSheetFormulaMapper: (other, f) => Core.FormulaRefShifter.ApplyRowRenumberMap(f, other, sheetName, map));
+    }
+
+    private void ApplyColRenumberToSheet(WorksheetPart worksheet, string sheetName, IReadOnlyDictionary<int, int> map)
+    {
+        if (map.Count == 0) return;
+        // Drawing markers use 0-based column indices; the renumber map is keyed
+        // by 1-based column indices. Translate so anchored objects follow the
+        // columns they sit on (parity with insert/delete's colMarkerShift).
+        ApplySheetRangeMutations(
+            worksheet, sheetName,
+            refMapper: r => RemapColsInRangeRef(r, map),
+            formulaTextMapper: f => Core.FormulaRefShifter.ApplyColRenumberMap(f, sheetName, sheetName, map),
+            colMarkerShift: m => map.TryGetValue(m + 1, out var n) ? n - 1 : m,
+            crossSheetFormulaMapper: (other, f) => Core.FormulaRefShifter.ApplyColRenumberMap(f, other, sheetName, map));
+    }
+
+    private static string? RemapColsInRangeRef(string? refStr, IReadOnlyDictionary<int, int> map)
+    {
+        if (string.IsNullOrEmpty(refStr)) return null;
+        var parts = refStr.Split(':');
+        var shifted = new List<string>(parts.Length);
+        var colVals = new List<int>(parts.Length);
+        foreach (var part in parts)
+        {
+            try
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(part, @"^([A-Z]+)(\d+)$");
+                if (!match.Success) { shifted.Add(part); colVals.Add(-1); continue; }
+                var col = match.Groups[1].Value;
+                var oldColIdx = ColumnNameToIndex(col);
+                var row = match.Groups[2].Value;
+                var newCol = map.TryGetValue(oldColIdx, out var n) ? IndexToColumnName(n) : col;
+                shifted.Add($"{newCol}{row}");
+                colVals.Add(map.TryGetValue(oldColIdx, out var ni) ? ni : oldColIdx);
+            }
+            catch { shifted.Add(part); colVals.Add(-1); }
+        }
+        if (colVals.Count == 2 && colVals[0] > 0 && colVals[1] > 0 && colVals[0] > colVals[1])
+            return null;
+        return string.Join(":", shifted);
+    }
+
+    // ApplyRowRenumberToWorkbookDefinedNames / ApplyColRenumberToWorkbookDefinedNames
+    // removed — defined-names are now rewritten by section 8 of
+    // ApplySheetRangeMutations (the formulaTextMapper passed in).
+
+    /// <summary>
+    /// Apply the row-renumber map to a range-style ref like 'B2:D5' or 'A1'.
+    /// Returns null if any endpoint's row is absent from the map AND the
+    /// other endpoint is in the map (would produce a malformed range), or
+    /// if the resulting endpoints invert.
+    /// </summary>
+    private static string? RemapRowsInRangeRef(string? refStr, IReadOnlyDictionary<int, int> map)
+    {
+        if (string.IsNullOrEmpty(refStr)) return null;
+        var parts = refStr.Split(':');
+        var shifted = new List<string>(parts.Length);
+        var rowVals = new List<int>(parts.Length);
+        foreach (var part in parts)
+        {
+            try
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(part, @"^([A-Z]+)(\d+)$");
+                if (!match.Success) { shifted.Add(part); rowVals.Add(-1); continue; }
+                var col = match.Groups[1].Value;
+                var oldRow = int.Parse(match.Groups[2].Value);
+                var newRow = map.TryGetValue(oldRow, out var n) ? n : oldRow;
+                shifted.Add($"{col}{newRow}");
+                rowVals.Add(newRow);
+            }
+            catch { shifted.Add(part); rowVals.Add(-1); }
+        }
+        // Range endpoint sanity: if both rows are valid and start > end, abort.
+        if (rowVals.Count == 2 && rowVals[0] > 0 && rowVals[1] > 0 && rowVals[0] > rowVals[1])
+            return null;
+        return string.Join(":", shifted);
+    }
+
+    /// <summary>
+    /// Walk every Row in document order and reassign RowIndex to its 1-based
+    /// position, then rewrite every cell's CellReference to match the new
+    /// row number. Used after Move to make Excel honor the document-order
+    /// rearrangement.
+    /// </summary>
+    private void RenumberRowsAndCellRefs(SheetData sheetData)
+    {
+        InvalidateRowIndex(sheetData);
+        uint newIdx = 1;
+        foreach (var row in sheetData.Elements<Row>())
+        {
+            row.RowIndex = newIdx;
+            foreach (var cell in row.Elements<Cell>())
+            {
+                if (cell.CellReference?.Value == null) continue;
+                var (col, _) = ParseCellReference(cell.CellReference.Value);
+                cell.CellReference = $"{col}{newIdx}";
+            }
+            newIdx++;
+        }
     }
 
     public (string NewPath1, string NewPath2) Swap(string path1, string path2)
@@ -2205,31 +708,30 @@ public partial class ExcelHandler
         var row2 = (idx2 >= 1 && idx2 <= allRows.Count ? allRows[idx2 - 1] : null)
             ?? throw new ArgumentException($"Row {idx2} not found");
 
-        // Swap RowIndex values and cell references
         var rowIndex1 = row1.RowIndex?.Value ?? (uint)idx1;
         var rowIndex2 = row2.RowIndex?.Value ?? (uint)idx2;
-        row1.RowIndex = new DocumentFormat.OpenXml.UInt32Value(rowIndex2);
-        row2.RowIndex = new DocumentFormat.OpenXml.UInt32Value(rowIndex1);
 
-        // Update cell references (e.g. A1→A3, B1→B3)
-        foreach (var cell in row1.Elements<Cell>())
-        {
-            if (cell.CellReference?.Value != null)
-            {
-                var colRef = Regex.Match(cell.CellReference.Value, @"^([A-Z]+)").Groups[1].Value;
-                cell.CellReference = $"{colRef}{rowIndex2}";
-            }
-        }
-        foreach (var cell in row2.Elements<Cell>())
-        {
-            if (cell.CellReference?.Value != null)
-            {
-                var colRef = Regex.Match(cell.CellReference.Value, @"^([A-Z]+)").Groups[1].Value;
-                cell.CellReference = $"{colRef}{rowIndex1}";
-            }
-        }
+        // Snapshot every row's old RowIndex before the swap so we can build the
+        // oldToNew renumber map afterwards. This routes the swap through the
+        // same machinery as Move (ApplyRowRenumberToSheet): external formulas,
+        // CF/DV sqref, mergeCells, chart series refs and drawing anchors all
+        // follow the swapped content, and formula caches are refreshed at flush
+        // so cachedValue stays consistent with the formula.
+        var oldIdx = sheetData.Elements<Row>().ToDictionary(r => r, r => (int)(r.RowIndex?.Value ?? 0));
 
+        // Mark modified before the swap so Dispose flushes it (the !Modified
+        // byte-preserving discard path would otherwise drop the whole swap).
+        Modified = true;
+
+        // Physically exchange the two rows in document order, then renumber by
+        // document order — mirrors Move's reposition + RenumberRowsAndCellRefs.
         PowerPointHandler.SwapXmlElements(row1, row2);
+        RenumberRowsAndCellRefs(sheetData);
+
+        var map = BuildRowRenumberMap(oldIdx);
+        ApplyRowRenumberToSheet(worksheet, sheetName, map);
+
+        DeleteCalcChainIfPresent();
         SaveWorksheet(worksheet);
 
         return ($"/{sheetName}/row[{rowIndex2}]", $"/{sheetName}/row[{rowIndex1}]");
@@ -2237,7 +739,6 @@ public partial class ExcelHandler
 
     public string CopyFrom(string sourcePath, string targetParentPath, InsertPosition? position)
     {
-        var index = position?.Index;
         var segments = sourcePath.TrimStart('/').Split('/', 2);
         var sheetName = segments[0];
         var worksheet = FindWorksheet(sheetName)
@@ -2266,26 +767,294 @@ public partial class ExcelHandler
                 ?? throw new ArgumentException($"Row {rowIdx} not found");
             var clone = (Row)row.CloneNode(true);
 
+            // Resolve --after/--before anchors to a 0-based row position in
+            // the target sheet. Anchor format must be `/SheetName/row[K]`.
+            // Mismatch (different sheet, non-row anchor, missing row) → throw.
+            int? index = null;
+            if (position != null)
+            {
+                var rowsList = targetSheetData.Elements<Row>().ToList();
+                int FindAnchorRowIndex(string anchorPath)
+                {
+                    var aSegs = anchorPath.TrimStart('/').Split('/', 2);
+                    if (aSegs.Length < 2)
+                        throw new ArgumentException(
+                            $"Anchor must be a row path like /{tgtSegments[0]}/row[K], got: {anchorPath}");
+                    if (!aSegs[0].Equals(tgtSegments[0], StringComparison.OrdinalIgnoreCase))
+                        throw new ArgumentException(
+                            $"Anchor sheet '{aSegs[0]}' must match target sheet '{tgtSegments[0]}'");
+                    var am = Regex.Match(aSegs[1], @"^row\[(\d+)\]$");
+                    if (!am.Success)
+                        throw new ArgumentException(
+                            $"Anchor must be a row path like /{tgtSegments[0]}/row[K], got: {anchorPath}");
+                    var anchorRowIdx = uint.Parse(am.Groups[1].Value);
+                    var pos = rowsList.FindIndex(r => r.RowIndex?.Value == anchorRowIdx);
+                    if (pos < 0)
+                        throw new ArgumentException($"Anchor row {anchorRowIdx} not found in {tgtSegments[0]}");
+                    return pos;
+                }
+                index = position.Resolve(FindAnchorRowIndex, rowsList.Count);
+            }
+
+            // R8-1: CloneNode preserves the source row's RowIndex and every
+            // cell's CellReference (e.g. "A1","B1"). Without rewriting these,
+            // the new row collides with the source (Excel shows one row at
+            // rowIdx, A2 appears empty) or is silently ignored. Compute the
+            // new rowIndex from the target sheet and rewrite all cell refs.
+            uint newRowIndex;
             if (index.HasValue)
             {
                 var rows = targetSheetData.Elements<Row>().ToList();
                 if (index.Value >= 0 && index.Value < rows.Count)
-                    rows[index.Value].InsertBeforeSelf(clone);
+                {
+                    newRowIndex = rows[index.Value].RowIndex?.Value ?? (uint)(index.Value + 1);
+                    // Shift existing rows at/after this position down by 1
+                    ShiftRowsDown(tgtWorksheet, (int)newRowIndex);
+                    // Re-fetch sheetData (ShiftRowsDown may reorder)
+                    targetSheetData = GetSheet(tgtWorksheet).GetFirstChild<SheetData>()!;
+                    var afterRow = targetSheetData.Elements<Row>()
+                        .LastOrDefault(r => (r.RowIndex?.Value ?? 0) < newRowIndex);
+                    if (afterRow != null) afterRow.InsertAfterSelf(clone);
+                    else targetSheetData.InsertAt(clone, 0);
+                }
                 else
+                {
+                    newRowIndex = (targetSheetData.Elements<Row>()
+                        .LastOrDefault()?.RowIndex?.Value ?? 0u) + 1;
                     targetSheetData.AppendChild(clone);
+                }
             }
             else
             {
+                newRowIndex = (targetSheetData.Elements<Row>()
+                    .LastOrDefault()?.RowIndex?.Value ?? 0u) + 1;
                 targetSheetData.AppendChild(clone);
             }
 
+            clone.RowIndex = newRowIndex;
+            int copyDeltaRow = (int)newRowIndex - (int)rowIdx;
+            string targetSheetName = tgtSegments[0];
+            foreach (var c in clone.Elements<Cell>())
+            {
+                var oldRef = c.CellReference?.Value;
+                if (string.IsNullOrEmpty(oldRef)) continue;
+                var m = Regex.Match(oldRef, @"^([A-Z]+)\d+$", RegexOptions.IgnoreCase);
+                if (m.Success)
+                    c.CellReference = $"{m.Groups[1].Value.ToUpperInvariant()}{newRowIndex}";
+
+                // Apply copy-delta to formulas inside cloned cells so that
+                // relative refs follow the new anchor row. Excel UI does this
+                // automatically for "Insert Copied Cells" / paste. Refs to
+                // other sheets are left untouched (sheet-scope guard).
+                if (c.CellFormula != null && !string.IsNullOrEmpty(c.CellFormula.Text) && copyDeltaRow != 0)
+                {
+                    c.CellFormula.Text = Core.FormulaRefShifter.ApplyCopyDelta(
+                        c.CellFormula.Text, targetSheetName, sheetName,
+                        deltaCol: 0, deltaRow: copyDeltaRow);
+                }
+            }
+
+            // mergeCells live in the sheet-level <mergeCells> container, not
+            // inside the row's subtree, so CloneNode misses them. Walk the
+            // SOURCE sheet's mergeCells for entries whose start AND end rows
+            // both equal the source row index (single-row merges within the
+            // copied row), and add a corresponding mergeCell at the new row
+            // index. Multi-row merges that include the source row are out of
+            // scope for row-copy semantics — they belong to a region, not a
+            // single row.
+            var srcMergeCells = GetSheet(worksheet).GetFirstChild<MergeCells>();
+            if (srcMergeCells != null)
+            {
+                var newMergesToAdd = new List<string>();
+                foreach (var mc in srcMergeCells.Elements<MergeCell>())
+                {
+                    var refStr = mc.Reference?.Value;
+                    if (string.IsNullOrEmpty(refStr)) continue;
+                    var parts = refStr.Split(':');
+                    if (parts.Length != 2) continue;
+                    var ms = Regex.Match(parts[0], @"^([A-Z]+)(\d+)$", RegexOptions.IgnoreCase);
+                    var me = Regex.Match(parts[1], @"^([A-Z]+)(\d+)$", RegexOptions.IgnoreCase);
+                    if (!ms.Success || !me.Success) continue;
+                    if (uint.Parse(ms.Groups[2].Value) == rowIdx
+                        && uint.Parse(me.Groups[2].Value) == rowIdx)
+                    {
+                        newMergesToAdd.Add(
+                            $"{ms.Groups[1].Value.ToUpperInvariant()}{newRowIndex}:" +
+                            $"{me.Groups[1].Value.ToUpperInvariant()}{newRowIndex}");
+                    }
+                }
+                if (newMergesToAdd.Count > 0)
+                {
+                    var tgtSheetEl = GetSheet(tgtWorksheet);
+                    var tgtMergeCells = tgtSheetEl.GetFirstChild<MergeCells>()
+                        ?? tgtSheetEl.AppendChild(new MergeCells());
+                    foreach (var newRef in newMergesToAdd)
+                        tgtMergeCells.AppendChild(new MergeCell { Reference = newRef });
+                    tgtMergeCells.Count = (uint)tgtMergeCells.Elements<MergeCell>().Count();
+                }
+            }
+
+            // Mark modified so Dispose flushes the copy (the !Modified
+            // byte-preserving discard path would otherwise drop it).
+            Modified = true;
             SaveWorksheet(tgtWorksheet);
-            var newRows = targetSheetData.Elements<Row>().ToList();
-            var newIdx = newRows.IndexOf(clone) + 1;
-            return $"{targetParentPath}/row[{newIdx}]";
+            return $"{targetParentPath}/row[{newRowIndex}]";
         }
 
-        throw new ArgumentException($"Copy not supported for: {elementRef}. Supported: row[N]");
+        // Copy col[L] — mirror of the row case. Snapshot cells from the
+        // source column before any shift; resolve target col from anchor or
+        // index; ShiftColumnsRight at the target col (handles all displacement
+        // for cellRef + col metadata + mergeCells + CF/DV/autoFilter +
+        // hyperlinks + tables + namedRanges + cross-sheet formula refs); then
+        // insert the snapshotted cells at the target col with delta-shifted
+        // formulas. Single-col merges fully contained in the source column
+        // are replicated at the target column.
+        var colMatch = Regex.Match(elementRef, @"^col\[([A-Za-z]+)\]$", RegexOptions.IgnoreCase);
+        if (colMatch.Success)
+        {
+            var srcColLetter = colMatch.Groups[1].Value.ToUpperInvariant();
+            var srcColIdx = ColumnNameToIndex(srcColLetter);
+
+            // Resolve target col index. With no position → append after
+            // the last used column.
+            int targetColIdx;
+            if (position?.Index.HasValue == true)
+            {
+                targetColIdx = position.Index.Value > 0 ? position.Index.Value : 1;
+            }
+            else if (position?.Before != null || position?.After != null)
+            {
+                int FindAnchorColIdx(string anchorPath)
+                {
+                    var aSegs = anchorPath.TrimStart('/').Split('/', 2);
+                    if (aSegs.Length < 2)
+                        throw new ArgumentException(
+                            $"Anchor must be a col path like /{tgtSegments[0]}/col[L], got: {anchorPath}");
+                    if (!aSegs[0].Equals(tgtSegments[0], StringComparison.OrdinalIgnoreCase))
+                        throw new ArgumentException(
+                            $"Anchor sheet '{aSegs[0]}' must match target sheet '{tgtSegments[0]}'");
+                    var am = Regex.Match(aSegs[1], @"^col\[([A-Za-z]+)\]$", RegexOptions.IgnoreCase);
+                    if (!am.Success)
+                        throw new ArgumentException(
+                            $"Anchor must be a col path like /{tgtSegments[0]}/col[L], got: {anchorPath}");
+                    return ColumnNameToIndex(am.Groups[1].Value.ToUpperInvariant());
+                }
+                if (position.Before != null) targetColIdx = FindAnchorColIdx(position.Before);
+                else targetColIdx = FindAnchorColIdx(position.After!) + 1;
+            }
+            else
+            {
+                int maxCol = 0;
+                foreach (var r in sheetData.Elements<Row>())
+                    foreach (var c in r.Elements<Cell>())
+                        if (c.CellReference?.Value != null)
+                            maxCol = Math.Max(maxCol, ColumnNameToIndex(ParseCellReference(c.CellReference.Value).Column));
+                targetColIdx = maxCol + 1;
+            }
+
+            // Snapshot source col cells (clones) BEFORE any shift, keyed by
+            // row number so we can recreate them at the target col.
+            var srcCellClones = new List<(uint Row, Cell Clone)>();
+            foreach (var r in sheetData.Elements<Row>())
+            {
+                var cell = r.Elements<Cell>().FirstOrDefault(c =>
+                {
+                    if (c.CellReference?.Value == null) return false;
+                    return ParseCellReference(c.CellReference.Value).Column
+                        .Equals(srcColLetter, StringComparison.OrdinalIgnoreCase);
+                });
+                if (cell != null && r.RowIndex?.Value != null)
+                    srcCellClones.Add((r.RowIndex.Value, (Cell)cell.CloneNode(true)));
+            }
+
+            // Snapshot single-col merges fully contained in the source col.
+            var srcSingleColMerges = new List<(uint StartRow, uint EndRow)>();
+            var srcMergeCells = GetSheet(worksheet).GetFirstChild<MergeCells>();
+            if (srcMergeCells != null)
+            {
+                foreach (var mc in srcMergeCells.Elements<MergeCell>())
+                {
+                    var refStr = mc.Reference?.Value;
+                    if (string.IsNullOrEmpty(refStr)) continue;
+                    var parts = refStr.Split(':');
+                    if (parts.Length != 2) continue;
+                    var (sCol, sRow) = ParseCellReference(parts[0]);
+                    var (eCol, eRow) = ParseCellReference(parts[1]);
+                    if (sCol.Equals(srcColLetter, StringComparison.OrdinalIgnoreCase)
+                        && eCol.Equals(srcColLetter, StringComparison.OrdinalIgnoreCase))
+                    {
+                        srcSingleColMerges.Add(((uint)sRow, (uint)eRow));
+                    }
+                }
+            }
+
+            // Make room at target col. ShiftColumnsRight handles all
+            // sheet-wide displacement (cellRef, col meta, mergeCells, CF/DV,
+            // autoFilter, hyperlinks, tables, namedRanges, formulas).
+            ShiftColumnsRight(tgtWorksheet, targetColIdx);
+
+            // Account for the source col having been shifted right by 1 if
+            // it was at or after the target.
+            int effectiveSrcColIdx = srcColIdx >= targetColIdx ? srcColIdx + 1 : srcColIdx;
+            int copyDeltaCol = targetColIdx - effectiveSrcColIdx;
+
+            // Insert snapshotted cell clones into the target col.
+            var tgtSheetData = GetSheet(tgtWorksheet).GetFirstChild<SheetData>()!;
+            string targetColLetter = IndexToColumnName(targetColIdx);
+            foreach (var (srcRowNum, clone) in srcCellClones)
+            {
+                clone.CellReference = $"{targetColLetter}{srcRowNum}";
+
+                // Delta-shift formulas inside the clone: relative refs follow
+                // the new anchor column.
+                if (clone.CellFormula != null && !string.IsNullOrEmpty(clone.CellFormula.Text) && copyDeltaCol != 0)
+                {
+                    clone.CellFormula.Text = Core.FormulaRefShifter.ApplyCopyDelta(
+                        clone.CellFormula.Text, tgtSegments[0], sheetName,
+                        deltaCol: copyDeltaCol, deltaRow: 0);
+                }
+
+                var targetRow = tgtSheetData.Elements<Row>()
+                    .FirstOrDefault(r => r.RowIndex?.Value == srcRowNum);
+                if (targetRow == null)
+                {
+                    // Materialize the row in correct ascending order.
+                    targetRow = new Row { RowIndex = srcRowNum };
+                    var afterRow = tgtSheetData.Elements<Row>()
+                        .LastOrDefault(r => (r.RowIndex?.Value ?? 0) < srcRowNum);
+                    if (afterRow != null) afterRow.InsertAfterSelf(targetRow);
+                    else tgtSheetData.InsertAt(targetRow, 0);
+                }
+                // Insert clone at the correct in-row position (ascending col).
+                var afterCell = targetRow.Elements<Cell>()
+                    .LastOrDefault(c => c.CellReference?.Value != null
+                        && ColumnNameToIndex(ParseCellReference(c.CellReference.Value).Column) < targetColIdx);
+                if (afterCell != null) afterCell.InsertAfterSelf(clone);
+                else targetRow.InsertAt(clone, 0);
+            }
+
+            // Replicate single-col merges at the target col.
+            if (srcSingleColMerges.Count > 0)
+            {
+                var tgtSheetEl = GetSheet(tgtWorksheet);
+                var tgtMergeCells = tgtSheetEl.GetFirstChild<MergeCells>()
+                    ?? tgtSheetEl.AppendChild(new MergeCells());
+                foreach (var (sRow, eRow) in srcSingleColMerges)
+                    tgtMergeCells.AppendChild(new MergeCell {
+                        Reference = $"{targetColLetter}{sRow}:{targetColLetter}{eRow}"
+                    });
+                tgtMergeCells.Count = (uint)tgtMergeCells.Elements<MergeCell>().Count();
+            }
+
+            // Mark modified so Dispose flushes the copy (the !Modified
+            // byte-preserving discard path would otherwise drop it).
+            Modified = true;
+            DeleteCalcChainIfPresent();
+            SaveWorksheet(tgtWorksheet);
+            return $"{targetParentPath}/col[{targetColLetter}]";
+        }
+
+        throw new ArgumentException($"Copy not supported for: {elementRef}. Supported: row[N], col[L]");
     }
 
     public (string RelId, string PartPath) AddPart(string parentPartPath, string partType, Dictionary<string, string>? properties = null)
@@ -2338,9 +1107,294 @@ public partial class ExcelHandler
                 var chartIdx = drawingsPart.ChartParts.ToList().IndexOf(chartPart);
                 return (relId, $"/{sheetName}/chart[{chartIdx + 1}]");
 
+            case "drawing-group":
+            {
+                // Verbatim DrawingML group carrier for xlsx dump→batch.
+                // The full hosting anchor is preserved because flattening a
+                // <xdr:grpSp> loses the child coordinate system, z-order,
+                // styles and the fact that the objects are grouped. Only
+                // hyperlink relationships are carried here; dump falls back
+                // to semantic leaf shapes when a group references package
+                // parts such as images/charts.
+                var groupSheetName = parentPartPath.TrimStart('/');
+                var groupWorksheet = FindWorksheet(groupSheetName)
+                    ?? throw new ArgumentException(
+                        $"Sheet not found: {groupSheetName}. drawing-group must be added under a sheet.");
+                properties ??= new Dictionary<string, string>();
+                var anchorXml = properties.GetValueOrDefault("anchor-xml")
+                    ?? throw new ArgumentException(
+                        "'anchor-xml' property is required for drawing-group (verbatim xdr anchor XML)");
+
+                XDR.TwoCellAnchor groupAnchor;
+                try
+                {
+                    groupAnchor = new XDR.TwoCellAnchor(anchorXml);
+                }
+                catch (Exception ex)
+                {
+                    throw new ArgumentException(
+                        $"drawing-group anchor XML is not a valid xdr:twoCellAnchor: {ex.Message}", ex);
+                }
+                if (groupAnchor.GetFirstChild<XDR.GroupShape>() == null)
+                    throw new ArgumentException(
+                        "drawing-group anchor XML must contain a top-level xdr:grpSp.");
+
+                List<DumpDrawingHyperlinkSpec> groupHyperlinks;
+                try
+                {
+                    groupHyperlinks = DecodeDumpDrawingHyperlinks(
+                        properties.GetValueOrDefault("hyperlinks") ?? "");
+                }
+                catch (FormatException ex)
+                {
+                    throw new ArgumentException(
+                        $"drawing-group 'hyperlinks' carrier is invalid: {ex.Message}", ex);
+                }
+
+                Modified = true;
+                var groupDrawingsPart = groupWorksheet.DrawingsPart
+                    ?? groupWorksheet.AddNewPart<DrawingsPart>();
+                if (groupDrawingsPart.WorksheetDrawing == null)
+                {
+                    groupDrawingsPart.WorksheetDrawing = new XDR.WorksheetDrawing();
+                    groupDrawingsPart.WorksheetDrawing.Save();
+                }
+                var groupSheet = GetSheet(groupWorksheet);
+                if (groupSheet.GetFirstChild<SpreadsheetDrawing>() == null)
+                {
+                    var drawingRelId = groupWorksheet.GetIdOfPart(groupDrawingsPart);
+                    groupSheet.Append(new SpreadsheetDrawing { Id = drawingRelId });
+                    SaveWorksheet(groupWorksheet);
+                }
+
+                // Relationship IDs are scoped to the destination drawing part.
+                // Create fresh IDs (avoids collisions with pictures/charts
+                // emitted earlier), then rewrite every r:id/r:embed/r:link in
+                // the verbatim group anchor that referenced the source ID.
+                foreach (var hyperlink in groupHyperlinks)
+                {
+                    if (string.IsNullOrEmpty(hyperlink.Id) || string.IsNullOrEmpty(hyperlink.Target))
+                        throw new ArgumentException(
+                            "drawing-group hyperlink entries require non-empty Id and Target.");
+                    var uri = new Uri(hyperlink.Target, UriKind.RelativeOrAbsolute);
+                    var replayRel = groupDrawingsPart.AddHyperlinkRelationship(
+                        uri, hyperlink.IsExternal);
+                    RemapDrawingRelationshipId(groupAnchor, hyperlink.Id, replayRel.Id);
+                }
+
+                groupDrawingsPart.WorksheetDrawing.AppendChild(groupAnchor);
+                groupDrawingsPart.WorksheetDrawing.Save();
+                var groupIndex = groupDrawingsPart.WorksheetDrawing
+                    .Elements<XDR.TwoCellAnchor>()
+                    .Count(a => a.GetFirstChild<XDR.GroupShape>() != null);
+                return ("group", $"/{groupSheetName}/group[{groupIndex}]");
+            }
+
+            case "chartex":
+            {
+                // Extended (cx:) chart carrier for dump→batch round-trip.
+                // chartEx has no semantic add vocabulary — waterfall/funnel/
+                // sunburst charts are carried VERBATIM: the caller pins the
+                // source rIds so the graphicFrame slice raw-set into the
+                // drawing resolves without rewriting. Mirrors the pptx
+                // SmartArt add-part pattern (pinned rIds + raw payload).
+                // Props: rid (required), xml (base64 cx:chartSpace),
+                // colors-rid/colors-xml, style-rid/style-xml (optional
+                // sub-parts — Excel-authored chartEx always carries both;
+                // dropping them dangles the main part's rels).
+                var cxSheetName = parentPartPath.TrimStart('/');
+                var cxWorksheet = FindWorksheet(cxSheetName)
+                    ?? throw new ArgumentException(
+                        $"Sheet not found: {cxSheetName}. chartex must be added under a sheet: add-part <file> /<SheetName> --type chartex");
+                properties ??= new Dictionary<string, string>();
+                var cxRid = properties.GetValueOrDefault("rid")
+                    ?? throw new ArgumentException("'rid' property is required for chartex (pinned relationship id)");
+                var cxXmlB64 = properties.GetValueOrDefault("xml")
+                    ?? throw new ArgumentException("'xml' property is required for chartex (base64 cx:chartSpace XML)");
+
+                var cxDrawingsPart = cxWorksheet.DrawingsPart
+                    ?? cxWorksheet.AddNewPart<DrawingsPart>();
+                if (cxDrawingsPart.WorksheetDrawing == null)
+                {
+                    cxDrawingsPart.WorksheetDrawing =
+                        new DocumentFormat.OpenXml.Drawing.Spreadsheet.WorksheetDrawing();
+                    cxDrawingsPart.WorksheetDrawing.Save();
+                    if (GetSheet(cxWorksheet).GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.Drawing>() == null)
+                    {
+                        var cxDrawRelId = cxWorksheet.GetIdOfPart(cxDrawingsPart);
+                        GetSheet(cxWorksheet).Append(
+                            new DocumentFormat.OpenXml.Spreadsheet.Drawing { Id = cxDrawRelId });
+                        SaveWorksheet(cxWorksheet);
+                    }
+                }
+
+                var extChartPart = cxDrawingsPart.AddNewPart<ExtendedChartPart>(cxRid);
+                using (var s = extChartPart.GetStream(System.IO.FileMode.Create, System.IO.FileAccess.Write))
+                {
+                    var bytes = Convert.FromBase64String(cxXmlB64);
+                    s.Write(bytes, 0, bytes.Length);
+                }
+                foreach (var (ridKey, xmlKey, subType) in new[]
+                {
+                    ("colors-rid", "colors-xml", "colors"),
+                    ("style-rid", "style-xml", "style"),
+                })
+                {
+                    var subRid = properties.GetValueOrDefault(ridKey);
+                    var subXml = properties.GetValueOrDefault(xmlKey);
+                    if (string.IsNullOrEmpty(subRid) || string.IsNullOrEmpty(subXml)) continue;
+                    OpenXmlPart subPart = subType == "colors"
+                        ? extChartPart.AddNewPart<ChartColorStylePart>(subRid)
+                        : extChartPart.AddNewPart<ChartStylePart>(subRid);
+                    using var ss = subPart.GetStream(System.IO.FileMode.Create, System.IO.FileAccess.Write);
+                    var subBytes = Convert.FromBase64String(subXml!);
+                    ss.Write(subBytes, 0, subBytes.Length);
+                }
+                return (cxRid, $"/{cxSheetName}/chartex");
+            }
+
+            case "ole":
+            {
+                // Verbatim OLE carrier for dump→batch round-trip. Mirrors the
+                // pptx add-part ole contract (pinned rIds + base64 payloads)
+                // but is all-in-one: Excel's OLE anatomy spans the worksheet
+                // (<oleObjects> child + embed/icon rels), the VML drawing
+                // (anchor shape) and <legacyDrawing>, all of which must stay
+                // consistent — so the handler wires everything here instead
+                // of leaving XML splicing to a companion raw-set.
+                // Props: rid + data (+content-type/extension) = payload part;
+                // icon-rid + icon-data (+icon-content-type) = objectPr image;
+                // vml-shape = the <v:shape> anchor XML verbatim;
+                // object-xml = the <oleObjects> CHILD element verbatim
+                // (mc:AlternateContent or bare oleObject, pinned rIds inside).
+                var oleSheetName = parentPartPath.TrimStart('/');
+                var oleWs = FindWorksheet(oleSheetName)
+                    ?? throw new ArgumentException(
+                        $"Sheet not found: {oleSheetName}. ole must be added under a sheet: add-part <file> /<SheetName> --type ole");
+                properties ??= new Dictionary<string, string>();
+                var oleRid = properties.GetValueOrDefault("rid")
+                    ?? throw new ArgumentException("'rid' property is required for ole (pinned payload relationship id)");
+                var oleDataB64 = properties.GetValueOrDefault("data")
+                    ?? throw new ArgumentException("'data' property is required for ole (base64 payload bytes)");
+                var oleObjectXml = properties.GetValueOrDefault("object-xml")
+                    ?? throw new ArgumentException("'object-xml' property is required for ole (verbatim oleObjects child element)");
+                byte[] oleBytes;
+                try { oleBytes = Convert.FromBase64String(oleDataB64); }
+                catch (FormatException) { throw new ArgumentException("add-part ole: 'data' is not valid base64"); }
+
+                var oleCt = properties.GetValueOrDefault("content-type")
+                    ?? "application/vnd.openxmlformats-officedocument.oleObject";
+                var oleExt = properties.GetValueOrDefault("extension") ?? ".bin";
+                if (!oleExt.StartsWith('.')) oleExt = "." + oleExt;
+
+                // Kind comes from the dump (source part type), because content
+                // type alone cannot classify legacy package formats (.xls
+                // carries application/vnd.ms-excel, not an OOXML CT). Fallback
+                // for hand-written batches that omit ole-kind: package iff the
+                // CT is a non-oleObject openxmlformats CT.
+                var oleKind = properties.GetValueOrDefault("ole-kind")
+                    ?? (oleCt.StartsWith(
+                            "application/vnd.openxmlformats-officedocument.", StringComparison.OrdinalIgnoreCase)
+                        && !oleCt.Equals(
+                            "application/vnd.openxmlformats-officedocument.oleObject", StringComparison.OrdinalIgnoreCase)
+                        ? "package" : "object");
+                // PartTypeInfo's target extension is dot-prefixed (".docx");
+                // a bare "docx" silently falls back to ".bin" part names.
+                OfficeCli.Core.OleHelper.AddEmbeddedPartFromBytes(
+                    oleWs, oleBytes, oleKind, oleCt, oleExt, oleRid);
+
+                // Icon image (objectPr r:id target).
+                var iconRid = properties.GetValueOrDefault("icon-rid");
+                var iconB64 = properties.GetValueOrDefault("icon-data");
+                if (!string.IsNullOrEmpty(iconRid) && !string.IsNullOrEmpty(iconB64))
+                {
+                    var iconCt = properties.GetValueOrDefault("icon-content-type") ?? "image/x-emf";
+                    var iconType = iconCt switch
+                    {
+                        "image/png" => ImagePartType.Png,
+                        "image/jpeg" => ImagePartType.Jpeg,
+                        "image/gif" => ImagePartType.Gif,
+                        "image/bmp" => ImagePartType.Bmp,
+                        "image/x-wmf" => ImagePartType.Wmf,
+                        _ => ImagePartType.Emf,
+                    };
+                    var iconPart = oleWs.AddImagePart(iconType, iconRid!);
+                    var iconBytes = Convert.FromBase64String(iconB64!);
+                    using var s = new MemoryStream(iconBytes);
+                    iconPart.FeedData(s);
+                }
+
+                // VML anchor shape + <legacyDrawing> reference.
+                var vmlShapeXml = properties.GetValueOrDefault("vml-shape");
+                if (!string.IsNullOrEmpty(vmlShapeXml))
+                {
+                    if (!oleWs.VmlDrawingParts.Any())
+                    {
+                        var vmlPart = oleWs.AddNewPart<VmlDrawingPart>();
+                        using var writer = new System.IO.StreamWriter(vmlPart.GetStream());
+                        writer.Write("<xml xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\" xmlns:x=\"urn:schemas-microsoft-com:office:excel\"></xml>");
+                    }
+                    InsertVmlShapeXml(oleWs.VmlDrawingParts.First(), vmlShapeXml!);
+                    var wsEl = GetSheet(oleWs);
+                    if (wsEl.GetFirstChild<LegacyDrawing>() == null)
+                    {
+                        wsEl.AppendChild(new LegacyDrawing { Id = oleWs.GetIdOfPart(oleWs.VmlDrawingParts.First()) });
+                    }
+                }
+
+                // <oleObjects> child, verbatim, inserted in schema order.
+                var oleWsElement = GetSheet(oleWs);
+                var oleObjects = oleWsElement.GetFirstChild<OleObjects>();
+                if (oleObjects == null)
+                {
+                    oleObjects = new OleObjects();
+                    oleWsElement.AppendChild(oleObjects);
+                }
+                OpenXmlElement oleChild = oleObjectXml.Contains("AlternateContent", StringComparison.Ordinal)
+                    ? new DocumentFormat.OpenXml.AlternateContent(oleObjectXml)
+                    : new OleObject(oleObjectXml);
+                oleObjects.AppendChild(oleChild);
+                ReorderWorksheetChildren(oleWsElement);
+                SaveWorksheet(oleWs);
+
+                return (oleRid, $"/{oleSheetName}/ole");
+            }
+
             default:
                 throw new ArgumentException(
-                    $"Unknown part type: {partType}. Supported: chart");
+                    $"Unknown part type: {partType}. Supported: chart, chartex, drawing-group, ole");
         }
+    }
+
+    private static void RemapDrawingRelationshipId(
+        OpenXmlElement root, string sourceId, string destinationId)
+    {
+        const string relNs =
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        foreach (var element in root.Descendants().Prepend(root))
+        {
+            foreach (var attr in element.GetAttributes()
+                .Where(a => a.NamespaceUri == relNs && a.Value == sourceId)
+                .ToList())
+            {
+                element.SetAttribute(new OpenXmlAttribute(
+                    attr.Prefix, attr.LocalName, attr.NamespaceUri, destinationId));
+            }
+        }
+    }
+
+    /// <summary>Append a verbatim &lt;v:shape&gt; slice before the VML part's
+    /// closing &lt;/xml&gt;. Shared by the OLE carrier (comment shapes go
+    /// through AppendCommentVmlShape which builds the shape itself).</summary>
+    private static void InsertVmlShapeXml(VmlDrawingPart vmlPart, string shapeXml)
+    {
+        string xml;
+        using (var reader = new System.IO.StreamReader(vmlPart.GetStream(System.IO.FileMode.Open, System.IO.FileAccess.Read)))
+            xml = reader.ReadToEnd();
+        var closeIdx = xml.LastIndexOf("</xml>", StringComparison.OrdinalIgnoreCase);
+        if (closeIdx < 0) return;
+        xml = xml[..closeIdx] + shapeXml + xml[closeIdx..];
+        using var writer = new System.IO.StreamWriter(vmlPart.GetStream(System.IO.FileMode.Create, System.IO.FileAccess.Write));
+        writer.Write(xml);
     }
 }

@@ -146,7 +146,6 @@ const isMarkdownExtension = (extension) => extension != null && MARKDOWN_EXTS.ha
 const DECLARED_OUTPUTS_RE = /(?:^|[\\/])(?:\.stella|state)[\\/]outputs[\\/]/;
 export const isDeclaredOutputPath = (filePath) => DECLARED_OUTPUTS_RE.test(filePath);
 
-export { isNoiseProducedPath } from "@stella/contracts/file-changes";
 export const isDeveloperResourceExtension = (extension) => extension != null && DEVELOPER_RESOURCE_EXTS.has(extension);
 
 export const pickPrimaryEditedPath = (candidatePaths, options) => {

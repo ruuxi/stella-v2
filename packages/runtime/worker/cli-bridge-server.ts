@@ -7,6 +7,7 @@ import type {
   AutomationDaemonSpawnParams,
   AutomationDaemonSpawnResult,
   BackendConnectorActionResult,
+  BackendConnectorActionsResult,
 } from "../kernel/connectors/cli-broker-client.js";
 
 export const maxCliBridgeSocketPathBytes = 100;
@@ -65,6 +66,13 @@ export type CliBridgeHandlers = {
     requestId?: string;
     signal?: AbortSignal;
   }) => Promise<BackendConnectorActionResult>;
+  listBackendConnectorActions?: (params: {
+    connectorId: string;
+    action?: string;
+    query?: string;
+    limit?: number;
+    signal?: AbortSignal;
+  }) => Promise<BackendConnectorActionsResult>;
   requestDesktopPermission?: (params: {
     kind: "accessibility" | "screen";
   }) =>
@@ -90,6 +98,13 @@ const runBackendActionParamsSchema = z.strictObject({
   action: z.string().trim().min(1),
   input: z.record(z.string(), z.unknown()),
   requestId: z.string().trim().min(1).optional().catch(undefined),
+});
+
+const listBackendActionsParamsSchema = z.strictObject({
+  connectorId: z.string().trim().toLowerCase().min(1),
+  action: z.string().trim().min(1).optional(),
+  query: z.string().trim().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
 });
 
 const requestPermissionParamsSchema = z.object({
@@ -232,6 +247,25 @@ const dispatch = async (
         action,
         input,
         ...(requestId ? { requestId } : {}),
+        ...(signal ? { signal } : {}),
+      });
+    }
+    case "connector.listBackendActions": {
+      if (!handlers.listBackendConnectorActions) {
+        return { ok: false, reason: "unsupported" };
+      }
+      const parsed = listBackendActionsParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        throw new Error(
+          "connector.listBackendActions: connectorId and valid optional filters are required",
+        );
+      }
+      const { connectorId, action, query, limit } = parsed.data;
+      return await handlers.listBackendConnectorActions({
+        connectorId,
+        ...(action ? { action } : {}),
+        ...(query ? { query } : {}),
+        ...(limit ? { limit } : {}),
         ...(signal ? { signal } : {}),
       });
     }

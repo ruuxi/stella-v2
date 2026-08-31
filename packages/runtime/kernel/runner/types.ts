@@ -339,9 +339,6 @@ export type RunnerContext = {
 
     unregisterExtensionTools: () => void;
 
-    drainCompletedShellProducedFiles: (
-      sessionIds?: string[],
-    ) => Promise<import("@stella/contracts/file-changes").ProducedFileRecord[]>;
     killAllShells: () => void;
     killShell: (sessionId: string) => Promise<void> | void;
     killShellsByPort: (port: number) => void;

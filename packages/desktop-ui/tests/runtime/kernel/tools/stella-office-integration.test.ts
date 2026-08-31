@@ -10,7 +10,7 @@ import { createSyncTempDirTracker } from "../../../helpers/temp.js";
 
 const officeWrapperPath = path.resolve(
   process.cwd(),
-  "stella-office",
+  "../stella-office",
   "bin",
   "stella-office.js",
 );

@@ -1561,15 +1561,8 @@
         "unreadAriaLabel": "{label}，{count} 則未讀"
       },
       "feedback": {
-        "title": {
-          "manual": "傳送回饋",
-          "auto": "Stella 用得如何？"
-        },
-        "description": {
-          "manual": "你的訊息會以匿名方式傳送 — 不會連結到你的帳號。",
-          "auto": "有什麼想讓我們知道的嗎？以匿名方式傳送 — 不會連結到你的帳號。"
-        },
-        "notNow": "暫時不要",
+        "title": "傳送回饋",
+        "description": "你的訊息會以匿名方式傳送 — 不會連結到你的帳號。",
         "fieldLabel": "回饋",
         "placeholder": "告訴我們哪裡好用、哪裡不好用，或你希望看到什麼…",
         "send": "傳送",

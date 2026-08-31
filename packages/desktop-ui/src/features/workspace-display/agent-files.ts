@@ -1,8 +1,10 @@
 import type { EventRecord } from "@/features/chat/lib/event-transforms";
 import {
   deriveConversationFiles,
+  responseTextForFileLinks,
   type ConversationFileEntry,
 } from "@/features/workspace-display/derive-conversation-files";
+import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 
 export function deriveAgentFilesMap(
   activities: ReadonlyArray<EventRecord>,
@@ -62,31 +64,7 @@ export function mergeAgentFileEvents(
 }
 
 export function eventContributesFiles(event: EventRecord): boolean {
-  const payload = event.payload as
-    | {
-        toolName?: unknown;
-        error?: unknown;
-        filePath?: unknown;
-        fileChanges?: unknown;
-        producedFiles?: unknown;
-      }
-    | undefined;
-  if (!payload || typeof payload !== "object") return false;
-  if (
-    payload.toolName === "html" &&
-    !payload.error &&
-    typeof payload.filePath === "string" &&
-    payload.filePath.startsWith("/")
-  ) {
-    return true;
-  }
-  if (Array.isArray(payload.fileChanges) && payload.fileChanges.length > 0) {
-    return true;
-  }
-  if (Array.isArray(payload.producedFiles) && payload.producedFiles.length > 0) {
-    return true;
-  }
-  return false;
+  return extractLocalFileLinkPaths(responseTextForFileLinks(event)).length > 0;
 }
 
 export function agentFilesSignature(
@@ -98,13 +76,9 @@ export function agentFilesSignature(
       ?.agentId;
     if (typeof agentId !== "string" || agentId.length === 0) continue;
     if (!eventContributesFiles(event)) continue;
-    const payload = event.payload as {
-      fileChanges?: unknown;
-      producedFiles?: unknown;
-    };
-    const fileCount =
-      (Array.isArray(payload.fileChanges) ? payload.fileChanges.length : 0) +
-      (Array.isArray(payload.producedFiles) ? payload.producedFiles.length : 0);
+    const fileCount = extractLocalFileLinkPaths(
+      responseTextForFileLinks(event),
+    ).length;
     signature += `${agentId}\u001f${event._id}\u001f${event.timestamp}\u001f${fileCount}\u001e`;
   }
   return signature;

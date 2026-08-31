@@ -1611,15 +1611,8 @@
         "unreadAriaLabel": "{label}, nepřečtených: {count}"
       },
       "feedback": {
-        "title": {
-          "manual": "Odeslat zpětnou vazbu",
-          "auto": "Jak to jde se Stellou?"
-        },
-        "description": {
-          "manual": "Vaše zpráva se odesílá anonymně — není spojena s vaším účtem.",
-          "auto": "Něco, co bychom měli vědět? Odesílá se anonymně — bez vazby na váš účet."
-        },
-        "notNow": "Teď ne",
+        "title": "Odeslat zpětnou vazbu",
+        "description": "Vaše zpráva se odesílá anonymně — není spojena s vaším účtem.",
         "fieldLabel": "Zpětná vazba",
         "placeholder": "Napište, co funguje, co ne, nebo co byste rádi viděli…",
         "send": "Odeslat",

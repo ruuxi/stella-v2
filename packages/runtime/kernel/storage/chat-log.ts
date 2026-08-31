@@ -1026,9 +1026,9 @@ export class ChatLog {
     const normalizedLimit = Math.max(1, Math.floor(args.limit ?? 500));
     const clauses = [
       "entry.conversation_id = ?",
-      "entry.type IN ('tool_result', 'agent-completed')",
+      "entry.type IN ('assistant_message', 'agent-completed')",
       "entry.payload IS NOT NULL",
-      "(json_array_length(json_extract(entry.payload, '$.fileChanges')) > 0 OR json_array_length(json_extract(entry.payload, '$.producedFiles')) > 0)",
+      "(json_extract(entry.payload, '$.text') LIKE '%](%' OR json_extract(entry.payload, '$.result') LIKE '%](%')",
     ];
     const params: unknown[] = [conversationId];
     if (typeof args.beforeTimestampMs === "number") {

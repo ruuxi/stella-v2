@@ -10,6 +10,7 @@ import {
 import { getNativeConnectorReadiness } from "./connection-status.js";
 import {
   requestBackendConnectorActionFromBridge,
+  requestBackendConnectorActionsFromBridge,
   requestConnectorCredentialFromBridge,
   type BackendConnectorActionResult,
   type ConnectorCredentialResult,
@@ -1239,6 +1240,23 @@ export const listConnectorActionSummaries = async (
   const native = getNativeConnectorCatalogEntry(id, resolved.entries);
   if (native) {
     const catalogActions = getNativeConnectorCatalogActions(native);
+    if (
+      catalogActions.length === 0 &&
+      native.provider === "backend-composio" &&
+      options.cliBridgeSocketPath?.trim()
+    ) {
+      const backendActions = await requestBackendConnectorActionsFromBridge({
+        socketPath: options.cliBridgeSocketPath.trim(),
+        connectorId: id,
+        ...(listOptions.query?.trim()
+          ? { query: listOptions.query.trim() }
+          : {}),
+        limit: clampActionLimit(listOptions.limit),
+      }).catch(() => null);
+      if (backendActions?.ok) {
+        return toActionsList(id, backendActions.actions, listOptions);
+      }
+    }
     const source: ActionLike[] = catalogActions.length
       ? catalogActions.map((action) => ({
           name: action.name,
@@ -1320,6 +1338,20 @@ export const getConnectorActionSchema = async (
       (tool) => tool.name === wanted,
     );
     if (toolMatch) return finish(toolMatch);
+    if (
+      native.provider === "backend-composio" &&
+      options.cliBridgeSocketPath?.trim()
+    ) {
+      const backendActions = await requestBackendConnectorActionsFromBridge({
+        socketPath: options.cliBridgeSocketPath.trim(),
+        connectorId: id,
+        action: wanted,
+      }).catch(() => null);
+      const backendMatch = backendActions?.ok
+        ? backendActions.actions.find((candidate) => candidate.name === wanted)
+        : undefined;
+      if (backendMatch) return finish(backendMatch);
+    }
     throw new Error(
       `Unknown action ${wanted} for ${id}. List actions with connect.actions("${id}", { query: "<keywords>" }).`,
     );

@@ -1,8 +1,9 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using System.CommandLine;
 using OfficeCli.Core;
+using OfficeCli.Handlers;
 
 namespace OfficeCli;
 
@@ -11,7 +12,7 @@ static partial class CommandBuilder
     private static Command BuildRawCommand(Option<bool> jsonOption)
     {
         var rawFileArg = new Argument<FileInfo>("file") { Description = "Office document path (required even with open/close mode)" };
-        var rawPathArg = new Argument<string>("part") { Description = "Part path (e.g. /document, /styles, /header[0])" };
+        var rawPathArg = new Argument<string>("part") { Description = "Part path (e.g. /document, /styles, /header[1])" };
         rawPathArg.DefaultValueFactory = _ => "/document";
 
         var rawStartOpt = new Option<int?>("--start") { Description = "Start row number (Excel sheets only)" };
@@ -30,7 +31,7 @@ static partial class CommandBuilder
         rawCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
         {
             var file = result.GetValue(rawFileArg)!;
-            var partPath = result.GetValue(rawPathArg)!;
+            var partPath = OfficeCli.Core.MsysPathHint.Restore(result.GetValue(rawPathArg)!)!;
             var startRow = result.GetValue(rawStartOpt);
             var endRow = result.GetValue(rawEndOpt);
             var rawColsStr = result.GetValue(rawColsOpt);
@@ -75,7 +76,7 @@ static partial class CommandBuilder
         rawSetCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
         {
             var file = result.GetValue(rawSetFileArg)!;
-            var partPath = result.GetValue(rawSetPartArg)!;
+            var partPath = OfficeCli.Core.MsysPathHint.Restore(result.GetValue(rawSetPartArg)!)!;
             var xpath = result.GetValue(rawSetXpathOpt)!;
             var action = result.GetValue(rawSetActionOpt)!;
             var xml = result.GetValue(rawSetXmlOpt);
@@ -111,7 +112,7 @@ static partial class CommandBuilder
     {
         var addPartFileArg = new Argument<string>("file") { Description = "Document file path" };
         var addPartParentArg = new Argument<string>("parent") { Description = "Parent part path (e.g. / for document root, /Sheet1 for Excel sheet, /slide[0] for PPT slide)" };
-        var addPartTypeOpt = new Option<string>("--type") { Description = "Part type to create (chart, header, footer)", Required = true };
+        var addPartTypeOpt = new Option<string>("--type") { Description = "Part type to create. Word: chart, header, footer. PPT/Excel: chart", Required = true };
         var addPartCommand = new Command("add-part", "Create a new document part and return its relationship ID for use with raw-set");
         addPartCommand.Add(addPartFileArg);
         addPartCommand.Add(addPartParentArg);
@@ -121,7 +122,7 @@ static partial class CommandBuilder
         addPartCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
         {
             var file = result.GetValue(addPartFileArg)!;
-            var parent = result.GetValue(addPartParentArg)!;
+            var parent = OfficeCli.Core.MsysPathHint.Restore(result.GetValue(addPartParentArg)!)!;
             var type = result.GetValue(addPartTypeOpt)!;
 
             if (TryResident(file, req =>

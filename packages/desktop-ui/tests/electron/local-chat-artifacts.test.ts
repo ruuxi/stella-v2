@@ -95,24 +95,12 @@ describe("local chat mobile artifacts", () => {
     ]);
   });
 
-  it("derives display payloads from file-producing tool events", () => {
+  it("derives display payloads from assistant response links", () => {
     const artifacts = deriveMobileArtifactsForMessage(
       baseMessage({
-        toolEvents: [
-          {
-            _id: "tool-1",
-            timestamp: 1_100,
-            type: "tool_result",
-            payload: {
-              toolName: "exec_command",
-              producedFiles: [
-                { path: "/tmp/report.pdf", kind: { type: "add" } },
-                { path: "/tmp/table.csv", kind: { type: "add" } },
-                { path: "/tmp/deleted.md", kind: { type: "delete" } },
-              ],
-            },
-          },
-        ],
+        payload: {
+          text: "[report](/tmp/report.pdf) [table](/tmp/table.csv)",
+        },
       }),
     );
 
@@ -178,19 +166,7 @@ describe("local chat mobile artifacts", () => {
 
   it("omits developer file artifacts unless explicitly enabled", () => {
     const message = baseMessage({
-      toolEvents: [
-        {
-          _id: "tool-1",
-          timestamp: 1_100,
-          type: "tool_result",
-          payload: {
-            toolName: "apply_patch",
-            fileChanges: [
-              { path: "/repo/src/app.tsx", kind: { type: "update" } },
-            ],
-          },
-        },
-      ],
+      payload: { text: "[app](/repo/src/app.tsx)" },
     });
 
     expect(deriveMobileArtifactsForMessage(message)).toEqual([]);
@@ -844,7 +820,7 @@ describe("local chat mobile artifacts", () => {
     });
   });
 
-  it("excludes delegated mid-run tool_result files from loose artifacts", () => {
+  it("excludes all tool-result file metadata from loose artifacts", () => {
     const artifacts = deriveMobileArtifactsForMessage(
       baseMessage({
         toolEvents: [
@@ -888,15 +864,13 @@ describe("local chat mobile artifacts", () => {
       }),
     );
 
-    expect(artifacts).toMatchObject([
-      { kind: "pdf", filePath: "/tmp/direct.pdf" },
-      { kind: "pdf", filePath: "/tmp/legacy.pdf" },
-    ]);
+    expect(artifacts).toEqual([]);
   });
 
-  it("filters noise producedFiles from loose artifacts", () => {
+  it("uses the assistant-selected deliverable instead of shell noise", () => {
     const artifacts = deriveMobileArtifactsForMessage(
       baseMessage({
+        payload: { text: "[report](/tmp/report.pdf)" },
         toolEvents: [
           {
             _id: "tool-1",
@@ -922,9 +896,12 @@ describe("local chat mobile artifacts", () => {
     ]);
   });
 
-  it("surfaces html written anywhere under the outputs tree as canvas", () => {
+  it("surfaces linked html under the outputs tree as canvas", () => {
     const artifacts = deriveMobileArtifactsForMessage(
       baseMessage({
+        payload: {
+          text: "[report](/Users/me/.stella/outputs/recall-report.html)",
+        },
         toolEvents: [
           {
             _id: "tool-1",
@@ -976,6 +953,8 @@ describe("local chat mobile artifacts", () => {
               type: "agent-completed",
               payload: {
                 agentId: "t1",
+                result:
+                  "[report](/Users/me/.stella/outputs/report.pdf) [scratch](/Users/me/work/scratch.md)",
                 fileChanges: [
                   { path: "/Users/me/work/scratch.md", kind: { type: "add" } },
                 ],
@@ -1052,6 +1031,7 @@ describe("local chat mobile artifacts", () => {
               type: "agent-completed",
               payload: {
                 agentId: "t1",
+                result: "[memo](/Users/me/memo.md)",
                 fileChanges: [
                   { path: "/Users/me/memo.md", kind: { type: "add" } },
                 ],
@@ -1063,6 +1043,7 @@ describe("local chat mobile artifacts", () => {
               type: "agent-completed",
               payload: {
                 agentId: "t2",
+                result: "[numbers](/Users/me/numbers.csv)",
                 fileChanges: [
                   { path: "/Users/me/numbers.csv", kind: { type: "add" } },
                 ],
@@ -1131,6 +1112,8 @@ describe("local chat mobile artifacts", () => {
               type: "agent-completed",
               payload: {
                 agentId: "t1",
+                result:
+                  "[itinerary](/Users/me/.stella/outputs/itinerary.pdf)",
                 producedFiles: [
                   {
                     path: "/Users/me/.stella/outputs/itinerary.pdf",

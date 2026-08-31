@@ -1561,15 +1561,8 @@
         "unreadAriaLabel": "{label}, 읽지 않음 {count}개"
       },
       "feedback": {
-        "title": {
-          "manual": "피드백 보내기",
-          "auto": "Stella는 어떤가요?"
-        },
-        "description": {
-          "manual": "메시지는 익명으로 전송되며 계정과 연결되지 않습니다.",
-          "auto": "알려 주실 내용이 있나요? 익명으로 전송되며 계정과 연결되지 않습니다."
-        },
-        "notNow": "나중에",
+        "title": "피드백 보내기",
+        "description": "메시지는 익명으로 전송되며 계정과 연결되지 않습니다.",
         "fieldLabel": "피드백",
         "placeholder": "잘 되는 점, 아쉬운 점, 바라는 점을 알려 주세요…",
         "send": "보내기",

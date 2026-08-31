@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using DocumentFormat.OpenXml;
@@ -33,7 +33,7 @@ namespace OfficeCli.Core;
 ///   alignment.vertical   - top/center/bottom
 ///   alignment.wrapText   - true/false
 /// </summary>
-public class ExcelStyleManager
+internal class ExcelStyleManager
 {
     private readonly WorkbookPart _workbookPart;
 
@@ -71,7 +71,7 @@ public class ExcelStyleManager
     /// Apply style properties to a cell. Merges with any existing cell style.
     /// Returns the style index to assign to the cell.
     /// </summary>
-    public uint ApplyStyle(Cell cell, Dictionary<string, string> styleProps)
+    public uint ApplyStyle(Cell cell, Dictionary<string, string> styleProps, List<string>? unsupportedOut = null)
     {
         // Normalize keys to lowercase for case-insensitive matching; skip null values
         var props = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -105,25 +105,75 @@ public class ExcelStyleManager
         // Map "font" shorthand to font.name
         if (styleProps.TryGetValue("font", out var fontShorthand))
             fontProps["name"] = fontShorthand;
-        // Map shorthand keys (bold, italic, strike, underline, superscript, subscript, strikethrough) to font.* equivalents
-        foreach (var shortKey in new[] { "bold", "italic", "strike", "underline", "superscript", "subscript", "strikethrough" })
+        // Map shorthand keys (bold, italic, strike, underline, superscript, subscript, strikethrough, size) to font.* equivalents
+        foreach (var shortKey in new[] { "bold", "italic", "strike", "underline", "superscript", "subscript", "strikethrough", "size" })
         {
             if (styleProps.TryGetValue(shortKey, out var shortVal))
                 fontProps[shortKey == "strikethrough" ? "strike" : shortKey] = shortVal;
         }
+        // CONSISTENCY(font-size-alias): `fontsize`/`fontSize` mirrors the
+        // docx/pptx shorthand for size. Maps to font.size.
+        if (styleProps.TryGetValue("fontsize", out var fontSizeVal))
+            fontProps["size"] = fontSizeVal;
         // Normalize "strikethrough" alias within font.* props
         if (fontProps.Remove("strikethrough", out var stVal))
             fontProps["strike"] = stVal;
         if (fontProps.Count > 0)
         {
-            fontId = GetOrCreateFont(stylesheet, fontId, fontProps);
+            // Split into curated (handled by GetOrCreateFont's typed builder)
+            // and long-tail (raw OOXML children appended via SDK schema-aware
+            // AddChild, force-new in the dedup table).
+            var longTailFontProps = fontProps
+                .Where(kv => !CuratedFontKeys.Contains(kv.Key))
+                .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+            var curatedFontProps = fontProps
+                .Where(kv => CuratedFontKeys.Contains(kv.Key))
+                .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+            // Preserve baseFont's existing long-tail children (charset, family,
+            // outline, shadow, ...) — without this they'd be silently dropped
+            // every time the cell's style is touched, since GetOrCreateFont
+            // rebuilds Font from curated fields only.
+            var baseFonts = stylesheet.Fonts;
+            if (baseFonts != null && fontId < (uint)baseFonts.Elements<Font>().Count())
+            {
+                var baseFont = baseFonts.Elements<Font>().ElementAt((int)fontId);
+                foreach (var child in baseFont.ChildElements)
+                {
+                    var name = child.LocalName;
+                    if (CuratedFontChildLocalNames.Contains(name)) continue;
+                    if (longTailFontProps.ContainsKey(name)) continue; // caller wins
+                    string? valStr = null;
+                    foreach (var a in child.GetAttributes())
+                    {
+                        if (a.LocalName.Equals("val", StringComparison.OrdinalIgnoreCase))
+                        { valStr = a.Value; break; }
+                    }
+                    if (valStr != null)
+                        longTailFontProps[name] = valStr;
+                }
+            }
+            fontId = GetOrCreateFont(stylesheet, fontId, curatedFontProps, longTailFontProps, unsupportedOut);
             applyFont = true;
         }
 
         // --- fill ---
         uint fillId = baseXf.FillId?.Value ?? 0;
         bool applyFill = baseXf.ApplyFill?.Value ?? false;
-        if (styleProps.TryGetValue("fill", out var fillColor) || styleProps.TryGetValue("bgcolor", out fillColor))
+        // Non-solid pattern fills (e.g. patternType=lightGray with fg/bg
+        // colors). Canonical key `fillPattern` selects the pattern type; the
+        // foreground color reuses `fill`, and `fillBg` carries the background
+        // color. Without this branch a lightGray/fg/bg fill collapsed to a
+        // plain solid fill on round-trip.
+        if (styleProps.TryGetValue("fillPattern", out var fillPattern)
+            && !string.IsNullOrEmpty(fillPattern))
+        {
+            var patFg = styleProps.TryGetValue("fill", out var pfg) ? pfg
+                : styleProps.TryGetValue("bgcolor", out pfg) ? pfg : null;
+            var patBg = styleProps.TryGetValue("fillBg", out var pbg) ? pbg : null;
+            fillId = GetOrCreatePatternFill(stylesheet, fillPattern, patFg, patBg);
+            applyFill = true;
+        }
+        else if (styleProps.TryGetValue("fill", out var fillColor) || styleProps.TryGetValue("bgcolor", out fillColor) || styleProps.TryGetValue("bg", out fillColor))
         {
             if (fillColor.Contains('-') || fillColor.Contains(';'))
             {
@@ -133,12 +183,56 @@ public class ExcelStyleManager
                     ? fillColor.TrimStart("gradient;".ToCharArray()).Replace(';', '-')
                     : fillColor;
                 fillId = GetOrCreateGradientFill(stylesheet, dashFormat);
+                applyFill = true;
             }
             else
             {
-                fillId = GetOrCreateFill(stylesheet, fillColor);
+                // A lone `fill=` on a cell that already carries a NON-solid
+                // pattern fill is an incremental foreground edit — mirroring
+                // the lone-fillBg branch below. Collapsing it to a solid fill
+                // silently discarded the pattern and background (and the
+                // receipt claimed only the color was applied).
+                var currentFill = stylesheet.Fills?.Elements<Fill>().ElementAtOrDefault((int)fillId);
+                var currentPattern = currentFill?.PatternFill?.PatternType;
+                if (currentPattern != null
+                    && currentPattern.Value != PatternValues.None
+                    && currentPattern.Value != PatternValues.Solid)
+                {
+                    fillId = GetOrCreatePatternFillPreserveBg(stylesheet, currentFill!.PatternFill!, fillColor);
+                }
+                else
+                {
+                    fillId = GetOrCreateFill(stylesheet, fillColor);
+                }
+                applyFill = true;
             }
-            applyFill = true;
+        }
+        else if (styleProps.TryGetValue("fillBg", out var loneBg) && !string.IsNullOrEmpty(loneBg))
+        {
+            // fillBg without fillPattern/fill. Previously this key was marked
+            // consumed by IsStyleKey but never written — the command reported
+            // "Updated: fillBg=…" while the XML was untouched. Honor it as an
+            // incremental edit when the cell already carries a non-solid
+            // pattern fill (update the background, keep pattern + foreground);
+            // otherwise report it so the caller learns it needs fillPattern.
+            var existingFill = stylesheet.Fills?.Elements<Fill>().ElementAtOrDefault((int)fillId);
+            var existingPattern = existingFill?.PatternFill?.PatternType;
+            if (existingPattern != null
+                && existingPattern.Value != PatternValues.None
+                && existingPattern.Value != PatternValues.Solid)
+            {
+                // Carry the existing foreground through VERBATIM (clone) — a
+                // lone fillBg edit must never eat the foreground, and the fg
+                // can be stored in forms a string round-trip cannot express
+                // (theme+tint, indexed, auto). Only the background is rebuilt.
+                fillId = GetOrCreatePatternFillPreserveFg(stylesheet,
+                    existingFill!.PatternFill!, loneBg);
+                applyFill = true;
+            }
+            else
+            {
+                unsupportedOut?.Add("fillBg (background of a non-solid pattern fill; set fillPattern=... first or in the same command)");
+            }
         }
 
         // --- border ---
@@ -154,6 +248,16 @@ public class ExcelStyleManager
         }
         if (borderProps.Count > 0)
         {
+            // BUG-C1 guard: GetOrCreateBorder silently ignores subkeys it
+            // doesn't recognize (e.g. border.outline, border.vertical,
+            // border.horizontal). Without this check the user gets an
+            // "Updated" success message but the file is unchanged. Validate
+            // upfront so unrecognized subkeys land in unsupported instead.
+            foreach (var subKey in borderProps.Keys)
+            {
+                if (!RecognizedBorderSubKeys.Contains(subKey))
+                    unsupportedOut?.Add($"border.{subKey} (not implemented; valid: top/bottom/left/right/diagonal/all/color, each with optional .style/.color, plus diagonalUp/diagonalDown)");
+            }
             borderId = GetOrCreateBorder(stylesheet, borderId, borderProps);
             applyBorder = true;
         }
@@ -171,6 +275,10 @@ public class ExcelStyleManager
             alignProps["wraptext"] = wrapVal2;
         if (styleProps.TryGetValue("halign", out var halignVal))
             alignProps["horizontal"] = halignVal;
+        // CONSISTENCY(align-alias): mirror pptx/docx which both accept
+        // `align=` as the canonical short form for horizontal alignment.
+        if (styleProps.TryGetValue("align", out var alignVal))
+            alignProps["horizontal"] = alignVal;
         if (styleProps.TryGetValue("valign", out var valignVal))
             alignProps["vertical"] = valignVal;
         if (styleProps.TryGetValue("rotation", out var rotVal))
@@ -179,6 +287,16 @@ public class ExcelStyleManager
             alignProps["indent"] = indVal;
         if (styleProps.TryGetValue("shrinktofit", out var shrinkVal))
             alignProps["shrinktofit"] = shrinkVal;
+        // DEFERRED(xlsx/cell-reading-order) CE10: accept top-level `readingOrder`
+        // as shorthand for `alignment.readingOrder`.
+        if (styleProps.TryGetValue("readingorder", out var roVal))
+            alignProps["readingorder"] = roVal;
+        // CONSISTENCY(direction): mirror Word/PPT canonical key 'direction'
+        // (values: ltr / rtl / context) for cross-handler parity.
+        if (styleProps.TryGetValue("direction", out var dirVal))
+            alignProps["readingorder"] = dirVal;
+        if (styleProps.TryGetValue("dir", out var dirVal2))
+            alignProps["readingorder"] = dirVal2;
         if (alignProps.Count > 0)
         {
             alignment ??= new Alignment();
@@ -196,40 +314,281 @@ public class ExcelStyleManager
                         alignment.WrapText = IsTruthy(value);
                         break;
                     case "rotation" or "textrotation":
-                        alignment.TextRotation = ParseHelpers.SafeParseUint(value, "rotation");
+                    {
+                        // R39-3: OOXML §18.18.20 ST_TextRotation — valid values
+                        // are 0..180 (degrees) plus the special sentinel 255
+                        // (vertical text stack). Excel rejects 181..254 and
+                        // anything above 255. R15 added the lower-bound guard
+                        // (negative parsing throws via SafeParseUint), but the
+                        // upper bound was missing, allowing files Excel later
+                        // refuses to open.
+                        var rot = ParseHelpers.SafeParseUint(value, "rotation");
+                        if (!(rot <= 180 || rot == 255))
+                            throw new ArgumentException(
+                                $"Invalid 'rotation' value '{value}'. Must be 0..180 (degrees) or 255 (vertical stack).");
+                        alignment.TextRotation = rot;
                         break;
+                    }
                     case "indent":
-                        alignment.Indent = ParseHelpers.SafeParseUint(value, "indent");
+                    {
+                        var indentVal = ParseHelpers.SafeParseUint(value, "indent");
+                        // ST_CellAlignmentIndent caps at 255; larger values
+                        // pass silently but fail schema validation (real
+                        // Excel repairs/strips them). Mirror the rotation
+                        // bounds check above.
+                        if (indentVal > 255)
+                            throw new ArgumentException(
+                                $"Invalid 'indent' value '{value}'. Must be 0..255 (Excel's alignment indent cap).");
+                        alignment.Indent = indentVal;
                         break;
+                    }
                     case "shrinktofit" or "shrink":
                         alignment.ShrinkToFit = IsTruthy(value);
                         break;
+                    case "readingorder":
+                        // DEFERRED(xlsx/cell-reading-order) CE10: OOXML values
+                        // 0=context, 1=ltr, 2=rtl. Accept numeric or string forms.
+                        // CONSISTENCY(canonical): context (0) is the schema
+                        // default — clear the attribute rather than writing
+                        // readingOrder="0". Mirrors Get suppression of value 0
+                        // in ExcelHandler.Helpers.cs and the same direction=ltr
+                        // clear idiom used elsewhere.
+                        var roParsed = ParseReadingOrder(value);
+                        alignment.ReadingOrder = roParsed == 0u ? null : roParsed;
+                        break;
+                    // Long-tail keys handled below (case-preserving) — see the
+                    // styleProps walk after this loop. Skip in the lowered
+                    // switch to avoid double-write.
                 }
+            }
+            // Long-tail Alignment attributes (e.g. justifyLastLine,
+            // relativeIndent). Walk styleProps directly to preserve original
+            // case — OOXML attribute names are case-sensitive (Excel rejects
+            // `justifylastline`, only accepts `justifyLastLine`). Validate
+            // value against the schema type so garbage like
+            // `alignment.justifyLastLine=GARBAGE` is rejected, not silently
+            // written as invalid OOXML.
+            foreach (var (origKey, value) in styleProps)
+            {
+                if (!origKey.StartsWith("alignment.", StringComparison.OrdinalIgnoreCase)) continue;
+                var subKey = origKey.Substring(10); // preserve case after "alignment."
+                if (CuratedAlignmentSubKeysLower.Contains(subKey.ToLowerInvariant())) continue;
+                if (!IsValidAlignmentLongTailValue(subKey, value))
+                {
+                    unsupportedOut?.Add($"{origKey} (value '{value}' is not valid for OOXML alignment/{subKey} type)");
+                    continue;
+                }
+                alignment.SetAttribute(new DocumentFormat.OpenXml.OpenXmlAttribute("", subKey, "", value));
             }
             applyAlignment = true;
         }
 
+        // --- quotePrefix ---
+        // R28-B4 — quotePrefix=true marks the cell xf so Excel renders the
+        // value literally (force-text). Used when the cell value starts with
+        // a leading apostrophe; the apostrophe is stripped from the value
+        // and quotePrefix carries the "force text" intent in the style.
+        bool? quotePrefix = baseXf.QuotePrefix?.Value;
+        if (styleProps.TryGetValue("quoteprefix", out var qpVal))
+            quotePrefix = IsTruthy(qpVal);
+
         // --- protection ---
         Protection? protection = baseXf.Protection?.CloneNode(true) as Protection;
         bool applyProtection = baseXf.ApplyProtection?.Value ?? false;
+        var protectionLongTail = styleProps
+            .Where(kv => kv.Key.StartsWith("protection.", StringComparison.OrdinalIgnoreCase))
+            .ToDictionary(kv => kv.Key[11..].ToLowerInvariant(), kv => kv.Value);
         if (styleProps.TryGetValue("locked", out var lockedVal) ||
-            styleProps.TryGetValue("formulahidden", out var fhVal))
+            styleProps.TryGetValue("formulahidden", out var fhVal) ||
+            protectionLongTail.Count > 0)
         {
             protection ??= new Protection();
             if (styleProps.TryGetValue("locked", out var lv))
                 protection.Locked = IsTruthy(lv);
             if (styleProps.TryGetValue("formulahidden", out var fv))
                 protection.Hidden = IsTruthy(fv);
+            // protection.locked and protection.hidden as canonical dotted keys
+            // (mirror Get's `protection.locked` / `protection.hidden` output).
+            if (protectionLongTail.TryGetValue("locked", out var pLocked))
+                protection.Locked = IsTruthy(pLocked);
+            if (protectionLongTail.TryGetValue("hidden", out var pHidden))
+                protection.Hidden = IsTruthy(pHidden);
+            // Anything else under protection.* is a raw long-tail attribute on
+            // the Protection element. CT_CellProtection only has locked/hidden
+            // today, but stay symmetric with Get's fallback if the schema grows.
+            // Walk styleProps directly to preserve original case — OOXML
+            // attributes are case-sensitive.
+            foreach (var (origKey, value) in styleProps)
+            {
+                if (!origKey.StartsWith("protection.", StringComparison.OrdinalIgnoreCase)) continue;
+                var subKey = origKey.Substring(11);
+                if (subKey.Equals("locked", StringComparison.OrdinalIgnoreCase)) continue;
+                if (subKey.Equals("hidden", StringComparison.OrdinalIgnoreCase)) continue;
+                protection.SetAttribute(new DocumentFormat.OpenXml.OpenXmlAttribute("", subKey, "", value));
+            }
             applyProtection = true;
         }
 
         // --- find or create CellFormat ---
         uint xfIndex = FindOrCreateCellFormat(cellFormats,
             numFmtId, fontId, fillId, borderId, alignment, protection,
-            applyNumFmt, applyFont, applyFill, applyBorder, applyAlignment, applyProtection);
+            applyNumFmt, applyFont, applyFill, applyBorder, applyAlignment, applyProtection,
+            quotePrefix);
 
-        stylesheet.Save();
+        // Caller (ExcelHandler) is responsible for saving via _dirtyStylesheet flag.
         return xfIndex;
+    }
+
+    /// <summary>
+    /// Ensure the workbook has the built-in "Hyperlink" cellStyle (builtinId=8)
+    /// wired up with a blue underlined font, and return the cellXfs index that
+    /// hyperlink cells should reference via `c/@s`.
+    ///
+    /// Creates (idempotently):
+    ///   - a Font with color 0563C1 + underline
+    ///   - a CellStyleFormats xf referencing that font (applyFont=true)
+    ///   - a CellFormats xf inheriting from the cellStyleXf (xfId, applyFont=true)
+    ///   - a CellStyles entry Name="Hyperlink" BuiltinId=8 pointing at the cellStyleXf
+    ///
+    /// Returns the cellXfs index to assign to the cell's StyleIndex.
+    /// </summary>
+    /// <summary>
+    /// Returns true when <paramref name="cellXfIndex"/> points at a cellXfs
+    /// entry that mirrors the built-in Hyperlink cellStyle (BuiltinId=8).
+    /// Used by Set link=none to undo the implicit Hyperlink style applied
+    /// when the link was added; user-assigned explicit styles are not
+    /// matched and remain untouched.
+    /// </summary>
+    public bool IsHyperlinkCellStyleXf(uint cellXfIndex)
+    {
+        var stylesheet = _workbookPart.WorkbookStylesPart?.Stylesheet;
+        if (stylesheet == null) return false;
+        var cellStyles = stylesheet.CellStyles;
+        var hlStyle = cellStyles?.Elements<CellStyle>()
+            .FirstOrDefault(cs => cs.BuiltinId?.Value == 8u);
+        if (hlStyle?.FormatId?.Value == null) return false;
+        var styleXfId = hlStyle.FormatId.Value;
+        var cellFormats = stylesheet.CellFormats;
+        if (cellFormats == null) return false;
+        var xf = cellFormats.Elements<CellFormat>().ElementAtOrDefault((int)cellXfIndex);
+        // Match only when the cellXf both points at the Hyperlink style and
+        // explicitly inherits the font from it (ApplyFont=true). Without the
+        // ApplyFont guard a user-customized cellXf that happens to share the
+        // same FormatId would be misclassified as the auto-applied
+        // Hyperlink style and silently reverted by `link=none`.
+        return xf?.FormatId?.Value == styleXfId
+            && xf?.ApplyFont?.Value == true;
+    }
+
+    public uint EnsureHyperlinkCellStyle()
+    {
+        var stylesheet = EnsureStylesheet();
+
+        // 1. Reuse existing "Hyperlink" cellStyle if already present.
+        var cellStyles = stylesheet.CellStyles;
+        if (cellStyles != null)
+        {
+            var existing = cellStyles.Elements<CellStyle>()
+                .FirstOrDefault(cs => cs.BuiltinId?.Value == 8u);
+            if (existing?.FormatId?.Value != null)
+            {
+                // FormatId is the cellStyleXfs index. Find a cellXfs that
+                // references that cellStyleXf via xfId; if none, create one.
+                uint styleXfId = existing.FormatId.Value;
+                var cellFormats = EnsureCellFormats(stylesheet);
+                int cIdx = 0;
+                foreach (var xf in cellFormats.Elements<CellFormat>())
+                {
+                    if (xf.FormatId?.Value == styleXfId
+                        && (xf.ApplyFont?.Value ?? false))
+                        return (uint)cIdx;
+                    cIdx++;
+                }
+                // Create a mirror cellXf pointing at the style xf.
+                var styleXfs = stylesheet.CellStyleFormats!;
+                var styleXf = (CellFormat)styleXfs.Elements<CellFormat>().ElementAt((int)styleXfId);
+                var newXf = new CellFormat
+                {
+                    NumberFormatId = styleXf.NumberFormatId?.Value ?? 0,
+                    FontId = styleXf.FontId?.Value ?? 0,
+                    FillId = styleXf.FillId?.Value ?? 0,
+                    BorderId = styleXf.BorderId?.Value ?? 0,
+                    FormatId = styleXfId,
+                    ApplyFont = true,
+                };
+                cellFormats.Append(newXf);
+                cellFormats.Count = (uint)cellFormats.Elements<CellFormat>().Count();
+                return (uint)(cellFormats.Elements<CellFormat>().Count() - 1);
+            }
+        }
+
+        // 2. Create the hyperlink font (blue + underline), dedup by match.
+        // Default hyperlink color: 0563C1 (theme hyperlink).
+        var hlFontProps = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["color"] = "0563C1",
+            ["underline"] = "single",
+        };
+        uint hlFontId = GetOrCreateFont(stylesheet, 0, hlFontProps);
+
+        // 3. Ensure CellStyleFormats exists and append a xf for the Hyperlink style.
+        var cellStyleFormats = stylesheet.CellStyleFormats;
+        if (cellStyleFormats == null)
+        {
+            cellStyleFormats = new CellStyleFormats(
+                new CellFormat { NumberFormatId = 0, FontId = 0, FillId = 0, BorderId = 0 }
+            ) { Count = 1 };
+            // Insert before CellFormats if possible.
+            var cf = stylesheet.CellFormats;
+            if (cf != null)
+                cf.InsertBeforeSelf(cellStyleFormats);
+            else
+                stylesheet.Append(cellStyleFormats);
+        }
+        var hlStyleXf = new CellFormat
+        {
+            NumberFormatId = 0,
+            FontId = hlFontId,
+            FillId = 0,
+            BorderId = 0,
+            ApplyFont = true,
+        };
+        cellStyleFormats.Append(hlStyleXf);
+        cellStyleFormats.Count = (uint)cellStyleFormats.Elements<CellFormat>().Count();
+        uint hlStyleXfId = (uint)(cellStyleFormats.Elements<CellFormat>().Count() - 1);
+
+        // 4. Add a CellFormats (cellXfs) entry that inherits from the style xf.
+        var cellFormats2 = EnsureCellFormats(stylesheet);
+        var hlCellXf = new CellFormat
+        {
+            NumberFormatId = 0,
+            FontId = hlFontId,
+            FillId = 0,
+            BorderId = 0,
+            FormatId = hlStyleXfId,
+            ApplyFont = true,
+        };
+        cellFormats2.Append(hlCellXf);
+        cellFormats2.Count = (uint)cellFormats2.Elements<CellFormat>().Count();
+        uint hlCellXfIndex = (uint)(cellFormats2.Elements<CellFormat>().Count() - 1);
+
+        // 5. Register the CellStyle name="Hyperlink" builtinId=8.
+        if (cellStyles == null)
+        {
+            cellStyles = new CellStyles(
+                new CellStyle { Name = "Normal", FormatId = 0, BuiltinId = 0 }
+            ) { Count = 1 };
+            stylesheet.Append(cellStyles);
+        }
+        cellStyles.Append(new CellStyle
+        {
+            Name = "Hyperlink",
+            FormatId = hlStyleXfId,
+            BuiltinId = 8,
+        });
+        cellStyles.Count = (uint)cellStyles.Elements<CellStyle>().Count();
+
+        return hlCellXfIndex;
     }
 
     /// <summary>
@@ -238,21 +597,192 @@ public class ExcelStyleManager
     public static bool IsStyleKey(string key)
     {
         var lower = key.ToLowerInvariant();
-        return lower is "numfmt" or "fill" or "bgcolor" or "font" or "border"
+        return lower is "numfmt" or "fill" or "fillpattern" or "fillbg" or "bgcolor" or "bg" or "font" or "border"
             or "bold" or "italic" or "strike" or "strikethrough" or "underline"
-            or "superscript" or "subscript"
-            or "wrap" or "wraptext" or "numberformat" or "format" or "halign" or "valign"
+            or "superscript" or "subscript" or "size" or "fontsize"
+            or "wrap" or "wraptext" or "numberformat" or "format" or "halign" or "align" or "valign"
             or "rotation" or "indent" or "shrinktofit"
             or "locked" or "formulahidden"
+            || lower == "readingorder"
+            || lower == "direction" || lower == "dir"
+            || lower == "quoteprefix"
             || lower.StartsWith("font.")
             || lower.StartsWith("alignment.")
-            || lower.StartsWith("border.");
+            || lower.StartsWith("border.")
+            || lower.StartsWith("protection.");
+    }
+
+    // DEFERRED(xlsx/cell-reading-order) CE10: Parse readingOrder values.
+    // Accepts numeric (0/1/2) or string (context/contextDependent, ltr/leftToRight,
+    // rtl/rightToLeft). Returns OOXML val to stamp as readingOrder="N".
+    private static uint ParseReadingOrder(string value)
+    {
+        var v = value.Trim().ToLowerInvariant();
+        return v switch
+        {
+            "0" or "context" or "contextdependent" => 0u,
+            "1" or "ltr" or "lefttoright" => 1u,
+            "2" or "rtl" or "righttoleft" => 2u,
+            _ => throw new ArgumentException($"Invalid 'readingOrder' value: '{value}'. Expected 0/context, 1/ltr, or 2/rtl.")
+        };
     }
 
     // ==================== NumberFormat ====================
 
+    // Friendly English keyword aliases for number formats. Consistent with
+    // the project's lenient-input convention (colors accept "red", sizes
+    // accept "14", spacing accepts "0.5cm"). Without this, a user typing the
+    // intuitive word "currency" got the literal string written as a custom
+    // format code — its unquoted letters both mis-rendered the value (the 'y'
+    // is a date token, so 100 showed as a date) and made real Excel refuse
+    // the whole file (0x800A03EC). Only a whole-string case-insensitive match
+    // is rewritten; genuine Excel codes pass through untouched.
+    private static readonly Dictionary<string, string> NumFmtKeywordAliases =
+        new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["general"] = "General",
+        ["number"] = "#,##0.00",
+        ["comma"] = "#,##0.00",
+        ["currency"] = "\"$\"#,##0.00",
+        ["accounting"] = "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+        ["percent"] = "0.00%",
+        ["percentage"] = "0.00%",
+        ["scientific"] = "0.00E+00",
+        ["text"] = "@",
+        ["date"] = "yyyy-mm-dd",
+        ["time"] = "h:mm:ss",
+        ["datetime"] = "yyyy-mm-dd h:mm:ss",
+    };
+
     private static uint GetOrCreateNumFmt(Stylesheet stylesheet, string formatCode)
     {
+        // XML-illegal control characters in the format code slip past every
+        // grammar check below and only blow up at close-time serialization —
+        // the resident then fails to save with "data may be lost" and the whole
+        // edit is silently discarded. Reject them up front, exactly as cell
+        // values / hyperlinks / comment text already do, so bad input fails at
+        // Add/Set time with a clear message instead of losing the user's work.
+        OfficeCli.Core.ParseHelpers.ValidateXmlText(formatCode, "number format");
+
+        // Resolve friendly keyword aliases (currency, scientific, ...) to real
+        // Excel codes before any validation runs.
+        if (NumFmtKeywordAliases.TryGetValue(formatCode.Trim(), out var aliased))
+            formatCode = aliased;
+
+        // R29-1 [BLOCKER]: a formatCode must never be written with an unbalanced
+        // number of double-quotes — Excel text-literal delimiters come in matched
+        // pairs, and an unclosed literal makes Excel refuse the whole file
+        // (0x800A03EC). The shell passes 'numberformat="("000") "000-0000"' through
+        // with its wrapping double-quotes intact, so the prop value arrives as
+        // "("000") "000-0000" — five quote chars, an odd count. The spurious quote is
+        // the trailing wrapper the shell left behind, so when the count is odd and the
+        // string ends with a quote, drop that one trailing quote to restore even
+        // pairing (-> "("000") "000-0000, four quotes; inner literals untouched).
+        if (formatCode.Length >= 1
+            && formatCode.Count(c => c == '"') % 2 != 0
+            && formatCode[^1] == '"')
+            formatCode = formatCode[..^1];
+
+        // If the count is STILL odd after that repair, the input is genuinely
+        // malformed (e.g. a stray leading quote). Refusing here is the only way to
+        // honor the blocker invariant — better a clear error than a file Excel
+        // silently can't open.
+        if (formatCode.Count(c => c == '"') % 2 != 0)
+            throw new ArgumentException(
+                $"number format has unbalanced quotes: '{formatCode}'. Excel text " +
+                "literals must be wrapped in matched double-quote pairs (e.g. " +
+                "\"(\"000\") \"000-0000); writing an unclosed literal makes Excel " +
+                "refuse to open the file.");
+
+        // Excel's format grammar allows at most 4 ;-separated sections
+        // (positive;negative;zero;text). A 5th section is invisible to schema
+        // validation but real Excel refuses the file (0x800A03EC). Count only
+        // separators outside "quoted literals", [brackets] and \-escapes.
+        int nfSections = 1;
+        bool nfInQuote = false, nfInBracket = false;
+        for (int i = 0; i < formatCode.Length; i++)
+        {
+            var c = formatCode[i];
+            if (c == '"') nfInQuote = !nfInQuote;
+            else if (!nfInQuote && c == '[') nfInBracket = true;
+            else if (!nfInQuote && c == ']') nfInBracket = false;
+            else if (!nfInQuote && c == '\\') i++;
+            else if (!nfInQuote && !nfInBracket && c == ';') nfSections++;
+        }
+        if (nfSections > 4)
+            throw new ArgumentException(
+                $"number format has {nfSections} sections: '{formatCode}'. Excel allows " +
+                "at most 4 (positive;negative;zero;text); more makes Excel refuse to open the file.");
+
+        // Excel caps format codes at 255 chars; schema validate flags it but
+        // the write path should fail fast rather than rely on a separate
+        // validate run.
+        if (formatCode.Length > 255)
+            throw new ArgumentException(
+                $"number format is {formatCode.Length} chars; Excel's limit is 255.");
+
+        // Unbalanced [brackets] (e.g. formatCode="[") pass schema validation
+        // but real Excel refuses the whole file (0x800A03EC). Count outside
+        // quoted literals; escaped \[ is a literal char.
+        int nfBracketDepth = 0;
+        bool nfBrQuote = false;
+        for (int i = 0; i < formatCode.Length; i++)
+        {
+            var c = formatCode[i];
+            if (c == '"') nfBrQuote = !nfBrQuote;
+            else if (!nfBrQuote && c == '\\') i++;
+            else if (!nfBrQuote && c == '[') nfBracketDepth++;
+            else if (!nfBrQuote && c == ']')
+            {
+                nfBracketDepth--;
+                if (nfBracketDepth < 0) break;
+            }
+        }
+        if (nfBracketDepth != 0)
+            throw new ArgumentException(
+                $"number format has unbalanced square brackets: '{formatCode}'. Bracket codes ([Red], [>=100], [h]) must be closed; writing an unbalanced bracket makes Excel refuse to open the file.");
+
+        // Unquoted letters outside Excel's token alphabet (date/time/era/
+        // General letters) make real Excel refuse the whole file
+        // (0x800A03EC) while schema validation stays green — e.g. a typoed
+        // numfmt=invalid_fmt instead of "invalid_fmt"0. Excel's grammar is
+        // quirky enough (abc opens, xyz does not) that a hard reject risks
+        // false positives on locale codes, so warn instead of block.
+        {
+            const string TokenLetters = "abcdeghlmnprsty";
+            bool warnQuote = false;
+            int warnBracket = 0;
+            char? suspect = null;
+            for (int i = 0; i < formatCode.Length && suspect == null; i++)
+            {
+                var c = formatCode[i];
+                if (c == '"') { warnQuote = !warnQuote; continue; }
+                if (warnQuote) continue;
+                if (c == '\\' || c == '_' || c == '*') { i++; continue; }
+                if (c == '[') { warnBracket++; continue; }
+                if (c == ']') { warnBracket--; continue; }
+                if (warnBracket > 0) continue;
+                if (char.IsLetter(c) && !TokenLetters.Contains(char.ToLowerInvariant(c)))
+                    suspect = c;
+            }
+            if (suspect != null)
+            {
+                var warnMessage =
+                    $"number format '{formatCode}' contains the unquoted letter '{suspect}', " +
+                    "which real Excel may reject when opening the file (0x800A03EC). " +
+                    "Quote literal text, e.g. \"text\"0.00.";
+                // JSON mode (WarningContext active): queue for the envelope's
+                // warnings[] so --json callers see it. Otherwise keep the
+                // stderr line — the resident server lifts stderr into the
+                // envelope via BuildWarnings (CONSISTENCY(numfmt-warning)).
+                if (WarningContext.IsActive)
+                    WarningContext.Add(warnMessage, "invalid_number_format",
+                        "Quote literal text, e.g. \"text\"0.00");
+                else
+                    Console.Error.WriteLine($"Warning: {warnMessage}");
+            }
+        }
+
         // Check built-in formats
         var builtinMap = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase)
         {
@@ -295,13 +825,110 @@ public class ExcelStyleManager
 
     // ==================== Font ====================
 
-    private static uint GetOrCreateFont(Stylesheet stylesheet, uint baseFontId, Dictionary<string, string> fontProps)
+    // Font property keys handled by the curated builder in GetOrCreateFont
+    // (matches the FontMatches dedup keyset). Anything else falls into the
+    // long-tail bucket: raw OOXML children appended via SDK schema-aware
+    // AddChild on a force-new Font record (skips dedup since the dedup
+    // table doesn't track long-tail children).
+    private static readonly HashSet<string> CuratedFontKeys =
+        new(StringComparer.OrdinalIgnoreCase)
+    {
+        "bold", "italic", "strike", "underline",
+        "superscript", "subscript", "vertalign",
+        "size", "name", "color",
+    };
+
+    // Lowercased curated sub-key set for alignment.* dispatch — used by the
+    // case-preserving long-tail walk to skip keys already handled by the
+    // curated switch above.
+    private static readonly HashSet<string> CuratedAlignmentSubKeysLower =
+        new(StringComparer.Ordinal)
+    {
+        "horizontal", "vertical", "wraptext", "rotation", "textrotation",
+        "indent", "shrinktofit", "shrink", "readingorder",
+    };
+
+    // OOXML local-names of Font children produced by the curated GetOrCreateFont
+    // builder. baseFont long-tail preservation skips these (they'll be
+    // rebuilt from current curated values).
+    private static readonly HashSet<string> CuratedFontChildLocalNames =
+        new(StringComparer.Ordinal)
+    {
+        "b", "i", "strike", "u", "vertAlign", "sz", "color", "name",
+    };
+
+    // border.* sub-keys actually consumed by GetOrCreateBorder. Anything
+    // else (border.outline, border.vertical, border.horizontal, ...) is
+    // currently unimplemented; ApplyStyle reports them as unsupported
+    // upfront instead of silently no-op'ing.
+    private static readonly HashSet<string> RecognizedBorderSubKeys =
+        new(StringComparer.Ordinal)
+    {
+        "all", "left", "right", "top", "bottom", "diagonal", "color",
+        "all.style", "left.style", "right.style", "top.style", "bottom.style", "diagonal.style",
+        "all.color", "left.color", "right.color", "top.color", "bottom.color", "diagonal.color",
+        "diagonalup", "diagonaldown",
+    };
+
+    // CT_CellAlignment long-tail attributes (i.e. those NOT in
+    // CuratedAlignmentSubKeysLower) and their schema types per ECMA-376
+    // §18.8.1. Used to reject e.g. `alignment.justifyLastLine=GARBAGE`
+    // before it gets serialized as invalid OOXML.
+    private static readonly HashSet<string> AlignmentLongTailBoolAttrs =
+        new(StringComparer.Ordinal) { "justifyLastLine" };
+    private static readonly HashSet<string> AlignmentLongTailIntAttrs =
+        new(StringComparer.Ordinal) { "relativeIndent" };
+
+    private static bool IsValidAlignmentLongTailValue(string key, string value)
+    {
+        if (AlignmentLongTailBoolAttrs.Contains(key))
+            return value is "0" or "1" or "true" or "false" or "True" or "False";
+        if (AlignmentLongTailIntAttrs.Contains(key))
+            return int.TryParse(value, out _);
+        return true; // unknown attrs: pass through (forward-compat)
+    }
+
+    // Underline enum canonicalization. OOXML CT_UnderlineProperty allows
+    // single / double / singleAccounting / doubleAccounting / none. The four
+    // non-none variants are all preserved; boolean truthy inputs map to single.
+    internal static string? NormalizeUnderlineValue(string raw)
+    {
+        switch (raw.Trim().ToLowerInvariant())
+        {
+            case "double": case "dbl": return "double";
+            case "singleaccounting": case "singleacct": return "singleAccounting";
+            case "doubleaccounting": case "doubleacct": return "doubleAccounting";
+            case "single": return "single";
+            case "none": return null;
+            default:
+                return (IsValidBooleanString(raw) && IsTruthy(raw)) ? "single" : null;
+        }
+    }
+
+    // Map a stored OOXML underline val InnerText back to the canonical form.
+    // Empty/null InnerText means the default <u/> which is "single".
+    internal static string? NormalizeStoredUnderline(string? innerText)
+    {
+        switch (innerText)
+        {
+            case "double": return "double";
+            case "singleAccounting": return "singleAccounting";
+            case "doubleAccounting": return "doubleAccounting";
+            case "none": return null;
+            default: return "single";
+        }
+    }
+
+    private static uint GetOrCreateFont(Stylesheet stylesheet, uint baseFontId,
+        Dictionary<string, string> fontProps,
+        Dictionary<string, string>? longTailFontProps = null,
+        List<string>? unsupportedLongTail = null)
     {
         var fonts = stylesheet.Fonts;
         if (fonts == null)
         {
             fonts = new Fonts(
-                new Font(new FontSize { Val = 11 }, new FontName { Val = "Calibri" })
+                new Font(new FontSize { Val = 11 }, new FontName { Val = OfficeDefaultFonts.MinorLatin })
             ) { Count = 1 };
             // Insert after NumberingFormats if present, otherwise at start
             var numFmts = stylesheet.NumberingFormats;
@@ -324,8 +951,8 @@ public class ExcelStyleManager
         bool strike = fontProps.TryGetValue("strike", out var sVal)
             ? IsTruthy(sVal) : baseFont.Strike != null;
         string? underline = fontProps.TryGetValue("underline", out var uVal)
-            ? (uVal.ToLowerInvariant() is "double" ? "double" : (uVal.ToLowerInvariant() == "single" || (IsValidBooleanString(uVal) && IsTruthy(uVal)) ? "single" : null))
-            : (baseFont.Underline != null ? (baseFont.Underline.Val?.InnerText == "double" ? "double" : "single") : null);
+            ? NormalizeUnderlineValue(uVal)
+            : (baseFont.Underline != null ? NormalizeStoredUnderline(baseFont.Underline.Val?.InnerText) : null);
         // vertAlign: superscript / subscript / null (baseline)
         var baseVertAlign = baseFont.GetFirstChild<VerticalTextAlignment>();
         string? vertAlign;
@@ -345,24 +972,51 @@ public class ExcelStyleManager
         if (fontProps.TryGetValue("size", out var szVal))
         {
             size = ParseHelpers.ParseFontSize(szVal);
+            // R39-4: Excel UI caps font size at 409pt (ECMA-376 §17.4.18).
+            // Values above silently render as default 11pt or open broken.
+            // The lower bound (>0) is enforced in ParseFontSize; upper
+            // bound is Excel-specific so it lives here, not in the shared
+            // helper (Word/PPT have far higher limits).
+            if (size > 409)
+                throw new ArgumentException(
+                    $"Invalid font size: '{szVal}'. Excel font size must be <= 409pt.");
         }
         else
         {
             size = baseFont.FontSize?.Val?.Value ?? 11;
         }
         string name = fontProps.GetValueOrDefault("name",
-            baseFont.FontName?.Val?.Value ?? "Calibri");
-        string? color = fontProps.TryGetValue("color", out var cVal)
-            ? NormalizeColor(cVal) : baseFont.Color?.Rgb?.Value;
-
-        // Search for existing match
-        int idx = 0;
-        foreach (var f in fonts.Elements<Font>())
+            baseFont.FontName?.Val?.Value ?? OfficeDefaultFonts.MinorLatin);
+        // CONSISTENCY(scheme-color): font.color accepts scheme names
+        // ("accent1"-"accent6", "lt1"/"dk1", "hlink", etc.) per the project conventions.
+        // When matched, store as <color theme="N"/> instead of rgb.
+        string? color;
+        uint? colorTheme = null;
+        if (fontProps.TryGetValue("color", out var cVal))
         {
-            if (FontMatches(f, bold, italic, strike, underline, vertAlign, size, name, color))
-                return (uint)idx;
-            idx++;
+            var schemeIdx = OfficeCli.Handlers.ExcelHandler.ExcelSchemeColorNameToThemeIndex(cVal);
+            if (schemeIdx.HasValue)
+            {
+                color = null;
+                colorTheme = schemeIdx.Value;
+            }
+            else
+            {
+                color = NormalizeColor(cVal);
+            }
         }
+        else
+        {
+            color = baseFont.Color?.Rgb?.Value;
+            colorTheme = baseFont.Color?.Theme?.Value;
+        }
+
+        // Long-tail children are added below (post-build) and dedup runs after
+        // — that way SDK-rejected keys (e.g. font.bogus=xyz) don't influence
+        // the dedup target, and a Font that ends up identical to an existing
+        // record (because all long-tail attempts failed) reuses that record
+        // instead of bloating the table.
+        bool hasLongTail = longTailFontProps != null && longTailFontProps.Count > 0;
 
         // Create new font (element order: b, i, strike, u, vertAlign, sz, color, name)
         var newFont = new Font();
@@ -372,8 +1026,14 @@ public class ExcelStyleManager
         if (underline != null)
         {
             var ul = new Underline();
-            if (underline == "double")
-                ul.Val = UnderlineValues.Double;
+            // "single" is the OOXML default (u element with no val); the other
+            // three variants carry an explicit val.
+            switch (underline)
+            {
+                case "double": ul.Val = UnderlineValues.Double; break;
+                case "singleAccounting": ul.Val = UnderlineValues.SingleAccounting; break;
+                case "doubleAccounting": ul.Val = UnderlineValues.DoubleAccounting; break;
+            }
             newFont.Append(ul);
         }
         if (vertAlign != null)
@@ -386,9 +1046,44 @@ public class ExcelStyleManager
             });
         }
         newFont.Append(new FontSize { Val = size });
-        if (color != null)
+        if (colorTheme.HasValue)
+            newFont.Append(new Color { Theme = (UInt32Value)colorTheme.Value });
+        else if (color != null)
             newFont.Append(new Color { Rgb = color });
         newFont.Append(new FontName { Val = name });
+
+        // Append long-tail children (charset, family, outline, shadow, condense,
+        // extend, scheme, ...) via SDK schema-aware AddChild — orders correctly
+        // per CT_Font even though the curated chain above used Append. Track
+        // which keys actually landed (vs. SDK-rejected) so dedup runs against
+        // the truly-resulting Font, not the input wishlist.
+        var addedLongTail = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (hasLongTail)
+        {
+            foreach (var (key, value) in longTailFontProps!)
+            {
+                if (OfficeCli.Core.GenericXmlQuery.TryCreateTypedChild(newFont, key, value))
+                    addedLongTail[key] = value;
+                else
+                    unsupportedLongTail?.Add($"font.{key}");
+            }
+        }
+
+        // Dedup against existing fonts using the actually-built children.
+        // Catches three cases the pre-append dedup would miss:
+        // (a) repeated SAME long-tail Set on same cell — actualLongTail equals
+        //     existing record -> reuse id, no bloat
+        // (b) all long-tail rejected (e.g. font.bogus) — actualLongTail is
+        //     empty so this matches a curated-only font
+        // (c) different cells reaching the same curated+long-tail combo
+        int existingIdx = 0;
+        foreach (var f in fonts.Elements<Font>())
+        {
+            if (FontMatches(f, bold, italic, strike, underline, vertAlign, size, name, color, colorTheme)
+                && LongTailChildrenMatch(f, addedLongTail))
+                return (uint)existingIdx;
+            existingIdx++;
+        }
 
         fonts.Append(newFont);
         fonts.Count = (uint)fonts.Elements<Font>().Count();
@@ -396,8 +1091,37 @@ public class ExcelStyleManager
         return (uint)(fonts.Elements<Font>().Count() - 1);
     }
 
+    // Compare a Font's long-tail children (anything outside CuratedFontChildLocalNames)
+    // against a target name->val map. Equal iff the sets match exactly (same keys,
+    // same val attribute values). Used to extend FontMatches dedup with long-tail
+    // awareness so repeated SAME-value Sets don't bloat the font table.
+    private static bool LongTailChildrenMatch(Font font, Dictionary<string, string>? target)
+    {
+        var targetMap = target ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var fontLongTail = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var child in font.ChildElements)
+        {
+            var name = child.LocalName;
+            if (CuratedFontChildLocalNames.Contains(name)) continue;
+            string? valStr = null;
+            foreach (var a in child.GetAttributes())
+            {
+                if (a.LocalName.Equals("val", StringComparison.OrdinalIgnoreCase))
+                { valStr = a.Value; break; }
+            }
+            if (valStr != null) fontLongTail[name] = valStr;
+        }
+        if (fontLongTail.Count != targetMap.Count) return false;
+        foreach (var (k, v) in targetMap)
+        {
+            if (!fontLongTail.TryGetValue(k, out var fv)) return false;
+            if (!string.Equals(fv, v, StringComparison.Ordinal)) return false;
+        }
+        return true;
+    }
+
     private static bool FontMatches(Font font, bool bold, bool italic, bool strike,
-        string? underline, string? vertAlign, double size, string name, string? color)
+        string? underline, string? vertAlign, double size, string name, string? color, uint? colorTheme = null)
     {
         if ((font.Bold != null) != bold) return false;
         if ((font.Italic != null) != italic) return false;
@@ -419,16 +1143,101 @@ public class ExcelStyleManager
         if (!string.Equals(font.FontName?.Val?.Value, name, StringComparison.OrdinalIgnoreCase)) return false;
 
         var fontColor = font.Color?.Rgb?.Value;
-        if (color != null)
+        var fontColorTheme = font.Color?.Theme?.Value;
+        if (colorTheme.HasValue)
+        {
+            if (fontColorTheme != colorTheme.Value) return false;
+            if (fontColor != null) return false;
+        }
+        else if (color != null)
         {
             if (!string.Equals(fontColor, color, StringComparison.OrdinalIgnoreCase)) return false;
+            if (fontColorTheme != null) return false;
         }
-        else if (fontColor != null) return false;
+        else
+        {
+            if (fontColor != null) return false;
+            if (fontColorTheme != null) return false;
+        }
 
         return true;
     }
 
     // ==================== Fill ====================
+
+    // CONSISTENCY(scheme-color): fill / fillBg accept scheme names
+    // ("accent1"-"accent6", "lt1"/"dk1", …) the same way font.color does.
+    // Get surfaces theme pattern fills AS scheme names, so Set must take
+    // them back — otherwise a dump→batch round-trip of a theme-filled cell
+    // rejects its own output (and, under atomic batch, rolls back the whole
+    // replay over one fill).
+    private static (string? Rgb, uint? Theme) ResolveFillColor(string value)
+    {
+        var schemeIdx = OfficeCli.Handlers.ExcelHandler.ExcelSchemeColorNameToThemeIndex(value);
+        return schemeIdx.HasValue ? (null, schemeIdx.Value) : (NormalizeColor(value), null);
+    }
+
+    private static bool ColorMatches(ColorType? c, string? rgb, uint? theme)
+        => rgb != null
+            ? string.Equals(c?.Rgb?.Value, rgb, StringComparison.OrdinalIgnoreCase)
+            : theme != null
+                ? c?.Theme?.Value == theme.Value
+                : c == null || (c.Rgb == null && c.Theme == null);
+
+    /// <summary>
+    /// Incremental fillBg edit: rebuild the pattern fill with the existing
+    /// foreground CLONED verbatim (any storage form — rgb, theme+tint,
+    /// indexed, auto) and only the background replaced. Dedup by serialized
+    /// form so repeated increments don't bloat the fills table.
+    /// </summary>
+    /// <summary>Incremental fill (foreground) edit on a non-solid pattern:
+    /// clone the pattern with its background verbatim, replace only the
+    /// foreground. Mirror image of <see cref="GetOrCreatePatternFillPreserveFg"/>.</summary>
+    private static uint GetOrCreatePatternFillPreserveBg(
+        Stylesheet stylesheet, PatternFill existing, string fgValue)
+    {
+        var fills = stylesheet.Fills!;
+        var newPf = (PatternFill)existing.CloneNode(true);
+        newPf.ForegroundColor?.Remove();
+        var (fgRgb, fgTheme) = ResolveFillColor(fgValue);
+        var fg = new ForegroundColor();
+        if (fgRgb != null) fg.Rgb = fgRgb; else fg.Theme = fgTheme;
+        // Schema order: fgColor FIRST, before any cloned bgColor.
+        newPf.InsertAt(fg, 0);
+
+        int idx = 0;
+        foreach (var fill in fills.Elements<Fill>())
+        {
+            if (fill.PatternFill?.OuterXml == newPf.OuterXml) return (uint)idx;
+            idx++;
+        }
+        fills.Append(new Fill(newPf));
+        fills.Count = (uint)fills.Elements<Fill>().Count();
+        return (uint)(fills.Elements<Fill>().Count() - 1);
+    }
+
+    private static uint GetOrCreatePatternFillPreserveFg(
+        Stylesheet stylesheet, PatternFill existing, string bgValue)
+    {
+        var fills = stylesheet.Fills!;
+        var newPf = (PatternFill)existing.CloneNode(true);
+        newPf.BackgroundColor?.Remove();
+        var (bgRgb, bgTheme) = ResolveFillColor(bgValue);
+        var bg = new BackgroundColor();
+        if (bgRgb != null) bg.Rgb = bgRgb; else bg.Theme = bgTheme;
+        // Schema order: fgColor (cloned, stays first) then bgColor.
+        newPf.Append(bg);
+
+        int idx = 0;
+        foreach (var fill in fills.Elements<Fill>())
+        {
+            if (fill.PatternFill?.OuterXml == newPf.OuterXml) return (uint)idx;
+            idx++;
+        }
+        fills.Append(new Fill(newPf));
+        fills.Count = (uint)fills.Elements<Fill>().Count();
+        return (uint)(fills.Elements<Fill>().Count() - 1);
+    }
 
     private static uint GetOrCreateFill(Stylesheet stylesheet, string hexColor)
     {
@@ -447,7 +1256,7 @@ public class ExcelStyleManager
                 stylesheet.Append(fills);
         }
 
-        var normalizedColor = NormalizeColor(hexColor);
+        var (rgb, theme) = ResolveFillColor(hexColor);
 
         // Search for existing match
         int idx = 0;
@@ -455,17 +1264,100 @@ public class ExcelStyleManager
         {
             var pf = fill.PatternFill;
             if (pf?.PatternType?.Value == PatternValues.Solid &&
-                string.Equals(pf.ForegroundColor?.Rgb?.Value, normalizedColor, StringComparison.OrdinalIgnoreCase))
+                ColorMatches(pf.ForegroundColor, rgb, theme))
                 return (uint)idx;
             idx++;
         }
 
         // Create new fill
-        fills.Append(new Fill(new PatternFill(
-            new ForegroundColor { Rgb = normalizedColor }
-        ) { PatternType = PatternValues.Solid }));
+        var fg = new ForegroundColor();
+        if (rgb != null) fg.Rgb = rgb; else fg.Theme = theme;
+        fills.Append(new Fill(new PatternFill(fg) { PatternType = PatternValues.Solid }));
         fills.Count = (uint)fills.Elements<Fill>().Count();
 
+        return (uint)(fills.Elements<Fill>().Count() - 1);
+    }
+
+    // Map a user pattern name (any case, hyphen/space tolerant) to the OOXML
+    // PatternValues enum. Returns null for unrecognized names so the caller
+    // can reject rather than silently coerce to solid.
+    internal static PatternValues? ParsePatternType(string raw)
+    {
+        switch (raw.Trim().Replace("-", "").Replace(" ", "").ToLowerInvariant())
+        {
+            case "none": return PatternValues.None;
+            case "solid": return PatternValues.Solid;
+            case "mediumgray": case "gray50": return PatternValues.MediumGray;
+            case "darkgray": case "gray75": return PatternValues.DarkGray;
+            case "lightgray": case "gray25": return PatternValues.LightGray;
+            case "gray125": return PatternValues.Gray125;
+            case "gray0625": return PatternValues.Gray0625;
+            case "darkhorizontal": return PatternValues.DarkHorizontal;
+            case "darkvertical": return PatternValues.DarkVertical;
+            case "darkdown": return PatternValues.DarkDown;
+            case "darkup": return PatternValues.DarkUp;
+            case "darkgrid": return PatternValues.DarkGrid;
+            case "darktrellis": return PatternValues.DarkTrellis;
+            case "lighthorizontal": return PatternValues.LightHorizontal;
+            case "lightvertical": return PatternValues.LightVertical;
+            case "lightdown": return PatternValues.LightDown;
+            case "lightup": return PatternValues.LightUp;
+            case "lightgrid": return PatternValues.LightGrid;
+            case "lighttrellis": return PatternValues.LightTrellis;
+            default: return null;
+        }
+    }
+
+    // Create or find a pattern fill entry carrying a non-solid pattern type
+    // plus optional foreground / background colors. Unknown pattern names fall
+    // back to solid (matching legacy behavior) only when a foreground exists.
+    private static uint GetOrCreatePatternFill(Stylesheet stylesheet,
+        string patternName, string? fgHex, string? bgHex)
+    {
+        var fills = stylesheet.Fills;
+        if (fills == null)
+        {
+            fills = new Fills(
+                new Fill(new PatternFill { PatternType = PatternValues.None }),
+                new Fill(new PatternFill { PatternType = PatternValues.Gray125 })
+            ) { Count = 2 };
+            var fonts = stylesheet.Fonts;
+            if (fonts != null) fonts.InsertAfterSelf(fills);
+            else stylesheet.Append(fills);
+        }
+
+        var pat = ParsePatternType(patternName) ?? PatternValues.Solid;
+        // CONSISTENCY(scheme-color): pattern fg/bg accept scheme names too.
+        var (fgRgb, fgTheme) = fgHex != null ? ResolveFillColor(fgHex) : (null, (uint?)null);
+        var (bgRgb, bgTheme) = bgHex != null ? ResolveFillColor(bgHex) : (null, (uint?)null);
+
+        int idx = 0;
+        foreach (var fill in fills.Elements<Fill>())
+        {
+            var pf = fill.PatternFill;
+            if (pf?.PatternType?.Value == pat
+                && (fgHex == null ? pf?.ForegroundColor == null : ColorMatches(pf?.ForegroundColor, fgRgb, fgTheme))
+                && (bgHex == null ? pf?.BackgroundColor == null : ColorMatches(pf?.BackgroundColor, bgRgb, bgTheme)))
+                return (uint)idx;
+            idx++;
+        }
+
+        var newPf = new PatternFill { PatternType = pat };
+        // OOXML element order: fgColor before bgColor.
+        if (fgHex != null)
+        {
+            var fg = new ForegroundColor();
+            if (fgRgb != null) fg.Rgb = fgRgb; else fg.Theme = fgTheme;
+            newPf.Append(fg);
+        }
+        if (bgHex != null)
+        {
+            var bg = new BackgroundColor();
+            if (bgRgb != null) bg.Rgb = bgRgb; else bg.Theme = bgTheme;
+            newPf.Append(bg);
+        }
+        fills.Append(new Fill(newPf));
+        fills.Count = (uint)fills.Elements<Fill>().Count();
         return (uint)(fills.Elements<Fill>().Count() - 1);
     }
 
@@ -598,6 +1490,22 @@ public class ExcelStyleManager
         bool diagonalUp = baseBorder.DiagonalUp?.Value ?? false;
         bool diagonalDown = baseBorder.DiagonalDown?.Value ?? false;
 
+        // CONSISTENCY(border-dotted-style): R33-1 — accept the dotted form
+        // `border.<side>.style=<value>` as alias for `border.<side>=<value>`.
+        // Without this, `border.top.style=none` was silently swallowed (the
+        // key reached here as `top.style` and matched no branch), reporting
+        // success while leaving the border untouched. Same for `all.style`.
+        // Per-side `*.color` already has explicit branches below.
+        foreach (var sideKey in new[] { "all", "left", "right", "top", "bottom", "diagonal" })
+        {
+            var dottedStyleKey = sideKey + ".style";
+            if (borderProps.TryGetValue(dottedStyleKey, out var dottedStyleVal)
+                && !borderProps.ContainsKey(sideKey))
+            {
+                borderProps[sideKey] = dottedStyleVal;
+            }
+        }
+
         // Apply "all" shorthand first (individual sides override later)
         if (borderProps.TryGetValue("all", out var allStyle))
         {
@@ -605,10 +1513,16 @@ public class ExcelStyleManager
             leftStyle = rightStyle = topStyle = bottomStyle = parsed;
         }
 
-        // Apply "color" shorthand
+        // Apply "color" shorthand (border.color) and "all.color" (border.all.color)
+        // Both fan out to all four sides. Per-side colors below can still override.
         if (borderProps.TryGetValue("color", out var allColor))
         {
             var normalized = NormalizeColor(allColor);
+            leftColor = rightColor = topColor = bottomColor = normalized;
+        }
+        if (borderProps.TryGetValue("all.color", out var allColor2))
+        {
+            var normalized = NormalizeColor(allColor2);
             leftColor = rightColor = topColor = bottomColor = normalized;
         }
 
@@ -726,7 +1640,8 @@ public class ExcelStyleManager
 
     private static uint FindOrCreateCellFormat(CellFormats cellFormats,
         uint numFmtId, uint fontId, uint fillId, uint borderId, Alignment? alignment, Protection? protection,
-        bool applyNumFmt, bool applyFont, bool applyFill, bool applyBorder, bool applyAlignment, bool applyProtection)
+        bool applyNumFmt, bool applyFont, bool applyFill, bool applyBorder, bool applyAlignment, bool applyProtection,
+        bool? quotePrefix = null)
     {
         // Search for existing match
         int idx = 0;
@@ -737,7 +1652,8 @@ public class ExcelStyleManager
                 (xf.FillId?.Value ?? 0) == fillId &&
                 (xf.BorderId?.Value ?? 0) == borderId &&
                 AlignmentMatches(xf.Alignment, alignment) &&
-                ProtectionMatches(xf.Protection, protection))
+                ProtectionMatches(xf.Protection, protection) &&
+                (xf.QuotePrefix?.Value ?? false) == (quotePrefix ?? false))
                 return (uint)idx;
             idx++;
         }
@@ -764,6 +1680,7 @@ public class ExcelStyleManager
             newXf.ApplyProtection = true;
             newXf.Append(protection);
         }
+        if (quotePrefix == true) newXf.QuotePrefix = true;
 
         cellFormats.Append(newXf);
         cellFormats.Count = (uint)cellFormats.Elements<CellFormat>().Count();
@@ -776,7 +1693,8 @@ public class ExcelStyleManager
         if (a == null && b == null) return true;
         if (a == null || b == null) return false;
         return (a.Locked?.Value ?? true) == (b.Locked?.Value ?? true) &&
-               (a.Hidden?.Value ?? false) == (b.Hidden?.Value ?? false);
+               (a.Hidden?.Value ?? false) == (b.Hidden?.Value ?? false) &&
+               UnknownAttrsMatch(a, b, ProtectionCuratedAttrs);
     }
 
     private static bool AlignmentMatches(Alignment? a, Alignment? b)
@@ -788,7 +1706,45 @@ public class ExcelStyleManager
                (a.WrapText?.Value ?? false) == (b.WrapText?.Value ?? false) &&
                (a.TextRotation?.Value ?? 0) == (b.TextRotation?.Value ?? 0) &&
                (a.Indent?.Value ?? 0) == (b.Indent?.Value ?? 0) &&
-               (a.ShrinkToFit?.Value ?? false) == (b.ShrinkToFit?.Value ?? false);
+               (a.ShrinkToFit?.Value ?? false) == (b.ShrinkToFit?.Value ?? false) &&
+               (a.ReadingOrder?.Value ?? 0) == (b.ReadingOrder?.Value ?? 0) &&
+               UnknownAttrsMatch(a, b, AlignmentCuratedAttrs);
+    }
+
+    // Curated attribute local-names already covered by the typed comparison
+    // in AlignmentMatches / ProtectionMatches. The long-tail-aware comparison
+    // (UnknownAttrsMatch) walks GetAttributes() and skips these so curated
+    // values aren't double-compared via attribute reflection.
+    private static readonly HashSet<string> AlignmentCuratedAttrs =
+        new(StringComparer.Ordinal)
+    {
+        "horizontal", "vertical", "wrapText", "textRotation",
+        "indent", "shrinkToFit", "readingOrder",
+    };
+    private static readonly HashSet<string> ProtectionCuratedAttrs =
+        new(StringComparer.Ordinal) { "locked", "hidden" };
+
+    // Compare unknown attributes (anything not in the curated set) on two
+    // OpenXmlElements. Used by AlignmentMatches/ProtectionMatches so a second
+    // Set with a different long-tail attribute value (e.g.
+    // alignment.justifyLastLine flipped from "false" to "true") doesn't dedup
+    // back to the prior xf and silently drop the new value (BUG-LT4).
+    private static bool UnknownAttrsMatch(DocumentFormat.OpenXml.OpenXmlElement a,
+        DocumentFormat.OpenXml.OpenXmlElement b, HashSet<string> curated)
+    {
+        var aAttrs = new Dictionary<string, string>(StringComparer.Ordinal);
+        var bAttrs = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var attr in a.GetAttributes())
+            if (!curated.Contains(attr.LocalName)) aAttrs[attr.LocalName] = attr.Value ?? "";
+        foreach (var attr in b.GetAttributes())
+            if (!curated.Contains(attr.LocalName)) bAttrs[attr.LocalName] = attr.Value ?? "";
+        if (aAttrs.Count != bAttrs.Count) return false;
+        foreach (var (k, v) in aAttrs)
+        {
+            if (!bAttrs.TryGetValue(k, out var bv)) return false;
+            if (!string.Equals(v, bv, StringComparison.Ordinal)) return false;
+        }
+        return true;
     }
 
     // ==================== Helpers ====================
@@ -798,7 +1754,7 @@ public class ExcelStyleManager
         return new Stylesheet(
             new NumberingFormats() { Count = 0 },
             new Fonts(
-                new Font(new FontSize { Val = 11 }, new FontName { Val = "Calibri" })
+                new Font(new FontSize { Val = 11 }, new FontName { Val = OfficeDefaultFonts.MinorLatin })
             ) { Count = 1 },
             new Fills(
                 new Fill(new PatternFill { PatternType = PatternValues.None }),
@@ -848,6 +1804,10 @@ public class ExcelStyleManager
             "center" => HorizontalAlignmentValues.Center,
             "right" => HorizontalAlignmentValues.Right,
             "justify" => HorizontalAlignmentValues.Justify,
+            "general" => HorizontalAlignmentValues.General,
+            "fill" => HorizontalAlignmentValues.Fill,
+            "centeracrossselection" or "centercontinuous" => HorizontalAlignmentValues.CenterContinuous,
+            "distributed" => HorizontalAlignmentValues.Distributed,
             _ => throw new ArgumentException($"Invalid horizontal alignment: '{value}'. Valid values: left, center, right, justify.")
         };
 
@@ -857,6 +1817,8 @@ public class ExcelStyleManager
             "top" => VerticalAlignmentValues.Top,
             "center" => VerticalAlignmentValues.Center,
             "bottom" => VerticalAlignmentValues.Bottom,
+            "justify" => VerticalAlignmentValues.Justify,
+            "distributed" => VerticalAlignmentValues.Distributed,
             _ => throw new ArgumentException($"Invalid vertical alignment: '{value}'. Valid values: top, center, bottom.")
         };
 }

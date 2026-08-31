@@ -5,10 +5,6 @@ import type {
   SpawnReasoningEffort,
 } from "@stella/contracts/agent-engine";
 import type {
-  FileChangeRecord,
-  ProducedFileRecord,
-} from "@stella/contracts/file-changes";
-import type {
   LocalCronJobCreateInput,
   LocalCronJobRecord,
   LocalCronJobUpdatePatch,
@@ -57,9 +53,6 @@ export type ToolResult = {
 
   modelOutputTokens?: number;
 
-  fileChanges?: FileChangeRecord[];
-
-  producedFiles?: ProducedFileRecord[];
 };
 
 export type ToolUpdateCallback = (update: ToolResult) => void;

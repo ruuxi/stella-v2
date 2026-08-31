@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 namespace OfficeCli.Core;
@@ -7,7 +7,7 @@ namespace OfficeCli.Core;
 /// Maps human-friendly path segment names to their OpenXML local names.
 /// Allows paths like /body/paragraph[1] in addition to /body/p[1].
 /// </summary>
-public static class PathAliases
+internal static class PathAliases
 {
     private static readonly Dictionary<string, string> Aliases = new(StringComparer.OrdinalIgnoreCase)
     {

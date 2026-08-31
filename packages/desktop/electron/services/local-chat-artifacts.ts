@@ -1,9 +1,5 @@
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
-import {
-  isFileChangeRecordArray,
-  isProducedFileRecordArray,
-  type FileChangeRecord,
-} from "@stella/contracts/file-changes";
+import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import { isUiHiddenChatMessagePayload } from "@stella/contracts/chat-event-visibility";
 import {
   isMapRouteArtifact,
@@ -300,21 +296,6 @@ const DECLARED_OUTPUTS_RE = /(?:^|[\\/])(?:\.stella|state)[\\/]outputs[\\/]/;
 const isDeclaredOutputPath = (filePath: string): boolean =>
   DECLARED_OUTPUTS_RE.test(filePath);
 
-const NOISE_PATH_SEGMENTS = new Set(["node_modules", "__pycache__"]);
-const NOISE_EXTS = new Set(["log", "tmp", "lock", "pid"]);
-
-const isNoiseProducedPath = (filePath: string): boolean => {
-  const trimmed = filePath.trim();
-  if (!trimmed) return true;
-  for (const segment of trimmed.split(/[\\/]/)) {
-    if (!segment) continue;
-    if (segment.startsWith(".") && segment !== ".stella") return true;
-    if (NOISE_PATH_SEGMENTS.has(segment)) return true;
-  }
-  const ext = extensionOf(trimmed);
-  return ext != null && NOISE_EXTS.has(ext);
-};
-
 const asNonEmptyString = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -349,19 +330,6 @@ const titleFromHtmlSlug = (slug: string): string => {
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(" ");
   return title || "Canvas";
-};
-
-const resolveFileChange = (
-  record: FileChangeRecord,
-  timestamp: number,
-): { filePath: string; timestamp: number } | null => {
-  if (record.kind.type === "delete") return null;
-  const filePath =
-    record.kind.type === "update" && record.kind.move_path
-      ? record.kind.move_path
-      : record.path;
-  const trimmed = asNonEmptyString(filePath);
-  return trimmed ? { filePath: trimmed, timestamp } : null;
 };
 
 const isDelegatedToolResult = (event: ArtifactEventRecord): boolean => {
@@ -605,32 +573,22 @@ const buildAgentFilesById = (
       const payload = event.payload;
       const agentId = trimmedString(payload?.agentId);
       if (!payload || !agentId) continue;
-      const fileChanges = isFileChangeRecordArray(payload.fileChanges)
-        ? payload.fileChanges
-        : [];
-      const producedFiles = isProducedFileRecordArray(payload.producedFiles)
-        ? payload.producedFiles
-        : [];
       const candidates = byAgent.get(agentId) ?? new Map<string, Candidate>();
       byAgent.set(agentId, candidates);
-      const consider = (record: FileChangeRecord, noiseFiltered: boolean) => {
-        const resolved = resolveFileChange(record, event.timestamp);
-        if (!resolved) return;
-        if (noiseFiltered && isNoiseProducedPath(resolved.filePath)) return;
-        if (candidates.has(resolved.filePath)) return;
+      const result = typeof payload.result === "string" ? payload.result : "";
+      for (const filePath of extractLocalFileLinkPaths(result)) {
+        if (candidates.has(filePath)) continue;
         const display = payloadFromFilePath(
-          resolved.filePath,
-          resolved.timestamp,
+          filePath,
+          event.timestamp,
           options,
         );
-        if (!display) return;
-        candidates.set(resolved.filePath, {
-          filePath: resolved.filePath,
+        if (!display) continue;
+        candidates.set(filePath, {
+          filePath,
           payload: display,
         });
-      };
-      for (const record of fileChanges) consider(record, false);
-      for (const record of producedFiles) consider(record, true);
+      }
     }
   }
 
@@ -1084,12 +1042,18 @@ const mapArtifactPayloads = (
 };
 
 export const deriveMobileArtifactsForMessage = (
-  message: Pick<ArtifactMessageRecord, "toolEvents">,
+  message: Pick<
+    ArtifactMessageRecord,
+    "toolEvents" | "payload" | "timestamp" | "type"
+  >,
   options?: MobileArtifactOptions,
 ): MobileSyncArtifact[] => deriveMobileArtifactsForMessages([message], options);
 
 export const deriveMobileArtifactsForMessages = (
-  messages: readonly Pick<ArtifactMessageRecord, "toolEvents">[],
+  messages: readonly Pick<
+    ArtifactMessageRecord,
+    "toolEvents" | "payload" | "timestamp" | "type"
+  >[],
   options?: MobileArtifactOptions,
 ): MobileSyncArtifact[] => {
   const artifacts: MobileSyncArtifact[] = [];
@@ -1102,6 +1066,17 @@ export const deriveMobileArtifactsForMessages = (
       seen,
       options,
     );
+    if (message.type === "assistant_message") {
+      for (const filePath of extractLocalFileLinkPaths(
+        textFromPayload(message.payload),
+      )) {
+        pushArtifact(
+          artifacts,
+          seen,
+          payloadFromFilePath(filePath, message.timestamp, options),
+        );
+      }
+    }
   }
 
   return artifacts.slice(0, ARTIFACT_LIMIT_PER_MESSAGE);
@@ -1165,31 +1140,6 @@ const collectMobileArtifactsFromEvents = (
       });
     }
 
-    const fileChanges = isFileChangeRecordArray(payload.fileChanges)
-      ? payload.fileChanges
-      : [];
-    const producedFiles = isProducedFileRecordArray(payload.producedFiles)
-      ? payload.producedFiles
-      : [];
-    for (const record of fileChanges) {
-      const resolved = resolveFileChange(record, event.timestamp);
-      if (!resolved) continue;
-      pushArtifact(
-        artifacts,
-        seen,
-        payloadFromFilePath(resolved.filePath, resolved.timestamp, options),
-      );
-    }
-    for (const record of producedFiles) {
-      const resolved = resolveFileChange(record, event.timestamp);
-
-      if (!resolved || isNoiseProducedPath(resolved.filePath)) continue;
-      pushArtifact(
-        artifacts,
-        seen,
-        payloadFromFilePath(resolved.filePath, resolved.timestamp, options),
-      );
-    }
   }
 };
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import {
   createWriteStream,
-  existsSync,
   readFileSync,
+  renameSync,
   unlinkSync,
 } from "node:fs";
 import { get } from "node:https";
@@ -55,19 +55,18 @@ const downloadFile = async (url, destination) =>
 
 ensureBinDir();
 
-if (existsSync(targetPath)) {
-  finalizeBundledBinary(targetPath);
-  console.log(`stella-office binary already present: ${targetPath}`);
-  process.exit(0);
-}
-
+const stagingPath = `${targetPath}.download`;
 console.log(`Downloading ${assetName} from ${downloadUrl}`);
 
 try {
-  await downloadFile(downloadUrl, targetPath);
+  await downloadFile(downloadUrl, stagingPath);
+  renameSync(stagingPath, targetPath);
   finalizeBundledBinary(targetPath);
   console.log(`Downloaded native binary to ${targetPath}`);
 } catch (error) {
+  try {
+    unlinkSync(stagingPath);
+  } catch {}
   console.error(`Failed to download native binary: ${error.message}`);
   process.exit(1);
 }

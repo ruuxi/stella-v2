@@ -6,10 +6,6 @@ import os from "node:os";
 import { Worker } from "node:worker_threads";
 
 import type { BrowserUseResponseMeta } from "@stella/contracts/local-chat";
-import type {
-  FileChangeRecord,
-  ProducedFileRecord,
-} from "@stella/contracts/file-changes";
 
 import type {
   ToolContext,
@@ -119,8 +115,6 @@ export type NodeReplEvaluationResult = Readonly<{
   content: readonly NodeReplContentItem[];
   generation: number;
   reset?: NodeReplResetReceipt;
-  fileChanges?: readonly FileChangeRecord[];
-  producedFiles?: readonly ProducedFileRecord[];
   responseMeta?: BrowserUseResponseMeta;
 }>;
 
@@ -137,8 +131,6 @@ export type NodeReplCellObservation = Readonly<{
   content?: readonly NodeReplContentItem[];
   reset?: NodeReplResetReceipt;
   error?: string;
-  fileChanges?: readonly FileChangeRecord[];
-  producedFiles?: readonly ProducedFileRecord[];
   responseMeta?: BrowserUseResponseMeta;
 }>;
 
@@ -324,8 +316,6 @@ type ActiveEvaluation = {
   onToolUpdate?: ToolUpdateCallback;
   onResponseMeta?: (meta: BrowserUseResponseMeta) => void;
   resetRequestedAt?: number;
-  fileChanges: FileChangeRecord[];
-  producedFiles: ProducedFileRecord[];
   responseMeta?: BrowserUseResponseMeta;
   content: NodeReplContentItem[];
   nextContentCursor: number;
@@ -887,8 +877,6 @@ class NodeReplKernel {
         onContent,
         content: [],
         nextContentCursor: 1,
-        fileChanges: [],
-        producedFiles: [],
         browserActivity: {
           callCount: 0,
           mutated: false,
@@ -1667,10 +1655,6 @@ class NodeReplKernel {
         },
       );
       if (!this.closed && this.active === active) {
-        if (result.fileChanges) active.fileChanges.push(...result.fileChanges);
-        if (result.producedFiles) {
-          active.producedFiles.push(...result.producedFiles);
-        }
         active.onToolResult?.(result);
       }
       if (result.error) throw new Error(result.error);
@@ -2066,12 +2050,6 @@ class NodeReplKernel {
       content,
       generation: this.generation,
       ...(terminalReset ? { reset: terminalReset } : {}),
-      ...(active.fileChanges.length > 0
-        ? { fileChanges: active.fileChanges }
-        : {}),
-      ...(active.producedFiles.length > 0
-        ? { producedFiles: active.producedFiles }
-        : {}),
       ...(active.responseMeta ? { responseMeta: active.responseMeta } : {}),
     });
     if (terminalReset) {
@@ -2553,12 +2531,6 @@ export class NodeReplKernelRegistry {
         ...(content.length > 0 ? { content } : {}),
         ...(cell.outcome.value.reset
           ? { reset: cell.outcome.value.reset }
-          : {}),
-        ...(cell.outcome.value.fileChanges
-          ? { fileChanges: cell.outcome.value.fileChanges }
-          : {}),
-        ...(cell.outcome.value.producedFiles
-          ? { producedFiles: cell.outcome.value.producedFiles }
           : {}),
         ...(cell.outcome.value.responseMeta
           ? { responseMeta: cell.outcome.value.responseMeta }

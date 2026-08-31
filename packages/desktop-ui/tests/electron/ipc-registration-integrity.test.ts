@@ -239,11 +239,40 @@ describe("Electron IPC registration integrity", () => {
 
     const getId = ipc.handles.get("device:getId");
     const getStatus = ipc.handles.get("permissions:getStatus");
-    expect(() => getId?.({})).toThrow("Blocked untrusted device:getId");
+    await expect(getId?.({})).rejects.toThrow("Blocked untrusted device:getId");
     expect(() => getStatus?.({})).toThrow(
       "Blocked untrusted permissions:getStatus",
     );
     expect(options.getDeviceId).not.toHaveBeenCalled();
+  });
+
+  it("loads the device ID on demand and reuses the cached value", async () => {
+    let deviceId: string | null = null;
+    const loadDeviceId = vi.fn(async () => {
+      deviceId = "device-loaded";
+      return deviceId;
+    });
+    const options = new Proxy(
+      {
+        getStellaAppDir: () => null,
+        getDeviceId: vi.fn(() => deviceId),
+        loadDeviceId,
+        externalLinkService: { assertPrivilegedSender: vi.fn(() => true) },
+      },
+      {
+        get(target, property) {
+          if (property in target) return Reflect.get(target, property);
+          return vi.fn();
+        },
+      },
+    );
+    registerSystemHandlers(options);
+
+    const getId = ipc.handles.get("device:getId");
+    await expect(getId?.({})).resolves.toBe("device-loaded");
+    await expect(getId?.({})).resolves.toBe("device-loaded");
+
+    expect(loadDeviceId).toHaveBeenCalledOnce();
   });
 
   it("wires the connector credential service into system registration", () => {

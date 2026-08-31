@@ -1,7 +1,3 @@
-import type {
-  FileChangeRecord,
-  ProducedFileRecord,
-} from "@stella/contracts/file-changes";
 import type { ToolContext, ToolHandlerExtras, ToolResult } from "./types.js";
 
 export const MULTI_TOOL_USE_PARALLEL_TOOL_NAME = "multi_tool_use_parallel";
@@ -52,8 +48,6 @@ type ParallelEntryResult = {
   error?: string;
   result?: unknown;
   details?: unknown;
-  fileChanges?: FileChangeRecord[];
-  producedFiles?: ProducedFileRecord[];
   modelOutputTokens?: number;
 };
 
@@ -172,27 +166,12 @@ export const handleMultiToolUseParallel = async (
         tool_name: toolName,
         ...(nested.error ? { error: nested.error } : { result: nested.result }),
         ...(nested.details !== undefined ? { details: nested.details } : {}),
-        ...(nested.fileChanges ? { fileChanges: nested.fileChanges } : {}),
-        ...(nested.producedFiles
-          ? { producedFiles: nested.producedFiles }
-          : {}),
         ...(typeof nested.modelOutputTokens === "number"
           ? { modelOutputTokens: nested.modelOutputTokens }
           : {}),
       };
     }),
   );
-
-  const fileChanges: FileChangeRecord[] = [];
-  const producedFiles: ProducedFileRecord[] = [];
-  for (const result of results) {
-    if ("fileChanges" in result && Array.isArray(result.fileChanges)) {
-      fileChanges.push(...result.fileChanges);
-    }
-    if ("producedFiles" in result && Array.isArray(result.producedFiles)) {
-      producedFiles.push(...result.producedFiles);
-    }
-  }
 
   const rendered = results
     .map((entry) => {
@@ -225,7 +204,5 @@ export const handleMultiToolUseParallel = async (
     result: rendered,
     details: { results: results.map(withoutDuplicatedCommandResult) },
     ...(modelOutputTokens !== undefined ? { modelOutputTokens } : {}),
-    ...(fileChanges.length > 0 ? { fileChanges } : {}),
-    ...(producedFiles.length > 0 ? { producedFiles } : {}),
   };
 };

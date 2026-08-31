@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using DocumentFormat.OpenXml;
@@ -89,6 +89,23 @@ public partial class PowerPointHandler
     }
 
     /// <summary>
+    /// R48: extract the wrapped <p:pic> from a graphicFrame whose
+    /// <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+    /// hosts a Picture element. Keynote->PPT and Aspose-style exporters emit
+    /// pictures in this legal but rare wrapped form (the canonical idiom is a
+    /// top-level <p:pic> sibling of the shape tree). Returns null when the
+    /// frame is not picture-typed or carries no Picture descendant.
+    /// </summary>
+    private const string PictureUri = "http://schemas.openxmlformats.org/drawingml/2006/picture";
+
+    private static Picture? TryExtractPictureFromGraphicFrame(GraphicFrame gf)
+    {
+        var gd = gf.Descendants<Drawing.GraphicData>().FirstOrDefault(g => g.Uri == PictureUri);
+        if (gd == null) return null;
+        return gd.Descendants<Picture>().FirstOrDefault();
+    }
+
+    /// <summary>
     /// Get the relationship ID from an extended chart GraphicFrame.
     /// After round-trip, the cx:chart element becomes OpenXmlUnknownElement,
     /// so we extract r:id from it directly.
@@ -115,14 +132,15 @@ public partial class PowerPointHandler
     /// <summary>
     /// Build a DocumentNode from a chart GraphicFrame.
     /// </summary>
-    private static DocumentNode ChartToNode(GraphicFrame gf, SlidePart slidePart, int slideNum, int chartIdx, int depth)
+    private static DocumentNode ChartToNode(GraphicFrame gf, SlidePart slidePart, int slideNum, int chartIdx, int depth, string? parentPathPrefix = null)
     {
         var name = gf.NonVisualGraphicFrameProperties?.NonVisualDrawingProperties?.Name?.Value ?? "Chart";
 
         var chartPathSeg = BuildElementPathSegment("chart", gf, chartIdx);
+        var basePath = parentPathPrefix ?? $"/slide[{slideNum}]";
         var node = new DocumentNode
         {
-            Path = $"/slide[{slideNum}]/{chartPathSeg}",
+            Path = $"{basePath}/{chartPathSeg}",
             Type = "chart",
             Preview = name
         };
@@ -143,6 +161,17 @@ public partial class PowerPointHandler
         {
             if (extents.Cx is not null) node.Format["width"] = FormatEmu(extents.Cx!);
             if (extents.Cy is not null) node.Format["height"] = FormatEmu(extents.Cy!);
+        }
+
+        // CONSISTENCY(zorder): mirror shape/picture/connector/table — emit
+        // when parented to a ShapeTree so dump/replay preserves stacking.
+        if (gf.Parent is ShapeTree chartZTree)
+        {
+            var chartZContent = chartZTree.ChildElements
+                .Where(e => e is Shape or Picture or GraphicFrame or GroupShape or ConnectionShape)
+                .ToList();
+            var chartZIdx = chartZContent.IndexOf(gf);
+            if (chartZIdx >= 0) node.Format["zorder"] = chartZIdx + 1;
         }
 
         // Read chart data from ChartPart (shared logic)
@@ -177,9 +206,53 @@ public partial class PowerPointHandler
                 // Count series
                 var cxSeries = cxChartSpace.Descendants<DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing.Series>().ToList();
                 node.Format["seriesCount"] = cxSeries.Count;
+
+                // Series children — needed by PptxBatchEmitter.EmitChart to
+                // reconstruct the `data="Name:v1,v2;..."` round-trip string.
+                // Standard c:chart populates these via ChartHelper.ReadChartProperties
+                // (depth > 0 branch); extended cx:chart had no analogue and the
+                // emitter wrote `add chart` without `data`, so replay rejected
+                // the chart for missing series data. Mirror the cx data-block
+                // extraction used by ChartSvgRenderer.CxExtract.
+                if (depth > 0)
+                {
+                    var cxData = cxChartSpace.Descendants<DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing.ChartData>().FirstOrDefault();
+                    foreach (var s in cxSeries)
+                    {
+                        var dataIdVal = s.GetFirstChild<DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing.DataId>()?.Val?.Value ?? 0;
+                        var dataBlock = cxData?.Elements<DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing.Data>()
+                            .FirstOrDefault(d => (d.Id?.Value ?? 0) == dataIdVal);
+                        if (dataBlock == null) continue;
+
+                        var sName = s.GetFirstChild<DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing.Text>()
+                            ?.GetFirstChild<DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing.TextData>()
+                            ?.GetFirstChild<DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing.VXsdstring>()?.Text ?? "Series";
+
+                        var vals = dataBlock.Elements<DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing.NumericDimension>()
+                            .SelectMany(nd => nd.Descendants<DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing.NumericValue>())
+                            .Select(nv => nv.Text ?? "0")
+                            .ToArray();
+                        if (vals.Length == 0) continue;
+
+                        var seriesNode = new DocumentNode
+                        {
+                            Path = $"{node.Path}/series[{node.Children.Count + 1}]",
+                            Type = "series",
+                        };
+                        seriesNode.Format["name"] = sName;
+                        seriesNode.Format["values"] = string.Join(",", vals);
+                        node.Children.Add(seriesNode);
+                    }
+                }
             }
             catch { }
         }
+
+        // Animation: chart graphicFrames participate in the timing tree the
+        // same way shapes do. ReadShapeAnimation surfaces effect / class /
+        // duration / trigger / delay / chartBuild (last is chart-only — comes
+        // from <p:bldGraphic> rather than <p:bldP>).
+        ReadShapeAnimation(slidePart, gf, node);
 
         return node;
     }

@@ -1,5 +1,4 @@
 import type { OfficePreviewRef } from "./office-preview.js";
-import type { FileChangeRecord, ProducedFileRecord } from "./file-changes.js";
 import type { AgentModelConfigSnapshot } from "./agent-engine.js";
 
 export type EventRecord = {
@@ -186,8 +185,6 @@ export type ToolResultPayload = {
   requestId?: string;
   agentType?: string;
   officePreviewRef?: OfficePreviewRef;
-  fileChanges?: FileChangeRecord[];
-  producedFiles?: ProducedFileRecord[];
 
   mode?: string;
   query?: string;

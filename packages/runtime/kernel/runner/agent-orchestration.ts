@@ -15,67 +15,17 @@ import { runExplore } from "../agent-runtime/explore.js";
 import { resolveOrchestratorThreadKey } from "../thread-runtime.js";
 import { shouldUseAutomaticSkillExplore } from "../shared/skill-catalog.js";
 import { LocalAgentManager } from "../agents/local-agent-manager.js";
-import type {
-  AgentToolRequest,
-  ToolContext,
-  ToolResult,
-} from "../tools/types.js";
+import type { AgentToolRequest } from "../tools/types.js";
 import type {
   LocalAgentContext,
   AgentLifecycleEvent,
 } from "../agents/local-agent-manager.js";
 import { AGENT_IDS, isLocalCliAgentId } from "@stella/contracts/agent-runtime";
-import {
-  isFileChangeRecordArray,
-  isProducedFileRecordArray,
-  type FileChangeRecord,
-  type ProducedFileRecord,
-} from "@stella/contracts/file-changes";
 import type { RunnerContext } from "./types.js";
 import { buildAgentEventPrompt } from "./shared.js";
 import type { LocalChatEventRecord } from "../storage/shared.js";
 import type { ThreadActivityRecord } from "@stella/contracts/local-chat";
 import { createRunnerImageDescriptionService } from "./model-selection.js";
-
-const collectFileChanges = (
-  target: FileChangeRecord[],
-  seen: Set<string>,
-  source: unknown,
-): void => {
-  if (!source || typeof source !== "object" || Array.isArray(source)) {
-    return;
-  }
-  const candidate = (source as { fileChanges?: unknown }).fileChanges;
-  if (!isFileChangeRecordArray(candidate)) {
-    return;
-  }
-  for (const change of candidate) {
-    const key = `${change.kind.type}:${change.path}:${change.kind.type === "update" ? (change.kind.move_path ?? "") : ""}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    target.push(change);
-  }
-};
-
-const collectProducedFiles = (
-  target: ProducedFileRecord[],
-  seen: Set<string>,
-  source: unknown,
-): void => {
-  if (!source || typeof source !== "object" || Array.isArray(source)) {
-    return;
-  }
-  const candidate = (source as { producedFiles?: unknown }).producedFiles;
-  if (!isProducedFileRecordArray(candidate)) {
-    return;
-  }
-  for (const file of candidate) {
-    const key = `${file.kind.type}:${file.path}:${file.kind.type === "update" ? (file.kind.move_path ?? "") : ""}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    target.push(file);
-  }
-};
 
 const findPersistedThreadCustomEvent = (
   context: RunnerContext,
@@ -103,91 +53,6 @@ const hasPersistedThreadCustomEvent = (
   eventId: string | undefined,
 ): boolean =>
   findPersistedThreadCustomEvent(context, threadKey, eventId) !== null;
-
-const getShellExecutionState = (
-  result: ToolResult,
-): { sessionId: string | null; running: boolean } | null => {
-  const payload = result.details ?? result.result;
-  if (typeof payload === "string") {
-    const match = payload.match(/\bShell ID:\s*([^\s]+)/);
-    if (match) {
-      return { sessionId: match[1] ?? null, running: true };
-    }
-  }
-  if (!payload || typeof payload !== "object") return null;
-  const record = payload as { session_id?: unknown; running?: unknown };
-  if (typeof record.running !== "boolean") return null;
-  return {
-    sessionId: typeof record.session_id === "string" ? record.session_id : null,
-    running: record.running,
-  };
-};
-
-const normalizeNestedToolName = (raw: unknown): string => {
-  const value = typeof raw === "string" ? raw.trim() : "";
-  return value.startsWith("functions.")
-    ? value.slice("functions.".length)
-    : value;
-};
-
-const getParallelToolEntries = (
-  args: Record<string, unknown>,
-): Array<{ toolName: string; parameters: Record<string, unknown> }> => {
-  if (!Array.isArray(args.tool_uses)) return [];
-  const out: Array<{ toolName: string; parameters: Record<string, unknown> }> =
-    [];
-  for (const entry of args.tool_uses) {
-    if (!entry || typeof entry !== "object") continue;
-    const record = entry as { recipient_name?: unknown; parameters?: unknown };
-    const toolName = normalizeNestedToolName(record.recipient_name);
-    const parameters =
-      record.parameters && typeof record.parameters === "object"
-        ? (record.parameters as Record<string, unknown>)
-        : {};
-    out.push({ toolName, parameters });
-  }
-  return out;
-};
-
-const parallelContainsShellCommand = (args: Record<string, unknown>): boolean =>
-  getParallelToolEntries(args).some(
-    (entry) => entry.toolName === "exec_command",
-  );
-
-const getParallelRunningShellSessions = (result: ToolResult): string[] => {
-  const details = result.details;
-  if (!details || typeof details !== "object") return [];
-  const results = (details as { results?: unknown }).results;
-  if (!Array.isArray(results)) return [];
-  const sessionIds: string[] = [];
-  for (const entry of results) {
-    if (!entry || typeof entry !== "object") continue;
-    const record = entry as {
-      tool_name?: unknown;
-      result?: unknown;
-      details?: unknown;
-    };
-    if (record.tool_name !== "exec_command") continue;
-    const shellState = getShellExecutionState({
-      result: record.result,
-      details: record.details,
-    });
-    if (shellState?.running && shellState.sessionId) {
-      sessionIds.push(shellState.sessionId);
-    }
-  }
-  return sessionIds;
-};
-
-const parallelToolResultContainsShellCommand = (details: unknown): boolean => {
-  if (!details || typeof details !== "object") return false;
-  const results = (details as { results?: unknown }).results;
-  if (!Array.isArray(results)) return false;
-  return results.some((entry) => {
-    if (!entry || typeof entry !== "object") return false;
-    return (entry as { tool_name?: unknown }).tool_name === "exec_command";
-  });
-};
 
 const buildLifecycleEventPayload = (
   event: AgentLifecycleEvent,
@@ -218,12 +83,6 @@ const buildLifecycleEventPayload = (
         agentId: event.agentId,
         ...runFields,
         result: event.result ?? "",
-        ...(event.fileChanges?.length
-          ? { fileChanges: event.fileChanges }
-          : {}),
-        ...(event.producedFiles?.length
-          ? { producedFiles: event.producedFiles }
-          : {}),
         ...groupFields,
       };
     case "agent-message":
@@ -553,43 +412,6 @@ export const createAgentOrchestration = (
         ? `${exploreFindingsBlock}\n\n${taskDescription}\n\n${taskPrompt}`
         : `${taskDescription}\n\n${taskPrompt}`;
 
-      const subagentFileChanges: FileChangeRecord[] = [];
-      const subagentFileChangeKeys = new Set<string>();
-      const subagentProducedFiles: ProducedFileRecord[] = [];
-      const subagentProducedFileKeys = new Set<string>();
-
-      const touchedShellSessions = new Set<string>();
-      const subagentToolExecutor = async (
-        toolName: string,
-        args: Record<string, unknown>,
-        ctx: ToolContext,
-        signal?: AbortSignal,
-        onUpdate?: (update: ToolResult) => void,
-      ): Promise<ToolResult> => {
-        const isParallelWithShellCommands =
-          toolName === "multi_tool_use_parallel" &&
-          parallelContainsShellCommand(args);
-        const shellSessionId =
-          typeof args.session_id === "string" ? args.session_id : null;
-        const result = await toolExecutor(
-          toolName,
-          args,
-          ctx,
-          signal,
-          onUpdate,
-        );
-        const shellState = getShellExecutionState(result);
-
-        if (shellSessionId) touchedShellSessions.add(shellSessionId);
-        if (shellState?.sessionId)
-          touchedShellSessions.add(shellState.sessionId);
-        if (isParallelWithShellCommands) {
-          for (const sessionId of getParallelRunningShellSessions(result)) {
-            touchedShellSessions.add(sessionId);
-          }
-        }
-        return result;
-      };
       const result = await runSubagentTask({
         conversationId,
         userMessageId,
@@ -603,7 +425,7 @@ export const createAgentOrchestration = (
           model: resolvedLlm.toolPolicyModel ?? resolvedLlm.model,
           agentEngine: agentContext.agentEngine,
         }),
-        toolExecutor: subagentToolExecutor,
+        toolExecutor,
         deviceId: context.deviceId,
         stellaDataDir: context.stellaDataDir,
         resolvedLlm,
@@ -673,49 +495,12 @@ export const createAgentOrchestration = (
           },
           onToolEnd: (event) => {
             onToolEnd?.(event);
-            collectFileChanges(
-              subagentFileChanges,
-              subagentFileChangeKeys,
-              event.fileChanges?.length ? event : event.details,
-            );
-            collectProducedFiles(
-              subagentProducedFiles,
-              subagentProducedFileKeys,
-              event.producedFiles?.length ? event : event.details,
-            );
-
             runnerCallbacks?.onToolEnd(agentId ? { ...event, agentId } : event);
           },
         },
         hookEmitter: context.hookEmitter,
       }).finally(() => context.toolHost.endBrowserTurn(runId, "close-tabs"));
 
-      if (touchedShellSessions.size > 0) {
-        try {
-          const lateProducedFiles =
-            await context.toolHost.drainCompletedShellProducedFiles([
-              ...touchedShellSessions,
-            ]);
-          if (lateProducedFiles.length > 0) {
-            collectProducedFiles(
-              subagentProducedFiles,
-              subagentProducedFileKeys,
-              { producedFiles: lateProducedFiles },
-            );
-          }
-        } catch (error) {
-          console.warn(
-            "[produced-files] late background shell drain failed (continuing):",
-            (error as Error).message,
-          );
-        }
-      }
-      if (subagentFileChanges.length > 0) {
-        result.fileChanges = subagentFileChanges;
-      }
-      if (subagentProducedFiles.length > 0) {
-        result.producedFiles = subagentProducedFiles;
-      }
       return result;
     },
     toolExecutor: (toolName, args, toolContext, signal, onUpdate) =>

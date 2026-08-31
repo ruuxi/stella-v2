@@ -115,50 +115,20 @@ export const getRuntimeToolMetadata = (opts) => {
   }
   return resolved;
 };
-const mergeToolSideEffectsIntoDetails = (
-  details,
-  fileChanges,
-  producedFiles,
-) => {
-  if (
-    (!fileChanges || fileChanges.length === 0) &&
-    (!producedFiles || producedFiles.length === 0)
-  ) {
-    return details;
-  }
-  const sideEffects = {
-    ...(fileChanges && fileChanges.length > 0 ? { fileChanges } : {}),
-    ...(producedFiles && producedFiles.length > 0 ? { producedFiles } : {}),
-  };
-  if (details && typeof details === "object" && !Array.isArray(details)) {
-    return { ...details, ...sideEffects };
-  }
-
-  if (details === undefined || details === null) return sideEffects;
-  return { result: details, ...sideEffects };
-};
 const formatToolResult = (toolResult, toolName) => {
   if (toolResult.error) {
     const error = sanitizeToolError(toolResult.error);
     return {
       text: `Error: ${error}`,
-      details: mergeToolSideEffectsIntoDetails(
-        sanitizeToolResult(toolResult.details ?? { error }),
-        toolResult.fileChanges,
-        toolResult.producedFiles,
-      ),
+      details: sanitizeToolResult(toolResult.details ?? { error }),
     };
   }
   const result = sanitizeToolResult(toolResult.result);
   return {
     text: sanitizeToolVisibleText(textFromUnknown(result)),
-    details: mergeToolSideEffectsIntoDetails(
-      sanitizeToolResult(
-        toolResult.details ??
-          (COMMAND_OUTPUT_TOOL_NAMES.has(toolName) ? undefined : result),
-      ),
-      toolResult.fileChanges,
-      toolResult.producedFiles,
+    details: sanitizeToolResult(
+      toolResult.details ??
+        (COMMAND_OUTPUT_TOOL_NAMES.has(toolName) ? undefined : result),
     ),
   };
 };

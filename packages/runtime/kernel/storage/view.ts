@@ -162,20 +162,9 @@ const projectBoundedJsonValue = (
   }
   if (typeof value === "object") {
     const projected: Record<string, unknown> = {};
-    const allEntries = Object.entries(value);
-    const entries = [
-      ...allEntries.filter(
-        ([key]) => key === "fileChanges" || key === "producedFiles",
-      ),
-      ...allEntries.filter(
-        ([key]) => key !== "fileChanges" && key !== "producedFiles",
-      ),
-    ].slice(0, limits.objectKeys);
+    const entries = Object.entries(value).slice(0, limits.objectKeys);
     for (const [key, item] of entries) {
-      projected[key] =
-        (key === "fileChanges" || key === "producedFiles") && Array.isArray(item)
-          ? item.slice(0, limits.arrayItems)
-          : projectBoundedJsonValue(item, depth - 1, limits);
+      projected[key] = projectBoundedJsonValue(item, depth - 1, limits);
     }
     if (Object.keys(value).length > entries.length) {
       projected.__truncatedKeys = Object.keys(value).length - entries.length;
@@ -236,22 +225,6 @@ const projectEagerEventPayload = (
     }
   } catch {
     /* fall through */
-  }
-  const artifactFallback: Record<string, unknown> = {};
-  for (const key of ["fileChanges", "producedFiles"]) {
-    if (Array.isArray(payload[key]) && payload[key].length > 0) {
-      artifactFallback[key] = payload[key].slice(0, 1);
-    }
-  }
-  if (Object.keys(artifactFallback).length > 0) {
-    const projectedArtifacts = markProjected(artifactFallback);
-    try {
-      if (fitsEnvelope(projectedArtifacts)) {
-        return { payload: projectedArtifacts, projected: true };
-      }
-    } catch {
-      /* fall through */
-    }
   }
   return {
     payload: {

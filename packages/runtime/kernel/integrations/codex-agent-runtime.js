@@ -1,13 +1,10 @@
-import { execFile, spawn, } from "node:child_process";
+import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
-import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
-import { setupGitEnvironment } from "../../git-environment.js";
 import { DEFAULT_CODEX_SERVICE_TIER } from "@stella/contracts/agent-engine";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { redactSensitiveText } from "@stella/contracts/sensitive-data";
@@ -28,7 +25,6 @@ const CODEX_AGENT_MESSAGE_COMPLETION_GRACE_MS = 750;
 export const CODEX_LIGHT_MODEL = "gpt-5.4-mini";
 
 export const CODEX_UTILITY_MODEL = "gpt-5.6-luna";
-const execFileAsync = promisify(execFile);
 const stableJson = (value) => {
     if (Array.isArray(value))
         return `[${value.map(stableJson).join(",")}]`;
@@ -87,170 +83,6 @@ export const buildCodexPromptFromMessages = (args) => args.promptMessages
     .map(formatCodexPromptMessage)
     .filter((section) => section.trim().length > 0)
     .join("\n\n");
-const absoluteChangePath = (cwd, value) => {
-    const trimmed = value.trim();
-    if (path.isAbsolute(trimmed))
-        return trimmed;
-    return path.resolve(cwd ?? process.cwd(), trimmed);
-};
-const codexChangeKindToFileChangeKind = (kind, cwd) => {
-    if (kind.type === "add" || kind.type === "delete")
-        return { type: kind.type };
-    return {
-        type: "update",
-        ...(kind.move_path
-            ? { move_path: absoluteChangePath(cwd, kind.move_path) }
-            : {}),
-    };
-};
-export const fileChangesFromCodexItem = (item, cwd) => {
-    if (item.type !== "fileChange" || item.status !== "completed")
-        return [];
-    return item.changes.map((change) => ({
-        path: absoluteChangePath(cwd, change.path),
-        kind: codexChangeKindToFileChangeKind(change.kind, cwd),
-    }));
-};
-const normalizeGitPath = (value) => value.trim().replace(/\\/g, "/");
-const statusKeyForEntry = (entry) => entry.movePath ?? entry.path;
-const absoluteRepoPath = (repoRoot, repoRelativePath) => path.resolve(repoRoot, repoRelativePath);
-const parseStatusLine = (line) => {
-    if (!line || line.length < 4)
-        return null;
-    const status = line.slice(0, 2);
-    const rawPath = line.slice(3).trim();
-    if (!rawPath)
-        return null;
-    const renameMarker = rawPath.lastIndexOf(" -> ");
-    if (renameMarker >= 0) {
-        return {
-            status,
-            path: normalizeGitPath(rawPath.slice(0, renameMarker)),
-            movePath: normalizeGitPath(rawPath.slice(renameMarker + 4)),
-        };
-    }
-    return {
-        status,
-        path: normalizeGitPath(rawPath),
-    };
-};
-const parseGitStatus = (stdout) => {
-    const entries = new Map();
-    for (const line of stdout.replace(/\r?\n$/, "").split(/\r?\n/)) {
-        const entry = parseStatusLine(line);
-        if (!entry)
-            continue;
-        entries.set(statusKeyForEntry(entry), entry);
-    }
-    return entries;
-};
-const runGit = async (repoRoot, args) => {
-    const { env, gitLocation } = setupGitEnvironment(process.env);
-    try {
-        const result = await execFileAsync(gitLocation, args, {
-            cwd: repoRoot,
-            env,
-            encoding: "utf8",
-            maxBuffer: 10 * 1024 * 1024,
-            windowsHide: true,
-        });
-        return { ok: true, stdout: String(result.stdout ?? "") };
-    }
-    catch {
-        return { ok: false, stdout: "" };
-    }
-};
-const fingerprintFile = async (repoRoot, repoRelativePath) => {
-    try {
-        const data = await readFile(absoluteRepoPath(repoRoot, repoRelativePath));
-        return crypto.createHash("sha256").update(data).digest("hex");
-    }
-    catch {
-        return null;
-    }
-};
-const snapshotWorktree = async (repoRoot) => {
-    const root = repoRoot?.trim();
-    if (!root)
-        return null;
-    const inside = await runGit(root, ["rev-parse", "--is-inside-work-tree"]);
-    if (!inside.ok || inside.stdout.trim() !== "true") {
-        return null;
-    }
-    const status = await runGit(root, [
-        "-c",
-        "core.quotepath=false",
-        "status",
-        "--porcelain",
-        "--untracked-files=all",
-    ]);
-    if (!status.ok)
-        return null;
-    const entries = parseGitStatus(status.stdout);
-    const fingerprints = new Map();
-    for (const [key, entry] of entries) {
-        fingerprints.set(key, await fingerprintFile(root, statusKeyForEntry(entry)));
-    }
-    return { repoRoot: root, entries, fingerprints };
-};
-const entryToChange = (snapshot, entry) => {
-    const status = entry.status;
-    const changePath = absoluteRepoPath(snapshot.repoRoot, entry.path);
-    const movePath = entry.movePath
-        ? absoluteRepoPath(snapshot.repoRoot, entry.movePath)
-        : undefined;
-    if (status === "??" || status.includes("A")) {
-        return { path: movePath ?? changePath, kind: { type: "add" } };
-    }
-    if (status.includes("D") && !status.includes("A")) {
-        return { path: changePath, kind: { type: "delete" } };
-    }
-    return {
-        path: changePath,
-        kind: {
-            type: "update",
-            ...(movePath ? { move_path: movePath } : {}),
-        },
-    };
-};
-const diffWorktreeSnapshots = (before, after) => {
-    if (!before || !after || before.repoRoot !== after.repoRoot) {
-        return [];
-    }
-    const changes = [];
-    const keys = new Set([...before.entries.keys(), ...after.entries.keys()]);
-    for (const key of keys) {
-        const beforeEntry = before.entries.get(key);
-        const afterEntry = after.entries.get(key);
-        const beforeFingerprint = before.fingerprints.get(key);
-        const afterFingerprint = after.fingerprints.get(key);
-        if (!beforeEntry && afterEntry) {
-            changes.push(entryToChange(after, afterEntry));
-            continue;
-        }
-        if (beforeEntry && !afterEntry) {
-            if (beforeFingerprint === afterFingerprint)
-                continue;
-            const absolutePath = absoluteRepoPath(before.repoRoot, statusKeyForEntry(beforeEntry));
-            changes.push({
-                path: absolutePath,
-                kind: fs.existsSync(absolutePath)
-                    ? { type: "update" }
-                    : { type: "delete" },
-            });
-            continue;
-        }
-        if (!beforeEntry || !afterEntry)
-            continue;
-        if (beforeEntry.status !== afterEntry.status ||
-            beforeEntry.path !== afterEntry.path ||
-            beforeEntry.movePath !== afterEntry.movePath ||
-            beforeFingerprint !== afterFingerprint) {
-            changes.push(entryToChange(after, afterEntry));
-        }
-    }
-    return changes;
-};
 const normalizeCodexRuntimeReasoningEffort = (value) => {
     if (value === "none" ||
         value === "minimal" ||
@@ -389,16 +221,6 @@ const abortCodexProcess = (child) => {
 
     }
     setTimeout(() => killCodexProcess(child), SIGTERM_TIMEOUT_MS);
-};
-const appendUniqueFileChanges = (target, changes) => {
-    const seen = new Set(target.map((change) => `${change.path}\0${JSON.stringify(change.kind)}`));
-    for (const change of changes) {
-        const key = `${change.path}\0${JSON.stringify(change.kind)}`;
-        if (seen.has(key))
-            continue;
-        seen.add(key);
-        target.push(change);
-    }
 };
 const textFromUnknown = (value) => {
     if (value === undefined || value === null)
@@ -951,9 +773,7 @@ const statusFromCodexItem = (item) => {
         case "commandExecution":
             return null;
         case "fileChange":
-            return item.status === "completed"
-                ? `Codex changed ${item.changes.length} file${item.changes.length === 1 ? "" : "s"}`
-                : `Codex file change ${item.status}`;
+            return null;
         case "dynamicToolCall":
             return null;
         case "mcpToolCall":
@@ -978,10 +798,6 @@ export const runCodexAgentTurn = async (request) => {
         prompt: request.prompt,
         attachments: request.attachments,
     });
-    const snapshotBefore = request.cwd
-        ? await snapshotWorktree(request.cwd)
-        : null;
-    const fileChanges = [];
     let finalText = "";
 
     const agentMessageIsCommentary = new Map();
@@ -1188,7 +1004,6 @@ export const runCodexAgentTurn = async (request) => {
                             scheduleCompletionGrace?.();
                         }
                     }
-                    appendUniqueFileChanges(fileChanges, fileChangesFromCodexItem(item, request.cwd ?? request.stellaAppDir));
                     return;
                 }
                 default:
@@ -1255,7 +1070,6 @@ export const runCodexAgentTurn = async (request) => {
                     activeTurnWork.delete(workKey);
                     refreshTurnIdleTimer?.();
                 }
-                appendUniqueFileChanges(fileChanges, toolResult.fileChanges ?? []);
                 const response = {
                     contentItems: [
                         { type: "inputText", text: buildToolResultText(toolResult) },
@@ -1351,12 +1165,6 @@ export const runCodexAgentTurn = async (request) => {
         scheduleCompletionGrace?.();
         refreshTurnIdleTimer?.();
         await turnCompleted;
-        const snapshotAfter = request.cwd && snapshotBefore
-            ? await snapshotWorktree(request.cwd)
-            : null;
-        if (snapshotBefore && snapshotAfter) {
-            appendUniqueFileChanges(fileChanges, diffWorktreeSnapshots(snapshotBefore, snapshotAfter));
-        }
         if (request.abortSignal?.aborted) {
             throw new Error("Aborted");
         }
@@ -1372,7 +1180,6 @@ export const runCodexAgentTurn = async (request) => {
         return {
             text: finalText.trim(),
             sessionId: threadId,
-            ...(fileChanges.length ? { fileChanges } : {}),
         };
     }
     finally {

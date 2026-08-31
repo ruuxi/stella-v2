@@ -367,7 +367,7 @@ describe("LocalAgentManager Exec fs locking", () => {
     ]);
   });
 
-  it("emits completed terminal events with the agent result and file changes", async () => {
+  it("emits completed terminal events with the agent result only", async () => {
     const events: AgentLifecycleEvent[] = [];
     const manager = new LocalAgentManager({
       maxConcurrent: 1,
@@ -414,13 +414,10 @@ describe("LocalAgentManager Exec fs locking", () => {
         agentType: "general",
         description: "agent task",
         result: "Agent finished the delegated work.",
-        fileChanges: [
-          {
-            path: "/repo/src/agent-change.ts",
-            kind: { type: "update" },
-          },
-        ],
       }),
+    );
+    expect(events.find((event) => event.type === "agent-completed")).not.toHaveProperty(
+      "fileChanges",
     );
   });
 
@@ -1224,22 +1221,8 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
     await waitForCompletions(1);
 
     const first = completions()[0]!;
-    expect(first.fileChanges).toEqual([
-      {
-        path: "/home/u/.stella/outputs/demos/review.html",
-        kind: { type: "update" },
-      },
-    ]);
-    expect(first.producedFiles).toEqual([
-      {
-        path: "/home/u/.stella/outputs/demos/demo1.mp4",
-        kind: { type: "add" },
-      },
-      {
-        path: "/home/u/.stella/outputs/demos/demo2.mp4",
-        kind: { type: "add" },
-      },
-    ]);
+    expect(first).not.toHaveProperty("fileChanges");
+    expect(first).not.toHaveProperty("producedFiles");
 
     await manager.sendAgentMessage(
       task.threadId,
@@ -1254,12 +1237,7 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
     expect(second.audience).toBeUndefined();
     expect(second.result).toBe("done-3");
     expect(second.fileChanges).toBeUndefined();
-    expect(second.producedFiles).toEqual([
-      {
-        path: "/home/u/.stella/outputs/demos/final.pdf",
-        kind: { type: "add" },
-      },
-    ]);
+    expect(second.producedFiles).toBeUndefined();
   });
 
   it("advances snapshot lastActivityAt on tool lifecycle during one long tool call", async () => {

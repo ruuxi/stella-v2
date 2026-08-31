@@ -262,12 +262,6 @@ export class VoiceRuntimeService {
     return {
       output,
       details,
-      ...(result.fileChanges?.length
-        ? { fileChanges: result.fileChanges }
-        : {}),
-      ...(result.producedFiles?.length
-        ? { producedFiles: result.producedFiles }
-        : {}),
       ...(result.error ? { error: sanitizeToolError(result.error) } : {}),
     };
   }
@@ -400,12 +394,6 @@ export class VoiceRuntimeService {
         result: detailRecord ?? details ?? output,
         resultPreview: output,
         ...(detailRecord ? { details: detailRecord, ...detailRecord } : {}),
-        ...(result.fileChanges?.length
-          ? { fileChanges: result.fileChanges }
-          : {}),
-        ...(result.producedFiles?.length
-          ? { producedFiles: result.producedFiles }
-          : {}),
         agentType: "orchestrator",
         ...(result.error ? { error: sanitizeToolError(result.error) } : {}),
       },

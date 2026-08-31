@@ -545,7 +545,6 @@ const runClaudeHostedTurn = async (args: {
 }): Promise<{
   finalText: string;
   sessionId: string;
-  fileChanges?: SubagentRunResult["fileChanges"];
 }> => {
   const { runId, threadKey, runEvents } = args.session;
 
@@ -758,19 +757,6 @@ const runClaudeHostedTurn = async (args: {
       : args.opts.agentContext.spawnReasoningEffort,
   );
 
-  const collectedFileChanges: NonNullable<SubagentRunResult["fileChanges"]> =
-    [];
-  const collectedFileChangeKeys = new Set<string>();
-  const collectTurnFileChanges = (
-    fileChanges: SubagentRunResult["fileChanges"],
-  ) => {
-    for (const change of fileChanges ?? []) {
-      const key = `${change.kind.type}:${change.path}:${change.kind.type === "update" ? (change.kind.move_path ?? "") : ""}`;
-      if (collectedFileChangeKeys.has(key)) continue;
-      collectedFileChangeKeys.add(key);
-      collectedFileChanges.push(change);
-    }
-  };
 
   type ClaudeTurnResult = Awaited<ReturnType<typeof runClaudeCodeTurn>>;
   let finalResult: ClaudeTurnResult | null = null;
@@ -829,15 +815,11 @@ const runClaudeHostedTurn = async (args: {
         executeTool: executeClaudeTool,
       });
       assistantUpdateBuffer.discard();
-      collectTurnFileChanges(result.fileChanges);
       activeSessionId = result.sessionId;
       finalResult = result;
       completedThisTurn = true;
     } catch (error) {
       if (wasSteered && !args.opts.abortSignal?.aborted) {
-        if (error instanceof ClaudeCodeSteeringInterruptError) {
-          collectTurnFileChanges(error.fileChanges);
-        }
         assistantUpdateBuffer.discard();
       } else {
         assistantUpdateBuffer.flushOnTermination();
@@ -909,9 +891,6 @@ const runClaudeHostedTurn = async (args: {
   return {
     finalText: finalResult.text,
     sessionId: finalResult.sessionId,
-    ...(collectedFileChanges.length > 0
-      ? { fileChanges: collectedFileChanges }
-      : {}),
   };
 };
 
@@ -925,7 +904,6 @@ const runCodexHostedTurn = async (args: {
 }): Promise<{
   finalText: string;
   sessionId: string;
-  fileChanges?: SubagentRunResult["fileChanges"];
 }> => {
   const { runId, threadKey, runEvents } = args.session;
   const responseTargetTracker =
@@ -1305,9 +1283,6 @@ const runCodexHostedTurn = async (args: {
   return {
     finalText: finalResult.text,
     sessionId: finalResult.sessionId,
-    ...(finalResult.fileChanges?.length
-      ? { fileChanges: finalResult.fileChanges }
-      : {}),
   };
 };
 
@@ -1435,9 +1410,6 @@ export const runExternalSubagentTurn = async (
         liveAgent,
       });
       const finalized = await session.finalizeSuccess(result.finalText);
-      if (result.fileChanges?.length) {
-        finalized.fileChanges = result.fileChanges;
-      }
       return finalized;
     } catch (error) {
       const interruptedReason = resolveInterruptionReason({
@@ -1500,9 +1472,6 @@ export const runExternalSubagentTurn = async (
     });
     const finalized = await session.finalizeSuccess(result.finalText);
 
-    if (result.fileChanges?.length) {
-      finalized.fileChanges = result.fileChanges;
-    }
     return finalized;
   } catch (error) {
     const interruptedReason = resolveInterruptionReason({

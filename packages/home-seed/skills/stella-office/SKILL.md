@@ -17,43 +17,6 @@ AI-friendly CLI for `.docx`, `.xlsx`, `.pptx`. Stella bundles this command direc
 { "cmd": "stella-office docx view /abs/path/report.docx text" }
 ```
 
----
-
-## Strategy
-
-**L1 (read) -> L2 (DOM edit) -> L3 (raw XML)**. Always prefer higher layers. Add `--json` for structured output.
-
----
-
-## Help System (Important)
-
-**When unsure about property names, value formats, or command syntax, always run help instead of guessing.** One help query is faster than guess-fail-retry loops.
-
-**Three-layer navigation** — start from the deepest level you know:
-
-```bash
-stella-office pptx set
-stella-office pptx set shape
-stella-office pptx set shape.fill
-```
-
-Replace `pptx` with `docx` or `xlsx`. Commands: `view`, `get`, `query`, `set`, `add`, `raw`.
-
----
-
-## Performance: Resident Mode
-
-For multi-step workflows (3+ commands on the same file), use `open` / `close`:
-
-```bash
-stella-office open report.docx
-stella-office set report.docx /body/p[1]/r[1] --prop bold=true
-stella-office set report.docx /body/p[2]/r[1] --prop color=FF0000
-stella-office close report.docx
-```
-
----
-
 ## Inline Live Preview
 
 Use this when you want Stella to keep a document preview embedded in chat while you continue editing the underlying file.
@@ -66,26 +29,64 @@ stella-office preview budget.xlsx --interval-ms 1000
 
 Notes:
 
-- `preview` is Stella-specific wrapper behavior. It is not an upstream OfficeCli subcommand.
+- `preview` is Stella-specific wrapper behavior. It is not an upstream OfficeCLI subcommand.
 - The command starts a Stella-owned preview session and returns immediately.
 - Stella watches the document and refreshes the inline preview automatically as the file changes.
 - Use it before or during multi-step edit workflows when visual feedback matters.
+- Upstream `watch` still exists on the binary (localhost HTML preview). Prefer `preview` for chat.
+
+
+## Strategy
+
+**L1 (read) → L2 (DOM edit) → L3 (raw XML)**. Always prefer higher layers. Add `--json` for structured output.
+
+**Before doc work, check Specialized Skills** (bottom of this file). Fundraising decks, academic papers, financial models, dashboards, and Morph animations need their own skill loaded first — `load_skill` once, then proceed.
+
+---
+
+## Help System (IMPORTANT)
+
+**When unsure about property names, value formats, or command syntax, ALWAYS run help instead of guessing.** One help query beats guess-fail-retry loops.
+
+`stella-office help` ≡ `stella-office --help`, and `stella-office <cmd> --help` ≡ `stella-office help <cmd>` — same content.
+
+```bash
+stella-office help                                  # All commands + global options + schema entry points
+stella-office help docx                             # List all docx elements
+stella-office help docx paragraph                   # Full schema: properties, aliases, examples, readbacks
+stella-office help docx set paragraph               # Verb-filtered: only props usable with `set`
+stella-office help docx paragraph --json            # Structured schema (machine-readable)
+```
+
+Format aliases: `word`→`docx`, `excel`→`xlsx`, `ppt`/`powerpoint`→`pptx`. Verbs: `add`, `set`, `get`, `query`, `remove`. The same help tree is available from the shell: `stella-office help docx paragraph`.
+
+---
+
+## Performance: Resident Mode
+
+**Every command auto-starts a resident on first access** (60s idle timeout) — file-lock conflicts are automatically avoided. Explicit `open`/`close` is still recommended for longer sessions (12min idle):
+```bash
+stella-office open report.docx       # explicitly keep in memory
+stella-office set report.docx ...    # no file I/O overhead
+stella-office close report.docx      # save and release
+```
+
+Opt out of auto-start: `OFFICECLI_NO_AUTO_RESIDENT=1`.
+
+**Flush only at the non-stella-office boundary.** stella-office's own reads (`get`/`query`/`view`/`dump`) always see your latest edits, so you never need to save mid-workflow. Run `save` (keeps the resident) or `close` (flush + release) only **before a non-stella-office program reads the file** — python-docx/openpyxl, Word, a renderer, delivery/upload. (Idle sessions auto-flush within seconds; `OFFICECLI_RESIDENT_FLUSH=each` makes every mutation flush before returning.)
 
 ---
 
 ## Quick Start
 
 **PPT:**
-
 ```bash
 stella-office create slides.pptx
 stella-office add slides.pptx / --type slide --prop title="Q4 Report" --prop background=1A1A2E
 stella-office add slides.pptx '/slide[1]' --type shape --prop text="Revenue grew 25%" --prop x=2cm --prop y=5cm --prop font=Arial --prop size=24 --prop color=FFFFFF
-stella-office set slides.pptx '/slide[1]' --prop transition=fade --prop advanceTime=3000
 ```
 
 **Word:**
-
 ```bash
 stella-office create report.docx
 stella-office add report.docx /body --type paragraph --prop text="Executive Summary" --prop style=Heading1
@@ -93,89 +94,117 @@ stella-office add report.docx /body --type paragraph --prop text="Revenue increa
 ```
 
 **Excel:**
-
 ```bash
 stella-office create data.xlsx
 stella-office set data.xlsx /Sheet1/A1 --prop value="Name" --prop bold=true
-stella-office set data.xlsx /Sheet1/B1 --prop value="Score" --prop bold=true
 stella-office set data.xlsx /Sheet1/A2 --prop value="Alice"
-stella-office set data.xlsx /Sheet1/B2 --prop value=95
 ```
 
 ---
 
-## L1: Create, Read, and Inspect
+## L1: Create, Read & Inspect
 
 ```bash
-stella-office create <file>
-stella-office view <file> <mode>
-stella-office get <file> <path> --depth N
-stella-office query <file> <selector>
-stella-office validate <file>
+stella-office create <file>               # Create blank .docx/.xlsx/.pptx (type from extension)
+stella-office view <file> <mode>          # outline | stats | issues | text | annotated | html
+stella-office get <file> <path> --depth N # Get a node and its children [--json]
+stella-office query <file> <selector>     # CSS-like query
+stella-office validate <file>             # Validate against OpenXML schema
 ```
 
 ### view modes
 
-| Mode        | Description                           | Useful flags                                     |
-| ----------- | ------------------------------------- | ------------------------------------------------ |
-| `outline`   | Document structure                    |                                                  |
-| `stats`     | Statistics (pages, words, shapes)     |                                                  |
-| `issues`    | Formatting/content/structure problems | `--type format\|content\|structure`, `--limit N` |
-| `text`      | Plain text extraction                 | `--start N --end N`, `--max-lines N`             |
-| `annotated` | Text with formatting annotations      |                                                  |
+| Mode | Description | Useful flags |
+|------|-------------|-------------|
+| `outline` | Document structure | |
+| `stats` | Statistics (pages, words, shapes) | |
+| `issues` | Formatting/content/structure problems | `--type format\|content\|structure`, `--limit N` |
+| `text` | Plain text extraction | `--start N --end N`, `--max-lines N` |
+| `annotated` | Text with formatting annotations | |
+| `html` | Static HTML snapshot — same renderer as `watch`, no server needed | `--browser`, `--page N` (docx), `--start N --end N` (pptx) |
+| `screenshot` / `svg` / `pdf` / `forms` | PNG via headless browser / SVG (pptx slide) / PDF via exporter plugin / form-fields JSON via format-handler plugin | `-o`, `--screenshot-width/-height`, pptx `--grid N` |
+
+Use `view html` for one-shot snapshots (CI artifacts, archival, diffing); use `watch` when you need live refresh or browser-side click-to-select.
 
 ### get
 
-Any XML path via element localName. Use `--depth N` to expand children. Add `--json` for structured output.
+Any XML path via element localName. Use `--depth N` to expand children. Add `--json` for structured output. Default text output is grep-friendly: `path (type) "text" key=val key=val ...`
 
 ```bash
 stella-office get report.docx '/body/p[3]' --depth 2 --json
-stella-office get slides.pptx '/slide[1]' --depth 1
+stella-office get slides.pptx '/slide[1]' --depth 1          # list all shapes on slide 1
 stella-office get data.xlsx '/Sheet1/B2' --json
 ```
 
-Run `stella-office docx get` / `stella-office xlsx get` / `stella-office pptx get` for all available paths.
-
 ### Stable ID Addressing
 
-Elements with stable IDs return `@attr=value` paths instead of positional indices. These paths survive insert/delete operations, so prefer them in multi-step workflows.
+Elements with stable IDs return `@attr=value` paths instead of positional indices. Prefer these in multi-step workflows — positional indices shift on insert/delete, stable IDs do not.
 
-```text
-/slide[1]/shape[@id=550950021]
-/slide[1]/shape[@id=550950021]/paragraph[1]
-/slide[1]/table[@id=1388430425]/tr[1]/tc[2]
-/body/p[@paraId=1A2B3C4D]
-/comments/comment[@commentId=1]
-/footnote[@footnoteId=2]
-/endnote[@endnoteId=1]
-/body/sdt[@sdtId=123456]
+```
+/slide[1]/shape[@id=550950021]                    # PPT shape
+/slide[1]/table[@id=1388430425]/tr[1]/tc[2]       # PPT table
+/body/p[@paraId=1A2B3C4D]                         # Word paragraph
+/comments/comment[@commentId=1]                    # Word comment
 ```
 
-Use returned paths directly:
-
-```bash
-stella-office set slides.pptx '/slide[1]/shape[@id=550950021]' --prop bold=true
-stella-office set slides.pptx '/slide[1]/shape[@name=Title 1]' --prop text="New"
-stella-office set slides.pptx '/slide[1]/shape[2]' --prop color=red
-```
+PPT also accepts `@name=` (e.g. `shape[@name=Title 1]`), with morph `!!` prefix awareness. Elements without stable IDs (slide, run, tr/tc, row) fall back to positional indices.
 
 ### query
 
-CSS-like selectors: `[attr=value]`, `[attr!=value]`, `[attr~=text]`, `[attr>=value]`, `[attr<=value]`, `:contains("text")`, `:empty`, `:has(formula)`, `:no-alt`.
+CSS-like selectors: `[attr=value]`, `[attr!=value]`, `[attr~=text]`, `[attr>=value]`, `[attr<=value]`, `:contains("text")`, `:empty`, `:has(formula)`, `:no-alt`. Boolean `and`/`or` supported across `query`/`set`/`remove`: `cell[value>5000 or value<100]`, `cell[(type=Number or type=Date) and value>0]`. Excel row-by-column-name: `Sheet1!row[Salary>5000]`. `set` accepts selectors and Excel-native paths (parity with `get`/`query`). Bare unscoped selectors rejected on `set`/`remove`.
 
 ```bash
 stella-office query report.docx 'paragraph[style=Normal] > run[font!=Arial]'
 stella-office query slides.pptx 'shape[fill=FF0000]'
 ```
 
-### validate
+---
+
+## Watch & Interactive Selection
+
+Live HTML preview that auto-refreshes on every file change. Browsers can click / shift-click / box-drag to select shapes; the CLI can read the current browser selection and act on it.
 
 ```bash
-stella-office validate report.docx
-stella-office validate slides.pptx
+stella-office watch <file> [--port N]      # Start preview server (default port 26315)
+stella-office unwatch <file>               # Stop
+stella-office goto <file> <path>           # Scroll watching browser(s) to element (docx: p / table / tr / tc)
 ```
 
-For large documents, always use `--max-lines` or `--start` / `--end` to limit output.
+Open the printed `http://localhost:N` URL. Click to select; shift/cmd/ctrl+click to multi-select; drag from empty space to box-select. PPT/Word use blue outline; Excel uses native-style green selection (double-click cell to edit inline; drag a chart to reposition).
+
+### `get <file> selected` — read what the user clicked
+
+```bash
+stella-office get <file> selected [--json]
+```
+
+Returns DocumentNodes for whatever is currently selected. Empty result if nothing selected. Exit code != 0 if no watch is running.
+
+```bash
+# User clicks shapes in the browser, then asks "make these red"
+PATHS=$(stella-office get deck.pptx selected --json | jq -r '.data.Results[].path')
+for p in $PATHS; do stella-office set deck.pptx "$p" --prop fill=FF0000; done
+```
+
+### Key properties
+
+- **Selection survives file edits.** Paths use stable `@id=` form.
+- **All connected browsers share one selection.** Last-write-wins.
+- **Same-file single-watch.** A given file can have only one watch process at a time.
+- **Group shapes select as a whole.** Drilling into individual children of a group is not supported in v1.
+- **Coverage:** `.pptx` shapes/pictures/tables/charts/connectors/groups; `.docx` top-level paragraphs and tables. Inherited layout/master decorations and Word nested elements (table cells, run-level) are not addressable. **`.xlsx` does not emit `data-path`** — `mark`/`selection` on xlsx always resolve `stale=true` (v2 candidate).
+
+### Marks — edit proposals waiting for review
+
+Use `mark` when changes need human review BEFORE they hit the file. Marks live in the watch process only; a separate `set` pipeline applies accepted ones. For one-shot changes use `set` directly; for permanent file annotations use `add --type comment` (Word native).
+
+```bash
+stella-office mark <file> <path> [--prop find=... color=... note=... tofix=... regex=true] [--json]
+stella-office unmark <file> [--path <p> | --all] [--json]
+stella-office get-marks <file> [--json]
+```
+
+Props: `find` (literal or regex when `regex=true`; raw form `find='r"[abc]"'`), `color` (hex / `rgb(...)` / 22 named whitelist), `note`, `tofix` (drives apply pipeline). **Path** must be `data-path` format from watch HTML — see subskills for full pipeline.
 
 ---
 
@@ -187,92 +216,113 @@ For large documents, always use `--max-lines` or `--start` / `--end` to limit ou
 stella-office set <file> <path> --prop key=value [--prop ...]
 ```
 
-Any XML attribute is settable via the element path. Without `find=`, `set` applies formatting to the whole element.
-
-Run `stella-office <format> set` for all settable elements. Run `stella-office <format> set <element>` for detail.
+**Any XML attribute is settable** via element path (found via `get --depth N`) — even attributes not currently present. Without `find=`, `set` applies format to the entire element.
 
 **Value formats:**
 
-| Type       | Format                 | Examples                                              |
-| ---------- | ---------------------- | ----------------------------------------------------- |
-| Colors     | Hex, named, RGB, theme | `FF0000`, `red`, `rgb(255,0,0)`, `accent1`..`accent6` |
-| Spacing    | Unit-qualified         | `12pt`, `0.5cm`, `1.5x`, `150%`                       |
-| Dimensions | EMU or suffixed        | `914400`, `2.54cm`, `1in`, `72pt`, `96px`             |
+| Type | Format | Examples |
+|------|--------|---------|
+| Colors | Hex (with/without `#`), named, RGB, theme | `FF0000`, `#FF0000`, `red`, `rgb(255,0,0)`, `accent1`..`accent6` |
+| Spacing | Unit-qualified | `12pt`, `0.5cm`, `1.5x`, `150%` |
+| Dimensions | EMU or suffixed | `914400`, `2.54cm`, `1in`, `72pt`, `96px` |
+
+**Dotted-attr aliases** — `font.<attr>` forms accepted on shape/run/paragraph/table/row/cell/section/styles, e.g. `--prop font.color=red --prop font.bold=true --prop font.size=14pt`. Run `stella-office help <fmt> <element>` for the full list.
 
 ### find — format or replace matched text
 
-Use `find=` with `set` to target specific text within a paragraph or broader scope. The matched text is automatically split into its own run(s). Add `regex=true` for regex matching.
+Use top-level `--find` / `--replace` on `set` (and `--find` on `query`). Legacy `--prop find=X` still works but emits a hint.
 
 ```bash
-stella-office set doc.docx '/body/p[1]' --prop find=weather --prop highlight=yellow
-stella-office set doc.docx '/body/p[1]' --prop find=weather --prop bold=true --prop color=red
-stella-office set doc.docx '/body/p[1]' --prop 'find=\d+%' --prop regex=true --prop color=red
-stella-office set doc.docx / --prop find=draft --prop replace=final
-stella-office set doc.docx '/body/p[1]' --prop find=TODO --prop replace=DONE --prop bold=true
-stella-office set doc.docx / --prop 'find=\d{4}-\d{2}-\d{2}' --prop regex=true --prop color=red
-stella-office set doc.docx '/header[1]' --prop find=Draft --prop replace=Final
+# Format matched text (auto-splits runs)
+stella-office set doc.docx '/body/p[1]' --find weather --prop bold=true --prop color=red
+
+# Regex matching (regex= still a prop flag)
+stella-office set doc.docx '/body/p[1]' --find '\d+%' --prop regex=true --prop color=red
+
+# Replace text (use `/` for whole-document scope)
+stella-office set doc.docx / --find draft --replace final
+
+# docx: tracked Find&Replace
+stella-office set doc.docx / --find draft --replace final --prop revision.author=Alice
+
+# PPT — same syntax, different paths
+stella-office set slides.pptx / --find draft --replace final
 ```
 
-PPT `find` works the same way:
+**Path controls search scope:** `/` = whole document, `/body/p[1]` or `/slide[N]/shape[M]` = specific element, `/header[1]` / `/footer[1]` = headers/footers.
 
-```bash
-stella-office set slides.pptx '/slide[1]/shape[1]' --prop find=weather --prop bold=true --prop color=red
-stella-office set slides.pptx '/slide[1]/shape[1]' --prop 'find=\d+%' --prop regex=true --prop color=red
-stella-office set slides.pptx / --prop find=draft --prop replace=final
-stella-office set slides.pptx '/slide[1]/shape[1]' --prop find=TODO --prop replace=DONE --prop bold=true
-stella-office set slides.pptx '/slide[1]/table[1]' --prop find=old --prop replace=new
-```
-
-Notes:
-
-- Path controls search scope.
-- If `find=` matches nothing, the command succeeds with no changes.
-- `--json` output includes a `"matched"` field.
-- Matching is case-sensitive by default.
-- Excel supports `find` + `replace`, but not `find` + format-only styling.
+**Notes:**
+- Case-sensitive by default. Case-insensitive: `--prop 'find=(?i)error' --prop regex=true`
+- Matches work across run boundaries
+- No match = silent success. `--json` includes `"matched": N`
+- **Excel:** only `find` + `replace` supported (no find + format props)
 
 ### add — add elements or clone
 
 ```bash
 stella-office add <file> <parent> --type <type> [--prop ...]
-stella-office add <file> <parent> --type <type> --after <path> [--prop ...]
-stella-office add <file> <parent> --type <type> --before <path> [--prop ...]
-stella-office add <file> <parent> --type <type> --index N [--prop ...]
-stella-office add <file> <parent> --from <path>
+stella-office add <file> <parent> --type <type> --after <path> [--prop ...]   # insert after anchor
+stella-office add <file> <parent> --type <type> --before <path> [--prop ...]  # insert before anchor
+stella-office add <file> <parent> --type <type> --index N [--prop ...]        # 0-based position (legacy)
+stella-office add <file> <parent> --from <path>                               # clone existing element
 ```
 
-**Insert position** (`--after`, `--before`, `--index` are mutually exclusive):
-
-- `--after "p[@paraId=1A2B3C4D]"` — insert after the anchor element
-- `--before "/body/p[@paraId=5E6F7A8B]"` — insert before the anchor element
-- `--index N` — insert at 0-based position
-- No position flag — append to end
+`--after`, `--before`, `--index` are mutually exclusive. No position flag = append to end.
 
 **Element types (with aliases):**
 
-| Format   | Types                                                                                                                                                                                                                                                                          |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **pptx** | slide, shape (textbox), picture (image/img), chart, table, row (tr), connector (connection/line), group, video (audio/media), equation (formula/math), notes, paragraph (para), run, zoom (slidezoom)                                                                          |
-| **docx** | paragraph (para), run, table, row (tr), cell (td), image (picture/img), header, footer, section, bookmark, comment, footnote, endnote, formfield, sdt (contentcontrol), chart, equation (formula/math), field, hyperlink, style, toc, watermark, break (pagebreak/columnbreak) |
-| **xlsx** | sheet, row, cell, chart, image (picture), comment, table (listobject), namedrange (definedname), pivottable (pivot), sparkline, validation (datavalidation), autofilter, shape, textbox, databar/colorscale/iconset/formulacf (conditional formatting), csv (tsv)              |
+| Format | Types |
+|--------|-------|
+| **pptx** | slide (incl. hidden), shape (font.latin/ea/cs, direction=rtl, underline.color, highlight=COLOR (Add/Set/Get/HTML preview), effective.X+effective.X.src; arrow alias for rightArrow; slideMaster/slideLayout typed add/set/remove), picture (SVG, brightness/contrast/glow/shadow, rotation, link, tooltip), chart (direction=rtl, pieOfPie, barOfPie, axisLine/gridline per-attr setters, animation+chartBuild=byCategory|bySeries, line dropLines/hiLowLines/upDownBars, anchor=x,y,w,h shorthand), table (cell direction=rtl, fill/background, built-in PowerPoint style catalogue, /col[C] get + swap/copyFrom, row/col Move/CopyFrom), row (tr), connector (from/to accept full-path `@name=`/`@id=` forms — bare `@name=Foo` is rejected, must be `/slide[N]/shape[@name=Foo]` — startshape/endshape SetByPath; edge-to-edge anchoring by default, fromSide/toSide to force an edge, fromIdx/toIdx for raw cxn index), group (link, tooltip, deep walk by get/query/add/remove, ungroup=true dissolves back to slide-absolute), align/distribute (targets= accepts shape[@id=N] paths, not just positional), video/audio (loop, autoStart alias), equation, notes (direction=rtl, lang), comment (legacy + modern p188 threaded round-trip), animation (15 emphasis + 16 exit presets, multi-effect chains, motion-path presets, repeat/restart/autoReverse, chart animations), transition (12 p15 presets + morph/p14), paragraph (para), run, zoom, ole (preview=, full dump round-trip via add-part+raw-set), placeholder (phType=...), model3d (rotation=ax,ay,az; full dump round-trip), smartart (dump round-trip via add-part), diagram (add-only mermaid → native shapes or rendered image, `--type diagram`/`flowchart`). |
+| **docx** | paragraph (direction/font.latin/ea/cs, bold.cs/italic.cs/size.cs, lang.latin/ea/cs, wordWrap, framePr.\*, tabs shorthand), run (lang slots, direction, underline.color, position half-pts, **revision.type=ins\|del\|format\|moveFrom\|moveTo + revision.action=accept\|reject** with .author/.date — bare `@author=`/`@type=` selector on `set /revision[...]` for filtered accept/reject, but `query 'revision[...]'` needs the dotted `revision.author=`/`revision.type=` form; move+revision is run-level paths only, not paragraph-level; **range=START:END** on a paragraph/shape path formats a char span by explicit 0-based half-open offset instead of addressing a run — the offset sibling of find=), table (direction=rtl, hMerge, cantSplit on row/nowrap on cell (both add+set), **virtual column ops**: add/remove/move/copyfrom on /body/tbl[N]/col), row (tr), cell (td), image, header/footer (direction), section (pageNumFmt full enum, direction=rtl, rtlGutter, pgBorders=box), bookmark, comment, footnote, endnote, formfield, sdt, chart, equation, field (28 types), hyperlink, style (direction, indents, pbdr, lineSpacing on Add/Set), toc, watermark, break, ole, **num/abstractNum/lvl**, **tab**, **textbox/shape** (add-mostly — Get returns raw XML preview only, no structured readback; Set is limited to width/height/geometry/fill/line.\*; position is `anchor.x`/`anchor.y` not bare x/y; **textbox-only** `textDirection`/rotation/gradient/shadow — docx shape itself has neither rotation nor gradient), embedded **OLE round-trip on dump→batch**, **diagram** (add-only mermaid → native shapes or rendered image, `--type diagram`/`flowchart`, no x/y at add-time — reposition via `set /body/group[N]`). docDefaults.rtl, autoHyphenation, `get /` exposes locale + /comments /footnotes /endnotes. `create --minimal` for raw OOXML scaffolding. |
+| **xlsx** | sheet (visible/hidden/veryHidden, print margins, printTitleRows/Cols, rightToLeft sheetView, cascade-aware rename), row (c{N}= cell-content shorthand; add accepts --from /Sheet/col[L]; formula-ref rewrite on insert), col (formula-ref rewrite, named-range follow on move), cell (type=richtext+runs, merge=range/sweep, direction=rtl, phonetic; **--shift left\|up on remove, shift=right\|down on add** — Excel UI dialog parity; formula auto-detect; OFFSET/INDIRECT in calc), chart (per-axis RTL/title, anchor=x,y,w,h, pareto), image (SVG), comment (direction=rtl), table (listobject), namedrange (definedname, volatile, `[@name=X]`; formula-body inlined at parse), pivottable (cache CoW + cross-pivot sharing, labelFilter=field:type:value add-time-only, topN=integer add-time-only, fillDownLabels is an alias of repeatLabels not a separate feature, calculatedField), sparkline, validation, autofilter, shape, textbox, CF (databar/colorscale/iconset/formulacf/cellIs/topN/aboveAverage), ole, csv. Query supports `merge`/`mergedrange`. Workbook: password. Shape selector enumerates leaves inside grpSp. |
 
-**Text-anchored insert** (`--after find:X` / `--before find:X`):
+### Pivot tables (xlsx)
 
 ```bash
+stella-office add data.xlsx /Sheet1 --type pivottable \
+  --prop source="Sheet1!A1:E100" --prop rows=Region,Category \
+  --prop cols=Year --prop values="Sales:sum,Qty:count" \
+  --prop grandTotals=rows --prop subtotals=off --prop sort=asc
+```
+
+Key props: `rows`, `cols`, `values` (Field:func[:showDataAs]), `filters`, `source`, `position`, `layout` (compact/outline/tabular), `repeatLabels`, `blankRows`, `aggregate`, `showDataAs` (percent_of_total/row/col, running_total), `grandTotals`, `subtotals`, `sort`. Aggregators: sum, count, average, max, min, product, stdDev, stdDevp, var, varp, countNums. Date columns auto-group. Run `stella-office help xlsx pivottable` for full schema.
+
+### Document-level properties (all formats)
+
+```bash
+stella-office set doc.docx / --prop docDefaults.font=Arial --prop docDefaults.fontSize=11pt
+stella-office set doc.docx / --prop protection=forms --prop evenAndOddHeaders=true
+stella-office set data.xlsx / --prop calc.mode=manual --prop calc.refMode=r1c1
+stella-office set slides.pptx / --prop defaultFont=Arial --prop show.loop=true --prop print.what=handouts
+```
+
+Run `stella-office help <format> /` for all document-level properties (docDefaults, docGrid, CJK spacing, calc, print, show, theme, extended).
+
+### Sort (xlsx)
+
+```bash
+stella-office set data.xlsx /Sheet1 --prop sort="C desc" --prop sortHeader=true
+stella-office set data.xlsx '/Sheet1/A1:D100' --prop sort="A asc" --prop sortHeader=true
+```
+
+Format: `COL DIR[, COL DIR ...]`. Rejects ranges with merged cells or formulas. Sidecar metadata (hyperlinks, comments, conditional formatting, drawings) follows rows automatically.
+
+### Text-anchored insert (`--after find:X` / `--before find:X`)
+
+Locate an insertion point by text match within a paragraph. Inline types (run, picture, hyperlink) insert within the paragraph; block types (table, paragraph) auto-split it. PPT only supports inline.
+
+```bash
+# Word: inline run after matched text
 stella-office add doc.docx '/body/p[1]' --type run --after find:weather --prop text=" (sunny)"
+
+# Word: block table after matched text (auto-splits paragraph)
 stella-office add doc.docx '/body/p[1]' --type table --after "find:First sentence." --prop rows=2 --prop cols=2
-stella-office add doc.docx '/body/p[1]' --type run --before find:weather --prop text="["
-stella-office add slides.pptx '/slide[1]/shape[1]' --type run --after find:weather --prop text=" (sunny)"
-stella-office add slides.pptx '/slide[1]/shape[1]' --type run --before find:weather --prop text="["
 ```
 
-Clone example:
+### Clone
 
-```bash
-stella-office add slides.pptx / --from '/slide[1]'
-```
-
-Run `stella-office <format> add` for all addable types and properties.
+`stella-office add <file> / --from '/slide[1]'` — copies with all cross-part relationships.
 
 ### move, swap, remove
 
@@ -282,11 +332,13 @@ stella-office swap <file> <path1> <path2>
 stella-office remove <file> '/body/p[4]'
 ```
 
-When using `--after` or `--before`, `--to` can often be omitted because the target container is inferred from the anchor path.
+When using `--after` or `--before`, `--to` can be omitted — the target container is inferred from the anchor.
 
 ### batch — multiple operations in one save cycle
 
-Stops on first error by default. Use `--force` to continue past errors.
+**Atomic by default (v1.0.137+):** every item still runs and is reported (so `N succeeded, M failed` stays meaningful and every failure surfaces), but if *any* item fails the whole batch rolls back — the file on disk is left byte-identical to before the batch ran (confirmed live in both standalone and resident mode). Use `--best-effort` to restore the old apply-what-succeeds behavior (useful for lossy `dump→batch` replays where losing the whole thing over one unsupported item is worse than a partial result). `--stop-on-error` only changes how early the run stops (remaining items are `skipped`), not whether what ran gets kept — combine it with `--best-effort` if you want "stop at first failure but keep what already succeeded." `--force` is unrelated — it's only the docx-protection bypass. Failed items carry a machine-readable `code` field (same list as `error.code`); a rolled-back batch's JSON summary carries `"atomicRolledBack": true`.
+
+`stella-office dump <file> [<path>]` emits a replayable batch JSON for round-trip — `.docx` (full coverage), `.pptx` (text/tables/pictures/charts/notes/theme + OLE/3D/video/audio/SmartArt/morph/p15 transitions via raw-set passthrough), and `.xlsx` (cells/formulas/styles + tables, conditional formatting, validations, comments, charts, sparklines, pictures, shapes, pivot tables; slicers/chartEx/OLE via verbatim carrier). Path defaults to `/` (whole document); pass a subtree path (docx: `/body`, `/body/p[N]`, `/body/tbl[N]`, `/theme`, `/settings`, `/numbering`, `/styles`; xlsx: `/SheetName`, `/sheet[N]`) to scope the dump. `stella-office refresh <file.docx>` recalculates TOC page numbers / PAGE / cross-references after replay (Word backend on Windows; headless-HTML fallback elsewhere). `stella-office plugins list` extends support to `.doc`, `.hwpx`, `.pdf` export.
 
 ```bash
 echo '[
@@ -295,64 +347,84 @@ echo '[
 ]' | stella-office batch data.xlsx --json
 
 stella-office batch data.xlsx --commands '[{"op":"set","path":"/Sheet1/A1","props":{"value":"Done"}}]' --json
-stella-office batch data.xlsx --input updates.json --force --json
+stella-office batch data.xlsx --input updates.json --best-effort --json   # keep whatever succeeds even if some items fail
 ```
 
-Batch supports: `add`, `set`, `get`, `query`, `remove`, `move`, `swap`, `view`, `raw`, `raw-set`, `validate`.
+Supports: `add`, `set`, `get`, `query`, `remove`, `move`, `swap`, `view`, `raw`, `raw-set`, `validate`. Fields: `command` (or `op`), `path`, `parent`, `type`, `from`, `to`, `index`, `after`, `before`, `props`, `selector`, `mode`, `depth`, `part`, `xpath`, `action`, `xml`.
 
 ---
 
 ## L3: Raw XML
 
-Use raw XML only when L2 cannot express what you need. No xmlns declarations are needed because prefixes are auto-registered.
+Use when L2 cannot express what you need. No xmlns declarations needed — prefixes auto-registered.
 
 ```bash
-stella-office raw <file> <part>
+stella-office raw <file> <part>                          # view raw XML
 stella-office raw-set <file> <part> --xpath "..." --action replace --xml '<w:p>...</w:p>'
-stella-office add-part <file> <parent>
+stella-office add-part <file> <parent>                   # create new document part (returns rId)
 ```
 
-**raw-set actions:** `append`, `prepend`, `insertbefore`, `insertafter`, `replace`, `remove`, `setattr`.
-
-Run `stella-office <format> raw` for available parts per format.
+`raw-set` actions: `append`, `prepend`, `insertbefore`, `insertafter`, `replace`, `remove`, `setattr`. Run `stella-office help <format> raw` for available parts.
 
 ---
 
 ## Common Pitfalls
 
-| Pitfall                              | Correct Approach                                                                  |
-| ------------------------------------ | --------------------------------------------------------------------------------- |
-| `--name "foo"`                       | Use `--prop name="foo"` — all attributes go through `--prop`                      |
-| `x=-3cm`                             | Negative coordinates are not supported. Use `x=0cm` or a positive value           |
-| PPT `shape[1]` for content           | `shape[1]` is usually the title placeholder. Use `shape[2]` or higher for content |
-| `/shape[myname]`                     | Name indexing is not supported. Use numeric index: `/shape[3]`                    |
-| Guessing property names              | Run `stella-office <format> set <element>` to see exact names                     |
-| Modifying an open file               | Close the file in PowerPoint, Word, Excel, or WPS first                           |
-| `\n` in shell strings                | Use `\\n` for newlines inside `--prop text="..."`                                 |
-| `stella-office set f.pptx /slide[1]` | Always single-quote paths with brackets: `'/slide[1]'`                            |
+| Pitfall | Correct Approach |
+|---------|-----------------|
+| `--name "foo"` | Use `--prop name="foo"` — all attributes go through `--prop` |
+| Unquoted `[N]` paths in zsh/bash | Always quote: `'/slide[1]'` or `"/slide[1]"` (shell glob-expands brackets) |
+| PPT `shape[1]` for content | `shape[1]` is typically the title placeholder. Use `shape[2]+` for content shapes |
+| `/shape[myname]` | Name indexing not supported. Use numeric index or `@name=` (PPT only) |
+| Guessing property names | Run `stella-office help <format> <element>` to see exact names |
+| Modifying an open file | Close the file in PowerPoint/WPS first |
+| `\n` in shell strings | Use `\\n` for newlines in `--prop text="..."` |
+| `$` in shell text | `--prop text="$15M"` strips `$15`. Use single quotes: `--prop text='$15M'`, or heredoc batch |
 
 ---
 
-## Format-Specific Extras
+## Specialized Skills
 
-- Cross-format core: `create`, `view`, `get`, `query`, `set`, `add`, `remove`, `move`, `swap`, `raw`, `raw-set`, `validate`, `merge`, `batch`, `open`, `close`
-- XLSX-only: `import`
-- PPTX-only: `check`, `view svg`
-- DOCX-only: `view forms`
+`stella-office load_skill <name>` — output is a SKILL.md, follow its rules.
 
-When you need deeper detail, prefer the command help tree:
+**Loading rule**:
+- Pick the most specific match in "When to use"; if none fits, load the format default (`word` / `pptx` / `excel`).
+- Scenes already contain the format default's rules — load **one** skill per artifact, never stack.
+- Loaded rules persist across turns; don't re-load each reply.
+- Two distinct artifacts → two separate loads.
 
-```bash
-stella-office docx help
-stella-office xlsx help
-stella-office pptx help
-```
+### Word (.docx)
+
+| Name | When to use |
+|------|-------------|
+| `word` | Reports, letters, memos, proposals, generic documents |
+| `academic-paper` | Journal / conference / thesis: APA / Chicago / IEEE / MLA citations, equations, SEQ + PAGEREF cross-refs, multi-column journal layout, bibliography. NOT for business reports or letters (route those to `word`) |
+
+### PowerPoint (.pptx)
+
+| Name | When to use |
+|------|-------------|
+| `pptx` | Generic decks: board reviews, sales decks, all-hands, product launches |
+| `pitch-deck` | **Fundraising only** — seed / Series A-C / SAFE / convertible / strategic raise. NOT for sales / product / board decks (route those to `pptx`) |
+| `morph-ppt` | Cinematic Morph-animated presentations. NOT for static decks (route those to `pptx`) |
+| `morph-ppt-3d` | 3D Morph: GLB models, camera moves, depth. NOT for 2D-only Morph (route those to `morph-ppt`) |
+
+### Excel (.xlsx)
+
+| Name | When to use |
+|------|-------------|
+| `excel` | Generic workbooks, formulas, pivots, trackers |
+| `financial-model` | Financial models, scenarios, projections. NOT for general data analysis (route those to `excel`) |
+| `data-dashboard` | CSV/tabular data → KPI / analytics / executive dashboards with charts and sparklines. NOT for raw data tracking (route those to `excel`) |
+
+Example: a fundraising deck task → `stella-office load_skill pitch-deck` → use the printed rules.
 
 ---
 
 ## Notes
 
-- Paths are **1-based**: `'/body/p[3]'` means the third paragraph
-- `--index` is **0-based**: `--index 0` means the first position
+- Paths are **1-based** (XPath convention): `'/body/p[3]'` = third paragraph
+- `--index` is **0-based** (array convention): `--index 0` = first position
+- **Excel exception**: for `add --type row` and `add --type col`, `--index N` is **1-based** (matches OOXML RowIndex / column letter index). `--index 5` inserts at row 5 / column 5.
 - After modifications, verify with `validate` and/or `view issues`
-- When unsure, run `stella-office <format> <command> [element[.property]]` instead of guessing
+- **When unsure**, run `stella-office help <format> <element>` instead of guessing

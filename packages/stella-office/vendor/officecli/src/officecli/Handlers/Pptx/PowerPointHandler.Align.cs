@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Text.RegularExpressions;
@@ -76,6 +76,11 @@ public partial class PowerPointHandler
                         "slide-left, slide-center, slide-right, slide-top, slide-middle, slide-bottom");
             }
         }
+
+        // Re-glue any connector anchored to a moved shape — same "connector follows
+        // shape" behavior the plain per-shape x/y set path triggers. Without this,
+        // align/distribute silently detached glued connectors (stale connector xfrm).
+        RerouteConnectorsForMovedShapes(slidePart, shapes);
     }
 
     /// <summary>
@@ -142,6 +147,24 @@ public partial class PowerPointHandler
             throw new ArgumentException(
                 $"Invalid distribute value: '{distributeValue}'. Valid: horizontal, vertical");
         }
+
+        // Re-glue connectors anchored to the redistributed shapes (see AlignShapes).
+        RerouteConnectorsForMovedShapes(slidePart, shapes);
+    }
+
+    /// <summary>
+    /// After align/distribute repositions shapes, re-run the connector reroute for
+    /// each moved shape so glued connectors track them — the same behavior the
+    /// per-shape x/y set path already provides via RerouteConnectorsForShape.
+    /// </summary>
+    private void RerouteConnectorsForMovedShapes(SlidePart slidePart, List<Shape> shapes)
+    {
+        foreach (var s in shapes)
+        {
+            var id = s.NonVisualShapeProperties?.NonVisualDrawingProperties?.Id?.Value;
+            if (id.HasValue)
+                RerouteConnectorsForShape(slidePart, id.Value);
+        }
     }
 
     /// <summary>
@@ -161,7 +184,21 @@ public partial class PowerPointHandler
 
         foreach (var token in targets.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            // Accept "shape[N]" or just "N"
+            // Accept "shape[@id=N]" (the path form get/query emit — e.g.
+            // /slide[1]/shape[@id=100000]), "shape[N]" (1-based positional), or a
+            // bare "N" (positional). The @id form lets callers pass the exact
+            // paths they already hold from a selection without first mapping them
+            // to positional indices (the positional order also shifts as shapes
+            // are added/removed, so @id is the stable reference).
+            var idMatch = Regex.Match(token, @"@id=(\d+)");
+            if (idMatch.Success)
+            {
+                var id = idMatch.Groups[1].Value;
+                var byId = allShapes.FirstOrDefault(s =>
+                    s.NonVisualShapeProperties?.NonVisualDrawingProperties?.Id?.Value.ToString() == id);
+                if (byId != null) result.Add(byId);
+                continue;
+            }
             var m = Regex.Match(token, @"shape\[(\d+)\]|^(\d+)$");
             if (m.Success)
             {

@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 namespace OfficeCli.Core;
@@ -40,6 +40,22 @@ public class InsertPosition
 }
 
 /// <summary>
+/// Shared guard for handlers that do not support the `view text --range`
+/// cell-range subset (docx/pptx/plugins). Kept next to the interface so the
+/// error text stays identical across handlers.
+/// </summary>
+public static class ViewRangeGuard
+{
+    public static void RejectTextRange(string? range, string format)
+    {
+        if (range == null) return;
+        throw new CliException(
+            $"--range on view text is only supported for xlsx (cell ranges like 'Sheet1!A1:C10'). For {format}, use --start/--end to bound the output.")
+        { Code = "invalid_value" };
+    }
+}
+
+/// <summary>
 /// Common interface for all document types (Word/Excel/PowerPoint).
 /// Each handler implements the three-layer architecture:
 ///   - Semantic layer: view (text/annotated/outline/stats/issues)
@@ -49,7 +65,9 @@ public class InsertPosition
 public interface IDocumentHandler : IDisposable
 {
     // === Semantic Layer ===
-    string ViewAsText(int? startLine = null, int? endLine = null, int? maxLines = null, HashSet<string>? cols = null);
+    // range: xlsx-only cell-range subset ('Sheet1!A1:C10' or '/Sheet1/A1:C10');
+    // docx/pptx throw invalid_value when non-null (use --start/--end there).
+    string ViewAsText(int? startLine = null, int? endLine = null, int? maxLines = null, HashSet<string>? cols = null, string? range = null);
     string ViewAsAnnotated(int? startLine = null, int? endLine = null, int? maxLines = null, HashSet<string>? cols = null);
     string ViewAsOutline();
     string ViewAsStats();
@@ -57,7 +75,7 @@ public interface IDocumentHandler : IDisposable
     // === Structured JSON variants (for --json mode) ===
     System.Text.Json.Nodes.JsonNode ViewAsStatsJson();
     System.Text.Json.Nodes.JsonNode ViewAsOutlineJson();
-    System.Text.Json.Nodes.JsonNode ViewAsTextJson(int? startLine = null, int? endLine = null, int? maxLines = null, HashSet<string>? cols = null);
+    System.Text.Json.Nodes.JsonNode ViewAsTextJson(int? startLine = null, int? endLine = null, int? maxLines = null, HashSet<string>? cols = null, string? range = null);
     List<DocumentIssue> ViewAsIssues(string? issueType = null, int? limit = null);
 
     // === Query Layer ===
@@ -70,9 +88,11 @@ public interface IDocumentHandler : IDisposable
     string Add(string parentPath, string type, InsertPosition? position, Dictionary<string, string> properties);
     /// <summary>
     /// Remove element at path. Returns an optional warning message (e.g. formula cells affected by shift).
+    /// When <paramref name="properties"/> carries trackChange.* keys (Word only, Run/Paragraph in Phase 4),
+    /// the removal is recorded as a w:del revision instead of physically deleted.
     /// </summary>
-    string? Remove(string path);
-    string Move(string sourcePath, string? targetParentPath, InsertPosition? position);
+    string? Remove(string path, Dictionary<string, string>? properties = null);
+    string Move(string sourcePath, string? targetParentPath, InsertPosition? position, Dictionary<string, string>? properties = null);
     string CopyFrom(string sourcePath, string targetParentPath, InsertPosition? position);
 
     // === Raw Layer ===
@@ -88,6 +108,22 @@ public interface IDocumentHandler : IDisposable
     /// Validate the document against OpenXML schema and return any errors.
     /// </summary>
     List<ValidationError> Validate();
+
+    /// <summary>
+    /// Extract the binary payload backing a node (ole/picture/media/embedded)
+    /// to <paramref name="destPath"/>. Returns <c>true</c> if the node has a
+    /// backing part and the bytes were written, <c>false</c> if the node has
+    /// no binary payload (e.g. it is a text paragraph or table cell).
+    /// <paramref name="contentType"/> receives the part's MIME type on success;
+    /// <paramref name="byteCount"/> receives the number of bytes written.
+    /// </summary>
+    bool TryExtractBinary(string path, string destPath, out string? contentType, out long byteCount);
+
+    /// <summary>
+    /// Flush the in-memory OOXML package to disk without ending the session.
+    /// Only meaningful when the handler was opened with editable=true.
+    /// </summary>
+    void Save();
 }
 
 public record ValidationError(string ErrorType, string Description, string? Path, string? Part);

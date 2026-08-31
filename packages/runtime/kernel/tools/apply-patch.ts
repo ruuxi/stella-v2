@@ -9,10 +9,6 @@ import {
   withFileWriteLocks,
   writeFileWithNulGuard,
 } from "./file-write-lock.js";
-import {
-  type FileChangeRecord,
-  fileChange,
-} from "@stella/contracts/file-changes";
 
 type FileOp =
   | { kind: "add"; path: string; lines: string[] }
@@ -708,35 +704,11 @@ export const handleApplyPatch = async (
           break;
       }
     }
-    const fileChanges = results
-      .map(applyPatchResultToFileChange)
-      .filter((entry): entry is FileChangeRecord => entry != null);
     return {
       result: { results },
       details: { results },
-      ...(fileChanges.length > 0 ? { fileChanges } : {}),
     };
   } catch (error) {
     return { error: (error as Error).message };
-  }
-};
-
-const applyPatchResultToFileChange = (entry: {
-  kind: string;
-  path: string;
-  movedTo?: string;
-}): FileChangeRecord | null => {
-  switch (entry.kind) {
-    case "add":
-      return fileChange(entry.path, { type: "add" });
-    case "delete":
-      return fileChange(entry.path, { type: "delete" });
-    case "update":
-      return fileChange(entry.path, {
-        type: "update",
-        ...(entry.movedTo ? { move_path: entry.movedTo } : {}),
-      });
-    default:
-      return null;
   }
 };

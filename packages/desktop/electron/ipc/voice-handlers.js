@@ -124,12 +124,6 @@ export const registerVoiceHandlers = (options) => {
             toolName: payload.name,
             resultPreview: result.output,
             ...(result.details !== undefined ? { details: result.details } : {}),
-            ...(result.fileChanges?.length
-                ? { fileChanges: result.fileChanges }
-                : {}),
-            ...(result.producedFiles?.length
-                ? { producedFiles: result.producedFiles }
-                : {}),
             ...(result.error ? { error: result.error } : {}),
         });
     };

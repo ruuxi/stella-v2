@@ -22,7 +22,6 @@ import type {
 import { log, logError, recoverStaleSecretFiles } from "./utils.js";
 import {
   createShellState,
-  drainCompletedProducedFiles,
   listRunningShellSessionsOwnedBy,
   readShellExitSnapshot,
   watchShellExit,
@@ -552,9 +551,6 @@ export const createToolHost = ({
 
     readShellExitSnapshot: (sessionId: string) =>
       readShellExitSnapshot(shellState, sessionId),
-
-    drainCompletedShellProducedFiles: (sessionIds?: string[]) =>
-      drainCompletedProducedFiles(shellState, sessionIds),
 
     endBrowserTurn: (
       runId: string,

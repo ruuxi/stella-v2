@@ -32,9 +32,9 @@ describe("Stella Browser release contract", () => {
     expect(workflow).toContain("SOURCE_SHA: ${{ github.sha }}");
     expect(workflow).toContain("group: stella-browser-current-publish");
     expect(workflow).toContain(
-      'git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main',
+      'git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/master',
     );
-    expect(workflow).toContain('if [ "$SOURCE_SHA" = "$main_sha" ]');
+    expect(workflow).toContain('if [ "$SOURCE_SHA" = "$master_sha" ]');
   });
 
   it("preserves the installed browser binary until its replacement is ready", async () => {

@@ -7,7 +7,7 @@ name: Build Native Helpers
 #
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - "packages/native/**"
       - ".github/workflows/build-native-helpers.yml"

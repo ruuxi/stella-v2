@@ -92,6 +92,7 @@ import {
   IPC_AUTH_SIGN_IN_ANONYMOUS,
   IPC_AUTH_SIGN_OUT,
   IPC_DIAGNOSTICS_RECORD_HEAP_TRACE,
+  IPC_DIAGNOSTICS_EXPORT_LOGS,
   IPC_DIAGNOSTICS_REPORT_ERROR,
   IPC_DIAGNOSTICS_REPORT_TIMING,
   IPC_DIAGNOSTICS_OPEN_LOGS,
@@ -1212,6 +1213,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }) => ipcRenderer.send(IPC_DIAGNOSTICS_REPORT_TIMING, payload),
     openLogs: () =>
       ipcRenderer.invoke(IPC_DIAGNOSTICS_OPEN_LOGS) as Promise<{
+        ok: boolean;
+        path?: string;
+        error?: string;
+      }>,
+    exportLogs: () =>
+      ipcRenderer.invoke(IPC_DIAGNOSTICS_EXPORT_LOGS) as Promise<{
         ok: boolean;
         path?: string;
         error?: string;

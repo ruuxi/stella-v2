@@ -1,4 +1,4 @@
-import { app, crashReporter, Menu } from "electron";
+import { app, Menu } from "electron";
 import path from "path";
 import {
   AUTH_PROTOCOL,
@@ -74,6 +74,9 @@ const stellaDataDirPath = resolveDesktopStellaDataDirPath({
 // logs also use the short isolated data root; Electron's Application Support
 // path is too long for macOS' bounded Unix-domain socket paths.
 process.env.STELLA_DATA_DIR = stellaDataDirPath;
+process.env.STELLA_TELEMETRY_ENVIRONMENT = isDev
+  ? "development"
+  : "production";
 if (isDev) {
   process.env.STELLA_RUNTIME_STATE_DIR = stellaDataDirPath;
 }
@@ -92,20 +95,6 @@ const installDevBrokenPipeGuards = () => {
   process.stderr.on("error", swallowBrokenPipe);
 };
 
-const startLocalCrashReporter = () => {
-  try {
-    crashReporter.start({
-      uploadToServer: false,
-      compress: true,
-      globalExtra: {
-        app: "stella",
-      },
-    });
-  } catch {
-    // Crash reporting is best-effort diagnostics only.
-  }
-};
-
 export const bootstrapMainProcess = () => {
   // Acquire Electron's process lock before bootstrap services are constructed
   // so a second packaged instance cannot open local state.
@@ -116,7 +105,6 @@ export const bootstrapMainProcess = () => {
 
   initMainProcessLogging(stellaAppDir);
   installDevBrokenPipeGuards();
-  startLocalCrashReporter();
   // Windows-only: keep DWM from putting Stella on MPO hardware overlay
   // planes (whole-monitor flicker on NVIDIA + high-refresh setups). Must run
   // before `ready` so the switch reaches the GPU process. No-op on macOS.

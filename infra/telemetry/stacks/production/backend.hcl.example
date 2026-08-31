@@ -1,0 +1,14 @@
+# Copy to backend.hcl and replace the account ID. Credentials are read from
+# AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY and must never be committed. The S3
+# backend name describes Terraform's protocol; the storage service is R2.
+bucket = "stella-terraform-state"
+key    = "stella/telemetry/production.tfstate"
+region = "auto"
+endpoints = {
+  s3 = "https://<CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com"
+}
+use_path_style              = true
+skip_credentials_validation = true
+skip_region_validation      = true
+skip_requesting_account_id  = true
+skip_s3_checksum            = true

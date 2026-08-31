@@ -16,6 +16,7 @@
     },
   },
   "vars": {
+    "TELEMETRY_ENVIRONMENT": "development",
     "SANDBOX_TRANSPORT": "rpc",
     "TURN_TIMEOUT_MS": "900000",
     "SANDBOX_IDLE_TIMEOUT_MS": "600000",
@@ -40,6 +41,11 @@
     },
   ],
   "services": [
+    {
+      "binding": "TELEMETRY",
+      "service": "stella-v2-telemetry-dev",
+      "entrypoint": "TelemetryService",
+    },
     {
       // Browser Run, reusable website state, and Live View capabilities stay
       // behind a private Worker boundary. Builder receives only this fetcher.
@@ -162,6 +168,7 @@
       "workers_dev": true,
       "preview_urls": false,
       "vars": {
+        "TELEMETRY_ENVIRONMENT": "development",
         "SANDBOX_TRANSPORT": "rpc",
         "TURN_TIMEOUT_MS": "900000",
         "SANDBOX_IDLE_TIMEOUT_MS": "600000",
@@ -181,6 +188,11 @@
         },
       ],
       "services": [
+        {
+          "binding": "TELEMETRY",
+          "service": "stella-v2-telemetry-dev",
+          "entrypoint": "TelemetryService",
+        },
         {
           "binding": "BROWSER_GATEWAY",
           "service": "stella-v2-browser-gateway-basic-nightingale-118",

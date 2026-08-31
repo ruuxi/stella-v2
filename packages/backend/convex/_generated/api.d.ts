@@ -179,6 +179,7 @@ import type * as lib_retry_fetch from "../lib/retry_fetch.js";
 import type * as lib_session_identity from "../lib/session_identity.js";
 import type * as lib_shopify_ucp from "../lib/shopify_ucp.js";
 import type * as lib_stripe_operation_integrity from "../lib/stripe_operation_integrity.js";
+import type * as lib_telemetry_metric from "../lib/telemetry_metric.js";
 import type * as lib_text_utils from "../lib/text_utils.js";
 import type * as lib_tool_call_utils from "../lib/tool_call_utils.js";
 import type * as lib_tts_dispatch_guard from "../lib/tts_dispatch_guard.js";
@@ -468,6 +469,7 @@ declare const fullApi: ApiFromModules<{
   "lib/session_identity": typeof lib_session_identity;
   "lib/shopify_ucp": typeof lib_shopify_ucp;
   "lib/stripe_operation_integrity": typeof lib_stripe_operation_integrity;
+  "lib/telemetry_metric": typeof lib_telemetry_metric;
   "lib/text_utils": typeof lib_text_utils;
   "lib/tool_call_utils": typeof lib_tool_call_utils;
   "lib/tts_dispatch_guard": typeof lib_tts_dispatch_guard;

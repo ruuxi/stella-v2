@@ -82,7 +82,9 @@
     "./electron/*": "./electron/*.ts"
   },
   "dependencies": {
+    "@zip.js/zip.js": "2.7.62",
     "@silvia-odwyer/photon-node": "0.3.4",
+    "electron-log": "5.4.4",
     "electron-updater": "^6.8.9",
     "mac-screen-capture-permissions": "^2.1.0",
     "uiohook-napi": "^1.5.5"

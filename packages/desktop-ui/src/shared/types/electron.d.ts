@@ -712,6 +712,7 @@ export type ElectronSystemApi = {
     outcome?: "hit" | "miss" | "success" | "unavailable";
   }) => void;
   openLogs: () => Promise<{ ok: boolean; path?: string; error?: string }>;
+  exportLogs: () => Promise<{ ok: boolean; path?: string; error?: string }>;
   getWakeWordEnabled: () => Promise<boolean>;
   setWakeWordEnabled: (enabled: boolean) => Promise<{ enabled: boolean }>;
   listPromptPresets: (agentId: string) => Promise<{

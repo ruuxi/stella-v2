@@ -70,6 +70,7 @@ import {
   STRIPE_RECEIPT_INTEGRITY_VERSION,
 } from "./lib/stripe_operation_integrity";
 import { hashSha256Hex } from "./lib/crypto_utils";
+import { emitInferenceTelemetryMetric } from "./lib/telemetry_metric";
 import { ownershipMigrationSourceDigest } from "./lib/auth_migration_paths";
 import {
   activeManagedUsageReservationMicroCents,
@@ -1311,6 +1312,24 @@ const persistManagedUsageAuthorized = async (
       createdAt: now,
     });
   }
+
+  await emitInferenceTelemetryMetric({
+    ownerId: args.ownerId,
+    occurredAtMs: now,
+    model: args.model,
+    agentType: args.agentType,
+    durationMs: Math.max(0, Math.floor(args.durationMs)),
+    success: args.success,
+    inputTokens,
+    outputTokens,
+    cachedInputTokens,
+    cacheWriteInputTokens,
+    reasoningTokens,
+    totalTokens,
+    costMicroCents,
+    fallbackUsed: args.fallbackUsed,
+    toolCalls: args.toolCalls,
+  });
 
   return {
     costMicroCents,

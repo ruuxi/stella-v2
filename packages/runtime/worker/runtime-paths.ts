@@ -19,9 +19,10 @@ import path from "node:path";
  *     ├── host-executable.txt <- Electron executable path that spawned it
  *     └── root.txt         <- the literal stellaAppDir, for debugging
  *   logs/<rootHash>/      <- human-readable logs (colocated)
- *     ├── runtime.log      <- worker stdout/stderr (rotating)
- *     ├── error-YYYY-MM-DD.txt   <- crashes / uncaught errors
- *     └── process-YYYY-MM-DD.txt <- lifecycle events
+ *     ├── runtime.log             <- worker stdout/stderr (rotating)
+ *     ├── error-YYYY-MM-DD.txt    <- crashes / uncaught errors
+ *     ├── process-YYYY-MM-DD.txt  <- lifecycle events
+ *     └── <run stamp>/            <- Electron main/renderer/network logs
  *
  * The raw `runtime.log` lives alongside the diagnostic logs (not next to
  * the sock/pid/lock control files) so "Open logs folder" / `bun run logs`

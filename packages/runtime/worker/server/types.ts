@@ -12,6 +12,8 @@ import type { createStellaHostRunner } from "../../kernel/runner.js";
  */
 export type WorkerInitializationState = {
   protocolVersion?: string;
+  clientVersion?: string;
+  isDev?: boolean;
   stellaAppDir: string;
   stellaDataDirPath: string;
   stellaWorkspacePath: string;

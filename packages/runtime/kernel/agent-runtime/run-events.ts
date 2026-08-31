@@ -5,6 +5,7 @@ import {
 } from "@stella/contracts/sensitive-data";
 import type { AgentEvent, AgentMessage } from "../agent-core/types.js";
 import { createRuntimeLogger } from "../debug.js";
+import { recordRuntimeTelemetry } from "../../observability/runtime-telemetry.js";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type {
   HookEvent,
@@ -584,6 +585,40 @@ export const subscribeRuntimeAgentEvents = ({
       }
 
       if (event.message.role === "assistant") {
+        const usage = event.message.usage;
+        const toolCalls = event.message.content.filter(
+          (block) => block.type === "toolCall",
+        ).length;
+        recordRuntimeTelemetry({
+          type: "inference.completed",
+          provider: event.message.provider,
+          model: event.message.model,
+          ...(event.message.responseModel
+            ? { responseModel: event.message.responseModel }
+            : {}),
+          agentType,
+          durationMs: Math.max(0, Date.now() - event.message.timestamp),
+          success:
+            event.message.stopReason !== "error" &&
+            event.message.stopReason !== "aborted",
+          stopReason:
+            event.message.stopReason === "toolUse"
+              ? "tool-use"
+              : event.message.stopReason,
+          inputTokens: usage.input,
+          outputTokens: usage.output,
+          cachedInputTokens: usage.cacheRead,
+          cacheWriteInputTokens: usage.cacheWrite,
+          ...(typeof usage.reasoning === "number"
+            ? { reasoningTokens: usage.reasoning }
+            : {}),
+          totalTokens: usage.totalTokens,
+          costMicroCents: Math.max(
+            0,
+            Math.round(usage.cost.total * 100_000_000),
+          ),
+          toolCalls,
+        });
         const assistantMessageEvent = recorder.recordAssistantMessageEnd(
           event.message,
         );

@@ -8,6 +8,14 @@ export const registerBootstrapProcessCleanups = (context) => {
     processRuntime.registerCleanup("before-quit", "auth-refresh-loop", () => {
         context.services.authService.stopAuthRefreshLoop();
     });
+    processRuntime.registerCleanup("before-quit", "remote-telemetry", async () => {
+        await context.services.telemetry.record({
+            type: "app.lifecycle",
+            component: "desktop-main",
+            phase: "stopping",
+        });
+        await context.services.telemetry.close({ timeoutMs: 3000 });
+    });
     processRuntime.registerCleanup("before-quit", "runtime-shells", () => {
         context.state.stellaHostRunner?.killAllShells();
     });

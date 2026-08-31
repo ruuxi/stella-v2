@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { Effect } from "effect";
+import { emitCloudTurnTelemetry } from "./telemetry.js";
 import {
   runToolEffect,
   sleepWithAbort,
@@ -9435,6 +9436,19 @@ export class BuildSession extends DurableObject<Env> {
       ok: result.ok,
       wallClockMs,
     });
+    emitCloudTurnTelemetry(this.ctx, this.env, {
+      type: "cloud.turn",
+      workload: "agent",
+      phase: result.ok ? "completed" : "failed",
+      wallClockMs,
+      coldContainerStartMs: shared.coldContainerStartMs,
+      restoreMs: shared.restoreMs,
+      checkpointMs: 0,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+      llmCalls: result.usage.llmCalls,
+      ...(shared.instanceType ? { instanceType: shared.instanceType } : {}),
+    });
   }
 
   private async runContainerAgentTurn(
@@ -10068,6 +10082,25 @@ export class BuildSession extends DurableObject<Env> {
           interactionId: result.suspension.interactionId,
           wallClockMs,
         });
+        emitCloudTurnTelemetry(this.ctx, this.env, {
+          type: "cloud.turn",
+          workload: "agent",
+          phase: "suspended",
+          wallClockMs,
+          coldContainerStartMs,
+          restoreMs,
+          checkpointMs,
+          ...(typeof result.usage?.inputTokens === "number"
+            ? { inputTokens: result.usage.inputTokens }
+            : {}),
+          ...(typeof result.usage?.outputTokens === "number"
+            ? { outputTokens: result.usage.outputTokens }
+            : {}),
+          ...(typeof result.usage?.llmCalls === "number"
+            ? { llmCalls: result.usage.llmCalls }
+            : {}),
+          instanceType: INSTANCE_TIERS[size].instanceType,
+        });
         return;
       }
 
@@ -10121,6 +10154,25 @@ export class BuildSession extends DurableObject<Env> {
         threadId: turn.threadId,
         ok: result.ok,
         wallClockMs,
+      });
+      emitCloudTurnTelemetry(this.ctx, this.env, {
+        type: "cloud.turn",
+        workload: "agent",
+        phase: result.ok ? "completed" : "failed",
+        wallClockMs,
+        coldContainerStartMs,
+        restoreMs,
+        checkpointMs,
+        ...(typeof result.usage?.inputTokens === "number"
+          ? { inputTokens: result.usage.inputTokens }
+          : {}),
+        ...(typeof result.usage?.outputTokens === "number"
+          ? { outputTokens: result.usage.outputTokens }
+          : {}),
+        ...(typeof result.usage?.llmCalls === "number"
+          ? { llmCalls: result.usage.llmCalls }
+          : {}),
+        instanceType: INSTANCE_TIERS[size].instanceType,
       });
     } catch (error) {
       const message = errorMessage(error);
@@ -11328,6 +11380,28 @@ export class BuildSession extends DurableObject<Env> {
         wallClockMs: metrics.wallClockMs,
         activeCpuSeconds: metrics.activeCpuSeconds,
         uploadedBytes,
+      });
+      emitCloudTurnTelemetry(this.ctx, this.env, {
+        type: "cloud.turn",
+        workload: "app-build",
+        phase: "completed",
+        wallClockMs: metrics.wallClockMs,
+        coldContainerStartMs: metrics.coldContainerStartMs,
+        uploadedBytes,
+        activeCpuMs: Math.max(
+          0,
+          Math.round((metrics.activeCpuSeconds ?? 0) * 1_000),
+        ),
+        ...(typeof modelPayload.usage?.inputTokens === "number"
+          ? { inputTokens: modelPayload.usage.inputTokens }
+          : {}),
+        ...(typeof modelPayload.usage?.outputTokens === "number"
+          ? { outputTokens: modelPayload.usage.outputTokens }
+          : {}),
+        ...(typeof modelPayload.usage?.llmCalls === "number"
+          ? { llmCalls: modelPayload.usage.llmCalls }
+          : {}),
+        instanceType: metrics.capacity.instanceType,
       });
       return json({ ok: true, ...result });
     } catch (error) {

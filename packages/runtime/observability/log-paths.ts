@@ -15,7 +15,8 @@ import { hashStellaAppDir, resolveLogDir } from "../worker/runtime-paths.js";
  *     ├── error-YYYY-MM-DD.txt     <- crashes, uncaught errors (daily)
  *     └── process-YYYY-MM-DD.txt   <- worker / native lifecycle (daily)
  *
- * Logs are local-only and never uploaded anywhere.
+ * Logs remain local unless the user explicitly exports a debug bundle. They
+ * may contain application data supplied by diagnostic call sites.
  */
 
 export type LogPaths = {

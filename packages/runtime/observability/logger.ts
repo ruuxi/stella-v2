@@ -1,5 +1,7 @@
 import {
+  chmodSync,
   closeSync,
+  fchmodSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -8,11 +10,17 @@ import {
   writeSync,
 } from "node:fs";
 import path from "node:path";
-import { Context, Effect, Layer, Semaphore, type Scope } from "effect";
-import { scrubFieldValue, scrubText } from "./scrub.js";
+import {
+  Context,
+  Effect,
+  Formatter,
+  Layer,
+  Semaphore,
+  type Scope,
+} from "effect";
 
 /**
- * Effect-native core of the local-only, privacy-scrubbed diagnostic logger
+ * Effect-native core of the local debug logger
  * (see `file-logger.ts` for the plain facade every current caller uses).
  *
  * The logger is a scoped resource: the layer acquires the open-file table
@@ -40,13 +48,43 @@ const DEFAULT_RETENTION_DAYS = 7;
 // Soft per-file cap so a crash loop can't fill the disk within a single
 // day. Once a day's file passes this we stop appending to it (a single
 // truncation marker is written once); it resets at the next daily rollover.
-const DEFAULT_MAX_FILE_BYTES = 32 * 1024 * 1024;
+const DEFAULT_MAX_FILE_BYTES = 5 * 1024 * 1024;
 // Total budget across every log file in the directory. Enforced on the
 // age sweep (init + daily rollover): oldest files are deleted first until
 // the directory is back under budget. Bounds long-term accumulation
 // independent of the day-count retention window.
 const DEFAULT_MAX_TOTAL_BYTES = 128 * 1024 * 1024;
 const LOG_FILE_PATTERN = /^(error|process)-\d{4}-\d{2}-\d{2}\.txt$/;
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+};
+
+const flattenFields = (
+  input: Record<string, unknown>,
+  prefix = "",
+  seen = new WeakSet<object>(),
+): Array<readonly [string, unknown]> => {
+  if (seen.has(input)) return [[prefix || "value", "[Circular]"]];
+  seen.add(input);
+  const entries = Object.entries(input);
+  if (entries.length === 0 && prefix) return [[prefix, input]];
+  return entries.flatMap(([key, value]) => {
+    const field = prefix ? `${prefix}.${key}` : key;
+    return isPlainObject(value)
+      ? flattenFields(value, field, seen)
+      : [[field, value] as const];
+  });
+};
+
+const formatValue = (input: unknown): string => {
+  const value = typeof input === "string" ? input : Formatter.format(input);
+  return /^[^\s="\\]+$/u.test(value) ? value : JSON.stringify(value);
+};
 
 const dateStamp = (now: Date): string => {
   const y = now.getFullYear();
@@ -78,7 +116,7 @@ export type FileLoggerOptions = {
 };
 
 export interface Interface {
-  /** Append one scrubbed line to a channel. Never fails, never throws. */
+  /** Append one structured local-debug line to a channel. Never throws. */
   readonly write: (
     channel: LogChannel,
     level: LogLevel,
@@ -91,7 +129,7 @@ export interface Interface {
   readonly warn: (event: string, fields?: LogFields) => Effect.Effect<void>;
   /** Recoverable error. */
   readonly error: (event: string, fields?: LogFields) => Effect.Effect<void>;
-  /** Crash / fatal error with a (scrubbed) stack trace. */
+  /** Crash / fatal error with its stack trace. */
   readonly crash: (
     event: string,
     error: unknown,
@@ -168,7 +206,8 @@ const make = (
     const ensureDir = (): boolean => {
       if (dirReady) return true;
       try {
-        mkdirSync(logDir, { recursive: true });
+        mkdirSync(logDir, { recursive: true, mode: 0o700 });
+        if (process.platform !== "win32") chmodSync(logDir, 0o700);
         dirReady = true;
       } catch {
         // If we can't create the log dir, diagnostics silently no-op rather
@@ -213,11 +252,7 @@ const make = (
       let total = remaining.reduce((sum, entry) => sum + entry.size, 0);
       if (total <= maxTotalBytes) return;
       remaining.sort((a, b) => a.mtimeMs - b.mtimeMs);
-      for (
-        let i = 0;
-        i < remaining.length - 1 && total > maxTotalBytes;
-        i++
-      ) {
+      for (let i = 0; i < remaining.length - 1 && total > maxTotalBytes; i++) {
         const entry = remaining[i];
         if (!entry) continue;
         try {
@@ -254,11 +289,23 @@ const make = (
       }
     };
 
-    const appendLine = (channel: LogChannel, filePath: string, text: string): void => {
+    const appendLine = (
+      channel: LogChannel,
+      filePath: string,
+      text: string,
+    ): void => {
       let fd = openFiles.get(channel);
       if (fd === undefined) {
         try {
-          fd = openSync(filePath, "a");
+          fd = openSync(filePath, "a", 0o600);
+          if (process.platform !== "win32") {
+            try {
+              fchmodSync(fd, 0o600);
+            } catch {
+              closeSync(fd);
+              return;
+            }
+          }
         } catch {
           // Best-effort diagnostics; retried on the next write.
           return;
@@ -282,33 +329,15 @@ const make = (
         now.toISOString(),
         `[${level}]`,
         `[${component}]`,
-        scrubText(event),
+        `event=${formatValue(event)}`,
       ];
-      let stack: string | undefined;
       if (fields) {
-        for (const [key, value] of Object.entries(fields)) {
+        for (const [key, value] of flattenFields(fields)) {
           if (value === undefined) continue;
-          if (key === "stack") {
-            stack = typeof value === "string" ? value : String(value);
-            continue;
-          }
-          const rendered = scrubFieldValue(value);
-          parts.push(
-            `${key}=${rendered.includes(" ") ? `"${rendered}"` : rendered}`,
-          );
+          parts.push(`${key}=${formatValue(value)}`);
         }
       }
-      let line = `${parts.join(" ")}\n`;
-      if (stack) {
-        // Always scrub the stack block — callers may pass an unscrubbed stack
-        // as a field (e.g. renderer errors via `error()`), and stacks routinely
-        // embed the error message which can carry secrets.
-        line += `${scrubText(stack)
-          .split("\n")
-          .map((s) => `    ${s.trim()}`)
-          .join("\n")}\n`;
-      }
-      return line;
+      return `${parts.join(" ")}\n`;
     };
 
     const writeUnsafe = (
@@ -359,7 +388,7 @@ const make = (
     const crash: Interface["crash"] = (event, error, fields) =>
       Effect.suspend(() => {
         const err = error instanceof Error ? error : new Error(String(error));
-        const stack = err.stack ? scrubText(err.stack) : undefined;
+        const stack = err.stack;
         return write("error", "fatal", event, {
           ...fields,
           errorName: err.name,

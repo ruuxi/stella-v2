@@ -105,6 +105,8 @@
     "./kernel/tools/terminal-hints.js": "./kernel/tools/terminal-hints.js",
     "./observability/file-logger": "./observability/file-logger.ts",
     "./observability/log-paths": "./observability/log-paths.ts",
+    "./observability/remote-telemetry": "./observability/remote-telemetry.ts",
+    "./observability/runtime-telemetry": "./observability/runtime-telemetry.ts",
     "./kernel/agent-runtime/*.js": "./kernel/agent-runtime/*.js",
     "./kernel/agents/*.js": "./kernel/agents/*.js",
     "./kernel/tools/*.js": "./kernel/tools/*.js",

@@ -12,6 +12,7 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { RateLimiter } from "@convex-dev/rate-limiter";
 import { assertOwnerMigrationWriteAllowed } from "../auth";
+import { emitToolTelemetryMetric } from "../lib/telemetry_metric";
 
 // ---------------------------------------------------------------------------
 // Rate Limiter
@@ -200,6 +201,14 @@ export const logToolExecution = internalMutation({
       durationMs: args.durationMs,
       success: args.success,
       createdAt,
+    });
+    await emitToolTelemetryMetric({
+      ownerId: args.ownerId,
+      occurredAtMs: createdAt,
+      toolName: args.toolName,
+      agentType: args.agentType,
+      durationMs: Math.max(0, Math.floor(args.durationMs)),
+      success: args.success,
     });
     await addUsageRollup(ctx, args.ownerId, createdAt, { toolCallCount: 1 });
     return null;

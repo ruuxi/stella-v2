@@ -5,6 +5,10 @@ import {
   type HostDeviceIdentity,
 } from "@stella/contracts/protocol";
 import { getFileLogger } from "../../observability/file-logger.js";
+import {
+  configureRuntimeTelemetry,
+  updateRuntimeTelemetryAuth,
+} from "../../observability/runtime-telemetry.js";
 import { forkDelayed } from "../effect-runtime.js";
 import type { UserAppProjectService } from "../user-apps/project-service.js";
 import type { VoiceRuntimeService } from "../voice/service.js";
@@ -150,6 +154,7 @@ export const layer = Layer.effect(
       }
       if (patch.authToken !== undefined) {
         runner?.setAuthToken(patch.authToken);
+        updateRuntimeTelemetryAuth(patch.authToken);
       }
       if (patch.hasConnectedAccount !== undefined) {
         runner?.setHasConnectedAccount(patch.hasConnectedAccount);
@@ -257,6 +262,12 @@ export const layer = Layer.effect(
               voice: Context.get(context, VoiceRuntime.Service).service,
             };
             currentSession = session;
+            configureRuntimeTelemetry({
+              stellaDataDirPath: init.stellaDataDirPath,
+              authToken: init.authToken,
+              ...(typeof init.isDev === "boolean" ? { isDev: init.isDev } : {}),
+              ...(init.clientVersion ? { release: init.clientVersion } : {}),
+            });
 
             // Post-ready warmups — off the initialize response path, as a
             // forked 0-delay fiber (the old setTimeout(0) block): backfill

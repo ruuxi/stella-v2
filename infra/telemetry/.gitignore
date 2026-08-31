@@ -1,0 +1,11 @@
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+**/crash.log
+**/terraform.tfvars
+**/backend.hcl
+**/__pycache__/
+**/*.pyc
+!**/terraform.tfvars.example
+!**/.terraform.lock.hcl

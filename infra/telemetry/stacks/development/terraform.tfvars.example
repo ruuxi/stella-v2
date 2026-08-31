@@ -1,0 +1,7 @@
+# Do not put credentials here. Export them instead:
+#   TF_VAR_cloudflare_account_id=...
+#   TF_VAR_catalog_sink_token=... # optional pre-created token
+#   CLOUDFLARE_API_TOKEN=...
+
+resource_suffix = ""
+bucket_location = "wnam"

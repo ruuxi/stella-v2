@@ -4,6 +4,7 @@ import {
   initFileLogger,
   installGlobalErrorLogging,
 } from "../observability/file-logger.js";
+import { closeRuntimeTelemetry } from "../observability/runtime-telemetry.js";
 import { workerRuntime } from "./effect-runtime.js";
 import {
   WorkerLifecycleServer,
@@ -102,6 +103,7 @@ const main = async () => {
     await workerRuntime
       .runPromise(Scope.close(rootScope, Exit.void))
       .catch(() => undefined);
+    await closeRuntimeTelemetry();
   };
   const acquire = async <A>(
     effect: Effect.Effect<A, unknown, Scope.Scope>,

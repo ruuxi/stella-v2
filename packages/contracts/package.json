@@ -11,6 +11,8 @@
     "./model-mentions": "./model-mentions.js",
     "./protocol": "./protocol/index.ts",
     "./protocol/*": "./protocol/*.ts",
+    "./telemetry": "./telemetry/index.ts",
+    "./telemetry/*": "./telemetry/*.ts",
     "./*": "./*.ts"
   }
 }

@@ -9,15 +9,15 @@ import {
 } from "./logger.js";
 
 /**
- * Local-only, privacy-scrubbed diagnostic logger shared by every Stella
+ * Local debug logger shared by every Stella
  * process (Electron main and the Bun runtime worker).
  *
  * Goals:
  *   - Capture errors/crashes and process lifecycle (workers + native
  *     helpers starting / being cleaned up) to plain `.txt` files.
  *   - Daily rotation with automatic retention cleanup.
- *   - Never write private data: the API takes structured metadata only,
- *     and everything that reaches disk is scrubbed (see `scrub.ts`).
+ *   - Preserve the complete diagnostic context supplied by call sites,
+ *     including nested values, paths, URLs, and error stacks.
  *
  * This file is the plain synchronous facade over the Effect-native
  * `ObservabilityLogger` service in `logger.ts` — same exported names,
@@ -30,7 +30,12 @@ import {
  * Do NOT route hot-path / per-token / per-frame logging through here.
  */
 
-export type { LogChannel, LogLevel, LogFields, FileLoggerOptions } from "./logger.js";
+export type {
+  LogChannel,
+  LogLevel,
+  LogFields,
+  FileLoggerOptions,
+} from "./logger.js";
 
 const observabilityRuntime = ManagedRuntime.make(Layer.empty);
 
@@ -76,7 +81,7 @@ export class FileLogger {
     this.run(this.logger.error(event, fields));
   }
 
-  /** Crash / fatal error with a (scrubbed) stack trace. */
+  /** Crash / fatal error with its stack trace. */
   crash(event: string, error: unknown, fields?: LogFields): void {
     this.run(this.logger.crash(event, error, fields));
   }

@@ -1,0 +1,67 @@
+# Variables:
+# {
+#   "accountTag": "<CLOUDFLARE_ACCOUNT_ID>",
+#   "pipelineId": "<TERRAFORM_PIPELINE_ID>",
+#   "sinkId": "<TERRAFORM_SINK_ID>",
+#   "datetimeStart": "2026-08-31T00:00:00Z",
+#   "datetimeEnd": "2026-09-01T00:00:00Z"
+# }
+query TelemetryPipelineHealth(
+  $accountTag: String!
+  $pipelineId: String!
+  $sinkId: String!
+  $datetimeStart: Time!
+  $datetimeEnd: Time!
+) {
+  viewer {
+    accounts(filter: { accountTag: $accountTag }) {
+      ingress: pipelinesOperatorAdaptiveGroups(
+        limit: 100
+        filter: {
+          pipelineId: $pipelineId
+          streamId_neq: ""
+          datetime_geq: $datetimeStart
+          datetime_leq: $datetimeEnd
+        }
+      ) {
+        sum {
+          bytesIn
+          recordsIn
+          decodeErrors
+        }
+      }
+      delivery: pipelinesSinkAdaptiveGroups(
+        limit: 100
+        filter: {
+          pipelineId: $pipelineId
+          sinkId: $sinkId
+          datetime_geq: $datetimeStart
+          datetime_leq: $datetimeEnd
+        }
+      ) {
+        sum {
+          bytesWritten
+          recordsWritten
+          filesWritten
+          rowGroupsWritten
+          uncompressedBytesWritten
+        }
+      }
+      rejected: pipelinesUserErrorsAdaptiveGroups(
+        limit: 100
+        filter: {
+          pipelineId: $pipelineId
+          datetime_geq: $datetimeStart
+          datetime_leq: $datetimeEnd
+        }
+        orderBy: [count_DESC]
+      ) {
+        count
+        dimensions {
+          errorFamily
+          errorType
+        }
+      }
+    }
+  }
+}

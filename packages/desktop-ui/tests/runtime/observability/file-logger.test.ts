@@ -1,10 +1,16 @@
-import { mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { FileLogger } from "@stella/runtime/observability/file-logger";
-import { scrubText } from "@stella/runtime/observability/scrub";
 
 const makeLogger = async (retentionDays?: number) => {
   const logDir = await mkdtemp(path.join(tmpdir(), "stella-logs-"));
@@ -15,29 +21,6 @@ const makeLogger = async (retentionDays?: number) => {
   });
   return { logDir, logger };
 };
-
-describe("scrubText", () => {
-  it("redacts emails, tokens, keys, and long blobs", () => {
-    expect(scrubText("user me@example.com signed in")).toContain("<email>");
-    expect(scrubText("Authorization: Bearer abcdef123456")).toContain(
-      "<redacted-token>",
-    );
-    expect(scrubText("key sk-ABCDEFGHIJKLMNOPQRSTUV done")).toContain(
-      "<redacted-key>",
-    );
-    expect(
-      scrubText("api_key=supersecretvalue123 trailing"),
-    ).toContain("<redacted>");
-    const blob = "A".repeat(80);
-    expect(scrubText(`blob ${blob}`)).toContain("<redacted>");
-  });
-
-  it("leaves ordinary diagnostic text intact", () => {
-    expect(scrubText("worker.listening pid=4231 reason=idle")).toBe(
-      "worker.listening pid=4231 reason=idle",
-    );
-  });
-});
 
 describe("FileLogger", () => {
   it("writes process events to a dated process file", async () => {
@@ -57,25 +40,30 @@ describe("FileLogger", () => {
     }
   });
 
-  it("scrubs sensitive field values before writing", async () => {
+  it("preserves complete local debug values", async () => {
     const { logDir, logger } = await makeLogger();
     try {
-      logger.error("auth.failed", {
-        detail: "token Bearer abcdef123456 for me@example.com",
+      logger.error("request.failed", {
+        request: {
+          url: "https://example.com/private?q=hello",
+          authorization: "Bearer abcdef123456",
+        },
+        prompt: "email me@example.com",
       });
       const files = await readdir(logDir);
       const errorFile = files.find((f) => f.startsWith("error-"));
       const contents = await readFile(path.join(logDir, errorFile!), "utf-8");
-      expect(contents).not.toContain("abcdef123456");
-      expect(contents).not.toContain("me@example.com");
-      expect(contents).toContain("<redacted-token>");
-      expect(contents).toContain("<email>");
+      expect(contents).toContain("request.url=");
+      expect(contents).toContain("https://example.com/private?q=hello");
+      expect(contents).toContain("request.authorization=");
+      expect(contents).toContain("abcdef123456");
+      expect(contents).toContain("me@example.com");
     } finally {
       await rm(logDir, { recursive: true, force: true });
     }
   });
 
-  it("scrubs a stack passed as a field (renderer error path)", async () => {
+  it("preserves a stack passed as a field (renderer error path)", async () => {
     const { logDir, logger } = await makeLogger();
     try {
       logger.error("renderer.error", {
@@ -86,24 +74,28 @@ describe("FileLogger", () => {
       const files = await readdir(logDir);
       const errorFile = files.find((f) => f.startsWith("error-"));
       const contents = await readFile(path.join(logDir, errorFile!), "utf-8");
-      expect(contents).not.toContain("abcdef123456");
-      expect(contents).not.toContain("me@example.com");
-      expect(contents).toContain("<redacted-token>");
+      expect(contents).toContain("abcdef123456");
+      expect(contents).toContain("me@example.com");
+      expect(contents).toContain("app.js:1:1");
     } finally {
       await rm(logDir, { recursive: true, force: true });
     }
   });
 
-  it("records a scrubbed stack on crash", async () => {
+  it("records a complete stack on crash", async () => {
     const { logDir, logger } = await makeLogger();
     try {
-      logger.crash("worker.fatal", new Error("boom at sk-ABCDEFGHIJKLMNOPQRST"));
+      logger.crash(
+        "worker.fatal",
+        new Error("boom at sk-ABCDEFGHIJKLMNOPQRST"),
+      );
       const files = await readdir(logDir);
       const errorFile = files.find((f) => f.startsWith("error-"));
       const contents = await readFile(path.join(logDir, errorFile!), "utf-8");
       expect(contents).toContain("[fatal]");
       expect(contents).toContain("worker.fatal");
-      expect(contents).not.toContain("sk-ABCDEFGHIJKLMNOPQRST");
+      expect(contents).toContain("sk-ABCDEFGHIJKLMNOPQRST");
+      expect(contents).toContain("errorName=Error");
     } finally {
       await rm(logDir, { recursive: true, force: true });
     }

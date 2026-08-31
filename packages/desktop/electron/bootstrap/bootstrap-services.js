@@ -15,6 +15,7 @@ import { SecurityPolicyService } from "../services/security-policy-service.js";
 import { UiStateService } from "../services/ui-state-service.js";
 import { getDevServerUrl } from "../dev-url.js";
 import { resolveRendererRoot } from "../renderer-location.js";
+import { initMainProcessTelemetry } from "../observability/main-telemetry.js";
 export const createBootstrapServices = (options) => {
     const { config, lifecycle, state } = options;
     const uiStateService = new UiStateService();
@@ -101,6 +102,11 @@ export const createBootstrapServices = (options) => {
             }
         },
     });
+    const telemetry = initMainProcessTelemetry({
+        stellaDataDirPath: config.stellaDataDirPath,
+        isDev: config.isDev,
+        getAuthToken: () => authService.getAuthToken(),
+    });
     const credentialService = new CredentialService({
         windowManagerTarget: lifecycle,
         getBroadcastToMobile: () => options.getMobileBroadcast(),
@@ -144,6 +150,7 @@ export const createBootstrapServices = (options) => {
         externalLinkService,
         localChatHistoryService,
         securityPolicyService,
+        telemetry,
         uiStateService,
     };
 };

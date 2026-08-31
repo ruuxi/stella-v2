@@ -24,6 +24,10 @@ export function CrashSurface({ error, componentStack }: Props) {
     void window.electronAPI?.system?.openLogs?.();
   }, []);
 
+  const handleExportLogs = useCallback(() => {
+    void window.electronAPI?.system?.exportLogs?.();
+  }, []);
+
   return (
     <div className="error-boundary">
       <div className="error-boundary-gradient" />
@@ -44,6 +48,13 @@ export function CrashSurface({ error, componentStack }: Props) {
           type="button"
         >
           Open logs folder
+        </button>
+        <button
+          className="error-boundary-loglink"
+          onClick={handleExportLogs}
+          type="button"
+        >
+          Export debug logs
         </button>
         {import.meta.env.DEV && error ? (
           <details className="error-boundary-details">

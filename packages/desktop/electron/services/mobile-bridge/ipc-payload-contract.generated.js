@@ -71,6 +71,7 @@ export const IPC_PAYLOAD_CONTRACT = {
     "device:getId": { kind: "none" },
     "devtest:fixViteError": { kind: "none" },
     "devtest:triggerViteError": { kind: "none" },
+    "diagnostics:exportLogs": { kind: "none" },
     "diagnostics:openLogs": { kind: "none" },
     "diagnostics:recordHeapTrace": { kind: "object", fields: ["durationMs"] },
     "diagnostics:reportError": { kind: "passthrough" },

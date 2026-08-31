@@ -62,11 +62,6 @@ type Subscription = {
   onError?: (error: Error) => void;
 };
 
-/**
- * A thin reactive transport around convex-test. No placement behavior is
- * faked: every query and mutation runs the production Convex function. The
- * adapter only replays subscribed queries after mutations, like ConvexClient.
- */
 const createLiveClient = (t: TestHarness) => {
   const owner = asOwner(t);
   const subscriptions = new Set<Subscription>();

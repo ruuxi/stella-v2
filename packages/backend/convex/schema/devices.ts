@@ -12,7 +12,6 @@ export const devicesSchema = {
     deviceName: v.optional(v.string()),
     devicePublicKey: v.optional(v.string()),
     platform: v.optional(v.string()),
-    /** User-controlled admission switch for cross-device execution. */
     remoteExecutionEnabled: v.optional(v.boolean()),
   })
     .index("by_ownerId", ["ownerId"])

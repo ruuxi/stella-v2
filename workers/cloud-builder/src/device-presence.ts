@@ -214,16 +214,18 @@ export class DevicePresence extends DurableObject<PresenceEnv> {
       socket.close(4000, "bad_request");
       return;
     }
-    let frame: Record<string, unknown>;
+    let parsed: unknown;
     try {
-      const value = JSON.parse(text);
-      if (!value || typeof value !== "object" || Array.isArray(value))
-        throw new Error();
-      frame = value as Record<string, unknown>;
+      parsed = JSON.parse(text);
     } catch {
       socket.close(4000, "bad_request");
       return;
     }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      socket.close(4000, "bad_request");
+      return;
+    }
+    const frame = parsed as Record<string, unknown>;
     const attachment = socket.deserializeAttachment() as PresenceAttachment;
     if (frame.type === "begin" && !attachment.active) {
       const presenceSessionId =
@@ -295,7 +297,7 @@ export class DevicePresence extends DurableObject<PresenceEnv> {
     try {
       socket.close(code >= 3000 && code <= 4999 ? code : 1000, "");
     } catch {
-      // The peer already completed the close handshake.
+      // Already gone.
     }
   }
 
@@ -305,7 +307,7 @@ export class DevicePresence extends DurableObject<PresenceEnv> {
     try {
       socket.close(1011, "socket_error");
     } catch {
-      // Already closed.
+      // Already gone.
     }
   }
 

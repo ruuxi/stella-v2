@@ -1101,7 +1101,7 @@ const forwardToDevicePresence = async (
   try {
     forwarded.headers.set("sec-websocket-protocol", SUBPROTOCOL);
   } catch {
-    // The verified token has already been removed; the DO needs only the offer.
+    // Some runtimes guard Sec-* headers. The DO is in the same trust boundary.
   }
   return await env.DEVICE_PRESENCE.getByName(
     `${caller.ownerId}:${deviceId}`,

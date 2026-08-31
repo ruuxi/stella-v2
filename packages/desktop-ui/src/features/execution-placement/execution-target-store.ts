@@ -22,10 +22,10 @@ const parse = (value: string | null): DesktopExecutionTarget => {
     ) {
       return { mode: "device", deviceId: parsed.deviceId.trim() };
     }
+    return AUTOMATIC;
   } catch {
-    // A malformed/stale preference is equivalent to the safe default.
+    return AUTOMATIC;
   }
-  return AUTOMATIC;
 };
 
 const readStoredTarget = (): DesktopExecutionTarget => {
@@ -33,7 +33,6 @@ const readStoredTarget = (): DesktopExecutionTarget => {
   try {
     return parse(window.localStorage.getItem(STORAGE_KEY));
   } catch {
-    // Storage can be unavailable in sandboxed/private renderer contexts.
     return AUTOMATIC;
   }
 };
@@ -43,7 +42,7 @@ const storeTarget = (target: DesktopExecutionTarget): void => {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(target));
   } catch {
-    // The in-memory selection remains usable when persistence is unavailable.
+    // localStorage can throw in restricted contexts.
   }
 };
 
@@ -61,9 +60,6 @@ export const executionTargetStore = {
     current = normalized;
     storeTarget(normalized);
     for (const listener of listeners) listener();
-  },
-  reset() {
-    executionTargetStore.set(AUTOMATIC);
   },
 };
 

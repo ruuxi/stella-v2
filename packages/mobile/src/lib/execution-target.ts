@@ -1,9 +1,11 @@
 import * as SecureStore from "expo-secure-store";
-import type { AutomaticExecutionTarget } from "./execution-placement";
+import {
+  AUTOMATIC_EXECUTION_TARGET,
+  type AutomaticExecutionTarget,
+} from "./execution-placement";
 
 const KEY = "stella-mobile.execution-target.v1";
-export const AUTOMATIC_EXECUTION_TARGET: AutomaticExecutionTarget =
-  Object.freeze({ mode: "automatic" });
+export { AUTOMATIC_EXECUTION_TARGET };
 
 const parse = (value: string | null): AutomaticExecutionTarget => {
   if (!value) return AUTOMATIC_EXECUTION_TARGET;
@@ -17,10 +19,10 @@ const parse = (value: string | null): AutomaticExecutionTarget => {
     ) {
       return { mode: "device", deviceId: parsed.deviceId.trim() };
     }
+    return AUTOMATIC_EXECUTION_TARGET;
   } catch {
-    // Default below.
+    return AUTOMATIC_EXECUTION_TARGET;
   }
-  return AUTOMATIC_EXECUTION_TARGET;
 };
 
 export const getMobileExecutionTarget = async () =>

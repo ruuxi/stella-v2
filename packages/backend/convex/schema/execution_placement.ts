@@ -157,7 +157,7 @@ export const executionPlacementSchema = {
     threadId: v.optional(v.string()),
     requestingDeviceId: v.optional(v.string()),
     pairGrantDeviceId: v.optional(v.string()),
-    /** Frozen user intent. Chosen executor identity remains targetDeviceId. */
+    /** User destination. Executor identity stays in targetDeviceId. */
     requestedTargetMode: v.optional(executionTargetModeValidator),
     requestedExecutorDeviceId: v.optional(v.string()),
     requiredCapabilities: v.array(executionCapabilityValidator),

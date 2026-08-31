@@ -6,6 +6,7 @@ import {
 } from "./phone-access";
 import { getConvexClient } from "./convex";
 import {
+  AUTOMATIC_EXECUTION_TARGET,
   buildAutomaticExecutionAdmission,
   automaticExecutionConversationClientCreateId,
   readAutomaticExecutionDispatch,
@@ -15,6 +16,7 @@ import {
   type AutomaticExecutionSubject,
 } from "./execution-placement-core";
 export {
+  AUTOMATIC_EXECUTION_TARGET,
   AutomaticExecutionWaitAbortedError,
   automaticExecutionCancellationCommand,
   automaticExecutionResultText,
@@ -182,17 +184,12 @@ export const waitForAutomaticExecution = async (args: {
   });
 };
 
-/**
- * Sends one server-admitted execution request. This API intentionally has no
- * The target is a frozen user choice. Automatic remains the default; an exact
- * device choice is bound to the matching pair proof and cannot fall back.
- */
 export const submitAutomaticExecution = async (
   input: SubmitAutomaticExecutionInput,
 ): Promise<AutomaticExecutionDispatch> => {
   const { access, ...admissionInput } = input;
   const admission = buildAutomaticExecutionAdmission(admissionInput);
-  const target = admissionInput.target ?? { mode: "automatic" as const };
+  const target = admissionInput.target ?? AUTOMATIC_EXECUTION_TARGET;
   if (
     target.mode === "device" &&
     (!access || access.desktopDeviceId !== target.deviceId.trim())

@@ -334,8 +334,6 @@ describe("working orchestrator surface", () => {
     }
     expect(code?.description).toContain("tools.map(");
 
-    // Reconstruct the no-code profile to prove the never-strand fallback
-    // and account for the exact provider payload reduction.
     const fallbackTools = buildProviderTools(
       orchestrated?.toolsAllowlist?.filter((name) => name !== "code"),
     );
@@ -433,9 +431,6 @@ describe("working orchestrator surface", () => {
       expect(entry, toolName).toBeDefined();
       expect(entry?.demoted, toolName).toBeUndefined();
     }
-    // The demoted surface: connector status, scheduling, watch-script
-    // authoring, and map. code lifts map details back onto its outer
-    // result so the existing inline artifact contract remains intact.
     expect(
       catalog
         .filter((tool) => tool.demoted)
@@ -450,8 +445,6 @@ describe("working orchestrator surface", () => {
       "schedule_remove",
       "schedule_update",
     ]);
-    // Voice has no code tool: background/configuration deferred tools stay
-    // out, while map retains its eager fallback.
     const voiceCatalog = catalog.filter(
       (tool) => !tool.demoted || tool.name === "map",
     );

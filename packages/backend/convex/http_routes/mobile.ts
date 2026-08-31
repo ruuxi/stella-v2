@@ -761,7 +761,11 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           );
         }
 
-        const challengeParts = [
+        const targetMode =
+          requestedTargetMode === "device" || requestedTargetMode === "cloud"
+            ? requestedTargetMode
+            : "automatic";
+        const challengeParts: string[] = [
           "execution-placement-v1",
           idempotencyKey,
           conversationId,
@@ -773,10 +777,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         // destination intent when the client actually sent the new field, so
         // deploying the selector never invalidates an already-paired phone.
         if (targetWasSupplied || requestedExecutorDeviceId) {
-          challengeParts.push(
-            requestedTargetMode as string,
-            requestedExecutorDeviceId ?? "",
-          );
+          challengeParts.push(targetMode, requestedExecutorDeviceId ?? "");
         }
         const challenge = challengeParts.join(":");
         const paired = desktopDeviceId
@@ -863,7 +864,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             kind,
             ingress: "mobile",
             subject,
-            requestedTargetMode,
+            requestedTargetMode: targetMode,
             ...(requestedExecutorDeviceId ? { requestedExecutorDeviceId } : {}),
             conversationId,
             ...(parentTurnId ? { parentTurnId } : {}),

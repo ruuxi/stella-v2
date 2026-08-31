@@ -270,9 +270,7 @@ export const createToolHost = ({
       if (browserSessionFactory) {
         return createBrowserOnlyComputerUseSession();
       }
-      // The persistent code runtime and its deferred tool catalog remain
-      // useful on Linux even though native Typed Computer Use is unavailable.
-      // Fail only if a cell actually attempts a computer operation.
+      // Keep the code-runtime session; throw only if a cell hits computer use.
       return createComputerUseSession(async () => {
         throw new Error(
           `Typed Computer Use is not available on ${process.platform}.`,

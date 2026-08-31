@@ -918,6 +918,8 @@ export class ExecutionPlacementBridge {
     const status = ready ? "ready" : "draining";
     const chatCapacity = Math.max(0, Math.min(16, availability.chatSlots));
     const agentCapacity = Math.max(0, Math.min(16, availability.agentSlots));
+    const availableChatSlots = ready ? chatCapacity : 0;
+    const availableAgentSlots = ready ? agentCapacity : 0;
     const bodyParts = [
       this.options.deviceIdentity.publicKey,
       PROTOCOL_VERSION,
@@ -926,8 +928,8 @@ export class ExecutionPlacementBridge {
       status,
       chatCapacity,
       agentCapacity,
-      ready ? chatCapacity : 0,
-      ready ? agentCapacity : 0,
+      availableChatSlots,
+      availableAgentSlots,
       ...(this.presenceSocketBaseUrl ? ["socket"] : []),
       ...(this.options.deviceName || this.options.platform
         ? [this.options.deviceName ?? null, this.options.platform ?? null]
@@ -950,17 +952,25 @@ export class ExecutionPlacementBridge {
         status,
         chatSlotCapacity: chatCapacity,
         agentSlotCapacity: agentCapacity,
-        availableChatSlots: ready ? chatCapacity : 0,
-        availableAgentSlots: ready ? agentCapacity : 0,
+        availableChatSlots,
+        availableAgentSlots,
       },
     );
     this.advertisedAvailability = JSON.stringify([
       status,
       chatCapacity,
       agentCapacity,
-      ready ? chatCapacity : 0,
-      ready ? agentCapacity : 0,
+      availableChatSlots,
+      availableAgentSlots,
     ]);
+  }
+
+  private applyPresenceSocketBaseUrl(identity: Record<string, unknown>) {
+    this.presenceSocketBaseUrl =
+      typeof identity.presenceSocketBaseUrl === "string" &&
+      identity.presenceSocketBaseUrl.startsWith("wss://")
+        ? identity.presenceSocketBaseUrl.replace(/\/+$/u, "")
+        : null;
   }
 
   private closePresenceSocket() {
@@ -1171,12 +1181,15 @@ export class ExecutionPlacementBridge {
           0,
           Math.min(16, availability.agentSlots),
         );
+        const status = ready ? "ready" : "draining";
+        const availableChatSlots = ready ? chatCapacity : 0;
+        const availableAgentSlots = ready ? agentCapacity : 0;
         const advertisedAvailability = JSON.stringify([
-          ready ? "ready" : "draining",
+          status,
           chatCapacity,
           agentCapacity,
-          ready ? chatCapacity : 0,
-          ready ? agentCapacity : 0,
+          availableChatSlots,
+          availableAgentSlots,
         ]);
         if (
           !this.presenceSocketBaseUrl ||
@@ -1185,19 +1198,19 @@ export class ExecutionPlacementBridge {
           await this.enqueueSigned(
             "presence-heartbeat",
             [
-              ready ? "ready" : "draining",
+              status,
               chatCapacity,
               agentCapacity,
-              ready ? chatCapacity : 0,
-              ready ? agentCapacity : 0,
+              availableChatSlots,
+              availableAgentSlots,
             ],
             anyApi.execution_placement.heartbeatMyExecutionPresence,
             {
-              status: ready ? "ready" : "draining",
+              status,
               chatSlotCapacity: chatCapacity,
               agentSlotCapacity: agentCapacity,
-              availableChatSlots: ready ? chatCapacity : 0,
-              availableAgentSlots: ready ? agentCapacity : 0,
+              availableChatSlots,
+              availableAgentSlots,
             },
           );
           this.advertisedAvailability = advertisedAvailability;
@@ -1525,11 +1538,7 @@ export class ExecutionPlacementBridge {
     await this.signedQueue;
     this.ownerId = identity.ownerId;
     this.ownerGeneration = identity.ownerGeneration;
-    this.presenceSocketBaseUrl =
-      typeof identity.presenceSocketBaseUrl === "string" &&
-      identity.presenceSocketBaseUrl.startsWith("wss://")
-        ? identity.presenceSocketBaseUrl.replace(/\/+$/u, "")
-        : null;
+    this.applyPresenceSocketBaseUrl(identity);
     const nextSession = this.inbox.openSession({
       ownerId: identity.ownerId,
       ownerGeneration: identity.ownerGeneration,
@@ -1640,11 +1649,7 @@ export class ExecutionPlacementBridge {
     }
     this.ownerId = identity.ownerId;
     this.ownerGeneration = identity.ownerGeneration;
-    this.presenceSocketBaseUrl =
-      typeof identity.presenceSocketBaseUrl === "string" &&
-      identity.presenceSocketBaseUrl.startsWith("wss://")
-        ? identity.presenceSocketBaseUrl.replace(/\/+$/u, "")
-        : null;
+    this.applyPresenceSocketBaseUrl(identity);
     const session = this.inbox.openSession({
       ownerId: identity.ownerId,
       ownerGeneration: identity.ownerGeneration,

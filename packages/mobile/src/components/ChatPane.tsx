@@ -1533,6 +1533,10 @@ const ChatMessageRow = memo(function ChatMessageRow({
     return receipts;
   }, [item.toolSteps]);
   const hasText = item.text.trim().length > 0;
+  // The reply row is appended empty when the turn dispatches and gains its text
+  // when the message lands, so "mounted empty" is exactly "this message arrived
+  // while the user was watching" — the cue for the landing entrance. Rows
+  // restored from history mount with their text and render settled.
   const mountedEmptyRef = useRef(!hasText);
 
   if (item.role === "user") {
@@ -1648,10 +1652,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
       </View>
     );
   }
-  // The reply row is appended empty when the turn dispatches and gains its text
-  // when the message lands, so "mounted empty" is exactly "this message arrived
-  // while the user was watching" — the cue for the landing entrance. Rows
-  // restored from history mount with their text and render settled.
   // Desktop-parity consolidation: agent lifecycle cards are expanded per
   // agent, noise writes are filtered and declared deliverables lead. The
   // minimal agent rows no longer surface file pills — agent-produced files

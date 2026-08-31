@@ -1,5 +1,6 @@
-import { makeFunctionReference, type HttpRouter } from "convex/server";
+import type { HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
+import { internal } from "../_generated/api";
 
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -20,24 +21,30 @@ const requiredString = (
   return value && value.length <= maxLength ? value : null;
 };
 
-const socketConfirmRef = makeFunctionReference<"mutation", any, boolean>(
-  "execution_placement:confirmExecutionPresenceSocketInternal",
-);
-const socketDisconnectRef = makeFunctionReference<
-  "mutation",
-  any,
-  { disconnected: boolean }
->("execution_placement:disconnectExecutionPresenceSocketInternal");
+type SocketIdentity = {
+  ownerId: string;
+  deviceId: string;
+  presenceSessionId: string;
+  connectionId: string;
+};
 
-const parseSocketIdentity = async (
+async function parseSocketIdentity(
+  request: Request,
+  requireAuthExpiry: true,
+): Promise<(SocketIdentity & { authExpiresAtMs: number }) | null>;
+async function parseSocketIdentity(
+  request: Request,
+  requireAuthExpiry: false,
+): Promise<SocketIdentity | null>;
+async function parseSocketIdentity(
   request: Request,
   requireAuthExpiry: boolean,
-) => {
+): Promise<(SocketIdentity & { authExpiresAtMs?: number }) | null> {
   const contentLength = Number(request.headers.get("content-length") ?? "0");
   if (Number.isFinite(contentLength) && contentLength > 4096) return null;
   let body: Record<string, unknown>;
   try {
-    const value = await request.json();
+    const value: unknown = await request.json();
     if (!value || typeof value !== "object" || Array.isArray(value))
       return null;
     body = value as Record<string, unknown>;
@@ -58,7 +65,7 @@ const parseSocketIdentity = async (
     connectionId,
     ...(requireAuthExpiry ? { authExpiresAtMs } : {}),
   };
-};
+}
 
 export function registerExecutionPresenceRoutes(http: HttpRouter) {
   http.route({
@@ -69,7 +76,10 @@ export function registerExecutionPresenceRoutes(http: HttpRouter) {
         return json({ error: "Unauthorized" }, 401);
       const identity = await parseSocketIdentity(request, true);
       if (!identity) return json({ error: "Malformed socket identity" }, 400);
-      const current = await ctx.runMutation(socketConfirmRef, identity);
+      const current = await ctx.runMutation(
+        internal.execution_placement.confirmExecutionPresenceSocketInternal,
+        identity,
+      );
       return json({ current });
     }),
   });
@@ -82,10 +92,13 @@ export function registerExecutionPresenceRoutes(http: HttpRouter) {
         return json({ error: "Unauthorized" }, 401);
       const identity = await parseSocketIdentity(request, false);
       if (!identity) return json({ error: "Malformed socket identity" }, 400);
-      const result = await ctx.runMutation(socketDisconnectRef, {
-        ...identity,
-        now: Date.now(),
-      });
+      const result = await ctx.runMutation(
+        internal.execution_placement.disconnectExecutionPresenceSocketInternal,
+        {
+          ...identity,
+          now: Date.now(),
+        },
+      );
       return json(result);
     }),
   });

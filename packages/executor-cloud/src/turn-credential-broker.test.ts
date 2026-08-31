@@ -242,8 +242,6 @@ describe("executor turn credential broker", () => {
       (error: unknown) => error,
     );
     await started;
-    // Let the fetch promise settle and the checkpoint decoder enter its next
-    // body read. Cancellation must remain live beyond response headers.
     await Bun.sleep(1);
     client.close(new Error("turn canceled while draining"));
 

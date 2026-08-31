@@ -39,6 +39,7 @@ import {
 } from "./cloud-journal-projection";
 import { getConvexClient } from "./convex";
 import {
+  AUTOMATIC_EXECUTION_TARGET,
   cancelAutomaticExecution,
   ensureAutomaticExecutionConversation,
   getAutomaticExecutionStatus,
@@ -57,10 +58,6 @@ import {
   type ChatThread,
   type ChatTransport,
 } from "./use-chat-thread";
-
-const AUTOMATIC_EXECUTION_TARGET: AutomaticExecutionTarget = {
-  mode: "automatic",
-};
 
 const confirmIdentityRef = makeFunctionReference<
   "query",

@@ -409,7 +409,7 @@ export type RuntimeChatPayload = {
   storageMode?: "cloud" | "local";
   /** Exact owner-data epoch captured when this cloud turn was admitted. */
   ownerGeneration?: string;
-  /** Frozen user destination. Omitted/automatic preserves local desktop execution. */
+  /** Destination for this send. Omitted or automatic keeps local execution. */
   executionTarget?:
     | { mode: "automatic" }
     | { mode: "cloud" }

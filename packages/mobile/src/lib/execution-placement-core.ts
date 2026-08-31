@@ -7,6 +7,8 @@ export type AutomaticExecutionTarget =
   | { mode: "automatic" }
   | { mode: "cloud" }
   | { mode: "device"; deviceId: string };
+export const AUTOMATIC_EXECUTION_TARGET: AutomaticExecutionTarget =
+  Object.freeze({ mode: "automatic" });
 export type AutomaticExecutionCapability =
   | "chat"
   | "agent"
@@ -325,7 +327,7 @@ export type AutomaticExecutionAdmissionInput = {
   threadId?: string;
   /** What the work is about, never which executor runs it. */
   subject?: AutomaticExecutionSubject;
-  /** Explicit override. Omitted/default keeps the existing automatic policy. */
+  /** Which executor runs it, independent of subject. */
   target?: AutomaticExecutionTarget;
   requiredCapabilities?: AutomaticExecutionCapability[];
   /**
@@ -361,7 +363,7 @@ export const buildAutomaticExecutionAdmission = (
   const idempotencyKey = input.idempotencyKey.trim();
   const conversationId = input.conversationId.trim();
   const subject = input.subject ?? "portable";
-  const target = input.target ?? { mode: "automatic" as const };
+  const target = input.target ?? AUTOMATIC_EXECUTION_TARGET;
   const targetDeviceId = target.mode === "device" ? target.deviceId.trim() : "";
   if (target.mode === "device" && !targetDeviceId) {
     throw new Error("A selected computer needs a device id.");

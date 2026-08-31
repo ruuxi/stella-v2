@@ -5,6 +5,7 @@ import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
 import {
   executionTargetStore,
   useExecutionTarget,
+  type DesktopExecutionTarget,
 } from "@/features/execution-placement/execution-target-store";
 import { getDeviceIdOrNull } from "@/platform/electron/device";
 import {
@@ -54,12 +55,7 @@ export function GlobalExecutionTargetControl() {
         : "This computer";
   const TriggerIcon = target.mode === "cloud" ? Globe : AppWindowMac;
 
-  const choose = (
-    next:
-      | { mode: "automatic" }
-      | { mode: "cloud" }
-      | { mode: "device"; deviceId: string },
-  ) => {
+  const choose = (next: DesktopExecutionTarget) => {
     executionTargetStore.set(next);
     setOpen(false);
   };

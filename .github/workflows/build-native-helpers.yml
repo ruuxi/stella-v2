@@ -5,9 +5,12 @@ name: Build Native Helpers
 # path for native helper payloads; desktop releases download the current
 # published helper set and bundle it without rebuilding native code.
 #
-# Triggers:
-#   - manual dispatch
 on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/native/**"
+      - ".github/workflows/build-native-helpers.yml"
   workflow_dispatch:
     inputs:
       tag:
@@ -17,6 +20,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: native-helpers-current-publish
+  cancel-in-progress: false
 
 jobs:
   macos:
@@ -33,6 +40,17 @@ jobs:
       - name: Install Rust + macOS targets
         run: |
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Restore native Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/native/wakeword/target
+          key: native-rust-v1-macos-${{ hashFiles('packages/native/wakeword/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            native-rust-v1-macos-${{ hashFiles('packages/native/wakeword/Cargo.lock') }}-
 
       - name: Build universal native helpers (macOS)
         env:
@@ -128,6 +146,17 @@ jobs:
         shell: pwsh
         run: rustup target add x86_64-pc-windows-msvc
 
+      - name: Restore native Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/native/wakeword/target
+          key: native-rust-v1-windows-${{ hashFiles('packages/native/wakeword/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            native-rust-v1-windows-${{ hashFiles('packages/native/wakeword/Cargo.lock') }}-
+
       # parakeet_cpp_transcriber.exe (local on-device dictation) is built with
       # cmake + MSVC from parakeet.cpp. The windows-latest runner already ships
       # cmake, git, and the VS Build Tools, but the MSVC dev environment
@@ -144,7 +173,6 @@ jobs:
           cmake --version
           git --version
           Get-Command cl -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "cl: $($_.Source)" }
-
 
       # dictation_bridge.exe does keyboard input synthesis (paste) and
       # stella-computer-helper.exe does window control — both look like

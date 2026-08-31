@@ -57,6 +57,17 @@ jobs:
           set -euo pipefail
           rustup target add "${{ matrix.target }}"
 
+      - name: Restore browser Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/stella-browser/cli/target
+          key: stella-browser-rust-v1-${{ matrix.platform }}-${{ hashFiles('packages/stella-browser/cli/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            stella-browser-rust-v1-${{ matrix.platform }}-${{ hashFiles('packages/stella-browser/cli/Cargo.lock') }}-
+
       - name: Build browser service
         shell: bash
         run: |

@@ -7,6 +7,7 @@ import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
 } from "@stella/runtime/kernel/storage/database-init";
+import { rebuildSearchIndexes } from "@stella/runtime/kernel/storage/schema";
 import {
   FtsSearchUnavailableError,
   SessionStore,
@@ -87,7 +88,11 @@ const saveAgent = (
 
 const ftsRowCount = (db: SqliteDatabase): number =>
   (
-    db.prepare("SELECT COUNT(*) AS count FROM thread_search_fts").get() as {
+    db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM thread WHERE search_text IS NOT NULL",
+      )
+      .get() as {
       count: number;
     }
   ).count;
@@ -96,7 +101,7 @@ const ftsRowCountForThread = (db: SqliteDatabase, threadKey: string): number =>
   (
     db
       .prepare(
-        "SELECT COUNT(*) AS count FROM thread_search_fts WHERE thread_key = ?",
+        "SELECT COUNT(*) AS count FROM thread WHERE id = ? AND search_text IS NOT NULL",
       )
       .get(threadKey) as { count: number }
   ).count;
@@ -288,15 +293,12 @@ describe("thread FTS index", () => {
       result: "shipped the zanzibar rollout",
     });
 
-    db.exec("DELETE FROM thread_search_fts;");
-    db.prepare("DELETE FROM settings WHERE key = ?").run(
-      "thread_search_fts_backfilled_v2",
-    );
+    db.exec("INSERT INTO thread_fts(thread_fts, rank) VALUES ('delete-all', 0);");
     expect(
       store.searchThreads({ conversationId: "conv-a", query: "zanzibar" }),
     ).toEqual([]);
 
-    initializeDesktopDatabase(db);
+    rebuildSearchIndexes(db);
 
     expect(ftsRowCount(db)).toBe(1);
     expect(
@@ -312,13 +314,10 @@ describe("thread FTS index", () => {
     saveAgent(store, flight.threadId, "conv-a", {
       result: "the zanzibar route was cheapest",
     });
-    db.exec("DROP TRIGGER trg_thread_search_fts_thread_insert;");
-    db.exec("DROP TRIGGER trg_thread_search_fts_thread_update;");
-    db.exec("DROP TRIGGER trg_thread_search_fts_thread_delete;");
-    db.exec("DROP TRIGGER trg_thread_search_fts_agent_insert;");
-    db.exec("DROP TRIGGER trg_thread_search_fts_agent_update;");
-    db.exec("DROP TRIGGER trg_thread_search_fts_agent_delete;");
-    db.exec("DROP TABLE thread_search_fts;");
+    db.exec("DROP TRIGGER trg_thread_fts_insert;");
+    db.exec("DROP TRIGGER trg_thread_fts_update;");
+    db.exec("DROP TRIGGER trg_thread_fts_delete;");
+    db.exec("DROP TABLE thread_fts;");
 
     const fallbackStore = new SessionStore(db);
 
@@ -367,9 +366,7 @@ describe("thread FTS index", () => {
     const job = spawnThread(store, "conv-a", "Doomed thread");
     expect(ftsRowCountForThread(db, job.threadId)).toBe(1);
 
-    db.prepare("DELETE FROM runtime_threads WHERE thread_key = ?").run(
-      job.threadId,
-    );
+    db.prepare("DELETE FROM thread WHERE id = ?").run(job.threadId);
 
     expect(ftsRowCount(db)).toBe(0);
     expect(

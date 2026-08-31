@@ -23,6 +23,9 @@ export const stellaSqlitePaths = [
   'stella.sqlite',
   'stella.sqlite-shm',
   'stella.sqlite-wal',
+  'stella-runs.sqlite',
+  'stella-runs.sqlite-shm',
+  'stella-runs.sqlite-wal',
 ].map((relativePath) => resolve(stellaStatePath, relativePath));
 
 export const stellaStateRuntimePaths = [
@@ -39,6 +42,9 @@ export const stellaStateRuntimePaths = [
   'stella.sqlite',
   'stella.sqlite-shm',
   'stella.sqlite-wal',
+  'stella-runs.sqlite',
+  'stella-runs.sqlite-shm',
+  'stella-runs.sqlite-wal',
 ].map((relativePath) => resolve(stellaStatePath, relativePath));
 
 const killWindowsTree = (pid) =>

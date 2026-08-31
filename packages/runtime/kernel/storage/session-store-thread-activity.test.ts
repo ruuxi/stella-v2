@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { DatabaseSync } from "node:sqlite";
+import { Database } from "bun:sqlite";
 import { SessionStore } from "./session-store.js";
 
-const databases: DatabaseSync[] = [];
+const databases: Database[] = [];
 
 const createStore = () => {
-  const db = new DatabaseSync(":memory:");
+  const db = new Database(":memory:");
   databases.push(db);
   db.exec(`
-    CREATE TABLE runtime_agents (
+    CREATE TABLE agent (
       thread_id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL,
       agent_type TEXT NOT NULL,
@@ -26,11 +26,11 @@ const createStore = () => {
       record_revision INTEGER NOT NULL DEFAULT 0
     )
   `);
-  return { db, store: new SessionStore(db) };
+  return { db, store: new SessionStore(db as never) };
 };
 
 const insertActivity = (
-  db: DatabaseSync,
+  db: Database,
   args: {
     threadId: string;
     status: "running" | "completed";
@@ -41,7 +41,7 @@ const insertActivity = (
 ) => {
   db.prepare(
     `
-    INSERT INTO runtime_agents (
+    INSERT INTO agent (
       thread_id, conversation_id, agent_type, description, status,
       attempt_generation, started_at, completed_at, result, updated_at
     ) VALUES (?, 'conversation', 'general', ?, ?, 1, ?, ?, ?, ?)

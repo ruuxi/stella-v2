@@ -139,7 +139,10 @@ import { createDesktopDatabase } from "../kernel/storage/database.js";
 import { ChatStore } from "../kernel/storage/chat-store.js";
 import { RuntimeStore } from "../kernel/storage/runtime-store.js";
 import { projectLocalChatUpdateEvent } from "../kernel/storage/session-store.js";
-import { RunEventLog } from "../kernel/storage/run-event-log.js";
+import {
+  RunEventLog,
+  openRunEventDatabase,
+} from "../kernel/storage/run-event-log.js";
 import {
   listTranscriptNeighborsBatch,
   readRecallFtsHealth,
@@ -261,6 +264,7 @@ type WorkerState = {
   deviceId: string | null;
 
   runEventLog: RunEventLog | null;
+  runEventDb: SqliteDatabase | null;
 
   cliBridgeServer: CliBridgeServer | null;
 };
@@ -468,6 +472,8 @@ const stopWorkerServices = async (state: WorkerState) => {
   state.runtimeStore = null;
   state.runEventLog?.stop();
   state.runEventLog = null;
+  state.runEventDb?.close();
+  state.runEventDb = null;
   await state.cliBridgeServer?.stop().catch(() => undefined);
   state.cliBridgeServer = null;
   setConnectorTokenStoreBroker(null);
@@ -507,6 +513,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     runnerReadyError: null,
     deviceId: null,
     runEventLog: null,
+    runEventDb: null,
     cliBridgeServer: null,
   };
 
@@ -759,7 +766,9 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       },
     });
     const runtimeStore = chatStore as RuntimeStore;
-    const runEventLog = new RunEventLog(db);
+    const runEventDb = openRunEventDatabase(init.stellaDataDirPath);
+    const runEventLog = new RunEventLog(runEventDb);
+    state.runEventDb = runEventDb;
     const deviceIdentity = await peer.request<HostDeviceIdentity>(
       METHOD_NAMES.HOST_DEVICE_IDENTITY_GET,
     );
@@ -2511,30 +2520,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         payload.conversationId ?? "",
         payload.maxMessages,
       );
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_LOCAL_CHAT_GET_SYNC_CHECKPOINT,
-    async (params) => {
-      return ensureChatStore().getSyncCheckpoint(
-        (params as { conversationId?: string }).conversationId ?? "",
-      );
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_LOCAL_CHAT_SET_SYNC_CHECKPOINT,
-    async (params) => {
-      const payload = params as {
-        conversationId?: string;
-        localMessageId?: string;
-      };
-      ensureChatStore().setSyncCheckpoint(
-        payload.conversationId ?? "",
-        payload.localMessageId ?? "",
-      );
-      return { ok: true };
     },
   );
 

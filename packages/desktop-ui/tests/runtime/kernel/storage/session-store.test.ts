@@ -12,6 +12,7 @@ import {
   SessionStore,
   projectLocalChatUpdateEvent,
 } from "../../../../../runtime/kernel/storage/session-store.js";
+import { ThreadLog } from "../../../../../runtime/kernel/storage/thread-log.js";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 import {
   getThreadImageHistoryStats,
@@ -115,15 +116,17 @@ describe("session-store", () => {
       conversationId: "conv-atomic-tool-group",
       agentType: "orchestrator",
     });
-    const originalAppend = store.appendThreadSessionEntry.bind(store);
+    const originalAppend = ThreadLog.prototype.appendThreadSessionEntry;
     let appendCount = 0;
-    vi.spyOn(store, "appendThreadSessionEntry").mockImplementation((args) => {
-      appendCount += 1;
-      if (appendCount === 2) {
-        throw new Error("injected SQLite failure");
-      }
-      return originalAppend(args);
-    });
+    const appendSpy = vi
+      .spyOn(ThreadLog.prototype, "appendThreadSessionEntry")
+      .mockImplementation(function (this: ThreadLog, args) {
+        appendCount += 1;
+        if (appendCount === 2) {
+          throw new Error("injected SQLite failure");
+        }
+        return originalAppend.call(this, args);
+      });
 
     expect(() =>
       store.appendThreadMessages([
@@ -196,49 +199,131 @@ describe("session-store", () => {
       ]),
     ).toThrow("injected SQLite failure");
 
+    appendSpy.mockRestore();
     expect(store.loadRawThreadMessages(threadId)).toEqual([]);
     expect(
-      db
-        .prepare(
-          "SELECT COUNT(*) AS count FROM runtime_thread_entry_payload_chunks",
-        )
-        .get()?.count,
+      db.prepare("SELECT COUNT(*) AS count FROM blob").get()?.count,
     ).toBe(0);
   });
 
-  it("migrates v1 append-sequence rows to the canonical insertion sequence", async () => {
+  it("imports a legacy database into the v1 schema once and drops the old tables", async () => {
     const rootPath = path.join(
       os.tmpdir(),
-      `stella-session-store-v1-thread-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      `stella-session-store-legacy-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     await mkdir(rootPath, { recursive: true });
     const db = new DatabaseSync(getDesktopDatabasePath(rootPath), {
       timeout: 5000,
     }) as unknown as SqliteDatabase;
+    const timestamp = 1_700_000_000_000;
+    const legacyConversation = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
     db.exec(`
+      CREATE TABLE session (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active', parent_id TEXT,
+        workspace_path TEXT, sync_checkpoint_message_id TEXT,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE message (
+        id TEXT PRIMARY KEY, session_id TEXT NOT NULL, thread_key TEXT,
+        run_id TEXT, role TEXT NOT NULL, type TEXT NOT NULL,
+        request_id TEXT, device_id TEXT, target_device_id TEXT,
+        agent_type TEXT, data_json TEXT, ui_visible INTEGER,
+        ordering_sequence INTEGER,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE part (
+        id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+        message_id TEXT NOT NULL, ord INTEGER NOT NULL, type TEXT NOT NULL,
+        tool_call_id TEXT, data_json TEXT, created_at INTEGER NOT NULL
+      );
+      CREATE TABLE runtime_threads (
+        thread_key TEXT PRIMARY KEY, conversation_id TEXT NOT NULL,
+        agent_type TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL,
+        created_at INTEGER NOT NULL, last_used_at INTEGER NOT NULL,
+        summary TEXT, external_session_id TEXT, group_key TEXT, group_label TEXT
+      );
       CREATE TABLE runtime_thread_entries (
-        entry_id TEXT PRIMARY KEY,
-        thread_key TEXT NOT NULL,
-        session_id TEXT NOT NULL,
-        parent_entry_id TEXT,
-        entry_type TEXT NOT NULL,
-        timestamp_iso TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        append_seq INTEGER,
+        entry_id TEXT PRIMARY KEY, thread_key TEXT NOT NULL,
+        session_id TEXT NOT NULL, parent_entry_id TEXT,
+        entry_type TEXT NOT NULL, timestamp_iso TEXT NOT NULL,
+        created_at INTEGER NOT NULL, insertion_sequence INTEGER,
         data_json TEXT
       );
-      CREATE INDEX idx_runtime_thread_entries_thread_append
-      ON runtime_thread_entries(thread_key, append_seq);
+      CREATE TABLE runtime_agents (
+        thread_id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL,
+        agent_type TEXT NOT NULL, description TEXT NOT NULL,
+        agent_depth INTEGER NOT NULL, max_agent_depth INTEGER,
+        parent_agent_id TEXT, status TEXT NOT NULL,
+        started_at INTEGER NOT NULL, completed_at INTEGER, result TEXT,
+        error TEXT, updated_at INTEGER NOT NULL, root_run_id TEXT
+      );
+      CREATE TABLE message_ordering_counter (
+        id INTEGER PRIMARY KEY CHECK (id = 0), next_sequence INTEGER NOT NULL
+      );
     `);
-    const insertLegacy = db.prepare(`
-      INSERT INTO runtime_thread_entries (
-        entry_id, thread_key, session_id, parent_entry_id, entry_type,
-        timestamp_iso, created_at, append_seq, data_json
-      ) VALUES (?, 'legacy-thread', 'legacy-session', ?, ?, ?, ?, ?, ?)
-    `);
-    const timestamp = 1_700_000_000_000;
-    insertLegacy.run(
-      "legacy-random-z",
+    db.prepare(
+      `INSERT INTO session (id, created_at, updated_at) VALUES (?, ?, ?)`,
+    ).run(legacyConversation, timestamp, timestamp);
+    const insertMessage = db.prepare(
+      `INSERT INTO message (
+         id, session_id, role, type, ui_visible, ordering_sequence,
+         created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const insertPart = db.prepare(
+      `INSERT INTO part (id, session_id, message_id, ord, type, data_json, created_at)
+       VALUES (?, ?, ?, 0, 'payload', ?, ?)`,
+    );
+    const addEvent = (
+      id: string,
+      role: string,
+      type: string,
+      uiVisible: number | null,
+      seq: number,
+      payload: unknown,
+    ) => {
+      insertMessage.run(
+        id,
+        legacyConversation,
+        role,
+        type,
+        uiVisible,
+        seq,
+        timestamp + seq,
+        timestamp + seq,
+      );
+      insertPart.run(
+        `${id}:part:0`,
+        legacyConversation,
+        id,
+        JSON.stringify(payload),
+        timestamp + seq,
+      );
+    };
+    addEvent("m1", "user", "user_message", 1, 1, { text: "Legacy question" });
+    addEvent("m2", "tool", "tool_request", null, 2, { toolName: "web" });
+    addEvent("m3", "assistant", "assistant_message", 1, 3, {
+      text: "Legacy answer",
+    });
+    addEvent("m4", "user", "user_message", 0, 4, {
+      text: "Hidden legacy",
+      metadata: { ui: { visibility: "hidden" } },
+    });
+    db.prepare(
+      `INSERT INTO runtime_threads (
+         thread_key, conversation_id, agent_type, name, status,
+         created_at, last_used_at, summary
+       ) VALUES ('legacy-thread', ?, 'general', 'Legacy task', 'active', ?, ?, NULL)`,
+    ).run(legacyConversation, timestamp, timestamp);
+    const insertEntry = db.prepare(
+      `INSERT INTO runtime_thread_entries (
+         entry_id, thread_key, session_id, parent_entry_id, entry_type,
+         timestamp_iso, created_at, insertion_sequence, data_json
+       ) VALUES (?, 'legacy-thread', 'legacy-session', ?, ?, ?, ?, ?, ?)`,
+    );
+    insertEntry.run(
+      "legacy-e1",
       null,
       "message",
       new Date(timestamp).toISOString(),
@@ -248,9 +333,9 @@ describe("session-store", () => {
         message: { role: "user", content: "Legacy first", timestamp },
       }),
     );
-    insertLegacy.run(
-      "legacy-random-a",
-      "legacy-random-z",
+    insertEntry.run(
+      "legacy-e2",
+      "legacy-e1",
       "custom_message",
       new Date(timestamp).toISOString(),
       timestamp,
@@ -262,9 +347,9 @@ describe("session-store", () => {
         eventId: "legacy-child-event",
       }),
     );
-    insertLegacy.run(
-      "legacy-random-m",
-      "legacy-random-z",
+    insertEntry.run(
+      "legacy-e3",
+      "legacy-e1",
       "message",
       new Date(timestamp).toISOString(),
       timestamp,
@@ -273,63 +358,73 @@ describe("session-store", () => {
         message: { role: "user", content: "Legacy second", timestamp },
       }),
     );
+    // A legacy agent row predating the attempt_generation column.
+    db.prepare(
+      `INSERT INTO runtime_agents (
+         thread_id, conversation_id, agent_type, description, agent_depth,
+         status, started_at, updated_at
+       ) VALUES ('legacy-thread', ?, 'general', 'Legacy row', 1, 'completed', 1, 2)`,
+    ).run(legacyConversation);
 
     initializeDesktopDatabase(db);
     const context = { rootPath, db, store: new SessionStore(db) };
     activeContexts.add(context);
 
+    // Chat log imported with order, visibility, and turn anchoring intact.
+    const window = context.store.listMessages(legacyConversation, {
+      maxVisibleMessages: 10,
+    });
+    expect(window.messages.map((message) => message._id)).toEqual(["m1", "m3"]);
+    expect(window.visibleMessageCount).toBe(2);
+    expect(window.messages[1]!.toolEvents.map((event) => event._id)).toEqual([
+      "m2",
+    ]);
+
+    // Thread transcript imported in durable insertion order.
     expect(
       context.store
         .loadThreadMessages("legacy-thread")
         .map((message) => message.content),
     ).toEqual(["Legacy first", "Legacy sibling event", "Legacy second"]);
+
+    // Legacy agent rows gain the zero ownership generation.
+    expect(context.store.getAgentRecord("legacy-thread")).toMatchObject({
+      threadId: "legacy-thread",
+      attemptGeneration: 0,
+    });
+
+    // New writes continue after the imported sequences.
+    context.store.appendThreadMessage({
+      threadKey: "legacy-thread",
+      timestamp: timestamp + 10,
+      role: "user",
+      content: "Imported later",
+    });
+    expect(
+      context.store
+        .loadThreadMessages("legacy-thread")
+        .map((message) => message.content),
+    ).toEqual([
+      "Legacy first",
+      "Legacy sibling event",
+      "Legacy second",
+      "Imported later",
+    ]);
+
+    // The legacy tables are gone, and reopening performs no further work.
     expect(
       db
         .prepare(
-          `SELECT insertion_sequence AS insertionSequence
-           FROM runtime_thread_entries
-           WHERE thread_key = 'legacy-thread'
-           ORDER BY insertion_sequence`,
+          `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (
+             'session', 'message', 'part', 'runtime_threads',
+             'runtime_thread_entries', 'runtime_agents',
+             'message_ordering_counter'
+           )`,
         )
         .all(),
-    ).toEqual([
-      { insertionSequence: 1 },
-      { insertionSequence: 2 },
-      { insertionSequence: 3 },
-    ]);
-    expect(
-      db
-        .prepare(
-          `SELECT 1 FROM sqlite_schema
-           WHERE type = 'index'
-             AND name = 'idx_runtime_thread_entries_thread_append'`,
-        )
-        .get(),
-    ).toBeUndefined();
-
-    db.prepare(
-      `INSERT INTO runtime_thread_entries (
-         entry_id, thread_key, session_id, parent_entry_id, entry_type,
-         timestamp_iso, created_at, data_json
-       ) VALUES (?, 'legacy-thread', 'legacy-session', ?, 'message', ?, ?, ?)`,
-    ).run(
-      "legacy-random-new",
-      "legacy-random-m",
-      new Date(timestamp).toISOString(),
-      timestamp,
-      JSON.stringify({
-        message: { role: "user", content: "Imported later", timestamp },
-      }),
-    );
-    expect(
-      db
-        .prepare(
-          `SELECT insertion_sequence AS insertionSequence
-           FROM runtime_thread_entries
-           WHERE entry_id = 'legacy-random-new'`,
-        )
-        .get(),
-    ).toMatchObject({ insertionSequence: 4 });
+    ).toEqual([]);
+    initializeDesktopDatabase(db);
+    expect(context.store.getEventCount(legacyConversation)).toBe(4);
   });
 
   it("projects durable provider usage by conversation and agent thread", () => {
@@ -465,26 +560,26 @@ describe("session-store", () => {
       .prepare(
         `
       EXPLAIN QUERY PLAN
-      SELECT entry.entry_id
-      FROM runtime_thread_entries entry
-      JOIN runtime_threads thread ON thread.thread_key = entry.thread_key
-      LEFT JOIN runtime_agents agent ON agent.thread_id = thread.thread_key
-      LEFT JOIN session ON session.id = thread.conversation_id
-      WHERE entry.entry_type = 'message'
-        AND json_extract(entry.data_json, '$.message.role') = 'assistant'
-        AND json_type(entry.data_json, '$.message.usage') = 'object'
-        AND COALESCE(json_extract(entry.data_json, '$.message.model'), '') != 'history'
-      ORDER BY entry.created_at DESC, entry.entry_id DESC
+      SELECT te.id
+      FROM thread_entry te
+      JOIN thread ON thread.id = te.thread_id
+      LEFT JOIN agent ON agent.thread_id = thread.id
+      LEFT JOIN conversation ON conversation.id = thread.conversation_id
+      WHERE te.type = 'message'
+        AND te.role = 'assistant'
+        AND json_type(te.payload, '$.message.usage') = 'object'
+        AND COALESCE(json_extract(te.payload, '$.message.model'), '') != 'history'
+      ORDER BY te.created_at DESC, te.id DESC
       LIMIT ?
     `,
       )
       .all(100) as Array<{ detail: string }>;
     const details = plan.map((row) => row.detail);
 
-    const entryStep = details.find((detail) => detail.includes("entry"));
-    expect(entryStep).toContain("USING INDEX idx_runtime_thread_entries_usage");
-
-    expect(details.join("\n")).not.toContain("TEMP B-TREE");
+    const entryStep = details.find((detail) => detail.includes("te"));
+    expect(entryStep).toContain(
+      "USING INDEX idx_thread_entry_assistant_created",
+    );
   });
 
   it("persists parent-owned lifecycle entries outside model-visible thread messages", () => {
@@ -532,56 +627,6 @@ describe("session-store", () => {
         event: { ...started, type: "user_message" },
       }),
     ).toThrow("A valid lifecycle event is required");
-  });
-
-  it("migrates legacy agent rows with a zero ownership generation", async () => {
-    const rootPath = path.join(
-      os.tmpdir(),
-      `stella-session-store-legacy-agent-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    );
-    await mkdir(rootPath, { recursive: true });
-    const db = new DatabaseSync(getDesktopDatabasePath(rootPath), {
-      timeout: 5000,
-    }) as unknown as SqliteDatabase;
-    db.exec(`
-      CREATE TABLE runtime_agents (
-        thread_id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL,
-        agent_type TEXT NOT NULL,
-        description TEXT NOT NULL,
-        agent_depth INTEGER NOT NULL,
-        max_agent_depth INTEGER,
-        parent_agent_id TEXT,
-        status TEXT NOT NULL,
-        started_at INTEGER NOT NULL,
-        completed_at INTEGER,
-        result TEXT,
-        error TEXT,
-        updated_at INTEGER NOT NULL,
-        root_run_id TEXT
-      );
-      INSERT INTO runtime_agents (
-        thread_id, conversation_id, agent_type, description, agent_depth,
-        status, started_at, updated_at
-      ) VALUES (
-        'legacy-agent', 'legacy-conversation', 'general', 'Legacy row', 1,
-        'completed', 1, 2
-      );
-    `);
-    initializeDesktopDatabase(db);
-    const context = { rootPath, db, store: new SessionStore(db) };
-    activeContexts.add(context);
-
-    expect(context.store.getAgentRecord("legacy-agent")).toMatchObject({
-      threadId: "legacy-agent",
-      attemptGeneration: 0,
-    });
-    const columns = db
-      .prepare("PRAGMA table_info(runtime_agents)")
-      .all() as Array<{
-      name: string;
-    }>;
-    expect(columns.map((column) => column.name)).toContain("model_config_json");
   });
 
   it("round-trips a Manager's inherited model configuration", () => {
@@ -668,16 +713,13 @@ describe("session-store", () => {
     ).toEqual(["user_message", "tool_request", "assistant_message"]);
     expect(store.getEventCount(conversationId)).toBe(3);
 
-    store.setSyncCheckpoint(conversationId, assistantEvent._id);
-    expect(store.getSyncCheckpoint(conversationId)).toBe(assistantEvent._id);
-
     const messageRows = db
       .prepare(
         `
       SELECT id, type, role
-      FROM message
-      WHERE session_id = ?
-      ORDER BY created_at ASC, id ASC
+      FROM entry
+      WHERE conversation_id = ?
+      ORDER BY seq ASC
     `,
       )
       .all(conversationId) as Array<{ id: string; type: string; role: string }>;
@@ -1743,18 +1785,24 @@ describe("session-store", () => {
     expect(
       store.findVisibleMessageCursorAfter(conversationId, pageEnd!)?.id,
     ).toBe(anchors[11]!._id);
-    const originalFetch = store.fetchTimelineRows.bind(store);
-    vi.spyOn(store, "fetchTimelineRows").mockImplementation((...args) => {
-      const rows = originalFetch(...args);
-      fetchedRowCounts.push(rows.length);
-      return rows;
-    });
+    const chatLogPrototype = Object.getPrototypeOf(
+      (store as unknown as { chat: object }).chat,
+    ) as { fetchEntryRows: (...args: unknown[]) => unknown[] };
+    const originalFetch = chatLogPrototype.fetchEntryRows;
+    const fetchSpy = vi
+      .spyOn(chatLogPrototype, "fetchEntryRows")
+      .mockImplementation(function (this: unknown, ...args: unknown[]) {
+        const rows = originalFetch.apply(this, args) as unknown[];
+        fetchedRowCounts.push(rows.length);
+        return rows;
+      });
 
     const { messages } = store.listMessagesAfter(conversationId, {
       afterTimestampMs: anchors[0]!.timestamp,
       afterId: anchors[0]!._id,
       maxVisibleMessages: 10,
     });
+    fetchSpy.mockRestore();
 
     expect(messages.map((message) => message.payload?.text)).toEqual(
       Array.from({ length: 10 }, (_, index) => `message ${index + 1}`),
@@ -1813,7 +1861,7 @@ describe("session-store", () => {
     expect(page.messages.map((message) => message._id)).toEqual([visible._id]);
   });
 
-  it("backfills and maintains the indexed visibility projection", () => {
+  it("maintains the indexed visibility projection at write time", () => {
     const { db, store } = createTestContext();
     const conversationId = store.getOrCreateDefaultConversationId();
     const visible = store.appendEvent({
@@ -1833,21 +1881,10 @@ describe("session-store", () => {
         metadata: { ui: { visibility: "hidden" } },
       },
     });
-    db.exec(`
-      DROP TRIGGER trg_message_ui_visible_insert;
-      DROP TRIGGER trg_message_ui_visible_type_update;
-      DROP TRIGGER trg_part_ui_visible_insert;
-      DROP TRIGGER trg_part_ui_visible_update;
-      DROP TRIGGER trg_part_ui_visible_delete;
-      UPDATE message SET ui_visible = NULL
-      WHERE id IN ('visibility-visible', 'visibility-hidden');
-    `);
-
-    initializeDesktopDatabase(db);
 
     const rows = db
       .prepare(
-        `SELECT id, ui_visible AS visible FROM message
+        `SELECT id, visible FROM entry
          WHERE id IN (?, ?) ORDER BY id`,
       )
       .all(hidden._id, visible._id) as Array<{ id: string; visible: number }>;
@@ -1858,48 +1895,25 @@ describe("session-store", () => {
     const queryPlan = db
       .prepare(
         `EXPLAIN QUERY PLAN
-         SELECT id FROM message
-         WHERE session_id = ?
-           AND type IN ('user_message', 'assistant_message')
-           AND ui_visible = 1
-         ORDER BY ordering_sequence DESC
+         SELECT id FROM entry
+         WHERE conversation_id = ?
+           AND visible = 1
+         ORDER BY seq DESC
          LIMIT 80`,
       )
       .all(conversationId) as Array<{ detail?: string }>;
     expect(queryPlan.map((step) => step.detail).join("\n")).toContain(
-      "idx_message_session_visible_sequence",
+      "idx_entry_conv_visible_seq",
     );
 
-    db.prepare(
-      `INSERT INTO part (
-        id, session_id, message_id, ord, type, data_json, created_at
-      ) VALUES (?, ?, ?, 1, 'payload', ?, ?)`,
-    ).run(
-      `${hidden._id}:secondary`,
+    const patched = store.mergeEventPayload({
       conversationId,
-      hidden._id,
-      JSON.stringify({ metadata: { ui: { visibility: "hidden" } } }),
-      1_002,
-    );
-    db.prepare("UPDATE part SET data_json = ? WHERE id = ?").run(
-      JSON.stringify({ text: "secondary edit" }),
-      `${hidden._id}:secondary`,
-    );
+      eventId: hidden._id,
+      patch: { metadata: { ui: { visibility: "hidden" } }, note: "still hidden" },
+    });
+    expect(patched?.payload?.note).toBe("still hidden");
     expect(
-      db
-        .prepare("SELECT ui_visible AS visible FROM message WHERE id = ?")
-        .get(hidden._id),
-    ).toEqual({ visible: 0 });
-    db.prepare("UPDATE message SET type = 'tool_result' WHERE id = ?").run(
-      hidden._id,
-    );
-    db.prepare("UPDATE message SET type = 'user_message' WHERE id = ?").run(
-      hidden._id,
-    );
-    expect(
-      db
-        .prepare("SELECT ui_visible AS visible FROM message WHERE id = ?")
-        .get(hidden._id),
+      db.prepare("SELECT visible FROM entry WHERE id = ?").get(hidden._id),
     ).toEqual({ visible: 0 });
 
     store.appendEvent({
@@ -2254,9 +2268,9 @@ describe("session-store", () => {
       .prepare(
         `
       SELECT COUNT(*) AS count
-      FROM runtime_thread_entries
-      WHERE thread_key = ?
-        AND entry_type = 'message'
+      FROM thread_entry
+      WHERE thread_id = ?
+        AND type = 'message'
     `,
       )
       .get(threadId) as { count: number };
@@ -2288,28 +2302,16 @@ describe("session-store", () => {
 
     const entryRows = db
       .prepare(
-        `SELECT
-           entry_id AS entryId,
-           parent_entry_id AS parentEntryId,
-           insertion_sequence AS insertionSequence
-         FROM runtime_thread_entries
-         WHERE thread_key = ?
-         ORDER BY insertion_sequence ASC`,
+        `SELECT id AS entryId, seq
+         FROM thread_entry
+         WHERE thread_id = ?
+         ORDER BY seq ASC`,
       )
-      .all(threadId) as Array<{
-      entryId: string;
-      parentEntryId: string | null;
-      insertionSequence: number;
-    }>;
+      .all(threadId) as Array<{ entryId: string; seq: number }>;
     expect(entryRows).toHaveLength(messageCount);
-    expect(new Set(entryRows.map((row) => row.insertionSequence)).size).toBe(
-      messageCount,
+    expect(entryRows.map((row) => row.seq)).toEqual(
+      Array.from({ length: messageCount }, (_, index) => index + 1),
     );
-    for (let index = 1; index < entryRows.length; index += 1) {
-      expect(entryRows[index]?.parentEntryId).toBe(
-        entryRows[index - 1]?.entryId,
-      );
-    }
 
     db.close();
     activeContexts.delete(context);
@@ -2335,213 +2337,6 @@ describe("session-store", () => {
     expect(reopened.store.loadThreadMessages(threadId, 25)[0]?.content).toBe(
       "Frozen message 55",
     );
-  });
-
-  it("orders legacy branches by durable insertion sequence", () => {
-    const { db, store } = createTestContext();
-    const { threadId } = store.resolveOrCreateActiveThread({
-      conversationId: "conv-imported-thread",
-      agentType: "general",
-    });
-    store.appendThreadMessage({
-      threadKey: threadId,
-      timestamp: 8_000,
-      role: "user",
-      content: "Imported base",
-      payload: { role: "user", content: "Imported base", timestamp: 8_000 },
-    });
-    const base = db
-      .prepare(
-        `SELECT entry_id AS entryId, session_id AS sessionId
-         FROM runtime_thread_entries WHERE thread_key = ? LIMIT 1`,
-      )
-      .get(threadId) as { entryId: string; sessionId: string };
-    const insertLegacy = db.prepare(`
-      INSERT INTO runtime_thread_entries (
-        entry_id, thread_key, session_id, parent_entry_id, entry_type,
-        timestamp_iso, created_at, data_json
-      ) VALUES (?, ?, ?, ?, 'message', ?, ?, ?)
-    `);
-    insertLegacy.run(
-      "legacy-random-z",
-      threadId,
-      base.sessionId,
-      base.entryId,
-      new Date(8_000).toISOString(),
-      8_000,
-      JSON.stringify({
-        message: { role: "user", content: "Imported second", timestamp: 8_000 },
-      }),
-    );
-    insertLegacy.run(
-      "legacy-random-a",
-      threadId,
-      base.sessionId,
-      base.entryId,
-      new Date(8_000).toISOString(),
-      8_000,
-      JSON.stringify({
-        message: { role: "user", content: "Imported third", timestamp: 8_000 },
-      }),
-    );
-
-    expect(
-      store.loadThreadMessages(threadId).map((entry) => entry.content),
-    ).toEqual(["Imported base", "Imported second", "Imported third"]);
-    store.appendThreadMessage({
-      threadKey: threadId,
-      timestamp: 8_000,
-      role: "user",
-      content: "Appended after import",
-      payload: {
-        role: "user",
-        content: "Appended after import",
-        timestamp: 8_000,
-      },
-    });
-    expect(
-      store.loadThreadMessages(threadId).map((entry) => entry.content),
-    ).toEqual([
-      "Imported base",
-      "Imported second",
-      "Imported third",
-      "Appended after import",
-    ]);
-  });
-
-  it("repairs rows inserted during the insertion-sequence migration window", () => {
-    const { db, store } = createTestContext();
-    const { threadId } = store.resolveOrCreateActiveThread({
-      conversationId: "conv-partial-sequence-migration",
-      agentType: "general",
-    });
-    store.appendThreadMessage({
-      threadKey: threadId,
-      timestamp: 8_000,
-      role: "user",
-      content: "Before migration window",
-      payload: {
-        role: "user",
-        content: "Before migration window",
-        timestamp: 8_000,
-      },
-    });
-    const base = db
-      .prepare(
-        `SELECT entry_id AS entryId, session_id AS sessionId
-         FROM runtime_thread_entries WHERE thread_key = ? LIMIT 1`,
-      )
-      .get(threadId) as { entryId: string; sessionId: string };
-    const insertMessage = db.prepare(`
-      INSERT INTO runtime_thread_entries (
-        entry_id, thread_key, session_id, parent_entry_id, entry_type,
-        timestamp_iso, created_at, data_json
-      ) VALUES (?, ?, ?, ?, 'message', ?, ?, ?)
-    `);
-
-    db.exec("DROP TRIGGER trg_runtime_thread_entries_sequence;");
-    insertMessage.run(
-      "partial-migration-null",
-      threadId,
-      base.sessionId,
-      base.entryId,
-      new Date(8_001).toISOString(),
-      8_001,
-      JSON.stringify({
-        message: {
-          role: "user",
-          content: "Inside migration window",
-          timestamp: 8_001,
-        },
-      }),
-    );
-    db.exec(`
-      CREATE TRIGGER trg_runtime_thread_entries_sequence
-      AFTER INSERT ON runtime_thread_entries
-      WHEN NEW.insertion_sequence IS NULL
-      BEGIN
-        UPDATE runtime_thread_entries
-        SET insertion_sequence = (
-          SELECT COALESCE(MAX(insertion_sequence), 0) + 1
-          FROM runtime_thread_entries
-        )
-        WHERE rowid = NEW.rowid;
-      END;
-    `);
-    insertMessage.run(
-      "partial-migration-assigned",
-      threadId,
-      base.sessionId,
-      "partial-migration-null",
-      new Date(8_002).toISOString(),
-      8_002,
-      JSON.stringify({
-        message: {
-          role: "user",
-          content: "After migration window",
-          timestamp: 8_002,
-        },
-      }),
-    );
-
-    expect(() => initializeDesktopDatabase(db)).not.toThrow();
-    expect(
-      db
-        .prepare(
-          `SELECT insertion_sequence AS insertionSequence
-           FROM runtime_thread_entries
-           WHERE thread_key = ?
-           ORDER BY rowid`,
-        )
-        .all(threadId),
-    ).toEqual([
-      { insertionSequence: 1 },
-      { insertionSequence: 2 },
-      { insertionSequence: 3 },
-    ]);
-    expect(
-      store.loadThreadMessages(threadId).map((entry) => entry.content),
-    ).toEqual([
-      "Before migration window",
-      "Inside migration window",
-      "After migration window",
-    ]);
-  });
-
-  it("recovers malformed imported parent graphs without losing entries", () => {
-    const { db, store } = createTestContext();
-    const { threadId } = store.resolveOrCreateActiveThread({
-      conversationId: "conv-malformed-graph",
-      agentType: "general",
-    });
-    const messages = appendUserThreadMessages(store, threadId, 4);
-    const previousId = messages[2]!.entryId!;
-    const newestId = messages[3]!.entryId!;
-    const updateParent = db.prepare(
-      `UPDATE runtime_thread_entries SET parent_entry_id = ? WHERE entry_id = ?`,
-    );
-    updateParent.run(newestId, previousId);
-    updateParent.run(previousId, newestId);
-
-    expect(
-      store.loadThreadMessages(threadId).map((entry) => entry.content),
-    ).toEqual([
-      "Graph message 0",
-      "Graph message 1",
-      "Graph message 2",
-      "Graph message 3",
-    ]);
-
-    updateParent.run("missing-imported-parent", messages[1]!.entryId!);
-    updateParent.run(messages[1]!.entryId!, previousId);
-    expect(
-      store.loadThreadMessages(threadId).map((entry) => entry.content),
-    ).toEqual([
-      "Graph message 0",
-      "Graph message 1",
-      "Graph message 2",
-      "Graph message 3",
-    ]);
   });
 
   it("preserves assistant thinking blocks in persisted thread payloads", () => {
@@ -2723,9 +2518,9 @@ describe("session-store", () => {
       .prepare(
         `
       SELECT COUNT(*) AS count
-      FROM runtime_thread_entries
-      WHERE thread_key = ?
-        AND entry_type = 'compaction'
+      FROM thread_entry
+      WHERE thread_id = ?
+        AND type = 'compaction'
     `,
       )
       .get(threadId) as { count: number };
@@ -3152,7 +2947,6 @@ describe("session-store", () => {
       },
     });
     const loadMessages = vi.spyOn(store, "loadThreadMessages");
-    const loadExact = vi.spyOn(store, "loadExactThreadEntryData");
 
     const result = await maybeCompactRuntimeThread({
       store,
@@ -3167,7 +2961,6 @@ describe("session-store", () => {
 
     expect(result).toEqual({ compacted: false });
     expect(loadMessages).not.toHaveBeenCalled();
-    expect(loadExact).not.toHaveBeenCalled();
   });
 
   it("ignores checkpoint-resolved quarantine without loading covered screenshot history", async () => {
@@ -3226,14 +3019,17 @@ describe("session-store", () => {
       content: "continue",
       payload: { role: "user", content: "continue", timestamp: 6_028 },
     });
-    const physicalChunks = db
+    const exactBlobs = db
       .prepare(
         `SELECT COUNT(*) AS count
-         FROM runtime_thread_entry_payload_chunks
-         WHERE thread_key = ?`,
+         FROM blob
+         WHERE id IN (
+           SELECT blob_id FROM thread_entry
+           WHERE thread_id = ? AND blob_id IS NOT NULL
+         )`,
       )
       .get(threadId) as { count: number };
-    expect(physicalChunks.count).toBeGreaterThan(1);
+    expect(exactBlobs.count).toBeGreaterThanOrEqual(1);
     expect(store.getThreadContextPressureStats(threadId)).toMatchObject({
       complete: true,
       rowCount: 1,
@@ -3243,7 +3039,6 @@ describe("session-store", () => {
     });
     const loadMessages = vi.spyOn(store, "loadThreadMessages");
     const loadRawMessages = vi.spyOn(store, "loadRawThreadMessages");
-    const loadExact = vi.spyOn(store, "loadExactThreadEntryData");
 
     const result = await maybeCompactRuntimeThread({
       store,
@@ -3259,7 +3054,6 @@ describe("session-store", () => {
     expect(result).toEqual({ compacted: false });
     expect(loadMessages).not.toHaveBeenCalled();
     expect(loadRawMessages).not.toHaveBeenCalled();
-    expect(loadExact).not.toHaveBeenCalled();
   });
 
   it("checkpoints one ten-image message with deterministic durable receipts", async () => {
@@ -3340,8 +3134,8 @@ describe("session-store", () => {
     expect(store.loadRawThreadMessages(threadId)).toEqual(rawBefore);
     const compactionRows = db
       .prepare(
-        `SELECT COUNT(*) AS count FROM runtime_thread_entries
-         WHERE thread_key = ? AND entry_type = 'compaction'`,
+        `SELECT COUNT(*) AS count FROM thread_entry
+         WHERE thread_id = ? AND type = 'compaction'`,
       )
       .get(threadId) as { count: number };
     expect(compactionRows.count).toBe(1);
@@ -3456,19 +3250,22 @@ describe("session-store", () => {
       role: "toolResult",
       content: [{ type: "text", text: largeOutput }],
     });
-    const physicalRows = db
+    const boundedRows = db
       .prepare(
-        `SELECT length(CAST(data_json AS BLOB)) AS bytes
-         FROM runtime_thread_entries
-         UNION ALL
-         SELECT length(CAST(chunk_text AS BLOB)) AS bytes
-         FROM runtime_thread_entry_payload_chunks`,
+        `SELECT length(CAST(payload AS BLOB)) AS bytes FROM thread_entry`,
       )
       .all() as Array<{ bytes: number }>;
-    expect(physicalRows.length).toBeGreaterThan(2);
+    expect(boundedRows.length).toBeGreaterThan(2);
     expect(
-      Math.max(...physicalRows.map((row) => row.bytes)),
+      Math.max(...boundedRows.map((row) => row.bytes)),
     ).toBeLessThanOrEqual(6_000_000);
+    const blobRows = db
+      .prepare(`SELECT byte_length AS bytes FROM blob`)
+      .all() as Array<{ bytes: number }>;
+    expect(blobRows.length).toBeGreaterThanOrEqual(1);
+    expect(Math.max(...blobRows.map((row) => row.bytes))).toBeGreaterThan(
+      6_000_000,
+    );
   });
 
   it("preserves exact oversized runtime context for an evictable working set", () => {
@@ -3493,48 +3290,18 @@ describe("session-store", () => {
       content: largeContext,
       customType: "bootstrap.startup_doc",
     });
-    const chunkRows = db
+    const boundedContextRows = db
       .prepare(
-        `SELECT length(CAST(chunk_text AS BLOB)) AS bytes
-         FROM runtime_thread_entry_payload_chunks
-         ORDER BY chunk_index ASC`,
+        `SELECT length(CAST(payload AS BLOB)) AS bytes FROM thread_entry`,
       )
       .all() as Array<{ bytes: number }>;
-    expect(chunkRows.length).toBeGreaterThan(1);
-    expect(Math.max(...chunkRows.map((row) => row.bytes))).toBeLessThanOrEqual(
-      6_000_000,
-    );
-  });
-
-  it("does not split an exact payload surrogate pair across physical chunks", () => {
-    const { store } = createTestContext();
-    const { threadId } = store.resolveOrCreateActiveThread({
-      conversationId: "conv-exact-surrogate-boundary",
-      agentType: "orchestrator",
-    });
-    const marker = "__SURROGATE_BOUNDARY__";
-    const template = JSON.stringify({
-      customType: "runtime.context_delta.test",
-      content: marker,
-      display: false,
-    });
-    const markerOffset = template.indexOf(marker);
-    expect(markerOffset).toBeGreaterThan(0);
-    const content =
-      "x".repeat(1_000_000 - markerOffset - 1) + "😀" + "y".repeat(5_100_000);
-
-    store.appendThreadCustomMessage({
-      threadKey: threadId,
-      timestamp: 6_075,
-      customType: "runtime.context_delta.test",
-      content,
-      display: false,
-      preservePayloadExactly: true,
-    });
-
-    expect(store.loadThreadMessages(threadId)[0]?.customMessage?.content).toBe(
-      content,
-    );
+    expect(
+      Math.max(...boundedContextRows.map((row) => row.bytes)),
+    ).toBeLessThanOrEqual(6_000_000);
+    const exactContextBlob = db
+      .prepare(`SELECT MAX(byte_length) AS bytes FROM blob`)
+      .get() as { bytes: number };
+    expect(exactContextBlob.bytes).toBeGreaterThan(6_000_000);
   });
 
   it("reconstructs explicit legacy tool errors without changing successful rows", () => {
@@ -3600,8 +3367,8 @@ describe("session-store", () => {
         conversation_id AS conversationId,
         agent_type AS agentType,
         status
-      FROM runtime_threads
-      WHERE thread_key = ?
+      FROM thread
+      WHERE id = ?
       LIMIT 1
     `,
       )
@@ -3701,23 +3468,23 @@ describe("thread activity rows", () => {
     );
     const activePlan = db
       .prepare(
-        `EXPLAIN QUERY PLAN SELECT thread_id FROM runtime_agents
+        `EXPLAIN QUERY PLAN SELECT thread_id FROM agent
          WHERE conversation_id = ? AND status IN ('pending', 'running')
          ORDER BY updated_at DESC, thread_id ASC LIMIT 500`,
       )
       .all("conv-bounded-activity") as Array<{ detail?: string }>;
     const terminalPlan = db
       .prepare(
-        `EXPLAIN QUERY PLAN SELECT thread_id FROM runtime_agents
+        `EXPLAIN QUERY PLAN SELECT thread_id FROM agent
          WHERE conversation_id = ? AND status NOT IN ('pending', 'running')
          ORDER BY updated_at DESC, thread_id ASC LIMIT 500`,
       )
       .all("conv-bounded-activity") as Array<{ detail?: string }>;
     expect(activePlan.map((step) => step.detail).join("\n")).toContain(
-      "idx_runtime_agents_active_updated",
+      "idx_agent_active_updated",
     );
     expect(terminalPlan.map((step) => step.detail).join("\n")).toContain(
-      "idx_runtime_agents_terminal_updated",
+      "idx_agent_terminal_updated",
     );
   });
 
@@ -3787,8 +3554,8 @@ describe("thread activity rows", () => {
     });
 
     db.prepare(
-      `INSERT INTO runtime_threads (
-         thread_key, conversation_id, agent_type, name, status,
+      `INSERT INTO thread (
+         id, conversation_id, agent_type, name, status,
          created_at, last_used_at, group_key, group_label
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(

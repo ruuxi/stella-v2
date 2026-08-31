@@ -303,10 +303,6 @@ export const IPC_LOCAL_CHAT_PERSIST_WELCOME =
 export const IPC_LOCAL_CHAT_LIST_SYNC_MESSAGES =
   "localChat:listSyncMessages" as const;
 export const IPC_LOCAL_CHAT_SYNC_MESSAGES = "localChat:syncMessages" as const;
-export const IPC_LOCAL_CHAT_GET_SYNC_CHECKPOINT =
-  "localChat:getSyncCheckpoint" as const;
-export const IPC_LOCAL_CHAT_SET_SYNC_CHECKPOINT =
-  "localChat:setSyncCheckpoint" as const;
 export const IPC_LOCAL_CHAT_UPDATED = "localChat:updated" as const;
 export const IPC_LOCAL_CHAT_THREAD_ACTIVITY_UPDATED =
   "localChat:threadActivityUpdated" as const;

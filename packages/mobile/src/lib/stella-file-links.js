@@ -36,6 +36,11 @@ const OFFICE_SHEET_EXTS = new Set(["xlsx", "xlsm"]);
 const OFFICE_SLIDES_EXTS = new Set(["ppt", "pptx"]);
 const DELIMITED_TABLE_EXTS = new Set(["csv", "tsv"]);
 
+/**
+ * @param {string} filePath
+ * @param {number} createdAt
+ * @returns {import("../types").MobileDisplayPayload}
+ */
 export const displayPayloadForStellaFile = (filePath, createdAt) => {
   const title = basenameOf(filePath);
   const ext = extensionOf(filePath);
@@ -101,6 +106,11 @@ export const displayPayloadForStellaFile = (filePath, createdAt) => {
   return { kind: "markdown", filePath, title, createdAt };
 };
 
+/**
+ * @param {string} filePath
+ * @param {string} conversationId
+ * @returns {import("../types").ChatArtifact}
+ */
 export const stellaFileChatArtifact = (filePath, conversationId) => {
   const payload = displayPayloadForStellaFile(filePath, Date.now());
   return {

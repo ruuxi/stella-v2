@@ -92,6 +92,19 @@ export type StellaInteriorDeployment = {
   builds: StellaInteriorBuild[];
 };
 
+export type ExecutionDestination = {
+  deviceId: string;
+  name: string;
+  platform?: string;
+  online: boolean;
+  ready: boolean;
+  busy: boolean;
+  remoteExecutionEnabled: boolean;
+  availableChatSlots: number;
+  availableAgentSlots: number;
+  updatedAt?: number;
+};
+
 /** One spawned cloud agent. Mirrors the `cloud_agent_threads` row. */
 export type CloudAgentThread = {
   threadId: string;
@@ -221,6 +234,11 @@ export const cloudApi = {
       serverTime: number;
     }
   >("execution_placement:getMyExecutionPlacementIdentity"),
+  listMyExecutionDestinations: makeFunctionReference<
+    "query",
+    Record<string, never>,
+    ExecutionDestination[]
+  >("execution_placement:listMyExecutionDestinations"),
   deleteMyConversation: makeFunctionReference<
     "action",
     { conversationId: string },

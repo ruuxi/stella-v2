@@ -12,9 +12,17 @@ import { isGuest } from "../../src/lib/guest-mode";
 import {
   getDesktopBridgeStatus,
   getPreferredPhoneAccess,
+  listStoredPairedPhoneAccess,
+  setPreferredDesktopDeviceId,
   requestDesktopConnection,
   type StoredPhoneAccess,
 } from "../../src/lib/phone-access";
+import {
+  AUTOMATIC_EXECUTION_TARGET,
+  getMobileExecutionTarget,
+  setMobileExecutionTarget,
+} from "../../src/lib/execution-target";
+import type { AutomaticExecutionTarget } from "../../src/lib/execution-placement";
 import { updateStellaWidget } from "../../src/lib/home-widget";
 import { tapLight, notifySuccess } from "../../src/lib/haptics";
 import {
@@ -135,10 +143,27 @@ function SignedInCanonicalChat(props: {
   // Pairing is resolved alongside the conversation rather than gating it: the
   // chat is usable before (and without) a paired computer.
   const [access, setAccess] = useState<StoredPhoneAccess | null>(null);
+  const [pairedDesktops, setPairedDesktops] = useState<StoredPhoneAccess[]>([]);
+  const [executionTarget, setExecutionTarget] =
+    useState<AutomaticExecutionTarget>(AUTOMATIC_EXECUTION_TARGET);
   const [pairingResolved, setPairingResolved] = useState(false);
   useEffect(() => {
-    void getPreferredPhoneAccess().then((stored) => {
+    void Promise.all([
+      getPreferredPhoneAccess(),
+      listStoredPairedPhoneAccess(),
+      getMobileExecutionTarget(),
+    ]).then(([stored, paired, target]) => {
       setAccess(stored);
+      setPairedDesktops(paired);
+      const targetStillPaired =
+        target.mode !== "device" ||
+        paired.some((entry) => entry.desktopDeviceId === target.deviceId);
+      setExecutionTarget(
+        targetStillPaired ? target : AUTOMATIC_EXECUTION_TARGET,
+      );
+      if (!targetStillPaired) {
+        void setMobileExecutionTarget(AUTOMATIC_EXECUTION_TARGET);
+      }
       setPairingResolved(true);
       if (!stored) updateStellaWidget({ paired: false, online: false });
     });
@@ -147,14 +172,45 @@ function SignedInCanonicalChat(props: {
   const thread = useCloudCanonicalChatThread(props.authority, {
     reloadAuthority: props.reloadAuthority,
     access,
+    executionTarget,
   });
+
+  const updateAccess = useCallback((next: StoredPhoneAccess) => {
+    setAccess(next);
+    setPairedDesktops((current) => [
+      next,
+      ...current.filter(
+        (entry) => entry.desktopDeviceId !== next.desktopDeviceId,
+      ),
+    ]);
+  }, []);
+
+  const updateExecutionTarget = useCallback(
+    (next: AutomaticExecutionTarget) => {
+      setExecutionTarget(next);
+      void setMobileExecutionTarget(next);
+      if (next.mode === "device") {
+        const selected = pairedDesktops.find(
+          (entry) => entry.desktopDeviceId === next.deviceId,
+        );
+        if (selected) {
+          setAccess(selected);
+          void setPreferredDesktopDeviceId(selected.desktopDeviceId);
+        }
+      }
+    },
+    [pairedDesktops],
+  );
 
   return (
     <ChatSurface
       thread={thread}
       access={access}
+      pairedDesktops={pairedDesktops}
+      executionTarget={executionTarget}
       pairingResolved={pairingResolved}
-      onAccessChange={setAccess}
+      onAccessChange={updateAccess}
+      onExecutionTargetChange={updateExecutionTarget}
     />
   );
 }
@@ -195,10 +251,21 @@ function CloudAuthorityGate(props: {
 function ChatSurface(props: {
   thread: ChatThread;
   access: StoredPhoneAccess | null;
+  pairedDesktops: StoredPhoneAccess[];
+  executionTarget: AutomaticExecutionTarget;
   pairingResolved: boolean;
   onAccessChange: (access: StoredPhoneAccess) => void;
+  onExecutionTargetChange: (target: AutomaticExecutionTarget) => void;
 }) {
-  const { thread, access, pairingResolved, onAccessChange } = props;
+  const {
+    thread,
+    access,
+    pairedDesktops,
+    executionTarget,
+    pairingResolved,
+    onAccessChange,
+    onExecutionTargetChange,
+  } = props;
   const colors = useColors();
   const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -474,7 +541,9 @@ function ChatSurface(props: {
         onRealtimeVoiceAction={performRealtimeVoiceAction}
         placeholder={t("mobile.chat.composerPlaceholder")}
         composerIntervention={
-          <CloudBrowserInterventionCard conversationId={thread.conversationId} />
+          <CloudBrowserInterventionCard
+            conversationId={thread.conversationId}
+          />
         }
         offline={offline}
         enableAttachments
@@ -527,6 +596,9 @@ function ChatSurface(props: {
           onAccessChange(paired);
           setPairSheetOpen(false);
         }}
+        preferredAccess={access}
+        pairedDesktops={pairedDesktops}
+        onSwitchDesktop={onAccessChange}
       />
       {access ? (
         <ComputerDeviceSheet
@@ -540,6 +612,9 @@ function ChatSurface(props: {
           showWake={!status.checking && !status.available && !waking}
           onWake={wake}
           onRepaired={onAccessChange}
+          pairedDesktops={pairedDesktops}
+          executionTarget={executionTarget}
+          onExecutionTargetChange={onExecutionTargetChange}
           modelSettings={modelSettings}
           composerModelPinned={composerModelPinned}
           onComposerModelPinnedChange={setComposerModelPinned}

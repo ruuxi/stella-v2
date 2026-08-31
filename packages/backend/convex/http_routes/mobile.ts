@@ -142,8 +142,15 @@ const submitMobileExecutionRef = makeFunctionReference<
     threadId?: string;
     requestingDeviceId?: string;
     pairGrantDeviceId?: string;
+    requestedTargetMode?: "automatic" | "cloud" | "device";
+    requestedExecutorDeviceId?: string;
     requiredCapabilities: Array<
-      "chat" | "agent" | "computer-use" | "local-files" | "local-apps"
+      | "chat"
+      | "agent"
+      | "computer-use"
+      | "local-files"
+      | "local-apps"
+      | "attachments"
     >;
     now: number;
   },
@@ -199,8 +206,7 @@ type AuthenticatedOwnerResult =
   | { response: Response };
 
 type AnonymousLinkOwnerBinding =
-  | { fromOwnerId?: string; fromAuthUserId?: string }
-  | { response: Response };
+  { fromOwnerId?: string; fromAuthUserId?: string } | { response: Response };
 
 const BEARER_AUTHORIZATION_PATTERN = /^Bearer\s+\S+$/i;
 
@@ -725,6 +731,11 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             : "";
         const kind = body.kind;
         const subject = body.subject;
+        const targetWasSupplied = body.targetMode !== undefined;
+        const requestedTargetMode = body.targetMode ?? "automatic";
+        const requestedExecutorDeviceId = normalizeDeviceId(
+          body.targetDeviceId,
+        );
         if (
           (desktopGrantWasSupplied && !desktopDeviceId) ||
           !/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey) ||
@@ -734,7 +745,14 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           (kind !== "chat" && kind !== "agent") ||
           (subject !== "portable" &&
             subject !== "computer" &&
-            subject !== "cloud")
+            subject !== "cloud") ||
+          (requestedTargetMode !== "automatic" &&
+            requestedTargetMode !== "cloud" &&
+            requestedTargetMode !== "device") ||
+          (requestedTargetMode === "device") !==
+            Boolean(requestedExecutorDeviceId) ||
+          (requestedTargetMode === "device" &&
+            requestedExecutorDeviceId !== desktopDeviceId)
         ) {
           return errorResponse(
             400,
@@ -743,14 +761,24 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           );
         }
 
-        const challenge = [
+        const challengeParts = [
           "execution-placement-v1",
           idempotencyKey,
           conversationId,
           payloadHash,
           kind,
           subject,
-        ].join(":");
+        ];
+        // Existing mobile builds signed the six-field challenge. Only append
+        // destination intent when the client actually sent the new field, so
+        // deploying the selector never invalidates an already-paired phone.
+        if (targetWasSupplied || requestedExecutorDeviceId) {
+          challengeParts.push(
+            requestedTargetMode as string,
+            requestedExecutorDeviceId ?? "",
+          );
+        }
+        const challenge = challengeParts.join(":");
         const paired = desktopDeviceId
           ? await requirePairedMobileCredentials(ctx, request, {
               ownerId: owner.ownerId,
@@ -767,6 +795,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           "computer-use",
           "local-files",
           "local-apps",
+          "attachments",
         ] as const);
         if (
           body.requiredCapabilities !== undefined &&
@@ -781,7 +810,8 @@ export const registerMobileRoutes = (http: HttpRouter) => {
                     | "agent"
                     | "computer-use"
                     | "local-files"
-                    | "local-apps",
+                    | "local-apps"
+                    | "attachments",
                 ),
             ))
         ) {
@@ -794,7 +824,12 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         const requiredCapabilities = [
           ...new Set(
             (body.requiredCapabilities ?? []) as Array<
-              "chat" | "agent" | "computer-use" | "local-files" | "local-apps"
+              | "chat"
+              | "agent"
+              | "computer-use"
+              | "local-files"
+              | "local-apps"
+              | "attachments"
             >,
           ),
         ];
@@ -828,6 +863,8 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             kind,
             ingress: "mobile",
             subject,
+            requestedTargetMode,
+            ...(requestedExecutorDeviceId ? { requestedExecutorDeviceId } : {}),
             conversationId,
             ...(parentTurnId ? { parentTurnId } : {}),
             ...(threadId ? { threadId } : {}),

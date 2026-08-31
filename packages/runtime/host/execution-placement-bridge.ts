@@ -25,6 +25,7 @@ type PlacementCapability =
   | "local-apps"
   | "attachments";
 type PlacementOutcome = "completed" | "failed" | "canceled";
+type PlacementSubject = "portable" | "computer" | "cloud";
 type LocalInboxState =
   | "claimed"
   | "accepted"
@@ -41,6 +42,20 @@ type DispatchSummary = {
   placement?: "computer" | "cloud";
   cancelRequestId?: string;
   errorCode?: string;
+};
+
+export type ExecutionPlacementDesktopSubmit = {
+  idempotencyKey: string;
+  payloadJson: string;
+  payloadHash: string;
+  kind: PlacementKind;
+  subject: PlacementSubject;
+  conversationId: string;
+  parentTurnId?: string;
+  threadId?: string;
+  requestedTargetMode: "cloud" | "device";
+  requestedExecutorDeviceId?: string;
+  requiredCapabilities: PlacementCapability[];
 };
 
 type ClaimedExecution = {
@@ -85,9 +100,10 @@ type PlacementBridgeOptions = {
   database: SqliteDatabase;
   deviceIdentity: DeviceIdentity;
   appVersion: string;
+  deviceName?: string;
+  platform?: string;
   getAvailability: () =>
-    | ExecutionPlacementAvailability
-    | Promise<ExecutionPlacementAvailability>;
+    ExecutionPlacementAvailability | Promise<ExecutionPlacementAvailability>;
   runExecution: (args: {
     dispatch: DispatchSummary;
     payload: Record<string, unknown>;
@@ -723,6 +739,62 @@ export class ExecutionPlacementBridge {
     return this.started && !this.stopped;
   }
 
+  async submitDesktopExecution(
+    args: ExecutionPlacementDesktopSubmit,
+  ): Promise<DispatchSummary> {
+    if (!this.isRunning || !this.sessionReady) {
+      throw new Error("Execution placement is not ready on this computer.");
+    }
+    const session = this.requireSession();
+    const idempotencyKey = args.idempotencyKey.trim();
+    const payloadHash = args.payloadHash.trim().toLowerCase();
+    const conversationId = args.conversationId.trim();
+    const parentTurnId = args.parentTurnId?.trim() || undefined;
+    const threadId = args.threadId?.trim() || undefined;
+    const requestedExecutorDeviceId =
+      args.requestedExecutorDeviceId?.trim() || undefined;
+    const requiredCapabilities = [
+      ...new Set<PlacementCapability>([
+        args.kind,
+        ...args.requiredCapabilities,
+      ]),
+    ].sort();
+    const mutationArgs = {
+      idempotencyKey,
+      expectedOwnerGeneration: session.ownerGeneration,
+      requestedTargetMode: args.requestedTargetMode,
+      ...(requestedExecutorDeviceId ? { requestedExecutorDeviceId } : {}),
+      payloadJson: args.payloadJson,
+      payloadHash,
+      kind: args.kind,
+      subject: args.subject,
+      conversationId,
+      ...(parentTurnId ? { parentTurnId } : {}),
+      ...(threadId ? { threadId } : {}),
+      requiredCapabilities,
+    };
+    const proofParts = [
+      idempotencyKey,
+      payloadHash,
+      args.kind,
+      args.subject,
+      conversationId,
+      parentTurnId ?? null,
+      threadId ?? null,
+      args.requestedTargetMode,
+      requestedExecutorDeviceId ?? null,
+      requiredCapabilities,
+    ];
+    return parseDispatch(
+      await this.enqueueSigned(
+        "execution-submit",
+        proofParts,
+        anyApi.execution_placement.submitMyDesktopExecution,
+        mutationArgs,
+      ),
+    );
+  }
+
   private log(level: "warn" | "error", message: string, error?: unknown) {
     this.options.log?.(level, message, error);
   }
@@ -843,6 +915,9 @@ export class ExecutionPlacementBridge {
       agentCapacity,
       ready ? chatCapacity : 0,
       ready ? agentCapacity : 0,
+      ...(this.options.deviceName || this.options.platform
+        ? [this.options.deviceName ?? null, this.options.platform ?? null]
+        : []),
     ];
     await this.enqueueSigned(
       "presence-register",
@@ -852,6 +927,10 @@ export class ExecutionPlacementBridge {
         devicePublicKey: this.options.deviceIdentity.publicKey,
         protocolVersion: PROTOCOL_VERSION,
         appVersion: this.options.appVersion,
+        ...(this.options.deviceName
+          ? { deviceName: this.options.deviceName }
+          : {}),
+        ...(this.options.platform ? { platform: this.options.platform } : {}),
         capabilities,
         status,
         chatSlotCapacity: chatCapacity,
@@ -1173,9 +1252,7 @@ export class ExecutionPlacementBridge {
             } else if (
               !remote ||
               remote.placement === "cloud" ||
-              ["completed", "failed", "canceled"].includes(
-                remote?.state ?? "",
-              )
+              ["completed", "failed", "canceled"].includes(remote?.state ?? "")
             ) {
               this.inbox.acknowledgeClaimRelease(
                 afterLocalCancel.dispatchId,
@@ -1517,10 +1594,11 @@ export class ExecutionPlacementBridge {
       );
     }
     if (drainError) {
-      throw new Error(
+      const error = new Error(
         "Execution placement stopped without a durable presence-drain acknowledgement.",
-        { cause: drainError },
       );
+      (error as Error & { cause?: unknown }).cause = drainError;
+      throw error;
     }
   }
 

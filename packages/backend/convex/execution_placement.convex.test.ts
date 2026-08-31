@@ -49,6 +49,15 @@ const refs = {
   submitBrowser: makeFunctionReference<"mutation">(
     "execution_placement:submitMyBrowserExecution",
   ),
+  submitDesktop: makeFunctionReference<"mutation">(
+    "execution_placement:submitMyDesktopExecution",
+  ),
+  destinations: makeFunctionReference<"query">(
+    "execution_placement:listMyExecutionDestinations",
+  ),
+  setRemoteEnabled: makeFunctionReference<"mutation">(
+    "execution_placement:setMyExecutionDeviceRemoteEnabled",
+  ),
   submitInternal: makeFunctionReference<"mutation">(
     "execution_placement:submitExecutionDispatchInternal",
   ),
@@ -146,12 +155,13 @@ type ProofOperation =
   | "presence-register"
   | "presence-heartbeat"
   | "presence-clear"
+  | "execution-submit"
   | "claim"
   | "claim-release"
   | "claim-ack"
   | "complete";
 
-const createDeviceProofs = () => {
+const createDeviceProofs = (proofDeviceId = deviceId) => {
   const pair = generateKeyPairSync("ed25519");
   const publicKey = pair.publicKey
     .export({ type: "spki", format: "der" })
@@ -165,7 +175,7 @@ const createDeviceProofs = () => {
       protocolVersion,
       operation,
       ownerGeneration,
-      deviceId,
+      proofDeviceId,
       presenceSessionId,
       sequence,
       bodyHash,
@@ -178,7 +188,7 @@ const createDeviceProofs = () => {
       ),
     };
   };
-  return { publicKey, presenceSessionId, proof };
+  return { deviceId: proofDeviceId, publicKey, presenceSessionId, proof };
 };
 
 const seedConversation = async (
@@ -199,9 +209,16 @@ const seedConversation = async (
 
 const registerReadyDesktop = async (
   t: TestHarness,
-  options: { extraCapabilities?: readonly string[] } = {},
+  options: {
+    deviceId?: string;
+    deviceName?: string;
+    platform?: string;
+    pairMobile?: boolean;
+    extraCapabilities?: readonly string[];
+  } = {},
 ) => {
-  const signer = createDeviceProofs();
+  const registeredDeviceId = options.deviceId ?? deviceId;
+  const signer = createDeviceProofs(registeredDeviceId);
   const capabilities = [
     ...new Set([
       "agent",
@@ -222,14 +239,19 @@ const registerReadyDesktop = async (
     1,
     1,
     1,
+    ...(options.deviceName || options.platform
+      ? [options.deviceName ?? null, options.platform ?? null]
+      : []),
   ]);
   await asOwner(t).mutation(refs.register, {
     ownerGeneration,
-    deviceId,
+    deviceId: registeredDeviceId,
     devicePublicKey: signer.publicKey,
     presenceSessionId: signer.presenceSessionId,
     protocolVersion,
     appVersion: "test",
+    ...(options.deviceName ? { deviceName: options.deviceName } : {}),
+    ...(options.platform ? { platform: options.platform } : {}),
     capabilities,
     status: "ready",
     chatSlotCapacity: 1,
@@ -238,16 +260,18 @@ const registerReadyDesktop = async (
     availableAgentSlots: 1,
     ...signer.proof("presence-register", body),
   });
-  await t.run(async (ctx) => {
-    await ctx.db.insert("paired_mobile_devices", {
-      ownerId,
-      desktopDeviceId: deviceId,
-      mobileDeviceId,
-      pairSecretHash: "pair-proof-is-verified-at-http-boundary",
-      approvedAt: 1,
-      lastSeenAt: 1,
+  if (options.pairMobile !== false) {
+    await t.run(async (ctx) => {
+      await ctx.db.insert("paired_mobile_devices", {
+        ownerId,
+        desktopDeviceId: registeredDeviceId,
+        mobileDeviceId,
+        pairSecretHash: "pair-proof-is-verified-at-http-boundary",
+        approvedAt: 1,
+        lastSeenAt: 1,
+      });
     });
-  });
+  }
   return signer;
 };
 
@@ -307,6 +331,67 @@ const submitUnpairedMobile = async (
   });
 };
 
+const desktopSubmitArgs = (
+  signer: ReturnType<typeof createDeviceProofs>,
+  args: {
+    conversationId: string;
+    idempotencyKey: string;
+    payloadJson: string;
+    requestedTargetMode: "cloud" | "device";
+    requestedExecutorDeviceId?: string;
+    requiredCapabilities?: readonly string[];
+  },
+) => {
+  const payloadHash = sha256(args.payloadJson);
+  const requiredCapabilities = [
+    ...new Set(["chat", ...(args.requiredCapabilities ?? [])]),
+  ].sort();
+  const proof = signer.proof(
+    "execution-submit",
+    hashBody([
+      args.idempotencyKey,
+      payloadHash,
+      "chat",
+      "portable",
+      args.conversationId,
+      null,
+      null,
+      args.requestedTargetMode,
+      args.requestedExecutorDeviceId ?? null,
+      requiredCapabilities,
+    ]),
+  );
+  return {
+    idempotencyKey: args.idempotencyKey,
+    expectedOwnerGeneration: ownerGeneration,
+    ownerGeneration,
+    deviceId: signer.deviceId,
+    presenceSessionId: signer.presenceSessionId,
+    requestedTargetMode: args.requestedTargetMode,
+    ...(args.requestedExecutorDeviceId
+      ? { requestedExecutorDeviceId: args.requestedExecutorDeviceId }
+      : {}),
+    payloadJson: args.payloadJson,
+    payloadHash,
+    kind: "chat",
+    subject: "portable",
+    conversationId: args.conversationId,
+    requiredCapabilities: args.requiredCapabilities ?? ["chat"],
+    ...proof,
+  };
+};
+
+const submitDesktop = async (
+  t: TestHarness,
+  signer: ReturnType<typeof createDeviceProofs>,
+  args: Parameters<typeof desktopSubmitArgs>[1],
+) => {
+  return await asOwner(t).mutation(
+    refs.submitDesktop,
+    desktopSubmitArgs(signer, args),
+  );
+};
+
 const claim = async (
   t: TestHarness,
   signer: ReturnType<typeof createDeviceProofs>,
@@ -321,7 +406,7 @@ const claim = async (
   );
   const result = await asOwner(t).mutation(refs.claim, {
     ownerGeneration,
-    deviceId,
+    deviceId: signer.deviceId,
     presenceSessionId: signer.presenceSessionId,
     dispatchId,
     claimRequestId,
@@ -332,6 +417,290 @@ const claim = async (
 };
 
 describe("automatic execution placement", () => {
+  it("offers an explicit desktop request to exactly one selected live computer", async () => {
+    const t = createTest();
+    const conversationId = await seedConversation(
+      t,
+      "conv-desktop-exact-device",
+    );
+    const source = await registerReadyDesktop(t, {
+      deviceId: "desktop-source",
+      deviceName: "MacBook",
+      platform: "darwin",
+      pairMobile: false,
+    });
+    const unselected = await registerReadyDesktop(t, {
+      deviceId: "desktop-linux",
+      deviceName: "Linux PC",
+      platform: "linux",
+      pairMobile: false,
+    });
+    const selected = await registerReadyDesktop(t, {
+      deviceId: "desktop-windows",
+      deviceName: "Windows PC",
+      platform: "win32",
+      pairMobile: false,
+    });
+
+    expect(await asOwner(t).query(refs.destinations, {})).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          deviceId: "desktop-windows",
+          name: "Windows PC",
+          online: true,
+          ready: true,
+          busy: false,
+        }),
+      ]),
+    );
+
+    const idempotencyKey = "desktop:exact-windows";
+    const payloadJson = JSON.stringify({
+      prompt: "Run only on Windows",
+      expectedOwnerGeneration: ownerGeneration,
+      conversationId,
+      clientMsgId: idempotencyKey,
+    });
+    const dispatch = await submitDesktop(t, source, {
+      idempotencyKey,
+      requestedTargetMode: "device",
+      requestedExecutorDeviceId: "desktop-windows",
+      payloadJson,
+      conversationId,
+      requiredCapabilities: ["chat"],
+    });
+    expect(dispatch).toMatchObject({
+      state: "offering",
+      requestedTargetMode: "device",
+      requestedExecutorDeviceId: "desktop-windows",
+    });
+
+    const offerIds = async (signer: ReturnType<typeof createDeviceProofs>) =>
+      (
+        await asOwner(t).query(refs.offers, {
+          deviceId: signer.deviceId,
+          presenceSessionId: signer.presenceSessionId,
+        })
+      ).map(
+        (row: { dispatch: { dispatchId: string } }) => row.dispatch.dispatchId,
+      );
+    expect(await offerIds(unselected)).not.toContain(dispatch.dispatchId);
+    expect(await offerIds(selected)).toContain(dispatch.dispatchId);
+
+    const claimed = await claim(t, selected, dispatch.dispatchId);
+    const accepted = await asOwner(t).mutation(refs.ack, {
+      ownerGeneration,
+      deviceId: selected.deviceId,
+      presenceSessionId: selected.presenceSessionId,
+      dispatchId: dispatch.dispatchId,
+      claimToken: claimed.claimToken,
+      payloadHash: claimed.result.payloadHash,
+      ...selected.proof(
+        "claim-ack",
+        hashBody([
+          dispatch.dispatchId,
+          claimed.tokenHash,
+          claimed.result.payloadHash,
+        ]),
+      ),
+    });
+    expect(accepted).toMatchObject({
+      state: "computer_accepted",
+      placement: "computer",
+      executorDeviceId: "desktop-windows",
+    });
+  });
+
+  it("fails an unavailable explicit computer without falling back to cloud", async () => {
+    const t = createTest();
+    const conversationId = await seedConversation(
+      t,
+      "conv-desktop-offline-device",
+    );
+    const source = await registerReadyDesktop(t, {
+      deviceId: "desktop-source",
+      pairMobile: false,
+    });
+    const idempotencyKey = "desktop:offline-windows";
+    const payloadJson = JSON.stringify({
+      prompt: "Do not run anywhere else",
+      expectedOwnerGeneration: ownerGeneration,
+    });
+    const dispatch = await submitDesktop(t, source, {
+      idempotencyKey,
+      requestedTargetMode: "device",
+      requestedExecutorDeviceId: "desktop-offline",
+      payloadJson,
+      conversationId,
+      requiredCapabilities: ["chat"],
+    });
+    expect(dispatch).toMatchObject({
+      state: "failed",
+      fallbackReason: "selected-device-unavailable",
+      errorCode: "SELECTED_DEVICE_UNAVAILABLE",
+    });
+    expect(dispatch.placement).toBeUndefined();
+  });
+
+  it("commits an explicit desktop cloud choice directly to cloud", async () => {
+    const t = createTest();
+    const conversationId = await seedConversation(
+      t,
+      "conv-desktop-exact-cloud",
+    );
+    const source = await registerReadyDesktop(t, {
+      deviceId: "desktop-source",
+      pairMobile: false,
+    });
+    const idempotencyKey = "desktop:exact-cloud";
+    const payloadJson = JSON.stringify({
+      prompt: "Run in cloud",
+      expectedOwnerGeneration: ownerGeneration,
+      clientMsgId: idempotencyKey,
+    });
+    const dispatch = await submitDesktop(t, source, {
+      idempotencyKey,
+      requestedTargetMode: "cloud",
+      payloadJson,
+      conversationId,
+      requiredCapabilities: ["chat"],
+    });
+    expect(dispatch).toMatchObject({
+      state: "cloud_committed",
+      placement: "cloud",
+      requestedTargetMode: "cloud",
+      fallbackReason: "explicit-cloud",
+    });
+  });
+
+  it("requires a live signed desktop proof and accepts only exact replay", async () => {
+    const t = createTest();
+    const conversationId = await seedConversation(t, "conv-signed-desktop");
+    const source = await registerReadyDesktop(t, {
+      deviceId: "desktop-signed-source",
+      pairMobile: false,
+    });
+    const idempotencyKey = "desktop:signed-cloud";
+    const payloadJson = JSON.stringify({
+      prompt: "Signed desktop request",
+      expectedOwnerGeneration: ownerGeneration,
+      clientMsgId: idempotencyKey,
+    });
+    const signed = desktopSubmitArgs(source, {
+      conversationId,
+      idempotencyKey,
+      payloadJson,
+      requestedTargetMode: "cloud",
+    });
+    const { signature: _signature, ...unsigned } = signed;
+    await expect(
+      asOwner(t).mutation(refs.submitDesktop, unsigned),
+    ).rejects.toThrow();
+
+    const imposter = createDeviceProofs(source.deviceId);
+    imposter.proof("execution-submit", "0".repeat(64));
+    const forged = imposter.proof("execution-submit", signed.bodyHash);
+    await expect(
+      asOwner(t).mutation(refs.submitDesktop, {
+        ...signed,
+        ...forged,
+        presenceSessionId: source.presenceSessionId,
+      }),
+    ).rejects.toThrow(/signature verification failed/i);
+
+    const first = await asOwner(t).mutation(refs.submitDesktop, signed);
+    const replay = await asOwner(t).mutation(refs.submitDesktop, signed);
+    expect(replay.dispatchId).toBe(first.dispatchId);
+    expect(replay).toMatchObject({
+      state: "cloud_committed",
+      placement: "cloud",
+    });
+
+    await expect(
+      asOwner(t).mutation(refs.submitDesktop, {
+        ...signed,
+        requestedTargetMode: "device",
+        requestedExecutorDeviceId: "desktop-mutated-target",
+      }),
+    ).rejects.toThrow(/proof body does not match/i);
+    await expect(
+      asOwner(t).mutation(refs.submitDesktop, {
+        ...signed,
+        payloadJson: JSON.stringify({
+          prompt: "Mutated after signing",
+          expectedOwnerGeneration: ownerGeneration,
+        }),
+      }),
+    ).rejects.toThrow(/payload hash does not match/i);
+  });
+
+  it("rejects a signed desktop submission after its presence lease expires", async () => {
+    const t = createTest();
+    const conversationId = await seedConversation(t, "conv-expired-source");
+    const source = await registerReadyDesktop(t, {
+      deviceId: "desktop-expired-source",
+      pairMobile: false,
+    });
+    await t.run(async (ctx) => {
+      const presence = await ctx.db
+        .query("desktop_execution_presence")
+        .withIndex("by_ownerId_and_deviceId", (q) =>
+          q.eq("ownerId", ownerId).eq("deviceId", source.deviceId),
+        )
+        .unique();
+      await ctx.db.patch(presence!._id, { leaseExpiresAt: Date.now() - 1 });
+    });
+    const payloadJson = JSON.stringify({
+      prompt: "Too late",
+      expectedOwnerGeneration: ownerGeneration,
+    });
+    await expect(
+      submitDesktop(t, source, {
+        conversationId,
+        idempotencyKey: "desktop:expired-source",
+        payloadJson,
+        requestedTargetMode: "cloud",
+      }),
+    ).rejects.toThrow(/presence is no longer live/i);
+  });
+
+  it("rechecks remote execution permission when a selected device claims", async () => {
+    const t = createTest();
+    const conversationId = await seedConversation(
+      t,
+      "conv-disable-before-claim",
+    );
+    const source = await registerReadyDesktop(t, {
+      deviceId: "desktop-disable-source",
+      pairMobile: false,
+    });
+    const target = await registerReadyDesktop(t, {
+      deviceId: "desktop-disable-target",
+      pairMobile: false,
+    });
+    const payloadJson = JSON.stringify({
+      prompt: "Do not claim after disable",
+      expectedOwnerGeneration: ownerGeneration,
+    });
+    const dispatch = await submitDesktop(t, source, {
+      conversationId,
+      idempotencyKey: "desktop:disable-before-claim",
+      payloadJson,
+      requestedTargetMode: "device",
+      requestedExecutorDeviceId: target.deviceId,
+    });
+    await asOwner(t).mutation(refs.setRemoteEnabled, {
+      deviceId: target.deviceId,
+      enabled: false,
+    });
+    await expect(claim(t, target, dispatch.dispatchId)).rejects.toThrow(
+      /remote execution is disabled/i,
+    );
+    expect(
+      await asOwner(t).query(refs.status, { dispatchId: dispatch.dispatchId }),
+    ).toMatchObject({ state: "offering" });
+  });
+
   it("binds presence to the registered device key and rejects forged updates", async () => {
     const t = createTest();
     const signer = await registerReadyDesktop(t);
@@ -545,7 +914,10 @@ describe("automatic execution placement", () => {
         ]),
       ),
     });
-    expect(canceled).toMatchObject({ state: "canceled", placement: "computer" });
+    expect(canceled).toMatchObject({
+      state: "canceled",
+      placement: "computer",
+    });
   });
 
   it("offers computer-classified phone work to its reachable paired desktop", async () => {
@@ -670,7 +1042,9 @@ describe("automatic execution placement", () => {
       t,
       "conv-device-capability-cloud-fail",
     );
-    const payloadJson = JSON.stringify({ prompt: "read my local desktop file" });
+    const payloadJson = JSON.stringify({
+      prompt: "read my local desktop file",
+    });
     const dispatch = await t.mutation(refs.submitInternal, {
       ownerId,
       ownerGeneration,
@@ -1399,10 +1773,12 @@ describe("automatic execution placement", () => {
           entry.state.kind !== "canceled" &&
           typeof entry.args[0] === "object" &&
           entry.args[0] !== null &&
-          (entry.args[0] as {
-            turnId?: unknown;
-            dispatchAttempt?: unknown;
-          }).turnId === first.turnId &&
+          (
+            entry.args[0] as {
+              turnId?: unknown;
+              dispatchAttempt?: unknown;
+            }
+          ).turnId === first.turnId &&
           (entry.args[0] as { dispatchAttempt?: unknown }).dispatchAttempt ===
             undefined,
       );
@@ -2555,17 +2931,18 @@ describe("automatic execution placement", () => {
       ),
     });
     const toOwnerId = "https://issuer.test|placement-destination";
-    const migrationId = await t.run(async (ctx) =>
-      await ctx.db.insert("auth_owner_migrations", {
-        fromOwnerId: ownerId,
-        toOwnerId,
-        status: "pending",
-        fromOwnerGeneration: ownerGeneration,
-        toOwnerGeneration: ownerGeneration,
-        planRevision: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      }),
+    const migrationId = await t.run(
+      async (ctx) =>
+        await ctx.db.insert("auth_owner_migrations", {
+          fromOwnerId: ownerId,
+          toOwnerId,
+          status: "pending",
+          fromOwnerGeneration: ownerGeneration,
+          toOwnerGeneration: ownerGeneration,
+          planRevision: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        }),
     );
 
     expect(
@@ -2681,17 +3058,18 @@ describe("automatic execution placement", () => {
         ]),
       ),
     });
-    const migrationId = await t.run(async (ctx) =>
-      await ctx.db.insert("auth_owner_migrations", {
-        fromOwnerId: ownerId,
-        toOwnerId: "https://issuer.test|placement-timeout-destination",
-        status: "pending",
-        fromOwnerGeneration: ownerGeneration,
-        toOwnerGeneration: ownerGeneration,
-        planRevision: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      }),
+    const migrationId = await t.run(
+      async (ctx) =>
+        await ctx.db.insert("auth_owner_migrations", {
+          fromOwnerId: ownerId,
+          toOwnerId: "https://issuer.test|placement-timeout-destination",
+          status: "pending",
+          fromOwnerGeneration: ownerGeneration,
+          toOwnerGeneration: ownerGeneration,
+          planRevision: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        }),
     );
     const now = Date.now();
     expect(

@@ -323,6 +323,8 @@ export function attachmentsForStartChat(attachments) {
         };
         if (a.mimeType)
             item.mimeType = a.mimeType;
+        if (a.name)
+            item.name = a.name;
         if (a.previewUrl)
             item.previewUrl = a.previewUrl;
         return item;

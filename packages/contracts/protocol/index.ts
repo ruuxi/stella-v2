@@ -55,10 +55,7 @@ export type JsonRpcFailure = {
 };
 
 export type JsonRpcMessage =
-  | JsonRpcRequest
-  | JsonRpcNotification
-  | JsonRpcSuccess
-  | JsonRpcFailure;
+  JsonRpcRequest | JsonRpcNotification | JsonRpcSuccess | JsonRpcFailure;
 
 export const RPC_ERROR_CODES = {
   PARSE_ERROR: -32_700,
@@ -314,11 +311,7 @@ export type HostLlmCredentialsResult =
   | { ok: false; reason: string };
 
 export type RuntimeAuthRefreshSource =
-  | "heartbeat"
-  | "subscription"
-  | "register"
-  | "stella_provider"
-  | "connector";
+  "heartbeat" | "subscription" | "register" | "stella_provider" | "connector";
 
 export type HostRuntimeAuthRefreshParams = {
   source: RuntimeAuthRefreshSource;
@@ -416,6 +409,11 @@ export type RuntimeChatPayload = {
   storageMode?: "cloud" | "local";
   /** Exact owner-data epoch captured when this cloud turn was admitted. */
   ownerGeneration?: string;
+  /** Frozen user destination. Omitted/automatic preserves local desktop execution. */
+  executionTarget?:
+    | { mode: "automatic" }
+    | { mode: "cloud" }
+    | { mode: "device"; deviceId: string };
 };
 
 export type RuntimeVoiceTranscriptPayload = {

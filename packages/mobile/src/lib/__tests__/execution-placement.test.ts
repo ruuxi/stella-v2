@@ -40,6 +40,8 @@ describe("automatic mobile execution admission", () => {
         admission.body.payloadHash,
         "chat",
         "portable",
+        "automatic",
+        "",
       ].join(":"),
     );
     expect("transport" in admission.body).toBe(false);
@@ -58,12 +60,42 @@ describe("automatic mobile execution admission", () => {
     });
     expect(admission.body.subject).toBe("computer");
     expect("workspace" in admission.body).toBe(false);
-    expect(admission.challenge.endsWith(":agent:computer")).toBe(true);
+    expect(admission.challenge.endsWith(":agent:computer:automatic:")).toBe(
+      true,
+    );
     expect(admission.body.requiredCapabilities).toEqual([
       "agent",
       "computer-use",
       "local-files",
     ]);
+  });
+
+  test("binds an exact computer choice into the signed request", () => {
+    const admission = buildAutomaticExecutionAdmission({
+      idempotencyKey: "mobile:exact-computer",
+      conversationId: "conv:exact-computer",
+      kind: "chat",
+      prompt: "run this there",
+      target: { mode: "device", deviceId: "desktop-windows" },
+    });
+    expect(admission.body).toMatchObject({
+      targetMode: "device",
+      targetDeviceId: "desktop-windows",
+    });
+    expect(admission.challenge.endsWith(":device:desktop-windows")).toBe(true);
+  });
+
+  test("binds a cloud override without a desktop identity", () => {
+    const admission = buildAutomaticExecutionAdmission({
+      idempotencyKey: "mobile:exact-cloud",
+      conversationId: "conv:exact-cloud",
+      kind: "chat",
+      prompt: "run this in cloud",
+      target: { mode: "cloud" },
+    });
+    expect(admission.body.targetMode).toBe("cloud");
+    expect("targetDeviceId" in admission.body).toBe(false);
+    expect(admission.challenge.endsWith(":cloud:")).toBe(true);
   });
 
   test("resumes one committed dispatch through transient reads until terminal", async () => {
@@ -167,10 +199,10 @@ describe("automatic mobile execution admission", () => {
     // Process restart restores only the client id + durable cancel intent.
     // Idempotent admission recovers the random server id, then cancellation
     // fences that exact dispatch without creating an alternate executor.
-    const restarted = bindAutomaticExecutionAdmission(
-      stoppedBeforeAdmission,
-      { dispatchId: serverId, idempotencyKey: clientId },
-    );
+    const restarted = bindAutomaticExecutionAdmission(stoppedBeforeAdmission, {
+      dispatchId: serverId,
+      idempotencyKey: clientId,
+    });
     expect(automaticExecutionCancellationCommand(restarted)).toEqual({
       dispatchId: serverId,
       cancelRequestId: `cancel:${clientId}`,

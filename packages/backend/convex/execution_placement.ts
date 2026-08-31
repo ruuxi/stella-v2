@@ -33,6 +33,7 @@ import {
   executionPlacementValidator,
   executionRequestKindValidator,
   executionSubjectValidator,
+  executionTargetModeValidator,
   noEligibleComputerActionValidator,
 } from "./schema/execution_placement";
 import {
@@ -49,7 +50,7 @@ export const EXECUTION_ACCEPTED_LEASE_MS = 2 * 60_000;
 export const EXECUTION_PURGE_CANCEL_GRACE_MS =
   EXECUTION_ACCEPTED_LEASE_MS + EXECUTION_PRESENCE_LEASE_MS;
 export const EXECUTION_PAYLOAD_TTL_MS = 15 * 60_000;
-export const EXECUTION_ROUTING_POLICY_VERSION = 1;
+export const EXECUTION_ROUTING_POLICY_VERSION = 2;
 export const EXECUTION_PROTOCOL_VERSION = 1;
 
 const MAX_DEVICE_ID_LENGTH = 256;
@@ -70,6 +71,7 @@ const MAX_PURGE_OFFER_ROWS = 64;
 type ExecutionIngress = "desktop" | "mobile" | "browser" | "cloud" | "schedule";
 type ExecutionKind = "chat" | "agent";
 type ExecutionSubject = "portable" | "computer" | "cloud";
+type ExecutionTargetMode = "automatic" | "cloud" | "device";
 type ExecutionCapability =
   | "chat"
   | "agent"
@@ -83,6 +85,7 @@ type DeviceProofOperation =
   | "presence-heartbeat"
   | "presence-drain"
   | "presence-clear"
+  | "execution-submit"
   | "claim"
   | "claim-release"
   | "claim-ack"
@@ -96,6 +99,8 @@ const dispatchSummaryFields = {
   kind: executionRequestKindValidator,
   ingress: executionIngressValidator,
   subject: executionSubjectValidator,
+  requestedTargetMode: v.optional(executionTargetModeValidator),
+  requestedExecutorDeviceId: v.optional(v.string()),
   conversationId: v.string(),
   parentTurnId: v.optional(v.string()),
   threadId: v.optional(v.string()),
@@ -152,12 +157,31 @@ const executionActivityValidator = v.object({
   ),
 });
 
+const executionDestinationValidator = v.object({
+  deviceId: v.string(),
+  name: v.string(),
+  platform: v.optional(v.string()),
+  online: v.boolean(),
+  ready: v.boolean(),
+  busy: v.boolean(),
+  remoteExecutionEnabled: v.boolean(),
+  availableChatSlots: v.number(),
+  availableAgentSlots: v.number(),
+  updatedAt: v.optional(v.number()),
+});
+
 const projectDispatch = (row: Doc<"execution_dispatches">) => ({
   dispatchId: row.dispatchId,
   idempotencyKey: row.idempotencyKey,
   kind: row.kind,
   ingress: row.ingress,
   subject: row.subject,
+  ...(row.requestedTargetMode !== undefined
+    ? { requestedTargetMode: row.requestedTargetMode }
+    : {}),
+  ...(row.requestedExecutorDeviceId !== undefined
+    ? { requestedExecutorDeviceId: row.requestedExecutorDeviceId }
+    : {}),
   conversationId: row.conversationId,
   ...(row.parentTurnId !== undefined ? { parentTurnId: row.parentTurnId } : {}),
   ...(row.threadId !== undefined ? { threadId: row.threadId } : {}),
@@ -673,7 +697,18 @@ type PolicyDecision =
 export const decideServerExecutionPlacement = (args: {
   ingress: ExecutionIngress;
   subject: ExecutionSubject;
+  targetMode?: ExecutionTargetMode;
 }): PolicyDecision => {
+  if (args.targetMode === "cloud") {
+    return { kind: "commit", placement: "cloud", reason: "explicit-cloud" };
+  }
+  if (args.targetMode === "device") {
+    return {
+      kind: "offer",
+      onNoEligibleComputer: "blocked",
+      reason: "explicit-device",
+    };
+  }
   if (args.subject === "cloud") {
     return { kind: "commit", placement: "cloud", reason: "hosted-subject" };
   }
@@ -762,6 +797,42 @@ const findEligiblePairedPresence = async (
   return candidates;
 };
 
+const findEligibleOwnedPresence = async (
+  ctx: QueryCtx,
+  args: {
+    ownerId: string;
+    ownerGeneration: string;
+    deviceId: string;
+    kind: ExecutionKind;
+    requiredCapabilities: ExecutionCapability[];
+    now: number;
+  },
+) => {
+  const device = await ctx.db
+    .query("devices")
+    .withIndex("by_ownerId_and_deviceId", (q) =>
+      q.eq("ownerId", args.ownerId).eq("deviceId", args.deviceId),
+    )
+    .unique();
+  if (!device || device.remoteExecutionEnabled === false) return [];
+  const presence = await loadPresence(ctx, args.ownerId, args.deviceId);
+  if (
+    !presence ||
+    presence.ownerGeneration !== args.ownerGeneration ||
+    presence.status !== "ready" ||
+    presence.leaseExpiresAt <= args.now ||
+    presence.protocolVersion !== EXECUTION_PROTOCOL_VERSION ||
+    !hasCapabilities(presence, args.requiredCapabilities)
+  ) {
+    return [];
+  }
+  const available =
+    args.kind === "chat"
+      ? presence.availableChatSlots
+      : presence.availableAgentSlots;
+  return available > 0 ? [presence] : [];
+};
+
 type SubmitDispatchArgs = {
   ownerId: string;
   ownerGeneration: string;
@@ -776,6 +847,8 @@ type SubmitDispatchArgs = {
   threadId?: string;
   requestingDeviceId?: string;
   pairGrantDeviceId?: string;
+  requestedTargetMode?: ExecutionTargetMode;
+  requestedExecutorDeviceId?: string;
   requiredCapabilities: ExecutionCapability[];
   now: number;
 };
@@ -850,9 +923,14 @@ const resolveUnacceptedComputerDispatch = async (
     await ctx.db.patch(dispatch._id, {
       ...common,
       state: "failed",
-      errorCode: "COMPUTER_REQUIRED_UNAVAILABLE",
+      errorCode:
+        dispatch.requestedTargetMode === "device"
+          ? "SELECTED_DEVICE_UNAVAILABLE"
+          : "COMPUTER_REQUIRED_UNAVAILABLE",
       errorMessage:
-        "No eligible paired computer durably accepted this computer-only work.",
+        dispatch.requestedTargetMode === "device"
+          ? "The selected computer did not accept the request."
+          : "No eligible paired computer durably accepted this computer-only work.",
       terminalAt: now,
     });
     const payload = await loadPayload(ctx, dispatch.dispatchId);
@@ -878,6 +956,22 @@ const submitExecutionDispatchCore = async (
   const threadId = raw.threadId?.trim() || undefined;
   const requestingDeviceId = raw.requestingDeviceId?.trim() || undefined;
   const pairGrantDeviceId = raw.pairGrantDeviceId?.trim() || undefined;
+  const requestedTargetMode = raw.requestedTargetMode ?? "automatic";
+  const requestedExecutorDeviceId =
+    raw.requestedExecutorDeviceId?.trim() || undefined;
+  if (
+    (requestedTargetMode === "device") !==
+    Boolean(requestedExecutorDeviceId)
+  ) {
+    invalid("A device execution target requires exactly one device id.");
+  }
+  if (requestedExecutorDeviceId) {
+    boundedTrimmed(
+      requestedExecutorDeviceId,
+      "requestedExecutorDeviceId",
+      MAX_DEVICE_ID_LENGTH,
+    );
+  }
   const requiredCapabilities = normalizeCapabilities([
     raw.kind,
     ...raw.requiredCapabilities,
@@ -928,6 +1022,8 @@ const submitExecutionDispatchCore = async (
       existing.threadId === threadId &&
       existing.requestingDeviceId === requestingDeviceId &&
       existing.pairGrantDeviceId === pairGrantDeviceId &&
+      (existing.requestedTargetMode ?? "automatic") === requestedTargetMode &&
+      existing.requestedExecutorDeviceId === requestedExecutorDeviceId &&
       JSON.stringify(existing.requiredCapabilities) ===
         JSON.stringify(requiredCapabilities);
     if (!sameRequest) {
@@ -955,20 +1051,44 @@ const submitExecutionDispatchCore = async (
   const decision = decideServerExecutionPlacement({
     ingress: raw.ingress,
     subject,
+    targetMode: requestedTargetMode,
   });
   let candidates: Doc<"desktop_execution_presence">[] = [];
   if (decision.kind === "offer") {
-    if (Boolean(requestingDeviceId) !== Boolean(pairGrantDeviceId)) {
+    if (
+      raw.ingress === "mobile" &&
+      Boolean(requestingDeviceId) !== Boolean(pairGrantDeviceId)
+    ) {
       invalid(
         "Mobile execution admission requires both sides of a verified desktop pairing.",
       );
     }
-    if (requestingDeviceId && pairGrantDeviceId) {
+    if (
+      requestedTargetMode === "device" &&
+      raw.ingress === "mobile" &&
+      requestedExecutorDeviceId !== pairGrantDeviceId
+    ) {
+      forbidden("The selected computer does not match the verified pairing.");
+    }
+    if (raw.ingress === "mobile" && requestingDeviceId && pairGrantDeviceId) {
       candidates = await findEligiblePairedPresence(ctx, {
         ownerId: raw.ownerId,
         ownerGeneration: raw.ownerGeneration,
         mobileDeviceId: requestingDeviceId,
         pairGrantDeviceId,
+        kind: raw.kind,
+        requiredCapabilities,
+        now: raw.now,
+      });
+    } else if (
+      raw.ingress === "desktop" &&
+      requestedTargetMode === "device" &&
+      requestedExecutorDeviceId
+    ) {
+      candidates = await findEligibleOwnedPresence(ctx, {
+        ownerId: raw.ownerId,
+        ownerGeneration: raw.ownerGeneration,
+        deviceId: requestedExecutorDeviceId,
         kind: raw.kind,
         requiredCapabilities,
         now: raw.now,
@@ -1012,10 +1132,16 @@ const submitExecutionDispatchCore = async (
       fallbackReason = "no-eligible-paired-computer";
     } else {
       state = "failed";
-      fallbackReason = "no-eligible-paired-computer";
-      errorCode = "COMPUTER_REQUIRED_UNAVAILABLE";
-      errorMessage =
-        "This work requires your paired computer, but no eligible computer is reachable.";
+      const explicitDevice = requestedTargetMode === "device";
+      fallbackReason = explicitDevice
+        ? "selected-device-unavailable"
+        : "no-eligible-paired-computer";
+      errorCode = explicitDevice
+        ? "SELECTED_DEVICE_UNAVAILABLE"
+        : "COMPUTER_REQUIRED_UNAVAILABLE";
+      errorMessage = explicitDevice
+        ? "The selected computer is offline, busy, or unavailable."
+        : "This work requires your paired computer, but no eligible computer is reachable.";
       terminalAt = raw.now;
     }
   }
@@ -1035,6 +1161,8 @@ const submitExecutionDispatchCore = async (
     ...(threadId ? { threadId } : {}),
     ...(requestingDeviceId ? { requestingDeviceId } : {}),
     ...(pairGrantDeviceId ? { pairGrantDeviceId } : {}),
+    requestedTargetMode,
+    ...(requestedExecutorDeviceId ? { requestedExecutorDeviceId } : {}),
     requiredCapabilities,
     routingPolicyVersion: EXECUTION_ROUTING_POLICY_VERSION,
     onNoEligibleComputer,
@@ -1107,6 +1235,8 @@ const submitArgsValidator = {
   threadId: v.optional(v.string()),
   requestingDeviceId: v.optional(v.string()),
   pairGrantDeviceId: v.optional(v.string()),
+  requestedTargetMode: v.optional(executionTargetModeValidator),
+  requestedExecutorDeviceId: v.optional(v.string()),
   requiredCapabilities: v.array(executionCapabilityValidator),
   now: v.number(),
 };
@@ -1169,6 +1299,151 @@ export const submitMyBrowserExecution = mutation({
   },
 });
 
+export const submitMyDesktopExecution = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    expectedOwnerGeneration: v.string(),
+    ownerGeneration: v.string(),
+    deviceId: v.string(),
+    presenceSessionId: v.string(),
+    sequence: v.number(),
+    bodyHash: v.string(),
+    signature: v.string(),
+    requestedTargetMode: v.union(v.literal("cloud"), v.literal("device")),
+    requestedExecutorDeviceId: v.optional(v.string()),
+    payloadJson: v.string(),
+    payloadHash: v.string(),
+    kind: executionRequestKindValidator,
+    subject: executionSubjectValidator,
+    conversationId: v.string(),
+    parentTurnId: v.optional(v.string()),
+    threadId: v.optional(v.string()),
+    requiredCapabilities: v.array(executionCapabilityValidator),
+  },
+  returns: dispatchSummaryValidator,
+  handler: async (ctx, args) => {
+    const ownerId = await requirePlacementOwner(ctx);
+    if (args.expectedOwnerGeneration !== args.ownerGeneration) {
+      conflict(
+        "Desktop execution proof generation does not match its payload.",
+      );
+    }
+    const lifecycle = await assertOwnerMigrationWriteAllowed(
+      ctx,
+      ownerId,
+      args.ownerGeneration,
+    );
+    const idempotencyKey = normalizeIdempotencyKey(args.idempotencyKey);
+    const normalizedPayloadHash = args.payloadHash.trim().toLowerCase();
+    const conversationId = boundedTrimmed(
+      args.conversationId,
+      "conversationId",
+      256,
+    );
+    const parentTurnId = args.parentTurnId?.trim() || undefined;
+    const threadId = args.threadId?.trim() || undefined;
+    const requestedExecutorDeviceId =
+      args.requestedExecutorDeviceId?.trim() || undefined;
+    if (
+      (args.requestedTargetMode === "device") !==
+      Boolean(requestedExecutorDeviceId)
+    ) {
+      invalid("A device execution target requires exactly one device id.");
+    }
+    if (requestedExecutorDeviceId) {
+      boundedTrimmed(
+        requestedExecutorDeviceId,
+        "requestedExecutorDeviceId",
+        MAX_DEVICE_ID_LENGTH,
+      );
+    }
+    const requiredCapabilities = normalizeCapabilities([
+      args.kind,
+      ...args.requiredCapabilities,
+    ]);
+    const expectedBodyHash = await bodyHash([
+      idempotencyKey,
+      normalizedPayloadHash,
+      args.kind,
+      args.subject,
+      conversationId,
+      parentTurnId ?? null,
+      threadId ?? null,
+      args.requestedTargetMode,
+      requestedExecutorDeviceId ?? null,
+      requiredCapabilities,
+    ]);
+    if (!constantTimeEqual(expectedBodyHash, args.bodyHash)) {
+      conflict(
+        "Desktop execution proof body does not match its signed fields.",
+      );
+    }
+    const proof = await verifyExistingDeviceProof(ctx, {
+      ownerId,
+      ownerGeneration: args.ownerGeneration,
+      deviceId: args.deviceId,
+      presenceSessionId: args.presenceSessionId,
+      sequence: args.sequence,
+      operation: "execution-submit",
+      bodyHash: expectedBodyHash,
+      signature: args.signature,
+    });
+    const now = Date.now();
+    if (proof.presence.leaseExpiresAt <= now) {
+      forbidden("This desktop execution presence is no longer live.");
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(args.payloadJson);
+    } catch {
+      invalid("Execution payload must be valid JSON.");
+    }
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      Array.isArray(payload) ||
+      (payload as Record<string, unknown>).expectedOwnerGeneration !==
+        args.expectedOwnerGeneration
+    ) {
+      conflict(
+        "Desktop execution payload generation does not match its admission authority.",
+      );
+    }
+    const {
+      expectedOwnerGeneration: _expectedOwnerGeneration,
+      ownerGeneration: _ownerGeneration,
+      deviceId: _deviceId,
+      presenceSessionId: _presenceSessionId,
+      sequence: _sequence,
+      bodyHash: _bodyHash,
+      signature: _signature,
+      ...dispatchArgs
+    } = args;
+    const dispatch = await submitExecutionDispatchCore(ctx, {
+      ...dispatchArgs,
+      idempotencyKey,
+      payloadHash: normalizedPayloadHash,
+      conversationId,
+      parentTurnId,
+      threadId,
+      requestedExecutorDeviceId,
+      requiredCapabilities,
+      ownerId,
+      ownerGeneration: lifecycle.generation,
+      requestingDeviceId: proof.deviceId,
+      ingress: "desktop",
+      now,
+    });
+    await recordProof(ctx, proof.presence, {
+      sequence: proof.sequence,
+      operation: "execution-submit",
+      bodyHash: expectedBodyHash,
+      now,
+    });
+    return projectDispatch(dispatch);
+  },
+});
+
 export const getMyExecutionPlacementIdentity = query({
   args: {},
   returns: v.object({
@@ -1189,6 +1464,93 @@ export const getMyExecutionPlacementIdentity = query({
   },
 });
 
+export const listMyExecutionDestinations = query({
+  args: {},
+  returns: v.array(executionDestinationValidator),
+  handler: async (ctx) => {
+    const ownerId = await requirePlacementOwner(ctx);
+    const lifecycle = await assertOwnerMigrationWriteAllowed(ctx, ownerId);
+    const devices = await ctx.db
+      .query("devices")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+      .take(65);
+    if (devices.length > 64) {
+      conflict("Execution device list exceeded its bounded invariant.");
+    }
+    const now = Date.now();
+    const destinations = [];
+    for (const device of devices) {
+      if (!device.devicePublicKey) continue;
+      const presence = await loadPresence(ctx, ownerId, device.deviceId);
+      const bridge = await ctx.db
+        .query("mobile_bridge_registrations")
+        .withIndex("by_ownerId_and_deviceId", (q) =>
+          q.eq("ownerId", ownerId).eq("deviceId", device.deviceId),
+        )
+        .unique();
+      const online = Boolean(
+        presence &&
+        presence.ownerGeneration === lifecycle.generation &&
+        presence.leaseExpiresAt > now,
+      );
+      const ready = Boolean(
+        online &&
+        presence?.status === "ready" &&
+        presence.protocolVersion === EXECUTION_PROTOCOL_VERSION,
+      );
+      const availableChatSlots = ready
+        ? (presence?.availableChatSlots ?? 0)
+        : 0;
+      const availableAgentSlots = ready
+        ? (presence?.availableAgentSlots ?? 0)
+        : 0;
+      const platform = device.platform ?? bridge?.platform;
+      destinations.push({
+        deviceId: device.deviceId,
+        name:
+          device.deviceName?.trim() ||
+          platform?.trim() ||
+          `Computer ${device.deviceId.slice(0, 4).toUpperCase()}`,
+        ...(platform?.trim() ? { platform: platform.trim() } : {}),
+        online,
+        ready,
+        busy: online && (!ready || availableChatSlots <= 0),
+        remoteExecutionEnabled: device.remoteExecutionEnabled !== false,
+        availableChatSlots,
+        availableAgentSlots,
+        ...(presence ? { updatedAt: presence.updatedAt } : {}),
+      });
+    }
+    return destinations.sort((a, b) => {
+      if (a.online !== b.online) return a.online ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  },
+});
+
+export const setMyExecutionDeviceRemoteEnabled = mutation({
+  args: { deviceId: v.string(), enabled: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const ownerId = await requirePlacementOwner(ctx);
+    await assertOwnerDataWriteAllowed(ctx, ownerId);
+    const deviceId = boundedTrimmed(
+      args.deviceId,
+      "deviceId",
+      MAX_DEVICE_ID_LENGTH,
+    );
+    const device = await ctx.db
+      .query("devices")
+      .withIndex("by_ownerId_and_deviceId", (q) =>
+        q.eq("ownerId", ownerId).eq("deviceId", deviceId),
+      )
+      .unique();
+    if (!device) forbidden("Execution device not found.");
+    await ctx.db.patch(device._id, { remoteExecutionEnabled: args.enabled });
+    return null;
+  },
+});
+
 export const registerMyExecutionPresence = mutation({
   args: {
     ownerGeneration: v.string(),
@@ -1197,6 +1559,8 @@ export const registerMyExecutionPresence = mutation({
     presenceSessionId: v.string(),
     protocolVersion: v.number(),
     appVersion: v.string(),
+    deviceName: v.optional(v.string()),
+    platform: v.optional(v.string()),
     capabilities: v.array(executionCapabilityValidator),
     status: v.union(v.literal("ready"), v.literal("draining")),
     sequence: v.number(),
@@ -1226,6 +1590,12 @@ export const registerMyExecutionPresence = mutation({
       "appVersion",
       MAX_APP_VERSION_LENGTH,
     );
+    const deviceName = args.deviceName?.trim()
+      ? boundedTrimmed(args.deviceName, "deviceName", 96)
+      : undefined;
+    const platform = args.platform?.trim()
+      ? boundedTrimmed(args.platform, "platform", 32)
+      : undefined;
     if (args.protocolVersion !== EXECUTION_PROTOCOL_VERSION) {
       conflict("Desktop execution protocol version is not supported.");
     }
@@ -1268,6 +1638,7 @@ export const registerMyExecutionPresence = mutation({
       agentSlotCapacity,
       availableChatSlots,
       availableAgentSlots,
+      ...(deviceName || platform ? [deviceName ?? null, platform ?? null] : []),
     ]);
     if (!constantTimeEqual(expectedBodyHash, args.bodyHash)) {
       conflict("Presence proof body does not match its signed fields.");
@@ -1300,14 +1671,20 @@ export const registerMyExecutionPresence = mutation({
         ownerGeneration: args.ownerGeneration,
         deviceId,
         devicePublicKey,
+        ...(deviceName ? { deviceName } : {}),
+        ...(platform ? { platform } : {}),
       });
     } else if (
       !device.devicePublicKey ||
-      device.ownerGeneration !== args.ownerGeneration
+      device.ownerGeneration !== args.ownerGeneration ||
+      (deviceName !== undefined && device.deviceName !== deviceName) ||
+      (platform !== undefined && device.platform !== platform)
     ) {
       await ctx.db.patch(device._id, {
         ownerGeneration: args.ownerGeneration,
         ...(!device.devicePublicKey ? { devicePublicKey } : {}),
+        ...(deviceName ? { deviceName } : {}),
+        ...(platform ? { platform } : {}),
       });
     }
 
@@ -1759,6 +2136,15 @@ export const claimMyExecutionOffer = mutation({
         !hasCapabilities(proof.presence, dispatch.requiredCapabilities)
       ) {
         conflict("This runtime is no longer eligible for the execution.");
+      }
+      const device = await ctx.db
+        .query("devices")
+        .withIndex("by_ownerId_and_deviceId", (q) =>
+          q.eq("ownerId", ownerId).eq("deviceId", proof.deviceId),
+        )
+        .unique();
+      if (!device || device.remoteExecutionEnabled === false) {
+        conflict("Remote execution is disabled on this computer.");
       }
       const available =
         dispatch.kind === "chat"
@@ -2683,7 +3069,12 @@ export const quiesceOwnerExecutionPlacementForMigrationInternal =
               .withIndex("by_ownerId_and_clientMsgId", (q) =>
                 q
                   .eq("ownerId", dispatch.ownerId)
-                  .eq("clientMsgId", dispatch.dispatchId),
+                  .eq(
+                    "clientMsgId",
+                    dispatch.ingress === "desktop"
+                      ? dispatch.idempotencyKey
+                      : dispatch.dispatchId,
+                  ),
               )
               .take(2);
             turn = candidates[0] ?? null;
@@ -2857,7 +3248,14 @@ const findCloudTurnForDispatch = async (
   const candidates = await ctx.db
     .query("agent_turns")
     .withIndex("by_ownerId_and_clientMsgId", (q) =>
-      q.eq("ownerId", dispatch.ownerId).eq("clientMsgId", dispatch.dispatchId),
+      q
+        .eq("ownerId", dispatch.ownerId)
+        .eq(
+          "clientMsgId",
+          dispatch.ingress === "desktop"
+            ? dispatch.idempotencyKey
+            : dispatch.dispatchId,
+        ),
     )
     .take(2);
   return candidates[0] ?? null;
@@ -3020,9 +3418,7 @@ export const listMyExecutionActivity = query({
     return rows.map((row) => ({
       dispatch: projectDispatch(row),
       placementLabel: (row.placement ?? "routing") as
-        | "routing"
-        | "computer"
-        | "cloud",
+        "routing" | "computer" | "cloud",
     }));
   },
 });
@@ -3072,7 +3468,14 @@ export const getCloudCancellationInputInternal = internalQuery({
       const candidates = await ctx.db
         .query("agent_turns")
         .withIndex("by_ownerId_and_clientMsgId", (q) =>
-          q.eq("ownerId", args.ownerId).eq("clientMsgId", dispatch.dispatchId),
+          q
+            .eq("ownerId", args.ownerId)
+            .eq(
+              "clientMsgId",
+              dispatch.ingress === "desktop"
+                ? dispatch.idempotencyKey
+                : dispatch.dispatchId,
+            ),
         )
         .take(2);
       turn = candidates[0] ?? null;
@@ -3727,7 +4130,10 @@ export const executeCloudCommittedDispatchInternal = internalAction({
                     : {}),
                 }
               : { source: cloudPlacementSource(input) }),
-            clientMsgId: input.dispatchId,
+            clientMsgId:
+              input.ingress === "desktop"
+                ? input.idempotencyKey
+                : input.dispatchId,
             placementAttempt: {
               dispatchId: input.dispatchId,
               attemptId,

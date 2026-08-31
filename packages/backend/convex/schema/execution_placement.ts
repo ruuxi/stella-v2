@@ -25,6 +25,12 @@ export const executionPlacementValidator = v.union(
   v.literal("cloud"),
 );
 
+export const executionTargetModeValidator = v.union(
+  v.literal("automatic"),
+  v.literal("cloud"),
+  v.literal("device"),
+);
+
 export type ExecutionPlacement = Infer<typeof executionPlacementValidator>;
 
 export const executionCapabilityValidator = v.union(
@@ -75,6 +81,7 @@ export const executionDeviceProofOperationValidator = v.union(
   v.literal("presence-heartbeat"),
   v.literal("presence-drain"),
   v.literal("presence-clear"),
+  v.literal("execution-submit"),
   v.literal("claim"),
   v.literal("claim-release"),
   v.literal("claim-ack"),
@@ -116,23 +123,14 @@ export const executionPlacementSchema = {
     updatedAt: v.number(),
   })
     .index("by_ownerId_and_deviceId", ["ownerId", "deviceId"])
-    .index("by_ownerId_and_presenceSessionId", [
-      "ownerId",
-      "presenceSessionId",
-    ])
+    .index("by_ownerId_and_presenceSessionId", ["ownerId", "presenceSessionId"])
     .index("by_ownerId_and_status_and_leaseExpiresAt", [
       "ownerId",
       "status",
       "leaseExpiresAt",
     ])
-    .index("by_ownerId_and_purgeOperationId", [
-      "ownerId",
-      "purgeOperationId",
-    ])
-    .index("by_ownerId_and_migrationId", [
-      "ownerId",
-      "migrationId",
-    ]),
+    .index("by_ownerId_and_purgeOperationId", ["ownerId", "purgeOperationId"])
+    .index("by_ownerId_and_migrationId", ["ownerId", "migrationId"]),
 
   /** Single routing/lifecycle authority for one idempotent execution. */
   execution_dispatches: defineTable({
@@ -150,6 +148,9 @@ export const executionPlacementSchema = {
     threadId: v.optional(v.string()),
     requestingDeviceId: v.optional(v.string()),
     pairGrantDeviceId: v.optional(v.string()),
+    /** Frozen user intent. Chosen executor identity remains targetDeviceId. */
+    requestedTargetMode: v.optional(executionTargetModeValidator),
+    requestedExecutorDeviceId: v.optional(v.string()),
     requiredCapabilities: v.array(executionCapabilityValidator),
     routingPolicyVersion: v.number(),
     onNoEligibleComputer: noEligibleComputerActionValidator,
@@ -199,15 +200,12 @@ export const executionPlacementSchema = {
       "conversationId",
       "createdAt",
     ])
-    .index(
-      "by_target_session_state_updated",
-      [
-        "targetDeviceId",
-        "targetPresenceSessionId",
-        "state",
-        "updatedAt",
-      ],
-    )
+    .index("by_target_session_state_updated", [
+      "targetDeviceId",
+      "targetPresenceSessionId",
+      "state",
+      "updatedAt",
+    ])
     .index("by_state_and_claimExpiresAt", ["state", "claimExpiresAt"])
     .index("by_state_and_offerDeadlineAt", ["state", "offerDeadlineAt"])
     .index("by_threadId_and_attemptGeneration", [

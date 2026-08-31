@@ -29,6 +29,7 @@ export type {
   AutomaticExecutionCapability,
   AutomaticExecutionKind,
   AutomaticExecutionSubject,
+  AutomaticExecutionTarget,
   AutomaticExecutionTurnControl,
 } from "./execution-placement-core";
 
@@ -99,7 +100,9 @@ export const ensureAutomaticExecutionConversation = async (args: {
   const identity = await client.query(placementIdentityRef, {});
   const expectedOwnerGeneration = identity?.ownerGeneration?.trim();
   if (!expectedOwnerGeneration) {
-    throw new Error("Conversation admission could not establish owner authority.");
+    throw new Error(
+      "Conversation admission could not establish owner authority.",
+    );
   }
   const conversation = await client.mutation(createConversationRef, {
     clientCreateId,
@@ -139,11 +142,15 @@ export const cancelAutomaticExecution = async (args: {
   reason?: string;
   signal?: AbortSignal;
 }): Promise<AutomaticExecutionDispatch> => {
-  const value = await postJson("/api/mobile/execution/cancel", {
-    dispatchId: args.dispatchId.trim(),
-    cancelRequestId: args.cancelRequestId.trim(),
-    ...(args.reason?.trim() ? { reason: args.reason.trim() } : {}),
-  }, { signal: args.signal, timeoutMs: 10_000 });
+  const value = await postJson(
+    "/api/mobile/execution/cancel",
+    {
+      dispatchId: args.dispatchId.trim(),
+      cancelRequestId: args.cancelRequestId.trim(),
+      ...(args.reason?.trim() ? { reason: args.reason.trim() } : {}),
+    },
+    { signal: args.signal, timeoutMs: 10_000 },
+  );
   return readAutomaticExecutionDispatch(value, {
     dispatchId: args.dispatchId.trim(),
   }) as AutomaticExecutionDispatch;
@@ -177,23 +184,32 @@ export const waitForAutomaticExecution = async (args: {
 
 /**
  * Sends one server-admitted execution request. This API intentionally has no
- * `transport`, `runOn`, or fallback flag: the authenticated HTTP route derives
- * mobile ingress and the placement service owns the decision permanently once
- * an executor has accepted it.
+ * The target is a frozen user choice. Automatic remains the default; an exact
+ * device choice is bound to the matching pair proof and cannot fall back.
  */
 export const submitAutomaticExecution = async (
   input: SubmitAutomaticExecutionInput,
 ): Promise<AutomaticExecutionDispatch> => {
   const { access, ...admissionInput } = input;
   const admission = buildAutomaticExecutionAdmission(admissionInput);
-  const pairHeaders = access
-    ? buildPhonePairProofHeaders(access, admission.challenge)
+  const target = admissionInput.target ?? { mode: "automatic" as const };
+  if (
+    target.mode === "device" &&
+    (!access || access.desktopDeviceId !== target.deviceId.trim())
+  ) {
+    throw new Error("The selected computer is not paired with this phone.");
+  }
+  const pairedAccess = target.mode === "cloud" ? undefined : access;
+  const pairHeaders = pairedAccess
+    ? buildPhonePairProofHeaders(pairedAccess, admission.challenge)
     : undefined;
   const result = await postJson(
     "/api/mobile/execution/submit",
     {
       ...admission.body,
-      ...(access ? { desktopDeviceId: access.desktopDeviceId } : {}),
+      ...(pairedAccess
+        ? { desktopDeviceId: pairedAccess.desktopDeviceId }
+        : {}),
     },
     pairHeaders ? { headers: pairHeaders } : undefined,
   );

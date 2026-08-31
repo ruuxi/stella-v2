@@ -1,7 +1,10 @@
 import { EventEmitter } from "node:events";
 import { existsSync, promises as fs, readFileSync, watch, } from "node:fs";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
+import { hostname } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { ConvexClient } from "convex/browser";
 import { anyApi } from "convex/server";
 import { readConfiguredConvexUrl } from "@stella/contracts/convex-urls";
@@ -58,6 +61,7 @@ const AGENT_EVENT_BUFFER_TTL_MS = 10 * 60 * 1_000;
 const REMOTE_TURN_CANCEL_RETRY_COUNT = 4;
 const REMOTE_TURN_CANCEL_RETRY_DELAY_MS = 25;
 const REMOTE_TURN_CANCEL_ACK_TIMEOUT_MS = 500;
+const PLACED_ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
 export { retireDetachedWorkerRoot };
 const SYNTHETIC_RUN_EVENT_SEQ_FLOOR = 1e10;
 const parseDisplayUpdateParams = (params) => {
@@ -155,6 +159,7 @@ export class StellaRuntimeHost {
     hostRemoteTurnBridge = null;
     hostExecutionPlacementBridge = null;
     hostExecutionPlacementSyncQueue = Promise.resolve();
+    placedDispatchByRunId = new Map();
     hostRemoteTurnAuthWindowStartedAt = 0;
     hostRemoteTurnUnauthenticatedFailures = 0;
     hostRemoteTurnAuthRecoveryPromise = null;
@@ -1228,6 +1233,8 @@ export class StellaRuntimeHost {
             database: this.connectorFollowupDatabase,
             deviceIdentity: this.deviceIdentity,
             appVersion: "stella-desktop-v2",
+            deviceName: hostname().trim().slice(0, 96) || undefined,
+            platform: process.platform,
             getAvailability: async () => {
                 const health = await this.getWorkerHealth({
                     ensureWorker: false,
@@ -1263,7 +1270,9 @@ export class StellaRuntimeHost {
                 // The cloud journal echoes this id as the turn's clientMsgId, and
                 // mobile binds its optimistic bubble to the dispatch id, so the
                 // two must be the same string or the phone shows the user row twice.
-                const userMessageEventId = dispatch.dispatchId;
+                const userMessageEventId = typeof payload.userMessageEventId === "string" && payload.userMessageEventId.trim()
+                    ? payload.userMessageEventId.trim()
+                    : dispatch.dispatchId;
                 const attachments = await resolvePlacementAttachments({
                     paths: placementAttachmentPaths(payload),
                     resolve: async (path) => await client.action(anyApi.cloud_drive.getMyDriveFileUrl, { path }),
@@ -1675,20 +1684,215 @@ export class StellaRuntimeHost {
         await this.workerController.ensureStarted();
         return { ok: true };
     }
+    emitPlacedRunEvent(event) {
+        bufferAgentEvent(this.agentEventBuffers, event);
+        pruneAgentEventBuffers(this.agentEventBuffers);
+        this.events.emit("run-event", event);
+    }
+    async readPlacedAttachment(attachment) {
+        const source = typeof attachment?.url === "string" ? attachment.url.trim() : "";
+        if (!source) throw new Error("A remote attachment is missing its source.");
+        let bytes;
+        let inferredName = typeof attachment.name === "string" ? attachment.name.trim() : "";
+        let contentType = typeof attachment.mimeType === "string" && attachment.mimeType.trim() ? attachment.mimeType.trim() : "application/octet-stream";
+        const dataMatch = source.match(/^data:([^;,]+)?(?:;base64)?,(.*)$/s);
+        if (dataMatch) {
+            const encoded = dataMatch[2] ?? "";
+            bytes = source.slice(0, source.indexOf(",")).includes(";base64") ? Buffer.from(encoded, "base64") : Buffer.from(decodeURIComponent(encoded), "utf8");
+            if (dataMatch[1]) contentType = dataMatch[1];
+        } else {
+            const filePath = source.startsWith("file:") ? fileURLToPath(source) : source;
+            bytes = await fs.readFile(filePath);
+            inferredName ||= path.basename(filePath);
+        }
+        if (bytes.byteLength <= 0 || bytes.byteLength > PLACED_ATTACHMENT_MAX_BYTES) {
+            throw new Error("Remote attachments must be between 1 byte and 20 MB.");
+        }
+        return {
+            bytes,
+            contentType,
+            name: inferredName || "attachment",
+        };
+    }
+    async uploadPlacedAttachments(client, payload, idempotencyKey) {
+        const attachments = Array.isArray(payload.attachments) ? payload.attachments.slice(0, 4) : [];
+        if (attachments.length === 0) return [];
+        const scope = createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 24);
+        const uploaded = [];
+        for (let index = 0; index < attachments.length; index += 1) {
+            const attachment = await this.readPlacedAttachment(attachments[index]);
+            const rawExtension = path.extname(attachment.name).toLowerCase();
+            const extension = /^\.[a-z0-9]{1,10}$/.test(rawExtension) ? rawExtension : "";
+            const drivePath = `execution-attachments/${scope}/${String(index + 1).padStart(2, "0")}${extension}`;
+            const prepared = await client.action(anyApi.cloud_drive.prepareDriveUpload, {
+                path: drivePath,
+                sizeBytes: attachment.bytes.byteLength,
+                contentType: attachment.contentType,
+            });
+            const response = await fetch(prepared.uploadUrl, {
+                method: "PUT",
+                headers: { "Content-Type": prepared.contentType },
+                body: attachment.bytes,
+            });
+            if (!response.ok) {
+                throw new Error(`Remote attachment upload failed (${response.status}).`);
+            }
+            await client.action(anyApi.cloud_drive.finalizeDriveUpload, {
+                path: prepared.path,
+                uploadId: prepared.uploadId,
+                contentType: prepared.contentType,
+                source: "execution-placement",
+            });
+            uploaded.push(prepared.path);
+        }
+        return uploaded;
+    }
+    async startPlacedChat(payload, target) {
+        const client = this.ensureHostConvexClient();
+        const expectedOwnerGeneration = payload.ownerGeneration?.trim();
+        await this.syncHostExecutionPlacement();
+        const placementBridge = this.hostExecutionPlacementBridge;
+        if (!client || !placementBridge?.isRunning || !expectedOwnerGeneration) {
+            throw new Error("Cross-device execution is not ready on this computer.");
+        }
+        const idempotencyKey = (payload.userMessageEventId?.trim() || payload.requestId?.trim() || `desktop:${crypto.randomUUID()}`).slice(0, 128);
+        const attachments = await this.uploadPlacedAttachments(client, payload, idempotencyKey);
+        const selectedText = typeof payload.selectedText === "string" ? payload.selectedText.trim() : "";
+        const userPrompt = typeof payload.userPrompt === "string" ? payload.userPrompt.trim() : "";
+        const prompt = selectedText ? `${userPrompt || "Please help with this context."}\n\nSelected text:\n${selectedText}` : userPrompt;
+        if (!prompt) throw new Error("A prompt is required.");
+        const payloadJson = JSON.stringify({
+            schemaVersion: 1,
+            prompt,
+            expectedOwnerGeneration,
+            conversationId: payload.conversationId,
+            clientMsgId: idempotencyKey,
+            userMessageEventId: payload.userMessageEventId ?? idempotencyKey,
+            ...(payload.locale ? { locale: payload.locale } : {}),
+            ...(attachments.length ? { attachments } : {}),
+        });
+        const payloadHash = createHash("sha256").update(payloadJson, "utf8").digest("hex");
+        const dispatch = await placementBridge.submitDesktopExecution({
+            idempotencyKey,
+            requestedTargetMode: target.mode,
+            ...(target.mode === "device" ? { requestedExecutorDeviceId: target.deviceId } : {}),
+            payloadJson,
+            payloadHash,
+            kind: "chat",
+            subject: "portable",
+            conversationId: payload.conversationId,
+            requiredCapabilities: ["chat", ...(attachments.length ? ["attachments"] : [])],
+        });
+        if (!dispatch?.dispatchId) throw new Error("Execution placement returned an invalid dispatch.");
+        const runId = `placed:${dispatch.dispatchId}`;
+        const requestId = payload.requestId;
+        const userMessageId = payload.userMessageEventId ?? idempotencyKey;
+        let lastRevision = -1;
+        let terminal = false;
+        const placed = {
+            dispatchId: dispatch.dispatchId,
+            runId,
+            requestId,
+            conversationId: payload.conversationId,
+            userMessageId,
+            subscription: null,
+        };
+        this.placedDispatchByRunId.set(runId, placed);
+        this.emitPlacedRunEvent({
+            type: AGENT_STREAM_EVENT_TYPES.RUN_STARTED,
+            seq: SYNTHETIC_RUN_EVENT_SEQ_FLOOR + 1,
+            runId,
+            requestId,
+            conversationId: payload.conversationId,
+            userMessageId,
+            agentType: "orchestrator",
+        });
+        const finish = (status) => {
+            if (terminal) return;
+            terminal = true;
+            placed.subscription?.unsubscribe();
+            this.placedDispatchByRunId.delete(runId);
+            const outcome = status.state === "completed" ? "completed" : status.state === "canceled" ? "canceled" : "error";
+            this.emitPlacedRunEvent({
+                type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
+                seq: Number.MAX_SAFE_INTEGER,
+                runId,
+                requestId,
+                conversationId: payload.conversationId,
+                userMessageId,
+                agentType: "orchestrator",
+                outcome,
+                persisted: true,
+                ...(status.errorMessage ? { error: status.errorMessage, reason: status.errorMessage } : {}),
+            });
+        };
+        const onStatus = (status) => {
+            if (!status || status.dispatchId !== dispatch.dispatchId || terminal) return;
+            if (Number.isFinite(status.revision) && status.revision > lastRevision) {
+                lastRevision = status.revision;
+                const statusText = status.state === "offering" || status.state === "computer_claimed" ? "Connecting" : status.state === "computer_accepted" || status.state === "computer_running" || status.state === "cloud_running" ? "Working" : status.state === "cloud_committed" ? "Starting" : null;
+                if (statusText) {
+                    this.emitPlacedRunEvent({
+                        type: AGENT_STREAM_EVENT_TYPES.STATUS,
+                        seq: SYNTHETIC_RUN_EVENT_SEQ_FLOOR + 2 + lastRevision,
+                        runId,
+                        requestId,
+                        conversationId: payload.conversationId,
+                        userMessageId,
+                        statusText,
+                    });
+                }
+            }
+            if (["completed", "failed", "canceled"].includes(status.state)) finish(status);
+        };
+        placed.subscription = client.onUpdate(anyApi.execution_placement.getMyExecutionDispatchStatus, { dispatchId: dispatch.dispatchId }, onStatus, (error) => {
+            console.warn("[execution-placement] Source dispatch status stream failed.", error);
+        });
+        onStatus(dispatch);
+        return { runId };
+    }
     async healthCheck() {
         const health = await this.getWorkerHealth({ ensureWorker: false });
         return health?.health ?? null;
     }
     async getActiveRun() {
+        const placed = this.placedDispatchByRunId.values().next().value;
+        if (placed) {
+            return {
+                runId: placed.runId,
+                conversationId: placed.conversationId,
+                requestId: placed.requestId,
+                userMessageId: placed.userMessageId,
+            };
+        }
         const health = await this.getWorkerHealth({ ensureWorker: false });
         return health?.activeRun ?? null;
     }
     async listActiveRuns() {
         try {
-            return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_LIST_ACTIVE_RUNS, {}, { ensureWorker: false, recordActivity: false });
+            const local = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_LIST_ACTIVE_RUNS, {}, { ensureWorker: false, recordActivity: false });
+            return {
+                ...local,
+                runs: [
+                    ...(local?.runs ?? []),
+                    ...[...this.placedDispatchByRunId.values()].map((placed) => ({
+                        runId: placed.runId,
+                        conversationId: placed.conversationId,
+                        requestId: placed.requestId,
+                        userMessageId: placed.userMessageId,
+                    })),
+                ],
+            };
         }
         catch {
-            return { runs: [] };
+            return {
+                runs: [...this.placedDispatchByRunId.values()].map((placed) => ({
+                    runId: placed.runId,
+                    conversationId: placed.conversationId,
+                    requestId: placed.requestId,
+                    userMessageId: placed.userMessageId,
+                })),
+            };
         }
     }
     async listModels(request = {}) {
@@ -1700,6 +1904,18 @@ export class StellaRuntimeHost {
             this.connectorTargetsByLocalConversation.delete(payload.conversationId);
             this.connectorFollowupOutbox?.clearTarget(payload.conversationId);
             this.localConversationByRequestId.delete(priorConnectorTarget.requestId);
+        }
+        const target = payload.executionTarget && typeof payload.executionTarget === "object"
+            ? payload.executionTarget
+            : { mode: "automatic" };
+        if (target.mode === "cloud") {
+            return await this.startPlacedChat(payload, { mode: "cloud" });
+        }
+        if (target.mode === "device" && typeof target.deviceId === "string" && target.deviceId.trim() && target.deviceId.trim() !== this.deviceIdentity?.deviceId) {
+            return await this.startPlacedChat(payload, {
+                mode: "device",
+                deviceId: target.deviceId.trim(),
+            });
         }
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_START_CHAT, payload, {
             ensureWorker: true,
@@ -1713,6 +1929,18 @@ export class StellaRuntimeHost {
         });
     }
     async cancelChat(runId) {
+        const placed = this.placedDispatchByRunId.get(runId);
+        if (placed) {
+            const client = this.ensureHostConvexClient();
+            if (!client)
+                throw new Error("Execution placement is unavailable.");
+            await client.mutation(anyApi.execution_placement.cancelMyExecutionDispatch, {
+                dispatchId: placed.dispatchId,
+                cancelRequestId: `cancel:${placed.dispatchId}`,
+                reason: "Canceled by the user.",
+            });
+            return { ok: true, cancelled: true };
+        }
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_CANCEL, { runId }, { ensureWorker: false, recordActivity: true });
     }
     async cancelChatByConversation(conversationId) {
@@ -2015,6 +2243,10 @@ export class StellaRuntimeHost {
         this.hostReady = true;
     }
     async stopHostServices() {
+        for (const placed of this.placedDispatchByRunId.values()) {
+            placed.subscription?.unsubscribe();
+        }
+        this.placedDispatchByRunId.clear();
         await this.hostExecutionPlacementSyncQueue;
         await this.hostExecutionPlacementBridge?.stop();
         this.hostExecutionPlacementBridge = null;

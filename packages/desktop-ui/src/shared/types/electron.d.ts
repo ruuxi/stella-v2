@@ -548,6 +548,10 @@ export type ElectronAgentApi = {
     agentType?: string;
     storageMode?: "cloud" | "local";
     clientRequestId?: string;
+    executionTarget?:
+      | { mode: "automatic" }
+      | { mode: "cloud" }
+      | { mode: "device"; deviceId: string };
   }) => Promise<{
     requestId: string;
     runId?: string;
@@ -640,11 +644,7 @@ export type ElectronSystemApi = {
     screen: boolean;
     microphone: boolean;
     microphoneStatus:
-      | "not-determined"
-      | "granted"
-      | "denied"
-      | "restricted"
-      | "unknown";
+      "not-determined" | "granted" | "denied" | "restricted" | "unknown";
   }>;
   openPermissionSettings: (kind: string) => Promise<void>;
   requestPermission: (kind: string) => Promise<{
@@ -784,21 +784,11 @@ export type ElectronSystemApi = {
     codexModel: string;
     codexModelExplicit: boolean;
     codexReasoningEffort:
-      | "default"
-      | "minimal"
-      | "low"
-      | "medium"
-      | "high"
-      | "xhigh";
+      "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
     codexServiceTier: "standard" | "fast";
     claudeCodeModel: string;
     claudeCodeReasoningEffort:
-      | "default"
-      | "minimal"
-      | "low"
-      | "medium"
-      | "high"
-      | "xhigh";
+      "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
     maxAgentConcurrency: number;
     imageGeneration: {
       provider: "stella" | "openai" | "openrouter" | "fal";
@@ -824,21 +814,11 @@ export type ElectronSystemApi = {
     codexModel?: string;
     codexModelExplicit?: boolean;
     codexReasoningEffort?:
-      | "default"
-      | "minimal"
-      | "low"
-      | "medium"
-      | "high"
-      | "xhigh";
+      "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
     codexServiceTier?: "standard" | "fast";
     claudeCodeModel?: string;
     claudeCodeReasoningEffort?:
-      | "default"
-      | "minimal"
-      | "low"
-      | "medium"
-      | "high"
-      | "xhigh";
+      "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
     maxAgentConcurrency?: number;
     imageGeneration?: {
       provider: "stella" | "openai" | "openrouter" | "fal";
@@ -863,21 +843,11 @@ export type ElectronSystemApi = {
     codexModel: string;
     codexModelExplicit: boolean;
     codexReasoningEffort:
-      | "default"
-      | "minimal"
-      | "low"
-      | "medium"
-      | "high"
-      | "xhigh";
+      "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
     codexServiceTier: "standard" | "fast";
     claudeCodeModel: string;
     claudeCodeReasoningEffort:
-      | "default"
-      | "minimal"
-      | "low"
-      | "medium"
-      | "high"
-      | "xhigh";
+      "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
     maxAgentConcurrency: number;
     imageGeneration: {
       provider: "stella" | "openai" | "openrouter" | "fal";
@@ -895,21 +865,11 @@ export type ElectronSystemApi = {
       hidden: boolean;
       supportedReasoningEfforts: Array<{
         reasoningEffort:
-          | "none"
-          | "minimal"
-          | "low"
-          | "medium"
-          | "high"
-          | "xhigh";
+          "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
         description: string;
       }>;
       defaultReasoningEffort:
-        | "none"
-        | "minimal"
-        | "low"
-        | "medium"
-        | "high"
-        | "xhigh";
+        "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
       inputModalities: string[];
       additionalSpeedTiers: string[];
       serviceTiers: Array<{
@@ -1840,12 +1800,7 @@ export type ElectronApi = {
 };
 
 type PetOverlayMood =
-  | "idle"
-  | "running"
-  | "waiting"
-  | "review"
-  | "failed"
-  | "waving";
+  "idle" | "running" | "waiting" | "review" | "failed" | "waving";
 
 type PetOverlayStatusPayload = {
   state: PetOverlayMood;

@@ -11,6 +11,68 @@
   bottom: 12px;
   z-index: 62;
   -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pill-btn.execution-target-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 170px;
+}
+
+.execution-target-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.execution-target-popover {
+  width: min(280px, 90vw);
+  max-width: min(280px, 90vw);
+}
+
+.execution-target-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+}
+
+.execution-target-option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-base);
+  font: inherit;
+  text-align: left;
+}
+
+.execution-target-option:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+
+.execution-target-option:disabled {
+  color: var(--text-weak);
+  opacity: 0.65;
+}
+
+.execution-target-option span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.execution-target-option small {
+  color: var(--text-weak);
+  font-size: var(--font-size-xs);
 }
 
 /* Composer pin — a plain label + switch, not a pill: it is a persistent

@@ -1,12 +1,7 @@
 import { useMemo, useState } from "react";
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { useRouter } from "expo-router";
+import { makeFunctionReference } from "convex/server";
+import { useQuery } from "convex/react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TopSheet } from "./TopSheet";
 import { Icon, type IconName } from "./Icon";
@@ -14,6 +9,7 @@ import { ConnectHeroAnimation } from "./ConnectHeroAnimation";
 import { ComputerSettingsSheet } from "./ComputerSettingsSheet";
 import { PairPhoneSheet } from "./PairPhoneSheet";
 import { type StoredPhoneAccess } from "../lib/phone-access";
+import type { AutomaticExecutionTarget } from "../lib/execution-placement";
 import type { ComputerModelSettings } from "../lib/use-computer-model-settings";
 import { tapLight } from "../lib/haptics";
 import { type Colors } from "../theme/colors";
@@ -34,6 +30,9 @@ type ComputerDeviceSheetProps = {
   onWake: () => void;
   /** Bubble a freshly-paired computer up so the chat re-targets it. */
   onRepaired: (access: StoredPhoneAccess) => void;
+  pairedDesktops: StoredPhoneAccess[];
+  executionTarget: AutomaticExecutionTarget;
+  onExecutionTargetChange: (target: AutomaticExecutionTarget) => void;
   modelSettings: ComputerModelSettings;
   composerModelPinned: boolean;
   onComposerModelPinnedChange: (next: boolean) => void;
@@ -57,6 +56,9 @@ export function ComputerDeviceSheet({
   showWake,
   onWake,
   onRepaired,
+  pairedDesktops,
+  executionTarget,
+  onExecutionTargetChange,
   modelSettings,
   composerModelPinned,
   onComposerModelPinnedChange,
@@ -64,9 +66,19 @@ export function ComputerDeviceSheet({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const router = useRouter();
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
   const [pairSheetOpen, setPairSheetOpen] = useState(false);
+  const [targetSheetOpen, setTargetSheetOpen] = useState(false);
+  const destinations = useQuery(
+    executionDestinationsRef,
+    visible ? {} : "skip",
+  );
+  const selectedDestination =
+    executionTarget.mode === "device"
+      ? destinations?.find(
+          (device) => device.deviceId === executionTarget.deviceId,
+        )
+      : undefined;
   // Follows the paired desktop's developer-mode flag: only an explicit "off"
   // hides the Model row (and its sheet); unknown/older desktops keep it.
   const modelControlsHidden = modelSettings.developerModeEnabled === false;
@@ -78,6 +90,22 @@ export function ComputerDeviceSheet({
     trailing?: string;
     onPress: () => void;
   }[] = [
+    {
+      id: "destination",
+      icon: "monitor",
+      label: "Run on",
+      trailing:
+        executionTarget.mode === "automatic"
+          ? "Automatic"
+          : executionTarget.mode === "cloud"
+            ? "Cloud"
+            : (selectedDestination?.name ??
+              `Computer ${executionTarget.deviceId.slice(0, 4).toUpperCase()}`),
+      onPress: () => {
+        tapLight();
+        setTargetSheetOpen(true);
+      },
+    },
     ...(modelControlsHidden
       ? []
       : [
@@ -181,6 +209,17 @@ export function ComputerDeviceSheet({
         composerModelPinned={composerModelPinned}
         onComposerModelPinnedChange={onComposerModelPinnedChange}
       />
+      <ExecutionTargetSheet
+        visible={targetSheetOpen}
+        onClose={() => setTargetSheetOpen(false)}
+        pairedDesktops={pairedDesktops}
+        destinations={destinations}
+        target={executionTarget}
+        onSelect={(next) => {
+          onExecutionTargetChange(next);
+          setTargetSheetOpen(false);
+        }}
+      />
       <PairPhoneSheet
         visible={pairSheetOpen}
         onClose={() => setPairSheetOpen(false)}
@@ -188,7 +227,126 @@ export function ComputerDeviceSheet({
           setPairSheetOpen(false);
           onRepaired(next);
         }}
+        preferredAccess={access}
+        pairedDesktops={pairedDesktops}
       />
+    </TopSheet>
+  );
+}
+
+type ExecutionDestination = {
+  deviceId: string;
+  name: string;
+  online: boolean;
+  ready: boolean;
+  busy: boolean;
+  remoteExecutionEnabled: boolean;
+};
+
+const executionDestinationsRef = makeFunctionReference<
+  "query",
+  Record<string, never>,
+  ExecutionDestination[]
+>("execution_placement:listMyExecutionDestinations");
+
+function ExecutionTargetSheet(props: {
+  visible: boolean;
+  onClose: () => void;
+  pairedDesktops: StoredPhoneAccess[];
+  destinations: ExecutionDestination[] | undefined;
+  target: AutomaticExecutionTarget;
+  onSelect: (target: AutomaticExecutionTarget) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const pairedIds = useMemo(
+    () => new Set(props.pairedDesktops.map((entry) => entry.desktopDeviceId)),
+    [props.pairedDesktops],
+  );
+  const computers = (props.destinations ?? []).filter(
+    (device) =>
+      pairedIds.has(device.deviceId) &&
+      ((device.online && device.remoteExecutionEnabled) ||
+        (props.target.mode === "device" &&
+          props.target.deviceId === device.deviceId)),
+  );
+  const options: {
+    key: string;
+    icon: IconName;
+    label: string;
+    selected: boolean;
+    disabled?: boolean;
+    unavailableLabel?: string;
+    target: AutomaticExecutionTarget;
+  }[] = [
+    {
+      key: "automatic",
+      icon: "sparkles",
+      label: "Automatic",
+      selected: props.target.mode === "automatic",
+      target: { mode: "automatic" },
+    },
+    {
+      key: "cloud",
+      icon: "globe",
+      label: "Cloud",
+      selected: props.target.mode === "cloud",
+      target: { mode: "cloud" },
+    },
+    ...computers.map((device) => ({
+      key: device.deviceId,
+      icon: "monitor" as IconName,
+      label: device.name,
+      selected:
+        props.target.mode === "device" &&
+        props.target.deviceId === device.deviceId,
+      disabled:
+        !device.online ||
+        !device.remoteExecutionEnabled ||
+        !device.ready ||
+        device.busy,
+      unavailableLabel: !device.online
+        ? "Offline"
+        : !device.remoteExecutionEnabled
+          ? "Unavailable"
+          : "Busy",
+      target: { mode: "device" as const, deviceId: device.deviceId },
+    })),
+  ];
+
+  return (
+    <TopSheet visible={props.visible} onClose={props.onClose}>
+      <View style={styles.targetSheet}>
+        {options.map((option, index) => (
+          <Pressable
+            key={option.key}
+            disabled={option.disabled}
+            onPress={() => {
+              tapLight();
+              props.onSelect(option.target);
+            }}
+            style={({ pressed }) => [
+              styles.row,
+              index > 0 && styles.rowDivider,
+              pressed && styles.rowPressed,
+              option.disabled && styles.targetDisabled,
+            ]}
+          >
+            <Icon
+              name={option.icon}
+              size={18}
+              color={colors.textMuted}
+              style={styles.rowIcon}
+            />
+            <Text style={styles.rowLabel}>{option.label}</Text>
+            {option.disabled ? (
+              <Text style={styles.rowTrailing}>{option.unavailableLabel}</Text>
+            ) : option.selected ? (
+              <Icon name="check" size={17} color={colors.accent} />
+            ) : null}
+          </Pressable>
+        ))}
+      </View>
     </TopSheet>
   );
 }
@@ -240,6 +398,13 @@ const makeStyles = (colors: Colors) =>
 
     rowGroup: {
       marginTop: 36,
+    },
+    targetSheet: {
+      paddingHorizontal: 24,
+      paddingTop: 12,
+    },
+    targetDisabled: {
+      opacity: 0.55,
     },
     row: {
       alignItems: "center",

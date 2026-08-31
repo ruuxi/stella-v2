@@ -10,6 +10,7 @@ import { reconcileStreamingAssistantCanonicalMessage, streamingAssistantOverlayI
 import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
 import { WORKING_INDICATOR_HANDOFF_MS } from "@/features/chat/working-indicator-state";
 import { resolveAgentNotReadyToast } from "./agent-stream-errors";
+import { getExecutionTargetSnapshot } from "@/features/execution-placement/execution-target-store";
 import { isStellaLimitOrAuthReason, resolveStellaProviderErrorToast, } from "./stella-provider-error-toast";
 export function useLocalAgentStream({ activeConversationId, storageMode, onRunStarted, onRunFinished, }) {
     const [storeState, dispatch] = useReducer(streamStoreReducer, initialStoreState);
@@ -320,6 +321,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                     ? { userMessageTimestamp: args.userMessageTimestamp }
                     : {}),
                 storageMode,
+                executionTarget: getExecutionTargetSnapshot(),
             });
             pendingRequestIdsRef.current.add(requestId);
             return true;

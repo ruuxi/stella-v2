@@ -98,5 +98,6 @@ export declare function streamStoreReducer(state: StreamStoreState, action: Stre
 export declare function attachmentsForStartChat(attachments: AttachmentRef[] | undefined): {
     url: string;
     mimeType?: string;
+    name?: string;
     previewUrl?: string;
 }[] | undefined;

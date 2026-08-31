@@ -35,6 +35,7 @@ import { useT } from "../i18n/I18nProvider";
 import { hasAiConsent, requestAiConsent } from "./ai-consent";
 import {
   getPreferredPhoneAccess,
+  listStoredPairedPhoneAccess,
   type StoredPhoneAccess,
 } from "./phone-access";
 import {
@@ -50,6 +51,7 @@ import {
   waitForAutomaticExecution,
   type AutomaticExecutionDispatch,
   type AutomaticExecutionTurnControl,
+  type AutomaticExecutionTarget,
 } from "./execution-placement";
 import {
   unifiedChatPlacementAdmission,
@@ -109,7 +111,7 @@ const waitForAutomaticRetry = (signal?: AbortSignal) =>
 
 const isPermanentAutomaticAdmissionError = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
-  return /authentication required|sign in|signed-in account|ownership_migrated|linked to (?:an|another) account|being linked|owner generation|account data is currently|invalid|unsupported|not found|conflict|payload|conversation|malformed|different (?:dispatch|message) identity/i.test(
+  return /authentication required|sign in|signed-in account|ownership_migrated|linked to (?:an|another) account|being linked|owner generation|account data is currently|invalid|unsupported|not found|not paired|conflict|payload|conversation|malformed|different (?:dispatch|message) identity/i.test(
     message,
   );
 };
@@ -203,6 +205,7 @@ type QueuedSend = {
   canonicalAuthorityLease?: number;
   /** Durable server cancellation identity restored from the outbox. */
   cancelRequestId?: string;
+  executionTarget?: AutomaticExecutionTarget;
 };
 
 /**
@@ -217,6 +220,8 @@ export type ChatTransport = {
   authorityReady: boolean;
   /** Paired desktop credentials, when one is paired, for live activity reads. */
   access?: StoredPhoneAccess | null;
+  /** Frozen into each durable send; automatic preserves existing behavior. */
+  executionTarget?: AutomaticExecutionTarget;
   /**
    * Cloud journal reconciliation seam. The placement service allocates a
    * server dispatch id distinct from the mobile optimistic id; the DO echoes
@@ -608,6 +613,7 @@ export function useChatThread(opts: {
             userMessageId: row.id,
             text: stored?.text ?? row.text,
             attachments: stored?.attachments ?? [],
+            executionTarget: stored?.executionTarget ?? { mode: "automatic" },
             ...(stored ? { queueSequence: stored.sequence } : {}),
             canonicalAuthorityLease: canonicalAuthorityLeaseRef.current,
             ...(stored?.cancelRequestId
@@ -904,11 +910,27 @@ export function useChatThread(opts: {
               assertAuthorityLease();
             }
             syncConversationIdRef.current = placementConversationId;
-            const access = ignoreStoredAccess
-              ? undefined
-              : (transport.access ??
-                (await getPreferredPhoneAccess()) ??
-                undefined);
+            const target = item.executionTarget ?? {
+              mode: "automatic" as const,
+            };
+            let access: StoredPhoneAccess | undefined;
+            if (!ignoreStoredAccess && target.mode !== "cloud") {
+              if (target.mode === "device") {
+                access =
+                  (transport.access?.desktopDeviceId === target.deviceId
+                    ? transport.access
+                    : undefined) ??
+                  (await listStoredPairedPhoneAccess()).find(
+                    (candidate) =>
+                      candidate.desktopDeviceId === target.deviceId,
+                  );
+              } else {
+                access =
+                  transport.access ??
+                  (await getPreferredPhoneAccess()) ??
+                  undefined;
+              }
+            }
             assertAuthorityLease();
             if (!admissionEnabledRef.current) {
               patchActivity({ statusText: "Waiting for cloud history" });
@@ -924,6 +946,7 @@ export function useChatThread(opts: {
                 attachments: placementAttachments,
               }),
               ...(access ? { access } : {}),
+              target,
             });
             assertAuthorityLease();
           } catch (error) {
@@ -935,6 +958,7 @@ export function useChatThread(opts: {
             }
             if (
               !ignoreStoredAccess &&
+              (item.executionTarget?.mode ?? "automatic") !== "device" &&
               isAutomaticExecutionPairCredentialRejection(error)
             ) {
               // No placement was committed: retry without the invalid grant
@@ -1298,6 +1322,7 @@ export function useChatThread(opts: {
         text,
         ...(decoupleQuotes ? { promptText, selectedText: rawQuotes } : {}),
         attachments: sendAttachments,
+        executionTarget: transport.executionTarget ?? { mode: "automatic" },
         canonicalAuthorityLease: canonicalAuthorityLeaseRef.current,
       };
       pendingEnqueueRef.current.add(userMessageId);
@@ -1309,6 +1334,7 @@ export function useChatThread(opts: {
         displayText,
         createdAt,
         attachments: sendAttachments,
+        executionTarget: transport.executionTarget ?? { mode: "automatic" },
         authority: canonicalOutboxAuthority,
       };
       // Transmission gates on this write. If iOS kills the process while
@@ -1370,6 +1396,7 @@ export function useChatThread(opts: {
       parkQueuedSend,
       storageLoaded,
       threadId,
+      transport.executionTarget,
       updateMessages,
     ],
   );

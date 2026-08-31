@@ -218,7 +218,11 @@ describe("chat durable outbox", () => {
     const outbox = appendDesktopChatOutboxRecord([], {
       ...pending("no-preview", "Photo", 11),
       attachments: [
-        { path: "uploads/2026-08-29/photo.jpg", name: "photo.jpg", kind: "image" },
+        {
+          path: "uploads/2026-08-29/photo.jpg",
+          name: "photo.jpg",
+          kind: "image",
+        },
       ],
     }).records;
     const restored = restoreOutboxMessages([], outbox)[0];
@@ -325,5 +329,21 @@ describe("chat durable outbox", () => {
         authority: authorityA1,
       }),
     ).toThrow("Conflicting durable chat outbox identity");
+  });
+
+  test("freezes an exact execution target across durable replay", () => {
+    const records = appendDesktopChatOutboxRecord([], {
+      ...pending("send-to-windows", "run there", 1),
+      authority: authorityA1,
+      executionTarget: { mode: "device", deviceId: " desktop-windows " },
+    }).records;
+    expect(parseDesktopChatOutbox(JSON.parse(JSON.stringify(records)))).toEqual(
+      [
+        expect.objectContaining({
+          sendId: "send-to-windows",
+          executionTarget: { mode: "device", deviceId: "desktop-windows" },
+        }),
+      ],
+    );
   });
 });

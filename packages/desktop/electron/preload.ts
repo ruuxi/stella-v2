@@ -718,11 +718,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getRuntimeState: () =>
       ipcRenderer.invoke("voice:getRuntimeState") as Promise<{
         sessionState:
-          | "idle"
-          | "connecting"
-          | "connected"
-          | "error"
-          | "disconnecting";
+          "idle" | "connecting" | "connected" | "error" | "disconnecting";
         isConnected: boolean;
         isSpeaking: boolean;
         isUserSpeaking: boolean;
@@ -731,11 +727,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       }>,
     onRuntimeState: onIpc<{
       sessionState:
-        | "idle"
-        | "connecting"
-        | "connected"
-        | "error"
-        | "disconnecting";
+        "idle" | "connecting" | "connected" | "error" | "disconnecting";
       isConnected: boolean;
       isSpeaking: boolean;
       isUserSpeaking: boolean;
@@ -744,11 +736,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }>("voice:runtimeState"),
     pushRuntimeState: (state: {
       sessionState:
-        | "idle"
-        | "connecting"
-        | "connected"
-        | "error"
-        | "disconnecting";
+        "idle" | "connecting" | "connected" | "error" | "disconnecting";
       isConnected: boolean;
       isSpeaking: boolean;
       isUserSpeaking: boolean;
@@ -883,6 +871,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       agentType?: string;
       storageMode?: "cloud" | "local";
       clientRequestId?: string;
+      executionTarget?:
+        | { mode: "automatic" }
+        | { mode: "cloud" }
+        | { mode: "device"; deviceId: string };
     }) =>
       ipcRenderer.invoke("agent:startChat", payload) as Promise<{
         requestId: string;
@@ -939,10 +931,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
           rootRunId?: string;
           chunk?: string;
           statusState?:
-            | "running"
-            | "compacting"
-            | "provider-retry"
-            | "model-fallback";
+            "running" | "compacting" | "provider-retry" | "model-fallback";
           providerLifecyclePhase?:
             | "request-admitted"
             | "request-dispatched"
@@ -1001,10 +990,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       rootRunId?: string;
       chunk?: string;
       statusState?:
-        | "running"
-        | "compacting"
-        | "provider-retry"
-        | "model-fallback";
+        "running" | "compacting" | "provider-retry" | "model-fallback";
       providerLifecyclePhase?:
         | "request-admitted"
         | "request-dispatched"
@@ -1094,11 +1080,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         screen: boolean;
         microphone: boolean;
         microphoneStatus:
-          | "not-determined"
-          | "granted"
-          | "denied"
-          | "restricted"
-          | "unknown";
+          "not-determined" | "granted" | "denied" | "restricted" | "unknown";
       }>,
     openPermissionSettings: (kind: string) =>
       ipcRenderer.invoke("permissions:openSettings", { kind }),
@@ -1320,20 +1302,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
         codexModel: string;
         codexModelExplicit: boolean;
         codexReasoningEffort:
-          | "default"
-          | "minimal"
-          | "low"
-          | "medium"
-          | "high"
-          | "xhigh";
+          "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
         claudeCodeModel: string;
         claudeCodeReasoningEffort:
-          | "default"
-          | "minimal"
-          | "low"
-          | "medium"
-          | "high"
-          | "xhigh";
+          "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
         maxAgentConcurrency: number;
         imageGeneration: {
           provider: "stella" | "openai" | "openrouter" | "fal";
@@ -1359,20 +1331,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       codexModel?: string;
       codexModelExplicit?: boolean;
       codexReasoningEffort?:
-        | "default"
-        | "minimal"
-        | "low"
-        | "medium"
-        | "high"
-        | "xhigh";
+        "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
       claudeCodeModel?: string;
       claudeCodeReasoningEffort?:
-        | "default"
-        | "minimal"
-        | "low"
-        | "medium"
-        | "high"
-        | "xhigh";
+        "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
       maxAgentConcurrency?: number;
       imageGeneration?: {
         provider: "stella" | "openai" | "openrouter" | "fal";
@@ -1398,20 +1360,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
         codexModel: string;
         codexModelExplicit: boolean;
         codexReasoningEffort:
-          | "default"
-          | "minimal"
-          | "low"
-          | "medium"
-          | "high"
-          | "xhigh";
+          "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
         claudeCodeModel: string;
         claudeCodeReasoningEffort:
-          | "default"
-          | "minimal"
-          | "low"
-          | "medium"
-          | "high"
-          | "xhigh";
+          "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
         maxAgentConcurrency: number;
         imageGeneration: {
           provider: "stella" | "openai" | "openrouter" | "fal";
@@ -1430,21 +1382,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
           hidden: boolean;
           supportedReasoningEfforts: Array<{
             reasoningEffort:
-              | "none"
-              | "minimal"
-              | "low"
-              | "medium"
-              | "high"
-              | "xhigh";
+              "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
             description: string;
           }>;
           defaultReasoningEffort:
-            | "none"
-            | "minimal"
-            | "low"
-            | "medium"
-            | "high"
-            | "xhigh";
+            "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
           inputModalities: string[];
           additionalSpeedTiers: string[];
           isDefault: boolean;
@@ -2014,12 +1956,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         open: boolean;
         status: {
           state:
-            | "idle"
-            | "running"
-            | "waiting"
-            | "review"
-            | "failed"
-            | "waving";
+            "idle" | "running" | "waiting" | "review" | "failed" | "waving";
           title: string;
           message: string;
           isLoading: boolean;

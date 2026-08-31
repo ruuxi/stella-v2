@@ -23,6 +23,33 @@ describe("automatic execution placement policy", () => {
     });
   });
 
+  it("lets an explicit target override automatic placement", () => {
+    expect(
+      decideExecutionPlacement({
+        ingress: "desktop",
+        subject: "portable",
+        requestKind: "chat",
+        target: { mode: "cloud" },
+      }),
+    ).toEqual({
+      kind: "commit",
+      placement: "cloud",
+      reason: "explicit-cloud",
+    });
+    expect(
+      decideExecutionPlacement({
+        ingress: "desktop",
+        subject: "portable",
+        requestKind: "chat",
+        target: { mode: "device", deviceId: "windows-pc" },
+      }),
+    ).toEqual({
+      kind: "offer-computer",
+      onNoEligibleComputer: "blocked",
+      reason: "explicit-device",
+    });
+  });
+
   it("offers mobile portable work to a paired computer with cloud fallback", () => {
     expect(decide("mobile", "portable")).toEqual({
       kind: "offer-computer",

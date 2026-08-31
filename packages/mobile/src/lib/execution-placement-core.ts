@@ -3,6 +3,10 @@ import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 
 export type AutomaticExecutionKind = "chat" | "agent";
 export type AutomaticExecutionSubject = "portable" | "computer" | "cloud";
+export type AutomaticExecutionTarget =
+  | { mode: "automatic" }
+  | { mode: "cloud" }
+  | { mode: "device"; deviceId: string };
 export type AutomaticExecutionCapability =
   | "chat"
   | "agent"
@@ -96,7 +100,9 @@ export const readAutomaticExecutionDispatch = (
     expected?.idempotencyKey !== undefined &&
     record.idempotencyKey !== expected.idempotencyKey
   ) {
-    throw new Error("Execution admission returned a different message identity.");
+    throw new Error(
+      "Execution admission returned a different message identity.",
+    );
   }
   if (
     expected?.dispatchId !== undefined &&
@@ -155,13 +161,17 @@ export const bindAutomaticExecutionAdmission = (
   dispatch: { dispatchId: string; idempotencyKey: string },
 ): AutomaticExecutionTurnControl => {
   if (dispatch.idempotencyKey !== control.clientIdempotencyKey) {
-    throw new Error("Execution admission returned a different message identity.");
+    throw new Error(
+      "Execution admission returned a different message identity.",
+    );
   }
   if (
     control.serverDispatchId &&
     control.serverDispatchId !== dispatch.dispatchId
   ) {
-    throw new Error("Execution admission replay returned a different dispatch.");
+    throw new Error(
+      "Execution admission replay returned a different dispatch.",
+    );
   }
   return { ...control, serverDispatchId: dispatch.dispatchId };
 };
@@ -315,6 +325,8 @@ export type AutomaticExecutionAdmissionInput = {
   threadId?: string;
   /** What the work is about, never which executor runs it. */
   subject?: AutomaticExecutionSubject;
+  /** Explicit override. Omitted/default keeps the existing automatic policy. */
+  target?: AutomaticExecutionTarget;
   requiredCapabilities?: AutomaticExecutionCapability[];
   /**
    * Drive-relative paths of files already uploaded for this turn. References
@@ -349,6 +361,11 @@ export const buildAutomaticExecutionAdmission = (
   const idempotencyKey = input.idempotencyKey.trim();
   const conversationId = input.conversationId.trim();
   const subject = input.subject ?? "portable";
+  const target = input.target ?? { mode: "automatic" as const };
+  const targetDeviceId = target.mode === "device" ? target.deviceId.trim() : "";
+  if (target.mode === "device" && !targetDeviceId) {
+    throw new Error("A selected computer needs a device id.");
+  }
   const attachments = [...new Set(input.attachments ?? [])];
   if (attachments.length > AUTOMATIC_EXECUTION_MAX_ATTACHMENTS) {
     throw new Error(
@@ -373,6 +390,8 @@ export const buildAutomaticExecutionAdmission = (
     payloadHash,
     input.kind,
     subject,
+    target.mode,
+    targetDeviceId,
   ].join(":");
   return {
     challenge,
@@ -382,6 +401,8 @@ export const buildAutomaticExecutionAdmission = (
       payloadHash,
       kind: input.kind,
       subject,
+      targetMode: target.mode,
+      ...(targetDeviceId ? { targetDeviceId } : {}),
       conversationId,
       ...(input.parentTurnId?.trim()
         ? { parentTurnId: input.parentTurnId.trim() }

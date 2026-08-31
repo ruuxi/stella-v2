@@ -42,6 +42,7 @@ import {
   cancelAutomaticExecution,
   ensureAutomaticExecutionConversation,
   getAutomaticExecutionStatus,
+  type AutomaticExecutionTarget,
 } from "./execution-placement";
 import { groupActivityArtifacts } from "./activity-hub-model";
 import {
@@ -56,6 +57,10 @@ import {
   type ChatThread,
   type ChatTransport,
 } from "./use-chat-thread";
+
+const AUTOMATIC_EXECUTION_TARGET: AutomaticExecutionTarget = {
+  mode: "automatic",
+};
 
 const confirmIdentityRef = makeFunctionReference<
   "query",
@@ -253,6 +258,7 @@ export const useCloudCanonicalChatThread = (
     reloadAuthority?: () => void;
     /** Paired computer, when one exists, for the live activity overlay. */
     access?: StoredPhoneAccess | null;
+    executionTarget?: AutomaticExecutionTarget;
     /**
      * Which durable outbox the optimistic overlay queues into. Two surfaces on
      * the same conversation (the Chat tab and the CarPlay loop) must not drain
@@ -263,6 +269,8 @@ export const useCloudCanonicalChatThread = (
 ): ChatThread => {
   const reloadAuthority = options?.reloadAuthority;
   const access = options?.access ?? null;
+  const executionTarget =
+    options?.executionTarget ?? AUTOMATIC_EXECUTION_TARGET;
   const threadId = options?.threadId ?? "cloud";
   const [dispatchBindings, setDispatchBindings] = useState<
     ReadonlyMap<string, string | null>
@@ -355,10 +363,12 @@ export const useCloudCanonicalChatThread = (
       conversationId: authority.conversationId,
       authorityReady,
       access,
+      executionTarget,
       onAdmission,
     }),
     [
       access,
+      executionTarget,
       authority.accountScope,
       authority.conversationId,
       authority.ownerGeneration,

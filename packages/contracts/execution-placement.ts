@@ -1,24 +1,25 @@
 /**
  * Provider-neutral execution placement protocol.
  *
- * `subject` describes what the work is about. It is deliberately not an
- * executor selector: placement is derived from trusted ingress plus current
- * device eligibility and is then durably committed by the backend.
+ * `subject` describes what the work is about. `target` is the independent,
+ * user-facing executor choice. Keeping those two concepts separate prevents a
+ * portable prompt from silently changing meaning when it is sent elsewhere.
  */
 
 export const EXECUTION_PLACEMENT_PROTOCOL_VERSION = 1 as const;
-export const EXECUTION_PLACEMENT_POLICY_VERSION = 1 as const;
+export const EXECUTION_PLACEMENT_POLICY_VERSION = 2 as const;
 
 export type ExecutionIngress =
-  | "desktop"
-  | "mobile"
-  | "browser"
-  | "cloud"
-  | "schedule";
+  "desktop" | "mobile" | "browser" | "cloud" | "schedule";
 
 export type ExecutionRequestKind = "chat" | "agent";
 export type ExecutionPlacement = "computer" | "cloud";
 export type ExecutionSubject = "portable" | "computer" | "cloud";
+export type ExecutionTargetMode = "automatic" | "cloud" | "device";
+export type ExecutionTarget =
+  | { mode: "automatic" }
+  | { mode: "cloud" }
+  | { mode: "device"; deviceId: string };
 
 export type ExecutionCapability =
   | "chat"
@@ -64,6 +65,7 @@ export type ExecutionRoutingInput = {
   ingress: ExecutionIngress;
   requestKind: ExecutionRequestKind;
   subject: ExecutionSubject;
+  target?: ExecutionTarget;
 };
 
 /** Ingresses with no local device behind them, so no claim to local work. */
@@ -93,6 +95,22 @@ export const deriveExecutionSubject = (args: {
 export const decideExecutionPlacement = (
   input: ExecutionRoutingInput,
 ): ExecutionPlacementDecision => {
+  if (input.target?.mode === "cloud") {
+    return {
+      kind: "commit",
+      placement: "cloud",
+      reason: "explicit-cloud",
+    };
+  }
+
+  if (input.target?.mode === "device") {
+    return {
+      kind: "offer-computer",
+      onNoEligibleComputer: "blocked",
+      reason: "explicit-device",
+    };
+  }
+
   if (input.subject === "cloud") {
     return {
       kind: "commit",
@@ -141,9 +159,7 @@ export const isExecutionTerminalState = (
 
 /** Placement may only change while local execution is provably unaccepted. */
 export const mayFallbackToCloud = (state: ExecutionDispatchState): boolean =>
-  state === "queued" ||
-  state === "offering" ||
-  state === "computer_claimed";
+  state === "queued" || state === "offering" || state === "computer_claimed";
 
 export type ExecutionDeviceProofOperation =
   | "presence-register"
@@ -190,6 +206,8 @@ export type ExecutionDispatchSummary = {
   kind: ExecutionRequestKind;
   ingress: ExecutionIngress;
   subject: ExecutionSubject;
+  requestedTargetMode?: ExecutionTargetMode;
+  requestedExecutorDeviceId?: string;
   conversationId: string;
   threadId?: string;
   state: ExecutionDispatchState;

@@ -1,4 +1,5 @@
 import type { ChatMessage } from "../types";
+import type { AutomaticExecutionTarget } from "./execution-placement";
 
 /**
  * An attachment a queued row carries. The bytes are not here: they reached the
@@ -28,6 +29,7 @@ export type DesktopChatOutboxRecord = {
   createdAt: number;
   sequence: number;
   attachments: DesktopChatOutboxAttachment[];
+  executionTarget?: AutomaticExecutionTarget;
   /** Exact server owner fence for canonical journal replay. */
   authority?: DesktopChatOutboxAuthority;
   /** Durable placement cancel intent, retained until the server is terminal. */
@@ -124,6 +126,26 @@ const parseAttachment = (
   };
 };
 
+const parseExecutionTarget = (
+  value: unknown,
+): AutomaticExecutionTarget | undefined => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  if (record.mode === "automatic" || record.mode === "cloud") {
+    return { mode: record.mode };
+  }
+  if (
+    record.mode === "device" &&
+    typeof record.deviceId === "string" &&
+    record.deviceId.trim()
+  ) {
+    return { mode: "device", deviceId: record.deviceId.trim() };
+  }
+  return undefined;
+};
+
 const recordScopeKey = (record: {
   sendId: string;
   authority?: DesktopChatOutboxAuthority;
@@ -165,6 +187,7 @@ export const parseDesktopChatOutbox = (
           )
       : [];
     const authority = parseAuthority(record.authority);
+    const executionTarget = parseExecutionTarget(record.executionTarget);
     const parsed = {
       sendId,
       userMessageId,
@@ -173,6 +196,7 @@ export const parseDesktopChatOutbox = (
       createdAt,
       sequence,
       attachments,
+      ...(executionTarget ? { executionTarget } : {}),
       ...(authority ? { authority } : {}),
       ...(typeof record.cancelRequestId === "string" &&
       record.cancelRequestId.trim()

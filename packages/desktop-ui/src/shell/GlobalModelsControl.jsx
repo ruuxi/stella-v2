@@ -28,6 +28,7 @@ import {
 } from "@/ui/popover";
 import { Switch } from "@/ui/switch";
 import { SlidersHorizontal } from "@/ui/icons";
+import { GlobalExecutionTargetControl } from "./GlobalExecutionTargetControl";
 import "./global-models-control.css";
 
 const AgentModelPicker = lazy(() =>
@@ -55,6 +56,7 @@ export function GlobalModelsControl({ visible = true }) {
 
   return (
     <div className="global-models-control">
+      <GlobalExecutionTargetControl />
       <Popover open={open} onOpenChange={(next) => engineOverlay.setOpen(next)}>
         <PopoverTrigger asChild>
           <button

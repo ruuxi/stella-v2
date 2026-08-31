@@ -227,7 +227,7 @@ describe("execution placement runtime bridge", () => {
     );
   });
 
-  test("carries the dispatch id itself as the placed turn's user message id", () => {
+  test("preserves a source message id and otherwise uses the dispatch id", () => {
     const source = readFileSync(new URL("./index.js", import.meta.url), "utf8");
     const bridgeStart = source.indexOf("async syncHostExecutionPlacement() {");
     const bridgeEnd = source.indexOf(
@@ -236,8 +236,9 @@ describe("execution placement runtime bridge", () => {
     );
     const placementSource = source.slice(bridgeStart, bridgeEnd);
     expect(placementSource).toContain(
-      "const userMessageEventId = dispatch.dispatchId;",
+      'typeof payload.userMessageEventId === "string"',
     );
+    expect(placementSource).toContain(": dispatch.dispatchId;");
     expect(placementSource).not.toContain("`placement-user:${");
     expect(placementSource).toContain("userMessageEventId,");
   });

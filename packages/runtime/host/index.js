@@ -1870,12 +1870,6 @@ export class StellaRuntimeHost {
     async listLocalChatSyncMessages(payload) {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_LOCAL_CHAT_LIST_SYNC_MESSAGES, payload, { ensureWorker: true, recordActivity: false });
     }
-    async getLocalChatSyncCheckpoint(payload) {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_LOCAL_CHAT_GET_SYNC_CHECKPOINT, payload, { ensureWorker: true, recordActivity: false });
-    }
-    async setLocalChatSyncCheckpoint(payload) {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_LOCAL_CHAT_SET_SYNC_CHECKPOINT, payload, { ensureWorker: true, recordActivity: false });
-    }
     async listCronJobs() {
         return this.ensureScheduler().listCronJobs();
     }

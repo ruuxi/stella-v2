@@ -1,27 +1,19 @@
+/**
+ * Ephemeral stream-resume buffer for in-flight runs.
+ *
+ * This is 30-minute scratch state, so it lives in its own database file
+ * (`stella-runs.sqlite`) instead of churning the durable store's WAL. The
+ * table is created idempotently by the constructor; there is no migration
+ * history to keep for a buffer whose contents expire within the hour.
+ */
+
+import path from "node:path";
+import { createRequire } from "node:module";
+import { ensurePrivateDirSync } from "../shared/private-fs.js";
 import { forkFixedRateFiber } from "./effect-runtime.js";
 import type { SqliteDatabase, SqliteStatement } from "./shared.js";
 
-/**
- * Worker-side persistent ring buffer for streaming run events.
- *
- * The runtime worker emits NOTIFICATION_NAMES.RUN_EVENT to whichever client
- * is currently connected. Without persistence, an Electron restart (or any
- * other host disconnect) would drop every in-flight event before the new
- * host could reattach. We persist every emitted event under
- * `(run_id, seq)` so that after reconnect the host can call
- * run.resumeEvents { runId, lastSeq } and replay anything past `lastSeq`.
- *
- * Acks (run.ackEvents) prune the buffer up to the acked seq so it doesn't
- * grow unbounded for healthy long-running renderers. Even without acks,
- * the periodic time-based sweep keeps the table bounded — acks are a
- * fast-path optimization, not a correctness requirement.
- *
- * The `seq` field comes straight from the runtime/protocol AgentEventPayload
- * shape — already monotonic per run from the agent runner. INSERT OR IGNORE
- * collapses the rare seq collision (e.g. terminal markers explicitly set to
- * Number.MAX_SAFE_INTEGER); the renderer doesn't care which copy wins
- * because terminal markers describe the same terminal state.
- */
+const RUN_EVENT_DB_FILE = "stella-runs.sqlite";
 
 export type RunEventRecord = {
   runId: string;
@@ -38,6 +30,27 @@ export type BufferedRunRecord = {
 };
 
 const DEFAULT_RETENTION_MS = 30 * 60 * 1000;
+
+export const getRunEventDatabasePath = (stellaDataDir: string): string =>
+  path.join(stellaDataDir, RUN_EVENT_DB_FILE);
+
+/** Open (or create) the ephemeral run-event database. */
+export const openRunEventDatabase = (stellaDataDir: string): SqliteDatabase => {
+  ensurePrivateDirSync(stellaDataDir);
+  const runtimeRequire = createRequire(import.meta.url);
+  const sqliteModule = runtimeRequire(
+    process.versions.bun ? "bun:sqlite" : "node:sqlite",
+  );
+  const Database = sqliteModule.Database ?? sqliteModule.DatabaseSync;
+  if (!Database) {
+    throw new Error("No compatible SQLite runtime is available.");
+  }
+  const db = new Database(getRunEventDatabasePath(stellaDataDir)) as SqliteDatabase;
+  db.exec("PRAGMA journal_mode = WAL;");
+  db.exec("PRAGMA synchronous = NORMAL;");
+  db.exec("PRAGMA busy_timeout = 5000;");
+  return db;
+};
 
 type Statements = {
   insert: SqliteStatement;
@@ -62,6 +75,19 @@ export class RunEventLog {
       sweepIntervalMs?: number;
     } = {},
   ) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS run_event_log (
+        run_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (run_id, seq)
+      );
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_run_event_log_created
+      ON run_event_log(created_at);
+    `);
     this.statements = {
       insert: db.prepare(`
         INSERT OR IGNORE INTO run_event_log (run_id, seq, payload_json, created_at)
@@ -100,7 +126,7 @@ export class RunEventLog {
       try {
         this.sweepExpired();
       } catch {
-        // Best-effort retention; do not crash the worker on sweep failure.
+        /* the next sweep retries */
       }
     });
   }
@@ -113,61 +139,52 @@ export class RunEventLog {
     }
   }
 
-  listBufferedRuns(): Array<{
-    runId: string;
-    conversationId: string;
-    updatedAt: number;
-    hasTerminalEvent: boolean;
-  }> {
+  listBufferedRuns(): BufferedRunRecord[] {
     if (this.disposed) return [];
     const rows = this.db
-      .prepare(`
-        SELECT run_id, seq, payload_json, created_at
-        FROM run_event_log
-        ORDER BY created_at DESC, seq DESC
-      `)
+      .prepare(
+        `SELECT
+           run_id,
+           MAX(created_at) AS updated_at,
+           MAX(
+             CASE WHEN json_extract(payload_json, '$.type') = 'run-finished'
+             THEN 1 ELSE 0 END
+           ) AS has_terminal,
+           (
+             SELECT json_extract(inner.payload_json, '$.conversationId')
+             FROM run_event_log AS inner
+             WHERE inner.run_id = run_event_log.run_id
+               AND json_type(inner.payload_json, '$.conversationId') = 'text'
+             ORDER BY inner.created_at DESC, inner.seq DESC
+             LIMIT 1
+           ) AS conversation_id
+         FROM run_event_log
+         GROUP BY run_id
+         ORDER BY updated_at DESC`,
+      )
       .all() as Array<{
       run_id: string;
-      seq: number;
-      payload_json: string;
-      created_at: number;
+      updated_at: number;
+      has_terminal: number;
+      conversation_id: string | null;
     }>;
-    const byRun = new Map<string, BufferedRunRecord>();
-    for (const row of rows) {
-      try {
-        const parsed = JSON.parse(row.payload_json) as {
-          conversationId?: unknown;
-          type?: unknown;
-        };
-        const existing = byRun.get(row.run_id);
-        const conversationId =
-          typeof parsed.conversationId === "string"
-            ? parsed.conversationId.trim()
-            : "";
-        if (!existing && conversationId) {
-          byRun.set(row.run_id, {
-            runId: row.run_id,
-            conversationId,
-            updatedAt: row.created_at,
-            hasTerminalEvent: parsed.type === "run-finished",
-          });
-        } else if (existing) {
-          existing.hasTerminalEvent =
-            existing.hasTerminalEvent || parsed.type === "run-finished";
-          existing.updatedAt = Math.max(existing.updatedAt, row.created_at);
-        }
-      } catch {
-        // Ignore malformed legacy rows.
-      }
-    }
-    return [...byRun.values()].sort((left, right) => right.updatedAt - left.updatedAt);
+    return rows.flatMap((row) => {
+      const conversationId =
+        typeof row.conversation_id === "string"
+          ? row.conversation_id.trim()
+          : "";
+      if (!conversationId) return [];
+      return [
+        {
+          runId: row.run_id,
+          conversationId,
+          updatedAt: row.updated_at,
+          hasTerminalEvent: row.has_terminal === 1,
+        },
+      ];
+    });
   }
 
-  /**
-   * Append a single event. Idempotent on (runId, seq) collisions.
-   * Returns true when a new row was inserted, false when the (runId, seq)
-   * already existed (e.g. terminal-marker MAX_SAFE_INTEGER duplicates).
-   */
   append(args: {
     runId: string;
     seq: number;
@@ -196,13 +213,6 @@ export class RunEventLog {
     return Boolean(result?.changes && result.changes > 0);
   }
 
-  /**
-   * Read every persisted event for `runId` with `seq > lastSeq`, oldest first.
-   * Returns `exhausted: true` when the caller is missing events that have
-   * already been pruned (their requested `lastSeq` is below the oldest
-   * retained seq for the run). The renderer treats `exhausted` as "fall back
-   * to a full reload from the durable transcript" rather than partial replay.
-   */
   resumeAfter(args: {
     runId: string;
     lastSeq: number;
@@ -216,9 +226,7 @@ export class RunEventLog {
       | undefined;
     const oldest = oldestRow?.min_seq ?? null;
     const exhausted =
-      oldest != null &&
-      Number.isFinite(args.lastSeq) &&
-      args.lastSeq < oldest - 1;
+      oldest != null && Number.isFinite(args.lastSeq) && args.lastSeq < oldest - 1;
 
     const rows = this.statements.selectAfter.all(runId, args.lastSeq) as Array<{
       seq: number;
@@ -250,12 +258,6 @@ export class RunEventLog {
     return { events, exhausted };
   }
 
-  /**
-   * Prune all events for `runId` with `seq <= lastSeq`. Called by the host
-   * adapter on every event it has successfully forwarded to the renderer
-   * (best-effort batching is fine — under-acking just retains rows longer).
-   * Returns the number of rows pruned.
-   */
   ack(args: { runId: string; lastSeq: number }): number {
     if (this.disposed) return 0;
     const runId = args.runId.trim();
@@ -267,12 +269,6 @@ export class RunEventLog {
     return result?.changes ?? 0;
   }
 
-  /**
-   * Drop every retained event for a run. Called when the run terminates
-   * naturally and the renderer has confirmed it processed the terminal
-   * event — there's nothing left to replay from the in-memory queue
-   * because the durable transcript has the final state.
-   */
   forget(runId: string): number {
     if (this.disposed) return 0;
     const trimmed = runId.trim();
@@ -283,11 +279,6 @@ export class RunEventLog {
     return result?.changes ?? 0;
   }
 
-  /**
-   * Drop rows older than `retentionMs` (defaults to 30 minutes). Called
-   * periodically by the background sweep and on-demand by callers that
-   * need to bound the table eagerly (e.g. before an export).
-   */
   sweepExpired(retentionMs?: number): number {
     if (this.disposed) return 0;
     const cutoff =

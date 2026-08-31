@@ -55,10 +55,10 @@ try {
     { before: 1, after: 1 },
   );
 
-  db.exec("DROP TRIGGER trg_message_text_fts_part_insert;");
-  db.exec("DROP TRIGGER trg_message_text_fts_part_update;");
-  db.exec("DROP TRIGGER trg_message_text_fts_part_delete;");
-  db.exec("DROP TABLE message_text_fts;");
+  db.exec("DROP TRIGGER trg_entry_fts_insert;");
+  db.exec("DROP TRIGGER trg_entry_fts_update;");
+  db.exec("DROP TRIGGER trg_entry_fts_delete;");
+  db.exec("DROP TABLE entry_fts;");
   const missingIndexStore = new SessionStore(db);
   let missingIndexTypedError = false;
   try {
@@ -69,7 +69,7 @@ try {
       error.index === "transcripts";
   }
 
-  db.exec("CREATE TABLE message_text_fts (text TEXT);");
+  db.exec("CREATE TABLE entry_fts (search_text TEXT);");
   const brokenMatchHealth = readRecallFtsHealth(db);
   const brokenMatchStore = new SessionStore(db);
   let brokenMatchTypedError = false;

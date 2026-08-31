@@ -423,7 +423,7 @@ export class LocalChatHistoryService {
     return this.getStore().listThreadActivity(args.conversationId, {
       view: args.view,
       maxItems: args.maxItems,
-    }) as ThreadActivityRecord[];
+    }) as unknown as ThreadActivityRecord[];
   }
 
   listAgentThreadMessages(args = {}) {
@@ -816,17 +816,6 @@ export class LocalChatHistoryService {
       cursorStatus: requestedCursor ? "invalid" : "snapshot",
       hasMore: false,
     };
-  }
-
-  getSyncCheckpoint(args: { conversationId: string }): string | null {
-    return this.getStore().getSyncCheckpoint(args.conversationId);
-  }
-
-  setSyncCheckpoint(args: { conversationId: string; localMessageId: string }): {
-    ok: true;
-  } {
-    this.getStore().setSyncCheckpoint(args.conversationId, args.localMessageId);
-    return { ok: true };
   }
 
   retainCloudConversationCacheAccount(

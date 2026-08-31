@@ -88,7 +88,7 @@ describe("cloud runtime operational state", () => {
     });
     expect(
       database
-        .prepare("SELECT COUNT(*) AS count FROM runtime_thread_entries")
+        .prepare("SELECT COUNT(*) AS count FROM thread_entry")
         .get(),
     ).toEqual({ count: 0 });
 

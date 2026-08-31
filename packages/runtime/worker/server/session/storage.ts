@@ -3,7 +3,10 @@ import { NOTIFICATION_NAMES } from "@stella/contracts/protocol";
 import { createDesktopDatabase } from "../../../kernel/storage/database.js";
 import { ChatStore } from "../../../kernel/storage/chat-store.js";
 import { RuntimeStore } from "../../../kernel/storage/runtime-store.js";
-import { RunEventLog } from "../../../kernel/storage/run-event-log.js";
+import {
+  RunEventLog,
+  openRunEventDatabase,
+} from "../../../kernel/storage/run-event-log.js";
 import { projectLocalChatUpdateEvent } from "../../../kernel/storage/session-store.js";
 import type {
   LocalChatEventRecord,
@@ -61,10 +64,12 @@ export const layer = Layer.effect(
       },
     });
     const runtimeStore = chatStore as RuntimeStore;
-    const runEventLog = new RunEventLog(db);
+    const runEventDb = openRunEventDatabase(config.get().stellaDataDirPath);
+    const runEventLog = new RunEventLog(runEventDb);
 
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
+        runEventDb.close();
         db.close();
       }),
     );

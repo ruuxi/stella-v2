@@ -1993,12 +1993,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     publishTaskDecoration: (payload: {
       statusTextByAgentId: Record<string, string>;
     }) => ipcRenderer.invoke("localChat:publishTaskDecoration", payload),
-    getSyncCheckpoint: (payload: { conversationId: string }) =>
-      ipcRenderer.invoke("localChat:getSyncCheckpoint", payload),
-    setSyncCheckpoint: (payload: {
-      conversationId: string;
-      localMessageId: string;
-    }) => ipcRenderer.invoke("localChat:setSyncCheckpoint", payload),
     onUpdated: onIpc<LocalChatUpdatedPayload | null>("localChat:updated"),
     onThreadActivityUpdated: onIpc<ThreadActivityUpdatedPayload>(
       "localChat:threadActivityUpdated",

@@ -126,11 +126,8 @@ export const layer = Layer.effect(
       appendLocalChatEvent: (args) => {
         storage.appendChatEventAndNotify(args);
       },
-      notifyThreadActivityUpdated: (conversationId) => {
-        hostBus.notify(
-          NOTIFICATION_NAMES.THREAD_ACTIVITY_UPDATED,
-          storage.chatStore.getThreadActivityMetadata(conversationId),
-        );
+      notifyThreadActivityUpdated: (payload) => {
+        hostBus.notify(NOTIFICATION_NAMES.THREAD_ACTIVITY_UPDATED, payload);
       },
       getDefaultConversationId: () =>
         storage.chatStore.getOrCreateDefaultConversationId(),

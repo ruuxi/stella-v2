@@ -164,23 +164,4 @@ export const localChatHandlers: WorkerRpcHandlers = {
       );
     }),
 
-  [METHOD_NAMES.INTERNAL_WORKER_LOCAL_CHAT_GET_SYNC_CHECKPOINT]: (params) =>
-    Effect.map(chatSession, (session) =>
-      session.storage.chatStore.getSyncCheckpoint(
-        (params as { conversationId?: string }).conversationId ?? "",
-      ),
-    ),
-
-  [METHOD_NAMES.INTERNAL_WORKER_LOCAL_CHAT_SET_SYNC_CHECKPOINT]: (params) =>
-    Effect.map(chatSession, (session) => {
-      const payload = params as {
-        conversationId?: string;
-        localMessageId?: string;
-      };
-      session.storage.chatStore.setSyncCheckpoint(
-        payload.conversationId ?? "",
-        payload.localMessageId ?? "",
-      );
-      return { ok: true };
-    }),
 };

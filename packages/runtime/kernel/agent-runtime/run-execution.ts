@@ -560,7 +560,10 @@ export const executeRuntimeAgentPrompt = async (args: {
               : {}),
           });
         }
-        if (promptInput.customType === ORCHESTRATOR_ROSTER_CUSTOM_TYPE) {
+        if (
+          promptInput.customType === ORCHESTRATOR_ROSTER_CUSTOM_TYPE &&
+          args.conversationId
+        ) {
           args.threadStore.consumeOrchestratorReminder?.(args.conversationId);
         }
       }

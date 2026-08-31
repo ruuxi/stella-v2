@@ -1025,7 +1025,8 @@ export class PiSessionCore {
       if (
         !last?.entryId ||
         payload?.role !== "assistant" ||
-        payload.stellaRunId !== runId ||
+        (payload as typeof payload & { stellaRunId?: string }).stellaRunId !==
+          runId ||
         (!errored && !empty)
       ) {
         return;

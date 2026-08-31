@@ -98,21 +98,20 @@ const retainedHeap = (create: () => unknown, count: number) => {
 const legacyVisibleWindow = () => {
   const rows = db
     .prepare(
-      `SELECT message.id AS _id,
-              message.created_at AS timestamp,
-              message.ordering_sequence AS sequence,
-              message.type,
-              part.data_json AS payloadJson
-         FROM message
-         LEFT JOIN part ON part.message_id = message.id AND part.ord = 0
-        WHERE message.session_id = ?
-          AND message.ordering_sequence >= ?
-          AND message.type IN (
+      `SELECT entry.id AS _id,
+              entry.created_at AS timestamp,
+              entry.seq AS sequence,
+              entry.type,
+              entry.payload AS payloadJson
+         FROM entry
+        WHERE entry.conversation_id = ?
+          AND entry.seq >= ?
+          AND entry.type IN (
             'user_message', 'assistant_message', 'tool_request', 'tool_result',
             'agent-started', 'agent-progress', 'agent-completed',
             'agent-failed', 'agent-canceled'
           )
-        ORDER BY message.ordering_sequence ASC`,
+        ORDER BY entry.seq ASC`,
     )
     .all(CONVERSATION_ID, legacyCutoffSequence) as Array<{
     _id: string;
@@ -225,21 +224,17 @@ beforeAll(() => {
   initializeDesktopDatabase(db);
   store = new SessionStore(db);
   db.prepare(
-    `INSERT INTO session (id, title, status, created_at, updated_at)
-     VALUES (?, '', 'active', 1, 1)`,
+    `INSERT INTO conversation (id, title, status, next_seq, created_at, updated_at)
+     VALUES (?, '', 'active', 1, 1, 1)`,
   ).run(CONVERSATION_ID);
-  const insertMessage = db.prepare(
-    `INSERT INTO message (
-       id, session_id, role, type, data_json, created_at, updated_at,
-       ordering_sequence
-     ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`,
-  );
-  const insertPart = db.prepare(
-    `INSERT INTO part (
-       id, session_id, message_id, ord, type, data_json, created_at
-     ) VALUES (?, ?, ?, 0, 'payload', ?, ?)`,
+  const insertEntry = db.prepare(
+    `INSERT INTO entry (
+       conversation_id, seq, id, type, role, visible, turn_seq,
+       payload, search_text, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   let sequence = 0;
+  let currentTurnSeq: number | null = null;
   const append = (type: string, payload: unknown) => {
     sequence += 1;
     const id = `event-${String(sequence).padStart(7, "0")}`;
@@ -249,20 +244,23 @@ beforeAll(() => {
         : type === "assistant_message"
           ? "assistant"
           : "tool";
-    insertMessage.run(
-      id,
+    const visible =
+      type === "user_message" || type === "assistant_message" ? 1 : 0;
+    if (type === "user_message") currentTurnSeq = sequence;
+    const payloadRecord = payload as { text?: unknown };
+    insertEntry.run(
       CONVERSATION_ID,
-      role,
+      sequence,
+      id,
       type,
-      sequence,
-      sequence,
-      sequence,
-    );
-    insertPart.run(
-      `${id}:part:0`,
-      CONVERSATION_ID,
-      id,
+      role,
+      visible,
+      currentTurnSeq,
       JSON.stringify(payload),
+      visible === 1 && typeof payloadRecord.text === "string"
+        ? payloadRecord.text
+        : null,
+      sequence,
       sequence,
     );
     return { id, timestamp: sequence, sequence };
@@ -289,67 +287,51 @@ beforeAll(() => {
 
   const cutoff = db
     .prepare(
-      `SELECT MIN(ordering_sequence) AS sequence
+      `SELECT MIN(seq) AS sequence
          FROM (
-           SELECT ordering_sequence
-             FROM message
-            WHERE session_id = ?
+           SELECT seq
+             FROM entry
+            WHERE conversation_id = ?
               AND type IN ('user_message', 'assistant_message')
-            ORDER BY ordering_sequence DESC
+            ORDER BY seq DESC
             LIMIT ?
          )`,
     )
     .get(CONVERSATION_ID, VISIBLE_MESSAGES) as { sequence: number };
   legacyCutoffSequence = cutoff.sequence;
 
-  const newTailSequence = tailCursor.sequence + 1;
-  const newTailId = `event-${String(newTailSequence).padStart(7, "0")}`;
-  insertMessage.run(
-    newTailId,
+  append("tool_result", { toolName: "exec_command", output: "new tail event" });
+  db.prepare(`UPDATE conversation SET next_seq = ? WHERE id = ?`).run(
+    sequence + 1,
     CONVERSATION_ID,
-    "tool",
-    "tool_result",
-    newTailSequence,
-    newTailSequence,
-    newTailSequence,
-  );
-  insertPart.run(
-    `${newTailId}:part:0`,
-    CONVERSATION_ID,
-    newTailId,
-    JSON.stringify({ toolName: "exec_command", output: "new tail event" }),
-    newTailSequence,
   );
 
   db.prepare(
-    `INSERT INTO runtime_threads (
-       thread_key, conversation_id, agent_type, name, status, created_at, last_used_at
-     ) VALUES (?, ?, 'orchestrator', 'Orchestrator', 'active', 1, 1)`,
-  ).run(RUNTIME_THREAD_KEY, CONVERSATION_ID);
-  db.prepare(
-    `INSERT INTO runtime_thread_sessions (
-       thread_key, session_id, version, cwd, created_at, updated_at
-     ) VALUES (?, ?, 1, '', 1, 1)`,
-  ).run(RUNTIME_THREAD_KEY, CONVERSATION_ID);
-  const insertRuntimeEntry = db.prepare(
-    `INSERT INTO runtime_thread_entries (
-       entry_id, thread_key, session_id, parent_entry_id, entry_type,
-       timestamp_iso, created_at, insertion_sequence, data_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO thread (
+       id, conversation_id, agent_type, name, status, session_id, cwd,
+       next_seq, created_at, last_used_at
+     ) VALUES (?, ?, 'orchestrator', 'Orchestrator', 'active', ?, '', ?, 1, 1)`,
+  ).run(
+    RUNTIME_THREAD_KEY,
+    CONVERSATION_ID,
+    CONVERSATION_ID,
+    RUNTIME_HISTORY_ENTRIES + 2,
   );
-  let parentEntryId: string | null = null;
+  const insertRuntimeEntry = db.prepare(
+    `INSERT INTO thread_entry (
+       thread_id, seq, id, type, role, payload, est_tokens,
+       timestamp_iso, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, 700, ?, ?)`,
+  );
   db.exec("BEGIN IMMEDIATE");
   for (let index = 0; index < RUNTIME_HISTORY_ENTRIES; index += 1) {
     const entryId = `runtime-${String(index).padStart(6, "0")}`;
     insertRuntimeEntry.run(
-      entryId,
       RUNTIME_THREAD_KEY,
-      CONVERSATION_ID,
-      parentEntryId,
+      index + 1,
+      entryId,
       "message",
-      new Date(index + 1).toISOString(),
-      index + 1,
-      index + 1,
+      "assistant",
       JSON.stringify({
         message: {
           role: "assistant",
@@ -375,25 +357,38 @@ beforeAll(() => {
           timestamp: index + 1,
         },
       }),
+      new Date(index + 1).toISOString(),
+      index + 1,
     );
-    parentEntryId = entryId;
   }
   const compactionId = "runtime-compaction";
   insertRuntimeEntry.run(
-    compactionId,
     RUNTIME_THREAD_KEY,
-    CONVERSATION_ID,
-    parentEntryId,
+    RUNTIME_HISTORY_ENTRIES + 1,
+    compactionId,
     "compaction",
-    new Date(RUNTIME_HISTORY_ENTRIES + 1).toISOString(),
-    RUNTIME_HISTORY_ENTRIES + 1,
-    RUNTIME_HISTORY_ENTRIES + 1,
+    null,
     JSON.stringify({
       summary: "Bounded durable checkpoint",
       fromEntryId: "runtime-000000",
       toEntryId: `runtime-${String(RUNTIME_HISTORY_ENTRIES - 11).padStart(6, "0")}`,
       tokensBefore: 1_000_000,
     }),
+    new Date(RUNTIME_HISTORY_ENTRIES + 1).toISOString(),
+    RUNTIME_HISTORY_ENTRIES + 1,
+  );
+  db.prepare(
+    `INSERT INTO thread_context (
+       thread_id, compaction_entry_id, covered_from_seq, covered_through_seq,
+       summary, details, tokens_before, timestamp_iso, created_at, updated_at
+     ) VALUES (?, ?, 1, ?, 'Bounded durable checkpoint', NULL, 1000000, ?, ?, ?)`,
+  ).run(
+    RUNTIME_THREAD_KEY,
+    compactionId,
+    RUNTIME_HISTORY_ENTRIES - 10,
+    new Date(RUNTIME_HISTORY_ENTRIES + 1).toISOString(),
+    RUNTIME_HISTORY_ENTRIES + 1,
+    RUNTIME_HISTORY_ENTRIES + 1,
   );
   db.exec("COMMIT");
 

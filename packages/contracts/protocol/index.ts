@@ -103,8 +103,6 @@ export const METHOD_NAMES = {
   LOCAL_CHAT_GET_EVENT_COUNT: "localChat.getEventCount",
   LOCAL_CHAT_PERSIST_DISCOVERY_WELCOME: "localChat.persistDiscoveryWelcome",
   LOCAL_CHAT_LIST_SYNC_MESSAGES: "localChat.listSyncMessages",
-  LOCAL_CHAT_GET_SYNC_CHECKPOINT: "localChat.getSyncCheckpoint",
-  LOCAL_CHAT_SET_SYNC_CHECKPOINT: "localChat.setSyncCheckpoint",
   SCHEDULE_LIST_CRON_JOBS: "schedule.listCronJobs",
   SCHEDULE_LIST_HEARTBEATS: "schedule.listHeartbeats",
   SCHEDULE_LIST_EVENTS: "schedule.listConversationEvents",
@@ -208,10 +206,6 @@ export const METHOD_NAMES = {
     "internal.worker.localChat.persistDiscoveryWelcome",
   INTERNAL_WORKER_LOCAL_CHAT_LIST_SYNC_MESSAGES:
     "internal.worker.localChat.listSyncMessages",
-  INTERNAL_WORKER_LOCAL_CHAT_GET_SYNC_CHECKPOINT:
-    "internal.worker.localChat.getSyncCheckpoint",
-  INTERNAL_WORKER_LOCAL_CHAT_SET_SYNC_CHECKPOINT:
-    "internal.worker.localChat.setSyncCheckpoint",
   INTERNAL_WORKER_DISCOVERY_COLLECT_BROWSER_DATA:
     "internal.worker.discovery.collectBrowserData",
   INTERNAL_WORKER_DISCOVERY_COLLECT_ALL_SIGNALS:

@@ -1488,13 +1488,6 @@ export type ElectronLocalChatApi = {
   publishTaskDecoration: (payload: {
     statusTextByAgentId: Record<string, string>;
   }) => Promise<{ ok: true }>;
-  getSyncCheckpoint: (payload: {
-    conversationId: string;
-  }) => Promise<string | null>;
-  setSyncCheckpoint: (payload: {
-    conversationId: string;
-    localMessageId: string;
-  }) => Promise<{ ok: boolean }>;
   onUpdated: (
     callback: (payload: LocalChatUpdatedPayload | null) => void,
   ) => () => void;

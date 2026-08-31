@@ -1,9 +1,3 @@
-// Transcript search (`searchTranscripts`): the durable index over what was
-// actually SAID in chat — user/assistant message text across ALL
-// conversations. This is what lets Recall answer episodic questions ("where
-// did we go on my first drive?") whose only record is a past orchestrator
-// conversation: no agent thread, no memory note.
-
 import { rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -18,6 +12,7 @@ import {
   SessionStore,
 } from "@stella/runtime/kernel/storage/session-store";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
+import { rebuildSearchIndexes } from "@stella/runtime/kernel/storage/schema";
 
 type TestContext = {
   rootPath: string;
@@ -100,7 +95,7 @@ describe("searchTranscripts", () => {
       "closest good one is Bush Highway, head toward Saguaro Lake",
     );
     expect(texts).toContain("where should I go nearby so I can drive sick");
-    // Hits carry their conversation, role, and timestamp for dated snippets.
+
     const assistantHit = hits.find((hit) => hit.role === "assistant");
     expect(assistantHit?.conversationId).toBe("conv-june");
     expect(assistantHit?.atMs).toBe(2_000);
@@ -129,7 +124,7 @@ describe("searchTranscripts", () => {
   it("ignores tool/system rows and non-text payload fields", () => {
     const { store } = createTestContext();
     appendChat(store, "conv-1", "user_message", "hello there", 1_000);
-    // A tool_result mentioning the term must not surface as something said.
+
     store.appendEvent({
       conversationId: "conv-1",
       eventId: "evt-tool",
@@ -137,7 +132,7 @@ describe("searchTranscripts", () => {
       timestamp: 2_000,
       payload: { text: "zanzibar in a tool result" },
     });
-    // Payload metadata (not $.text) mentioning the term must not match.
+
     store.appendEvent({
       conversationId: "conv-1",
       eventId: "evt-meta",
@@ -172,7 +167,7 @@ describe("searchTranscripts", () => {
     appendChat(store, "conv-1", "assistant_message", "try Bush Highway", 2_000);
     appendChat(store, "conv-1", "user_message", "give me the address", 3_000);
     appendChat(store, "conv-1", "user_message", "damn i love the car", 4_000);
-    // Another conversation's messages never leak into the neighborhood.
+
     appendChat(store, "conv-2", "user_message", "unrelated chatter", 2_500);
 
     const neighbors = store.listTranscriptNeighbors({
@@ -202,12 +197,14 @@ describe("searchTranscripts", () => {
   });
 });
 
-// The FTS5 index behind searchTranscripts: trigger-synced at write time so
-// the search is an index lookup instead of a full-table json_extract scan.
 describe("transcript FTS index", () => {
   const ftsRowCount = (db: SqliteDatabase): number =>
     (
-      db.prepare("SELECT COUNT(*) AS count FROM message_text_fts").get() as {
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM entry WHERE search_text IS NOT NULL",
+        )
+        .get() as {
         count: number;
       }
     ).count;
@@ -221,7 +218,7 @@ describe("transcript FTS index", () => {
       "took the car for a drive",
       1_000,
     );
-    // Tool rows never reach the index.
+
     store.appendEvent({
       conversationId: "conv-1",
       eventId: "evt-tool",
@@ -231,9 +228,7 @@ describe("transcript FTS index", () => {
     });
 
     expect(ftsRowCount(db)).toBe(1);
-    // Porter stemming: "drives" finds "drive" — the LIKE scan could not do
-    // this, so a hit here also proves the FTS path (not the fallback)
-    // answered.
+
     const hits = store.searchTranscripts({ query: "drives" });
     expect(hits.map((hit) => hit.text)).toEqual(["took the car for a drive"]);
   });
@@ -247,7 +242,7 @@ describe("transcript FTS index", () => {
       timestamp: 1_000,
       payload: { text: "meet me at saguaro lake" },
     });
-    // Same eventId → upsert rewrites the message's parts (delete+insert).
+
     store.appendEvent({
       conversationId: "conv-1",
       eventId: "evt-rewrite",
@@ -274,7 +269,7 @@ describe("transcript FTS index", () => {
     );
     expect(store.searchTranscripts({ query: "zanzibar" })).toHaveLength(1);
 
-    db.prepare("DELETE FROM session WHERE id = ?").run("conv-1");
+    db.prepare("DELETE FROM conversation WHERE id = ?").run("conv-1");
 
     expect(store.searchTranscripts({ query: "zanzibar" })).toEqual([]);
     expect(ftsRowCount(db)).toBe(0);
@@ -289,14 +284,11 @@ describe("transcript FTS index", () => {
       "remember the emira torque spec",
       1_000,
     );
-    // Simulate an old database: index contents and the backfill flag gone.
-    db.exec("DELETE FROM message_text_fts;");
-    db.prepare("DELETE FROM settings WHERE key = ?").run(
-      "transcript_fts_backfilled_v1",
-    );
+
+    db.exec("INSERT INTO entry_fts(entry_fts, rank) VALUES ('delete-all', 0);");
     expect(store.searchTranscripts({ query: "torque" })).toEqual([]);
 
-    initializeDesktopDatabase(db);
+    rebuildSearchIndexes(db);
 
     expect(ftsRowCount(db)).toBe(1);
     expect(
@@ -313,11 +305,11 @@ describe("transcript FTS index", () => {
       "the secret is zanzibar",
       1_000,
     );
-    db.exec("DROP TRIGGER trg_message_text_fts_part_insert;");
-    db.exec("DROP TRIGGER trg_message_text_fts_part_update;");
-    db.exec("DROP TRIGGER trg_message_text_fts_part_delete;");
-    db.exec("DROP TABLE message_text_fts;");
-    // A fresh store re-detects availability (the flag is cached per store).
+    db.exec("DROP TRIGGER trg_entry_fts_insert;");
+    db.exec("DROP TRIGGER trg_entry_fts_update;");
+    db.exec("DROP TRIGGER trg_entry_fts_delete;");
+    db.exec("DROP TABLE entry_fts;");
+
     const fallbackStore = new SessionStore(db);
 
     expect(() =>
@@ -333,8 +325,7 @@ describe("transcript FTS index", () => {
   it("survives queries FTS cannot tokenize by falling back to the scan", () => {
     const { store } = createTestContext();
     appendChat(store, "conv-1", "user_message", "coverage hit 100%", 1_000);
-    // "%%%" tokenizes to nothing inside FTS MATCH (syntax error path) but
-    // stays a literal for the LIKE fallback.
+
     expect(store.searchTranscripts({ query: "%%%" })).toEqual([]);
   });
 });

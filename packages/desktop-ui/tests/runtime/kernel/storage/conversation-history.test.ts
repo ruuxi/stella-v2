@@ -109,10 +109,10 @@ describe("conversation history storage", () => {
     const { store } = createContext();
     const empty = store.createNewDefaultConversationId();
     store.appendEvent({
-      conversationId: "store-install:package-id",
+      conversationId: "synthetic:not-a-chat-id",
       type: "assistant_message",
       timestamp: Date.now() + 1,
-      payload: { text: "Synthetic install" },
+      payload: { text: "Synthetic event" },
     });
     expect(store.listConversationSummaries().conversations).toEqual([
       expect.objectContaining({ conversationId: empty, title: "New chat" }),
@@ -128,7 +128,7 @@ describe("conversation history storage", () => {
 
     expect(store.createNewDefaultConversationId()).toBe(emptyConversationId);
     expect(store.createNewDefaultConversationId()).toBe(emptyConversationId);
-    expect(db.prepare(`SELECT COUNT(*) AS count FROM session`).get()).toEqual({
+    expect(db.prepare(`SELECT COUNT(*) AS count FROM conversation`).get()).toEqual({
       count: 1,
     });
     expect(
@@ -150,11 +150,11 @@ describe("conversation history storage", () => {
     const olderEmpty = conversationId("Y");
     const newerEmpty = conversationId("Z");
     db.prepare(
-      `INSERT INTO session (id, title, status, created_at, updated_at)
+      `INSERT INTO conversation (id, title, status, created_at, updated_at)
        VALUES (?, '', 'active', ?, ?)`,
     ).run(olderEmpty, 1_500, 1_500);
     db.prepare(
-      `INSERT INTO session (id, title, status, created_at, updated_at)
+      `INSERT INTO conversation (id, title, status, created_at, updated_at)
        VALUES (?, '', 'active', ?, ?)`,
     ).run(newerEmpty, 2_000, 2_000);
     store.setActiveDefaultConversationId(occupied);
@@ -163,7 +163,7 @@ describe("conversation history storage", () => {
     expect(store.getOrCreateDefaultConversationId()).toBe(newerEmpty);
     expect(
       (
-        db.prepare(`SELECT COUNT(*) AS count FROM session`).get() as {
+        db.prepare(`SELECT COUNT(*) AS count FROM conversation`).get() as {
           count: number;
         }
       ).count,
@@ -185,7 +185,7 @@ describe("conversation history storage", () => {
     expect(created).not.toBe(occupied);
     expect(
       (
-        db.prepare(`SELECT COUNT(*) AS count FROM session`).get() as {
+        db.prepare(`SELECT COUNT(*) AS count FROM conversation`).get() as {
           count: number;
         }
       ).count,
@@ -199,7 +199,7 @@ describe("conversation history storage", () => {
     const { db, store } = createContext();
     const agentOwned = store.getOrCreateDefaultConversationId();
     db.prepare(
-      `INSERT INTO runtime_agents (
+      `INSERT INTO agent (
         thread_id, conversation_id, agent_type, description, agent_depth,
         status, started_at, updated_at
       ) VALUES (?, ?, 'general', 'Background task', 1, 'completed', 1000, 1000)`,
@@ -247,7 +247,7 @@ describe("conversation history storage", () => {
     });
     const contextOnly = conversationId("X");
     db.prepare(
-      `INSERT INTO session (id, title, status, created_at, updated_at)
+      `INSERT INTO conversation (id, title, status, created_at, updated_at)
        VALUES (?, '', 'active', 2000, 2000)`,
     ).run(contextOnly);
     store.appendEvent({
@@ -290,7 +290,7 @@ describe("conversation history storage", () => {
           parentPort.postMessage({ type: "holding" });
           Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
           const now = Date.now();
-          db.prepare(\`INSERT INTO session (
+          db.prepare(\`INSERT INTO conversation (
             id, title, status, created_at, updated_at
           ) VALUES (?, '', 'active', ?, ?)\`).run(
             workerData.competingEmpty,
@@ -363,7 +363,7 @@ describe("conversation history storage", () => {
       expect(resolved).toBe(competingEmpty);
       expect(
         (
-          db.prepare(`SELECT COUNT(*) AS count FROM session`).get() as {
+          db.prepare(`SELECT COUNT(*) AS count FROM conversation`).get() as {
             count: number;
           }
         ).count,
@@ -383,29 +383,24 @@ describe("conversation history storage", () => {
       payload: { text: "Delete me" },
     });
     db.prepare(
-      `INSERT INTO runtime_threads (
-        thread_key, conversation_id, agent_type, name, status, created_at, last_used_at
+      `INSERT INTO thread (
+        id, conversation_id, agent_type, name, status, created_at, last_used_at
       ) VALUES (?, ?, 'general', 'Child', 'active', 1000, 1000)`,
     ).run("deleted-thread", id);
     db.prepare(
-      `INSERT INTO runtime_thread_entries (
-        entry_id, thread_key, session_id, entry_type, timestamp_iso, created_at, data_json
-      ) VALUES (?, ?, ?, 'message', ?, 1000, '{}')`,
-    ).run(
-      "deleted-entry",
-      "deleted-thread",
-      "runtime-session",
-      new Date(1_000).toISOString(),
-    );
+      `INSERT INTO thread_entry (
+        thread_id, seq, id, type, timestamp_iso, created_at, payload
+      ) VALUES (?, 1, ?, 'message', ?, 1000, '{}')`,
+    ).run("deleted-thread", "deleted-entry", new Date(1_000).toISOString());
 
     expect(store.deleteConversation(id)).toBe(true);
     expect(store.deleteConversation(id)).toBe(false);
     expect(
-      db.prepare(`SELECT 1 FROM message WHERE id = ?`).get(event._id),
+      db.prepare(`SELECT 1 FROM entry WHERE id = ?`).get(event._id),
     ).toBeUndefined();
     expect(
       db
-        .prepare(`SELECT 1 FROM runtime_thread_entries WHERE thread_key = ?`)
+        .prepare(`SELECT 1 FROM thread_entry WHERE thread_id = ?`)
         .get("deleted-thread"),
     ).toBeUndefined();
     expect(store.getOrCreateDefaultConversationId()).not.toBe(id);
@@ -415,7 +410,7 @@ describe("conversation history storage", () => {
     const { db, store } = createContext();
     const id = store.getOrCreateDefaultConversationId();
     db.prepare(
-      `INSERT INTO runtime_agents (
+      `INSERT INTO agent (
         thread_id, conversation_id, agent_type, description, agent_depth,
         status, started_at, updated_at
       ) VALUES (?, ?, 'general', 'Still running', 1, 'running', 1000, 1000)`,

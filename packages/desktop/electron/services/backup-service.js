@@ -209,7 +209,10 @@ const shouldSkipHomePath = (relativePath, isDirectory) => {
     }
     if (relativePath === "stella.sqlite"
         || relativePath === "stella.sqlite-shm"
-        || relativePath === "stella.sqlite-wal") {
+        || relativePath === "stella.sqlite-wal"
+        || relativePath === "stella-runs.sqlite"
+        || relativePath === "stella-runs.sqlite-shm"
+        || relativePath === "stella-runs.sqlite-wal") {
         return true;
     }
     if (isPreservedHomePath(relativePath)) {

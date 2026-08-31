@@ -77,7 +77,7 @@ const spawnThread = (
 const threadStatus = (db: SqliteDatabase, threadId: string): string =>
   (
     db
-      .prepare("SELECT status FROM runtime_threads WHERE thread_key = ?")
+      .prepare("SELECT status FROM thread WHERE id = ?")
       .get(threadId) as { status: string }
   ).status;
 

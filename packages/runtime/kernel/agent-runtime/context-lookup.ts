@@ -593,7 +593,8 @@ export const formatThreadSearchResults = (
   const trimmedQuery = query?.trim();
   const threads = store.searchThreads({
     conversationId,
-    ...(trimmedQuery ? { query: trimmedQuery } : {}),
+    // An empty query tokenizes to nothing, which takes the LIKE browse path.
+    query: trimmedQuery ?? "",
     limit: cappedLimit,
   });
   if (threads.length === 0) {

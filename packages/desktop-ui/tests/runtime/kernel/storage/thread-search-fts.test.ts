@@ -1,8 +1,3 @@
-// The FTS5 index behind `searchThreads` (`thread_search_fts`): trigger-synced
-// at write time so thread search is an index lookup instead of a per-token
-// LIKE scan — and, the main quality win, the agent's final result/error text
-// becomes searchable, which no LIKE column ever was.
-
 import { rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -12,6 +7,7 @@ import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
 } from "@stella/runtime/kernel/storage/database-init";
+import { rebuildSearchIndexes } from "@stella/runtime/kernel/storage/schema";
 import {
   FtsSearchUnavailableError,
   SessionStore,
@@ -42,8 +38,7 @@ const createTestContext = (): TestContext => {
 };
 
 beforeEach(() => {
-  // last_used_at is driven by Date.now(); recency tie-breaks in the search
-  // ordering need strictly increasing spawn times to be deterministic.
+
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-07-11T12:00:00Z"));
 });
@@ -57,7 +52,6 @@ afterEach(async () => {
   activeContexts.clear();
 });
 
-/** Spawn a new general thread, advancing fake time so recency is strict. */
 const spawnThread = (
   store: SessionStore,
   conversationId: string,
@@ -71,7 +65,6 @@ const spawnThread = (
   });
 };
 
-/** Persist an agent record through the production writer (fires triggers). */
 const saveAgent = (
   store: SessionStore,
   threadId: string,
@@ -95,7 +88,11 @@ const saveAgent = (
 
 const ftsRowCount = (db: SqliteDatabase): number =>
   (
-    db.prepare("SELECT COUNT(*) AS count FROM thread_search_fts").get() as {
+    db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM thread WHERE search_text IS NOT NULL",
+      )
+      .get() as {
       count: number;
     }
   ).count;
@@ -104,7 +101,7 @@ const ftsRowCountForThread = (db: SqliteDatabase, threadKey: string): number =>
   (
     db
       .prepare(
-        "SELECT COUNT(*) AS count FROM thread_search_fts WHERE thread_key = ?",
+        "SELECT COUNT(*) AS count FROM thread WHERE id = ? AND search_text IS NOT NULL",
       )
       .get(threadKey) as { count: number }
   ).count;
@@ -220,18 +217,12 @@ describe("thread FTS index", () => {
     };
     saveAgent(store, job.threadId, "conv-a", fields);
 
-    // saveAgentRecord's upsert SETs every column, so UPDATE OF fires on
-    // membership alone; the trigger's WHEN clause must reject the no-op.
-    // total_changes() counts trigger-driven writes too — an FTS
-    // delete+insert lands ~14 shadow-table changes — so a redundant save
-    // must cost strictly fewer row changes than one that syncs new text.
     const changes = () =>
       (db.prepare("SELECT total_changes() AS c").get() as { c: number }).c;
     const beforeRedundant = changes();
     saveAgent(store, job.threadId, "conv-a", fields);
     const redundantDelta = changes() - beforeRedundant;
 
-    // A save that DOES change indexed text still syncs.
     const beforeChanging = changes();
     saveAgent(store, job.threadId, "conv-a", {
       ...fields,
@@ -255,7 +246,7 @@ describe("thread FTS index", () => {
       agentType: "orchestrator",
       nameHint: "Coordinate flight booking",
     });
-    // Simulate an ephemeral workflow agent's implicit transcript row.
+
     store.updateThreadSummary(
       "conv-a::subagent::general::wf-research-a1",
       "internal flight transcript",
@@ -280,7 +271,7 @@ describe("thread FTS index", () => {
       "conv-mine",
       "Compare flight prices Paris",
     );
-    // Newest AND a two-token match — scope still sorts it last.
+
     const other = spawnThread(store, "conv-other", "Flight tokyo planner");
 
     const results = store.searchThreads({
@@ -301,16 +292,13 @@ describe("thread FTS index", () => {
     saveAgent(store, job.threadId, "conv-a", {
       result: "shipped the zanzibar rollout",
     });
-    // Simulate an old database: index contents and the backfill flag gone.
-    db.exec("DELETE FROM thread_search_fts;");
-    db.prepare("DELETE FROM settings WHERE key = ?").run(
-      "thread_search_fts_backfilled_v2",
-    );
+
+    db.exec("INSERT INTO thread_fts(thread_fts, rank) VALUES ('delete-all', 0);");
     expect(
       store.searchThreads({ conversationId: "conv-a", query: "zanzibar" }),
     ).toEqual([]);
 
-    initializeDesktopDatabase(db);
+    rebuildSearchIndexes(db);
 
     expect(ftsRowCount(db)).toBe(1);
     expect(
@@ -326,14 +314,11 @@ describe("thread FTS index", () => {
     saveAgent(store, flight.threadId, "conv-a", {
       result: "the zanzibar route was cheapest",
     });
-    db.exec("DROP TRIGGER trg_thread_search_fts_thread_insert;");
-    db.exec("DROP TRIGGER trg_thread_search_fts_thread_update;");
-    db.exec("DROP TRIGGER trg_thread_search_fts_thread_delete;");
-    db.exec("DROP TRIGGER trg_thread_search_fts_agent_insert;");
-    db.exec("DROP TRIGGER trg_thread_search_fts_agent_update;");
-    db.exec("DROP TRIGGER trg_thread_search_fts_agent_delete;");
-    db.exec("DROP TABLE thread_search_fts;");
-    // A fresh store re-detects availability (the flag is cached per store).
+    db.exec("DROP TRIGGER trg_thread_fts_insert;");
+    db.exec("DROP TRIGGER trg_thread_fts_update;");
+    db.exec("DROP TRIGGER trg_thread_fts_delete;");
+    db.exec("DROP TABLE thread_fts;");
+
     const fallbackStore = new SessionStore(db);
 
     expect(() =>
@@ -351,8 +336,7 @@ describe("thread FTS index", () => {
         })
         .map((t) => t.threadId),
     ).toEqual([flight.threadId]);
-    // Result-text matching is deliberately exclusive to the FTS path: the
-    // LIKE fallback keeps its original narrower column set.
+
     expect(
       fallbackStore.searchThreads({
         conversationId: "conv-a",
@@ -366,8 +350,7 @@ describe("thread FTS index", () => {
     const { store } = createTestContext();
     const percent = spawnThread(store, "conv-a", "Reach 100% test coverage");
     spawnThread(store, "conv-a", "Process 1000 records");
-    // "%%%" tokenizes to nothing inside FTS MATCH (syntax error path) but
-    // stays a literal for the LIKE fallback.
+
     expect(
       store.searchThreads({ conversationId: "conv-a", query: "%%%" }),
     ).toEqual([]);
@@ -383,9 +366,7 @@ describe("thread FTS index", () => {
     const job = spawnThread(store, "conv-a", "Doomed thread");
     expect(ftsRowCountForThread(db, job.threadId)).toBe(1);
 
-    db.prepare("DELETE FROM runtime_threads WHERE thread_key = ?").run(
-      job.threadId,
-    );
+    db.prepare("DELETE FROM thread WHERE id = ?").run(job.threadId);
 
     expect(ftsRowCount(db)).toBe(0);
     expect(

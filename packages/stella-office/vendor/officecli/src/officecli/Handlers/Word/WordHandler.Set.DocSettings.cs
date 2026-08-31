@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using DocumentFormat.OpenXml.Packaging;
@@ -27,7 +27,13 @@ public partial class WordHandler
                     "default" or "none" => DocGridValues.Default,
                     "lines" => DocGridValues.Lines,
                     "linesandchars" or "linesandcharacters" => DocGridValues.LinesAndChars,
-                    "snaptocharacters" or "snapchars" => DocGridValues.SnapToChars,
+                    // BUG-DUMP-H88: the Get readback emits docGrid.type from
+                    // grid.Type.InnerText, whose OOXML literal for SnapToChars is
+                    // "snapToChars" → lowercases to "snaptochars". Without this alias
+                    // the dump produced a value its own batch rejected: a CJK
+                    // snap-to-character grid round-tripped to type="default" with
+                    // linePitch + charSpace silently lost (the failed op was skipped).
+                    "snaptocharacters" or "snapchars" or "snaptochars" => DocGridValues.SnapToChars,
                     _ => throw new ArgumentException($"Invalid docGrid.type: '{value}'. Valid: default, lines, linesAndChars, snapToCharacters")
                 };
                 return true;
@@ -35,13 +41,31 @@ public partial class WordHandler
             case "docgrid.linepitch":
             {
                 var grid = EnsureDocGridInSection();
-                grid.LinePitch = ParseHelpers.SafeParseInt(value, "docGrid.linePitch");
+                var lp = ParseHelpers.SafeParseInt(value, "docGrid.linePitch");
+                // OOXML ST_DecimalNumber here describes a positive line height
+                // (twips). 0/negative values disable the grid silently — Word
+                // ignores the docGrid in that case, so reject up front rather
+                // than letting a no-op land on disk.
+                if (lp < 1)
+                    throw new ArgumentException(
+                        $"Invalid docGrid.linePitch '{value}': must be a positive integer in twips (>= 1).");
+                grid.LinePitch = lp;
                 return true;
             }
             case "docgrid.charspace" or "docgrid.characterspace":
             {
                 var grid = EnsureDocGridInSection();
-                grid.CharacterSpace = ParseHelpers.SafeParseInt(value, "docGrid.charSpace");
+                var cs = ParseHelpers.SafeParseInt(value, "docGrid.charSpace");
+                // ECMA-376 declares charSpace as ST_DecimalNumber (xsd:integer)
+                // — any signed integer. Real Word documents using CJK grid
+                // commonly write negative values (e.g. -2049 for tight
+                // east-asian spacing). An earlier revision of this code
+                // rejected anything outside [0, 32767], which broke
+                // round-trip on every CJK docx and is documented in
+                // CONSISTENCY(docgrid-charspace-signed). The OOXML SDK
+                // (Int32Value) accepts any int, so we delegate range
+                // checking to Word itself.
+                grid.CharacterSpace = cs;
                 return true;
             }
 
@@ -152,6 +176,27 @@ public partial class WordHandler
             }
             case "evenandoddheaders":
                 SetOnOffSetting<EvenAndOddHeaders>(EnsureSettings(), IsTruthy(value));
+                EnsureSettings().Save();
+                return true;
+            case "updatefields" or "updatefieldsonopen":
+                // <w:updateFields w:val="true"/> — tells Word to recompute every
+                // field (TOC / PAGE / SEQ / PAGEREF cached values) on open, so
+                // dynamic fields don't render their stale write-time cache.
+                SetOnOffSetting<UpdateFieldsOnOpen>(EnsureSettings(), IsTruthy(value));
+                EnsureSettings().Save();
+                return true;
+            case "autohyphenation":
+                SetOnOffSetting<AutoHyphenation>(EnsureSettings(), IsTruthy(value));
+                EnsureSettings().Save();
+                return true;
+            case "trackrevisions" or "trackchanges":
+                // <w:trackRevisions/> — the document-level track-changes MODE
+                // toggle (Word: Review → Track Changes). Distinct from the
+                // per-run/paragraph revision DATA authored via revision.type.
+                // `trackChanges` is the lenient Word-UI alias; Get emits the
+                // canonical `trackRevisions` (matches the OOXML element name,
+                // like every sibling flag on /settings).
+                SetOnOffSetting<TrackRevisions>(EnsureSettings(), IsTruthy(value));
                 EnsureSettings().Save();
                 return true;
             case "defaulttabstop":

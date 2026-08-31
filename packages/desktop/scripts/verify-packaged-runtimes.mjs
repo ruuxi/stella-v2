@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 const valueFor = (name) => {
@@ -190,5 +191,37 @@ if (isLinux) {
     rmSync(gitProbe, { recursive: true, force: true });
   }
 }
+
+const officePackage = JSON.parse(
+  readFileSync(
+    path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+      "stella-office",
+      "package.json",
+    ),
+    "utf8",
+  ),
+);
+const officeBinaryName =
+  platform === "win-x64"
+    ? "stella-office-win32-x64.exe"
+    : `stella-office-${platform}`;
+const officeBinary = path.join(
+  resources,
+  "stella-office",
+  "bin",
+  officeBinaryName,
+);
+if (!existsSync(officeBinary)) {
+  throw new Error(`Missing packaged stella-office binary at ${officeBinary}`);
+}
+run(
+  "stella-office",
+  officeBinary,
+  ["--version"],
+  new RegExp(`^${officePackage.version.replaceAll(".", "\\.")}$`, "mu"),
+);
 
 console.log(`[packaging] All managed runtimes passed for ${platform}.`);

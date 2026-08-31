@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using DocumentFormat.OpenXml.Packaging;
@@ -9,7 +9,7 @@ namespace OfficeCli.Core;
 /// <summary>
 /// Shared Extended Properties (app.xml) Get/Set logic for all document types.
 /// </summary>
-public static class ExtendedPropertiesHandler
+internal static class ExtendedPropertiesHandler
 {
     /// <summary>
     /// Populate Format dictionary with extended properties.

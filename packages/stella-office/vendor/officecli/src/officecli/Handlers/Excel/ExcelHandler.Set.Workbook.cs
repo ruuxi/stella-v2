@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using DocumentFormat.OpenXml;
@@ -9,6 +9,14 @@ namespace OfficeCli.Handlers;
 
 public partial class ExcelHandler
 {
+    // True only when the user explicitly set workbook.lockStructure (the
+    // `workbook.lockstructure` case below). A bare workbook.password Set
+    // auto-implies lockStructure=true for UI parity, but that implied lock is
+    // NOT explicit, so clearing the password undoes it. An explicitly requested
+    // lock survives a password clear. Default false: anything we did not see an
+    // explicit request for is treated as auto-implied and removed on clear.
+    private bool _workbookLockStructureExplicit;
+
     /// <summary>
     /// Try to handle workbook-level settings. Returns true if handled.
     /// </summary>
@@ -117,10 +125,8 @@ public partial class ExcelHandler
             case "calc.fullprecision" or "fullprecision":
             {
                 var calc = EnsureCalculationProperties();
-                if (IsTruthy(value))
-                    calc.FullPrecision = true;
-                else
-                    calc.FullPrecision = null;
+                // OOXML default is true; must write explicit false to override.
+                calc.FullPrecision = IsTruthy(value) ? null : false;
                 SaveWorkbook();
                 return true;
             }
@@ -143,6 +149,62 @@ public partial class ExcelHandler
                     "r1c1" => ReferenceModeValues.R1C1,
                     _ => throw new ArgumentException($"Invalid calc.refMode: '{value}'. Valid: A1, R1C1")
                 };
+                SaveWorkbook();
+                return true;
+            }
+
+            // ==================== BookViews / WorkbookView ====================
+            case "activetab" or "workbook.activetab":
+            {
+                var bv = EnsureFirstWorkbookView();
+                // Accept 0-based numeric index or sheet name.
+                uint idx;
+                if (uint.TryParse(value, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                {
+                    idx = parsed;
+                }
+                else
+                {
+                    var sheets = _doc.WorkbookPart?.Workbook?.GetFirstChild<Sheets>()
+                        ?.Elements<Sheet>().ToList();
+                    if (sheets == null || sheets.Count == 0)
+                        throw new ArgumentException($"Invalid activeTab: no sheets in workbook");
+                    var match = sheets.FindIndex(s =>
+                        string.Equals(s.Name?.Value, value, StringComparison.OrdinalIgnoreCase));
+                    if (match < 0)
+                        throw new ArgumentException(
+                            $"Invalid activeTab: '{value}' is not a 0-based index or sheet name. " +
+                            $"Valid sheets: {string.Join(", ", sheets.Select(s => s.Name?.Value))}");
+                    idx = (uint)match;
+                }
+                bv.ActiveTab = idx == 0 ? null : new UInt32Value(idx);
+                SaveWorkbook();
+                return true;
+            }
+            case "firstsheet" or "workbook.firstsheet":
+            {
+                var bv = EnsureFirstWorkbookView();
+                uint idx;
+                if (uint.TryParse(value, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                {
+                    idx = parsed;
+                }
+                else
+                {
+                    var sheets = _doc.WorkbookPart?.Workbook?.GetFirstChild<Sheets>()
+                        ?.Elements<Sheet>().ToList();
+                    if (sheets == null || sheets.Count == 0)
+                        throw new ArgumentException($"Invalid firstSheet: no sheets in workbook");
+                    var match = sheets.FindIndex(s =>
+                        string.Equals(s.Name?.Value, value, StringComparison.OrdinalIgnoreCase));
+                    if (match < 0)
+                        throw new ArgumentException(
+                            $"Invalid firstSheet: '{value}' is not a 0-based index or sheet name.");
+                    idx = (uint)match;
+                }
+                bv.FirstSheet = idx == 0 ? null : new UInt32Value(idx);
                 SaveWorkbook();
                 return true;
             }
@@ -171,9 +233,16 @@ public partial class ExcelHandler
             {
                 var prot = EnsureWorkbookProtection();
                 if (IsTruthy(value))
+                {
                     prot.LockStructure = true;
+                    // Explicit user request — must survive a later password clear.
+                    _workbookLockStructureExplicit = true;
+                }
                 else
+                {
                     prot.LockStructure = null;
+                    _workbookLockStructureExplicit = false;
+                }
                 CleanupEmptyWorkbookProtection();
                 SaveWorkbook();
                 return true;
@@ -185,6 +254,72 @@ public partial class ExcelHandler
                     prot.LockWindows = true;
                 else
                     prot.LockWindows = null;
+                CleanupEmptyWorkbookProtection();
+                SaveWorkbook();
+                return true;
+            }
+            case "workbook.passwordhash":
+            {
+                // Verbatim legacy hash write (round-trip of the readback above),
+                // parallel to the sheet-level `passwordhash` case. No re-hash:
+                // the dump carries the already-hashed value. Implies a lock so
+                // the protection element is meaningful (Excel parity).
+                var protH = EnsureWorkbookProtection();
+                if (string.IsNullOrEmpty(value) || value.Equals("none", StringComparison.OrdinalIgnoreCase))
+                {
+                    protH.WorkbookPassword = null;
+                    if (!_workbookLockStructureExplicit) protH.LockStructure = null;
+                }
+                else
+                {
+                    protH.WorkbookPassword = HexBinaryValue.FromString(value);
+                    if (protH.LockStructure?.Value != true && protH.LockWindows?.Value != true)
+                        protH.LockStructure = true;
+                }
+                CleanupEmptyWorkbookProtection();
+                SaveWorkbook();
+                return true;
+            }
+            case "workbook.password" or "workbookpassword":
+            {
+                var prot = EnsureWorkbookProtection();
+                if (string.IsNullOrEmpty(value) || value.Equals("none", StringComparison.OrdinalIgnoreCase))
+                {
+                    prot.WorkbookPassword = null;
+                    // Undo the lockStructure that setting the password auto-implied, so a
+                    // cleared-password workbook has no leftover lock. Only an explicitly
+                    // requested lockStructure (the `workbook.lockstructure` case) survives.
+                    // We key off "was it explicitly requested" rather than "did we imply
+                    // it" so the clear is robust even when the implied lock came from a
+                    // path that did not run the auto-imply branch (e.g. lockWindows was
+                    // already present, or the element was loaded pre-locked).
+                    if (!_workbookLockStructureExplicit)
+                        prot.LockStructure = null;
+                }
+                else
+                {
+                    // ECMA-376 Part 4 14.7.1 legacy password hash (same algorithm
+                    // used by sheet password). Truncated to 16-bit short — known
+                    // weak, but matches what Excel writes for back-compat password
+                    // fields without the modern algorithmName/saltValue/hashValue
+                    // triple.
+                    int hash = 0;
+                    for (int ci = value.Length - 1; ci >= 0; ci--)
+                    {
+                        hash = ((hash >> 14) & 1) | ((hash << 1) & 0x7FFF);
+                        hash ^= value[ci];
+                    }
+                    hash = ((hash >> 14) & 1) | ((hash << 1) & 0x7FFF);
+                    hash ^= value.Length;
+                    hash ^= 0xCE4B;
+                    prot.WorkbookPassword = HexBinaryValue.FromString(hash.ToString("X4"));
+                    // Implies lockStructure unless caller overrides — mirrors Excel UI
+                    // (the password field is only meaningful with at least one lock).
+                    // This lock is auto-implied (not explicit), so a later password
+                    // clear removes it — see the clear branch above.
+                    if (prot.LockStructure?.Value != true && prot.LockWindows?.Value != true)
+                        prot.LockStructure = true;
+                }
                 CleanupEmptyWorkbookProtection();
                 SaveWorkbook();
                 return true;
@@ -247,6 +382,31 @@ public partial class ExcelHandler
         return prot;
     }
 
+    private WorkbookView EnsureFirstWorkbookView()
+    {
+        var workbook = _doc.WorkbookPart!.Workbook!;
+        var bookViews = workbook.GetFirstChild<BookViews>();
+        if (bookViews == null)
+        {
+            bookViews = new BookViews();
+            // Schema order: bookViews sits between workbookProtection/workbookPr
+            // and sheets. Insert before Sheets when present.
+            var anchor = (DocumentFormat.OpenXml.OpenXmlElement?)workbook.GetFirstChild<Sheets>()
+                ?? workbook.GetFirstChild<CalculationProperties>();
+            if (anchor != null)
+                anchor.InsertBeforeSelf(bookViews);
+            else
+                workbook.AppendChild(bookViews);
+        }
+        var view = bookViews.GetFirstChild<WorkbookView>();
+        if (view == null)
+        {
+            view = new WorkbookView();
+            bookViews.AppendChild(view);
+        }
+        return view;
+    }
+
     private void CleanupEmptyWorkbookProperties()
     {
         var props = _doc.WorkbookPart?.Workbook?.GetFirstChild<WorkbookProperties>();
@@ -286,17 +446,29 @@ public partial class ExcelHandler
             if (props.DateCompatibility?.Value == true) node.Format["workbook.dateCompatibility"] = true;
         }
 
-        // CalculationProperties
+        // CalculationProperties — fullPrecision defaults to true per OOXML spec
+        // even when the calc element is absent or attribute is omitted.
         var calc = workbook.GetFirstChild<CalculationProperties>();
+        node.Format["calc.fullPrecision"] = calc?.FullPrecision?.Value ?? true;
         if (calc != null)
         {
             if (calc.CalculationMode?.Value != null) node.Format["calc.mode"] = calc.CalculationMode.InnerText;
             if (calc.Iterate?.Value == true) node.Format["calc.iterate"] = true;
             if (calc.IterateCount?.Value != null) node.Format["calc.iterateCount"] = (int)calc.IterateCount.Value;
             if (calc.IterateDelta?.Value != null) node.Format["calc.iterateDelta"] = calc.IterateDelta.Value;
-            if (calc.FullPrecision?.Value == true) node.Format["calc.fullPrecision"] = true;
             if (calc.FullCalculationOnLoad?.Value == true) node.Format["calc.fullCalcOnLoad"] = true;
             if (calc.ReferenceMode?.Value != null) node.Format["calc.refMode"] = calc.ReferenceMode.InnerText;
+        }
+
+        // BookViews / first WorkbookView
+        var bookViews = workbook.GetFirstChild<BookViews>();
+        var firstView = bookViews?.GetFirstChild<WorkbookView>();
+        if (firstView != null)
+        {
+            if (firstView.ActiveTab?.Value is uint activeTab && activeTab != 0)
+                node.Format["activeTab"] = (int)activeTab;
+            if (firstView.FirstSheet?.Value is uint firstSheet && firstSheet != 0)
+                node.Format["firstSheet"] = (int)firstSheet;
         }
 
         // WorkbookProtection
@@ -305,6 +477,16 @@ public partial class ExcelHandler
         {
             if (prot.LockStructure?.Value == true) node.Format["workbook.lockStructure"] = true;
             if (prot.LockWindows?.Value == true) node.Format["workbook.lockWindows"] = true;
+            // Surface the legacy password hash verbatim (canonical
+            // `workbook.passwordHash`) so dump→batch preserves workbook
+            // protection strength instead of degrading to passwordless —
+            // mirrors the sheet-level passwordHash readback. `workbook.password`
+            // stays a display-only mask (never round-tripped; the hash is).
+            if (prot.WorkbookPassword?.Value is { Length: > 0 } wbPwHash)
+            {
+                node.Format["workbook.passwordHash"] = wbPwHash;
+                node.Format["workbook.password"] = "***";
+            }
         }
     }
 }

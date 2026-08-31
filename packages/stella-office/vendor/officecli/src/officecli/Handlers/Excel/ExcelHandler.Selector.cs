@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Text.RegularExpressions;
@@ -28,13 +28,35 @@ public partial class ExcelHandler
         string? typeEquals = null;
         string? typeNotEquals = null;
 
-        // Check for sheet prefix: Sheet1!cell[...]
-        // Only treat '!' as sheet separator if NOT part of '!=' operator
-        var exclMatch = Regex.Match(selector, @"^(.+?)!(?!=)");
-        if (exclMatch.Success)
+        // Normalize path-style selectors: "/Sheet1/cell[...]" → "Sheet1!cell[...]"
+        if (selector.StartsWith('/'))
         {
-            sheet = exclMatch.Groups[1].Value;
-            selector = selector[(exclMatch.Length)..];
+            var slashIdx = selector.IndexOf('/', 1);
+            if (slashIdx > 0)
+            {
+                sheet = selector[1..slashIdx];
+                selector = selector[(slashIdx + 1)..];
+            }
+            else
+            {
+                // Just "/cell" — strip leading slash
+                selector = selector[1..];
+            }
+        }
+
+        // Check for sheet prefix: Sheet1!cell[...]
+        // Only a TOP-LEVEL '!' (outside brackets/quotes, not part of '!=')
+        // separates the sheet — a '!' inside a predicate value
+        // (row[F="x!"], row[Msg~=hello!]) is literal text, and the old
+        // ^(.+?)!(?!=) regex swallowed everything up to it as a "sheet".
+        var bangIdx = Core.SelectorCommaSplit.TopLevelIndexOf(selector, '!');
+        if (bangIdx > 0 && (bangIdx + 1 >= selector.Length || selector[bangIdx + 1] != '='))
+        {
+            // Excel-quoted names ('My Data (2024)'!row[...]) arrive quoted —
+            // the scanner already treats the quoted span as opaque, so the
+            // top-level '!' is the real separator; strip the quotes here.
+            sheet = UnquoteSheetName(selector[..bangIdx]);
+            selector = selector[(bangIdx + 1)..];
         }
 
         // Parse element and attributes: cell[attr=value]
@@ -84,18 +106,25 @@ public partial class ExcelHandler
         var containsMatch = Regex.Match(selector, @":contains\(['""]?(.+?)['""]?\)");
         if (containsMatch.Success) valueContains = containsMatch.Groups[1].Value;
 
-        // Shorthand: "cell:text" → treat as :contains(text)
+        // Shorthand: "cell:text" → treat as :contains(text). Exclude the
+        // recognised pseudo-classes (incl. `not`) so `:not(:has(formula))` is
+        // not mistaken for a literal substring filter "not(:has(formula))".
         if (valueContains == null)
         {
-            var shorthandMatch = Regex.Match(selector, @"^(?:\w+)?:(?!contains|empty|has)(.+)$");
+            var shorthandMatch = Regex.Match(selector, @"^(?:\w+)?:(?!contains|empty|has|not)(.+)$");
             if (shorthandMatch.Success) valueContains = shorthandMatch.Groups[1].Value;
         }
 
-        // :empty pseudo-selector
-        if (selector.Contains(":empty")) isEmpty = true;
+        // :empty pseudo-selector (and its negation). Check the negated form
+        // first — `:not(:empty)` also contains the `:empty` substring.
+        if (selector.Contains(":not(:empty)")) isEmpty = false;
+        else if (selector.Contains(":empty")) isEmpty = true;
 
-        // :has(formula) pseudo-selector
-        if (selector.Contains(":has(formula)")) hasFormula = true;
+        // :has(formula) pseudo-selector (and its negation). `:not(:has(formula))`
+        // contains `:has(formula)`, so the negated form must be checked first —
+        // otherwise it inverts to "has a formula" and returns the wrong set.
+        if (selector.Contains(":not(:has(formula))")) hasFormula = false;
+        else if (selector.Contains(":has(formula)")) hasFormula = true;
 
         return new CellSelector(sheet, column, valueEquals, valueNotEquals, valueContains, hasFormula, isEmpty, typeEquals, typeNotEquals, formatEquals, formatNotEquals);
     }
@@ -112,11 +141,18 @@ public partial class ExcelHandler
         }
 
         var value = GetCellDisplayValue(cell);
+        // Stored value for a formatted cell (0.5, not "50%"; date serial, not the
+        // formatted date). Equality matches EITHER form so `value=50%` (display)
+        // and `value=0.5` (stored) both hit the same percentage cell.
+        var rawValue = GetCellRawComparisonValue(cell);
+        bool ValueMatches(string target) =>
+            value.Equals(target, StringComparison.OrdinalIgnoreCase)
+            || rawValue.Equals(target, StringComparison.OrdinalIgnoreCase);
 
         // Value filters
-        if (selector.ValueEquals != null && !value.Equals(selector.ValueEquals, StringComparison.OrdinalIgnoreCase))
+        if (selector.ValueEquals != null && !ValueMatches(selector.ValueEquals))
             return false;
-        if (selector.ValueNotEquals != null && value.Equals(selector.ValueNotEquals, StringComparison.OrdinalIgnoreCase))
+        if (selector.ValueNotEquals != null && ValueMatches(selector.ValueNotEquals))
             return false;
         if (selector.ValueContains != null && !value.Contains(selector.ValueContains, StringComparison.OrdinalIgnoreCase))
             return false;
@@ -159,12 +195,55 @@ public partial class ExcelHandler
         return "Number";
     }
 
+    // CONSISTENCY(cell-selector-alias): short attribute names in cell selectors
+    // map to their canonical DocumentNode.Format keys. Users write
+    // `cell[bold=true]` but Get stores `font.bold`.
+    private static readonly Dictionary<string, string> _cellSelectorAliases =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["bold"] = "font.bold",
+            ["italic"] = "font.italic",
+            // `strike`/`underline` are themselves the canonical cell Format keys
+            // (Get emits them unprefixed), so they map to identity — no remap.
+            ["underline"] = "underline",
+            ["strike"] = "strike",
+            ["font"] = "font.name",
+            ["size"] = "font.size",
+            ["color"] = "font.color",
+        };
+
+    private static string ResolveCellFormatKey(string key)
+        => _cellSelectorAliases.TryGetValue(key, out var canonical) ? canonical : key;
+
+    // CONSISTENCY(cell-selector-alias): exposed so the CLI query post-filter
+    // (AttributeFilter.ApplyWithWarnings) can normalize user-written keys like
+    // "bold" -> "font.bold" before matching against DocumentNode.Format. Without
+    // this, handler-level MatchesCellSelector would accept cell[bold=true] and
+    // return hits, then the CLI post-filter would drop them all because Format
+    // only has "font.bold".
+    public static string ResolveCellAttributeAlias(string key)
+        => _cellSelectorAliases.TryGetValue(key, out var canonical) ? canonical : key;
+
+    // CONSISTENCY(cell-selector-alias): true when a query selector targets cells,
+    // accounting for an optional sheet prefix — bare "cell[...]", Excel-native
+    // "Sheet1!cell[...]", or path-style "/Sheet1/cell[...]". The CLI and resident
+    // query post-filters use this to decide whether to apply cell attribute-alias
+    // normalization (bold -> font.bold, ...). Without stripping the prefix, a
+    // sheet-scoped cell selector skipped normalization and every format-attribute
+    // filter silently dropped all matches.
+    public static bool SelectorTargetsCells(string? selector)
+    {
+        var element = Regex.Replace((selector ?? "").TrimStart(), @"^(?:[^/!\[]+!|/[^/]+/)", "");
+        return element.StartsWith("cell", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool MatchesFormatAttributes(DocumentNode node, CellSelector selector)
     {
         if (selector.FormatEquals != null)
         {
-            foreach (var (key, expected) in selector.FormatEquals)
+            foreach (var (rawKey, expected) in selector.FormatEquals)
             {
+                var key = ResolveCellFormatKey(rawKey);
                 var matchedKey = node.Format.Keys.FirstOrDefault(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase));
                 if (matchedKey == null) return false;
                 var actual = node.Format[matchedKey]?.ToString() ?? "";
@@ -174,8 +253,9 @@ public partial class ExcelHandler
         }
         if (selector.FormatNotEquals != null)
         {
-            foreach (var (key, expected) in selector.FormatNotEquals)
+            foreach (var (rawKey, expected) in selector.FormatNotEquals)
             {
+                var key = ResolveCellFormatKey(rawKey);
                 var matchedKey = node.Format.Keys.FirstOrDefault(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase));
                 var actual = matchedKey != null ? (node.Format[matchedKey]?.ToString() ?? "") : "";
                 if (ColorNormalizedEquals(actual, expected))
@@ -202,9 +282,13 @@ public partial class ExcelHandler
         if (!match.Success)
             throw new ArgumentException($"Invalid cell reference: '{cellRef}'. Expected format like 'A1', 'B2', 'XFD1048576'.");
         var col = match.Groups[1].Value.ToUpperInvariant();
-        var row = int.Parse(match.Groups[2].Value);
-        if (row < 1 || row > 1048576)
-            throw new ArgumentException($"Row {row} in cell reference '{cellRef}' is out of range. Valid range: 1-1048576.");
+        // Use long to avoid OverflowException when malformed files carry row numbers
+        // outside int range (e.g. uint.MaxValue). Surface a semantic ArgumentException
+        // (the same exception type used for other invalid refs below) instead.
+        if (!long.TryParse(match.Groups[2].Value, out var rowLong) || rowLong < 1 || rowLong > 1048576)
+            throw new ArgumentException(
+                $"Row {match.Groups[2].Value} in cell reference '{cellRef}' is out of valid range. Valid range: 1-1048576.");
+        var row = (int)rowLong;
         var colIdx = ColumnNameToIndex(col);
         if (colIdx < 1 || colIdx > 16384)
             throw new ArgumentException($"Column '{col}' in cell reference '{cellRef}' is out of range. Valid range: A-XFD (1-16384).");
@@ -256,5 +340,66 @@ public partial class ExcelHandler
         if (index < 1 || index > allCharts.Count)
             throw new ArgumentException($"Chart index {index} out of range (1..{allCharts.Count})");
         return allCharts[index - 1];
+    }
+
+    /// <summary>Charts addressable by a raw <c>chart[N]</c> path: the anchored
+    /// charts (drawing order, both legacy and cx — matching query/get), followed
+    /// by any chart parts NOT yet referenced by a graphicFrame. The trailing
+    /// unanchored parts restore the <c>add-part → raw-set chart[N]</c> workflow,
+    /// where the chart XML is authored before its drawing anchor exists.</summary>
+    private static List<ExcelChartInfo> ChartsForRaw(DrawingsPart drawingsPart)
+    {
+        var list = GetExcelCharts(drawingsPart);
+        var seen = new HashSet<OpenXmlPart>();
+        foreach (var c in list)
+            seen.Add(c.IsExtended ? (OpenXmlPart)c.ExtendedPart! : c.StandardPart!);
+        foreach (var cp in drawingsPart.ChartParts)
+            if (seen.Add(cp)) list.Add(new ExcelChartInfo { StandardPart = cp });
+        foreach (var ep in drawingsPart.ExtendedChartParts)
+            if (seen.Add(ep)) list.Add(new ExcelChartInfo { ExtendedPart = ep });
+        return list;
+    }
+
+    /// <summary>Raw-XML resolver for a sheet-scoped chart path (/Sheet/chart[N]).
+    /// Resolves anchored (drawing-order) and unanchored (add-part) charts, both
+    /// legacy and extended (cx).</summary>
+    private static string GetChartSpaceOuterXml(DrawingsPart? drawingsPart, int index)
+    {
+        if (drawingsPart == null)
+            throw new ArgumentException("Sheet has no drawings/charts");
+        return ChartSpaceOuterXmlAt(ChartsForRaw(drawingsPart), index);
+    }
+
+    /// <summary>Return the ChartSpace OuterXml of the 1-based chart in <paramref name="charts"/>,
+    /// picking the legacy or extended root as appropriate.</summary>
+    private static string ChartSpaceOuterXmlAt(List<ExcelChartInfo> charts, int index)
+    {
+        if (index < 1 || index > charts.Count)
+            throw new ArgumentException($"Chart index {index} out of range (1..{charts.Count})");
+        var info = charts[index - 1];
+        return info.IsExtended
+            ? info.ExtendedPart!.ChartSpace!.OuterXml
+            : info.StandardPart!.ChartSpace!.OuterXml;
+    }
+
+    /// <summary>Live ChartSpace root for raw-set writes on a sheet-scoped chart
+    /// path. Resolves both legacy and extended (cx) charts (see GetExcelCharts).</summary>
+    private static DocumentFormat.OpenXml.OpenXmlPartRootElement GetChartSpaceElement(DrawingsPart? drawingsPart, int index)
+    {
+        if (drawingsPart == null)
+            throw new ArgumentException("Sheet has no drawings/charts");
+        return ChartSpaceElementAt(ChartsForRaw(drawingsPart), index);
+    }
+
+    /// <summary>Live ChartSpace root of the 1-based chart in <paramref name="charts"/>,
+    /// legacy or extended.</summary>
+    private static DocumentFormat.OpenXml.OpenXmlPartRootElement ChartSpaceElementAt(List<ExcelChartInfo> charts, int index)
+    {
+        if (index < 1 || index > charts.Count)
+            throw new ArgumentException($"Chart index {index} out of range (1..{charts.Count})");
+        var info = charts[index - 1];
+        return info.IsExtended
+            ? info.ExtendedPart!.ChartSpace!
+            : info.StandardPart!.ChartSpace!;
     }
 }

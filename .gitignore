@@ -61,6 +61,11 @@ DEV-CONTEXT.md
 /packages/stella-browser/bin/stella-browser-darwin-*
 /packages/stella-browser/bin/stella-browser-linux-*
 /packages/stella-browser/bin/stella-browser-win32-*.exe
+/packages/stella-office/bin/stella-office-darwin-*
+/packages/stella-office/bin/stella-office-linux-*
+/packages/stella-office/bin/stella-office-win32-*
+/packages/stella-office/bin/.stella-office.json
+/packages/stella-office/bin/*.download
 /packages/stella-browser/*.png
 /packages/stella-browser/*.jpeg
 /packages/stella-browser/*.jpg

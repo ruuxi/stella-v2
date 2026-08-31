@@ -177,7 +177,7 @@ jobs:
           name: stella-v2-release-pins
           path: release-pins
 
-      - name: Hydrate pinned native helpers and Stella Browser
+      - name: Hydrate pinned native helpers, Stella Browser, and OfficeCLI
         shell: bash
         run: |
           set -euo pipefail
@@ -193,6 +193,10 @@ jobs:
             --platform "${{ matrix.sourcePlatform }}" \
             --force
           test -f "packages/stella-browser/out/${{ matrix.sourcePlatform }}/.stella-browser.json"
+          node packages/stella-office/scripts/download-native.js \
+            --platform "${{ matrix.sourcePlatform }}" \
+            --force
+          test -f packages/stella-office/bin/.stella-office.json
 
       # The DigiCert client-authentication certificate is a real PKCS#12 file,
       # so it is stored base64-encoded as a secret and only ever materialized

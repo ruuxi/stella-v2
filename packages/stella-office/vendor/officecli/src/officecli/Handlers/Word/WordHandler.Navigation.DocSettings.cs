@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -28,30 +28,102 @@ public partial class WordHandler
                     node.Format["docGrid.type"] = grid.Type.InnerText;
                 if (grid.LinePitch?.Value != null)
                     node.Format["docGrid.linePitch"] = grid.LinePitch.Value;
-                if (grid.CharacterSpace?.Value != null)
-                    node.Format["docGrid.charSpace"] = grid.CharacterSpace.Value;
+                if (grid.CharacterSpace != null)
+                {
+                    // charSpace is signed (ST_DecimalNumber). Word commonly stores
+                    // negative CJK spacing as its unsigned 32-bit form (e.g. -2049
+                    // → 4294965247), which overflows Int32Value.Value and threw
+                    // "Value was either too large or too small for an Int32" on
+                    // dump. Read the raw text and wrap unsigned→signed so the
+                    // setter (which accepts negatives) round-trips it.
+                    var rawCs = grid.CharacterSpace.InnerText;
+                    if (long.TryParse(rawCs, System.Globalization.NumberStyles.Integer,
+                            System.Globalization.CultureInfo.InvariantCulture, out var csVal))
+                    {
+                        if (csVal > int.MaxValue) csVal -= 4294967296L; // 2^32 unsigned→signed
+                        node.Format["docGrid.charSpace"] = (int)csVal;
+                    }
+                }
             }
 
             // ==================== Columns ====================
+            // CONSISTENCY(root-vs-section-readback): canonical column keys must match
+            // BuildSectionNode so `get /` and `get /section[N]` round-trip the
+            // same key names. Schema canonical: `columns`, `columnSpace` (with
+            // legacy aliases `columns.count`, `columns.space` accepted on
+            // Add/Set, dropped on Get per the project conventions "Get should normalize to
+            // the canonical key only"). EqualWidth / separator have no schema
+            // canonical alias yet so they keep the dotted form.
             var cols = sectPr.GetFirstChild<Columns>();
             if (cols != null)
             {
                 if (cols.ColumnCount?.Value != null)
-                    node.Format["columns.count"] = (int)cols.ColumnCount.Value;
-                if (cols.Space?.Value != null && double.TryParse(cols.Space.Value,
-                        System.Globalization.NumberStyles.Any,
-                        System.Globalization.CultureInfo.InvariantCulture, out var spaceVal))
-                    node.Format["columns.space"] = FormatTwipsToCm((uint)Math.Round(spaceVal));
+                    node.Format["columns"] = (int)cols.ColumnCount.Value;
+                if (cols.Space?.Value != null && uint.TryParse(cols.Space.Value, out var colSpaceTwips))
+                    node.Format["columnSpace"] = FormatTwipsToCm(colSpaceTwips);
                 if (cols.EqualWidth?.Value != null)
                     node.Format["columns.equalWidth"] = cols.EqualWidth.Value;
-                if (cols.Separator?.Value != null)
-                    node.Format["columns.separator"] = cols.Separator.Value;
+                if (cols.Separator?.Value == true)
+                    node.Format["columns.separator"] = true;
+                // CONSISTENCY(root-vs-section-readback): mirror BuildSectionNode —
+                // emit the explicit per-column widths/spaces for an unequal-width
+                // layout. Without this the body-level <w:cols equalWidth="false">
+                // round-tripped with no <w:col> children, silently collapsing the
+                // source's uneven columns to equal width.
+                var colDefs = cols.Elements<Column>().ToList();
+                if (colDefs.Count > 0)
+                {
+                    node.Format["colWidths"] = string.Join(",", colDefs.Select(c => c.Width?.Value ?? "0"));
+                    node.Format["colSpaces"] = string.Join(",", colDefs.Select(c => c.Space?.Value ?? "0"));
+                }
             }
 
             // ==================== SectionType ====================
             var sectType = sectPr.GetFirstChild<SectionType>();
             if (sectType?.Val?.Value != null)
                 node.Format["section.type"] = sectType.Val.InnerText;
+
+            // ==================== Vertical Text Alignment On Page ====================
+            // BUG-DUMP6-03: surface w:vAlign so dump→batch round-trip preserves
+            // page-vertical centering / both / bottom. Mirror in BuildSectionNode.
+            var vAlign = sectPr.GetFirstChild<VerticalTextAlignmentOnPage>();
+            if (vAlign?.Val != null)
+                node.Format["vAlign"] = vAlign.Val.InnerText;
+
+            // BUG-DUMP-SECT-TEXTDIR: body-section <w:textDirection> (East-Asian
+            // vertical page text flow). Mirror BuildSectionNode so the body
+            // sectPr's text direction survives dump→batch (set / path).
+            var secTextDir = sectPr.GetFirstChild<TextDirection>();
+            if (secTextDir?.Val != null)
+                node.Format["textDirection"] = secTextDir.Val.InnerText;
+
+            // BUG-DUMP-SECT-FOOTNOTE: body-section footnote/endnote numbering
+            // (<w:footnotePr>/<w:endnotePr>). Mirror BuildSectionNode so the
+            // trailing sectPr's numbering survives dump→batch (set / path).
+            var fnPr = sectPr.GetFirstChild<FootnoteProperties>();
+            if (fnPr != null)
+            {
+                if (fnPr.NumberingFormat?.Val != null)
+                    node.Format["footnotePr.numFmt"] = fnPr.NumberingFormat.Val.InnerText;
+                if (fnPr.NumberingRestart?.Val != null)
+                    node.Format["footnotePr.numRestart"] = fnPr.NumberingRestart.Val.InnerText;
+                if (fnPr.NumberingStart?.Val != null)
+                    node.Format["footnotePr.numStart"] = (int)fnPr.NumberingStart.Val.Value;
+                if (fnPr.FootnotePosition?.Val != null)
+                    node.Format["footnotePr.pos"] = fnPr.FootnotePosition.Val.InnerText;
+            }
+            var enPr = sectPr.GetFirstChild<EndnoteProperties>();
+            if (enPr != null)
+            {
+                if (enPr.NumberingFormat?.Val != null)
+                    node.Format["endnotePr.numFmt"] = enPr.NumberingFormat.Val.InnerText;
+                if (enPr.NumberingRestart?.Val != null)
+                    node.Format["endnotePr.numRestart"] = enPr.NumberingRestart.Val.InnerText;
+                if (enPr.NumberingStart?.Val != null)
+                    node.Format["endnotePr.numStart"] = (int)enPr.NumberingStart.Val.Value;
+                if (enPr.EndnotePosition?.Val != null)
+                    node.Format["endnotePr.pos"] = enPr.EndnotePosition.Val.InnerText;
+            }
         }
 
         // ==================== CJK Layout (from DocDefaults ParagraphProperties) ====================
@@ -114,8 +186,41 @@ public partial class WordHandler
             node.Format["bookFoldPrintingSheets"] = (int)bookFoldSheets.Val.Value;
         if (settings.GetFirstChild<EvenAndOddHeaders>() != null)
             node.Format["evenAndOddHeaders"] = true;
+        if (settings.GetFirstChild<UpdateFieldsOnOpen>() != null)
+            node.Format["updateFields"] = true;
+        if (settings.GetFirstChild<AutoHyphenation>() != null)
+            node.Format["autoHyphenation"] = true;
+        if (settings.GetFirstChild<TrackRevisions>() != null)
+            node.Format["trackRevisions"] = true;
         var defTabStop = settings.GetFirstChild<DefaultTabStop>();
         if (defTabStop?.Val?.Value != null)
             node.Format["defaultTabStop"] = FormatTwipsToCm((uint)defTabStop.Val.Value);
+
+        // ==================== Theme Font Languages ====================
+        // CONSISTENCY(locale-readback): `--locale ar-SA` writes
+        // settings/themeFontLang on Set; `Get /` must surface the same
+        // value so locale round-trips. Mirror R5-1 run-level lang.* keys
+        // (lang.latin / lang.ea / lang.cs) at doc-level. The bare
+        // `locale` key is the bidi-priority single-string view (the
+        // value Set most recently received via --locale); when only
+        // val/eastAsia are set, fall back to those.
+        var themeFontLang = settings.GetFirstChild<ThemeFontLanguages>();
+        if (themeFontLang != null)
+        {
+            if (themeFontLang.Val?.Value != null)
+                node.Format["lang.latin"] = themeFontLang.Val.Value;
+            if (themeFontLang.EastAsia?.Value != null)
+                node.Format["lang.ea"] = themeFontLang.EastAsia.Value;
+            if (themeFontLang.Bidi?.Value != null)
+                node.Format["lang.cs"] = themeFontLang.Bidi.Value;
+            // Single-string `locale` view: bidi takes priority (matches
+            // how --locale ar-SA writes <w:themeFontLang w:bidi="ar-SA"/>),
+            // then val (Latin), then eastAsia.
+            var localeStr = themeFontLang.Bidi?.Value
+                ?? themeFontLang.Val?.Value
+                ?? themeFontLang.EastAsia?.Value;
+            if (localeStr != null)
+                node.Format["locale"] = localeStr;
+        }
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2025 OfficeCli (officecli.ai)
+// Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
 // SPDX-License-Identifier: Apache-2.0
 
 using DocumentFormat.OpenXml.Packaging;
@@ -32,7 +32,28 @@ public partial class WordHandler
             {
                 var rPr = EnsureRunPropsDefault();
                 var fonts = rPr.GetFirstChild<RunFonts>() ?? rPr.AppendChild(new RunFonts());
-                fonts.Ascii = value;
+                // BUG-R6-05: empty value means "remove this slot" so dump
+                // can clear blank-template defaults (Times New Roman) when
+                // the source doc had no explicit docDefaults.font.latin.
+                // Without this, dump→batch leaks the blank's TNR into the
+                // round-tripped doc.
+                if (string.IsNullOrEmpty(value))
+                {
+                    fonts.Ascii = null;
+                    fonts.HighAnsi = null;
+                }
+                else
+                {
+                    fonts.Ascii = value;
+                    fonts.HighAnsi = value;
+                }
+                SaveStyles();
+                return true;
+            }
+            case "docdefaults.font.hansi" or "docdefaults.font.highansi":
+            {
+                var rPr = EnsureRunPropsDefault();
+                var fonts = rPr.GetFirstChild<RunFonts>() ?? rPr.AppendChild(new RunFonts());
                 fonts.HighAnsi = value;
                 SaveStyles();
                 return true;
@@ -89,6 +110,43 @@ public partial class WordHandler
             {
                 var rPr = EnsureRunPropsDefault();
                 SetRunPropBoolInOrder<Italic>(rPr, IsTruthy(value));
+                SaveStyles();
+                return true;
+            }
+            case "docdefaults.rtl" or "docdefaults.direction" or "docdefaults.dir":
+            {
+                // <w:bidi/> on pPrDefault makes RTL the document-wide default
+                // for paragraphs.
+                //
+                // Previously written as <w:rtl/> in rPrDefault/rPr — that
+                // location is rejected by the OOXML validator (CT_RPrDefault
+                // does not include <w:rtl/> in its content model) even though
+                // Word still renders it. <w:bidi/> in pPrDefault/pPr is the
+                // canonical "this document's paragraphs are RTL by default"
+                // path that Word emits itself and validates cleanly.
+                var pPr = EnsureParaPropsDefault();
+                bool rtlOn = key.ToLowerInvariant() == "docdefaults.rtl"
+                    ? IsTruthy(value)
+                    : ParseDirectionRtl(value);
+                // Typed property setter — OpenXml SDK places <w:bidi/> at its
+                // schema-correct slot (between autoSpaceDN and adjustRightInd,
+                // before spacing/jc) regardless of which other pPr children
+                // already exist.
+                pPr.BiDi = null;
+                // Clean up the legacy rPrDefault/<w:rtl/> shape — files
+                // produced before this migration carry it and a re-toggle
+                // here should leave the doc in the canonical state.
+                var rPrLegacy = _doc.MainDocumentPart?.StyleDefinitionsPart
+                    ?.Styles?.DocDefaults?.RunPropertiesDefault?.RunPropertiesBaseStyle;
+                if (rPrLegacy != null)
+                {
+                    rPrLegacy.RemoveAllChildren<RightToLeftText>();
+                    foreach (var unknown in rPrLegacy.ChildElements
+                        .OfType<DocumentFormat.OpenXml.OpenXmlUnknownElement>()
+                        .Where(e => e.LocalName == "rtl").ToList())
+                        unknown.Remove();
+                }
+                if (rtlOn) pPr.BiDi = new BiDi();
                 SaveStyles();
                 return true;
             }
@@ -186,10 +244,10 @@ public partial class WordHandler
     /// </summary>
     private static string ParseFontSizeToHalfPoints(string value)
     {
-        value = value.Trim();
-        if (value.EndsWith("pt", StringComparison.OrdinalIgnoreCase))
-            value = value[..^2].Trim();
-        var pts = ParseHelpers.SafeParseDouble(value, "fontSize");
+        // Route through ParseFontSize so the shared min/max guards
+        // (>= 0.5pt, <= 4000pt) apply uniformly across handlers — previously
+        // size=2147483647 overflowed `pts * 2` to a negative w:sz value.
+        var pts = ParseHelpers.ParseFontSize(value);
         return ((int)Math.Round(pts * 2)).ToString();
     }
 
@@ -265,10 +323,13 @@ public partial class WordHandler
             if (fonts?.Ascii?.Value != null)
             {
                 node.Format["docDefaults.font"] = fonts.Ascii.Value;
-                node.Format["defaultFont"] = fonts.Ascii.Value; // legacy alias for backward compat
             }
             if (fonts?.EastAsia?.Value != null)
                 node.Format["docDefaults.font.eastAsia"] = fonts.EastAsia.Value;
+            if (fonts?.HighAnsi?.Value != null && fonts.HighAnsi.Value != fonts.Ascii?.Value)
+                node.Format["docDefaults.font.hAnsi"] = fonts.HighAnsi.Value;
+            if (fonts?.ComplexScript?.Value != null)
+                node.Format["docDefaults.font.complexScript"] = fonts.ComplexScript.Value;
 
             var sz = rPr.GetFirstChild<FontSize>();
             if (sz?.Val?.Value != null)
@@ -291,6 +352,13 @@ public partial class WordHandler
         var pPr = docDefaults.ParagraphPropertiesDefault?.ParagraphPropertiesBaseStyle;
         if (pPr != null)
         {
+            // docDefaults.rtl reads from pPrDefault/bidi (the schema-correct
+            // location). The legacy rPrDefault/rtl shape produced by older
+            // versions of officecli is silently ignored on readback — set
+            // docdefaults.rtl=true once to migrate the doc into canonical form.
+            if (pPr.GetFirstChild<BiDi>() != null)
+                node.Format["docDefaults.rtl"] = true;
+
             var jc = pPr.GetFirstChild<Justification>();
             if (jc?.Val?.Value != null)
                 node.Format["docDefaults.alignment"] = jc.Val.InnerText;
@@ -298,14 +366,18 @@ public partial class WordHandler
             var spacing = pPr.GetFirstChild<SpacingBetweenLines>();
             if (spacing != null)
             {
-                if (spacing.Before?.Value != null)
-                    node.Format["docDefaults.spaceBefore"] = FormatTwipsToPt(uint.Parse(spacing.Before.Value));
-                if (spacing.After?.Value != null)
-                    node.Format["docDefaults.spaceAfter"] = FormatTwipsToPt(uint.Parse(spacing.After.Value));
-                if (spacing.Line?.Value != null)
+                // Tolerate schema-invalid raws: real-world docDefaults carry
+                // w:before/after="-1" (legacy "auto" sentinel) which Word accepts
+                // but uint.Parse overflows on — that crashed the whole dump. These
+                // keys are informational only (docDefaults round-trip verbatim via
+                // EmitDocDefaultsRaw), so skip an unparseable value instead.
+                if (spacing.Before?.Value != null && uint.TryParse(spacing.Before.Value, out var ddBefore))
+                    node.Format["docDefaults.spaceBefore"] = FormatTwipsToPt(ddBefore);
+                if (spacing.After?.Value != null && uint.TryParse(spacing.After.Value, out var ddAfter))
+                    node.Format["docDefaults.spaceAfter"] = FormatTwipsToPt(ddAfter);
+                if (spacing.Line?.Value != null && int.TryParse(spacing.Line.Value, out var lineVal))
                 {
                     var lineRule = spacing.LineRule?.InnerText ?? "auto";
-                    var lineVal = int.Parse(spacing.Line.Value);
                     node.Format["docDefaults.lineSpacing"] = lineRule == "auto"
                         ? $"{lineVal / 240.0:0.##}x"
                         : $"{lineVal / 20.0:0.##}pt";

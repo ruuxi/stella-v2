@@ -121,6 +121,7 @@ import {
   useShellBreakpointState,
 } from "@/shell/shell-breakpoints";
 import "@/shell/error-boundary.css";
+import { platformCapabilities } from "@/platform/capabilities";
 
 const CLOUD_CONVERSATION_CREATE_MAX_ATTEMPTS = 4;
 const CLOUD_CONVERSATION_CREATE_RETRY_BASE_MS = 1_000;
@@ -1075,7 +1076,9 @@ function RootChrome({ conversationId }: { conversationId: string | null }) {
 
   return (
     <>
-      <MobileActivityNotificationsBridge />
+      {platformCapabilities.phoneAccess ? (
+        <MobileActivityNotificationsBridge />
+      ) : null}
 
       <StellaContextMenu
         isOpen={panelOpen}

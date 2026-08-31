@@ -113,6 +113,12 @@ describe("account connection renderer boundaries", () => {
     });
   });
 
+  it("returns website OAuth handoffs through the public chat route", () => {
+    expect(getBrowserSocialCallbackUrl(window.location, true)).toBe(
+      `${window.location.origin}/chat`,
+    );
+  });
+
   it("fails closed when the server returns a contaminated or untrusted callback shape", async () => {
     for (const callbackURL of [
       "https://attacker.example/callback?requestId=00000000-0000-4000-8000-000000000000",

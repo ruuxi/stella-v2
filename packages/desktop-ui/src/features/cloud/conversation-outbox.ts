@@ -1,5 +1,6 @@
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { CloudAttachment } from "./cloud-composer-store";
+import type { DesktopExecutionTarget } from "../execution-placement/execution-target-store";
 
 /** Exact authority that may read, mutate, or replay one persisted send. */
 export type CloudConversationOutboxAuthority = {
@@ -24,6 +25,8 @@ export type PendingCloudTurnSubmission = {
   locale: string | null;
   /** Frozen explicit provider/model route for idempotent retries. */
   execution: CloudExecutionSelection | null;
+  /** Frozen placement choice. Missing only on outbox rows from older builds. */
+  executionTarget?: DesktopExecutionTarget;
 };
 
 export type PendingPrompt = {
@@ -123,7 +126,19 @@ const isAttachment = (value: unknown): value is CloudAttachment => {
     isBoundedString(candidate.name, 512) &&
     typeof candidate.sizeBytes === "number" &&
     Number.isSafeInteger(candidate.sizeBytes) &&
-    candidate.sizeBytes >= 0
+    candidate.sizeBytes >= 0 &&
+    (candidate.contentType === undefined ||
+      isBoundedString(candidate.contentType, 128))
+  );
+};
+
+const isExecutionTarget = (value: unknown): value is DesktopExecutionTarget => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.mode === "automatic" ||
+    candidate.mode === "cloud" ||
+    (candidate.mode === "device" && isBoundedString(candidate.deviceId, 256))
   );
 };
 
@@ -143,7 +158,9 @@ const isSubmission = (value: unknown): value is PendingCloudTurnSubmission => {
     candidate.attachments.length <= 32 &&
     candidate.attachments.every(isAttachment) &&
     isNullableBoundedString(candidate.locale, 64) &&
-    (candidate.execution === null || isExecution(candidate.execution))
+    (candidate.execution === null || isExecution(candidate.execution)) &&
+    (candidate.executionTarget === undefined ||
+      isExecutionTarget(candidate.executionTarget))
   );
 };
 

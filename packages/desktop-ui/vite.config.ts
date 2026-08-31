@@ -8,6 +8,7 @@ import { defineConfig, searchForWorkspaceRoot, type Plugin } from "vite";
 import { uiStateSharedStore } from "./vite/ui-state-plugin.ts";
 
 const __dirname = import.meta.dirname;
+const WEBSITE_BUILD = process.env.VITE_STELLA_WEB_BUILD === "1";
 
 const ROUTER_CONFIG = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, "tsr.config.json"), "utf8"),
@@ -258,7 +259,7 @@ export default defineConfig({
     uiStateSharedStore(),
     pdfWorkerAsset(),
   ],
-  base: "./",
+  base: WEBSITE_BUILD ? "/chat-app/" : "./",
   optimizeDeps: {
     // Front-load prebundling of the heavy/transitive deps deterministically on
     // first launch. Without this, dep discovery is entirely on-demand: a cold
@@ -293,17 +294,22 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "dist",
+    outDir: WEBSITE_BUILD
+      ? path.resolve(__dirname, "../website/public/chat-app")
+      : "dist",
+    emptyOutDir: true,
     target: "esnext",
     modulePreload: {
       polyfill: false,
     },
     rolldownOptions: {
-      input: {
-        main: path.resolve(__dirname, "index.html"),
-        overlay: path.resolve(__dirname, "overlay.html"),
-        pet: path.resolve(__dirname, "pet.html"),
-      },
+      input: WEBSITE_BUILD
+        ? { main: path.resolve(__dirname, "index.html") }
+        : {
+            main: path.resolve(__dirname, "index.html"),
+            overlay: path.resolve(__dirname, "overlay.html"),
+            pet: path.resolve(__dirname, "pet.html"),
+          },
       output: {
         manualChunks(id: string) {
           const normalized = id.replace(/\\/g, "/");

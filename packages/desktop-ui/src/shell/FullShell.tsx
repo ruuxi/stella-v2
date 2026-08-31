@@ -18,6 +18,7 @@ import { ShiftingGradient } from "./background/ShiftingGradient";
 import { AskStellaSelectionChip } from "./selection/AskStellaSelectionChip";
 import "./full-shell.layout.css";
 import "./mobile.css";
+import { platformCapabilities } from "@/platform/capabilities";
 
 /* Onboarding is loaded as a dynamic chunk that contains the whole flow:
  * every phase component, the character mark, the legal dialog,
@@ -138,7 +139,31 @@ function OnboardingExperience({
   );
 }
 
-export const FullShell = () => {
+const WebsiteShell = () => {
+  const { gradientMode, gradientColor } = useTheme();
+
+  useEffect(() => {
+    // Hosted Stella has no first-run phase and never writes a fake completion
+    // marker. The normal shell is the readiness boundary.
+    dismissLaunchSplash();
+  }, []);
+
+  return (
+    <div className="window-shell full" data-window-mode="app">
+      <ShiftingGradient
+        mode={gradientMode}
+        colorMode={gradientColor}
+        lightweight={false}
+      />
+      <div className="full-body">
+        <RouterProvider router={router} />
+        <AskStellaSelectionChip />
+      </div>
+    </div>
+  );
+};
+
+const DesktopFullShell = () => {
   const { state } = useUiState();
   const activeConversationId = state.conversationId;
   const { gradientMode, gradientColor } = useTheme();
@@ -149,8 +174,8 @@ export const FullShell = () => {
   // RouterProvider mount is deferred to a separate macrotask by the
   // setTimeout(0) effect below. The splash stays up until `appReady`, so there
   // is no flash. The onboarding -> app transition still defers via the
-  const [hasEnteredApp, setHasEnteredApp] = useState(
-    () => readLocalOnboardingCompleted(),
+  const [hasEnteredApp, setHasEnteredApp] = useState(() =>
+    readLocalOnboardingCompleted(),
   );
   const { runtimeStatus, retryRuntimeBootstrap } = useBootstrapState();
 
@@ -221,3 +246,6 @@ export const FullShell = () => {
     </div>
   );
 };
+
+export const FullShell = () =>
+  platformCapabilities.onboarding ? <DesktopFullShell /> : <WebsiteShell />;

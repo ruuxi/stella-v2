@@ -17,6 +17,7 @@ export type CloudAttachment = {
   path: string;
   name: string;
   sizeBytes: number;
+  contentType?: string;
 };
 
 let attachments: readonly CloudAttachment[] = [];

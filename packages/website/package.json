@@ -3,8 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "bun run build:chat",
     "dev": "next dev",
+    "prebuild": "bun run build:chat",
     "build": "next build --webpack",
+    "build:chat": "node scripts/build-chat-app.mjs",
     "build-google-ads-import": "bun scripts/build-google-ads-import.mjs",
     "start": "next start",
     "lint": "eslint",

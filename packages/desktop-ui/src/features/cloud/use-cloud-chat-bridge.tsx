@@ -39,6 +39,7 @@ import {
   type CloudConversationView,
 } from "./use-conversation";
 import "./cloud-chat-status.css";
+import { browserAttachmentUploads } from "./browser-chat-attachments";
 
 const EMPTY_EVENTS: EventRecord[] = [];
 const EMPTY_MESSAGES: MessageRecord[] = [];
@@ -301,6 +302,9 @@ export function useCloudChatBridge({
   const onSent = useCallback(
     (submittedAttachments: readonly CloudAttachment[]) => {
       cloudAttachmentsStore.clearIfCurrent(submittedAttachments);
+      browserAttachmentUploads.clearReady(
+        new Set(submittedAttachments.map((attachment) => attachment.path)),
+      );
     },
     [],
   );

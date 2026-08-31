@@ -19,6 +19,7 @@ const frozenSubmission = {
     model: "gpt-5.6-sol",
     reasoningEffort: "high",
   },
+  executionTarget: { mode: "device", deviceId: "desktop-living-room" },
 } as const;
 
 describe("browser execution placement", () => {
@@ -40,6 +41,8 @@ describe("browser execution placement", () => {
         locale: "fr",
         attachments: ["images/chart.png"],
         execution: frozenSubmission.execution,
+        requestedTargetMode: "device",
+        requestedExecutorDeviceId: "desktop-living-room",
       }),
     );
     const first = await browserExecutionSubmitArgs(input);
@@ -56,6 +59,26 @@ describe("browser execution placement", () => {
       subject: "cloud",
       conversationId: "conversation-browser",
       requiredCapabilities: ["chat"],
+      requestedTargetMode: "device",
+      requestedExecutorDeviceId: "desktop-living-room",
+    });
+  });
+
+  test("automatic browser placement is explicit and resolves without a desktop id", async () => {
+    const submission = {
+      ...frozenSubmission,
+      executionTarget: { mode: "automatic" as const },
+    };
+    const result = await browserExecutionSubmitArgs({
+      clientMsgId: "client:automatic-browser",
+      expectedOwnerGeneration: "generation-browser-a",
+      conversationId: "conversation-browser",
+      submission,
+    });
+    expect(result.requestedTargetMode).toBe("automatic");
+    expect(result).not.toHaveProperty("requestedExecutorDeviceId");
+    expect(JSON.parse(result.payloadJson)).toMatchObject({
+      requestedTargetMode: "automatic",
     });
   });
 

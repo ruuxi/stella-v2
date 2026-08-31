@@ -28,6 +28,7 @@ import { useT } from "@/shared/i18n";
 import type { LockedComputerUseStatus } from "@/shared/types/electron";
 import { STELLA_BROWSER_EXTENSION_STORE_URL } from "@stella/contracts/browser-extension";
 import { getSettingsErrorMessage } from "./shared";
+import { platformCapabilities } from "@/platform/capabilities";
 
 const SETTINGS_PERMISSION_RESTART_KINDS = ["screen"] as const;
 const ACCESSIBILITY_RESET_CONFIRM_TIMEOUT_MS = 8_000;
@@ -35,8 +36,7 @@ const ACCESSIBILITY_RESET_CONFIRM_TIMEOUT_MS = 8_000;
 type PermissionKind = "accessibility" | "screen" | "microphone";
 
 const isMacAdminPromptCancelled = (error: unknown) => {
-  const message =
-    error instanceof Error ? error.message : String(error ?? "");
+  const message = error instanceof Error ? error.message : String(error ?? "");
   return (
     message.includes("User canceled") ||
     message.includes("(-128)") ||
@@ -126,9 +126,7 @@ export function GeneralTab() {
         if (!cancelled) {
           setLockedComputerUseStatus(status ?? null);
           setLockedComputerUseError(
-            status && !status.ok
-              ? status.message
-              : null,
+            status && !status.ok ? status.message : null,
           );
         }
       } catch (error) {
@@ -700,9 +698,7 @@ export function GeneralTab() {
               )}
             </Button>
             <PermissionResetButton
-              disabled={
-                !permissionsLoaded || resettingPermission === "screen"
-              }
+              disabled={!permissionsLoaded || resettingPermission === "screen"}
               onClick={() => void handlePermissionReset("screen")}
               label={t("settings.permissions.reset")}
             />
@@ -794,11 +790,9 @@ export function GeneralTab() {
             ? () => void memoryPreference.retry()
             : undefined,
         })}
-        {permissionsCard}
+        {platformCapabilities.nativeSettings ? permissionsCard : null}
         <div className="settings-card">
-          <h3 className="settings-card-title">
-            {t("settings.motion.title")}
-          </h3>
+          <h3 className="settings-card-title">{t("settings.motion.title")}</h3>
           <div className="settings-row">
             <div className="settings-row-info">
               <div className="settings-row-label">
@@ -834,113 +828,121 @@ export function GeneralTab() {
             </div>
           </div>
         </div>
-        <div className="settings-card">
-          <div className="settings-card-header">
-            <h3 className="settings-card-title">
-              {t("settings.developerPreviews.title")}
-            </h3>
-            <Switch
-              checked={developerResourcePreviewsEnabled}
-              onCheckedChange={(checked) =>
-                setDeveloperResourcePreviewsEnabled(Boolean(checked))
-              }
-              hideLabel
-            />
-          </div>
-          <p className="settings-card-desc">
-            {t("settings.developerPreviews.description")}
-          </p>
-        </div>
-        {platform === "darwin"
-          ? renderToggleCard({
-              title: t("settings.nativeFontSmoothing.title"),
-              description: t("settings.nativeFontSmoothing.description"),
-              error: null,
-              checked: nativeFontSmoothingEnabled,
-              disabled: false,
-              onChange: (checked) => setNativeFontSmoothingEnabled(checked),
-            })
-          : null}
-        {renderToggleCard({
-          title: t("settings.notifications.title"),
-          description: t("settings.notifications.description"),
-          error: soundNotificationsError,
-          checked: soundNotificationsEnabled,
-          disabled: !soundNotificationsLoaded || isSavingSoundNotifications,
-          onChange: (checked) => void handleSoundNotificationsChange(checked),
-        })}
-        {renderToggleCard({
-          title: t("settings.power.title"),
-          description: t("settings.power.description"),
-          error: preventSleepError,
-          checked: preventComputerSleep,
-          disabled: !preventSleepLoaded || isSavingPreventSleep,
-          onChange: (checked) => void handlePreventSleepChange(checked),
-        })}
-        {renderToggleCard({
-          title: t("settings.lockedComputerUse.title"),
-          description:
-            platform === "darwin"
-              ? t("settings.lockedComputerUse.description")
-              : t("settings.lockedComputerUse.unsupported"),
-          error: lockedComputerUseError,
-          checked: lockedComputerUseStatus?.enabled === true,
-          disabled:
-            platform !== "darwin" ||
-            !lockedComputerUseLoaded ||
-            isSavingLockedComputerUse,
-          onChange: (checked) => void handleLockedComputerUseChange(checked),
-        })}
-        <div className="settings-card">
-          <div className="settings-card-header">
-            <h3 className="settings-card-title">
-              {t("settings.resetCustomizations.title")}
-            </h3>
-            <Button
-              type="button"
-              variant="ghost"
-              className="pill-btn"
-              disabled={isResettingCustomizations}
-              onClick={() => void handleResetCustomizations()}
-            >
-              {t("settings.resetCustomizations.action")}
-            </Button>
-          </div>
-          <p
-            className={
-              resetCustomizationsStatus?.kind === "error"
-                ? "settings-card-desc settings-card-desc--error"
-                : "settings-card-desc"
-            }
-            role={
-              resetCustomizationsStatus?.kind === "error" ? "alert" : undefined
-            }
-          >
-            {resetCustomizationsStatus?.message ??
-              t("settings.resetCustomizations.description")}
-          </p>
-        </div>
-        <div className="settings-card">
-          <div className="settings-card-header">
-            <h3 className="settings-card-title">
-              {t("settings.browserExtension.title")}
-            </h3>
-            <Button
-              type="button"
-              variant="ghost"
-              className="pill-btn"
-              onClick={() =>
-                openExternalUrl(STELLA_BROWSER_EXTENSION_STORE_URL)
-              }
-            >
-              {t("settings.browserExtension.action")}
-            </Button>
-          </div>
-          <p className="settings-card-desc">
-            {t("settings.browserExtension.description")}
-          </p>
-        </div>
-        <PromptPresetCard />
+        {platformCapabilities.nativeSettings ? (
+          <>
+            <div className="settings-card">
+              <div className="settings-card-header">
+                <h3 className="settings-card-title">
+                  {t("settings.developerPreviews.title")}
+                </h3>
+                <Switch
+                  checked={developerResourcePreviewsEnabled}
+                  onCheckedChange={(checked) =>
+                    setDeveloperResourcePreviewsEnabled(Boolean(checked))
+                  }
+                  hideLabel
+                />
+              </div>
+              <p className="settings-card-desc">
+                {t("settings.developerPreviews.description")}
+              </p>
+            </div>
+            {platform === "darwin"
+              ? renderToggleCard({
+                  title: t("settings.nativeFontSmoothing.title"),
+                  description: t("settings.nativeFontSmoothing.description"),
+                  error: null,
+                  checked: nativeFontSmoothingEnabled,
+                  disabled: false,
+                  onChange: (checked) => setNativeFontSmoothingEnabled(checked),
+                })
+              : null}
+            {renderToggleCard({
+              title: t("settings.notifications.title"),
+              description: t("settings.notifications.description"),
+              error: soundNotificationsError,
+              checked: soundNotificationsEnabled,
+              disabled: !soundNotificationsLoaded || isSavingSoundNotifications,
+              onChange: (checked) =>
+                void handleSoundNotificationsChange(checked),
+            })}
+            {renderToggleCard({
+              title: t("settings.power.title"),
+              description: t("settings.power.description"),
+              error: preventSleepError,
+              checked: preventComputerSleep,
+              disabled: !preventSleepLoaded || isSavingPreventSleep,
+              onChange: (checked) => void handlePreventSleepChange(checked),
+            })}
+            {renderToggleCard({
+              title: t("settings.lockedComputerUse.title"),
+              description:
+                platform === "darwin"
+                  ? t("settings.lockedComputerUse.description")
+                  : t("settings.lockedComputerUse.unsupported"),
+              error: lockedComputerUseError,
+              checked: lockedComputerUseStatus?.enabled === true,
+              disabled:
+                platform !== "darwin" ||
+                !lockedComputerUseLoaded ||
+                isSavingLockedComputerUse,
+              onChange: (checked) =>
+                void handleLockedComputerUseChange(checked),
+            })}
+            <div className="settings-card">
+              <div className="settings-card-header">
+                <h3 className="settings-card-title">
+                  {t("settings.resetCustomizations.title")}
+                </h3>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="pill-btn"
+                  disabled={isResettingCustomizations}
+                  onClick={() => void handleResetCustomizations()}
+                >
+                  {t("settings.resetCustomizations.action")}
+                </Button>
+              </div>
+              <p
+                className={
+                  resetCustomizationsStatus?.kind === "error"
+                    ? "settings-card-desc settings-card-desc--error"
+                    : "settings-card-desc"
+                }
+                role={
+                  resetCustomizationsStatus?.kind === "error"
+                    ? "alert"
+                    : undefined
+                }
+              >
+                {resetCustomizationsStatus?.message ??
+                  t("settings.resetCustomizations.description")}
+              </p>
+            </div>
+            <div className="settings-card">
+              <div className="settings-card-header">
+                <h3 className="settings-card-title">
+                  {t("settings.browserExtension.title")}
+                </h3>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="pill-btn"
+                  onClick={() =>
+                    openExternalUrl(STELLA_BROWSER_EXTENSION_STORE_URL)
+                  }
+                >
+                  {t("settings.browserExtension.action")}
+                </Button>
+              </div>
+              <p className="settings-card-desc">
+                {t("settings.browserExtension.description")}
+              </p>
+            </div>
+            <PromptPresetCard />
+          </>
+        ) : null}
       </div>
     </>
   );

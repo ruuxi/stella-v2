@@ -10,6 +10,21 @@ import {
   type SettingsTab,
 } from "@/global/settings/settings-tabs";
 import { useT } from "@/shared/i18n";
+import { platformCapabilities } from "@/platform/capabilities";
+
+const WEBSITE_HIDDEN_SETTING_KEYS = [
+  "settings.developerPreviews.title",
+  "settings.nativeFontSmoothing.title",
+  "settings.notifications.title",
+  "settings.power.title",
+  "settings.lockedComputerUse.title",
+  "settings.browserExtension.title",
+  "settings.permissions.title",
+  "settings.shortcuts.title",
+  "settings.audio.wakeWord.label",
+  "settings.audio.dictationSounds.label",
+  "settings.audio.localDictation.label",
+];
 
 interface SettingsSearchResultsProps {
   query: string;
@@ -38,7 +53,16 @@ export function SettingsSearchResults({
   // "notification" in the results — that's the cue that tells the user
   // "your synonym got picked up".
   const highlightTerms = useMemo(() => expandedMatchTerms(query), [query]);
-  const results = useMemo(() => searchSettings(query, t), [query, t]);
+  const results = useMemo(() => {
+    const hiddenTitles = new Set(
+      WEBSITE_HIDDEN_SETTING_KEYS.map((key) => t(key)),
+    );
+    return searchSettings(query, t).filter(
+      (entry) =>
+        !platformCapabilities.website ||
+        (entry.tab !== "shortcuts" && !hiddenTitles.has(entry.title)),
+    );
+  }, [query, t]);
   const trimmedQuery = query.trim();
 
   if (results.length === 0) {
@@ -89,7 +113,10 @@ export function SettingsSearchResults({
       </div>
       <ul className="settings-search-results-list">
         {results.map((entry, index) => (
-          <li key={`${entry.tab}:${entry.title}`} className="settings-search-result-item">
+          <li
+            key={`${entry.tab}:${entry.title}`}
+            className="settings-search-result-item"
+          >
             <button
               type="button"
               role="option"

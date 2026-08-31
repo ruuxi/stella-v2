@@ -115,6 +115,51 @@ const createDevServerAdapter = (): WriteAdapter | null => {
   };
 };
 
+/** Production browser persistence. Vite dev intentionally stays on the
+ * shared dev-server adapter above; Electron remains on IPC. */
+const createBrowserStorageAdapter = (): WriteAdapter | null => {
+  if (window.electronAPI || import.meta.hot) return null;
+  let storage: Storage;
+  try {
+    storage = window.localStorage;
+  } catch {
+    return null;
+  }
+  const managedKeys = new Set(memory.keys());
+  window.addEventListener("storage", (event) => {
+    if (!event.key || event.key.startsWith("better-auth")) return;
+    applyRemoteChanges({ [event.key]: event.newValue });
+  });
+  return {
+    flushChanges: (changes) => {
+      try {
+        for (const [key, value] of Object.entries(changes)) {
+          if (key.startsWith("better-auth")) continue;
+          if (value === null) {
+            storage.removeItem(key);
+            managedKeys.delete(key);
+          } else {
+            storage.setItem(key, value);
+            managedKeys.add(key);
+          }
+        }
+      } catch {
+        // Private/restricted browser storage may become unavailable at runtime.
+      }
+    },
+    clear: () => {
+      try {
+        for (const key of managedKeys) {
+          if (!key.startsWith("better-auth")) storage.removeItem(key);
+        }
+        managedKeys.clear();
+      } catch {
+        // Best effort, matching localStorage's restricted-context behavior.
+      }
+    },
+  };
+};
+
 /** In-memory only — windowless tests, or a bundle opened outside Electron. */
 const noopAdapter: WriteAdapter = {
   flushChanges: () => {},
@@ -122,7 +167,10 @@ const noopAdapter: WriteAdapter = {
 };
 
 const adapter = hasWindow
-  ? (createElectronAdapter() ?? createDevServerAdapter() ?? noopAdapter)
+  ? (createElectronAdapter() ??
+    createDevServerAdapter() ??
+    createBrowserStorageAdapter() ??
+    noopAdapter)
   : noopAdapter;
 
 // ── Write batching ──────────────────────────────────────────────────────────

@@ -2,10 +2,32 @@ import { type ReactNode } from "react";
 import { useFullShellChat } from "@/shell/use-full-shell-chat";
 import { ChatRuntimeContext } from "@/context/chat-runtime-context";
 import { ChatMessagesContext } from "@/context/chat-messages-context";
-import { UserMessageActionsBusyContext, UserMessageActionsContext, } from "@/app/chat/user-message-actions-context";
+import {
+  UserMessageActionsBusyContext,
+  UserMessageActionsContext,
+} from "@/app/chat/user-message-actions-context";
 import { usePetStatusBroadcast } from "@/shell/pet/use-pet-status-broadcast";
 import { useTaskDecorationPublisher } from "@/features/chat/streaming/use-task-decoration-publisher";
 import { isTraceDiagnosticsEnabled } from "@/platform/diagnostics/trace-store";
+import { platformCapabilities } from "@/platform/capabilities";
+
+function NativeRuntimeBridges({
+  messages,
+  runtime,
+}: {
+  messages: ReturnType<typeof useFullShellChat>["messages"];
+  runtime: ReturnType<typeof useFullShellChat>["runtime"];
+}) {
+  usePetStatusBroadcast({
+    messages,
+    tasks: runtime.conversation.tasks,
+    runtimeStatusText: runtime.conversation.streaming.runtimeStatusText ?? "",
+    isStreaming: runtime.conversation.isStreaming,
+    pendingUserMessageId: runtime.conversation.pendingUserMessageId ?? null,
+  });
+  useTaskDecorationPublisher();
+  return null;
+}
 
 /**
  * Hoists `useFullShellChat`'s output into a single Context so the chat
@@ -51,19 +73,11 @@ export function ChatRuntimeProvider({
   // Broadcast a derived PetOverlayStatus alongside the existing working
   // indicator so the floating pet always mirrors the same agent state
   // the chat surface displays.
-  usePetStatusBroadcast({
-    messages,
-    tasks: runtime.conversation.tasks,
-    runtimeStatusText: runtime.conversation.streaming.runtimeStatusText ?? "",
-    isStreaming: runtime.conversation.isStreaming,
-    pendingUserMessageId: runtime.conversation.pendingUserMessageId ?? null,
-  });
-
-  // Mirror mid-run statusText ticks to main for the desktop→mobile bridge.
-  useTaskDecorationPublisher();
-
   return (
     <ChatRuntimeContext.Provider value={runtime}>
+      {platformCapabilities.nativeBridges ? (
+        <NativeRuntimeBridges messages={messages} runtime={runtime} />
+      ) : null}
       <ChatMessagesContext.Provider value={messages}>
         <UserMessageActionsContext.Provider value={runtime.messageActions}>
           <UserMessageActionsBusyContext.Provider

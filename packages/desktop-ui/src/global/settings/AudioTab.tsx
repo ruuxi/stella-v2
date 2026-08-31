@@ -21,6 +21,7 @@ import {
 import { useMicrophoneRecovery } from "@/global/permissions/use-microphone-recovery";
 import { requestBrowserMicrophoneAccess } from "@/global/permissions/microphone-permission";
 import { useT } from "@/shared/i18n";
+import { platformCapabilities } from "@/platform/capabilities";
 
 type MicrophonePermissionStatus =
   | "not-determined"
@@ -37,8 +38,8 @@ export function AudioTab() {
     useState<string | null>(null);
   const [micEnabled, setMicEnabled] = useState(() => isMicrophoneEnabled());
   const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
-  const [dictationSuperFast, setDictationSuperFast] = useState(() =>
-    isMicrophoneEnabled() && isDictationSuperFastEnabled(),
+  const [dictationSuperFast, setDictationSuperFast] = useState(
+    () => isMicrophoneEnabled() && isDictationSuperFastEnabled(),
   );
   const [enhanceDictation, setEnhanceDictation] = useState(() =>
     isDictationEnhanceEnabled(),
@@ -357,7 +358,7 @@ export function AudioTab() {
             </div>
           </div>
         ) : null}
-        {micEnabled ? (
+        {platformCapabilities.nativeSettings && micEnabled ? (
           <div className="settings-row">
             <div className="settings-row-info">
               <div className="settings-row-label">
@@ -426,26 +427,28 @@ export function AudioTab() {
             </div>
           </div>
         ) : null}
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <div className="settings-row-label">
-              {t("settings.audio.dictationSounds.label")}
+        {platformCapabilities.nativeSettings ? (
+          <div className="settings-row">
+            <div className="settings-row-info">
+              <div className="settings-row-label">
+                {t("settings.audio.dictationSounds.label")}
+              </div>
+              <div className="settings-row-sublabel">
+                {t("settings.audio.dictationSounds.description")}
+              </div>
             </div>
-            <div className="settings-row-sublabel">
-              {t("settings.audio.dictationSounds.description")}
+            <div className="settings-row-control">
+              <Switch
+                checked={dictationSoundEffects}
+                disabled={savingDictationSoundEffects}
+                onCheckedChange={(checked) =>
+                  handleDictationSoundEffectsToggle(Boolean(checked))
+                }
+                hideLabel
+              />
             </div>
           </div>
-          <div className="settings-row-control">
-            <Switch
-              checked={dictationSoundEffects}
-              disabled={savingDictationSoundEffects}
-              onCheckedChange={(checked) =>
-                handleDictationSoundEffectsToggle(Boolean(checked))
-              }
-              hideLabel
-            />
-          </div>
-        </div>
+        ) : null}
         {micEnabled ? (
           <div className="settings-row">
             <div className="settings-row-info">
@@ -465,7 +468,9 @@ export function AudioTab() {
             </div>
           </div>
         ) : null}
-        {localDictationSupported && micEnabled ? (
+        {platformCapabilities.nativeSettings &&
+        localDictationSupported &&
+        micEnabled ? (
           <div className="settings-row">
             <div className="settings-row-info">
               <div className="settings-row-label">
@@ -488,52 +493,54 @@ export function AudioTab() {
         ) : null}
       </div>
 
-      <div className="settings-card">
-        <h3 className="settings-card-title">
-          {t("settings.audio.speaker.title")}
-        </h3>
-        {audioOutputDevices.length > 0 ? (
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <div className="settings-row-label">
-                {t("settings.audio.speaker.outputLabel")}
+      {platformCapabilities.canSelectSpeaker() ? (
+        <div className="settings-card">
+          <h3 className="settings-card-title">
+            {t("settings.audio.speaker.title")}
+          </h3>
+          {audioOutputDevices.length > 0 ? (
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <div className="settings-row-label">
+                  {t("settings.audio.speaker.outputLabel")}
+                </div>
+                <div className="settings-row-sublabel">
+                  {t("settings.audio.speaker.outputDescription")}
+                </div>
               </div>
-              <div className="settings-row-sublabel">
-                {t("settings.audio.speaker.outputDescription")}
-              </div>
-            </div>
-            <div className="settings-row-control">
-              <Select
-                className="settings-runtime-select"
-                value={selectedSpeakerId}
-                onValueChange={(value) => handleSpeakerChange(value)}
-                aria-label={t("settings.audio.speaker.outputLabel")}
-                options={[
-                  { value: "", label: t("settings.audio.systemDefault") },
-                  ...audioOutputDevices.map((device, index) => ({
-                    value: device.deviceId,
-                    label:
-                      device.label ||
-                      t("settings.audio.speakerDeviceFallback", {
-                        index: index + 1,
-                      }),
-                  })),
-                ]}
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <div className="settings-row-sublabel">
-                {micEnabled
-                  ? t("settings.audio.speaker.empty")
-                  : t("settings.audio.speaker.emptyMicOff")}
+              <div className="settings-row-control">
+                <Select
+                  className="settings-runtime-select"
+                  value={selectedSpeakerId}
+                  onValueChange={(value) => handleSpeakerChange(value)}
+                  aria-label={t("settings.audio.speaker.outputLabel")}
+                  options={[
+                    { value: "", label: t("settings.audio.systemDefault") },
+                    ...audioOutputDevices.map((device, index) => ({
+                      value: device.deviceId,
+                      label:
+                        device.label ||
+                        t("settings.audio.speakerDeviceFallback", {
+                          index: index + 1,
+                        }),
+                    })),
+                  ]}
+                />
               </div>
             </div>
-          </div>
-        )}
-      </div>
+          ) : (
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <div className="settings-row-sublabel">
+                  {micEnabled
+                    ? t("settings.audio.speaker.empty")
+                    : t("settings.audio.speaker.emptyMicOff")}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

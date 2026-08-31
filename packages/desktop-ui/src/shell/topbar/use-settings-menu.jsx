@@ -14,6 +14,7 @@
  */
 import { lazy, Suspense, useRef, useState } from "react";
 import { usePostOnboardingHint } from "@/global/onboarding/post-onboarding-hints";
+import { platformCapabilities } from "@/platform/capabilities";
 import { ConnectorsPopover } from "@/shell/sidebar-sections/ConnectorsPopover";
 import { feedbackDialog } from "@/shell/sidebar-sections/feedback-dialog-store";
 import {
@@ -84,18 +85,22 @@ export function useSettingsMenu() {
         pendingPopoverRef.current = "theme";
       },
     },
-    {
-      id: "connect",
-      label: "Stella on your phone",
-      Icon: Smartphone,
-      // Mirrors the trigger's hint dot inside the opened menu so the user can
-      // see which row clears it; selecting the row dismisses both.
-      hint: connectHint.active,
-      onSelect: () => {
-        if (connectHint.active) connectHint.dismiss();
-        openPhoneDialog();
-      },
-    },
+    ...(platformCapabilities.phoneAccess
+      ? [
+          {
+            id: "connect",
+            label: "Stella on your phone",
+            Icon: Smartphone,
+            // Mirrors the trigger's hint dot inside the opened menu so the user can
+            // see which row clears it; selecting the row dismisses both.
+            hint: connectHint.active,
+            onSelect: () => {
+              if (connectHint.active) connectHint.dismiss();
+              openPhoneDialog();
+            },
+          },
+        ]
+      : []),
     {
       id: "connectors",
       label: "Connectors",

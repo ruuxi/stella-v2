@@ -15,6 +15,7 @@ import {
   PopoverTrigger,
 } from "@/ui/popover";
 import { AppWindowMac, Check, Globe } from "@/ui/icons";
+import { platformCapabilities } from "@/platform/capabilities";
 
 export function GlobalExecutionTargetControl() {
   const { cloudMode } = useCloudMode();
@@ -52,7 +53,7 @@ export function GlobalExecutionTargetControl() {
       ? "Cloud"
       : target.mode === "device"
         ? (selectedDevice?.name ?? "Computer")
-        : "This computer";
+        : platformCapabilities.automaticExecutionLabel;
   const TriggerIcon = target.mode === "cloud" ? Globe : AppWindowMac;
 
   const choose = (next: DesktopExecutionTarget) => {
@@ -87,8 +88,12 @@ export function GlobalExecutionTargetControl() {
             className="execution-target-option"
             onClick={() => choose({ mode: "automatic" })}
           >
-            <AppWindowMac size={16} />
-            <span>This computer</span>
+            {platformCapabilities.website ? (
+              <Globe size={16} />
+            ) : (
+              <AppWindowMac size={16} />
+            )}
+            <span>{platformCapabilities.automaticExecutionLabel}</span>
             {target.mode === "automatic" ? <Check size={15} /> : null}
           </button>
           <button

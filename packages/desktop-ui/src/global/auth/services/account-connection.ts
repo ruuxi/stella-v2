@@ -6,6 +6,7 @@ import {
 import { writeBrowserSessionToken } from "@/global/auth/services/auth-storage";
 import { getConvexToken } from "@/global/auth/services/auth-token";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
+import { platformCapabilities } from "@/platform/capabilities";
 
 type BrowserCallbackLocation = Pick<Location, "origin" | "pathname">;
 
@@ -16,7 +17,9 @@ type BrowserCallbackLocation = Pick<Location, "origin" | "pathname">;
  */
 export const getBrowserSocialCallbackUrl = (
   location: BrowserCallbackLocation,
-): string => new URL(location.pathname, location.origin).toString();
+  website = platformCapabilities.website,
+): string =>
+  new URL(website ? "/chat" : location.pathname, location.origin).toString();
 
 const readBrowserSocialBridgeCallback = (
   raw: unknown,

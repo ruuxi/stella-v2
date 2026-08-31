@@ -1,8 +1,8 @@
 # Stella website
 
 The Stella product website is a Next.js application in the Stella monorepo. It
-contains the public marketing pages as well as the account, billing, and Store
-surfaces backed by the shared Convex deployment.
+contains the public marketing pages, the cloud-first Stella chat at `/chat`, and
+the account and billing surfaces backed by the shared Convex deployment.
 
 ## Development
 
@@ -22,9 +22,10 @@ bun run website:build
 bun run website:lint
 ```
 
-Set `NEXT_PUBLIC_CONVEX_URL` in `packages/website/.env.local` to enable sign-in,
-billing, and Store features. `NEXT_PUBLIC_CONVEX_SITE_URL` is optional when the
-site URL can be derived from the Convex deployment URL.
+The build falls back to the tracked public backend URLs from
+`packages/desktop-ui/.env`. Set `NEXT_PUBLIC_CONVEX_URL` and, optionally,
+`NEXT_PUBLIC_CONVEX_SITE_URL` in `packages/website/.env.local` to override them
+for a different deployment. These are public client endpoints, not secrets.
 
 ## Vercel
 

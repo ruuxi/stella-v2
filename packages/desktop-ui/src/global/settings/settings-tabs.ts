@@ -19,3 +19,8 @@ export const SETTINGS_TABS: { key: SettingsTab; labelKey: string }[] = [
   { key: "account", labelKey: "settings.tabs.account" },
   { key: "audio", labelKey: "settings.tabs.audio" },
 ];
+
+export const availableSettingsTabs = (website: boolean) =>
+  website
+    ? SETTINGS_TABS.filter((tab) => tab.key !== "shortcuts")
+    : SETTINGS_TABS;

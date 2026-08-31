@@ -57,6 +57,9 @@ import {
 import { cloudConversationOutboxStorageKey } from "./conversation-outbox";
 import type { SocketStatus } from "./conversation-socket";
 import { reportCloudReadiness } from "./cloud-readiness-timing";
+import { showToast } from "@/ui/toast";
+import { getExecutionTargetSnapshot } from "../execution-placement/execution-target-store";
+import { waitForCloudAttachmentUploads } from "./browser-chat-attachments";
 
 export type CloudRealtimeConfig = {
   /** Builder origin the socket connects to. Null disables realtime. */
@@ -352,6 +355,7 @@ export const useConversation = (
   activeAuthorityKeyRef.current = activeAuthorityKey;
   const activatedAuthorityKeyRef = useRef<string | null>(null);
   const dispatchByTurnRef = useRef(new Map<string, string>());
+  const preparingAttachmentSendRef = useRef(false);
   const cloudEngine = useQuery(
     cloudApi.listMyEngineConnections,
     cloudMode ? {} : "skip",
@@ -645,6 +649,23 @@ export const useConversation = (
 
   const send = useCallback(
     async (prompt: string): Promise<void> => {
+      if (webShell) {
+        if (preparingAttachmentSendRef.current) return;
+        preparingAttachmentSendRef.current = true;
+        try {
+          await waitForCloudAttachmentUploads();
+        } catch (error) {
+          showToast({
+            title: "An attachment couldn’t be sent",
+            description:
+              error instanceof Error ? error.message : "Try the upload again.",
+            variant: "error",
+          });
+          return;
+        } finally {
+          preparingAttachmentSendRef.current = false;
+        }
+      }
       const text = prompt.trim();
       if (!text) return;
       const clientMsgId = newClientMsgId();
@@ -656,12 +677,17 @@ export const useConversation = (
         requestedConversationId: conversationId,
         prompt: decoratePrompt(text, attachments),
         imagePaths: attachments
-          .filter((entry) => /\.(png|jpe?g|gif|webp)$/i.test(entry.path))
+          .filter(
+            (entry) =>
+              entry.contentType?.toLowerCase().startsWith("image/") ||
+              /\.(png|jpe?g|gif|webp)$/i.test(entry.path),
+          )
           .slice(0, 4)
           .map((entry) => entry.path),
         attachments,
         locale: locale !== "en" ? locale : null,
         execution: selectedExecution ? { ...selectedExecution } : null,
+        executionTarget: getExecutionTargetSnapshot(),
       };
       const entry = pendingPrompts.add(
         authority,
@@ -679,6 +705,7 @@ export const useConversation = (
       decoratePrompt,
       dispatch,
       locale,
+      webShell,
     ],
   );
 

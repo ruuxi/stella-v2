@@ -450,8 +450,7 @@ describe("automatic execution placement", () => {
       );
       process.env.EXECUTION_PRESENCE_SOCKET_ENABLED = "1";
       expect(await asOwner(t).query(refs.identity, {})).toMatchObject({
-        presenceSocketBaseUrl:
-          "wss://builder.example.test/execution-devices",
+        presenceSocketBaseUrl: "wss://builder.example.test/execution-devices",
       });
     } finally {
       if (previousUrl === undefined) delete process.env.CLOUD_BUILDER_URL;
@@ -1258,6 +1257,92 @@ describe("automatic execution placement", () => {
       state: "cloud_committed",
       placement: "cloud",
     });
+  });
+
+  it("offers an explicitly selected owned desktop from browser ingress and never falls back", async () => {
+    const t = createTest();
+    const conversationId = await seedConversation(t, "conv-browser-device");
+    const signer = await registerReadyDesktop(t, { pairMobile: false });
+    const payloadJson = JSON.stringify({
+      prompt: "browser work on my desktop",
+      expectedOwnerGeneration: ownerGeneration,
+      requestedTargetMode: "device",
+      requestedExecutorDeviceId: deviceId,
+    });
+    const dispatch = await asOwner(t).mutation(refs.submitBrowser, {
+      idempotencyKey: "browser:selected-device",
+      expectedOwnerGeneration: ownerGeneration,
+      payloadJson,
+      payloadHash: sha256(payloadJson),
+      kind: "chat",
+      subject: "cloud",
+      conversationId,
+      requestedTargetMode: "device",
+      requestedExecutorDeviceId: deviceId,
+      requiredCapabilities: ["chat"],
+    });
+    expect(dispatch).toMatchObject({
+      ingress: "browser",
+      state: "offering",
+      requestedTargetMode: "device",
+    });
+    expect(
+      await asOwner(t).query(refs.offers, {
+        deviceId: signer.deviceId,
+        presenceSessionId: signer.presenceSessionId,
+      }),
+    ).toHaveLength(1);
+
+    const unavailablePayload = JSON.stringify({
+      prompt: "do not silently move this",
+      expectedOwnerGeneration: ownerGeneration,
+      requestedTargetMode: "device",
+      requestedExecutorDeviceId: "missing-owned-device",
+    });
+    const unavailable = await asOwner(t).mutation(refs.submitBrowser, {
+      idempotencyKey: "browser:selected-device-missing",
+      expectedOwnerGeneration: ownerGeneration,
+      payloadJson: unavailablePayload,
+      payloadHash: sha256(unavailablePayload),
+      kind: "chat",
+      subject: "cloud",
+      conversationId,
+      requestedTargetMode: "device",
+      requestedExecutorDeviceId: "missing-owned-device",
+      requiredCapabilities: ["chat"],
+    });
+    expect(unavailable).toMatchObject({
+      state: "failed",
+      errorCode: "SELECTED_DEVICE_UNAVAILABLE",
+    });
+    expect(unavailable).not.toHaveProperty("placement", "cloud");
+  });
+
+  it("rejects browser routing metadata that differs from the immutable payload", async () => {
+    const t = createTest();
+    const conversationId = await seedConversation(
+      t,
+      "conv-browser-routing-fence",
+    );
+    const payloadJson = JSON.stringify({
+      prompt: "keep routing immutable",
+      expectedOwnerGeneration: ownerGeneration,
+      requestedTargetMode: "automatic",
+    });
+    await expect(
+      asOwner(t).mutation(refs.submitBrowser, {
+        idempotencyKey: "browser:routing-mismatch",
+        expectedOwnerGeneration: ownerGeneration,
+        payloadJson,
+        payloadHash: sha256(payloadJson),
+        kind: "chat",
+        subject: "cloud",
+        conversationId,
+        requestedTargetMode: "device",
+        requestedExecutorDeviceId: deviceId,
+        requiredCapabilities: ["chat"],
+      }),
+    ).rejects.toThrow(/payload routing does not match/i);
   });
 
   it("rejects an offline browser replay after reset before dispatch, turn, schedule, or billing work", async () => {

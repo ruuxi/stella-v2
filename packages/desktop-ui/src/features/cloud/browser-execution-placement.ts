@@ -1,5 +1,6 @@
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { PendingCloudTurnSubmission } from "./conversation-store";
+import type { DesktopExecutionTarget } from "../execution-placement/execution-target-store";
 
 export type BrowserExecutionDispatch = {
   dispatchId: string;
@@ -24,6 +25,18 @@ export type BrowserExecutionSubmitArgs = {
   subject: "cloud";
   conversationId: string;
   requiredCapabilities: ["chat"];
+  requestedTargetMode: "automatic" | "cloud" | "device";
+  requestedExecutorDeviceId?: string;
+};
+
+const routingFields = (target?: DesktopExecutionTarget) => {
+  const selected = target ?? { mode: "automatic" as const };
+  return {
+    requestedTargetMode: selected.mode,
+    ...(selected.mode === "device"
+      ? { requestedExecutorDeviceId: selected.deviceId }
+      : {}),
+  };
 };
 
 const canonicalExecution = (
@@ -64,6 +77,7 @@ export const browserExecutionPayloadJson = (args: {
     locale: args.submission.locale,
     attachments: [...args.submission.imagePaths],
     execution: canonicalExecution(args.submission.execution),
+    ...routingFields(args.submission.executionTarget),
   });
 };
 
@@ -91,6 +105,7 @@ export const browserExecutionSubmitArgs = async (args: {
     subject: "cloud",
     conversationId: args.conversationId,
     requiredCapabilities: ["chat"],
+    ...routingFields(args.submission.executionTarget),
   };
 };
 

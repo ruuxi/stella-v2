@@ -1097,7 +1097,7 @@ const submitExecutionDispatchCore = async (
         now: raw.now,
       });
     } else if (
-      raw.ingress === "desktop" &&
+      (raw.ingress === "desktop" || raw.ingress === "browser") &&
       requestedTargetMode === "device" &&
       requestedExecutorDeviceId
     ) {
@@ -1275,6 +1275,8 @@ export const submitMyBrowserExecution = mutation({
     conversationId: v.string(),
     parentTurnId: v.optional(v.string()),
     threadId: v.optional(v.string()),
+    requestedTargetMode: v.optional(executionTargetModeValidator),
+    requestedExecutorDeviceId: v.optional(v.string()),
     requiredCapabilities: v.array(executionCapabilityValidator),
   },
   returns: dispatchSummaryValidator,
@@ -1302,6 +1304,21 @@ export const submitMyBrowserExecution = mutation({
     ) {
       conflict(
         "Browser execution payload generation does not match its admission authority.",
+      );
+    }
+    const payloadRecord = payload as Record<string, unknown>;
+    const requestedTargetMode = args.requestedTargetMode ?? "automatic";
+    const requestedExecutorDeviceId =
+      args.requestedExecutorDeviceId?.trim() || undefined;
+    if (
+      (payloadRecord.requestedTargetMode ?? "automatic") !==
+        requestedTargetMode ||
+      (typeof payloadRecord.requestedExecutorDeviceId === "string"
+        ? payloadRecord.requestedExecutorDeviceId.trim() || undefined
+        : undefined) !== requestedExecutorDeviceId
+    ) {
+      conflict(
+        "Browser execution payload routing does not match its admission metadata.",
       );
     }
     const dispatch = await submitExecutionDispatchCore(ctx, {
@@ -1518,13 +1535,13 @@ export const listMyExecutionDestinations = query({
         .unique();
       const online = Boolean(
         presence &&
-        presence.ownerGeneration === lifecycle.generation &&
-        presenceIsOnline(presence, now),
+          presence.ownerGeneration === lifecycle.generation &&
+          presenceIsOnline(presence, now),
       );
       const ready = Boolean(
         online &&
-        presence?.status === "ready" &&
-        presence.protocolVersion === EXECUTION_PROTOCOL_VERSION,
+          presence?.status === "ready" &&
+          presence.protocolVersion === EXECUTION_PROTOCOL_VERSION,
       );
       const availableChatSlots = ready
         ? (presence?.availableChatSlots ?? 0)
@@ -1721,11 +1738,11 @@ export const registerMyExecutionPresence = mutation({
     const existing = await loadPresence(ctx, ownerId, deviceId);
     const replayed = Boolean(
       existing &&
-      existing.ownerGeneration === args.ownerGeneration &&
-      existing.presenceSessionId === presenceSessionId &&
-      existing.proofSeq === sequence &&
-      existing.lastProofOperation === "presence-register" &&
-      existing.lastProofBodyHash === expectedBodyHash,
+        existing.ownerGeneration === args.ownerGeneration &&
+        existing.presenceSessionId === presenceSessionId &&
+        existing.proofSeq === sequence &&
+        existing.lastProofOperation === "presence-register" &&
+        existing.lastProofBodyHash === expectedBodyHash,
     );
     if (
       existing &&
@@ -1905,8 +1922,7 @@ export const connectMyExecutionPresenceSocket = mutation({
     }
     if (!replayed) {
       const now = Date.now();
-      const socketLeaseExpiresAt =
-        now + EXECUTION_SOCKET_CONFIRMATION_LEASE_MS;
+      const socketLeaseExpiresAt = now + EXECUTION_SOCKET_CONFIRMATION_LEASE_MS;
       await ctx.db.patch(proof.presence._id, {
         socketConnectionId: connectionId,
         socketConnectedAt: now,
@@ -3636,7 +3652,9 @@ export const listMyExecutionActivity = query({
     return rows.map((row) => ({
       dispatch: projectDispatch(row),
       placementLabel: (row.placement ?? "routing") as
-        "routing" | "computer" | "cloud",
+        | "routing"
+        | "computer"
+        | "cloud",
     }));
   },
 });

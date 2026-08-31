@@ -14,113 +14,165 @@
  */
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { PersistentUserAppsHost } from "@/app/apps/PersistentUserAppsHost";
-import { listUserApps, useRequestUserApp, } from "@/app/apps/user-app-library";
-import { getServerSnapshot, getSnapshot, refreshUserApps, stopUserApp, subscribe, } from "@/app/apps/user-apps-registry";
+import { listUserApps, useRequestUserApp } from "@/app/apps/user-app-library";
+import {
+  getServerSnapshot,
+  getSnapshot,
+  refreshUserApps,
+  stopUserApp,
+  subscribe,
+} from "@/app/apps/user-apps-registry";
 import { markAllUserAppsSeen } from "@/app/apps/new-user-apps-hint";
 import { CloudAppsLibrary } from "@/features/cloud/CloudAppsLibrary";
 import { PersistentCloudAppsHost } from "@/features/cloud/PersistentCloudAppsHost";
 import { isCloudAppLocation } from "@/features/cloud/open-cloud-app-panel";
-import { sidebarSections, useActiveSidebarSection, useSidebarOpenTabs, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
+import {
+  sidebarSections,
+  useActiveSidebarSection,
+  useSidebarOpenTabs,
+  useSidebarSectionLocation,
+} from "@/features/workspace-display/sidebar-sections";
 import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
 import { AppWindowMac, LoaderCircle, Power } from "@/ui/icons";
 import "./apps-section.css";
+import { platformCapabilities } from "@/platform/capabilities";
 export function AppsSection() {
-    const registry = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-    const apps = registry.apps;
-    const openSlug = useSidebarSectionLocation("apps");
-    const sidebarTabs = useSidebarOpenTabs();
-    const activeSection = useActiveSidebarSection();
-    const panelOpen = useDisplayPanelOpen();
-    const openCloudApp = isCloudAppLocation(openSlug);
-    const openApp = openSlug
-        ? (openCloudApp ? null : (apps.find((app) => app.slug === openSlug) ?? null))
-        : null;
-    useEffect(() => {
-        if (registry.phase !== "ready")
-            return;
-        const installedSlugs = new Set(apps.map((app) => app.slug));
-        const removedTabIds = sidebarTabs
-            .filter((tab) => tab.kind === "apps" && tab.location && !isCloudAppLocation(tab.location) && !installedSlugs.has(tab.location))
-            .map((tab) => tab.id);
-        for (const tabId of removedTabIds)
-            sidebarSections.closeTab(tabId);
-    }, [apps, registry.phase, sidebarTabs]);
-    // The list counts as "seen" only when the user can actually see it: every
-    // section stays mounted, so mounting alone says nothing about attention.
-    const listVisible = panelOpen && activeSection === "apps" && !openApp && !openCloudApp;
-    useEffect(() => {
-        if (listVisible)
-            markAllUserAppsSeen();
-    }, [apps, listVisible]);
-    return (<>
+  const registry = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getServerSnapshot,
+  );
+  const apps = registry.apps;
+  const openSlug = useSidebarSectionLocation("apps");
+  const sidebarTabs = useSidebarOpenTabs();
+  const activeSection = useActiveSidebarSection();
+  const panelOpen = useDisplayPanelOpen();
+  const openCloudApp = isCloudAppLocation(openSlug);
+  const openApp = openSlug
+    ? openCloudApp
+      ? null
+      : (apps.find((app) => app.slug === openSlug) ?? null)
+    : null;
+  useEffect(() => {
+    if (registry.phase !== "ready") return;
+    const installedSlugs = new Set(apps.map((app) => app.slug));
+    const removedTabIds = sidebarTabs
+      .filter(
+        (tab) =>
+          tab.kind === "apps" &&
+          tab.location &&
+          !isCloudAppLocation(tab.location) &&
+          !installedSlugs.has(tab.location),
+      )
+      .map((tab) => tab.id);
+    for (const tabId of removedTabIds) sidebarSections.closeTab(tabId);
+  }, [apps, registry.phase, sidebarTabs]);
+  // The list counts as "seen" only when the user can actually see it: every
+  // section stays mounted, so mounting alone says nothing about attention.
+  const listVisible =
+    panelOpen && activeSection === "apps" && !openApp && !openCloudApp;
+  useEffect(() => {
+    if (listVisible) markAllUserAppsSeen();
+  }, [apps, listVisible]);
+  return (
+    <>
       {/* Back-to-library nav lives in the top bar now (browser-tab model),
           so there is no in-body section header here. */}
       <div className="apps-section__body">
-        {openApp || openCloudApp ? null : (<div className="apps-section__library">
+        {openApp || openCloudApp ? null : (
+          <div className="apps-section__library">
             <CloudAppsLibrary />
-            <AppsLibrary registry={registry}/>
-          </div>)}
+            {platformCapabilities.localFiles ? (
+              <AppsLibrary registry={registry} />
+            ) : null}
+          </div>
+        )}
         <PersistentCloudAppsHost />
-        <PersistentUserAppsHost />
+        {platformCapabilities.localFiles ? <PersistentUserAppsHost /> : null}
       </div>
-    </>);
+    </>
+  );
 }
 function AppsLibrary({ registry }) {
-    const requestUserApp = useRequestUserApp();
-    const [stoppingSlugs, setStoppingSlugs] = useState(() => new Set());
-    const { apps, error, phase, refreshing } = registry;
-    const shutDown = async (slug) => {
-        setStoppingSlugs((current) => new Set(current).add(slug));
-        try {
-            await stopUserApp(slug);
-        }
-        catch {
-            // The status refresh keeps the card truthful; restoring the action
-            // is enough for a lightweight retry without another error surface.
-        }
-        finally {
-            setStoppingSlugs((current) => {
-                const next = new Set(current);
-                next.delete(slug);
-                return next;
-            });
-        }
-    };
-    if (phase === "loading" && apps.length === 0) {
-        return (<div className="apps-section__local-library apps-section__local-library--status" role="status" aria-live="polite">
-        <LoaderCircle className="stella-loader-circle" size={18} strokeWidth={2} aria-hidden="true"/>
-        <p>Loading apps…</p>
-      </div>);
+  const requestUserApp = useRequestUserApp();
+  const [stoppingSlugs, setStoppingSlugs] = useState(() => new Set());
+  const { apps, error, phase, refreshing } = registry;
+  const shutDown = async (slug) => {
+    setStoppingSlugs((current) => new Set(current).add(slug));
+    try {
+      await stopUserApp(slug);
+    } catch {
+      // The status refresh keeps the card truthful; restoring the action
+      // is enough for a lightweight retry without another error surface.
+    } finally {
+      setStoppingSlugs((current) => {
+        const next = new Set(current);
+        next.delete(slug);
+        return next;
+      });
     }
-    if (phase === "unsupported") {
-        return (<div className="apps-section__local-library sidebar-section__empty" role="status">
+  };
+  if (phase === "loading" && apps.length === 0) {
+    return (
+      <div
+        className="apps-section__local-library apps-section__local-library--status"
+        role="status"
+        aria-live="polite"
+      >
+        <LoaderCircle
+          className="stella-loader-circle"
+          size={18}
+          strokeWidth={2}
+          aria-hidden="true"
+        />
+        <p>Loading apps…</p>
+      </div>
+    );
+  }
+  if (phase === "unsupported") {
+    return (
+      <div
+        className="apps-section__local-library sidebar-section__empty"
+        role="status"
+      >
         <span className="sidebar-section__empty-icon" aria-hidden="true">
-          <AppWindowMac size={17} strokeWidth={1.75}/>
+          <AppWindowMac size={17} strokeWidth={1.75} />
         </span>
         <p className="sidebar-section__empty-title">Apps live on desktop</p>
         <p className="sidebar-section__empty-body">
           Open Stella on your computer to use locally installed apps.
         </p>
-      </div>);
-    }
-    if (phase === "error" && apps.length === 0) {
-        return (<div className="apps-section__local-library sidebar-section__empty" role="alert">
+      </div>
+    );
+  }
+  if (phase === "error" && apps.length === 0) {
+    return (
+      <div
+        className="apps-section__local-library sidebar-section__empty"
+        role="alert"
+      >
         <span className="sidebar-section__empty-icon" aria-hidden="true">
-          <AppWindowMac size={17} strokeWidth={1.75}/>
+          <AppWindowMac size={17} strokeWidth={1.75} />
         </span>
         <p className="sidebar-section__empty-title">Couldn’t load apps</p>
         <p className="sidebar-section__empty-body">
           {error || "Stella couldn’t read your apps folder."}
         </p>
-        <button type="button" className="pill-btn" onClick={() => void refreshUserApps()}>
+        <button
+          type="button"
+          className="pill-btn"
+          onClick={() => void refreshUserApps()}
+        >
           Try again
         </button>
-      </div>);
-    }
-    if (apps.length === 0) {
-        return (<div className="apps-section__local-library sidebar-section__empty">
+      </div>
+    );
+  }
+  if (apps.length === 0) {
+    return (
+      <div className="apps-section__local-library sidebar-section__empty">
         <span className="sidebar-section__empty-icon" aria-hidden="true">
-          <AppWindowMac size={17} strokeWidth={1.75}/>
+          <AppWindowMac size={17} strokeWidth={1.75} />
         </span>
         <p className="sidebar-section__empty-title">No apps yet</p>
         <p className="sidebar-section__empty-body">
@@ -129,34 +181,61 @@ function AppsLibrary({ registry }) {
         <button type="button" className="pill-btn" onClick={requestUserApp}>
           Ask Stella to create an app
         </button>
-      </div>);
-    }
-    const visible = listUserApps(apps, "", "recent");
-    return (<div className="apps-section__local-library">
-      {phase === "error" ? (<div className="apps-section__warning" role="status">
+      </div>
+    );
+  }
+  const visible = listUserApps(apps, "", "recent");
+  return (
+    <div className="apps-section__local-library">
+      {phase === "error" ? (
+        <div className="apps-section__warning" role="status">
           <span>Apps may be out of date.</span>
           <button type="button" onClick={() => void refreshUserApps()}>
             Try again
           </button>
-        </div>) : null}
+        </div>
+      ) : null}
       <ul className="apps-section__grid sidebar-section__scroll">
         {visible.map((app) => {
-            const stopping = stoppingSlugs.has(app.slug) || app.status === "stopping";
-            const running = app.status === "running";
-            return (<li key={app.slug} className="apps-section__card">
-            <button type="button" className={`apps-section__card-open${running || stopping ? " apps-section__card-open--with-runtime" : ""}`} onClick={() => sidebarSections.openLocation("apps", app.slug)}>
-              <AppWindowMac className="apps-section__card-icon" size={16} strokeWidth={1.7} aria-hidden="true"/>
-              <span className="apps-section__card-label">{app.meta.label}</span>
-            </button>
-            {running || stopping ? (<div className="apps-section__card-runtime">
-                <span className="apps-section__card-status">
-                  {stopping ? "Stopping" : "On"}
+          const stopping =
+            stoppingSlugs.has(app.slug) || app.status === "stopping";
+          const running = app.status === "running";
+          return (
+            <li key={app.slug} className="apps-section__card">
+              <button
+                type="button"
+                className={`apps-section__card-open${running || stopping ? " apps-section__card-open--with-runtime" : ""}`}
+                onClick={() => sidebarSections.openLocation("apps", app.slug)}
+              >
+                <AppWindowMac
+                  className="apps-section__card-icon"
+                  size={16}
+                  strokeWidth={1.7}
+                  aria-hidden="true"
+                />
+                <span className="apps-section__card-label">
+                  {app.meta.label}
                 </span>
-                <button type="button" className="apps-section__shutdown" aria-label={`Shut down ${app.meta.label}`} title="Shut down" disabled={stopping} onClick={() => void shutDown(app.slug)}>
-                  <Power size={15} strokeWidth={1.8} aria-hidden="true"/>
-                </button>
-              </div>) : null}
-          </li>);
+              </button>
+              {running || stopping ? (
+                <div className="apps-section__card-runtime">
+                  <span className="apps-section__card-status">
+                    {stopping ? "Stopping" : "On"}
+                  </span>
+                  <button
+                    type="button"
+                    className="apps-section__shutdown"
+                    aria-label={`Shut down ${app.meta.label}`}
+                    title="Shut down"
+                    disabled={stopping}
+                    onClick={() => void shutDown(app.slug)}
+                  >
+                    <Power size={15} strokeWidth={1.8} aria-hidden="true" />
+                  </button>
+                </div>
+              ) : null}
+            </li>
+          );
         })}
       </ul>
 
@@ -165,5 +244,6 @@ function AppsLibrary({ registry }) {
           Create an app
         </button>
       </div>
-    </div>);
+    </div>
+  );
 }

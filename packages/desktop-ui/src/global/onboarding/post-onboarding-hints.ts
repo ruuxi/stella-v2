@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
+import { platformCapabilities } from "@/platform/capabilities";
 import { uiState } from "@/platform/ui-state";
 
 /**
@@ -105,6 +106,7 @@ const notifyAll = () => {
  * unconditionally from the onboarding-complete handler.
  */
 export const seedPostOnboardingHints = (): void => {
+  if (!platformCapabilities.onboarding) return;
   const state = safeRead();
   if (state.seededAt > 0) return;
   const active: StoredState["active"] = {};
@@ -119,11 +121,13 @@ export const seedPostOnboardingHints = (): void => {
  * `bun run reset` flows behave like a brand-new install.
  */
 export const clearPostOnboardingHints = (): void => {
+  if (!platformCapabilities.onboarding) return;
   safeWrite(EMPTY_STATE);
   notifyAll();
 };
 
 export const dismissPostOnboardingHint = (id: PostOnboardingHintId): void => {
+  if (!platformCapabilities.onboarding) return;
   const state = safeRead();
   if (!state.active[id]) return;
   const nextActive = { ...state.active };
@@ -142,12 +146,16 @@ const getServerSnapshot = () => false;
  * Subscribe a single hint dot. Returns true while the dot should show,
  * plus a stable `dismiss` callback to call on click.
  */
-export function usePostOnboardingHint(
-  id: PostOnboardingHintId,
-): { active: boolean; dismiss: () => void } {
+export function usePostOnboardingHint(id: PostOnboardingHintId): {
+  active: boolean;
+  dismiss: () => void;
+} {
   const active = useSyncExternalStore(
-    subscribe,
-    useCallback(() => getHintSnapshot(id), [id]),
+    platformCapabilities.onboarding ? subscribe : () => () => undefined,
+    useCallback(
+      () => (platformCapabilities.onboarding ? getHintSnapshot(id) : false),
+      [id],
+    ),
     getServerSnapshot,
   );
   const dismiss = useCallback(() => dismissPostOnboardingHint(id), [id]);

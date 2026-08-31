@@ -11,6 +11,8 @@
  */
 import type { Dispatch, SetStateAction } from "react";
 import type { ChatContext, ChatContextFile } from "@/shared/types/electron";
+import { platformCapabilities } from "@/platform/capabilities";
+import { browserAttachmentUploads } from "@/features/cloud/browser-chat-attachments";
 
 type AttachedScreenshot = {
   dataUrl: string;
@@ -166,7 +168,8 @@ async function processInputFiles(
       const dataUrl = await readFileAsDataUrl(file);
       // Keep the on-disk path (when the File is disk-backed) so the chip
       // can open the original in its default app for preview.
-      const path = window.electronAPI?.files?.getPathForFile?.(file) || undefined;
+      const path =
+        window.electronAPI?.files?.getPathForFile?.(file) || undefined;
       return {
         name: file.name,
         size: file.size,
@@ -210,10 +213,7 @@ export function applyProcessedAttachments(
     return {
       ...base,
       ...(screenshots.length > 0 && {
-        regionScreenshots: [
-          ...(base.regionScreenshots ?? []),
-          ...screenshots,
-        ],
+        regionScreenshots: [...(base.regionScreenshots ?? []), ...screenshots],
       }),
       ...(files.length > 0 && {
         files: [...(base.files ?? []), ...files],
@@ -232,6 +232,10 @@ export async function attachFilesToContext(
   files: readonly File[],
   setChatContext: SetChatContext,
 ): Promise<ProcessedAttachments> {
+  if (platformCapabilities.browserUploads) {
+    browserAttachmentUploads.add(files);
+    return { screenshots: [], files: [] };
+  }
   const processed = await processInputFiles(files);
   applyProcessedAttachments(processed, setChatContext);
   return processed;

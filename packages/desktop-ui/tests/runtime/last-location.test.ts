@@ -64,6 +64,25 @@ describe("last-location persistence", () => {
     expect(readPersistedLastLocation()).toBe("/settings");
   });
 
+  it("persists production browser writes through the localStorage adapter", async () => {
+    const values = new Map<string, string>();
+    const storage = {
+      get length() {
+        return values.size;
+      },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+      clear: () => values.clear(),
+    } as Storage;
+    installWindow({ __stellaUiState: {}, localStorage: storage });
+    const { writePersistedLastLocation } = await importFreshModules();
+    writePersistedLastLocation("/chat?c=browser-persisted");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(storage.getItem(STORAGE_KEY)).toBe("/chat?c=browser-persisted");
+  });
+
   it("round-trips a location with a search string", async () => {
     const { readPersistedLastLocation, writePersistedLastLocation } =
       await importFreshModules();

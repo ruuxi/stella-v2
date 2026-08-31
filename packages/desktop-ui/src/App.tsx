@@ -10,6 +10,7 @@ import {
   readPetOpenPreference,
   writePetOpenPreference,
 } from "./shell/pet/pet-preferences";
+import { platformCapabilities } from "./platform/capabilities";
 
 const AUTO_REPAIR_SIGNATURE_KEY = "stella:auto-repair:last-signature";
 
@@ -23,6 +24,7 @@ const AUTO_REPAIR_SIGNATURE_KEY = "stella:auto-repair:last-signature";
 // eager chunk anyway), and the cost of missing the event is high.
 function App() {
   useEffect(() => {
+    if (!platformCapabilities.pet) return;
     const timer = window.setTimeout(() => {
       window.sessionStorage.removeItem(AUTO_REPAIR_SIGNATURE_KEY);
     }, 20_000);
@@ -46,8 +48,10 @@ function App() {
           <AppBootstrap />
           <CloudMemoryPreferenceBridge />
           <CloudHomeSyncBridge />
-          <PhoneAccessBridge />
-          <CredentialRequestLayer />
+          {platformCapabilities.phoneAccess ? <PhoneAccessBridge /> : null}
+          {platformCapabilities.nativeBridges ? (
+            <CredentialRequestLayer />
+          ) : null}
           <FullShell />
         </ChatStoreProvider>
       </div>

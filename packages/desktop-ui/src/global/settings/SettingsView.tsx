@@ -14,7 +14,7 @@ import { SettingsSearch } from "@/global/settings/SettingsSearch";
 import { SettingsSearchResults } from "@/global/settings/SettingsSearchResults";
 import { AudioTab } from "@/global/settings/AudioTab";
 import {
-  SETTINGS_TABS,
+  availableSettingsTabs,
   type SettingsTab,
 } from "@/global/settings/settings-tabs";
 import { AccountTab } from "./tabs/AccountTab";
@@ -23,6 +23,7 @@ import { ShortcutsTab } from "./tabs/ShortcutsTab";
 import type { ScoredSettingsSearchEntry } from "@/global/settings/lib/settings-search-index";
 import { useT } from "@/shared/i18n";
 import "@/global/settings/settings.css";
+import { platformCapabilities } from "@/platform/capabilities";
 
 // Settings is lazy-preloaded before the sidebar opens. Keep the tabs eager
 // inside that chunk so switching tabs does not show a blank Suspense gap.
@@ -147,27 +148,29 @@ export const SettingsScreen = ({
               <SettingsSearch value={searchQuery} onChange={setSearchQuery} />
             </div>
             <nav ref={tabStripRef} className="settings-tab-rail-nav">
-              {SETTINGS_TABS.map((tab) => {
-                const isActive = activeTab === tab.key && !isSearching;
-                return (
-                  <button
-                    key={tab.key}
-                    id={`settings-tab-${tab.key}`}
-                    type="button"
-                    role="tab"
-                    aria-selected={isActive}
-                    aria-controls={`settings-tabpanel-${tab.key}`}
-                    tabIndex={isActive ? 0 : -1}
-                    className={`settings-tab-rail-item${isActive ? " settings-tab-rail-item--active" : ""}`}
-                    onClick={() => {
-                      if (isSearching) setSearchQuery("");
-                      handleTabClick(tab.key);
-                    }}
-                  >
-                    {t(tab.labelKey)}
-                  </button>
-                );
-              })}
+              {availableSettingsTabs(platformCapabilities.website).map(
+                (tab) => {
+                  const isActive = activeTab === tab.key && !isSearching;
+                  return (
+                    <button
+                      key={tab.key}
+                      id={`settings-tab-${tab.key}`}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      aria-controls={`settings-tabpanel-${tab.key}`}
+                      tabIndex={isActive ? 0 : -1}
+                      className={`settings-tab-rail-item${isActive ? " settings-tab-rail-item--active" : ""}`}
+                      onClick={() => {
+                        if (isSearching) setSearchQuery("");
+                        handleTabClick(tab.key);
+                      }}
+                    >
+                      {t(tab.labelKey)}
+                    </button>
+                  );
+                },
+              )}
             </nav>
           </header>
           <SettingsPanel scrollResetKey={isSearching ? "search" : activeTab}>
@@ -298,7 +301,7 @@ function SettingsTabContent({
     <div ref={contentRef} className="settings-panel-content">
       {activeTab === "general" ? (
         <GeneralTab />
-      ) : activeTab === "shortcuts" ? (
+      ) : activeTab === "shortcuts" && platformCapabilities.shortcuts ? (
         <ShortcutsTab />
       ) : activeTab === "account" ? (
         <AccountTab onSignOut={onSignOut} onOpenLegal={onOpenLegal} />

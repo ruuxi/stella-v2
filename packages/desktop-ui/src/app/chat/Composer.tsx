@@ -48,6 +48,8 @@ import { MiniModelPicker } from "./MiniModelPicker";
 import { useUiState } from "@/context/ui-state";
 import { useT } from "@/shared/i18n";
 import "./full-shell.composer.css";
+import { BrowserAttachmentTray } from "./BrowserAttachmentTray";
+import { platformCapabilities } from "@/platform/capabilities";
 
 type ComposerProps = {
   message: string;
@@ -229,6 +231,7 @@ function ComposerImpl({
 
   const hasAttachedChips = hasAttachedComposerChips(chatContext, selectedText);
   const showRealtimeVoice =
+    platformCapabilities.realtimeVoice &&
     Boolean(conversationId) &&
     !hasText &&
     !hasAttachedChips &&
@@ -261,6 +264,7 @@ function ComposerImpl({
               />
             </div>
           )}
+          <BrowserAttachmentTray />
           <form
             ref={formRef}
             data-testid="chat-composer"

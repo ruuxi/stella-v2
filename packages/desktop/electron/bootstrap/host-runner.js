@@ -33,6 +33,39 @@ const ensureStellaDataDirSeededOnce = (stellaAppDir, stellaDataDirPath) => {
     return stellaDataDirSeedingPromise;
 };
 
+export const loadStellaDeviceIdentity = async (context) => {
+    const { state } = context;
+    const stellaDataDirPath = state.stellaDataDirPath;
+    if (!stellaDataDirPath) {
+        throw new Error("Stella data directory is not initialized.");
+    }
+    const existingPromise = state.deviceIdentityPromise;
+    if (existingPromise) {
+        return await existingPromise;
+    }
+    const loadPromise = getOrCreateDeviceIdentity(stellaDataDirPath).then((identity) => {
+        state.deviceId = identity.deviceId;
+        return identity;
+    });
+    state.deviceIdentityPromise = loadPromise;
+    try {
+        return await loadPromise;
+    }
+    finally {
+        if (state.deviceIdentityPromise === loadPromise) {
+            state.deviceIdentityPromise = null;
+        }
+    }
+};
+
+export const loadStellaDeviceId = async (context) => {
+    if (context.state.deviceId) {
+        return context.state.deviceId;
+    }
+    const identity = await loadStellaDeviceIdentity(context);
+    return identity.deviceId;
+};
+
 const spawnAutomationDaemonFromHost = async (params) => {
     if (process.platform === "win32") {
         return { ok: false, reason: "unsupported_platform" };
@@ -300,7 +333,7 @@ export const initializeStellaHostRunner = async (context) => {
 
     await ensureStellaDataDirSeededOnce(stellaAppDir, stellaDataDirPath);
     await services.securityPolicyService.loadPolicy();
-    const loadDeviceIdentity = async () => await getOrCreateDeviceIdentity(stellaDataDirPath);
+    const loadDeviceIdentity = async () => await loadStellaDeviceIdentity(context);
     const clearSupersededDeviceId = async () => await clearStoredSupersededDeviceId(stellaDataDirPath);
     clearHostRunnerSubscriptions(context);
     context.state.officePreviewBridgeStop?.();

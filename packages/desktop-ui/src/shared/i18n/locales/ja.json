@@ -79,7 +79,6 @@
     "tabs": {
       "general": "基本",
       "shortcuts": "ショートカット",
-      "backup": "バックアップ",
       "account": "アカウントと法的事項",
       "audio": "オーディオ"
     },
@@ -221,59 +220,6 @@
         "update": "ショートカットを更新できませんでした。"
       }
     },
-    "backup": {
-      "title": "バックアップ",
-      "upgradeNotice": "バックアップはすべての有料 Stella プランに含まれています。",
-      "never": "なし",
-      "automatic": {
-        "label": "自動バックアップ",
-        "lastLocal": "最後のローカルバックアップ: {time}",
-        "lastRemote": "最後のリモートバックアップ: {time}",
-        "remoteIssue": "リモートバックアップの問題: {error}",
-        "off": "オフ",
-        "hourly": "1 時間ごとの自動バックアップ",
-        "ariaLabel": "バックアップ"
-      },
-      "backupNow": {
-        "label": "今すぐバックアップ",
-        "description": "今すぐバックアップを保存します。サインインしていると自動的にアップロードされます。",
-        "action": "今すぐバックアップ",
-        "working": "バックアップ中…"
-      },
-      "saved": {
-        "label": "保存済みバックアップ",
-        "signedInDescription": "このデバイスで復元するバックアップを選択してください。",
-        "signedOutDescription": "サインインすると、オンラインにバックアップを保存し、どのデバイスでも復元できます。",
-        "empty": "リモートバックアップはまだありません。",
-        "latest": "最新",
-        "files": "{count} 個のファイル",
-        "from": "送信元: {source}",
-        "restore": "復元",
-        "restoring": "復元中…"
-      },
-      "toasts": {
-        "completedTitle": "バックアップが完了しました",
-        "queuedTitle": "バックアップをキューに追加しました",
-        "deferredTitle": "バックアップを延期しました",
-        "noneNeededTitle": "バックアップは不要です",
-        "failedTitle": "バックアップに失敗しました",
-        "restorePreparedTitle": "復元の準備ができました",
-        "restorePreparedDescription": "このバックアップの適用を完了するため、Stella が再起動します。",
-        "restoreFailedTitle": "復元に失敗しました"
-      },
-      "errors": {
-        "load": "バックアップ設定を読み込めませんでした。",
-        "unavailable": "このウィンドウではバックアップ設定を利用できません。",
-        "signInRequired": "バックアップを有効にするには、サインインして Stella プランを選択してください。",
-        "checkingPlan": "バックアップを有効にする前に Stella プランを確認しています。",
-        "subscriptionRequired": "バックアップには有効な Stella サブスクリプションが必要です。",
-        "updateMode": "バックアップモードを更新できませんでした。",
-        "backupUnavailable": "このウィンドウではバックアップを利用できません。",
-        "startBackup": "バックアップを開始できませんでした。",
-        "restoreUnavailable": "このウィンドウでは復元を利用できません。",
-        "restore": "バックアップを復元できませんでした。"
-      }
-    },
     "account": {
       "title": "アカウント",
       "signOut": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "macOS でアクセシビリティ・画面収録・マイクへのアクセスを許可します。",
         "shortcuts": "音声入力と音声のショートカットを変更します。",
-        "backup": "自動の暗号化バックアップ、復元ポイント、オンデマンドのスナップショット。",
         "account": "サインアウト、データの削除、またはアカウントの完全な削除を行います。",
         "legal": "利用規約とプライバシーポリシー。",
         "microphone": "入力デバイスを選択し、ウェイクワード・音声入力のサウンド・デバイス上の文字起こしを有効にします。",

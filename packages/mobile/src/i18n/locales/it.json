@@ -79,7 +79,6 @@
     "tabs": {
       "general": "Generale",
       "shortcuts": "Scorciatoie",
-      "backup": "Backup",
       "account": "Account e note legali",
       "audio": "Audio"
     },
@@ -221,59 +220,6 @@
         "update": "Impossibile aggiornare la scorciatoia."
       }
     },
-    "backup": {
-      "title": "Backup",
-      "upgradeNotice": "I backup sono inclusi in qualsiasi piano Stella a pagamento.",
-      "never": "Mai",
-      "automatic": {
-        "label": "Backup automatici",
-        "lastLocal": "Ultimo backup locale: {time}",
-        "lastRemote": "Ultimo backup remoto: {time}",
-        "remoteIssue": "Problema con il backup remoto: {error}",
-        "off": "Disattivato",
-        "hourly": "Backup automatici ogni ora",
-        "ariaLabel": "Backup"
-      },
-      "backupNow": {
-        "label": "Esegui backup ora",
-        "description": "Salva un backup adesso. Viene caricato automaticamente quando hai effettuato l'accesso.",
-        "action": "Esegui backup ora",
-        "working": "Backup in corso…"
-      },
-      "saved": {
-        "label": "Backup salvati",
-        "signedInDescription": "Scegli un backup da ripristinare su questo dispositivo.",
-        "signedOutDescription": "Accedi per salvare i backup online e ripristinarli su qualsiasi dispositivo.",
-        "empty": "Ancora nessun backup remoto.",
-        "latest": "Più recente",
-        "files": "{count} file",
-        "from": "Da: {source}",
-        "restore": "Ripristina",
-        "restoring": "Ripristino…"
-      },
-      "toasts": {
-        "completedTitle": "Backup completato",
-        "queuedTitle": "Backup in coda",
-        "deferredTitle": "Backup rinviato",
-        "noneNeededTitle": "Nessun backup necessario",
-        "failedTitle": "Backup non riuscito",
-        "restorePreparedTitle": "Ripristino preparato",
-        "restorePreparedDescription": "Stella si riavvierà per completare l'applicazione di questo backup.",
-        "restoreFailedTitle": "Ripristino non riuscito"
-      },
-      "errors": {
-        "load": "Impossibile caricare le impostazioni di backup.",
-        "unavailable": "Le impostazioni di backup non sono disponibili in questa finestra.",
-        "signInRequired": "Accedi e scegli un piano Stella per attivare i backup.",
-        "checkingPlan": "Verifica del tuo piano Stella prima di attivare i backup.",
-        "subscriptionRequired": "I backup richiedono un abbonamento Stella attivo.",
-        "updateMode": "Impossibile aggiornare la modalità di backup.",
-        "backupUnavailable": "Il backup non è disponibile in questa finestra.",
-        "startBackup": "Impossibile avviare il backup.",
-        "restoreUnavailable": "Il ripristino non è disponibile in questa finestra.",
-        "restore": "Impossibile ripristinare il backup."
-      }
-    },
     "account": {
       "title": "Account",
       "cloudHome": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Concedi l'accesso ad accessibilità, cattura schermo e microfono su macOS.",
         "shortcuts": "Modifica le scorciatoie per dettatura e voce.",
-        "backup": "Backup crittografati automatici, punti di ripristino e snapshot su richiesta.",
         "account": "Esci, elimina i tuoi dati o elimina definitivamente il tuo account.",
         "legal": "Termini di servizio e informativa sulla privacy.",
         "microphone": "Scegli il dispositivo di ingresso, attiva la parola di attivazione, i suoni della dettatura e la trascrizione sul dispositivo.",

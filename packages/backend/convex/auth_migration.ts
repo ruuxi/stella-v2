@@ -5762,21 +5762,6 @@ export const finishOwnershipMigrationPass = internalMutation({
           "Cloud ownership stages or their durable acknowledgements have not completed.",
       });
     }
-    if (args.outcome === "complete") {
-      // Legacy backups are retired and deliberately do not participate in
-      // account linking. Remove only an obsolete per-migration sweep receipt;
-      // dormant backup rows and objects remain untouched for later cleanup.
-      const backupSweep = await ctx.db
-        .query("backup_legacy_r2_sweeps")
-        .withIndex("by_scopeKey", (q) =>
-          q.eq(
-            "scopeKey",
-            `migration:${encodeURIComponent(args.fromOwnerId)}:${String(row._id)}`,
-          ),
-        )
-        .unique();
-      if (backupSweep) await ctx.db.delete(backupSweep._id);
-    }
     if (row.watchdogId) await ctx.scheduler.cancel(row.watchdogId);
     await ctx.db.patch(row._id, {
       status: args.outcome,

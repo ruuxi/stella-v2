@@ -79,7 +79,6 @@
     "tabs": {
       "general": "Általános",
       "shortcuts": "Gyorsbillentyűk",
-      "backup": "Biztonsági mentések",
       "account": "Fiók és jogi",
       "audio": "Hang"
     },
@@ -221,59 +220,6 @@
         "update": "A gyorsbillentyű frissítése sikertelen."
       }
     },
-    "backup": {
-      "title": "Biztonsági mentések",
-      "upgradeNotice": "A biztonsági mentések minden fizetős Stella-csomagban benne vannak.",
-      "never": "Soha",
-      "automatic": {
-        "label": "Automatikus biztonsági mentések",
-        "lastLocal": "Utolsó helyi mentés: {time}",
-        "lastRemote": "Utolsó távoli mentés: {time}",
-        "remoteIssue": "Probléma a távoli mentéssel: {error}",
-        "off": "Ki",
-        "hourly": "Óránkénti automatikus mentések",
-        "ariaLabel": "Biztonsági mentések"
-      },
-      "backupNow": {
-        "label": "Mentés most",
-        "description": "Ment egy biztonsági mentést azonnal. Bejelentkezve automatikusan feltöltődik.",
-        "action": "Mentés most",
-        "working": "Mentés…"
-      },
-      "saved": {
-        "label": "Mentett biztonsági mentések",
-        "signedInDescription": "Válassz egy mentést, amelyet visszaállítasz ezen az eszközön.",
-        "signedOutDescription": "Jelentkezz be, hogy online ments biztonsági mentéseket, és bármely eszközön visszaállíthasd őket.",
-        "empty": "Még nincsenek távoli mentések.",
-        "latest": "Legújabb",
-        "files": "{count} fájl",
-        "from": "Forrás: {source}",
-        "restore": "Visszaállítás",
-        "restoring": "Visszaállítás…"
-      },
-      "toasts": {
-        "completedTitle": "Biztonsági mentés kész",
-        "queuedTitle": "Mentés sorba állítva",
-        "deferredTitle": "Mentés elhalasztva",
-        "noneNeededTitle": "Nincs szükség mentésre",
-        "failedTitle": "A biztonsági mentés sikertelen",
-        "restorePreparedTitle": "Visszaállítás előkészítve",
-        "restorePreparedDescription": "A Stella újraindul, hogy befejezze ennek a mentésnek az alkalmazását.",
-        "restoreFailedTitle": "A visszaállítás sikertelen"
-      },
-      "errors": {
-        "load": "Nem sikerült betölteni a biztonsági mentés beállításait.",
-        "unavailable": "A biztonsági mentés beállításai nem érhetők el ebben az ablakban.",
-        "signInRequired": "Jelentkezz be, és válassz Stella-csomagot a biztonsági mentések bekapcsolásához.",
-        "checkingPlan": "A Stella-csomagod ellenőrzése a biztonsági mentések bekapcsolása előtt.",
-        "subscriptionRequired": "A biztonsági mentésekhez aktív Stella-előfizetés szükséges.",
-        "updateMode": "Nem sikerült frissíteni a biztonsági mentés módját.",
-        "backupUnavailable": "A biztonsági mentés nem érhető el ebben az ablakban.",
-        "startBackup": "Nem sikerült elindítani a biztonsági mentést.",
-        "restoreUnavailable": "A visszaállítás nem érhető el ebben az ablakban.",
-        "restore": "Nem sikerült visszaállítani a biztonsági mentést."
-      }
-    },
     "account": {
       "title": "Fiók",
       "cloudHome": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Adj hozzáférést a kisegítő lehetőségekhez, a képernyőrögzítéshez és a mikrofonhoz macOS-en.",
         "shortcuts": "Módosítsd a diktálás és a hang gyorsbillentyűit.",
-        "backup": "Automatikus titkosított biztonsági mentések, visszaállítási pontok és igény szerinti pillanatképek.",
         "account": "Jelentkezz ki, töröld az adataidat, vagy töröld véglegesen a fiókodat.",
         "legal": "Felhasználási feltételek és adatvédelmi szabályzat.",
         "microphone": "Válaszd ki a bemeneti eszközt, engedélyezd az ébresztőszót, a diktálási hangokat és az eszközön történő átírást.",

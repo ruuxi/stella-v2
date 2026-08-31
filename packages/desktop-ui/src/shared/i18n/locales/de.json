@@ -79,7 +79,6 @@
     "tabs": {
       "general": "Allgemein",
       "shortcuts": "Tastenkürzel",
-      "backup": "Sicherungen",
       "account": "Konto & Recht",
       "audio": "Audio"
     },
@@ -221,59 +220,6 @@
         "update": "Tastenkürzel konnte nicht aktualisiert werden."
       }
     },
-    "backup": {
-      "title": "Backups",
-      "upgradeNotice": "Backups sind in jedem kostenpflichtigen Stella-Tarif enthalten.",
-      "never": "Nie",
-      "automatic": {
-        "label": "Automatische Backups",
-        "lastLocal": "Letztes lokales Backup: {time}",
-        "lastRemote": "Letztes Remote-Backup: {time}",
-        "remoteIssue": "Problem mit Remote-Backup: {error}",
-        "off": "Aus",
-        "hourly": "Automatische stündliche Backups",
-        "ariaLabel": "Backups"
-      },
-      "backupNow": {
-        "label": "Jetzt sichern",
-        "description": "Erstellt jetzt ein Backup. Es wird automatisch hochgeladen, wenn du angemeldet bist.",
-        "action": "Jetzt sichern",
-        "working": "Wird gesichert…"
-      },
-      "saved": {
-        "label": "Gespeicherte Backups",
-        "signedInDescription": "Wähle ein Backup zum Wiederherstellen auf diesem Gerät.",
-        "signedOutDescription": "Melde dich an, um Backups online zu speichern und sie auf jedem Gerät wiederherzustellen.",
-        "empty": "Noch keine Remote-Backups.",
-        "latest": "Neuestes",
-        "files": "{count} Dateien",
-        "from": "Von: {source}",
-        "restore": "Wiederherstellen",
-        "restoring": "Wird wiederhergestellt…"
-      },
-      "toasts": {
-        "completedTitle": "Backup abgeschlossen",
-        "queuedTitle": "Backup in Warteschlange",
-        "deferredTitle": "Backup zurückgestellt",
-        "noneNeededTitle": "Kein Backup nötig",
-        "failedTitle": "Backup fehlgeschlagen",
-        "restorePreparedTitle": "Wiederherstellung vorbereitet",
-        "restorePreparedDescription": "Stella wird neu gestartet, um dieses Backup vollständig anzuwenden.",
-        "restoreFailedTitle": "Wiederherstellung fehlgeschlagen"
-      },
-      "errors": {
-        "load": "Backup-Einstellungen konnten nicht geladen werden.",
-        "unavailable": "Backup-Einstellungen sind in diesem Fenster nicht verfügbar.",
-        "signInRequired": "Melde dich an und wähle einen Stella-Tarif, um Backups zu aktivieren.",
-        "checkingPlan": "Dein Stella-Tarif wird geprüft, bevor Backups aktiviert werden.",
-        "subscriptionRequired": "Backups erfordern ein aktives Stella-Abonnement.",
-        "updateMode": "Backup-Modus konnte nicht aktualisiert werden.",
-        "backupUnavailable": "Backup ist in diesem Fenster nicht verfügbar.",
-        "startBackup": "Backup konnte nicht gestartet werden.",
-        "restoreUnavailable": "Wiederherstellung ist in diesem Fenster nicht verfügbar.",
-        "restore": "Backup konnte nicht wiederhergestellt werden."
-      }
-    },
     "account": {
       "title": "Konto",
       "cloudHome": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Erteile unter macOS Zugriff auf Bedienungshilfen, Bildschirmaufnahme und Mikrofon.",
         "shortcuts": "Ändere die Tastenkürzel für Diktat und Sprache.",
-        "backup": "Automatische verschlüsselte Backups, Wiederherstellungspunkte und Snapshots auf Abruf.",
         "account": "Abmelden, deine Daten löschen oder dein Konto dauerhaft löschen.",
         "legal": "Nutzungsbedingungen und Datenschutzrichtlinie.",
         "microphone": "Wähle dein Eingabegerät, aktiviere das Aktivierungswort, Diktat-Töne und Transkription auf dem Gerät.",

@@ -125,8 +125,6 @@ export type LocalPreferences = {
   realtimeVoice: RealtimeVoicePreferences;
   /** Master toggle for memory injection into agent context. */
   memoryEnabled: boolean;
-  /** Sync mode: "on" | "off". Defaults to off so cloud persistence is opt-in. */
-  syncMode: "on" | "off";
   /** Global accelerator used for OS-wide and in-app dictation. Empty disables it. */
   dictationShortcut: string;
   /** Global accelerator used to open the voice agent. Empty disables it. */
@@ -218,7 +216,6 @@ const DEFAULT_PREFERENCES: LocalPreferences = {
   imageGeneration: { provider: "stella" },
   realtimeVoice: { provider: "stella" },
   memoryEnabled: true,
-  syncMode: "off",
   dictationShortcut: "Alt",
   voiceRtcShortcut: "CommandOrControl+Shift+D",
   preventComputerSleep: false,
@@ -325,7 +322,6 @@ const normalizeStoredPreferences = (
   imageGeneration: normalizeImageGenerationPreferences(parsed.imageGeneration),
   realtimeVoice: normalizeRealtimeVoicePreferences(parsed.realtimeVoice),
   memoryEnabled: parsed.memoryEnabled !== false,
-  syncMode: parsed.syncMode === "on" ? "on" : "off",
   dictationShortcut:
     typeof parsed.dictationShortcut === "string"
       ? parsed.dictationShortcut
@@ -678,10 +674,6 @@ export const updateLocalModelPreferences = (
 export const getExploreModel = (stellaDataDir: string): string | undefined => {
   const prefs = loadLocalPreferences(stellaDataDir);
   return prefs.modelOverrides["explore"];
-};
-
-export const getSyncMode = (stellaDataDir: string): "on" | "off" => {
-  return loadLocalPreferences(stellaDataDir).syncMode;
 };
 
 export const getPreventComputerSleep = (stellaDataDir: string): boolean => {

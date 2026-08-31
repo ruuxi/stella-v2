@@ -79,7 +79,6 @@
     "tabs": {
       "general": "Genel",
       "shortcuts": "Kısayollar",
-      "backup": "Yedekler",
       "account": "Hesap ve yasal",
       "audio": "Ses"
     },
@@ -221,59 +220,6 @@
         "update": "Kısayol güncellenemedi."
       }
     },
-    "backup": {
-      "title": "Yedekler",
-      "upgradeNotice": "Yedekler, tüm ücretli Stella planlarına dahildir.",
-      "never": "Hiçbir zaman",
-      "automatic": {
-        "label": "Otomatik yedekler",
-        "lastLocal": "Son yerel yedek: {time}",
-        "lastRemote": "Son uzak yedek: {time}",
-        "remoteIssue": "Uzak yedek sorunu: {error}",
-        "off": "Kapalı",
-        "hourly": "Saatlik otomatik yedekler",
-        "ariaLabel": "Yedekler"
-      },
-      "backupNow": {
-        "label": "Şimdi yedekle",
-        "description": "Şimdi bir yedek kaydedin. Giriş yaptığınızda otomatik olarak yüklenir.",
-        "action": "Şimdi yedekle",
-        "working": "Yedekleniyor…"
-      },
-      "saved": {
-        "label": "Kaydedilmiş yedekler",
-        "signedInDescription": "Bu cihazda geri yüklenecek bir yedek seçin.",
-        "signedOutDescription": "Yedekleri çevrimiçi kaydetmek ve herhangi bir cihazda geri yüklemek için giriş yapın.",
-        "empty": "Henüz uzak yedek yok.",
-        "latest": "En son",
-        "files": "{count} dosya",
-        "from": "Kaynak: {source}",
-        "restore": "Geri yükle",
-        "restoring": "Geri yükleniyor…"
-      },
-      "toasts": {
-        "completedTitle": "Yedekleme tamamlandı",
-        "queuedTitle": "Yedek sıraya alındı",
-        "deferredTitle": "Yedek ertelendi",
-        "noneNeededTitle": "Yedeklemeye gerek yok",
-        "failedTitle": "Yedekleme başarısız oldu",
-        "restorePreparedTitle": "Geri yükleme hazırlandı",
-        "restorePreparedDescription": "Stella, bu yedeğin uygulanmasını tamamlamak için yeniden başlayacak.",
-        "restoreFailedTitle": "Geri yükleme başarısız oldu"
-      },
-      "errors": {
-        "load": "Yedek ayarları yüklenemedi.",
-        "unavailable": "Yedek ayarları bu pencerede kullanılamıyor.",
-        "signInRequired": "Yedekleri açmak için giriş yapın ve bir Stella planı seçin.",
-        "checkingPlan": "Yedekler açılmadan önce Stella planınız kontrol ediliyor.",
-        "subscriptionRequired": "Yedekler etkin bir Stella aboneliği gerektirir.",
-        "updateMode": "Yedekleme modu güncellenemedi.",
-        "backupUnavailable": "Yedekleme bu pencerede kullanılamıyor.",
-        "startBackup": "Yedekleme başlatılamadı.",
-        "restoreUnavailable": "Geri yükleme bu pencerede kullanılamıyor.",
-        "restore": "Yedek geri yüklenemedi."
-      }
-    },
     "account": {
       "title": "Hesap",
       "signOut": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "macOS'te erişilebilirlik, ekran kaydı ve mikrofon erişimi verin.",
         "shortcuts": "Dikte ve ses kısayollarını değiştirin.",
-        "backup": "Otomatik şifreli yedekler, geri yükleme noktaları ve istek üzerine anlık görüntüler.",
         "account": "Çıkış yapın, verilerinizi silin veya hesabınızı kalıcı olarak silin.",
         "legal": "Hizmet Koşulları ve Gizlilik Politikası.",
         "microphone": "Giriş aygıtınızı seçin; uyandırma sözcüğünü, dikte seslerini ve cihazda yazıya dökmeyi etkinleştirin.",

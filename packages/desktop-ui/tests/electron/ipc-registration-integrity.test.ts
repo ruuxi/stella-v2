@@ -2,15 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  IPC_BACKUP_GET_STATUS,
-  IPC_BACKUP_LIST,
-  IPC_BACKUP_RESTORE,
-  IPC_BACKUP_RUN_NOW,
-  IPC_MEDIA_SAVE_OUTPUT,
-  IPC_PREFERENCES_GET_SYNC_MODE,
-  IPC_PREFERENCES_SET_SYNC_MODE,
-} from "@stella/contracts/desktop/ipc-channels";
+import { IPC_MEDIA_SAVE_OUTPUT } from "@stella/contracts/desktop/ipc-channels";
 
 const ipc = vi.hoisted(() => ({
   handles: new Map<string, (...args: unknown[]) => unknown>(),
@@ -140,61 +132,6 @@ describe("Electron IPC registration integrity", () => {
 
     expect(() => registerSystemHandlers(options)).not.toThrow();
     expect(ipc.handles.get("customizations:reset")).toBeTypeOf("function");
-  });
-
-  it("keeps every legacy backup IPC entry point disabled", async () => {
-    const getStellaAppDir = vi.fn(() => "/tmp/stella-data");
-    const backupService = {
-      backupNow: vi.fn(),
-      getStatus: vi.fn(),
-      listBackups: vi.fn(),
-      restoreBackup: vi.fn(),
-      setMode: vi.fn(),
-    };
-    const options = new Proxy(
-      {
-        backupService,
-        getStellaAppDir,
-        externalLinkService: { assertPrivilegedSender: vi.fn(() => true) },
-      },
-      {
-        get(target, property) {
-          if (property in target) return Reflect.get(target, property);
-          return vi.fn();
-        },
-      },
-    );
-    registerSystemHandlers(options);
-    getStellaAppDir.mockClear();
-    for (const method of Object.values(backupService)) {
-      method.mockClear();
-    }
-
-    await expect(ipc.handles.get(IPC_BACKUP_GET_STATUS)?.({})).resolves.toEqual(
-      {
-        version: 1,
-        enabled: false,
-        lastError: "Legacy backups are disabled.",
-      },
-    );
-    await expect(ipc.handles.get(IPC_BACKUP_RUN_NOW)?.({})).rejects.toThrow(
-      "Legacy backups are disabled.",
-    );
-    await expect(ipc.handles.get(IPC_BACKUP_LIST)?.({}, {})).rejects.toThrow(
-      "Legacy backups are disabled.",
-    );
-    await expect(
-      ipc.handles.get(IPC_BACKUP_RESTORE)?.({}, { snapshotId: "snapshot-1" }),
-    ).rejects.toThrow("Legacy backups are disabled.");
-    expect(ipc.handles.get(IPC_PREFERENCES_GET_SYNC_MODE)?.({})).toBe("off");
-    expect(ipc.handles.get(IPC_PREFERENCES_SET_SYNC_MODE)?.({}, "on")).toBe(
-      "off",
-    );
-
-    expect(getStellaAppDir).not.toHaveBeenCalled();
-    for (const method of Object.values(backupService)) {
-      expect(method).not.toHaveBeenCalled();
-    }
   });
 
   it("executes both media materialization paths with all validation helpers bound", async () => {

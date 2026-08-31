@@ -79,7 +79,6 @@
     "tabs": {
       "general": "Podstawowe",
       "shortcuts": "Skróty",
-      "backup": "Kopie zapasowe",
       "account": "Konto i prawne",
       "audio": "Dźwięk"
     },
@@ -221,59 +220,6 @@
         "update": "Nie udało się zaktualizować skrótu."
       }
     },
-    "backup": {
-      "title": "Kopie zapasowe",
-      "upgradeNotice": "Kopie zapasowe są dostępne w każdym płatnym planie Stelli.",
-      "never": "Nigdy",
-      "automatic": {
-        "label": "Automatyczne kopie zapasowe",
-        "lastLocal": "Ostatnia kopia lokalna: {time}",
-        "lastRemote": "Ostatnia kopia zdalna: {time}",
-        "remoteIssue": "Problem z kopią zdalną: {error}",
-        "off": "Wył.",
-        "hourly": "Automatyczne kopie co godzinę",
-        "ariaLabel": "Kopie zapasowe"
-      },
-      "backupNow": {
-        "label": "Utwórz kopię teraz",
-        "description": "Zapisz kopię zapasową teraz. Jest przesyłana automatycznie, gdy jesteś zalogowany.",
-        "action": "Utwórz kopię teraz",
-        "working": "Tworzenie kopii…"
-      },
-      "saved": {
-        "label": "Zapisane kopie zapasowe",
-        "signedInDescription": "Wybierz kopię do przywrócenia na tym urządzeniu.",
-        "signedOutDescription": "Zaloguj się, aby zapisywać kopie online i przywracać je na dowolnym urządzeniu.",
-        "empty": "Brak jeszcze kopii zdalnych.",
-        "latest": "Najnowsza",
-        "files": "pliki: {count}",
-        "from": "Z: {source}",
-        "restore": "Przywróć",
-        "restoring": "Przywracanie…"
-      },
-      "toasts": {
-        "completedTitle": "Kopia zapasowa ukończona",
-        "queuedTitle": "Kopia zapasowa w kolejce",
-        "deferredTitle": "Kopia zapasowa odroczona",
-        "noneNeededTitle": "Kopia zapasowa niepotrzebna",
-        "failedTitle": "Kopia zapasowa nie powiodła się",
-        "restorePreparedTitle": "Przywracanie przygotowane",
-        "restorePreparedDescription": "Stella uruchomi się ponownie, aby dokończyć stosowanie tej kopii.",
-        "restoreFailedTitle": "Przywracanie nie powiodło się"
-      },
-      "errors": {
-        "load": "Nie udało się wczytać ustawień kopii zapasowych.",
-        "unavailable": "Ustawienia kopii zapasowych są niedostępne w tym oknie.",
-        "signInRequired": "Zaloguj się i wybierz plan Stelli, aby włączyć kopie zapasowe.",
-        "checkingPlan": "Sprawdzanie planu Stelli przed włączeniem kopii zapasowych.",
-        "subscriptionRequired": "Kopie zapasowe wymagają aktywnej subskrypcji Stelli.",
-        "updateMode": "Nie udało się zaktualizować trybu kopii zapasowych.",
-        "backupUnavailable": "Tworzenie kopii jest niedostępne w tym oknie.",
-        "startBackup": "Nie udało się rozpocząć tworzenia kopii.",
-        "restoreUnavailable": "Przywracanie jest niedostępne w tym oknie.",
-        "restore": "Nie udało się przywrócić kopii zapasowej."
-      }
-    },
     "account": {
       "title": "Konto",
       "cloudHome": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Przyznaj dostęp do dostępności, przechwytywania ekranu i mikrofonu w macOS.",
         "shortcuts": "Zmień skróty dyktowania i głosu.",
-        "backup": "Automatyczne szyfrowane kopie zapasowe, punkty przywracania i migawki na żądanie.",
         "account": "Wyloguj się, usuń dane lub trwale usuń konto.",
         "legal": "Warunki korzystania i polityka prywatności.",
         "microphone": "Wybierz urządzenie wejściowe, włącz słowo aktywujące, dźwięki dyktowania i transkrypcję na urządzeniu.",

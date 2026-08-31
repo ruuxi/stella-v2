@@ -4,7 +4,6 @@ import { S3Client } from "@aws-sdk/client-s3";
 import { convexTest } from "convex-test";
 import type { FunctionReference } from "convex/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { seedReadyPurgeBackupSweep } from "../tests/convex_backup_sweep_test_helpers";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
@@ -76,21 +75,6 @@ const lifecycle = (
 
 const purgeFunctions = internal as unknown as {
   account_deletion: {
-    purgeOwnerBackupsInternal: FunctionReference<
-      "action",
-      "internal",
-      Fence & { leaseId: string },
-      null
-    >;
-    _deleteBackupRows: FunctionReference<
-      "mutation",
-      "internal",
-      Fence & {
-        objects: Array<{ id: Id<"backup_objects">; r2Key: string }>;
-        manifests: Array<{ id: Id<"backup_manifests">; r2Key: string }>;
-      },
-      { deleted: number }
-    >;
     remainingOwnerAccountCoreStoresInternal: FunctionReference<
       "query",
       "internal",
@@ -568,168 +552,6 @@ describe("owner purge adversarial invariants", () => {
     }
   });
 
-  it("deletes backup locators only for the exact externally confirmed key", async () => {
-    const t = createTest();
-    const fence = await beginAndClaim(t, "backup-owner", "delete", "core");
-    const { exactId, changedId } = await t.run(async (ctx) => ({
-      exactId: await ctx.db.insert("backup_objects", {
-        ownerId: fence.ownerId,
-        objectId: "exact-object",
-        r2Key: "backups/exact",
-        algorithm: "test",
-        plaintextSha256: "exact",
-        plaintextSize: 1,
-        ivBase64Url: "iv",
-        authTagBase64Url: "tag",
-        createdAt: 1,
-      }),
-      changedId: await ctx.db.insert("backup_objects", {
-        ownerId: fence.ownerId,
-        objectId: "changed-object",
-        r2Key: "backups/current",
-        algorithm: "test",
-        plaintextSha256: "changed",
-        plaintextSize: 1,
-        ivBase64Url: "iv",
-        authTagBase64Url: "tag",
-        createdAt: 2,
-      }),
-    }));
-
-    expect(
-      await t.mutation(purgeFunctions.account_deletion._deleteBackupRows, {
-        ...fence,
-        objects: [
-          { id: exactId, r2Key: "backups/exact" },
-          { id: changedId, r2Key: "backups/stale" },
-        ],
-        manifests: [],
-      }),
-    ).toEqual({ deleted: 1 });
-    expect(
-      await t.run(async (ctx) => ({
-        exact: await ctx.db.get(exactId),
-        changed: await ctx.db.get(changedId),
-      })),
-    ).toMatchObject({ exact: null, changed: { r2Key: "backups/current" } });
-  });
-
-  it("retains backup locators across metadata failure and clears exact readback on replay", async () => {
-    const t = createTest();
-    const fence = await beginAndClaim(
-      t,
-      "backup-physical-delete-owner",
-      "delete",
-      "core",
-    );
-    const rows = await t.run(async (ctx) => ({
-      object: await ctx.db.insert("backup_objects", {
-        ownerId: fence.ownerId,
-        objectId: "private-object",
-        r2Key: "backups/private-object",
-        uploadExpiresAt: 0,
-        algorithm: "test",
-        plaintextSha256: "object-sha",
-        plaintextSize: 10,
-        ivBase64Url: "object-iv",
-        authTagBase64Url: "object-tag",
-        createdAt: 1,
-      }),
-      manifest: await ctx.db.insert("backup_manifests", {
-        ownerId: fence.ownerId,
-        snapshotId: "private-snapshot",
-        snapshotHash: "snapshot-sha",
-        sourceDeviceId: "device",
-        manifestR2Key: "backups/private-manifest",
-        uploadExpiresAt: 0,
-        manifestAlgorithm: "test",
-        manifestPlaintextSha256: "manifest-sha",
-        manifestPlaintextSize: 11,
-        manifestIvBase64Url: "manifest-iv",
-        manifestAuthTagBase64Url: "manifest-tag",
-        entryCount: 1,
-        objectCount: 1,
-        isLatest: true,
-        version: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      }),
-    }));
-    stubComponentR2Env();
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
-      .mockResolvedValueOnce(new Response(null, { status: 404 }))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }));
-    const metadataSpy = vi
-      .spyOn(r2, "deleteObject")
-      .mockRejectedValueOnce(new Error("component metadata unavailable"))
-      .mockResolvedValue(undefined);
-    vi.spyOn(S3Client.prototype, "send").mockResolvedValue({
-      Contents: [],
-      IsTruncated: false,
-      $metadata: { httpStatusCode: 200 },
-    } as never);
-    const args = {
-      ...fence,
-      leaseId: `${fence.ownerId}-core-lease`,
-    };
-
-    await expect(
-      t.action(purgeFunctions.account_deletion.purgeOwnerBackupsInternal, args),
-    ).rejects.toThrow(/legacy backup raw-storage quiescence/u);
-    await t.run(async (ctx) => {
-      const sweep = await ctx.db
-        .query("backup_legacy_r2_sweeps")
-        .withIndex("by_scopeKey", (q) =>
-          q.eq(
-            "scopeKey",
-            `purge:${encodeURIComponent(fence.ownerId)}:${fence.operationId}`,
-          ),
-        )
-        .unique();
-      if (!sweep) throw new Error("Expected purge backup sweep fixture.");
-      await ctx.db.patch(sweep._id, { notBefore: Date.now() - 1 });
-    });
-
-    await expect(
-      t.action(purgeFunctions.account_deletion.purgeOwnerBackupsInternal, args),
-    ).rejects.toThrow(/locator rows were retained/u);
-    await expect(
-      t.run(async (ctx) => ({
-        object: await ctx.db.get(rows.object),
-        manifest: await ctx.db.get(rows.manifest),
-      })),
-    ).resolves.toMatchObject({
-      object: { r2Key: "backups/private-object" },
-      manifest: { manifestR2Key: "backups/private-manifest" },
-    });
-
-    await expect(
-      t.action(purgeFunctions.account_deletion.purgeOwnerBackupsInternal, args),
-    ).resolves.toBeNull();
-    expect(fetchSpy).toHaveBeenCalledTimes(3);
-    expect(metadataSpy).toHaveBeenCalledTimes(3);
-    await expect(
-      t.run(async (ctx) => ({
-        object: await ctx.db.get(rows.object),
-        manifest: await ctx.db.get(rows.manifest),
-      })),
-    ).resolves.toEqual({ object: null, manifest: null });
-    await expect(
-      t.query(
-        purgeFunctions.account_deletion.remainingOwnerAccountCoreStoresInternal,
-        { ownerId: fence.ownerId },
-      ),
-    ).resolves.not.toContain("backup_objects");
-    await expect(
-      t.query(
-        purgeFunctions.account_deletion.remainingOwnerAccountCoreStoresInternal,
-        { ownerId: fence.ownerId },
-      ),
-    ).resolves.not.toContain("backup_manifests");
-  });
-
   it("retains failed canvas R2 locators and deletes them on a confirmed retry", async () => {
     const t = createTest();
     const fence = await beginAndClaim(t, "canvas-owner", "delete", "core");
@@ -1168,13 +990,6 @@ describe("owner purge adversarial invariants", () => {
       "reset",
       "cloud",
     );
-    await t.run(async (ctx) =>
-      seedReadyPurgeBackupSweep(ctx, {
-        ownerId: fence.ownerId,
-        operationId: fence.operationId,
-        generation: fence.generation,
-      }),
-    );
     const rows = await t.run(async (ctx) => ({
       file: await ctx.db.insert("cloud_drive_files", {
         ownerId: fence.ownerId,
@@ -1563,13 +1378,6 @@ describe("owner purge adversarial invariants", () => {
       "delete",
       "cloud",
     );
-    await t.run(async (ctx) =>
-      seedReadyPurgeBackupSweep(ctx, {
-        ownerId: fence.ownerId,
-        operationId: fence.operationId,
-        generation: fence.generation,
-      }),
-    );
     const seeded = await t.run(async (ctx) => {
       const threadId = "legacy-event-lifecycle-thread";
       const thread = await ctx.db.insert("cloud_agent_threads", {
@@ -1658,11 +1466,6 @@ describe("owner purge adversarial invariants", () => {
       "cloud",
     );
     await t.run(async (ctx) => {
-      await seedReadyPurgeBackupSweep(ctx, {
-        ownerId: fence.ownerId,
-        operationId: fence.operationId,
-        generation: fence.generation,
-      });
       await ctx.db.insert("cloud_browser_interactions", {
         interactionId: "interaction:purge",
         ownerId: fence.ownerId,

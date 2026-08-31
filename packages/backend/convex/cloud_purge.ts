@@ -1351,7 +1351,7 @@ const driveObjectRow = v.union(
  * The drive is the one R2 store the builder worker cannot reach: its bucket is
  * bound to the Convex R2 component, not to the worker. So it is drained here,
  * row by row, object first — the row is the only record of the key, exactly as
- * with backup objects in `account_deletion.drainBackups`.
+ * with other component-owned R2 objects.
  *
  * Pending uploads are included: a presigned PUT that landed and was never
  * finalized has bytes in the bucket with only this row naming them.

@@ -5,7 +5,6 @@ import type { FunctionReference } from "convex/server";
 import { beforeAll, describe, expect, it } from "vitest";
 import { internal } from "./_generated/api";
 import schema from "./schema";
-import { seedReadyPurgeBackupSweep } from "../tests/convex_backup_sweep_test_helpers";
 
 const modules = import.meta.glob("./**/*.ts");
 const createTest = () => convexTest(schema, modules);
@@ -358,14 +357,6 @@ describe("owner lifecycle billing fence", () => {
     ).toMatchObject({ claimed: true, complete: false, mode: "reset" });
 
     const nextGeneration = "generation-after-reset";
-    await t.run(async (ctx) => {
-      await seedReadyPurgeBackupSweep(ctx, {
-        ownerId,
-        operationId: purge.operationId,
-        generation: purge.generation,
-        now: 20_004,
-      });
-    });
     expect(
       await t.mutation(lifecycleInternal.finishOwnerCloudPurgeInternal, {
         ownerId,

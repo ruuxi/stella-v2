@@ -79,7 +79,6 @@
     "tabs": {
       "general": "Geral",
       "shortcuts": "Atalhos",
-      "backup": "Backups",
       "account": "Conta e legal",
       "audio": "Áudio"
     },
@@ -221,59 +220,6 @@
         "update": "Falha ao atualizar o atalho."
       }
     },
-    "backup": {
-      "title": "Backups",
-      "upgradeNotice": "Os backups estão incluídos em qualquer plano Stella pago.",
-      "never": "Nunca",
-      "automatic": {
-        "label": "Backups automáticos",
-        "lastLocal": "Último backup local: {time}",
-        "lastRemote": "Último backup remoto: {time}",
-        "remoteIssue": "Problema no backup remoto: {error}",
-        "off": "Desativado",
-        "hourly": "Backups automáticos a cada hora",
-        "ariaLabel": "Backups"
-      },
-      "backupNow": {
-        "label": "Fazer backup agora",
-        "description": "Salva um backup agora mesmo. Ele é enviado automaticamente quando você está conectado.",
-        "action": "Fazer backup agora",
-        "working": "Fazendo backup…"
-      },
-      "saved": {
-        "label": "Backups salvos",
-        "signedInDescription": "Escolha um backup para restaurar neste dispositivo.",
-        "signedOutDescription": "Entre para salvar backups online e restaurá-los em qualquer dispositivo.",
-        "empty": "Ainda não há backups remotos.",
-        "latest": "Mais recente",
-        "files": "{count} arquivos",
-        "from": "De: {source}",
-        "restore": "Restaurar",
-        "restoring": "Restaurando…"
-      },
-      "toasts": {
-        "completedTitle": "Backup concluído",
-        "queuedTitle": "Backup na fila",
-        "deferredTitle": "Backup adiado",
-        "noneNeededTitle": "Nenhum backup necessário",
-        "failedTitle": "Falha no backup",
-        "restorePreparedTitle": "Restauração preparada",
-        "restorePreparedDescription": "A Stella será reiniciada para concluir a aplicação deste backup.",
-        "restoreFailedTitle": "Falha na restauração"
-      },
-      "errors": {
-        "load": "Falha ao carregar as configurações de backup.",
-        "unavailable": "As configurações de backup não estão disponíveis nesta janela.",
-        "signInRequired": "Entre e escolha um plano Stella para ativar os backups.",
-        "checkingPlan": "Verificando seu plano Stella antes de ativar os backups.",
-        "subscriptionRequired": "Os backups exigem uma assinatura Stella ativa.",
-        "updateMode": "Falha ao atualizar o modo de backup.",
-        "backupUnavailable": "O backup não está disponível nesta janela.",
-        "startBackup": "Falha ao iniciar o backup.",
-        "restoreUnavailable": "A restauração não está disponível nesta janela.",
-        "restore": "Falha ao restaurar o backup."
-      }
-    },
     "account": {
       "title": "Conta",
       "cloudHome": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Conceda acesso a acessibilidade, captura de tela e microfone no macOS.",
         "shortcuts": "Altere os atalhos de ditado e voz.",
-        "backup": "Backups criptografados automáticos, pontos de restauração e snapshots sob demanda.",
         "account": "Saia, exclua seus dados ou exclua permanentemente sua conta.",
         "legal": "Termos de Serviço e Política de Privacidade.",
         "microphone": "Escolha o dispositivo de entrada, ative a palavra de ativação, os sons do ditado e a transcrição no dispositivo.",

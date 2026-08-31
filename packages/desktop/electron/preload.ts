@@ -91,10 +91,6 @@ import {
   IPC_AUTH_SESSION_INVALIDATED,
   IPC_AUTH_SIGN_IN_ANONYMOUS,
   IPC_AUTH_SIGN_OUT,
-  IPC_BACKUP_GET_STATUS,
-  IPC_BACKUP_LIST,
-  IPC_BACKUP_RESTORE,
-  IPC_BACKUP_RUN_NOW,
   IPC_DIAGNOSTICS_RECORD_HEAP_TRACE,
   IPC_DIAGNOSTICS_REPORT_ERROR,
   IPC_DIAGNOSTICS_REPORT_TIMING,
@@ -115,14 +111,12 @@ import {
   IPC_PREFERENCES_GET_READ_ALOUD,
   IPC_PREFERENCES_READ_ALOUD_CHANGED,
   IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS,
-  IPC_PREFERENCES_GET_SYNC_MODE,
   IPC_PREFERENCES_SET_MODELS,
   IPC_PREFERENCES_SET_ONBOARDING_COMPLETED,
   IPC_PREFERENCES_SET_PREVENT_SLEEP,
   IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE,
   IPC_PREFERENCES_SET_READ_ALOUD,
   IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS,
-  IPC_PREFERENCES_SET_SYNC_MODE,
   IPC_PREFERENCES_GET_WAKE_WORD,
   IPC_PREFERENCES_SET_WAKE_WORD,
   IPC_CUSTOMIZATIONS_RESET,
@@ -1131,10 +1125,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       }>,
     shellKillByPort: (port: number) =>
       ipcRenderer.invoke("shell:killByPort", { port }),
-    getLocalSyncMode: () =>
-      ipcRenderer.invoke(IPC_PREFERENCES_GET_SYNC_MODE) as Promise<string>,
-    setLocalSyncMode: (mode: string) =>
-      ipcRenderer.invoke(IPC_PREFERENCES_SET_SYNC_MODE, mode),
     getPreventComputerSleep: () =>
       ipcRenderer.invoke(IPC_PREFERENCES_GET_PREVENT_SLEEP) as Promise<boolean>,
     setPreventComputerSleep: (enabled: boolean) =>
@@ -1278,12 +1268,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
         trashDir?: string | null;
         error?: string;
       }>,
-    getBackupStatus: () => ipcRenderer.invoke(IPC_BACKUP_GET_STATUS),
-    backUpNow: () => ipcRenderer.invoke(IPC_BACKUP_RUN_NOW),
-    listBackups: (limit?: number) =>
-      ipcRenderer.invoke(IPC_BACKUP_LIST, { limit }),
-    restoreBackup: (snapshotId: string) =>
-      ipcRenderer.invoke(IPC_BACKUP_RESTORE, { snapshotId }),
     getLocalModelPreferences: () =>
       ipcRenderer.invoke(IPC_PREFERENCES_GET_MODELS) as Promise<{
         defaultModels: Record<string, string>;

@@ -15,7 +15,6 @@ import {
   hashStripePhysicalSuccessLocators,
 } from "./lib/billing_deletion";
 import { ownershipMigrationSourceDigest } from "./lib/auth_migration_paths";
-import { seedReadyPurgeBackupSweep } from "../tests/convex_backup_sweep_test_helpers";
 
 const modules = import.meta.glob(["./**/*.ts", "./**/*.js"]);
 const createTest = () => convexTest(schema, modules);
@@ -5920,14 +5919,6 @@ describe("bounded Stripe lifecycle scans", () => {
       stage: "cloud",
       leaseId: cloudLeaseId,
       now: 10_004,
-    });
-    await t.run(async (ctx) => {
-      await seedReadyPurgeBackupSweep(ctx, {
-        ownerId,
-        operationId: purge.operationId,
-        generation: purge.generation,
-        now: 10_005,
-      });
     });
     await t.mutation(internal.owner_lifecycle.finishOwnerCloudPurgeInternal, {
       ownerId,

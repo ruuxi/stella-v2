@@ -79,7 +79,6 @@
     "tabs": {
       "general": "一般",
       "shortcuts": "快速鍵",
-      "backup": "備份",
       "account": "帳戶與法律",
       "audio": "音訊"
     },
@@ -221,59 +220,6 @@
         "update": "更新捷徑失敗。"
       }
     },
-    "backup": {
-      "title": "備份",
-      "upgradeNotice": "備份包含在任何付費 Stella 方案中。",
-      "never": "從不",
-      "automatic": {
-        "label": "自動備份",
-        "lastLocal": "上次本機備份：{time}",
-        "lastRemote": "上次遠端備份：{time}",
-        "remoteIssue": "遠端備份問題：{error}",
-        "off": "關閉",
-        "hourly": "每小時自動備份",
-        "ariaLabel": "備份"
-      },
-      "backupNow": {
-        "label": "立即備份",
-        "description": "立即儲存一份備份。登入後會自動上傳。",
-        "action": "立即備份",
-        "working": "正在備份…"
-      },
-      "saved": {
-        "label": "已儲存的備份",
-        "signedInDescription": "選擇一份備份以在此裝置上還原。",
-        "signedOutDescription": "登入以線上儲存備份，並在任何裝置上還原。",
-        "empty": "尚無遠端備份。",
-        "latest": "最新",
-        "files": "{count} 個檔案",
-        "from": "來自：{source}",
-        "restore": "還原",
-        "restoring": "正在還原…"
-      },
-      "toasts": {
-        "completedTitle": "備份完成",
-        "queuedTitle": "備份已排入佇列",
-        "deferredTitle": "備份已延後",
-        "noneNeededTitle": "無需備份",
-        "failedTitle": "備份失敗",
-        "restorePreparedTitle": "還原已準備就緒",
-        "restorePreparedDescription": "Stella 將重新啟動以完成此備份的套用。",
-        "restoreFailedTitle": "還原失敗"
-      },
-      "errors": {
-        "load": "載入備份設定失敗。",
-        "unavailable": "此視窗中無法使用備份設定。",
-        "signInRequired": "登入並選擇一個 Stella 方案以開啟備份。",
-        "checkingPlan": "正在開啟備份前檢查你的 Stella 方案。",
-        "subscriptionRequired": "備份需要有效的 Stella 訂閱。",
-        "updateMode": "更新備份模式失敗。",
-        "backupUnavailable": "此視窗中無法使用備份。",
-        "startBackup": "啟動備份失敗。",
-        "restoreUnavailable": "此視窗中無法使用還原。",
-        "restore": "還原備份失敗。"
-      }
-    },
     "account": {
       "title": "帳號",
       "signOut": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "在 macOS 上授予輔助使用、螢幕錄製和麥克風存取權。",
         "shortcuts": "變更聽寫與語音快速鍵。",
-        "backup": "自動加密備份、還原點和隨需快照。",
         "account": "登出、刪除你的資料或永久刪除你的帳號。",
         "legal": "服務條款和隱私權政策。",
         "microphone": "選擇輸入裝置，啟用喚醒詞、聽寫聲音和裝置端轉錄。",

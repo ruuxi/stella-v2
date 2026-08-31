@@ -3,7 +3,6 @@
 import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { seedReadyPurgeBackupSweep } from "../tests/convex_backup_sweep_test_helpers";
 import schema from "./schema";
 import { quiesceOwnerComposioSessionProvisioning } from "./composio_session_dispatch";
 import { runComposioProviderCallBeforeDeadline } from "./http_routes/native_oauth";
@@ -645,13 +644,6 @@ describe("durable Composio session provisioning", () => {
       mode: "reset",
       now: 1,
     })) as { generation: string };
-    await t.run(async (ctx) =>
-      seedReadyPurgeBackupSweep(ctx, {
-        ownerId: auditOwnerId,
-        operationId,
-        generation: lifecycle.generation,
-      }),
-    );
 
     await withEmptyCloudBuilder(async () => {
       await expect(
@@ -683,13 +675,6 @@ describe("durable Composio session provisioning", () => {
       mode: "delete",
       now: 1,
     })) as { generation: string };
-    await t.run(async (ctx) =>
-      seedReadyPurgeBackupSweep(ctx, {
-        ownerId: auditOwnerId,
-        operationId,
-        generation: lifecycle.generation,
-      }),
-    );
 
     await withEmptyCloudBuilder(async () => {
       const args = {

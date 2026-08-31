@@ -7,7 +7,6 @@ import schema from "./schema";
 import { hasVerifiedMigratedStripeChildOwner } from "./account_billing_purge";
 import { ownershipMigrationSourceDigest } from "./lib/auth_migration_paths";
 import { hashStripePhysicalSuccessLocators } from "./lib/billing_deletion";
-import { seedReadyPurgeBackupSweep } from "../tests/convex_backup_sweep_test_helpers";
 
 const modules = import.meta.glob("./**/*.ts");
 const createTest = () => convexTest(schema, modules);
@@ -146,14 +145,6 @@ const resetAndReopenOwner = async (t: TestHarness, ownerId: string) => {
     stage: "cloud",
     leaseId: "reset-cloud-lease",
     now: 20_003,
-  });
-  await t.run(async (ctx) => {
-    await seedReadyPurgeBackupSweep(ctx, {
-      ownerId,
-      operationId: purge.operationId,
-      generation: purge.generation,
-      now: 20_004,
-    });
   });
   await t.mutation(internal.owner_lifecycle.finishOwnerCloudPurgeInternal, {
     ownerId,

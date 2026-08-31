@@ -79,7 +79,6 @@
     "tabs": {
       "general": "Obecné",
       "shortcuts": "Zkratky",
-      "backup": "Zálohy",
       "account": "Účet a právní",
       "audio": "Zvuk"
     },
@@ -221,59 +220,6 @@
         "update": "Nepodařilo se aktualizovat zkratku."
       }
     },
-    "backup": {
-      "title": "Zálohy",
-      "upgradeNotice": "Zálohy jsou součástí každého placeného plánu Stella.",
-      "never": "Nikdy",
-      "automatic": {
-        "label": "Automatické zálohy",
-        "lastLocal": "Poslední místní záloha: {time}",
-        "lastRemote": "Poslední vzdálená záloha: {time}",
-        "remoteIssue": "Problém se vzdálenou zálohou: {error}",
-        "off": "Vypnuto",
-        "hourly": "Automatické zálohy každou hodinu",
-        "ariaLabel": "Zálohy"
-      },
-      "backupNow": {
-        "label": "Zálohovat nyní",
-        "description": "Uloží zálohu hned teď. Po přihlášení se nahraje automaticky.",
-        "action": "Zálohovat nyní",
-        "working": "Zálohování…"
-      },
-      "saved": {
-        "label": "Uložené zálohy",
-        "signedInDescription": "Vyberte zálohu k obnovení na tomto zařízení.",
-        "signedOutDescription": "Přihlaste se, abyste ukládali zálohy online a obnovovali je na jakémkoli zařízení.",
-        "empty": "Zatím žádné vzdálené zálohy.",
-        "latest": "Nejnovější",
-        "files": "souborů: {count}",
-        "from": "Z: {source}",
-        "restore": "Obnovit",
-        "restoring": "Obnovování…"
-      },
-      "toasts": {
-        "completedTitle": "Zálohování dokončeno",
-        "queuedTitle": "Záloha ve frontě",
-        "deferredTitle": "Záloha odložena",
-        "noneNeededTitle": "Záloha není potřeba",
-        "failedTitle": "Zálohování se nezdařilo",
-        "restorePreparedTitle": "Obnovení připraveno",
-        "restorePreparedDescription": "Stella se restartuje, aby dokončila použití této zálohy.",
-        "restoreFailedTitle": "Obnovení se nezdařilo"
-      },
-      "errors": {
-        "load": "Nepodařilo se načíst nastavení záloh.",
-        "unavailable": "Nastavení záloh nejsou v tomto okně dostupná.",
-        "signInRequired": "Přihlaste se a vyberte plán Stella, abyste zapnuli zálohy.",
-        "checkingPlan": "Před zapnutím záloh se kontroluje váš plán Stella.",
-        "subscriptionRequired": "Zálohy vyžadují aktivní předplatné Stella.",
-        "updateMode": "Nepodařilo se aktualizovat režim zálohování.",
-        "backupUnavailable": "Zálohování není v tomto okně dostupné.",
-        "startBackup": "Nepodařilo se spustit zálohování.",
-        "restoreUnavailable": "Obnovení není v tomto okně dostupné.",
-        "restore": "Nepodařilo se obnovit zálohu."
-      }
-    },
     "account": {
       "title": "Účet",
       "cloudHome": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Udělte v systému macOS přístup ke zpřístupnění, záznamu obrazovky a mikrofonu.",
         "shortcuts": "Změňte klávesové zkratky pro diktování a hlas.",
-        "backup": "Automatické šifrované zálohy, body obnovení a snímky na vyžádání.",
         "account": "Odhlaste se, smažte svá data nebo trvale smažte svůj účet.",
         "legal": "Podmínky služby a zásady ochrany osobních údajů.",
         "microphone": "Vyberte vstupní zařízení, povolte aktivační slovo, zvuky diktování a přepis na zařízení.",

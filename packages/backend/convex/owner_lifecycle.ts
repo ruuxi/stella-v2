@@ -639,61 +639,6 @@ export const finishOwnerCloudPurgeInternal = internalMutation({
     ) {
       return false;
     }
-    const backupSweep = await ctx.db
-      .query("backup_legacy_r2_sweeps")
-      .withIndex("by_scopeKey", (q) =>
-        q.eq(
-          "scopeKey",
-          `purge:${encodeURIComponent(args.ownerId)}:${args.operationId}`,
-        ),
-      )
-      .unique();
-    if (!backupSweep) {
-      // A job persisted by the pre-sweep rollout may already be in the cloud
-      // stage. It cannot safely finish without raw-prefix proof, and the cloud
-      // stage cannot create that proof. Rewind the same operation to its
-      // idempotent core drain under the existing lifecycle fence; never waive
-      // the proof and never manufacture a terminal receipt here.
-      await ctx.db.patch(job._id, {
-        stage: "core",
-        leaseId: undefined,
-        leaseExpiresAt: undefined,
-        nextRetryAt: args.now,
-        lastError:
-          "Backup raw-storage proof was not initialized; restarting the fenced core purge.",
-        updatedAt: args.now,
-      });
-      await ctx.scheduler.runAfter(
-        0,
-        internal.owner_lifecycle.resumeOwnerPurgeJobInternal,
-        { ownerId: args.ownerId, operationId: args.operationId },
-      );
-      return false;
-    }
-    if (
-      backupSweep.protocolVersion !== 1 ||
-      !Number.isSafeInteger(backupSweep.revision) ||
-      backupSweep.revision <= 0 ||
-      backupSweep.kind !== "purge" ||
-      backupSweep.operationId !== args.operationId ||
-      backupSweep.sourceOwnerId !== args.ownerId ||
-      backupSweep.sourceOwnerGeneration !== args.generation ||
-      backupSweep.destinationOwnerId !== undefined ||
-      backupSweep.destinationOwnerGeneration !== undefined ||
-      backupSweep.goal !== "empty" ||
-      backupSweep.phase !== "ready" ||
-      !backupSweep.legacyRowFenceComplete
-    ) {
-      throw new ConvexError({
-        code: "BACKUP_LEGACY_SWEEP_INCOMPLETE",
-        message:
-          "The exact backup raw-storage absence proof is not ready for this purge operation.",
-      });
-    }
-    // The proof row and the lifecycle/job rows are read and retired in this
-    // mutation. Convex OCC therefore prevents an ABA replacement or revision
-    // change from racing the terminal reopen/delete publication.
-    await ctx.db.delete(backupSweep._id);
     await ctx.db.patch(job._id, {
       stage: "complete",
       leaseId: undefined,

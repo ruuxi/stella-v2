@@ -79,7 +79,6 @@
     "tabs": {
       "general": "כללי",
       "shortcuts": "קיצורים",
-      "backup": "גיבויים",
       "account": "חשבון ומשפטי",
       "audio": "שמע"
     },
@@ -221,59 +220,6 @@
         "update": "עדכון הקיצור נכשל."
       }
     },
-    "backup": {
-      "title": "גיבויים",
-      "upgradeNotice": "גיבויים כלולים בכל תוכנית Stella בתשלום.",
-      "never": "אף פעם",
-      "automatic": {
-        "label": "גיבויים אוטומטיים",
-        "lastLocal": "גיבוי מקומי אחרון: {time}",
-        "lastRemote": "גיבוי מרוחק אחרון: {time}",
-        "remoteIssue": "בעיה בגיבוי מרוחק: {error}",
-        "off": "כבוי",
-        "hourly": "גיבויים אוטומטיים מדי שעה",
-        "ariaLabel": "גיבויים"
-      },
-      "backupNow": {
-        "label": "גבה עכשיו",
-        "description": "שמור גיבוי כעת. הוא מועלה אוטומטית כשאתה מחובר.",
-        "action": "גבה עכשיו",
-        "working": "מגבה…"
-      },
-      "saved": {
-        "label": "גיבויים שמורים",
-        "signedInDescription": "בחר גיבוי לשחזור במכשיר זה.",
-        "signedOutDescription": "התחבר כדי לשמור גיבויים אונליין ולשחזר אותם בכל מכשיר.",
-        "empty": "אין עדיין גיבויים מרוחקים.",
-        "latest": "האחרון",
-        "files": "{count} קבצים",
-        "from": "מאת: {source}",
-        "restore": "שחזר",
-        "restoring": "משחזר…"
-      },
-      "toasts": {
-        "completedTitle": "הגיבוי הושלם",
-        "queuedTitle": "הגיבוי בתור",
-        "deferredTitle": "הגיבוי נדחה",
-        "noneNeededTitle": "אין צורך בגיבוי",
-        "failedTitle": "הגיבוי נכשל",
-        "restorePreparedTitle": "השחזור הוכן",
-        "restorePreparedDescription": "Stella תופעל מחדש כדי להשלים את החלת הגיבוי הזה.",
-        "restoreFailedTitle": "השחזור נכשל"
-      },
-      "errors": {
-        "load": "טעינת הגדרות הגיבוי נכשלה.",
-        "unavailable": "הגדרות הגיבוי אינן זמינות בחלון זה.",
-        "signInRequired": "התחבר ובחר תוכנית Stella כדי להפעיל גיבויים.",
-        "checkingPlan": "בודק את תוכנית Stella שלך לפני הפעלת הגיבויים.",
-        "subscriptionRequired": "גיבויים דורשים מנוי Stella פעיל.",
-        "updateMode": "עדכון מצב הגיבוי נכשל.",
-        "backupUnavailable": "הגיבוי אינו זמין בחלון זה.",
-        "startBackup": "התחלת הגיבוי נכשלה.",
-        "restoreUnavailable": "השחזור אינו זמין בחלון זה.",
-        "restore": "שחזור הגיבוי נכשל."
-      }
-    },
     "account": {
       "title": "חשבון",
       "signOut": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "הענק גישה לנגישות, צילום מסך ומיקרופון ב-macOS.",
         "shortcuts": "שנה את קיצורי הדרך להכתבה ולקול.",
-        "backup": "גיבויים מוצפנים אוטומטיים, נקודות שחזור ותמונות מצב לפי דרישה.",
         "account": "התנתק, מחק את הנתונים שלך או מחק את החשבון שלך לצמיתות.",
         "legal": "תנאי השירות ומדיניות הפרטיות.",
         "microphone": "בחר את התקן הקלט שלך, הפעל מילת הפעלה, צלילי הכתבה ותמלול במכשיר.",

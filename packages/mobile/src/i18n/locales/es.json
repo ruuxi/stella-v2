@@ -79,7 +79,6 @@
     "tabs": {
       "general": "General",
       "shortcuts": "Atajos",
-      "backup": "Copias de seguridad",
       "account": "Cuenta y legal",
       "audio": "Audio"
     },
@@ -221,59 +220,6 @@
         "update": "No se pudo actualizar el atajo."
       }
     },
-    "backup": {
-      "title": "Copias de seguridad",
-      "upgradeNotice": "Las copias de seguridad se incluyen con cualquier plan de pago de Stella.",
-      "never": "Nunca",
-      "automatic": {
-        "label": "Copias de seguridad automáticas",
-        "lastLocal": "Última copia local: {time}",
-        "lastRemote": "Última copia remota: {time}",
-        "remoteIssue": "Problema con la copia remota: {error}",
-        "off": "Desactivado",
-        "hourly": "Copias automáticas cada hora",
-        "ariaLabel": "Copias de seguridad"
-      },
-      "backupNow": {
-        "label": "Hacer copia ahora",
-        "description": "Guarda una copia de seguridad ahora mismo. Se sube automáticamente cuando inicias sesión.",
-        "action": "Hacer copia ahora",
-        "working": "Haciendo copia…"
-      },
-      "saved": {
-        "label": "Copias guardadas",
-        "signedInDescription": "Elige una copia para restaurarla en este dispositivo.",
-        "signedOutDescription": "Inicia sesión para guardar copias en línea y restaurarlas en cualquier dispositivo.",
-        "empty": "Aún no hay copias remotas.",
-        "latest": "Más reciente",
-        "files": "{count} archivos",
-        "from": "De: {source}",
-        "restore": "Restaurar",
-        "restoring": "Restaurando…"
-      },
-      "toasts": {
-        "completedTitle": "Copia completada",
-        "queuedTitle": "Copia en cola",
-        "deferredTitle": "Copia aplazada",
-        "noneNeededTitle": "No se necesita copia",
-        "failedTitle": "La copia falló",
-        "restorePreparedTitle": "Restauración preparada",
-        "restorePreparedDescription": "Stella se reiniciará para terminar de aplicar esta copia.",
-        "restoreFailedTitle": "La restauración falló"
-      },
-      "errors": {
-        "load": "No se pudieron cargar los ajustes de copia de seguridad.",
-        "unavailable": "Los ajustes de copia de seguridad no están disponibles en esta ventana.",
-        "signInRequired": "Inicia sesión y elige un plan de Stella para activar las copias.",
-        "checkingPlan": "Comprobando tu plan de Stella antes de activar las copias.",
-        "subscriptionRequired": "Las copias de seguridad requieren una suscripción activa de Stella.",
-        "updateMode": "No se pudo actualizar el modo de copia.",
-        "backupUnavailable": "La copia de seguridad no está disponible en esta ventana.",
-        "startBackup": "No se pudo iniciar la copia.",
-        "restoreUnavailable": "La restauración no está disponible en esta ventana.",
-        "restore": "No se pudo restaurar la copia."
-      }
-    },
     "account": {
       "title": "Cuenta",
       "cloudHome": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Concede acceso a accesibilidad, captura de pantalla y micrófono en macOS.",
         "shortcuts": "Cambia los atajos de dictado y voz.",
-        "backup": "Copias de seguridad cifradas automáticas, puntos de restauración e instantáneas bajo demanda.",
         "account": "Cierra sesión, elimina tus datos o elimina permanentemente tu cuenta.",
         "legal": "Términos del servicio y política de privacidad.",
         "microphone": "Elige tu dispositivo de entrada, activa la palabra de activación, los sonidos de dictado y la transcripción en el dispositivo.",

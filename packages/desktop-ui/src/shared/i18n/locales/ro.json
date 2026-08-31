@@ -79,7 +79,6 @@
     "tabs": {
       "general": "General",
       "shortcuts": "Comenzi rapide",
-      "backup": "Copii de rezervă",
       "account": "Cont și legal",
       "audio": "Audio"
     },
@@ -221,59 +220,6 @@
         "update": "Nu s-a putut actualiza scurtătura."
       }
     },
-    "backup": {
-      "title": "Copii de rezervă",
-      "upgradeNotice": "Copiile de rezervă sunt incluse în orice plan Stella plătit.",
-      "never": "Niciodată",
-      "automatic": {
-        "label": "Copii de rezervă automate",
-        "lastLocal": "Ultima copie locală: {time}",
-        "lastRemote": "Ultima copie la distanță: {time}",
-        "remoteIssue": "Problemă cu copia la distanță: {error}",
-        "off": "Dezactivat",
-        "hourly": "Copii de rezervă automate la fiecare oră",
-        "ariaLabel": "Copii de rezervă"
-      },
-      "backupNow": {
-        "label": "Fă o copie acum",
-        "description": "Salvează o copie de rezervă chiar acum. Se încarcă automat când ești conectat.",
-        "action": "Fă o copie acum",
-        "working": "Se face copia…"
-      },
-      "saved": {
-        "label": "Copii salvate",
-        "signedInDescription": "Alege o copie de rezervă pentru a o restaura pe acest dispozitiv.",
-        "signedOutDescription": "Conectează-te pentru a salva copii online și a le restaura pe orice dispozitiv.",
-        "empty": "Încă nu există copii la distanță.",
-        "latest": "Cea mai recentă",
-        "files": "{count} fișiere",
-        "from": "De la: {source}",
-        "restore": "Restaurează",
-        "restoring": "Se restaurează…"
-      },
-      "toasts": {
-        "completedTitle": "Copia de rezervă a fost finalizată",
-        "queuedTitle": "Copie de rezervă în coadă",
-        "deferredTitle": "Copie de rezervă amânată",
-        "noneNeededTitle": "Nu e nevoie de copie de rezervă",
-        "failedTitle": "Copia de rezervă a eșuat",
-        "restorePreparedTitle": "Restaurare pregătită",
-        "restorePreparedDescription": "Stella va reporni pentru a finaliza aplicarea acestei copii de rezervă.",
-        "restoreFailedTitle": "Restaurarea a eșuat"
-      },
-      "errors": {
-        "load": "Nu s-au putut încărca setările copiilor de rezervă.",
-        "unavailable": "Setările copiilor de rezervă nu sunt disponibile în această fereastră.",
-        "signInRequired": "Conectează-te și alege un plan Stella pentru a activa copiile de rezervă.",
-        "checkingPlan": "Se verifică planul Stella înainte de activarea copiilor de rezervă.",
-        "subscriptionRequired": "Copiile de rezervă necesită un abonament Stella activ.",
-        "updateMode": "Nu s-a putut actualiza modul de copiere de rezervă.",
-        "backupUnavailable": "Copierea de rezervă nu este disponibilă în această fereastră.",
-        "startBackup": "Nu s-a putut porni copierea de rezervă.",
-        "restoreUnavailable": "Restaurarea nu este disponibilă în această fereastră.",
-        "restore": "Nu s-a putut restaura copia de rezervă."
-      }
-    },
     "account": {
       "title": "Cont",
       "cloudHome": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Acordă acces la accesibilitate, captură de ecran și microfon pe macOS.",
         "shortcuts": "Modifică scurtăturile pentru dictare și voce.",
-        "backup": "Copii de rezervă criptate automate, puncte de restaurare și instantanee la cerere.",
         "account": "Deconectează-te, șterge-ți datele sau șterge-ți definitiv contul.",
         "legal": "Termeni și condiții și politică de confidențialitate.",
         "microphone": "Alege dispozitivul de intrare, activează cuvântul de activare, sunetele de dictare și transcrierea pe dispozitiv.",

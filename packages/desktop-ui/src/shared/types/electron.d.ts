@@ -112,12 +112,6 @@ type MobileSyncArtifactForSync =
   | DisplayPayload
   | MobileAgentWorkPayloadForSync
   | { id: string; payload: DisplayPayload | MobileAgentWorkPayloadForSync };
-import type {
-  BackupNowResult as SharedBackupNowResult,
-  BackupStatusSnapshot as SharedBackupStatusSnapshot,
-  BackupSummary as SharedBackupSummary,
-  RestoreBackupResult as SharedRestoreBackupResult,
-} from "@stella/contracts/backup";
 
 export type ChatContext = SharedChatContext;
 export type ChatContextFile = SharedChatContextFile;
@@ -152,10 +146,6 @@ export type ScheduledConversationEvent = SharedScheduledConversationEvent;
 export type VoiceRuntimeSnapshot = SharedVoiceRuntimeSnapshot;
 export type OfficePreviewRef = SharedOfficePreviewRef;
 export type OfficePreviewSnapshot = SharedOfficePreviewSnapshot;
-export type BackupNowResult = SharedBackupNowResult;
-export type BackupStatusSnapshot = SharedBackupStatusSnapshot;
-export type BackupSummary = SharedBackupSummary;
-export type RestoreBackupResult = SharedRestoreBackupResult;
 export type VoiceShortcutRegistrationResult = {
   ok: boolean;
   requestedShortcut: string;
@@ -680,8 +670,6 @@ export type ElectronSystemApi = {
   ) => Promise<{ ok: boolean; error?: string }>;
   openPath: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
   shellKillByPort: (port: number) => Promise<void>;
-  getLocalSyncMode: () => Promise<string>;
-  setLocalSyncMode: (mode: string) => Promise<void>;
   getPreventComputerSleep: () => Promise<boolean>;
   setPreventComputerSleep: (enabled: boolean) => Promise<{ enabled: boolean }>;
   getLockedComputerUseStatus: () => Promise<LockedComputerUseStatus>;
@@ -763,10 +751,6 @@ export type ElectronSystemApi = {
     trashDir?: string | null;
     error?: string;
   }>;
-  getBackupStatus: () => Promise<BackupStatusSnapshot>;
-  backUpNow: () => Promise<BackupNowResult>;
-  listBackups: (limit?: number) => Promise<BackupSummary[]>;
-  restoreBackup: (snapshotId: string) => Promise<RestoreBackupResult>;
   getLocalModelPreferences: () => Promise<{
     defaultModels: Record<string, string>;
     modelOverrides: Record<string, string>;

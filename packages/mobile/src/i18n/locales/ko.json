@@ -79,7 +79,6 @@
     "tabs": {
       "general": "기본",
       "shortcuts": "단축키",
-      "backup": "백업",
       "account": "계정 및 법적 고지",
       "audio": "오디오"
     },
@@ -221,59 +220,6 @@
         "update": "단축키를 업데이트하지 못했습니다."
       }
     },
-    "backup": {
-      "title": "백업",
-      "upgradeNotice": "백업은 모든 유료 Stella 요금제에 포함되어 있습니다.",
-      "never": "없음",
-      "automatic": {
-        "label": "자동 백업",
-        "lastLocal": "마지막 로컬 백업: {time}",
-        "lastRemote": "마지막 원격 백업: {time}",
-        "remoteIssue": "원격 백업 문제: {error}",
-        "off": "끔",
-        "hourly": "매시간 자동 백업",
-        "ariaLabel": "백업"
-      },
-      "backupNow": {
-        "label": "지금 백업",
-        "description": "지금 바로 백업을 저장합니다. 로그인되어 있으면 자동으로 업로드됩니다.",
-        "action": "지금 백업",
-        "working": "백업 중…"
-      },
-      "saved": {
-        "label": "저장된 백업",
-        "signedInDescription": "이 기기에서 복원할 백업을 선택하세요.",
-        "signedOutDescription": "로그인하면 백업을 온라인에 저장하고 모든 기기에서 복원할 수 있습니다.",
-        "empty": "아직 원격 백업이 없습니다.",
-        "latest": "최신",
-        "files": "파일 {count}개",
-        "from": "출처: {source}",
-        "restore": "복원",
-        "restoring": "복원 중…"
-      },
-      "toasts": {
-        "completedTitle": "백업 완료",
-        "queuedTitle": "백업 대기열에 추가됨",
-        "deferredTitle": "백업 연기됨",
-        "noneNeededTitle": "백업이 필요 없음",
-        "failedTitle": "백업 실패",
-        "restorePreparedTitle": "복원 준비 완료",
-        "restorePreparedDescription": "이 백업의 적용을 완료하기 위해 Stella가 재시작됩니다.",
-        "restoreFailedTitle": "복원 실패"
-      },
-      "errors": {
-        "load": "백업 설정을 불러오지 못했습니다.",
-        "unavailable": "이 창에서는 백업 설정을 사용할 수 없습니다.",
-        "signInRequired": "백업을 켜려면 로그인하고 Stella 요금제를 선택하세요.",
-        "checkingPlan": "백업을 켜기 전에 Stella 요금제를 확인하는 중입니다.",
-        "subscriptionRequired": "백업에는 활성 Stella 구독이 필요합니다.",
-        "updateMode": "백업 모드를 업데이트하지 못했습니다.",
-        "backupUnavailable": "이 창에서는 백업을 사용할 수 없습니다.",
-        "startBackup": "백업을 시작하지 못했습니다.",
-        "restoreUnavailable": "이 창에서는 복원을 사용할 수 없습니다.",
-        "restore": "백업을 복원하지 못했습니다."
-      }
-    },
     "account": {
       "title": "계정",
       "signOut": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "macOS에서 손쉬운 사용, 화면 기록, 마이크 접근을 허용합니다.",
         "shortcuts": "받아쓰기 및 음성 단축키를 변경합니다.",
-        "backup": "자동 암호화 백업, 복원 지점, 온디맨드 스냅샷.",
         "account": "로그아웃하거나 데이터를 삭제하거나 계정을 영구적으로 삭제합니다.",
         "legal": "서비스 약관 및 개인정보 처리방침.",
         "microphone": "입력 장치를 선택하고 호출어, 받아쓰기 소리, 기기 내 전사를 사용합니다.",

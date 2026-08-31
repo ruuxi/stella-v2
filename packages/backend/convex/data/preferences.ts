@@ -5,7 +5,7 @@ import {
   query,
   type MutationCtx,
 } from "../_generated/server";
-import { v, ConvexError } from "convex/values";
+import { v } from "convex/values";
 import { requireUserId } from "../auth";
 import { enforceMutationRateLimit, RATE_SETTINGS } from "../lib/rate_limits";
 
@@ -20,7 +20,6 @@ const accountModeValidator = v.union(
   v.literal("connected"),
 );
 const ACCOUNT_MODE_KEY = "account_mode";
-const syncModeValidator = v.union(v.literal("on"), v.literal("off"));
 export const PREFERRED_BROWSER_KEY = "preferred_browser";
 
 /**
@@ -83,10 +82,6 @@ const normalizeAccountMode = (
   value: string | null | undefined,
 ): "private_local" | "connected" =>
   value === "connected" ? "connected" : "private_local";
-
-export const normalizeSyncMode = (
-  value: string | null | undefined,
-): "on" | "off" => (value === "on" ? "on" : "off");
 
 export const upsertPreferenceRecord = async (
   ctx: MutationCtx,
@@ -192,29 +187,6 @@ export const setAccountMode = mutation({
   },
 });
 
-export const getSyncMode = query({
-  args: {},
-  returns: syncModeValidator,
-  handler: async () => "off" as const,
-});
-
-export const setSyncMode = mutation({
-  args: {
-    mode: syncModeValidator,
-  },
-  returns: syncModeValidator,
-  handler: async (ctx, args) => {
-    await requireUserId(ctx);
-    if (args.mode === "on") {
-      throw new ConvexError({
-        code: "FEATURE_DISABLED",
-        message: "Legacy backups are disabled.",
-      });
-    }
-    return "off" as const;
-  },
-});
-
 export const setPreferredBrowser = mutation({
   args: {
     browser: preferredBrowserValidator,
@@ -252,14 +224,6 @@ export const getAccountModeForOwner = internalQuery({
       .unique();
     return normalizeAccountMode(record?.value ?? null);
   },
-});
-
-export const getSyncModeForOwner = internalQuery({
-  args: {
-    ownerId: v.string(),
-  },
-  returns: syncModeValidator,
-  handler: async () => "off" as const,
 });
 
 export const getPreferenceForOwner = internalQuery({

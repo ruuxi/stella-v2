@@ -79,7 +79,6 @@
     "tabs": {
       "general": "General",
       "shortcuts": "Shortcuts",
-      "backup": "Backups",
       "account": "Account & Legal",
       "audio": "Audio"
     },
@@ -221,59 +220,6 @@
         "update": "Failed to update shortcut."
       }
     },
-    "backup": {
-      "title": "Backups",
-      "upgradeNotice": "Backups are included with any paid Stella plan.",
-      "never": "Never",
-      "automatic": {
-        "label": "Automatic backups",
-        "lastLocal": "Last local backup: {time}",
-        "lastRemote": "Last remote backup: {time}",
-        "remoteIssue": "Remote backup issue: {error}",
-        "off": "Off",
-        "hourly": "Automatic hourly backups",
-        "ariaLabel": "Backups"
-      },
-      "backupNow": {
-        "label": "Back up now",
-        "description": "Save a backup right now. It uploads automatically when you're signed in.",
-        "action": "Back Up Now",
-        "working": "Backing Up…"
-      },
-      "saved": {
-        "label": "Saved backups",
-        "signedInDescription": "Pick a backup to restore on this device.",
-        "signedOutDescription": "Sign in to save backups online and restore them on any device.",
-        "empty": "No remote backups yet.",
-        "latest": "Latest",
-        "files": "{count} files",
-        "from": "From: {source}",
-        "restore": "Restore",
-        "restoring": "Restoring…"
-      },
-      "toasts": {
-        "completedTitle": "Backup completed",
-        "queuedTitle": "Backup queued",
-        "deferredTitle": "Backup deferred",
-        "noneNeededTitle": "No backup needed",
-        "failedTitle": "Backup failed",
-        "restorePreparedTitle": "Restore prepared",
-        "restorePreparedDescription": "Stella will restart to finish applying this backup.",
-        "restoreFailedTitle": "Restore failed"
-      },
-      "errors": {
-        "load": "Failed to load backup settings.",
-        "unavailable": "Backup settings are unavailable in this window.",
-        "signInRequired": "Sign in and choose a Stella plan to turn on backups.",
-        "checkingPlan": "Checking your Stella plan before turning on backups.",
-        "subscriptionRequired": "Backups require an active Stella subscription.",
-        "updateMode": "Failed to update backup mode.",
-        "backupUnavailable": "Backup is unavailable in this window.",
-        "startBackup": "Failed to start backup.",
-        "restoreUnavailable": "Restore is unavailable in this window.",
-        "restore": "Failed to restore backup."
-      }
-    },
     "account": {
       "title": "Account",
       "signOut": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Grant accessibility, screen capture, and microphone access on macOS.",
         "shortcuts": "Change dictation and voice shortcuts.",
-        "backup": "Automatic encrypted backups, restore points, and on-demand snapshots.",
         "account": "Sign out, delete your data, or permanently delete your account.",
         "legal": "Terms of Service and Privacy Policy.",
         "microphone": "Pick your input device, enable wake word, dictation sounds, and on-device transcription.",

@@ -125,7 +125,7 @@ export type PublicApiType = {
   };
   "cloud_memory": {
     "getMyMemoryPreference": FunctionReference<'query', 'public', { expectedSubject: string; }, any, string | undefined>;
-    "setMyMemoryEnabled": FunctionReference<'mutation', 'public', { requestId: string; memoryEnabled: boolean; expectedRevision: number; expectedSubject: string; expectedOwnerGeneration: string; }, any, string | undefined>;
+    "setMyMemoryEnabled": FunctionReference<'mutation', 'public', { requestId: string; memoryEnabled: boolean; expectedSubject: string; expectedOwnerGeneration: string; expectedRevision: number; }, any, string | undefined>;
     "listMyMemoryDocuments": FunctionReference<'query', 'public', { limit?: number | undefined; }, any, string | undefined>;
     "getMyMemoryDocument": FunctionReference<'query', 'public', { kind: 'profile' | 'memory' | 'memory_map' | 'core_memory' | 'personality' | 'imported_markdown' | 'user_markdown' | 'archive'; name: string; }, any, string | undefined>;
   };
@@ -211,8 +211,6 @@ export type PublicApiType = {
     "preferences": {
       "getAccountMode": FunctionReference<'query', 'public', {}, any, string | undefined>;
       "setAccountMode": FunctionReference<'mutation', 'public', { mode: 'private_local' | 'connected'; }, any, string | undefined>;
-      "getSyncMode": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "setSyncMode": FunctionReference<'mutation', 'public', { mode: 'on' | 'off'; }, any, string | undefined>;
       "setPreferredBrowser": FunctionReference<'mutation', 'public', { browser: 'none' | 'arc' | 'brave' | 'chrome' | 'edge' | 'firefox' | 'opera' | 'safari' | 'vivaldi'; }, any, string | undefined>;
       "getLocale": FunctionReference<'query', 'public', {}, any, string | undefined>;
       "setLocale": FunctionReference<'mutation', 'public', { locale: 'id' | 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt' | 'nl' | 'ru' | 'ja' | 'zh-Hans' | 'zh-Hant' | 'ko' | 'pl' | 'sv' | 'nb' | 'da' | 'fi' | 'cs' | 'el' | 'tr' | 'ro' | 'hu' | 'ar' | 'hi' | 'vi' | 'th' | 'he'; }, any, string | undefined>;
@@ -237,7 +235,7 @@ export type PublicApiType = {
     "getMyExecutionPlacementIdentity": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "listMyExecutionDestinations": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "setMyExecutionDeviceRemoteEnabled": FunctionReference<'mutation', 'public', { deviceId: string; enabled: boolean; }, any, string | undefined>;
-    "registerMyExecutionPresence": FunctionReference<'mutation', 'public', { deviceName?: string | undefined; platform?: string | undefined; presenceTransport?: 'socket' | undefined; deviceId: string; ownerGeneration: string; status: 'ready' | 'draining'; devicePublicKey: string; protocolVersion: number; appVersion: string; sequence: number; presenceSessionId: string; capabilities: ('agent' | 'attachments' | 'chat' | 'computer-use' | 'local-files' | 'local-apps')[]; chatSlotCapacity: number; agentSlotCapacity: number; availableChatSlots: number; availableAgentSlots: number; bodyHash: string; signature: string; }, any, string | undefined>;
+    "registerMyExecutionPresence": FunctionReference<'mutation', 'public', { deviceName?: string | undefined; platform?: string | undefined; presenceTransport?: 'socket' | undefined; deviceId: string; ownerGeneration: string; status: 'ready' | 'draining'; devicePublicKey: string; appVersion: string; sequence: number; presenceSessionId: string; protocolVersion: number; capabilities: ('agent' | 'attachments' | 'chat' | 'computer-use' | 'local-files' | 'local-apps')[]; chatSlotCapacity: number; agentSlotCapacity: number; availableChatSlots: number; availableAgentSlots: number; bodyHash: string; signature: string; }, any, string | undefined>;
     "heartbeatMyExecutionPresence": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; status: 'ready' | 'draining'; sequence: number; presenceSessionId: string; chatSlotCapacity: number; agentSlotCapacity: number; availableChatSlots: number; availableAgentSlots: number; bodyHash: string; signature: string; }, any, string | undefined>;
     "connectMyExecutionPresenceSocket": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; sequence: number; presenceSessionId: string; nonce: string; bodyHash: string; signature: string; connectionId: string; }, any, string | undefined>;
     "drainMyExecutionPresence": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; sequence: number; presenceSessionId: string; bodyHash: string; signature: string; }, any, string | undefined>;

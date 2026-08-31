@@ -79,7 +79,6 @@
     "tabs": {
       "general": "通用",
       "shortcuts": "快捷键",
-      "backup": "备份",
       "account": "账户与法律",
       "audio": "音频"
     },
@@ -221,59 +220,6 @@
         "update": "更新快捷键失败。"
       }
     },
-    "backup": {
-      "title": "备份",
-      "upgradeNotice": "备份包含在任意付费 Stella 套餐中。",
-      "never": "从不",
-      "automatic": {
-        "label": "自动备份",
-        "lastLocal": "上次本地备份：{time}",
-        "lastRemote": "上次远程备份：{time}",
-        "remoteIssue": "远程备份问题：{error}",
-        "off": "关闭",
-        "hourly": "每小时自动备份",
-        "ariaLabel": "备份"
-      },
-      "backupNow": {
-        "label": "立即备份",
-        "description": "立即保存一份备份。登录后会自动上传。",
-        "action": "立即备份",
-        "working": "正在备份…"
-      },
-      "saved": {
-        "label": "已保存的备份",
-        "signedInDescription": "选择一份备份以在此设备上恢复。",
-        "signedOutDescription": "登录以在线保存备份，并在任意设备上恢复。",
-        "empty": "暂无远程备份。",
-        "latest": "最新",
-        "files": "{count} 个文件",
-        "from": "来自：{source}",
-        "restore": "恢复",
-        "restoring": "正在恢复…"
-      },
-      "toasts": {
-        "completedTitle": "备份完成",
-        "queuedTitle": "备份已排队",
-        "deferredTitle": "备份已推迟",
-        "noneNeededTitle": "无需备份",
-        "failedTitle": "备份失败",
-        "restorePreparedTitle": "恢复已准备就绪",
-        "restorePreparedDescription": "Stella 将重启以完成此备份的应用。",
-        "restoreFailedTitle": "恢复失败"
-      },
-      "errors": {
-        "load": "加载备份设置失败。",
-        "unavailable": "此窗口中无法使用备份设置。",
-        "signInRequired": "登录并选择一个 Stella 套餐以开启备份。",
-        "checkingPlan": "正在开启备份前检查你的 Stella 套餐。",
-        "subscriptionRequired": "备份需要有效的 Stella 订阅。",
-        "updateMode": "更新备份模式失败。",
-        "backupUnavailable": "此窗口中无法使用备份。",
-        "startBackup": "启动备份失败。",
-        "restoreUnavailable": "此窗口中无法使用恢复。",
-        "restore": "恢复备份失败。"
-      }
-    },
     "account": {
       "title": "账户",
       "signOut": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "在 macOS 上授予辅助功能、屏幕录制和麦克风访问权限。",
         "shortcuts": "更改听写和语音快捷键。",
-        "backup": "自动加密备份、恢复点和按需快照。",
         "account": "退出登录、删除你的数据或永久删除你的账户。",
         "legal": "服务条款和隐私政策。",
         "microphone": "选择输入设备，启用唤醒词、听写声音和设备端转写。",

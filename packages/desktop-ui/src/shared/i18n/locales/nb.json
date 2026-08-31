@@ -79,7 +79,6 @@
     "tabs": {
       "general": "Generelt",
       "shortcuts": "Snarveier",
-      "backup": "Sikkerhetskopier",
       "account": "Konto og juridisk",
       "audio": "Lyd"
     },
@@ -221,59 +220,6 @@
         "update": "Kunne ikke oppdatere snarveien."
       }
     },
-    "backup": {
-      "title": "Sikkerhetskopier",
-      "upgradeNotice": "Sikkerhetskopier er inkludert i alle betalte Stella-planer.",
-      "never": "Aldri",
-      "automatic": {
-        "label": "Automatiske sikkerhetskopier",
-        "lastLocal": "Siste lokale sikkerhetskopi: {time}",
-        "lastRemote": "Siste eksterne sikkerhetskopi: {time}",
-        "remoteIssue": "Problem med ekstern sikkerhetskopi: {error}",
-        "off": "Av",
-        "hourly": "Automatiske sikkerhetskopier hver time",
-        "ariaLabel": "Sikkerhetskopier"
-      },
-      "backupNow": {
-        "label": "Sikkerhetskopier nå",
-        "description": "Lagre en sikkerhetskopi nå. Den lastes opp automatisk når du er pålogget.",
-        "action": "Sikkerhetskopier nå",
-        "working": "Sikkerhetskopierer…"
-      },
-      "saved": {
-        "label": "Lagrede sikkerhetskopier",
-        "signedInDescription": "Velg en sikkerhetskopi å gjenopprette på denne enheten.",
-        "signedOutDescription": "Logg på for å lagre sikkerhetskopier på nett og gjenopprette dem på alle enheter.",
-        "empty": "Ingen eksterne sikkerhetskopier ennå.",
-        "latest": "Nyeste",
-        "files": "{count} filer",
-        "from": "Fra: {source}",
-        "restore": "Gjenopprett",
-        "restoring": "Gjenoppretter…"
-      },
-      "toasts": {
-        "completedTitle": "Sikkerhetskopi fullført",
-        "queuedTitle": "Sikkerhetskopi i kø",
-        "deferredTitle": "Sikkerhetskopi utsatt",
-        "noneNeededTitle": "Ingen sikkerhetskopi nødvendig",
-        "failedTitle": "Sikkerhetskopiering mislyktes",
-        "restorePreparedTitle": "Gjenoppretting klargjort",
-        "restorePreparedDescription": "Stella starter på nytt for å fullføre bruken av denne sikkerhetskopien.",
-        "restoreFailedTitle": "Gjenoppretting mislyktes"
-      },
-      "errors": {
-        "load": "Kunne ikke laste inn innstillinger for sikkerhetskopiering.",
-        "unavailable": "Innstillinger for sikkerhetskopiering er ikke tilgjengelige i dette vinduet.",
-        "signInRequired": "Logg på og velg en Stella-plan for å slå på sikkerhetskopier.",
-        "checkingPlan": "Sjekker Stella-planen din før sikkerhetskopier slås på.",
-        "subscriptionRequired": "Sikkerhetskopier krever et aktivt Stella-abonnement.",
-        "updateMode": "Kunne ikke oppdatere sikkerhetskopieringsmodus.",
-        "backupUnavailable": "Sikkerhetskopiering er ikke tilgjengelig i dette vinduet.",
-        "startBackup": "Kunne ikke starte sikkerhetskopiering.",
-        "restoreUnavailable": "Gjenoppretting er ikke tilgjengelig i dette vinduet.",
-        "restore": "Kunne ikke gjenopprette sikkerhetskopien."
-      }
-    },
     "account": {
       "title": "Konto",
       "cloudHome": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Gi tilgang til tilgjengelighet, skjermopptak og mikrofon på macOS.",
         "shortcuts": "Endre hurtigtaster for diktering og stemme.",
-        "backup": "Automatiske krypterte sikkerhetskopier, gjenopprettingspunkter og øyeblikksbilder på forespørsel.",
         "account": "Logg av, slett dataene dine eller slett kontoen din permanent.",
         "legal": "Vilkår for bruk og personvernerklæring.",
         "microphone": "Velg inndataenhet, aktiver vekkeord, dikteringslyder og transkripsjon på enheten.",

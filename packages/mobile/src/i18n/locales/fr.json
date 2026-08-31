@@ -79,7 +79,6 @@
     "tabs": {
       "general": "Général",
       "shortcuts": "Raccourcis",
-      "backup": "Sauvegardes",
       "account": "Compte et mentions légales",
       "audio": "Audio"
     },
@@ -221,59 +220,6 @@
         "update": "Échec de la mise à jour du raccourci."
       }
     },
-    "backup": {
-      "title": "Sauvegardes",
-      "upgradeNotice": "Les sauvegardes sont incluses dans tous les forfaits Stella payants.",
-      "never": "Jamais",
-      "automatic": {
-        "label": "Sauvegardes automatiques",
-        "lastLocal": "Dernière sauvegarde locale : {time}",
-        "lastRemote": "Dernière sauvegarde distante : {time}",
-        "remoteIssue": "Problème de sauvegarde distante : {error}",
-        "off": "Désactivé",
-        "hourly": "Sauvegardes automatiques toutes les heures",
-        "ariaLabel": "Sauvegardes"
-      },
-      "backupNow": {
-        "label": "Sauvegarder maintenant",
-        "description": "Enregistre une sauvegarde maintenant. Elle est envoyée automatiquement lorsque vous êtes connecté.",
-        "action": "Sauvegarder maintenant",
-        "working": "Sauvegarde…"
-      },
-      "saved": {
-        "label": "Sauvegardes enregistrées",
-        "signedInDescription": "Choisissez une sauvegarde à restaurer sur cet appareil.",
-        "signedOutDescription": "Connectez-vous pour enregistrer des sauvegardes en ligne et les restaurer sur n'importe quel appareil.",
-        "empty": "Aucune sauvegarde distante pour l'instant.",
-        "latest": "La plus récente",
-        "files": "{count} fichiers",
-        "from": "De : {source}",
-        "restore": "Restaurer",
-        "restoring": "Restauration…"
-      },
-      "toasts": {
-        "completedTitle": "Sauvegarde terminée",
-        "queuedTitle": "Sauvegarde en file d'attente",
-        "deferredTitle": "Sauvegarde différée",
-        "noneNeededTitle": "Aucune sauvegarde nécessaire",
-        "failedTitle": "Échec de la sauvegarde",
-        "restorePreparedTitle": "Restauration préparée",
-        "restorePreparedDescription": "Stella va redémarrer pour terminer l'application de cette sauvegarde.",
-        "restoreFailedTitle": "Échec de la restauration"
-      },
-      "errors": {
-        "load": "Échec du chargement des réglages de sauvegarde.",
-        "unavailable": "Les réglages de sauvegarde ne sont pas disponibles dans cette fenêtre.",
-        "signInRequired": "Connectez-vous et choisissez un forfait Stella pour activer les sauvegardes.",
-        "checkingPlan": "Vérification de votre forfait Stella avant d'activer les sauvegardes.",
-        "subscriptionRequired": "Les sauvegardes nécessitent un abonnement Stella actif.",
-        "updateMode": "Échec de la mise à jour du mode de sauvegarde.",
-        "backupUnavailable": "La sauvegarde n'est pas disponible dans cette fenêtre.",
-        "startBackup": "Échec du démarrage de la sauvegarde.",
-        "restoreUnavailable": "La restauration n'est pas disponible dans cette fenêtre.",
-        "restore": "Échec de la restauration de la sauvegarde."
-      }
-    },
     "account": {
       "title": "Compte",
       "cloudHome": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Accordez l'accès à l'accessibilité, à la capture d'écran et au microphone sur macOS.",
         "shortcuts": "Modifiez les raccourcis de dictée et de voix.",
-        "backup": "Sauvegardes chiffrées automatiques, points de restauration et instantanés à la demande.",
         "account": "Déconnectez-vous, supprimez vos données ou supprimez définitivement votre compte.",
         "legal": "Conditions d'utilisation et politique de confidentialité.",
         "microphone": "Choisissez votre périphérique d'entrée, activez le mot d'activation, les sons de dictée et la transcription sur l'appareil.",

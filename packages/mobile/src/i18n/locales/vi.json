@@ -79,7 +79,6 @@
     "tabs": {
       "general": "Chung",
       "shortcuts": "Phím tắt",
-      "backup": "Sao lưu",
       "account": "Tài khoản & Pháp lý",
       "audio": "Âm thanh"
     },
@@ -221,59 +220,6 @@
         "update": "Không cập nhật được phím tắt."
       }
     },
-    "backup": {
-      "title": "Bản sao lưu",
-      "upgradeNotice": "Bản sao lưu có trong mọi gói Stella trả phí.",
-      "never": "Không bao giờ",
-      "automatic": {
-        "label": "Sao lưu tự động",
-        "lastLocal": "Bản sao lưu cục bộ gần nhất: {time}",
-        "lastRemote": "Bản sao lưu từ xa gần nhất: {time}",
-        "remoteIssue": "Sự cố sao lưu từ xa: {error}",
-        "off": "Tắt",
-        "hourly": "Sao lưu tự động mỗi giờ",
-        "ariaLabel": "Bản sao lưu"
-      },
-      "backupNow": {
-        "label": "Sao lưu ngay",
-        "description": "Lưu một bản sao lưu ngay bây giờ. Bản sao lưu tự động tải lên khi bạn đã đăng nhập.",
-        "action": "Sao lưu ngay",
-        "working": "Đang sao lưu…"
-      },
-      "saved": {
-        "label": "Bản sao lưu đã lưu",
-        "signedInDescription": "Chọn một bản sao lưu để khôi phục trên thiết bị này.",
-        "signedOutDescription": "Đăng nhập để lưu bản sao lưu trực tuyến và khôi phục trên bất kỳ thiết bị nào.",
-        "empty": "Chưa có bản sao lưu từ xa.",
-        "latest": "Mới nhất",
-        "files": "{count} tệp",
-        "from": "Từ: {source}",
-        "restore": "Khôi phục",
-        "restoring": "Đang khôi phục…"
-      },
-      "toasts": {
-        "completedTitle": "Sao lưu hoàn tất",
-        "queuedTitle": "Bản sao lưu trong hàng đợi",
-        "deferredTitle": "Bản sao lưu bị hoãn",
-        "noneNeededTitle": "Không cần sao lưu",
-        "failedTitle": "Sao lưu thất bại",
-        "restorePreparedTitle": "Đã chuẩn bị khôi phục",
-        "restorePreparedDescription": "Stella sẽ khởi động lại để hoàn tất áp dụng bản sao lưu này.",
-        "restoreFailedTitle": "Khôi phục thất bại"
-      },
-      "errors": {
-        "load": "Không tải được cài đặt sao lưu.",
-        "unavailable": "Cài đặt sao lưu không khả dụng trong cửa sổ này.",
-        "signInRequired": "Đăng nhập và chọn một gói Stella để bật sao lưu.",
-        "checkingPlan": "Đang kiểm tra gói Stella của bạn trước khi bật sao lưu.",
-        "subscriptionRequired": "Bản sao lưu yêu cầu đăng ký Stella đang hoạt động.",
-        "updateMode": "Không cập nhật được chế độ sao lưu.",
-        "backupUnavailable": "Sao lưu không khả dụng trong cửa sổ này.",
-        "startBackup": "Không bắt đầu được sao lưu.",
-        "restoreUnavailable": "Khôi phục không khả dụng trong cửa sổ này.",
-        "restore": "Không khôi phục được bản sao lưu."
-      }
-    },
     "account": {
       "title": "Tài khoản",
       "signOut": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Cấp quyền trợ năng, quay màn hình và micrô trên macOS.",
         "shortcuts": "Thay đổi phím tắt đọc chính tả và giọng nói.",
-        "backup": "Bản sao lưu được mã hóa tự động, điểm khôi phục và ảnh chụp theo yêu cầu.",
         "account": "Đăng xuất, xóa dữ liệu của bạn hoặc xóa vĩnh viễn tài khoản của bạn.",
         "legal": "Điều khoản dịch vụ và chính sách quyền riêng tư.",
         "microphone": "Chọn thiết bị đầu vào, bật từ đánh thức, âm thanh đọc chính tả và phiên âm trên thiết bị.",

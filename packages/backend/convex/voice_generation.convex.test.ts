@@ -5,7 +5,6 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { internal } from "./_generated/api";
 import schema from "./schema";
-import { seedReadyPurgeBackupSweep } from "../tests/convex_backup_sweep_test_helpers";
 
 const modules = import.meta.glob("./**/*.ts");
 const createTest = () => {
@@ -91,14 +90,6 @@ const reopenOwnerAfterReset = async (
     stage: "cloud",
     leaseId: "voice-cloud-lease",
     now: 10_003,
-  });
-  await t.run(async (ctx) => {
-    await seedReadyPurgeBackupSweep(ctx, {
-      ownerId,
-      operationId: purge.operationId,
-      generation: purge.generation,
-      now: 10_004,
-    });
   });
   expect(
     await t.mutation(internal.owner_lifecycle.finishOwnerCloudPurgeInternal, {

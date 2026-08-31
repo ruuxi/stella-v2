@@ -79,7 +79,6 @@
     "tabs": {
       "general": "Algemeen",
       "shortcuts": "Sneltoetsen",
-      "backup": "Back-ups",
       "account": "Account & juridisch",
       "audio": "Audio"
     },
@@ -221,59 +220,6 @@
         "update": "Sneltoets bijwerken mislukt."
       }
     },
-    "backup": {
-      "title": "Back-ups",
-      "upgradeNotice": "Back-ups zijn inbegrepen bij elk betaald Stella-abonnement.",
-      "never": "Nooit",
-      "automatic": {
-        "label": "Automatische back-ups",
-        "lastLocal": "Laatste lokale back-up: {time}",
-        "lastRemote": "Laatste externe back-up: {time}",
-        "remoteIssue": "Probleem met externe back-up: {error}",
-        "off": "Uit",
-        "hourly": "Automatische back-ups per uur",
-        "ariaLabel": "Back-ups"
-      },
-      "backupNow": {
-        "label": "Nu back-up maken",
-        "description": "Maak nu een back-up. Deze wordt automatisch geüpload wanneer je bent aangemeld.",
-        "action": "Nu back-up maken",
-        "working": "Back-up maken…"
-      },
-      "saved": {
-        "label": "Opgeslagen back-ups",
-        "signedInDescription": "Kies een back-up om op dit apparaat te herstellen.",
-        "signedOutDescription": "Meld je aan om back-ups online op te slaan en op elk apparaat te herstellen.",
-        "empty": "Nog geen externe back-ups.",
-        "latest": "Nieuwste",
-        "files": "{count} bestanden",
-        "from": "Van: {source}",
-        "restore": "Herstellen",
-        "restoring": "Herstellen…"
-      },
-      "toasts": {
-        "completedTitle": "Back-up voltooid",
-        "queuedTitle": "Back-up in wachtrij",
-        "deferredTitle": "Back-up uitgesteld",
-        "noneNeededTitle": "Geen back-up nodig",
-        "failedTitle": "Back-up mislukt",
-        "restorePreparedTitle": "Herstel voorbereid",
-        "restorePreparedDescription": "Stella wordt opnieuw gestart om deze back-up volledig toe te passen.",
-        "restoreFailedTitle": "Herstel mislukt"
-      },
-      "errors": {
-        "load": "Back-upinstellingen laden mislukt.",
-        "unavailable": "Back-upinstellingen zijn niet beschikbaar in dit venster.",
-        "signInRequired": "Meld je aan en kies een Stella-abonnement om back-ups in te schakelen.",
-        "checkingPlan": "Je Stella-abonnement controleren voordat back-ups worden ingeschakeld.",
-        "subscriptionRequired": "Back-ups vereisen een actief Stella-abonnement.",
-        "updateMode": "Back-upmodus bijwerken mislukt.",
-        "backupUnavailable": "Back-up is niet beschikbaar in dit venster.",
-        "startBackup": "Back-up starten mislukt.",
-        "restoreUnavailable": "Herstellen is niet beschikbaar in dit venster.",
-        "restore": "Back-up herstellen mislukt."
-      }
-    },
     "account": {
       "title": "Account",
       "cloudHome": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Verleen toegang tot toegankelijkheid, schermopname en microfoon op macOS.",
         "shortcuts": "Wijzig de sneltoetsen voor dicteren en spraak.",
-        "backup": "Automatische versleutelde back-ups, herstelpunten en momentopnamen op aanvraag.",
         "account": "Meld je af, verwijder je gegevens of verwijder je account definitief.",
         "legal": "Servicevoorwaarden en privacybeleid.",
         "microphone": "Kies je invoerapparaat, schakel het wekwoord, dicteergeluiden en transcriptie op het apparaat in.",

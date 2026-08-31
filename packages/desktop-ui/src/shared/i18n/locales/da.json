@@ -79,7 +79,6 @@
     "tabs": {
       "general": "Generelt",
       "shortcuts": "Genveje",
-      "backup": "Sikkerhedskopier",
       "account": "Konto og juridisk",
       "audio": "Lyd"
     },
@@ -221,59 +220,6 @@
         "update": "Kunne ikke opdatere genvejen."
       }
     },
-    "backup": {
-      "title": "Sikkerhedskopier",
-      "upgradeNotice": "Sikkerhedskopier er inkluderet i alle betalte Stella-planer.",
-      "never": "Aldrig",
-      "automatic": {
-        "label": "Automatiske sikkerhedskopier",
-        "lastLocal": "Seneste lokale sikkerhedskopi: {time}",
-        "lastRemote": "Seneste fjernsikkerhedskopi: {time}",
-        "remoteIssue": "Problem med fjernsikkerhedskopi: {error}",
-        "off": "Fra",
-        "hourly": "Automatiske sikkerhedskopier hver time",
-        "ariaLabel": "Sikkerhedskopier"
-      },
-      "backupNow": {
-        "label": "Sikkerhedskopiér nu",
-        "description": "Gem en sikkerhedskopi nu. Den uploades automatisk, når du er logget ind.",
-        "action": "Sikkerhedskopiér nu",
-        "working": "Sikkerhedskopierer…"
-      },
-      "saved": {
-        "label": "Gemte sikkerhedskopier",
-        "signedInDescription": "Vælg en sikkerhedskopi, der skal gendannes på denne enhed.",
-        "signedOutDescription": "Log ind for at gemme sikkerhedskopier online og gendanne dem på enhver enhed.",
-        "empty": "Ingen fjernsikkerhedskopier endnu.",
-        "latest": "Seneste",
-        "files": "{count} filer",
-        "from": "Fra: {source}",
-        "restore": "Gendan",
-        "restoring": "Gendanner…"
-      },
-      "toasts": {
-        "completedTitle": "Sikkerhedskopiering fuldført",
-        "queuedTitle": "Sikkerhedskopi i kø",
-        "deferredTitle": "Sikkerhedskopi udskudt",
-        "noneNeededTitle": "Ingen sikkerhedskopi nødvendig",
-        "failedTitle": "Sikkerhedskopiering mislykkedes",
-        "restorePreparedTitle": "Gendannelse forberedt",
-        "restorePreparedDescription": "Stella genstarter for at fuldføre anvendelsen af denne sikkerhedskopi.",
-        "restoreFailedTitle": "Gendannelse mislykkedes"
-      },
-      "errors": {
-        "load": "Kunne ikke indlæse indstillinger for sikkerhedskopiering.",
-        "unavailable": "Indstillinger for sikkerhedskopiering er ikke tilgængelige i dette vindue.",
-        "signInRequired": "Log ind, og vælg en Stella-plan for at slå sikkerhedskopier til.",
-        "checkingPlan": "Kontrollerer din Stella-plan, før sikkerhedskopier slås til.",
-        "subscriptionRequired": "Sikkerhedskopier kræver et aktivt Stella-abonnement.",
-        "updateMode": "Kunne ikke opdatere sikkerhedskopieringstilstand.",
-        "backupUnavailable": "Sikkerhedskopiering er ikke tilgængelig i dette vindue.",
-        "startBackup": "Kunne ikke starte sikkerhedskopiering.",
-        "restoreUnavailable": "Gendannelse er ikke tilgængelig i dette vindue.",
-        "restore": "Kunne ikke gendanne sikkerhedskopien."
-      }
-    },
     "account": {
       "title": "Konto",
       "cloudHome": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Giv adgang til tilgængelighed, skærmoptagelse og mikrofon på macOS.",
         "shortcuts": "Skift genveje til diktering og stemme.",
-        "backup": "Automatiske krypterede sikkerhedskopier, gendannelsespunkter og øjebliksbilleder efter behov.",
         "account": "Log ud, slet dine data, eller slet din konto permanent.",
         "legal": "Servicevilkår og privatlivspolitik.",
         "microphone": "Vælg din inputenhed, aktivér aktiveringsord, dikteringslyde og transskription på enheden.",

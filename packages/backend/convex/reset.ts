@@ -43,37 +43,6 @@ const remainingOwnerComposioProvisioningRef = makeFunctionReference<
 >(
   "composio_session_dispatch:remainingOwnerComposioSessionProvisioningInternal",
 );
-const purgeAbandonedLegacyR2SweepReceiptsRef = makeFunctionReference<
-  "mutation",
-  {
-    ownerId: string;
-    operationId: string;
-    generation: string;
-    leaseId: string;
-    mode: "reset" | "delete";
-  },
-  { hasMore: boolean; deleted: number }
->("backup_legacy_r2_sweep_store:purgeOwnerAbandonedSweepReceiptsInternal");
-
-const backupSweepRetryAfter = (error: unknown): number | undefined => {
-  const data =
-    error && typeof error === "object" && "data" in error
-      ? error.data
-      : undefined;
-  if (
-    !data ||
-    typeof data !== "object" ||
-    !("code" in data) ||
-    data.code !== "BACKUP_LEGACY_SWEEP_PENDING" ||
-    !("retryAfterMs" in data) ||
-    typeof data.retryAfterMs !== "number" ||
-    !Number.isFinite(data.retryAfterMs)
-  ) {
-    return undefined;
-  }
-  return Math.max(1_000, Math.floor(data.retryAfterMs));
-};
-
 /**
  * Per-mutation deletion batch size. Conservative because each `reset.*` call
  * runs inside a single Convex transaction and we want to stay well below the
@@ -342,11 +311,6 @@ const runOwnerReset = async (
         leaseId,
         mode: "reset",
       }),
-      ctx.runAction(internal.account_deletion.purgeOwnerBackupsInternal, {
-        ...fence,
-        leaseId,
-        mode: "reset",
-      }),
     ]);
 
     // Close the admission-to-dispatch edge for creators that reserved their
@@ -363,14 +327,6 @@ const runOwnerReset = async (
       leaseId,
       mode: "reset",
     });
-    while (true) {
-      const swept = await ctx.runMutation(
-        purgeAbandonedLegacyR2SweepReceiptsRef,
-        { ...fence, leaseId, mode: "reset" },
-      );
-      if (!swept.hasMore) break;
-    }
-
     const finalRemoteTurns = await ctx.runMutation(
       internal.channels.connector_delivery
         .quiesceOwnerRemoteTurnsForPurgeInternal,
@@ -469,7 +425,6 @@ const runOwnerReset = async (
     retryStage = "cloud";
     await ctx.runAction(internal.cloud_purge.purgeOwnerCloudStack, fence);
   } catch (error) {
-    const retryAfterMs = backupSweepRetryAfter(error);
     await ctx.runMutation(
       internal.owner_lifecycle.scheduleOwnerPurgeRetryInternal,
       {
@@ -477,7 +432,6 @@ const runOwnerReset = async (
         stage: retryStage,
         leaseId,
         error: error instanceof Error ? error.message : String(error),
-        ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
         now: Date.now(),
       },
     );
@@ -600,52 +554,6 @@ export const remainingOwnerResetStoresInternal = internalQuery({
         ctx.db
           .query("devices")
           .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .first(),
-      ),
-      ownerResidueCheck("backup_key_escrows", () =>
-        ctx.db
-          .query("backup_key_escrows")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .first(),
-      ),
-      ownerResidueCheck("backup_objects", () =>
-        ctx.db
-          .query("backup_objects")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .first(),
-      ),
-      ownerResidueCheck("backup_manifests", () =>
-        ctx.db
-          .query("backup_manifests")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .first(),
-      ),
-      ownerResidueCheck("backup_upload_reservations", () =>
-        ctx.db
-          .query("backup_upload_reservations")
-          .withIndex("by_ownerId_and_uploadExpiresAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .first(),
-      ),
-      ownerResidueCheck("backup_legacy_r2_sweeps_source", () =>
-        ctx.db
-          .query("backup_legacy_r2_sweeps")
-          .withIndex("by_sourceOwnerId_and_kind", (q) =>
-            q.eq("sourceOwnerId", ownerId).eq("kind", "migration"),
-          )
-          .first(),
-      ),
-      ownerResidueCheck("backup_legacy_r2_sweeps_destination", () =>
-        ctx.db
-          .query("backup_legacy_r2_sweeps")
-          .withIndex("by_destinationOwnerId_and_kind", (q) =>
-            q.eq("destinationOwnerId", ownerId).eq("kind", "migration"),
-          )
           .first(),
       ),
       ownerResidueCheck("mobile_pairing_sessions", () =>

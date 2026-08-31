@@ -79,7 +79,6 @@
     "tabs": {
       "general": "Yleiset",
       "shortcuts": "Pikanäppäimet",
-      "backup": "Varmuuskopiot",
       "account": "Tili ja oikeudelliset",
       "audio": "Ääni"
     },
@@ -221,59 +220,6 @@
         "update": "Pikanäppäimen päivitys epäonnistui."
       }
     },
-    "backup": {
-      "title": "Varmuuskopiot",
-      "upgradeNotice": "Varmuuskopiot sisältyvät kaikkiin maksullisiin Stella-tilauksiin.",
-      "never": "Ei koskaan",
-      "automatic": {
-        "label": "Automaattiset varmuuskopiot",
-        "lastLocal": "Viimeisin paikallinen varmuuskopio: {time}",
-        "lastRemote": "Viimeisin etävarmuuskopio: {time}",
-        "remoteIssue": "Etävarmuuskopion ongelma: {error}",
-        "off": "Pois",
-        "hourly": "Automaattiset varmuuskopiot tunneittain",
-        "ariaLabel": "Varmuuskopiot"
-      },
-      "backupNow": {
-        "label": "Varmuuskopioi nyt",
-        "description": "Tallenna varmuuskopio heti. Se ladataan automaattisesti, kun olet kirjautuneena.",
-        "action": "Varmuuskopioi nyt",
-        "working": "Varmuuskopioidaan…"
-      },
-      "saved": {
-        "label": "Tallennetut varmuuskopiot",
-        "signedInDescription": "Valitse varmuuskopio palautettavaksi tällä laitteella.",
-        "signedOutDescription": "Kirjaudu sisään tallentaaksesi varmuuskopiot verkkoon ja palauttaaksesi ne millä tahansa laitteella.",
-        "empty": "Ei vielä etävarmuuskopioita.",
-        "latest": "Uusin",
-        "files": "{count} tiedostoa",
-        "from": "Lähde: {source}",
-        "restore": "Palauta",
-        "restoring": "Palautetaan…"
-      },
-      "toasts": {
-        "completedTitle": "Varmuuskopiointi valmis",
-        "queuedTitle": "Varmuuskopio jonossa",
-        "deferredTitle": "Varmuuskopio lykätty",
-        "noneNeededTitle": "Varmuuskopiota ei tarvita",
-        "failedTitle": "Varmuuskopiointi epäonnistui",
-        "restorePreparedTitle": "Palautus valmisteltu",
-        "restorePreparedDescription": "Stella käynnistyy uudelleen viimeistelläkseen tämän varmuuskopion käyttöönoton.",
-        "restoreFailedTitle": "Palautus epäonnistui"
-      },
-      "errors": {
-        "load": "Varmuuskopioasetusten lataaminen epäonnistui.",
-        "unavailable": "Varmuuskopioasetukset eivät ole käytettävissä tässä ikkunassa.",
-        "signInRequired": "Kirjaudu sisään ja valitse Stella-tilaus ottaaksesi varmuuskopiot käyttöön.",
-        "checkingPlan": "Tarkistetaan Stella-tilaustasi ennen varmuuskopioiden käyttöönottoa.",
-        "subscriptionRequired": "Varmuuskopiot vaativat aktiivisen Stella-tilauksen.",
-        "updateMode": "Varmuuskopiointitilan päivitys epäonnistui.",
-        "backupUnavailable": "Varmuuskopiointi ei ole käytettävissä tässä ikkunassa.",
-        "startBackup": "Varmuuskopioinnin aloitus epäonnistui.",
-        "restoreUnavailable": "Palautus ei ole käytettävissä tässä ikkunassa.",
-        "restore": "Varmuuskopion palautus epäonnistui."
-      }
-    },
     "account": {
       "title": "Tili",
       "cloudHome": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Myönnä macOS:ssä käyttöoikeudet saavutettavuuteen, näytön tallennukseen ja mikrofoniin.",
         "shortcuts": "Muuta sanelun ja puheen pikanäppäimiä.",
-        "backup": "Automaattiset salatut varmuuskopiot, palautuspisteet ja pyynnöstä otettavat tilannevedokset.",
         "account": "Kirjaudu ulos, poista tietosi tai poista tilisi pysyvästi.",
         "legal": "Käyttöehdot ja tietosuojakäytäntö.",
         "microphone": "Valitse syöttölaite ja ota käyttöön herätyssana, sanelun äänet ja laitteella tapahtuva litterointi.",

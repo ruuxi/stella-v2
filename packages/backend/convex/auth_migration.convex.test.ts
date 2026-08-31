@@ -10,7 +10,6 @@ import schema from "./schema";
 import { ownershipMigrationSourceDigest } from "./lib/auth_migration_paths";
 import { createManagedDispatchRequestFingerprint } from "./lib/managed_dispatch";
 import { composioUserIdForOwner } from "./lib/composio_identity";
-import { seedReadyMigrationBackupSweep } from "../tests/convex_backup_sweep_test_helpers";
 
 const modules = import.meta.glob(["./**/*.ts", "./**/*.js"]);
 const createTest = () => {
@@ -414,7 +413,6 @@ describe("crash-safe ownership migration lifecycle", () => {
       const row = await ctx.db.get(claim.migrationId!);
       if (!row) throw new Error("missing linked migration");
       await ctx.db.patch(row._id, { cloudProductStage: "complete" });
-      await seedReadyMigrationBackupSweep(ctx, { migrationId: row._id });
     });
     await t.mutation(migrationInternal.finishOwnershipMigrationPass, {
       fromOwnerId: linkedOwners.fromOwnerId,
@@ -599,159 +597,6 @@ describe("crash-safe ownership migration lifecycle", () => {
         },
       }),
     ).resolves.toBeNull();
-  });
-
-  it("does not gate account linking on dormant retired backup rows", async () => {
-    const t = createTest();
-    const args = {
-      fromOwnerId: "retired-backup-migration-source",
-      toOwnerId: "retired-backup-migration-destination",
-    };
-    await t.run(async (ctx) => {
-      await ctx.db.insert("backup_key_escrows", {
-        ownerId: args.fromOwnerId,
-        ownerGeneration: "legacy",
-        encryptedKey: "dormant-encrypted-key",
-        keyFingerprint: "dormant-key-fingerprint",
-        isCurrent: true,
-        keyVersion: 1,
-        sourceDeviceId: "dormant-device",
-        createdAt: 1,
-        updatedAt: 1,
-      });
-      await ctx.db.insert("backup_objects", {
-        ownerId: args.fromOwnerId,
-        ownerGeneration: "legacy",
-        keyFingerprint: "dormant-key-fingerprint",
-        objectId: "dormant-object",
-        r2Key: "backups/dormant-object",
-        uploadExpiresAt: 100_000,
-        algorithm: "AES-256-GCM",
-        plaintextSha256: "a".repeat(64),
-        plaintextSize: 1,
-        ivBase64Url: "dormant-iv",
-        authTagBase64Url: "dormant-tag",
-        sourceDeviceId: "dormant-device",
-        createdAt: 1,
-      });
-      await ctx.db.insert("backup_manifests", {
-        ownerId: args.fromOwnerId,
-        ownerGeneration: "legacy",
-        keyFingerprint: "dormant-key-fingerprint",
-        snapshotId: "dormant-snapshot",
-        snapshotHash: "b".repeat(64),
-        sourceDeviceId: "dormant-device",
-        manifestR2Key: "backups/dormant-manifest",
-        uploadExpiresAt: 100_000,
-        manifestAlgorithm: "AES-256-GCM",
-        manifestPlaintextSha256: "c".repeat(64),
-        manifestPlaintextSize: 1,
-        manifestIvBase64Url: "dormant-manifest-iv",
-        manifestAuthTagBase64Url: "dormant-manifest-tag",
-        entryCount: 1,
-        objectCount: 1,
-        isLatest: true,
-        version: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      });
-      await ctx.db.insert("backup_upload_reservations", {
-        ownerId: args.fromOwnerId,
-        ownerGeneration: "legacy",
-        keyFingerprint: "dormant-key-fingerprint",
-        kind: "object",
-        snapshotId: "dormant-snapshot",
-        objectId: "dormant-object",
-        r2Key: "backups/dormant-object",
-        uploadExpiresAt: 100_000,
-        createdAt: 1,
-        updatedAt: 1,
-      });
-    });
-
-    await expect(
-      t.query(migrationInternal.auditOwnershipMigrationResidue, args),
-    ).resolves.toEqual({ kind: "clear" });
-
-    await t.run(async (ctx) => {
-      await ctx.db.insert("conversations", {
-        ownerId: args.fromOwnerId,
-        isDefault: false,
-        eventCount: 0,
-        createdAt: 2,
-        updatedAt: 2,
-      });
-    });
-    await expect(
-      t.query(migrationInternal.auditOwnershipMigrationResidue, args),
-    ).resolves.toEqual({ kind: "retry", table: "conversations" });
-  });
-
-  it("removes only the exact obsolete backup sweep when account linking completes", async () => {
-    const t = createTest();
-    const args = {
-      fromOwnerId: "obsolete-sweep-migration-source",
-      toOwnerId: "obsolete-sweep-migration-destination",
-    };
-    await t.mutation(migrationInternal.prepareOwnershipMigration, args);
-    const claim = await t.mutation(migrationInternal.claimOwnershipMigration, {
-      ...args,
-      leaseId: "obsolete-sweep-completion-lease",
-      now: 1_000,
-    });
-    await t.run(async (ctx) => {
-      const migration = await ctx.db.get(claim.migrationId!);
-      if (!migration) throw new Error("missing obsolete-sweep migration");
-      await ctx.db.patch(migration._id, { cloudProductStage: "complete" });
-      const sweep = {
-        protocolVersion: 1,
-        revision: 1,
-        kind: "migration" as const,
-        sourceOwnerId: args.fromOwnerId,
-        sourceOwnerGeneration: claim.fromOwnerGeneration!,
-        destinationOwnerId: args.toOwnerId,
-        destinationOwnerGeneration: claim.toOwnerGeneration!,
-        planRevision: 1,
-        notBefore: 1_000_000,
-        legacyRowFenceComplete: true,
-        legacyRowFenceTargetIndex: 0,
-        goal: "preserve_refs" as const,
-        phase: "cleanup" as const,
-        targetIndex: 0,
-        verifyDirty: false,
-        listedCount: 0,
-        deletedCount: 0,
-        protectedCount: 0,
-        createdAt: 1,
-        updatedAt: 1,
-      };
-      await ctx.db.insert("backup_legacy_r2_sweeps", {
-        ...sweep,
-        scopeKey: `migration:${encodeURIComponent(args.fromOwnerId)}:${String(migration._id)}`,
-        operationId: String(migration._id),
-      });
-      await ctx.db.insert("backup_legacy_r2_sweeps", {
-        ...sweep,
-        scopeKey: "migration:unrelated-source:unrelated-operation",
-        operationId: "unrelated-operation",
-        sourceOwnerId: "unrelated-source",
-        destinationOwnerId: "unrelated-destination",
-      });
-    });
-
-    await t.mutation(migrationInternal.finishOwnershipMigrationPass, {
-      ...args,
-      leaseId: "obsolete-sweep-completion-lease",
-      leaseGeneration: claim.leaseGeneration!,
-      outcome: "complete",
-      now: 2_000,
-    });
-
-    const sweeps = await t.run(async (ctx) =>
-      ctx.db.query("backup_legacy_r2_sweeps").collect(),
-    );
-    expect(sweeps).toHaveLength(1);
-    expect(sweeps[0]?.operationId).toBe("unrelated-operation");
   });
 
   it("waits for managed dispatches on both owners and deletes only quiescent transient receipts", async () => {
@@ -1822,9 +1667,6 @@ describe("crash-safe ownership migration lifecycle", () => {
 
     await t.run(async (ctx) => {
       await ctx.db.patch(running!._id, { cloudProductStage: "complete" });
-      await seedReadyMigrationBackupSweep(ctx, {
-        migrationId: running!._id,
-      });
     });
 
     await t.mutation(migrationInternal.finishOwnershipMigrationPass, {

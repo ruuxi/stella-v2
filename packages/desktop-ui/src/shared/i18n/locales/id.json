@@ -79,7 +79,6 @@
     "tabs": {
       "general": "Umum",
       "shortcuts": "Pintasan",
-      "backup": "Cadangan",
       "account": "Akun & legal",
       "audio": "Audio"
     },
@@ -221,59 +220,6 @@
         "update": "Gagal memperbarui pintasan."
       }
     },
-    "backup": {
-      "title": "Cadangan",
-      "upgradeNotice": "Cadangan termasuk dalam paket Stella berbayar mana pun.",
-      "never": "Tidak pernah",
-      "automatic": {
-        "label": "Cadangan otomatis",
-        "lastLocal": "Cadangan lokal terakhir: {time}",
-        "lastRemote": "Cadangan jarak jauh terakhir: {time}",
-        "remoteIssue": "Masalah cadangan jarak jauh: {error}",
-        "off": "Nonaktif",
-        "hourly": "Cadangan otomatis setiap jam",
-        "ariaLabel": "Cadangan"
-      },
-      "backupNow": {
-        "label": "Cadangkan sekarang",
-        "description": "Simpan cadangan sekarang. Otomatis diunggah saat Anda masuk.",
-        "action": "Cadangkan sekarang",
-        "working": "Mencadangkan…"
-      },
-      "saved": {
-        "label": "Cadangan tersimpan",
-        "signedInDescription": "Pilih cadangan untuk dipulihkan di perangkat ini.",
-        "signedOutDescription": "Masuk untuk menyimpan cadangan secara online dan memulihkannya di perangkat mana pun.",
-        "empty": "Belum ada cadangan jarak jauh.",
-        "latest": "Terbaru",
-        "files": "{count} berkas",
-        "from": "Dari: {source}",
-        "restore": "Pulihkan",
-        "restoring": "Memulihkan…"
-      },
-      "toasts": {
-        "completedTitle": "Pencadangan selesai",
-        "queuedTitle": "Cadangan dalam antrean",
-        "deferredTitle": "Cadangan ditunda",
-        "noneNeededTitle": "Tidak perlu cadangan",
-        "failedTitle": "Pencadangan gagal",
-        "restorePreparedTitle": "Pemulihan disiapkan",
-        "restorePreparedDescription": "Stella akan dimulai ulang untuk menyelesaikan penerapan cadangan ini.",
-        "restoreFailedTitle": "Pemulihan gagal"
-      },
-      "errors": {
-        "load": "Gagal memuat pengaturan cadangan.",
-        "unavailable": "Pengaturan cadangan tidak tersedia di jendela ini.",
-        "signInRequired": "Masuk dan pilih paket Stella untuk mengaktifkan cadangan.",
-        "checkingPlan": "Memeriksa paket Stella Anda sebelum mengaktifkan cadangan.",
-        "subscriptionRequired": "Cadangan memerlukan langganan Stella aktif.",
-        "updateMode": "Gagal memperbarui mode pencadangan.",
-        "backupUnavailable": "Pencadangan tidak tersedia di jendela ini.",
-        "startBackup": "Gagal memulai pencadangan.",
-        "restoreUnavailable": "Pemulihan tidak tersedia di jendela ini.",
-        "restore": "Gagal memulihkan cadangan."
-      }
-    },
     "account": {
       "title": "Akun",
       "signOut": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Berikan akses ke aksesibilitas, rekam layar, dan mikrofon di macOS.",
         "shortcuts": "Ubah pintasan dikte dan suara.",
-        "backup": "Cadangan terenkripsi otomatis, titik pemulihan, dan snapshot sesuai permintaan.",
         "account": "Keluar, hapus data Anda, atau hapus akun Anda secara permanen.",
         "legal": "Ketentuan Layanan dan Kebijakan Privasi.",
         "microphone": "Pilih perangkat masukan Anda, aktifkan kata pemicu, suara dikte, dan transkripsi di perangkat.",

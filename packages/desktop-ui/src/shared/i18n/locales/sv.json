@@ -79,7 +79,6 @@
     "tabs": {
       "general": "Allmänt",
       "shortcuts": "Genvägar",
-      "backup": "Säkerhetskopior",
       "account": "Konto & juridiskt",
       "audio": "Ljud"
     },
@@ -221,59 +220,6 @@
         "update": "Det gick inte att uppdatera kortkommandot."
       }
     },
-    "backup": {
-      "title": "Säkerhetskopior",
-      "upgradeNotice": "Säkerhetskopior ingår i alla betalda Stella-planer.",
-      "never": "Aldrig",
-      "automatic": {
-        "label": "Automatiska säkerhetskopior",
-        "lastLocal": "Senaste lokala säkerhetskopia: {time}",
-        "lastRemote": "Senaste fjärrsäkerhetskopia: {time}",
-        "remoteIssue": "Problem med fjärrsäkerhetskopia: {error}",
-        "off": "Av",
-        "hourly": "Automatiska säkerhetskopior varje timme",
-        "ariaLabel": "Säkerhetskopior"
-      },
-      "backupNow": {
-        "label": "Säkerhetskopiera nu",
-        "description": "Spara en säkerhetskopia nu. Den laddas upp automatiskt när du är inloggad.",
-        "action": "Säkerhetskopiera nu",
-        "working": "Säkerhetskopierar…"
-      },
-      "saved": {
-        "label": "Sparade säkerhetskopior",
-        "signedInDescription": "Välj en säkerhetskopia att återställa på den här enheten.",
-        "signedOutDescription": "Logga in för att spara säkerhetskopior online och återställa dem på vilken enhet som helst.",
-        "empty": "Inga fjärrsäkerhetskopior ännu.",
-        "latest": "Senaste",
-        "files": "{count} filer",
-        "from": "Från: {source}",
-        "restore": "Återställ",
-        "restoring": "Återställer…"
-      },
-      "toasts": {
-        "completedTitle": "Säkerhetskopiering klar",
-        "queuedTitle": "Säkerhetskopia i kö",
-        "deferredTitle": "Säkerhetskopiering uppskjuten",
-        "noneNeededTitle": "Ingen säkerhetskopia behövs",
-        "failedTitle": "Säkerhetskopiering misslyckades",
-        "restorePreparedTitle": "Återställning förberedd",
-        "restorePreparedDescription": "Stella startar om för att slutföra tillämpningen av den här säkerhetskopian.",
-        "restoreFailedTitle": "Återställning misslyckades"
-      },
-      "errors": {
-        "load": "Det gick inte att läsa in inställningar för säkerhetskopiering.",
-        "unavailable": "Inställningar för säkerhetskopiering är inte tillgängliga i det här fönstret.",
-        "signInRequired": "Logga in och välj en Stella-plan för att aktivera säkerhetskopior.",
-        "checkingPlan": "Kontrollerar din Stella-plan innan säkerhetskopior aktiveras.",
-        "subscriptionRequired": "Säkerhetskopior kräver en aktiv Stella-prenumeration.",
-        "updateMode": "Det gick inte att uppdatera säkerhetskopieringsläget.",
-        "backupUnavailable": "Säkerhetskopiering är inte tillgänglig i det här fönstret.",
-        "startBackup": "Det gick inte att starta säkerhetskopieringen.",
-        "restoreUnavailable": "Återställning är inte tillgänglig i det här fönstret.",
-        "restore": "Det gick inte att återställa säkerhetskopian."
-      }
-    },
     "account": {
       "title": "Konto",
       "cloudHome": {
@@ -411,7 +357,6 @@
       "descriptions": {
         "permissions": "Bevilja åtkomst till hjälpmedel, skärminspelning och mikrofon på macOS.",
         "shortcuts": "Ändra kortkommandon för diktering och röst.",
-        "backup": "Automatiska krypterade säkerhetskopior, återställningspunkter och ögonblicksbilder på begäran.",
         "account": "Logga ut, radera dina data eller radera ditt konto permanent.",
         "legal": "Användarvillkor och integritetspolicy.",
         "microphone": "Välj inmatningsenhet, aktivera väckningsord, dikteringsljud och transkribering på enheten.",

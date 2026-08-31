@@ -184,8 +184,6 @@ export const IPC_SHELL_KILL_BY_PORT = "shell:killByPort" as const;
 export const IPC_SHELL_LIST_OPENERS = "shell:listExternalOpeners" as const;
 export const IPC_SHELL_OPEN_WITH = "shell:openWithExternal" as const;
 export const IPC_SHELL_OPEN_PATH = "shell:openPath" as const;
-export const IPC_PREFERENCES_GET_SYNC_MODE = "preferences:getSyncMode" as const;
-export const IPC_PREFERENCES_SET_SYNC_MODE = "preferences:setSyncMode" as const;
 export const IPC_PREFERENCES_GET_MODELS =
   "preferences:getLocalModelPreferences" as const;
 export const IPC_PREFERENCES_SET_MODELS =
@@ -239,10 +237,6 @@ export const IPC_PET_REQUEST_DICTATION = "pet:requestDictation" as const;
 /** Main → renderer broadcast: pet-mic dictation is currently
  *  recording. Drives the pet's "Sending to Stella…" status pill. */
 export const IPC_PET_DICTATION_ACTIVE = "pet:dictationActive" as const;
-export const IPC_BACKUP_GET_STATUS = "backup:getStatus" as const;
-export const IPC_BACKUP_RUN_NOW = "backup:runNow" as const;
-export const IPC_BACKUP_LIST = "backup:list" as const;
-export const IPC_BACKUP_RESTORE = "backup:restore" as const;
 export const IPC_LLM_CREDENTIALS_LIST = "llmCredentials:list" as const;
 export const IPC_LLM_CREDENTIALS_LIST_OAUTH_PROVIDERS =
   "llmCredentials:listOAuthProviders" as const;

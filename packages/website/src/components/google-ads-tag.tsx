@@ -1,8 +1,11 @@
 "use client";
 
 import Script from "next/script";
+import { useEffect } from "react";
 
 const GOOGLE_ADS_ID = "AW-18375048850";
+const GOOGLE_ADS_SCRIPT_ID = "google-ads-tag";
+const GOOGLE_ADS_LOAD_DELAY_MS = 3000;
 const DOWNLOAD_CONVERSION_DESTINATION =
   "AW-18375048850/CrdSCMj5-d8cEJL987lE";
 const SIGNUP_CONVERSION_DESTINATION = "AW-18375048850/6cIuCJjxhuAcEJL987lE";
@@ -23,23 +26,59 @@ declare global {
  * visitor reaches after the initial ad click.
  */
 export function GoogleAdsTag() {
+  useEffect(() => {
+    let timer = 0;
+
+    const load = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = 0;
+      window.removeEventListener("pointerdown", load);
+      window.removeEventListener("keydown", load);
+      window.removeEventListener("touchstart", load);
+
+      if (document.getElementById(GOOGLE_ADS_SCRIPT_ID)) return;
+      const script = document.createElement("script");
+      script.id = GOOGLE_ADS_SCRIPT_ID;
+      script.async = true;
+      script.src = `https://www.googletagmanager.com/gtag/js?id=${GOOGLE_ADS_ID}`;
+      document.head.appendChild(script);
+    };
+
+    const schedule = () => {
+      timer = window.setTimeout(load, GOOGLE_ADS_LOAD_DELAY_MS);
+    };
+
+    if (document.readyState === "complete") schedule();
+    else window.addEventListener("load", schedule, { once: true });
+
+    // An engaged visitor should never wait for the fallback timer. The queue
+    // below is already live, so a click-triggered conversion is retained while
+    // the external script downloads.
+    window.addEventListener("pointerdown", load, { once: true, passive: true });
+    window.addEventListener("keydown", load, { once: true });
+    window.addEventListener("touchstart", load, { once: true, passive: true });
+
+    return () => {
+      if (timer) window.clearTimeout(timer);
+      window.removeEventListener("load", schedule);
+      window.removeEventListener("pointerdown", load);
+      window.removeEventListener("keydown", load);
+      window.removeEventListener("touchstart", load);
+    };
+  }, []);
+
   return (
-    <>
-      <Script
-        id="google-ads-tag"
-        src={`https://www.googletagmanager.com/gtag/js?id=${GOOGLE_ADS_ID}`}
-        strategy="afterInteractive"
-      />
-      <Script id="google-ads-config" strategy="afterInteractive">
-        {`
+    /* Install Google's queue immediately after hydration. Conversion calls
+       made before gtag.js arrives are retained and drained by the library. */
+    <Script id="google-ads-config" strategy="afterInteractive">
+      {`
           window.dataLayer = window.dataLayer || [];
           function gtag(){dataLayer.push(arguments);}
           window.gtag = gtag;
           gtag('js', new Date());
           gtag('config', '${GOOGLE_ADS_ID}');
         `}
-      </Script>
-    </>
+    </Script>
   );
 }
 

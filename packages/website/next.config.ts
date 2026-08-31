@@ -5,6 +5,11 @@ const REVALIDATING_ASSET_CACHE =
   "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Keep route and component CSS in import-order chunks instead of merging
+    // unrelated route styles into the homepage's paint-blocking stylesheet.
+    cssChunking: "strict",
+  },
   turbopack: {
     // Dependencies and the lockfile live at the workspace root.
     root: path.resolve(__dirname, "../.."),

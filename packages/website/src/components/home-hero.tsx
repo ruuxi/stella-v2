@@ -1,5 +1,3 @@
-"use client";
-
 import { AuroraCanvas } from "./aurora-canvas";
 import { DownloadButton } from "./download-button";
 import { WindowsInstallNote } from "./windows-install-note";

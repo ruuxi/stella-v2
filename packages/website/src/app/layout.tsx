@@ -18,7 +18,7 @@ const sans = Manrope({
   variable: "--font-sans",
   subsets: ["latin"],
   display: "swap",
-  preload: true,
+  preload: false,
   adjustFontFallback: true,
 });
 
@@ -31,9 +31,10 @@ const display = Cormorant_Garamond({
   subsets: ["latin"],
   display: "swap",
   style: ["normal", "italic"],
-  // This display face is not needed for the first paint on every route.
-  // Avoid competing with the primary UI font and route imagery globally.
-  preload: false,
+  // The display face paints the global header wordmark, which is the measured
+  // mobile LCP element, as well as the homepage hero. Discover it in the HTML
+  // instead of waiting for the route stylesheet to reveal the font URLs.
+  preload: true,
   adjustFontFallback: true,
 });
 

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "build-google-ads-import": "bun scripts/build-google-ads-import.mjs",
     "start": "next start",
     "lint": "eslint",

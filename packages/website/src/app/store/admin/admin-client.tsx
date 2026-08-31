@@ -25,9 +25,6 @@ import { StoreMarkdown } from "../components/store-markdown";
  * (`data/store_admin`) by the caller's account email.
  */
 export function StoreAdminClient() {
-  const auth = useConvexAuth();
-  const isAdmin = useQuery(isStoreAdmin, isConvexConfigured() ? {} : "skip");
-
   if (!isConvexConfigured()) {
     return (
       <AdminShell>
@@ -39,6 +36,13 @@ export function StoreAdminClient() {
       </AdminShell>
     );
   }
+
+  return <ConfiguredStoreAdminClient />;
+}
+
+function ConfiguredStoreAdminClient() {
+  const auth = useConvexAuth();
+  const isAdmin = useQuery(isStoreAdmin, {});
 
   if (auth.isLoading || isAdmin === undefined) {
     return (

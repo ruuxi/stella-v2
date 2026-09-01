@@ -5,6 +5,9 @@ coexist with Composio and migrate **connector-by-connector**. Public connector
 IDs, action schemas, and the Store surface are unchanged; only the backend
 _executor_ moves.
 
+Program status and the authoritative 59-connector inventory are in the
+[connector handoff](handoff/README.md).
+
 This is Wave 1A (shared OAuth transactions, hosted callback, encrypted vault,
 adapter/route registry, rollout controls). Provider-family adapters (Google
 Workspace, Microsoft, social, SaaS) plug into the seams listed at the bottom.

@@ -24,6 +24,19 @@ export const ACCEPTANCE_TRUSTED_APPS_HOST_ORIGIN =
 export const ACCEPTANCE_CLOUD_BUILDER_ORIGIN =
   "https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev" as const;
 
+export const PRODUCTION_APPS_HOST_DEPLOYMENT_IDENTITY =
+  "prod:intent-jackal-330" as const;
+export const PRODUCTION_APPS_HOST_CONVEX_SITE_ORIGIN =
+  "https://intent-jackal-330.convex.site" as const;
+export const PRODUCTION_APPS_HOST_CONVEX_CLOUD_ORIGIN =
+  "https://intent-jackal-330.convex.cloud" as const;
+export const PRODUCTION_APPS_HOST_ORIGIN =
+  "https://stella-v2-apps-host-prod.lolruuxi.workers.dev" as const;
+export const PRODUCTION_TRUSTED_APPS_HOST_ORIGIN =
+  "https://stella-v2-apps-auth-prod.lolruuxi.workers.dev" as const;
+export const PRODUCTION_CLOUD_BUILDER_ORIGIN =
+  "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev" as const;
+
 const TRUSTED_APPS_HOST_PROFILES = [
   {
     deploymentIdentity: DEV_APPS_HOST_DEPLOYMENT_IDENTITY,
@@ -40,6 +53,14 @@ const TRUSTED_APPS_HOST_PROFILES = [
     appsHostOrigin: ACCEPTANCE_APPS_HOST_ORIGIN,
     trustedAppsHostOrigin: ACCEPTANCE_TRUSTED_APPS_HOST_ORIGIN,
     cloudBuilderOrigin: ACCEPTANCE_CLOUD_BUILDER_ORIGIN,
+  },
+  {
+    deploymentIdentity: PRODUCTION_APPS_HOST_DEPLOYMENT_IDENTITY,
+    convexSiteOrigin: PRODUCTION_APPS_HOST_CONVEX_SITE_ORIGIN,
+    convexCloudOrigin: PRODUCTION_APPS_HOST_CONVEX_CLOUD_ORIGIN,
+    appsHostOrigin: PRODUCTION_APPS_HOST_ORIGIN,
+    trustedAppsHostOrigin: PRODUCTION_TRUSTED_APPS_HOST_ORIGIN,
+    cloudBuilderOrigin: PRODUCTION_CLOUD_BUILDER_ORIGIN,
   },
 ] as const;
 
@@ -98,7 +119,7 @@ export const resolvesToManagedAppsHostOrigin = (value: string): boolean =>
 
 /**
  * Return the single Apps host origin authorized by an exact checked-in
- * non-production deployment tuple. Missing or mixed deployment metadata
+ * deployment tuple. Missing or mixed deployment metadata
  * intentionally returns null; callers must not infer an environment from a
  * hostname or fall back to another Convex deployment.
  */

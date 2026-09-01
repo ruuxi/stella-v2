@@ -58,8 +58,8 @@ vi.mock("@/features/cloud/cloud-config", () => ({
   cloudAppUrl: () => null,
 }));
 
-vi.mock("@/global/auth/hooks/use-cloud-mode", () => ({
-  useCloudMode: () => ({ accountScope: "account:owner-one" }),
+vi.mock("@/global/auth/hooks/use-cloud-conversation-session", () => ({
+  useCloudConversationSession: () => ({ accountScope: "account:owner-one" }),
 }));
 
 vi.mock("@/global/auth/services/auth-token", () => ({

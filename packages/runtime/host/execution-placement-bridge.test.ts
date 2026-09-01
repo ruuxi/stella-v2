@@ -199,6 +199,25 @@ describe("execution placement durable inbox", () => {
 });
 
 describe("execution placement runtime bridge", () => {
+  test("routes anonymous cloud chat through the restricted browser admission", () => {
+    const source = readFileSync(new URL("./index.js", import.meta.url), "utf8");
+    const start = source.indexOf("async startPlacedChat(payload, target) {");
+    const end = source.indexOf("async healthCheck()", start);
+    const placedChatSource = source.slice(start, end);
+
+    expect(placedChatSource).toContain(
+      'target.mode === "cloud" && !this.configCache.hasConnectedAccount',
+    );
+    expect(placedChatSource).toContain(
+      "anyApi.execution_placement.submitMyBrowserExecution",
+    );
+    expect(placedChatSource).toContain('subject: "cloud"');
+    expect(placedChatSource).toContain('requiredCapabilities: ["chat"]');
+    expect(placedChatSource).toContain(
+      "this.hostExecutionPlacementBridge.submitDesktopExecution",
+    );
+  });
+
   test("host routes placement agents through one exact run/cancel owner", () => {
     const source = readFileSync(new URL("./index.js", import.meta.url), "utf8");
     const bridgeStart = source.indexOf("async syncHostExecutionPlacement() {");

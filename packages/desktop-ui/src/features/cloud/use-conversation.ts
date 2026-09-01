@@ -25,7 +25,7 @@ import {
   useQuery,
   type RequestForQueries,
 } from "convex/react";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { cloudApi } from "./cloud-api";
 import {
   getCloudExecutionSelectionSnapshot,
@@ -84,17 +84,17 @@ const UNSUPPORTED_CONFIG: CloudRealtimeConfig = {
  * cost the user their cloud tail, not the whole shell.
  */
 export const useCloudRealtimeConfig = (): CloudRealtimeConfig => {
-  const { cloudMode } = useCloudMode();
+  const { isCloudConversationReady } = useCloudConversationSession();
   const request = useMemo<RequestForQueries>(() => {
     const queries: RequestForQueries = {};
-    if (cloudMode) {
+    if (isCloudConversationReady) {
       queries.realtime = { query: cloudApi.getCloudRealtimeConfig, args: {} };
     }
     return queries;
-  }, [cloudMode]);
+  }, [isCloudConversationReady]);
   const results = useQueries(request);
   const config = useMemo(() => {
-    if (!cloudMode) return OFFLINE_CONFIG;
+    if (!isCloudConversationReady) return OFFLINE_CONFIG;
     const value = results.realtime;
     if (value === undefined) return OFFLINE_CONFIG;
     if (value instanceof Error) return UNSUPPORTED_CONFIG;
@@ -110,13 +110,13 @@ export const useCloudRealtimeConfig = (): CloudRealtimeConfig => {
           : null,
       resolved: true,
     };
-  }, [cloudMode, results.realtime]);
+  }, [isCloudConversationReady, results.realtime]);
   useEffect(() => {
-    if (!cloudMode || !config.resolved) return;
+    if (!isCloudConversationReady || !config.resolved) return;
     reportCloudReadiness("cloud.realtime-config", {
       outcome: config.socketBaseUrl ? "success" : "unavailable",
     });
-  }, [cloudMode, config.resolved, config.socketBaseUrl]);
+  }, [isCloudConversationReady, config.resolved, config.socketBaseUrl]);
   return config;
 };
 
@@ -327,15 +327,16 @@ export const useConversation = (
   const startLegacyTurn = useMutation(cloudApi.startCloudChat);
   const submitBrowserExecution = useMutation(cloudApi.submitBrowserExecution);
   const cancelExecutionDispatch = useMutation(cloudApi.cancelExecutionDispatch);
-  const { cloudMode, accountScope, ownerSubject } = useCloudMode();
+  const { isCloudConversationReady, accountScope, ownerSubject } =
+    useCloudConversationSession();
   const webShell = isWebShell();
   const conversationIdentity = useQuery(
     cloudApi.getMyCloudConversationIdentity,
-    cloudMode ? {} : "skip",
+    isCloudConversationReady ? {} : "skip",
   );
   const authority = useMemo<CloudConversationOutboxAuthority | null>(() => {
     if (
-      !cloudMode ||
+      !isCloudConversationReady ||
       !ownerSubject ||
       !conversationIdentity ||
       conversationIdentity.ownerId !== ownerSubject ||
@@ -347,7 +348,12 @@ export const useConversation = (
       accountScope,
       ownerGeneration: conversationIdentity.ownerGeneration,
     };
-  }, [accountScope, cloudMode, conversationIdentity, ownerSubject]);
+  }, [
+    accountScope,
+    isCloudConversationReady,
+    conversationIdentity,
+    ownerSubject,
+  ]);
   const activeAuthorityKey = authority
     ? `${authority.accountScope}\u0000${authority.ownerGeneration}`
     : null;
@@ -358,7 +364,7 @@ export const useConversation = (
   const preparingAttachmentSendRef = useRef(false);
   const cloudEngine = useQuery(
     cloudApi.listMyEngineConnections,
-    cloudMode ? {} : "skip",
+    isCloudConversationReady ? {} : "skip",
   );
   const localExecution = useSyncExternalStore(
     subscribeCloudExecutionSelection,
@@ -366,7 +372,7 @@ export const useConversation = (
     noLocalExecution,
   );
   const store =
-    cloudMode && conversationId && authority
+    isCloudConversationReady && conversationId && authority
       ? conversationStore(
           conversationId,
           authority.accountScope,

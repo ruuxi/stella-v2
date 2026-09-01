@@ -6,7 +6,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useConvex, useQueries, type RequestForQueries } from "convex/react";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { getConvexTokenForSubject } from "@/global/auth/services/auth-token";
 import { uiState } from "@/platform/ui-state";
 import { cloudHomeApi } from "./cloud-home-api";
@@ -38,11 +38,11 @@ const unavailable = (accountScope: string, message: string) =>
 export function CloudHomeSyncBridge() {
   const convex = useConvex();
   const {
-    cloudMode,
+    isCloudConversationReady,
     accountScope,
     identityRevision,
     ownerSubject,
-  } = useCloudMode();
+  } = useCloudConversationSession();
   const retry = useSyncExternalStore(
     cloudHomeSyncRetryStore.subscribe,
     cloudHomeSyncRetryStore.getSnapshot,
@@ -50,14 +50,14 @@ export function CloudHomeSyncBridge() {
   );
   const requests = useMemo<RequestForQueries>(() => {
     const queries: RequestForQueries = {};
-    if (cloudMode) {
+    if (isCloudConversationReady) {
       queries.realtime = {
         query: cloudHomeApi.getCloudRealtimeConfig,
         args: {},
       };
     }
     return queries;
-  }, [cloudMode]);
+  }, [isCloudConversationReady]);
   const results = useQueries(requests);
   const identityKey = `${accountScope}:${identityRevision}:${ownerSubject ?? "missing"}`;
   const activeIdentityRef = useRef(identityKey);
@@ -66,11 +66,13 @@ export function CloudHomeSyncBridge() {
   // frame. AccountTab independently filters by scope as defense in depth.
   useLayoutEffect(() => {
     activeIdentityRef.current = identityKey;
-    cloudHomeSyncStatusStore.reset(cloudMode ? accountScope : null);
-  }, [accountScope, cloudMode, identityKey]);
+    cloudHomeSyncStatusStore.reset(
+      isCloudConversationReady ? accountScope : null,
+    );
+  }, [accountScope, isCloudConversationReady, identityKey]);
 
   useEffect(() => {
-    if (!cloudMode) {
+    if (!isCloudConversationReady) {
       cloudHomeSyncStatusStore.reset(null);
       return;
     }
@@ -166,7 +168,7 @@ export function CloudHomeSyncBridge() {
     return () => controller.abort();
   }, [
     accountScope,
-    cloudMode,
+    isCloudConversationReady,
     convex,
     identityKey,
     ownerSubject,

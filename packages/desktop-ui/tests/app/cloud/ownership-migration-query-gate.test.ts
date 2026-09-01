@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { resolveOwnershipMigrationGate } from "../../../src/global/auth/lib/cloud-session-mode";
+import { resolveOwnershipMigrationGate } from "../../../src/global/auth/lib/cloud-conversation-session";
 
 const ROOT_SOURCE = fs.readFileSync(
   path.resolve(

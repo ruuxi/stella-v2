@@ -8,6 +8,8 @@
     "deploy:auth-dev": "wrangler deploy --config wrangler.auth.jsonc --env=\"\" --strict",
     "deploy:acceptance": "wrangler deploy --config wrangler.jsonc --env bn118 --strict",
     "deploy:auth-acceptance": "wrangler deploy --config wrangler.auth.jsonc --env bn118 --strict",
+    "deploy:production": "wrangler deploy --config wrangler.jsonc --env production --strict",
+    "deploy:auth-production": "wrangler deploy --config wrangler.auth.jsonc --env production --strict",
     "typecheck": "tsc --noEmit && bun run types:check",
     "types:check": "wrangler types worker-configuration.d.ts --config wrangler.jsonc --env-interface AppsHostUntrustedBindings --check && wrangler types worker-configuration.auth.d.ts --config wrangler.auth.jsonc --env-interface AppsHostTrustedBindings --include-runtime=false --check",
     "test:browser:install": "playwright install chromium",

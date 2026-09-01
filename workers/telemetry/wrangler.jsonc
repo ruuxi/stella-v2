@@ -20,7 +20,7 @@
   "vars": {
     "ENVIRONMENT": "development",
     // Canonical development deployment used by source builds and test traffic.
-    "STELLA_CONVEX_SITE_URL": "https://impartial-crab-34.convex.site",
+    "STELLA_CONVEX_SITE_URL": "https://outgoing-bulldog-865.convex.site",
     "ENABLE_SERVER_BEARER": "1"
   },
   "secrets": {
@@ -52,7 +52,7 @@
       "vars": {
         "ENVIRONMENT": "production",
         // Pinned to the packaged desktop release authority.
-        "STELLA_CONVEX_SITE_URL": "https://benevolent-minnow-586.convex.site",
+        "STELLA_CONVEX_SITE_URL": "https://intent-jackal-330.convex.site",
         "ENABLE_SERVER_BEARER": "1"
       },
       "secrets": {

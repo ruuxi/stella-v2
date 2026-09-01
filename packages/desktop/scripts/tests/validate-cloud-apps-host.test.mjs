@@ -73,8 +73,10 @@ test("workflows keep the development host out of production packages", () => {
   );
   assert.match(
     release,
-    /VITE_STELLA_APPS_HOST: \$\{\{ vars\.VITE_STELLA_APPS_HOST \}\}/,
+    /VITE_STELLA_APPS_HOST: \$\{\{ vars\.VITE_STELLA_APPS_HOST \|\| 'https:\/\/stella-v2-apps-host-prod\.lolruuxi\.workers\.dev' \}\}/,
   );
+  assert.match(release, /https:\/\/intent-jackal-330\.convex\.cloud/);
+  assert.match(release, /https:\/\/intent-jackal-330\.convex\.site/);
   assert.match(
     release,
     /node packages\/desktop\/scripts\/validate-cloud-apps-host\.mjs/,

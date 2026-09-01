@@ -56,7 +56,7 @@ import {
   useDisplayTabList,
 } from "@/features/workspace-display/tab-store";
 import { notifyMediaGenerationError } from "@/global/billing/paid-media-tier-toast";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import {
   loadCanvasHtmlHistory,
   removeCanvasHtmlItem,
@@ -230,7 +230,7 @@ export function WorkList({ section = "files", idleContent = null }) {
   const showSearch = section === "home";
   const chat = useChatRuntime();
   const activity = chat.conversation.activity;
-  const { accountScope } = useCloudMode();
+  const { accountScope } = useCloudConversationSession();
   const { state } = useUiState();
   const entries = useFileEntries();
   const panelOpen = useDisplayPanelOpen();

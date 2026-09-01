@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { useConvex, useQueries, type RequestForQueries } from "convex/react";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { cloudHomeApi } from "./cloud-home-api";
 import {
   CloudMemoryPreferenceError,
@@ -69,10 +69,10 @@ const issueCode = (error: unknown): CloudMemoryPreferenceIssue["code"] =>
  */
 export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
   const convex = useConvex();
-  const mode = useCloudMode();
+  const mode = useCloudConversationSession();
   const identity = useMemo<AuthorityIdentity | null>(
     () =>
-      mode.cloudMode && mode.ownerSubject
+      mode.isCloudConversationReady && mode.ownerSubject
         ? {
             accountScope: mode.accountScope,
             identityRevision: mode.identityRevision,
@@ -81,7 +81,7 @@ export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
         : null,
     [
       mode.accountScope,
-      mode.cloudMode,
+      mode.isCloudConversationReady,
       mode.identityRevision,
       mode.ownerSubject,
     ],
@@ -255,7 +255,9 @@ export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
           });
           return false;
         }
-        const supersedingBeforeMirror = supersedingPreference(result.preference);
+        const supersedingBeforeMirror = supersedingPreference(
+          result.preference,
+        );
         if (supersedingBeforeMirror) {
           publishSupersededWrite(attempt, supersedingBeforeMirror);
           return false;

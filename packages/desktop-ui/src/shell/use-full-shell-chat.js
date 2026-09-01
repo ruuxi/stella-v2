@@ -36,7 +36,7 @@ import { cloudApi } from "@/features/cloud/cloud-api";
 import { cloudPrefixBoundaryForUserMessage } from "@/features/cloud/use-cloud-chat-bridge";
 import { conversationStore } from "@/features/cloud/conversation-store";
 import { markCloudConversationCreated } from "@/features/cloud/cloud-conversation-selection";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { showToast } from "@/ui/toast";
 const MAX_RETAINED_TAB_STATE = 20;
 /**
@@ -112,7 +112,7 @@ export function useFullShellChat({
   navigateToConversation,
 }) {
   const { cloudFeaturesEnabled, isLocalStorage } = useChatStore();
-  const { accountScope } = useCloudMode();
+  const { accountScope } = useCloudConversationSession();
   const activeAccountScopeRef = useRef(accountScope);
   activeAccountScopeRef.current = accountScope;
   const forkCloudConversation = useAction(cloudApi.forkMyConversation);

@@ -102,6 +102,21 @@ export const ACCEPTANCE_CLOUD_BUILDER_ORIGIN =
 export const ACCEPTANCE_CLOUD_BUILDER_WEBSOCKET_ORIGIN =
   "wss://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev" as const;
 
+export const PRODUCTION_DEPLOYMENT_IDENTITY =
+  "prod:intent-jackal-330" as const;
+export const PRODUCTION_CONVEX_SITE_ORIGIN =
+  "https://intent-jackal-330.convex.site" as const;
+export const PRODUCTION_CONVEX_CLOUD_ORIGIN =
+  "https://intent-jackal-330.convex.cloud" as const;
+export const PRODUCTION_APPS_HOST_ORIGIN =
+  "https://stella-v2-apps-host-prod.lolruuxi.workers.dev" as const;
+export const PRODUCTION_TRUSTED_APPS_HOST_ORIGIN =
+  "https://stella-v2-apps-auth-prod.lolruuxi.workers.dev" as const;
+export const PRODUCTION_CLOUD_BUILDER_ORIGIN =
+  "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev" as const;
+export const PRODUCTION_CLOUD_BUILDER_WEBSOCKET_ORIGIN =
+  "wss://stella-v2-cloud-builder-prod.lolruuxi.workers.dev" as const;
+
 const AUTHORIZED_PROFILES = [
   {
     deploymentIdentity: DEV_DEPLOYMENT_IDENTITY,
@@ -120,6 +135,15 @@ const AUTHORIZED_PROFILES = [
     trustedAppsHostOrigin: ACCEPTANCE_TRUSTED_APPS_HOST_ORIGIN,
     cloudBuilderOrigin: ACCEPTANCE_CLOUD_BUILDER_ORIGIN,
     cloudBuilderWebSocketOrigin: ACCEPTANCE_CLOUD_BUILDER_WEBSOCKET_ORIGIN,
+  },
+  {
+    deploymentIdentity: PRODUCTION_DEPLOYMENT_IDENTITY,
+    convexSiteOrigin: PRODUCTION_CONVEX_SITE_ORIGIN,
+    convexCloudOrigin: PRODUCTION_CONVEX_CLOUD_ORIGIN,
+    appsHostOrigin: PRODUCTION_APPS_HOST_ORIGIN,
+    trustedAppsHostOrigin: PRODUCTION_TRUSTED_APPS_HOST_ORIGIN,
+    cloudBuilderOrigin: PRODUCTION_CLOUD_BUILDER_ORIGIN,
+    cloudBuilderWebSocketOrigin: PRODUCTION_CLOUD_BUILDER_WEBSOCKET_ORIGIN,
   },
 ] as const;
 

@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { useConvex, useQueries, type RequestForQueries } from "convex/react";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { cloudHomeApi, type CloudMemoryWipeStatus } from "./cloud-home-api";
 import { cloudHomeSyncRetryStore } from "./cloud-home-sync";
 import {
@@ -61,10 +61,10 @@ const statusIsEligible = (status: CloudMemoryWipeStatus | null): boolean =>
  */
 export function useCloudMemoryReimport(): CloudMemoryReimportView {
   const convex = useConvex();
-  const mode = useCloudMode();
+  const mode = useCloudConversationSession();
   const identity = useMemo<CloudMemoryReimportIdentity | null>(
     () =>
-      mode.cloudMode && mode.ownerSubject
+      mode.isCloudConversationReady && mode.ownerSubject
         ? {
             accountScope: mode.accountScope,
             identityRevision: mode.identityRevision,
@@ -73,7 +73,7 @@ export function useCloudMemoryReimport(): CloudMemoryReimportView {
         : null,
     [
       mode.accountScope,
-      mode.cloudMode,
+      mode.isCloudConversationReady,
       mode.identityRevision,
       mode.ownerSubject,
     ],

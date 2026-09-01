@@ -24,9 +24,9 @@ import { useUiState } from "@/context/ui-state";
 import { ChatColumn } from "@/app/chat/ChatColumn";
 import { OPEN_CONNECT_DIALOG_EVENT } from "@/global/integrations/connect-action";
 import { conversationTabs } from "@/features/chat/services/conversation-tabs-store";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { SIGN_IN_TOAST_ACTION } from "@/shared/lib/auth-cta";
-import { resolveOwnershipMigrationGate } from "@/global/auth/lib/cloud-session-mode";
+import { resolveOwnershipMigrationGate } from "@/global/auth/lib/cloud-conversation-session";
 import { cloudApi } from "@/features/cloud/cloud-api";
 import {
   acknowledgeCloudConversation,
@@ -189,14 +189,14 @@ function CloudStartupPending() {
 function RootLayout() {
   const { state, setConversationId } = useUiState();
   const {
-    cloudMode,
+    isCloudConversationReady,
     error: authBootstrapError,
     authBootstrapStatus,
     isLoading: isAuthLoading,
     accountScope,
     ownerSubject,
     retryAuthBootstrap,
-  } = useCloudMode();
+  } = useCloudConversationSession();
   const matchRoute = useMatchRoute();
   const isOnChatRoute = Boolean(matchRoute({ to: "/chat" }));
   const routerConversationId = useRouterState({
@@ -211,13 +211,13 @@ function RootLayout() {
   activeRouteIntentRef.current = routeIntent;
   const ownershipMigration = useQuery(
     cloudApi.getMyOwnershipMigrationStatus,
-    cloudMode ? {} : "skip",
+    isCloudConversationReady ? {} : "skip",
   );
   const ownershipMigrationGate = resolveOwnershipMigrationGate(
     ownershipMigration === undefined
       ? undefined
       : (ownershipMigration?.status ?? null),
-    cloudMode,
+    isCloudConversationReady,
   );
   const canQueryOwnershipFencedCloudData =
     ownershipMigrationGate.canSelectConversation;
@@ -268,7 +268,7 @@ function RootLayout() {
       cloudConversationsForOwnerSubject(cloudConversations ?? [], ownerSubject),
     [cloudConversations, ownerSubject],
   );
-  const cachedCloudConversationId = cloudMode
+  const cachedCloudConversationId = isCloudConversationReady
     ? readActiveCloudConversationIdCache(accountScope)
     : null;
   const routeIsListedOrPendingCloudConversation = isOwnedCloudConversation(
@@ -302,13 +302,13 @@ function RootLayout() {
       : "skip",
   );
   const routeOwnershipIsLoading = Boolean(
-    cloudMode &&
+    isCloudConversationReady &&
       routerConversationId &&
       !routeIsListedOrPendingCloudConversation &&
       exactCloudConversation === undefined,
   );
   const cachedOwnershipIsLoading = Boolean(
-    cloudMode &&
+    isCloudConversationReady &&
       cachedCloudConversationId &&
       cachedCloudConversationId !== routerConversationId &&
       !cachedConversationIsListed &&
@@ -386,9 +386,16 @@ function RootLayout() {
     retireCloudConversationClientAuthority(accountScope);
     retireCloudExecutionClientAuthority(accountScope);
     cloudAttachmentsStore.clear();
-    conversationTabs.setAccountScope(cloudMode ? accountScope : null);
+    conversationTabs.setAccountScope(
+      isCloudConversationReady ? accountScope : null,
+    );
     setConversationId(null);
-  }, [accountScope, clearCloudCreateRetryTimer, cloudMode, setConversationId]);
+  }, [
+    accountScope,
+    clearCloudCreateRetryTimer,
+    isCloudConversationReady,
+    setConversationId,
+  ]);
 
   // `conversationId` is derived only from owner-checked server data. Mirroring
   // that derived value (including null while gated) makes UiState a consumer,
@@ -462,7 +469,7 @@ function RootLayout() {
       cloudCreateRequestRef.current = null;
       setCloudCreateFailure(null);
     }
-    if (isAuthLoading || !isOnChatRoute || !cloudMode) return;
+    if (isAuthLoading || !isOnChatRoute || !isCloudConversationReady) return;
     if (
       ownershipMigrationGate.isLoading ||
       ownershipMigrationGate.isPending ||
@@ -593,7 +600,7 @@ function RootLayout() {
     cloudCreateRetrySignal,
     ownerGeneration,
     ownerSubject,
-    cloudMode,
+    isCloudConversationReady,
     createCloudConversation,
     routeIntent,
     scopedCloudConversations,
@@ -610,9 +617,9 @@ function RootLayout() {
   ]);
 
   useEffect(() => {
-    if (!conversationId || isAuthLoading || !cloudMode) return;
+    if (!conversationId || isAuthLoading || !isCloudConversationReady) return;
     writeActiveCloudConversationIdCache(accountScope, conversationId);
-  }, [accountScope, cloudMode, conversationId, isAuthLoading]);
+  }, [accountScope, isCloudConversationReady, conversationId, isAuthLoading]);
 
   // Opens + navigates to a conversation (tab strip + router). Mirrors the
   // top bar's new-chat navigation and is handed to the chat runtime so the

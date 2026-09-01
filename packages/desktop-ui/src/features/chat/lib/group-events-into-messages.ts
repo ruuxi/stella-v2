@@ -16,7 +16,7 @@
  * Used by:
  *  - `useFullShellChat` for the cloud-mode chat timeline (no
  *    `listMessages` IPC equivalent on the Convex side yet — phase 2/3
- *    decides whether to add one or drop cloud mode).
+ *    decides whether to add one or drop the cloud conversation record).
  *  - Scheduled-event and optimistic-event overlays merged onto the local
  *    messages stream so synthetic user/assistant messages and just-sent
  *    placeholders surface inline without waiting for SQLite to catch up.

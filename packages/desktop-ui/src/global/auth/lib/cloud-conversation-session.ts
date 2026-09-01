@@ -1,4 +1,4 @@
-export const resolveCloudSessionMode = (args: {
+export const resolveCloudConversationSession = (args: {
   hasSession: boolean;
   sessionIsLoading: boolean;
   convexIsAuthenticated: boolean;
@@ -8,8 +8,8 @@ export const resolveCloudSessionMode = (args: {
   identityIsLoading: boolean;
   authBootstrapReady: boolean;
   authBootstrapFailed: boolean;
-}): { cloudMode: boolean; isLoading: boolean } => {
-  const cloudMode =
+}): { isCloudConversationReady: boolean; isLoading: boolean } => {
+  const isCloudConversationReady =
     args.authBootstrapReady &&
     !args.authBootstrapFailed &&
     args.hasSession &&
@@ -17,14 +17,14 @@ export const resolveCloudSessionMode = (args: {
     args.hasExpectedSubject &&
     args.identityConfirmed;
   return {
-    cloudMode,
+    isCloudConversationReady,
     isLoading:
       !args.authBootstrapFailed &&
       (!args.authBootstrapReady ||
         args.sessionIsLoading ||
         args.convexIsLoading ||
         args.identityIsLoading ||
-        cloudMode === false),
+        isCloudConversationReady === false),
   };
 };
 
@@ -36,20 +36,21 @@ export type OwnershipMigrationStatus =
 
 export const resolveOwnershipMigrationGate = (
   status: OwnershipMigrationStatus | null | undefined,
-  cloudMode: boolean,
+  isCloudConversationReady: boolean,
 ): {
   isLoading: boolean;
   isPending: boolean;
   isFailed: boolean;
   canSelectConversation: boolean;
 } => {
-  const isLoading = cloudMode && status === undefined;
+  const isLoading = isCloudConversationReady && status === undefined;
   const isPending = status === "pending" || status === "running";
   const isFailed = status === "failed";
   return {
     isLoading,
     isPending,
     isFailed,
-    canSelectConversation: cloudMode && !isLoading && !isPending && !isFailed,
+    canSelectConversation:
+      isCloudConversationReady && !isLoading && !isPending && !isFailed,
   };
 };

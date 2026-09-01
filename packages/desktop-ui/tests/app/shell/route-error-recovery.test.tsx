@@ -6,13 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   accountScope: "anonymous:owner-one",
-  cloudMode: false,
+  isCloudConversationReady: false,
 }));
 
-vi.mock("@/global/auth/hooks/use-cloud-mode", () => ({
-  useCloudMode: () => ({
+vi.mock("@/global/auth/hooks/use-cloud-conversation-session", () => ({
+  useCloudConversationSession: () => ({
     accountScope: mocks.accountScope,
-    cloudMode: mocks.cloudMode,
+    isCloudConversationReady: mocks.isCloudConversationReady,
   }),
 }));
 
@@ -37,7 +37,7 @@ describe("route ownership-migration recovery", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers();
     mocks.accountScope = "anonymous:owner-one";
-    mocks.cloudMode = false;
+    mocks.isCloudConversationReady = false;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -77,7 +77,7 @@ describe("route ownership-migration recovery", () => {
   it("keeps unrelated route errors on the shared crash surface", async () => {
     const reset = vi.fn();
     mocks.accountScope = "account:owner-one";
-    mocks.cloudMode = true;
+    mocks.isCloudConversationReady = true;
 
     await act(async () => {
       root.render(
@@ -107,7 +107,7 @@ describe("route ownership-migration recovery", () => {
     expect(container.textContent).toBe("Finishing sign-in…");
     expect(reset).not.toHaveBeenCalled();
 
-    mocks.cloudMode = true;
+    mocks.isCloudConversationReady = true;
     await render();
     expect(reset).not.toHaveBeenCalled();
 
@@ -136,7 +136,7 @@ describe("route ownership-migration recovery", () => {
     expect(reset).not.toHaveBeenCalled();
 
     mocks.accountScope = "account:owner-one";
-    mocks.cloudMode = true;
+    mocks.isCloudConversationReady = true;
     await act(async () => {
       root.render(<RouteErrorRecovery error={error} reset={reset} />);
     });

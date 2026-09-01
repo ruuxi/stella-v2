@@ -1,5 +1,5 @@
 import { useLayoutEffect } from "react";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { mirrorCloudMemoryPreferenceLocally } from "./cloud-memory-local-mirror";
 import { useCloudMemoryPreference } from "./use-cloud-memory-preference";
 
@@ -52,8 +52,8 @@ function AccountMemoryPreferenceBridge() {
 
 /** Keeps the local desktop runtime a rebuildable mirror of cloud authority. */
 export function CloudMemoryPreferenceBridge() {
-  const mode = useCloudMode();
-  const key = mode.cloudMode
+  const mode = useCloudConversationSession();
+  const key = mode.isCloudConversationReady
     ? `${mode.accountScope}:${mode.identityRevision}:${mode.ownerSubject ?? "missing"}`
     : `unavailable:${mode.accountScope}:${mode.identityRevision}`;
   return <AccountMemoryPreferenceBridge key={key} />;

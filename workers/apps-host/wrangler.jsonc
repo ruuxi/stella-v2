@@ -99,5 +99,49 @@
         },
       ],
     },
+    "production": {
+      "name": "stella-v2-apps-host-prod",
+      "workers_dev": true,
+      "preview_urls": false,
+      "observability": {
+        "enabled": true,
+        "logs": { "enabled": true, "invocation_logs": true, "head_sampling_rate": 1 },
+        "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+      },
+      "vars": {
+        "STELLA_DEPLOYMENT_IDENTITY": "prod:intent-jackal-330",
+        "HOST_ROLE": "untrusted",
+        "SHARES_DISABLED": "false",
+        "CONVEX_SITE_URL": "https://intent-jackal-330.convex.site",
+        "CONVEX_CLOUD_URL": "https://intent-jackal-330.convex.cloud",
+        "APPS_HOST_ORIGIN": "https://stella-v2-apps-host-prod.lolruuxi.workers.dev",
+        "TRUSTED_APPS_HOST_ORIGIN": "https://stella-v2-apps-auth-prod.lolruuxi.workers.dev",
+        "CLOUD_BUILDER_ORIGIN": "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev",
+      },
+      "services": [
+        {
+          "binding": "APP_AUTH",
+          "service": "stella-v2-apps-auth-prod",
+          "entrypoint": "AppsAuthService"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "APP_FETCH_GATE", "class_name": "AppFetchGate" }
+        ]
+      },
+      "r2_buckets": [
+        {
+          "binding": "APP_BUILDS",
+          "bucket_name": "stella-v2-app-builds-prod",
+        },
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "APP_ROUTES",
+          "id": "d3548a90824440bea312fc4600687077",
+        },
+      ],
+    },
   },
 }

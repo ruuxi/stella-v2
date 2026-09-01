@@ -9,7 +9,7 @@ const subjectB = "https://stella.example|owner-b";
 
 const mocks = vi.hoisted(() => ({
   mode: {
-    cloudMode: true,
+    isCloudConversationReady: true,
     accountScope: "account:owner-a",
     identityRevision: 4,
     ownerSubject: "https://stella.example|owner-a" as string | null,
@@ -26,8 +26,8 @@ vi.mock("convex/react", () => ({
   useQueries: () => ({ wipeStatus: mocks.reactiveResult }),
 }));
 
-vi.mock("@/global/auth/hooks/use-cloud-mode", () => ({
-  useCloudMode: () => mocks.mode,
+vi.mock("@/global/auth/hooks/use-cloud-conversation-session", () => ({
+  useCloudConversationSession: () => mocks.mode,
 }));
 
 import {
@@ -113,7 +113,7 @@ describe("useCloudMemoryWipe", () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     latest = null;
     mocks.mode = {
-      cloudMode: true,
+      isCloudConversationReady: true,
       accountScope: "account:owner-a",
       identityRevision: 4,
       ownerSubject: subjectA,
@@ -183,7 +183,7 @@ describe("useCloudMemoryWipe", () => {
     });
 
     mocks.mode = {
-      cloudMode: true,
+      isCloudConversationReady: true,
       accountScope: "account:owner-b",
       identityRevision: 5,
       ownerSubject: subjectB,

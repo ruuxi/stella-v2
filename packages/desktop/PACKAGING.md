@@ -84,9 +84,10 @@ not credentials. An unconfigured local package still mounts the offline shell
 and Bun runtime; its cloud-backed auth, synchronization, or Apps features stay
 unavailable until the corresponding public URLs are supplied. The known
 `stella-v2-apps-host-dev` origin is restricted to the CI/development harness.
-The release workflow rejects a missing, invalid, or development Apps origin;
-it must be given a reviewed production HTTPS origin through the
-`VITE_STELLA_APPS_HOST` repository variable once that deployment exists.
+The release workflow defaults to the provisioned Intent Jackal Convex and Apps
+origins and rejects an invalid or development Apps origin. Repository variables
+can override those public locations when a replacement production stack has
+been reviewed.
 CI's production-mode Vite harness opts into the development origin with the
 exact `VITE_STELLA_DEV_APPS_HOST_HARNESS=1` compile flag. Release packaging
 does not set that flag, and the renderer rejects the known development origin
@@ -198,10 +199,11 @@ M4 stops locally. To run the real release:
    `STELLA_WINDOWS_CERT_SHA1`, and `STELLA_WINDOWS_CERT_SERIAL`. The API key
    and client certificate must belong to the least-privilege KeyLocker signer
    service user assigned to the certificate.
-4. Add public repository variables `VITE_CONVEX_URL`,
-   `VITE_CONVEX_SITE_URL`, and `VITE_STELLA_APPS_HOST` for connected release
-   builds. The Apps value must be a reviewed production HTTPS origin; the
-   release validator explicitly rejects the development Apps host. Confirm the
+4. Optionally add public repository variables `VITE_CONVEX_URL`,
+   `VITE_CONVEX_SITE_URL`, and `VITE_STELLA_APPS_HOST` to move connected
+   release builds away from the default Intent Jackal stack. The Apps value
+   must be a reviewed production HTTPS origin; the release validator explicitly
+   rejects the development Apps host. Confirm the
    configured R2 public base URL serves byte ranges and exposes only the
    intended `desktop-v2/stable/<platform>` feeds to this client.
 5. Native-helper and Stella Browser workflows publish automatically when their

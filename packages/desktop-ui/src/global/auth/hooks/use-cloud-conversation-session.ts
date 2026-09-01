@@ -3,7 +3,7 @@ import { useConvexAuth, useQuery } from "convex/react";
 import { cloudApi } from "@/features/cloud/cloud-api";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { useAuthBootstrapState } from "../DesktopConvexAuthProvider";
-import { resolveCloudSessionMode } from "../lib/cloud-session-mode";
+import { resolveCloudConversationSession } from "../lib/cloud-conversation-session";
 import { useAuthSessionState } from "./use-auth-session-state";
 import { reportCloudReadiness } from "@/features/cloud/cloud-readiness-timing";
 
@@ -15,7 +15,7 @@ import { reportCloudReadiness } from "@/features/cloud/cloud-readiness-timing";
  * anonymous auth or Convex token exchange is incomplete, conversation
  * selection remains in a loading state.
  */
-export function useCloudMode() {
+export function useCloudConversationSession() {
   const convex = useConvexAuth();
   const session = useAuthSessionState();
   const authBootstrap = useAuthBootstrapState();
@@ -41,7 +41,7 @@ export function useCloudMode() {
         }
       : "skip",
   );
-  const mode = resolveCloudSessionMode({
+  const mode = resolveCloudConversationSession({
     hasSession: session.hasSession,
     sessionIsLoading: session.isLoading,
     convexIsAuthenticated: convex.isAuthenticated,
@@ -67,15 +67,15 @@ export function useCloudMode() {
     if (identityConfirmed === true) {
       reportCloudReadiness("cloud.identity-confirmed", { outcome: "success" });
     }
-    if (mode.cloudMode) {
-      reportCloudReadiness("cloud.mode-ready", { outcome: "success" });
+    if (mode.isCloudConversationReady) {
+      reportCloudReadiness("cloud.conversation-ready", { outcome: "success" });
     }
   }, [
     authBootstrap.status,
     convex.isAuthenticated,
     convex.isLoading,
     identityConfirmed,
-    mode.cloudMode,
+    mode.isCloudConversationReady,
     session.hasSession,
     session.isLoading,
   ]);

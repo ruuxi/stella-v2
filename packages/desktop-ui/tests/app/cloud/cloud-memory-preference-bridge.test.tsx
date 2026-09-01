@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   mode: {
-    cloudMode: true,
+    isCloudConversationReady: true,
     accountScope: "account:owner-a",
     identityRevision: 4,
     ownerSubject: "https://stella.example|owner-a" as string | null,
@@ -23,8 +23,8 @@ const mocks = vi.hoisted(() => ({
   mirror: vi.fn(),
 }));
 
-vi.mock("@/global/auth/hooks/use-cloud-mode", () => ({
-  useCloudMode: () => mocks.mode,
+vi.mock("@/global/auth/hooks/use-cloud-conversation-session", () => ({
+  useCloudConversationSession: () => mocks.mode,
 }));
 
 vi.mock("@/features/cloud/use-cloud-memory-preference", () => ({
@@ -52,7 +52,7 @@ describe("CloudMemoryPreferenceBridge", () => {
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     mocks.mode = {
-      cloudMode: true,
+      isCloudConversationReady: true,
       accountScope: "account:owner-a",
       identityRevision: 4,
       ownerSubject: "https://stella.example|owner-a",
@@ -93,7 +93,7 @@ describe("CloudMemoryPreferenceBridge", () => {
     expect(mocks.mirror.mock.calls).toEqual([[false]]);
 
     mocks.mode = {
-      cloudMode: true,
+      isCloudConversationReady: true,
       accountScope: "account:owner-b",
       identityRevision: 5,
       ownerSubject: "https://stella.example|owner-b",
@@ -107,7 +107,7 @@ describe("CloudMemoryPreferenceBridge", () => {
 
   it("stays fail-closed while cloud authority is unavailable", async () => {
     mocks.mode = {
-      cloudMode: false,
+      isCloudConversationReady: false,
       accountScope: "account:unavailable",
       identityRevision: 8,
       ownerSubject: null,

@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
-  resolveCloudSessionMode,
+  resolveCloudConversationSession,
   resolveOwnershipMigrationGate,
-} from "../src/global/auth/lib/cloud-session-mode";
+} from "../src/global/auth/lib/cloud-conversation-session";
 
-describe("resolveCloudSessionMode", () => {
+describe("resolveCloudConversationSession", () => {
   test("keeps conversation routing loading before anonymous auth exists", () => {
     expect(
-      resolveCloudSessionMode({
+      resolveCloudConversationSession({
         hasSession: false,
         sessionIsLoading: false,
         convexIsAuthenticated: false,
@@ -18,12 +18,12 @@ describe("resolveCloudSessionMode", () => {
         authBootstrapReady: false,
         authBootstrapFailed: false,
       }),
-    ).toEqual({ cloudMode: false, isLoading: true });
+    ).toEqual({ isCloudConversationReady: false, isLoading: true });
   });
 
-  test("uses cloud mode for any Better Auth session accepted by Convex", () => {
+  test("marks cloud conversations ready for any Better Auth session accepted by Convex", () => {
     expect(
-      resolveCloudSessionMode({
+      resolveCloudConversationSession({
         // This intentionally does not distinguish anonymous from connected:
         // both are durable owner identities for conversation routing.
         hasSession: true,
@@ -36,12 +36,12 @@ describe("resolveCloudSessionMode", () => {
         authBootstrapReady: true,
         authBootstrapFailed: false,
       }),
-    ).toEqual({ cloudMode: true, isLoading: false });
+    ).toEqual({ isCloudConversationReady: true, isLoading: false });
   });
 
   test("does not fall back locally while Convex token exchange is pending", () => {
     expect(
-      resolveCloudSessionMode({
+      resolveCloudConversationSession({
         hasSession: true,
         sessionIsLoading: false,
         convexIsAuthenticated: false,
@@ -52,12 +52,12 @@ describe("resolveCloudSessionMode", () => {
         authBootstrapReady: false,
         authBootstrapFailed: false,
       }),
-    ).toEqual({ cloudMode: false, isLoading: true });
+    ).toEqual({ isCloudConversationReady: false, isLoading: true });
   });
 
   test("surfaces a terminal auth bootstrap failure instead of loading forever", () => {
     expect(
-      resolveCloudSessionMode({
+      resolveCloudConversationSession({
         hasSession: false,
         sessionIsLoading: false,
         convexIsAuthenticated: false,
@@ -68,12 +68,12 @@ describe("resolveCloudSessionMode", () => {
         authBootstrapReady: false,
         authBootstrapFailed: true,
       }),
-    ).toEqual({ cloudMode: false, isLoading: false });
+    ).toEqual({ isCloudConversationReady: false, isLoading: false });
   });
 
   test("blocks cloud data until Convex proves it serves the current subject", () => {
     expect(
-      resolveCloudSessionMode({
+      resolveCloudConversationSession({
         hasSession: true,
         sessionIsLoading: false,
         convexIsAuthenticated: true,
@@ -84,10 +84,10 @@ describe("resolveCloudSessionMode", () => {
         authBootstrapReady: true,
         authBootstrapFailed: false,
       }),
-    ).toEqual({ cloudMode: false, isLoading: true });
+    ).toEqual({ isCloudConversationReady: false, isLoading: true });
 
     expect(
-      resolveCloudSessionMode({
+      resolveCloudConversationSession({
         hasSession: true,
         sessionIsLoading: false,
         convexIsAuthenticated: true,
@@ -98,12 +98,12 @@ describe("resolveCloudSessionMode", () => {
         authBootstrapReady: true,
         authBootstrapFailed: false,
       }),
-    ).toEqual({ cloudMode: false, isLoading: true });
+    ).toEqual({ isCloudConversationReady: false, isLoading: true });
   });
 
   test("never activates a confirmed stale identity when bootstrap failed", () => {
     expect(
-      resolveCloudSessionMode({
+      resolveCloudConversationSession({
         hasSession: true,
         sessionIsLoading: false,
         convexIsAuthenticated: true,
@@ -114,7 +114,7 @@ describe("resolveCloudSessionMode", () => {
         authBootstrapReady: false,
         authBootstrapFailed: true,
       }),
-    ).toEqual({ cloudMode: false, isLoading: false });
+    ).toEqual({ isCloudConversationReady: false, isLoading: false });
   });
 });
 

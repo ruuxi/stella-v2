@@ -51,7 +51,7 @@ import {
 import { useAssistantReplyPeek } from "@/features/chat/hooks/use-assistant-reply-peek";
 import { useAgentModelConfigs } from "@/features/chat/hooks/use-agent-model-configs";
 import { ChatRuntimeContext } from "@/context/chat-runtime-context";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { useT } from "@/shared/i18n";
 import "./chat-sidebar.css";
 
@@ -133,7 +133,7 @@ interface ChatPanelTabProps {
  * draft text, captured context, or selected text.
  */
 export function ChatPanelTab(props: ChatPanelTabProps) {
-  const { accountScope } = useCloudMode();
+  const { accountScope } = useCloudConversationSession();
   const previousAccountScopeRef = useRef(accountScope);
   const ignoredOpenRequestIdRef = useRef<number | null>(null);
 

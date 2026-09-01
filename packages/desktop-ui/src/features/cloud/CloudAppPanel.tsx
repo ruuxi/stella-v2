@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { getAuthHeaders } from "@/global/auth/services/auth-token";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { cloudApi } from "./cloud-api";
 import { cloudAppUrl, CLOUD_APPS_HOST } from "./cloud-config";
@@ -53,7 +53,7 @@ const errorText = (error: unknown, fallback: string): string =>
 
 export function CloudAppPanel({ slug }: { slug: string }) {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
-  const { accountScope } = useCloudMode();
+  const { accountScope } = useCloudConversationSession();
   const apps = useQuery(cloudApi.listMyApps, isAuthenticated ? {} : "skip");
   const app = apps?.find(
     (candidate) =>

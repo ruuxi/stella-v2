@@ -85,7 +85,7 @@ try {
     "--config",
     "wrangler.jsonc",
     "--env",
-    "",
+    "production",
   ]);
   if (!output.includes("--dry-run: exiting now.")) {
     throw new Error("Wrangler did not report a dry-run exit.");
@@ -100,7 +100,7 @@ try {
     `${JSON.stringify({
       ok: true,
       entry: configuredEntry,
-      config: "wrangler.jsonc",
+      config: "wrangler.jsonc#production",
       deployed: false,
       bundleBytes: bundle.size,
     })}\n`,

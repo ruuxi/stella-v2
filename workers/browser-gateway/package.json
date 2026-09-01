@@ -12,8 +12,10 @@
     "test": "bun run test:unit && bun run test:workerd",
     "build:dry-run": "wrangler deploy --dry-run --env= --outdir .wrangler/dry-run-dev",
     "build:dry-run:bn118": "wrangler deploy --dry-run --env bn118 --outdir .wrangler/dry-run-bn118",
+    "build:dry-run:production": "wrangler deploy --dry-run --env production --outdir .wrangler/dry-run-production",
     "deploy:dev": "wrangler deploy --env= --strict",
-    "deploy:bn118": "wrangler deploy --env bn118 --strict"
+    "deploy:bn118": "wrangler deploy --env bn118 --strict",
+    "deploy:production": "wrangler deploy --env production --strict"
   },
   "dependencies": {
     "@cloudflare/playwright": "1.3.6",

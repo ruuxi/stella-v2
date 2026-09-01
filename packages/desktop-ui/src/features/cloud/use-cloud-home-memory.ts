@@ -5,7 +5,7 @@ import type {
   CloudMemorySnapshot,
 } from "@stella/contracts/cloud-home-sync";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import type { AuthSessionScopeData } from "@/global/auth/lib/auth-session-scope";
 import { resolveAuthSessionCacheScope } from "@/global/auth/lib/auth-session-scope";
 import { getAuthSessionSnapshot } from "@/global/auth/services/auth-session";
@@ -67,11 +67,15 @@ export type UseCloudHomeMemoryResult = Readonly<{
 /** Authenticated desktop list/edit surface for cloud-canonical Memory files. */
 export const useCloudHomeMemory = (): UseCloudHomeMemoryResult => {
   const session = useAuthSessionState();
-  const { cloudMode, accountScope, identityRevision, ownerSubject } =
-    useCloudMode();
+  const {
+    isCloudConversationReady,
+    accountScope,
+    identityRevision,
+    ownerSubject,
+  } = useCloudConversationSession();
   const identity = useMemo<CloudHomeMemoryClientIdentity | null>(() => {
     if (
-      !cloudMode ||
+      !isCloudConversationReady ||
       !ownerSubject ||
       session.cacheScope !== accountScope ||
       session.identityRevision !== identityRevision
@@ -85,7 +89,7 @@ export const useCloudHomeMemory = (): UseCloudHomeMemoryResult => {
     });
   }, [
     accountScope,
-    cloudMode,
+    isCloudConversationReady,
     identityRevision,
     ownerSubject,
     session.cacheScope,
@@ -171,9 +175,9 @@ export const useCloudHomeMemory = (): UseCloudHomeMemoryResult => {
     ),
     unavailable: Boolean(
       identity &&
-      configResult !== undefined &&
-      lifecycleResult !== undefined &&
-      (!client || !lifecycle),
+        configResult !== undefined &&
+        lifecycleResult !== undefined &&
+        (!client || !lifecycle),
     ),
     listMemory,
     writeMemory,

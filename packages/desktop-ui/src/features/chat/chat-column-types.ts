@@ -46,7 +46,7 @@ export type ChatColumnConversation = {
    * File-carrying events (`assistant_message` / `agent-completed`
    * whose text plausibly carries markdown file links) for the
    * conversation. Fed by `useConversationFiles` in local mode
-   * and a `displayEvents` filter in cloud mode. The Recent Files
+   * and a `displayEvents` filter for cloud conversations. The Recent Files
    * surfaces and Activity tray search read from this rather than scanning
    * `events`.
    */

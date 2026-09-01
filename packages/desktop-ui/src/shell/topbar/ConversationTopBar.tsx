@@ -35,7 +35,7 @@ import {
   cloudConversationsForOwnerSubject,
   markCloudConversationCreated,
 } from "@/features/cloud/cloud-conversation-selection";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { showToast } from "@/ui/toast";
 import { Popover } from "@/ui/popover";
@@ -238,7 +238,8 @@ export function ConversationTopBar() {
   const t = useT();
   const router = useRouter();
   const chat = useChatRuntime();
-  const { cloudMode, accountScope, ownerSubject } = useCloudMode();
+  const { isCloudConversationReady, accountScope, ownerSubject } =
+    useCloudConversationSession();
   const tabSnapshot = useConversationTabs();
   // A scope change clears the backing store in RootLayout's layout effect.
   // Filter during the transition too so a previous owner's ids cannot enter
@@ -254,11 +255,11 @@ export function ConversationTopBar() {
     historySnapshot?.accountScope === accountScope ? historySnapshot : null;
   const recentCloudConversations = useQuery(
     cloudApi.listMyConversations,
-    cloudMode ? {} : "skip",
+    isCloudConversationReady ? {} : "skip",
   );
   const conversationIdentity = useQuery(
     cloudApi.getMyCloudConversationIdentity,
-    cloudMode ? {} : "skip",
+    isCloudConversationReady ? {} : "skip",
   );
   const ownerGeneration =
     conversationIdentity?.ownerId === ownerSubject
@@ -266,11 +267,13 @@ export function ConversationTopBar() {
       : null;
   const historySnapshotCandidate = useQuery(
     cloudApi.getMyConversationHistorySnapshot,
-    cloudMode && historyOpen && frozenHistorySnapshot === null ? {} : "skip",
+    isCloudConversationReady && historyOpen && frozenHistorySnapshot === null
+      ? {}
+      : "skip",
   );
   const paginatedHistory = usePaginatedQuery(
     cloudApi.listMyConversationsPage,
-    cloudMode && frozenHistorySnapshot
+    isCloudConversationReady && frozenHistorySnapshot
       ? { snapshotUpdatedAt: frozenHistorySnapshot.snapshotUpdatedAt }
       : "skip",
     { initialNumItems: HISTORY_PAGE_SIZE },
@@ -295,7 +298,9 @@ export function ConversationTopBar() {
   );
   const activeCloudConversation = useQuery(
     cloudApi.getMyConversation,
-    cloudMode && activeConversationId && !activeConversationIsRecent
+    isCloudConversationReady &&
+      activeConversationId &&
+      !activeConversationIsRecent
       ? { conversationId: activeConversationId }
       : "skip",
   );
@@ -403,7 +408,12 @@ export function ConversationTopBar() {
   );
 
   const createConversation = useCallback(async () => {
-    if (!cloudMode || !ownerGeneration || createInFlightRef.current) return;
+    if (
+      !isCloudConversationReady ||
+      !ownerGeneration ||
+      createInFlightRef.current
+    )
+      return;
     const prior = createRequestRef.current;
     const request =
       prior?.ownerGeneration === ownerGeneration
@@ -457,7 +467,7 @@ export function ConversationTopBar() {
     }
   }, [
     accountScope,
-    cloudMode,
+    isCloudConversationReady,
     createCloudConversation,
     navigateToConversation,
     ownerGeneration,

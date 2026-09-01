@@ -13,7 +13,7 @@ import { useOnboardingAppearance } from "./use-onboarding-appearance";
 import { useOnboardingDiscovery } from "./use-onboarding-discovery";
 import { useOnboardingFlow } from "./use-onboarding-flow";
 import { useT } from "@/shared/i18n";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { useCloudMemoryPreference } from "@/features/cloud/use-cloud-memory-preference";
 import "./Onboarding.css";
 
@@ -88,7 +88,7 @@ export const OnboardingStep1 = ({
   discoveryWelcomeReady = false,
 }: OnboardingStep1Props) => {
   const t = useT();
-  const cloudMode = useCloudMode();
+  const conversationSession = useCloudConversationSession();
   const memory = useCloudMemoryPreference();
 
   // The engine phase (Stella / Claude Code / BYOK provider) is only useful
@@ -303,12 +303,12 @@ export const OnboardingStep1 = ({
       case "memory":
         return (
           <OnboardingMemoryPhase
-            key={`${cloudMode.accountScope}:${cloudMode.identityRevision}`}
-            authError={cloudMode.error}
+            key={`${conversationSession.accountScope}:${conversationSession.identityRevision}`}
+            authError={conversationSession.error}
             memory={memory}
             splitTransitionActive={leaving}
             onContinue={nextSplitStep}
-            onRetryAuthBootstrap={cloudMode.retryAuthBootstrap}
+            onRetryAuthBootstrap={conversationSession.retryAuthBootstrap}
           />
         );
       case "enter":

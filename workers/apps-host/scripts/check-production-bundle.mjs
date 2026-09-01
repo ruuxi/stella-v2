@@ -71,6 +71,26 @@ const DEPLOY_TARGETS = [
     trustedOrigin:
       "https://stella-v2-apps-auth-basic-nightingale-118.lolruuxi.workers.dev",
   },
+  {
+    label: "untrusted-production",
+    config: "wrangler.jsonc",
+    env: "production",
+    role: "untrusted",
+    deployment: "prod:intent-jackal-330",
+    worker: "stella-v2-apps-host-prod",
+    appsOrigin: "https://stella-v2-apps-host-prod.lolruuxi.workers.dev",
+    trustedOrigin: "https://stella-v2-apps-auth-prod.lolruuxi.workers.dev",
+  },
+  {
+    label: "trusted-production",
+    config: "wrangler.auth.jsonc",
+    env: "production",
+    role: "trusted",
+    deployment: "prod:intent-jackal-330",
+    worker: "stella-v2-apps-auth-prod",
+    appsOrigin: "https://stella-v2-apps-host-prod.lolruuxi.workers.dev",
+    trustedOrigin: "https://stella-v2-apps-auth-prod.lolruuxi.workers.dev",
+  },
 ];
 const RETIRED_DEPLOYMENTS = /flexible-panther-999|benevolent-minnow-586/i;
 

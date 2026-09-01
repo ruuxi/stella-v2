@@ -22,7 +22,7 @@ import {
   cloudHomeSyncRetryStore,
   cloudHomeSyncStatusStore,
 } from "@/features/cloud/cloud-home-sync";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { CloudAccountCards } from "@/features/cloud/CloudAccountCards";
 import { CloudHomeMemorySettings } from "@/features/cloud/CloudHomeMemorySettings";
 import { CloudMemoryWipeSettings } from "@/features/cloud/CloudMemoryWipeSettings";
@@ -107,7 +107,8 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
     useState<AccountDeleteAction | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isConfirmingCloudHome, setIsConfirmingCloudHome] = useState(false);
-  const { cloudMode, accountScope, identityRevision } = useCloudMode();
+  const { isCloudConversationReady, accountScope, identityRevision } =
+    useCloudConversationSession();
   const cloudHomeStatusSnapshot = useSyncExternalStore(
     cloudHomeSyncStatusStore.subscribe,
     cloudHomeSyncStatusStore.getSnapshot,
@@ -282,15 +283,15 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
           </div>
         </div>
       ) : null}
-      {window.electronAPI?.cloudHome && cloudMode ? (
+      {window.electronAPI?.cloudHome && isCloudConversationReady ? (
         <CloudHomeMemorySettings key={`${accountScope}:${identityRevision}`} />
       ) : null}
-      {window.electronAPI?.cloudHome && cloudMode ? (
+      {window.electronAPI?.cloudHome && isCloudConversationReady ? (
         <CloudMemoryReimportSettings
           key={`memory-reimport:${accountScope}:${identityRevision}`}
         />
       ) : null}
-      {cloudMode ? (
+      {isCloudConversationReady ? (
         <CloudMemoryWipeSettings
           key={`memory-wipe:${accountScope}:${identityRevision}`}
         />

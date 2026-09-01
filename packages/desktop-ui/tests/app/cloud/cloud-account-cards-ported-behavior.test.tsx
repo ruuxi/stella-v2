@@ -67,9 +67,9 @@ vi.mock("@/features/cloud/cloud-execution-store", () => ({
   publishCloudExecutionSelection: mocks.publishExecution,
 }));
 
-vi.mock("@/global/auth/hooks/use-cloud-mode", () => ({
-  useCloudMode: () => ({
-    cloudMode: mocks.authenticated,
+vi.mock("@/global/auth/hooks/use-cloud-conversation-session", () => ({
+  useCloudConversationSession: () => ({
+    isCloudConversationReady: mocks.authenticated,
     accountScope: "account:test-owner",
   }),
 }));

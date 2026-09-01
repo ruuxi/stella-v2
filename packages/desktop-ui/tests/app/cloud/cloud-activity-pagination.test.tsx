@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
     loadMore: vi.fn(),
   },
   mode: {
-    cloudMode: true,
+    isCloudConversationReady: true,
     accountScope: "account:owner-a",
     ownerSubject: "owner-a",
     identityRevision: 1,
@@ -31,8 +31,8 @@ vi.mock("convex/react", () => ({
   useQueries: () => ({ running: mocks.running }),
 }));
 
-vi.mock("@/global/auth/hooks/use-cloud-mode", () => ({
-  useCloudMode: () => mocks.mode,
+vi.mock("@/global/auth/hooks/use-cloud-conversation-session", () => ({
+  useCloudConversationSession: () => mocks.mode,
 }));
 
 import type { CloudAgentThread } from "@/features/cloud/cloud-api";
@@ -73,7 +73,7 @@ describe("cloud Activity pagination hook", () => {
     mocks.page.isLoading = false;
     mocks.page.error = undefined;
     mocks.page.loadMore.mockReset();
-    mocks.mode.cloudMode = true;
+    mocks.mode.isCloudConversationReady = true;
     mocks.mode.accountScope = "account:owner-a";
     mocks.mode.ownerSubject = "owner-a";
     mocks.mode.identityRevision = 1;

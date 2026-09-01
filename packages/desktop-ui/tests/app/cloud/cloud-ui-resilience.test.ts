@@ -23,7 +23,9 @@ describe("cloud UI resilience boundaries", () => {
     );
 
     expect(scopedSurfaceStart).toBeGreaterThan(-1);
-    expect(chatSidebar).toContain("const { accountScope } = useCloudMode()");
+    expect(chatSidebar).toContain(
+      "const { accountScope } = useCloudConversationSession()",
+    );
     expect(chatSidebar).toContain("key={accountScope}");
     expect(chatSidebar).toContain(
       "ignoredOpenRequestIdRef.current = props.openRequest?.id ?? null",

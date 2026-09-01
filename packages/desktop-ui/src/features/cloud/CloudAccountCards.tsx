@@ -3,7 +3,7 @@ import { CloudProjectsCard } from "./CloudProjectsCard";
 import { StellaInteriorCard } from "./StellaInteriorCard";
 import { CloudBrowserDataCard } from "./CloudBrowserDataCard";
 import { CloudBoundary } from "./CloudBoundary";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 
 const unavailable = (label: string) => (
   <div className="settings-card" role="alert">
@@ -37,9 +37,8 @@ function AccountScopedCloudCards() {
 
 /** Account-settings cloud surfaces kept behind one import for the host tab. */
 export function CloudAccountCards() {
-  const { cloudMode, accountScope } = useCloudMode();
-  if (!cloudMode) return null;
-  return (
-    <AccountScopedCloudCards key={accountScope} />
-  );
+  const { isCloudConversationReady, accountScope } =
+    useCloudConversationSession();
+  if (!isCloudConversationReady) return null;
+  return <AccountScopedCloudCards key={accountScope} />;
 }

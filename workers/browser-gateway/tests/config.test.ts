@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 describe("wrangler isolation", () => {
-  test("pins private dev and bn118 browser/profile resources", async () => {
+  test("pins private dev, acceptance, and production browser resources", async () => {
     const config = await Bun.file(
       new URL("../wrangler.jsonc", import.meta.url),
     ).text();
@@ -14,6 +14,8 @@ describe("wrangler isolation", () => {
       "stella-v2-browser-profiles-basic-nightingale-118",
     );
     expect(config).toContain("stella-v2-browser-gateway-basic-nightingale-118");
+    expect(config).toContain("stella-v2-browser-gateway-prod");
+    expect(config).toContain("stella-v2-browser-profiles-prod");
     expect(config.match(/"binding": "DEVICE_CODE_FIXTURE"/gu)).toHaveLength(1);
     expect(config.indexOf('"binding": "DEVICE_CODE_FIXTURE"')).toBeGreaterThan(
       config.indexOf('"bn118"'),
@@ -22,10 +24,10 @@ describe("wrangler isolation", () => {
     expect(config).toContain(
       '"DEVICE_CODE_FIXTURE_ORIGIN": "https://stella-v2-device-code-fixture-basic-nightingale-118.lolruuxi.workers.dev"',
     );
-    expect(config.match(/"secrets"/gu)).toHaveLength(2);
-    expect(config.match(/"BROWSER_PROFILE_KEK_V1"/gu)).toHaveLength(2);
-    expect(config.match(/"traces"/gu)).toHaveLength(2);
-    expect(config.match(/"head_sampling_rate": 0\.05/gu)).toHaveLength(2);
+    expect(config.match(/"secrets"/gu)).toHaveLength(3);
+    expect(config.match(/"BROWSER_PROFILE_KEK_V1"/gu)).toHaveLength(3);
+    expect(config.match(/"traces"/gu)).toHaveLength(3);
+    expect(config.match(/"head_sampling_rate": 0\.05/gu)).toHaveLength(3);
   });
 
   test("keeps Wrangler-generated binding declarations current", async () => {

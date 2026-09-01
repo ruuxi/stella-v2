@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQueries, type RequestForQueries } from "convex/react";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { cloudApi, type CloudApp } from "./cloud-api";
 
 export type CloudAppsState = {
@@ -15,35 +15,35 @@ export const isDeployedCloudApp = (app: CloudApp): boolean =>
 
 export function useCloudApps(): CloudAppsState {
   const {
-    cloudMode,
-    isLoading: cloudModeLoading,
+    isCloudConversationReady,
+    isLoading: conversationSessionLoading,
     accountScope,
-    error: cloudModeError,
-  } = useCloudMode();
+    error: conversationSessionError,
+  } = useCloudConversationSession();
   const requests = useMemo<RequestForQueries>(() => {
     const next: RequestForQueries = {};
-    if (cloudMode) {
+    if (isCloudConversationReady) {
       next.apps = {
         query: cloudApi.listMyApps,
         args: {},
       };
     }
     return next;
-  }, [cloudMode]);
+  }, [isCloudConversationReady]);
   const results = useQueries(requests);
   const value = results.apps;
 
   return useMemo(() => {
-    if (!cloudMode) {
+    if (!isCloudConversationReady) {
       return {
         accountScope,
-        phase: cloudModeLoading
+        phase: conversationSessionLoading
           ? ("loading" as const)
-          : cloudModeError
+          : conversationSessionError
             ? ("error" as const)
             : ("disabled" as const),
         apps: [],
-        error: cloudModeError ?? null,
+        error: conversationSessionError ?? null,
       };
     }
     if (value instanceof Error) {
@@ -70,9 +70,9 @@ export function useCloudApps(): CloudAppsState {
     };
   }, [
     accountScope,
-    cloudMode,
-    cloudModeError,
-    cloudModeLoading,
+    isCloudConversationReady,
+    conversationSessionError,
+    conversationSessionLoading,
     value,
   ]);
 }

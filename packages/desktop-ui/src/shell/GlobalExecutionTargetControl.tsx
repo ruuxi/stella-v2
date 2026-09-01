@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { cloudApi } from "@/features/cloud/cloud-api";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
+import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import {
   executionTargetStore,
   useExecutionTarget,
@@ -18,13 +19,14 @@ import { AppWindowMac, Check, Globe } from "@/ui/icons";
 import { platformCapabilities } from "@/platform/capabilities";
 
 export function GlobalExecutionTargetControl() {
-  const { cloudMode } = useCloudMode();
+  const { isCloudConversationReady } = useCloudConversationSession();
+  const { hasConnectedAccount } = useAuthSessionState();
   const [open, setOpen] = useState(false);
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
   const target = useExecutionTarget();
   const destinations = useQuery(
     cloudApi.listMyExecutionDestinations,
-    cloudMode ? {} : "skip",
+    isCloudConversationReady && hasConnectedAccount ? {} : "skip",
   );
 
   useEffect(() => {

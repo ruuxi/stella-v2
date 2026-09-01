@@ -13,7 +13,7 @@ import {
 } from "convex/react";
 import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
 import type { TaskItem } from "@/features/chat/lib/event-transforms";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { cloudConversationBelongsToOwnerSubject } from "./cloud-conversation-selection";
 import { cloudApi, type CloudAgentThread } from "./cloud-api";
 
@@ -119,7 +119,7 @@ const projectCloudActivity = (
  * touched last.
  */
 export const useCloudActivity = (): CloudActivity => {
-  const { cloudMode } = useCloudMode();
+  const { isCloudConversationReady } = useCloudConversationSession();
   // `useQueries`, not `useQuery`: this hook runs inside the left sidebar,
   // which is not wrapped in a CloudBoundary. A deployment that does not have
   // this function yet must cost the user their cloud rows, not the sidebar,
@@ -129,14 +129,14 @@ export const useCloudActivity = (): CloudActivity => {
   // stable or the sidebar re-renders forever while authenticated.
   const activityQueries = useMemo<RequestForQueries>(() => {
     const queries: RequestForQueries = {};
-    if (cloudMode) {
+    if (isCloudConversationReady) {
       queries.threads = {
         query: cloudApi.listMyRecentAgentThreads,
         args: { limit: ACTIVITY_THREAD_LIMIT },
       };
     }
     return queries;
-  }, [cloudMode]);
+  }, [isCloudConversationReady]);
   const results = useQueries(activityQueries);
   const threads = Array.isArray(results.threads)
     ? (results.threads as CloudAgentThread[])
@@ -188,7 +188,8 @@ export const mergeCloudThreadSnapshots = (
 export const useCloudConversationActivity = (
   conversationId: string | null,
 ): CloudConversationActivity => {
-  const { cloudMode, ownerSubject, identityRevision } = useCloudMode();
+  const { isCloudConversationReady, ownerSubject, identityRevision } =
+    useCloudConversationSession();
   // Object-form pagination returns deployment-skew/auth-refresh errors as a
   // value instead of throwing through the shell. That preserves the previous
   // `useQueries` behavior while delegating cursor splitting and invalid-cursor
@@ -196,21 +197,21 @@ export const useCloudConversationActivity = (
   const page = usePaginatedQuery_experimental({
     query: cloudApi.listMyAgentThreadsPage,
     args:
-      cloudMode && conversationId
+      isCloudConversationReady && conversationId
         ? { conversationId, identityRevision }
         : "skip",
     initialNumItems: CLOUD_ACTIVITY_PAGE_SIZE,
   });
   const runningQueries = useMemo<RequestForQueries>(() => {
     const queries: RequestForQueries = {};
-    if (cloudMode && conversationId) {
+    if (isCloudConversationReady && conversationId) {
       queries.running = {
         query: cloudApi.listMyRunningAgentThreads,
         args: { conversationId, identityRevision },
       };
     }
     return queries;
-  }, [cloudMode, conversationId, identityRevision]);
+  }, [isCloudConversationReady, conversationId, identityRevision]);
   const runningResults = useQueries(runningQueries);
   const pageThreads = Array.isArray(page.data)
     ? (page.data as CloudAgentThread[])
@@ -243,7 +244,9 @@ export const useCloudConversationActivity = (
   const pageScopeIsCurrent =
     pageOwnedByCurrentScope && runningOwnedByCurrentScope;
   const runningHasLoaded =
-    !cloudMode || !conversationId || runningResults.running !== undefined;
+    !isCloudConversationReady ||
+    !conversationId ||
+    runningResults.running !== undefined;
   const threads = useMemo(
     () =>
       pageScopeIsCurrent
@@ -257,7 +260,7 @@ export const useCloudConversationActivity = (
   const hasLoaded =
     pageScopeIsCurrent &&
     runningHasLoaded &&
-    (!cloudMode ||
+    (!isCloudConversationReady ||
       !conversationId ||
       page.status === "error" ||
       page.data !== undefined);

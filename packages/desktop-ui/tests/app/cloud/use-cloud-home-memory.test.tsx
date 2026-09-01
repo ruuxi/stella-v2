@@ -42,9 +42,9 @@ vi.mock("@/global/auth/hooks/use-auth-session-state", () => ({
   }),
 }));
 
-vi.mock("@/global/auth/hooks/use-cloud-mode", () => ({
-  useCloudMode: () => ({
-    cloudMode: true,
+vi.mock("@/global/auth/hooks/use-cloud-conversation-session", () => ({
+  useCloudConversationSession: () => ({
+    isCloudConversationReady: true,
     accountScope: "account:owner-a",
     identityRevision: 9,
     expectedSubject: "owner-a",

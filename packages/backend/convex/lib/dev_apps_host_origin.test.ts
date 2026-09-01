@@ -7,6 +7,9 @@ import {
   DEV_APPS_HOST_ORIGIN,
   DEV_TRUSTED_APPS_HOST_ORIGIN,
   DEV_CLOUD_BUILDER_ORIGIN,
+  PRODUCTION_APPS_HOST_ORIGIN,
+  PRODUCTION_TRUSTED_APPS_HOST_ORIGIN,
+  PRODUCTION_CLOUD_BUILDER_ORIGIN,
   getTrustedAppsHostOrigin,
   getTrustedAppsAuthOrigin,
   resolveManagedAppsHostOrigin,
@@ -31,7 +34,16 @@ const validAcceptanceEnv = () => ({
   CLOUD_BUILDER_URL: ACCEPTANCE_CLOUD_BUILDER_ORIGIN,
 });
 
-describe("non-production Apps host origin authority", () => {
+const validProductionEnv = () => ({
+  STELLA_DEPLOYMENT_IDENTITY: "prod:intent-jackal-330",
+  CONVEX_SITE_URL: "https://intent-jackal-330.convex.site",
+  CONVEX_CLOUD_URL: "https://intent-jackal-330.convex.cloud",
+  APPS_HOST_ORIGIN: PRODUCTION_APPS_HOST_ORIGIN,
+  TRUSTED_APPS_HOST_ORIGIN: PRODUCTION_TRUSTED_APPS_HOST_ORIGIN,
+  CLOUD_BUILDER_URL: PRODUCTION_CLOUD_BUILDER_ORIGIN,
+});
+
+describe("managed Apps host origin authority", () => {
   test("trusts the exact outgoing-bulldog development contract", () => {
     assert.equal(getTrustedAppsHostOrigin(validEnv()), DEV_APPS_HOST_ORIGIN);
     assert.equal(
@@ -62,6 +74,17 @@ describe("non-production Apps host origin authority", () => {
         STELLA_AUTH_BASE_URL: "https://basic-nightingale-118.convex.site",
       }),
       ACCEPTANCE_APPS_HOST_ORIGIN,
+    );
+  });
+
+  test("trusts the exact Intent Jackal production contract", () => {
+    assert.equal(
+      getTrustedAppsHostOrigin(validProductionEnv()),
+      PRODUCTION_APPS_HOST_ORIGIN,
+    );
+    assert.equal(
+      getTrustedAppsAuthOrigin(validProductionEnv()),
+      PRODUCTION_TRUSTED_APPS_HOST_ORIGIN,
     );
   });
 

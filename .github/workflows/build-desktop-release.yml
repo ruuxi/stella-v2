@@ -137,11 +137,11 @@ jobs:
 
       - name: Build and validate shared desktop JavaScript
         env:
-          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
-          VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
-          # This repository intentionally has no hard-coded production Apps
-          # origin. The reviewed release value must be supplied explicitly.
-          VITE_STELLA_APPS_HOST: ${{ vars.VITE_STELLA_APPS_HOST }}
+          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL || 'https://intent-jackal-330.convex.cloud' }}
+          VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL || 'https://intent-jackal-330.convex.site' }}
+          # Repository variables can move a reviewed release to a replacement
+          # stack. Until then, releases target the provisioned Intent stack.
+          VITE_STELLA_APPS_HOST: ${{ vars.VITE_STELLA_APPS_HOST || 'https://stella-v2-apps-host-prod.lolruuxi.workers.dev' }}
         shell: bash
         run: |
           set -euo pipefail

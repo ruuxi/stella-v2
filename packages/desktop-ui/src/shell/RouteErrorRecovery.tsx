@@ -1,6 +1,6 @@
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { CrashSurface } from "./CrashSurface";
 
 export const OWNERSHIP_MIGRATION_RECOVERY_TIMEOUT_MS = 20_000;
@@ -47,7 +47,8 @@ function OwnershipMigrationRecovery({
   info,
   reset,
 }: ErrorComponentProps) {
-  const { accountScope, cloudMode } = useCloudMode();
+  const { accountScope, isCloudConversationReady } =
+    useCloudConversationSession();
   const [timedOut, setTimedOut] = useState(false);
   const timedOutRef = useRef(false);
   const resetCalledRef = useRef(false);
@@ -62,7 +63,7 @@ function OwnershipMigrationRecovery({
 
   useEffect(() => {
     const destinationIdentityReady =
-      cloudMode && accountScope.startsWith("account:");
+      isCloudConversationReady && accountScope.startsWith("account:");
     if (
       !destinationIdentityReady ||
       timedOutRef.current ||
@@ -72,7 +73,7 @@ function OwnershipMigrationRecovery({
     }
     resetCalledRef.current = true;
     reset();
-  }, [accountScope, cloudMode, reset]);
+  }, [accountScope, isCloudConversationReady, reset]);
 
   if (timedOut) {
     return (

@@ -107,6 +107,7 @@ import type * as http_routes_stripe from "../http_routes/stripe.js";
 import type * as http_routes_synthesis from "../http_routes/synthesis.js";
 import type * as http_routes_voice from "../http_routes/voice.js";
 import type * as http_routes_x from "../http_routes/x.js";
+import type * as http_routes_x_bot from "../http_routes/x_bot.js";
 import type * as http_shared_admin from "../http_shared/admin.js";
 import type * as http_shared_anon_device from "../http_shared/anon_device.js";
 import type * as http_shared_assistant_text_frames from "../http_shared/assistant_text_frames.js";
@@ -188,6 +189,8 @@ import type * as lib_url_security from "../lib/url_security.js";
 import type * as lib_validator from "../lib/validator.js";
 import type * as lib_voice_authority from "../lib/voice_authority.js";
 import type * as lib_voice_dispatch_guard from "../lib/voice_dispatch_guard.js";
+import type * as lib_x_bot from "../lib/x_bot.js";
+import type * as lib_x_bot_oauth from "../lib/x_bot_oauth.js";
 import type * as lib_x_oauth from "../lib/x_oauth.js";
 import type * as lib_xai_stt from "../lib/xai_stt.js";
 import type * as local_agent_threads from "../local_agent_threads.js";
@@ -291,6 +294,7 @@ import type * as tts_dispatch from "../tts_dispatch.js";
 import type * as tts_hls from "../tts_hls.js";
 import type * as tts_stream from "../tts_stream.js";
 import type * as voice_dispatch from "../voice_dispatch.js";
+import type * as x_bot from "../x_bot.js";
 
 import type {
   ApiFromModules,
@@ -398,6 +402,7 @@ declare const fullApi: ApiFromModules<{
   "http_routes/synthesis": typeof http_routes_synthesis;
   "http_routes/voice": typeof http_routes_voice;
   "http_routes/x": typeof http_routes_x;
+  "http_routes/x_bot": typeof http_routes_x_bot;
   "http_shared/admin": typeof http_shared_admin;
   "http_shared/anon_device": typeof http_shared_anon_device;
   "http_shared/assistant_text_frames": typeof http_shared_assistant_text_frames;
@@ -479,6 +484,8 @@ declare const fullApi: ApiFromModules<{
   "lib/validator": typeof lib_validator;
   "lib/voice_authority": typeof lib_voice_authority;
   "lib/voice_dispatch_guard": typeof lib_voice_dispatch_guard;
+  "lib/x_bot": typeof lib_x_bot;
+  "lib/x_bot_oauth": typeof lib_x_bot_oauth;
   "lib/x_oauth": typeof lib_x_oauth;
   "lib/xai_stt": typeof lib_xai_stt;
   local_agent_threads: typeof local_agent_threads;
@@ -582,6 +589,7 @@ declare const fullApi: ApiFromModules<{
   tts_hls: typeof tts_hls;
   tts_stream: typeof tts_stream;
   voice_dispatch: typeof voice_dispatch;
+  x_bot: typeof x_bot;
 }>;
 
 /**

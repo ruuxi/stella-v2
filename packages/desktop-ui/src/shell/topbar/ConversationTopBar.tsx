@@ -5,6 +5,7 @@ import {
   usePaginatedQuery,
   useQuery,
 } from "convex/react";
+import { ConvexError } from "convex/values";
 import {
   LegendList,
   type LegendListRenderItemProps,
@@ -33,6 +34,7 @@ import { cloudApi, type CloudConversation } from "@/features/cloud/cloud-api";
 import {
   cloudConversationBelongsToOwnerSubject,
   cloudConversationsForOwnerSubject,
+  discardPendingCloudConversation,
   markCloudConversationCreated,
 } from "@/features/cloud/cloud-conversation-selection";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
@@ -78,6 +80,10 @@ export const measureConversationTabOverflow = (
   left: element.scrollLeft > 1,
   right: element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
 });
+
+export const isConfirmedConversationCreateRejection = (
+  error: unknown,
+): boolean => error instanceof ConvexError;
 
 export const isConversationTabTitleOverflowing = (
   element: Pick<HTMLElement, "scrollWidth" | "clientWidth">,
@@ -344,6 +350,8 @@ export function ConversationTopBar() {
   activeAccountScopeRef.current = accountScope;
   const activeOwnerGenerationRef = useRef(ownerGeneration);
   activeOwnerGenerationRef.current = ownerGeneration;
+  const activeConversationIdRef = useRef(activeConversationId);
+  activeConversationIdRef.current = activeConversationId;
   const cloudUpdatedAtRef = useRef<{
     accountScope: string;
     values: Map<string, number>;
@@ -420,11 +428,16 @@ export function ConversationTopBar() {
         ? prior
         : { id: crypto.randomUUID(), ownerGeneration };
     const clientCreateId = request.id;
+    const requestedConversationId = request.id;
+    const previousConversationId = activeConversationId;
     createRequestRef.current = request;
     createInFlightRef.current = true;
+    markCloudConversationCreated(requestedConversationId, accountScope);
+    navigateToConversation(requestedConversationId);
     try {
       const created = await createCloudConversation({
         clientCreateId,
+        requestedConversationId,
         expectedOwnerGeneration: request.ownerGeneration,
       });
       if (
@@ -436,8 +449,31 @@ export function ConversationTopBar() {
       }
       createInFlightRef.current = false;
       createRequestRef.current = null;
+      const optimisticTabStillExists = conversationTabs
+        .getSnapshot()
+        .tabs.some(
+          (tab) => tab.conversationId === requestedConversationId,
+        );
+      if (
+        created.conversationId !== requestedConversationId &&
+        optimisticTabStillExists
+      ) {
+        discardPendingCloudConversation(requestedConversationId);
+        conversationTabs.replaceConversation(
+          requestedConversationId,
+          created.conversationId,
+          created.title,
+        );
+      }
       markCloudConversationCreated(created.conversationId, accountScope);
-      navigateToConversation(created.conversationId, created.title);
+      if (activeConversationIdRef.current === requestedConversationId) {
+        navigateToConversation(created.conversationId, created.title);
+      } else if (
+        created.conversationId === requestedConversationId &&
+        optimisticTabStillExists
+      ) {
+        conversationTabs.openConversation(created.conversationId, created.title);
+      }
     } catch (error) {
       if (
         activeAccountScopeRef.current !== accountScope ||
@@ -446,8 +482,23 @@ export function ConversationTopBar() {
       ) {
         return;
       }
-      // Retain the idempotency key. A retry must converge on the conversation
-      // even when the first response was lost after the server committed it.
+      if (isConfirmedConversationCreateRejection(error)) {
+        discardPendingCloudConversation(requestedConversationId);
+        conversationTabs.closeConversation(
+          requestedConversationId,
+          activeConversationIdRef.current,
+        );
+        createInFlightRef.current = false;
+        createRequestRef.current = null;
+        if (
+          activeConversationIdRef.current === requestedConversationId &&
+          previousConversationId
+        ) {
+          navigateToConversation(previousConversationId);
+        }
+      } else {
+        markCloudConversationCreated(requestedConversationId, accountScope);
+      }
       showToast({
         title: "Couldn’t create a new chat",
         description:
@@ -467,6 +518,7 @@ export function ConversationTopBar() {
     }
   }, [
     accountScope,
+    activeConversationId,
     isCloudConversationReady,
     createCloudConversation,
     navigateToConversation,

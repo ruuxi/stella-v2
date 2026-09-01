@@ -46,11 +46,6 @@ type UseStreamingChatOptions = {
 
 const createLocalMessageId = () => `local-${crypto.randomUUID()}`;
 
-const nextAnimationFrame = () =>
-  new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
-
 /**
  * Bounded preview of quoted / "Ask Stella" context stored on the sent message.
  * Mirrors the runtime's `QUOTED_TEXT_PREVIEW_MAX_CHARS` so the optimistic value
@@ -466,6 +461,7 @@ export function useStreamingChatCore({
 
       if (
         !resolvedConversationId ||
+        activeConversationIdRef.current !== resolvedConversationId ||
         (!cleanedText && !contextState.hasSubmittableContext)
       ) {
         return false;
@@ -494,10 +490,23 @@ export function useStreamingChatCore({
         cleanedText || options.selectedText?.trim() || "Attached context";
 
       const messageTimestamp = Date.now();
+      const optimisticEvent = buildOptimisticUserEvent({
+        id: optimisticUserMessageId,
+        text: optimisticText,
+        timestamp: messageTimestamp,
+        platform,
+        timezone,
+        locale: requestLocale,
+        ...(messageMetadata ? { metadata: messageMetadata } : {}),
+        attachments: toDisplayAttachments(attachments),
+      });
+
+      setOptimisticEvents((current) => [...current, optimisticEvent]);
+      setPendingUserMessageId(optimisticUserMessageId);
+      options.onClear();
+      options.onOptimisticStart?.();
+
       try {
-        // A turn is not accepted until the main-process runtime returns a
-        // request id. Keep the draft and viewport untouched through transient
-        // bootstrap/readiness failures so one retry is lossless.
         const deviceId = await getOrCreateDeviceId();
         const accepted = await startStream({
           userPrompt: cleanedText,
@@ -512,27 +521,10 @@ export function useStreamingChatCore({
           userMessageEventId: optimisticUserMessageId,
           userMessageTimestamp: messageTimestamp,
         });
-        if (!accepted) return false;
-
-        options.onClear();
-        await nextAnimationFrame();
-
-        // The accepted turn belongs to the captured conversation. If IPC was
-        // pending across a tab switch, persistence will populate that tab; do
-        // not leak an optimistic row into the newly active conversation.
-        if (activeConversationIdRef.current === resolvedConversationId) {
-          const optimisticEvent = buildOptimisticUserEvent({
-            id: optimisticUserMessageId,
-            text: optimisticText,
-            timestamp: messageTimestamp,
-            platform,
-            timezone,
-            locale: requestLocale,
-            ...(messageMetadata ? { metadata: messageMetadata } : {}),
-            attachments: toDisplayAttachments(attachments),
-          });
-          setOptimisticEvents((current) => [...current, optimisticEvent]);
-          setPendingUserMessageId(optimisticUserMessageId);
+        if (!accepted) {
+          clearOptimisticMessage(optimisticUserMessageId);
+          options.onRestore?.();
+          return false;
         }
 
         // Fire-and-forget: surface a "model not available on your plan"
@@ -547,6 +539,8 @@ export function useStreamingChatCore({
         );
         return true;
       } catch (error) {
+        clearOptimisticMessage(optimisticUserMessageId);
+        options.onRestore?.();
         console.error(
           "Failed to prepare local agent chat:",
           error instanceof Error ? error.message : String(error),
@@ -561,6 +555,7 @@ export function useStreamingChatCore({
     [
       activeConversationId,
       isLocalStorage,
+      clearOptimisticMessage,
       notifyTierRestrictedModel,
       startStream,
       locale,

@@ -194,6 +194,7 @@ export const cloudApi = {
     "mutation",
     {
       clientCreateId: string;
+      requestedConversationId?: string;
       expectedOwnerGeneration: string;
       title?: string;
       execution?: CloudExecutionSelection;

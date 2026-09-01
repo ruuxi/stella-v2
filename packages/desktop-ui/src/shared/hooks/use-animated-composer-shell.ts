@@ -10,9 +10,23 @@ type AnimatedComposerShellOptions = {
 };
 
 const expandedRadiusPx = 20;
+export const MIN_COMPOSER_SHELL_HEIGHT_PX = 46;
 
 const getContentHeight = (content: HTMLElement) =>
   content.getBoundingClientRect().height;
+
+export const resolveComposerShellHeight = (
+  measuredHeight: number,
+  previousHeight: number,
+): number => {
+  if (
+    Number.isFinite(measuredHeight) &&
+    measuredHeight >= MIN_COMPOSER_SHELL_HEIGHT_PX
+  ) {
+    return measuredHeight;
+  }
+  return Math.max(previousHeight, MIN_COMPOSER_SHELL_HEIGHT_PX);
+};
 
 const getTargetRadius = (
   form: HTMLElement,
@@ -70,7 +84,10 @@ export function useAnimatedComposerShell({
     }
 
     const syncShellToContent = () => {
-      lastHeightRef.current = getContentHeight(content);
+      lastHeightRef.current = resolveComposerShellHeight(
+        getContentHeight(content),
+        lastHeightRef.current,
+      );
       shell.style.height = `${lastHeightRef.current}px`;
       shell.style.borderRadius = `${getTargetRadius(
         form,
@@ -110,9 +127,13 @@ export function useAnimatedComposerShell({
       if (!entry) return;
       const nextHeight =
         entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
-      if (Math.abs(nextHeight - lastHeightRef.current) < 1) return;
+      const safeHeight = resolveComposerShellHeight(
+        nextHeight,
+        lastHeightRef.current,
+      );
+      if (Math.abs(safeHeight - lastHeightRef.current) < 1) return;
 
-      scheduleShellAnimation(nextHeight);
+      scheduleShellAnimation(safeHeight);
     });
 
     observer.observe(content);

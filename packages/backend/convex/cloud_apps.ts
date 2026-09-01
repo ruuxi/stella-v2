@@ -866,6 +866,20 @@ const normalizeClientCreateId = (value: string): string => {
   return trimmed;
 };
 
+const CONVERSATION_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const normalizeRequestedConversationId = (
+  value: string | undefined,
+): string | undefined => {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  if (!CONVERSATION_ID_PATTERN.test(trimmed)) {
+    throw new ConvexError("That conversation could not be created. Try again.");
+  }
+  return trimmed;
+};
+
 type ChatIntentAuthority =
   | "composer-direct"
   | "composer-placement"
@@ -1586,11 +1600,13 @@ export const getMyCloudConversationIdentity = query({
 /**
  * Creates the durable identity for a conversation without starting a model
  * turn. The client key makes a lost mutation response safe to retry; the
- * server-generated UUID remains the only identity used to address the DO.
+ * An optional client-requested UUID lets the renderer route optimistically;
+ * the mutation validates and durably claims that same canonical identity.
  */
 export const createMyConversation = mutation({
   args: {
     clientCreateId: v.string(),
+    requestedConversationId: v.optional(v.string()),
     expectedOwnerGeneration: v.string(),
     title: v.optional(v.string()),
     execution: v.optional(cloudExecutionSelectionValidator),
@@ -1604,6 +1620,9 @@ export const createMyConversation = mutation({
       args.expectedOwnerGeneration,
     );
     const clientCreateId = normalizeClientCreateId(args.clientCreateId);
+    const requestedConversationId = normalizeRequestedConversationId(
+      args.requestedConversationId,
+    );
     const existing = await ctx.db
       .query("cloud_conversations")
       .withIndex("by_ownerId_and_clientCreateId", (q) =>
@@ -1639,6 +1658,19 @@ export const createMyConversation = mutation({
     const execution = args.execution
       ? await assertExecutionAvailable(ctx, ownerId, args.execution)
       : undefined;
+    if (requestedConversationId) {
+      const collision = await ctx.db
+        .query("cloud_conversations")
+        .withIndex("by_conversationId", (q) =>
+          q.eq("conversationId", requestedConversationId),
+        )
+        .unique();
+      if (collision) {
+        throw new ConvexError(
+          "That conversation could not be created. Try again.",
+        );
+      }
+    }
     const now = Date.now();
     const rawTitle = args.title?.trim() ?? "";
     const title =
@@ -1646,7 +1678,7 @@ export const createMyConversation = mutation({
         ? `${rawTitle.slice(0, CHAT_TITLE_MAX - 3)}…`
         : rawTitle;
     const conversation = {
-      conversationId: crypto.randomUUID(),
+      conversationId: requestedConversationId ?? crypto.randomUUID(),
       ownerId,
       clientCreateId,
       allowEmpty: true,

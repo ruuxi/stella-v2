@@ -15,6 +15,7 @@
 .composer-shell {
   position: relative;
   width: 100%;
+  min-height: 46px;
   max-width: min(var(--full-chat-composer-max-width), calc(100% - 48px));
   background: var(--panel-surface-bg-gradient);
   border: 1px solid var(--panel-surface-border);

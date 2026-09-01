@@ -60,6 +60,12 @@ export const acknowledgeCloudConversation = (conversationId: string): void => {
   pendingCreatedConversations.delete(conversationId);
 };
 
+export const discardPendingCloudConversation = (
+  conversationId: string,
+): void => {
+  pendingCreatedConversations.delete(conversationId);
+};
+
 export const isPendingCloudConversation = (
   conversationId: string,
   accountScope: string,

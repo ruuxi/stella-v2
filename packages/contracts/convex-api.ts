@@ -58,7 +58,7 @@ export type PublicApiType = {
   "cloud_apps": {
     "confirmMySessionIdentity": FunctionReference<'query', 'public', { expectedSubject: string; identityRevision: number; }, any, string | undefined>;
     "getMyCloudConversationIdentity": FunctionReference<'query', 'public', {}, any, string | undefined>;
-    "createMyConversation": FunctionReference<'mutation', 'public', { execution?: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; } | undefined; title?: string | undefined; clientCreateId: string; expectedOwnerGeneration: string; }, any, string | undefined>;
+    "createMyConversation": FunctionReference<'mutation', 'public', { execution?: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; } | undefined; title?: string | undefined; requestedConversationId?: string | undefined; clientCreateId: string; expectedOwnerGeneration: string; }, any, string | undefined>;
     "getMyConversation": FunctionReference<'query', 'public', { conversationId: string; }, any, string | undefined>;
     "listMyConversations": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "getMyConversationHistorySnapshot": FunctionReference<'query', 'public', {}, any, string | undefined>;

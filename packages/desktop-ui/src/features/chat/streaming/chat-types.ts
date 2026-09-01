@@ -21,5 +21,7 @@ export type SendMessageArgs = {
   selectedText: string | null
   chatContext: ChatContext | null
   onClear: () => void
+  onOptimisticStart?: () => void
+  onRestore?: () => void
   metadata?: MessageMetadata
 }

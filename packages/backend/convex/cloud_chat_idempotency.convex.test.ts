@@ -168,6 +168,74 @@ describe("cloud chat reliable-delivery authority", () => {
     ).resolves.toEqual([]);
   });
 
+  it("keeps the client-requested conversation identity across retries", async () => {
+    const t = createTest();
+    const subject = "optimistic-conversation-owner";
+    const ownerId = ownerIdFor(subject);
+    const generation = "generation-optimistic-conversation";
+    const requestedConversationId = "1730c5ea-40d8-4a15-83f5-c60f88a5afc9";
+    await seedGeneration(t, ownerId, generation);
+    const args = {
+      clientCreateId: "optimistic-create-0001",
+      requestedConversationId,
+      expectedOwnerGeneration: generation,
+    };
+
+    const created = await identity(t, subject).mutation(
+      createMyConversation,
+      args,
+    );
+    const replayed = await identity(t, subject).mutation(
+      createMyConversation,
+      args,
+    );
+
+    expect(created.conversationId).toBe(requestedConversationId);
+    expect(replayed.conversationId).toBe(requestedConversationId);
+    await expect(
+      t.run(async (ctx) =>
+        ctx.db
+          .query("cloud_conversations")
+          .withIndex("by_ownerId_and_updatedAt", (q) =>
+            q.eq("ownerId", ownerId),
+          )
+          .collect(),
+      ),
+    ).resolves.toHaveLength(1);
+  });
+
+  it("rejects invalid or already-claimed requested conversation identities", async () => {
+    const t = createTest();
+    const firstSubject = "requested-id-owner-one";
+    const secondSubject = "requested-id-owner-two";
+    const firstOwnerId = ownerIdFor(firstSubject);
+    const secondOwnerId = ownerIdFor(secondSubject);
+    const requestedConversationId = "dad44f0e-ef82-4bba-a29a-86f064cd12a1";
+    await seedGeneration(t, firstOwnerId, "generation-requested-one");
+    await seedGeneration(t, secondOwnerId, "generation-requested-two");
+
+    await identity(t, firstSubject).mutation(createMyConversation, {
+      clientCreateId: "requested-id-create-one",
+      requestedConversationId,
+      expectedOwnerGeneration: "generation-requested-one",
+    });
+
+    await expect(
+      identity(t, secondSubject).mutation(createMyConversation, {
+        clientCreateId: "requested-id-create-two",
+        requestedConversationId,
+        expectedOwnerGeneration: "generation-requested-two",
+      }),
+    ).rejects.toThrow(/could not be created/iu);
+    await expect(
+      identity(t, secondSubject).mutation(createMyConversation, {
+        clientCreateId: "requested-id-create-invalid",
+        requestedConversationId: "not-a-uuid",
+        expectedOwnerGeneration: "generation-requested-two",
+      }),
+    ).rejects.toThrow(/could not be created/iu);
+  });
+
   it("replays a lost first-message response with one conversation, turn, and schedule", async () => {
     const t = createTest();
     const subject = "chat-replay-owner";

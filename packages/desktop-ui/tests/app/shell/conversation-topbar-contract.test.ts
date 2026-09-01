@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   isConversationTabTitleOverflowing,
+  isConfirmedConversationCreateRejection,
   measureConversationTabOverflow,
   mergeCloudConversationHistory,
   resolveHistoryDeleteActivation,
@@ -13,6 +14,7 @@ import {
   shouldRenderNewChatLabel,
   shouldRenderConversationHomeLauncher,
 } from "@/shell/topbar/ConversationTopBar";
+import { ConvexError } from "convex/values";
 import enCatalog from "../../../src/shared/i18n/locales/en.json";
 
 const SOURCE_ROOT = path.resolve(
@@ -105,6 +107,37 @@ describe("conversation top-bar contracts", () => {
         "second",
       ),
     ).toEqual({ type: "new" });
+  });
+
+  it("routes a client-owned conversation before durable creation resolves", () => {
+    const source = fs.readFileSync(
+      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
+      "utf8",
+    );
+    const createStart = source.indexOf(
+      "const createConversation = useCallback(async () =>",
+    );
+    const createEnd = source.indexOf("const loadHistory", createStart);
+    const createSource = source.slice(createStart, createEnd);
+
+    expect(createSource.indexOf("markCloudConversationCreated(")).toBeLessThan(
+      createSource.indexOf("await createCloudConversation("),
+    );
+    expect(createSource.indexOf("navigateToConversation(")).toBeLessThan(
+      createSource.indexOf("await createCloudConversation("),
+    );
+    expect(createSource).toContain("requestedConversationId");
+  });
+
+  it("distinguishes durable create rejection from an ambiguous transport failure", () => {
+    expect(
+      isConfirmedConversationCreateRejection(
+        new ConvexError("Conversation could not be created"),
+      ),
+    ).toBe(true);
+    expect(
+      isConfirmedConversationCreateRejection(new Error("Network disconnected")),
+    ).toBe(false);
   });
 
   it("maps the OpenCode tab shortcuts and wraps cycling", () => {

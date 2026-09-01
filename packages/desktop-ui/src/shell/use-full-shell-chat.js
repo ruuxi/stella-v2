@@ -520,10 +520,14 @@ export function useFullShellChat({
       getShouldPlaceLatestTurn();
     const shouldNudgeAfterSend = !isStreaming && shouldKeepTailFramed;
     const submittedConversationId = activeConversationId;
+    const submittedMessage = latestMessageRef.current;
+    const submittedSelectedText = selectedText;
+    const submittedChatContext = chatContext;
+    const submittedFromHome = showHomeContent;
     const accepted = await sendMessage({
-      text: latestMessageRef.current,
-      selectedText,
-      chatContext,
+      text: submittedMessage,
+      selectedText: submittedSelectedText,
+      chatContext: submittedChatContext,
       onClear: () => {
         if (activeConversationIdRef.current !== submittedConversationId) {
           if (submittedConversationId) {
@@ -543,6 +547,38 @@ export function useFullShellChat({
         setSelectedText(null);
         setChatContext(null);
       },
+      onOptimisticStart: () => {
+        if (activeConversationIdRef.current !== submittedConversationId) return;
+        enterChatSurfaceForInteraction();
+        resetIdleTimer();
+      },
+      onRestore: () => {
+        if (activeConversationIdRef.current !== submittedConversationId) {
+          if (submittedConversationId) {
+            const remembered =
+              composerMemoryByConversationRef.current.get(
+                submittedConversationId,
+              ) ?? {};
+            setBoundedTabMemory(
+              composerMemoryByConversationRef.current,
+              submittedConversationId,
+              {
+                message: remembered.message || submittedMessage,
+                selectedText:
+                  remembered.selectedText ?? submittedSelectedText,
+                chatContext: remembered.chatContext ?? submittedChatContext,
+              },
+            );
+          }
+          return;
+        }
+        const shouldRestoreHome =
+          submittedFromHome && !latestMessageRef.current;
+        setMessage((current) => current || submittedMessage);
+        setSelectedText((current) => current ?? submittedSelectedText);
+        setChatContext((current) => current ?? submittedChatContext);
+        if (shouldRestoreHome) showHome();
+      },
     });
     if (
       !accepted ||
@@ -550,11 +586,9 @@ export function useFullShellChat({
     ) {
       return;
     }
-    if (showHomeContent) {
+    if (submittedFromHome) {
       setComposerFocusRequestId((id) => id + 1);
     }
-    enterChatSurfaceForInteraction();
-    resetIdleTimer();
     if (isStreaming) {
       // Queued follow-up — no new user row lands in the event list.
       // The streaming assistant row's own auto-follow keeps the reply
@@ -590,6 +624,7 @@ export function useFullShellChat({
     setChatContext,
     setMessage,
     setSelectedText,
+    showHome,
     showHomeContent,
   ]);
   const { canSubmit } = deriveComposerState({

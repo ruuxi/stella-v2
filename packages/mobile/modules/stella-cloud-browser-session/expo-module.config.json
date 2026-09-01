@@ -1,6 +1,11 @@
 {
-  "platforms": ["apple"],
+  "platforms": ["apple", "android"],
   "apple": {
     "modules": ["StellaCloudBrowserSessionModule"]
+  },
+  "android": {
+    "modules": [
+      "com.stella.cloudbrowsersession.StellaCloudBrowserSessionModule"
+    ]
   }
 }

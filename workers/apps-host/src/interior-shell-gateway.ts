@@ -447,7 +447,7 @@ const SERVICE_ROUTES = new Map<string, ReadonlySet<string>>([
   ["/api/stella/relay/chat/completions", new Set(["POST"])],
   ["/api/stella/openrouter/api/v1/chat/completions", new Set(["POST"])],
   ["/api/media/v1/generate", new Set(["POST"])],
-  ["/api/dictation/transcribe", new Set(["POST"])],
+  ["/api/dictation/realtime-config", new Set(["POST"])],
   ["/api/voice/session", new Set(["POST"])],
   ["/api/voice/openai/sdp", new Set(["POST"])],
   ["/api/voice/inworld/sdp", new Set(["POST"])],
@@ -832,6 +832,54 @@ export const handleInteriorConversationSocket = async (
   if (upstreamResponse.status !== 101 || !upstreamResponse.webSocket) {
     await upstreamResponse.body?.cancel().catch(() => undefined);
     return new Response("Conversation unavailable", { status: 502 });
+  }
+  const pair = new WebSocketPair();
+  const browser = pair[0];
+  const gateway = pair[1];
+  gateway.accept();
+  upstreamResponse.webSocket.accept();
+  relaySockets(gateway, upstreamResponse.webSocket);
+  return new Response(null, {
+    status: 101,
+    webSocket: browser,
+    headers: { "sec-websocket-protocol": "stella.v1" },
+  });
+};
+
+export const handleInteriorDictationSocket = async (
+  request: Request,
+  config: AppsHostConfig,
+): Promise<Response | null> => {
+  const url = new URL(request.url);
+  if (url.pathname !== "/dictation/socket") return null;
+  if (
+    request.method !== "GET" ||
+    request.headers.get("upgrade")?.toLowerCase() !== "websocket" ||
+    request.headers.get("origin") !== "null" ||
+    url.search !== ""
+  ) {
+    return new Response("WebSocket required", { status: 426 });
+  }
+  const offered = readConversationProtocols(request);
+  if (!offered) return new Response("Unauthorized", { status: 401 });
+  let session: VerifiedInteriorShellSession;
+  try {
+    session = await parseScopedSession(config, offered.token);
+  } catch {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  const upstreamResponse = await fetch(
+    new URL("/dictation/socket", config.cloudBuilderOrigin),
+    {
+      headers: {
+        Upgrade: "websocket",
+        "Sec-WebSocket-Protocol": `stella.v1, stella.token.${session.convexToken}`,
+      },
+    },
+  );
+  if (upstreamResponse.status !== 101 || !upstreamResponse.webSocket) {
+    await upstreamResponse.body?.cancel().catch(() => undefined);
+    return new Response("Dictation unavailable", { status: 502 });
   }
   const pair = new WebSocketPair();
   const browser = pair[0];

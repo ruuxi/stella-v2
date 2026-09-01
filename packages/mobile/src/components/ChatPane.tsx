@@ -4541,7 +4541,6 @@ export function ChatPane({
               <View style={styles.formPill}>
                 {plusButton}
                 <DictationRecordingBar
-                  recorder={dictation.recorder}
                   onCancel={() => void dictation.cancel()}
                   onConfirm={() => void dictation.stop()}
                   onSend={stopAndSendVoice}
@@ -4676,7 +4675,6 @@ export function ChatPane({
                 {dictationBelow ? (
                   <View style={styles.dictationRow}>
                     <DictationRecordingBar
-                      recorder={dictation.recorder}
                       onCancel={() => void dictation.cancel()}
                       onConfirm={() => void dictation.stop()}
                       onSend={stopAndSendVoice}

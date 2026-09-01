@@ -62,6 +62,7 @@ import {
   CLOSE_UNAUTHENTICATED,
 } from "./conversation-types.js";
 import { verifyConvexToken } from "./auth-jwt.js";
+import { handleMuseTranscribeSocket } from "./muse-transcribe-socket.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import { CLOUD_AGENT_TURN_RESULT_PATH } from "@stella/executor-cloud/agent-turn-result-file";
 import {
@@ -1219,7 +1220,9 @@ export const stellaToolWorkspaceExists = async (
     case "absent":
       return false;
     case "invalid":
-      throw new Error("The Stella interior source path is not a safe directory.");
+      throw new Error(
+        "The Stella interior source path is not a safe directory.",
+      );
     default:
       throw new Error("The Stella interior source returned an invalid state.");
   }
@@ -7469,7 +7472,8 @@ export class BuildSession extends DurableObject<Env> {
       });
 
       let nativeUpload:
-        Awaited<ReturnType<typeof uploadTurnStateArchive>> | undefined;
+        | Awaited<ReturnType<typeof uploadTurnStateArchive>>
+        | undefined;
       if (prepared.objectKeys.native) {
         nativeUpload = await uploadTurnStateArchive({
           session,
@@ -10535,8 +10539,8 @@ export class BuildSession extends DurableObject<Env> {
       turnExecution.signal,
     );
     let cloudSkills:
-      Awaited<ReturnType<typeof materializeCloudSkillSnapshot>> | undefined =
-      undefined;
+      | Awaited<ReturnType<typeof materializeCloudSkillSnapshot>>
+      | undefined = undefined;
     if (args.cloudSkillHome && args.cloudSkillCatalog) {
       turnExecution.assertActive();
       cloudSkills = await materializeCloudSkillSnapshot({
@@ -12542,9 +12546,9 @@ const moveWorldCheckpoint = async (
     throw new OwnerProductTransferConflictError(
       planBody?.message ?? "The durable workspace transfer plan was rejected.",
       planBody?.code === "destination_checkpoint_changed" ||
-        planBody?.code === "owner_purge_permanent" ||
-        planBody?.code === "owner_purge_temporary" ||
-        planBody?.code === "transfer_busy"
+      planBody?.code === "owner_purge_permanent" ||
+      planBody?.code === "owner_purge_temporary" ||
+      planBody?.code === "transfer_busy"
         ? planBody.code
         : "owner_transfer_conflict",
     );
@@ -13048,7 +13052,11 @@ const boundedIngressRequest = async (
 };
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<Response> {
     const url = new URL(request.url);
     const requestId = request.headers.get("cf-ray") ?? crypto.randomUUID();
     log("info", "request_started", {
@@ -13112,6 +13120,24 @@ export default {
     // gate would 401 every client. Both verify the JWT themselves and forward
     // the proven identity to the DO in x-stella-* headers, stripping whatever
     // the client sent under those names first.
+    if (url.pathname === "/dictation/socket") {
+      if (request.method !== "GET" || !isWebSocketUpgrade(request)) {
+        return json({ error: "This endpoint speaks WebSocket only." }, 426);
+      }
+      const auth = await authenticateConversationCaller(
+        request,
+        env,
+        true,
+        requestId,
+      );
+      if (!auth.ok) return auth.response;
+      return await handleMuseTranscribeSocket({
+        request,
+        env,
+        ownerId: auth.caller.ownerId,
+        waitUntil: (promise) => ctx.waitUntil(promise),
+      });
+    }
     const presenceMatch = url.pathname.match(
       /^\/execution-devices\/([A-Za-z0-9._~-]{1,256})\/presence$/,
     );

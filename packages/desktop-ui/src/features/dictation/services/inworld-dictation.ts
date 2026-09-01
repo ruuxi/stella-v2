@@ -1,16 +1,10 @@
 /**
- * InworldDictationSession — captures the microphone, buffers downsampled
- * 16 kHz mono PCM, and on stop ships a single WAV-encoded request to our
- * `/api/dictation/transcribe` proxy. The backend forwards to OpenRouter
- * Nemotron 3.5 ASR (one-shot) by default so the API key never leaves the
- * server. Set `DICTATION_STT_PROVIDER=inworld` on the backend to roll back.
- *
- * Why sync HTTP and not a live stream: OpenRouter STT is one-shot JSON,
- * and Inworld's STT WebSocket only accepts JWTs in the `Authorization`
- * HEADER. Browser/Electron renderer WebSockets cannot set custom headers.
+ * InworldDictationSession — retained public class name for compatibility.
+ * Cloud dictation streams downsampled 16 kHz mono PCM to Meta Muse while the
+ * user speaks. Stella's authenticated Worker relay injects the provider key,
+ * so no long-lived Meta credential reaches the renderer.
  */
 
-import { postServiceJson } from "@/platform/http/service-request";
 import { callChatCompletion, extractChatText } from "@/platform/ai/llm";
 import { uiState } from "@/platform/ui-state";
 import {
@@ -22,6 +16,7 @@ import {
   floatToInt16Pcm,
   resampleLinear,
 } from "@/features/voice/services/audio-encoding";
+import { MuseDictationStream } from "./muse-dictation-stream";
 
 const TARGET_SAMPLE_RATE = 16_000;
 const PCM_WORKLET_NAME = "stella-dictation-pcm-capture";
@@ -30,20 +25,12 @@ const DICTATION_SUPER_FAST_KEY = "stella-dictation-super-fast";
 const DICTATION_ENHANCE_KEY = "stella-dictation-enhance";
 const DICTATION_LOCAL_KEY = "stella-dictation-local";
 /** Hard cap on a single dictation recording before we auto-stop and
- *  transcribe. 15 minutes lets users dictate long-form without being cut
- *  off mid-thought. The managed transcription endpoint caps a single
- *  upload (see `MANAGED_MAX_SEGMENT_SAMPLES`), so longer recordings sent
- *  through it are split into segments that each stay under that limit; the
- *  on-device path has no upload-size limit and transcribes in one pass. */
+ * transcribe. Muse itself permits sessions up to 60 minutes; Stella keeps the
+ * existing 15-minute product limit. */
 const MAX_DICTATION_DURATION_MS = 15 * 60 * 1000;
 
-/** Per-request sample budget for the managed `/api/dictation/transcribe`
- *  endpoint, which rejects uploads over ~14 MB of base64 audio. 16 kHz
- *  int16 mono = 32 KB/s, so 4 minutes ≈ 7.68 MB raw → ~10.2 MB base64,
- *  comfortably under the cap with WAV-header overhead. A 15-minute
- *  recording therefore splits into 4 sequential segments. Recordings short
- *  enough to fit in one segment are sent exactly as before. */
-const MANAGED_MAX_SEGMENT_SAMPLES = 4 * 60 * TARGET_SAMPLE_RATE;
+/** Timeout scaling unit for the local engine. */
+const LOCAL_TIMEOUT_SEGMENT_SAMPLES = 4 * 60 * TARGET_SAMPLE_RATE;
 
 /** How often we emit a level tick to consumers (≈ 12 Hz). The waveform UI
  *  appends one bar per tick, so this also controls the bar density of the
@@ -56,13 +43,8 @@ const LEVEL_EMIT_INTERVAL_MS = 80;
 const LEVEL_GAIN = 6;
 const SUPER_FAST_PRE_ROLL_MS = 450;
 
-/** Per-segment transcription timeout. Each managed upload is ~10 MB of audio
- *  (≤ 4 minutes), so 90 s is generous headroom for a slow connection while
- *  still bounding the wait — a stalled request must never leave the session
- *  permanently stuck in `transcribing`. The on-device path transcribes the
- *  whole recording in one pass, so it gets this budget scaled by the number
- *  of equivalent segments (see `transcribeCapturedAudio`). */
-const TRANSCRIBE_SEGMENT_TIMEOUT_MS = 90_000;
+/** Local transcription timeout, scaled for long recordings. */
+const LOCAL_TRANSCRIBE_TIMEOUT_MS = 90_000;
 
 export const resolveDictationPcmWorkletUrl = (rendererHref: string): string =>
   new URL(PCM_WORKLET_FILE, rendererHref).href;
@@ -81,18 +63,12 @@ type DictationCallbacks = {
    * may be incomplete rather than treating it as a clean transcript.
    */
   onFinalTranscript?: (text: string, meta?: { partial?: boolean }) => void;
+  onPartialTranscript?: (text: string) => void;
   onStateChange?: (state: DictationSessionState, error?: string) => void;
   /** Periodic 0..1 input-level tick used by the recording UI to render a
    *  scrolling waveform. Fires at ~12 Hz while listening; the value is the
    *  peak RMS observed since the previous tick. */
   onLevel?: (level: number) => void;
-};
-
-type TranscribeResponse = {
-  transcript: string;
-  isFinal: boolean;
-  transcribedAudioMs: number | null;
-  modelId: string | null;
 };
 
 type DictationTranscriptResult = {
@@ -448,6 +424,8 @@ export class InworldDictationSession {
   private callbacks: DictationCallbacks = {};
   /** Concatenated 16 kHz int16 PCM samples captured this session. */
   private pcmChunks: Int16Array[] = [];
+  private totalSamples = 0;
+  private museStream: MuseDictationStream | null = null;
   private durationLimitTimer: ReturnType<typeof setTimeout> | null = null;
   private cancelled = false;
   /** Peak RMS seen since the last `onLevel` emit, reset every tick. */
@@ -465,6 +443,30 @@ export class InworldDictationSession {
     this.pcmChunks = isDictationSuperFastEnabled()
       ? warmCapture.snapshot()
       : [];
+    this.totalSamples = this.pcmChunks.reduce(
+      (sum, chunk) => sum + chunk.length,
+      0,
+    );
+
+    const useLocal =
+      isLocalDictationPlatform() &&
+      isLocalDictationEnabled() &&
+      Boolean(window.electronAPI?.dictation?.transcribeLocal) &&
+      (await probeLocalDictationInstallable());
+    if (!useLocal) {
+      this.museStream = new MuseDictationStream((text) =>
+        this.callbacks.onPartialTranscript?.(text),
+      );
+      try {
+        await this.museStream.open();
+        for (const chunk of this.pcmChunks) this.museStream.send(chunk);
+        this.pcmChunks = [];
+      } catch (error) {
+        this.museStream = null;
+        this.setState("error", (error as Error).message);
+        throw error;
+      }
+    }
 
     let lease: SharedMicrophoneLease;
     try {
@@ -523,15 +525,15 @@ export class InworldDictationSession {
     }
 
     if (this.cancelled) {
+      this.museStream?.cancel();
+      this.museStream = null;
       this.pcmChunks = [];
+      this.totalSamples = 0;
       this.setState("idle");
       return;
     }
 
-    const totalSamples = this.pcmChunks.reduce(
-      (sum, chunk) => sum + chunk.length,
-      0,
-    );
+    const totalSamples = this.totalSamples;
     if (totalSamples === 0) {
       console.log("[dictation] no audio captured, skipping upload");
       this.setState("idle");
@@ -547,7 +549,17 @@ export class InworldDictationSession {
     try {
       const chunks = this.pcmChunks;
       this.pcmChunks = [];
-      const result = await this.transcribeCapturedAudio(chunks);
+      const result = this.museStream
+        ? {
+            transcript: await this.museStream.finish(),
+            source: "cloud" as const,
+          }
+        : await this.transcribeCapturedAudio(chunks);
+      this.museStream = null;
+      if (this.cancelled) {
+        this.setState("idle");
+        return;
+      }
       // Nothing came back at all (every segment failed / timed out) — fail
       // into the recoverable error state so the mic re-enables for a retry.
       if (!result.transcript) {
@@ -570,29 +582,22 @@ export class InworldDictationSession {
       }
     } catch (err) {
       console.error("[dictation] transcription failed:", err);
-      this.setState("error", (err as Error).message);
+      if (this.cancelled) this.setState("idle");
+      else this.setState("error", (err as Error).message);
     }
   }
 
   /** Stop without uploading. Used on unmount / error paths. */
   async cancel(): Promise<void> {
     this.cancelled = true;
+    this.museStream?.cancel();
     await this.stop();
   }
 
   /**
-   * Transcribe the full captured recording. The on-device (Parakeet) engine
-   * has no upload-size limit, so we transcribe the whole thing in a single
-   * pass. The managed endpoint caps a single upload, so when we fall back to
-   * it we split the audio into segments that each stay under the limit (see
-   * `MANAGED_MAX_SEGMENT_SAMPLES`), transcribe them sequentially, and join
-   * the parts. Short recordings produce a single segment, so their behaviour
-   * is unchanged.
-   *
-   * Both paths are time-bounded so a stalled request can't wedge the session
-   * in `transcribing`. If some segments succeed and others fail, we keep the
-   * recovered text and flag the result `partial` rather than discarding the
-   * whole transcript; only when every segment fails do we surface `error`.
+   * Prefer the on-device engine when available. If it fails, replay the
+   * captured PCM through the same Muse streaming protocol used for live cloud
+   * dictation, preserving the former cloud-fallback behavior.
    */
   private async transcribeCapturedAudio(
     chunks: Int16Array[],
@@ -614,8 +619,8 @@ export class InworldDictationSession {
         // Local runs in one pass over the whole recording, so scale the
         // timeout by how many managed segments it would have been.
         const localTimeoutMs =
-          Math.max(1, Math.ceil(totalSamples / MANAGED_MAX_SEGMENT_SAMPLES)) *
-          TRANSCRIBE_SEGMENT_TIMEOUT_MS;
+          Math.max(1, Math.ceil(totalSamples / LOCAL_TIMEOUT_SEGMENT_SAMPLES)) *
+          LOCAL_TRANSCRIBE_TIMEOUT_MS;
         const audioBase64 = bytesToBase64(
           encodeWav16(chunks, TARGET_SAMPLE_RATE),
         );
@@ -624,80 +629,38 @@ export class InworldDictationSession {
           localTimeoutMs,
           "Local transcription timed out. Please try again.",
         );
-        return { transcript: local.transcript ?? "", source: "local" };
+        const transcript = local.transcript?.trim() ?? "";
+        if (!transcript)
+          throw new Error("Local transcription returned no text.");
+        return { transcript, source: "local" };
       } catch (error) {
         console.warn(
-          "[dictation] local Parakeet transcription unavailable, falling back:",
+          "[dictation] local transcription failed, replaying to Muse:",
           (error as Error).message,
         );
+        return await this.transcribeCapturedAudioWithMuse(chunks);
       }
     }
-
-    const segments = splitPcmBySampleBudget(
-      chunks,
-      MANAGED_MAX_SEGMENT_SAMPLES,
-    );
-    const parts: string[] = [];
-    let failures = 0;
-    let firstError: string | undefined;
-    for (let i = 0; i < segments.length; i += 1) {
-      try {
-        const transcript = await this.sendManagedTranscription(
-          encodeWav16(segments[i]!, TARGET_SAMPLE_RATE),
-        );
-        if (transcript) parts.push(transcript);
-      } catch (error) {
-        failures += 1;
-        const message = (error as Error).message;
-        if (!firstError) firstError = message;
-        console.error(
-          `[dictation] segment ${i + 1}/${segments.length} transcription failed:`,
-          message,
-        );
-      }
-    }
-    return {
-      transcript: parts.join(" ").trim(),
-      source: "cloud",
-      partial: failures > 0 && parts.length > 0,
-      // Surface an error only when nothing came back at all; a partial
-      // success keeps its recovered text and is flagged via `partial`.
-      error: parts.length === 0 ? firstError : undefined,
-    };
+    return await this.transcribeCapturedAudioWithMuse(chunks);
   }
 
-  private async sendManagedTranscription(
-    wavBytes: Uint8Array,
-  ): Promise<string> {
-    const audioBase64 = bytesToBase64(wavBytes);
-    const controller = new AbortController();
-    const timer = setTimeout(
-      () => controller.abort(),
-      TRANSCRIBE_SEGMENT_TIMEOUT_MS,
+  private async transcribeCapturedAudioWithMuse(
+    chunks: Int16Array[],
+  ): Promise<DictationTranscriptResult> {
+    const stream = new MuseDictationStream((text) =>
+      this.callbacks.onPartialTranscript?.(text),
     );
     try {
-      const parsed = await postServiceJson<TranscribeResponse>(
-        "/api/dictation/transcribe",
-        {
-          audioBase64,
-          audioEncoding: "AUTO_DETECT",
-        },
-        {
-          signal: controller.signal,
-          errorMessage: async (response) => {
-            const detail = await response.text();
-            return `Transcription failed: ${response.status} ${detail}`;
-          },
-        },
-      );
-      return parsed.transcript ?? "";
+      await stream.open();
+      await stream.replay(chunks);
+      return { transcript: await stream.finish(), source: "cloud" };
     } catch (error) {
-      if (controller.signal.aborted) {
-        throw new Error("Transcription timed out. Please try again.");
-      }
-      throw error;
-    } finally {
-      clearTimeout(timer);
+      stream.cancel();
+      return {
+        transcript: "",
+        source: "cloud",
+        error: (error as Error).message,
+      };
     }
   }
 
@@ -738,7 +701,10 @@ export class InworldDictationSession {
         sourceRate === TARGET_SAMPLE_RATE
           ? samples
           : resampleLinear(samples, sourceRate, TARGET_SAMPLE_RATE);
-      this.pcmChunks.push(floatToInt16Pcm(resampled));
+      const pcm = floatToInt16Pcm(resampled);
+      this.totalSamples += pcm.length;
+      if (this.museStream) this.museStream.send(pcm);
+      else this.pcmChunks.push(pcm);
     };
     this.workletNode = worklet;
 
@@ -793,6 +759,8 @@ export class InworldDictationSession {
       this.durationLimitTimer = null;
     }
     this.stopLevelEmitter();
+    this.museStream?.cancel();
+    this.museStream = null;
   }
 
   private startLevelEmitter(): void {
@@ -831,31 +799,6 @@ export class InworldDictationSession {
  * long (up to 15-minute) recording can be transcribed in pieces. Returns a
  * single segment when the whole recording already fits.
  */
-const splitPcmBySampleBudget = (
-  chunks: Int16Array[],
-  maxSamples: number,
-): Int16Array[][] => {
-  const segments: Int16Array[][] = [];
-  let current: Int16Array[] = [];
-  let currentCount = 0;
-  for (const chunk of chunks) {
-    let offset = 0;
-    while (offset < chunk.length) {
-      const take = Math.min(maxSamples - currentCount, chunk.length - offset);
-      current.push(chunk.subarray(offset, offset + take));
-      currentCount += take;
-      offset += take;
-      if (currentCount >= maxSamples) {
-        segments.push(current);
-        current = [];
-        currentCount = 0;
-      }
-    }
-  }
-  if (currentCount > 0) segments.push(current);
-  return segments;
-};
-
 const encodeWav16 = (chunks: Int16Array[], sampleRate: number): Uint8Array => {
   const totalSamples = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
   const dataSize = totalSamples * 2;

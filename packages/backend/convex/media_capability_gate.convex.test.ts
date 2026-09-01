@@ -31,6 +31,7 @@ const ensureEnv = () => {
     GEMINI_API_KEY: "test-gemini-key",
     OPENAI_API_KEY: "test-openai-key",
     INWORLD_API_KEY: "test-inworld-key",
+    CLOUD_BUILDER_URL: "https://cloud-builder.test",
     STELLA_INCLUDED_USAGE_UTILIZATION_RATE: "0.5",
     STELLA_FREE_ROLLING_LIMIT_USD: "10",
     STELLA_FREE_ROLLING_WINDOW_HOURS: "5",
@@ -255,24 +256,12 @@ describe("media capability gating", () => {
     ensureEnv();
     const t = createTest();
     const owner = await onPlan(t, "free");
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          text: "hello",
-          usage: { seconds: 1.2, cost: 0.0000036 },
-        }),
-        {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        },
-      ),
-    );
-    const response = await owner.fetch("/api/dictation/transcribe", {
+    const response = await owner.fetch("/api/dictation/realtime-config", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ audioBase64: "AAAA", mimeType: "audio/wav" }),
+      body: "{}",
     });
-    expect(response.status).not.toBe(402);
+    expect(response.status).toBe(200);
   });
 });
 

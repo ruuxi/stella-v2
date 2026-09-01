@@ -31,6 +31,7 @@ import type { InteriorRouteBuildIdentity } from "./interior-shell-policy";
 import {
   handleInteriorConversationSocket,
   handleInteriorConvexSocket,
+  handleInteriorDictationSocket,
   handleInteriorService,
   handleInteriorSession,
 } from "./interior-shell-gateway";
@@ -127,7 +128,9 @@ const readRoute = async (
     route: {
       artifactPrefix: candidate.artifactPrefix,
       suspended: candidate.suspended,
-      ...(typeof candidate.appId === "string" ? { appId: candidate.appId } : {}),
+      ...(typeof candidate.appId === "string"
+        ? { appId: candidate.appId }
+        : {}),
       ...(typeof candidate.slug === "string" ? { slug: candidate.slug } : {}),
     },
   };
@@ -295,9 +298,15 @@ const readActiveRoute = async (
     const route = await config.appAuth.getInteriorRoute({ stableRouteId });
     return route
       ? Response.json(route)
-      : Response.json({ error: "Stella interior route not found." }, { status: 404 });
+      : Response.json(
+          { error: "Stella interior route not found." },
+          { status: 404 },
+        );
   } catch {
-    return Response.json({ error: "The active Stella route is unavailable." }, { status: 503 });
+    return Response.json(
+      { error: "The active Stella route is unavailable." },
+      { status: 503 },
+    );
   }
 };
 
@@ -409,7 +418,10 @@ const trustedAuthProxy = async (
     return new Response("Not found", { status: 404 });
   }
   const incomingUrl = new URL(request.url);
-  if (incomingUrl.pathname !== AUTH_EXCHANGE_PATH || request.method !== "POST") {
+  if (
+    incomingUrl.pathname !== AUTH_EXCHANGE_PATH ||
+    request.method !== "POST"
+  ) {
     return new Response("Not found", { status: 404 });
   }
   if (request.headers.get("origin") !== config.trustedAppsHostOrigin) {
@@ -427,7 +439,10 @@ const trustedAuthProxy = async (
   if (contentType) headers.set("content-type", contentType);
   if (accept) headers.set("accept", accept);
   headers.set("origin", config.trustedAppsHostOrigin);
-  const upstreamUrl = new URL("/api/auth/one-time-token/verify", config.convexSiteOrigin);
+  const upstreamUrl = new URL(
+    "/api/auth/one-time-token/verify",
+    config.convexSiteOrigin,
+  );
   const upstream = await fetch(upstreamUrl, {
     method: request.method,
     headers,
@@ -441,7 +456,10 @@ const trustedAuthProxy = async (
     if (value) responseHeaders.set(name, value);
   }
   responseHeaders.set("cache-control", "no-store");
-  responseHeaders.set("access-control-allow-origin", config.trustedAppsHostOrigin);
+  responseHeaders.set(
+    "access-control-allow-origin",
+    config.trustedAppsHostOrigin,
+  );
   responseHeaders.set("access-control-allow-credentials", "true");
   responseHeaders.set("vary", "Origin");
   const rotated = (upstream.headers.get("set-auth-token") ?? "").trim();
@@ -550,7 +568,8 @@ const connectedAppSession = async (
     status: upstream.status,
     headers: {
       ...corsHeaders,
-      "content-type": upstream.headers.get("content-type") ?? "application/json",
+      "content-type":
+        upstream.headers.get("content-type") ?? "application/json",
       "cache-control": "no-store",
     },
   });
@@ -844,8 +863,17 @@ const appWrapper = async (
   }
   if (!config.appAuth) return unavailable();
   const lookup = await readRoute(config, `app:${slug}`, "app", slug);
-  if (lookup.kind !== "route" || lookup.route.suspended || !lookup.route.appId) {
-    return notice(config, "App unavailable", "This Stella app is unavailable.", lookup.kind === "missing" ? 404 : 503);
+  if (
+    lookup.kind !== "route" ||
+    lookup.route.suspended ||
+    !lookup.route.appId
+  ) {
+    return notice(
+      config,
+      "App unavailable",
+      "This Stella app is unavailable.",
+      lookup.kind === "missing" ? 404 : 503,
+    );
   }
   let minted: { bootstrap: string; expiresAt: number };
   try {
@@ -864,7 +892,12 @@ const appWrapper = async (
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
-      "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; frame-src 'self'; connect-src 'self' " + config.convexSiteOrigin + " " + config.trustedAppsHostOrigin + "; object-src 'none'; base-uri 'none'; frame-ancestors file: http://localhost:* http://127.0.0.1:* https://stella.sh",
+      "content-security-policy":
+        "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; frame-src 'self'; connect-src 'self' " +
+        config.convexSiteOrigin +
+        " " +
+        config.trustedAppsHostOrigin +
+        "; object-src 'none'; base-uri 'none'; frame-ancestors file: http://localhost:* http://127.0.0.1:* https://stella.sh",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
     },
@@ -908,7 +941,11 @@ const refreshAppBootstrap = async (
   }
   if (!config.appAuth) return unavailable();
   const lookup = await readRoute(config, `app:${slug}`, "app", slug);
-  if (lookup.kind !== "route" || lookup.route.suspended || !lookup.route.appId) {
+  if (
+    lookup.kind !== "route" ||
+    lookup.route.suspended ||
+    !lookup.route.appId
+  ) {
     return Response.json(
       { error: "The Stella app is unavailable." },
       {
@@ -1129,7 +1166,8 @@ const handleRequest = async (
     return browserAuthHandoffScriptResponse(request, config);
   }
   if (url.pathname === AUTH_EXCHANGE_PATH) {
-    if (config.hostRole !== "trusted") return new Response("Not found", { status: 404 });
+    if (config.hostRole !== "trusted")
+      return new Response("Not found", { status: 404 });
     try {
       return await trustedAuthProxy(request, config);
     } catch {
@@ -1137,7 +1175,8 @@ const handleRequest = async (
     }
   }
   if (url.pathname === "/api/apps/connected-session") {
-    if (config.hostRole !== "trusted") return new Response("Not found", { status: 404 });
+    if (config.hostRole !== "trusted")
+      return new Response("Not found", { status: 404 });
     try {
       return await connectedAppSession(request, config);
     } catch {
@@ -1163,6 +1202,11 @@ const handleRequest = async (
         config,
       );
       if (conversationSocket) return conversationSocket;
+      const dictationSocket = await handleInteriorDictationSocket(
+        request,
+        config,
+      );
+      if (dictationSocket) return dictationSocket;
       const service = await handleInteriorService(request, config);
       if (service) return service;
     } catch {
@@ -1170,8 +1214,10 @@ const handleRequest = async (
     }
   }
   if (url.pathname === APP_WRAPPER_SCRIPT_PATH) {
-    if (config.hostRole !== "untrusted") return new Response("Not found", { status: 404 });
-    if (request.method !== "GET" && request.method !== "HEAD") return methodNotAllowed("GET, HEAD");
+    if (config.hostRole !== "untrusted")
+      return new Response("Not found", { status: 404 });
+    if (request.method !== "GET" && request.method !== "HEAD")
+      return methodNotAllowed("GET, HEAD");
     return new Response(request.method === "HEAD" ? null : appWrapperScript(), {
       headers: {
         "content-type": "text/javascript; charset=utf-8",
@@ -1200,18 +1246,23 @@ const handleRequest = async (
       },
     );
   }
-  if (config.hostRole === "untrusted" && url.pathname === "/api/interior/manifest") {
+  if (
+    config.hostRole === "untrusted" &&
+    url.pathname === "/api/interior/manifest"
+  ) {
     return interiorManifest(request, config, requestId);
   }
   if (url.pathname === "/api/apps/fetch") {
-    if (config.hostRole !== "untrusted") return new Response("Not found", { status: 404 });
+    if (config.hostRole !== "untrusted")
+      return new Response("Not found", { status: 404 });
     if (request.method === "OPTIONS")
       return handleProxyPreflight(request, config);
     if (request.method === "POST") return proxyFetch(request, config);
     return methodNotAllowed("POST, OPTIONS");
   }
   if (url.pathname === "/api/apps/session") {
-    if (config.hostRole !== "untrusted") return new Response("Not found", { status: 404 });
+    if (config.hostRole !== "untrusted")
+      return new Response("Not found", { status: 404 });
     return anonymousAppSession(request, config);
   }
 
@@ -1219,7 +1270,8 @@ const handleRequest = async (
     /^\/interior-builds\/([0-9a-f]{64})\/(interior-[0-9a-f]{48})(\/.*)?$/,
   );
   if (interiorBuild) {
-    if (config.hostRole !== "untrusted") return new Response("Not found", { status: 404 });
+    if (config.hostRole !== "untrusted")
+      return new Response("Not found", { status: 404 });
     if (request.method !== "GET" && request.method !== "HEAD") {
       return methodNotAllowed("GET, HEAD");
     }
@@ -1243,7 +1295,8 @@ const handleRequest = async (
     ) {
       return browserAuthHandoffResponse(request, config);
     }
-    if (config.hostRole !== "untrusted") return new Response("Not found", { status: 404 });
+    if (config.hostRole !== "untrusted")
+      return new Response("Not found", { status: 404 });
     if (request.method !== "GET" && request.method !== "HEAD") {
       return methodNotAllowed("GET, HEAD");
     }
@@ -1305,7 +1358,13 @@ const handleRequest = async (
   }
   const rawApp = url.pathname.match(/^\/_stella\/apps-assets\/([^/]+)(\/.*)?$/);
   if (rawApp && APP_SLUG.test(rawApp[1])) {
-    const response = await appAsset(request, config, requestId, rawApp[1], rawApp[2]);
+    const response = await appAsset(
+      request,
+      config,
+      requestId,
+      rawApp[1],
+      rawApp[2],
+    );
     // A raw asset can be opened as a top-level document, independent of the
     // wrapper iframe. Apply the opaque-origin sandbox to every response so
     // active non-HTML formats (for example SVG/XML) cannot recover the

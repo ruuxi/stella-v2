@@ -5,11 +5,11 @@
  *   - First toggle: start recording. The composer swaps in a recording
  *     bar (waveform + timer + cancel/confirm) driven by the `levels`,
  *     `elapsedMs`, and `cancel` values returned here.
- *   - Confirm (or Cmd/Ctrl+Shift+M): stop. We upload the captured audio
- *     as a single WAV to `/api/dictation/transcribe`, then append the
- *     returned transcript to whatever the composer text was at the
+ *   - Confirm (or Cmd/Ctrl+Shift+M): stop. Muse finalizes the cumulative
+ *     transcript it has built while the user speaks, then we append it to
+ *     whatever the composer text was at the
  *     moment we started recording.
- *   - Cancel (X): tear down without uploading or appending anything.
+ *   - Cancel (X): tear down the stream without appending anything.
  *
  * The global Cmd/Ctrl+Shift+M keybind dispatches a window event the
  * hook listens for, so any composer with `useDictation` mounted toggles

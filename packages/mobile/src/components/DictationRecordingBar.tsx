@@ -13,23 +13,20 @@
  */
 
 import { memo, useEffect, useMemo, useState } from "react";
-import { type AudioRecorder, useAudioRecorderState } from "expo-audio";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Icon } from "./Icon";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
 import { fadeHex } from "../theme/oklch";
+import { useDictationMeter } from "../lib/dictation-meter";
 
 const BAR_WIDTH = 2;
 const BAR_GAP = 2;
 const WAVEFORM_HEIGHT = 28;
 const MIN_BAR_HEIGHT = 1;
 const LEVEL_BUFFER_LENGTH = 64;
-/** Update tick for the waveform/timer. ~12 Hz feels right and matches desktop. */
-const RECORDER_TICK_MS = 80;
 
 type Props = {
-  recorder: AudioRecorder;
   onCancel: () => void;
   onConfirm: () => void;
   /** When provided, stop dictation and auto-send once the transcript lands. */
@@ -37,40 +34,35 @@ type Props = {
 };
 
 export const DictationRecordingBar = memo(function DictationRecordingBar({
-  recorder,
   onCancel,
   onConfirm,
   onSend,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  // Keep the 12 Hz metering updates inside this small memoized leaf. Hosting
-  // this polling hook in ChatPane used to re-render the entire transcript and
-  // composer on every sample, which became visibly laggy as that tree grew.
-  const recorderState = useAudioRecorderState(recorder, RECORDER_TICK_MS);
+  const meter = useDictationMeter();
+  const [now, setNow] = useState(Date.now());
   const [levels, setLevels] = useState<number[]>([]);
 
   useEffect(() => {
-    if (!recorderState.isRecording) return;
-    const amp = normalizeMetering(recorderState.metering);
     setLevels((previous) => [
       ...previous.slice(-(LEVEL_BUFFER_LENGTH - 1)),
-      amp,
+      meter.level,
     ]);
-  }, [
-    recorderState.durationMillis,
-    recorderState.isRecording,
-    recorderState.metering,
-  ]);
+  }, [meter.level, meter.revision]);
+
+  useEffect(() => {
+    if (!meter.active) return;
+    const timer = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(timer);
+  }, [meter.active]);
+  const durationMs = meter.active ? Math.max(0, now - meter.startedAt) : 0;
 
   return (
     <>
-      <DictationWaveform
-        levels={levels}
-        color={fadeHex(colors.text, 0.7)}
-      />
+      <DictationWaveform levels={levels} color={fadeHex(colors.text, 0.7)} />
       <Text style={styles.timer} accessibilityLiveRegion="polite">
-        {formatElapsed(recorderState.durationMillis)}
+        {formatElapsed(durationMs)}
       </Text>
       <Pressable
         onPress={onCancel}
@@ -78,7 +70,12 @@ export const DictationRecordingBar = memo(function DictationRecordingBar({
         hitSlop={6}
         style={styles.control}
       >
-        <Icon name="x" size={14} color={fadeHex(colors.text, 0.75)} weight="semibold" />
+        <Icon
+          name="x"
+          size={14}
+          color={fadeHex(colors.text, 0.75)}
+          weight="semibold"
+        />
       </Pressable>
       <Pressable
         onPress={onConfirm}
@@ -106,13 +103,6 @@ export const DictationRecordingBar = memo(function DictationRecordingBar({
     </>
   );
 });
-
-/** Map expo-audio metering (dBFS, -160...0) to a 0...1 visual amplitude. */
-const normalizeMetering = (db: number | undefined): number => {
-  if (db === undefined || !isFinite(db)) return 0;
-  const clamped = Math.max(-50, Math.min(0, db));
-  return (clamped + 50) / 50;
-};
 
 function DictationWaveform({
   levels,

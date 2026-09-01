@@ -34,50 +34,12 @@ import {
   rateLimitResponse,
 } from "../http_shared/webhook_controls";
 import { readJsonBody } from "../http_shared/request";
-import { dollarsToMicroCents } from "../lib/billing_money";
-import { MANAGED_USAGE_BILLING_KIND } from "../lib/managed_dispatch";
 import { getClientAddressKey } from "../lib/http_utils";
-import {
-  bindManagedProviderRequest,
-  createManagedUsageDispatchGuard,
-  resolveManagedModelAccess,
-} from "../lib/managed_billing";
-import {
-  runManagedDispatchAttempt,
-  type ManagedDispatchOutcome,
-} from "../runtime_ai/managed";
-import { isRetryableProviderError } from "../runtime_ai/retry";
-import {
-  XAI_STT_MODEL_LABEL,
-  XAI_STT_USD_PER_SECOND,
-  XaiSttError,
-  assertXaiSttAudioBase64,
-  resolveXaiSttApiKey,
-  transcribeWithXaiRest,
-} from "../lib/xai_stt";
 import { MOBILE_BRIDGE_LEASE_MS } from "../mobile_bridge";
 import {
   verifyPairedMobileProof,
   verifyPairedMobileSecret,
 } from "../mobile_access";
-
-/** Per-owner cap on the mobile and CarPlay transcription endpoint. */
-const TRANSCRIBE_RATE_LIMIT = 30;
-const TRANSCRIBE_RATE_WINDOW_MS = 60_000;
-const TRANSCRIBE_ANON_IP_RATE_LIMIT = 60;
-/** ~10 MB of base64 ≈ ~7.5 MB raw audio. Roughly 2 min of m4a. */
-const MAX_TRANSCRIBE_AUDIO_BASE64_CHARS = 10_000_000;
-const MANAGED_PROVIDER_REQUEST_ID_PATTERN = /^[A-Za-z0-9:._-]{8,256}$/u;
-const TRANSCRIBE_AUDIO_FORMATS = new Set([
-  "wav",
-  "mp3",
-  "flac",
-  "m4a",
-  "ogg",
-  "webm",
-  "aac",
-  "mp4",
-]);
 
 const MAX_BASE_URLS = 8;
 const MAX_DEVICE_ID_LENGTH = 256;
@@ -206,7 +168,8 @@ type AuthenticatedOwnerResult =
   | { response: Response };
 
 type AnonymousLinkOwnerBinding =
-  { fromOwnerId?: string; fromAuthUserId?: string } | { response: Response };
+  | { fromOwnerId?: string; fromAuthUserId?: string }
+  | { response: Response };
 
 const BEARER_AUTHORIZATION_PATTERN = /^Bearer\s+\S+$/i;
 
@@ -667,7 +630,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     "/api/mobile/execution/submit",
     "/api/mobile/execution/status",
     "/api/mobile/execution/cancel",
-    "/api/mobile/transcribe",
     "/api/mobile/pairing/complete",
     "/api/mobile/push-token",
     "/api/mobile/push-token/unregister",
@@ -996,255 +958,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             readConvexErrorMessage(error, "Execution cancellation failed."),
             origin,
           );
-        }
-      }),
-    ),
-  });
-
-  http.route({
-    path: "/api/mobile/transcribe",
-    method: "POST",
-    handler: httpAction(async (ctx, request) =>
-      handleCorsRequest(request, async (origin) => {
-        // Composer dictation is free on every plan. Identity resolution stays
-        // in place for attribution and abuse controls, but there is no paid
-        // subscription/capability check on this transcription-only route.
-        const owner = await resolveMobileOwnerOrGuest(ctx, request, origin);
-        if ("response" in owner) {
-          return owner.response;
-        }
-
-        // Composer dictation goes straight to xAI Grok STT — the same
-        // transport desktop dictation uses (`lib/xai_stt`), not the managed
-        // chat gateway.
-        const apiKey = resolveXaiSttApiKey();
-        if (!apiKey) {
-          console.error("[mobile/transcribe] Missing XAI_API_KEY");
-          return errorResponse(500, "Server configuration error", origin);
-        }
-
-        const rateLimitResp = await enforceHttpRateLimit(ctx, origin, {
-          scope: "mobile_transcribe",
-          key: owner.ownerId,
-          limit: TRANSCRIBE_RATE_LIMIT,
-          windowMs: TRANSCRIBE_RATE_WINDOW_MS,
-          blockMs: TRANSCRIBE_RATE_WINDOW_MS,
-        });
-        if (rateLimitResp) return rateLimitResp;
-
-        if (owner.isAnonymous) {
-          const ipKey = getClientAddressKey(request);
-          if (ipKey) {
-            const ipLimitResp = await enforceHttpRateLimit(ctx, origin, {
-              scope: "mobile_transcribe_ip",
-              key: ipKey,
-              limit: TRANSCRIBE_ANON_IP_RATE_LIMIT,
-              windowMs: TRANSCRIBE_RATE_WINDOW_MS,
-              blockMs: TRANSCRIBE_RATE_WINDOW_MS,
-            });
-            if (ipLimitResp) return ipLimitResp;
-          }
-        }
-
-        const bodyResult = await readJsonBody<{
-          requestId?: unknown;
-          audio?: unknown;
-          format?: unknown;
-          language?: unknown;
-        }>(request, origin, "Invalid request body");
-        if (!bodyResult.ok) return bodyResult.response;
-        const body = bodyResult.body;
-        const requestId =
-          typeof body.requestId === "string" ? body.requestId.trim() : "";
-        if (!MANAGED_PROVIDER_REQUEST_ID_PATTERN.test(requestId)) {
-          return errorResponse(400, "A valid requestId is required", origin);
-        }
-
-        const audio = typeof body.audio === "string" ? body.audio : "";
-        const format =
-          typeof body.format === "string"
-            ? body.format.trim().toLowerCase()
-            : "";
-        const language =
-          typeof body.language === "string"
-            ? body.language.trim().slice(0, 16)
-            : "";
-
-        if (!audio) {
-          return errorResponse(400, "audio is required", origin);
-        }
-        if (audio.length > MAX_TRANSCRIBE_AUDIO_BASE64_CHARS) {
-          return errorResponse(413, "Audio clip is too long", origin);
-        }
-        if (!format || !TRANSCRIBE_AUDIO_FORMATS.has(format)) {
-          return errorResponse(
-            400,
-            "format must be one of wav, mp3, flac, m4a, ogg, webm, aac, mp4",
-            origin,
-          );
-        }
-
-        const modelAccess = await resolveManagedModelAccess(
-          ctx,
-          owner.ownerId,
-          { isAnonymous: owner.isAnonymous },
-        );
-        if (!modelAccess.allowed) {
-          return errorResponse(429, modelAccess.message, origin);
-        }
-
-        // Reject malformed audio before a binding or lease exists: a
-        // client-side encoding bug must not burn the request id or cost the
-        // user a billed attempt.
-        try {
-          assertXaiSttAudioBase64(audio);
-        } catch {
-          return errorResponse(400, "Invalid audio data", origin);
-        }
-
-        // xAI's STT endpoint takes multipart/form-data, so there is no JSON
-        // wire body to fingerprint. This canonical envelope stands in for it:
-        // a retry of the same request id carrying different audio, container,
-        // or language still conflicts.
-        const canonicalBody = JSON.stringify({
-          provider: "xai",
-          model: XAI_STT_MODEL_LABEL,
-          audio,
-          format,
-          ...(language ? { language } : {}),
-        });
-        let binding: Awaited<ReturnType<typeof bindManagedProviderRequest>>;
-        try {
-          binding = await bindManagedProviderRequest(ctx, {
-            ownerId: owner.ownerId,
-            ownerGeneration: modelAccess.ownerGeneration,
-            route: "mobile_transcription",
-            requestId,
-            canonicalBody,
-          });
-          if (binding.replayed) {
-            throw new ConvexError({
-              code: "REQUEST_ALREADY_ACCEPTED",
-              message: "This transcription request was already accepted.",
-            });
-          }
-        } catch (error) {
-          const code = readConvexErrorCode(error);
-          return errorResponse(
-            code === "IDEMPOTENCY_CONFLICT" ||
-              code === "REQUEST_ALREADY_ACCEPTED"
-              ? 409
-              : 400,
-            readConvexErrorMessage(error, "Invalid transcription request"),
-            origin,
-          );
-        }
-        const dispatchGuard = createManagedUsageDispatchGuard(ctx, {
-          ownerId: owner.ownerId,
-          ownerGeneration: modelAccess.ownerGeneration,
-          spanExecution: true,
-        });
-        const fallbackCostMicroCents = Math.max(
-          1,
-          dollarsToMicroCents(
-            Math.max(1, (audio.length * 0.75) / (16_000 * 2)) *
-              XAI_STT_USD_PER_SECOND,
-          ),
-        );
-        const billing = {
-          kind: MANAGED_USAGE_BILLING_KIND,
-          requestFingerprint: binding.requestFingerprint,
-          agentType: "service:mobile_dictation",
-          model: XAI_STT_MODEL_LABEL,
-          fallbackCostMicroCents,
-        } as const;
-
-        const startedAt = Date.now();
-        let executionOutcome: ManagedDispatchOutcome = "failed";
-        try {
-          const result = await runManagedDispatchAttempt({
-            dispatchGuard,
-            callerSignal: request.signal,
-            billing,
-            run: async (signal, receipt) => {
-              let transcription;
-              try {
-                transcription = await transcribeWithXaiRest({
-                  apiKey,
-                  audioBase64: audio,
-                  audioFormat: format,
-                  ...(language ? { language } : {}),
-                  signal,
-                });
-              } catch (error) {
-                if (error instanceof XaiSttError && error.kind === "upstream") {
-                  console.error(
-                    "[mobile/transcribe] xAI STT returned",
-                    error.upstreamStatus,
-                    error.upstreamBody?.slice(0, 500) ?? "",
-                  );
-                }
-                await receipt.captureUsage({
-                  durationMs: Date.now() - startedAt,
-                  success: false,
-                  costMicroCents: fallbackCostMicroCents,
-                });
-                throw error;
-              }
-              // Grok STT bills audio seconds, not tokens, so the receipt
-              // carries a cost with no token counts to report.
-              await receipt.captureUsage({
-                durationMs: Date.now() - startedAt,
-                success: true,
-                costMicroCents:
-                  transcription.durationSeconds !== undefined
-                    ? dollarsToMicroCents(
-                        Math.max(0, transcription.durationSeconds) *
-                          XAI_STT_USD_PER_SECOND,
-                      )
-                    : fallbackCostMicroCents,
-              });
-              return { text: transcription.text.trim() };
-            },
-          });
-          executionOutcome = "succeeded";
-          return jsonResponse(result, 200, origin);
-        } catch (error) {
-          if (dispatchGuard.signal.aborted || request.signal.aborted) {
-            executionOutcome = "aborted";
-            return errorResponse(
-              409,
-              "Your account changed before transcription could start. Please retry.",
-              origin,
-            );
-          }
-          if (isRetryableProviderError(error)) {
-            executionOutcome = "outcome_unknown";
-          }
-          // The upstream status/body was already logged inside `run`.
-          if (!(error instanceof XaiSttError && error.kind === "upstream")) {
-            console.error("[mobile/transcribe] Error:", error);
-          }
-          if (error instanceof XaiSttError) {
-            if (error.kind === "invalid_base64") {
-              return errorResponse(400, "Invalid audio data", origin);
-            }
-            if (error.kind === "upstream") {
-              const status = error.upstreamStatus ?? 502;
-              return errorResponse(
-                status >= 400 && status < 500 ? status : 502,
-                "Could not transcribe that audio. Try again.",
-                origin,
-              );
-            }
-          }
-          return errorResponse(
-            500,
-            readConvexErrorMessage(error, "Could not transcribe that audio."),
-            origin,
-          );
-        } finally {
-          await dispatchGuard.finishExecution?.(executionOutcome);
         }
       }),
     ),

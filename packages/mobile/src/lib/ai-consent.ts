@@ -2,7 +2,7 @@
  * Tracks whether the user has explicitly agreed to share data with the
  * third-party AI providers Stella routes through (DeepSeek directly, plus
  * OpenRouter / Fireworks gateways → Anthropic / OpenAI / Google for text;
- * xAI for voice transcription; OpenAI for live realtime audio).
+ * Meta Muse for voice transcription; OpenAI for live realtime audio).
  *
  * Required by App Store Review Guideline 5.1.1(i) / 5.1.2(i): we must
  * disclose what is sent, who it is sent to, and get the user's permission
@@ -11,10 +11,9 @@
 
 import * as SecureStore from "expo-secure-store";
 
-// Version 3 names xAI as the direct transcription recipient (v2 added the
-// continuous OpenAI realtime microphone scope). Do not silently treat consent
-// naming a previous recipient as consent to xAI.
-const CONSENT_KEY = "stella-mobile_ai-data-consent-v3";
+// Version 4 names Meta Muse as the direct transcription recipient. Do not
+// silently treat consent naming xAI as consent to a different company.
+const CONSENT_KEY = "stella-mobile_ai-data-consent-v4";
 
 let cached: boolean | null = null;
 

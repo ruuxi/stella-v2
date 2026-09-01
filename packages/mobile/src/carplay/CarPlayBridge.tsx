@@ -10,7 +10,7 @@
  *     cloud otherwise) is the server's decision exactly as on the phone. Only
  *     the optimistic outbox is separate ("carplay"), so the always-mounted
  *     bridge never races the tab's queue.
- *   • dictation        → {@link useDictation} (the same `/api/mobile/transcribe`
+ *   • dictation        → {@link useDictation} (the same Muse realtime stream
  *     push-to-talk recorder the composer mic uses).
  *   • text-to-speech   → {@link speakReply} from read-aloud (the same Inworld
  *     TTS the chat "read aloud" button uses), so replies sound identical.

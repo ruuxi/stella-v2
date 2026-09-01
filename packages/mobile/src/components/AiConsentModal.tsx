@@ -69,9 +69,9 @@ export function AiConsentModal({ visible, onAccept, onDecline }: Props) {
               <Text style={styles.bold}>Anthropic</Text>,{" "}
               <Text style={styles.bold}>OpenAI</Text>, or{" "}
               <Text style={styles.bold}>Google</Text>. Voice recordings are
-              transcribed directly by <Text style={styles.bold}>xAI</Text>. The
-              exact provider path for text depends on the model used for your
-              request. Realtime voice audio is processed directly by{" "}
+              transcribed directly by <Text style={styles.bold}>Meta Muse</Text>.
+              The exact provider path for text depends on the model used for
+              your request. Realtime voice audio is processed directly by{" "}
               <Text style={styles.bold}>OpenAI</Text>.
             </Text>
           </View>

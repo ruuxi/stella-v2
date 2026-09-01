@@ -1,6 +1,6 @@
 /**
- * Push-to-talk dictation that records audio with expo-audio, ships it to the
- * Stella backend (`/api/mobile/transcribe`), and returns the transcript text.
+ * Push-to-talk dictation that streams 16 kHz mono PCM through Stella's
+ * authenticated relay to Meta Muse and returns the cumulative final text.
  *
  * Mirrors desktop's dictation UX: while recording the leaf recording bar polls
  * this recorder for its waveform/timer, and on stop we wait for the transcript
@@ -8,15 +8,11 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  AudioModule,
-  type AudioRecorder,
-  RecordingPresets,
-  useAudioRecorder,
-} from "expo-audio";
+import { AudioModule } from "expo-audio";
+import { AudioStudioModule } from "@siteed/audio-studio";
+import { LegacyEventEmitter, type EventSubscription } from "expo-modules-core";
 import { File } from "expo-file-system";
-import { Alert, Linking, Platform } from "react-native";
-import { postJson, postJsonAnonymous } from "./http";
+import { Alert, Linking } from "react-native";
 import { hasAiConsent, requestAiConsent } from "./ai-consent";
 import {
   acquireRecordingAudioSession,
@@ -24,7 +20,12 @@ import {
   type RecordingAudioLease,
 } from "./mobile-audio-session";
 import { stopReadAloudForDictation } from "./read-aloud";
-import { createMobileTranscriptionRequestId } from "./mobile-request-id";
+import { MuseDictationStream } from "./muse-dictation-stream";
+import {
+  startDictationMeter,
+  stopDictationMeter,
+  updateDictationMeter,
+} from "./dictation-meter";
 
 /** Minimum elapsed time before we bother round-tripping audio to the server. */
 const MIN_RECORDING_MS = 300;
@@ -32,11 +33,11 @@ const MIN_RECORDING_MS = 300;
 export type DictationStatus = "idle" | "recording" | "transcribing";
 
 export type UseDictationOptions = {
-  /** When true, the request goes anonymously (mobile-device-id only). */
+  /** Retained for caller compatibility; the relay authenticates the session. */
   anonymous: boolean;
-  /** Headers to forward (e.g. X-Stella-Mobile-Device-Id for guests). */
+  /** Retained for caller compatibility with the retired batch endpoint. */
   headers?: Record<string, string>;
-  /** Optional BCP-47 hint forwarded to xAI STT. */
+  /** Optional BCP-47 hint reserved for future Muse language biasing. */
   language?: string;
   /** Fired once a transcript comes back. */
   onTranscript: (text: string) => void;
@@ -46,7 +47,6 @@ export type UseDictationResult = {
   status: DictationStatus;
   isRecording: boolean;
   isTranscribing: boolean;
-  recorder: AudioRecorder;
   /** Resolves `true` only if recording actually began (consent + mic granted). */
   start: () => Promise<boolean>;
   /** Resolves with the complete committed transcript, or null on no result. */
@@ -56,10 +56,6 @@ export type UseDictationResult = {
 };
 
 export function useDictation(options: UseDictationOptions): UseDictationResult {
-  const recorder = useAudioRecorder(
-    { ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true },
-    undefined,
-  );
   const [status, setStatus] = useState<DictationStatus>("idle");
   const cancelledRef = useRef(false);
   const startedAtRef = useRef(0);
@@ -67,6 +63,8 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
   const statusRef = useRef<DictationStatus>("idle");
   const operationInFlightRef = useRef(false);
   const recordingLeaseRef = useRef<RecordingAudioLease | null>(null);
+  const museStreamRef = useRef<MuseDictationStream | null>(null);
+  const audioSubscriptionRef = useRef<EventSubscription | null>(null);
 
   const safeSetStatus = useCallback((next: DictationStatus) => {
     statusRef.current = next;
@@ -93,7 +91,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     stopReadAloudForDictation();
     operationInFlightRef.current = true;
     // Apple 5.1.1(i): voice audio is sent to a third-party AI transcription
-    // service (xAI). Don't even start the recorder until the user has
+    // service (Meta Muse). Don't even start the recorder until the user has
     // explicitly agreed to the data-sharing disclosure.
     if (!hasAiConsent()) {
       requestAiConsent();
@@ -147,19 +145,47 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         return false;
       }
 
-      await recorder.prepareToRecordAsync({
-        ...RecordingPresets.HIGH_QUALITY,
-        isMeteringEnabled: true,
+      const muse = new MuseDictationStream();
+      await muse.open();
+      museStreamRef.current = muse;
+      const emitter = new LegacyEventEmitter(AudioStudioModule);
+      audioSubscriptionRef.current = emitter.addListener<{
+        encoded?: string;
+        pcmFloat32?: Float32Array | number[];
+        buffer?: Float32Array;
+      }>("AudioData", (event) => {
+        const audio = event.encoded ?? event.pcmFloat32 ?? event.buffer;
+        if (!audio) return;
+        const bytes = audioEventToPcm16(audio);
+        if (bytes.byteLength === 0) return;
+        updateDictationMeter(pcm16Level(bytes));
+        museStreamRef.current?.send(bytes);
       });
-      recorder.record();
+      await AudioStudioModule.startRecording({
+        sampleRate: 16_000,
+        channels: 1,
+        encoding: "pcm_16bit",
+        interval: 80,
+        keepAwake: true,
+        maxDurationMs: 15 * 60 * 1000,
+        autoStopOnMaxDuration: false,
+        output: { primary: { enabled: false } },
+      });
 
       cancelledRef.current = false;
       startedAtRef.current = Date.now();
+      startDictationMeter(startedAtRef.current);
       safeSetStatus("recording");
       operationInFlightRef.current = false;
       return true;
     } catch (error) {
       console.warn("[dictation] start failed", error);
+      await AudioStudioModule.stopRecording().catch(() => undefined);
+      museStreamRef.current?.cancel();
+      museStreamRef.current = null;
+      audioSubscriptionRef.current?.remove();
+      audioSubscriptionRef.current = null;
+      stopDictationMeter();
       await releaseAudioMode();
       operationInFlightRef.current = false;
       Alert.alert(
@@ -168,14 +194,11 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       );
       return false;
     }
-  }, [recorder, releaseAudioMode, safeSetStatus]);
+  }, [releaseAudioMode, safeSetStatus]);
 
   const finalize = useCallback(
     async (commit: boolean): Promise<string | null> => {
-      if (
-        statusRef.current !== "recording" ||
-        operationInFlightRef.current
-      ) {
+      if (statusRef.current !== "recording" || operationInFlightRef.current) {
         return null;
       }
       operationInFlightRef.current = true;
@@ -185,14 +208,21 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
 
       let uri: string | null = null;
       try {
-        await recorder.stop();
-        uri = recorder.uri;
+        const recording = (await AudioStudioModule.stopRecording()) as {
+          fileUri?: string;
+        };
+        uri = recording.fileUri ?? null;
       } catch (error) {
         console.warn("[dictation] stop failed", error);
       }
       await releaseAudioMode();
+      audioSubscriptionRef.current?.remove();
+      audioSubscriptionRef.current = null;
+      stopDictationMeter();
 
-      if (!commit || !uri || durationMs < MIN_RECORDING_MS) {
+      if (!commit || durationMs < MIN_RECORDING_MS) {
+        museStreamRef.current?.cancel();
+        museStreamRef.current = null;
         safeSetStatus("idle");
         // Cleanup the empty/cancelled clip best-effort.
         if (uri) {
@@ -207,10 +237,12 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       }
 
       if (!mountedRef.current) {
-        try {
-          new File(uri).delete();
-        } catch {
-          /* ignore */
+        if (uri) {
+          try {
+            new File(uri).delete();
+          } catch {
+            /* ignore */
+          }
         }
         operationInFlightRef.current = false;
         return null;
@@ -218,34 +250,9 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
 
       let file: File | null = null;
       try {
-        file = new File(uri);
-        const audio = await file.base64();
-        const format = inferAudioFormat(uri);
-
-        const path = "/api/mobile/transcribe";
-        const body: Record<string, unknown> = {
-          requestId: createMobileTranscriptionRequestId(),
-          audio,
-          format,
-        };
-        if (options.language) body.language = options.language;
-
-        // Audio uploads can be large; allow more than the default 15s.
-        const response = options.anonymous
-          ? await postJsonAnonymous(path, body, {
-              headers: options.headers,
-              timeoutMs: 60_000,
-            })
-          : await postJson(path, body, {
-              headers: options.headers,
-              timeoutMs: 60_000,
-            });
-
-        const text =
-          response && typeof response === "object" &&
-          typeof (response as { text?: unknown }).text === "string"
-            ? ((response as { text: string }).text).trim()
-            : "";
+        if (uri) file = new File(uri);
+        const text = (await museStreamRef.current?.finish()) ?? "";
+        museStreamRef.current = null;
         if (text && !cancelledRef.current) {
           options.onTranscript(text);
           return text;
@@ -261,6 +268,8 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         );
         return null;
       } finally {
+        museStreamRef.current?.cancel();
+        museStreamRef.current = null;
         try {
           file?.delete();
         } catch {
@@ -270,7 +279,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         operationInFlightRef.current = false;
       }
     },
-    [recorder, releaseAudioMode, safeSetStatus, options],
+    [releaseAudioMode, safeSetStatus, options],
   );
 
   const stop = useCallback(() => finalize(true), [finalize]);
@@ -284,15 +293,19 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     }
   }, [status, start, stop]);
 
-  // On unmount, release the audio session so the mic light goes away.
-  // `useAudioRecorder` disposes the native shared object on unmount — never
-  // read `recorder.*` or `recorderState.*` in this cleanup (that throws
-  // NativeSharedObjectNotFoundException on Fast Refresh).
+  // On unmount, stop native capture and release the audio session so the mic
+  // light cannot remain on after navigating away or during Fast Refresh.
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       statusRef.current = "idle";
+      museStreamRef.current?.cancel();
+      museStreamRef.current = null;
+      audioSubscriptionRef.current?.remove();
+      audioSubscriptionRef.current = null;
+      stopDictationMeter();
+      void AudioStudioModule.stopRecording().catch(() => undefined);
       void releaseAudioMode();
     };
   }, [releaseAudioMode]);
@@ -301,7 +314,6 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     status,
     isRecording: status === "recording",
     isTranscribing: status === "transcribing",
-    recorder,
     start,
     stop,
     cancel,
@@ -309,20 +321,32 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
   };
 }
 
-/**
- * Best-effort container inference from a file URI. The HIGH_QUALITY preset
- * emits `.m4a` on iOS / Android; web records `audio/webm`. We just need the
- * container name the backend maps to the upload's MIME type.
- */
-function inferAudioFormat(uri: string): string {
-  const lower = uri.toLowerCase();
-  if (lower.endsWith(".m4a") || lower.endsWith(".mp4")) return "m4a";
-  if (lower.endsWith(".wav")) return "wav";
-  if (lower.endsWith(".mp3")) return "mp3";
-  if (lower.endsWith(".flac")) return "flac";
-  if (lower.endsWith(".ogg")) return "ogg";
-  if (lower.endsWith(".webm")) return "webm";
-  if (lower.endsWith(".aac")) return "aac";
-  if (lower.endsWith(".3gp")) return "m4a"; // LOW_QUALITY Android container, fallback
-  return Platform.OS === "web" ? "webm" : "m4a";
-}
+const audioEventToPcm16 = (
+  data: string | Float32Array | Int16Array | number[],
+): ArrayBuffer => {
+  if (typeof data === "string") {
+    const binary = globalThis.atob(data);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  }
+  if (data instanceof Int16Array) {
+    return new Int16Array(data).buffer;
+  }
+  const pcm = new Int16Array(data.length);
+  for (let i = 0; i < data.length; i += 1) {
+    const sample = Math.max(-1, Math.min(1, data[i] ?? 0));
+    pcm[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+  }
+  return pcm.buffer;
+};
+
+const pcm16Level = (bytes: ArrayBuffer): number => {
+  const samples = new Int16Array(bytes);
+  let sum = 0;
+  for (let i = 0; i < samples.length; i += 1) {
+    const sample = samples[i]! / 0x8000;
+    sum += sample * sample;
+  }
+  return Math.min(1, Math.sqrt(sum / Math.max(1, samples.length)) * 6);
+};

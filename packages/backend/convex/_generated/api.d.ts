@@ -192,7 +192,6 @@ import type * as lib_voice_dispatch_guard from "../lib/voice_dispatch_guard.js";
 import type * as lib_x_bot from "../lib/x_bot.js";
 import type * as lib_x_bot_oauth from "../lib/x_bot_oauth.js";
 import type * as lib_x_oauth from "../lib/x_oauth.js";
-import type * as lib_xai_stt from "../lib/xai_stt.js";
 import type * as local_agent_threads from "../local_agent_threads.js";
 import type * as media_billing from "../media_billing.js";
 import type * as media_catalog from "../media_catalog.js";
@@ -487,7 +486,6 @@ declare const fullApi: ApiFromModules<{
   "lib/x_bot": typeof lib_x_bot;
   "lib/x_bot_oauth": typeof lib_x_bot_oauth;
   "lib/x_oauth": typeof lib_x_oauth;
-  "lib/xai_stt": typeof lib_xai_stt;
   local_agent_threads: typeof local_agent_threads;
   media_billing: typeof media_billing;
   media_catalog: typeof media_catalog;

@@ -12,9 +12,8 @@ import {
 import { rateLimitResponse } from "../http_shared/webhook_controls";
 import {
   listMediaCapabilities,
-  resolveMediaProfile,
+  resolveMediaCapability,
   type MediaCapability,
-  type MediaProfile,
 } from "../media_catalog";
 import {
   createMediaGenerateAcceptedResponse,
@@ -174,18 +173,11 @@ const isGptImage2Endpoint = (endpointId: string): boolean =>
   endpointId === "openai/gpt-image-2" ||
   endpointId === "openai/gpt-image-2/edit";
 
-const isSeedanceReferenceToVideoEndpoint = (endpointId: string): boolean =>
-  endpointId === "bytedance/seedance-2.0/fast/reference-to-video";
-
 const applyCapabilityDefaults = (args: {
   capability: MediaCapability;
-  profile?: MediaProfile;
   input: Record<string, unknown>;
 }): Record<string, unknown> => {
   const normalized = { ...args.input };
-  if (args.capability.id === "icon") {
-    normalized.image_size = { width: 512, height: 512 };
-  }
   if (
     (args.capability.id === "text_to_image" ||
       args.capability.id === "image_edit") &&
@@ -193,8 +185,10 @@ const applyCapabilityDefaults = (args: {
   ) {
     normalized.quality = "low";
   }
-  if (args.capability.id === "image_edit" && args.profile?.id === "fast") {
-    normalized.image_size = "auto";
+  if (args.capability.category === "video") {
+    normalized.duration ??= 5;
+    normalized.resolution ??= "768P";
+    normalized.prompt_expansion_mode ??= "balanced";
   }
   return normalized;
 };
@@ -208,13 +202,10 @@ const applyCapabilityDefaults = (args: {
  */
 const applyEndpointTransforms = (args: {
   capability: MediaCapability;
-  profile?: MediaProfile;
   input: Record<string, unknown>;
 }): Record<string, unknown> => {
   const normalized = { ...args.input };
-  const targetsGptImage2 = args.profile
-    ? isGptImage2Endpoint(args.profile.endpointId)
-    : args.capability.profiles.some((p) => isGptImage2Endpoint(p.endpointId));
+  const targetsGptImage2 = isGptImage2Endpoint(args.capability.endpointId);
   if (targetsGptImage2 && typeof normalized.aspect_ratio === "string") {
     if (normalized.image_size === undefined) {
       const mapped = GPT_IMAGE_2_ASPECT_PRESETS[normalized.aspect_ratio.trim()];
@@ -230,34 +221,6 @@ const applyEndpointTransforms = (args: {
     normalized.image_size === undefined
   ) {
     normalized.image_size = "auto";
-  }
-  const targetsSeedanceReference = args.profile
-    ? isSeedanceReferenceToVideoEndpoint(args.profile.endpointId)
-    : args.capability.profiles.some((p) =>
-        isSeedanceReferenceToVideoEndpoint(p.endpointId),
-      );
-  if (targetsSeedanceReference) {
-    if (
-      normalized.image_url !== undefined &&
-      normalized.image_urls === undefined
-    ) {
-      normalized.image_urls = [normalized.image_url];
-      delete normalized.image_url;
-    }
-    if (
-      normalized.video_url !== undefined &&
-      normalized.video_urls === undefined
-    ) {
-      normalized.video_urls = [normalized.video_url];
-      delete normalized.video_url;
-    }
-    if (
-      normalized.audio_url !== undefined &&
-      normalized.audio_urls === undefined
-    ) {
-      normalized.audio_urls = [normalized.audio_url];
-      delete normalized.audio_url;
-    }
   }
   return normalized;
 };
@@ -315,9 +278,16 @@ const SOURCE_SLOT_ALIASES: Record<string, string> = {
   image: "image_url",
   video: "video_url",
   audio: "audio_url",
-  reference_image: "reference_image_url",
-  reference_video: "reference_video_url",
+  reference_image: "reference_image_urls",
+  reference_video: "reference_video_urls",
+  reference_audio: "reference_audio_urls",
   mask_image: "mask_image_url",
+};
+
+const REFERENCE_VIDEO_SOURCE_SLOT_ALIASES: Record<string, string> = {
+  image: "reference_image_urls",
+  video: "reference_video_urls",
+  audio: "reference_audio_urls",
 };
 
 const normalizeSourceReference = (
@@ -356,7 +326,6 @@ const toMediaJobStatus = (upstreamStatus: string): MediaJobStatus => {
 
 export const applyConvenienceInput = (args: {
   capability: MediaCapability;
-  profile?: MediaProfile;
   input: Record<string, unknown>;
   prompt?: string;
   aspectRatio?: string;
@@ -411,22 +380,26 @@ export const applyConvenienceInput = (args: {
   }
   if (args.sources) {
     for (const [key, value] of Object.entries(args.sources)) {
-      const slot = SOURCE_SLOT_ALIASES[key] ?? key;
+      const slot =
+        (args.capability.id === "reference_to_video"
+          ? REFERENCE_VIDEO_SOURCE_SLOT_ALIASES[key]
+          : undefined) ??
+        SOURCE_SLOT_ALIASES[key] ??
+        key;
       if (normalized[slot] === undefined) {
-        normalized[slot] = normalizeSourceReference(value);
+        const source = normalizeSourceReference(value);
+        normalized[slot] = slot.endsWith("_urls") ? [source] : source;
       }
     }
   }
   return applyEndpointTransforms({
     capability: args.capability,
-    profile: args.profile,
     input: normalized,
   });
 };
 
 const requireCapabilityInputs = (args: {
   capability: MediaCapability;
-  profile?: MediaProfile;
   prompt?: string;
   aspectRatio?: string;
   sourceUrl?: string;
@@ -503,6 +476,31 @@ const requireCapabilityInputs = (args: {
   const sourceSlotRef = Array.isArray(sourceSlotValue)
     ? sourceSlotValue[0]
     : sourceSlotValue;
+  if (args.capability.id === "reference_to_video") {
+    const referenceImages = Array.isArray(normalized.reference_image_urls)
+      ? normalized.reference_image_urls
+      : [];
+    const referenceVideos = Array.isArray(normalized.reference_video_urls)
+      ? normalized.reference_video_urls
+      : [];
+    const referenceAudio = Array.isArray(normalized.reference_audio_urls)
+      ? normalized.reference_audio_urls
+      : [];
+    const references = [
+      ...referenceImages,
+      ...referenceVideos,
+      ...referenceAudio,
+    ];
+    if (referenceImages.length === 0 && referenceVideos.length === 0) {
+      return "reference_to_video requires at least one reference image or video";
+    }
+    if (references.length > 12) {
+      return "reference_to_video accepts at most 12 reference files";
+    }
+    if (!references.every(isMediaSourceReference)) {
+      return "reference_to_video references must be valid http(s) URLs or data URIs";
+    }
+  }
   if (
     args.capability.requiresSourceUrl &&
     (!args.capability.sourceUrlKey || !isMediaSourceReference(sourceSlotRef))
@@ -758,16 +756,15 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               "Invalid media generation JSON body",
               origin,
             );
-          const resolved = resolveMediaProfile(body.capability, body.profile);
+          const resolved = resolveMediaCapability(body.capability);
           if (!resolved)
             return errorResponse(
               400,
-              `Unknown capability or profile. See ${MEDIA_DOCS_URL}.`,
+              `Unknown capability. See ${MEDIA_DOCS_URL}.`,
               origin,
             );
           const validationError = requireCapabilityInputs({
             capability: resolved.capability,
-            profile: resolved.profile,
             prompt: body.prompt,
             aspectRatio: body.aspectRatio,
             sourceUrl: body.sourceUrl,
@@ -780,7 +777,6 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             return errorResponse(400, validationError, origin);
           const submissionInput = applyConvenienceInput({
             capability: resolved.capability,
-            profile: resolved.profile,
             input: body.input,
             prompt: body.prompt,
             aspectRatio: body.aspectRatio,
@@ -813,7 +809,6 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 createMediaGenerateAcceptedResponse({
                   jobId: existing.jobId,
                   capability: existing.capability,
-                  profile: existing.profile,
                   status: existing.status,
                   upstreamStatus: existing.upstreamStatus,
                   reattached: true,
@@ -869,17 +864,17 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
 
           const billingAdmissionIssue = getMediaBillingAdmissionIssue({
-            endpointId: resolved.profile.endpointId,
+            endpointId: resolved.endpoint.endpointId,
             request: storedRequest,
           });
           if (billingAdmissionIssue) {
             return errorResponse(
               503,
-              `Media billing is not configured for ${resolved.profile.endpointId}: ${billingAdmissionIssue}`,
+              `Media billing is not configured for ${resolved.endpoint.endpointId}: ${billingAdmissionIssue}`,
               origin,
             );
           }
-          const provider = resolved.profile.provider;
+          const provider = resolved.endpoint.provider;
           const falApiKey = provider === "fal" ? getFalApiKey() : null;
           const openRouterApiKey =
             provider === "openrouter"
@@ -909,10 +904,8 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             : crypto.randomUUID();
           if (clientRequestKey && clientRequestHash) {
             const isDurableFalImage =
-              resolved.profile.provider === "fal" &&
-              ["text_to_image", "image_edit", "icon"].includes(
-                resolved.capability.id,
-              );
+              resolved.endpoint.provider === "fal" &&
+              ["text_to_image", "image_edit"].includes(resolved.capability.id);
             let submissionPayloadManifestId: string | undefined;
             if (isDurableFalImage) {
               const encrypted = await encryptSecret(
@@ -988,7 +981,6 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                       createMediaGenerateAcceptedResponse({
                         jobId: existingJob.jobId,
                         capability: existingJob.capability,
-                        profile: existingJob.profile,
                         status: existingJob.status,
                         upstreamStatus: existingJob.upstreamStatus,
                         reattached: true,
@@ -1043,7 +1035,6 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                     createMediaGenerateAcceptedResponse({
                       jobId: existingJob.jobId,
                       capability: existingJob.capability,
-                      profile: existingJob.profile,
                       status: existingJob.status,
                       upstreamStatus: existingJob.upstreamStatus,
                       reattached: true,
@@ -1121,9 +1112,9 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 clientRequestKey,
                 clientRequestHash,
                 capability: resolved.capability.id,
-                profile: resolved.profile.id,
-                provider: resolved.profile.provider,
-                endpointId: resolved.profile.endpointId,
+                profile: resolved.endpoint.id,
+                provider: resolved.endpoint.provider,
+                endpointId: resolved.endpoint.endpointId,
                 request: storedRequest,
                 ...(body.connectorRequestId
                   ? { connectorRequestId: body.connectorRequestId }
@@ -1167,7 +1158,6 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 createMediaGenerateAcceptedResponse({
                   jobId: reservation.jobId,
                   capability: reservation.capability,
-                  profile: reservation.profile,
                   status: reservation.status,
                   upstreamStatus: reservation.upstreamStatus,
                   reattached: true,
@@ -1185,7 +1175,6 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 createMediaGenerateAcceptedResponse({
                   jobId,
                   capability: resolved.capability.id,
-                  profile: resolved.profile.id,
                   status: "queued",
                   upstreamStatus: "IN_QUEUE",
                   subscription: {
@@ -1203,9 +1192,9 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               ownerGeneration,
               jobId,
               capability: resolved.capability.id,
-              profile: resolved.profile.id,
-              provider: resolved.profile.provider,
-              endpointId: resolved.profile.endpointId,
+              profile: resolved.endpoint.id,
+              provider: resolved.endpoint.provider,
+              endpointId: resolved.endpoint.endpointId,
               request: storedRequest,
               ...(body.connectorRequestId
                 ? { connectorRequestId: body.connectorRequestId }
@@ -1352,7 +1341,6 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               const accepted = createMediaGenerateAcceptedResponse({
                 jobId,
                 capability: resolved.capability.id,
-                profile: resolved.profile.id,
                 status: "succeeded",
                 upstreamStatus: "OK",
                 subscription: {
@@ -1410,7 +1398,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 async (signal) =>
                   await transcribeOpenRouterSpeechToText({
                     apiKey: openRouterApiKey!,
-                    endpointId: resolved.profile.endpointId,
+                    endpointId: resolved.endpoint.endpointId,
                     input: submissionInput,
                     signal,
                   }),
@@ -1421,7 +1409,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 ...(result.usage ? { usage: result.usage } : {}),
               };
               const billing = meterCompletedMediaJob({
-                endpointId: resolved.profile.endpointId,
+                endpointId: resolved.endpoint.endpointId,
                 request: storedRequest,
                 output,
               });
@@ -1429,7 +1417,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 billing && !("supported" in billing) ? billing : undefined;
               if (billing && "supported" in billing) {
                 console.error(
-                  `[media/generate] Failed to meter ${resolved.profile.endpointId}: ${billing.reason}`,
+                  `[media/generate] Failed to meter ${resolved.endpoint.endpointId}: ${billing.reason}`,
                 );
               }
               const completion = await ctx.runMutation(
@@ -1455,7 +1443,6 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               const accepted = createMediaGenerateAcceptedResponse({
                 jobId,
                 capability: resolved.capability.id,
-                profile: resolved.profile.id,
                 status: "succeeded",
                 upstreamStatus: "OK",
                 subscription: {
@@ -1512,7 +1499,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               async (signal) =>
                 await submitFalRequest({
                   apiKey: falApiKey!,
-                  endpointId: resolved.profile.endpointId,
+                  endpointId: resolved.endpoint.endpointId,
                   input: submissionInput,
                   webhookUrl: `${new URL(MEDIA_FAL_WEBHOOK_PATH, request.url).toString()}?jobId=${encodeURIComponent(jobId)}&ownerGeneration=${encodeURIComponent(ownerGeneration)}`,
                   signal,
@@ -1563,7 +1550,6 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               createMediaGenerateAcceptedResponse({
                 jobId,
                 capability: resolved.capability.id,
-                profile: resolved.profile.id,
                 status: toMediaJobStatus(submitted.upstreamStatus),
                 upstreamStatus: submitted.upstreamStatus,
                 subscription: {
@@ -1644,7 +1630,6 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 createMediaGenerateAcceptedResponse({
                   jobId,
                   capability: resolved.capability.id,
-                  profile: resolved.profile.id,
                   status: "queued",
                   upstreamStatus: "IN_QUEUE",
                   subscription: {
@@ -1904,7 +1889,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
 };
 
 export const describeCapabilityValidation = (capabilityId: string) => {
-  const resolved = resolveMediaProfile(capabilityId);
+  const resolved = resolveMediaCapability(capabilityId);
   if (!resolved) return null;
   return {
     requiresPrompt: Boolean(resolved.capability.promptKey),
@@ -1926,8 +1911,8 @@ export const validateCapabilityRequest = (args: {
   >;
   input?: Record<string, unknown>;
 }) => {
-  const resolved = resolveMediaProfile(args.capabilityId);
-  if (!resolved) return `Unknown capability or profile. See ${MEDIA_DOCS_URL}.`;
+  const resolved = resolveMediaCapability(args.capabilityId);
+  if (!resolved) return `Unknown capability. See ${MEDIA_DOCS_URL}.`;
   return requireCapabilityInputs({
     capability: resolved.capability,
     prompt: args.prompt,

@@ -232,7 +232,6 @@ const terminalToolResult = (
   const details = {
     jobId: terminal.job.jobId,
     capability: terminal.job.capability,
-    profile: provider,
     provider,
     model,
     prompt,
@@ -540,7 +539,6 @@ export const runLocalImageGeneration = async (
       job: {
         jobId,
         capability: references.length ? "image_edit" : "text_to_image",
-        profile: provider,
         status: "succeeded",
         completedAt: Date.now(),
       },

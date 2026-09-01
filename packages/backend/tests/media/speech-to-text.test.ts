@@ -1,14 +1,14 @@
 import { describe, expect, it } from "bun:test";
 
 import { meterCompletedMediaJob } from "../../convex/media_billing";
-import { resolveMediaProfile } from "../../convex/media_catalog";
+import { getMediaCapability } from "../../convex/media_catalog";
 import { resolveOpenRouterAudioInput } from "../../convex/media_openrouter_stt";
 
 describe("speech_to_text catalog", () => {
   it("defaults to OpenRouter Nemotron 3.5 ASR", () => {
-    const resolved = resolveMediaProfile("speech_to_text");
-    expect(resolved?.profile.provider).toBe("openrouter");
-    expect(resolved?.profile.endpointId).toBe(
+    const capability = getMediaCapability("speech_to_text");
+    expect(capability?.provider).toBe("openrouter");
+    expect(capability?.endpointId).toBe(
       "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
     );
   });
@@ -75,8 +75,7 @@ describe("speech_to_text billing", () => {
 
 describe("OpenRouter audio input", () => {
   it("accepts a WAV data URI without downloading", async () => {
-    const wav =
-      "UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
+    const wav = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
     const audio = await resolveOpenRouterAudioInput(
       `data:audio/wav;base64,${wav}`,
     );

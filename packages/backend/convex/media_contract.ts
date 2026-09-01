@@ -27,7 +27,6 @@ export type MediaSourceReference = string | MediaBase64Source;
 
 export type MediaGenerateRequestBody = {
   capability?: unknown;
-  profile?: unknown;
   prompt?: unknown;
   aspectRatio?: unknown;
   sourceUrl?: unknown;
@@ -39,7 +38,6 @@ export type MediaGenerateRequestBody = {
 
 export type MediaGenerateRequest = {
   capability: string;
-  profile?: string;
   prompt?: string;
   aspectRatio?: string;
   sourceUrl?: string;
@@ -52,7 +50,6 @@ export type MediaGenerateRequest = {
 export type MediaGenerateAcceptedResponse = {
   jobId: string;
   capability: string;
-  profile: string;
   status: MediaJobStatus;
   upstreamStatus: string;
   /** True when this response reattached to an existing idempotent request. */
@@ -85,7 +82,6 @@ export type MediaRequestSummary = {
 export type MediaJobResponse = {
   jobId: string;
   capability: string;
-  profile: string;
   request: MediaRequestSummary;
   status: MediaJobStatus;
   upstreamStatus: string;
@@ -153,7 +149,6 @@ export const parseMediaGenerateRequest = (
     return null;
   }
 
-  const profile = asTrimmedString(value.profile)?.toLowerCase();
   const prompt = asTrimmedString(value.prompt) ?? undefined;
   const aspectRatio = asTrimmedString(value.aspectRatio) ?? undefined;
   const sourceUrl = asTrimmedString(value.sourceUrl) ?? undefined;
@@ -225,7 +220,6 @@ export const parseMediaGenerateRequest = (
 
   return {
     capability,
-    ...(profile ? { profile } : {}),
     ...(prompt ? { prompt } : {}),
     ...(aspectRatio ? { aspectRatio } : {}),
     ...(sourceUrl ? { sourceUrl } : {}),
@@ -242,7 +236,6 @@ export const createMediaGenerateRequestExample = (
   args: MediaGenerateRequest,
 ): MediaGenerateRequest => ({
   capability: args.capability,
-  ...(args.profile ? { profile: args.profile } : {}),
   ...(args.prompt ? { prompt: args.prompt } : {}),
   ...(args.aspectRatio ? { aspectRatio: args.aspectRatio } : {}),
   ...(args.sourceUrl ? { sourceUrl: args.sourceUrl } : {}),
@@ -259,7 +252,6 @@ export const createMediaGenerateAcceptedResponse = (
 ): MediaGenerateAcceptedResponse => ({
   jobId: args.jobId,
   capability: args.capability,
-  profile: args.profile,
   status: args.status,
   upstreamStatus: args.upstreamStatus,
   ...(args.reattached ? { reattached: true } : {}),
@@ -274,7 +266,6 @@ export const createMediaJobResponse = (
 ): MediaJobResponse => ({
   jobId: args.jobId,
   capability: args.capability,
-  profile: args.profile,
   request: {
     ...(args.request.prompt ? { prompt: args.request.prompt } : {}),
     ...(args.request.aspectRatio

@@ -66,8 +66,17 @@ type CapabilityDef = {
   sourceLabelKey?: string;
   supportsAspectRatio: boolean;
   extraFields?: ExtraField[];
-  profiles?: { id: string; nameKey: string }[];
+  qualities?: {
+    id: "low" | "medium" | "high";
+    nameKey: string;
+  }[];
 };
+
+const IMAGE_QUALITIES: NonNullable<CapabilityDef["qualities"]> = [
+  { id: "low", nameKey: "app.media.studio.qualityLow" },
+  { id: "medium", nameKey: "app.media.studio.qualityMedium" },
+  { id: "high", nameKey: "app.media.studio.qualityHigh" },
+];
 
 const CATEGORIES: { id: Category; labelKey: string }[] = [
   { id: "image", labelKey: "app.media.studio.categoryImage" },
@@ -104,19 +113,7 @@ const CAPABILITIES: CapabilityDef[] = [
     needsPrompt: true,
     needsSource: false,
     supportsAspectRatio: true,
-    profiles: [
-      { id: "best", nameKey: "app.media.studio.profileBest" },
-      { id: "fast", nameKey: "app.media.studio.profileFast" },
-    ],
-  },
-  {
-    id: "icon",
-    nameKey: "app.media.capability.icon.name",
-    descriptionKey: "app.media.capability.icon.description",
-    category: "image",
-    needsPrompt: true,
-    needsSource: false,
-    supportsAspectRatio: false,
+    qualities: IMAGE_QUALITIES,
   },
   {
     id: "image_edit",
@@ -128,6 +125,7 @@ const CAPABILITIES: CapabilityDef[] = [
     sourceAccept: "image/*",
     sourceLabelKey: "app.media.studio.sourceImage",
     supportsAspectRatio: true,
+    qualities: IMAGE_QUALITIES,
   },
   {
     id: "audio_generation",
@@ -179,27 +177,15 @@ const CAPABILITIES: CapabilityDef[] = [
     supportsAspectRatio: true,
   },
   {
-    id: "video_extend",
-    nameKey: "app.media.capability.videoExtend.name",
-    descriptionKey: "app.media.capability.videoExtend.description",
+    id: "reference_to_video",
+    nameKey: "app.media.capability.referenceToVideo.name",
+    descriptionKey: "app.media.capability.referenceToVideo.description",
     category: "video",
     needsPrompt: true,
     needsSource: true,
     sourceAccept: "video/*",
     sourceLabelKey: "app.media.studio.sourceVideo",
     supportsAspectRatio: true,
-  },
-  {
-    id: "video_to_video",
-    nameKey: "app.media.capability.videoToVideo.name",
-    descriptionKey: "app.media.capability.videoToVideo.description",
-    category: "video",
-    needsPrompt: true,
-    needsSource: true,
-    sourceAccept: "video/*",
-    sourceLabelKey: "app.media.studio.sourceVideo",
-    supportsAspectRatio: true,
-    profiles: [{ id: "fast", nameKey: "app.media.studio.profileFast" }],
   },
   {
     id: "text_to_3d",
@@ -219,7 +205,6 @@ const ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4"] as const;
 type GenerateResponse = {
   jobId: string;
   capability: string;
-  profile: string;
   status: string;
 };
 
@@ -275,7 +260,9 @@ export default function MediaStudio() {
   const [aspectRatio, setAspectRatio] = useState<string | null>(
     savedForm.aspectRatio,
   );
-  const [profile, setProfile] = useState<string | null>(savedForm.profile);
+  const [quality, setQuality] = useState<"low" | "medium" | "high" | null>(
+    savedForm.quality,
+  );
   const [extraValues, setExtraValues] = useState<Record<string, number>>(
     savedForm.extraValues,
   );
@@ -389,7 +376,7 @@ export default function MediaStudio() {
         setCategory(cat);
         setCapabilityId(null);
         setAspectRatio(null);
-        setProfile(null);
+        setQuality(null);
         setExtraValues({});
         setError(null);
         setActiveJobId(null);
@@ -398,7 +385,7 @@ export default function MediaStudio() {
           category: cat,
           capabilityId: null,
           aspectRatio: null,
-          profile: null,
+          quality: null,
           extraValues: {},
         });
       });
@@ -409,7 +396,7 @@ export default function MediaStudio() {
   const handleCapabilitySelect = useCallback(
     (id: string) => {
       const cap = CAPABILITIES.find((c) => c.id === id);
-      const newProfile = cap?.profiles?.[0]?.id ?? null;
+      const newQuality = cap?.qualities?.[0]?.id ?? null;
       const newExtra = Object.fromEntries(
         (cap?.extraFields ?? []).map((f) => [f.key, f.default]),
       );
@@ -420,13 +407,13 @@ export default function MediaStudio() {
         setError(null);
         setActiveJobId(null);
         setViewingEntry(null);
-        setProfile(newProfile);
+        setQuality(newQuality);
         setExtraValues(newExtra);
         persistForm({
           capabilityId: id,
           prompt: "",
           aspectRatio: null,
-          profile: newProfile,
+          quality: newQuality,
           extraValues: newExtra,
         });
       });
@@ -451,10 +438,10 @@ export default function MediaStudio() {
     [aspectRatio, persistForm],
   );
 
-  const handleProfileChange = useCallback(
-    (id: string) => {
-      setProfile(id);
-      persistForm({ profile: id });
+  const handleQualityChange = useCallback(
+    (id: "low" | "medium" | "high") => {
+      setQuality(id);
+      persistForm({ quality: id });
     },
     [persistForm],
   );
@@ -535,12 +522,11 @@ export default function MediaStudio() {
     try {
       const body: Record<string, unknown> = {
         capability: capability.id,
-        input: { ...extraValues },
+        input: { ...extraValues, ...(quality ? { quality } : {}) },
       };
       if (prompt.trim()) body.prompt = prompt.trim();
       if (sourceUri) body.source = sourceUri;
       if (aspectRatio) body.aspectRatio = aspectRatio;
-      if (profile) body.profile = profile;
 
       const result = await generateMedia(body, planCapability);
 
@@ -578,7 +564,7 @@ export default function MediaStudio() {
     prompt,
     sourceUri,
     aspectRatio,
-    profile,
+    quality,
     extraValues,
     restrictionFor,
     t,
@@ -636,7 +622,7 @@ export default function MediaStudio() {
         setError(null);
         setActiveJobId(null);
         setViewingEntry(null);
-        setProfile(cap.profiles?.[0]?.id ?? null);
+        setQuality(cap.qualities?.[0]?.id ?? null);
         setExtraValues(
           Object.fromEntries(
             (cap.extraFields ?? []).map((f) => [f.key, f.default]),
@@ -647,7 +633,7 @@ export default function MediaStudio() {
           capabilityId: targetCapId,
           prompt: "",
           aspectRatio: null,
-          profile: cap.profiles?.[0]?.id ?? null,
+          quality: cap.qualities?.[0]?.id ?? null,
           extraValues: Object.fromEntries(
             (cap.extraFields ?? []).map((f) => [f.key, f.default]),
           ),
@@ -760,20 +746,20 @@ export default function MediaStudio() {
             <>
               <hr className="ms-rule" />
               <div className="ms-form">
-                {capability.profiles && capability.profiles.length > 1 && (
+                {capability.qualities && (
                   <div className="ms-field">
                     <label className="ms-label">
                       {t("app.media.studio.quality")}
                     </label>
                     <div className="ms-tags">
-                      {capability.profiles.map((p) => (
+                      {capability.qualities.map((item) => (
                         <button
-                          key={p.id}
+                          key={item.id}
                           type="button"
-                          className={`ms-tag ${profile === p.id ? "ms-tag--active" : ""}`}
-                          onClick={() => handleProfileChange(p.id)}
+                          className={`ms-tag ${quality === item.id ? "ms-tag--active" : ""}`}
+                          onClick={() => handleQualityChange(item.id)}
                         >
-                          {t(p.nameKey)}
+                          {t(item.nameKey)}
                         </button>
                       ))}
                     </div>
@@ -998,19 +984,10 @@ export default function MediaStudio() {
                       type="button"
                       className="ms-action"
                       onClick={() =>
-                        handleSendTo("video_to_video", activeOutput.url)
+                        handleSendTo("reference_to_video", activeOutput.url)
                       }
                     >
                       {t("app.media.studio.transformVideo")}
-                    </button>
-                    <button
-                      type="button"
-                      className="ms-action"
-                      onClick={() =>
-                        handleSendTo("video_extend", activeOutput.url)
-                      }
-                    >
-                      {t("app.media.studio.extendVideo")}
                     </button>
                   </div>
                 </>

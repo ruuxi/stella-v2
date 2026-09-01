@@ -75,7 +75,6 @@ const createImageGenHandler =
     }
 
     const input: Record<string, unknown> = {};
-    const profile = asNonEmptyString(args.profile);
     const aspectRatio =
       asNonEmptyString(args.aspectRatio) ?? asNonEmptyString(args.aspect_ratio);
     const quality = asNonEmptyString(args.quality);
@@ -93,8 +92,7 @@ const createImageGenHandler =
     // Optional explicit pixel dimensions. Validate the GPT Image 2 envelope
     // locally so the agent gets a clear error instead of a 4xx from upstream.
     const sizeArg = args.size as
-      | { width?: unknown; height?: unknown }
-      | undefined;
+      { width?: unknown; height?: unknown } | undefined;
     if (sizeArg && typeof sizeArg === "object") {
       const width =
         typeof sizeArg.width === "number" ? Math.floor(sizeArg.width) : NaN;
@@ -232,7 +230,6 @@ const createImageGenHandler =
     const requestBody = {
       capability,
       prompt,
-      ...(profile ? { profile } : {}),
       ...(aspectRatio ? { aspectRatio } : {}),
       ...(Object.keys(input).length > 0 ? { input } : {}),
       ...(context.connectorDeliveryTarget
@@ -279,7 +276,6 @@ const createImageGenHandler =
     const details = {
       jobId: terminal.job.jobId,
       capability: terminal.job.capability,
-      profile: terminal.job.profile,
       prompt,
       ...(aspectRatio ? { aspectRatio } : {}),
       ...(sizeArg && typeof sizeArg === "object" && input.image_size

@@ -164,7 +164,6 @@ export const ImageGenSchema = z
   .object({
     prompt: z.string().describe("Natural-language image prompt."),
     aspect_ratio: z.string().optional(),
-    profile: z.enum(["best", "fast"]).optional(),
     quality: z.enum(["low", "medium", "high"]).optional(),
     output_format: z.enum(["png", "jpeg", "webp"]).optional(),
     num_images: z.number().optional(),

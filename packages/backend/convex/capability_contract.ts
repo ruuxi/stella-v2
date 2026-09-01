@@ -98,9 +98,7 @@ export const isCapability = (value: unknown): value is Capability =>
  * paying users into "within budget" and "over budget" halves.
  */
 export type ManagedCapabilityAudience =
-  | CapabilityAudience
-  | "go_fallback"
-  | "pro_fallback";
+  CapabilityAudience | "go_fallback" | "pro_fallback";
 
 /**
  * Collapse a managed audience onto the four the matrix is keyed by.
@@ -208,12 +206,10 @@ export const buildCapabilityDenial = (
  */
 const MEDIA_CAPABILITY_GATES: Record<string, Capability> = {
   text_to_image: "image_generation",
-  icon: "image_generation",
   image_edit: "image_generation",
   text_to_video: "video_generation",
   image_to_video: "video_generation",
-  video_extend: "video_generation",
-  video_to_video: "video_generation",
+  reference_to_video: "video_generation",
   audio_generation: "audio_generation",
   text_to_music: "audio_generation",
   text_to_3d: "three_d_generation",

@@ -198,8 +198,8 @@ const estimateGptImage2PricePerImage = (
   request: MediaRequestSummary,
 ): { unitPriceUsd: number; megapixels: number; quality: string } => {
   const input = getInput(request);
-  const quality = (getInputString(request, "quality") ?? "high").toLowerCase();
-  const perMp = quality === "low" ? 0.012 : quality === "medium" ? 0.045 : 0.18; // "high" is the documented default
+  const quality = (getInputString(request, "quality") ?? "low").toLowerCase();
+  const perMp = quality === "low" ? 0.012 : quality === "medium" ? 0.045 : 0.18;
 
   // Default `landscape_4_3` ≈ 1024×768 (0.79 MP). Without an explicit size,
   // round up slightly so we don't undercharge.
@@ -319,6 +319,31 @@ export const meterCompletedMediaJob = (args: {
           : {}),
       });
     }
+    case "minimax/h3-max/text-to-video":
+    case "minimax/h3-max/image-to-video":
+    case "minimax/h3-max/reference-to-video": {
+      const duration = getInputDurationSeconds(args.request, 5);
+      const resolution = (
+        getInputString(args.request, "resolution") ?? "768P"
+      ).toUpperCase();
+      const unitPriceUsd =
+        args.endpointId === "minimax/h3-max/reference-to-video"
+          ? 0.08
+          : resolution === "480P"
+            ? 0.05
+            : 0.08;
+      return buildBillingRecord({
+        endpointId: args.endpointId,
+        billingUnit: "second",
+        quantity: duration.seconds,
+        unitPriceUsd,
+        meteredFrom: "request",
+        note:
+          args.endpointId === "minimax/h3-max/reference-to-video"
+            ? "H3 Max output-video charge. Fal may add reference-token charges above the included 4,096-token allowance."
+            : `H3 Max ${resolution} output-video charge.`,
+      });
+    }
     case "fal-ai/hyper3d/rodin/v2":
       return buildBillingRecord({
         endpointId: args.endpointId,
@@ -327,6 +352,23 @@ export const meterCompletedMediaJob = (args: {
         unitPriceUsd: 0.4,
         meteredFrom: "request",
       });
+    case "fal-ai/hunyuan-3d/v3.1/pro/text-to-3d": {
+      const generateType = (
+        getInputString(args.request, "generate_type") ?? "Normal"
+      ).toLowerCase();
+      const enablePbr = getInput(args.request).enable_pbr === true;
+      const basePriceUsd = generateType === "geometry" ? 0.225 : 0.375;
+      return buildBillingRecord({
+        endpointId: args.endpointId,
+        billingUnit: "request",
+        quantity: 1,
+        unitPriceUsd: basePriceUsd + (enablePbr ? 0.15 : 0),
+        meteredFrom: "request",
+        note: enablePbr
+          ? "Hunyuan 3D v3.1 Pro with the $0.15 PBR material add-on."
+          : "Hunyuan 3D v3.1 Pro generation.",
+      });
+    }
     case "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b": {
       const usageSeconds =
         isRecord(args.output) && isRecord(args.output.usage)
@@ -400,7 +442,8 @@ export const meterCompletedMediaJob = (args: {
       if (durationSeconds === null) {
         return {
           supported: false,
-          reason: "The generated audio output did not include a duration field.",
+          reason:
+            "The generated audio output did not include a duration field.",
         };
       }
       return buildBillingRecord({

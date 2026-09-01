@@ -1296,7 +1296,6 @@ const toStoredMediaJobResponse = (
   return {
     jobId: job.jobId,
     capability: job.capability,
-    profile: job.profile,
     request: job.request,
     status: job.status,
     upstreamStatus: job.upstreamStatus,
@@ -1700,11 +1699,7 @@ export const assertMediaProviderDispatchAllowed = internalMutation({
 });
 
 export type MediaProviderDispatchKind =
-  | "fal_submit"
-  | "fal_poll"
-  | "fal_download"
-  | "google_lyria"
-  | "openrouter";
+  "fal_submit" | "fal_poll" | "fal_download" | "google_lyria" | "openrouter";
 
 export const falSubmissionDispatchId = (jobId: string): string =>
   `media:fal_submit:${jobId}`;

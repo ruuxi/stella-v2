@@ -29,12 +29,7 @@ const SUBMIT_ATTEMPTS = 3;
 const MAX_MEDIA_JOB_JSON_BYTES = 4 * 1024 * 1024;
 
 type MediaJobStatus =
-  | "queued"
-  | "running"
-  | "succeeded"
-  | "failed"
-  | "canceled"
-  | "unknown";
+  "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown";
 
 type MediaJobError = {
   message?: string;
@@ -45,7 +40,6 @@ type MediaJobError = {
 export type ManagedMediaJob = {
   jobId: string;
   capability: string;
-  profile: string;
   request?: { prompt?: string; aspectRatio?: string; input?: unknown };
   status: MediaJobStatus;
   upstreamStatus?: string;
@@ -211,9 +205,8 @@ const isManagedMediaJob = (value: unknown): value is ManagedMediaJob => {
   const record = value as Record<string, unknown>;
   return Boolean(
     asNonEmptyString(record.jobId) &&
-      asNonEmptyString(record.capability) &&
-      asNonEmptyString(record.profile) &&
-      parseJobStatus(record.status),
+    asNonEmptyString(record.capability) &&
+    parseJobStatus(record.status),
   );
 };
 

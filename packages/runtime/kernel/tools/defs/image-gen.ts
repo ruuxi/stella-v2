@@ -49,11 +49,11 @@ export const createImageGenTool = (
           },
           required: ["width", "height"],
         },
-        profile: {
+        quality: {
           type: "string",
-          enum: ["best", "fast"],
+          enum: ["low", "medium", "high"],
           description:
-            "Optional model profile. Use 'fast' for Fashion try-ons and quick drafts.",
+            "Optional GPT Image 2 quality. Defaults to 'low'; use 'medium' or 'high' only when the user explicitly requests more fidelity.",
         },
         referenceImagePaths: {
           type: "array",

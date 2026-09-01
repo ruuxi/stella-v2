@@ -37,7 +37,7 @@ export type FormState = {
   capabilityId: string | null;
   prompt: string;
   aspectRatio: string | null;
-  profile: string | null;
+  quality: "low" | "medium" | "high" | null;
   extraValues: Record<string, number>;
 };
 
@@ -85,7 +85,7 @@ const DEFAULT_FORM: FormState = {
   capabilityId: null,
   prompt: "",
   aspectRatio: null,
-  profile: null,
+  quality: null,
   extraValues: {},
 };
 

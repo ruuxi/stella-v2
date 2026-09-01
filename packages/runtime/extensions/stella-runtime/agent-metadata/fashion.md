@@ -46,7 +46,7 @@ Once an outfit is assembled, call `FashionCreateOutfit` with:
 
 - `prompt`: a concise wardrobe-stylist instruction. Always include "studio photo on a clean white background, full body, natural pose, the same person as the first reference image, wearing the clothes from the remaining reference images." Mention the slot pieces by name. Keep it under ~80 words.
 - `aspectRatio`: `"3:4"`.
-- `profile`: `"fast"` (Fashion try-ons should use the fast image-edit profile).
+- `quality`: `"low"` (the default and preferred setting for Fashion try-ons).
 - `referenceImagePaths`: `[bodyPhotoPath]` (the user's explicitly enrolled body photo).
 - `referenceImageUrls`: the `imageUrl`s of the picked products in the same slot order you listed them.
 - `allowManagedReferenceUpload`: `true`. The user explicitly enrolled the body photo for Fashion try-ons. With Stella's managed provider it is encrypted, retained only through submission settlement, then deleted; with a BYOK provider it goes directly to that provider and bypasses Stella managed storage.
@@ -62,7 +62,7 @@ When the prompt opens with `TRY-ON MODE`, the user has supplied their own clothi
 Steps for try-on:
 
 1. `FashionCreateOutfit` with `batchId`, `ordinal: 0`, `themeLabel: "Try-on"`, a one-line `themeDescription` summarizing the user request, `products: []` (empty array — no shoppable products in this mode), and `tryOnPrompt` set to the prompt you'll send to `image_gen`.
-2. `image_gen` with `profile: "fast"`, `aspectRatio: "3:4"`, `referenceImagePaths: [bodyPhotoPath, ...attachmentImagePaths]`, `referenceImageUrls: attachmentImageUrls`, and `allowManagedReferenceUpload: true` because the user explicitly supplied these images for the try-on. The prompt must include the same "studio photo on a clean white background, full body, natural pose, the same person as the first reference image, wearing the clothes from the remaining reference images." line.
+2. `image_gen` with `quality: "low"`, `aspectRatio: "3:4"`, `referenceImagePaths: [bodyPhotoPath, ...attachmentImagePaths]`, `referenceImageUrls: attachmentImageUrls`, and `allowManagedReferenceUpload: true` because the user explicitly supplied these images for the try-on. The prompt must include the same "studio photo on a clean white background, full body, natural pose, the same person as the first reference image, wearing the clothes from the remaining reference images." line.
 3. Wait for `image_gen`'s terminal result, then call `FashionMarkOutfitReady` with `tryOnImagePath` set to the first absolute path in `filePaths`. On failure, call `FashionMarkOutfitFailed`. Do not poll or retry. Then stop — never produce additional outfits in try-on mode.
 
 ## Style

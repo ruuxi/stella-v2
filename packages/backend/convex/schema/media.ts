@@ -93,7 +93,6 @@ export const mediaJobBillingValidator = v.object({
 export const mediaJobResponseValidator = v.object({
   jobId: v.string(),
   capability: v.string(),
-  profile: v.string(),
   request: mediaRequestSummaryValidator,
   status: mediaJobStatusValidator,
   upstreamStatus: v.string(),

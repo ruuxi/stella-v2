@@ -4,7 +4,7 @@
  * Served as plain text (llms.txt-style) at:
  *   - https://stella.sh/docs/media          (overview)
  *   - https://stella.sh/docs/media/images   (image generation + edit)
- *   - https://stella.sh/docs/media/video    (image-to-video, video-to-video, extend)
+ *   - https://stella.sh/docs/media/video    (text, image, and reference-to-video)
  *   - https://stella.sh/docs/media/audio    (audio generation, transcription, separation)
  *   - https://stella.sh/docs/media/music    (text-to-music)
  *   - https://stella.sh/docs/media/3d       (text-to-3d)
@@ -13,7 +13,7 @@
  * Optimized for `curl` consumption — no headers, no nav, no boilerplate.
  *
  * Source of truth for what the gateway *accepts* lives in the backend
- * (`backend/convex/media_catalog.ts`). Keep the capability/profile IDs here
+ * (`backend/convex/media_catalog.ts`). Keep the capability IDs here
  * in sync when that catalog changes.
  */
 
@@ -48,7 +48,6 @@ token — do not invent your own credentials.
 \`\`\`json
 {
   "capability": "<id>",          // required; see per-kind sections below
-  "profile": "<id>",             // optional; defaults to the capability's preferred profile
   "prompt": "...",               // optional convenience field; mapped to the capability's prompt key
   "aspectRatio": "16:9",         // optional convenience field for image/video; mapped to aspect_ratio
   "sourceUrl": "https://...",    // optional; for capabilities that take a public URL
@@ -68,7 +67,6 @@ The backend wraps the value into the right shape for the picked endpoint
 {
   "jobId": "job_123",
   "capability": "text_to_image",
-  "profile": "best",
   "status": "queued",
   "upstreamStatus": "IN_QUEUE",
   "subscription": {
@@ -144,7 +142,7 @@ rate limits) are parsed and forwarded as-is — show the message to the user.
 
 const KIND_DESCRIPTIONS: Record<MediaDocsKind, string> = {
   images: "image generation and editing",
-  video: "image-to-video, video extension, and video-to-video",
+  video: "text-to-video, image-to-video, and reference-to-video",
   audio:
     "audio generation (speech, dialogue, sound effects, ambient), speech-to-text, and audio separation",
   music: "text-to-music generation",
@@ -174,11 +172,10 @@ export const renderMediaDocsOverview = (): string =>
 const SECTION_IMAGES = `
 ## Capabilities
 
-### \`text_to_image\` — generate images from text
+### \`text_to_image\` — generate images from text with GPT Image 2
 
-- Profiles: \`best\` (default; photoreal with accurate in-image text), \`fast\` (quicker, lower fidelity).
 - Convenience fields: \`prompt\`, \`aspectRatio\`.
-- Useful \`input\` overrides: \`quality\` (\`low\` | \`medium\` | \`high\`), \`num_images\` (1–4), \`output_format\` (\`png\` | \`jpeg\` | \`webp\`).
+- Useful \`input\` overrides: \`quality\` (\`low\` | \`medium\` | \`high\`; defaults to \`low\`), \`num_images\` (1–4), \`output_format\` (\`png\` | \`jpeg\` | \`webp\`).
 
 \`\`\`bash
 curl -X POST "$STELLA_API/api/media/v1/generate" \\
@@ -192,18 +189,11 @@ curl -X POST "$STELLA_API/api/media/v1/generate" \\
   }'
 \`\`\`
 
-### \`icon\` — icons, logos, thumbnails (square)
+### \`image_edit\` — edit an existing image with GPT Image 2 Edit
 
-- Single profile (\`default\`); square output is enforced by the backend.
-- Convenience field: \`prompt\`. Don't pass \`aspectRatio\`.
-- Useful \`input\` hints: transparent / background style, brand constraints described in the prompt.
-
-### \`image_edit\` — edit an existing image
-
-- Single profile (\`default\`); supports mask-aware natural-language edits.
 - Required: \`source\` (or \`sourceUrl\`) of the image to edit.
 - Convenience fields: \`prompt\`, \`aspectRatio\` (defaults to \`auto\`).
-- Useful \`input\` overrides: \`quality\`, \`num_images\`, \`mask_url\`.
+- Useful \`input\` overrides: \`quality\` (defaults to \`low\`), \`num_images\`, \`mask_url\`.
 
 \`\`\`bash
 curl -X POST "$STELLA_API/api/media/v1/generate" \\
@@ -232,12 +222,16 @@ curl -X POST "$STELLA_API/api/media/v1/generate" \\
 const SECTION_VIDEO = `
 ## Capabilities
 
+### \`text_to_video\` — generate a video from text with MiniMax H3 Max
+
+- Convenience fields: \`prompt\`, \`aspectRatio\`.
+- Useful \`input\` fields: \`duration\` (5–15 seconds; defaults to 5), \`resolution\` (\`480P\` | \`768P\`; defaults to \`768P\`), \`prompt_expansion_mode\` (\`balanced\` | \`quality\`).
+
 ### \`image_to_video\` — animate a still image
 
-- Single profile (\`motion\`); guided motion control from a still.
 - Required: \`source\` (or \`sourceUrl\`) of the still image.
 - Convenience fields: \`prompt\`, \`aspectRatio\`.
-- Useful \`input\` hints: \`duration\` (seconds), camera/motion controls.
+- Useful \`input\` fields: \`end_image_url\` (optional final frame), \`duration\`, \`resolution\`, \`prompt_expansion_mode\`.
 
 \`\`\`bash
 curl -X POST "$STELLA_API/api/media/v1/generate" \\
@@ -252,18 +246,12 @@ curl -X POST "$STELLA_API/api/media/v1/generate" \\
   }'
 \`\`\`
 
-### \`video_extend\` — continue an existing video
+### \`reference_to_video\` — generate from image, video, and audio references
 
-- Single profile (\`default\`).
-- Required: \`source\` (or \`sourceUrl\`) of the input video.
-- Useful \`input\` hints: \`prompt\`, \`aspectRatio\`, target duration.
-
-### \`video_to_video\` — transform a video
-
-- Profiles: \`reference\` (default; reference-guided transformation), \`edit\` (instruction-driven editing).
-- Required: \`source\` (or \`sourceUrl\`) of the input video.
+- Required: at least one reference image or video. \`source\` maps to \`reference_video_urls\` for the common video-reference case.
 - Convenience fields: \`prompt\`, \`aspectRatio\`.
-- Useful \`input\` hints: reference strength, style controls.
+- Useful \`input\` fields: \`reference_image_urls\`, \`reference_video_urls\`, \`reference_audio_urls\`, \`duration\`, \`resolution\`, \`prompt_expansion_mode\`.
+- Reference images, videos, and audio may total at most 12 files. Audio cannot be the only reference.
 
 ## Notes for agents
 
@@ -278,7 +266,7 @@ const SECTION_AUDIO = `
 
 ### \`audio_generation\` — speech, dialogue, sound effects, ambient
 
-- Single profile (\`default\`); ByteDance Seed Audio 1.0. One model for any non-music audio — spoken lines, multi-speaker dialogue, Foley/sound effects, and background ambience. For music, use \`text_to_music\`.
+- ByteDance Seed Audio 1.0 handles spoken lines, multi-speaker dialogue, Foley/sound effects, and background ambience. For music, use \`text_to_music\`.
 - Convenience field: \`prompt\` describes what to generate.
 - Useful \`input\` overrides: \`voice\` (preset voice id), \`audio_urls\` (up to 3 reference clips for voice cloning — reference them inline in the prompt as \`@Audio1\`/\`@Audio2\`/\`@Audio3\`), \`image_url\` (single reference image; can't be combined with audio refs), \`output_format\` (\`wav\` | \`mp3\` | \`pcm\` | \`ogg_opus\`), \`sample_rate\`, \`speed\`, \`volume\`, \`pitch\`.
 
@@ -307,13 +295,11 @@ curl -X POST "$STELLA_API/api/media/v1/generate" \\
 
 ### \`speech_to_text\` — transcribe audio
 
-- Single profile (\`default\`).
 - Required: \`source\` (or \`sourceUrl\`) of the audio file.
 - Output includes \`text\`, segments, and detected language.
 
 ### \`audio_visual_separate\` — isolate audio guided by video
 
-- Single profile (\`default\`).
 - Required inputs go in \`sources\`: \`{ "video": "data:...", "audio": "data:..." }\`.
 - Output: separated stems / tracks.
 
@@ -330,7 +316,7 @@ const SECTION_MUSIC = `
 
 ### \`text_to_music\` — generate a short music clip
 
-- Single profile (\`default\`); Google Lyria 3 Pro preview.
+- Google Lyria 3 Pro preview.
 - Convenience field: \`prompt\` becomes a single weighted prompt if \`weightedPrompts\` is not supplied.
 - Useful \`input\` fields: \`promptLabel\`, \`weightedPrompts\`, \`musicGenerationConfig\`.
 - \`musicGenerationConfig\` fields: \`bpm\` (55–145), \`density\` (0.05–0.9), \`brightness\` (0.1–0.8), \`guidance\` (2–5), \`temperature\` (0.6–1.4), optional \`musicGenerationMode: "VOCALIZATION"\`.
@@ -387,11 +373,10 @@ For more control, pass explicit weighted prompts:
 const SECTION_3D = `
 ## Capabilities
 
-### \`text_to_3d\` — generate a 3D asset
+### \`text_to_3d\` — generate a 3D asset with Hunyuan 3D v3.1 Pro
 
-- Single profile (\`default\`).
 - Convenience field: \`prompt\`.
-- Useful \`input\` hints: optional reference images via \`sources\` if you want shape guidance.
+- Useful \`input\` fields: \`generate_type\` (\`Normal\` | \`Geometry\`), \`face_count\` (40,000–1,500,000), \`enable_pbr\`.
 
 \`\`\`bash
 curl -X POST "$STELLA_API/api/media/v1/generate" \\

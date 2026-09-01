@@ -1,23 +1,22 @@
 import { describe, expect, it } from "bun:test";
 
 import { applyConvenienceInput } from "../../convex/http_routes/media";
-import { resolveMediaProfile } from "../../convex/media_catalog";
+import { getMediaCapability } from "../../convex/media_catalog";
 
-const resolve = (capabilityId: string, profileId?: string) => {
-  const resolved = resolveMediaProfile(capabilityId, profileId);
-  if (!resolved) {
-    throw new Error(`Failed to resolve ${capabilityId}/${profileId ?? "default"}`);
+const resolve = (capabilityId: string) => {
+  const capability = getMediaCapability(capabilityId);
+  if (!capability) {
+    throw new Error(`Failed to resolve ${capabilityId}`);
   }
-  return resolved;
+  return capability;
 };
 
 describe("media defaults", () => {
   it("defaults text-to-image requests to low quality", () => {
-    const resolved = resolve("text_to_image", "best");
+    const capability = resolve("text_to_image");
 
     const input = applyConvenienceInput({
-      capability: resolved.capability,
-      profile: resolved.profile,
+      capability,
       input: {},
       prompt: "a small cabin at sunrise",
     });
@@ -26,11 +25,10 @@ describe("media defaults", () => {
   });
 
   it("defaults GPT Image 2 text-to-image requests to automatic image size", () => {
-    const resolved = resolve("text_to_image", "best");
+    const capability = resolve("text_to_image");
 
     const input = applyConvenienceInput({
-      capability: resolved.capability,
-      profile: resolved.profile,
+      capability,
       input: {},
       prompt: "a small cabin at sunrise",
     });
@@ -39,11 +37,10 @@ describe("media defaults", () => {
   });
 
   it("preserves an explicit client image size override", () => {
-    const resolved = resolve("text_to_image", "best");
+    const capability = resolve("text_to_image");
 
     const input = applyConvenienceInput({
-      capability: resolved.capability,
-      profile: resolved.profile,
+      capability,
       input: { image_size: { width: 1280, height: 720 } },
       prompt: "a small cabin at sunrise",
     });
@@ -52,11 +49,10 @@ describe("media defaults", () => {
   });
 
   it("uses aspect ratio presets instead of the automatic image size default", () => {
-    const resolved = resolve("text_to_image", "best");
+    const capability = resolve("text_to_image");
 
     const input = applyConvenienceInput({
-      capability: resolved.capability,
-      profile: resolved.profile,
+      capability,
       input: {},
       prompt: "a small cabin at sunrise",
       aspectRatio: "16:9",
@@ -66,11 +62,10 @@ describe("media defaults", () => {
   });
 
   it("preserves an explicit client quality override", () => {
-    const resolved = resolve("text_to_image", "best");
+    const capability = resolve("text_to_image");
 
     const input = applyConvenienceInput({
-      capability: resolved.capability,
-      profile: resolved.profile,
+      capability,
       input: { quality: "medium" },
       prompt: "a small cabin at sunrise",
     });
@@ -79,11 +74,10 @@ describe("media defaults", () => {
   });
 
   it("defaults image edit requests to low quality", () => {
-    const resolved = resolve("image_edit");
+    const capability = resolve("image_edit");
 
     const input = applyConvenienceInput({
-      capability: resolved.capability,
-      profile: resolved.profile,
+      capability,
       input: { image_urls: ["https://example.com/input.png"] },
       prompt: "make the background blue",
     });

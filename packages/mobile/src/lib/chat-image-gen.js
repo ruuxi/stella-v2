@@ -21,18 +21,22 @@ const imageEntries = (output) => {
     return [];
   }
   return output.images.flatMap((entry) => {
-    if (typeof entry === "string" && entry.trim()) return [{ url: entry.trim() }];
+    if (typeof entry === "string" && entry.trim())
+      return [{ url: entry.trim() }];
     if (!entry || typeof entry !== "object" || typeof entry.url !== "string") {
       return [];
     }
-    return [{
-      url: entry.url,
-      mimeType: typeof entry.mimeType === "string"
-        ? entry.mimeType
-        : typeof entry.content_type === "string"
-          ? entry.content_type
-          : undefined,
-    }];
+    return [
+      {
+        url: entry.url,
+        mimeType:
+          typeof entry.mimeType === "string"
+            ? entry.mimeType
+            : typeof entry.content_type === "string"
+              ? entry.content_type
+              : undefined,
+      },
+    ];
   });
 };
 
@@ -51,7 +55,8 @@ const materialize = async (jobId, entries) => {
   const paths = [];
   for (const [index, entry] of entries.entries()) {
     const response = await fetch(entry.url);
-    if (!response.ok) throw new Error(`Generated image download failed (${response.status}).`);
+    if (!response.ok)
+      throw new Error(`Generated image download failed (${response.status}).`);
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (bytes.length === 0) throw new Error("Generated image was empty.");
     const mimeType = response.headers.get("content-type") ?? entry.mimeType;
@@ -79,7 +84,10 @@ const cancelJob = async (idempotencyKey) => {
 };
 
 export async function generateChatImage(input, options = {}) {
-  const idempotencyKey = `mobile-chat-image-${options.toolCallId}`.slice(0, 200);
+  const idempotencyKey = `mobile-chat-image-${options.toolCallId}`.slice(
+    0,
+    200,
+  );
   let accepted;
   try {
     accepted = await postJson(
@@ -87,9 +95,11 @@ export async function generateChatImage(input, options = {}) {
       {
         capability: "text_to_image",
         prompt: input.prompt,
-        profile: "best",
         ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),
-        ...(input.numImages > 1 ? { input: { num_images: input.numImages } } : {}),
+        input: {
+          quality: "low",
+          ...(input.numImages > 1 ? { num_images: input.numImages } : {}),
+        },
       },
       { headers: { "Idempotency-Key": idempotencyKey }, timeoutMs: 30_000 },
     );
@@ -110,13 +120,19 @@ export async function generateChatImage(input, options = {}) {
       options.onUpdate?.({ jobId, status: job.status });
       if (job.status === "succeeded") {
         const entries = imageEntries(job.output);
-        if (entries.length === 0) throw new Error("Image generation returned no image.");
+        if (entries.length === 0)
+          throw new Error("Image generation returned no image.");
         return { jobId, filePaths: await materialize(jobId, entries) };
       }
-      if (job.status === "failed" || job.status === "canceled" || job.status === "unknown") {
-        const message = typeof job.error?.message === "string"
-          ? job.error.message
-          : `Image generation ${job.status}.`;
+      if (
+        job.status === "failed" ||
+        job.status === "canceled" ||
+        job.status === "unknown"
+      ) {
+        const message =
+          typeof job.error?.message === "string"
+            ? job.error.message
+            : `Image generation ${job.status}.`;
         const error = new Error(message);
         error.status = job.status;
         throw error;
@@ -124,7 +140,8 @@ export async function generateChatImage(input, options = {}) {
       await sleep(1_500, options.signal);
     }
   } catch (error) {
-    if (options.signal?.aborted && accepted?.jobId) await cancelJob(idempotencyKey);
+    if (options.signal?.aborted && accepted?.jobId)
+      await cancelJob(idempotencyKey);
     throw error;
   }
 }

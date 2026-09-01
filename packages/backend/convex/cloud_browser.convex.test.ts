@@ -536,6 +536,18 @@ describe("cloud browser control projection", () => {
       tokenIdentifier: OWNER_ID,
       sessionId: "session-browser-live",
     });
+    await t.run(async (ctx) => {
+      const interaction = await ctx.db
+        .query("cloud_browser_interactions")
+        .withIndex("by_interactionId", (q) =>
+          q.eq("interactionId", "interaction:browser"),
+        )
+        .unique();
+      expect(interaction).not.toBeNull();
+      await ctx.db.patch(interaction!._id, {
+        expiresAt: Date.now() + 60_000,
+      });
+    });
     expect(
       await connected.query(api.cloud_browser.listMyPendingBrowserInteractions),
     ).toHaveLength(1);

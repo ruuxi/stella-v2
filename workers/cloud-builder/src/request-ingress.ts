@@ -84,6 +84,8 @@ export const serviceJsonBodyLimit = (
   if (
     pathname === "/internal/interactions/status" ||
     pathname === "/internal/interactions/live-view" ||
+    pathname === "/internal/interactions/session-transfer-capability" ||
+    pathname === "/internal/interactions/session-transfer" ||
     pathname === "/internal/interactions/decision" ||
     pathname === "/internal/owners/profile/reset"
   ) {

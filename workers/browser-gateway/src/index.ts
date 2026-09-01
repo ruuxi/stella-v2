@@ -17,6 +17,8 @@ const ROUTES = new Set([
   "/internal/turn/command",
   "/internal/interactions/status",
   "/internal/interactions/live-view",
+  "/internal/interactions/session-transfer-capability",
+  "/internal/interactions/session-transfer",
   "/internal/interactions/decision",
   "/internal/owners/profile/reset",
   "/internal/owners/purge",
@@ -33,6 +35,8 @@ const profileOwnerFromBody = (
   if (path.startsWith("/internal/interactions/")) {
     const parsed = parseInteraction(body, {
       requireDecision: path === "/internal/interactions/decision",
+      requireSessionTransfer:
+        path === "/internal/interactions/session-transfer",
     });
     return { ownerId: parsed.authority.ownerId, parsed };
   }

@@ -7,7 +7,7 @@
     "types:generate": "wrangler types worker-configuration.d.ts --include-runtime false --env=",
     "types:check": "wrangler types worker-configuration.d.ts --include-runtime false --env= --check",
     "typecheck": "bun run types:check && tsc --noEmit",
-    "test:unit": "bun test ./tests/config.test.ts ./tests/protocol-boundary.test.ts ./tests/profile-crypto.test.ts ./tests/profile-session-core.test.ts ./tests/safe-observation.test.ts ./tests/network-policy.test.ts ./tests/handoff-navigation-policy.test.ts ./tests/device-code-fixture-client.test.ts",
+    "test:unit": "bun test ./tests/config.test.ts ./tests/protocol-boundary.test.ts ./tests/profile-crypto.test.ts ./tests/session-transfer-crypto.test.ts ./tests/profile-session-core.test.ts ./tests/safe-observation.test.ts ./tests/network-policy.test.ts ./tests/handoff-navigation-policy.test.ts ./tests/device-code-fixture-client.test.ts ./tests/trusted-verification.test.ts",
     "test:workerd": "bun test ./tests/browser-profile-session-workerd.test.ts",
     "test": "bun run test:unit && bun run test:workerd",
     "build:dry-run": "wrangler deploy --dry-run --env= --outdir .wrangler/dry-run-dev",

@@ -3761,6 +3761,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     });
     expect(controlBodies[0]).toMatchObject({
       action: "cancel",
+      parentTurnId: "turn-pause-control",
       threadId: "thread-pause-1",
       expectedAttemptGeneration: 7,
       expectedThreadUpdatedAt: 700,
@@ -3845,6 +3846,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     expect(staleBodies).toHaveLength(1);
     expect(staleBodies[0]).toMatchObject({
       action: "cancel",
+      parentTurnId: "turn-pause-control",
       expectedAttemptGeneration: 8,
       expectedThreadUpdatedAt: 900,
     });

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   MAX_REQUEST_BYTES,
   PROFILE_ID,
+  parseInteraction,
   parseOwnerPurge,
   parseTurnCommand,
   profileObjectName,
@@ -140,6 +141,30 @@ describe("private protocol boundary", () => {
       duplex: "half",
     } as RequestInit & { duplex: "half" });
     expect(await readJsonBody(request)).toEqual({ ok: true });
+  });
+
+  test("accepts a transfer on the endpoint that requires one", () => {
+    const parsed = parseInteraction(
+      {
+        schemaVersion: 1,
+        authority: AUTHORITY,
+        profileId: "default",
+        profileEpoch: 1,
+        interactionId: uuid(70),
+        interactionRevision: 1,
+        sessionTransfer: {
+          schemaVersion: 1,
+          algorithm: "x25519-hkdf-sha256-aes-256-gcm-v1",
+          capabilityId: uuid(71),
+          clientPublicKey: "A".repeat(43),
+          iv: "B".repeat(16),
+          ciphertext: "C".repeat(64),
+        },
+      },
+      { requireSessionTransfer: true },
+    );
+
+    expect(parsed.sessionTransfer?.capabilityId).toBe(uuid(71));
   });
 
   test("rejects an oversized declared body before consuming its stream", async () => {

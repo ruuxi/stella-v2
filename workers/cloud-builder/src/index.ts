@@ -26,6 +26,7 @@ import {
 import { sha256BytesHex, sha256Hex } from "./hash.js";
 import {
   APP_BUILD_ROOT,
+  WORLD_DRIVE_ROOT,
   WORLD_ROOT,
   WORLD_STELLA_ROOT,
   checkpointBackupName,
@@ -1154,6 +1155,13 @@ export const normalizeToolWorkspaceRoot = async (
     `chmod 0750 '${workspaceRoot}'`,
     `test "$(readlink -f '${workspaceRoot}')" = '${workspaceRoot}'`,
     `test "$(stat -c '%u:%g:%a' '${workspaceRoot}')" = 42424:42424:750`,
+    ...(workspaceRoot === WORLD_ROOT
+      ? [
+          `if [ -e '${WORLD_DRIVE_ROOT}' ] || [ -L '${WORLD_DRIVE_ROOT}' ]; then test -d '${WORLD_DRIVE_ROOT}' && test ! -L '${WORLD_DRIVE_ROOT}'; else mkdir -m 0750 '${WORLD_DRIVE_ROOT}' && chown 42424:42424 '${WORLD_DRIVE_ROOT}'; fi`,
+          `test "$(readlink -f '${WORLD_DRIVE_ROOT}')" = '${WORLD_DRIVE_ROOT}'`,
+          `test "$(stat -c '%u:%g:%a' '${WORLD_DRIVE_ROOT}')" = 42424:42424:750`,
+        ]
+      : []),
     "if [ -e /workspace/.stella-tool-home ] || [ -L /workspace/.stella-tool-home ]; then test -d /workspace/.stella-tool-home && test ! -L /workspace/.stella-tool-home && test \"$(stat -c '%u:%g:%a' /workspace/.stella-tool-home)\" = 42424:42424:700; else mkdir /workspace/.stella-tool-home && chown 42424:42424 /workspace/.stella-tool-home && chmod 0700 /workspace/.stella-tool-home; fi",
     "test ! -L /home/stella-native-state",
     'test "$(readlink -f /home/stella-native-state)" = /home/stella-native-state',
@@ -1188,6 +1196,33 @@ export const seedFirstStellaToolWorkspace = async (
     throw new Error("The Stella interior source seed could not be created.");
   }
   await normalizeToolWorkspaceRoot(session, WORLD_ROOT);
+};
+
+/**
+ * Probe the optional Stella checkout without letting an expected absence
+ * surface as a non-zero command result. Sandbox RPC treats any such result as
+ * a terminated session, so every filesystem state is reported on stdout and
+ * invalid existing entries are rejected here.
+ */
+export const stellaToolWorkspaceExists = async (
+  session: Pick<ExecutionSession, "exec">,
+): Promise<boolean> => {
+  const result = await session.exec(
+    `if [ -e '${WORLD_STELLA_ROOT}' ] || [ -L '${WORLD_STELLA_ROOT}' ]; then if [ -d '${WORLD_STELLA_ROOT}' ] && [ ! -L '${WORLD_STELLA_ROOT}' ]; then printf '%s\\n' present; else printf '%s\\n' invalid; fi; else printf '%s\\n' absent; fi`,
+  );
+  if (!result.success) {
+    throw new Error("The Stella interior source could not be inspected.");
+  }
+  switch (result.stdout.trim()) {
+    case "present":
+      return true;
+    case "absent":
+      return false;
+    case "invalid":
+      throw new Error("The Stella interior source path is not a safe directory.");
+    default:
+      throw new Error("The Stella interior source returned an invalid state.");
+  }
 };
 
 const contentType = (path: string): string => {
@@ -7434,8 +7469,7 @@ export class BuildSession extends DurableObject<Env> {
       });
 
       let nativeUpload:
-        | Awaited<ReturnType<typeof uploadTurnStateArchive>>
-        | undefined;
+        Awaited<ReturnType<typeof uploadTurnStateArchive>> | undefined;
       if (prepared.objectKeys.native) {
         nativeUpload = await uploadTurnStateArchive({
           session,
@@ -10388,9 +10422,9 @@ export class BuildSession extends DurableObject<Env> {
     // image, never an empty directory the model has to invent. Once it exists
     // its recorded seed has to still match the image, or a self-update would
     // be built on top of a renderer Stella no longer ships.
-    const stellaPresent = await session.exec(`test -d '${WORLD_STELLA_ROOT}'`);
+    const stellaPresent = await stellaToolWorkspaceExists(session);
     turnExecution.assertActive();
-    if (!stellaPresent.success) {
+    if (!stellaPresent) {
       await seedFirstStellaToolWorkspace(session);
       turnExecution.assertActive();
     } else {
@@ -10501,8 +10535,8 @@ export class BuildSession extends DurableObject<Env> {
       turnExecution.signal,
     );
     let cloudSkills:
-      | Awaited<ReturnType<typeof materializeCloudSkillSnapshot>>
-      | undefined = undefined;
+      Awaited<ReturnType<typeof materializeCloudSkillSnapshot>> | undefined =
+      undefined;
     if (args.cloudSkillHome && args.cloudSkillCatalog) {
       turnExecution.assertActive();
       cloudSkills = await materializeCloudSkillSnapshot({
@@ -12508,9 +12542,9 @@ const moveWorldCheckpoint = async (
     throw new OwnerProductTransferConflictError(
       planBody?.message ?? "The durable workspace transfer plan was rejected.",
       planBody?.code === "destination_checkpoint_changed" ||
-      planBody?.code === "owner_purge_permanent" ||
-      planBody?.code === "owner_purge_temporary" ||
-      planBody?.code === "transfer_busy"
+        planBody?.code === "owner_purge_permanent" ||
+        planBody?.code === "owner_purge_temporary" ||
+        planBody?.code === "transfer_busy"
         ? planBody.code
         : "owner_transfer_conflict",
     );
@@ -13263,6 +13297,8 @@ export default {
       [
         "/internal/interactions/status",
         "/internal/interactions/live-view",
+        "/internal/interactions/session-transfer-capability",
+        "/internal/interactions/session-transfer",
         "/internal/interactions/decision",
         "/internal/owners/profile/reset",
       ].includes(url.pathname)

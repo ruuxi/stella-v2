@@ -45,11 +45,11 @@ export type CloudBrowserInteractionSummary = Readonly<{
   updatedAt: number;
 }>;
 
-export type CloudBrowserLoginTakeoverDetail =
-  CloudBrowserInteractionSummary &
-    Readonly<{
-      kind: "login_takeover";
-    }>;
+export type CloudBrowserLoginTakeoverDetail = CloudBrowserInteractionSummary &
+  Readonly<{
+    kind: "login_takeover";
+    loginUrl: string;
+  }>;
 
 /** Only the public RFC 8628 values intended to be shown to the user. */
 export type CloudBrowserDeviceCodeDetail = CloudBrowserInteractionSummary &
@@ -61,8 +61,7 @@ export type CloudBrowserDeviceCodeDetail = CloudBrowserInteractionSummary &
   }>;
 
 export type CloudBrowserInteractionDetail =
-  | CloudBrowserLoginTakeoverDetail
-  | CloudBrowserDeviceCodeDetail;
+  CloudBrowserLoginTakeoverDetail | CloudBrowserDeviceCodeDetail;
 
 /**
  * A JIT bearer capability. It must be returned only to the authenticated
@@ -75,6 +74,28 @@ export type CloudBrowserLiveViewCapability = Readonly<{
   revision: number;
   url: string;
   expiresAt: number;
+}>;
+
+export const CLOUD_BROWSER_SESSION_TRANSFER_ALGORITHM =
+  "x25519-hkdf-sha256-aes-256-gcm-v1" as const;
+
+export type CloudBrowserSessionTransferCapability = Readonly<{
+  schemaVersion: 1;
+  algorithm: typeof CLOUD_BROWSER_SESSION_TRANSFER_ALGORITHM;
+  capabilityId: string;
+  interactionId: string;
+  revision: number;
+  publicKey: string;
+  expiresAt: number;
+}>;
+
+export type CloudBrowserEncryptedSessionTransfer = Readonly<{
+  schemaVersion: 1;
+  algorithm: typeof CLOUD_BROWSER_SESSION_TRANSFER_ALGORITHM;
+  capabilityId: string;
+  clientPublicKey: string;
+  iv: string;
+  ciphertext: string;
 }>;
 
 /**
@@ -243,9 +264,7 @@ export const isCloudBrowserResumeReceipt = (
     typeof candidate.requestDigest === "string" &&
     /^[a-f0-9]{64}$/.test(candidate.requestDigest) &&
     typeof candidate.result === "string" &&
-    ["approved", "canceled", "expired", "failed"].includes(
-      candidate.result,
-    ) &&
+    ["approved", "canceled", "expired", "failed"].includes(candidate.result) &&
     isBoundedString(candidate.safeMessage, 2_048)
   );
 };

@@ -42,6 +42,32 @@ afterEach(async () => {
 });
 
 describe("authoritative cloud drive hydration", () => {
+  test("refuses a hydration ledger outside the exact drive workspace before contacting the backend", async () => {
+    const { root, workspaceRoot } = await makeRoots();
+    const siblingStateDir = path.join(root, ".stella");
+    let postCalls = 0;
+
+    await expect(
+      materializeDriveFiles({
+        turnId: "turn-outside-ledger",
+        prompt: "Inspect the drive",
+        workspaceRoot,
+        owner,
+        workspaceRestored: false,
+        stateDir: siblingStateDir,
+        post: async () => {
+          postCalls += 1;
+          return Response.json({});
+        },
+      }),
+    ).rejects.toThrow(
+      "Drive hydration state must live below the workspace root",
+    );
+
+    expect(postCalls).toBe(0);
+    await expect(stat(siblingStateDir)).rejects.toThrow();
+  });
+
   test("fails before touching a restored checkpoint when deletion history is incomplete", async () => {
     const { workspaceRoot, stateDir } = await makeRoots();
     await mkdir(workspaceRoot, { recursive: true });

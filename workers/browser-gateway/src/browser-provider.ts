@@ -49,6 +49,11 @@ export interface BrowserBackend {
   tabs(): Promise<readonly SafeTab[]>;
   focusTab(tabId: string): Promise<void>;
   storageState(): Promise<unknown>;
+  verifyImportedStorageState(args: {
+    storageState: unknown;
+    allowedOrigins: readonly string[];
+    verification: TrustedVerification;
+  }): Promise<void>;
   startHandoff(args: {
     handoffTimeoutMs: number;
     expectedOrigin: string;

@@ -68,6 +68,7 @@ import {
 } from "./cloud-process-isolation.js";
 import {
   WORLD_DRIVE_ROOT,
+  WORLD_DRIVE_WORKSPACE,
   WORLD_ROOT,
   toolStateDir,
 } from "./workspace-paths.js";
@@ -345,12 +346,14 @@ export const runAttachedToolHost = (
       ): Promise<Response> => await broker.postJson(route, body);
 
       const workspaceRoot = WORLD_ROOT;
-      const stateDir = toolStateDir(workspaceRoot);
+      const workspaceStateDir = toolStateDir(workspaceRoot);
+      const driveWorkspace = WORLD_DRIVE_WORKSPACE;
       yield* Effect.tryPromise({
         try: () =>
           prepareCloudToolFilesystem({
             workspaceRoot,
-            workspaceStateDir: stateDir,
+            workspaceStateDir,
+            driveStateDir: driveWorkspace.stateDir,
             toolHome: CLOUD_TOOL_HOME,
           }),
         catch: asError,
@@ -361,9 +364,9 @@ export const runAttachedToolHost = (
           hydrateDriveForAgentTurn({
             turnId: input.turnId,
             prompt: input.prompt,
-            workspaceRoot: WORLD_DRIVE_ROOT,
+            workspaceRoot: driveWorkspace.root,
             workspaceRestored: input.workspaceRestored,
-            stateDir,
+            stateDir: driveWorkspace.stateDir,
             owner: CLOUD_TOOL_PROCESS_IDENTITY,
             post: postJson,
           }),
@@ -393,7 +396,7 @@ export const runAttachedToolHost = (
         agentType: "general",
         workingDirectory: workspaceRoot,
         stellaAppDir: workspaceRoot,
-        stellaDataDir: stateDir,
+        stellaDataDir: workspaceStateDir,
         toolWorkspaceRoot: workspaceRoot,
         storageMode: "cloud",
         toolProcessIdentity: {

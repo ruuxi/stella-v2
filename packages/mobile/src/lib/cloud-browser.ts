@@ -2,6 +2,7 @@ import { makeFunctionReference } from "convex/server";
 import { useAction, useConvexAuth, useQuery } from "convex/react";
 import * as Crypto from "expo-crypto";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { selectCurrentConversationBrowserInteraction } from "./cloud-browser-interaction-selection";
 
 export type CloudBrowserInteractionKind = "login_takeover" | "device_code";
 export type CloudBrowserInteractionState =
@@ -30,7 +31,10 @@ export type CloudBrowserInteractionSummary = Readonly<{
 }>;
 
 export type CloudBrowserInteractionDetail =
-  | (CloudBrowserInteractionSummary & { kind: "login_takeover" })
+  | (CloudBrowserInteractionSummary & {
+      kind: "login_takeover";
+      loginUrl: string;
+    })
   | (CloudBrowserInteractionSummary & {
       kind: "device_code";
       verificationUri: string;
@@ -44,6 +48,25 @@ export type CloudBrowserLiveViewCapability = Readonly<{
   revision: number;
   url: string;
   expiresAt: number;
+}>;
+
+export type CloudBrowserSessionTransferCapability = Readonly<{
+  schemaVersion: 1;
+  algorithm: "x25519-hkdf-sha256-aes-256-gcm-v1";
+  capabilityId: string;
+  interactionId: string;
+  revision: number;
+  publicKey: string;
+  expiresAt: number;
+}>;
+
+export type CloudBrowserEncryptedSessionTransfer = Readonly<{
+  schemaVersion: 1;
+  algorithm: "x25519-hkdf-sha256-aes-256-gcm-v1";
+  capabilityId: string;
+  clientPublicKey: string;
+  iv: string;
+  ciphertext: string;
 }>;
 
 const listRef = makeFunctionReference<
@@ -61,6 +84,25 @@ const mintRef = makeFunctionReference<
   { interactionId: string; expectedRevision: number },
   CloudBrowserLiveViewCapability
 >("cloud_browser:mintMyBrowserLiveViewCapability");
+const mintSessionTransferRef = makeFunctionReference<
+  "action",
+  { interactionId: string; expectedRevision: number },
+  CloudBrowserSessionTransferCapability
+>("cloud_browser:mintMyBrowserSessionTransferCapability");
+const importSessionTransferRef = makeFunctionReference<
+  "action",
+  {
+    interactionId: string;
+    expectedRevision: number;
+    transfer: CloudBrowserEncryptedSessionTransfer;
+  },
+  {
+    schemaVersion: 1;
+    interactionId: string;
+    revision: number;
+    verified: true;
+  }
+>("cloud_browser:importMyBrowserSessionTransfer");
 const decideRef = makeFunctionReference<
   "action",
   {
@@ -135,18 +177,26 @@ export function useCurrentConversationBrowserInteraction(
   const interactions = usePendingCloudBrowserInteractions();
   const summary = useMemo(
     () =>
-      interactions
-        .filter((entry) => entry.conversationId === conversationId)
-        .sort((a, b) => a.createdAt - b.createdAt)[0] ?? null,
+      selectCurrentConversationBrowserInteraction(
+        interactions,
+        conversationId,
+      ),
     [conversationId, interactions],
   );
-  const detail = useCloudBrowserInteraction(summary?.interactionId);
+  // Once the interaction is resuming, the card no longer renders any controls
+  // that need private detail. Avoid racing a final status fetch against the
+  // gateway's revision change after the user's decision.
+  const detail = useCloudBrowserInteraction(
+    summary?.state === "resuming" ? null : summary?.interactionId,
+  );
   return { summary, detail };
 }
 
 export function useCloudBrowserActions() {
   const mintLiveView = useAction(mintRef);
   const decideAction = useAction(decideRef);
+  const mintSessionTransfer = useAction(mintSessionTransferRef);
+  const importSessionTransfer = useAction(importSessionTransferRef);
   const resetAction = useAction(resetRef);
   const decide = useCallback(
     async (args: {
@@ -170,5 +220,11 @@ export function useCloudBrowserActions() {
     resetRequestId = null;
     return result;
   }, [resetAction]);
-  return { mintLiveView, decide, resetProfile };
+  return {
+    mintLiveView,
+    mintSessionTransfer,
+    importSessionTransfer,
+    decide,
+    resetProfile,
+  };
 }

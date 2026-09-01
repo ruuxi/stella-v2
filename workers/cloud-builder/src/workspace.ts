@@ -16,6 +16,9 @@ export const WORLD_ROOT = "/workspace/world";
 /** Stella's own editable renderer source, a plain directory inside the world. */
 export const WORLD_STELLA_ROOT = `${WORLD_ROOT}/stella`;
 
+/** The optional user Drive materialized for a cloud turn. */
+export const WORLD_DRIVE_ROOT = `${WORLD_ROOT}/drive`;
+
 /**
  * Scratch root for the legacy app-build turn. Outside the world on purpose:
  * an app build is rebuilt from its sources every time and is never restored.

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -15,6 +15,10 @@ import type {
   CloudBrowserLiveViewCapability,
 } from "../lib/cloud-browser";
 import { useCloudBrowserActions } from "../lib/cloud-browser";
+import {
+  canCaptureCloudBrowserSession,
+  captureAndEncryptCloudBrowserSession,
+} from "../lib/cloud-browser-session-transfer";
 import {
   isCloudBrowserLiveViewNavigationAllowed,
   parseCloudBrowserLiveViewUrl,
@@ -41,23 +45,33 @@ export function CloudBrowserTakeoverModal({
   detail: LoginDetail;
   busyDecision: "done" | "cancel" | null;
   onDismiss: () => void;
-  onDecision: (decision: "done" | "cancel") => void;
+  onDecision: (decision: "done" | "cancel") => Promise<void>;
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { mintLiveView } = useCloudBrowserActions();
+  const { mintLiveView, mintSessionTransfer, importSessionTransfer } =
+    useCloudBrowserActions();
   const [capability, setCapability] =
     useState<CloudBrowserLiveViewCapability | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [mode, setMode] = useState<"local" | "remote">(
+    canCaptureCloudBrowserSession() ? "local" : "remote",
+  );
+  const [localBusy, setLocalBusy] = useState(false);
 
   useEffect(() => {
     if (!visible) {
       setCapability(null);
       setIssue(null);
+      setNotice(null);
+      setLocalBusy(false);
+      setMode(canCaptureCloudBrowserSession() ? "local" : "remote");
       return;
     }
+    if (mode !== "remote") return;
     let disposed = false;
     setCapability(null);
     setIssue(null);
@@ -86,7 +100,7 @@ export function CloudBrowserTakeoverModal({
       disposed = true;
       setCapability(null);
     };
-  }, [detail.interactionId, detail.revision, mintLiveView, t, visible]);
+  }, [detail.interactionId, detail.revision, mintLiveView, mode, t, visible]);
 
   useEffect(() => {
     if (!visible) return;
@@ -99,6 +113,69 @@ export function CloudBrowserTakeoverModal({
   }, [onDismiss, visible]);
 
   const title = detail.displayOrigin;
+  const localNavigationAllowed = useCallback(
+    (value: string): boolean => {
+      if (value === "about:blank") return true;
+      try {
+        const url = new URL(value);
+        if (
+          url.protocol === "https:" &&
+          !url.username &&
+          !url.password &&
+          url.origin === detail.displayOrigin
+        ) {
+          return true;
+        }
+      } catch {
+        // Fall through to the remote browser fallback.
+      }
+      setNotice(t("cloudBrowser.takeover.localOriginFallback"));
+      setMode("remote");
+      return false;
+    },
+    [detail.displayOrigin, t],
+  );
+
+  const finishLocalSignIn = useCallback(async () => {
+    if (localBusy || busyDecision) return;
+    setLocalBusy(true);
+    setNotice(null);
+    try {
+      const transferCapability = await mintSessionTransfer({
+        interactionId: detail.interactionId,
+        expectedRevision: detail.revision,
+      });
+      const transfer = await captureAndEncryptCloudBrowserSession({
+        interactionId: detail.interactionId,
+        interactionRevision: detail.revision,
+        displayOrigin: detail.displayOrigin,
+        loginUrl: detail.loginUrl,
+        capability: transferCapability,
+      });
+      await importSessionTransfer({
+        interactionId: detail.interactionId,
+        expectedRevision: detail.revision,
+        transfer,
+      });
+      await onDecision("done");
+    } catch {
+      setNotice(t("cloudBrowser.takeover.localTransferFallback"));
+      setMode("remote");
+    } finally {
+      setLocalBusy(false);
+    }
+  }, [
+    busyDecision,
+    detail.displayOrigin,
+    detail.interactionId,
+    detail.loginUrl,
+    detail.revision,
+    importSessionTransfer,
+    localBusy,
+    mintSessionTransfer,
+    onDecision,
+    t,
+  ]);
 
   return (
     <Modal
@@ -116,7 +193,9 @@ export function CloudBrowserTakeoverModal({
             </Text>
           </View>
           <Text style={styles.privateLabel} numberOfLines={1}>
-            {t("cloudBrowser.takeover.privateNotice")}
+            {mode === "local"
+              ? t("cloudBrowser.takeover.localNotice")
+              : t("cloudBrowser.takeover.privateNotice")}
           </Text>
         </View>
 
@@ -126,6 +205,23 @@ export function CloudBrowserTakeoverModal({
               <Icon name="alert-circle" size={26} color={colors.danger} />
               <Text style={styles.statusText}>{issue}</Text>
             </View>
+          ) : mode === "local" ? (
+            <WebView
+              source={{ uri: detail.loginUrl }}
+              style={styles.webView}
+              cacheEnabled={false}
+              sharedCookiesEnabled={false}
+              thirdPartyCookiesEnabled={false}
+              originWhitelist={[detail.displayOrigin]}
+              onShouldStartLoadWithRequest={(request) =>
+                localNavigationAllowed(request.url)
+              }
+              bounces={false}
+              overScrollMode="never"
+              automaticallyAdjustContentInsets={false}
+              contentInsetAdjustmentBehavior="never"
+              keyboardDisplayRequiresUserAction={false}
+            />
           ) : capability ? (
             <WebView
               source={{ uri: capability.url }}
@@ -154,6 +250,8 @@ export function CloudBrowserTakeoverModal({
           )}
         </View>
 
+        {notice ? <Text style={styles.notice}>{notice}</Text> : null}
+
         <View
           style={[
             styles.controls,
@@ -165,7 +263,7 @@ export function CloudBrowserTakeoverModal({
             disabled={Boolean(busyDecision)}
             onPress={() => {
               onDismiss();
-              onDecision("cancel");
+              void onDecision("cancel");
             }}
             style={({ pressed }) => [
               styles.button,
@@ -178,22 +276,50 @@ export function CloudBrowserTakeoverModal({
                 : t("common.cancel")}
             </Text>
           </Pressable>
+          {mode === "local" ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={Boolean(busyDecision) || localBusy}
+              onPress={() => {
+                setNotice(null);
+                setMode("remote");
+              }}
+              style={({ pressed }) => [
+                styles.button,
+                pressed && styles.buttonPressed,
+              ]}
+            >
+              <Text style={styles.buttonText}>
+                {t("cloudBrowser.actions.useCloudBrowser")}
+              </Text>
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityRole="button"
-            disabled={Boolean(busyDecision) || !capability}
+            disabled={
+              Boolean(busyDecision) ||
+              localBusy ||
+              (mode === "remote" && !capability)
+            }
             onPress={() => {
-              onDismiss();
-              onDecision("done");
+              if (mode === "local") {
+                void finishLocalSignIn();
+                return;
+              }
+              void onDecision("done");
             }}
             style={({ pressed }) => [
               styles.button,
               styles.buttonPrimary,
               pressed && styles.buttonPrimaryPressed,
-              (!capability || busyDecision) && styles.buttonDisabled,
+              ((mode === "remote" && !capability) ||
+                busyDecision ||
+                localBusy) &&
+                styles.buttonDisabled,
             ]}
           >
             <Text style={styles.buttonPrimaryText}>
-              {busyDecision === "done"
+              {busyDecision === "done" || localBusy
                 ? t("cloudBrowser.actions.finishing")
                 : t("cloudBrowser.actions.done")}
             </Text>
@@ -252,6 +378,16 @@ const makeStyles = (colors: Colors) =>
       fontFamily: fonts.sans.regular,
       fontSize: 14,
       lineHeight: 20,
+      textAlign: "center",
+    },
+    notice: {
+      backgroundColor: colors.muted,
+      color: colors.textMuted,
+      fontFamily: fonts.sans.regular,
+      fontSize: 12,
+      lineHeight: 17,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
       textAlign: "center",
     },
     controls: {

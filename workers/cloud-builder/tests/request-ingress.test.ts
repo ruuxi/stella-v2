@@ -39,6 +39,15 @@ describe("Cloud Builder request ingress", () => {
     expect(serviceJsonBodyLimit("POST", "/owners/purge")).toBe(
       CLOUD_BUILDER_BODY_LIMITS.conversationAppend,
     );
+    expect(
+      serviceJsonBodyLimit(
+        "POST",
+        "/internal/interactions/session-transfer-capability",
+      ),
+    ).toBe(CLOUD_BUILDER_BODY_LIMITS.tinyControl);
+    expect(
+      serviceJsonBodyLimit("POST", "/internal/interactions/session-transfer"),
+    ).toBe(CLOUD_BUILDER_BODY_LIMITS.tinyControl);
     expect(serviceJsonBodyLimit("POST", "/not-a-route")).toBeNull();
     expect(serviceJsonBodyLimit("POST", "/m0/echo")).toBeNull();
     expect(CLOUD_BUILDER_BODY_LIMITS.localTurnBegin).toBe(8 * 1024 * 1024);

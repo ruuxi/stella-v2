@@ -85,6 +85,12 @@ class DurableFaultBrowser implements BrowserBackend {
     return {};
   }
 
+  async verifyImportedStorageState(_args: {
+    storageState: unknown;
+    allowedOrigins: readonly string[];
+    verification: TrustedVerification;
+  }): Promise<void> {}
+
   async startHandoff(_args: {
     handoffTimeoutMs: number;
     expectedOrigin: string;

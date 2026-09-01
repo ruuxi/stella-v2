@@ -31,6 +31,12 @@ import {
   type TurnAuthority,
   type TurnCommandEnvelope,
 } from "./protocol.js";
+import {
+  SESSION_TRANSFER_ALGORITHM,
+  createSessionTransferKeyPair,
+  decryptSessionTransfer,
+  type EncryptedSessionTransfer,
+} from "./session-transfer-crypto.js";
 import type {
   InteractionRecord,
   ProfileState,
@@ -88,6 +94,23 @@ type InteractionDetail = Readonly<{
   verificationUri?: string;
   verificationUriComplete?: string;
   userCode?: string;
+  loginUrl?: string;
+}>;
+
+type PlaywrightCookie = Readonly<{
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires: number;
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: "Strict" | "Lax" | "None";
+}>;
+
+type ImportedStorageState = Readonly<{
+  cookies: readonly PlaywrightCookie[];
+  origins: readonly [];
 }>;
 
 const boundedString = (
@@ -279,6 +302,69 @@ const parseVerification = (
 
 const interactionTerminal = (state: InteractionRecord["state"]): boolean =>
   ["completed", "canceled", "expired", "failed"].includes(state);
+
+const cookieDomainMatches = (hostname: string, domain: string): boolean => {
+  const normalized = domain.startsWith(".") ? domain.slice(1) : domain;
+  return hostname === normalized || hostname.endsWith(`.${normalized}`);
+};
+
+const parseImportedStorageState = (
+  value: unknown,
+  displayOrigin: string,
+): ImportedStorageState => {
+  const state = exactObject(value, ["cookies", "origins"]);
+  if (
+    !Array.isArray(state.cookies) ||
+    state.cookies.length > 128 ||
+    !Array.isArray(state.origins) ||
+    state.origins.length !== 0
+  ) {
+    throw new GatewayError("verification_failed", 409);
+  }
+  const hostname = new URL(displayOrigin).hostname;
+  const cookies = state.cookies.map((entry) => {
+    const cookie = exactObject(entry, [
+      "name",
+      "value",
+      "domain",
+      "path",
+      "expires",
+      "httpOnly",
+      "secure",
+      "sameSite",
+    ]);
+    const name = boundedString(cookie.name, 256);
+    const cookieValue = boundedString(cookie.value, 8_192, 0);
+    const domain = boundedString(cookie.domain, 512);
+    const path = boundedString(cookie.path, 2_048);
+    const expires = Number(cookie.expires);
+    if (
+      !cookieDomainMatches(hostname, domain.toLowerCase()) ||
+      !path.startsWith("/") ||
+      !Number.isFinite(expires) ||
+      expires < -1 ||
+      typeof cookie.httpOnly !== "boolean" ||
+      typeof cookie.secure !== "boolean" ||
+      !["Strict", "Lax", "None"].includes(String(cookie.sameSite))
+    ) {
+      throw new GatewayError("verification_failed", 409);
+    }
+    return {
+      name,
+      value: cookieValue,
+      domain,
+      path,
+      expires,
+      httpOnly: cookie.httpOnly,
+      secure: cookie.secure,
+      sameSite: cookie.sameSite as PlaywrightCookie["sameSite"],
+    };
+  });
+  if (cookies.length === 0) {
+    throw new GatewayError("verification_failed", 409);
+  }
+  return { cookies, origins: [] };
+};
 
 export class BrowserProfileSessionCore {
   private readonly store: ProfileStore;
@@ -485,11 +571,13 @@ export class BrowserProfileSessionCore {
     });
   }
 
-  private async ensureBrowser(state: ProfileState): Promise<ProfileState> {
+  private async ensureBrowserWithStorageState(
+    state: ProfileState,
+    storageState: unknown | undefined,
+  ): Promise<ProfileState> {
     if (state.allowedOrigins.length < 1) {
       throw new GatewayError("bad_request", 400);
     }
-    const storageState = await this.loadSnapshot(state);
     let current = state;
     await this.browser.ensure({
       sessionId: state.browserSessionId,
@@ -523,8 +611,17 @@ export class BrowserProfileSessionCore {
     return current;
   }
 
-  private async checkpoint(state: ProfileState): Promise<ProfileState> {
-    const storageState = await this.browser.storageState();
+  private async ensureBrowser(state: ProfileState): Promise<ProfileState> {
+    return await this.ensureBrowserWithStorageState(
+      state,
+      await this.loadSnapshot(state),
+    );
+  }
+
+  private async checkpointStorageState(
+    state: ProfileState,
+    storageState: unknown,
+  ): Promise<ProfileState> {
     const revision = (state.snapshot?.revision ?? 0) + 1;
     const encrypted = await encryptStorageState({
       storageState,
@@ -563,6 +660,13 @@ export class BrowserProfileSessionCore {
       await this.bucket.delete(previous.key).catch(() => undefined);
     }
     return updated;
+  }
+
+  private async checkpoint(state: ProfileState): Promise<ProfileState> {
+    return await this.checkpointStorageState(
+      state,
+      await this.browser.storageState(),
+    );
   }
 
   private async closeBrowser(state: ProfileState): Promise<ProfileState> {
@@ -801,15 +905,17 @@ export class BrowserProfileSessionCore {
         if (verification.expectedOrigin !== displayOrigin) {
           throw new GatewayError("navigation_denied", 403);
         }
+        const loginUrl =
+          value.startUrl === undefined
+            ? displayOrigin
+            : allowedUrl(value.startUrl, allowedOrigins);
         state = await this.configure(state, allowedOrigins);
         state = await this.ensureBrowser(state);
         try {
           const observation = this.validateObservation(
             value.startUrl === undefined
               ? await this.browser.observe()
-              : await this.browser.navigate(
-                  allowedUrl(value.startUrl, allowedOrigins),
-                ),
+              : await this.browser.navigate(loginUrl),
             allowedOrigins,
           );
           if (new URL(observation.url).origin !== displayOrigin) {
@@ -851,6 +957,7 @@ export class BrowserProfileSessionCore {
           createdAt: now,
           updatedAt: now,
           verification,
+          publicDetails: { loginUrl },
           handoffId: handoff.handoffId,
           targetId: handoff.targetId,
         };
@@ -1036,7 +1143,209 @@ export class BrowserProfileSessionCore {
               : {}),
             userCode: String(interaction.publicDetails?.userCode ?? ""),
           }
-        : {}),
+        : {
+            loginUrl: allowedUrl(
+              interaction.publicDetails?.loginUrl ?? interaction.displayOrigin,
+              [interaction.displayOrigin],
+            ),
+          }),
+    };
+  }
+
+  async sessionTransferCapability(
+    envelope: InteractionEnvelope,
+  ): Promise<unknown> {
+    let { state, interaction } = await this.exactInteraction(envelope);
+    ({ state, interaction } = await this.expireIfNeeded(state, interaction));
+    if (
+      interaction.kind !== "login_takeover" ||
+      interaction.state !== "human_control" ||
+      state.phase !== "HUMAN_CONTROL" ||
+      state.activeInteractionId !== interaction.interactionId
+    ) {
+      throw new GatewayError("stale_interaction", 409);
+    }
+    const capabilityId = this.randomUuid();
+    const expiresAt = Math.min(this.now() + 2 * 60_000, interaction.expiresAt);
+    const keys = await createSessionTransferKeyPair();
+    const encrypted = await encryptStorageState({
+      storageState: {
+        capabilityId,
+        interactionId: interaction.interactionId,
+        interactionRevision: interaction.revision,
+        displayOrigin: interaction.displayOrigin,
+        expiresAt,
+        privateKeyPkcs8: keys.privateKeyPkcs8,
+      },
+      aad: this.aad(state, interaction.revision),
+      kekV1: this.kekV1,
+    });
+    const encryptedPrivateKey = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(encrypted.bytes),
+    ) as Readonly<Record<string, unknown>>;
+    interaction = {
+      ...interaction,
+      verification: {
+        ...interaction.verification,
+        sessionTransferCapability: encryptedPrivateKey,
+      },
+      updatedAt: this.now(),
+    };
+    this.store.putInteraction(interaction);
+    return {
+      schemaVersion: 1,
+      algorithm: SESSION_TRANSFER_ALGORITHM,
+      capabilityId,
+      interactionId: interaction.interactionId,
+      revision: interaction.revision,
+      publicKey: keys.publicKey,
+      expiresAt,
+    };
+  }
+
+  private async importedStorageState(
+    state: ProfileState,
+    interaction: InteractionRecord,
+    transfer: EncryptedSessionTransfer,
+  ): Promise<ImportedStorageState> {
+    const encryptedPrivateKey =
+      interaction.verification?.sessionTransferCapability;
+    if (
+      typeof encryptedPrivateKey !== "object" ||
+      encryptedPrivateKey === null ||
+      Array.isArray(encryptedPrivateKey)
+    ) {
+      throw new GatewayError("verification_failed", 409);
+    }
+    const capability = await decryptStorageState({
+      bytes: new TextEncoder().encode(stableJson(encryptedPrivateKey)),
+      aad: this.aad(state, interaction.revision),
+      kekV1: this.kekV1,
+    });
+    const record = exactObject(capability, [
+      "capabilityId",
+      "interactionId",
+      "interactionRevision",
+      "displayOrigin",
+      "expiresAt",
+      "privateKeyPkcs8",
+    ]);
+    const capabilityId = boundedString(record.capabilityId, 128);
+    if (
+      capabilityId !== transfer.capabilityId ||
+      record.interactionId !== interaction.interactionId ||
+      record.interactionRevision !== interaction.revision ||
+      record.displayOrigin !== interaction.displayOrigin ||
+      !Number.isSafeInteger(record.expiresAt) ||
+      Number(record.expiresAt) <= this.now()
+    ) {
+      throw new GatewayError("verification_failed", 409);
+    }
+    const storageState = await decryptSessionTransfer({
+      transfer,
+      privateKeyPkcs8: boundedString(record.privateKeyPkcs8, 256),
+      binding: {
+        capabilityId,
+        interactionId: interaction.interactionId,
+        interactionRevision: interaction.revision,
+        displayOrigin: interaction.displayOrigin,
+      },
+    });
+    return parseImportedStorageState(storageState, interaction.displayOrigin);
+  }
+
+  async importSessionTransfer(envelope: InteractionEnvelope): Promise<unknown> {
+    if (!envelope.sessionTransfer) {
+      throw new GatewayError("bad_request", 400);
+    }
+    let { state, interaction } = await this.exactInteraction(envelope);
+    ({ state, interaction } = await this.expireIfNeeded(state, interaction));
+    if (
+      interaction.kind !== "login_takeover" ||
+      interaction.state !== "human_control" ||
+      state.phase !== "HUMAN_CONTROL" ||
+      state.activeInteractionId !== interaction.interactionId
+    ) {
+      throw new GatewayError("stale_interaction", 409);
+    }
+    if (interaction.verification?.localImportVerified === true) {
+      return {
+        schemaVersion: 1,
+        interactionId: interaction.interactionId,
+        revision: interaction.revision,
+        verified: true,
+      };
+    }
+    let storageState: ImportedStorageState;
+    try {
+      storageState = await this.importedStorageState(
+        state,
+        interaction,
+        envelope.sessionTransfer,
+      );
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          service: "browser-profile-session",
+          event: "session_transfer_failed",
+          stage: "decrypt_and_validate",
+          code:
+            error instanceof GatewayError ? error.code : "internal_error",
+        }),
+      );
+      throw error;
+    }
+    const verification: TrustedVerification = {
+      expectedOrigin: String(interaction.verification?.expectedOrigin ?? ""),
+      authenticatedSelector: String(
+        interaction.verification?.authenticatedSelector ?? "",
+      ),
+      loggedOutSelector: String(
+        interaction.verification?.loggedOutSelector ?? "",
+      ),
+      resumeUrl: String(interaction.verification?.resumeUrl ?? ""),
+    };
+    // Consume the one-use key before external I/O. A failed import leaves the
+    // original remote handoff untouched and the client can mint a fresh key.
+    interaction = {
+      ...interaction,
+      verification: {
+        ...verification,
+        sessionTransferConsumedAt: this.now(),
+      },
+      updatedAt: this.now(),
+    };
+    this.store.putInteraction(interaction);
+    try {
+      await this.browser.verifyImportedStorageState({
+        storageState,
+        allowedOrigins: state.allowedOrigins,
+        verification,
+      });
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          service: "browser-profile-session",
+          event: "session_transfer_failed",
+          stage: "independent_browser_verification",
+          code:
+            error instanceof GatewayError ? error.code : "internal_error",
+        }),
+      );
+      throw error;
+    }
+    state = await this.checkpointStorageState(state, storageState);
+    interaction = {
+      ...interaction,
+      verification: { ...verification, localImportVerified: true },
+      updatedAt: this.now(),
+    };
+    this.store.putInteraction(interaction);
+    return {
+      schemaVersion: 1,
+      interactionId: interaction.interactionId,
+      revision: interaction.revision,
+      verified: true,
     };
   }
 
@@ -1227,6 +1536,13 @@ export class BrowserProfileSessionCore {
     } else {
       ({ state, interaction } = await this.expireIfNeeded(state, interaction));
     }
+    if (
+      !interactionTerminal(interaction.state) &&
+      (state.phase !== "HUMAN_CONTROL" ||
+        state.activeInteractionId !== interaction.interactionId)
+    ) {
+      throw new GatewayError("stale_interaction", 409);
+    }
     if (interaction.state === "expired") {
       return {
         schemaVersion: 1,
@@ -1356,13 +1672,33 @@ export class BrowserProfileSessionCore {
       };
     }
 
-    state = await this.ensureBrowser(state);
-    await this.browser.completeHandoff(true);
+    if (interaction.verification?.localImportVerified === true) {
+      state = await this.ensureBrowser(state);
+      await this.browser.completeHandoff(false).catch(() => undefined);
+      state = await this.closeBrowser(state);
+      state = await this.ensureBrowser(state);
+      const verification = interaction.verification as TrustedVerification;
+      this.validateObservation(
+        await this.browser.navigate(
+          allowedUrl(verification.resumeUrl, state.allowedOrigins),
+        ),
+        state.allowedOrigins,
+      );
+    } else {
+      state = await this.ensureBrowser(state);
+      await this.browser.completeHandoff(true);
+    }
     interaction = {
       ...interaction,
       revision: interaction.revision + 1,
       state: "resuming",
       updatedAt: this.now(),
+      verification: {
+        expectedOrigin: interaction.verification?.expectedOrigin,
+        authenticatedSelector: interaction.verification?.authenticatedSelector,
+        loggedOutSelector: interaction.verification?.loggedOutSelector,
+        resumeUrl: interaction.verification?.resumeUrl,
+      },
     };
     this.store.putInteraction(interaction);
     const verified = await this.browser.trustedVerify(

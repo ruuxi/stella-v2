@@ -131,4 +131,39 @@ describe("private Browser Gateway control proxy", () => {
     );
     expect(oversized.status).toBe(502);
   });
+
+  test("relays only opaque encrypted session-transfer fields", async () => {
+    let forwarded: Request | undefined;
+    const body = JSON.stringify({
+      schemaVersion: 1,
+      interactionId: "safe",
+      sessionTransfer: {
+        schemaVersion: 1,
+        algorithm: "x25519-hkdf-sha256-aes-256-gcm-v1",
+        capabilityId: "capability",
+        clientPublicKey: "opaque-public-key",
+        iv: "opaque-iv",
+        ciphertext: "opaque-ciphertext",
+      },
+    });
+    const response = await worker.fetch(
+      request("/internal/interactions/session-transfer", body),
+      {
+        BUILDER_SERVICE_SECRET: secret,
+        BROWSER_GATEWAY: {
+          fetch: async (input: string | Request, init?: RequestInit) => {
+            forwarded =
+              input instanceof Request ? input : new Request(input, init);
+            return Response.json({ verified: true });
+          },
+        },
+      } as never,
+    );
+    expect(response.status).toBe(200);
+    expect(forwarded?.url).toBe(
+      "https://browser-gateway/internal/interactions/session-transfer",
+    );
+    expect(forwarded?.headers.get("authorization")).toBeNull();
+    expect(await forwarded?.text()).toBe(body);
+  });
 });

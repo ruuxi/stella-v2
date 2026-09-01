@@ -66,12 +66,25 @@ Authenticated control-plane callers use:
 
 - `POST /internal/interactions/status`
 - `POST /internal/interactions/live-view`
+- `POST /internal/interactions/session-transfer-capability`
+- `POST /internal/interactions/session-transfer`
 - `POST /internal/interactions/decision`
 
 Their common body is
 `{schemaVersion, authority, profileId:"default", profileEpoch, interactionId, interactionRevision}`;
 decision adds `decision:"done"|"cancel"`. Live View URLs are minted only by the
 Live View route, returned with `no-store`, and never persisted or logged.
+
+The session-transfer capability route returns a two-minute, one-use X25519
+public key bound to the exact owner, interaction, revision, profile epoch, and
+display origin. The client sends only an AES-GCM ciphertext through Convex and
+Builder. Those control-plane services cannot read the cookies. The Gateway
+decrypts a cookie-only Playwright storage state in memory, rejects unrelated
+domains and extra storage fields, and verifies it in a separate fresh Browser
+Run session. A failed import leaves the original Live View handoff available.
+A successful import is checkpointed with the ordinary encrypted profile
+format, while the interaction revision stays unchanged until the existing
+Done decision completes the resume protocol.
 
 Reset is `POST /internal/owners/profile/reset` with
 `{schemaVersion:1, authority:{ownerId,ownerGeneration}, requestId, profileId:"default"}`.

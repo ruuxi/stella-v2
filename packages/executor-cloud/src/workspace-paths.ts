@@ -32,3 +32,13 @@ export const WORLD_DRIVE_ROOT = `${WORLD_ROOT}/drive`;
  * happens to ride along in the checkpoint.
  */
 export const toolStateDir = (root: string): string => path.join(root, ".stella");
+
+/**
+ * Drive hydration's ledger must be contained by the exact tree whose files it
+ * describes. Keeping this distinct from the world-level tool-host state makes
+ * that boundary explicit at both cloud execution entry points.
+ */
+export const WORLD_DRIVE_WORKSPACE = Object.freeze({
+  root: WORLD_DRIVE_ROOT,
+  stateDir: toolStateDir(WORLD_DRIVE_ROOT),
+});

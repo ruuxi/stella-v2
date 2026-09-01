@@ -57,6 +57,14 @@ export type InteractionEnvelope = Readonly<{
   interactionId: string;
   interactionRevision: number;
   decision?: "done" | "cancel";
+  sessionTransfer?: Readonly<{
+    schemaVersion: 1;
+    algorithm: "x25519-hkdf-sha256-aes-256-gcm-v1";
+    capabilityId: string;
+    clientPublicKey: string;
+    iv: string;
+    ciphertext: string;
+  }>;
 }>;
 
 export type ProfileResetEnvelope = Readonly<{
@@ -199,7 +207,11 @@ export const parseTurnCommand = (value: unknown): TurnCommandEnvelope => {
 
 export const parseInteraction = (
   value: unknown,
-  options: Readonly<{ requireDecision?: boolean }> = {},
+  options: Readonly<{
+    requireDecision?: boolean;
+    allowSessionTransfer?: boolean;
+    requireSessionTransfer?: boolean;
+  }> = {},
 ): InteractionEnvelope => {
   const envelope = record(value);
   exactKeys(
@@ -212,8 +224,14 @@ export const parseInteraction = (
       "interactionId",
       "interactionRevision",
       ...(options.requireDecision ? ["decision"] : []),
+      ...(options.requireSessionTransfer ? ["sessionTransfer"] : []),
     ],
-    options.requireDecision ? [] : ["decision"],
+    [
+      ...(options.requireDecision ? [] : ["decision"]),
+      ...(options.allowSessionTransfer && !options.requireSessionTransfer
+        ? ["sessionTransfer"]
+        : []),
+    ],
   );
   if (
     envelope.schemaVersion !== 1 ||
@@ -222,6 +240,39 @@ export const parseInteraction = (
     (envelope.decision !== undefined &&
       envelope.decision !== "done" &&
       envelope.decision !== "cancel")
+  ) {
+    throw new GatewayError("bad_request", 400);
+  }
+  let sessionTransfer: InteractionEnvelope["sessionTransfer"];
+  if (envelope.sessionTransfer !== undefined) {
+    if (!options.allowSessionTransfer && !options.requireSessionTransfer) {
+      throw new GatewayError("bad_request", 400);
+    }
+    const transfer = record(envelope.sessionTransfer);
+    exactKeys(transfer, [
+      "schemaVersion",
+      "algorithm",
+      "capabilityId",
+      "clientPublicKey",
+      "iv",
+      "ciphertext",
+    ]);
+    if (
+      transfer.schemaVersion !== 1 ||
+      transfer.algorithm !== "x25519-hkdf-sha256-aes-256-gcm-v1" ||
+      !safeIdentityPart(transfer.capabilityId) ||
+      !boundedString(transfer.clientPublicKey, 128) ||
+      !boundedString(transfer.iv, 64) ||
+      !boundedString(transfer.ciphertext, 48 * 1024)
+    ) {
+      throw new GatewayError("bad_request", 400);
+    }
+    sessionTransfer = transfer as InteractionEnvelope["sessionTransfer"];
+  }
+  if (
+    sessionTransfer &&
+    !options.requireSessionTransfer &&
+    envelope.decision !== "done"
   ) {
     throw new GatewayError("bad_request", 400);
   }
@@ -235,6 +286,7 @@ export const parseInteraction = (
     ...(envelope.decision
       ? { decision: envelope.decision as "done" | "cancel" }
       : {}),
+    ...(sessionTransfer ? { sessionTransfer } : {}),
   };
 };
 

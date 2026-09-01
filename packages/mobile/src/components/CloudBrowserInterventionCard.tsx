@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as Clipboard from "expo-clipboard";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import {
@@ -45,6 +45,13 @@ export function CloudBrowserInterventionCard({
   );
   const [copied, setCopied] = useState(false);
   const [issue, setIssue] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTakeoverVisible(false);
+    setBusyDecision(null);
+    setCopied(false);
+    setIssue(null);
+  }, [summary?.interactionId]);
 
   const decideInteraction = useCallback(
     async (decision: "done" | "cancel") => {
@@ -226,7 +233,7 @@ export function CloudBrowserInterventionCard({
           detail={loginDetail}
           busyDecision={busyDecision}
           onDismiss={() => setTakeoverVisible(false)}
-          onDecision={(decision) => void decideInteraction(decision)}
+          onDecision={decideInteraction}
         />
       ) : null}
     </>

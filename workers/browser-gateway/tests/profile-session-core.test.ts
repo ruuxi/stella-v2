@@ -10,6 +10,7 @@ import {
   TEST_KEK,
   uuid,
 } from "./fixtures.js";
+import { encryptAsClient } from "./session-transfer-crypto.test.js";
 
 const command = (
   requestId: string,
@@ -38,6 +39,101 @@ const interactionRequest = (
   }) as never;
 
 describe("browser profile session core", () => {
+  test("imports an encrypted local session without consuming the remote fallback", async () => {
+    const store = new MemoryProfileStore();
+    const bucket = new MemoryR2();
+    const browser = new FakeBrowser();
+    let nextUuid = 1_100;
+    const core = new BrowserProfileSessionCore({
+      store,
+      browser,
+      bucket: bucket.asBucket(),
+      kekV1: TEST_KEK,
+      now: () => 2_000_000,
+      randomUuid: () => uuid(nextUuid++),
+    });
+    await core.turn(
+      command(uuid(1_001), "browser.open", {
+        allowedOrigins: ["https://app.example"],
+        startUrl: "https://app.example/login",
+      }),
+    );
+    const suspended = (await core.turn(
+      command(uuid(1_002), "browser.login_takeover", {
+        allowedOrigins: ["https://app.example"],
+        displayOrigin: "https://app.example",
+        startUrl: "https://app.example/login",
+        verification: {
+          expectedOrigin: "https://app.example",
+          authenticatedSelector: "#authenticated",
+          loggedOutSelector: "#login",
+          resumeUrl: "https://app.example/account",
+        },
+      }),
+    )) as any;
+    const interactionId = suspended.suspension.interactionId as string;
+    const request = interactionRequest(interactionId, 1);
+    const capability = (await core.sessionTransferCapability(request)) as any;
+    const payload = {
+      cookies: [
+        {
+          name: "session",
+          value: "local-session-secret",
+          domain: "app.example",
+          path: "/",
+          expires: -1,
+          httpOnly: true,
+          secure: true,
+          sameSite: "Lax",
+        },
+      ],
+      origins: [],
+    };
+    const transfer = await encryptAsClient({
+      publicKey: capability.publicKey,
+      binding: {
+        capabilityId: capability.capabilityId,
+        interactionId,
+        interactionRevision: 1,
+        displayOrigin: "https://app.example",
+      },
+      payload,
+    });
+    const imported = await core.importSessionTransfer({
+      ...request,
+      sessionTransfer: transfer,
+    });
+    expect(imported).toEqual({
+      schemaVersion: 1,
+      interactionId,
+      revision: 1,
+      verified: true,
+    });
+    expect(store.interactions.get(interactionId)).toMatchObject({
+      revision: 1,
+      state: "human_control",
+      verification: { localImportVerified: true },
+    });
+    expect(store.state).toMatchObject({
+      phase: "HUMAN_CONTROL",
+      activeInteractionId: interactionId,
+    });
+    expect(browser.closeCount).toBe(0);
+    expect(bucket.objects.size).toBe(1);
+    for (const object of bucket.objects.values()) {
+      expect(new TextDecoder().decode(object.bytes)).not.toContain(
+        "local-session-secret",
+      );
+    }
+
+    const decision = (await core.decide(
+      interactionRequest(interactionId, 1, "done"),
+    )) as any;
+    expect(decision.receipt.result).toBe("approved");
+    expect(browser.completeHandoffCalls).toContain(false);
+    expect(store.state?.phase).toBe("AGENT_CONTROL");
+  });
+
   test("fences automation, mints JIT Live View, encrypts, and verifies a fresh restore", async () => {
     const store = new MemoryProfileStore();
     const bucket = new MemoryR2();
@@ -183,6 +279,61 @@ describe("browser profile session core", () => {
     expect(store.state?.phase).toBe("AGENT_CONTROL");
     expect(store.state?.activeInteractionId).toBeUndefined();
     expect(browser.closeCount).toBe(1);
+  });
+
+  test("an old decision cannot clear a newer interaction's human-control lock", async () => {
+    const store = new MemoryProfileStore();
+    const browser = new FakeBrowser();
+    let nextUuid = 600;
+    const core = new BrowserProfileSessionCore({
+      store,
+      browser,
+      bucket: new MemoryR2().asBucket(),
+      kekV1: TEST_KEK,
+      now: () => 3_250_000,
+      randomUuid: () => uuid(nextUuid++),
+    });
+    const takeover = async (requestId: string) =>
+      (await core.turn(
+        command(requestId, "browser.login_takeover", {
+          allowedOrigins: ["https://app.example"],
+          displayOrigin: "https://app.example",
+          verification: {
+            expectedOrigin: "https://app.example",
+            authenticatedSelector: "#logout",
+            loggedOutSelector: "#login",
+            resumeUrl: "https://app.example/account",
+          },
+        }),
+      )) as any;
+
+    const first = await takeover(uuid(40));
+    const firstInteractionId = first.suspension.interactionId as string;
+    store.putState({
+      ...store.state!,
+      phase: "AGENT_CONTROL",
+      activeInteractionId: undefined,
+    });
+    const second = await takeover(uuid(41));
+    const secondInteractionId = second.suspension.interactionId as string;
+
+    await expect(
+      core.decide(interactionRequest(firstInteractionId, 1, "cancel")),
+    ).rejects.toMatchObject<Partial<GatewayError>>({
+      code: "stale_interaction",
+    });
+    expect(store.interactions.get(firstInteractionId)).toMatchObject({
+      state: "human_control",
+      revision: 1,
+    });
+    expect(store.interactions.get(secondInteractionId)).toMatchObject({
+      state: "human_control",
+      revision: 1,
+    });
+    expect(store.state).toMatchObject({
+      phase: "HUMAN_CONTROL",
+      activeInteractionId: secondInteractionId,
+    });
   });
 
   test("retries teardown when expiry is terminal but still owns human control", async () => {

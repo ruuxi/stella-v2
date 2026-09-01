@@ -16,6 +16,7 @@ import {
   redactVisibleText,
   sanitizePageUrl,
 } from "./safe-observation.js";
+import { trustedVerifyPageResult } from "./trusted-verification.js";
 import type {
   BrowserBackend,
   BrowserHandoff,
@@ -43,6 +44,13 @@ const boundedString = (value: unknown, maximum: number): string => {
 const safeTitle = (value: string): string =>
   redactVisibleText(value).slice(0, 512);
 
+const trustedVerifyPage = async (
+  page: Page,
+  verification: TrustedVerification,
+  expectedState: TrustedVerificationState,
+): Promise<boolean> =>
+  (await trustedVerifyPageResult(page, verification, expectedState)).verified;
+
 export class CloudflarePlaywrightProvider implements BrowserBackend {
   private browser: Browser | undefined;
   private context: BrowserContext | undefined;
@@ -53,8 +61,7 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
   private handoffCompletion: { success: boolean } | undefined;
   private handoffOriginViolation = false;
   private handoffRouteHandler:
-    | Parameters<BrowserContext["route"]>[1]
-    | undefined;
+    Parameters<BrowserContext["route"]>[1] | undefined;
 
   constructor(
     private readonly endpoint: BrowserWorker,
@@ -317,6 +324,65 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
     }
   }
 
+  async verifyImportedStorageState(args: {
+    storageState: unknown;
+    allowedOrigins: readonly string[];
+    verification: TrustedVerification;
+  }): Promise<void> {
+    let temporaryBrowser: Browser | undefined;
+    let temporaryContext: BrowserContext | undefined;
+    try {
+      const acquired = await acquire(this.endpoint, {
+        keep_alive: this.keepAliveMs,
+        recording: false,
+        guardrails: {
+          allowedDomains: [...browserGuardrailDomains(args.allowedOrigins)],
+        },
+      });
+      temporaryBrowser = await connect(this.endpoint, acquired.sessionId);
+      temporaryContext = await temporaryBrowser.newContext({
+        storageState: args.storageState,
+      } as unknown as Parameters<Browser["newContext"]>[0]);
+      const page =
+        temporaryContext.pages()[0] ?? (await temporaryContext.newPage());
+      await page.goto(args.verification.resumeUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      });
+      const result = await trustedVerifyPageResult(
+        page,
+        args.verification,
+        "authenticated",
+      );
+      if (!result.verified) {
+        console.error(
+          JSON.stringify({
+            service: "cloudflare-playwright-provider",
+            event: "imported_session_verification_failed",
+            originMatches: result.originMatches,
+            authenticatedVisible: result.authenticatedVisible,
+            loggedOutVisible: result.loggedOutVisible,
+          }),
+        );
+        throw new GatewayError("verification_failed", 409);
+      }
+    } catch (error) {
+      if (error instanceof GatewayError) throw error;
+      throw new GatewayError("browser_unavailable", 503);
+    } finally {
+      await temporaryContext?.close().catch(() => undefined);
+      if (temporaryBrowser) {
+        try {
+          const cdp = await temporaryBrowser.newBrowserCDPSession();
+          await cdp.send("Browser.close");
+        } catch {
+          // Browser.close normally races the temporary connection shutdown.
+        }
+        await temporaryBrowser.close().catch(() => undefined);
+      }
+    }
+  }
+
   private async handoffCdp(): Promise<CDPSession> {
     if (this.cdp) return this.cdp;
     if (!this.context) throw new GatewayError("browser_unavailable", 503);
@@ -471,39 +537,11 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
     expectedState: TrustedVerificationState,
   ): Promise<boolean> {
     if (this.handoffOriginViolation) return false;
-    const page = this.requiredPage();
-    try {
-      const anyVisible = async (selector: string, timeout: number) => {
-        const locator = page.locator(selector);
-        const count = Math.min(await locator.count(), 32);
-        for (let index = 0; index < count; index += 1) {
-          if (
-            await locator
-              .nth(index)
-              .isVisible({ timeout })
-              .catch(() => false)
-          ) {
-            return true;
-          }
-        }
-        return false;
-      };
-      const actual = new URL(page.url()).origin;
-      if (actual !== verification.expectedOrigin) return false;
-      const authenticatedVisible = await anyVisible(
-        verification.authenticatedSelector,
-        5_000,
-      );
-      const loggedOutVisible = await anyVisible(
-        verification.loggedOutSelector,
-        2_000,
-      );
-      return expectedState === "authenticated"
-        ? authenticatedVisible && !loggedOutVisible
-        : !authenticatedVisible && loggedOutVisible;
-    } catch {
-      return false;
-    }
+    return await trustedVerifyPage(
+      this.requiredPage(),
+      verification,
+      expectedState,
+    );
   }
 
   async closeContext(): Promise<void> {

@@ -7,6 +7,7 @@ import type {
   TrustedVerification,
   TrustedVerificationState,
 } from "../src/browser-provider.js";
+import { GatewayError } from "../src/errors.js";
 
 export const TEST_KEK = btoa(String.fromCharCode(...new Uint8Array(32)))
   .replace(/\+/gu, "-")
@@ -161,6 +162,17 @@ export class FakeBrowser implements BrowserBackend {
         },
       ],
     };
+  }
+  async verifyImportedStorageState(args: {
+    storageState: unknown;
+    allowedOrigins: readonly string[];
+    verification: TrustedVerification;
+  }): Promise<void> {
+    this.restoredStates.push(structuredClone(args.storageState));
+    this.verificationStates.push("authenticated");
+    if (!this.verificationResult) {
+      throw new GatewayError("verification_failed", 409);
+    }
   }
   async startHandoff(_args: {
     handoffTimeoutMs: number;

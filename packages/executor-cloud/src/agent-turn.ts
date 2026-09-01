@@ -86,6 +86,7 @@ import {
 } from "./general-agent-prompt.js";
 import {
   WORLD_DRIVE_ROOT,
+  WORLD_DRIVE_WORKSPACE,
   WORLD_ROOT,
   toolStateDir,
 } from "./workspace-paths.js";
@@ -485,6 +486,7 @@ export const chownTreeWithoutFollowingSymlinks = async (
 export const prepareCloudToolFilesystem = async (args: {
   workspaceRoot: string;
   workspaceStateDir?: string;
+  driveStateDir?: string;
   toolHome: string;
 }): Promise<void> => {
   await assertCloudMountedDirectoryBoundary({
@@ -522,8 +524,13 @@ export const prepareCloudToolFilesystem = async (args: {
     await assertToolOwnedDirectory(target, 0o700);
   };
   await ensureToolDirectory(args.toolHome);
-  if (args.workspaceStateDir && args.workspaceStateDir !== args.toolHome) {
-    await ensureToolDirectory(args.workspaceStateDir);
+  for (const target of new Set(
+    [args.workspaceStateDir, args.driveStateDir].filter(
+      (candidate): candidate is string =>
+        typeof candidate === "string" && candidate !== args.toolHome,
+    ),
+  )) {
+    await ensureToolDirectory(target);
   }
   await proveStrictCloudProcessIsolation();
 };
@@ -682,13 +689,14 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
       }
       const workspaceRoot = WORLD_ROOT;
       const workspaceStateDir = toolStateDir(workspaceRoot);
-      const stateDir = workspaceStateDir;
+      const driveWorkspace = WORLD_DRIVE_WORKSPACE;
       const toolHome = CLOUD_TOOL_HOME;
       yield* Effect.tryPromise({
         try: () =>
           prepareCloudToolFilesystem({
             workspaceRoot,
             workspaceStateDir,
+            driveStateDir: driveWorkspace.stateDir,
             toolHome,
           }),
         catch: asError,
@@ -718,9 +726,9 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
           });
       };
 
-      // Bring the drive into `world/drive` before any agent tool exists. The
-      // hydration ledger lives in the tool state directory created above, and
-      // it is what lets a turn skip re-downloading a drive it already has.
+      // Bring the drive into `world/drive` before any agent tool exists. Its
+      // hydration ledger lives in the contained Drive state directory created
+      // above, and lets a turn skip re-downloading a drive it already has.
       const hydration = yield* Effect.promise(async () => {
         try {
           return {
@@ -728,9 +736,9 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
             value: await hydrateDriveForAgentTurn({
               turnId: input.turnId,
               prompt: input.prompt,
-              workspaceRoot: WORLD_DRIVE_ROOT,
+              workspaceRoot: driveWorkspace.root,
               workspaceRestored: input.workspaceRestored,
-              stateDir,
+              stateDir: driveWorkspace.stateDir,
               owner: CLOUD_TOOL_PROCESS_IDENTITY,
               post: postJson,
               onProgress: (message) => emitEvent("progress", { message }),
@@ -805,7 +813,7 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
         agentType: "general",
         workingDirectory: workspaceRoot,
         stellaAppDir: workspaceRoot,
-        stellaDataDir: stateDir,
+        stellaDataDir: workspaceStateDir,
         toolWorkspaceRoot: workspaceRoot,
         storageMode: "cloud",
         toolProcessIdentity: {

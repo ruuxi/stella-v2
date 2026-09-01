@@ -8070,6 +8070,7 @@ export class OrchestratorSession extends DurableObject<Env> {
               action: "cancel",
               ownerId: turn.ownerId,
               conversationId: turn.conversationId,
+              parentTurnId: turn.turnId,
               threadId: control.threadId,
               expectedAttemptGeneration: control.attemptGeneration,
               expectedThreadUpdatedAt: control.threadUpdatedAt,

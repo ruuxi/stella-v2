@@ -167,6 +167,7 @@ const browserLoginDetailValidator = v.object({
   expiresAt: v.number(),
   createdAt: v.number(),
   updatedAt: v.number(),
+  loginUrl: v.string(),
 });
 
 const browserInteractionDetailValidator = v.union(
@@ -180,6 +181,25 @@ const browserLiveViewCapabilityValidator = v.object({
   revision: v.number(),
   url: v.string(),
   expiresAt: v.number(),
+});
+
+const browserSessionTransferCapabilityValidator = v.object({
+  schemaVersion: v.literal(1),
+  algorithm: v.literal("x25519-hkdf-sha256-aes-256-gcm-v1"),
+  capabilityId: v.string(),
+  interactionId: v.string(),
+  revision: v.number(),
+  publicKey: v.string(),
+  expiresAt: v.number(),
+});
+
+const browserEncryptedSessionTransferValidator = v.object({
+  schemaVersion: v.literal(1),
+  algorithm: v.literal("x25519-hkdf-sha256-aes-256-gcm-v1"),
+  capabilityId: v.string(),
+  clientPublicKey: v.string(),
+  iv: v.string(),
+  ciphertext: v.string(),
 });
 
 const browserProfileResetValidator = v.object({
@@ -752,7 +772,13 @@ const validateGatewayDetail = (
     throw new ConvexError("The secure browser returned a stale status.");
   }
   if (summary.kind === "login_takeover") {
-    return { ...summary, kind: "login_takeover" as const };
+    const loginUrl = safeHttpsUrl(requiredString(detail, "loginUrl", 4096));
+    if (new URL(loginUrl).origin !== summary.displayOrigin) {
+      throw new ConvexError(
+        "The secure browser returned an invalid login URL.",
+      );
+    }
+    return { ...summary, kind: "login_takeover" as const, loginUrl };
   }
   const verificationUri = safeHttpsUrl(
     requiredString(detail, "verificationUri", 2048),
@@ -798,6 +824,42 @@ const validateLiveViewCapability = (
     interactionId,
     revision,
     url,
+    expiresAt,
+  };
+};
+
+const validateSessionTransferCapability = (
+  payload: unknown,
+  interactionId: string,
+  expectedRevision: number,
+) => {
+  if (!isRecord(payload) || payload.schemaVersion !== 1) {
+    throw new ConvexError(
+      "The secure browser returned an invalid transfer key.",
+    );
+  }
+  const algorithm = requiredString(payload, "algorithm", 64);
+  const capabilityId = requiredString(payload, "capabilityId", 128);
+  const returnedInteractionId = requiredString(payload, "interactionId", 256);
+  const revision = requiredSafeInteger(payload, "revision");
+  const publicKey = requiredString(payload, "publicKey", 128);
+  const expiresAt = requiredSafeInteger(payload, "expiresAt");
+  if (
+    algorithm !== "x25519-hkdf-sha256-aes-256-gcm-v1" ||
+    returnedInteractionId !== interactionId ||
+    revision !== expectedRevision ||
+    !/^[A-Za-z0-9_-]{43}$/u.test(publicKey) ||
+    expiresAt <= Date.now()
+  ) {
+    throw new ConvexError("The secure browser returned a stale transfer key.");
+  }
+  return {
+    schemaVersion: 1 as const,
+    algorithm: "x25519-hkdf-sha256-aes-256-gcm-v1" as const,
+    capabilityId,
+    interactionId,
+    revision,
+    publicKey,
     expiresAt,
   };
 };
@@ -856,6 +918,7 @@ export const listMyPendingBrowserInteractions = query({
   args: {},
   returns: v.array(browserInteractionSummaryValidator),
   handler: async (ctx) => {
+    const now = Date.now();
     const identity = await requireSensitiveConnectedUserIdentity(ctx);
     const ownerId = identity.tokenIdentifier;
     const { generation } = await assertOwnerDataAccessActive(ctx, ownerId);
@@ -872,7 +935,10 @@ export const listMyPendingBrowserInteractions = query({
     );
     return pages
       .flat()
-      .filter((row) => row.ownerGeneration === generation)
+      .filter(
+        (row) =>
+          row.ownerGeneration === generation && row.expiresAt > now,
+      )
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, MAX_ACTIVE_INTERACTIONS)
       .map(projectSummary);
@@ -952,6 +1018,115 @@ export const mintMyBrowserLiveViewCapability = action({
       now: Date.now(),
     });
     return capability;
+  },
+});
+
+export const mintMyBrowserSessionTransferCapability = action({
+  args: { interactionId: v.string(), expectedRevision: v.number() },
+  returns: browserSessionTransferCapabilityValidator,
+  handler: async (ctx, args) => {
+    const owner = await requireActionOwner(ctx);
+    await enforceActionRateLimit(
+      ctx,
+      "cloud_browser_session_transfer_key",
+      owner.ownerId,
+      { rate: 12, periodMs: 60_000 },
+      "Too many browser transfer requests. Wait a moment and try again.",
+    );
+    const control = await loadActionControl(
+      ctx,
+      owner.ownerId,
+      owner.ownerGeneration,
+      args.interactionId.trim(),
+    );
+    if (
+      !control ||
+      control.summary.kind !== "login_takeover" ||
+      control.summary.revision !== args.expectedRevision ||
+      !["pending", "human_control"].includes(control.summary.state) ||
+      control.summary.expiresAt <= Date.now()
+    ) {
+      throw new ConvexError("This browser request is no longer available.");
+    }
+    const payload = await postBrowserGateway(
+      "/internal/interactions/session-transfer-capability",
+      gatewayInteractionBody(control),
+    );
+    const capability = validateSessionTransferCapability(
+      payload,
+      control.summary.interactionId,
+      args.expectedRevision,
+    );
+    await ctx.runMutation(claimLiveViewRef, {
+      ...owner,
+      interactionId: control.summary.interactionId,
+      expectedRevision: args.expectedRevision,
+      now: Date.now(),
+    });
+    return capability;
+  },
+});
+
+export const importMyBrowserSessionTransfer = action({
+  args: {
+    interactionId: v.string(),
+    expectedRevision: v.number(),
+    transfer: browserEncryptedSessionTransferValidator,
+  },
+  returns: v.object({
+    schemaVersion: v.literal(1),
+    interactionId: v.string(),
+    revision: v.number(),
+    verified: v.literal(true),
+  }),
+  handler: async (ctx, args) => {
+    const owner = await requireActionOwner(ctx);
+    await enforceActionRateLimit(
+      ctx,
+      "cloud_browser_session_transfer_import",
+      owner.ownerId,
+      { rate: 12, periodMs: 60_000 },
+      "Too many browser transfer attempts. Wait a moment and try again.",
+    );
+    if (args.transfer.ciphertext.length > 48 * 1024) {
+      throw new ConvexError("The browser session is too large to transfer.");
+    }
+    const control = await loadActionControl(
+      ctx,
+      owner.ownerId,
+      owner.ownerGeneration,
+      args.interactionId.trim(),
+    );
+    if (
+      !control ||
+      control.summary.kind !== "login_takeover" ||
+      control.summary.revision !== args.expectedRevision ||
+      !["pending", "human_control"].includes(control.summary.state) ||
+      control.summary.expiresAt <= Date.now()
+    ) {
+      throw new ConvexError("This browser request is no longer available.");
+    }
+    const payload = await postBrowserGateway(
+      "/internal/interactions/session-transfer",
+      { ...gatewayInteractionBody(control), sessionTransfer: args.transfer },
+    );
+    if (
+      !isRecord(payload) ||
+      payload.schemaVersion !== 1 ||
+      payload.interactionId !== control.summary.interactionId ||
+      payload.revision !== args.expectedRevision ||
+      payload.verified !== true
+    ) {
+      throw new ConvexError(
+        "The secure browser could not verify that sign-in.",
+      );
+    }
+    return {
+      schemaVersion: 1 as const,
+      interactionId: control.summary.interactionId,
+      revision: args.expectedRevision,
+      verified: true as const,
+    };
   },
 });
 

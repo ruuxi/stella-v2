@@ -5,11 +5,7 @@ import {
   CloudflareDeviceCodeFixtureClient,
   type DeviceCodeFixtureClient,
 } from "./device-code-fixture-client.js";
-import {
-  GatewayError,
-  publicErrorResponse,
-  safeErrorCode,
-} from "./errors.js";
+import { GatewayError, publicErrorResponse, safeErrorCode } from "./errors.js";
 import {
   BrowserProfileSessionCore,
   type BrowserGatewayEnv,
@@ -151,6 +147,20 @@ export class BrowserProfileSession extends DurableObject<BrowserGatewayEnv> {
         if (path === "/internal/interactions/live-view") {
           return jsonNoStore(await this.core.liveView(parseInteraction(body)));
         }
+        if (path === "/internal/interactions/session-transfer-capability") {
+          return jsonNoStore(
+            await this.core.sessionTransferCapability(parseInteraction(body)),
+          );
+        }
+        if (path === "/internal/interactions/session-transfer") {
+          return jsonNoStore(
+            await this.core.importSessionTransfer(
+              parseInteraction(body, {
+                requireSessionTransfer: true,
+              }),
+            ),
+          );
+        }
         if (path === "/internal/interactions/decision") {
           const result = await this.core.decide(
             parseInteraction(body, { requireDecision: true }),
@@ -177,6 +187,14 @@ export class BrowserProfileSession extends DurableObject<BrowserGatewayEnv> {
         }
         throw new GatewayError("not_found", 404);
       } catch (error) {
+        console.error(
+          JSON.stringify({
+            service: "browser-profile-session",
+            event: "request_failed",
+            route: path,
+            code: safeErrorCode(error),
+          }),
+        );
         return publicErrorResponse(error);
       }
     });

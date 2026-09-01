@@ -27,11 +27,20 @@ describe("mobile cloud browser takeover isolation", () => {
     expect(source).not.toMatch(/\bheaders\s*:/);
   });
 
-  test("exposes only native Done and Cancel decisions", () => {
+  test("captures locally without giving the page a credential bridge", () => {
+    expect(source).toContain("captureAndEncryptCloudBrowserSession");
+    expect(source).toContain("mintSessionTransfer");
+    expect(source).toContain("importSessionTransfer");
+    expect(source).toContain("localNavigationAllowed");
+    expect(source).toContain("source={{ uri: detail.loginUrl }}");
+    expect(source).not.toContain("document.cookie");
+  });
+
+  test("keeps Done, Cancel, and the remote fallback user-controlled", () => {
     expect(source).toContain('onDecision("cancel")');
     expect(source).toContain('onDecision("done")');
-    expect(source).toMatch(/onDismiss\(\);\s+onDecision\("cancel"\)/);
-    expect(source).toMatch(/onDismiss\(\);\s+onDecision\("done"\)/);
+    expect(source).toContain('setMode("remote")');
+    expect(source).toContain("cloudBrowser.actions.useCloudBrowser");
     expect(source).not.toContain("onNavigationStateChange");
   });
 

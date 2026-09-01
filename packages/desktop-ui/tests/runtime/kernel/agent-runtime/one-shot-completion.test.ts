@@ -10,7 +10,6 @@ let claudeCodeEngineActive = false;
 const closedSessionKeys: string[] = [];
 const scheduledSessionCloses: Array<{ sessionKey: string; timeoutMs: number }> =
   [];
-const codexCalls: Array<Record<string, unknown>> = [];
 
 vi.mock(
   "@stella/runtime/kernel/integrations/claude-code-agent-runtime",
@@ -22,13 +21,6 @@ vi.mock(
     },
   }),
 );
-
-vi.mock("@stella/runtime/kernel/integrations/codex-agent-runtime", () => ({
-  runCodexAgentTurn: async (args: Record<string, unknown>) => {
-    codexCalls.push(args);
-    return { text: "codex utility summary" };
-  },
-}));
 
 vi.mock(
   "@stella/runtime/kernel/integrations/claude-code-session-runtime",
@@ -87,7 +79,6 @@ beforeEach(() => {
   completeSimpleCalls.length = 0;
   closedSessionKeys.length = 0;
   scheduledSessionCloses.length = 0;
-  codexCalls.length = 0;
   claudeCodeEngineActive = false;
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "one-shot-test-"));
 });
@@ -104,25 +95,6 @@ describe("runOneShotCompletion", () => {
     });
     expect(result.text).toBe("relay summary");
     expect(completeSimpleCalls).toHaveLength(1);
-    expect(codexCalls).toHaveLength(0);
-  });
-
-  it("preserves the native Codex utility path after explicit opt-in", async () => {
-    fs.writeFileSync(
-      path.join(dataDir, "preferences.json"),
-      JSON.stringify({
-        agentRuntimeEngine: "codex_cli",
-        useNativeCodexRuntime: true,
-      }),
-    );
-    const result = await runOneShotCompletion({
-      request,
-      runtime: makeRuntime({ authToken: "token", dataDir }),
-    });
-    expect(result.text).toBe("codex utility summary");
-    expect(codexCalls).toHaveLength(1);
-    expect(codexCalls[0]?.utility).toBe(true);
-    expect(completeSimpleCalls).toHaveLength(0);
   });
 
   it("uses the Claude Code engine when no LLM route resolves (signed-out CC user)", async () => {

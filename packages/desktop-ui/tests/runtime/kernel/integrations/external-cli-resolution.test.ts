@@ -4,10 +4,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  runCodexAgentTurn,
-  shutdownCodexAppServerRuntime,
-} from "@stella/runtime/kernel/integrations/codex-agent-runtime";
-import {
   runClaudeCodeTurn,
   shutdownClaudeCodeRuntime,
 } from "@stella/runtime/kernel/integrations/claude-code-session-runtime";
@@ -26,11 +22,8 @@ const trackedEnvNames = [
   "HOME",
   "USERPROFILE",
   "PATH",
-  "STELLA_CODEX_CLI_PATH",
-  "CODEX_CLI_PATH",
   "STELLA_CLAUDE_CLI_PATH",
   "CLAUDE_CLI_PATH",
-  "STELLA_FAKE_CODEX_LOG",
   "STELLA_FAKE_CLAUDE_LOG",
   "STELLA_FAKE_AUTH_MARKER",
   "STELLA_CLI_BRIDGE_SOCK",
@@ -56,7 +49,6 @@ const restoreTrackedEnv = () => {
 
 describe("external CLI resolution", () => {
   afterEach(() => {
-    shutdownCodexAppServerRuntime();
     shutdownClaudeCodeRuntime();
     restoreTrackedEnv();
   });
@@ -64,38 +56,38 @@ describe("external CLI resolution", () => {
   it("uses override, PATH, and well-known locations in order", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "stella-cli-order-"));
     const home = path.join(root, "home");
-    const overrideCodex = path.join(root, "override", "codex");
-    const genericOverrideCodex = path.join(root, "generic-override", "codex");
-    const pathCodex = path.join(root, "path-bin", "codex");
-    const bunCodex = path.join(home, ".bun", "bin", "codex");
+    const overrideClaude = path.join(root, "override", "claude");
+    const genericOverrideClaude = path.join(root, "generic-override", "claude");
+    const pathClaude = path.join(root, "path-bin", "claude");
+    const bunClaude = path.join(home, ".bun", "bin", "claude");
     for (const executable of [
-      overrideCodex,
-      genericOverrideCodex,
-      pathCodex,
-      bunCodex,
+      overrideClaude,
+      genericOverrideClaude,
+      pathClaude,
+      bunClaude,
     ]) {
       writeExecutable(executable);
     }
 
     const env: NodeJS.ProcessEnv = {
       HOME: home,
-      PATH: path.dirname(pathCodex),
-      STELLA_CODEX_CLI_PATH: overrideCodex,
-      CODEX_CLI_PATH: genericOverrideCodex,
+      PATH: path.dirname(pathClaude),
+      STELLA_CLAUDE_CLI_PATH: overrideClaude,
+      CLAUDE_CLI_PATH: genericOverrideClaude,
     };
     try {
-      expect(resolveExternalCliPath("codex", { env })).toBe(overrideCodex);
+      expect(resolveExternalCliPath("claude", { env })).toBe(overrideClaude);
 
-      delete env.STELLA_CODEX_CLI_PATH;
-      expect(resolveExternalCliPath("codex", { env })).toBe(
-        genericOverrideCodex,
+      delete env.STELLA_CLAUDE_CLI_PATH;
+      expect(resolveExternalCliPath("claude", { env })).toBe(
+        genericOverrideClaude,
       );
 
-      delete env.CODEX_CLI_PATH;
-      expect(resolveExternalCliPath("codex", { env })).toBe(pathCodex);
+      delete env.CLAUDE_CLI_PATH;
+      expect(resolveExternalCliPath("claude", { env })).toBe(pathClaude);
 
       env.PATH = path.join(root, "empty-path");
-      expect(resolveExternalCliPath("codex", { env })).toBe(bunCodex);
+      expect(resolveExternalCliPath("claude", { env })).toBe(bunClaude);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -125,7 +117,7 @@ describe("external CLI resolution", () => {
   });
 
   it("injects the bridge only when an approved launch explicitly supplies it", () => {
-    const executable = "/opt/stella/bin/codex";
+    const executable = "/opt/stella/bin/claude";
     const inherited = {
       PATH: "/usr/bin",
       STELLA_CLI_BRIDGE_SOCK: "/tmp/leaked.sock",
@@ -155,89 +147,12 @@ describe("external CLI resolution", () => {
     const emptyCandidates = [path.join(root, "well-known")];
     try {
       expect(() =>
-        resolveExternalCliPath("codex", {
-          env,
-          wellKnownDirectories: emptyCandidates,
-        }),
-      ).toThrow(/STELLA_CODEX_CLI_PATH.*CODEX_CLI_PATH/);
-      expect(() =>
         resolveExternalCliPath("claude", {
           env,
           wellKnownDirectories: emptyCandidates,
         }),
       ).toThrow(/STELLA_CLAUDE_CLI_PATH.*CLAUDE_CLI_PATH/);
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("starts Codex from ~/.bun/bin when GUI PATH omits it", async () => {
-    const root = fs.mkdtempSync(
-      path.join(os.tmpdir(), "stella-codex-gui-path-"),
-    );
-    const home = path.join(root, "home");
-    const guiPath = path.join(root, "gui-bin");
-    const bunBin = path.join(home, ".bun", "bin");
-    const logPath = path.join(root, "codex-env.json");
-    fs.mkdirSync(guiPath, { recursive: true });
-    writeExecutable(
-      path.join(bunBin, "codex"),
-      [
-        `#!${process.execPath}`,
-        'const fs = require("node:fs");',
-        'const readline = require("node:readline");',
-        "fs.writeFileSync(process.env.STELLA_FAKE_CODEX_LOG, JSON.stringify({ path: process.env.PATH, auth: process.env.STELLA_FAKE_AUTH_MARKER, bridge: process.env.STELLA_CLI_BRIDGE_SOCK, rawToken: process.env.STELLA_SITE_AUTH_TOKEN, proxyToken: process.env.STELLA_LLM_PROXY_TOKEN }));",
-        "const send = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\\n');",
-        "readline.createInterface({ input: process.stdin }).on('line', (line) => {",
-        "  const message = JSON.parse(line);",
-        "  if (message.method === 'initialize') { send({ id: message.id, result: {} }); return; }",
-        "  if (message.method === 'initialized') return;",
-        "  if (message.method === 'thread/start') { send({ id: message.id, result: { thread: { id: 'gui-thread' } } }); return; }",
-        "  if (message.method === 'turn/start') {",
-        "    const threadId = message.params.threadId;",
-        "    const turn = { id: 'gui-turn', status: 'inProgress' };",
-        "    send({ id: message.id, result: { turn } });",
-        "    send({ method: 'turn/started', params: { threadId, turn } });",
-        "    send({ method: 'item/completed', params: { threadId, turnId: turn.id, item: { type: 'agentMessage', id: 'gui-message', text: 'codex started' } } });",
-        "    send({ method: 'turn/completed', params: { threadId, turn: { ...turn, status: 'completed' } } });",
-        "  }",
-        "});",
-      ].join("\n"),
-    );
-
-    process.env.HOME = home;
-    process.env.USERPROFILE = home;
-    process.env.PATH = guiPath;
-    delete process.env.STELLA_CODEX_CLI_PATH;
-    delete process.env.CODEX_CLI_PATH;
-    process.env.STELLA_FAKE_CODEX_LOG = logPath;
-    process.env.STELLA_FAKE_AUTH_MARKER = "preserved";
-    process.env.STELLA_SITE_AUTH_TOKEN = "must-not-cross";
-    process.env.STELLA_LLM_PROXY_TOKEN = "must-not-cross-either";
-    try {
-      const result = await runCodexAgentTurn({
-        runId: "run-codex-gui-path",
-        sessionKey: "session-codex-gui-path",
-        prompt: "hello",
-        cliBridgeSocketPath: "/private/codex-bridge.sock",
-        reuseAppServer: true,
-      });
-      const childEnv = JSON.parse(fs.readFileSync(logPath, "utf8")) as {
-        path: string;
-        auth: string;
-        bridge: string;
-        rawToken?: string;
-        proxyToken?: string;
-      };
-
-      expect(result.text).toBe("codex started");
-      expect(childEnv.path.split(path.delimiter)).toEqual([bunBin, guiPath]);
-      expect(childEnv.auth).toBe("preserved");
-      expect(childEnv.bridge).toBe("/private/codex-bridge.sock");
-      expect(childEnv.rawToken).toBeUndefined();
-      expect(childEnv.proxyToken).toBeUndefined();
-    } finally {
-      shutdownCodexAppServerRuntime();
       fs.rmSync(root, { recursive: true, force: true });
     }
   });

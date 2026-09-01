@@ -67,7 +67,7 @@ export const COMPOSER_ENGINE_MENTION_OPTIONS: readonly ComposerModelMentionOptio
       value: "chatgpt",
       label: "ChatGPT",
       brand: "openai",
-      searchTerms: ["codex", "codex cli", "openai", "gpt"],
+      searchTerms: ["codex", "chatgpt", "openai", "gpt"],
     },
     {
       value: "claude-code",

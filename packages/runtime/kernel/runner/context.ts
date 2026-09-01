@@ -58,7 +58,7 @@ import type {
   SpawnEngineSelection,
   SpawnReasoningEffort,
 } from "@stella/contracts/agent-engine";
-import { getCodexRuntimePreferences } from "../integrations/codex-agent-runtime.js";
+import { getCodexSubscriptionPreferences } from "../integrations/codex-subscription.js";
 import {
   getClaudeCodeAgentModelId,
   getClaudeCodeRuntimeEffortLevel,
@@ -1248,7 +1248,7 @@ export const sampleAgentEngineConfig = (args: {
 }): SampledAgentEngineConfig => {
   const explicitEffort = normalizeCapturedReasoningEffort(args.reasoningEffort);
   if (args.engine === "codex_cli") {
-    const codex = getCodexRuntimePreferences(
+    const codex = getCodexSubscriptionPreferences(
       args.stellaDataDir,
       args.configuredModel,
       args.engineModelOverride,
@@ -1300,12 +1300,14 @@ export const resolveSubscriptionHarnessRouteModel = (args: {
     resolveAgentEngineForRun(args.configuredEngine, args.spawnEngine);
   if (engine !== "codex_cli") return undefined;
   if (args.modelConfigSnapshot) {
-    return args.modelConfigSnapshot.subscriptionHarnessEnabled === true
-      ? args.modelConfigSnapshot.routeModel
-      : undefined;
+    const snapshotModel = args.modelConfigSnapshot.engineModel?.trim();
+    return snapshotModel
+      ? `openai-codex/${snapshotModel}`
+      : args.modelConfigSnapshot.routeModel.startsWith("openai-codex/")
+        ? args.modelConfigSnapshot.routeModel
+        : `openai-codex/${getCodexSubscriptionPreferences(args.stellaDataDir).model}`;
   }
-  if (!args.subscriptionHarnessEnabled) return undefined;
-  const codex = getCodexRuntimePreferences(
+  const codex = getCodexSubscriptionPreferences(
     args.stellaDataDir,
     args.configuredModel,
     args.spawnEngine?.engine === "codex_cli"
@@ -1374,12 +1376,14 @@ export const resolveEffectiveAgentExecutionConfig = (
   const agentEngine =
     args.modelConfigSnapshot?.engine ??
     resolveAgentEngineForRun(configuredAgentEngine, restoredSpawnEngine);
-  // Persisted snapshots are authoritative. An absent mode field is the
-  // backward-compatible native meaning for legacy external-engine runs.
-  const subscriptionHarnessEnabled = args.modelConfigSnapshot
-    ? args.modelConfigSnapshot.subscriptionHarnessEnabled === true
-    : (args.subscriptionHarnessEnabled ??
-      getSubscriptionHarnessEnabled(context.stellaDataDir, agentEngine));
+  // Codex snapshots from older builds may say native/false. Codex now always
+  // uses the in-process subscription transport, including restored runs.
+  const subscriptionHarnessEnabled =
+    agentEngine === "codex_cli" ||
+    (args.modelConfigSnapshot
+      ? args.modelConfigSnapshot.subscriptionHarnessEnabled === true
+      : (args.subscriptionHarnessEnabled ??
+        getSubscriptionHarnessEnabled(context.stellaDataDir, agentEngine)));
   const capturedSubscriptionHarness =
     subscriptionHarnessEnabled &&
     (agentEngine === "codex_cli" || agentEngine === "claude_code_local");
@@ -1429,9 +1433,15 @@ export const resolveEffectiveAgentExecutionConfig = (
     }
   }
 
-  const modelConfigSnapshot =
-    args.modelConfigSnapshot ??
-    captureEffectiveModelConfig({
+  const modelConfigSnapshot = args.modelConfigSnapshot
+    ? agentEngine === "codex_cli"
+      ? {
+          ...args.modelConfigSnapshot,
+          subscriptionHarnessEnabled: true,
+          routeModel: `openai-codex/${args.modelConfigSnapshot.engineModel}`,
+        }
+      : args.modelConfigSnapshot
+    : captureEffectiveModelConfig({
       stellaDataDir: context.stellaDataDir,
       agentType: args.agentType,
       engine: agentEngine,
@@ -1444,7 +1454,7 @@ export const resolveEffectiveAgentExecutionConfig = (
       ...(restoredSpawnEngine ? { spawnEngine: restoredSpawnEngine } : {}),
       resolvedLlm: args.resolvedLlm,
       reasoningEffort: effectiveReasoningEffort,
-    });
+      });
 
   return {
     agentEngine,
@@ -1574,12 +1584,12 @@ export const buildAgentContext = async (
     restoredSpawnEngine,
   } = resolveEffectiveAgentExecutionConfig(context, args);
 
-  // Persisted snapshots are authoritative. An absent mode field is the
-  // backward-compatible native meaning for legacy external-engine runs.
-  const subscriptionHarnessEnabled = args.modelConfigSnapshot
-    ? args.modelConfigSnapshot.subscriptionHarnessEnabled === true
-    : (args.subscriptionHarnessEnabled ??
-      getSubscriptionHarnessEnabled(context.stellaDataDir, agentEngine));
+  const subscriptionHarnessEnabled =
+    agentEngine === "codex_cli" ||
+    (args.modelConfigSnapshot
+      ? args.modelConfigSnapshot.subscriptionHarnessEnabled === true
+      : (args.subscriptionHarnessEnabled ??
+        getSubscriptionHarnessEnabled(context.stellaDataDir, agentEngine)));
   const capturedSubscriptionHarness =
     subscriptionHarnessEnabled &&
     (agentEngine === "codex_cli" || agentEngine === "claude_code_local");

@@ -336,9 +336,11 @@ export const createStellaHostRunner = (
     const selectedEngine =
       args.modelConfigSnapshot?.engine ??
       resolveAgentEngineForRun(configuredAgentEngine, args.spawnEngine);
-    const subscriptionHarnessEnabled = args.modelConfigSnapshot
-      ? args.modelConfigSnapshot.subscriptionHarnessEnabled === true
-      : getSubscriptionHarnessEnabled(context.stellaDataDir, selectedEngine);
+    const subscriptionHarnessEnabled =
+      selectedEngine === "codex_cli" ||
+      (args.modelConfigSnapshot
+        ? args.modelConfigSnapshot.subscriptionHarnessEnabled === true
+        : getSubscriptionHarnessEnabled(context.stellaDataDir, selectedEngine));
     const sampledEngineConfig = args.modelConfigSnapshot
       ? undefined
       : sampleAgentEngineConfig({

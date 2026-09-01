@@ -117,7 +117,6 @@ describe("model routing availability", () => {
       "users grandfathered by a non-default engine",
       { agentRuntimeEngine: "codex_cli" },
     ],
-    ["users grandfathered by a native runtime", { useNativeCodexRuntime: true }],
     [
       "users grandfathered by a model override",
       { modelOverrides: { general: "openrouter/openai/gpt-5.6-sol" } },

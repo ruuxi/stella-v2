@@ -28,16 +28,13 @@ import {
   type ResolvedLlmRoute,
 } from "../model-routing.js";
 import {
-  getAgentRuntimeEngine,
   getModelOverride,
-  getSubscriptionHarnessEnabled,
 } from "../preferences/local-preferences.js";
 import { resolveAgentWorkingDirectory } from "./shared.js";
 import {
   runClaudeCodeAgentTextCompletion,
   shouldUseClaudeCodeAgentRuntime,
 } from "../integrations/claude-code-agent-runtime.js";
-import { runCodexAgentTurn } from "../integrations/codex-agent-runtime.js";
 import {
   closeClaudeCodeSessionWhenIdle,
   scheduleClaudeCodeSessionCloseWhenIdle,
@@ -206,29 +203,6 @@ export const runOneShotCompletion = async (args: {
   };
 
   try {
-    const activeEngine = getAgentRuntimeEngine(runtime.stellaDataDir);
-    if (
-      request.utility === true &&
-      activeEngine === "codex_cli" &&
-      !getSubscriptionHarnessEnabled(runtime.stellaDataDir, activeEngine)
-    ) {
-      const result = await runCodexAgentTurn({
-        runId: `codex:${request.agentType}:${crypto.randomUUID()}`,
-        ...(sessionKey ? { sessionKey } : {}),
-        prompt: userText,
-        ...(request.systemPrompt ? { systemPrompt: request.systemPrompt } : {}),
-        cwd: resolveAgentWorkingDirectory({
-          agentType: request.agentType,
-          stellaAppDir: runtime.stellaAppDir,
-        }),
-        stellaDataDir: runtime.stellaDataDir,
-        stellaAppDir: runtime.stellaAppDir,
-        utility: true,
-        reuseAppServer: true,
-        streamFinalAnswer: false,
-      });
-      return { text: result.text.trim() };
-    }
     if (useClaudeCode) {
       const text = await runClaudeCodeAgentTextCompletion({
         // Data dir, matching the other CC completion callers: preferences

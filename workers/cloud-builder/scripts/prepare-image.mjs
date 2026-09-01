@@ -160,11 +160,10 @@ const imagePackage = {
   workspaces: imagePackages.map((name) => `packages/${name}`),
   dependencies: {
     ...rootPackage.dependencies,
-    // Native coding-agent runtimes. These exact versions are part of the
+    // Claude's native coding-agent runtime. This exact version is part of the
     // sandbox image contract: cloud turns must not change behavior merely
     // because a registry dist-tag moved between image builds.
     "@anthropic-ai/claude-code": "2.1.220",
-    "@openai/codex": "0.146.0",
     // The immutable interior config uses Vite 8's rolldownOptions. Pin the
     // same builder pair used by this checkout instead of accidentally taking
     // app-template's older production Vite through workspace resolution.

@@ -5280,7 +5280,7 @@ export class BuildSession extends DurableObject<Env> {
   /**
    * Stop the command session first, then destroy its container. `destroy()` is
    * the authoritative boundary, while the explicit process kill makes a
-   * native Claude Code/Codex child stop promptly instead of waiting for the
+   * native Claude Code child stop promptly instead of waiting for the
    * container teardown handshake.
    */
   private async terminateCurrentAgentSandbox(turn: TurnRequest): Promise<void> {

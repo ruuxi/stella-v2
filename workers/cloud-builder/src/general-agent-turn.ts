@@ -362,17 +362,16 @@ export const selectGeneralAgentTurnPlan = (args: {
 /**
  * Whether this turn's saved thread candidate has to match its cursor exactly.
  *
- * A native engine's candidate is the only carrier of the CLI session state its
- * turn resumes from, so a registry entry that does not match this cursor means
+ * Claude's candidate is the only carrier of the CLI session state its turn
+ * resumes from, so a registry entry that does not match this cursor means
  * the state on disk belongs to some other run of the conversation, and running
- * against it would resume the wrong session. A Stella turn restores nothing
- * from the candidate: its history is rebuilt from the canonical rows every
- * turn, so the same mismatch describes a turn it can simply start cold. A turn
- * dispatched without an engine selection keeps the strict rule it has today.
+ * against it would resume the wrong session. Stella and ChatGPT/Codex turns
+ * rebuild history from canonical rows and can simply start cold. A turn
+ * dispatched without an engine selection keeps the strict legacy rule.
  */
 export const requiresExactThreadCandidate = (
   execution: CloudExecutionSelection | undefined,
-): boolean => execution?.engine !== "stella";
+): boolean => execution === undefined || execution.engine === "anthropic";
 
 /**
  * Flat facts rather than a request object: admission holds `index.ts`'s

@@ -94,12 +94,11 @@ export type LocalPreferences = {
   stellaConversationModelOverrides: Record<string, string>;
   /** Stella-scoped conversation reasoning restored with its routes. */
   stellaConversationReasoningEfforts: Record<string, ReasoningEffort>;
-  /** Runtime engine shared by every local CLI-backed agent. */
+  /** Runtime engine shared by every local agent. */
   agentRuntimeEngine: AgentEngine;
-  /** Per-engine opt-out of the subscription harness (native runtime instead). */
-  useNativeCodexRuntime: boolean;
+  /** Claude-only opt-out of Stella's subscription harness. */
   useNativeClaudeCodeRuntime: boolean;
-  /** Codex model id used when the Codex engine is selected. */
+  /** Subscription model id used when ChatGPT/Codex is selected. */
   codexModel: string;
   /**
    * True once the user actively picks a Codex/ChatGPT model in a picker
@@ -178,7 +177,6 @@ export type LocalModelPreferencesSnapshot = Pick<
   | "stellaConversationModelOverrides"
   | "stellaConversationReasoningEfforts"
   | "agentRuntimeEngine"
-  | "useNativeCodexRuntime"
   | "useNativeClaudeCodeRuntime"
   | "codexModel"
   | "codexModelExplicit"
@@ -204,7 +202,6 @@ const DEFAULT_PREFERENCES: LocalPreferences = {
   stellaConversationModelOverrides: {},
   stellaConversationReasoningEfforts: {},
   agentRuntimeEngine: "default",
-  useNativeCodexRuntime: false,
   useNativeClaudeCodeRuntime: false,
   codexModel: DEFAULT_CODEX_MODEL,
   codexModelExplicit: false,
@@ -258,8 +255,8 @@ const RETIRED_MODEL_PROVIDERS = new Set([
   "mistral",
   "fal",
 ]);
-// Keep dedicated native Codex ids valid; only migrate direct-provider routing
-// references removed from the maintained ChatGPT OAuth catalog.
+// Keep dedicated ChatGPT/Codex subscription ids valid; only migrate routing
+// references removed from the maintained OAuth catalog.
 const RETIRED_OPENAI_CODEX_MODELS = new Set([
   "gpt-5.1",
   "gpt-5.1-codex-max",
@@ -294,16 +291,9 @@ const normalizeStoredPreferences = (
     parsed.stellaConversationReasoningEfforts,
   ),
   agentRuntimeEngine: normalizeEngine(parsed.agentRuntimeEngine),
-  // The short-lived global native-runtime opt-out is migrated per engine
-  // only when that engine's replacement key is absent. Its default false
-  // (and the older `subscriptionHarnessEnabled` key) never change the new
-  // harness-by-default behavior. Saving the normalized object strips both
-  // retired keys.
-  useNativeCodexRuntime:
-    typeof parsed.useNativeCodexRuntime === "boolean"
-      ? parsed.useNativeCodexRuntime
-      : (parsed as { useNativeAgentRuntimes?: unknown })
-          .useNativeAgentRuntimes === true,
+  // The short-lived global native-runtime opt-out is migrated for Claude
+  // Code only. Codex now always uses Stella's subscription-backed harness;
+  // saving the normalized object strips the retired Codex/native keys.
   useNativeClaudeCodeRuntime:
     typeof parsed.useNativeClaudeCodeRuntime === "boolean"
       ? parsed.useNativeClaudeCodeRuntime
@@ -513,8 +503,8 @@ export const getSubscriptionHarnessEnabled = (
   stellaDataDir: string,
   engine: AgentEngine,
 ): boolean => {
+  if (engine === "codex_cli") return true;
   const prefs = loadLocalPreferences(stellaDataDir);
-  if (engine === "codex_cli") return !prefs.useNativeCodexRuntime;
   if (engine === "claude_code_local") {
     return !prefs.useNativeClaudeCodeRuntime;
   }
@@ -557,7 +547,6 @@ export const getLocalModelPreferences = (
       ...prefs.stellaConversationReasoningEfforts,
     },
     agentRuntimeEngine: prefs.agentRuntimeEngine,
-    useNativeCodexRuntime: prefs.useNativeCodexRuntime,
     useNativeClaudeCodeRuntime: prefs.useNativeClaudeCodeRuntime,
     codexModel: prefs.codexModel,
     codexModelExplicit: prefs.codexModelExplicit,
@@ -607,10 +596,6 @@ export const updateLocalModelPreferences = (
       patch.agentRuntimeEngine === undefined
         ? prefs.agentRuntimeEngine
         : normalizeEngine(patch.agentRuntimeEngine),
-    useNativeCodexRuntime:
-      patch.useNativeCodexRuntime === undefined
-        ? prefs.useNativeCodexRuntime
-        : patch.useNativeCodexRuntime === true,
     useNativeClaudeCodeRuntime:
       patch.useNativeClaudeCodeRuntime === undefined
         ? prefs.useNativeClaudeCodeRuntime

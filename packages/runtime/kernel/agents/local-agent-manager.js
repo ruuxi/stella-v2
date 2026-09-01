@@ -759,15 +759,12 @@ export class LocalAgentManager {
         return false;
     }
     shouldParkFinalForDescendants(task) {
-        // Native Codex/ChatGPT owns its parent/child completion protocol. Stella,
-        // Claude Code, and harnessed Codex share this manager boundary: a
+        // Stella, Claude Code, and ChatGPT/Codex share this manager boundary: a
         // General's natural final is not root-facing until every descendant has
         // reached a terminal state.
         return (
             task.status === "completed" &&
             task.agentType === AGENT_IDS.GENERAL &&
-            (task.modelConfigSnapshot?.engine !== "codex_cli" ||
-                task.modelConfigSnapshot.subscriptionHarnessEnabled === true) &&
             this.hasActiveDescendants(task.threadId)
         );
     }

@@ -75,19 +75,15 @@ describe("full-area agent model picker layout", () => {
     expect(picker).not.toContain("agent-model-picker-footer");
     expect(picker).toContain("oauthPendingProvider");
     expect(picker).toContain("cancelPendingOAuth");
-    expect(picker).toContain("Use Codex instead");
+    expect(picker).not.toContain("Use Codex instead");
     expect(picker).toContain("Use Claude Code instead");
+    expect(picker).not.toContain("useNativeCodexRuntime");
+    expect(picker).not.toContain("Requires a separately installed Codex CLI");
     expect(picker).toContain(
-      'handleNativeRuntimeChange("useNativeCodexRuntime"',
+      "handleNativeClaudeCodeRuntimeChange(checked)",
     );
-    expect(picker).toContain("Requires a separately installed Codex CLI");
-    expect(picker).toContain(
-      'handleNativeRuntimeChange("useNativeClaudeCodeRuntime"',
-    );
-    expect(picker).toContain('label="Fast"');
-    expect(picker).toContain("selectedChatGptSupportsFast ?");
-    expect(picker).toContain("handleCodexServiceTierSelect(");
-    expect(picker).not.toContain("void handleCodexServiceTierSelect;");
+    expect(picker).not.toContain('label="Fast"');
+    expect(picker).not.toContain("handleCodexServiceTierSelect(");
     expect(styles).toContain(".agent-model-picker-engine-options {");
     expect(styles).toContain(".agent-model-picker-selected-controls {");
 
@@ -123,7 +119,7 @@ describe("full-area agent model picker layout", () => {
     expect(styles).toContain("padding: 5px 10px;");
   });
 
-  it("keeps Codex discovery native-only, inline, and out of the toast", () => {
+  it("keeps Codex on the static subscription catalog", () => {
     const picker = readSource("global/settings/AgentModelPicker.tsx");
     const miniPicker = readSource("app/chat/MiniModelPicker.jsx");
     const toastEffectStart = picker.indexOf(
@@ -139,20 +135,12 @@ describe("full-area agent model picker layout", () => {
     expect(picker.slice(toastEffectStart, toastEffectEnd)).not.toContain(
       "codexCatalog.error",
     );
-    expect(picker).toMatch(
-      /const codexCatalogEnabled = active\s*&&\s*nativeCodexRuntimeEnabled\s*&&\s*\(chatGptSectionOpen\s*\|\|\s*committedEngine\s*===\s*"codex_cli"\)/,
-    );
+    expect(picker).not.toContain("useCodexModelCatalog");
+    expect(picker).not.toContain("nativeCodexRuntimeEnabled");
+    expect(miniPicker).not.toContain("useCodexModelCatalog");
+    expect(miniPicker).not.toContain("nativeCodexRuntimeEnabled");
     expect(picker).toContain(
-      "const codexCatalog = useCodexModelCatalog(codexCatalogEnabled)",
-    );
-    expect(picker).toMatch(
-      /if \(!nativeCodexRuntimeEnabled\)\s*return listChatGptCatalogModels\(allModels\)/,
-    );
-    expect(picker).toMatch(
-      /content: \(\) => \(nativeCodexRuntimeEnabled\s*&&\s*codexCatalog\.error/,
-    );
-    expect(miniPicker).toMatch(
-      /useCodexModelCatalog\(committedEngine\s*===\s*"codex_cli"\s*&&\s*nativeCodexRuntimeEnabled\)/,
+      "const chatGptCatalogModels = useMemo(() => listChatGptCatalogModels(allModels), [allModels])",
     );
     expect(picker).toContain("chatGptRegistryOptions");
     expect(picker).toContain(": chatGptRegistryOptions");

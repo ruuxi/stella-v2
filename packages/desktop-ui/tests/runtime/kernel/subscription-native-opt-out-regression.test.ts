@@ -70,7 +70,7 @@ const contextFor = (stellaDataDir: string): RunnerContext =>
     state: { loadedAgents: [] },
   }) as unknown as RunnerContext;
 
-describe("native agent runtime opt-out durability", () => {
+describe("subscription harness durability", () => {
   it("fails legacy and explicit-native snapshots closed to native execution", () => {
     expect(usesManagedSubscriptionHarness(undefined)).toBe(false);
     expect(usesManagedSubscriptionHarness({})).toBe(false);
@@ -82,7 +82,7 @@ describe("native agent runtime opt-out durability", () => {
     ).toBe(true);
   });
 
-  it("defaults both external engines to Stella's harness and samples each opt-out independently", async () => {
+  it("always keeps Codex on Stella's harness while Claude retains its opt-out", async () => {
     const stellaDataDir = makeDataDir();
     const context = contextFor(stellaDataDir);
     const codex = resolvedRoute("openai-codex", "gpt-5.6-sol");
@@ -121,26 +121,6 @@ describe("native agent runtime opt-out durability", () => {
     });
 
     updateLocalModelPreferences(stellaDataDir, {
-      useNativeCodexRuntime: true,
-    });
-    const nativeCodex = await buildAgentContext(context, {
-      conversationId: "native-codex",
-      agentType: AGENT_IDS.GENERAL,
-      runId: "run-native-codex",
-      configuredAgentEngine: "codex_cli",
-      model: "openai-codex/gpt-5.6-sol",
-      resolvedLlm: codex,
-    });
-    expect(nativeCodex.modelConfigSnapshot).toMatchObject({
-      engine: "codex_cli",
-      subscriptionHarnessEnabled: false,
-    });
-    expect(
-      getSubscriptionHarnessEnabled(stellaDataDir, "claude_code_local"),
-    ).toBe(true);
-
-    updateLocalModelPreferences(stellaDataDir, {
-      useNativeCodexRuntime: false,
       useNativeClaudeCodeRuntime: true,
     });
     const nativeClaude = await buildAgentContext(context, {
@@ -163,11 +143,10 @@ describe("native agent runtime opt-out durability", () => {
     ).toBe(true);
   });
 
-  it("keeps explicit-native and legacy-native snapshots authoritative after preferences change", async () => {
+  it("migrates explicit-native and legacy-native Codex snapshots to Responses", async () => {
     const stellaDataDir = makeDataDir();
     const context = contextFor(stellaDataDir);
     updateLocalModelPreferences(stellaDataDir, {
-      useNativeCodexRuntime: false,
       useNativeClaudeCodeRuntime: false,
     });
     const route = resolvedRoute("openai-codex", "gpt-5.6-sol");
@@ -195,11 +174,15 @@ describe("native agent runtime opt-out durability", () => {
         model: snapshot.routeModel,
         resolvedLlm: route,
       });
-      expect(built.modelConfigSnapshot).toEqual(snapshot);
+      expect(built.modelConfigSnapshot).toEqual({
+        ...snapshot,
+        subscriptionHarnessEnabled: true,
+        routeModel: `openai-codex/${snapshot.engineModel}`,
+      });
     }
   });
 
-  it("routes only eligible harnessed Codex Generals through the in-process provider", () => {
+  it("routes eligible Codex Generals through the in-process provider", () => {
     const stellaDataDir = makeDataDir();
     updateLocalModelPreferences(stellaDataDir, {
       codexModel: "gpt-5.6-sol",

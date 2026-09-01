@@ -393,8 +393,8 @@ export const handleAgentStatus = async (
   if (!snapshot) {
     return { error: `Thread not found: ${threadId}` };
   }
-  // Codex surfaces reasoning summaries as its visible narration; native
-  // engines author plain text blocks. Chronological walk keeps "latest
+  // ChatGPT/Codex surfaces reasoning summaries as its visible narration;
+  // other engines author plain text blocks. Chronological walk keeps "latest
   // tool call" honest even if the store returns rows out of order.
   const isCodex = snapshot.engine === CODEX_ENGINE_ID;
   const ordered = [...snapshot.messages].sort(

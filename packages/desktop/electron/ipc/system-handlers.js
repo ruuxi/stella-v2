@@ -8,14 +8,14 @@ import { getMainLogger } from "../observability/main-logger.js";
 import { exportDesktopDebugLogs, getDesktopDebugPaths } from "../observability/desktop-debug-logging.js";
 import { resolveLogPaths } from "@stella/runtime/observability/log-paths";
 import { getLocalModelPreferences, getOnboardingCompleted, getPreventComputerSleep, getReadAloudEnabled, setReadAloudEnabled, getSoundNotificationsEnabled, loadLocalPreferences, normalizeImageGenerationPreferences, normalizeCodexServiceTier, normalizeRealtimeVoicePreferences, saveLocalPreferences, setOnboardingCompleted, updateLocalModelPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
-import { coerceAgentRuntimeEngine } from "@stella/contracts/agent-engine";
+import { coerceAgentRuntimeEngine, DEFAULT_CODEX_MODEL } from "@stella/contracts/agent-engine";
 import { hasRealtimeVoiceSessionRouteChanged, } from "@stella/contracts/local-preferences";
 import { resetStellaCustomizations } from "@stella/runtime/kernel/home/reset-customizations";
 import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-home";
 import { loadAgentSystemPrompt } from "@stella/runtime/kernel/agents/home-agent-prompt";
 import { deletePromptPreset, isCustomizablePromptAgentId, listPromptPresets, readPromptPreset, savePromptPreset, } from "@stella/runtime/kernel/prompts/prompt-presets";
 import { getPromptPresetSelection, setPromptPresetSelection, } from "@stella/runtime/kernel/preferences/local-preferences";
-import { listCodexAppServerModels } from "@stella/runtime/kernel/integrations/codex-agent-runtime";
+import { getModels, getSupportedThinkingLevels } from "@stella/runtime/ai/models";
 import { listClaudeCodeModels } from "@stella/runtime/kernel/integrations/claude-code-session-runtime";
 import { deleteLocalLlmCredential, getLocalLlmCredential, listLocalLlmCredentials, saveLocalLlmCredential, } from "@stella/runtime/kernel/storage/llm-credentials";
 import { cleanupRetiredLocalLlmOAuthCredentials, deleteLocalLlmOAuthCredential, getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, saveLocalLlmOAuthCredential, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
@@ -214,7 +214,7 @@ const detectTechnicalUserSignalsAsync = async () => {
             anyExistsAsync(winAppPaths("Programs\\Claude\\Claude.exe")),
         ]).then(([a, b]) => (a || b ? "claude-app" : null)), anyExistsAsync(winAppPaths("Programs\\OpenAI ChatGPT\\ChatGPT.exe")).then((v) => (v ? "chatgpt-app" : null)), anyExistsAsync(winAppPaths("Programs\\Cursor\\Cursor.exe")).then((v) => v ? "cursor-app" : null));
     }
-    probes.push(findCliOnPathAsync("claude").then((v) => (v ? "claude-cli" : null)), findCliOnPathAsync("codex").then((v) => (v ? "codex-cli" : null)), findCliOnPathAsync("opencode").then((v) => (v ? "opencode-cli" : null)), Promise.all([
+    probes.push(findCliOnPathAsync("claude").then((v) => (v ? "claude-cli" : null)), findCliOnPathAsync("opencode").then((v) => (v ? "opencode-cli" : null)), Promise.all([
         pathExists(path.join(home, ".pi", "agent")),
         findCliOnPathAsync("pi"),
     ]).then(([a, b]) => (a || b ? "pi-cli" : null)));
@@ -1095,7 +1095,23 @@ export const registerSystemHandlers = (options) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_LIST_CODEX_MODELS)) {
             throw new Error("Blocked untrusted preferences:listCodexModels request.");
         }
-        return listCodexAppServerModels();
+        return {
+            models: getModels("openai-codex").map((model) => ({
+                id: model.id,
+                model: model.id,
+                displayName: model.name,
+                description: model.name,
+                hidden: false,
+                supportedReasoningEfforts: getSupportedThinkingLevels(model).map((effort) => ({
+                    reasoningEffort: effort === "off" ? "none" : effort,
+                    description: "",
+                })),
+                defaultReasoningEffort: model.reasoning ? "medium" : "none",
+                inputModalities: model.input,
+                additionalSpeedTiers: [],
+                isDefault: model.id === DEFAULT_CODEX_MODEL,
+            })),
+        };
     });
     ipcMain.handle(IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS)) {
@@ -1196,9 +1212,6 @@ export const registerSystemHandlers = (options) => {
         }
         if (payload?.claudeCodeReasoningEffort !== undefined) {
             patch.claudeCodeReasoningEffort = sanitizeReasoningEffort(payload.claudeCodeReasoningEffort);
-        }
-        if (payload?.useNativeCodexRuntime !== undefined) {
-            patch.useNativeCodexRuntime = payload.useNativeCodexRuntime === true;
         }
         if (payload?.useNativeClaudeCodeRuntime !== undefined) {
             patch.useNativeClaudeCodeRuntime =

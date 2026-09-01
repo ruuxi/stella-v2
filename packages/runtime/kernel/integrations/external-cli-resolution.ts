@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export type ExternalCli = "codex" | "claude";
+export type ExternalCli = "claude";
 
 type ExternalCliConfig = {
   displayName: string;
@@ -11,11 +11,6 @@ type ExternalCliConfig = {
 };
 
 const CLI_CONFIG: Record<ExternalCli, ExternalCliConfig> = {
-  codex: {
-    displayName: "Codex CLI",
-    overrideEnvNames: ["STELLA_CODEX_CLI_PATH", "CODEX_CLI_PATH"],
-    toolDirectories: [".codex/bin", ".cargo/bin"],
-  },
   claude: {
     displayName: "Claude Code CLI",
     overrideEnvNames: ["STELLA_CLAUDE_CLI_PATH", "CLAUDE_CLI_PATH"],

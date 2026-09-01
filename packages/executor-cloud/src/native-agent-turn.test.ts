@@ -16,13 +16,10 @@ import {
   buildCloudClaudeTakeoverArgs,
   buildClaudeChildEnv,
   assertNativeHistoryParity,
-  buildStatelessCodexExecArgs,
-  buildStatelessCodexPrompt,
   createCloudClaudeMcpConfig,
   nativeHistoryCursorFromRows,
   resolveClaudeModelArgs,
   resolveClaudeReasoningArgs,
-  resolveCodexReasoningEffort,
   runNativeAgentTurn,
 } from "./native-agent-turn.js";
 import { sealNativeState } from "./native-state-integrity.js";
@@ -108,14 +105,13 @@ describe("native engine reasoning selection", () => {
     }
   });
 
-  it("preserves each CLI's own default", () => {
+  it("preserves Claude Code's own default", () => {
     expect(resolveClaudeModelArgs("default")).toEqual([]);
     expect(resolveClaudeModelArgs("claude-sonnet-4-6")).toEqual([
       "--model",
       "claude-sonnet-4-6",
     ]);
     expect(resolveClaudeReasoningArgs("default")).toEqual([]);
-    expect(resolveCodexReasoningEffort("default")).toBeUndefined();
   });
 
   it("maps Stella's extended effort names to Claude Code", () => {
@@ -135,65 +131,6 @@ describe("native engine reasoning selection", () => {
       "--thinking",
       "enabled",
     ]);
-  });
-
-  it("passes explicit Codex effort through unchanged", () => {
-    for (const effort of [
-      "none",
-      "minimal",
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-    ] as const) {
-      expect(resolveCodexReasoningEffort(effort)).toBe(effort);
-    }
-  });
-
-  it("reconstructs Codex from canonical history without a resume argument", () => {
-    const inputPrompt = buildStatelessCodexPrompt({
-      history: [
-        {
-          role: "user",
-          content: [{ type: "text", text: "Remember 41." }],
-          timestamp: 1,
-        },
-        {
-          role: "assistant",
-          content: [{ type: "text", text: "I will." }],
-          api: "openai-responses",
-          provider: "openai",
-          model: "gpt-5.4",
-          usage: {
-            input: 1,
-            output: 1,
-            cacheRead: 0,
-            cacheWrite: 0,
-            totalTokens: 2,
-            cost: {
-              input: 0,
-              output: 0,
-              cacheRead: 0,
-              cacheWrite: 0,
-              total: 0,
-            },
-          },
-          stopReason: "stop",
-          timestamp: 2,
-        },
-      ],
-      prompt: "Add one.",
-    });
-    expect(inputPrompt).toContain("Remember 41.");
-    expect(inputPrompt).toContain("Add one.");
-    const args = buildStatelessCodexExecArgs({
-      model: "gpt-5.4",
-      workspaceRoot: "/workspace/drive",
-      inputPrompt,
-    });
-    expect(args.slice(0, 2)).toEqual(["exec", "--json"]);
-    expect(args).not.toContain("resume");
-    expect(args.slice(-3)).toEqual(["--cd", "/workspace/drive", inputPrompt]);
   });
 
   it("does not pass executor token variable names into Claude", () => {
@@ -316,7 +253,6 @@ describe("native engine reasoning selection", () => {
         relayToken: "loopback-relay-sentinel",
         threadId: "thread",
         turnId: "turn",
-        history: [],
         authoritativeHistoryCursor: nativeHistoryCursorFromRows([]),
         stateIntegrityKey: "b".repeat(64),
         emitEvent: () => undefined,

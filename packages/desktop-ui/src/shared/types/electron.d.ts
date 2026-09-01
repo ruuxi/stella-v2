@@ -774,6 +774,7 @@ export type ElectronSystemApi = {
     claudeCodeModel: string;
     claudeCodeReasoningEffort:
       "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
+    useNativeClaudeCodeRuntime: boolean;
     maxAgentConcurrency: number;
     imageGeneration: {
       provider: "stella" | "openai" | "openrouter" | "fal";
@@ -804,6 +805,7 @@ export type ElectronSystemApi = {
     claudeCodeModel?: string;
     claudeCodeReasoningEffort?:
       "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
+    useNativeClaudeCodeRuntime?: boolean;
     maxAgentConcurrency?: number;
     imageGeneration?: {
       provider: "stella" | "openai" | "openrouter" | "fal";
@@ -833,6 +835,7 @@ export type ElectronSystemApi = {
     claudeCodeModel: string;
     claudeCodeReasoningEffort:
       "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
+    useNativeClaudeCodeRuntime: boolean;
     maxAgentConcurrency: number;
     imageGeneration: {
       provider: "stella" | "openai" | "openrouter" | "fal";
@@ -906,7 +909,6 @@ export type ElectronSystemApi = {
       | "chatgpt-app"
       | "cursor-app"
       | "claude-cli"
-      | "codex-cli"
       | "opencode-cli"
       | "pi-cli"
     >;

@@ -98,15 +98,14 @@ Restart behavior is explicit:
   from `content_block_start` plus JSON deltas and binds it at block stop before
   Claude issues the MCP request; the finalized assistant transcript is a
   duplicate/fallback, never the first-call dependency. MCP request numbering is
-  not identity. Codex uses the native
-  `dynamicToolCall.id`/`item/tool/call.callId` within the persisted Codex
-  session. Canonical request hashes are mismatch guards only. A new native ID
+  not identity. ChatGPT/Codex uses the Responses tool-call id from Stella's
+  in-process harness. Canonical request hashes are mismatch guards only. A new ID
   is therefore a legitimate identical second generation; replay of the same
-  native ID returns the same result even if transport sequencing changes.
-- Native execution does not acknowledge inside the tool adapter. Only after
+  ID returns the same result even if transport sequencing changes.
+- Execution does not acknowledge inside the tool adapter. Only after
   Stella durably persists the tool-result transcript row does it acknowledge the
   operation as delivered. Claude acknowledges after the MCP HTTP response emits
-  `finish`; Codex acknowledges after the app-server stdio write callback. A
+  `finish`; the in-process harness acknowledges after durable persistence. A
   crash on either side of those boundaries may replay the same result, but the
   durable alias prevents another provider submission or charge.
 - A relay disconnect retries only the Stella HTTP request with the same durable

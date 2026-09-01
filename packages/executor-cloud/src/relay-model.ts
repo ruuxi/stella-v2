@@ -427,7 +427,7 @@ const managedRelayModel = async (args: {
 /**
  * Create the exact relay adapter selected at dispatch. Managed routes retain
  * Stella's provider-specific request shape; connected subscriptions use their
- * native Anthropic/Codex adapters while credentials remain in Convex.
+ * subscription Anthropic/Codex adapters while credentials remain in Convex.
  */
 export const createCloudRelayModel = async (args: {
   siteUrl: string;

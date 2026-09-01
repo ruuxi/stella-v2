@@ -363,6 +363,12 @@ const PUBLISH_STELLA_INTERIOR_METADATA: ToolMetadata = {
   },
 };
 
+/** Only Claude Code owns a native CLI loop; Codex uses Stella's Agent loop. */
+export const usesNativeCloudRuntime = (
+  execution: CloudExecutionSelection,
+): execution is Extract<CloudExecutionSelection, { engine: "anthropic" }> =>
+  execution.engine === "anthropic";
+
 /**
  * Every cloud agent turn can reach the interior source at `world/stella`, so
  * the request tool is always in the catalog.
@@ -896,7 +902,7 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
       }));
 
       let claudeToolMcpHost: ClaudeCodeToolMcpHost | undefined;
-      if (input.execution.engine === "anthropic") {
+      if (usesNativeCloudRuntime(input.execution)) {
         claudeToolMcpHost = yield* Effect.acquireRelease(
           Effect.tryPromise({
             try: () =>
@@ -946,7 +952,7 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
             ReturnType<typeof runNativeAgentTurn>
           >["nativeStateCheckpoint"]
         | undefined;
-      if (input.execution.engine !== "stella") {
+      if (usesNativeCloudRuntime(input.execution)) {
         const nativeExecution = input.execution;
         const nativeOutcome = yield* Effect.promise(async () => {
           try {
@@ -960,7 +966,6 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
                 relayToken: credentialProxy.dummyToken,
                 threadId: input.threadId,
                 turnId: input.turnId,
-                history,
                 authoritativeHistoryCursor: nativeHistoryCursorFromRows(
                   input.history ?? [],
                 ),

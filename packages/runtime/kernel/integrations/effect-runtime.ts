@@ -1,7 +1,7 @@
 /**
  * The one module-level ManagedRuntime for the external-engine integrations
  * tree (M5 kernel/integrations pass), plus the Effect combinators the
- * claude-code / codex CLI runtimes share.
+ * Claude Code runtime uses.
  *
  * House conventions (docs/effect-architecture.md, kernel/tools/shell.ts):
  * - Exactly ONE requirements-free runtime per facade module family; context

@@ -11,7 +11,6 @@ import {
   isMuseSpark12ContributorModel,
 } from "@stella/contracts/stella-api";
 import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
-import { useCodexModelCatalog } from "@/global/settings/hooks/use-codex-model-catalog";
 import { useClaudeCodeModelCatalog } from "@/global/settings/hooks/use-claude-code-model-catalog";
 import { getStellaResolvedModelName } from "@/global/settings/lib/model-catalog";
 import { buildModelDefaultsMap, buildResolvedModelDefaultsMap, getConfigurableAgents, getDefaultModelOptionLabel, getModelPickerDisplayLabel, getLocalModelDefaults, normalizeModelOverrides, } from "@/global/settings/lib/model-defaults";
@@ -21,7 +20,7 @@ import { getPlanLabel, isRestrictedModelOverrideAudience, } from "@/global/billi
 import { useLlmCredentials } from "@/global/settings/hooks/use-llm-credentials";
 import { showToast } from "@/ui/toast";
 import { useT } from "@/shared/i18n";
-import { buildEngineReasoningPatch, buildEngineRoutingPatch, buildEngineTransitionReasoningPatch, buildModelSelectionPatch, codexModelSupportsFast, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, formatRecentEngineModelId, fromOpenAiCodexModelId, intersectChatGptModels, listChatGptCatalogModels, OPENAI_CODEX_PROVIDER, resolveChatGptEngineModel, type LiveCodexModel, type ModelPickerEngine, } from "@/global/settings/lib/engine-model-routing";
+import { buildEngineReasoningPatch, buildEngineRoutingPatch, buildEngineTransitionReasoningPatch, buildModelSelectionPatch, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, formatRecentEngineModelId, fromOpenAiCodexModelId, listChatGptCatalogModels, OPENAI_CODEX_PROVIDER, resolveChatGptEngineModel, type ModelPickerEngine, } from "@/global/settings/lib/engine-model-routing";
 import "./AgentModelPicker.css";
 
 type ImageGenerationProvider = "stella" | "openai" | "openrouter" | "fal";
@@ -30,7 +29,6 @@ type ImageGenerationPreferences = {
     model?: string;
 };
 type ReasoningEffort = "default" | ReasoningEffortOptionId;
-type CodexServiceTier = "standard" | "fast";
 type LocalModelPreferences = {
     defaultModels: Record<string, string>;
     modelOverrides: Record<string, string>;
@@ -42,10 +40,9 @@ type LocalModelPreferences = {
     codexModel: string;
     codexModelExplicit: boolean;
     codexReasoningEffort: ReasoningEffort;
-    codexServiceTier: CodexServiceTier;
+    codexServiceTier: "standard" | "fast";
     claudeCodeModel: string;
     claudeCodeReasoningEffort: ReasoningEffort;
-    useNativeCodexRuntime?: boolean;
     useNativeClaudeCodeRuntime?: boolean;
     maxAgentConcurrency: number;
     imageGeneration: ImageGenerationPreferences;
@@ -62,7 +59,6 @@ const ASSISTANT_TARGET = "__assistant__";
 const IMAGE_TARGET = "__image__";
 const VOICE_TARGET = "__voice__";
 const ENGINE_PENDING_TARGET = "__engine__";
-const NATIVE_CODEX_RUNTIME_PENDING_TARGET = "__native_codex_runtime__";
 const NATIVE_CLAUDE_CODE_RUNTIME_PENDING_TARGET = "__native_claude_code_runtime__";
 /** Section keys for the two engine entries in the single provider list. */
 const CHATGPT_SECTION_KEY = "chatgpt-engine";
@@ -171,22 +167,15 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const [preferences, setPreferencesRaw] = useState<LocalModelPreferences | null>(() => cachedLocalPreferences);
     const [pendingAgent, setPendingAgent] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    // Native engine catalogs are optional enhancements. The regular ChatGPT
-    // path uses Stella's static openai-codex registry and OAuth transport, so it
-    // must never probe the local Codex executable. Only the explicit native
-    // opt-in may ask Codex app-server for its model list.
+    // ChatGPT/Codex always uses Stella's static openai-codex registry and the
+    // subscription-authenticated Responses transport. It never probes a local
+    // Codex executable.
     const [chatGptSectionOpen, setChatGptSectionOpen] = useState(false);
     const [claudeCodeSectionOpen, setClaudeCodeSectionOpen] = useState(false);
     const committedEngine = preferences?.agentRuntimeEngine ?? "default";
     const credentials = useLlmCredentials();
     const cancelOAuth = credentials.cancelOAuth;
     const validateOAuth = credentials.validateOAuth;
-    const nativeCodexRuntimeEnabled = preferences?.useNativeCodexRuntime === true;
-    const codexCatalogEnabled = active &&
-        nativeCodexRuntimeEnabled &&
-        (chatGptSectionOpen || committedEngine === "codex_cli");
-    const codexCatalog = useCodexModelCatalog(codexCatalogEnabled);
-    const codexCatalogLoading = nativeCodexRuntimeEnabled && codexCatalog.loading;
     const [chatGptConnection, setChatGptConnection] = useState<"checking" | "connected" | "disconnected" | "needs-reauth">("checking");
     // Soft status shown when a genuinely-gone saved ChatGPT model was rerouted
     // to an available one, so the switch is never silent.
@@ -250,13 +239,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         }
         return next;
     }, [allModels]);
-    const chatGptCatalogModels = useMemo(() => {
-        if (!nativeCodexRuntimeEnabled)
-            return listChatGptCatalogModels(allModels);
-        return codexCatalog.models
-            ? intersectChatGptModels(allModels, codexCatalog.models)
-            : [];
-    }, [allModels, codexCatalog.models, nativeCodexRuntimeEnabled]);
+    const chatGptCatalogModels = useMemo(() => listChatGptCatalogModels(allModels), [allModels]);
     const chatGptModels = useMemo(() => chatGptCatalogModels.map((model) => ({
         id: model.modelId,
         label: model.name || model.modelId,
@@ -272,33 +255,6 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             "")
         : null;
     const selectedChatGptModel = savedChatGptOverride ?? preferences?.codexModel ?? DEFAULT_CHATGPT_MODEL;
-    const selectedChatGptLiveModel = nativeCodexRuntimeEnabled
-        ? (codexCatalog.models?.find((model) => model.id === selectedChatGptModel) ??
-            null)
-        : null;
-    const selectedChatGptSupportsFast = codexModelSupportsFast(selectedChatGptLiveModel);
-    const chatGptCatalogSettled = nativeCodexRuntimeEnabled &&
-        !codexCatalogLoading &&
-        codexCatalog.models !== null;
-    const selectedChatGptModelUnavailable = chatGptCatalogSettled &&
-        Boolean(selectedChatGptModel) &&
-        !chatGptModels.some((model) => model.id === selectedChatGptModel);
-    const chatGptModelsWithCurrent = useMemo(() => {
-        if (!chatGptCatalogSettled ||
-            !selectedChatGptModel ||
-            chatGptModels.some((model) => model.id === selectedChatGptModel)) {
-            return chatGptModels;
-        }
-        return [
-            ...chatGptModels,
-            {
-                id: selectedChatGptModel,
-                label: selectedChatGptModel,
-                description: t("settings.agentModelPicker.unavailableChooseAnother"),
-                unavailable: true,
-            },
-        ];
-    }, [chatGptCatalogSettled, chatGptModels, selectedChatGptModel, t]);
     // Even without a ChatGPT connection the static registry knows which
     // OpenAI models the ChatGPT engine can route — show those instead of an
     // empty wall. Picking one starts the OAuth flow.
@@ -308,7 +264,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         description: model.modelId,
     })), [allModels]);
     const chatGptDisplayModels = chatGptModels.length > 0
-        ? chatGptModelsWithCurrent
+        ? chatGptModels
         : chatGptRegistryOptions;
     const selectedClaudeCodeModel = preferences?.claudeCodeModel || DEFAULT_CLAUDE_CODE_MODEL;
     const [oauthPendingProvider, setOauthPendingProvider] = useState<string | null>(null);
@@ -434,14 +390,14 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const claudeCodeModelsLoading = claudeCodeCatalog.loading;
     // Only errors from an explicit user action (a model/engine commit or a
     // preference save, tracked in `error`) surface as a toast. Model *catalog*
-    // fetch failures — the Stella provider list (`catalogError`), ChatGPT/Codex
-    // (`codexCatalog.error`), and Claude Code (`claudeCodeCatalog.error`) — used
+    // fetch failures — the Stella provider list (`catalogError`) and Claude
+    // Code (`claudeCodeCatalog.error`) — used
     // to be folded in here too, but the picker re-checks every catalog each time
     // it opens (the picker remounts, so the de-dup ref below reset), which
     // re-fired the same error toast on every open. Those failures now render as
     // a quiet inline "Couldn't load models · Retry" line scoped to the specific
     // provider that failed (the Stella list via ProviderModelPanel's
-    // `catalogError`; the two engines inside their own sections below).
+    // `catalogError`; Claude Code inside its own section below).
     const lastToastedErrorRef = useRef<string | null>(null);
     useEffect(() => {
         if (!error) {
@@ -557,9 +513,6 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         let oauthAttempt: { provider: string; cancelled: boolean } | null = null;
         try {
             if (engine === "codex_cli") {
-                if (codexCatalogLoading) {
-                    throw new Error(t("settings.agentModelPicker.errors.chatGptVerifying"));
-                }
                 const selectedModel = modelId?.trim() || preferences.codexModel;
                 setChatGptConnection("checking");
                 let validation = await credentials.validateOAuth(OPENAI_CODEX_PROVIDER);
@@ -586,8 +539,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                 setChatGptConnection("connected");
                 const resolution = resolveChatGptEngineModel(selectedModel, chatGptModels.map((model) => model.id), chatGptRegistryIds, DEFAULT_CHATGPT_MODEL);
                 if (resolution.kind === "unavailable") {
-                    throw new Error((nativeCodexRuntimeEnabled ? codexCatalog.error : null) ??
-                        t("settings.agentModelPicker.errors.chatGptNoModels"));
+                    throw new Error(t("settings.agentModelPicker.errors.chatGptNoModels"));
                 }
                 // transient-gap keeps the saved (registry-routable) model rather than
                 // silently switching on a flaky live-list miss; rerouted surfaces a
@@ -602,12 +554,6 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             const patch: Partial<LocalModelPreferences> = {
                 ...buildEngineRoutingPatch(preferences, engine, effectiveModelId),
                 ...buildEngineTransitionReasoningPatch(preferences, engine),
-                ...(engine === "codex_cli" &&
-                    nativeCodexRuntimeEnabled &&
-                    effectiveModelId &&
-                    codexCatalog.models?.some((model) => model.id === effectiveModelId && !codexModelSupportsFast(model))
-                    ? { codexServiceTier: "standard" }
-                    : {}),
                 // Record provenance only for an explicit ChatGPT model pick so
                 // Stella Light honors it; engine switches / auto-matches leave the
                 // marker untouched.
@@ -659,11 +605,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     }, [
         chatGptModels,
         chatGptRegistryIds,
-        codexCatalog.error,
-        codexCatalog.models,
-        codexCatalogLoading,
         credentials,
-        nativeCodexRuntimeEnabled,
         pendingAgent,
         preferences,
         setPreferences,
@@ -859,56 +801,13 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         setPreferences,
         t,
     ]);
-    const handleCodexServiceTierSelect = useCallback(async (serviceTier: CodexServiceTier) => {
-        if (!preferences ||
-            pendingAgent ||
-            preferences.agentRuntimeEngine !== "codex_cli" ||
-            (serviceTier === "fast" && !selectedChatGptSupportsFast)) {
-            return;
-        }
-        const previousServiceTier = preferences.codexServiceTier;
-        const patch = {
-            codexServiceTier: serviceTier,
-        };
-        setPendingAgent(ENGINE_PENDING_TARGET);
-        setPreferences({ ...preferences, ...patch });
-        try {
-            const saved = await window.electronAPI?.system?.setLocalModelPreferences?.(patch);
-            if (saved)
-                setPreferences(saved);
-            window.dispatchEvent(new CustomEvent("stella:local-model-preferences-changed"));
-            setError(null);
-            onSelected?.();
-        }
-        catch (caught) {
-            setPreferences((current) => current
-                ? { ...current, codexServiceTier: previousServiceTier }
-                : current);
-            setError(caught instanceof Error
-                ? caught.message
-                : t("settings.agentModelPicker.errors.updateChatGptSpeed"));
-        }
-        finally {
-            setPendingAgent(null);
-        }
-    }, [
-        onSelected,
-        pendingAgent,
-        preferences,
-        selectedChatGptSupportsFast,
-        setPreferences,
-        t,
-    ]);
-    const handleNativeRuntimeChange = useCallback(async (preference: "useNativeCodexRuntime" | "useNativeClaudeCodeRuntime", enabled: boolean) => {
+    const handleNativeClaudeCodeRuntimeChange = useCallback(async (enabled: boolean) => {
         if (!preferences || pendingAgent)
             return;
-        const previous = preferences[preference] === true;
-        const runtimeLabel = preference === "useNativeCodexRuntime" ? "Codex" : "Claude Code";
-        setPendingAgent(preference === "useNativeCodexRuntime"
-            ? NATIVE_CODEX_RUNTIME_PENDING_TARGET
-            : NATIVE_CLAUDE_CODE_RUNTIME_PENDING_TARGET);
+        const previous = preferences.useNativeClaudeCodeRuntime === true;
+        setPendingAgent(NATIVE_CLAUDE_CODE_RUNTIME_PENDING_TARGET);
         setError(null);
-        const patch = { [preference]: enabled };
+        const patch = { useNativeClaudeCodeRuntime: enabled };
         setPreferences({ ...preferences, ...patch });
         try {
             const saved = await window.electronAPI?.system?.setLocalModelPreferences?.(patch);
@@ -917,11 +816,11 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             window.dispatchEvent(new CustomEvent("stella:local-model-preferences-changed"));
         }
         catch (caught) {
-            setPreferences((current) => current ? { ...current, [preference]: previous } : current);
+            setPreferences((current) => current ? { ...current, useNativeClaudeCodeRuntime: previous } : current);
             setError(caught instanceof Error
                 ? caught.message
                 : t("settings.agentModelPicker.errors.updateDirectRuntime", {
-                    runtime: runtimeLabel,
+                    runtime: "Claude Code",
                 }));
         }
         finally {
@@ -995,9 +894,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                     preferences?.reasoningEfforts?.general ??
                     "default")
                 : (preferences?.reasoningEfforts?.[activeAgent] ?? "default");
-    const reportedDefaultReasoningEffort = committedEngine === "codex_cli"
-        ? (selectedChatGptLiveModel as (LiveCodexModel & { defaultReasoningEffort?: string }) | null)?.defaultReasoningEffort
-        : null;
+    const reportedDefaultReasoningEffort = null;
     const selectedStellaModelId = current || defaultModelId;
     const selectedStellaCatalogModel = allModels.find((model) => model.id === selectedStellaModelId ||
         model.upstreamModel === selectedStellaModelId);
@@ -1017,7 +914,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const reasoningEffortOptions = listReasoningEffortOptions(committedEngine);
     const reasoningDisabled = pendingAgent !== null ||
         (committedEngine === "codex_cli" &&
-            (chatGptConnection !== "connected" || codexCatalogLoading));
+            chatGptConnection !== "connected");
     /** Reasoning effort rides directly under the selected model row instead
      * of living in a detached footer. */
     const reasoningControl = (<div className="agent-model-picker-reasoning">
@@ -1031,15 +928,11 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const claudeCodeSelectionControls = (<div className="agent-model-picker-selected-controls">
         {reasoningControl}
         <div className="agent-model-picker-engine-options">
-          <Switch className="agent-model-picker-engine-option" label="Use Claude Code instead" title="Uses your installed Claude Code configuration, skills, and MCP servers instead of Stella's harness." checked={preferences?.useNativeClaudeCodeRuntime === true} disabled={!preferences || pendingAgent !== null} onCheckedChange={(checked) => void handleNativeRuntimeChange("useNativeClaudeCodeRuntime", checked)}/>
+          <Switch className="agent-model-picker-engine-option" label="Use Claude Code instead" title="Uses your installed Claude Code configuration, skills, and MCP servers instead of Stella's harness." checked={preferences?.useNativeClaudeCodeRuntime === true} disabled={!preferences || pendingAgent !== null} onCheckedChange={(checked) => void handleNativeClaudeCodeRuntimeChange(checked)}/>
         </div>
       </div>);
     const chatGptSelectionControls = (<div className="agent-model-picker-selected-controls">
         {reasoningControl}
-        <div className="agent-model-picker-engine-options">
-          {selectedChatGptSupportsFast ? (<Switch className="agent-model-picker-engine-option" label="Fast" title="Uses more ChatGPT credits for faster responses." checked={preferences?.codexServiceTier === "fast"} disabled={!preferences || pendingAgent !== null} onCheckedChange={(checked) => void handleCodexServiceTierSelect(checked ? "fast" : "standard")}/>) : null}
-          <Switch className="agent-model-picker-engine-option" label="Use Codex instead" title="Requires a separately installed Codex CLI and uses its app-server, configuration, and tools instead of Stella's harness." checked={preferences?.useNativeCodexRuntime === true} disabled={!preferences || pendingAgent !== null} onCheckedChange={(checked) => void handleNativeRuntimeChange("useNativeCodexRuntime", checked)}/>
-        </div>
       </div>);
     /**
      * ChatGPT and Claude Code are engines, not catalog providers. They render
@@ -1060,12 +953,10 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const handleCatalogRefresh = useCallback(() => {
         migrationAttemptedRef.current = null;
         const jobs: Promise<unknown>[] = [refresh()];
-        if (codexCatalogEnabled)
-            jobs.push(codexCatalog.refresh());
         if (claudeCodeSectionOpen || committedEngine === "claude_code_local")
             jobs.push(claudeCodeCatalog.refresh());
         void Promise.all(jobs);
-    }, [claudeCodeCatalog, claudeCodeSectionOpen, codexCatalog, codexCatalogEnabled, committedEngine, refresh]);
+    }, [claudeCodeCatalog, claudeCodeSectionOpen, committedEngine, refresh]);
     /**
      * On free / anonymous / Go plans the backend silently coerces any
      * non-default Stella-provider pick back to the recommended model.
@@ -1123,8 +1014,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
           </>) : (<>
             <ProviderModelPanel value={current} defaultLabel={defaultLabel} currentLabel={currentLabel} groups={groups} disabled={!ready || pendingAgent !== null} restrictStellaPicks={restrictedStellaPicks} restrictedPlanLabel={restrictedPlanLabel} ariaLabel={t("settings.agentModelPicker.assistantPickerAriaLabel")} onSelect={handleSelect} hideSelectedTitle hideDefaultRow selectedRowExtra={reasoningControl} collapsibleGroups activeSectionKey={activeSectionKey} hiddenProviders={HIDDEN_CATALOG_PROVIDERS} sectionOrder={SECTION_ORDER} onExtraSectionExpanded={handleExtraSectionExpanded} onRefresh={handleCatalogRefresh} catalogError={catalogError} refreshing={refreshing ||
                 ((claudeCodeSectionOpen || committedEngine === "claude_code_local") &&
-                    claudeCodeModelsLoading) ||
-                (codexCatalogEnabled && codexCatalogLoading)} extraSections={[
+                    claudeCodeModelsLoading)} extraSections={[
                 {
                     key: CLAUDE_CODE_SECTION_KEY,
                     label: "Claude Code",
@@ -1143,25 +1033,15 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                     label: "ChatGPT/Codex",
                     brandKey: "openai",
                     selected: committedEngine === "codex_cli",
-                    content: () => (nativeCodexRuntimeEnabled &&
-                        codexCatalog.error &&
-                        !codexCatalogLoading
-                        ? engineCatalogError(() => void codexCatalog.refresh())
-                        : (<>
-                        {codexCatalogLoading ? (<p className="agent-model-picker-connection" role="status">
-                            {t("settings.agentModelPicker.verifyingChatGpt")}
-                          </p>) : chatGptDisplayModels.length === 0 ? (<p className="agent-model-picker-connection" role="status">
+                    content: () => (<>
+                        {chatGptDisplayModels.length === 0 ? (<p className="agent-model-picker-connection" role="status">
                             {t("settings.agentModelPicker.noChatGptCodexModels")}
-                          </p>) : chatGptConnection === "connected" &&
-                            selectedChatGptModelUnavailable ? (<p className="agent-model-picker-connection" role="status">
-                            {t("settings.agentModelPicker.savedModelUnavailable")}
                           </p>) : chatGptRoutedNotice ? (<p className="agent-model-picker-connection" role="status">
                             {chatGptRoutedNotice}
                           </p>) : null}
                         <EngineScopedModelList engineLabel="ChatGPT" hideHead selectedRowExtra={chatGptSelectionControls} models={chatGptDisplayModels} value={committedEngine === "codex_cli" ? selectedChatGptModel : ""} onSelect={(modelId) => void handleEngineModelSelect("codex_cli", modelId)} emptyMessage={null} disabled={!preferences ||
-                            pendingAgent !== null ||
-                            codexCatalogLoading}/>
-                      </>)),
+                            pendingAgent !== null}/>
+                      </>),
                 },
             ]}/>
           </>)}

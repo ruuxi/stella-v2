@@ -7,7 +7,7 @@ import type {
   CodexServiceTier,
   SpawnEngineSelection,
 } from "@stella/contracts/agent-engine";
-import { getCodexRuntimePreferences } from "../integrations/codex-agent-runtime.js";
+import { getCodexSubscriptionPreferences } from "../integrations/codex-subscription.js";
 import {
   getClaudeCodeAgentModelId,
   getClaudeCodeRuntimeEffortLevel,
@@ -66,19 +66,17 @@ export const captureEffectiveModelConfig = (args: {
   reasoningEffort?: string;
 }): AgentModelConfigSnapshot => {
   if (args.engine === "codex_cli") {
-    const codex = getCodexRuntimePreferences(
+    const subscriptionHarnessEnabled = true;
+    const codex = getCodexSubscriptionPreferences(
       args.stellaDataDir,
       args.configuredModel,
       args.engineModelOverride,
     );
     const codexModel =
-      args.subscriptionHarnessEnabled &&
       args.resolvedLlm.model.provider === "openai-codex"
         ? args.resolvedLlm.model.id
         : codex.model;
-    const routeModel = args.subscriptionHarnessEnabled
-      ? `openai-codex/${codexModel}`
-      : exactRouteModelReference(args.resolvedLlm, args.configuredModel);
+    const routeModel = `openai-codex/${codexModel}`;
     const effort =
       normalizeCapturedReasoningEffort(args.reasoningEffort) ??
       (args.engineConfigSampled
@@ -86,7 +84,7 @@ export const captureEffectiveModelConfig = (args: {
         : normalizeCapturedReasoningEffort(codex.reasoningEffort));
     return {
       engine: args.engine,
-      subscriptionHarnessEnabled: args.subscriptionHarnessEnabled === true,
+      subscriptionHarnessEnabled,
       routeModel,
       engineModel: codexModel,
       ...(effort ? { reasoningEffort: effort } : {}),

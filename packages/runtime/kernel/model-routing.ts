@@ -486,7 +486,7 @@ const resolveDirectProviderRoute = (args: {
  * Normalize such a reference to the route a desktop turn resolves so the turn
  * dispatches to the desktop engine identically regardless of origin. The
  * engine-native model itself is always read from its dedicated preference field
- * downstream (`getClaudeCodeAgentModelId` / `getCodexRuntimePreferences`), so
+ * downstream (`getClaudeCodeAgentModelId` / `getCodexSubscriptionPreferences`), so
  * rewriting only the prep/orchestrator *route* model here never changes which
  * engine model actually runs the turn.
  */

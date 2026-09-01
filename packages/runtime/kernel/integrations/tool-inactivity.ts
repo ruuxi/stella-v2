@@ -3,7 +3,7 @@ import { forkCancelableTimeout } from "./effect-runtime.js";
 
 /**
  * Shared per-tool inactivity bound for Stella tools bridged into external
- * engines (Claude Code takeover mode, Codex app-server). Mirrors the
+ * engines (currently Claude Code takeover mode). Mirrors the
  * agent-core loop's bound for the native engine: a tool that emits no
  * progress update for the window is cancelled via a composed abort signal
  * and reported to the engine as an error tool result, so the turn continues

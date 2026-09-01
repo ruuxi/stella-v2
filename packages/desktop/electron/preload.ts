@@ -1297,6 +1297,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         claudeCodeModel: string;
         claudeCodeReasoningEffort:
           "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
+        useNativeClaudeCodeRuntime: boolean;
         maxAgentConcurrency: number;
         imageGeneration: {
           provider: "stella" | "openai" | "openrouter" | "fal";
@@ -1326,6 +1327,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       claudeCodeModel?: string;
       claudeCodeReasoningEffort?:
         "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
+      useNativeClaudeCodeRuntime?: boolean;
       maxAgentConcurrency?: number;
       imageGeneration?: {
         provider: "stella" | "openai" | "openrouter" | "fal";
@@ -1355,6 +1357,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         claudeCodeModel: string;
         claudeCodeReasoningEffort:
           "default" | "minimal" | "low" | "medium" | "high" | "xhigh";
+        useNativeClaudeCodeRuntime: boolean;
         maxAgentConcurrency: number;
         imageGeneration: {
           provider: "stella" | "openai" | "openrouter" | "fal";
@@ -1470,7 +1473,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
           | "chatgpt-app"
           | "cursor-app"
           | "claude-cli"
-          | "codex-cli"
           | "opencode-cli"
           | "pi-cli"
           | "openclaw-cli"

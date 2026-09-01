@@ -75,6 +75,14 @@ Their common body is
 decision adds `decision:"done"|"cancel"`. Live View URLs are minted only by the
 Live View route, returned with `no-store`, and never persisted or logged.
 
+The human handoff is Stella-owned. The Gateway does not issue Cloudflare's
+structured `Cloudflare.handoff` command: its hosted Live View renders a fixed
+"Human Intervention Required" panel with its own Done/Failed buttons on top of
+the sign-in page, which duplicates Stella's controls. Instead the provider
+installs the origin navigation fence, tracks the handoff locally, and mints a
+plain interactive `tab` Live View. Expiry, the Done/Cancel decision, and the
+post-sign-in verification remain the Gateway's alone.
+
 The session-transfer capability route returns a two-minute, one-use X25519
 public key bound to the exact owner, interaction, revision, profile epoch, and
 display origin. The client sends only an AES-GCM ciphertext through Convex and

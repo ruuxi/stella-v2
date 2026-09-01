@@ -212,12 +212,14 @@ export function CloudBrowserTakeoverSection({
   return (
     <section
       className="cloud-browser-takeover"
-      aria-label="Cloud browser sign in"
+      aria-label={
+        detail
+          ? t("cloudBrowser.takeover.frameTitle", {
+              origin: detail.displayOrigin,
+            })
+          : t("common.signIn")
+      }
     >
-      <div className="cloud-browser-takeover__notice">
-        <Lock size={14} aria-hidden="true" />
-        <span>{t("cloudBrowser.takeover.privateNotice")}</span>
-      </div>
       <div className="cloud-browser-takeover__viewport">
         {!location || detail === null ? (
           <div className="cloud-browser-takeover__status" role="alert">
@@ -237,7 +239,11 @@ export function CloudBrowserTakeoverSection({
       </div>
       {detail ? (
         <div className="cloud-browser-takeover__controls">
-          <span>{detail.displayOrigin}</span>
+          <span className="cloud-browser-takeover__origin">
+            <Lock size={12} aria-hidden="true" />
+            <strong>{detail.displayOrigin}</strong>
+            <span>{t("cloudBrowser.takeover.privateNotice")}</span>
+          </span>
           <div>
             <Button
               type="button"

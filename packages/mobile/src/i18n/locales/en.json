@@ -21,54 +21,54 @@
   },
   "cloudBrowser": {
     "errors": {
-      "decision": "Stella couldn't update this browser request. Try again.",
-      "verificationUrl": "Stella couldn't open that verification page.",
-      "expired": "This browser request has expired or is no longer available.",
-      "liveViewBoundary": "Stella refused an invalid private browser view.",
-      "liveView": "Stella couldn't open the private browser view. Try again."
+      "decision": "That didn't go through. Try again.",
+      "verificationUrl": "Couldn't open that page.",
+      "expired": "This sign-in is no longer needed.",
+      "liveViewBoundary": "Couldn't load the sign-in page.",
+      "liveView": "Couldn't load the sign-in page. Try again."
     },
     "deviceCode": {
-      "title": "Finish signing in to {origin}",
-      "codeLabel": "Device code",
-      "body": "Copy this one-time code, open the verification page, and return here when you're finished.",
+      "title": "Sign in to {origin}",
+      "codeLabel": "Code",
+      "body": "Enter this code on the site, then come back here.",
       "copied": "Copied",
       "copy": "Copy code",
-      "open": "Open page"
+      "open": "Open site"
     },
     "takeover": {
       "title": "Sign in to {origin}",
-      "checking": "Checking your sign-in to {origin}",
-      "body": "Sign in here. Stella does not receive what you type. Only this site's encrypted session is sent to your cloud browser.",
-      "resumingBody": "Stella is securely resuming this task.",
-      "preparing": "Preparing a private browser view…",
-      "frameTitle": "Private sign-in for {origin}",
-      "privateNotice": "Private sign-in · Stella cannot see what you type",
-      "localNotice": "Local sign-in · Stella cannot see what you type",
-      "localOriginFallback": "This sign-in left the requested site, so Stella switched to the private cloud browser.",
-      "localTransferFallback": "That local sign-in could not be verified in the cloud. Continue in the private cloud browser."
+      "checking": "Finishing sign-in to {origin}",
+      "body": "Sign in to keep going. Stella can't see what you type.",
+      "resumingBody": "Stella will pick up where it left off.",
+      "preparing": "Loading sign-in…",
+      "frameTitle": "Sign in to {origin}",
+      "privateNotice": "Stella can't see what you type",
+      "localNotice": "Stella can't see what you type",
+      "localOriginFallback": "Switched to Stella's browser to finish signing in.",
+      "localTransferFallback": "Couldn't confirm that sign-in. Try again in Stella's browser."
     },
     "actions": {
       "canceling": "Canceling…",
       "finishing": "Finishing…",
       "done": "Done",
-      "useCloudBrowser": "Use cloud browser"
+      "useCloudBrowser": "Use Stella's browser"
     },
     "needsYou": {
       "title": "Needs you",
-      "deviceCode": "Enter a device code for {origin}",
+      "deviceCode": "Enter a code for {origin}",
       "signIn": "Sign in to {origin}",
       "open": "Open"
     },
     "settings": {
-      "title": "Cloud browser data",
+      "title": "Browser sign-ins",
       "defaultProfile": "Saved sign-ins",
-      "description": "Reset the private cloud browser profile Stella reuses for your account. This signs that browser out of websites.",
-      "resetComplete": "Cloud browser data was reset.",
-      "resetFailed": "Stella couldn't reset cloud browser data. Try again.",
+      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
+      "resetComplete": "Signed out of all sites.",
+      "resetFailed": "Couldn't sign out. Try again.",
       "resetting": "Resetting…",
       "reset": "Reset",
-      "confirmTitle": "Reset cloud browser data?",
-      "confirmBody": "This clears saved website sign-ins from Stella's private cloud browser. You will need to sign in again."
+      "confirmTitle": "Sign out of all sites?",
+      "confirmBody": "Stella will ask you to sign in again next time."
     }
   },
   "sidebar": {

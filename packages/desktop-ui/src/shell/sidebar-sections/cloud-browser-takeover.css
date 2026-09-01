@@ -8,21 +8,6 @@
   color: var(--text-base);
 }
 
-.cloud-browser-takeover__notice {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 5px 10px;
-  border-bottom: 1px solid var(--border-weak);
-  background: color-mix(in oklch, var(--foreground) 3%, transparent);
-  color: var(--text-weak);
-  font-size: var(--font-size-xs);
-  text-align: center;
-}
-
 .cloud-browser-takeover__viewport {
   display: flex;
   flex: 1 1 auto;
@@ -103,11 +88,44 @@
   background: var(--background);
 }
 
-.cloud-browser-takeover__controls > span {
+/* One quiet line: lock, verified origin, and the privacy note. */
+.cloud-browser-takeover__origin {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
-  overflow: hidden;
   color: var(--text-weak);
   font-size: var(--font-size-xs);
+}
+
+.cloud-browser-takeover__origin > svg {
+  flex: 0 0 auto;
+}
+
+.cloud-browser-takeover__origin > strong,
+.cloud-browser-takeover__origin > span {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.cloud-browser-takeover__origin > strong {
+  flex: 0 1 auto;
+  color: var(--text-strong);
+  font-weight: var(--weight-medium);
+}
+
+.cloud-browser-takeover__origin > span {
+  flex: 1 1 0;
+}
+
+.cloud-browser-takeover__origin > span::before {
+  content: "\00b7\00a0";
+}
+
+@media (max-width: 520px) {
+  .cloud-browser-takeover__origin > span {
+    display: none;
+  }
 }

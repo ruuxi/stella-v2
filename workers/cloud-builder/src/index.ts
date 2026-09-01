@@ -10031,7 +10031,7 @@ export class BuildSession extends DurableObject<Env> {
             outcome: "completed",
             ok: false,
             error:
-              "Stella could not validate the durable workspace receipt for this browser handoff. Please retry before continuing this agent.",
+              "Stella couldn't hand this sign-in over to you safely. Please try again.",
           };
         }
       }
@@ -10059,7 +10059,7 @@ export class BuildSession extends DurableObject<Env> {
             outcome: "completed",
             ok: false,
             error:
-              "Stella could not validate this browser handoff. Please retry the turn.",
+              "Stella couldn't hand this sign-in over to you safely. Please try again.",
             turnStateCheckpoint: result.turnStateCheckpoint,
           };
         } else {

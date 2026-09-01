@@ -58,7 +58,14 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
   private cdp: CDPSession | undefined;
   private currentSessionId: string | undefined;
   private currentPolicyDigest: string | undefined;
-  private handoffCompletion: { success: boolean } | undefined;
+  // Stella owns the human handoff end to end. Cloudflare's structured
+  // `Cloudflare.handoff` command is deliberately not used: its Live View
+  // renders a hardcoded "Human Intervention Required" panel with its own
+  // Done/Failed buttons on top of the page, duplicating Stella's controls.
+  // The navigation fence, verification, expiry, and Done/Cancel decisions all
+  // live in the gateway, so the remote browser only needs an interactive
+  // Live View of the fenced page.
+  private activeHandoffId: string | undefined;
   private handoffOriginViolation = false;
   private handoffRouteHandler:
     Parameters<BrowserContext["route"]>[1] | undefined;
@@ -400,26 +407,15 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
   }): Promise<BrowserHandoff> {
     try {
       const cdp = await this.handoffCdp();
-      this.handoffCompletion = undefined;
+      this.activeHandoffId = undefined;
       this.handoffOriginViolation = false;
       await this.installHandoffNavigationFence(args.expectedOrigin);
-      (
-        cdp.once as unknown as (
-          event: "Cloudflare.handoffComplete",
-          listener: (result: { success: boolean }) => void,
-        ) => void
-      )("Cloudflare.handoffComplete", (result) => {
-        this.handoffCompletion = { success: result.success };
-      });
-      const handoff = await cdp.send("Cloudflare.handoff", {
-        instructions:
-          "Complete the requested sign-in, then return to Stella and choose Done.",
-        timeout: args.handoffTimeoutMs,
-      });
-      return {
-        handoffId: handoff.handoffId,
-        targetId: handoff.targetId,
-      };
+      const { targetInfo } = await cdp.send("Target.getTargetInfo");
+      // The gateway's own interaction expiry (bounded by args.handoffTimeoutMs
+      // upstream) and suspension alarm end the handoff; no remote timer exists.
+      const handoffId = crypto.randomUUID();
+      this.activeHandoffId = handoffId;
+      return { handoffId, targetId: targetInfo.targetId };
     } catch {
       await this.removeHandoffNavigationFence();
       throw new GatewayError("browser_unavailable", 503);
@@ -445,21 +441,9 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
         await route.continue();
         return;
       }
+      // The durable violation flag makes Done and verification fail.
       this.handoffOriginViolation = true;
       await route.abort("blockedbyclient").catch(() => undefined);
-      const cdp = this.cdp;
-      if (!cdp) return;
-      try {
-        const state = await cdp.send("Cloudflare.getHandoffState");
-        if (state.active) {
-          await cdp.send("Cloudflare.handoffComplete", {
-            success: false,
-            reason: "The sign-in page changed origin.",
-          });
-        }
-      } catch {
-        // The durable violation flag still makes Done and verification fail.
-      }
     };
     this.handoffRouteHandler = handler;
     await this.context.route("**/*", handler);
@@ -495,41 +479,25 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
   }
 
   async handoffState(): Promise<HandoffState> {
-    try {
-      const state = await (
-        await this.handoffCdp()
-      ).send("Cloudflare.getHandoffState");
-      return {
-        active: state.active,
-        ...(state.handoffId ? { handoffId: state.handoffId } : {}),
-      };
-    } catch {
-      throw new GatewayError("browser_unavailable", 503);
+    // A handoff is active only while this provider still holds the fenced
+    // context it was started on. A recreated browser never inherits one.
+    if (
+      this.activeHandoffId &&
+      this.context &&
+      this.handoffRouteHandler
+    ) {
+      return { active: true, handoffId: this.activeHandoffId };
     }
+    return { active: false };
   }
 
   async completeHandoff(success: boolean): Promise<void> {
-    try {
-      const cdp = await this.handoffCdp();
-      if (success && this.handoffOriginViolation) {
-        await this.removeHandoffNavigationFence();
-        return;
-      }
-      if (success && this.handoffCompletion?.success === false) {
-        throw new GatewayError("verification_failed", 409);
-      }
-      const state = await cdp.send("Cloudflare.getHandoffState");
-      if (state.active) {
-        await cdp.send("Cloudflare.handoffComplete", {
-          success,
-          ...(success ? {} : { reason: "Canceled in Stella." }),
-        });
-      }
+    if (success && this.handoffOriginViolation) {
       await this.removeHandoffNavigationFence();
-    } catch (error) {
-      if (error instanceof GatewayError) throw error;
-      throw new GatewayError("browser_unavailable", 503);
+      return;
     }
+    this.activeHandoffId = undefined;
+    await this.removeHandoffNavigationFence();
   }
 
   async trustedVerify(
@@ -547,7 +515,7 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
   async closeContext(): Promise<void> {
     await this.removeHandoffNavigationFence();
     this.cdp = undefined;
-    this.handoffCompletion = undefined;
+    this.activeHandoffId = undefined;
     this.handoffOriginViolation = false;
     this.page = undefined;
     if (this.context) {

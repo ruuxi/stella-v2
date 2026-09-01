@@ -1,26 +1,33 @@
 /**
  * DictationRecordingBar — replaces the composer's textarea + toolbar while
- * dictation is active. Lays out as flex children of the surrounding form so
- * the existing pill shell wraps it without any extra height contortions:
+ * dictation is active. The surrounding pill grows as Muse's cumulative text
+ * wraps, while the waveform and controls remain anchored underneath:
  *
+ *   A live transcript that can wrap and revise
  *   [waveform — flex 1]   [0:24]   [X]   [✓]   [↑ (optional)]
  *
  * The external overlay can hide controls because stopping the shortcut commits
  * the dictation directly. In-app composers also use that quieter treatment.
  *
- * The waveform is drawn to a single <canvas> so we can repaint at the level
- * tick rate (~12 Hz) without re-rendering hundreds of DOM nodes.
+ * The transcript subscribes to a leaf-level external store, and the waveform
+ * uses one <canvas>, so Muse and meter updates do not reconcile the chat tree.
  */
 
 import { useEffect, useRef } from "react";
 import { cn } from "@/shared/lib/utils";
 import { ArrowUp, Check, X } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
+import {
+  tokenizeDictationTranscript,
+  useDictationTranscriptPreview,
+  type DictationTranscriptPreview,
+} from "@/features/dictation/dictation-transcript-preview";
 import "./dictation-recording-bar.css";
 
 type DictationRecordingBarProps = {
   levels: number[];
   elapsedMs: number;
+  transcriptPreview: DictationTranscriptPreview;
   onCancel?: () => void;
   onConfirm?: () => void;
   showControls?: boolean;
@@ -36,60 +43,105 @@ type DictationRecordingBarProps = {
 export function DictationRecordingBar({
   levels,
   elapsedMs,
+  transcriptPreview,
   onCancel,
   onConfirm,
   showControls = true,
   onSend,
 }: DictationRecordingBarProps) {
   const t = useT();
+  const transcript = useDictationTranscriptPreview(transcriptPreview);
   return (
-    <>
-      <DictationWaveform levels={levels} />
-      <span className="composer-dictation-timer" aria-live="polite">
-        {formatElapsed(elapsedMs)}
-      </span>
-      {showControls ? (
-        <>
-          <button
-            type="button"
-            className={cn(
-              "chat-composer-icon-button composer-dictation-control",
-            )}
-            onClick={onCancel}
-            title={t("features.dictation.cancel")}
-            aria-label={t("features.dictation.cancel")}
-          >
-            <CancelIcon />
-          </button>
-          <button
-            type="button"
-            className={cn(
-              "chat-composer-icon-button composer-dictation-control",
-              "composer-dictation-control--confirm",
-            )}
-            onClick={onConfirm}
-            title={t("features.dictation.stopAndTranscribe")}
-            aria-label={t("features.dictation.stopAndTranscribeLabel")}
-          >
-            <CheckIcon />
-          </button>
-          {onSend && (
+    <div className="composer-dictation-recording-bar">
+      <LiveTranscript
+        text={transcript.text}
+        revision={transcript.revision}
+        stableWordCount={transcript.stableWordCount}
+      />
+      <div className="composer-dictation-recording-row">
+        <DictationWaveform levels={levels} />
+        <span className="composer-dictation-timer" aria-live="polite">
+          {formatElapsed(elapsedMs)}
+        </span>
+        {showControls ? (
+          <>
             <button
               type="button"
               className={cn(
                 "chat-composer-icon-button composer-dictation-control",
-                "composer-dictation-control--send",
               )}
-              onClick={onSend}
-              title={t("features.dictation.stopTranscribeSend")}
-              aria-label={t("features.dictation.stopTranscribeSendLabel")}
+              onClick={onCancel}
+              title={t("features.dictation.cancel")}
+              aria-label={t("features.dictation.cancel")}
             >
-              <SendIcon />
+              <CancelIcon />
             </button>
-          )}
-        </>
-      ) : null}
-    </>
+            <button
+              type="button"
+              className={cn(
+                "chat-composer-icon-button composer-dictation-control",
+                "composer-dictation-control--confirm",
+              )}
+              onClick={onConfirm}
+              title={t("features.dictation.stopAndTranscribe")}
+              aria-label={t("features.dictation.stopAndTranscribeLabel")}
+            >
+              <CheckIcon />
+            </button>
+            {onSend && (
+              <button
+                type="button"
+                className={cn(
+                  "chat-composer-icon-button composer-dictation-control",
+                  "composer-dictation-control--send",
+                )}
+                onClick={onSend}
+                title={t("features.dictation.stopTranscribeSend")}
+                aria-label={t("features.dictation.stopTranscribeSendLabel")}
+              >
+                <SendIcon />
+              </button>
+            )}
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function LiveTranscript({
+  text,
+  revision,
+  stableWordCount,
+}: {
+  text: string;
+  revision: number;
+  stableWordCount: number;
+}) {
+  if (!text) return null;
+  const words = tokenizeDictationTranscript(text);
+  return (
+    <div
+      className="composer-dictation-transcript"
+      aria-label={text}
+      aria-live="polite"
+    >
+      <span aria-hidden>
+        {words.map((word, index) => (
+          <span
+            className="composer-dictation-transcript-word"
+            key={
+              index < stableWordCount
+                ? `${index}:${word}`
+                : `${revision}:${index}:${word}`
+            }
+          >
+            {word}
+            {index < words.length - 1 ? " " : ""}
+          </span>
+        ))}
+      </span>
+    </div>
   );
 }
 

@@ -28,6 +28,10 @@ import {
 } from "@/features/dictation/services/inworld-dictation";
 import { DOWNLOAD_LOCAL_DICTATION_ACTION } from "@/features/dictation/services/local-dictation-download";
 import { appendRollingLevel } from "@/features/dictation/rolling-levels";
+import {
+  createDictationTranscriptPreview,
+  type DictationTranscriptPreview,
+} from "@/features/dictation/dictation-transcript-preview";
 import { showToast } from "@/ui/toast";
 import { SIGN_IN_TOAST_ACTION } from "@/shared/lib/auth-cta";
 import { presentComposerNotice } from "@/features/chat/composer-notice-store";
@@ -81,6 +85,8 @@ interface UseDictationResult {
   levels: number[];
   /** Elapsed time of the current recording, in milliseconds. */
   elapsedMs: number;
+  /** Stable leaf-level store for Muse's cumulative streaming transcript. */
+  transcriptPreview: DictationTranscriptPreview;
   error: string | null;
 }
 
@@ -106,6 +112,11 @@ export const useDictation = ({
   const [elapsedMs, setElapsedMs] = useState(0);
   const [showControls, setShowControls] = useState(false);
   const [showRecordingBar, setShowRecordingBar] = useState(false);
+  const transcriptPreviewRef = useRef<DictationTranscriptPreview | null>(null);
+  if (transcriptPreviewRef.current === null) {
+    transcriptPreviewRef.current = createDictationTranscriptPreview();
+  }
+  const transcriptPreview = transcriptPreviewRef.current;
 
   const sessionRef = useRef<InworldDictationSession | null>(null);
   const baseTextRef = useRef("");
@@ -205,10 +216,11 @@ export const useDictation = ({
     setLevels([]);
     setShowControls(false);
     setShowRecordingBar(false);
+    transcriptPreview.reset();
     void session.cancel().catch((err: Error) => {
       console.debug("[dictation] cancel failed:", err.message);
     });
-  }, []);
+  }, [transcriptPreview]);
 
   const start = useCallback(
     async (source: "button" | "shortcut") => {
@@ -231,6 +243,7 @@ export const useDictation = ({
       setElapsedMs(0);
       setShowControls(source === "button");
       setShowRecordingBar(source === "button");
+      transcriptPreview.reset();
 
       try {
         await session.start({
@@ -295,6 +308,7 @@ export const useDictation = ({
               setLevels([]);
               setShowControls(false);
               setShowRecordingBar(false);
+              transcriptPreview.reset();
               // For success paths the inworld session emits `idle` before
               // `onFinalTranscript`; defer to a microtask so commit fires
               // after the transcript has been appended. For no-audio /
@@ -321,6 +335,9 @@ export const useDictation = ({
               });
             }
           },
+          onPartialTranscript: (transcript) => {
+            transcriptPreview.setText(transcript);
+          },
           onLevel: (level) => {
             setLevels((prev) =>
               appendRollingLevel(prev, level, MAX_LEVEL_BARS),
@@ -336,9 +353,10 @@ export const useDictation = ({
         setLevels([]);
         setShowControls(false);
         setShowRecordingBar(false);
+        transcriptPreview.reset();
       }
     },
-    [disabled, fireCommitIfPending, t],
+    [disabled, fireCommitIfPending, t, transcriptPreview],
   );
 
   const toggle = useCallback(() => {
@@ -429,8 +447,9 @@ export const useDictation = ({
         void session.cancel().catch(() => undefined);
         sessionRef.current = null;
       }
+      transcriptPreview.reset();
     };
-  }, []);
+  }, [transcriptPreview]);
 
   return {
     isRecording: state === "listening",
@@ -443,6 +462,7 @@ export const useDictation = ({
     commitAndSend,
     levels,
     elapsedMs,
+    transcriptPreview,
     error,
   };
 };

@@ -10,6 +10,10 @@ import { RegionCapture } from "./RegionCapture";
 import { InworldDictationSession } from "@/features/dictation/services/inworld-dictation";
 import { appendRollingLevel } from "@/features/dictation/rolling-levels";
 import { DictationRecordingBar } from "@/features/dictation/components/DictationRecordingBar";
+import {
+  createDictationTranscriptPreview,
+  type DictationTranscriptPreview,
+} from "@/features/dictation/dictation-transcript-preview";
 import "./overlays.css";
 
 /**
@@ -242,6 +246,11 @@ function useOverlayDictation() {
   const transcriptRef = useRef("");
   const startedAtRef = useRef<number | null>(null);
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const transcriptPreviewRef = useRef<DictationTranscriptPreview | null>(null);
+  if (transcriptPreviewRef.current === null) {
+    transcriptPreviewRef.current = createDictationTranscriptPreview();
+  }
+  const transcriptPreview = transcriptPreviewRef.current;
 
   const clearSession = useCallback(() => {
     sessionRef.current = null;
@@ -254,7 +263,8 @@ function useOverlayDictation() {
     }
     setLevels([]);
     setElapsedMs(0);
-  }, []);
+    transcriptPreview.reset();
+  }, [transcriptPreview]);
 
   const stopAndComplete = useCallback(
     async (sessionId: string) => {
@@ -305,6 +315,7 @@ function useOverlayDictation() {
       startedAtRef.current = performance.now();
       setLevels([]);
       setElapsedMs(0);
+      transcriptPreview.reset();
       elapsedTimerRef.current = setInterval(() => {
         if (startedAtRef.current !== null) {
           setElapsedMs(performance.now() - startedAtRef.current);
@@ -315,6 +326,9 @@ function useOverlayDictation() {
         .start({
           onFinalTranscript: (text) => {
             transcriptRef.current = text;
+          },
+          onPartialTranscript: (text) => {
+            transcriptPreview.setText(text);
           },
           onLevel: (level) => {
             setLevels((prev) =>
@@ -370,7 +384,7 @@ function useOverlayDictation() {
       }
       clearSession();
     };
-  }, [clearSession, stopAndComplete]);
+  }, [clearSession, stopAndComplete, transcriptPreview]);
 
   const confirm = useCallback(() => {
     const sessionId = sessionIdRef.current;
@@ -389,13 +403,13 @@ function useOverlayDictation() {
     });
   }, [clearSession]);
 
-  return { levels, elapsedMs, confirm, cancel };
+  return { levels, elapsedMs, transcriptPreview, confirm, cancel };
 }
 
 const MAX_DICTATION_OVERLAY_LEVELS = 96;
 const DICTATION_OVERLAY_SIZE = {
   width: 300,
-  height: 42,
+  height: 116,
 } as const;
 
 function DictationOverlay({
@@ -403,6 +417,7 @@ function DictationOverlay({
   position,
   levels,
   elapsedMs,
+  transcriptPreview,
   onCancel,
   onConfirm,
 }: {
@@ -410,6 +425,7 @@ function DictationOverlay({
   position: { x: number; y: number } | null;
   levels: number[];
   elapsedMs: number;
+  transcriptPreview: DictationTranscriptPreview;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -425,6 +441,7 @@ function DictationOverlay({
       <DictationRecordingBar
         levels={levels}
         elapsedMs={elapsedMs}
+        transcriptPreview={transcriptPreview}
         onCancel={onCancel}
         onConfirm={onConfirm}
         showControls={false}
@@ -508,6 +525,7 @@ export function OverlayRoot() {
         position={state.dictationPosition}
         levels={dictation.levels}
         elapsedMs={dictation.elapsedMs}
+        transcriptPreview={dictation.transcriptPreview}
         onCancel={dictation.cancel}
         onConfirm={dictation.confirm}
       />

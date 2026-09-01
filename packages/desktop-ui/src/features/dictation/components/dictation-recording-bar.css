@@ -1,5 +1,47 @@
-/* Recording bar elements live as direct flex children of the composer
-   form, so they pick up its `align-items: center` automatically. */
+.composer-dictation-recording-bar {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 1px 0;
+}
+
+.composer-dictation-recording-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-dictation-transcript {
+  min-width: 0;
+  padding: 1px 4px 0;
+  color: color-mix(in oklch, var(--text-base) 66%, transparent);
+  font-size: 15px;
+  font-style: italic;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.composer-dictation-transcript-word {
+  display: inline-block;
+  animation: composer-dictation-word-in 220ms cubic-bezier(0.22, 1, 0.36, 1)
+    both;
+}
+
+@keyframes composer-dictation-word-in {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
 
 .composer-dictation-waveform {
   flex: 1 1 auto;
@@ -23,7 +65,8 @@
   flex: 0 0 auto;
   width: 26px;
   height: 26px;
-  background: transparent;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--text-base) 7%, transparent);
   border: none;
   color: color-mix(in oklch, var(--text-base) 75%, transparent);
 }
@@ -46,4 +89,10 @@
 
 .composer-dictation-control--send:hover:not(:disabled) {
   color: var(--primary, var(--text-strong));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-dictation-transcript-word {
+    animation: none;
+  }
 }

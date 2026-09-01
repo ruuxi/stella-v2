@@ -289,6 +289,7 @@ function ComposerImpl({
               <DictationRecordingBar
                 levels={dictation.levels}
                 elapsedMs={dictation.elapsedMs}
+                transcriptPreview={dictation.transcriptPreview}
                 onCancel={dictation.cancel}
                 onConfirm={dictation.toggle}
                 onSend={dictation.commitAndSend}
@@ -418,6 +419,7 @@ function ComposerImpl({
                     <DictationRecordingBar
                       levels={dictation.levels}
                       elapsedMs={dictation.elapsedMs}
+                      transcriptPreview={dictation.transcriptPreview}
                       onCancel={dictation.cancel}
                       onConfirm={dictation.toggle}
                       onSend={dictation.commitAndSend}

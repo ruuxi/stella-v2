@@ -16,6 +16,8 @@ export class MuseDictationStream {
   private finalTranscript = "";
   private streamError: Error | null = null;
 
+  constructor(private readonly onPartial?: (text: string) => void) {}
+
   async open(): Promise<void> {
     const [config, token] = await Promise.all([
       postJson("/api/dictation/realtime-config", {}),
@@ -60,6 +62,7 @@ export class MuseDictationStream {
                 ? frame.text
                 : this.transcript;
           this.transcript = transcript;
+          this.onPartial?.(transcript);
           if (frame.final === true) this.finalTranscript = transcript;
         } else if (frame.type === "error") {
           this.streamError = new Error(

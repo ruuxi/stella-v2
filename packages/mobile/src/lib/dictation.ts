@@ -26,6 +26,10 @@ import {
   stopDictationMeter,
   updateDictationMeter,
 } from "./dictation-meter";
+import {
+  resetDictationTranscriptPreview,
+  updateDictationTranscriptPreview,
+} from "./dictation-transcript-preview";
 
 /** Minimum elapsed time before we bother round-tripping audio to the server. */
 const MIN_RECORDING_MS = 300;
@@ -145,7 +149,8 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         return false;
       }
 
-      const muse = new MuseDictationStream();
+      resetDictationTranscriptPreview();
+      const muse = new MuseDictationStream(updateDictationTranscriptPreview);
       await muse.open();
       museStreamRef.current = muse;
       const emitter = new LegacyEventEmitter(AudioStudioModule);
@@ -186,6 +191,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       audioSubscriptionRef.current?.remove();
       audioSubscriptionRef.current = null;
       stopDictationMeter();
+      resetDictationTranscriptPreview();
       await releaseAudioMode();
       operationInFlightRef.current = false;
       Alert.alert(
@@ -219,6 +225,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       audioSubscriptionRef.current?.remove();
       audioSubscriptionRef.current = null;
       stopDictationMeter();
+      resetDictationTranscriptPreview();
 
       if (!commit || durationMs < MIN_RECORDING_MS) {
         museStreamRef.current?.cancel();
@@ -305,6 +312,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       audioSubscriptionRef.current?.remove();
       audioSubscriptionRef.current = null;
       stopDictationMeter();
+      resetDictationTranscriptPreview();
       void AudioStudioModule.stopRecording().catch(() => undefined);
       void releaseAudioMode();
     };

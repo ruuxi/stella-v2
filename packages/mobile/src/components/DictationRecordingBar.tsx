@@ -1,24 +1,31 @@
 /**
  * Mobile mirror of desktop's DictationRecordingBar
  * (`desktop/src/features/dictation/components/DictationRecordingBar.tsx`).
- * Lays out as flex children of the composer pill/expanded form:
+ * The composer pill grows as Muse's cumulative text wraps, while the waveform
+ * and controls remain anchored underneath:
  *
+ *   A live transcript that can wrap and revise
  *   [waveform — flex 1]   [0:24]   [X]   [✓]   [↑]
  *
  * The trailing send (↑) is optional: when `onSend` is given it stops dictation
  * and, once the transcript lands, auto-submits the message in one tap.
  *
- * Renders the waveform with a stack of <View>s rather than canvas so we stay
- * inside RN's native render path.
+ * Both transcript and meter use leaf-level external stores. The waveform stays
+ * in RN's native render path, and word fades run on the native driver.
  */
 
-import { memo, useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 import { Icon } from "./Icon";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
 import { fadeHex } from "../theme/oklch";
 import { useDictationMeter } from "../lib/dictation-meter";
+import {
+  tokenizeDictationTranscript,
+  useDictationTranscriptPreview,
+} from "../lib/dictation-transcript-preview";
 
 const BAR_WIDTH = 2;
 const BAR_GAP = 2;
@@ -41,6 +48,8 @@ export const DictationRecordingBar = memo(function DictationRecordingBar({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const meter = useDictationMeter();
+  const transcript = useDictationTranscriptPreview();
+  const reduceMotion = useReducedMotion();
   const [now, setNow] = useState(Date.now());
   const [levels, setLevels] = useState<number[]>([]);
 
@@ -59,48 +68,140 @@ export const DictationRecordingBar = memo(function DictationRecordingBar({
   const durationMs = meter.active ? Math.max(0, now - meter.startedAt) : 0;
 
   return (
-    <>
-      <DictationWaveform levels={levels} color={fadeHex(colors.text, 0.7)} />
-      <Text style={styles.timer} accessibilityLiveRegion="polite">
-        {formatElapsed(durationMs)}
-      </Text>
-      <Pressable
-        onPress={onCancel}
-        accessibilityLabel="Cancel dictation"
-        hitSlop={6}
-        style={styles.control}
-      >
-        <Icon
-          name="x"
-          size={14}
-          color={fadeHex(colors.text, 0.75)}
-          weight="semibold"
-        />
-      </Pressable>
-      <Pressable
-        onPress={onConfirm}
-        accessibilityLabel="Stop dictation and transcribe"
-        hitSlop={6}
-        style={styles.control}
-      >
-        <Icon name="check" size={16} color={colors.text} weight="semibold" />
-      </Pressable>
-      {onSend ? (
+    <View style={styles.recordingBar}>
+      <LiveTranscript
+        text={transcript.text}
+        revision={transcript.revision}
+        stableWordCount={transcript.stableWordCount}
+        color={fadeHex(colors.text, 0.66)}
+        reduceMotion={reduceMotion}
+      />
+      <View style={styles.recordingRow}>
+        <DictationWaveform levels={levels} color={fadeHex(colors.text, 0.7)} />
+        <Text style={styles.timer} accessibilityLiveRegion="polite">
+          {formatElapsed(durationMs)}
+        </Text>
         <Pressable
-          onPress={onSend}
-          accessibilityLabel="Stop dictation and send"
+          onPress={onCancel}
+          accessibilityLabel="Cancel dictation"
           hitSlop={6}
-          style={styles.sendControl}
+          style={styles.control}
         >
           <Icon
-            name="arrow-up"
-            size={15}
-            color={colors.accentForeground}
-            weight="heavy"
+            name="x"
+            size={14}
+            color={fadeHex(colors.text, 0.75)}
+            weight="semibold"
           />
         </Pressable>
-      ) : null}
-    </>
+        <Pressable
+          onPress={onConfirm}
+          accessibilityLabel="Stop dictation and transcribe"
+          hitSlop={6}
+          style={styles.control}
+        >
+          <Icon name="check" size={16} color={colors.text} weight="semibold" />
+        </Pressable>
+        {onSend ? (
+          <Pressable
+            onPress={onSend}
+            accessibilityLabel="Stop dictation and send"
+            hitSlop={6}
+            style={styles.sendControl}
+          >
+            <Icon
+              name="arrow-up"
+              size={15}
+              color={colors.accentForeground}
+              weight="heavy"
+            />
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+});
+
+function LiveTranscript({
+  text,
+  revision,
+  stableWordCount,
+  color,
+  reduceMotion,
+}: {
+  text: string;
+  revision: number;
+  stableWordCount: number;
+  color: string;
+  reduceMotion: boolean;
+}) {
+  if (!text) return null;
+  const words = tokenizeDictationTranscript(text);
+  return (
+    <View
+      style={waveStyles.transcript}
+      accessible
+      accessibilityLabel={text}
+      accessibilityLiveRegion="polite"
+    >
+      {words.map((word, index) => (
+        <AnimatedWord
+          key={
+            index < stableWordCount
+              ? `${index}:${word}`
+              : `${revision}:${index}:${word}`
+          }
+          color={color}
+          animate={!reduceMotion}
+          word={word}
+        />
+      ))}
+    </View>
+  );
+}
+
+const AnimatedWord = memo(function AnimatedWord({
+  word,
+  color,
+  animate,
+}: {
+  word: string;
+  color: string;
+  animate: boolean;
+}) {
+  const progress = useRef(new Animated.Value(animate ? 0 : 1)).current;
+
+  useEffect(() => {
+    if (!animate) return;
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [animate, progress]);
+
+  return (
+    <Animated.Text
+      style={{
+        color,
+        fontFamily: fonts.sans.regular,
+        fontSize: 15,
+        fontStyle: "italic",
+        lineHeight: 21,
+        marginRight: 4,
+        opacity: progress,
+        transform: [
+          {
+            translateY: progress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [2, 0],
+            }),
+          },
+        ],
+      }}
+    >
+      {word}
+    </Animated.Text>
   );
 });
 
@@ -138,6 +239,12 @@ function DictationWaveform({
 }
 
 const waveStyles = StyleSheet.create({
+  transcript: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingHorizontal: 4,
+    paddingTop: 1,
+  },
   container: {
     flex: 1,
     height: WAVEFORM_HEIGHT,
@@ -164,6 +271,18 @@ type ColorMap = ReturnType<typeof useColors>;
 
 const makeStyles = (colors: ColorMap) =>
   StyleSheet.create({
+    recordingBar: {
+      flex: 1,
+      gap: 7,
+      minWidth: 0,
+      paddingVertical: 1,
+    },
+    recordingRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 8,
+      minWidth: 0,
+    },
     timer: {
       flexShrink: 0,
       color: fadeHex(colors.text, 0.7),
@@ -178,6 +297,8 @@ const makeStyles = (colors: ColorMap) =>
       justifyContent: "center",
       width: 26,
       height: 26,
+      borderRadius: 13,
+      backgroundColor: fadeHex(colors.text, 0.07),
     },
     sendControl: {
       flexShrink: 0,

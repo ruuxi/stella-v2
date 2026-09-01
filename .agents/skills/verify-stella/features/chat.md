@@ -8,6 +8,8 @@ Chat is Stella's primary desktop surface. A user opens or creates a conversation
 - `chat-new` creates and selects a distinct conversation.
 - `chat-draft` accepts text without mutating the timeline.
 - `chat-send` shows the user turn or a visible provider/runtime failure.
+- `chat-dictation` expands the recording pill with Muse's cumulative live
+  transcript; appended or corrected words fade in without repainting the chat.
 
 ## How to get to it (user POV)
 
@@ -27,6 +29,10 @@ Preconditions:
 - **Draft.** Run `node .agents/skills/verify-stella/control-stella.mjs drive fill --placeholder "Do anything" --value "hello from verify-stella"`, then capture `inspect aria` and `inspect screenshot` artifacts.
 - **Send.** Run `node .agents/skills/verify-stella/control-stella.mjs chat send --text "hello from verify-stella"`. Require the user message or a bounded visible provider/runtime error. Do not wait indefinitely for model output.
 - **New conversation.** Run `node .agents/skills/verify-stella/control-stella.mjs chat new`. Require a conversation id different from the recorded id.
+- **Dictation.** Activate the visible microphone with a signed-in cloud session,
+  speak a short sentence, and require words to appear before stopping. Continue
+  speaking and require the same preview to grow or correct its tail without the
+  earlier words flashing. Confirm once and require the final text in the composer.
 
 ## Gotchas
 

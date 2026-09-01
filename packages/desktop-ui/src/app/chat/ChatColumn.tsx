@@ -25,6 +25,7 @@ import {
 } from "react";
 import { ChevronDown } from "@/ui/icons";
 import { ConnectorConnectCard } from "./ConnectorConnectCard";
+import { ComposerNotice } from "./ComposerNotice";
 import { CloudBrowserInterventionCard } from "@/features/cloud/CloudBrowserInterventionCard";
 import { ConversationEvents } from "./ConversationEvents";
 import { useChatMessages } from "@/context/use-chat-messages";
@@ -350,6 +351,9 @@ export const ChatColumn = memo(function ChatColumn({
               composer while the agent's turn waits on the answer. */}
           <ConnectorConnectCard conversationId={conversationId} />
           <CloudBrowserInterventionCard conversationId={conversationId} />
+          {/* Sign-in / plan-limit / provider notices pin here too, so the
+              thing blocking the composer sits right above it. */}
+          <ComposerNotice conversationId={conversationId} />
 
           {/* Composer: normal flow below the scroll viewport */}
           <div
@@ -396,6 +400,9 @@ export const ChatColumn = memo(function ChatColumn({
               className="composer-wrap"
               inert={showHomeContent ? undefined : true}
             >
+              {showHomeContent ? (
+                <ComposerNotice conversationId={conversationId} />
+              ) : null}
               {renderComposer("home", null)}
             </div>
           </HomeContent>

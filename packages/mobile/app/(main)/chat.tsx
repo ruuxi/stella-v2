@@ -53,6 +53,7 @@ import { ChatPane } from "../../src/components/ChatPane";
 import { ActivityHubSheet } from "../../src/components/ActivityHubSheet";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { CloudBrowserInterventionCard } from "../../src/components/CloudBrowserInterventionCard";
+import { ComposerNotice } from "../../src/components/ComposerNotice";
 import { ComputerDeviceSheet } from "../../src/components/ComputerDeviceSheet";
 import { ConnectHeroAnimation } from "../../src/components/ConnectHeroAnimation";
 import { PairPhoneSheet } from "../../src/components/PairPhoneSheet";
@@ -541,9 +542,12 @@ function ChatSurface(props: {
         onRealtimeVoiceAction={performRealtimeVoiceAction}
         placeholder={t("mobile.chat.composerPlaceholder")}
         composerIntervention={
-          <CloudBrowserInterventionCard
-            conversationId={thread.conversationId}
-          />
+          <>
+            <CloudBrowserInterventionCard
+              conversationId={thread.conversationId}
+            />
+            <ComposerNotice conversationId={thread.conversationId} />
+          </>
         }
         offline={offline}
         enableAttachments

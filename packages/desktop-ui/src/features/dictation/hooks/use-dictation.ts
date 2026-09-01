@@ -30,6 +30,7 @@ import { DOWNLOAD_LOCAL_DICTATION_ACTION } from "@/features/dictation/services/l
 import { appendRollingLevel } from "@/features/dictation/rolling-levels";
 import { showToast } from "@/ui/toast";
 import { SIGN_IN_TOAST_ACTION } from "@/shared/lib/auth-cta";
+import { presentComposerNotice } from "@/features/chat/composer-notice-store";
 import { useT } from "@/shared/i18n";
 
 export const DICTATION_TOGGLE_EVENT = "stella:dictation-toggle";
@@ -260,21 +261,23 @@ export const useDictation = ({
               if (needsSignIn) {
                 const canDownloadLocalDictation =
                   localInstallableRef.current && isLocalDictationEnabled();
-                showToast(
+                // Dictation lives in the composer, so the "sign in first"
+                // guidance is pinned right above it rather than toasted.
+                presentComposerNotice(
                   canDownloadLocalDictation
                     ? {
+                        conversationId: null,
+                        kind: "sign-in",
                         title: t("features.dictation.localNotReadyTitle"),
                         description: t("features.dictation.localNotReadyBody"),
-                        variant: "error",
-                        duration: 10_000,
                         action: DOWNLOAD_LOCAL_DICTATION_ACTION,
                         secondaryAction: SIGN_IN_TOAST_ACTION,
                       }
                     : {
+                        conversationId: null,
+                        kind: "sign-in",
                         title: t("features.dictation.signInTitle"),
                         description: t("features.dictation.signInBody"),
-                        variant: "error",
-                        duration: 8000,
                         action: SIGN_IN_TOAST_ACTION,
                       },
                 );

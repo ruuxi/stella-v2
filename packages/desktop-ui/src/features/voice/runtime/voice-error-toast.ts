@@ -1,4 +1,4 @@
-import { showToast } from "@/ui/toast";
+import type { ToastOptions } from "@/ui/toast";
 import {
   OPEN_SETTINGS_TOAST_ACTION,
   SIGN_IN_TOAST_ACTION,
@@ -19,7 +19,7 @@ const VOICE_NEEDS_SETUP =
 export const resolveVoiceErrorToast = (
   errorMessage: string | undefined,
   t: (key: string) => string,
-): Parameters<typeof showToast>[0] | null => {
+): ToastOptions | null => {
   const message = (errorMessage ?? "").trim();
   if (!message) return null;
   // Sign-in takes precedence: a 401 reads as "needs setup" too, but the

@@ -84,6 +84,10 @@ import {
 } from "./activity-hub-model";
 import { admitSend } from "./send-admission";
 import { userFacingError } from "./user-facing-error";
+import {
+  clearComposerNotices,
+  showComposerNoticeForError,
+} from "./composer-notice";
 import { notifySuccess } from "./haptics";
 import type {
   ChatArtifact,
@@ -867,6 +871,9 @@ export function useChatThread(opts: {
   // ─── Server-owned automatic placement ───────────────────────────────────
   const dispatchAutomatic = useCallback(
     async (item: QueuedSend, replyId: string, abort: AbortController) => {
+      // A fresh send supersedes any pinned sign-in / limit notice; if the
+      // problem persists this dispatch raises a new one.
+      clearComposerNotices(canonicalConversationId);
       const assertAuthorityLease = () => {
         if (!canonicalAuthorityLeaseCurrent(item.canonicalAuthorityLease)) {
           throw new AutomaticExecutionWaitAbortedError();
@@ -1071,6 +1078,9 @@ export function useChatThread(opts: {
           return;
         }
         renderReply(userFacingError(error));
+        // Sign-in / plan-limit failures also pin an actionable notice above
+        // the composer, matching desktop; transient ones stay in the bubble.
+        showComposerNoticeForError(error, canonicalConversationId);
         // Authentication/migration/validation failures cannot become valid by
         // replaying this old account-bound outbox row after every launch.
         if (isPermanentAutomaticAdmissionError(error)) {

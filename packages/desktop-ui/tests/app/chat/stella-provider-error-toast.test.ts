@@ -7,6 +7,7 @@ import {
 } from "@stella/contracts/llm-route-failure";
 import {
   isStellaLimitOrAuthReason,
+  resolveStellaProviderErrorNoticeKind,
   resolveStellaProviderErrorToast,
 } from "@/features/chat/streaming/stella-provider-error-toast";
 
@@ -257,5 +258,59 @@ describe("free allowance exhaustion → toast", () => {
       resolveStellaProviderErrorToast("Usage limit reached.").title,
     ).toBe("Stella needs more room");
     expect(isStellaLimitOrAuthReason(reason)).toBe(true);
+  });
+});
+
+// Where a failure is surfaced: blocking account/plan/provider problems pin
+// above the composer; transient failures stay toasts.
+describe("stella provider error → composer notice routing", () => {
+  it("pins sign-in, plan, limit and provider failures above the composer", () => {
+    expect(resolveStellaProviderErrorNoticeKind("Sign in required")).toBe("sign-in");
+    expect(resolveStellaProviderErrorNoticeKind("401 unauthorized")).toBe("sign-in");
+    expect(resolveStellaProviderErrorNoticeKind("[claude-code/login-required]")).toBe("sign-in");
+    expect(
+      resolveStellaProviderErrorNoticeKind(
+        formatLlmRouteFailure({ kind: "no-stella-route" }),
+      ),
+    ).toBe("sign-in");
+    expect(resolveStellaProviderErrorNoticeKind("Usage limit reached")).toBe("upgrade");
+    expect(resolveStellaProviderErrorNoticeKind("free_allowance_exhausted")).toBe("upgrade");
+    expect(
+      resolveStellaProviderErrorNoticeKind("[capability/video_generation] capability_required"),
+    ).toBe("upgrade");
+    expect(resolveStellaProviderErrorNoticeKind("Unsupported Stella model selection")).toBe(
+      "upgrade",
+    );
+    expect(resolveStellaProviderErrorNoticeKind("rate limit exceeded")).toBe("limit");
+    expect(resolveStellaProviderErrorNoticeKind("You have hit your ChatGPT usage limit")).toBe(
+      "limit",
+    );
+    expect(resolveStellaProviderErrorNoticeKind("authentication failed: api key")).toBe(
+      "provider",
+    );
+    expect(
+      resolveStellaProviderErrorNoticeKind(
+        formatLlmRouteFailure({
+          kind: "missing-credential",
+          provider: "openrouter",
+          model: "openrouter/anthropic/claude-opus-4.8",
+        }),
+      ),
+    ).toBe("provider");
+  });
+
+  it("keeps transient failures as toasts", () => {
+    for (const reason of [
+      "fetch failed",
+      "timed out",
+      "context window exceeded",
+      "content_filter",
+      "server_error",
+      "bad request",
+      "Something odd happened",
+      null,
+    ]) {
+      expect(resolveStellaProviderErrorNoticeKind(reason)).toBeNull();
+    }
   });
 });

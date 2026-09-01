@@ -10,11 +10,16 @@ import {
   type Capability,
 } from '@/global/billing/capabilities'
 import { i18nFallback } from '@/shared/i18n/I18nProvider'
-import type { ToastOptions } from '@/ui/toast'
+import { showToast, type ToastOptions } from '@/ui/toast'
 import { detectLlmRouteFailureKind } from "@stella/contracts/llm-route-failure"
+import {
+  presentComposerNotice,
+  type ComposerNoticeKind,
+} from '@/features/chat/composer-notice-store'
 import {
   classifyStellaProviderError,
   isStellaLimitOrAuthClassification,
+  type StellaProviderErrorKind,
 } from './stella-provider-error-classifier'
 
 type Translate = (
@@ -303,4 +308,71 @@ export const resolveStellaProviderErrorToast = (
         duration: 10000,
       }
   }
+}
+
+/**
+ * Failures the user must act on before Stella can continue — signed out,
+ * plan exhausted, provider key missing, model gated — are pinned above
+ * the composer instead of toasted. Everything else (network, timeout,
+ * blocked prompt, malformed request, unknown) stays a toast: nothing to
+ * do but retry.
+ */
+const COMPOSER_NOTICE_KIND_BY_ERROR: Partial<
+  Record<StellaProviderErrorKind, ComposerNoticeKind>
+> = {
+  'sign-in-required': 'sign-in',
+  'account-auth': 'sign-in',
+  'claude-code-login': 'sign-in',
+  billing: 'upgrade',
+  'free-allowance-exhausted': 'upgrade',
+  'capability-required': 'upgrade',
+  'model-restriction': 'upgrade',
+  'rate-limit': 'limit',
+  'chatgpt-usage-limit': 'limit',
+  'provider-access': 'provider',
+}
+
+export const resolveStellaProviderErrorNoticeKind = (
+  reason: string | null | undefined,
+): ComposerNoticeKind | null => {
+  const classification = classifyStellaProviderError(reason)
+  const routeFailureKind = detectLlmRouteFailureKind(classification.message)
+  if (routeFailureKind === 'no-stella-route') return 'sign-in'
+  if (
+    routeFailureKind === 'missing-credential' ||
+    routeFailureKind === 'unknown-model' ||
+    routeFailureKind === 'unsupported-provider'
+  ) {
+    return 'provider'
+  }
+  return COMPOSER_NOTICE_KIND_BY_ERROR[classification.kind] ?? null
+}
+
+/**
+ * Surface a stopped run's failure in the right place: a pinned composer
+ * notice for limit/auth/provider problems, a toast for transient ones.
+ */
+export const presentStellaProviderError = (
+  reason: string | null | undefined,
+  options: StellaProviderErrorToastOptions & {
+    conversationId?: string | null
+  } = {},
+): void => {
+  const toast = resolveStellaProviderErrorToast(reason, options)
+  const kind = resolveStellaProviderErrorNoticeKind(reason)
+  if (!kind) {
+    showToast(toast)
+    return
+  }
+  presentComposerNotice(
+    {
+      conversationId: options.conversationId ?? null,
+      kind,
+      title: toast.title ?? '',
+      description: toast.description,
+      action: toast.action,
+      secondaryAction: toast.secondaryAction,
+    },
+    toast,
+  )
 }

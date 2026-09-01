@@ -15,6 +15,7 @@ import {
 } from "@/app/chat/ComposerContextRow";
 import { ComposerLeadRow } from "@/app/chat/ComposerLeadRow";
 import { ConnectorConnectCard } from "@/app/chat/ConnectorConnectCard";
+import { ComposerNotice } from "@/app/chat/ComposerNotice";
 import { CloudBrowserInterventionCard } from "@/features/cloud/CloudBrowserInterventionCard";
 import { ComposerAddMenu } from "@/app/chat/ComposerAddMenu";
 import {
@@ -547,6 +548,7 @@ function AccountScopedChatPanelTab({
                 compact
                 conversationId={conversationId}
               />
+              <ComposerNotice compact conversationId={conversationId} />
               <ComposerLeadRow
                 replyPeek={
                   assistantReplyPeek.visible

@@ -27,8 +27,9 @@ import {
 import type { StreamStoreAction } from './store'
 import {
   isStellaLimitOrAuthReason,
-  resolveStellaProviderErrorToast,
+  presentStellaProviderError,
 } from './stella-provider-error-toast'
+import { clearComposerNotices } from '@/features/chat/composer-notice-store'
 import type {
   AgentResponseTarget,
   AgentStreamEvent as BaseAgentStreamEvent,
@@ -264,7 +265,7 @@ export function useAgentEventHandler({
         ) {
           const finishReason = args.reason || event.error
           if (args.outcome === AGENT_RUN_FINISH_OUTCOMES.ERROR) {
-            showToast(resolveStellaProviderErrorToast(finishReason))
+            presentStellaProviderError(finishReason, { conversationId })
           } else if (
             args.outcome === AGENT_RUN_FINISH_OUTCOMES.CANCELED &&
             isStellaLimitOrAuthReason(finishReason)
@@ -272,11 +273,11 @@ export function useAgentEventHandler({
             // A run that *stops mid-flight* because the user ran out of free
             // anonymous previews / hit a usage limit can surface as a cancel
             // rather than an error. Without this the user is left staring at a
-            // halted agent with no explanation — the sign-in toast otherwise
-            // only appeared the next time they sent a message. Only toast when
-            // the reason actually names a limit/auth issue so ordinary
+            // halted agent with no explanation — the sign-in notice otherwise
+            // only appeared the next time they sent a message. Only surface it
+            // when the reason actually names a limit/auth issue so ordinary
             // user-initiated cancels stay silent.
-            showToast(resolveStellaProviderErrorToast(finishReason))
+            presentStellaProviderError(finishReason, { conversationId })
           }
         }
         if (
@@ -310,6 +311,11 @@ export function useAgentEventHandler({
             pendingRequestIdsRef.current.delete(event.requestId)
           }
           terminalRunIdsRef.current.delete(event.runId)
+          if (source === 'live') {
+            // A fresh run supersedes any "act before continuing" notice for
+            // this chat; if the problem persists the run raises a new one.
+            clearComposerNotices(conversationId)
+          }
           dispatch({
             type: 'run-started',
             runId: event.runId,

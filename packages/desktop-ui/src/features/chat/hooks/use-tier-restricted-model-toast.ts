@@ -1,10 +1,10 @@
 /**
- * Surface a "this model isn't available on your plan" toast when a user on
+ * Surface a "this model isn't available on your plan" notice when a user on
  * a restricted tier (anonymous / free / go) submits a chat with a saved
  * non-default Stella model override AND Stella's own runtime is the
  * committed engine.
  *
- * The picker (`AgentModelPicker`) toasts at selection time, but a user
+ * The picker (`AgentModelPicker`) notifies at selection time, but a user
  * whose plan downgrades AFTER they picked a model would never see the
  * picker again before sending — this hook catches that case at submit
  * time. Deduped per (audience, agent, model) combo so it doesn't spam on
@@ -27,7 +27,7 @@ import {
   resolveTierRestrictedModelNotice,
   type NoticeRuntimeEngine,
 } from "./tier-restricted-model-notice";
-import { showToast } from "@/ui/toast";
+import { presentComposerNotice } from "@/features/chat/composer-notice-store";
 
 type LocalModelPreferences = {
   modelOverrides?: Record<string, string>;
@@ -78,15 +78,18 @@ export function useTierRestrictedModelToast() {
     if (seenRef.current.has(dedupeKey)) return;
     seenRef.current.add(dedupeKey);
 
-    showToast({
+    // Pinned above the composer (toast fallback when no chat surface is
+    // mounted): the user has to pick a model or upgrade before their
+    // choice takes effect, so it must not slide away on its own.
+    presentComposerNotice({
+      conversationId: null,
+      kind: "upgrade",
       title: "Model not available on your plan",
       description: getModelRestrictionDescription({
         audience,
         modelLabel: notice.modelLabel,
         tense: "is",
       }),
-      variant: "error",
-      duration: 8000,
       action: {
         label: getModelRestrictionActionLabel(audience),
         onClick: () => {

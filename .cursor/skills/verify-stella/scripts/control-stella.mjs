@@ -17,9 +17,11 @@ import {
 } from "node:fs";
 import { createServer } from "node:net";
 import path from "node:path";
+import os from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { WebSocket } from "ws";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const skillRoot = path.resolve(path.dirname(scriptPath), "..");
@@ -27,9 +29,42 @@ const repoRoot = path.resolve(skillRoot, "../../..");
 const POINTER_PATH = path.join(skillRoot, ".run", "current.json");
 const DEFAULT_EVIDENCE_DIR = path.join(skillRoot, "artifacts");
 const READY_SELECTOR = '[data-testid="conversation-topbar"]';
+const HOST_HEALTH_EXPRESSION = String.raw`
+(async () => {
+  const getDeviceId = window.electronAPI?.system?.getDeviceId;
+  if (typeof getDeviceId !== "function") {
+    throw new Error("Electron device identity bridge is unavailable.");
+  }
+  const deviceId = await getDeviceId();
+  if (typeof deviceId !== "string" || deviceId.trim().length === 0) {
+    throw new Error("Electron device identity is empty.");
+  }
+  const healthCheck = window.electronAPI?.agent?.healthCheck;
+  if (typeof healthCheck !== "function") {
+    throw new Error("Stella runtime health bridge is unavailable.");
+  }
+  const runtimeHealth = await healthCheck();
+  if (!runtimeHealth || typeof runtimeHealth !== "object") {
+    throw new Error("Stella runtime host is unavailable.");
+  }
+  return true;
+})()
+`;
 const LAUNCH_TIMEOUT_MS = 120_000;
 const CDP_CONNECT_TIMEOUT_MS = 60_000;
 const COMMAND_TIMEOUT_MS = 15_000;
+const ELECTRON_SYSTEM_ENV_KEYS = [
+  "PATH",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "TZ",
+  "DISPLAY",
+  "XDG_RUNTIME_DIR",
+];
 
 const usage = `Usage: node .cursor/skills/verify-stella/scripts/control-stella.mjs <command> [options]
 
@@ -155,6 +190,16 @@ const currentRun = () => {
   }
 };
 
+const removeTemporaryUserData = (run) => {
+  const tempRoot = path.join(os.tmpdir(), `stella-verify-${run.runId}`);
+  if (
+    path.resolve(run.userDataDir ?? "") !==
+    path.join(tempRoot, "electron-user-data")
+  )
+    return;
+  rmSync(tempRoot, { recursive: true, force: true });
+};
+
 const bunBin = () => {
   const fromEnv = process.env.BUN_INSTALL
     ? path.join(process.env.BUN_INSTALL, "bin", "bun")
@@ -195,8 +240,22 @@ const waitForHttp = async (url, timeoutMs) => {
   throw new Error(`Timed out waiting for ${url} (${lastError}).`);
 };
 
+const linuxSoftwareGl = () =>
+  process.platform === "linux" &&
+  (process.env.STELLA_VERIFY_SOFTWARE_GL === "1" || !existsSync("/dev/dri"));
+
+const isolatedElectronEnvironment = () =>
+  Object.fromEntries(
+    ELECTRON_SYSTEM_ENV_KEYS.filter(
+      (key) =>
+        typeof process.env[key] === "string" && process.env[key].length > 0,
+    ).map((key) => [key, process.env[key]]),
+  );
+
 const cdpTargets = async (cdpPort) => {
-  const response = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+  const response = await fetch(`http://127.0.0.1:${cdpPort}/json/list`, {
+    signal: AbortSignal.timeout(1_500),
+  });
   if (!response.ok) {
     throw new Error(`CDP list failed: HTTP ${response.status}`);
   }
@@ -226,7 +285,9 @@ const waitForCdp = async (cdpPort, timeoutMs) => {
     }
     await delay(250);
   }
-  throw new Error(`Timed out waiting for Electron CDP on ${cdpPort} (${lastError}).`);
+  throw new Error(
+    `Timed out waiting for Electron CDP on ${cdpPort} (${lastError}).`,
+  );
 };
 
 const cdpSend = async (ws, id, method, params) => {
@@ -248,7 +309,11 @@ const cdpSend = async (ws, id, method, params) => {
       clearTimeout(timer);
       ws.removeEventListener("message", onMessage);
       if (parsed.error) {
-        reject(new Error(`${method}: ${parsed.error.message ?? JSON.stringify(parsed.error)}`));
+        reject(
+          new Error(
+            `${method}: ${parsed.error.message ?? JSON.stringify(parsed.error)}`,
+          ),
+        );
         return;
       }
       resolve(parsed.result ?? {});
@@ -262,16 +327,20 @@ const withCdp = async (run, fn) => {
   const ws = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => {
     ws.addEventListener("open", resolve, { once: true });
-    ws.addEventListener("error", () => reject(new Error("CDP websocket failed.")), {
-      once: true,
-    });
+    ws.addEventListener(
+      "error",
+      () => reject(new Error("CDP websocket failed.")),
+      {
+        once: true,
+      },
+    );
   });
   try {
     await cdpSend(ws, 1, "Runtime.enable", {});
     await cdpSend(ws, 2, "Page.enable", {});
     return await fn(ws);
   } finally {
-    ws.close();
+    ws.terminate();
   }
 };
 
@@ -322,7 +391,8 @@ const spawnLogged = (command, args, options) => {
 
 const requireRun = () => {
   const run = currentRun();
-  if (!run) fail("No verification instance. Run `control-stella launch` first.");
+  if (!run)
+    fail("No verification instance. Run `control-stella launch` first.");
   return run;
 };
 
@@ -339,12 +409,14 @@ const doctorReport = async (run) => {
     viteHttp: false,
     cdp: false,
     shellReady: false,
+    hostReady: false,
     title: null,
     href: null,
     errors: [],
   };
   if (!report.vitePidAlive) report.errors.push("Vite process is not running.");
-  if (!report.electronPidAlive) report.errors.push("Electron process is not running.");
+  if (!report.electronPidAlive)
+    report.errors.push("Electron process is not running.");
   try {
     await waitForHttp(run.viteUrl, 2_000);
     report.viteHttp = true;
@@ -363,7 +435,10 @@ const doctorReport = async (run) => {
     try {
       report.shellReady = Boolean(
         await withCdp(run, (ws) =>
-          runtimeEvaluate(ws, `Boolean(document.querySelector(${JSON.stringify(READY_SELECTOR)}))`),
+          runtimeEvaluate(
+            ws,
+            `Boolean(document.querySelector(${JSON.stringify(READY_SELECTOR)}))`,
+          ),
         ),
       );
       if (!report.shellReady) {
@@ -372,7 +447,25 @@ const doctorReport = async (run) => {
         );
       }
     } catch (error) {
-      report.errors.push(error instanceof Error ? error.message : String(error));
+      report.errors.push(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+  if (report.shellReady) {
+    try {
+      report.hostReady = Boolean(
+        await withCdp(run, (ws) => runtimeEvaluate(ws, HOST_HEALTH_EXPRESSION)),
+      );
+      if (!report.hostReady) {
+        report.errors.push("Electron host health check returned false.");
+      }
+    } catch (error) {
+      report.errors.push(
+        `Electron host health check failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
   report.ok =
@@ -380,13 +473,17 @@ const doctorReport = async (run) => {
     report.electronPidAlive &&
     report.viteHttp &&
     report.cdp &&
-    report.shellReady;
+    report.shellReady &&
+    report.hostReady;
   return report;
 };
 
 const cmdLaunch = async (options) => {
   const existing = currentRun();
-  if (existing && (isAlive(existing.vitePid) || isAlive(existing.electronPid))) {
+  if (
+    existing &&
+    (isAlive(existing.vitePid) || isAlive(existing.electronPid))
+  ) {
     if (!options.replace) {
       fail(
         `A verification instance is already running (runId ${existing.runId}). Pass --replace to stop it first, or drive that instance.`,
@@ -398,11 +495,18 @@ const cmdLaunch = async (options) => {
   const runId = randomUUID().slice(0, 8);
   const runDir = path.join(skillRoot, ".run", runId);
   const dataDir = path.join(runDir, "data");
-  const userDataDir = path.join(runDir, "electron-user-data");
+  const userDataDir = path.join(
+    os.tmpdir(),
+    `stella-verify-${runId}`,
+    "electron-user-data",
+  );
   mkdirSync(userDataDir, { recursive: true });
   seedDataDir(dataDir);
 
-  const [vitePort, cdpPort] = await Promise.all([allocatePort(), allocatePort()]);
+  const [vitePort, cdpPort] = await Promise.all([
+    allocatePort(),
+    allocatePort(),
+  ]);
   const viteUrl = `http://127.0.0.1:${vitePort}`;
   const sharedEnv = {
     ...process.env,
@@ -415,11 +519,15 @@ const cmdLaunch = async (options) => {
   process.stderr.write("Building Electron main bundle if needed...\n");
   const build = spawn(
     process.execPath,
-    [path.join(repoRoot, "packages/desktop/scripts/dev-electron-build.mjs"), "--once"],
+    [
+      path.join(repoRoot, "packages/desktop/scripts/dev-electron-build.mjs"),
+      "--once",
+    ],
     { cwd: repoRoot, env: sharedEnv, stdio: "inherit" },
   );
   const buildCode = await new Promise((resolve) => build.on("exit", resolve));
-  if (buildCode !== 0) fail(`dev-electron-build failed with exit ${buildCode}.`);
+  if (buildCode !== 0)
+    fail(`dev-electron-build failed with exit ${buildCode}.`);
 
   process.stderr.write("Starting Vite under bun...\n");
   const vite = spawnLogged(
@@ -466,26 +574,41 @@ const cmdLaunch = async (options) => {
     }
     await waitForHttp(viteUrl, LAUNCH_TIMEOUT_MS);
     process.stderr.write("Starting Electron...\n");
-    const electronArgs = [
-      `--user-data-dir=${userDataDir}`,
-      `--remote-debugging-port=${cdpPort}`,
-      "--no-sandbox",
-      "--disable-gpu",
-      "--disable-gpu-sandbox",
-      "--in-process-gpu",
-      "--enable-unsafe-swiftshader",
-      "--disable-dev-shm-usage",
-      "--ozone-platform=x11",
-      ".",
-      "--dev",
-    ];
+    const softwareGl = linuxSoftwareGl();
+    const electronArgs = [];
+    if (process.platform === "linux") {
+      electronArgs.push("--no-sandbox", "--disable-dev-shm-usage");
+      if (softwareGl) {
+        electronArgs.push(
+          "--disable-gpu",
+          "--disable-gpu-sandbox",
+          "--in-process-gpu",
+          "--enable-unsafe-swiftshader",
+          "--ozone-platform=x11",
+        );
+      }
+    }
+    electronArgs.push("--remote-allow-origins=*");
+    electronArgs.push(repoRoot, "--dev");
     const electron = spawnLogged(electronBin(), electronArgs, {
       cwd: repoRoot,
       env: {
-        ...sharedEnv,
+        ...isolatedElectronEnvironment(),
+        STELLA_SKIP_BROWSER_HYDRATE: "1",
+        STELLA_DATA_DIR: dataDir,
+        STELLA_V2_DEV_DATA_DIR: dataDir,
+        STELLA_DEV_SERVER_URL: viteUrl,
+        STELLA_DEV_HARNESS: "1",
+        STELLA_DEV_HARNESS_STORAGE_KEY: randomBytes(32).toString("base64url"),
+        STELLA_V2_DEV_USER_DATA_DIR: userDataDir,
+        STELLA_REMOTE_DEBUG_PORT: String(cdpPort),
         NODE_ENV: "development",
-        ELECTRON_OZONE_PLATFORM_HINT: "x11",
-        LIBGL_ALWAYS_SOFTWARE: "1",
+        ...(softwareGl
+          ? {
+              ELECTRON_OZONE_PLATFORM_HINT: "x11",
+              LIBGL_ALWAYS_SOFTWARE: "1",
+            }
+          : {}),
       },
       logPath: path.join(runDir, "electron.log"),
     });
@@ -514,10 +637,15 @@ const cmdLaunch = async (options) => {
       }
       await delay(400);
     }
-    if (!ready) throw new Error(`Electron window came up but the shell did not: ${lastError}`);
+    if (!ready)
+      throw new Error(
+        `Electron window came up but the shell did not: ${lastError}`,
+      );
+    await withCdp(run, (ws) => runtimeEvaluate(ws, HOST_HEALTH_EXPRESSION));
   } catch (error) {
     await stopPid(run.electronPid);
     await stopPid(run.vitePid);
+    removeTemporaryUserData(run);
     rmSync(POINTER_PATH, { force: true });
     throw error;
   }
@@ -533,6 +661,7 @@ const cmdStop = async ({ silent = false } = {}) => {
   }
   await stopPid(run.electronPid);
   await stopPid(run.vitePid);
+  removeTemporaryUserData(run);
   rmSync(POINTER_PATH, { force: true });
   if (!silent) {
     process.stdout.write(
@@ -624,14 +753,12 @@ const FIND_ELEMENT_JS = String.raw`
 `;
 
 const evaluateFind = (ws, query) =>
-  runtimeEvaluate(
-    ws,
-    `(${FIND_ELEMENT_JS})(${JSON.stringify(query)}); true`,
-  );
+  runtimeEvaluate(ws, `(${FIND_ELEMENT_JS})(${JSON.stringify(query)}); true`);
 
 const cmdClick = async (options) => {
   const run = requireRun();
-  if (!options.name && !options.selector) fail("click requires --name or --selector");
+  if (!options.name && !options.selector)
+    fail("click requires --name or --selector");
   await withCdp(run, async (ws) => {
     const hit = await runtimeEvaluate(
       ws,
@@ -714,9 +841,15 @@ const KEY_CODES = {
 const cmdPress = async (options) => {
   const run = requireRun();
   const spec = KEY_CODES[options.key];
-  if (!spec) fail(`Unknown key ${options.key}. Supported: ${Object.keys(KEY_CODES).join(", ")}`);
+  if (!spec)
+    fail(
+      `Unknown key ${options.key}. Supported: ${Object.keys(KEY_CODES).join(", ")}`,
+    );
   await withCdp(run, async (ws) => {
-    await cdpSend(ws, 10, "Input.dispatchKeyEvent", { type: "keyDown", ...spec });
+    await cdpSend(ws, 10, "Input.dispatchKeyEvent", {
+      type: "keyDown",
+      ...spec,
+    });
     await cdpSend(ws, 11, "Input.dispatchKeyEvent", { type: "keyUp", ...spec });
   });
   process.stdout.write(`${JSON.stringify({ key: options.key })}\n`);
@@ -816,7 +949,9 @@ const cmdSnapshot = async (options) => {
   mkdirSync(path.dirname(outPath), { recursive: true });
   const text = await withCdp(run, (ws) => runtimeEvaluate(ws, SNAPSHOT_JS));
   writeFileSync(outPath, `${text}\n`);
-  process.stdout.write(`${JSON.stringify({ path: outPath, bytes: Buffer.byteLength(text) })}\n`);
+  process.stdout.write(
+    `${JSON.stringify({ path: outPath, bytes: Buffer.byteLength(text) })}\n`,
+  );
 };
 
 const options = parseArgs(process.argv.slice(2));

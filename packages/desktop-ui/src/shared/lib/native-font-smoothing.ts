@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { uiState } from "@/platform/ui-state";
+import { platformCapabilities } from "@/platform/capabilities";
 
 const NATIVE_FONT_SMOOTHING_KEY = "stella-native-font-smoothing";
 const NATIVE_FONT_SMOOTHING_CHANGED_EVENT =
@@ -29,7 +30,7 @@ const applyToDocument = (enabled: boolean) => {
 
 // Apply at module load so the attribute is set before React mounts and
 // we never flash a frame of un-smoothed text.
-if (typeof window !== "undefined") {
+if (platformCapabilities.nativeSettings && typeof window !== "undefined") {
   applyToDocument(readStored());
 }
 

@@ -23,17 +23,17 @@ Pass `--replace` if a previous verification instance is still recorded.
 
 What launch does:
 
-1. Creates `.cursor/skills/verify-stella/.run/<runId>/` with `data/` and `electron-user-data/`.
+1. Creates `.cursor/skills/verify-stella/.run/<runId>/data/` for sqlite and preferences. Chromium user-data cannot live in the repo: `STELLA_DEV_HARNESS=1` rejects a profile that overlaps the workspace. That profile goes under `os.tmpdir()/stella-verify-<runId>/electron-user-data`.
 2. Seeds `data/ui-state.json` (`stella-onboarding-complete=true`) and `data/preferences.json` (`onboardingCompleted`). Onboarding must already be complete or the shell never reaches the ready selector below.
 3. Runs `node packages/desktop/scripts/dev-electron-build.mjs --once`.
 4. Starts Vite with bun as the runtime (`bun --bun node_modules/vite/bin/vite.js` from `packages/desktop-ui`). Node cannot load the TypeScript imports in `vite.config.ts`. Sets `STELLA_DEV_SERVER_URL=http://127.0.0.1:<ephemeral>` and `STELLA_DATA_DIR` to the isolated data dir. Vite's ui-state plugin reads `STELLA_DATA_DIR`, not `STELLA_V2_DEV_DATA_DIR`.
-5. After Vite answers HTTP, starts Electron with `--dev`, `--user-data-dir` on the isolated Chromium profile, `--remote-debugging-port`, and `STELLA_V2_DEV_DATA_DIR` equal to that same data dir. On Linux the helper also passes `--no-sandbox`, `--in-process-gpu`, and `--enable-unsafe-swiftshader` so Chromium can start without a real GPU.
+5. After Vite answers HTTP, starts Electron with `--dev` and `STELLA_DEV_HARNESS=1`, `STELLA_V2_DEV_USER_DATA_DIR` on the tmp profile, `STELLA_REMOTE_DEBUG_PORT`, `STELLA_V2_DEV_DATA_DIR` on the isolated data dir, and `--remote-allow-origins=*`. Passing only `--user-data-dir` is not enough: unpackaged Stella still moves userData to `Stella Development` unless the harness env is set, then single-instance-locks that shared profile. The Electron child receives only system launch variables (`PATH`, temp, locale, `DISPLAY`, `XDG_RUNTIME_DIR`) plus Stella's harness variables. Do not spread the editor's full environment into Electron; on this Linux session that let the renderer paint but wedged CDP before `/json/list` could answer. Each run gets a random AES-256-GCM key for its isolated protected-storage provider, which keeps the verifier out of the developer's real D-Bus keyring while preserving encrypted-at-rest behavior. The key is consumed at startup, lives only in the Electron process, and becomes unrecoverable when the process exits. Linux always gets `--no-sandbox` and `--disable-dev-shm-usage`. Software GL (`--disable-gpu`, `--in-process-gpu`, `--enable-unsafe-swiftshader`, `--ozone-platform=x11`, `LIBGL_ALWAYS_SOFTWARE=1`) is only for machines without `/dev/dri`, or when `STELLA_VERIFY_SOFTWARE_GL=1`.
 
-Ready: `GET` on the Vite URL succeeds, CDP lists a page whose URL contains `index.html` or `window=full`, and `[data-testid="conversation-topbar"]` is in the DOM. Launch prints the run record as JSON. Logs are `vite.log` and `electron.log` under the run directory.
+Ready: `GET` on the Vite URL succeeds, CDP `/json/list` returns a page whose URL contains `index.html` or `window=full`, `[data-testid="conversation-topbar"]` is in the DOM, the Electron device-identity bridge returns a non-empty id, and the runtime host answers its health check. These last checks prevent a painted shell from reporting ready while protected storage or the detached runtime failed during startup. CDP probes have a 1.5 second request timeout so a wedged inspector cannot hang launch forever. Launch prints the run record as JSON. Logs are `vite.log` and `electron.log` under the run directory.
 
-Linux cloud agents need `DISPLAY` (this environment uses `:1`). The helper's Chromium flags are for this kind of container, not for a normal developer GPU.
+Linux cloud agents need `DISPLAY` (this environment uses `:1`). The software-GL flags are for that kind of container, not for a normal developer GPU.
 
-Two verification instances can run together if each has its own Vite port, CDP port, data dir, and `--user-data-dir`. They will not if they share user-data: `app.requestSingleInstanceLock()` quits the second process.
+Two verification instances can run together if each has its own Vite port, CDP port, data dir, and tmp user-data dir. They will not if they share Chromium user-data: `app.requestSingleInstanceLock()` quits the second process.
 
 ## Doctor
 
@@ -45,8 +45,9 @@ Requires the pointer file `.cursor/skills/verify-stella/.run/current.json` from 
 
 - Vite and Electron PIDs from that record are still alive
 - The recorded Vite URL answers HTTP
-- CDP on the recorded port has a page
+- CDP on the recorded port has a page target
 - `[data-testid="conversation-topbar"]` is present
+- Electron can read or create its protected device identity and reach the runtime host
 
 If the top bar is missing, onboarding is still up or the renderer failed. Do not click through the product onboarding during verification. Stop, fix the seed files, relaunch.
 
@@ -68,20 +69,20 @@ node .cursor/skills/verify-stella/scripts/control-stella.mjs press --key Escape
 
 Stable handles:
 
-| Control | Handle |
-| --- | --- |
-| Shell ready | `[data-testid="conversation-topbar"]` |
-| New chat | `button` named `New chat` |
-| Composer | textbox with placeholder `Do anything` (`textarea.composer-input`) |
-| Send | `Enter` in the composer. The submit control is an unlabeled `button.composer-submit` |
-| History | `button` named `Conversation history` |
-| Home | `button` named `Home` |
-| Settings | `button` named `Settings`, then a menu item named `Settings` |
-| Settings dialog | `dialog` titled `Settings`, tablist named `Settings` |
-| Settings tabs | `tab` named `General`, `Shortcuts`, `Account & Legal`, `Audio` |
-| Close settings | `Escape` (the X uses `[data-slot="dialog-close-button"]` with no accessible name) |
-| New sidebar tab | `button` named `New tab` |
-| Apps launcher | button whose name is `Apps` |
+| Control         | Handle                                                                               |
+| --------------- | ------------------------------------------------------------------------------------ |
+| Shell ready     | `[data-testid="conversation-topbar"]`                                                |
+| New chat        | `button` named `New chat`                                                            |
+| Composer        | textbox with placeholder `Do anything` (`textarea.composer-input`)                   |
+| Send            | `Enter` in the composer. The submit control is an unlabeled `button.composer-submit` |
+| History         | `button` named `Conversation history`                                                |
+| Home            | `button` named `Home`                                                                |
+| Settings        | `button` named `Settings`, then a menu item named `Settings`                         |
+| Settings dialog | `dialog` titled `Settings`, tablist named `Settings`                                 |
+| Settings tabs   | `tab` named `General`, `Shortcuts`, `Account & Legal`, `Audio`                       |
+| Close settings  | `Escape` (the X uses `[data-slot="dialog-close-button"]` with no accessible name)    |
+| New sidebar tab | `button` named `New tab`                                                             |
+| Apps launcher   | button whose name is `Apps`                                                          |
 
 Read the matching file under `features/` before driving a feature. Drive every entry point that file lists, or report the skipped one as unverified.
 
@@ -108,7 +109,7 @@ Proof standards:
 node .cursor/skills/verify-stella/scripts/control-stella.mjs stop
 ```
 
-Stop kills only the Vite and Electron PIDs recorded in `.run/current.json`, then removes that pointer. It does not kill by process name, does not delete `artifacts/`, and does not delete the run's `data/` directory (useful if you still need sqlite). After a failed launch or drive, run stop before trying again so the ephemeral ports are free.
+Stop kills only the Vite and Electron PIDs recorded in `.run/current.json`, then removes that pointer and the tmp Chromium profile. It does not kill by process name, does not delete `artifacts/`, and does not delete the run's `data/` directory (useful if you still need sqlite). After a failed launch or drive, run stop before trying again so the ephemeral ports are free.
 
 Confirm artifacts remain:
 

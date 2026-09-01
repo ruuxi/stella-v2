@@ -1,4 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
 import { uiState } from "@/platform/ui-state";
 import { Switch } from "@/ui/switch";
 import { Select } from "@/ui/select";
@@ -11,44 +18,34 @@ import {
 import {
   isDictationEnhanceEnabled,
   isDictationSuperFastEnabled,
-  isLocalDictationEnabled,
-  isLocalDictationPlatform,
   setDictationEnhancePreference,
   setDictationSuperFastModeEnabled,
   setDictationSuperFastPreference,
-  setLocalDictationPreference,
 } from "@/features/dictation/services/inworld-dictation";
-import { useMicrophoneRecovery } from "@/global/permissions/use-microphone-recovery";
 import { requestBrowserMicrophoneAccess } from "@/global/permissions/microphone-permission";
 import { useT } from "@/shared/i18n";
 import { platformCapabilities } from "@/platform/capabilities";
 
-type MicrophonePermissionStatus =
-  | "not-determined"
-  | "granted"
-  | "denied"
-  | "restricted"
-  | "unknown";
+const NativeAudioDesktopRows = lazy(() =>
+  import("./tabs/NativeAudioDesktopSettings").then((module) => ({
+    default: module.NativeAudioDesktopRows,
+  })),
+);
+
+const darwinMicrophoneIsDenied = async (): Promise<boolean> => {
+  if (!platformCapabilities.nativeSettings) return false;
+  const nativeAudio = await import("./tabs/NativeAudioDesktopSettings");
+  return nativeAudio.darwinMicrophoneIsDenied();
+};
 
 export function AudioTab() {
   const t = useT();
-  const platform = window.electronAPI?.platform;
-  const localDictationSupported = isLocalDictationPlatform();
-  const [localDictationUnavailableReason, setLocalDictationUnavailableReason] =
-    useState<string | null>(null);
   const [micEnabled, setMicEnabled] = useState(() => isMicrophoneEnabled());
-  const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
   const [dictationSuperFast, setDictationSuperFast] = useState(
     () => isMicrophoneEnabled() && isDictationSuperFastEnabled(),
   );
   const [enhanceDictation, setEnhanceDictation] = useState(() =>
     isDictationEnhanceEnabled(),
-  );
-  const [dictationSoundEffects, setDictationSoundEffects] = useState(true);
-  const [savingDictationSoundEffects, setSavingDictationSoundEffects] =
-    useState(false);
-  const [localDictation, setLocalDictation] = useState(() =>
-    isLocalDictationEnabled(),
   );
   const [audioInputDevices, setAudioInputDevices] = useState<MediaDeviceInfo[]>(
     [],
@@ -63,18 +60,7 @@ export function AudioTab() {
     () => uiState.getItem(PREFERRED_SPEAKER_KEY) ?? "",
   );
   const [permissionError, setPermissionError] = useState<string | null>(null);
-  const [microphoneStatus, setMicrophoneStatus] =
-    useState<MicrophonePermissionStatus>("unknown");
-  const microphoneRecovery = useMicrophoneRecovery();
   const micTransactionRef = useRef(0);
-
-  const syncPermissionStatus = useCallback(async () => {
-    const result = await window.electronAPI?.system.getPermissionStatus?.();
-    if (result) {
-      setMicrophoneStatus(result.microphoneStatus);
-    }
-    return result ?? null;
-  }, []);
 
   const loadDevices = useCallback(async () => {
     try {
@@ -96,63 +82,24 @@ export function AudioTab() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      await syncPermissionStatus();
-      if (cancelled) return;
       if (isMicrophoneEnabled()) {
         await loadDevices();
-      } else if (isDictationSuperFastEnabled()) {
+        return;
+      }
+      if (isDictationSuperFastEnabled()) {
         setDictationSuperFastPreference(false);
         void setDictationSuperFastModeEnabled(false).catch(() => undefined);
       }
+      if (cancelled) return;
     })();
     return () => {
       cancelled = true;
     };
-  }, [loadDevices, syncPermissionStatus]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void window.electronAPI?.system
-      ?.getWakeWordEnabled?.()
-      .then((enabled) => {
-        if (cancelled) return;
-        const nextEnabled = isMicrophoneEnabled() && enabled;
-        setWakeWordEnabled(nextEnabled);
-        if (enabled && !nextEnabled) {
-          void window.electronAPI?.system?.setWakeWordEnabled?.(false);
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const handleWakeWordToggle = useCallback((checked: boolean) => {
-    setWakeWordEnabled(checked);
-    void window.electronAPI?.system?.setWakeWordEnabled?.(checked).catch(() => {
-      setWakeWordEnabled(!checked);
-    });
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    void window.electronAPI?.dictation
-      ?.getSoundEffectsEnabled?.()
-      .then((enabled) => {
-        if (!cancelled) setDictationSoundEffects(enabled !== false);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  }, [loadDevices]);
 
   const handleMicToggle = useCallback(
     (checked: boolean) => {
       const transaction = ++micTransactionRef.current;
-      const microphoneDenied =
-        platform === "darwin" && microphoneStatus === "denied";
 
       setMicEnabled(checked);
       uiState.setItem(MIC_ENABLED_KEY, checked ? "true" : "false");
@@ -163,15 +110,12 @@ export function AudioTab() {
           setDictationSuperFastPreference(false);
           void setDictationSuperFastModeEnabled(false).catch(() => undefined);
         }
-        if (wakeWordEnabled) {
-          setWakeWordEnabled(false);
-          void window.electronAPI?.system?.setWakeWordEnabled?.(false);
-        }
         return;
       }
 
       void (async () => {
-        if (microphoneDenied) {
+        if (await darwinMicrophoneIsDenied()) {
+          if (micTransactionRef.current !== transaction) return;
           setPermissionError(t("settings.audio.errors.micDeniedReset"));
           setMicEnabled(false);
           uiState.setItem(MIC_ENABLED_KEY, "false");
@@ -180,14 +124,13 @@ export function AudioTab() {
 
         try {
           await requestBrowserMicrophoneAccess();
-          await syncPermissionStatus();
           if (micTransactionRef.current !== transaction) return;
           await loadDevices();
         } catch {
-          const permissionStatus = await syncPermissionStatus();
+          const deniedReset = await darwinMicrophoneIsDenied();
           if (micTransactionRef.current !== transaction) return;
           setPermissionError(
-            permissionStatus?.microphoneStatus === "denied"
+            deniedReset
               ? t("settings.audio.errors.micDeniedReset")
               : t("settings.audio.errors.micDenied"),
           );
@@ -196,15 +139,7 @@ export function AudioTab() {
         }
       })();
     },
-    [
-      dictationSuperFast,
-      loadDevices,
-      microphoneStatus,
-      platform,
-      syncPermissionStatus,
-      t,
-      wakeWordEnabled,
-    ],
+    [dictationSuperFast, loadDevices, t],
   );
 
   const handleDictationSuperFastToggle = useCallback((checked: boolean) => {
@@ -221,51 +156,6 @@ export function AudioTab() {
     setEnhanceDictation(checked);
     setDictationEnhancePreference(checked);
   }, []);
-
-  const handleLocalDictationToggle = useCallback((checked: boolean) => {
-    setLocalDictation(checked);
-    setLocalDictationPreference(checked);
-  }, []);
-
-  const handleDictationSoundEffectsToggle = useCallback(
-    (checked: boolean) => {
-      const previous = dictationSoundEffects;
-      setDictationSoundEffects(checked);
-      setSavingDictationSoundEffects(true);
-      void window.electronAPI?.dictation
-        ?.setSoundEffectsEnabled?.(checked)
-        .then((result) => {
-          setDictationSoundEffects(result.enabled);
-        })
-        .catch(() => {
-          setDictationSoundEffects(previous);
-        })
-        .finally(() => {
-          setSavingDictationSoundEffects(false);
-        });
-    },
-    [dictationSoundEffects],
-  );
-
-  useEffect(() => {
-    if (!localDictationSupported) return;
-    let cancelled = false;
-    void window.electronAPI?.dictation
-      ?.localStatus?.()
-      .then((status) => {
-        if (cancelled) return;
-        setLocalDictationUnavailableReason(
-          status.available
-            ? null
-            : (status.reason ??
-                t("settings.audio.localDictation.unavailableFallback")),
-        );
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [localDictationSupported, t]);
 
   const handleMicChange = useCallback((deviceId: string) => {
     setSelectedMicId(deviceId);
@@ -285,15 +175,79 @@ export function AudioTab() {
     }
   }, []);
 
-  const microphoneDenied =
-    platform === "darwin" && microphoneStatus === "denied";
-  const showMicrophoneRecovery = platform === "darwin";
-  const microphoneRecoveryLabel = microphoneDenied
-    ? t("settings.audio.recovery.recoverLabel")
-    : t("settings.audio.recovery.manageLabel");
-  const microphoneRecoveryDescription = microphoneDenied
-    ? t("settings.audio.recovery.recoverDescription")
-    : t("settings.audio.recovery.manageDescription");
+  const afterWakeWord = (
+    <>
+      {micEnabled && audioInputDevices.length > 0 ? (
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <div className="settings-row-label">
+              {t("settings.audio.microphone.deviceLabel")}
+            </div>
+            <div className="settings-row-sublabel">
+              {t("settings.audio.microphone.deviceDescription")}
+            </div>
+          </div>
+          <div className="settings-row-control">
+            <Select
+              className="settings-runtime-select"
+              value={selectedMicId}
+              onValueChange={(value) => handleMicChange(value)}
+              aria-label={t("settings.audio.microphone.deviceLabel")}
+              options={[
+                { value: "", label: t("settings.audio.systemDefault") },
+                ...audioInputDevices.map((device, index) => ({
+                  value: device.deviceId,
+                  label:
+                    device.label ||
+                    t("settings.audio.microphoneDeviceFallback", {
+                      index: index + 1,
+                    }),
+                })),
+              ]}
+            />
+          </div>
+        </div>
+      ) : null}
+      {micEnabled ? (
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <div className="settings-row-label">
+              {t("settings.audio.superFast.label")}
+            </div>
+            <div className="settings-row-sublabel">
+              {t("settings.audio.superFast.description")}
+            </div>
+          </div>
+          <div className="settings-row-control">
+            <Switch
+              checked={dictationSuperFast}
+              onCheckedChange={handleDictationSuperFastToggle}
+              hideLabel
+            />
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+  const afterSounds = micEnabled ? (
+    <div className="settings-row">
+      <div className="settings-row-info">
+        <div className="settings-row-label">
+          {t("settings.audio.enhance.label")}
+        </div>
+        <div className="settings-row-sublabel">
+          {t("settings.audio.enhance.description")}
+        </div>
+      </div>
+      <div className="settings-row-control">
+        <Switch
+          checked={enhanceDictation}
+          onCheckedChange={handleEnhanceDictationToggle}
+          hideLabel
+        />
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div className="settings-tab-content">
@@ -326,171 +280,20 @@ export function AudioTab() {
             />
           </div>
         </div>
-        {showMicrophoneRecovery ? (
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <div className="settings-row-label">
-                {microphoneRecoveryLabel}
-              </div>
-              <div className="settings-row-sublabel">
-                {microphoneRecoveryDescription}
-              </div>
-            </div>
-            <div className="settings-row-control settings-row-control--stacked">
-              <button
-                type="button"
-                className="pill-btn"
-                disabled={microphoneRecovery.isResetting}
-                onClick={microphoneRecovery.openSettings}
-              >
-                {t("settings.audio.recovery.openSettings")}
-              </button>
-              <button
-                type="button"
-                className="pill-btn pill-btn--danger"
-                disabled={microphoneRecovery.isResetting}
-                onClick={() => void microphoneRecovery.resetAndRestart()}
-              >
-                {microphoneRecovery.isResetting
-                  ? t("settings.audio.recovery.closing")
-                  : t("settings.audio.recovery.reset")}
-              </button>
-            </div>
-          </div>
-        ) : null}
-        {platformCapabilities.nativeSettings && micEnabled ? (
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <div className="settings-row-label">
-                {t("settings.audio.wakeWord.label")}
-              </div>
-              <div className="settings-row-sublabel">
-                {t("settings.audio.wakeWord.description")}
-              </div>
-            </div>
-            <div className="settings-row-control">
-              <Switch
-                checked={wakeWordEnabled}
-                onCheckedChange={handleWakeWordToggle}
-                hideLabel
-              />
-            </div>
-          </div>
-        ) : null}
-        {micEnabled && audioInputDevices.length > 0 ? (
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <div className="settings-row-label">
-                {t("settings.audio.microphone.deviceLabel")}
-              </div>
-              <div className="settings-row-sublabel">
-                {t("settings.audio.microphone.deviceDescription")}
-              </div>
-            </div>
-            <div className="settings-row-control">
-              <Select
-                className="settings-runtime-select"
-                value={selectedMicId}
-                onValueChange={(value) => handleMicChange(value)}
-                aria-label={t("settings.audio.microphone.deviceLabel")}
-                options={[
-                  { value: "", label: t("settings.audio.systemDefault") },
-                  ...audioInputDevices.map((device, index) => ({
-                    value: device.deviceId,
-                    label:
-                      device.label ||
-                      t("settings.audio.microphoneDeviceFallback", {
-                        index: index + 1,
-                      }),
-                  })),
-                ]}
-              />
-            </div>
-          </div>
-        ) : null}
-        {micEnabled ? (
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <div className="settings-row-label">
-                {t("settings.audio.superFast.label")}
-              </div>
-              <div className="settings-row-sublabel">
-                {t("settings.audio.superFast.description")}
-              </div>
-            </div>
-            <div className="settings-row-control">
-              <Switch
-                checked={dictationSuperFast}
-                onCheckedChange={handleDictationSuperFastToggle}
-                hideLabel
-              />
-            </div>
-          </div>
-        ) : null}
         {platformCapabilities.nativeSettings ? (
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <div className="settings-row-label">
-                {t("settings.audio.dictationSounds.label")}
-              </div>
-              <div className="settings-row-sublabel">
-                {t("settings.audio.dictationSounds.description")}
-              </div>
-            </div>
-            <div className="settings-row-control">
-              <Switch
-                checked={dictationSoundEffects}
-                disabled={savingDictationSoundEffects}
-                onCheckedChange={(checked) =>
-                  handleDictationSoundEffectsToggle(Boolean(checked))
-                }
-                hideLabel
-              />
-            </div>
-          </div>
-        ) : null}
-        {micEnabled ? (
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <div className="settings-row-label">
-                {t("settings.audio.enhance.label")}
-              </div>
-              <div className="settings-row-sublabel">
-                {t("settings.audio.enhance.description")}
-              </div>
-            </div>
-            <div className="settings-row-control">
-              <Switch
-                checked={enhanceDictation}
-                onCheckedChange={handleEnhanceDictationToggle}
-                hideLabel
-              />
-            </div>
-          </div>
-        ) : null}
-        {platformCapabilities.nativeSettings &&
-        localDictationSupported &&
-        micEnabled ? (
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <div className="settings-row-label">
-                {t("settings.audio.localDictation.label")}
-              </div>
-              <div className="settings-row-sublabel">
-                {localDictationUnavailableReason ??
-                  t("settings.audio.localDictation.description")}
-              </div>
-            </div>
-            <div className="settings-row-control">
-              <Switch
-                checked={localDictation && !localDictationUnavailableReason}
-                onCheckedChange={handleLocalDictationToggle}
-                disabled={Boolean(localDictationUnavailableReason)}
-                hideLabel
-              />
-            </div>
-          </div>
-        ) : null}
+          <Suspense fallback={null}>
+            <NativeAudioDesktopRows
+              micEnabled={micEnabled}
+              afterWakeWord={afterWakeWord}
+              afterSounds={afterSounds}
+            />
+          </Suspense>
+        ) : (
+          <>
+            {afterWakeWord}
+            {afterSounds}
+          </>
+        )}
       </div>
 
       {platformCapabilities.canSelectSpeaker() ? (

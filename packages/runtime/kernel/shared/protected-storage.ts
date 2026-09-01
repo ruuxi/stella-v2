@@ -18,8 +18,13 @@ const PROTECTED_PREFIX = "stella-protected";
 
 let safeStorageCache: SafeStorageLike | null | undefined;
 
-/** Test-only injection; production and development both use Electron safeStorage. */
-export const setSafeStorageForTesting = (
+/**
+ * Explicit provider override for isolated runtimes that cannot use the OS
+ * credential store, such as the desktop verification harness. Normal app
+ * startup leaves this unset and resolves Electron safeStorage. Tests may also
+ * install deterministic providers through the same seam.
+ */
+export const setProtectedStorageProviderOverride = (
   provider: SafeStorageLike | null,
 ): void => {
   safeStorageCache = provider;

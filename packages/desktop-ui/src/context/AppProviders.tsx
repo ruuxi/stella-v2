@@ -15,10 +15,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       <ThemeProvider>
         <ToastProvider>
           {platformCapabilities.nativeBridges ? (
-            <VoiceErrorToastListener />
-          ) : null}
-          {platformCapabilities.nativeBridges ? (
-            <CaptureErrorToastListener />
+            <>
+              <VoiceErrorToastListener />
+              <CaptureErrorToastListener />
+            </>
           ) : null}
           <BootstrapStateProvider>
             <UiStateProvider>

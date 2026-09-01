@@ -43,6 +43,7 @@ import {
   type CloudExecutionSelection,
 } from "./lib/cloud_execution";
 import { parseChatAttachmentPaths } from "./lib/chat_attachments";
+import { admitBrowserExecutionPayload } from "./lib/browser_execution_payload";
 
 export const EXECUTION_PRESENCE_LEASE_MS = 75_000;
 export const EXECUTION_OFFER_WINDOW_MS = 4_000;
@@ -1289,36 +1290,30 @@ export const submitMyBrowserExecution = mutation({
       ownerId,
       expectedOwnerGeneration,
     );
-    let payload: unknown;
-    try {
-      payload = JSON.parse(args.payloadJson);
-    } catch {
-      invalid("Execution payload must be valid JSON.");
-    }
-    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-      conflict(
-        "Browser execution payload generation does not match its admission authority.",
-      );
-    }
-    const payloadRecord = payload as Record<string, unknown>;
-    if (payloadRecord.expectedOwnerGeneration !== expectedOwnerGeneration) {
-      conflict(
-        "Browser execution payload generation does not match its admission authority.",
-      );
-    }
-    const requestedTargetMode = args.requestedTargetMode ?? "automatic";
-    const requestedExecutorDeviceId =
-      args.requestedExecutorDeviceId?.trim() || undefined;
-    if (
-      (payloadRecord.requestedTargetMode ?? "automatic") !==
-        requestedTargetMode ||
-      (typeof payloadRecord.requestedExecutorDeviceId === "string"
-        ? payloadRecord.requestedExecutorDeviceId.trim() || undefined
-        : undefined) !== requestedExecutorDeviceId
-    ) {
-      conflict(
-        "Browser execution payload routing does not match its admission metadata.",
-      );
+    const admission = admitBrowserExecutionPayload({
+      payloadJson: args.payloadJson,
+      expectedOwnerGeneration,
+      requestedTargetMode: args.requestedTargetMode ?? "automatic",
+      requestedExecutorDeviceId:
+        args.requestedExecutorDeviceId?.trim() || undefined,
+    });
+    switch (admission.kind) {
+      case "invalid_json":
+        invalid("Execution payload must be valid JSON.");
+      case "generation_mismatch":
+        conflict(
+          "Browser execution payload generation does not match its admission authority.",
+        );
+      case "routing_mismatch":
+        conflict(
+          "Browser execution payload routing does not match its admission metadata.",
+        );
+      case "ok":
+        break;
+      default: {
+        const _exhaustive: never = admission;
+        return _exhaustive;
+      }
     }
     const dispatch = await submitExecutionDispatchCore(ctx, {
       ...dispatchArgs,

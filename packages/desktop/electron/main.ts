@@ -2,11 +2,17 @@ import { app } from "electron";
 import { runLifecycleVerificationFromArgs } from "./lifecycle-verification.js";
 import { configureLinuxGraphics } from "./linux-graphics.js";
 import { configureLinuxProtectedStorage } from "./linux-protected-storage.js";
+import { configureDevHarnessProtectedStorage } from "./bootstrap/dev-harness-protected-storage.js";
 
 configureLinuxGraphics({
   commandLine: app.commandLine,
 });
-configureLinuxProtectedStorage({ commandLine: app.commandLine });
+const devHarnessProtectedStorage = configureDevHarnessProtectedStorage({
+  isPackaged: app.isPackaged,
+});
+if (!devHarnessProtectedStorage) {
+  configureLinuxProtectedStorage({ commandLine: app.commandLine });
+}
 
 const main = async () => {
   if (await runLifecycleVerificationFromArgs(process.argv)) {

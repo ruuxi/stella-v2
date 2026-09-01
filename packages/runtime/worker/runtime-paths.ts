@@ -90,9 +90,9 @@ export type RuntimePaths = {
    * per-root namespace so multi-install machines don't collide. POSIX
    * socket paths are len(homedir)-dependent and capped at 104 bytes on
    * macOS (BSD `sun_path`, 103 usable), so the per-session endpoint from
-   * `createSecureCliBridgeEndpoint` keeps its components short
-   * (`<rootDir>/<22-char nonce>/b.sock` = homedir + 63 bytes) and
-   * `startCliBridgeServer` enforces a defensive ceiling before binding.
+   * `createSecureCliBridgeEndpoint` lives under the short private `ipcDir`
+   * (`<ipcDir>/<22-char nonce>/b.sock`) and `startCliBridgeServer` enforces a
+   * defensive ceiling before binding.
    */
   cliBridgeSocketPath: string;
   /** Directory holding `runtime.log` and the diagnostic log channels. */
@@ -130,8 +130,7 @@ const windowsNamedPipePath = (name: string, rootHash: string): string =>
   `\\\\.\\pipe\\stella-${name}-${rootHash}`;
 
 export const createSecureCliBridgeEndpoint = (
-  paths: Pick<RuntimePaths, "rootDir" | "rootHash"> &
-    Partial<Pick<RuntimePaths, "ipcDir">>,
+  paths: Pick<RuntimePaths, "ipcDir" | "rootHash">,
   options?: { platform?: NodeJS.Platform; nonce?: string },
 ): string => {
   const platform = options?.platform ?? process.platform;
@@ -151,11 +150,10 @@ export const createSecureCliBridgeEndpoint = (
   }
   // The nonce MUST stay its own directory component: startCliBridgeServer
   // chmods the socket's parent directory to 0700 (that per-session dir is
-  // the unpredictability barrier) and removes it on stop. Components are
-  // deliberately terse — `<rootDir>/<nonce>/b.sock` is homedir + 63 bytes,
-  // keeping well under the 104-byte BSD `sun_path` cap even for long
-  // usernames.
-  return path.join(paths.rootDir, nonce, "b.sock");
+  // the unpredictability barrier) and removes it on stop. Components stay
+  // under the short IPC root: long durable state paths must never leak back
+  // into a bounded Unix-domain socket pathname.
+  return path.join(paths.ipcDir, nonce, "b.sock");
 };
 
 export const isWindowsNamedPipePath = (socketPath: string): boolean =>

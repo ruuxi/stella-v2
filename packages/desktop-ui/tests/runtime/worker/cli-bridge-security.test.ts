@@ -5,7 +5,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { startCliBridgeServer } from "@stella/runtime/worker/cli-bridge-server";
-import { createSecureCliBridgeEndpoint } from "@stella/runtime/worker/runtime-paths";
+import {
+  createSecureCliBridgeEndpoint,
+  resolveRuntimePaths,
+} from "@stella/runtime/worker/runtime-paths";
 
 const roots: string[] = [];
 const servers: Array<{ stop: () => Promise<void> }> = [];
@@ -35,7 +38,7 @@ afterEach(async () => {
 describe("CLI bridge transport security", () => {
   it("uses a distinct unpredictable per-session endpoint", () => {
     const root = makeRoot();
-    const paths = { rootDir: root, rootHash: "0123456789abcdef" };
+    const paths = { ipcDir: root, rootHash: "0123456789abcdef" };
     const first = createSecureCliBridgeEndpoint(paths);
     const second = createSecureCliBridgeEndpoint(paths);
     expect(first).not.toBe(second);
@@ -47,27 +50,26 @@ describe("CLI bridge transport security", () => {
   });
 
   it("stays under the 104-byte macOS sun_path cap for long home directories", () => {
-    // Simulated long-username home dir; the real rootDir shape is
-    // ~/.stella/runtime/<16-hex>.
-    const homeDir = "/Users/alexandra.rodriguez";
-    const rootDir = path.join(
-      homeDir,
-      ".stella",
-      "runtime",
-      "0123456789abcdef",
+    const longStateDir = path.join(
+      "/Users/alexandra.rodriguez/Library/Application Support",
+      "Stella Development/verification-state-with-a-long-name",
     );
-    const endpoint = createSecureCliBridgeEndpoint({
-      rootDir,
-      rootHash: "0123456789abcdef",
+    const paths = resolveRuntimePaths("/Applications/Stella.app", {
+      platform: "darwin",
+      runtimeStateDir: longStateDir,
+      runtimeIpcDir: "/tmp",
     });
-    expect(Buffer.byteLength(endpoint, "utf8")).toBe(
-      Buffer.byteLength(homeDir, "utf8") + 63,
-    );
+    const endpoint = createSecureCliBridgeEndpoint(paths, {
+      platform: "darwin",
+    });
+
+    expect(path.dirname(path.dirname(endpoint))).toBe(paths.ipcDir);
+    expect(endpoint).not.toContain(longStateDir);
     expect(Buffer.byteLength(endpoint, "utf8")).toBeLessThanOrEqual(103);
   });
 
   it("rejects nonces carrying fewer than 128 bits of entropy", () => {
-    const paths = { rootDir: makeRoot(), rootHash: "0123456789abcdef" };
+    const paths = { ipcDir: makeRoot(), rootHash: "0123456789abcdef" };
     for (const nonce of ["", "abc", "a".repeat(21), "b@d!".repeat(8)]) {
       expect(() => createSecureCliBridgeEndpoint(paths, { nonce })).toThrow(
         "128 bits",
@@ -174,7 +176,7 @@ describe("CLI bridge transport security", () => {
 
   it("fails closed on Windows where Node cannot establish a current-user pipe ACL", async () => {
     const pipe = createSecureCliBridgeEndpoint(
-      { rootDir: "unused", rootHash: "0123456789abcdef" },
+      { ipcDir: "unused", rootHash: "0123456789abcdef" },
       { platform: "win32", nonce: "0123456789abcdef0123456789abcdef" },
     );
     await expect(

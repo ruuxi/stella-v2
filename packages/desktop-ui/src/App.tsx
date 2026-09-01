@@ -32,6 +32,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!platformCapabilities.pet) return;
     if (readPetOpenPreference()) {
       window.electronAPI?.pet?.setOpen?.(true);
     }

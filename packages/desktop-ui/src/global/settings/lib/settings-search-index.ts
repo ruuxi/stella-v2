@@ -7,6 +7,9 @@ import type { SettingsTab } from "@/global/settings/settings-tabs";
  * scroll-to-card matching — work in every supported language.
  */
 export type SettingsSearchTranslate = (key: string) => string;
+export type SettingsSearchHost = "native" | "website";
+export type SettingsSearchAvailability = "all" | "native";
+export type SettingsSearchPlatform = "darwin" | "linux" | "win32";
 
 /**
  * Definition of a searchable Settings entry. One entry per
@@ -33,6 +36,10 @@ export type SettingsSearchTranslate = (key: string) => string;
  */
 export interface SettingsSearchEntryDef {
   tab: SettingsTab;
+  /** Hosts on which the setting actually exists. Defaults to all hosts. */
+  availability?: SettingsSearchAvailability;
+  /** Native platforms on which the setting is rendered. Defaults to all. */
+  platforms?: readonly SettingsSearchPlatform[];
   /** Catalog key for the title shown in results (card heading OR row label). */
   titleKey: string;
   /** Catalog key for the description shown under the title. */
@@ -50,6 +57,8 @@ export interface SettingsSearchEntryDef {
 /** A catalog entry resolved against the active locale. */
 export interface ResolvedSettingsSearchEntry {
   tab: SettingsTab;
+  availability: SettingsSearchAvailability;
+  platforms?: readonly SettingsSearchPlatform[];
   title: string;
   description: string;
   cardTitle?: string;
@@ -94,12 +103,15 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   },
   {
     tab: "general",
+    availability: "native",
     titleKey: "settings.developerPreviews.title",
     descriptionKey: "settings.developerPreviews.description",
     keywords: ["developer", "code", "diff", "file previews", "preview"],
   },
   {
     tab: "general",
+    availability: "native",
+    platforms: ["darwin"],
     titleKey: "settings.nativeFontSmoothing.title",
     descriptionKey: "settings.nativeFontSmoothing.description",
     keywords: [
@@ -133,6 +145,7 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   },
   {
     tab: "general",
+    availability: "native",
     titleKey: "settings.notifications.title",
     descriptionKey: "settings.notifications.description",
     keywords: [
@@ -151,6 +164,7 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   },
   {
     tab: "general",
+    availability: "native",
     titleKey: "settings.power.title",
     descriptionKey: "settings.power.description",
     keywords: [
@@ -168,6 +182,7 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   },
   {
     tab: "general",
+    availability: "native",
     titleKey: "settings.lockedComputerUse.title",
     descriptionKey: "settings.lockedComputerUse.description",
     keywords: [
@@ -182,6 +197,37 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   },
   {
     tab: "general",
+    availability: "native",
+    titleKey: "settings.resetCustomizations.title",
+    descriptionKey: "settings.resetCustomizations.description",
+    keywords: [
+      "restore defaults",
+      "reset customizations",
+      "remove customizations",
+      "skills",
+      "personality",
+      "factory reset",
+      "trash",
+    ],
+  },
+  {
+    tab: "general",
+    availability: "native",
+    titleKey: "settings.systemPrompt.title",
+    descriptionKey: "settings.systemPrompt.description",
+    keywords: [
+      "prompt preset",
+      "prompt presets",
+      "system instructions",
+      "assistant prompt",
+      "worker prompt",
+      "custom prompt",
+      "personality",
+    ],
+  },
+  {
+    tab: "general",
+    availability: "native",
     titleKey: "settings.browserExtension.title",
     descriptionKey: "settings.browserExtension.description",
     keywords: [
@@ -199,6 +245,7 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   },
   {
     tab: "general",
+    availability: "native",
     titleKey: "settings.permissions.title",
     descriptionKey: "settings.search.descriptions.permissions",
     keywords: [
@@ -219,6 +266,7 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   // ---------- Shortcuts ----------
   {
     tab: "shortcuts",
+    availability: "native",
     titleKey: "settings.shortcuts.title",
     descriptionKey: "settings.search.descriptions.shortcuts",
     keywords: [
@@ -307,6 +355,7 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
 
   {
     tab: "audio",
+    availability: "native",
     titleKey: "settings.audio.wakeWord.label",
     cardTitleKey: "settings.audio.microphone.title",
     descriptionKey: "settings.search.descriptions.wakeWord",
@@ -314,6 +363,7 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   },
   {
     tab: "audio",
+    availability: "native",
     titleKey: "settings.audio.localDictation.label",
     cardTitleKey: "settings.audio.microphone.title",
     descriptionKey: "settings.search.descriptions.onDeviceTranscription",
@@ -321,6 +371,7 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   },
   {
     tab: "audio",
+    availability: "native",
     titleKey: "settings.audio.dictationSounds.label",
     cardTitleKey: "settings.audio.microphone.title",
     descriptionKey: "settings.audio.dictationSounds.description",
@@ -602,6 +653,8 @@ function resolveEntries(
     const cardTitle = def.cardTitleKey ? t(def.cardTitleKey) : undefined;
     return {
       tab: def.tab,
+      availability: def.availability ?? "all",
+      ...(def.platforms ? { platforms: def.platforms } : {}),
       title: t(def.titleKey),
       description: t(def.descriptionKey),
       ...(cardTitle ? { cardTitle } : {}),
@@ -695,6 +748,7 @@ export interface ScoredSettingsSearchEntry extends ResolvedSettingsSearchEntry {
 export function searchSettings(
   query: string,
   t: SettingsSearchTranslate,
+  options?: { host?: SettingsSearchHost; platform?: string },
 ): ScoredSettingsSearchEntry[] {
   const tokens = tokenizeQuery(query);
   if (tokens.length === 0) return [];
@@ -702,6 +756,20 @@ export function searchSettings(
   const indexed: Array<{ scored: ScoredSettingsSearchEntry; order: number }> =
     [];
   getNormalizedEntries(t).forEach((normalized, order) => {
+    if (
+      options?.host === "website" &&
+      normalized.entry.availability === "native"
+    ) {
+      return;
+    }
+    if (
+      normalized.entry.platforms &&
+      !normalized.entry.platforms.some(
+        (platform) => platform === options?.platform,
+      )
+    ) {
+      return;
+    }
     const score = scoreEntry(normalized, tokens);
     if (score < 0) return;
     indexed.push({

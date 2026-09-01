@@ -6,11 +6,10 @@ import {
   RemoteTelemetryClient,
   type RemoteTelemetryTransportConfig,
 } from "./remote-telemetry.js";
-
-const DEVELOPMENT_ENDPOINT =
-  "https://stella-v2-telemetry-dev.lolruuxi.workers.dev/v1/events";
-const PRODUCTION_ENDPOINT =
-  "https://stella-v2-telemetry.lolruuxi.workers.dev/v1/events";
+import {
+  telemetryHttpEndpoint,
+  telemetryHttpEnvironment,
+} from "./telemetry-endpoints.js";
 
 export type RuntimeTelemetryConfig = {
   stellaDataDirPath: string;
@@ -32,17 +31,9 @@ type RuntimeTelemetryBinding = {
 let binding: RuntimeTelemetryBinding | null = null;
 
 const environmentFor = (value: RuntimeTelemetryConfig) =>
-  (value.isDev ?? process.env.STELLA_TELEMETRY_ENVIRONMENT !== "production")
-    ? ("development" as const)
-    : ("production" as const);
-
-const endpointFor = (environment: "development" | "production"): string => {
-  const override = process.env.STELLA_TELEMETRY_ENDPOINT?.trim();
-  if (override) return override;
-  return environment === "production"
-    ? PRODUCTION_ENDPOINT
-    : DEVELOPMENT_ENDPOINT;
-};
+  telemetryHttpEnvironment(
+    value.isDev ?? process.env.STELLA_TELEMETRY_ENVIRONMENT !== "production",
+  );
 
 /**
  * Stable, non-reversible lane for one authenticated principal. JWT refreshes
@@ -93,7 +84,7 @@ const createBinding = (
     principalScope,
     authToken,
     environment,
-    endpoint: endpointFor(environment),
+    endpoint: telemetryHttpEndpoint(environment),
     ...(next.release ? { release: next.release } : {}),
   };
 };

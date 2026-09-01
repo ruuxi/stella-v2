@@ -1,4 +1,11 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import { RouterProvider } from "@tanstack/react-router";
 import { useTheme } from "@/context/theme-context";
 import { useUiState } from "@/context/ui-state";
@@ -139,34 +146,48 @@ function OnboardingExperience({
   );
 }
 
-const WebsiteShell = () => {
+function ShellChrome({
+  windowMode,
+  children,
+}: {
+  windowMode: "app" | "onboarding";
+  children: ReactNode;
+}) {
   const { gradientMode, gradientColor } = useTheme();
-
-  useEffect(() => {
-    // Hosted Stella has no first-run phase and never writes a fake completion
-    // marker. The normal shell is the readiness boundary.
-    dismissLaunchSplash();
-  }, []);
-
   return (
-    <div className="window-shell full" data-window-mode="app">
+    <div className="window-shell full" data-window-mode={windowMode}>
       <ShiftingGradient
         mode={gradientMode}
         colorMode={gradientColor}
         lightweight={false}
       />
-      <div className="full-body">
-        <RouterProvider router={router} />
-        <AskStellaSelectionChip />
-      </div>
+      <div className="full-body">{children}</div>
     </div>
+  );
+}
+
+const HostedChatSurface = () => (
+  <>
+    <RouterProvider router={router} />
+    <AskStellaSelectionChip />
+  </>
+);
+
+const WebsiteShell = () => {
+  useEffect(() => {
+    dismissLaunchSplash();
+  }, []);
+
+  return (
+    <ShellChrome windowMode="app">
+      <HostedChatSurface />
+    </ShellChrome>
   );
 };
 
 const DesktopFullShell = () => {
   const { state } = useUiState();
   const activeConversationId = state.conversationId;
-  const { gradientMode, gradientColor } = useTheme();
   const { completed: onboardingDone, hydrated: onboardingHydrated } =
     useOnboardingState();
   // Returning users resolve `onboardingDone` synchronously from shared UI state,
@@ -220,29 +241,16 @@ const DesktopFullShell = () => {
   }, [activeConversationId, appReady, retryRuntimeBootstrap, runtimeStatus]);
 
   return (
-    <div
-      className="window-shell full"
-      data-window-mode={needsOnboarding ? "onboarding" : "app"}
-    >
-      <ShiftingGradient
-        mode={gradientMode}
-        colorMode={gradientColor}
-        lightweight={false}
-      />
-      <div className="full-body">
-        {appReady ? (
-          <>
-            <RouterProvider router={router} />
-            <AskStellaSelectionChip />
-          </>
-        ) : needsOnboarding ? (
-          <OnboardingExperience
-            activeConversationId={activeConversationId}
-            onEnteredApp={() => setHasEnteredApp(true)}
-          />
-        ) : null}
-      </div>
-    </div>
+    <ShellChrome windowMode={needsOnboarding ? "onboarding" : "app"}>
+      {appReady ? (
+        <HostedChatSurface />
+      ) : needsOnboarding ? (
+        <OnboardingExperience
+          activeConversationId={activeConversationId}
+          onEnteredApp={() => setHasEnteredApp(true)}
+        />
+      ) : null}
+    </ShellChrome>
   );
 };
 

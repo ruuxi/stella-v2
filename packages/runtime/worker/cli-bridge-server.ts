@@ -34,9 +34,9 @@ import type {
  * bytes + NUL, so 103 usable; Linux allows 108). Mirrors
  * `maxAutomationSocketPathBytes` in
  * `runtime/kernel/computer-use/automation-socket-paths.ts`. The endpoint from
- * `createSecureCliBridgeEndpoint` is homedir + 63 bytes, so tripping this
- * means the home directory itself is extraordinarily long; fail with an
- * error naming the path instead of an opaque bind failure.
+ * `createSecureCliBridgeEndpoint` lives under the short runtime IPC root;
+ * fail with an error naming the path instead of an opaque bind failure if a
+ * custom root still exceeds the limit.
  */
 export const maxCliBridgeSocketPathBytes = 100;
 
@@ -552,7 +552,7 @@ export const startCliBridgeServer = async ({
     throw new Error(
       `cli-bridge: socket path "${socketPath}" is ${socketPathBytes} bytes, ` +
         `exceeding the ${maxCliBridgeSocketPathBytes}-byte ceiling kept under ` +
-        "the 104-byte macOS sun_path limit. The home directory is too long " +
+        "the 104-byte macOS sun_path limit. The runtime IPC root is too long " +
         "to host Unix domain sockets.",
     );
   }

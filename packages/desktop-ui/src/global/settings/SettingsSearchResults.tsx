@@ -12,20 +12,6 @@ import {
 import { useT } from "@/shared/i18n";
 import { platformCapabilities } from "@/platform/capabilities";
 
-const WEBSITE_HIDDEN_SETTING_KEYS = [
-  "settings.developerPreviews.title",
-  "settings.nativeFontSmoothing.title",
-  "settings.notifications.title",
-  "settings.power.title",
-  "settings.lockedComputerUse.title",
-  "settings.browserExtension.title",
-  "settings.permissions.title",
-  "settings.shortcuts.title",
-  "settings.audio.wakeWord.label",
-  "settings.audio.dictationSounds.label",
-  "settings.audio.localDictation.label",
-];
-
 interface SettingsSearchResultsProps {
   query: string;
   onSelect: (result: ScoredSettingsSearchEntry) => void;
@@ -53,16 +39,14 @@ export function SettingsSearchResults({
   // "notification" in the results — that's the cue that tells the user
   // "your synonym got picked up".
   const highlightTerms = useMemo(() => expandedMatchTerms(query), [query]);
-  const results = useMemo(() => {
-    const hiddenTitles = new Set(
-      WEBSITE_HIDDEN_SETTING_KEYS.map((key) => t(key)),
-    );
-    return searchSettings(query, t).filter(
-      (entry) =>
-        !platformCapabilities.website ||
-        (entry.tab !== "shortcuts" && !hiddenTitles.has(entry.title)),
-    );
-  }, [query, t]);
+  const results = useMemo(
+    () =>
+      searchSettings(query, t, {
+        host: platformCapabilities.website ? "website" : "native",
+        platform: window.electronAPI?.platform,
+      }),
+    [query, t],
+  );
   const trimmedQuery = query.trim();
 
   if (results.length === 0) {

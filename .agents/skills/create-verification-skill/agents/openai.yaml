@@ -1,0 +1,6 @@
+interface:
+  display_name: "Create Verification Skill"
+  short_description: "Help with Create Verification Skill tasks"
+
+policy:
+  allow_implicit_invocation: false

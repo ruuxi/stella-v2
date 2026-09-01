@@ -1,5 +1,7 @@
 .stella/
-.agents/
+.agents/*
+!.agents/skills/
+!.agents/skills/**
 skills-lock.json
 CLAUDE.md
 AGENTS.md
@@ -7,9 +9,6 @@ AGENT.md
 docs/
 .claude
 .cursor/*
-!.cursor/skills/
-!.cursor/skills/verify-stella/
-!.cursor/skills/verify-stella/**
 .codex
 DEV-CONTEXT.md
 

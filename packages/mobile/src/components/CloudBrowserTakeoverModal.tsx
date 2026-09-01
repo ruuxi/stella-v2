@@ -186,6 +186,21 @@ export function CloudBrowserTakeoverModal({
     >
       <View style={[styles.screen, { paddingTop: insets.top }]}>
         <View style={styles.header}>
+          {/* Steps back to chat without deciding. iOS has no back button and
+              this sheet is full screen, so without it the only exits were
+              Done or Cancel. The request stays pending and can be reopened. */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t("common.close")}
+            hitSlop={8}
+            onPress={onDismiss}
+            style={({ pressed }) => [
+              styles.close,
+              pressed && styles.closePressed,
+            ]}
+          >
+            <Icon name="x" size={18} color={colors.textMuted} />
+          </Pressable>
           <View style={styles.headerTitle}>
             <Icon name="globe" size={17} color={colors.textMuted} />
             <Text style={styles.title} numberOfLines={1}>
@@ -342,8 +357,16 @@ const makeStyles = (colors: Colors) =>
       gap: 10,
       justifyContent: "space-between",
       minHeight: 48,
-      paddingHorizontal: 14,
+      paddingHorizontal: 10,
     },
+    close: {
+      alignItems: "center",
+      borderRadius: 16,
+      height: 32,
+      justifyContent: "center",
+      width: 32,
+    },
+    closePressed: { backgroundColor: colors.muted },
     headerTitle: {
       alignItems: "center",
       flex: 1,

@@ -2474,7 +2474,7 @@ const makePlusMenuStyles = (colors: Colors) =>
       // In-tree overlay covering the chat root (no Modal), so Liquid Glass can
       // sample the content behind the menu. `box-none` lets taps fall through
       // to the backdrop / menu children only.
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       zIndex: 50,
     },
     scrim: {
@@ -2485,7 +2485,7 @@ const makePlusMenuStyles = (colors: Colors) =>
       // second glass layer beneath the menu triggers Apple's glass-on-glass
       // suppression and renders the menu clear — so the frost comes entirely
       // from the single glass surface (the menu card), never from the backdrop.
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "rgba(0, 0, 0, 0.2)",
     },
     menuHeader: {

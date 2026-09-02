@@ -702,7 +702,7 @@ const makeStyles = (colors: Colors) =>
     // Scrim painted on the foreground while the drawer is open. Dims the
     // app slightly and provides a tap target to close.
     foregroundScrim: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "#000",
       zIndex: 3,
     },

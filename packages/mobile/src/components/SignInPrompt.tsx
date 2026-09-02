@@ -18,11 +18,14 @@ export function SignInPrompt({ message }: Props) {
     <View style={styles.container}>
       {message ? <Text style={styles.message}>{message}</Text> : null}
       <Pressable
+        accessibilityLabel="Sign in"
+        accessibilityRole="button"
         onPress={() => router.replace("/login")}
         style={({ pressed }) => [
           styles.button,
           pressed && styles.buttonPressed,
         ]}
+        testID="sign-in-prompt-button"
       >
         <Text style={styles.buttonText}>Sign in</Text>
       </Pressable>

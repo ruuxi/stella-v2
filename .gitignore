@@ -9,7 +9,8 @@ AGENT.md
 docs/
 .claude
 .cursor/*
-.codex
+.codex/*
+!.codex/config.toml
 DEV-CONTEXT.md
 
 # Local diagnostic logs (primary location is ~/.stella/logs, already ignored

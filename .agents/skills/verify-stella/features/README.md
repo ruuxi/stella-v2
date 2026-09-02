@@ -15,7 +15,8 @@ This is the maintained map of Stella's user-visible desktop and iOS surfaces. Re
 - Use the existing `stella-mac` SSH alias and `.agents/skills/verify-stella/scripts/control-stella-ios.sh` from a local Linux session.
 - Stage the Linux working tree into the helper-owned disposable Mac directory. Do not modify or reset the developer's Mac checkout.
 - Simulator screenshots and observable app state are proof. A successful Expo build alone is not proof.
-- Only send coordinate input after a fresh whole-screen capture confirms the Simulator window and `doctor` reports `screen_input=yes`.
+- Prefer the project-scoped XcodeBuildMCP tools for accessibility snapshots and semantic input. Run `snapshot_ui` before acting, target only refs from the current snapshot, and refresh after navigation or layout changes.
+- Use coordinate input only as a fallback after a fresh whole-screen capture confirms the Simulator window and `doctor` reports `screen_input=yes`.
 
 ## Proof contract
 

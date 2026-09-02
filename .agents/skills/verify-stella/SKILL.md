@@ -123,6 +123,6 @@ When product navigation or user-visible behavior changes, update the matching fe
 
 ## iOS helper
 
-`scripts/control-stella-ios.sh` runs on Linux and reaches the user's Mac only through `stella-mac`. It can check readiness, stage a disposable snapshot of the Linux working tree, list or boot simulators, launch Stella, open supported deep links, capture the simulator framebuffer or whole Mac screen, send deliberate input when Accessibility permission exists, read recent logs, and clean only helper-owned simulator/source state.
+`scripts/control-stella-ios.sh` runs on Linux and reaches the user's Mac only through `stella-mac`. The project-scoped `.codex/config.toml` starts XcodeBuildMCP through the same SSH boundary for accessibility snapshots and semantic simulator input. The helper can check both layers, stage a disposable snapshot of the Linux working tree, list or boot simulators, launch Stella, open supported deep links, capture the simulator framebuffer or whole Mac screen, retain coordinate input as a fallback, read recent logs, and clean only helper-owned simulator/source state.
 
 Follow [iOS verification infrastructure](features/ios.md) for setup and cleanup, then use the relevant mobile feature map. Do not add cloud/Tailcat instructions. This path is intentionally local over SSH.

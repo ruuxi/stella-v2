@@ -8,6 +8,7 @@ source_state="$run_dir/ios-source"
 mac_host="${STELLA_IOS_SSH_HOST:-stella-mac}"
 mac_repo="${STELLA_IOS_MAC_REPO:-/Users/rahulnanda/projects/stella-v2}"
 mac_path="/Users/rahulnanda/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+xcodebuildmcp_version="${STELLA_XCODEBUILDMCP_VERSION:-2.7.0}"
 ssh_options=(-o BatchMode=yes -o ConnectTimeout=8)
 
 usage() {
@@ -16,6 +17,7 @@ Usage: .agents/skills/verify-stella/scripts/control-stella-ios.sh <command> [opt
 
 Commands:
   doctor
+  mcp-doctor
   devices
   stage
   source
@@ -94,20 +96,32 @@ shift
 
 case "$command" in
   doctor)
-    remote_zsh "$mac_repo" "$mac_path" <<'REMOTE'
+    remote_zsh "$mac_repo" "$mac_path" "$xcodebuildmcp_version" <<'REMOTE'
 set -eu
 repo="$1"
 export PATH="$2"
+xcodebuildmcp_version="$3"
 test -d "$repo/.git"
 test -x /usr/bin/xcodebuild
 test -x /usr/bin/xcrun
 test -x /Users/rahulnanda/.bun/bin/bun
+command -v node >/dev/null
+command -v npx >/dev/null
 device_count="$(xcrun simctl list devices available | awk '/iPhone/ { count += 1 } END { print count + 0 }')"
 test "$device_count" -gt 0
+mcp_version="$(cd /tmp && npx -y "xcodebuildmcp@$xcodebuildmcp_version" --version)"
+test "$mcp_version" = "$xcodebuildmcp_version"
+mcp_tools="$(cd /tmp && npx -y "xcodebuildmcp@$xcodebuildmcp_version" tools --json --workflow ui-automation)"
+printf '%s' "$mcp_tools" | grep -Fq '"name": "snapshot-ui"'
+printf '%s' "$mcp_tools" | grep -Fq '"name": "tap"'
+printf '%s' "$mcp_tools" | grep -Fq '"name": "type-text"'
 printf 'ssh=ok\n'
 printf 'macos=%s\n' "$(sw_vers -productVersion)"
 printf 'xcode=%s\n' "$(xcodebuild -version | tr '\n' ' ' | sed 's/ $//')"
 printf 'bun=%s\n' "$(bun --version)"
+printf 'node=%s\n' "$(node --version)"
+printf 'xcodebuildmcp=%s\n' "$mcp_version"
+printf 'semantic_input=yes\n'
 printf 'repo=%s\n' "$repo"
 printf 'repo_head=%s\n' "$(git -C "$repo" rev-parse --short HEAD)"
 if test -n "$(git -C "$repo" status --porcelain)"; then
@@ -122,6 +136,24 @@ if test "$(/usr/bin/osascript -e 'tell application "System Events" to get UI ele
 else
   printf 'screen_input=no\n'
 fi
+REMOTE
+    ;;
+  mcp-doctor)
+    remote_zsh "$xcodebuildmcp_version" <<'REMOTE'
+set -eu
+version="$1"
+command -v node >/dev/null
+command -v npx >/dev/null
+actual="$(cd /tmp && npx -y "xcodebuildmcp@$version" --version)"
+test "$actual" = "$version"
+tools="$(cd /tmp && npx -y "xcodebuildmcp@$version" tools --json --workflow ui-automation)"
+printf '%s' "$tools" | grep -Fq '"name": "snapshot-ui"'
+printf '%s' "$tools" | grep -Fq '"name": "tap"'
+printf '%s' "$tools" | grep -Fq '"name": "type-text"'
+printf 'xcodebuildmcp=%s\n' "$actual"
+printf 'mcp_transport=ssh-stdio\n'
+printf 'workflows=simulator,ui-automation\n'
+printf 'semantic_input=yes\n'
 REMOTE
     ;;
   devices)
@@ -314,7 +346,9 @@ REMOTE
     ;;
   open-url)
     url="${1:-}"
-    [[ "$url" == stella-mobile://* || "$url" == exp+stella-mobile://* ]] || {
+    [[ "$url" == stella-mobile://* \
+      || "$url" == exp+stella-mobile://* \
+      || "$url" == com.stella.mobile://expo-development-client/?url=* ]] || {
       printf 'Refusing unsupported URL scheme: %s\n' "$url" >&2
       exit 2
     }

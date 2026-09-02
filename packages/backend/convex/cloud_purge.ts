@@ -2,10 +2,9 @@
 //
 // This exists because none of it was covered before. `account_deletion.ts` and
 // `reset.ts` drained every OTHER owner-scoped table and left the entire
-// `cloud_*` surface behind — including a full conversation transcript table.
-// The DO-resident transcript makes that worse rather than better if it goes
-// unaddressed: the bytes move to Durable Object SQLite and R2, where Convex
-// cannot reach them at all except by asking the DO. So deletion is a handshake,
+// `cloud_*` surface behind. The DO-resident transcript makes that worse if it
+// goes unaddressed: the bytes live in Durable Object SQLite and R2, where
+// Convex cannot reach them except by asking the DO. So deletion is a handshake,
 // and it is driven from here.
 //
 // Everything below is idempotent, batched, and resumable: each mutation is its
@@ -107,9 +106,6 @@ const OWNER_STORES = {
   // The conversation index. Content lives in the OrchestratorSession DO and
   // its R2 segments; `purgeConversationInternal` is the handshake.
   cloud_conversations: "handshake",
-  // Pre-DO transcripts. The owner index also catches orphan rows left by a
-  // partial legacy migration after their conversation index disappeared.
-  cloud_messages: "simple",
   // Turns plus their event stream. Events now carry their own rolling owner
   // attribution so parent loss cannot hide them from strict purge/readback.
   agent_turns: "cascade",
@@ -117,10 +113,6 @@ const OWNER_STORES = {
   // Singleton cursor/lease for rolling legacy-event attribution repair. It
   // carries no owner content and must survive every individual owner purge.
   agent_event_ownership_maintenance: "global",
-  // Recall's cross-conversation excerpt index.
-  cloud_message_excerpts: "simple",
-  // Spawned-agent thread transcripts.
-  cloud_thread_messages: "simple",
   // A rolling-schema agent event can be owner-less and reachable only through
   // `sessionId === threadId`. Those children must be scanned before the thread
   // row disappears or strict readback loses the only remaining owner locator.
@@ -215,9 +207,6 @@ type StoresWithStyle<S extends StoreStyle> = {
  */
 const SIMPLE_TABLES = [
   "agent_events",
-  "cloud_message_excerpts",
-  "cloud_messages",
-  "cloud_thread_messages",
   "cloud_memory_lifecycles",
   "cloud_memory_wipe_jobs",
   "cloud_agent_home_preferences",
@@ -293,30 +282,6 @@ const drainOwnerIndexedTable = async (
         .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
         .take(BATCH);
       ids = rows.map((r) => r._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
-    case "cloud_message_excerpts": {
-      const rows = await ctx.db
-        .query("cloud_message_excerpts")
-        .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
-    case "cloud_messages": {
-      const rows = await ctx.db
-        .query("cloud_messages")
-        .withIndex("by_ownerId_and_seq", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
-    case "cloud_thread_messages": {
-      const rows = await ctx.db
-        .query("cloud_thread_messages")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
       break;
     }
     case "cloud_memory_lifecycles": {
@@ -820,13 +785,6 @@ export const deleteOwnerTurnBatch = internalMutation({
         .take(BATCH);
       for (const invocation of invocations) await ctx.db.delete(invocation._id);
       if (invocations.length === BATCH) return { hasMore: true };
-
-      const threadMessages = await ctx.db
-        .query("cloud_thread_messages")
-        .withIndex("by_turnId", (q) => q.eq("turnId", turn.turnId))
-        .take(BATCH);
-      for (const message of threadMessages) await ctx.db.delete(message._id);
-      if (threadMessages.length === BATCH) return { hasMore: true };
 
       await ctx.db.delete(turn._id);
     }
@@ -1388,28 +1346,6 @@ export const listOwnerConversationsInternal = internalQuery({
 });
 
 /**
- * Pre-DO transcript rows for one conversation. The table has no owner index —
- * it is drained deployment-wide by an hourly cron — so this is the only pass
- * that reaches an individual owner's rows, and it has to happen while the
- * index row that names the conversation is still there.
- */
-export const deleteConversationLegacyRowsInternal = internalMutation({
-  args: { ...purgeOperationArgs, conversationId: v.string() },
-  returns: v.object({ hasMore: v.boolean() }),
-  handler: async (ctx, args) => {
-    await assertOwnerPurgeOperation(ctx, args);
-    const rows = await ctx.db
-      .query("cloud_messages")
-      .withIndex("by_conversationId_and_ownerId_and_seq", (q) =>
-        q.eq("conversationId", args.conversationId).eq("ownerId", args.ownerId),
-      )
-      .take(BATCH);
-    for (const row of rows) await ctx.db.delete(row._id);
-    return { hasMore: rows.length === BATCH };
-  },
-});
-
-/**
  * The index row carries `ownerId`, so account deletion has to delete it — the
  * per-conversation delete's habit of keeping a stripped row is not available
  * here. But that row is also what made a late index flush from a DO that was
@@ -1418,10 +1354,9 @@ export const deleteConversationLegacyRowsInternal = internalMutation({
  *
  * So the fence moves to `cloud_conversation_tombstones` in the SAME
  * transaction. Two separate mutations would leave a window in which neither
- * record exists, and that window is precisely when a retried flush lands: it
- * would re-insert the deleted owner's conversation row and their transcript
- * excerpts, under an owner id that no longer exists, where no list, sweep or
- * search would ever surface them again.
+ * record exists, and that window is precisely when a retried flush lands. It
+ * would re-insert the deleted owner's conversation row under an owner id that
+ * no longer exists.
  */
 export const deleteConversationIndexRowInternal = internalMutation({
   args: { ...purgeOperationArgs, conversationId: v.string() },
@@ -1486,14 +1421,6 @@ export const remainingOwnerStoresInternal = internalQuery({
               .take(1),
           );
           break;
-        case "cloud_messages":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_messages")
-              .withIndex("by_ownerId_and_seq", (q) => q.eq("ownerId", ownerId))
-              .take(1),
-          );
-          break;
         case "agent_turns":
           await check(store, () =>
             ctx.db
@@ -1501,24 +1428,6 @@ export const remainingOwnerStoresInternal = internalQuery({
               .withIndex("by_ownerId_and_createdAt", (q) =>
                 q.eq("ownerId", ownerId),
               )
-              .take(1),
-          );
-          break;
-        case "cloud_message_excerpts":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_message_excerpts")
-              .withIndex("by_ownerId_and_createdAt", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
-        case "cloud_thread_messages":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_thread_messages")
-              .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
               .take(1),
           );
           break;
@@ -2265,8 +2174,7 @@ export const purgeOwnerCloudStack = internalAction({
         });
       }
 
-      // 2. Conversations. Each is a handshake with its DO; the legacy transcript
-      //    rows go while the index row that names the conversation is still here.
+      // 2. Conversations. Each is a handshake with its DO.
       let pass = 0;
       for (; pass < MAX_PASSES; pass += 1) {
         const rows: Array<{ conversationId: string; purged: boolean }> =
@@ -2285,15 +2193,6 @@ export const purgeOwnerCloudStack = internalAction({
             );
             if (!result.purged) continue;
           }
-          let hasMoreLegacy = true;
-          for (let p = 0; hasMoreLegacy && p < MAX_PASSES; p += 1) {
-            const legacy: { hasMore: boolean } = await ctx.runMutation(
-              internal.cloud_purge.deleteConversationLegacyRowsInternal,
-              { ...fence, conversationId: row.conversationId },
-            );
-            hasMoreLegacy = legacy.hasMore;
-          }
-          if (hasMoreLegacy) continue;
           await ctx.runMutation(
             internal.cloud_purge.deleteConversationIndexRowInternal,
             { ...fence, conversationId: row.conversationId },

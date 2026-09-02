@@ -1,10 +1,7 @@
-// Backends for the cloud orchestrator's memory and scheduling tools
-// (contract C8). The orchestrator DO holds no database, so its Recall and
-// Schedule tools call these routes with the control-plane turn capability the
-// DO minted for the running turn. Sandboxes never reach these routes: the
-// control-plane audience never leaves the DO, and memory and schedules are
-// account-wide state, not turn-scoped state. The owner is the capability's
-// subject; a caller-supplied owner id is ignored.
+// Backends for the cloud orchestrator's memory-document registry and Schedule
+// tool. Sandboxes never reach the scheduling route: the control-plane audience
+// never leaves the DO, and schedules are account-wide state. The owner is the
+// capability's subject; a caller-supplied owner id is ignored.
 
 import type { HttpRouter } from "convex/server";
 import { ConvexError } from "convex/values";
@@ -52,60 +49,6 @@ const MEMORY_DOC_NAMES = ["MEMORY.md", "memory_map.md", "profile.md"];
 const AGENT_HOME_DOC_MAX_BYTES = 64 * 1024;
 
 export function registerCloudAgentRoutes(http: HttpRouter) {
-  // Recall's conversation half. The memory DOCUMENTS themselves live in R2
-  // under the orchestrator DO's AGENT_HOME binding (contract C5) — Convex has
-  // no credential for that bucket, so `documents` is returned empty here and
-  // the DO merges what it read from R2 before handing the tool result to the
-  // model. `registeredDocuments` reports what Convex knows exists, which is
-  // how a caller can tell "no memory yet" from "memory the DO failed to read".
-  http.route({
-    path: "/api/cloud/recall",
-    method: "POST",
-    handler: httpAction(async (ctx, request) => {
-      const auth = await authorizeControlPlaneRequest(ctx, request);
-      if (!auth.ok) return auth.response;
-      const { ownerId, ownerGeneration } = auth.authority;
-      const body = (await request.json().catch(() => ({}))) as {
-        query?: string;
-        /** The tool's search terms, unjoined — see below. */
-        terms?: unknown;
-        limit?: number;
-      };
-      const query = (body.query ?? "").trim();
-      // Terms are forwarded whole rather than reconstructed by splitting
-      // `query`: "pivot table broken" is one term the model chose, and a
-      // server that only ever sees the joined string cannot tell it from
-      // three unrelated words competing for the same cap.
-      const terms = Array.isArray(body.terms)
-        ? body.terms
-            .filter((entry): entry is string => typeof entry === "string")
-            .map((entry) => entry.trim())
-            .filter(Boolean)
-        : [];
-      const now = Date.now();
-      const [matches, registeredDocuments] = await Promise.all([
-        query || terms.length > 0
-          ? ctx.runQuery(
-              internal.cloud_agent_home.searchOwnerMessagesInternal,
-              {
-                ownerId,
-                ownerGeneration,
-                ...(query ? { query } : {}),
-                ...(terms.length > 0 ? { terms } : {}),
-                limit: body.limit,
-                now,
-              },
-            )
-          : Promise.resolve([]),
-        ctx.runQuery(internal.cloud_agent_home.listOwnerDocumentsInternal, {
-          ownerId,
-          ownerGeneration,
-        }),
-      ]);
-      return json({ documents: [], registeredDocuments, matches });
-    }),
-  });
-
   // Registers a memory document after the orchestrator DO writes its bytes to
   // R2, so Convex stays the canonical record of what exists (R2 holds only
   // the bytes). Writing the object itself stays with the DO.

@@ -11,18 +11,13 @@ import type {
   OutboxEvent,
   OutboxRejectReason,
   ThreadCompletedEvent,
-  ThreadMessagesEvent,
   ThreadSpawnedEvent,
   TurnEventEvent,
   TurnStartedEvent,
 } from "@stella/contracts/turn-plane/outbox";
 import {
   CHAT_TITLE_MAX,
-  THREAD_TURN_MESSAGE_LIMIT,
-  THREAD_TURN_MESSAGE_MAX_BYTES,
-  appendThreadMessage,
   appendTurnEventProjection,
-  assertThreadMessagePayload,
   clip,
   collectThreadOutputFiles,
   completeAgentThread,
@@ -64,13 +59,12 @@ const logOutbox = (event: string, fields: Record<string, unknown>) =>
     JSON.stringify({ service: "convex-cloud-outbox", event, ...fields }),
   );
 
-const utf8ByteLength = (value: string): number =>
-  new TextEncoder().encode(value).byteLength;
-
 const loadConversation = (ctx: MutationCtx, conversationId: string) =>
   ctx.db
     .query("cloud_conversations")
-    .withIndex("by_conversationId", (q) => q.eq("conversationId", conversationId))
+    .withIndex("by_conversationId", (q) =>
+      q.eq("conversationId", conversationId),
+    )
     .unique();
 
 const loadThread = (ctx: MutationCtx, threadId: string) =>
@@ -95,7 +89,9 @@ const applyConversationCreated = async (
 ): Promise<OutboxApplyResult> => {
   const row = await loadConversation(ctx, event.conversationId);
   if (row) {
-    return row.ownerId === event.ownerId ? duplicate : rejected("owner_mismatch");
+    return row.ownerId === event.ownerId
+      ? duplicate
+      : rejected("owner_mismatch");
   }
   // A purged id must never come back as a fresh sidebar row.
   if (await conversationTombstoned(ctx, event.conversationId)) {
@@ -125,16 +121,16 @@ const applyConversationIndex = async (
     updatedAt: event.updatedAt,
     ...(event.createdAt !== undefined ? { createdAt: event.createdAt } : {}),
     ...(event.title !== undefined ? { title: event.title } : {}),
-    ...(event.lastPreview !== undefined ? { lastPreview: event.lastPreview } : {}),
+    ...(event.lastPreview !== undefined
+      ? { lastPreview: event.lastPreview }
+      : {}),
     ...(event.lastRole !== undefined ? { lastRole: event.lastRole } : {}),
     ...(event.activity !== undefined ? { activity: event.activity } : {}),
-    ...(event.excerpts.length > 0 ? { excerpts: event.excerpts } : {}),
     ...(event.force ? { force: true } : {}),
   });
   if (result.accepted) return applied;
   switch (result.reason) {
     case "stale":
-      // Same-epoch replay: excerpts still landed, the head stayed put.
       return duplicate;
     case "stale_epoch":
       return rejected("stale_epoch");
@@ -318,55 +314,6 @@ const applyThreadSpawned = async (
   return applied;
 };
 
-const applyThreadMessages = async (
-  ctx: MutationCtx,
-  event: ThreadMessagesEvent,
-  now: number,
-): Promise<OutboxApplyResult> => {
-  if (
-    event.messages.length < 1 ||
-    event.messages.length > THREAD_TURN_MESSAGE_LIMIT
-  ) {
-    return rejected("invalid");
-  }
-  const thread = await loadThread(ctx, event.threadId);
-  if (thread && thread.ownerId !== event.ownerId) {
-    return rejected("owner_mismatch");
-  }
-  const turn = await loadTurn(ctx, event.turnId);
-  if (turn && (turn.ownerId !== event.ownerId || turn.threadId !== event.threadId)) {
-    return rejected("owner_mismatch");
-  }
-  const ordinals = new Set<number>();
-  let totalBytes = 0;
-  for (const message of event.messages) {
-    if (
-      message.ordinal >= THREAD_TURN_MESSAGE_LIMIT ||
-      ordinals.has(message.ordinal)
-    ) {
-      return rejected("invalid");
-    }
-    ordinals.add(message.ordinal);
-    assertThreadMessagePayload(message.role, message.payloadJson);
-    totalBytes += utf8ByteLength(message.payloadJson);
-    if (totalBytes > THREAD_TURN_MESSAGE_MAX_BYTES) return rejected("invalid");
-  }
-  let inserted = 0;
-  for (const message of event.messages) {
-    const result = await appendThreadMessage(ctx, {
-      threadId: event.threadId,
-      ownerId: event.ownerId,
-      turnId: event.turnId,
-      ordinal: message.ordinal,
-      role: message.role,
-      payloadJson: message.payloadJson,
-      now,
-    });
-    if (result.inserted) inserted += 1;
-  }
-  return inserted > 0 ? applied : duplicate;
-};
-
 const applyThreadCompleted = async (
   ctx: MutationCtx,
   event: ThreadCompletedEvent,
@@ -533,8 +480,6 @@ const applyEvent = async (
       return await applyTurnEvent(ctx, event, options.connectedAccount);
     case "thread.spawned":
       return await applyThreadSpawned(ctx, event);
-    case "thread.messages":
-      return await applyThreadMessages(ctx, event, options.now);
     case "thread.completed":
       return await applyThreadCompleted(ctx, event);
     case "build.recorded":

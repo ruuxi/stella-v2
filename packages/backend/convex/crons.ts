@@ -220,16 +220,6 @@ crons.interval(
   { limit: 25 },
 );
 
-// One-shot in practice: drains the pre-DO transcript table. Remove this cron,
-// `drainLegacyCloudMessagesInternal`, and the `cloud_messages` table once every
-// deployment reports zero remaining rows.
-crons.interval(
-  "drain legacy cloud transcript rows",
-  { hours: 1 },
-  internal.cloud_apps.drainLegacyCloudMessagesInternal,
-  { limit: 200 },
-);
-
 crons.interval(
   "dispatch due cloud schedules",
   { minutes: 1 },

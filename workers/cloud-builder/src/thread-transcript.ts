@@ -5,23 +5,30 @@
  * to read it, `/api/cloud/messages` to append). That put a synchronous
  * control-plane round trip on every continuation's critical path and made
  * Convex the authority for state only this Durable Object ever writes. The
- * rows now live in the object's own SQLite: continuations read them here, and
- * a `thread.messages` outbox event projects them for the UI.
+ * rows now live in the object's own SQLite and continuations read them here.
  *
  * Ordering is the table's implicit `rowid`, which SQLite assigns in insertion
  * order and never reuses here because nothing deletes a row (owner purge drops
  * the whole table). That is the `seq` the executor's history contract wants,
  * so a continuation reads back exactly the shape the Convex route returned.
+ * The FTS rowid mirrors that same value. The composite primary key makes an
+ * append idempotent, and the mirrored rowid stays stable for the object's
+ * lifetime.
  *
- * `turn_counters` is the same idea for numbers the control plane used to
- * assign: the per-attempt event sequence (`turn.event.eventSeq`) and the
- * per-attempt append batch ordinal (`thread.messages.batchOrdinal`). Both are
- * persisted, so a restarted isolate continues the sequence instead of
- * restarting it and colliding with events Convex has already projected.
+ * `turn_counters` persists the per-attempt event sequence
+ * (`turn.event.eventSeq`), so a restarted isolate continues the sequence
+ * instead of colliding with events Convex has already projected.
  */
 
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 import { AGENT_HISTORY_MAX_ROWS } from "@stella/executor-cloud/agent-history";
+import {
+  TranscriptSearchIndex,
+  transcriptSearchDdl,
+  type TranscriptSearchHit,
+} from "./transcript-search.js";
+
+const THREAD_SEARCH_TABLE = "thread_fts";
 
 export const THREAD_TRANSCRIPT_DDL = [
   `CREATE TABLE IF NOT EXISTS thread_messages (
@@ -40,6 +47,7 @@ export const THREAD_TRANSCRIPT_DDL = [
      next_value         INTEGER NOT NULL,
      PRIMARY KEY (scope, turn_id, attempt_generation)
    )`,
+  transcriptSearchDdl(THREAD_SEARCH_TABLE),
 ] as const;
 
 export type ThreadTranscriptRole = AgentHistoryRow["role"];
@@ -50,16 +58,10 @@ export type ThreadMessageInput = Readonly<{
   payloadJson: string;
 }>;
 
-export type ThreadMessageAppend = Readonly<{
+type ThreadMessageAppend = Readonly<{
   ordinal: number;
   role: ThreadTranscriptRole;
   payloadJson: string;
-}>;
-
-/** One append: the rows that were new, and the batch ordinal to project them under. */
-export type ThreadAppendReceipt = Readonly<{
-  batchOrdinal: number;
-  messages: readonly ThreadMessageAppend[];
 }>;
 
 export class ThreadTranscriptError extends Error {
@@ -82,6 +84,44 @@ export const ensureThreadTranscriptSchema = (sql: SqlStorage): void => {
   if (provisioned.has(sql)) return;
   for (const statement of THREAD_TRANSCRIPT_DDL) sql.exec(statement);
   provisioned.add(sql);
+  // Backfill only when the index is behind the transcript: a thread created
+  // before `thread_fts` existed has rows the per-append indexing never saw.
+  // Every later provisioning (one per isolate lifetime) finds the counts equal
+  // and skips the scan, so a cold start does not re-index the whole thread.
+  const index = new TranscriptSearchIndex(sql, THREAD_SEARCH_TABLE);
+  const stored = sql
+    .exec<{ count: number }>(`SELECT COUNT(*) AS count FROM thread_messages`)
+    .one().count;
+  if (stored === 0 || index.count() >= stored) return;
+  const rows = sql
+    .exec<{
+      seq: number;
+      turn_id: string;
+      role: string;
+      payload_json: string;
+      created_at: number;
+    }>(
+      `SELECT rowid AS seq, turn_id, role, payload_json, created_at
+         FROM thread_messages ORDER BY rowid ASC`,
+    )
+    .toArray();
+  for (const row of rows) {
+    let payload: unknown;
+    try {
+      payload = JSON.parse(row.payload_json);
+    } catch {
+      continue;
+    }
+    index.index({
+      seq: row.seq,
+      turnId: row.turn_id,
+      role: row.role,
+      createdAt: row.created_at,
+      hidden: false,
+      spillKey: null,
+      payload,
+    });
+  }
 };
 
 const validateAppend = (
@@ -122,7 +162,6 @@ const validateAppend = (
  */
 const nextCounter = (
   sql: SqlStorage,
-  scope: "event" | "batch",
   turnId: string,
   attemptGeneration: number,
 ): number => {
@@ -130,8 +169,7 @@ const nextCounter = (
   const current = sql
     .exec<{ next_value: number }>(
       `SELECT next_value FROM turn_counters
-        WHERE scope = ? AND turn_id = ? AND attempt_generation = ?`,
-      scope,
+        WHERE scope = 'event' AND turn_id = ? AND attempt_generation = ?`,
       turnId,
       attemptGeneration,
     )
@@ -142,7 +180,7 @@ const nextCounter = (
      VALUES (?, ?, ?, ?)
      ON CONFLICT (scope, turn_id, attempt_generation)
      DO UPDATE SET next_value = excluded.next_value`,
-    scope,
+    "event",
     turnId,
     attemptGeneration,
     value + 1,
@@ -158,7 +196,7 @@ export const nextTurnEventSeq = (
   sql: SqlStorage,
   turnId: string,
   attemptGeneration: number,
-): number => nextCounter(sql, "event", turnId, attemptGeneration);
+): number => nextCounter(sql, turnId, attemptGeneration);
 
 /**
  * Record that an ordinal a caller chose itself has been used, so a later
@@ -188,8 +226,9 @@ export const reserveTurnEventSeq = (
 
 /**
  * Append a batch of transcript rows. Re-appending the same (turn, attempt,
- * ordinal) is a no-op, so a retried commit cannot duplicate the transcript;
- * the receipt names only what was actually new, which is what gets projected.
+ * ordinal) is a no-op, so a retried commit cannot duplicate the transcript.
+ * Every attempted row refreshes its FTS entry from the stored payload, which
+ * also repairs an index write interrupted after the canonical insert.
  */
 export const appendThreadMessages = (
   sql: SqlStorage,
@@ -199,9 +238,11 @@ export const appendThreadMessages = (
     messages: readonly ThreadMessageInput[];
     now: number;
   },
-): ThreadAppendReceipt => {
+): void => {
   if (!args.turnId.trim()) {
-    throw new ThreadTranscriptError("Thread transcript rows require a turn id.");
+    throw new ThreadTranscriptError(
+      "Thread transcript rows require a turn id.",
+    );
   }
   if (
     !Number.isSafeInteger(args.attemptGeneration) ||
@@ -213,22 +254,8 @@ export const appendThreadMessages = (
   }
   const validated = validateAppend(args.messages);
   ensureThreadTranscriptSchema(sql);
-  if (validated.length === 0) {
-    return { batchOrdinal: 0, messages: [] };
-  }
-  const existing = new Set(
-    sql
-      .exec<{ ordinal: number }>(
-        `SELECT ordinal FROM thread_messages
-          WHERE turn_id = ? AND attempt_generation = ?`,
-        args.turnId,
-        args.attemptGeneration,
-      )
-      .toArray()
-      .map((row) => row.ordinal),
-  );
-  const fresh = validated.filter((message) => !existing.has(message.ordinal));
-  for (const message of fresh) {
+  const index = new TranscriptSearchIndex(sql, THREAD_SEARCH_TABLE);
+  for (const message of validated) {
     sql.exec(
       `INSERT OR IGNORE INTO thread_messages
          (turn_id, attempt_generation, ordinal, role, payload_json, created_at)
@@ -240,17 +267,51 @@ export const appendThreadMessages = (
       message.payloadJson,
       args.now,
     );
+    const stored = sql
+      .exec<{
+        seq: number;
+        turn_id: string;
+        role: string;
+        payload_json: string;
+        created_at: number;
+      }>(
+        `SELECT rowid AS seq, turn_id, role, payload_json, created_at
+           FROM thread_messages
+          WHERE turn_id = ? AND attempt_generation = ? AND ordinal = ?`,
+        args.turnId,
+        args.attemptGeneration,
+        message.ordinal,
+      )
+      .one();
+    let payload: unknown;
+    try {
+      payload = JSON.parse(stored.payload_json);
+    } catch {
+      continue;
+    }
+    index.index({
+      seq: stored.seq,
+      turnId: stored.turn_id,
+      role: stored.role,
+      createdAt: stored.created_at,
+      hidden: false,
+      spillKey: null,
+      payload,
+    });
   }
-  if (fresh.length === 0) return { batchOrdinal: 0, messages: [] };
-  return {
-    batchOrdinal: nextCounter(
-      sql,
-      "batch",
-      args.turnId,
-      args.attemptGeneration,
-    ),
-    messages: fresh,
-  };
+};
+
+/** Search this thread's canonical SQLite transcript. */
+export const searchThreadTranscript = (
+  sql: SqlStorage,
+  terms: readonly string[],
+  limit: number,
+): TranscriptSearchHit[] => {
+  ensureThreadTranscriptSchema(sql);
+  return new TranscriptSearchIndex(sql, THREAD_SEARCH_TABLE).search(
+    terms,
+    limit,
+  );
 };
 
 /**
@@ -306,6 +367,7 @@ export const readThreadHistory = (
 
 /** Owner purge: the thread's private job state goes with the rest of it. */
 export const purgeThreadTranscript = (sql: SqlStorage): void => {
+  sql.exec(`DROP TABLE IF EXISTS ${THREAD_SEARCH_TABLE}`);
   sql.exec(`DROP TABLE IF EXISTS thread_messages`);
   sql.exec(`DROP TABLE IF EXISTS turn_counters`);
   provisioned.delete(sql);

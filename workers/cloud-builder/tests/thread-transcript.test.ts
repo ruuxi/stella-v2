@@ -6,13 +6,13 @@ import {
   purgeThreadTranscript,
   readThreadHistory,
   reserveTurnEventSeq,
+  searchThreadTranscript,
 } from "../src/thread-transcript.js";
 import { openSqlStorageFake } from "./fixtures/sql-storage.js";
 
 /**
  * The thread transcript is the BuildSession's own SQLite state: the rows a
- * continuation reads back, and the two ordinals Convex used to assign. Every
- * property here is one a projection or a continuation depends on.
+ * continuation reads back and the event ordinals that survive restarts.
  */
 
 const payload = (text: string): string =>
@@ -33,7 +33,9 @@ describe("thread transcript rows", () => {
     appendThreadMessages(sql, {
       turnId: "turn-2",
       attemptGeneration: 2,
-      messages: [{ ordinal: 0, role: "assistant", payloadJson: payload("two") }],
+      messages: [
+        { ordinal: 0, role: "assistant", payloadJson: payload("two") },
+      ],
       now: 20,
     });
 
@@ -43,9 +45,9 @@ describe("thread transcript rows", () => {
       ["turn-1", "assistant"],
       ["turn-2", "assistant"],
     ]);
-    expect(rows.map((row) => row.seq)).toEqual([...rows]
-      .map((row) => row.seq)
-      .sort((left, right) => left - right));
+    expect(rows.map((row) => row.seq)).toEqual(
+      [...rows].map((row) => row.seq).sort((left, right) => left - right),
+    );
     expect(new Set(rows.map((row) => row.seq)).size).toBe(3);
     close();
   });
@@ -73,34 +75,30 @@ describe("thread transcript rows", () => {
     close();
   });
 
-  test("re-appending the same ordinals commits and projects nothing twice", () => {
+  test("re-appending the same ordinals is idempotent", () => {
     const { sql, close } = openSqlStorageFake();
     const messages = [
       { ordinal: 0, role: "assistant", payloadJson: payload("once") },
     ];
-    const first = appendThreadMessages(sql, {
+    appendThreadMessages(sql, {
       turnId: "turn-1",
       attemptGeneration: 1,
       messages,
       now: 10,
     });
-    const replay = appendThreadMessages(sql, {
+    appendThreadMessages(sql, {
       turnId: "turn-1",
       attemptGeneration: 1,
       messages,
       now: 11,
     });
 
-    expect(first.messages).toHaveLength(1);
-    expect(first.batchOrdinal).toBe(1);
-    // A replay is a no-op, so it must not burn a batch ordinal either.
-    expect(replay.messages).toHaveLength(0);
-    expect(replay.batchOrdinal).toBe(0);
     expect(readThreadHistory(sql, {})).toHaveLength(1);
+    expect(searchThreadTranscript(sql, ["once"], 10)).toHaveLength(1);
     close();
   });
 
-  test("a partially replayed batch commits and projects only the new rows", () => {
+  test("a partially replayed batch commits only its new rows", () => {
     const { sql, close } = openSqlStorageFake();
     appendThreadMessages(sql, {
       turnId: "turn-1",
@@ -108,7 +106,7 @@ describe("thread transcript rows", () => {
       messages: [{ ordinal: 0, role: "user", payloadJson: '{"role":"user"}' }],
       now: 10,
     });
-    const second = appendThreadMessages(sql, {
+    appendThreadMessages(sql, {
       turnId: "turn-1",
       attemptGeneration: 1,
       messages: [
@@ -118,9 +116,10 @@ describe("thread transcript rows", () => {
       now: 11,
     });
 
-    expect(second.messages.map((row) => row.ordinal)).toEqual([1]);
-    expect(second.batchOrdinal).toBe(2);
     expect(readThreadHistory(sql, {})).toHaveLength(2);
+    expect(
+      searchThreadTranscript(sql, ["new"], 10).map((hit) => hit.seq),
+    ).toEqual([2]);
     close();
   });
 
@@ -233,6 +232,7 @@ describe("per-attempt ordinals", () => {
     purgeThreadTranscript(sql);
 
     expect(readThreadHistory(sql, {})).toEqual([]);
+    expect(searchThreadTranscript(sql, ["a"], 10)).toEqual([]);
     expect(nextTurnEventSeq(sql, "turn-1", 1)).toBe(1);
     close();
   });

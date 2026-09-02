@@ -7,8 +7,8 @@
  *
  * This object OWNS its conversation. The transcript lives in its SQLite (see
  * `journal.ts`) and is the single source of truth for message content; Convex
- * keeps only derived projections it alone can serve — the conversation index
- * and the search excerpts. There is no per-turn transcript round trip left:
+ * keeps only the derived conversation-list projection it alone can serve.
+ * There is no per-turn transcript round trip left:
  * the loop reads its context from local storage and writes produced messages
  * back incrementally as they are produced, so an eviction at minute four of a
  * five-minute turn no longer discards everything the turn did.
@@ -22,9 +22,9 @@
  * `TURN_OUTBOX` queue: `conversation.created`, `turn.started`, every
  * `turn.event` (with a DO-assigned `eventSeq`), `conversation.index`,
  * `thread.spawned`, `conversation.deleted`. No Convex call sits on a turn's
- * critical path; the synchronous callbacks that remain (search, recall,
- * schedules, drive attachments, integrations, the agent home) present the
- * turn's control-plane capability.
+ * critical path; the synchronous callbacks that remain (web search, schedules,
+ * drive attachments, integrations, the agent home) present the turn's
+ * control-plane capability. Recall searches the local journal.
  *
  * What did NOT change, deliberately: the turn lifecycle. Accepted turns are
  * still durable under `queued:*` before the 202, the alarm still retries
@@ -162,8 +162,6 @@ import {
   CLOSE_DELETED,
   CLOSE_UNAUTHENTICATED,
   CONTEXT_MAX_SPILL_HYDRATIONS,
-  EXCERPT_TEXT_MAX,
-  EXCERPT_USER_HALF_MAX,
   HEADER_OWNER,
   INBOX_MAX_BYTES,
   INBOX_MAX_ROWS,
@@ -193,11 +191,7 @@ import {
   type JournalRow,
 } from "./journal.js";
 import { ConversationArchive } from "./archive.js";
-import {
-  ConversationIndex,
-  REINDEX_BUDGET_MS,
-  REINDEX_MAX_BATCHES,
-} from "./index-flush.js";
+import { ConversationIndex } from "./index-flush.js";
 import {
   LOCAL_CLIENT_MSG_ID_PATTERN,
   LOCAL_DEVICE_ID_PATTERN,
@@ -651,7 +645,9 @@ const advanceCloudAgentControlReceipt = (
   // The turn id and execution are facts of the attempt, not of its status:
   // a lifecycle receipt from the BuildSession carries neither, and advancing
   // the status must not forget them.
-  const merged = (winner: CloudAgentControlReceipt): CloudAgentControlReceipt => ({
+  const merged = (
+    winner: CloudAgentControlReceipt,
+  ): CloudAgentControlReceipt => ({
     ...winner,
     ...(winner.turnId === undefined && existing.turnId !== undefined
       ? { turnId: existing.turnId }
@@ -1606,7 +1602,10 @@ export class OrchestratorSession extends DurableObject<Env> {
     }
     if (this.ownerGeneration !== snapshot.ownerGeneration) {
       this.ownerGeneration = snapshot.ownerGeneration;
-      await this.ctx.storage.put("ownerDataGeneration", snapshot.ownerGeneration);
+      await this.ctx.storage.put(
+        "ownerDataGeneration",
+        snapshot.ownerGeneration,
+      );
     }
     const bound = this.journal.meta();
     return {
@@ -2143,7 +2142,6 @@ export class OrchestratorSession extends DurableObject<Env> {
       await this.unregisterOwnerTurn(claimed);
       await this.releaseLocalLeaseAndResume(claimed);
     }
-    this.recordExcerpt(claimed.turnId);
     const now = Date.now();
     await this.index
       .flush({ activity: "idle", updatedAt: now })
@@ -2403,7 +2401,6 @@ export class OrchestratorSession extends DurableObject<Env> {
     await this.releaseLocalLeaseAndResume(lease, resumeQueued);
     this.live = null;
     this.hub.endTurn(lease.turnId);
-    this.recordExcerpt(lease.turnId);
     const now = Date.now();
     await this.index
       .flush({ activity: "idle", updatedAt: now })
@@ -2631,7 +2628,6 @@ export class OrchestratorSession extends DurableObject<Env> {
     if (url.pathname === "/journal") return this.handleJournalAppend(request);
     if (url.pathname === "/cards") return this.handleCard(request);
     if (url.pathname === "/purge") return this.handlePurge();
-    if (url.pathname === "/reindex") return this.handleReindex();
     if (url.pathname === "/owner-purge-cancel") {
       const body = (await request.json().catch(() => ({}))) as {
         ownerId?: string;
@@ -2654,7 +2650,11 @@ export class OrchestratorSession extends DurableObject<Env> {
       const callbackIdentity = { ownerId, ownerGeneration, turnId };
       const receiptMatches = Boolean(
         leaseReceipt &&
-        this.ownerFenceReceiptMatches(leaseReceipt, callbackIdentity, leaseId),
+          this.ownerFenceReceiptMatches(
+            leaseReceipt,
+            callbackIdentity,
+            leaseId,
+          ),
       );
       if (leaseReceipt && !receiptMatches) {
         return json({ error: "Owner purge lease identity is stale." }, 409);
@@ -3648,11 +3648,8 @@ export class OrchestratorSession extends DurableObject<Env> {
       await this.releaseOwnerGate(stale);
       // Additive: the same terminal fact, in the transcript the clients read.
       this.recordTerminal(stale, "failed", interrupted);
-      // The interrupted turn's rows are real content and this is the last
-      // moment anything knows they belong to a finished turn. Only the excerpt
-      // is built here: the flush, the drain and rollover all belong to a turn
-      // BOUNDARY, and this one is about to be reopened by the turn below.
-      this.recordExcerpt(stale.turnId);
+      // Flush, inbox drain, and rollover belong to the turn boundary that is
+      // about to reopen below.
     }
     // Claim first, dequeue second, and never the other way round. Between the
     // two writes is the only moment a restart can see this turn twice; before
@@ -4232,7 +4229,10 @@ export class OrchestratorSession extends DurableObject<Env> {
           payload: terminalPayload,
           eventSeq: await this.nextTurnEventSeq(turn.turnId),
         };
-        await this.ctx.storage.put({ terminal: true, terminalOwed: failedOwed });
+        await this.ctx.storage.put({
+          terminal: true,
+          terminalOwed: failedOwed,
+        });
         // The raw message is often a provider error blob or infrastructure
         // detail; it belongs in logs, never in the user's chat bubble — and
         // never in a frame either. `ref` in the socket's error frame is the
@@ -4643,41 +4643,16 @@ export class OrchestratorSession extends DurableObject<Env> {
   }
 
   /**
-   * The turn's contribution to the search projection. Idempotent — the excerpt
-   * is keyed by turn and rewritten in place — so a later rebuild that sees more
-   * rows simply wins. Never throws: Recall is a projection, and losing one
-   * excerpt must not be able to disturb a turn's terminal handling.
-   */
-  private recordExcerpt(turnId: string): void {
-    try {
-      const excerpt = this.journal.buildExcerpt(
-        turnId,
-        EXCERPT_USER_HALF_MAX,
-        EXCERPT_TEXT_MAX,
-        Date.now(),
-      );
-      if (excerpt) this.journal.putExcerpt(excerpt);
-    } catch (error) {
-      log("error", "conversation_excerpt_failed", {
-        turnId,
-        message: errorMessage(error),
-      });
-    }
-  }
-
-  /**
    * Everything that must happen after a turn is terminal, and that must never
    * be able to make a delivered turn look failed. Rollover in particular runs
    * only here: never mid-turn, never on a read path.
    *
-   * Reached from EVERY terminal path, not just the completed one — a canceled
-   * or timed-out turn is still a turn the user had, and it owes an excerpt and
-   * an inbox drain exactly like a completed one. Callers that are not the loop
-   * must go through `finalizeTerminalTurn`.
+   * Reached from EVERY terminal path, not just the completed one. A canceled
+   * or timed-out turn still owes an index update and inbox drain. Callers that
+   * are not the loop must go through `finalizeTerminalTurn`.
    */
   private async afterTerminal(turn: ChatTurnRequest): Promise<void> {
     this.finalizedTurnId = turn.turnId;
-    this.recordExcerpt(turn.turnId);
     const now = Date.now();
     await this.index
       .flush({ activity: "idle", updatedAt: now })
@@ -4701,17 +4676,12 @@ export class OrchestratorSession extends DurableObject<Env> {
    * `/cancel`. It skips a turn it has already finalized, so a retrying alarm
    * does not re-cut segments.
    *
-   * The excerpt is written even when the loop is still unwinding: it is
-   * synchronous, it touches only `turn_excerpts`, and the loop rewrites it in
-   * place on its way out. Writing it now is what makes the Recall record
-   * survive an eviction that lands between the abort and the loop's exit —
-   * where nothing would ever run again. The rest genuinely must wait for the
-   * loop: an inbox drain there could splice a foreign row between a tool call
-   * and its result, and rollover mid-turn is forbidden outright.
+   * The inbox drain and rollover wait for the loop. Draining here could splice
+   * a foreign row between a tool call and its result, and rollover mid-turn is
+   * forbidden outright.
    */
   private async finalizeTerminalTurn(turn: ChatTurnRequest): Promise<void> {
     if (this.finalizedTurnId === turn.turnId) return;
-    this.recordExcerpt(turn.turnId);
     if (this.activeTurnId === turn.turnId) return;
     await this.afterTerminal(turn);
   }
@@ -4937,13 +4907,13 @@ export class OrchestratorSession extends DurableObject<Env> {
     ]);
     return Boolean(
       retainedTurnBlocksOwnerTransfer(turn !== undefined, terminal) ||
-      localLease ||
-      queued.size > 0 ||
-      this.live ||
-      this.activeTurnId ||
-      this.currentAgent ||
-      this.currentTurnCancellation ||
-      this.journal.inboxSize().rows > 0,
+        localLease ||
+        queued.size > 0 ||
+        this.live ||
+        this.activeTurnId ||
+        this.currentAgent ||
+        this.currentTurnCancellation ||
+        this.journal.inboxSize().rows > 0,
     );
   }
 
@@ -4962,10 +4932,10 @@ export class OrchestratorSession extends DurableObject<Env> {
     const row = next.rows[0];
     return Boolean(
       row &&
-      row.seq === throughSeq + 1 &&
-      row.kind === "message" &&
-      row.role === "user" &&
-      row.hidden === 0,
+        row.seq === throughSeq + 1 &&
+        row.kind === "message" &&
+        row.role === "user" &&
+        row.hidden === 0,
     );
   }
 
@@ -6121,7 +6091,6 @@ export class OrchestratorSession extends DurableObject<Env> {
       queued: [...queued.values()].map((entry) => entry.turnId),
       sealed: this.purged(),
       indexSyncedSeq: meta.index_synced_seq,
-      pendingExcerpts: this.journal.unsyncedExcerptCount(),
       hot: this.journal.hotStats(),
       inbox: this.journal.inboxSize(),
       databaseBytes: this.journal.databaseSize(),
@@ -7339,7 +7308,6 @@ export class OrchestratorSession extends DurableObject<Env> {
     this.hub.endTurn(turnId);
     await this.unregisterOwnerTurn(lease);
     await this.releaseLocalLeaseAndResume(lease);
-    this.recordExcerpt(turnId);
     await this.index
       .flush({ activity: "idle", updatedAt: terminalAt })
       .catch(() => undefined);
@@ -8046,38 +8014,6 @@ export class OrchestratorSession extends DurableObject<Env> {
   }
 
   /**
-   * Rebuilds the Convex search projection from this object. The excerpts are
-   * mirrored locally precisely so this never has to read an R2 segment.
-   *
-   * Every excerpt is replayed, not the first batch: this is the documented way
-   * to regenerate a lost `cloud_message_excerpts`, and a rebuild that silently
-   * covered the oldest 50 turns would make that claim false. The reply says
-   * how many turns are still owed, and answers 202 rather than 200 when the
-   * budget ran out before the backlog did — re-run it to continue.
-   */
-  private async handleReindex(): Promise<Response> {
-    if (this.purged()) {
-      return json({ error: "This conversation was deleted." }, 410);
-    }
-    const result = await this.index.flush({
-      activity: this.live ? "running" : "idle",
-      updatedAt: Date.now(),
-      force: true,
-      maxBatches: REINDEX_MAX_BATCHES,
-      budgetMs: REINDEX_BUDGET_MS,
-    });
-    const complete = result.pendingExcerpts === 0;
-    return json(
-      {
-        reindexed: result.accepted,
-        complete,
-        pendingExcerpts: result.pendingExcerpts,
-      },
-      complete ? 200 : 202,
-    );
-  }
-
-  /**
    * Advances the durable control receipt for one reusable cloud-agent thread.
    * Attempt generation is the primary ABA fence; updatedAt orders state within
    * an attempt. Older server responses are harmless, while two different
@@ -8257,6 +8193,20 @@ export class OrchestratorSession extends DurableObject<Env> {
       ownerGeneration: turn.ownerGeneration,
       conversationId: turn.conversationId,
       agentHome,
+      recall: {
+        search: (terms: readonly string[], limit: number) =>
+          this.journal.searchTranscript(terms, limit),
+        hydrate: async (seq: number, before: number, after: number) => {
+          const rowsBefore = Math.max(0, Math.trunc(before));
+          const rowsAfter = Math.max(0, Math.trunc(after));
+          const range = await this.archive.readRange(
+            Math.max(0, seq - rowsBefore),
+            seq + rowsAfter,
+            rowsBefore + rowsAfter + 1,
+          );
+          return range.records;
+        },
+      },
       post: (path: string, body: unknown, signal?: AbortSignal) =>
         this.convexPost(path, body, {
           capability: controlPlane.token,
@@ -8311,7 +8261,10 @@ export class OrchestratorSession extends DurableObject<Env> {
       const release = () =>
         this.releaseOwnerGate({ ownerId: turn.ownerId, turnId: args.turnId });
       if (
-        !snapshotAllowsExecutionEngine(admission.snapshot, args.execution.engine)
+        !snapshotAllowsExecutionEngine(
+          admission.snapshot,
+          args.execution.engine,
+        )
       ) {
         await release();
         throw new Error(
@@ -8409,7 +8362,10 @@ export class OrchestratorSession extends DurableObject<Env> {
       }
       await this.enqueueOutboxDurable([
         {
-          ...this.outboxBase(turn, `${args.threadId}:${args.attemptGeneration}`),
+          ...this.outboxBase(
+            turn,
+            `${args.threadId}:${args.attemptGeneration}`,
+          ),
           kind: "thread.spawned",
           threadId: args.threadId,
           conversationId: turn.conversationId,

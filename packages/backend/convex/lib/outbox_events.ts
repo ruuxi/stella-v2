@@ -22,7 +22,6 @@ export const OUTBOX_EVENT_KINDS: readonly OutboxEventKind[] = [
   "turn.started",
   "turn.event",
   "thread.spawned",
-  "thread.messages",
   "thread.completed",
   "build.recorded",
   "interior-build.recorded",
@@ -31,24 +30,22 @@ export const OUTBOX_EVENT_KINDS: readonly OutboxEventKind[] = [
 
 /**
  * Apply order inside one batch. Queue delivery may reorder, so a batch is
- * sorted parent-before-child: a turn's events after the turn that created
- * it, a thread's messages after the thread. The sort is stable, so events of
- * one kind keep their delivery order.
+ * sorted parent-before-child. The sort is stable, so events of one kind keep
+ * their delivery order.
  */
 const KIND_PRIORITY: Record<OutboxEventKind, number> = {
   "conversation.created": 0,
   "turn.started": 1,
   "thread.spawned": 2,
   "conversation.index": 3,
-  "thread.messages": 4,
-  "turn.event": 5,
-  "build.recorded": 6,
-  "interior-build.recorded": 6,
-  "thread.completed": 7,
-  "conversation.deleted": 8,
+  "turn.event": 4,
+  "build.recorded": 5,
+  "interior-build.recorded": 5,
+  "thread.completed": 6,
+  "conversation.deleted": 7,
   // Placement projection: keyed by dispatchId and revision-fenced, so it has
   // no parent in the batch and its position is only about stable ordering.
-  "dispatch.updated": 9,
+  "dispatch.updated": 8,
 };
 
 export const sortOutboxBatch = <T extends { kind: OutboxEventKind }>(
@@ -67,9 +64,7 @@ const MAX_ID = 512;
 const MAX_KEY = 1_024;
 const MAX_PROMPT = 64 * 1024;
 const MAX_TEXT = 64 * 1024;
-const MAX_EXCERPTS = 50;
-const MAX_MESSAGES = 1_024;
-const MAX_MESSAGE_BYTES = 512 * 1024;
+const MAX_RESULT_BYTES = 512 * 1024;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -83,7 +78,11 @@ const isNatural = (value: unknown, min = 0): value is number =>
   Number.isSafeInteger(value) && (value as number) >= min;
 /** `undefined` when absent, the id when valid, `null` when present but bad. */
 const optionalId = (value: unknown): string | undefined | null =>
-  value === undefined || value === null ? undefined : isId(value) ? value : null;
+  value === undefined || value === null
+    ? undefined
+    : isId(value)
+      ? value
+      : null;
 
 const EXECUTION_ENGINES = new Set(["stella", "anthropic", "openai-codex"]);
 const REASONING_EFFORTS = new Set([
@@ -350,38 +349,9 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
           !isId(record.conversationId) ||
           !isFinite(record.epoch) ||
           !isFinite(record.lastSeq) ||
-          !isFinite(record.updatedAt) ||
-          !Array.isArray(record.excerpts ?? []) ||
-          ((record.excerpts as unknown[] | undefined)?.length ?? 0) >
-            MAX_EXCERPTS
+          !isFinite(record.updatedAt)
         ) {
           return reject();
-        }
-        const excerpts: Array<{
-          turnId: string;
-          seqStart: number;
-          seqEnd: number;
-          text: string;
-          createdAt: number;
-        }> = [];
-        for (const entry of (record.excerpts as unknown[] | undefined) ?? []) {
-          if (
-            !isRecord(entry) ||
-            !isId(entry.turnId) ||
-            !isFinite(entry.seqStart) ||
-            !isFinite(entry.seqEnd) ||
-            !isText(entry.text, MAX_TEXT) ||
-            !isFinite(entry.createdAt)
-          ) {
-            return reject();
-          }
-          excerpts.push({
-            turnId: entry.turnId,
-            seqStart: Math.floor(entry.seqStart),
-            seqEnd: Math.floor(entry.seqEnd),
-            text: entry.text,
-            createdAt: Math.floor(entry.createdAt),
-          });
         }
         const activity =
           record.activity === undefined
@@ -408,7 +378,6 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
               : {}),
             ...(isId(record.lastRole, 64) ? { lastRole: record.lastRole } : {}),
             ...(activity ? { activity } : {}),
-            excerpts,
             ...(record.force === true ? { force: true } : {}),
           },
         };
@@ -439,7 +408,8 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
           (record.source !== undefined &&
             (typeof record.source !== "string" ||
               !TURN_SOURCES.has(record.source))) ||
-          (record.clientMsgId !== undefined && !isId(record.clientMsgId, 256)) ||
+          (record.clientMsgId !== undefined &&
+            !isId(record.clientMsgId, 256)) ||
           (record.hidden !== undefined && typeof record.hidden !== "boolean") ||
           (record.threadId !== undefined && !isId(record.threadId)) ||
           (record.attemptGeneration !== undefined &&
@@ -459,7 +429,12 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
             turnKind: record.turnKind as TurnKind,
             conversationId: record.conversationId,
             sessionId: record.sessionId,
-            lane: record.lane as "chat" | "wake" | "schedule" | "agent" | "build",
+            lane: record.lane as
+              | "chat"
+              | "wake"
+              | "schedule"
+              | "agent"
+              | "build",
             ...(record.source !== undefined
               ? { source: record.source as never }
               : {}),
@@ -467,7 +442,9 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
               ? { clientMsgId: record.clientMsgId }
               : {}),
             ...(record.hidden !== undefined ? { hidden: record.hidden } : {}),
-            ...(record.threadId !== undefined ? { threadId: record.threadId } : {}),
+            ...(record.threadId !== undefined
+              ? { threadId: record.threadId }
+              : {}),
             ...(record.attemptGeneration !== undefined
               ? { attemptGeneration: record.attemptGeneration }
               : {}),
@@ -493,7 +470,7 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
           (record.errorMessage !== undefined &&
             !isText(record.errorMessage, MAX_TEXT)) ||
           (record.resultJson !== undefined &&
-            !isText(record.resultJson, MAX_MESSAGE_BYTES)) ||
+            !isText(record.resultJson, MAX_RESULT_BYTES)) ||
           !isFinite(record.createdAt)
         ) {
           return reject();
@@ -565,51 +542,6 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
           },
         };
       }
-      case "thread.messages": {
-        if (
-          !isId(record.threadId) ||
-          !isId(record.turnId) ||
-          !isNatural(record.attemptGeneration, 1) ||
-          !isNatural(record.batchOrdinal) ||
-          !Array.isArray(record.messages) ||
-          record.messages.length === 0 ||
-          record.messages.length > MAX_MESSAGES
-        ) {
-          return reject();
-        }
-        const messages: Array<{
-          ordinal: number;
-          role: string;
-          payloadJson: string;
-        }> = [];
-        for (const entry of record.messages) {
-          if (
-            !isRecord(entry) ||
-            !isNatural(entry.ordinal) ||
-            !isId(entry.role, 64) ||
-            !isText(entry.payloadJson, MAX_MESSAGE_BYTES)
-          ) {
-            return reject();
-          }
-          messages.push({
-            ordinal: entry.ordinal,
-            role: entry.role,
-            payloadJson: entry.payloadJson,
-          });
-        }
-        return {
-          ok: true,
-          event: {
-            ...base,
-            kind: eventKind,
-            threadId: record.threadId,
-            turnId: record.turnId,
-            attemptGeneration: record.attemptGeneration,
-            batchOrdinal: record.batchOrdinal,
-            messages,
-          },
-        };
-      }
       case "thread.completed": {
         if (
           !isId(record.threadId) ||
@@ -618,7 +550,7 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
           typeof record.status !== "string" ||
           !TERMINAL_STATUSES.has(record.status) ||
           (record.resultJson !== undefined &&
-            !isText(record.resultJson, MAX_MESSAGE_BYTES)) ||
+            !isText(record.resultJson, MAX_RESULT_BYTES)) ||
           (record.errorMessage !== undefined &&
             !isText(record.errorMessage, MAX_TEXT)) ||
           !isFinite(record.completedAt)
@@ -655,7 +587,12 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
         }
         return {
           ok: true,
-          event: { ...base, kind: eventKind, dispatchId: dispatch.dispatchId, dispatch },
+          event: {
+            ...base,
+            kind: eventKind,
+            dispatchId: dispatch.dispatchId,
+            dispatch,
+          },
         };
       }
       case "build.recorded":

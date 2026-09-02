@@ -1,11 +1,10 @@
 /**
  * The orchestrator's memory and scheduling tools.
  *
- * The DO holds no database. `Remember` and the document half of `Recall` talk
- * straight to the R2 agent home. The transcript half of `Recall` reads through
- * the canonical conversation journal owned by the conversation Durable Object;
- * schedules remain in Convex so owner-wide listing, billing, deletion, and
- * dispatch share one control-plane authority.
+ * `Remember` and the document half of `Recall` talk straight to the R2 agent
+ * home. The transcript half of `Recall` reads through the canonical journal in
+ * this conversation's Durable Object. Schedules remain in Convex so owner-wide
+ * listing, billing, deletion, and dispatch share one control-plane authority.
  *
  * Tool definitions are pinned here in code and passed to the loop by the DO —
  * nothing about the orchestrator's execution surface is data-driven.
@@ -20,6 +19,8 @@ import {
   type ProfileAction,
 } from "./agent-home.js";
 import { sha256Hex } from "./hash.js";
+import { extractMessageText } from "./journal.js";
+import type { JournalRecord } from "./conversation-types.js";
 
 export type OrchestratorAgentTool = AgentTool & {
   codeEligibility?: "read_only";
@@ -35,6 +36,14 @@ export type OrchestratorToolContext = {
    */
   conversationId: string;
   agentHome: AgentHome;
+  recall: {
+    search: (terms: readonly string[], limit: number) => RecallHit[];
+    hydrate: (
+      seq: number,
+      before: number,
+      after: number,
+    ) => Promise<JournalRecord[]>;
+  };
   /** POST to a Convex HTTP route with the builder service secret. */
   post: (
     path: string,
@@ -52,13 +61,32 @@ const MIN_EVERY_MINUTES = 15;
 const RECALL_DOCUMENT_BUDGET = 6_000;
 const RECALL_DEFAULT_LIMIT = 12;
 const RECALL_MAX_LIMIT = 30;
+const RECALL_TRANSCRIPT_BUDGET = 12_000;
+const RECALL_MESSAGE_MAX_CHARS = 1_500;
+const RECALL_WINDOW_BEFORE = 2;
+const RECALL_WINDOW_AFTER = 2;
 
-type RecallMatch = {
-  conversationId?: string;
-  seq?: number;
-  role?: string;
-  excerpt?: string;
-  createdAt?: number;
+export type RecallHit = Readonly<{
+  seq: number;
+  turnId: string;
+  role: string;
+  createdAt: number;
+  snippet: string;
+  rank: number;
+}>;
+
+type HydratedRecallHit = Readonly<{
+  hit: RecallHit;
+  records: JournalRecord[];
+}>;
+
+const isoTime = (createdAt: number): string => {
+  if (!Number.isFinite(createdAt)) return "unknown time";
+  try {
+    return new Date(createdAt).toISOString().replace(".000Z", "Z");
+  } catch {
+    return "unknown time";
+  }
 };
 
 const readJson = async (
@@ -71,17 +99,37 @@ const readJson = async (
   }
 };
 
-const formatMatch = (match: RecallMatch): string => {
-  const when = match.createdAt
-    ? new Date(match.createdAt).toISOString().replace(".000Z", "Z")
-    : "unknown time";
-  const where = match.conversationId
-    ? `conversation ${match.conversationId}${
-        typeof match.seq === "number" ? ` #${match.seq}` : ""
-      }`
-    : "unknown conversation";
-  const excerpt = (match.excerpt ?? "").replace(/\s+/g, " ").trim();
-  return `[${when}] ${where} (${match.role ?? "unknown"}): ${excerpt}`;
+const renderHydratedHits = (hydrated: readonly HydratedRecallHit[]): string => {
+  let budget = RECALL_TRANSCRIPT_BUDGET;
+  const blocks: string[] = [];
+  const seen = new Set<number>();
+  for (const { hit, records } of [...hydrated].sort(
+    (left, right) => left.hit.seq - right.hit.seq,
+  )) {
+    const lines = [`[${isoTime(hit.createdAt)}] ${hit.role} #${hit.seq}`];
+    for (const record of [...records].sort(
+      (left, right) => left.seq - right.seq,
+    )) {
+      if (record.kind !== "message" || seen.has(record.seq)) continue;
+      seen.add(record.seq);
+      const text = extractMessageText(record.payload)
+        .replace(/\s+/gu, " ")
+        .trim()
+        .slice(0, RECALL_MESSAGE_MAX_CHARS);
+      if (text) lines.push(`#${record.seq} ${record.role}: ${text}`);
+    }
+    const block = lines.join("\n");
+    const separatorChars = blocks.length > 0 ? 2 : 0;
+    if (block.length + separatorChars <= budget) {
+      blocks.push(block);
+      budget -= block.length + separatorChars;
+      continue;
+    }
+    const remaining = budget - separatorChars;
+    if (remaining > 0) blocks.push(block.slice(0, remaining));
+    break;
+  }
+  return blocks.join("\n\n");
 };
 
 export const createMemoryTools = (
@@ -91,7 +139,7 @@ export const createMemoryTools = (
     name: "Recall",
     label: "Recall",
     description:
-      "Look up memory and past work that isn't currently in your context. Reads the user's memory documents and searches every prior conversation of theirs for the terms you give. " +
+      "Look up memory and past work that isn't currently in your context. Reads the user's memory documents and searches this conversation's full history for the terms you give. " +
       'Use it when the user references something from before ("yesterday", "that", "the thing I was doing"), asks about prior work, or the request is ambiguous and earlier context could change the answer. ' +
       "You do NOT need it for the user's name, location, or stable preferences — those are already in your context from their profile. The result carries a status: found, no_match, or retrieval_error. Do not blindly retry the same lookup after no_match.",
     parameters: {
@@ -108,13 +156,21 @@ export const createMemoryTools = (
           description:
             "2-8 concrete search terms from the user's wording: names, project or app names, feature names, dates, file names, error text. These are matched against past conversation text.",
         },
+        limit: {
+          type: "number",
+          description: `Maximum transcript hits to hydrate. Defaults to ${RECALL_DEFAULT_LIMIT}; capped at ${RECALL_MAX_LIMIT}.`,
+        },
       },
       required: ["prompt", "memorySearchTerms"],
     } as unknown as TSchema,
     codeEligibility: "read_only",
     execute: async (_id, params, signal) => {
       signal?.throwIfAborted();
-      const args = params as { prompt?: string; memorySearchTerms?: unknown };
+      const args = params as {
+        prompt?: string;
+        memorySearchTerms?: unknown;
+        limit?: unknown;
+      };
       const prompt = args.prompt?.trim() ?? "";
       if (!prompt) throw new Error("Recall needs a prompt.");
       const terms = Array.isArray(args.memorySearchTerms)
@@ -129,6 +185,11 @@ export const createMemoryTools = (
           "memorySearchTerms is required: pass 2-8 concrete terms (names, project names, dates, file names, error text) so the search has something to match.",
         );
       }
+      const requestedLimit =
+        typeof args.limit === "number" && Number.isFinite(args.limit)
+          ? Math.trunc(args.limit)
+          : RECALL_DEFAULT_LIMIT;
+      const limit = Math.min(RECALL_MAX_LIMIT, Math.max(1, requestedLimit));
 
       const documents = await context.agentHome.readDocuments();
       signal?.throwIfAborted();
@@ -142,40 +203,22 @@ export const createMemoryTools = (
         );
       }
 
-      let matches: RecallMatch[] = [];
-      let registeredDocumentCount = 0;
+      let hits: RecallHit[] = [];
+      let hydrated: HydratedRecallHit[] = [];
       let status: "found" | "no_match" | "retrieval_error" = "no_match";
       let failure = "";
       try {
-        const response = await context.post(
-          "/api/cloud/recall",
-          {
-            ownerId: context.ownerId,
-            ownerGeneration: context.ownerGeneration,
-            // Both: `terms` is what the search uses — the model's terms are
-            // routinely multi-word ("pivot table broken", "q3.xlsx"), and
-            // joining them was what let a term boundary become three words
-            // spending three slots of an eight-slot budget. `query` stays for
-            // an older deployment that has not learned `terms` yet.
-            terms,
-            query: terms.join(" "),
-            limit: RECALL_DEFAULT_LIMIT,
-          },
-          signal,
-        );
-        if (!response.ok) {
-          status = "retrieval_error";
-          failure = `Searching past conversations failed (${response.status}).`;
-        } else {
-          const payload = await readJson(response);
-          matches = Array.isArray(payload.matches)
-            ? (payload.matches as RecallMatch[]).slice(0, RECALL_MAX_LIMIT)
-            : [];
-          registeredDocumentCount = Array.isArray(payload.registeredDocuments)
-            ? payload.registeredDocuments.length
-            : 0;
-          status = matches.length > 0 ? "found" : "no_match";
+        hits = context.recall.search(terms, limit).slice(0, limit);
+        for (const hit of hits) {
+          const records = await context.recall.hydrate(
+            hit.seq,
+            RECALL_WINDOW_BEFORE,
+            RECALL_WINDOW_AFTER,
+          );
+          signal?.throwIfAborted();
+          hydrated.push({ hit, records });
         }
+        status = hits.length > 0 ? "found" : "no_match";
       } catch (error) {
         // A turn cancellation is control flow, not a failed memory lookup. If
         // it is flattened into retrieval_error the agent loop can continue
@@ -184,8 +227,8 @@ export const createMemoryTools = (
         status = "retrieval_error";
         failure =
           error instanceof Error
-            ? `Searching past conversations failed: ${error.message}`
-            : "Searching past conversations failed.";
+            ? `Searching this conversation failed: ${error.message}`
+            : "Searching this conversation failed.";
       }
       if (status === "no_match" && renderedDocuments.length > 0) {
         status = "found";
@@ -195,22 +238,15 @@ export const createMemoryTools = (
       if (renderedDocuments.length > 0) {
         sections.push(`Memory documents:\n${renderedDocuments.join("\n\n")}`);
       }
-      if (matches.length > 0) {
-        sections.push(
-          `Past conversation matches (${matches.length}):\n${matches
-            .map(formatMatch)
-            .join("\n")}`,
-        );
+      if (hydrated.length > 0) {
+        const renderedTranscript = renderHydratedHits(hydrated);
+        if (renderedTranscript) {
+          sections.push(
+            `Conversation transcript matches (${hits.length}):\n${renderedTranscript}`,
+          );
+        }
       }
       if (failure) sections.push(failure);
-      // Convex knows which documents exist even though only the DO can read
-      // their bytes; the gap between the two is the difference between "no
-      // memory yet" and "memory that failed to load".
-      if (renderedDocuments.length === 0 && registeredDocumentCount > 0) {
-        sections.push(
-          `${registeredDocumentCount} memory document(s) exist but couldn't be read this turn. Don't tell the user they have no memory — say the lookup didn't come back.`,
-        );
-      }
       if (sections.length === 1) {
         sections.push(
           "Nothing stored matches those terms. There may simply be no prior context for this.",
@@ -221,7 +257,7 @@ export const createMemoryTools = (
         details: {
           status,
           documentCount: renderedDocuments.length,
-          matchCount: matches.length,
+          matchCount: hits.length,
         },
       };
     },

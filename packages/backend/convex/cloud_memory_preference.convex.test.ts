@@ -23,9 +23,6 @@ const beginMemoryWrite = makeFunctionReference<"mutation", any, any>(
 const commitMemoryWrite = makeFunctionReference<"mutation", any, any>(
   "cloud_memory:commitWriteInternal",
 );
-const searchRecall = makeFunctionReference<"query", any, any>(
-  "cloud_agent_home:searchOwnerMessagesInternal",
-);
 const OWNER_ID = "https://issuer.test|memory-preference-owner";
 const GENERATION = "memory-preference-generation-1";
 
@@ -161,7 +158,7 @@ describe("authoritative cloud memory preference", () => {
     ).rejects.toThrow("before the account data was reset");
   });
 
-  it("preserves existing heads while blocking Recall and Remember writes", async () => {
+  it("preserves existing heads while blocking Remember writes", async () => {
     const t = createTest();
     await openOwner(t);
     const existing = await beginWrite(t, {
@@ -191,14 +188,6 @@ describe("authoritative cloud memory preference", () => {
         kind: "memory_map",
         writer: "remember",
         idempotencyKey: "memory-pref-blocked-remember",
-      }),
-    ).rejects.toThrow("disabled");
-    await expect(
-      t.query(searchRecall, {
-        ownerId: OWNER_ID,
-        ownerGeneration: GENERATION,
-        terms: ["preference"],
-        now: 300,
       }),
     ).rejects.toThrow("disabled");
     expect(await commitWrite(t, preparedInflight)).toMatchObject({

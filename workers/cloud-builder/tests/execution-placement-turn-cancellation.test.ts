@@ -636,7 +636,9 @@ const cancelRequest = (body: unknown) =>
  * it is added here rather than by the fixtures the stored turn is compared to.
  */
 const withWireProtocol = (body: unknown): unknown =>
-  body && typeof body === "object" && (body as { kind?: unknown }).kind === "agent"
+  body &&
+  typeof body === "object" &&
+  (body as { kind?: unknown }).kind === "agent"
     ? { protocol: 1, ...(body as Record<string, unknown>) }
     : body;
 
@@ -2119,7 +2121,8 @@ describe("execution-placement exact cloud turn cancellation", () => {
     harness.instance["enqueueOutboxDurable"] = async (
       events: Array<Record<string, unknown>>,
     ) => {
-      for (const event of events) receipts.push({ surface: "outbox", ...event });
+      for (const event of events)
+        receipts.push({ surface: "outbox", ...event });
     };
     harness.instance["wakeParentConversation"] = async (
       _turn: unknown,
@@ -3170,7 +3173,6 @@ describe("execution-placement exact cloud turn cancellation", () => {
     harness.instance["hub"] = { endTurn: () => undefined };
     harness.instance["index"] = { flush: async () => undefined };
     harness.instance["archive"] = { maybeRollover: async () => undefined };
-    harness.instance["recordExcerpt"] = () => undefined;
     harness.instance["drainInbox"] = () => undefined;
     harness.instance["unregisterOwnerTurn"] = async () => {
       unregisterCalls += 1;
@@ -3568,7 +3570,10 @@ describe("execution-placement exact cloud turn cancellation", () => {
     const { turnId } = (await accepted.json()) as { turnId: string };
     // A wake is the system finishing the user's own request: registered on
     // the gate, never refused by a window.
-    expect(gates.admits[0]?.input).toMatchObject({ lane: "chat", quota: "bypass" });
+    expect(gates.admits[0]?.input).toMatchObject({
+      lane: "chat",
+      quota: "bypass",
+    });
     expect(values.get(`queued:${turnId}`)).toMatchObject({
       lane: "wake",
       hiddenMessage: true,
@@ -3673,7 +3678,9 @@ describe("execution-placement exact cloud turn cancellation", () => {
     );
     // The parent's own capability never travels to the child session.
     expect(dispatched.headers.get("authorization")).toBeNull();
-    expect(JSON.stringify(dispatched.body)).not.toContain("control-plane-capability");
+    expect(JSON.stringify(dispatched.body)).not.toContain(
+      "control-plane-capability",
+    );
     expect(gates.admits).toHaveLength(1);
     expect(gates.admits[0]).toEqual({
       ownerId: "owner-1",
@@ -3822,11 +3829,16 @@ describe("execution-placement exact cloud turn cancellation", () => {
       attempt_generation: 1,
     });
     expect(gates.admits).toHaveLength(1);
-    expect(outbox.events.map((event) => event.kind)).toEqual(["thread.spawned"]);
+    expect(outbox.events.map((event) => event.kind)).toEqual([
+      "thread.spawned",
+    ]);
 
     // Ids derive from (generation, parent turn, tool call): a fresh isolate
     // replaying the same call reaches the same BuildSession and turn.
-    const twin = sessionHarness(new Map(), { gates: fakeOwnerGates(), outbox: fakeOutbox() });
+    const twin = sessionHarness(new Map(), {
+      gates: fakeOwnerGates(),
+      outbox: fakeOutbox(),
+    });
     const twinCalls = installBuildSessions(twin, acceptedAgentTurn);
     await cloudAgentTool(twin.instance, parentTurn, "spawn_agent").execute(
       "tool-spawn-outcome",
@@ -3887,7 +3899,8 @@ describe("execution-placement exact cloud turn cancellation", () => {
       admit: () => ({
         ok: false,
         code: "quota_concurrency",
-        message: "Another agent is already running in this workspace. Wait for it to finish.",
+        message:
+          "Another agent is already running in this workspace. Wait for it to finish.",
         retryable: true,
         retryAfterMs: 5_000,
       }),
@@ -3971,7 +3984,11 @@ describe("execution-placement exact cloud turn cancellation", () => {
     const calls = installBuildSessions(harness, (call) => {
       expect(call.threadId).toBe("thread-pause-1");
       expect(call.path).toBe("/cancel");
-      return Response.json({ canceled: true, turnId: call.body.turnId, joined: true });
+      return Response.json({
+        canceled: true,
+        turnId: call.body.turnId,
+        joined: true,
+      });
     });
     const pause = cloudAgentTool(
       harness.instance,
@@ -3995,7 +4012,9 @@ describe("execution-placement exact cloud turn cancellation", () => {
       canceled: true,
       attempt_generation: 7,
     });
-    expect(harness.values.get("cloudAgentControl:thread-pause-1")).toMatchObject({
+    expect(
+      harness.values.get("cloudAgentControl:thread-pause-1"),
+    ).toMatchObject({
       threadId: "thread-pause-1",
       attemptGeneration: 7,
       status: "canceled",
@@ -4031,7 +4050,9 @@ describe("execution-placement exact cloud turn cancellation", () => {
       pause.execute("tool-pause-stale", { thread_id: "thread-pause-1" }),
     ).rejects.toThrow("was continued while it was being paused");
     expect(staleCalls).toHaveLength(1);
-    expect(harness.values.get("cloudAgentControl:thread-pause-1")).toMatchObject({
+    expect(
+      harness.values.get("cloudAgentControl:thread-pause-1"),
+    ).toMatchObject({
       attemptGeneration: 8,
       status: "running",
     });
@@ -4044,7 +4065,9 @@ describe("execution-placement exact cloud turn cancellation", () => {
       thread_id: "thread-pause-1",
     });
     expect(pending.content[0]?.text).toContain("Pause requested");
-    expect(harness.values.get("cloudAgentControl:thread-pause-1")).toMatchObject({
+    expect(
+      harness.values.get("cloudAgentControl:thread-pause-1"),
+    ).toMatchObject({
       attemptGeneration: 8,
       status: "running",
     });
@@ -4106,7 +4129,9 @@ describe("execution-placement exact cloud turn cancellation", () => {
     expect(await first.storage.getAlarm()).not.toBeNull();
     // The gate is released regardless: the loop that would have done so is
     // gone with the isolate.
-    expect(gates.releases).toEqual([{ ownerId: "owner-1", turnId: owed.turnId }]);
+    expect(gates.releases).toEqual([
+      { ownerId: "owner-1", turnId: owed.turnId },
+    ]);
 
     const restarted = sessionHarness(values, { gates, outbox });
     await (

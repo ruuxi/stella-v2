@@ -114,7 +114,7 @@ export const cloudAppsSchema = {
   // and deleting it is precisely what re-opens `upsertConversationIndexInternal`'s
   // `!row` self-heal branch to an index flush that a still-resident DO started
   // before the purge and retried after it, re-inserting the deleted owner's
-  // conversation row and their transcript excerpts. So the fence lives here,
+  // conversation row. So the fence lives here,
   // with its own lifetime: written in the same transaction that deletes the
   // index row (and at `finishConversationPurgeInternal` for the ordinary
   // per-conversation delete), read by the self-heal branch before it inserts.
@@ -319,97 +319,6 @@ export const cloudAppsSchema = {
       "ownerGeneration",
       "cancelRequestId",
     ]),
-
-  // Spawned-agent THREAD transcripts — private job state, never conversation
-  // content. One row per AgentMessage produced inside a sandbox turn, keyed by
-  // `conversationId = threadId`, and read back only to continue that thread
-  // (`send_input`). The user-facing conversation transcript is not here: it
-  // lives in the OrchestratorSession DO (see cloud_conversations above).
-  //
-  // The BuildSession keeps the authoritative transcript in its own storage;
-  // rows here arrive through `thread.messages` outbox events and exist for
-  // the UI. Nothing reads them back into model context.
-  cloud_thread_messages: defineTable({
-    conversationId: v.string(),
-    ownerId: v.string(),
-    seq: v.number(),
-    // Stable position inside one executor turn. Retries after a lost HTTP
-    // response reuse this ordinal, so the append mutation can prove an exact
-    // replay instead of duplicating durable history.
-    ordinal: v.optional(v.number()),
-    role: v.string(),
-    payloadJson: v.string(),
-    turnId: v.string(),
-    createdAt: v.number(),
-  })
-    .index("by_conversationId_and_seq", ["conversationId", "seq"])
-    .index("by_conversationId_and_ownerId_and_seq", [
-      "conversationId",
-      "ownerId",
-      "seq",
-    ])
-    .index("by_turnId", ["turnId"])
-    .index("by_turnId_and_ordinal", ["turnId", "ordinal"])
-    // Account deletion drains by owner; without this the table could only be
-    // reached through its threads, and a thread row lost to an earlier partial
-    // purge would strand transcript rows forever.
-    .index("by_ownerId", ["ownerId"]),
-
-  // LEGACY, write-never, read-only by `drainLegacyCloudMessagesInternal`.
-  //
-  // This is the pre-DO conversation transcript. It is declared solely so its
-  // rows stay typed and reachable long enough to be deleted: an undeclared
-  // table keeps its documents, and abandoning user transcripts in a table no
-  // code can name is exactly the failure this migration exists to stop.
-  // Delete the table, the drain mutation, and its cron once every deployment
-  // reports zero remaining rows.
-  cloud_messages: defineTable({
-    conversationId: v.string(),
-    ownerId: v.string(),
-    seq: v.number(),
-    role: v.string(),
-    payloadJson: v.string(),
-    turnId: v.string(),
-    hidden: v.optional(v.boolean()),
-    createdAt: v.number(),
-  })
-    .index("by_conversationId_and_seq", ["conversationId", "seq"])
-    .index("by_ownerId_and_seq", ["ownerId", "seq"])
-    .index("by_conversationId_and_ownerId_and_seq", [
-      "conversationId",
-      "ownerId",
-      "seq",
-    ])
-    .index("by_turnId", ["turnId"]),
-
-  // Recall's cross-conversation index: one compact, searchable excerpt per
-  // turn. Derived from the DO's journal and regenerable from it
-  // (POST /conversations/:id/reindex) — never a second copy of truth, and
-  // never read back into model context as history.
-  cloud_message_excerpts: defineTable({
-    ownerId: v.string(),
-    conversationId: v.string(),
-    turnId: v.string(),
-    seqStart: v.number(),
-    seqEnd: v.number(),
-    searchText: v.string(),
-    createdAt: v.number(),
-  })
-    .index("by_turnId", ["turnId"])
-    .index("by_conversationId_and_seqStart", ["conversationId", "seqStart"])
-    .index("by_conversationId_and_ownerId_and_seqStart", [
-      "conversationId",
-      "ownerId",
-      "seqStart",
-    ])
-    .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
-    // `filterFields: ["ownerId"]` IS the authorization: the owner equality is
-    // applied inside the search predicate, so there is no code path that can
-    // rank or return another owner's excerpts.
-    .searchIndex("search_text", {
-      searchField: "searchText",
-      filterFields: ["ownerId"],
-    }),
 
   // Durable spawned-agent threads (cloud analog of the desktop runtime's
   // agent threads). One row per spawn_agent call from the cloud orchestrator.

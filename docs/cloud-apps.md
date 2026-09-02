@@ -382,8 +382,11 @@ projects the row.
 The thread transcript lives in the `BuildSession`'s own SQLite
 (`thread_messages`, ordered by insertion; `turn_counters` for the per-attempt
 event sequence and append batch ordinal). A continuation reads its own history
-with no control-plane round trip; `thread.messages` only projects rows for the
-UI.
+with no control-plane round trip. Nothing projects those rows to Convex: the
+UI reads local runtime threads, and a thread transcript exists for the agent that
+owns it. The same FTS5 index the conversation journal uses is mounted on
+`thread_messages` (`thread_fts`, see `transcript-search.ts`) so a thread could be
+given Recall later without a redesign.
 
 Completion wakes the parent conversation directly — the one delivery a
 projection cannot do, because the parent needs a turn, not a row. The
@@ -405,12 +408,11 @@ The consumer in the same Worker posts each batch to
 | Kind                       | Idempotency key                                                | Projection                                        |
 | -------------------------- | -------------------------------------------------------------- | ------------------------------------------------- |
 | `conversation.created`     | `conversationId`                                                | `cloud_conversations` row                          |
-| `conversation.index`       | `${conversationId}:${epoch}:${lastSeq}:${updatedAt}:${batch}`   | index row + `cloud_message_excerpts`, fenced on `(epoch, lastSeq)` |
+| `conversation.index`       | `${conversationId}:${epoch}:${lastSeq}:${updatedAt}`            | index row (title, preview, activity), fenced on `(epoch, lastSeq)` |
 | `conversation.deleted`     | `conversationId`                                                | tombstone                                          |
 | `turn.started`             | `turnId`                                                        | `agent_turns` row                                  |
 | `turn.event`               | chat `${turnId}:${eventSeq}`; agent `${turnId}:${attemptGeneration}:${eventSeq}` | `agent_events`               |
 | `thread.spawned`           | `${threadId}:${attemptGeneration}`                              | `cloud_agent_threads` row                          |
-| `thread.messages`          | `${threadId}:${turnId}:${attemptGeneration}:${batchOrdinal}`    | `cloud_thread_messages` (UI copy only)             |
 | `thread.completed`         | `${threadId}:${turnId}:${attemptGeneration}`                    | thread terminal state                              |
 | `build.recorded`           | `buildId`                                                       | `cloud_app_builds` candidate                       |
 | `interior-build.recorded`  | `buildId`                                                       | interior candidate                                 |
@@ -437,7 +439,6 @@ of them is on the admission path or a model request.
 | Route                                                             | Auth                                        |
 | ----------------------------------------------------------------- | ------------------------------------------- |
 | `POST /api/cloud/web-search`                                       | control-plane capability                     |
-| `POST /api/cloud/recall`                                           | control-plane capability                     |
 | `POST /api/cloud/schedule`                                         | control-plane capability                     |
 | `POST /api/cloud/drive/attachments`, `/drive/sync`, `/drive/files` | control-plane capability (`/drive/files` also accepts the service secret) |
 | `GET`/`POST /api/cloud/integrations/mcp`                           | control-plane capability                     |
@@ -754,12 +755,21 @@ chat turn costs tokens only.
   Auth JWT in the Worker before the object is addressed. Older rows roll into
   gzipped R2 segments in `CONVERSATION_ARCHIVE`, with the object holding the
   manifest.
-- **Convex projections.** `cloud_conversations` (the index a per-conversation
-  object cannot answer: list my conversations) and `cloud_message_excerpts` (one
-  compact full-text row per turn, backing cross-conversation Recall). Both are
-  written only through `conversation.created` / `conversation.index` outbox
-  events and are regenerable from the journal. Nothing in Convex may read one of
-  these fields and act on it as truth.
+- **Convex projection.** `cloud_conversations` (the one question a
+  per-conversation object cannot answer: list my conversations). It is written
+  only through `conversation.created` / `conversation.index` outbox events and is
+  regenerable from the journal. Nothing in Convex may read one of its fields and
+  act on it as truth. There is no transcript copy in Convex.
+- **Recall.** The orchestrator's Recall tool searches THIS conversation's own
+  journal: `journal_fts`, an SQLite FTS5 table (`porter unicode61`) inside the
+  object, indexing user and assistant message text keyed by `seq`
+  (`transcript-search.ts`). The index survives rollover to R2 because it is a
+  separate table; hits are hydrated back to the real records around each `seq`
+  through `archive.readRange`, so the model sees what was actually said rather
+  than a digest. Recall never calls Convex mid-turn, never searches other
+  conversations, and is not semantic. The lifetime ceiling per conversation is
+  `CONVERSATION_MAX_STORED_BYTES` (4 GiB across resident rows, R2 segments and
+  spills); only the text index has to fit in the object's 10 GB SQLite.
 - **Persona.** The system prompt is built from the canonical
   `agents/orchestrator.md` body served by `/api/stella/prompts` (ETag-cached in
   object storage, refreshed at most every 5 min), plus a cloud overlay
@@ -1003,16 +1013,13 @@ For a stuck projection, check the outbox: `outbox_delivery_retrying`,
 `outbox_batch_refused`, and `outbox_event_rejected` log lines name the batch and
 the reason, and the dead-letter queue holds anything that exhausted its retries.
 
-## Search projection and conversation deletion
+## Index projection and conversation deletion
 
-`cloud_message_excerpts` is derived and regenerable. To rebuild it for one
-conversation, POST `/conversations/:id/reindex` (service secret). It replays
-**every** turn excerpt from the object's own `turn_excerpts` mirror, in batches,
-and its status is the answer: `200 {complete:true}` means the projection is
-whole, `202 {complete:false, pendingExcerpts:N}` means the call ran out of budget
-with `N` turns still owed — run it again. A lagging projection also drains itself
+The index row is the only Convex projection of a conversation and it is
+regenerable: a lagging row (`meta.index_synced_seq` behind the head) re-flushes
 at every turn end and every socket connect, so a live conversation converges
-without an operator.
+without an operator. There is no `/reindex` route any more; the search index is
+the object's own FTS5 table and is rebuilt only by the journal schema migration.
 
 Per-conversation deletion is a two-party handshake and the object's **body** is
 the verdict, not its status. `POST /conversations/:id/purge` answers
@@ -1202,8 +1209,9 @@ Searching for one of these will find nothing; here is where the behavior went.
 **Convex HTTP routes.** `/api/stella/relay*` and `/api/stella/cloud-model` (the
 streaming relay) → the model gateway's `/v1/relay/*`. `/api/cloud/events`,
 `/api/cloud/index`, `/api/cloud/messages`, `/api/cloud/threads/complete` → outbox
-events `turn.event`, `conversation.index`, `thread.messages`,
-`thread.completed`. `/api/cloud/context` → the `BuildSession`'s own
+events `turn.event`, `conversation.index`, `thread.completed` (thread messages
+are no longer projected at all). `/api/cloud/recall` → the object's own FTS5
+index (`transcript-search.ts`). `/api/cloud/context` → the `BuildSession`'s own
 `thread_messages` table. `/api/cloud/spawn` → `OrchestratorSession` calls
 `BuildSession` directly. `/api/execution-placement/*` and
 `/api/mobile/execution/*` → the owner gate's `/owners/me/dispatches` and presence
@@ -1222,9 +1230,10 @@ capabilities verified against `CAPABILITY_JWKS`. The eight `relay_resume` tables
 → nothing; request/response has no frame journal, and the gateway's ledger caches
 one completed result per request id for 10 minutes. Execution placement's
 dispatch/device/presence tables → the owner gate's SQLite, with a single
-`cloud_dispatches` projection left for the activity UI. `cloud_thread_messages`
-still exists but is now a UI projection written only by `thread.messages`; the
-authoritative thread transcript is the `BuildSession`'s.
+`cloud_dispatches` projection left for the activity UI. `cloud_thread_messages`,
+`cloud_message_excerpts` and the legacy `cloud_messages` table → nothing; the
+authoritative thread transcript is the `BuildSession`'s, and Recall searches the
+conversation object's own FTS5 index.
 
 **Convex files.** `convex/stella_provider.ts` and `convex/stella_provider/*`,
 `convex/native_relay.ts`, `convex/schema/relay_resume.ts` — the reusable parts

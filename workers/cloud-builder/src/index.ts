@@ -46,7 +46,6 @@ import {
   type InteriorBuildRecordedEvent,
   type OutboxEvent,
   type ThreadCompletedEvent,
-  type ThreadMessagesEvent,
   type ThreadSpawnedEvent,
   type TurnEventEvent,
   type TurnStartedEvent,
@@ -1394,7 +1393,11 @@ const handleTurnStartRoute = async (
   try {
     body = JSON.parse(text);
   } catch {
-    return turnStartErrorResponse("bad_request", "Malformed JSON request.", false);
+    return turnStartErrorResponse(
+      "bad_request",
+      "Malformed JSON request.",
+      false,
+    );
   }
   const parsed = parseCloudTurnStartRequest(body);
   if (!parsed.ok) {
@@ -1416,7 +1419,8 @@ const handleTurnStartRoute = async (
   headers.set(HEADER_OWNER, ownerId);
   headers.set(HEADER_TURN_AUTH_KIND, authKind);
   headers.set(HEADER_CONVERSATION_ID, conversationId);
-  if (ownerGeneration) headers.set(TURN_OWNER_GENERATION_HEADER, ownerGeneration);
+  if (ownerGeneration)
+    headers.set(TURN_OWNER_GENERATION_HEADER, ownerGeneration);
   if (tokenExpiresAtMs !== null) {
     headers.set(HEADER_TOKEN_EXP, String(tokenExpiresAtMs));
   }
@@ -1545,7 +1549,11 @@ const handleDispatchSubmitRoute = async (
   try {
     body = JSON.parse(text);
   } catch {
-    return dispatchErrorResponse("bad_request", "Malformed JSON request.", false);
+    return dispatchErrorResponse(
+      "bad_request",
+      "Malformed JSON request.",
+      false,
+    );
   }
   const parsed = parseDispatchSubmitRequest(body);
   if (!parsed.ok) {
@@ -1755,7 +1763,9 @@ const handleDispatchControlRoute = async (
       );
     }
     const cancelRequestId =
-      typeof raw?.cancelRequestId === "string" ? raw.cancelRequestId.trim() : "";
+      typeof raw?.cancelRequestId === "string"
+        ? raw.cancelRequestId.trim()
+        : "";
     if (!cancelRequestId || cancelRequestId.length > 128) {
       return dispatchErrorResponse(
         "bad_request",
@@ -2573,7 +2583,9 @@ export class BuildSession extends DurableObject<Env> {
       conversationId,
       execution:
         turn.execution ??
-        (turn.kind === "agent" ? undefined : APP_BUILD_CONTROL_PLANE_EXECUTION)!,
+        (turn.kind === "agent"
+          ? undefined
+          : APP_BUILD_CONTROL_PLANE_EXECUTION)!,
       audience: turn.audience,
       budgetMicroCents: turn.budgetMicroCents,
       agentTypes: ["general"],
@@ -2759,7 +2771,10 @@ export class BuildSession extends DurableObject<Env> {
     }
     const terminal = options.terminal === true;
     const event: TurnEventEvent = {
-      ...this.outboxBase(turn, `${turn.turnId}:${attemptGeneration}:${eventSeq}`),
+      ...this.outboxBase(
+        turn,
+        `${turn.turnId}:${attemptGeneration}:${eventSeq}`,
+      ),
       kind: "turn.event",
       turnId: turn.turnId,
       ...(turn.kind === "agent" ? { attemptGeneration } : {}),
@@ -2780,12 +2795,8 @@ export class BuildSession extends DurableObject<Env> {
   }
 
   /**
-   * Commit transcript rows to this thread's own table and project them.
-   *
-   * The rows are the authority here — a continuation reads them back from
-   * SQLite, not from Convex — so the write happens first and the projection
-   * follows. Re-appending the same ordinals is a no-op and emits nothing,
-   * which is what makes a retried commit safe.
+   * Commit transcript rows to this thread's own table. A continuation reads
+   * them back from SQLite, and re-appending the same ordinals is a no-op.
    */
   private async appendThreadTranscript(
     turn: TurnRequest,
@@ -2795,31 +2806,12 @@ export class BuildSession extends DurableObject<Env> {
       throw new AgentTurnAuthorityLostError();
     }
     const attemptGeneration = turn.attemptGeneration ?? 1;
-    const receipt = appendThreadMessages(this.ctx.storage.sql, {
+    appendThreadMessages(this.ctx.storage.sql, {
       turnId: turn.turnId,
       attemptGeneration,
       messages,
       now: Date.now(),
     });
-    if (receipt.messages.length === 0) return;
-    await this.enqueueOutboxDurable([
-      {
-        ...this.outboxBase(
-          turn,
-          `${turn.threadId}:${turn.turnId}:${attemptGeneration}:${receipt.batchOrdinal}`,
-        ),
-        kind: "thread.messages",
-        threadId: turn.threadId,
-        turnId: turn.turnId,
-        attemptGeneration,
-        batchOrdinal: receipt.batchOrdinal,
-        messages: receipt.messages.map((message) => ({
-          ordinal: message.ordinal,
-          role: message.role,
-          payloadJson: message.payloadJson,
-        })),
-      } satisfies ThreadMessagesEvent,
-    ]);
   }
 
   private trackTurn<T>(turnId: string, work: Promise<T>): Promise<T> {
@@ -6076,9 +6068,8 @@ export class BuildSession extends DurableObject<Env> {
     }
     // Deferred projections are durability debt like any other: without a wake
     // a queue outage would strand a terminal state Convex never hears about.
-    const outboxDebt = await this.ctx.storage.get<OutboxEvent[]>(
-      OUTBOX_DEBT_KEY,
-    );
+    const outboxDebt =
+      await this.ctx.storage.get<OutboxEvent[]>(OUTBOX_DEBT_KEY);
     if (outboxDebt && outboxDebt.length > 0) {
       const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
       const current = await this.ctx.storage.getAlarm();
@@ -9560,7 +9551,9 @@ export class BuildSession extends DurableObject<Env> {
    */
   private async admitAgentTurnThroughOwnerGate(
     turn: TurnRequest,
-  ): Promise<{ ok: true; snapshot: OwnerSnapshot } | { ok: false; response: Response }> {
+  ): Promise<
+    { ok: true; snapshot: OwnerSnapshot } | { ok: false; response: Response }
+  > {
     const gate = this.ownerGateFor(turn.ownerId);
     let snapshot: OwnerSnapshot;
     if (turn.gateAdmittedByCaller) {
@@ -9575,7 +9568,10 @@ export class BuildSession extends DurableObject<Env> {
         return {
           ok: false,
           response: json(
-            { error: "Stella can't check your plan right now. Try again shortly." },
+            {
+              error:
+                "Stella can't check your plan right now. Try again shortly.",
+            },
             503,
           ),
         };
@@ -15344,7 +15340,7 @@ export default {
     // surfaces. Pure pass-throughs: the DO owns every decision, this worker
     // only proves the caller holds the service secret.
     const conversationAdminMatch = url.pathname.match(
-      /^\/conversations\/([^/]+)\/(cards|purge|reindex)$/,
+      /^\/conversations\/([^/]+)\/(cards|purge)$/,
     );
     if (request.method === "POST" && conversationAdminMatch) {
       return env.ORCHESTRATOR_SESSIONS.getByName(

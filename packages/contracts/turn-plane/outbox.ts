@@ -44,13 +44,6 @@ export type ConversationIndexEvent = OutboxBase & {
   lastPreview?: string;
   lastRole?: string;
   activity?: "idle" | "running";
-  excerpts: Array<{
-    turnId: string;
-    seqStart: number;
-    seqEnd: number;
-    text: string;
-    createdAt: number;
-  }>;
   force?: boolean;
 };
 
@@ -114,16 +107,6 @@ export type ThreadSpawnedEvent = OutboxBase & {
   createdAt: number;
 };
 
-/** Thread transcript rows for the UI; the BuildSession keeps the authoritative copy. */
-export type ThreadMessagesEvent = OutboxBase & {
-  kind: "thread.messages";
-  threadId: string;
-  turnId: string;
-  attemptGeneration: number;
-  batchOrdinal: number;
-  messages: Array<{ ordinal: number; role: string; payloadJson: string }>;
-};
-
 export type ThreadCompletedEvent = OutboxBase & {
   kind: "thread.completed";
   threadId: string;
@@ -166,7 +149,6 @@ export type OutboxEvent =
   | TurnStartedEvent
   | TurnEventEvent
   | ThreadSpawnedEvent
-  | ThreadMessagesEvent
   | ThreadCompletedEvent
   | BuildRecordedEvent
   | InteriorBuildRecordedEvent;
@@ -192,8 +174,13 @@ export type OutboxBatchResult = {
   applied: string[];
   duplicate: string[];
   /** Permanent rejections: the consumer acks them and logs. */
-  rejected: Array<{ kind: OutboxEventKind; key: string; reason: OutboxRejectReason }>;
+  rejected: Array<{
+    kind: OutboxEventKind;
+    key: string;
+    reason: OutboxRejectReason;
+  }>;
 };
 
-export const outboxEventId = (event: Pick<OutboxEvent, "kind" | "key">): string =>
-  `${event.kind}:${event.key}`;
+export const outboxEventId = (
+  event: Pick<OutboxEvent, "kind" | "key">,
+): string => `${event.kind}:${event.key}`;

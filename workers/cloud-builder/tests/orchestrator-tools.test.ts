@@ -29,6 +29,10 @@ const context = (overrides: Partial<OrchestratorToolContext> = {}) =>
         return profileResult;
       },
     } as unknown as AgentHome,
+    recall: {
+      search: () => [],
+      hydrate: async () => [],
+    },
     async post() {
       return Response.json({ schedules: [] });
     },
@@ -154,11 +158,7 @@ describe("orchestrator tools", () => {
     expect(
       await rejectionOf(tool.execute("tool-call-1", params, controller.signal)),
     ).toBe(lostResponse);
-    const replay = await tool.execute(
-      "tool-call-1",
-      params,
-      controller.signal,
-    );
+    const replay = await tool.execute("tool-call-1", params, controller.signal);
 
     const expectedRequestId = await sha256Hex(
       "schedule\0generation-1\0conversation-1\0tool-call-1",
@@ -189,14 +189,12 @@ describe("orchestrator tools", () => {
     );
     await nextGenerationTool.execute("tool-call-1", params);
     expect(nextGenerationRequest?.requestId).toBe(
-      await sha256Hex(
-        "schedule\0generation-2\0conversation-1\0tool-call-1",
-      ),
+      await sha256Hex("schedule\0generation-2\0conversation-1\0tool-call-1"),
     );
     expect(nextGenerationRequest?.requestId).not.toBe(expectedRequestId);
   });
 
-  test("Schedule and Recall propagate the caller abort signal", async () => {
+  test("Schedule propagates its signal and Recall honors cancellation", async () => {
     const scheduleAbort = new Error("schedule turn canceled");
     const scheduleController = new AbortController();
     scheduleController.abort(scheduleAbort);
@@ -224,15 +222,25 @@ describe("orchestrator tools", () => {
 
     const recallAbort = new Error("recall turn canceled");
     const recallController = new AbortController();
-    let recallPosted = false;
+    let recallHydrated = false;
     const recall = createMemoryTools(
       context({
-        post: async (_path, _body, signal) => {
-          recallPosted = true;
-          expect(signal).toBe(recallController.signal);
-          recallController.abort(recallAbort);
-          signal!.throwIfAborted();
-          return Response.json({ matches: [] });
+        recall: {
+          search: () => [
+            {
+              seq: 10,
+              turnId: "turn-1",
+              role: "assistant",
+              createdAt: 1,
+              snippet: "prior work",
+              rank: -1,
+            },
+          ],
+          hydrate: async () => {
+            recallHydrated = true;
+            recallController.abort(recallAbort);
+            throw new Error("hydrate stopped");
+          },
         },
       }),
     ).find((tool) => tool.name === "Recall")!;
@@ -240,11 +248,74 @@ describe("orchestrator tools", () => {
       await rejectionOf(
         recall.execute(
           "tool-call-recall",
-          { prompt: "Find prior work", memorySearchTerms: ["project", "status"] },
+          {
+            prompt: "Find prior work",
+            memorySearchTerms: ["project", "status"],
+          },
           recallController.signal,
         ),
       ),
     ).toBe(recallAbort);
-    expect(recallPosted).toBe(true);
+    expect(recallHydrated).toBe(true);
+  });
+
+  test("Recall renders hydrated canonical text once and stays within its budget", async () => {
+    const limits: number[] = [];
+    const hits = Array.from({ length: 20 }, (_, index) => ({
+      seq: 10 + index,
+      turnId: `turn-${index}`,
+      role: index % 2 === 0 ? "assistant" : "user",
+      createdAt: Date.UTC(2026, 0, 1, 0, 0, index),
+      snippet: "digest-only snippet",
+      rank: -20 + index,
+    }));
+    const recall = createMemoryTools(
+      context({
+        recall: {
+          search: (_terms, limit) => {
+            limits.push(limit);
+            return hits;
+          },
+          hydrate: async (seq) => {
+            const recordSeq = seq <= 11 ? 9 : seq;
+            const marker = seq <= 11 ? "shared" : String(seq);
+            return [
+              {
+                seq: recordSeq,
+                kind: "message" as const,
+                turnId: `turn-${seq}`,
+                createdAtMs: Date.UTC(2026, 0, 1),
+                role: "assistant" as const,
+                hidden: false,
+                payload: {
+                  role: "assistant",
+                  content: [
+                    {
+                      type: "text",
+                      text: `hydrated detail ${marker} ${"x".repeat(2_000)}`,
+                    },
+                  ],
+                },
+              },
+            ];
+          },
+        },
+      }),
+    ).find((tool) => tool.name === "Recall")!;
+
+    const result = await recall.execute("tool-call-recall", {
+      prompt: "Find the old implementation detail",
+      memorySearchTerms: ["implementation detail"],
+    });
+    const text =
+      result.content[0]?.type === "text" ? result.content[0].text : "";
+
+    expect(limits).toEqual([12]);
+    expect(text).toContain("[2026-01-01T00:00:00Z] assistant #10");
+    expect(text).toContain("hydrated detail shared");
+    expect(text.match(/hydrated detail shared/gu)).toHaveLength(1);
+    expect(text).not.toContain("digest-only snippet");
+    expect(text.length).toBeLessThanOrEqual(12_100);
+    expect(result.details).toMatchObject({ status: "found", matchCount: 12 });
   });
 });

@@ -71,17 +71,9 @@ html[data-low-power] .onboarding-mock-window {
 
 /* ── Decorative infinite animations (marketing mocks, demos) ──────── */
 
-/* Connect hero (Phone settings / Connect dialog) */
-html[data-low-power] .anim-phone-group,
-html[data-low-power] .anim-monitor-group,
-html[data-low-power] .anim-cursor,
-html[data-low-power] .anim-cursor-phone,
-html[data-low-power] .anim-click-ripple,
-html[data-low-power] .anim-click-ripple-phone,
-html[data-low-power] .anim-signal-line,
-html[data-low-power] .anim-pulse {
-  animation: none !important;
-}
+/* The Connect / Phone hero is the character rig, which reads
+   prefers-reduced-motion itself and sleeps when blurred or offscreen, so it
+   needs no override here. */
 
 /* Onboarding capabilities demo player */
 html[data-low-power]

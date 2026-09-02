@@ -1,8 +1,9 @@
 import { type SVGProps, useCallback, useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { ConnectHeroAnimation } from "@/global/integrations/ConnectHeroAnimation";
+import { getPhoneAccessCharacterState } from "@/global/settings/phone-access-character-state";
 import { usePhoneAccessController } from "@/global/settings/hooks/use-phone-access-controller";
 import { Button } from "@/ui/button";
+import { StellaEmptyState } from "@/ui/stella-character/StellaEmptyState";
 import { showToast } from "@/ui/toast";
 import { useT, useTPlural } from "@/shared/i18n";
 
@@ -69,6 +70,11 @@ export function PhoneAccessConnectCard() {
   } = usePhoneAccessController({ qrCodeWidth: 140 });
   const [error, setError] = useState<string | null>(null);
   const visibleError = error ?? deviceLoadError;
+  const heroMood = getPhoneAccessCharacterState({
+    hasConnectedAccount,
+    hasActivePairing: Boolean(activePairing),
+    pairedCount: pairedDevices.length,
+  });
   const [storePlatform, setStorePlatform] = useState<StorePlatform>("ios");
   const [storeQrDataUrls, setStoreQrDataUrls] = useState<
     Record<StorePlatform, string | null>
@@ -135,7 +141,7 @@ export function PhoneAccessConnectCard() {
     return (
       <div className="connect-detail-area">
         <div className="connect-detail-body connect-pair-centered">
-          <ConnectHeroAnimation />
+          <StellaEmptyState mood={heroMood} className="connect-hero-mark" />
           <p className="connect-pair-headline">
             {t("settings.phoneAccess.signedOut.headline")}
           </p>
@@ -150,7 +156,7 @@ export function PhoneAccessConnectCard() {
   return (
     <div className="connect-detail-area">
       <div className="connect-detail-body connect-pair-centered">
-        <ConnectHeroAnimation />
+        <StellaEmptyState mood={heroMood} className="connect-hero-mark" />
         {activePairing ? (
           <>
             <p className="connect-pair-headline">

@@ -14,8 +14,8 @@ vi.mock("qrcode", () => ({
   default: { toDataURL: mocks.toDataURL },
 }));
 
-vi.mock("@/global/integrations/ConnectHeroAnimation", () => ({
-  ConnectHeroAnimation: () => <div data-testid="connect-hero" />,
+vi.mock("@/ui/stella-character/StellaEmptyState", () => ({
+  StellaEmptyState: () => <div data-testid="connect-hero" />,
 }));
 
 vi.mock("@/global/settings/hooks/use-phone-access-controller", () => ({

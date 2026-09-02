@@ -9,7 +9,7 @@ import {
   DialogCloseButton,
 } from "@/ui/dialog";
 import { PhoneAccessConnectCard } from "@/global/settings/PhoneAccessCard";
-import { ConnectHeroAnimation } from "./ConnectHeroAnimation";
+import { StellaEmptyState } from "@/ui/stella-character/StellaEmptyState";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { useT } from "@/shared/i18n";
 import "./ConnectDialog.css";
@@ -65,7 +65,7 @@ export const ConnectDialog = ({ open, onOpenChange }: ConnectDialogProps) => {
               <p className="connect-hero-tagline">
                 {t("global.integrations.heroTagline")}
               </p>
-              <ConnectHeroAnimation />
+              <StellaEmptyState mood="idle" className="connect-hero-mark" />
               <button
                 type="button"
                 className="pill-btn pill-btn--primary connect-signin-pill"

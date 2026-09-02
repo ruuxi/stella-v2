@@ -9,7 +9,7 @@ const SOURCE_ROOT = path.resolve(
 );
 
 describe("Connect panel layout contract", () => {
-  it("centers the hero copy and animation only in the sidebar panel", () => {
+  it("centers the hero copy only in the sidebar panel", () => {
     const css = fs.readFileSync(
       path.join(SOURCE_ROOT, "global/integrations/ConnectDialog.css"),
       "utf8",
@@ -17,9 +17,6 @@ describe("Connect panel layout contract", () => {
 
     expect(css).toMatch(
       /\.connect-panel \.connect-hero-tagline\s*\{[^}]*text-align:\s*center/,
-    );
-    expect(css).toMatch(
-      /\.connect-panel \.connect-hero-animation\s*\{[^}]*justify-content:\s*center/,
     );
 
     expect(css).toMatch(

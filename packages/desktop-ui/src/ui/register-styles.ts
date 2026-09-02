@@ -6,6 +6,7 @@ import "./image-lightbox.css";
 import "./keybind.css";
 import "./pill.css";
 import "./select.css";
+import "./stella-character/stella-empty-state.css";
 import "./popover.css";
 import "./primitives.css";
 import "./switch.css";

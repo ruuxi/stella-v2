@@ -41,8 +41,10 @@
   color: var(--text-base);
 }
 
-.connect-dialog .connect-hero-animation {
-  height: 118px;
+/* The signed-out hero: the mark sits between the tagline and the sign-in
+   pill, with a little more air than the pairing card gives it. */
+.connect-dialog .connect-hero-mark {
+  padding: 18px 0 6px;
 }
 
 /* ============================================
@@ -111,10 +113,6 @@
 
 .connect-panel .connect-hero-tagline {
   text-align: center;
-}
-
-.connect-panel .connect-hero-animation {
-  justify-content: center;
 }
 
 .connect-panel__detail-header {

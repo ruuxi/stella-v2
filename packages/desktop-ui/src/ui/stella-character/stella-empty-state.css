@@ -1,0 +1,21 @@
+/* Stella as an empty-state hero — shared by Connect, Phone pairing, etc. */
+
+.stella-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  flex-shrink: 0;
+  /* The rig draws its glow and sparkles past the mark's box; give them room
+     instead of clipping them against the headline below. */
+  padding: 12px 0;
+}
+
+.stella-empty-state__mark {
+  display: block;
+}
+
+.stella-empty-state__mark > svg {
+  display: block;
+  overflow: visible;
+}

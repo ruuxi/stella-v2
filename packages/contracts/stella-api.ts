@@ -15,8 +15,8 @@ export const STELLA_STANDARD_MODEL = "stella/standard";
  */
 export const STELLA_DEFAULT_UPSTREAM_MODEL = "meta/muse-spark-1.2-contributor";
 /**
- * Former default: V4 Flash 0731 on CrofAI. Fully supported and still
- * selectable; the older DeepSeek and Fireworks spellings
+ * Fallback: V4 Flash 0731 on CrofAI. Fully supported and still selectable;
+ * the older DeepSeek and Fireworks spellings
  * (`accounts/fireworks/models/deepseek-v4-flash-0731`) stay routable through
  * the verbatim `stella/<provider>/<model>` path — see
  * `DEEPSEEK_V4_FLASH_ROUTE` in `convex/agent/model.ts`.

@@ -470,14 +470,6 @@ describe("canonical fork and rewind journal transitions", () => {
       role: "user",
       message: message("keep this pending", 1),
     });
-    journal.putExcerpt({
-      turn_id: "turn-invalid-verdict",
-      seq_start: 0,
-      seq_end: 0,
-      text: "keep this pending",
-      created_at: 1,
-    });
-
     let calls = 0;
     const index = new ConversationIndex(
       journal,
@@ -497,8 +489,7 @@ describe("canonical fork and rewind journal transitions", () => {
     // One attempt per flush: the queue is durable once it accepts, so the
     // retry ladder is the next turn end or connect, not a tight loop here.
     expect(calls).toBe(1);
-    expect(result).toEqual({ accepted: false, pendingExcerpts: 1 });
+    expect(result).toEqual({ accepted: false });
     expect(journal.meta().index_synced_seq).toBe(-1);
-    expect(journal.unsyncedExcerptCount()).toBe(1);
   });
 });

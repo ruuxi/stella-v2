@@ -9,7 +9,7 @@
   "durable_objects": {
     "bindings": [
       {
-        "name": "BUILD_SESSIONS",
+        "name": "OWNER_GATES",
         "class_name": "FakeOwnerFence",
       },
       {
@@ -17,8 +17,8 @@
         "class_name": "TestOwnerTransferCoordinator",
       },
       {
-        "name": "REAL_BUILD_SESSIONS",
-        "class_name": "BuildSession",
+        "name": "REAL_OWNER_GATES",
+        "class_name": "OwnerGate",
       },
       {
         "name": "REAL_OWNER_TRANSFER_COORDINATORS",
@@ -32,7 +32,7 @@
       "new_sqlite_classes": [
         "FakeOwnerFence",
         "TestOwnerTransferCoordinator",
-        "BuildSession",
+        "OwnerGate",
         "RealFenceOwnerTransferCoordinator",
       ],
     },

@@ -3,8 +3,6 @@ import type { AuthService } from "../services/auth-service.js";
 import type {
   OnboardingSynthesisRequest,
   OnboardingSynthesisResponse,
-  OnboardingWelcomeHtmlRequest,
-  OnboardingWelcomeHtmlResponse,
 } from "@stella/contracts/desktop/onboarding";
 
 type OnboardingHandlersOptions = {
@@ -145,6 +143,7 @@ export const registerOnboardingHandlers = (
         {
           formattedSections: payload?.formattedSections ?? {},
           includeWelcomeHtml: payload?.includeWelcomeHtml,
+          ...(payload?.includeStarters === true ? { includeStarters: true } : {}),
           ...(payload?.promptConfig ?? {}),
         },
         {
@@ -153,33 +152,4 @@ export const registerOnboardingHandlers = (
       );
     },
   );
-
-  ipcMain.handle(
-    "onboarding:generateWelcomeHtml",
-    async (
-      event,
-      payload: OnboardingWelcomeHtmlRequest,
-    ) => {
-      if (
-        !options.assertPrivilegedSender(event, "onboarding:generateWelcomeHtml")
-      ) {
-        throw new Error(
-          "Blocked untrusted onboarding:generateWelcomeHtml request.",
-        );
-      }
-
-      return await invokeOnboardingJson<OnboardingWelcomeHtmlResponse>(
-        options.authService,
-        options.getDeviceId,
-        "/api/synthesize/welcome-html",
-        {
-          coreMemory: payload?.coreMemory ?? "",
-        },
-        {
-          includeAuth: payload?.includeAuth ?? true,
-        },
-      );
-    },
-  );
-
 };

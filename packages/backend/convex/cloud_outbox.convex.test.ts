@@ -60,7 +60,10 @@ type Harness = Awaited<ReturnType<typeof createTest>>;
 let keyCounter = 0;
 const event = <K extends OutboxEvent["kind"]>(
   kind: K,
-  fields: Omit<Extract<OutboxEvent, { kind: K }>, "v" | "kind" | "key" | "ownerId" | "ownerGeneration" | "emittedAt"> &
+  fields: Omit<
+    Extract<OutboxEvent, { kind: K }>,
+    "v" | "kind" | "key" | "ownerId" | "ownerGeneration" | "emittedAt"
+  > &
     Partial<Pick<OutboxEvent, "key" | "ownerId" | "ownerGeneration">>,
 ): Extract<OutboxEvent, { kind: K }> =>
   ({
@@ -84,13 +87,18 @@ const post = async (
     body: JSON.stringify({ v: 1, events }),
   });
 
-const ingest = async (t: Harness, events: unknown[]): Promise<OutboxBatchResult> => {
+const ingest = async (
+  t: Harness,
+  events: unknown[],
+): Promise<OutboxBatchResult> => {
   const response = await post(t, events);
   expect(response.status).toBe(200);
   return (await response.json()) as OutboxBatchResult;
 };
 
-const created = (overrides: Partial<Parameters<typeof event<"conversation.created">>[1]> = {}) =>
+const created = (
+  overrides: Partial<Parameters<typeof event<"conversation.created">>[1]> = {},
+) =>
   event("conversation.created", {
     conversationId: CONVERSATION_ID,
     createdAt: 10,
@@ -159,7 +167,11 @@ describe("POST /api/cloud/outbox authentication", () => {
       duplicate: [],
       rejected: [
         { kind: "turn.started", key: "missing-fields", reason: "invalid" },
-        { kind: "conversation.created", key: "wrong-version", reason: "invalid" },
+        {
+          kind: "conversation.created",
+          key: "wrong-version",
+          reason: "invalid",
+        },
       ],
     });
   });
@@ -179,10 +191,17 @@ describe("conversation projections", () => {
     expect(await ingest(t, [sameIdNewKey])).toMatchObject({
       duplicate: [sameIdNewKey.key],
     });
-    const foreign = created({ key: "created:foreign", ownerId: OTHER_OWNER_ID });
+    const foreign = created({
+      key: "created:foreign",
+      ownerId: OTHER_OWNER_ID,
+    });
     expect(await ingest(t, [foreign])).toMatchObject({
       rejected: [
-        { kind: "conversation.created", key: foreign.key, reason: "owner_mismatch" },
+        {
+          kind: "conversation.created",
+          key: foreign.key,
+          reason: "owner_mismatch",
+        },
       ],
     });
     await t.run(async (ctx) => {
@@ -199,7 +218,7 @@ describe("conversation projections", () => {
     });
   });
 
-  it("fences index flushes on (epoch, lastSeq) and lands excerpts on replays", async () => {
+  it("fences index flushes on (epoch, lastSeq)", async () => {
     const t = await createTest();
     await ingest(t, [created()]);
     const index = (key: string, epoch: number, lastSeq: number, text: string) =>
@@ -212,9 +231,6 @@ describe("conversation projections", () => {
         lastPreview: text,
         lastRole: "assistant",
         activity: "idle",
-        excerpts: [
-          { turnId: `turn-${lastSeq}`, seqStart: lastSeq - 1, seqEnd: lastSeq, text, createdAt: 100 },
-        ],
       });
     expect(await ingest(t, [index("idx:1", 1, 4, "four")])).toMatchObject({
       applied: ["idx:1"],
@@ -223,16 +239,18 @@ describe("conversation projections", () => {
       duplicate: ["idx:2"],
     });
     expect(await ingest(t, [index("idx:3", 0, 9, "old epoch")])).toMatchObject({
-      rejected: [{ kind: "conversation.index", key: "idx:3", reason: "stale_epoch" }],
+      rejected: [
+        { kind: "conversation.index", key: "idx:3", reason: "stale_epoch" },
+      ],
     });
     await t.run(async (ctx) => {
       const row = await ctx.db
         .query("cloud_conversations")
-        .withIndex("by_conversationId", (q) => q.eq("conversationId", CONVERSATION_ID))
+        .withIndex("by_conversationId", (q) =>
+          q.eq("conversationId", CONVERSATION_ID),
+        )
         .unique();
       expect(row).toMatchObject({ epoch: 1, lastSeq: 4, lastPreview: "four" });
-      const excerpts = await ctx.db.query("cloud_message_excerpts").collect();
-      expect(excerpts.map((entry) => entry.searchText).sort()).toEqual(["four", "two"]);
     });
   });
 
@@ -243,19 +261,29 @@ describe("conversation projections", () => {
       conversationId: CONVERSATION_ID,
       deletedAt: 500,
     });
-    expect(await ingest(t, [deleted])).toMatchObject({ applied: [deleted.key] });
-    expect(await ingest(t, [{ ...deleted, key: "deleted:again" }])).toMatchObject({
+    expect(await ingest(t, [deleted])).toMatchObject({
+      applied: [deleted.key],
+    });
+    expect(
+      await ingest(t, [{ ...deleted, key: "deleted:again" }]),
+    ).toMatchObject({
       duplicate: ["deleted:again"],
     });
     await t.run(async (ctx) => {
       const row = await ctx.db
         .query("cloud_conversations")
-        .withIndex("by_conversationId", (q) => q.eq("conversationId", CONVERSATION_ID))
+        .withIndex("by_conversationId", (q) =>
+          q.eq("conversationId", CONVERSATION_ID),
+        )
         .unique();
       expect(row).toMatchObject({ deletedAt: 500, title: "" });
-      const scheduled = await ctx.db.system.query("_scheduled_functions").collect();
+      const scheduled = await ctx.db.system
+        .query("_scheduled_functions")
+        .collect();
       expect(
-        scheduled.some((entry) => entry.name.includes("purgeConversationInternal")),
+        scheduled.some((entry) =>
+          entry.name.includes("purgeConversationInternal"),
+        ),
       ).toBe(true);
     });
   });
@@ -266,8 +294,12 @@ describe("turn projections", () => {
     const t = await createTest();
     await ingest(t, [created()]);
     const started = turnStarted("turn-1");
-    expect(await ingest(t, [started])).toMatchObject({ applied: [started.key] });
-    expect(await ingest(t, [{ ...started, key: "started:again" }])).toMatchObject({
+    expect(await ingest(t, [started])).toMatchObject({
+      applied: [started.key],
+    });
+    expect(
+      await ingest(t, [{ ...started, key: "started:again" }]),
+    ).toMatchObject({
       duplicate: ["started:again"],
     });
     await t.run(async (ctx) => {
@@ -288,7 +320,9 @@ describe("turn projections", () => {
       });
       const conversation = await ctx.db
         .query("cloud_conversations")
-        .withIndex("by_conversationId", (q) => q.eq("conversationId", CONVERSATION_ID))
+        .withIndex("by_conversationId", (q) =>
+          q.eq("conversationId", CONVERSATION_ID),
+        )
         .unique();
       expect(conversation?.updatedAt).toBe(20);
     });
@@ -311,7 +345,12 @@ describe("turn projections", () => {
       terminal: true,
       terminalStatus: "failed",
     });
-    const result = await ingest(t, [progress, redelivered, terminal, secondTerminal]);
+    const result = await ingest(t, [
+      progress,
+      redelivered,
+      terminal,
+      secondTerminal,
+    ]);
     expect(result).toEqual({
       applied: [progress.key, terminal.key],
       duplicate: [redelivered.key, secondTerminal.key],
@@ -331,7 +370,9 @@ describe("turn projections", () => {
         .query("agent_events")
         .withIndex("by_turnId_and_seq", (q) => q.eq("turnId", "turn-2"))
         .collect();
-      expect(events.map((entry) => [entry.seq, entry.eventSeq, entry.kind])).toEqual([
+      expect(
+        events.map((entry) => [entry.seq, entry.eventSeq, entry.kind]),
+      ).toEqual([
         [0, 0, "progress"],
         [1, 1, "completed"],
       ]);
@@ -342,7 +383,9 @@ describe("turn projections", () => {
     const t = await createTest();
     await ingest(t, [created(), turnStarted("turn-3")]);
     const unknown = turnEvent("turn-missing", 0);
-    const stale = turnEvent("turn-3", 0, { ownerGeneration: "generation-before-reset" });
+    const stale = turnEvent("turn-3", 0, {
+      ownerGeneration: "generation-before-reset",
+    });
     expect(await ingest(t, [unknown, stale])).toMatchObject({
       rejected: [
         { kind: "turn.event", key: unknown.key, reason: "unknown_turn" },
@@ -358,7 +401,9 @@ describe("turn projections", () => {
     });
     const purged = turnEvent("turn-3", 1);
     expect(await ingest(t, [purged])).toMatchObject({
-      rejected: [{ kind: "turn.event", key: purged.key, reason: "owner_purged" }],
+      rejected: [
+        { kind: "turn.event", key: purged.key, reason: "owner_purged" },
+      ],
     });
   });
 
@@ -404,29 +449,17 @@ describe("thread projections", () => {
     return { spawned, agentTurn };
   };
 
-  it("spawns, records messages by ordinal, and completes exactly once", async () => {
+  it("spawns and completes exactly once", async () => {
     const t = await createTest();
     const { spawned, agentTurn } = await seedRunningThread(t);
     // Batch order is parent-first: the turn row lands before the thread row.
     expect(await ingest(t, [spawned, agentTurn])).toMatchObject({
       applied: [agentTurn.key, spawned.key],
     });
-    expect(await ingest(t, [{ ...spawned, key: "spawned:again" }])).toMatchObject({
+    expect(
+      await ingest(t, [{ ...spawned, key: "spawned:again" }]),
+    ).toMatchObject({
       duplicate: ["spawned:again"],
-    });
-    const messages = event("thread.messages", {
-      threadId,
-      turnId: "agent-turn-1",
-      attemptGeneration: 1,
-      batchOrdinal: 0,
-      messages: [
-        { ordinal: 0, role: "user", payloadJson: JSON.stringify({ role: "user", content: "research" }) },
-        { ordinal: 1, role: "assistant", payloadJson: JSON.stringify({ role: "assistant", content: "ok" }) },
-      ],
-    });
-    expect(await ingest(t, [messages])).toMatchObject({ applied: [messages.key] });
-    expect(await ingest(t, [{ ...messages, key: "messages:again" }])).toMatchObject({
-      duplicate: ["messages:again"],
     });
     const outputFiles = turnEvent("agent-turn-1", 0, {
       sessionId: threadId,
@@ -445,7 +478,9 @@ describe("thread projections", () => {
     expect(await ingest(t, [outputFiles, completed])).toMatchObject({
       applied: [outputFiles.key, completed.key],
     });
-    expect(await ingest(t, [{ ...completed, key: "completed:again" }])).toMatchObject({
+    expect(
+      await ingest(t, [{ ...completed, key: "completed:again" }]),
+    ).toMatchObject({
       duplicate: ["completed:again"],
     });
     const stale = event("thread.completed", {
@@ -457,7 +492,9 @@ describe("thread projections", () => {
       completedAt: 91,
     });
     expect(await ingest(t, [stale])).toMatchObject({
-      rejected: [{ kind: "thread.completed", key: stale.key, reason: "invalid" }],
+      rejected: [
+        { kind: "thread.completed", key: stale.key, reason: "invalid" },
+      ],
     });
     await t.run(async (ctx) => {
       const thread = await ctx.db
@@ -470,15 +507,9 @@ describe("thread projections", () => {
         resultJson: JSON.stringify({ finalText: "done" }),
         updatedAt: 90,
       });
-      const rows = await ctx.db
-        .query("cloud_thread_messages")
-        .withIndex("by_conversationId_and_seq", (q) => q.eq("conversationId", threadId))
+      const scheduled = await ctx.db.system
+        .query("_scheduled_functions")
         .collect();
-      expect(rows.map((row) => [row.seq, row.ordinal, row.role])).toEqual([
-        [0, 0, "user"],
-        [1, 1, "assistant"],
-      ]);
-      const scheduled = await ctx.db.system.query("_scheduled_functions").collect();
       const card = scheduled.find((entry) =>
         entry.name.includes("postConversationCardInternal"),
       );
@@ -524,7 +555,12 @@ describe("thread projections", () => {
       originConversationId: "local-1",
       createdAt: 7,
     });
-    const continuation = { ...sameAttempt, key: "spawned:attempt-2", attemptGeneration: 2, createdAt: 8 };
+    const continuation = {
+      ...sameAttempt,
+      key: "spawned:attempt-2",
+      attemptGeneration: 2,
+      createdAt: 8,
+    };
     expect(await ingest(t, [sameAttempt, continuation])).toMatchObject({
       applied: [continuation.key],
       duplicate: [sameAttempt.key],
@@ -573,7 +609,9 @@ describe("build projections", () => {
         updatedAt: 1,
       });
     });
-    const ownerHash = createHash("sha256").update(OWNER_ID, "utf8").digest("hex");
+    const ownerHash = createHash("sha256")
+      .update(OWNER_ID, "utf8")
+      .digest("hex");
     const buildId = "build-0001";
     const payload = {
       buildId,
@@ -588,8 +626,12 @@ describe("build projections", () => {
       title: "Orbit",
     };
     const recorded = event("build.recorded", { buildId, payload });
-    expect(await ingest(t, [recorded])).toMatchObject({ applied: [recorded.key] });
-    expect(await ingest(t, [{ ...recorded, key: "build:again" }])).toMatchObject({
+    expect(await ingest(t, [recorded])).toMatchObject({
+      applied: [recorded.key],
+    });
+    expect(
+      await ingest(t, [{ ...recorded, key: "build:again" }]),
+    ).toMatchObject({
       duplicate: ["build:again"],
     });
     const foreign = event("build.recorded", {
@@ -599,7 +641,9 @@ describe("build projections", () => {
       ownerId: OTHER_OWNER_ID,
     });
     expect(await ingest(t, [foreign])).toMatchObject({
-      rejected: [{ kind: "build.recorded", key: "build:foreign", reason: "invalid" }],
+      rejected: [
+        { kind: "build.recorded", key: "build:foreign", reason: "invalid" },
+      ],
     });
     const interior = event("interior-build.recorded", {
       buildId: "interior-bad",
@@ -607,13 +651,22 @@ describe("build projections", () => {
     });
     expect(await ingest(t, [interior])).toMatchObject({
       rejected: [
-        { kind: "interior-build.recorded", key: interior.key, reason: "invalid" },
+        {
+          kind: "interior-build.recorded",
+          key: interior.key,
+          reason: "invalid",
+        },
       ],
     });
     await t.run(async (ctx) => {
       const builds = await ctx.db.query("cloud_app_builds").collect();
       expect(builds).toHaveLength(1);
-      expect(builds[0]).toMatchObject({ buildId, appId, turnId, callbackTitle: "Orbit" });
+      expect(builds[0]).toMatchObject({
+        buildId,
+        appId,
+        turnId,
+        callbackTitle: "Orbit",
+      });
       const app = await ctx.db
         .query("cloud_apps")
         .withIndex("by_appId", (q) => q.eq("appId", appId))
@@ -702,7 +755,11 @@ describe("dispatch projection", () => {
     });
     // A genuinely older revision arriving late carries a fresh key, so the
     // revision fence — not the receipt — is what refuses it.
-    const older = summary({ revision: 4, state: "cloud_running", updatedAt: 4_000 });
+    const older = summary({
+      revision: 4,
+      state: "cloud_running",
+      updatedAt: 4_000,
+    });
     expect(await ingest(t, [dispatchEvent(older)])).toMatchObject({
       duplicate: [`${DISPATCH_ID}:4`],
     });
@@ -730,7 +787,9 @@ describe("dispatch projection", () => {
       ),
     ]);
     await ingest(t, [
-      dispatchEvent(summary({ revision: 2, state: "completed", updatedAt: 3_000 })),
+      dispatchEvent(
+        summary({ revision: 2, state: "completed", updatedAt: 3_000 }),
+      ),
     ]);
     const stored = await rows(t);
     expect(stored[0]?.cancelRequestId).toBeUndefined();

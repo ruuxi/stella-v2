@@ -43,3 +43,29 @@ describe("resolveComposerExpanded", () => {
     ).toBe(true);
   });
 });
+
+describe("resolveComposerExpanded with attachments", () => {
+  test("pending attachments expand an otherwise empty composer", () => {
+    expect(
+      resolveComposerExpanded({
+        expanded: false,
+        dictationBelow: false,
+        dictationInline: false,
+        modelPickerPinned: false,
+        hasAttachments: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("no attachments leaves the pill shape alone", () => {
+    expect(
+      resolveComposerExpanded({
+        expanded: false,
+        dictationBelow: false,
+        dictationInline: false,
+        modelPickerPinned: false,
+        hasAttachments: false,
+      }),
+    ).toBe(false);
+  });
+});

@@ -1,4 +1,7 @@
 import { Cause, Effect, Exit, Scope } from "effect";
+import { loadModelRegistry } from "@stella/contracts/model-registry";
+import "../ai/utils/http-proxy.js";
+import { registerBuiltInApiProviders } from "../ai/providers/register-builtins.js";
 import {
   getFileLogger,
   initFileLogger,
@@ -80,6 +83,8 @@ const parseEntryArgs = (argv: string[]): ParsedArgs => {
 };
 
 const main = async () => {
+  await loadModelRegistry();
+  registerBuiltInApiProviders();
   const cliArgs = parseEntryArgs(process.argv.slice(2));
   const transportResult = parseWorkerListenUrl(cliArgs.listenUrl);
   if (!transportResult.ok) {

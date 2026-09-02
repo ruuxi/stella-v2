@@ -13,10 +13,10 @@
  *  - The orchestrator DO owns its conversation in its own SQLite and picks the
  *    window from indexed `tokens` columns, so it imports `estimateTokens` and
  *    the budget only — it never materializes a full history to prune.
- *  - The sandbox executor still writes SPAWNED-AGENT THREAD transcripts to
- *    Convex (`cloud_thread_messages`), which is private job state rather than
- *    conversation content, so `pruneAgentHistory` continues to serve that
- *    path unchanged.
+ *  - The sandbox executor keeps SPAWNED-AGENT THREAD transcripts in the
+ *    BuildSession's own SQLite (`thread_messages`), private job state rather
+ *    than conversation content, and materializes a full history per turn, so
+ *    `pruneAgentHistory` continues to serve that path unchanged.
  */
 
 /**

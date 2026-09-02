@@ -29,10 +29,7 @@ installTextDefaults();
 import { loadGuestMode, isGuest, setGuestMode } from "../src/lib/guest-mode";
 import { loadAiConsent } from "../src/lib/ai-consent";
 import { loadNotificationsMuted } from "../src/lib/notifications-prefs";
-import {
-  hasSeenOnboarding,
-  loadOnboardingSeen,
-} from "../src/lib/onboarding";
+import { hasSeenOnboarding, loadOnboardingSeen } from "../src/lib/onboarding";
 import { loadLastMainTabHref } from "../src/lib/last-main-tab";
 import {
   criticalStellaFontAssets,
@@ -81,9 +78,7 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
   return (
     <View style={bootErrorStyles.root}>
-      <Text style={bootErrorStyles.title}>
-        {t("mobile.boot.crashTitle")}
-      </Text>
+      <Text style={bootErrorStyles.title}>{t("mobile.boot.crashTitle")}</Text>
       <Text style={bootErrorStyles.detail} numberOfLines={6}>
         {String(error?.message ?? error)}
       </Text>
@@ -159,6 +154,7 @@ function AuthenticatedLayout() {
   const [guestReady, setGuestReady] = useState(false);
   const [initialMainHref, setInitialMainHref] = useState<string | null>(null);
   const splashHiddenRef = useRef(false);
+  const anonymousBootstrapStartedRef = useRef(false);
 
   useEffect(() => {
     void Promise.all([
@@ -172,6 +168,40 @@ function AuthenticatedLayout() {
       setGuestReady(true);
     });
   }, []);
+
+  // Older builds stored guest intent locally without creating an auth
+  // principal. Upgrade that state in place so an existing guest lands in the
+  // anonymous canonical conversation instead of the retired sign-in wall.
+  useEffect(() => {
+    if (
+      session.isPending ||
+      !guestReady ||
+      session.data ||
+      !isGuest() ||
+      anonymousBootstrapStartedRef.current
+    ) {
+      return;
+    }
+
+    anonymousBootstrapStartedRef.current = true;
+    void authClient.signIn
+      .anonymous()
+      .then(async (result) => {
+        if (result.error) {
+          throw new Error(
+            result.error.message ?? "Could not start an anonymous session.",
+          );
+        }
+        await setGuestMode(true);
+      })
+      .catch(async () => {
+        await setGuestMode(false);
+        router.replace("/login");
+      })
+      .finally(() => {
+        anonymousBootstrapStartedRef.current = false;
+      });
+  }, [guestReady, router, session.data, session.isPending]);
 
   useEffect(() => {
     let dispose: (() => void) | null = null;
@@ -198,15 +228,24 @@ function AuthenticatedLayout() {
     const onIndex = pathname === "/" || pathname === "";
     const onOnboarding = pathname === "/onboarding";
     const onMain =
-      pathname.startsWith("/chat") || pathname.startsWith("/account");
+      pathname.startsWith("/chat") ||
+      pathname.startsWith("/settings") ||
+      pathname.startsWith("/account");
 
     if (onOnboarding) {
       return;
     }
 
     if (session.data) {
-      if (isGuest()) void setGuestMode(false);
+      const anonymous = session.data.user?.isAnonymous === true;
+      if (isGuest() !== anonymous) void setGuestMode(anonymous);
       void registerForPushNotifications();
+      // Anonymous users still need to reach Login when they choose "Sign in"
+      // from Settings. Their anonymous Better Auth session must not bounce
+      // them straight back to Chat before they can upgrade the account.
+      if (onLogin && anonymous) {
+        return;
+      }
       if (!hasSeenOnboarding()) {
         router.replace("/onboarding");
         return;
@@ -235,7 +274,14 @@ function AuthenticatedLayout() {
     if (onMain || onIndex) {
       router.replace("/login");
     }
-  }, [pathname, router, session.data, session.isPending, guestReady, initialMainHref]);
+  }, [
+    pathname,
+    router,
+    session.data,
+    session.isPending,
+    guestReady,
+    initialMainHref,
+  ]);
 
   // Hold the native splash until auth + local startup state have resolved, so a
   // returning user goes straight from splash to their app — no flash of the

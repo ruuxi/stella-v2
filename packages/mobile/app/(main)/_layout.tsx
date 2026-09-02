@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { Slot, usePathname, useRouter } from "expo-router";
 import { AiConsentModal } from "../../src/components/AiConsentModal";
@@ -13,15 +13,18 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { Icon, type IconName } from "../../src/components/Icon";
-import { GlassCard } from "../../src/components/glass";
+import { Icon } from "../../src/components/Icon";
+import { ArtifactViewer } from "../../src/components/ArtifactViewer";
+import { GlassIconButton } from "../../src/components/GlassIconButton";
 import {
   AppBackdrop,
   TOP_BAR_BAR_HEIGHT,
 } from "../../src/components/AppBackdrop";
-import { StellaBrandMark } from "../../src/components/StellaBrandMark";
 import {
-  ActivityIndicator,
+  SidebarPanel,
+  type SidebarDestination,
+} from "../../src/components/sidebar/SidebarPanel";
+import {
   Keyboard,
   Pressable,
   StyleSheet,
@@ -45,45 +48,26 @@ import { fadeHex } from "../../src/theme/oklch";
 import { useChatSearch } from "../../src/lib/chat-search";
 import { tapLight } from "../../src/lib/haptics";
 import {
-  MAIN_TAB_HREFS,
   readMainTabFromPath,
   saveLastMainTab,
-  type MainTabId,
 } from "../../src/lib/last-main-tab";
+import {
+  subscribeSidebarOpenRequests,
+  useActivityHub,
+  useComputerControl,
+} from "../../src/lib/main-shell-store";
 import { useT } from "../../src/i18n";
-
-type TabId = MainTabId;
-
-const TABS: {
-  id: TabId;
-  /** Catalog key for the sidebar label. */
-  labelKey: string;
-  icon: IconName;
-  href: string;
-}[] = [
-  {
-    id: "chat",
-    labelKey: "mobile.nav.chat",
-    icon: "message-square",
-    href: "/chat",
-  },
-  {
-    id: "account",
-    labelKey: "mobile.nav.settings",
-    icon: "settings",
-    href: "/account",
-  },
-];
-
-// Message search is built but hidden for now — flip to true to surface the
-// top-bar search button on the chat.
-const SHOW_SEARCH_BUTTON = false;
+import type { ChatArtifact } from "../../src/types";
 
 const SIDEBAR_WIDTH = 320;
 /** How far the foreground slides right when the drawer opens. Decoupled
  * from SIDEBAR_WIDTH so the sidebar can be widened (more breathing room
- * for its content) without pushing the main content further right. */
-const DRAWER_REVEAL = 232;
+ * for its content) without pushing the main content further right; the
+ * sidebar keeps its own content clear of the strip the foreground still
+ * covers. */
+const DRAWER_REVEAL = 292;
+/** Diameter of the top bar's circular glass controls. */
+const TOP_BAR_BUTTON = 40;
 /** Snappy, lightly-springy settle for the drawer — tuned to feel closer to
  * ChatGPT iOS: it starts moving instantly (unlike an ease-in curve) and rests
  * fast with just a hint of overshoot for tactility. `duration` is the
@@ -91,71 +75,6 @@ const DRAWER_REVEAL = 232;
  * rather than wobbly. Gesture releases additionally hand the fling velocity to
  * the spring so the panel continues from the finger's speed. */
 const DRAWER_SPRING = { duration: 260, dampingRatio: 0.88 } as const;
-
-function readActiveTab(pathname: string): TabId | null {
-  const tab = readMainTabFromPath(pathname);
-  if (tab) return tab;
-  // /stella (desktop WebView) is reached from the composer "+" menu and
-  // doesn't correspond to a sidebar entry — leave nothing highlighted.
-  return null;
-}
-
-function Sidebar({
-  activeTab,
-  onSelectTab,
-  colors,
-  styles,
-  tabs,
-}: {
-  activeTab: TabId | null;
-  onSelectTab: (tab: TabId) => void;
-  colors: Colors;
-  styles: ReturnType<typeof makeStyles>;
-  tabs: typeof TABS;
-}) {
-  const insets = useSafeAreaInsets();
-  const t = useT();
-  return (
-    <GlassCard
-      radius={0}
-      legible
-      style={[
-        styles.sidebar,
-        { paddingTop: insets.top + 12, paddingBottom: insets.bottom },
-      ]}
-    >
-      <StellaBrandMark />
-      <View style={styles.nav}>
-        {tabs.map((tab) => {
-          const active = activeTab === tab.id;
-          return (
-            <Pressable
-              key={tab.id}
-              onPress={() => onSelectTab(tab.id)}
-              style={({ pressed }) => [
-                styles.navItem,
-                active && styles.navItemActive,
-                pressed && styles.navItemPressed,
-              ]}
-            >
-              <View style={styles.navIcon}>
-                <Icon
-                  name={tab.icon}
-                  size={18}
-                  color={active ? colors.accent : colors.textMuted}
-                  filled={active}
-                />
-              </View>
-              <Text style={[styles.navLabel, active && styles.navLabelActive]}>
-                {t(tab.labelKey)}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-    </GlassCard>
-  );
-}
 
 export default function MainLayout() {
   const insets = useSafeAreaInsets();
@@ -199,8 +118,13 @@ export default function MainLayout() {
   // Reanimated shared value: 0 = closed, 1 = fully open
   const drawerProgress = useSharedValue(0);
 
-  const activeTab = readActiveTab(pathname);
+  const activeTab = readMainTabFromPath(pathname);
   const onChatSurface = pathname === "/chat";
+  const computer = useComputerControl();
+  const hubAccess = useActivityHub()?.access ?? null;
+  const [viewerArtifact, setViewerArtifact] = useState<ChatArtifact | null>(
+    null,
+  );
 
   const search = useChatSearch();
   // Collapse + clear search whenever the route changes (e.g. switching tabs) so
@@ -234,15 +158,49 @@ export default function MainLayout() {
     drawerProgress.value = withSpring(0, DRAWER_SPRING);
   };
 
-  const navigate = (tab: TabId) => {
+  const navigate = (destination: SidebarDestination) => {
     tapLight();
-    router.replace(MAIN_TAB_HREFS[tab]);
+    router.replace(destination);
     closeSidebar(false);
+  };
+
+  // Settings and Account are detail pages off the one chat, so the top-left
+  // control reads as "back" there and as the drawer reveal on the chat.
+  const onPressTopLeft = () => {
+    if (onChatSurface) {
+      openSidebar();
+      return;
+    }
+    tapLight();
+    router.replace("/chat");
+  };
+
+  const onPressComputer = () => {
+    if (!computer) return;
+    tapLight();
+    Keyboard.dismiss();
+    computer.onPress();
   };
 
   useEffect(() => {
     if (wide) closeSidebar(false);
   }, [wide]);
+
+  // The chat's running-tasks pill asks for the drawer; the wide layout has
+  // the sidebar on screen already, so there is nothing to reveal there.
+  const openSidebarRef = useRef(openSidebar);
+  openSidebarRef.current = openSidebar;
+  useEffect(
+    () =>
+      subscribeSidebarOpenRequests(() => {
+        if (!wide) openSidebarRef.current();
+      }),
+    [wide],
+  );
+
+  const openArtifact = useCallback((artifact: ChatArtifact) => {
+    setViewerArtifact(artifact);
+  }, []);
 
   // -- Gesture: swipe right anywhere on the app to open --
   // `Keyboard.dismiss` is a method on the native Keyboard module and isn't
@@ -362,12 +320,11 @@ export default function MainLayout() {
         <>
           <AppBackdrop />
           <View style={styles.wideLayout}>
-            <Sidebar
-              activeTab={activeTab}
-              onSelectTab={navigate}
-              colors={colors}
-              styles={styles}
-              tabs={TABS}
+            <SidebarPanel
+              open
+              width={SIDEBAR_WIDTH}
+              onNavigate={navigate}
+              onOpenArtifact={openArtifact}
             />
             <View style={styles.content}>
               <View style={styles.contentSlot}>
@@ -391,12 +348,12 @@ export default function MainLayout() {
             pointerEvents={sidebarOpen ? "auto" : "none"}
             style={[styles.sidebarLayer, sidebarStyle]}
           >
-            <Sidebar
-              activeTab={activeTab}
-              onSelectTab={navigate}
-              colors={colors}
-              styles={styles}
-              tabs={TABS}
+            <SidebarPanel
+              open={sidebarOpen}
+              width={SIDEBAR_WIDTH}
+              contentInsetRight={SIDEBAR_WIDTH - DRAWER_REVEAL}
+              onNavigate={navigate}
+              onOpenArtifact={openArtifact}
             />
           </Animated.View>
 
@@ -456,36 +413,38 @@ export default function MainLayout() {
                 ) : (
                   <>
                     <View style={styles.topBarSide}>
-                      <Pressable
-                        onPress={openSidebar}
-                        hitSlop={8}
-                        accessibilityLabel={t("mobile.nav.openLabel")}
-                        style={styles.hamburger}
-                      >
-                        <Icon
-                          name="menu"
-                          size={22}
-                          color={colors.text}
-                          weight="semibold"
-                        />
-                      </Pressable>
+                      <GlassIconButton
+                        icon="chevron-left"
+                        size={TOP_BAR_BUTTON}
+                        iconSize={18}
+                        accessibilityLabel={
+                          onChatSurface
+                            ? t("mobile.nav.openLabel")
+                            : t("mobile.nav.backToChat")
+                        }
+                        onPress={onPressTopLeft}
+                      />
                     </View>
                     <View style={{ flex: 1 }} />
                     <View style={styles.topBarRight}>
-                      {SHOW_SEARCH_BUTTON && onChatSurface ? (
-                        <Pressable
-                          onPress={search.open}
-                          hitSlop={8}
-                          accessibilityLabel={t("mobile.search.openLabel")}
-                          style={styles.hamburger}
-                        >
-                          <Icon
-                            name="search"
-                            size={21}
-                            color={colors.text}
-                            weight="regular"
-                          />
-                        </Pressable>
+                      {onChatSurface && computer ? (
+                        // Quiet unless there is something to say: a muted
+                        // glyph while unpaired or asleep, a spinner while
+                        // waking, and the green dot only once connected.
+                        <GlassIconButton
+                          icon="monitor"
+                          size={TOP_BAR_BUTTON}
+                          iconSize={19}
+                          muted={computer.connection !== "connected"}
+                          loading={computer.connection === "connecting"}
+                          dot={
+                            computer.connection === "connected"
+                              ? colors.ok
+                              : null
+                          }
+                          accessibilityLabel={computer.label}
+                          onPress={onPressComputer}
+                        />
                       ) : null}
                     </View>
                   </>
@@ -505,13 +464,21 @@ export default function MainLayout() {
                 <Pressable
                   onPress={() => closeSidebar()}
                   style={StyleSheet.absoluteFill}
+                  accessibilityRole="button"
                   accessibilityLabel={t("mobile.nav.closeLabel")}
+                  testID="mobile-nav-close"
                 />
               </Animated.View>
             </Animated.View>
           </GestureDetector>
         </View>
       )}
+      <ArtifactViewer
+        visible={Boolean(viewerArtifact)}
+        artifact={viewerArtifact}
+        access={hubAccess}
+        onClose={() => setViewerArtifact(null)}
+      />
       <AiConsentModal
         visible={consentVisible}
         onAccept={onConsentAccept}
@@ -539,14 +506,14 @@ const makeStyles = (colors: Colors) =>
       flex: 1,
     },
 
-    // Top bar — phone only (hamburger | centered pill on Chat | action).
-    // Height is set inline as `insets.top + barHeight` so the safe-area inset
-    // is added on top of the bar's own height rather than eating into it
-    // (RN box model is border-box, so a fixed `height` would absorb the inset).
+    // Top bar — phone only (chevron | spacer | computer). Height is set inline
+    // as `insets.top + barHeight` so the safe-area inset is added on top of
+    // the bar's own height rather than eating into it (RN box model is
+    // border-box, so a fixed `height` would absorb the inset).
     topBar: {
       alignItems: "flex-end",
       flexDirection: "row",
-      paddingHorizontal: 4,
+      paddingHorizontal: 10,
     },
     topBarSide: {
       alignItems: "center",
@@ -559,23 +526,6 @@ const makeStyles = (colors: Colors) =>
       alignItems: "center",
       flexDirection: "row",
       height: 44,
-    },
-    // Brand/sync indicator, absolutely centered across the whole bar so it stays
-    // screen-centered regardless of how many action buttons flank it.
-    topBarBrand: {
-      alignItems: "center",
-      bottom: 0,
-      height: 44,
-      justifyContent: "center",
-      left: 0,
-      position: "absolute",
-      right: 0,
-    },
-    topBarAction: {
-      alignItems: "center",
-      height: 44,
-      justifyContent: "center",
-      width: 44,
     },
     // Expanded search field that replaces the top-bar contents.
     searchRow: {
@@ -616,12 +566,6 @@ const makeStyles = (colors: Colors) =>
       fontFamily: fonts.sans.medium,
       fontSize: 15,
     },
-    hamburger: {
-      alignItems: "center",
-      height: 44,
-      justifyContent: "center",
-      width: 44,
-    },
     wideChatHeader: {
       alignItems: "center",
       marginBottom: 8,
@@ -630,45 +574,6 @@ const makeStyles = (colors: Colors) =>
       flex: 1,
       minHeight: 0,
     },
-    // Sidebar
-    sidebar: {
-      flex: 1,
-      width: SIDEBAR_WIDTH,
-    },
-    nav: {
-      gap: 2,
-      paddingHorizontal: 12,
-    },
-    navItem: {
-      alignItems: "center",
-      alignSelf: "flex-start",
-      borderRadius: 10,
-      flexDirection: "row",
-      gap: 12,
-      paddingHorizontal: 14,
-      paddingVertical: 11,
-      width: 188,
-    },
-    navItemActive: {
-      backgroundColor: colors.accentSoft,
-    },
-    navItemPressed: {
-      opacity: 0.7,
-    },
-    navIcon: {
-      alignItems: "center",
-      justifyContent: "center",
-      width: 20,
-    },
-    navLabel: {
-      color: colors.text,
-      fontFamily: fonts.sans.medium,
-      fontSize: 15,
-    },
-    navLabelActive: {
-      color: colors.accent,
-    },
-
     // Sidebar layer — sits underneath the foreground, anchored to the left
     // edge. Stays mounted so swipe-to-open reveals an already-laid-out menu.
     sidebarLayer: {
@@ -702,7 +607,7 @@ const makeStyles = (colors: Colors) =>
     // Scrim painted on the foreground while the drawer is open. Dims the
     // app slightly and provides a tap target to close.
     foregroundScrim: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "#000",
       zIndex: 3,
     },

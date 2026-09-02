@@ -27,7 +27,6 @@ import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
 import { estimateTokens } from "@stella/executor-cloud/prune-history";
 import {
   CONTEXT_SCAN_ROW_CAP,
-  EXCERPT_FLUSH_BATCH,
   INITIAL_WINDOW_RECORDS,
   JOURNAL_SCHEMA_VERSION,
   REPAIR_SCAN_ROW_CAP,
@@ -42,6 +41,15 @@ import {
   type MessageRole,
   type TurnPhase,
 } from "./conversation-types.js";
+import {
+  TranscriptSearchIndex,
+  collapseWhitespace,
+  extractMessageText,
+  transcriptSearchDdl,
+  type TranscriptSearchHit,
+} from "./transcript-search.js";
+
+export { collapseWhitespace, extractMessageText } from "./transcript-search.js";
 
 const DDL = [
   `CREATE TABLE IF NOT EXISTS meta (
@@ -83,6 +91,7 @@ const DDL = [
   `CREATE UNIQUE INDEX IF NOT EXISTS journal_writer_key ON journal(writer_key)`,
   `CREATE INDEX IF NOT EXISTS journal_turn ON journal(turn_id, seq)`,
   `CREATE INDEX IF NOT EXISTS journal_context ON journal(kind, model_skip, seq)`,
+  transcriptSearchDdl(),
   `CREATE TABLE IF NOT EXISTS turns (
      turn_id       TEXT PRIMARY KEY,
      session_id    TEXT NOT NULL,
@@ -114,15 +123,6 @@ const DDL = [
      bytes        INTEGER NOT NULL,
      payload_json TEXT NOT NULL
    )`,
-  `CREATE TABLE IF NOT EXISTS turn_excerpts (
-     turn_id    TEXT PRIMARY KEY,
-     seq_start  INTEGER NOT NULL,
-     seq_end    INTEGER NOT NULL,
-     text       TEXT    NOT NULL,
-     created_at INTEGER NOT NULL,
-     synced     INTEGER NOT NULL DEFAULT 0
-   )`,
-  `CREATE INDEX IF NOT EXISTS turn_excerpts_unsynced ON turn_excerpts(synced, seq_start)`,
   `CREATE TABLE IF NOT EXISTS segments (
      first_seq  INTEGER PRIMARY KEY,
      last_seq   INTEGER NOT NULL,
@@ -217,7 +217,11 @@ const DDL = [
  * error rather than a no-op the second time, which is why the stamped version,
  * not the statement, decides whether it runs.
  */
-const MIGRATIONS: Array<{ to: number; statements: string[] }> = [
+const MIGRATIONS: Array<{
+  to: number;
+  statements: string[];
+  backfillTranscriptSearch?: boolean;
+}> = [
   {
     to: 2,
     statements: [
@@ -276,8 +280,17 @@ const MIGRATIONS: Array<{ to: number; statements: string[] }> = [
          turn_id TEXT PRIMARY KEY,
          epoch INTEGER NOT NULL,
          retired_at INTEGER NOT NULL
-       )`,
+      )`,
     ],
+  },
+  {
+    to: 8,
+    statements: [
+      transcriptSearchDdl(),
+      `DROP INDEX IF EXISTS turn_excerpts_unsynced`,
+      `DROP TABLE IF EXISTS turn_excerpts`,
+    ],
+    backfillTranscriptSearch: true,
   },
 ];
 
@@ -404,14 +417,6 @@ export type OwnerTransferObjectRow = {
   state: "copying" | "cleanup";
 };
 
-export type ExcerptRow = {
-  turn_id: string;
-  seq_start: number;
-  seq_end: number;
-  text: string;
-  created_at: number;
-};
-
 export type WindowSelection = {
   messages: AgentMessage[];
   startSeq: number;
@@ -483,31 +488,6 @@ const toolCallIds = (message: unknown): string[] =>
     )
     .map((block) => block.id);
 
-/** Text-only projection of an AgentMessage: base64 blobs and images are noise. */
-export const extractMessageText = (message: unknown): string => {
-  const content = (message as { content?: unknown }).content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const item of content) {
-    if (!item || typeof item !== "object") continue;
-    const record = item as {
-      type?: unknown;
-      text?: unknown;
-      content?: unknown;
-    };
-    // Tool call arguments and tool result bodies are excluded on purpose: they
-    // are the reason the old Convex scan had to budget in bytes.
-    if (record.type === "toolCall") continue;
-    if (typeof record.text === "string") parts.push(record.text);
-    else if (typeof record.content === "string") parts.push(record.content);
-  }
-  return parts.join("\n");
-};
-
-export const collapseWhitespace = (value: string): string =>
-  value.replace(/\s+/g, " ").trim();
-
 /** What `meta()` reads back once the storage has been destroyed by a purge. */
 const PURGED_META: MetaRow = Object.freeze({
   schema_version: JOURNAL_SCHEMA_VERSION,
@@ -524,6 +504,7 @@ const PURGED_META: MetaRow = Object.freeze({
 
 export class Journal {
   private readonly sql: SqlStorage;
+  private readonly transcriptSearch: TranscriptSearchIndex;
   private transactionDepth = 0;
 
   constructor(
@@ -531,6 +512,7 @@ export class Journal {
     private readonly log: ConversationLogger,
   ) {
     this.sql = ctx.storage.sql;
+    this.transcriptSearch = new TranscriptSearchIndex(this.sql);
   }
 
   // -------------------------------------------------------------------------
@@ -567,12 +549,70 @@ export class Journal {
       for (const migration of MIGRATIONS) {
         if (meta.schema_version >= migration.to) continue;
         for (const statement of migration.statements) this.sql.exec(statement);
+        if (migration.backfillTranscriptSearch) {
+          this.backfillTranscriptSearch();
+        }
       }
       this.sql.exec(
         `UPDATE meta SET schema_version = ? WHERE id = 0`,
         JOURNAL_SCHEMA_VERSION,
       );
     }
+  }
+
+  private backfillTranscriptSearch(): void {
+    const rows = this.sql
+      .exec<
+        Pick<
+          JournalRow,
+          | "seq"
+          | "turn_id"
+          | "role"
+          | "created_at"
+          | "hidden"
+          | "payload_json"
+          | "spill_key"
+        >
+      >(
+        `SELECT seq, turn_id, role, created_at, hidden, payload_json, spill_key
+           FROM journal
+          WHERE kind = 'message'
+            AND role IN ('user', 'assistant')
+            AND hidden = 0
+            AND spill_key IS NULL
+          ORDER BY seq ASC`,
+      )
+      .toArray();
+    for (const row of rows) this.indexStoredMessage(row);
+  }
+
+  private indexStoredMessage(
+    row: Pick<
+      JournalRow,
+      | "seq"
+      | "turn_id"
+      | "role"
+      | "created_at"
+      | "hidden"
+      | "payload_json"
+      | "spill_key"
+    >,
+  ): void {
+    let payload: unknown;
+    try {
+      payload = JSON.parse(row.payload_json);
+    } catch {
+      return;
+    }
+    this.transcriptSearch.index({
+      seq: row.seq,
+      turnId: row.turn_id,
+      role: row.role ?? "",
+      createdAt: row.created_at,
+      hidden: row.hidden === 1,
+      spillKey: row.spill_key,
+      payload,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -729,7 +769,10 @@ export class Journal {
       const retired = this.sql
         .exec<{
           writer_key: string;
-        }>(`SELECT writer_key FROM retired_writers WHERE writer_key = ?`, writerKey)
+        }>(
+          `SELECT writer_key FROM retired_writers WHERE writer_key = ?`,
+          writerKey,
+        )
         .toArray();
       if (retired.length > 0) throw new StaleJournalWriterError();
       const turnId = columns.turn_id;
@@ -860,32 +903,46 @@ export class Journal {
             | string
             | undefined) ?? null)
         : null;
-    const { seq, inserted } = this.insert(
-      {
-        kind: "message",
-        turn_id: input.turnId,
-        writer: input.writer,
-        writer_key: input.writerKey,
-        created_at: createdAt,
-        bytes,
-        role: input.role,
-        hidden: input.hidden ? 1 : 0,
-        model_skip: input.modelSkip ? 1 : 0,
-        tool_call_id: toolCallId,
-        open_calls:
-          input.role === "assistant" ? countOpenCalls(input.message) : 0,
-        tokens: estimateTokens(input.message),
-        stream_id: input.streamId ?? null,
-        client_msg_id: input.clientMsgId ?? null,
-        phase: null,
-        lane: null,
-        source: null,
-        notice: null,
-        payload_json: payloadJson,
-        spill_key: input.spillKey ?? null,
-      },
-      input.writerKey,
-    );
+    const { seq, inserted } = this.transactionSync(() => {
+      const result = this.insert(
+        {
+          kind: "message",
+          turn_id: input.turnId,
+          writer: input.writer,
+          writer_key: input.writerKey,
+          created_at: createdAt,
+          bytes,
+          role: input.role,
+          hidden: input.hidden ? 1 : 0,
+          model_skip: input.modelSkip ? 1 : 0,
+          tool_call_id: toolCallId,
+          open_calls:
+            input.role === "assistant" ? countOpenCalls(input.message) : 0,
+          tokens: estimateTokens(input.message),
+          stream_id: input.streamId ?? null,
+          client_msg_id: input.clientMsgId ?? null,
+          phase: null,
+          lane: null,
+          source: null,
+          notice: null,
+          payload_json: payloadJson,
+          spill_key: input.spillKey ?? null,
+        },
+        input.writerKey,
+      );
+      if (result.inserted) {
+        this.transcriptSearch.index({
+          seq: result.seq,
+          turnId: input.turnId,
+          role: input.role,
+          createdAt,
+          hidden: input.hidden === true,
+          spillKey: input.spillKey ?? null,
+          payload: input.message,
+        });
+      }
+      return result;
+    });
     return {
       seq,
       inserted,
@@ -1180,7 +1237,11 @@ export class Journal {
         throw new Error("An acceptance context fault is already armed.");
       }
       const row = this.sql
-        .exec<{ payload_json: string; model_skip: number; role: string | null }>(
+        .exec<{
+          payload_json: string;
+          model_skip: number;
+          role: string | null;
+        }>(
           `SELECT payload_json, model_skip, role FROM journal
             WHERE seq = ? AND kind = 'message'`,
           args.seq,
@@ -1197,7 +1258,9 @@ export class Journal {
       try {
         JSON.parse(row.payload_json);
       } catch {
-        throw new Error("Acceptance context fault candidate is already corrupt.");
+        throw new Error(
+          "Acceptance context fault candidate is already corrupt.",
+        );
       }
       this.sql.exec(
         `INSERT INTO acceptance_context_fault (
@@ -1221,12 +1284,14 @@ export class Journal {
       );
       const armed = this.acceptanceContextFaultRecord();
       const changed = this.sql
-        .exec<{ payload_json: string }>(
-          `SELECT payload_json FROM journal WHERE seq = ?`,
-          args.seq,
-        )
+        .exec<{
+          payload_json: string;
+        }>(`SELECT payload_json FROM journal WHERE seq = ?`, args.seq)
         .toArray()[0];
-      if (!armed || changed?.payload_json !== ACCEPTANCE_CONTEXT_CORRUPT_PAYLOAD) {
+      if (
+        !armed ||
+        changed?.payload_json !== ACCEPTANCE_CONTEXT_CORRUPT_PAYLOAD
+      ) {
         throw new Error("Acceptance context fault did not commit atomically.");
       }
       const { original_payload_json: _original, ...safe } = armed;
@@ -1266,15 +1331,16 @@ export class Journal {
         };
       }
       const row = this.sql
-        .exec<{ payload_json: string }>(
-          `SELECT payload_json FROM journal WHERE seq = ?`,
-          fault.seq,
-        )
+        .exec<{
+          payload_json: string;
+        }>(`SELECT payload_json FROM journal WHERE seq = ?`, fault.seq)
         .toArray()[0];
       if (row?.payload_json !== ACCEPTANCE_CONTEXT_CORRUPT_PAYLOAD) {
         // Keep the repair copy when the row is missing or unexpectedly changed;
         // an operator can inspect the DO without this code overwriting evidence.
-        throw new Error("Acceptance context fault evidence changed before repair.");
+        throw new Error(
+          "Acceptance context fault evidence changed before repair.",
+        );
       }
       this.sql.exec(
         `UPDATE journal SET payload_json = ?
@@ -1572,7 +1638,6 @@ export class Journal {
     return this.transactionSync(() => {
       const meta = this.meta();
       let expected = meta.next_seq;
-      const terminalTurns = new Set<string>();
       for (const row of rows) {
         if (row.seq !== expected) {
           throw new Error(
@@ -1608,6 +1673,7 @@ export class Journal {
           row.payload_json,
           row.spill_key,
         );
+        if (row.kind === "message") this.indexStoredMessage(row);
         const terminal =
           row.kind === "turn" &&
           (row.phase === "completed" ||
@@ -1640,14 +1706,9 @@ export class Journal {
           row.created_at,
           row.created_at,
         );
-        if (terminal) terminalTurns.add(row.turn_id);
         expected += 1;
       }
       this.sql.exec(`UPDATE meta SET next_seq = ? WHERE id = 0`, expected);
-      for (const turnId of terminalTurns) {
-        const excerpt = this.buildExcerpt(turnId, 1_200, 4_000, Date.now());
-        if (excerpt) this.putExcerpt(excerpt);
-      }
       return {
         firstSeq: rows[0]!.seq,
         lastSeq: rows[rows.length - 1]!.seq,
@@ -1858,140 +1919,6 @@ export class Journal {
     this.sql.exec(`DELETE FROM inbox WHERE id = ?`, id);
   }
 
-  // -------------------------------------------------------------------------
-  // Excerpts
-  // -------------------------------------------------------------------------
-
-  putExcerpt(row: ExcerptRow): void {
-    this.sql.exec(
-      `INSERT INTO turn_excerpts (turn_id, seq_start, seq_end, text, created_at, synced)
-       VALUES (?, ?, ?, ?, ?, 0)
-       ON CONFLICT(turn_id) DO UPDATE SET
-         seq_start = excluded.seq_start, seq_end = excluded.seq_end,
-         text = excluded.text, synced = 0`,
-      row.turn_id,
-      row.seq_start,
-      row.seq_end,
-      row.text,
-      row.created_at,
-    );
-  }
-
-  unsyncedExcerpts(limit = EXCERPT_FLUSH_BATCH): ExcerptRow[] {
-    return this.sql
-      .exec<ExcerptRow>(
-        `SELECT turn_id, seq_start, seq_end, text, created_at FROM turn_excerpts
-          WHERE synced = 0 ORDER BY seq_start ASC LIMIT ?`,
-        limit,
-      )
-      .toArray();
-  }
-
-  allExcerpts(afterSeq: number, limit: number): ExcerptRow[] {
-    return this.sql
-      .exec<ExcerptRow>(
-        `SELECT turn_id, seq_start, seq_end, text, created_at FROM turn_excerpts
-          WHERE seq_start > ? ORDER BY seq_start ASC LIMIT ?`,
-        afterSeq,
-        limit,
-      )
-      .toArray();
-  }
-
-  /**
-   * How many turns Convex has not been told about. This is the other half of
-   * "the index is behind": `index_synced_seq` tracks the ROW, and a flush that
-   * shipped its 50-excerpt batch and stamped the row at head would otherwise
-   * look caught up with every remaining turn missing from Recall.
-   */
-  unsyncedExcerptCount(): number {
-    return this.sql
-      .exec<{
-        count: number;
-      }>(`SELECT COUNT(*) AS count FROM turn_excerpts WHERE synced = 0`)
-      .one().count;
-  }
-
-  markExcerptsSynced(turnIds: string[]): void {
-    for (const turnId of turnIds) {
-      this.sql.exec(
-        `UPDATE turn_excerpts SET synced = 1 WHERE turn_id = ?`,
-        turnId,
-      );
-    }
-  }
-
-  markAllExcerptsUnsynced(): void {
-    this.sql.exec(`UPDATE turn_excerpts SET synced = 0`);
-  }
-
-  /**
-   * Builds the searchable projection for one turn from its own rows.
-   *
-   * A hidden prompt is a lifecycle message, not something the user typed, so
-   * it is left out of the user half — but the assistant reply is ALWAYS
-   * included: a wake turn's reply is the only record that a spawned agent's
-   * report ever reached the user.
-   */
-  buildExcerpt(
-    turnId: string,
-    userHalfMax: number,
-    totalMax: number,
-    now: number,
-  ): ExcerptRow | null {
-    const rows = this.sql
-      .exec<{
-        seq: number;
-        role: string | null;
-        hidden: number;
-        payload_json: string;
-        spill_key: string | null;
-      }>(
-        `SELECT seq, role, hidden, payload_json, spill_key FROM journal
-          WHERE turn_id = ? AND kind = 'message' ORDER BY seq ASC`,
-        turnId,
-      )
-      .toArray();
-    if (rows.length === 0) return null;
-    let userText = "";
-    let assistantText = "";
-    for (const row of rows) {
-      if (row.spill_key) continue;
-      if (row.role !== "user" && row.role !== "assistant") continue;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(row.payload_json);
-      } catch {
-        continue;
-      }
-      const text = collapseWhitespace(extractMessageText(parsed));
-      if (!text) continue;
-      if (row.role === "user") {
-        if (row.hidden === 1) continue;
-        if (userText.length < userHalfMax) {
-          userText = collapseWhitespace(`${userText} ${text}`).slice(
-            0,
-            userHalfMax,
-          );
-        }
-      } else if (assistantText.length < totalMax) {
-        assistantText = collapseWhitespace(`${assistantText} ${text}`);
-      }
-    }
-    const combined = [userText, assistantText]
-      .filter((part) => part.length > 0)
-      .join("\n")
-      .slice(0, totalMax);
-    if (combined.length === 0) return null;
-    return {
-      turn_id: turnId,
-      seq_start: rows[0]!.seq,
-      seq_end: rows[rows.length - 1]!.seq,
-      text: combined,
-      created_at: now,
-    };
-  }
-
   /** Last rendered text of the conversation, for the Convex index preview. */
   lastPreview(maxChars: number): { text: string; role: string } | null {
     const rows = this.sql
@@ -2017,6 +1944,13 @@ export class Journal {
       if (text) return { text: text.slice(0, maxChars), role: row.role ?? "" };
     }
     return null;
+  }
+
+  searchTranscript(
+    terms: readonly string[],
+    limit: number,
+  ): TranscriptSearchHit[] {
+    return this.transcriptSearch.search(terms, limit);
   }
 
   // -------------------------------------------------------------------------
@@ -2221,11 +2155,7 @@ export class Journal {
         input.throughSeq,
         input.throughSeq,
       );
-      this.sql.exec(
-        `DELETE FROM turn_excerpts WHERE seq_start > ? OR seq_end > ?`,
-        input.throughSeq,
-        input.throughSeq,
-      );
+      this.transcriptSearch.removeAbove(input.throughSeq);
       for (const firstSeq of input.removedSegmentFirstSeqs) {
         this.sql.exec(`DELETE FROM segments WHERE first_seq = ?`, firstSeq);
       }

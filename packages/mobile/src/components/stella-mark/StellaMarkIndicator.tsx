@@ -370,7 +370,7 @@ export function StellaMarkIndicator({
 }
 
 const styles = StyleSheet.create({
-  layer: { ...StyleSheet.absoluteFillObject },
+  layer: { ...StyleSheet.absoluteFill },
   orbitMark: {
     height: ORBIT_MARK_SIZE,
     left: "50%",
@@ -380,6 +380,6 @@ const styles = StyleSheet.create({
     top: "50%",
     width: ORBIT_MARK_SIZE,
   },
-  stage: { ...StyleSheet.absoluteFillObject },
+  stage: { ...StyleSheet.absoluteFill },
   viewport: { alignItems: "center", justifyContent: "center" },
 });

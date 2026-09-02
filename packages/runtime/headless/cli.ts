@@ -23,6 +23,9 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { loadModelRegistry } from "@stella/contracts/model-registry";
+import "../ai/utils/http-proxy.js";
+import { registerBuiltInApiProviders } from "../ai/providers/register-builtins.js";
 
 type CliMode = "chat" | "completion" | "list-models";
 
@@ -101,7 +104,11 @@ const parseArgs = (argv: string[]): CliOptions => {
         break;
       case "--mode": {
         const mode = next(++i);
-        if (mode !== "chat" && mode !== "completion" && mode !== "list-models") {
+        if (
+          mode !== "chat" &&
+          mode !== "completion" &&
+          mode !== "list-models"
+        ) {
           throw new Error(`Unknown --mode: ${mode}`);
         }
         options.mode = mode;
@@ -180,7 +187,9 @@ const readDesktopUiEnvDefaults = (
   };
   try {
     for (const line of readFileSync(envPath, "utf-8").split("\n")) {
-      const match = line.match(/^\s*(VITE_CONVEX_URL|VITE_CONVEX_SITE_URL)\s*=\s*(\S+)\s*$/);
+      const match = line.match(
+        /^\s*(VITE_CONVEX_URL|VITE_CONVEX_SITE_URL)\s*=\s*(\S+)\s*$/,
+      );
       if (!match) continue;
       if (match[1] === "VITE_CONVEX_URL") result.convexUrl = match[2] ?? null;
       else result.convexSiteUrl = match[2] ?? null;
@@ -192,6 +201,8 @@ const readDesktopUiEnvDefaults = (
 };
 
 const main = async (): Promise<void> => {
+  await loadModelRegistry();
+  registerBuiltInApiProviders();
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
     process.stderr.write(`${USAGE}\n`);
@@ -348,19 +359,23 @@ const main = async (): Promise<void> => {
   let finishOutcome: string | null = null;
   let finishError: string | null = null;
   const finishWaiter = new Promise<void>((resolve) => {
-    host.on("run-event", (event: Record<string, unknown> & { type?: string }) => {
-      if (stopping) return;
-      emit({ kind: "run.event", event });
-      if (
-        event.type === AGENT_STREAM_EVENT_TYPES.RUN_FINISHED &&
-        (rootRunId == null || event.runId === rootRunId)
-      ) {
-        finished = true;
-        finishOutcome = typeof event.outcome === "string" ? event.outcome : null;
-        finishError = typeof event.error === "string" ? event.error : null;
-        resolve();
-      }
-    });
+    host.on(
+      "run-event",
+      (event: Record<string, unknown> & { type?: string }) => {
+        if (stopping) return;
+        emit({ kind: "run.event", event });
+        if (
+          event.type === AGENT_STREAM_EVENT_TYPES.RUN_FINISHED &&
+          (rootRunId == null || event.runId === rootRunId)
+        ) {
+          finished = true;
+          finishOutcome =
+            typeof event.outcome === "string" ? event.outcome : null;
+          finishError = typeof event.error === "string" ? event.error : null;
+          resolve();
+        }
+      },
+    );
   });
 
   if (options.model) {
@@ -370,7 +385,9 @@ const main = async (): Promise<void> => {
       modelOverride: options.model,
       ...(options.agentType ? { agentType: options.agentType } : {}),
     }) as Promise<{ status: string; finalText: string; error?: string }>;
-    log(`automation turn started (conversation=${conversationId} model=${options.model})`);
+    log(
+      `automation turn started (conversation=${conversationId} model=${options.model})`,
+    );
     const result = await resultPromise;
     clearTimeout(timeout);
     const ok = result.status === "ok";

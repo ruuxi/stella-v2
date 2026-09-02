@@ -20,6 +20,9 @@ const {
   executeCloudCodeWithExecutorFactory,
   prepareCloudCodeTools,
 } = await import("../src/cloud-code-executor.js");
+const { loadCloudflareCodeMode } = await import(
+  "../src/cloud-code-worker-executor.js"
+);
 mock.restore();
 
 const loader = {} as WorkerLoader;
@@ -67,11 +70,17 @@ const callOnlyTool: CloudCodeExecutorFactory = () => ({
 });
 
 describe("cloud code executor", () => {
+  test("loads the Code Mode SDK through one shared promise", async () => {
+    const firstLoad = loadCloudflareCodeMode();
+    expect(loadCloudflareCodeMode()).toBe(firstLoad);
+    await expect(firstLoad).resolves.toBeDefined();
+  });
+
   test("uses Cloudflare's exact sanitized name while dispatching to the raw name", async () => {
     let callContext:
       | Readonly<{ rawName: string; sanitizedName: string }>
       | undefined;
-    const prepared = prepareCloudCodeTools([
+    const prepared = await prepareCloudCodeTools([
       tool({
         rawName: "read-value.v2",
         execute: async (_input, context) => {
@@ -109,18 +118,18 @@ describe("cloud code executor", () => {
     });
   });
 
-  test("rejects raw names whose sanitized identifiers collide", () => {
-    expect(() =>
+  test("rejects raw names whose sanitized identifiers collide", async () => {
+    await expect(
       prepareCloudCodeTools([
         tool({ rawName: "send-email" }),
         tool({ rawName: "send.email" }),
       ]),
-    ).toThrow(
+    ).rejects.toThrow(
       'Cloud code tools "send-email" and "send.email" both sanitize to "send_email".',
     );
-    expect(() =>
+    await expect(
       prepareCloudCodeTools([tool({ rawName: "__proto__" })]),
-    ).toThrow(CloudCodeConfigurationError);
+    ).rejects.toThrow(CloudCodeConfigurationError);
   });
 
   test("pins globalOutbound to null and passes no ambient modules or bindings", async () => {
@@ -138,7 +147,7 @@ describe("cloud code executor", () => {
       {
         loader,
         code: "async () => 42",
-        tools: prepareCloudCodeTools([]),
+        tools: await prepareCloudCodeTools([]),
         timeoutMs: 1_234,
       },
       factory,
@@ -156,7 +165,7 @@ describe("cloud code executor", () => {
 
   test("denies approval-required tools when there is no explicit gate", async () => {
     let executed = false;
-    const prepared = prepareCloudCodeTools([
+    const prepared = await prepareCloudCodeTools([
       tool({
         rawName: "send-email",
         approval: "required",
@@ -187,7 +196,7 @@ describe("cloud code executor", () => {
   test("runs an approval-required tool only with the gate's opaque approval id", async () => {
     let executedApprovalId: string | undefined;
     let gateName: string | undefined;
-    const prepared = prepareCloudCodeTools([
+    const prepared = await prepareCloudCodeTools([
       tool({
         rawName: "send-email",
         approval: "required",
@@ -219,7 +228,7 @@ describe("cloud code executor", () => {
 
   test("a denied or malformed approval never reaches the tool", async () => {
     let executed = false;
-    const prepared = prepareCloudCodeTools([
+    const prepared = await prepareCloudCodeTools([
       tool({
         approval: "required",
         execute: async () => {
@@ -248,7 +257,7 @@ describe("cloud code executor", () => {
       {
         loader,
         code: "async () => codemode.read_value({ key: 'alpha' })",
-        tools: prepareCloudCodeTools([
+        tools: await prepareCloudCodeTools([
           tool({
             execute: async () => {
               throw new Error("secret host diagnostic");
@@ -273,7 +282,7 @@ describe("cloud code executor", () => {
 
   test("bounds the total number of nested host-tool calls", async () => {
     let executed = 0;
-    const prepared = prepareCloudCodeTools([
+    const prepared = await prepareCloudCodeTools([
       tool({
         execute: async () => {
           executed += 1;
@@ -322,7 +331,7 @@ describe("cloud code executor", () => {
 
   test("bounds concurrent nested host-tool calls", async () => {
     let executed = 0;
-    const prepared = prepareCloudCodeTools([
+    const prepared = await prepareCloudCodeTools([
       tool({
         execute: async (_input, context) => {
           executed += 1;
@@ -382,7 +391,7 @@ describe("cloud code executor", () => {
     const controller = new AbortController();
     let hostSignal: AbortSignal | undefined;
     let disposeCalls = 0;
-    const prepared = prepareCloudCodeTools([
+    const prepared = await prepareCloudCodeTools([
       tool({
         execute: async (_input, context) => {
           hostSignal = context.signal;
@@ -446,7 +455,7 @@ describe("cloud code executor", () => {
       {
         loader,
         code: "async () => 42",
-        tools: prepareCloudCodeTools([]),
+        tools: await prepareCloudCodeTools([]),
         timeoutMs: 5,
       },
       factory,
@@ -468,7 +477,7 @@ describe("cloud code executor", () => {
       {
         loader,
         code: "async () => 7",
-        tools: prepareCloudCodeTools([]),
+        tools: await prepareCloudCodeTools([]),
         timeoutMs: 5,
       },
       () => {
@@ -484,7 +493,7 @@ describe("cloud code executor", () => {
       {
         loader,
         code: "async () => new Promise(() => {})",
-        tools: prepareCloudCodeTools([]),
+        tools: await prepareCloudCodeTools([]),
       },
       () => ({
         execute: async () => ({

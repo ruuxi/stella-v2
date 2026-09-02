@@ -190,9 +190,8 @@ describe("resolveLlmRoute", () => {
       exchange,
       bearer: (index = 0) =>
         new Headers(
-          (exchange.mock.calls[index]?.[1] as RequestInit | undefined)?.headers as
-            | HeadersInit
-            | undefined,
+          (exchange.mock.calls[index]?.[1] as RequestInit | undefined)
+            ?.headers as HeadersInit | undefined,
         ).get("authorization"),
       restore: () => {
         globalThis.fetch = originalFetch;
@@ -625,7 +624,6 @@ describe("resolveLlmRoute", () => {
 
     expect(resolved.route).toBe("stella");
     expect(resolved.model.id).toBe("stella/default");
-    // The OpenRouter-hosted Muse default rides the Responses API.
     expect(resolved.model.api).toBe("openai-responses");
     expect(resolved.model.provider).toBe("openrouter");
   });
@@ -785,7 +783,9 @@ describe("resolveLlmRoute", () => {
       );
       expect(gateway.bearer()).toBe("Bearer fresh-stella-token");
       expect(
-        JSON.parse(String((gateway.exchange.mock.calls[0]?.[1] as RequestInit).body)),
+        JSON.parse(
+          String((gateway.exchange.mock.calls[0]?.[1] as RequestInit).body),
+        ),
       ).toEqual({ deviceId: "device-refresh" });
     } finally {
       gateway.restore();
@@ -819,7 +819,9 @@ describe("resolveLlmRoute", () => {
       await expect(resolved.getApiKey()).resolves.toBe("session-capability");
       expect(gateway.exchange).toHaveBeenCalledTimes(1);
       // refreshApiKey (401/402 from the gateway) re-exchanges immediately.
-      await expect(resolved.refreshApiKey?.()).resolves.toBe("session-capability");
+      await expect(resolved.refreshApiKey?.()).resolves.toBe(
+        "session-capability",
+      );
       expect(gateway.exchange).toHaveBeenCalledTimes(2);
     } finally {
       gateway.restore();
@@ -911,7 +913,6 @@ describe("resolveLlmRoute", () => {
     expect(resolved.route).toBe("stella");
     expect(resolved.model.id).toBe("stella/default");
   });
-
 
   it("honors multiple authed providers — each model id picks its own credential", async () => {
     credentials.set("anthropic", "anthropic-key");
@@ -1096,7 +1097,6 @@ describe("resolveLlmRoute", () => {
     // The real Gemini flash window, not the 200k synthesis floor.
     expect(resolved.model.contextWindow).toBeGreaterThanOrEqual(1_000_000);
   });
-
 
   it("declares image input on synthesized gateway models, never the template's modalities", async () => {
     // The template (like the real ai21/jamba-large-1.7) is text-only. If the

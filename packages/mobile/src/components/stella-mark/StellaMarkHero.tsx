@@ -111,6 +111,6 @@ export function StellaMarkHero({
 }
 
 const styles = StyleSheet.create({
-  stage: { ...StyleSheet.absoluteFillObject },
+  stage: { ...StyleSheet.absoluteFill },
   viewport: { alignItems: "center", justifyContent: "center" },
 });

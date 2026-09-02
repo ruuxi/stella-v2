@@ -147,7 +147,7 @@ const makeStyles = (colors: Colors) =>
       flex: 1,
     },
     backdrop: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "#000000",
     },
     shadow: {

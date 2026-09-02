@@ -563,4 +563,43 @@ describe("owner purge job coordination", () => {
       await t.query(lifecycleInternal.getOwnerPurgeJobInternal, { ownerId }),
     ).not.toHaveProperty("leaseId");
   });
+
+  it("defers owner purge retries when the builder configuration is missing", async () => {
+    const t = createTest();
+    const ownerId = "configuration-error-owner";
+    const now = 100_000;
+    const purge = await beginPurge(t, {
+      ownerId,
+      operationId: "configuration-error-operation",
+      mode: "reset",
+      now,
+    });
+    const fence = {
+      ownerId,
+      operationId: purge.operationId,
+      generation: purge.generation,
+    };
+    await t.mutation(lifecycleInternal.claimOwnerPurgeStageInternal, {
+      ...fence,
+      stage: "core",
+      leaseId: "configuration-error-worker",
+      now: now + 1,
+    });
+
+    expect(
+      await t.mutation(lifecycleInternal.scheduleOwnerPurgeRetryInternal, {
+        ...fence,
+        stage: "core",
+        leaseId: "configuration-error-worker",
+        error:
+          "Cloud owner purge cannot be verified because CLOUD_BUILDER_URL or BUILDER_SERVICE_SECRET is missing.",
+        now: now + 2,
+      }),
+    ).toBe(true);
+    expect(
+      await t.query(lifecycleInternal.getOwnerPurgeJobInternal, { ownerId }),
+    ).toMatchObject({
+      nextRetryAt: now + 2 + 24 * 60 * 60_000,
+    });
+  });
 });

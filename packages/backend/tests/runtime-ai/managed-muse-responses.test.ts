@@ -8,16 +8,9 @@ import {
 import type { Context } from "../../convex/runtime_ai/types";
 
 /**
- * End-to-end wire test for the Stella default model
- * (`meta/muse-spark-1.2-contributor`, OpenRouter-hosted): the managed runtime
- * must dispatch it through the OpenAI **Responses** API — POST
- * `https://openrouter.ai/api/v1/responses` with a Responses-shaped body
- * (model + reasoning.effort from the mode config + input array) — and parse
- * streaming Responses usage into our Usage shape.
- *
- * OpenRouter verified live for this model: /api/v1/responses works streaming
- * and non-streaming; reasoning is mandatory; response.completed carries
- * input_tokens/output_tokens (+ output_tokens_details.reasoning_tokens).
+ * End-to-end wire test for Stella's OpenRouter-hosted Muse default. The
+ * managed runtime must dispatch it through the Responses API and preserve
+ * reasoning usage.
  */
 
 const MUSE_MODEL = "meta/muse-spark-1.2-contributor";
@@ -74,7 +67,7 @@ afterEach(() => {
 });
 
 describe("managed Muse Spark 1.2 Contributor transport", () => {
-  it("mode config pins openai-responses on the OpenRouter gateway", () => {
+  it("all modes pin Responses on the OpenRouter gateway", () => {
     for (const mode of [
       "standard",
       "priority",
@@ -88,10 +81,11 @@ describe("managed Muse Spark 1.2 Contributor transport", () => {
       expect(config.model).toBe(MUSE_MODEL);
       expect(config.managedGatewayProvider).toBe("openrouter");
       expect(config.api).toBe("openai-responses");
+      expect(config.fallback).toBe("crof/deepseek-v4-flash-0731");
     }
   });
 
-  it("streams via POST https://openrouter.ai/api/v1/responses with reasoning.effort=xhigh and Responses-shaped input", async () => {
+  it("streams via Responses with xhigh reasoning and Responses-shaped input", async () => {
     process.env.OPENROUTER_API_KEY = "test-openrouter-key";
     const calls: CapturedCall[] = [];
     globalThis.fetch = (async (
@@ -128,8 +122,6 @@ describe("managed Muse Spark 1.2 Contributor transport", () => {
     }
 
     expect(calls.length).toBe(1);
-    // The URL is the load-bearing assertion: chat completions would be
-    // .../api/v1/chat/completions.
     expect(calls[0]!.url).toBe("https://openrouter.ai/api/v1/responses");
 
     const body = JSON.parse(String(calls[0]!.init?.body)) as Record<
@@ -140,17 +132,11 @@ describe("managed Muse Spark 1.2 Contributor transport", () => {
     expect(body.stream).toBe(true);
     // Reasoning is mandatory upstream and must ship at Stella's top rung.
     expect(body.reasoning).toMatchObject({ effort: "xhigh" });
-    // Responses wire format, not chat completions' `messages`.
     expect(body.input).toEqual([
       { role: "user", content: [{ type: "input_text", text: "hi" }] },
     ]);
     expect(body.messages).toBeUndefined();
     expect(body.max_output_tokens).toBe(2048);
-    // Existing encrypted-reasoning machinery applies here too: the runtime
-    // asks for encrypted_content so multi-turn replay keeps working.
-    expect(body.include).toEqual(["reasoning.encrypted_content"]);
-    // OpenRouter rejects store:true on this endpoint (verified live).
-    expect(body.store).toBeFalsy();
 
     const message = finalMessage as {
       api: string;

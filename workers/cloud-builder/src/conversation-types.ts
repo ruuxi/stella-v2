@@ -17,9 +17,10 @@
  * append receipts so an acknowledged foreign write remains idempotent after
  * its hot journal rows roll into R2; 5 adds retired writer fences so a delayed
  * pre-rewind writer cannot recreate a removed suffix in the new epoch; 6 adds
- * atomic edit receipts for crash-safe rewind replay.
+ * atomic edit receipts for crash-safe rewind replay; 7 adds retired turn
+ * fences; 8 moves transcript search into a rollover-surviving FTS5 table.
  */
-export const JOURNAL_SCHEMA_VERSION = 7;
+export const JOURNAL_SCHEMA_VERSION = 8;
 export const PROTOCOL_VERSION = 1;
 
 // ---------------------------------------------------------------------------
@@ -93,10 +94,11 @@ export const INBOX_MAX_BYTES = 2 * 1024 * 1024;
  * `POST /conversations/:id/journal` is a live user-authenticated write path.
  * Per-request caps bound one request; nothing bounds a loop of them, and a
  * Durable Object's storage is billed and ceilinged per object. These are the
- * two limits that make lifetime writes bounded: a fixed window that caps the
- * rate, and a lifetime ceiling on everything the conversation has stored —
- * resident rows plus archived segments, so rolling bytes into R2 does not
- * reset the count.
+ * two limits that bound writes: a fixed window that caps the rate, and a
+ * lifetime ceiling on everything the conversation has stored. R2 holds the
+ * cold transcript tier, while the SQLite hot-set policy keeps resident journal
+ * rows bounded. Only the FTS index over user and assistant text grows for the
+ * lifetime of the conversation inside the object.
  *
  * The window is deliberately generous: it exists to stop a runaway client, not
  * to shape a plan. The ceiling is what a plan would parametrize.
@@ -104,15 +106,12 @@ export const INBOX_MAX_BYTES = 2 * 1024 * 1024;
 export const APPEND_WINDOW_MS = 60_000;
 export const APPEND_WINDOW_MAX_REQUESTS = 60;
 export const APPEND_WINDOW_MAX_BYTES = 16 * 1024 * 1024;
-export const CONVERSATION_MAX_STORED_BYTES = 256 * 1024 * 1024;
+export const CONVERSATION_MAX_STORED_BYTES = 4 * 1024 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
-// Excerpts / index
+// Conversation index
 // ---------------------------------------------------------------------------
 
-export const EXCERPT_TEXT_MAX = 4_000;
-export const EXCERPT_USER_HALF_MAX = 1_200;
-export const EXCERPT_FLUSH_BATCH = 50;
 export const PREVIEW_MAX_CHARS = 160;
 
 // ---------------------------------------------------------------------------

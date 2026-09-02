@@ -29,16 +29,6 @@ html[data-low-power] * {
 
 /* ── Blur entrances: keep motion, drop the expensive filter pass ───── */
 
-html[data-low-power] .onboarding-moment,
-html[data-low-power] .onboarding-split-right,
-html[data-low-power] .onboarding-split-stage,
-html[data-low-power] .onboarding-mock-window,
-html[data-low-power] .onboarding-dialogue,
-html[data-low-power] .onboarding-start-button,
-html[data-low-power] .onboarding-confirm,
-html[data-low-power] .onboarding-engine-step,
-html[data-low-power] .onboarding-enter-step__status,
-html[data-low-power] .onboarding-enter-step__suggestion,
 html[data-low-power] .composer-queued-message,
 html[data-low-power] .inline-working-indicator,
 html[data-low-power] .inline-working-indicator--leaving,
@@ -46,18 +36,6 @@ html[data-low-power] .inline-generated-image-cards--strip-pending::before,
 html[data-low-power] .inline-generated-image-card__placeholder::before,
 html[data-low-power] .assistant-reply-peek {
   filter: none !important;
-}
-
-html[data-low-power] .onboarding-moment,
-html[data-low-power] .onboarding-split-right,
-html[data-low-power] .onboarding-split-stage,
-html[data-low-power] .onboarding-mock-window {
-  animation-name: stella-low-power-fade-in !important;
-  animation-duration: 280ms !important;
-  animation-timing-function: ease-out !important;
-  animation-iteration-count: 1 !important;
-  animation-fill-mode: both !important;
-  transform: none !important;
 }
 
 @keyframes stella-low-power-fade-in {
@@ -75,33 +53,11 @@ html[data-low-power] .onboarding-mock-window {
    prefers-reduced-motion itself and sleeps when blurred or offscreen, so it
    needs no override here. */
 
-/* Onboarding capabilities demo player */
-html[data-low-power]
-  .onboarding-cap-chapter[data-active]
-  .onboarding-cap-phone-link__line::after,
-html[data-low-power]
-  .onboarding-cap-chapter[data-active]
-  .onboarding-cap-voice__ring,
-html[data-low-power]
-  .onboarding-cap-chapter[data-active]
-  .onboarding-cap-voice__bars
-  span {
-  animation: none !important;
-}
-
-/* Onboarding memory / voice demos */
-html[data-low-power]
-  .onboarding-dialogue[data-phase="memory"]
-  .onboarding-memory-mock__pill-dot,
-html[data-low-power]
-  .onboarding-dialogue[data-phase="voice"]
-  .ovoice-app__caret,
-html[data-low-power]
-  .onboarding-dialogue[data-phase="voice"]
-  .ovoice-waveform__bar,
-html[data-low-power]
-  .onboarding-dialogue[data-phase="voice"]
-  .ovoice-talk__ring {
+/* Onboarding demo scenes (capabilities chapters, memory recall) */
+html[data-low-power] .oscene__hearts[data-visible] i,
+html[data-low-power] .oscene__cursor[data-click] svg,
+html[data-low-power] .orecall__scan,
+html[data-low-power] .obc-skeleton {
   animation: none !important;
 }
 

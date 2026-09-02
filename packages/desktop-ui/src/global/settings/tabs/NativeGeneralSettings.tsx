@@ -16,6 +16,7 @@ import type { LockedComputerUseStatus } from "@/shared/types/electron";
 import { STELLA_BROWSER_EXTENSION_STORE_URL } from "@stella/contracts/browser-extension";
 import { getSettingsErrorMessage } from "./shared";
 import { SettingsToggleCard } from "./settings-toggle-card";
+import { OnboardingReplayCard } from "@/global/onboarding/chat/OnboardingReplayCard";
 
 const isMacAdminPromptCancelled = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error ?? "");
@@ -382,6 +383,7 @@ export function NativeDesktopGeneralSettings() {
             t("settings.resetCustomizations.description")}
         </p>
       </div>
+      <OnboardingReplayCard />
       <div className="settings-card">
         <div className="settings-card-header">
           <h3 className="settings-card-title">

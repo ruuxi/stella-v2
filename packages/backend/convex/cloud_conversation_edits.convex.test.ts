@@ -20,9 +20,6 @@ const commitFork = makeFunctionReference<"mutation", any, any>(
 const commitRewind = makeFunctionReference<"mutation", any, any>(
   "cloud_conversation_edits:commitRewindInternal",
 );
-const cleanupRewind = makeFunctionReference<"mutation", any, any>(
-  "cloud_conversation_edits:cleanupRewindProjectionInternal",
-);
 const staleIndexFlush = makeFunctionReference<"mutation", any, any>(
   "cloud_apps:upsertConversationIndexInternal",
 );
@@ -156,29 +153,9 @@ describe("cloud conversation edit control plane", () => {
     ).toMatchObject({ ownerId: "owner-a", epoch: 1, lastSeq: 1 });
   });
 
-  it("rewinds the projection, deletes suffix excerpts, and rejects stale epoch rebuilds", async () => {
+  it("rewinds the projection and rejects stale epoch rebuilds", async () => {
     const t = createTest();
     await insertConversation(t, "owner-a");
-    await t.run(async (ctx) => {
-      await ctx.db.insert("cloud_message_excerpts", {
-        ownerId: "owner-a",
-        conversationId: "conversation-1",
-        turnId: "kept-turn",
-        seqStart: 0,
-        seqEnd: 0,
-        searchText: "kept",
-        createdAt: 1,
-      });
-      await ctx.db.insert("cloud_message_excerpts", {
-        ownerId: "owner-a",
-        conversationId: "conversation-1",
-        turnId: "removed-turn",
-        seqStart: 2,
-        seqEnd: 3,
-        searchText: "removed",
-        createdAt: 2,
-      });
-    });
     const operation = await t.mutation(reserveRewind, {
       ownerId: "owner-a",
       ownerGeneration: "legacy",
@@ -206,14 +183,6 @@ describe("cloud conversation edit control plane", () => {
       },
       now: 4,
     });
-    expect(
-      await t.mutation(cleanupRewind, {
-        ownerId: "owner-a",
-        ownerGeneration: "legacy",
-        operationId: operation.operationId,
-      }),
-    ).toEqual({ complete: true, deleted: 1 });
-
     const stale = await t.mutation(staleIndexFlush, {
       conversationId: "conversation-1",
       ownerId: "owner-a",
@@ -221,39 +190,23 @@ describe("cloud conversation edit control plane", () => {
       epoch: 1,
       lastSeq: 99,
       updatedAt: 5,
-      excerpts: [
-        {
-          turnId: "late-removed-turn",
-          seqStart: 2,
-          seqEnd: 3,
-          text: "must not return",
-          createdAt: 5,
-        },
-      ],
       force: true,
     });
     expect(stale).toMatchObject({
       accepted: false,
-      excerptsAccepted: false,
       reason: "stale_epoch",
       epoch: 2,
       lastSeq: 0,
     });
-    const snapshot = await t.run(async (ctx) => ({
-      conversation: await ctx.db
-        .query("cloud_conversations")
-        .withIndex("by_conversationId", (q) =>
-          q.eq("conversationId", "conversation-1"),
-        )
-        .unique(),
-      excerpts: await ctx.db
-        .query("cloud_message_excerpts")
-        .withIndex("by_conversationId_and_ownerId_and_seqStart", (q) =>
-          q.eq("conversationId", "conversation-1").eq("ownerId", "owner-a"),
-        )
-        .collect(),
-    }));
-    expect(snapshot.conversation).toMatchObject({ epoch: 2, lastSeq: 0 });
-    expect(snapshot.excerpts.map((row) => row.turnId)).toEqual(["kept-turn"]);
+    const conversation = await t.run(
+      async (ctx) =>
+        await ctx.db
+          .query("cloud_conversations")
+          .withIndex("by_conversationId", (q) =>
+            q.eq("conversationId", "conversation-1"),
+          )
+          .unique(),
+    );
+    expect(conversation).toMatchObject({ epoch: 2, lastSeq: 0 });
   });
 });

@@ -122,6 +122,8 @@ import {
 } from "@/shell/shell-breakpoints";
 import "@/shell/error-boundary.css";
 import { platformCapabilities } from "@/platform/capabilities";
+import { dismissLaunchSplash } from "@/shell/launch-splash";
+import { usePendingDiscoveryWelcome } from "@/global/onboarding/chat/pending-handoff";
 
 const CLOUD_CONVERSATION_CREATE_MAX_ATTEMPTS = 4;
 const CLOUD_CONVERSATION_CREATE_RETRY_BASE_MS = 1_000;
@@ -159,22 +161,6 @@ function CloudStartupFailure({
             Try again
           </button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function CloudStartupPending() {
-  return (
-    <div
-      className="error-boundary"
-      role="status"
-      aria-live="polite"
-      aria-busy="true"
-    >
-      <div className="error-boundary-gradient" />
-      <div className="error-boundary-content">
-        <h2>Getting Stella ready…</h2>
       </div>
     </div>
   );
@@ -360,6 +346,9 @@ function RootLayout() {
           ownerSubject,
         })
       : null;
+  // A greeting written by first-run discovery waits here for the first
+  // selected conversation, then lands as Stella's opening message.
+  usePendingDiscoveryWelcome(conversationId);
 
   const clearCloudCreateRetryTimer = useCallback(() => {
     if (cloudCreateRetryTimerRef.current === null) return;
@@ -642,6 +631,37 @@ function RootLayout() {
   useLastLocationRestore(router);
   usePersistLastLocation(router);
 
+  const showsCloudCreateFailure = Boolean(
+    isOnChatRoute &&
+      !conversationId &&
+      cloudCreateFailure?.accountScope === accountScope &&
+      cloudCreateFailure.routeIntent === routeIntent,
+  );
+  // The shell is "live" once the user can act on it: a selected conversation
+  // on the chat route, or cloud readiness anywhere else. The launch splash is
+  // held until then (bounded in `launch-splash.ts`) so the window reveals
+  // once, fully working. Startup failures and the re-auth prompt also drop
+  // the splash — they need to be seen, and liveness will not arrive.
+  //
+  // Note that a loading or pending ownership migration does NOT swap the
+  // chrome for a placeholder. The shell is already mounted before cloud auth
+  // is ready with `conversationId` null, the composer disabled and every
+  // ownership-fenced query skipped, so a pending migration is simply that
+  // same state for a little longer. Unmounting the chrome here produced a
+  // visible remount on every launch; the sign-in dialog owns the wait for
+  // a post-sign-in migration instead (see `useOwnershipMigrationInProgress`).
+  const shellIsLive =
+    conversationId !== null || (!isOnChatRoute && isCloudConversationReady);
+  const shouldDismissLaunchSplash =
+    shellIsLive ||
+    Boolean(authBootstrapError) ||
+    ownershipMigrationGate.isFailed ||
+    showsCloudCreateFailure ||
+    authBootstrapStatus === "reauth_required";
+  useEffect(() => {
+    if (shouldDismissLaunchSplash) dismissLaunchSplash();
+  }, [shouldDismissLaunchSplash]);
+
   if (authBootstrapError) {
     return (
       <CloudStartupFailure
@@ -664,16 +684,7 @@ function RootLayout() {
     );
   }
 
-  if (ownershipMigrationGate.isLoading || ownershipMigrationGate.isPending) {
-    return <CloudStartupPending />;
-  }
-
-  if (
-    isOnChatRoute &&
-    !conversationId &&
-    cloudCreateFailure?.accountScope === accountScope &&
-    cloudCreateFailure.routeIntent === routeIntent
-  ) {
+  if (showsCloudCreateFailure && cloudCreateFailure) {
     return (
       <CloudStartupFailure
         message={cloudCreateFailure.message}

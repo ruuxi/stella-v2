@@ -1,0 +1,1011 @@
+/* ──────────────────────────────────────────────────────────────────────
+ * Capabilities demo side scenes: small mock windows that show what Stella
+ * is doing while the chat shows what she says. Same tokens as the demo
+ * shell so they read as one system; visibility comes from data attributes
+ * set by the choreography cues.
+ * ────────────────────────────────────────────────────────────────────── */
+
+.odemo-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.odemo-split__chat,
+.odemo-split__scene {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.odemo-split__chat > *,
+.odemo-split__scene > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ── Window ──────────────────────────────────────────────────────── */
+
+.oscene {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent);
+  background: var(--background);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  opacity: 0;
+  transform: translate3d(0, 8px, 0) scale(0.985);
+  transition:
+    opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  font-family: var(--font-family-sans, "Manrope", system-ui, sans-serif);
+  font-size: var(--font-size-2xs);
+  color: var(--foreground);
+}
+
+.oscene[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+.oscene__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 9px;
+  border-bottom: 1px solid color-mix(in oklch, var(--foreground) 7%, transparent);
+  background: color-mix(in oklch, var(--foreground) 3%, transparent);
+  flex-shrink: 0;
+}
+
+.oscene__lights {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.oscene__lights span {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground) 14%, transparent);
+}
+
+.oscene__url {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 17px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  color: color-mix(in oklch, var(--foreground) 70%, transparent);
+  font-size: 9.5px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.oscene__title {
+  flex: 1;
+  font-size: 9.5px;
+  color: color-mix(in oklch, var(--foreground) 65%, transparent);
+  text-align: center;
+}
+
+.oscene__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--primary) 16%, transparent);
+  color: var(--primary);
+  font-size: 9px;
+  font-weight: var(--weight-semibold);
+  animation: osceneFade 0.3s ease both;
+}
+
+.oscene__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+/* ── Pointer ─────────────────────────────────────────────────────── */
+
+.oscene__cursor {
+  position: absolute;
+  left: var(--cx, 50%);
+  top: var(--cy, 50%);
+  z-index: 3;
+  opacity: 0;
+  transition:
+    left 0.55s cubic-bezier(0.3, 0.9, 0.3, 1),
+    top 0.55s cubic-bezier(0.3, 0.9, 0.3, 1),
+    opacity 0.25s ease;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
+}
+
+.oscene__cursor[data-visible] {
+  opacity: 1;
+}
+
+.oscene__cursor[data-click] svg {
+  animation: osceneClick 0.35s ease 0.45s both;
+}
+
+@keyframes osceneClick {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(0.82);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* ── Shared elements ─────────────────────────────────────────────── */
+
+.oscene__site-name {
+  font-size: 12px;
+  font-weight: var(--weight-semibold);
+}
+
+.oscene__site-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: color-mix(in oklch, var(--foreground) 55%, transparent);
+}
+
+.oscene__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  align-self: flex-start;
+  min-height: 22px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 9.5px;
+  font-weight: var(--weight-semibold);
+  transition:
+    transform 0.15s ease,
+    background-color 0.3s ease,
+    filter 0.15s ease;
+}
+
+.oscene__button[data-pressed] {
+  transform: scale(0.96);
+  filter: brightness(0.9);
+}
+
+.oscene__button[data-done] {
+  background: color-mix(in oklch, var(--foreground) 10%, transparent);
+  color: var(--foreground);
+  animation: osceneFade 0.3s ease both;
+}
+
+@keyframes osceneFade {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── Reservation ─────────────────────────────────────────────────── */
+
+.oscene__site {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  justify-content: center;
+}
+
+.oscene__site-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.oscene__form {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.oscene__field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
+  min-height: 34px;
+}
+
+.oscene__field em {
+  font-style: normal;
+  font-size: 8.5px;
+  color: color-mix(in oklch, var(--foreground) 50%, transparent);
+}
+
+.oscene__field b {
+  font-weight: var(--weight-medium);
+  opacity: 0;
+  transform: translate3d(0, 3px, 0);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
+}
+
+.oscene__field[data-filled] {
+  border-color: color-mix(in oklch, var(--primary) 55%, transparent);
+}
+
+.oscene__field[data-filled] b {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── Shop ────────────────────────────────────────────────────────── */
+
+.oscene__product {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 12px;
+  height: 100%;
+  align-items: center;
+}
+
+.oscene__product-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+}
+
+.oscene__shoe {
+  width: 70%;
+  height: 34%;
+  border-radius: 40% 55% 30% 30% / 60% 70% 30% 30%;
+  background: linear-gradient(135deg, var(--primary), color-mix(in oklch, var(--primary) 60%, #000));
+  box-shadow: inset 0 -6px 0 color-mix(in oklch, var(--foreground) 25%, transparent);
+}
+
+.oscene__product-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.oscene__price {
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+}
+
+.oscene__sizes {
+  display: flex;
+  gap: 4px;
+}
+
+.oscene__size {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in oklch, var(--foreground) 14%, transparent);
+  transition:
+    background-color 0.25s ease,
+    color 0.25s ease,
+    border-color 0.25s ease;
+}
+
+.oscene__size[data-active] {
+  background: var(--foreground);
+  color: var(--background);
+  border-color: var(--foreground);
+}
+
+/* ── Sheet ───────────────────────────────────────────────────────── */
+
+.oscene__sheet {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.oscene__sheet-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+}
+
+.oscene__sheet-row + .oscene__sheet-row {
+  border-top: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
+}
+
+.oscene__cell {
+  padding: 4px 7px;
+  min-height: 19px;
+  font-variant-numeric: tabular-nums;
+  transition: background-color 0.35s ease;
+}
+
+.oscene__cell + .oscene__cell {
+  border-left: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
+}
+
+.oscene__cell[data-head] {
+  font-weight: var(--weight-medium);
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
+}
+
+.oscene__cell[data-fresh] {
+  background: color-mix(in oklch, var(--primary) 16%, transparent);
+  animation: osceneFade 0.3s ease both;
+}
+
+.oscene__slides {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+}
+
+.oscene__slide {
+  flex: 1;
+  aspect-ratio: 16 / 9;
+  border-radius: 5px;
+  border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
+  background: color-mix(in oklch, var(--foreground) 3%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px;
+  opacity: 0;
+  transform: translate3d(0, 6px, 0);
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+
+.oscene__slide i {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--foreground) 18%, transparent);
+}
+
+.oscene__slide i:first-child {
+  width: 60%;
+  background: color-mix(in oklch, var(--foreground) 35%, transparent);
+}
+
+.oscene__slides[data-visible] .oscene__slide {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── Website ─────────────────────────────────────────────────────── */
+
+.oscene__web {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+}
+
+.oscene__web-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  opacity: 0;
+  transform: translate3d(0, 6px, 0);
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease;
+}
+
+.oscene__web-hero[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+.oscene__web-brand {
+  font-family: var(--font-family-display, Georgia, serif);
+  font-size: 15px;
+}
+
+.oscene__web-tag {
+  color: color-mix(in oklch, var(--foreground) 60%, transparent);
+}
+
+.oscene__web-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.oscene__web-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  opacity: 0;
+  transform: translate3d(0, 6px, 0);
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+
+.oscene__web-grid[data-visible] .oscene__web-item {
+  opacity: 1;
+  transform: none;
+}
+
+.oscene__web-item i {
+  display: block;
+  aspect-ratio: 4 / 3;
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--foreground) 7%, transparent);
+}
+
+.oscene__web-item b {
+  font-weight: var(--weight-medium);
+  font-size: 8.5px;
+}
+
+.oscene__web-cta {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.oscene__web-cta[data-done] {
+  opacity: 1;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+/* ── Files + game ────────────────────────────────────────────────── */
+
+.oscene__files {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.oscene__file {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 6px;
+}
+
+.oscene__file i {
+  width: 12px;
+  height: 14px;
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--foreground) 18%, transparent);
+}
+
+.oscene__file--new {
+  opacity: 0;
+  transform: translate3d(-6px, 0, 0);
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+
+.oscene__file--new[data-visible] {
+  opacity: 1;
+  transform: none;
+  background: color-mix(in oklch, var(--primary) 14%, transparent);
+}
+
+.oscene__file--new i {
+  background: var(--primary);
+}
+
+.oscene__game {
+  position: relative;
+  flex: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  image-rendering: pixelated;
+}
+
+.oscene__sky {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(#9ed1ff, #cfe8ff);
+}
+
+.oscene__ground {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 34%;
+  background:
+    linear-gradient(#5fbf4a 0 22%, #8b5a2b 22%),
+    #8b5a2b;
+}
+
+.oscene__tree {
+  position: absolute;
+  left: 12%;
+  bottom: 30%;
+  width: 22px;
+  height: 46px;
+  background: #6b4423;
+}
+
+.oscene__tree::after {
+  content: "";
+  position: absolute;
+  left: -14px;
+  top: -26px;
+  width: 50px;
+  height: 36px;
+  background: #3f9a3a;
+}
+
+.oscene__fox {
+  position: absolute;
+  left: 56%;
+  bottom: 31%;
+  width: 34px;
+  height: 22px;
+  background: #e8863a;
+  border-radius: 3px;
+  transition: transform 0.4s ease;
+}
+
+.oscene__fox[data-tamed] {
+  transform: translate3d(-6px, 0, 0);
+}
+
+.oscene__fox-ear {
+  position: absolute;
+  top: -7px;
+  left: 3px;
+  width: 7px;
+  height: 8px;
+  background: #e8863a;
+}
+
+.oscene__fox-ear--right {
+  left: 16px;
+}
+
+.oscene__fox-eye {
+  position: absolute;
+  top: 5px;
+  left: 6px;
+  width: 4px;
+  height: 4px;
+  background: #222;
+}
+
+.oscene__fox-eye--right {
+  left: 15px;
+}
+
+.oscene__hearts {
+  position: absolute;
+  left: 58%;
+  bottom: 52%;
+  display: flex;
+  gap: 5px;
+  color: #ff5c8a;
+  font-size: 12px;
+  opacity: 0;
+}
+
+.oscene__hearts[data-visible] {
+  opacity: 1;
+}
+
+.oscene__hearts[data-visible] i {
+  animation: osceneHeart 1.1s ease-out infinite;
+}
+
+.oscene__hearts i:nth-child(2) {
+  animation-delay: 0.25s;
+}
+
+.oscene__hearts i:nth-child(3) {
+  animation-delay: 0.5s;
+}
+
+@keyframes osceneHeart {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(0, -18px, 0);
+    opacity: 0;
+  }
+}
+
+.oscene__toast {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  transform: translate3d(-50%, -8px, 0);
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 9px;
+  opacity: 0;
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
+}
+
+.oscene__toast[data-visible] {
+  opacity: 1;
+  transform: translate3d(-50%, 0, 0);
+}
+
+/* ── Chatbot vs Stella ───────────────────────────────────────────── */
+
+.ochatbot,
+.ostella {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent);
+  background: var(--background);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  font-family: var(--font-family-sans, "Manrope", system-ui, sans-serif);
+  font-size: var(--font-size-2xs);
+  color: var(--foreground);
+}
+
+.ochatbot__sidebar {
+  width: 32%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
+  border-right: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
+  overflow: hidden;
+}
+
+.ochatbot__new {
+  padding: 5px 8px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in oklch, var(--foreground) 14%, transparent);
+  font-weight: var(--weight-medium);
+}
+
+.ochatbot__thread {
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: color-mix(in oklch, var(--foreground) 70%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ochatbot__thread[data-active] {
+  background: color-mix(in oklch, var(--foreground) 8%, transparent);
+  color: var(--foreground);
+}
+
+.ochatbot__main,
+.ostella__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 7px;
+  padding: 14px;
+}
+
+.ostella {
+  flex-direction: column;
+}
+
+.ostella__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 12px;
+  border-bottom: 1px solid color-mix(in oklch, var(--foreground) 7%, transparent);
+  color: color-mix(in oklch, var(--foreground) 65%, transparent);
+  font-size: 9.5px;
+}
+
+.ostella__history {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  opacity: 0.55;
+}
+
+/* The recall card: a memory being pulled up. While searching, a light
+   sweeps across the head; once found, the quote unfolds beneath it. */
+.orecall {
+  align-self: flex-start;
+  max-width: 88%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 9px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklch, var(--primary) 40%, transparent);
+  background: color-mix(in oklch, var(--primary) 9%, transparent);
+  opacity: 0;
+  transform: translate3d(0, 6px, 0);
+  transition:
+    opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.orecall[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+.orecall__head {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  color: color-mix(in oklch, var(--primary) 85%, var(--foreground));
+  overflow: hidden;
+}
+
+.orecall__scan {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklch, var(--background) 70%, transparent) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  opacity: 0;
+}
+
+.orecall[data-visible]:not([data-found]) .orecall__scan {
+  opacity: 1;
+  animation: orecallScan 0.9s linear infinite;
+}
+
+@keyframes orecallScan {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.orecall__quote {
+  display: block;
+  max-height: 0;
+  overflow: hidden;
+  padding-left: 7px;
+  border-left: 2px solid color-mix(in oklch, var(--primary) 55%, transparent);
+  color: color-mix(in oklch, var(--foreground) 75%, transparent);
+  line-height: 1.4;
+  opacity: 0;
+  transition:
+    max-height 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.3s ease 0.1s;
+}
+
+.orecall[data-found] .orecall__quote {
+  max-height: 60px;
+  opacity: 1;
+}
+
+.ostella__divider {
+  align-self: center;
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in oklch, var(--foreground) 60%, transparent);
+  padding: 2px 0;
+}
+
+.ochatbot__bubble {
+  max-width: 88%;
+  padding: 6px 10px;
+  border-radius: 12px;
+  line-height: 1.4;
+  opacity: 0;
+  transform: translate3d(0, 6px, 0);
+  transition:
+    opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ochatbot__bubble[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+.ochatbot__bubble[data-role="user"] {
+  align-self: flex-end;
+  background: var(--chat-user-bubble-fill, var(--primary));
+  color: var(--chat-user-bubble-text, var(--primary-foreground));
+  border-bottom-right-radius: 4px;
+}
+
+.ochatbot__bubble[data-role="assistant"] {
+  align-self: flex-start;
+  background: color-mix(in oklch, var(--foreground) 7%, transparent);
+  border-bottom-left-radius: 4px;
+}
+
+.ochatbot__composer {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
+  color: color-mix(in oklch, var(--foreground) 45%, transparent);
+}
+
+/* The chatbot → Stella morph: the old window fades and shrinks out while
+   the new one rises into the same slot. */
+.omorph {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.omorph > * {
+  position: absolute;
+  inset: 0;
+  transition:
+    opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.omorph[data-mode="chatbot"] > .omorph__stella,
+.omorph[data-mode="stella"] > .omorph__chatbot {
+  opacity: 0;
+  transform: scale(0.97);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oscene,
+  .oscene__cursor,
+  .oscene__field b,
+  .oscene__slide,
+  .oscene__web-hero,
+  .oscene__web-item,
+  .oscene__file--new,
+  .ochatbot__bubble,
+  .orecall,
+  .orecall__quote,
+  .omorph > * {
+    transition: none;
+  }
+
+  .orecall[data-visible]:not([data-found]) .orecall__scan {
+    animation: none;
+  }
+
+  .oscene__hearts[data-visible] i,
+  .oscene__cursor[data-click] svg {
+    animation: none;
+  }
+}
+
+/* ── Confirm-to-pay card inside the demo chat ────────────────────── */
+
+.odemo-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
+  background: var(--panel-surface-bg, var(--background));
+  font-size: var(--font-size-2xs);
+  opacity: 0;
+  transform: translate3d(0, 6px, 0);
+  transition:
+    opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.odemo-confirm[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+.odemo-confirm__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: color-mix(in oklch, var(--foreground) 7%, transparent);
+  flex-shrink: 0;
+}
+
+.odemo-confirm__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.odemo-confirm__text b {
+  font-weight: var(--weight-medium);
+}
+
+.odemo-confirm__text i {
+  font-style: normal;
+  color: color-mix(in oklch, var(--foreground) 55%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.odemo-confirm__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 9px;
+  font-weight: var(--weight-semibold);
+  transition: background-color 0.3s ease;
+}
+
+.odemo-confirm[data-done] .odemo-confirm__btn {
+  background: color-mix(in oklch, var(--foreground) 12%, transparent);
+  color: var(--foreground);
+}

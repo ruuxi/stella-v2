@@ -1,4 +1,5 @@
-import { Cause, Schema } from "effect";
+import * as Cause from "effect/Cause";
+import * as Data from "effect/Data";
 
 /**
  * Tagged failures for the host-side worker lifecycle. The plain-Promise
@@ -7,28 +8,28 @@ import { Cause, Schema } from "effect";
  * `host/lifecycle.ts` threw. Do not reword them.
  */
 
-export class HostLockTimeoutError extends Schema.TaggedErrorClass<HostLockTimeoutError>()(
+export class HostLockTimeoutError extends Data.TaggedError(
   "@stella/runtime/host/HostLockTimeoutError",
-  { lockFile: Schema.String, timeoutMs: Schema.Number },
-) {
+)<{
+  readonly lockFile: string;
+  readonly timeoutMs: number;
+}> {
   override get message() {
     return `Timed out acquiring runtime host lock at ${this.lockFile} after ${this.timeoutMs}ms.`;
   }
 }
 
-export class WorkerProtocolMismatchError extends Schema.TaggedErrorClass<WorkerProtocolMismatchError>()(
+export class WorkerProtocolMismatchError extends Data.TaggedError(
   "@stella/runtime/host/WorkerProtocolMismatchError",
-  { socketPath: Schema.String },
-) {
+)<{ readonly socketPath: string }> {
   override get message() {
     return `Runtime worker protocol mismatch while waiting for socket=${this.socketPath}.`;
   }
 }
 
-export class WorkerReadyTimeoutError extends Schema.TaggedErrorClass<WorkerReadyTimeoutError>()(
+export class WorkerReadyTimeoutError extends Data.TaggedError(
   "@stella/runtime/host/WorkerReadyTimeoutError",
-  { socketPath: Schema.String },
-) {
+)<{ readonly socketPath: string }> {
   override get message() {
     return `Timed out waiting for runtime worker to become ready (socket=${this.socketPath}).`;
   }
@@ -39,20 +40,18 @@ export class WorkerReadyTimeoutError extends Schema.TaggedErrorClass<WorkerReady
  * a takeover race was lost) and the attempt should recur on its Schedule.
  * Never escapes `acquireHostLock` — exhaustion maps to HostLockTimeoutError.
  */
-export class HostLockBusyError extends Schema.TaggedErrorClass<HostLockBusyError>()(
+export class HostLockBusyError extends Data.TaggedError(
   "@stella/runtime/host/HostLockBusyError",
-  { lockFile: Schema.String },
-) {}
+)<{ readonly lockFile: string }> {}
 
 /**
  * Retry driver for the readiness poll: the socket refused, timed out, or the
  * probe answered with an error. Never escapes `pollForWorkerReady` —
  * exhaustion maps to WorkerReadyTimeoutError.
  */
-export class WorkerNotReadyError extends Schema.TaggedErrorClass<WorkerNotReadyError>()(
+export class WorkerNotReadyError extends Data.TaggedError(
   "@stella/runtime/host/WorkerNotReadyError",
-  { socketPath: Schema.String },
-) {}
+)<{ readonly socketPath: string }> {}
 
 /**
  * Recover the original failure from a Cause so the Promise facade rejects

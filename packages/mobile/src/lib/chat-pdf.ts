@@ -320,7 +320,7 @@ export async function generatePdf(
       const source = new File(uri);
       const target = new File(Paths.document, fileName);
       if (target.exists) target.delete();
-      source.move(target);
+      await source.move(target);
       localUri = target.uri;
       const size = target.size;
       if (typeof size === "number" && size > 0) sizeBytes = size;

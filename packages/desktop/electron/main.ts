@@ -1,4 +1,7 @@
 import { app } from "electron";
+import { loadModelRegistry } from "@stella/contracts/model-registry";
+import "@stella/runtime/ai/utils/http-proxy.js";
+import { registerBuiltInApiProviders } from "@stella/runtime/ai/providers/register-builtins.js";
 import { runLifecycleVerificationFromArgs } from "./lifecycle-verification.js";
 import { configureLinuxGraphics } from "./linux-graphics.js";
 import { configureLinuxProtectedStorage } from "./linux-protected-storage.js";
@@ -15,6 +18,8 @@ if (!devHarnessProtectedStorage) {
 }
 
 const main = async () => {
+  await loadModelRegistry();
+  registerBuiltInApiProviders();
   if (await runLifecycleVerificationFromArgs(process.argv)) {
     return;
   }

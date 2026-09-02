@@ -641,27 +641,36 @@ const toNonNegativeInt = (value: number | undefined): number => {
 const toSafeString = (value: string | null | undefined) =>
   value?.trim() ?? emptyString;
 
-const getOwnerBillingProfile = async (ctx: MutationCtx, ownerId: string) =>
+const getOwnerBillingProfile = async (
+  ctx: Pick<QueryCtx, "db">,
+  ownerId: string,
+) =>
   await ctx.db
     .query("billing_profiles")
     .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
     .unique();
 
-const getOwnerUsageRow = async (ctx: MutationCtx, ownerId: string) =>
+const getOwnerUsageRow = async (ctx: Pick<QueryCtx, "db">, ownerId: string) =>
   await ctx.db
     .query("billing_usage_windows")
     .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
     .unique();
 
-const getOwnerUsageCreditRow = async (ctx: MutationCtx, ownerId: string) =>
+const getOwnerUsageCreditRow = async (
+  ctx: Pick<QueryCtx, "db">,
+  ownerId: string,
+) =>
   await ctx.db
     .query("billing_usage_credits")
     .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
     .unique();
 
-const createDefaultProfile = (ownerId: string, now: number) => ({
+const createDefaultProfile = (
+  ownerId: string,
+  now: number,
+): Omit<Doc<"billing_profiles">, "_id" | "_creationTime"> => ({
   ownerId,
-  activePlan: "free" as const,
+  activePlan: "free",
   subscriptionStatus: "none",
   stripeCustomerId: emptyString,
   stripeCustomerAuthorityEpoch: 0,
@@ -695,6 +704,21 @@ const createDefaultUsage = (ownerId: string, now: number) => {
     totalUsageMicroCents: 0,
     createdAt: now,
     updatedAt: now,
+  };
+};
+
+const readBillingRecordsForOwner = async (
+  ctx: Pick<QueryCtx, "db">,
+  ownerId: string,
+  now: number,
+) => {
+  const [profile, usage] = await Promise.all([
+    getOwnerBillingProfile(ctx, ownerId),
+    getOwnerUsageRow(ctx, ownerId),
+  ]);
+  return {
+    profile: profile ?? createDefaultProfile(ownerId, now),
+    usage: usage ?? createDefaultUsage(ownerId, now),
   };
 };
 
@@ -6199,57 +6223,68 @@ export type ManagedUsageLimitResult = {
   message: string;
 };
 
-// Reusable cores so the same billing math can run either as its own
-// `internalMutation` (one transaction per call) or inline inside the combined
-// gate mutation in `lib/gate_and_meter.ts`, which reads billing once and runs
-// the usage-limit + rate-limit (+ capability) gates in a SINGLE transaction to
-// remove the serial per-call round-trips. Behaviour is byte-for-byte identical
-// to the standalone mutations — the only thing that changes is how many
-// commits a route pays for.
-export const runResolveManagedModelAccess = async (
-  ctx: MutationCtx,
-  args: {
-    ownerId: string;
-    isAnonymous?: boolean;
-    ownerGeneration: string;
-  },
-): Promise<ManagedModelAccessResult> => {
-  await assertOwnerMigrationWriteAllowed(
-    ctx,
-    args.ownerId,
-    args.ownerGeneration,
-  );
-  const { profile, usage } = await ensureBillingRecordsForOwner(
-    ctx,
-    args.ownerId,
-  );
-  const now = Date.now();
-  const plan = profile.activePlan as SubscriptionPlan;
-  const unlimited = hasUnlimitedUsage(profile);
+export type ManagedModelAllowanceResult = {
+  access: ManagedModelAccessResult;
+  /** Spend still available right now; `null` when the owner is unlimited. */
+  remainingMicroCents: number | null;
+};
+
+type ResolveManagedModelAllowanceArgs = {
+  ownerId: string;
+  isAnonymous?: boolean;
+  ownerGeneration: string;
+};
+
+type ManagedModelBillingProfile = Pick<
+  Doc<"billing_profiles">,
+  "activePlan" | "monthlyAnchorAt" | "usageMode"
+>;
+
+type ManagedModelBillingUsage = Pick<
+  Doc<"billing_usage_windows">,
+  | "activeReservedMicroCents"
+  | "rollingUsageMicroCents"
+  | "rollingWindowStartedAt"
+  | "weeklyUsageMicroCents"
+  | "weeklyWindowStartedAt"
+  | "monthlyUsageMicroCents"
+  | "monthlyWindowStartedAt"
+  | "totalUsageMicroCents"
+>;
+
+type ManagedModelBillingCredit = Pick<
+  Doc<"billing_usage_credits">,
+  "balanceMicroCents"
+>;
+
+const resolveManagedModelAllowanceFromBillingState = (args: {
+  profile: ManagedModelBillingProfile;
+  usage: ManagedModelBillingUsage;
+  credit: ManagedModelBillingCredit | null;
+  isAnonymous?: boolean;
+  now: number;
+}): {
+  allowance: ManagedModelAllowanceResult;
+  normalizedUsage: UsageSnapshot["normalizedUsage"];
+  usageChanged: boolean;
+} => {
+  const plan = args.profile.activePlan;
+  const unlimited = hasUnlimitedUsage(args.profile);
   const snapshot = buildUsageSnapshot({
-    profile,
-    usage,
+    profile: args.profile,
+    usage: args.usage,
     plan,
-    now,
+    now: args.now,
   });
-
-  if (snapshot.changed) {
-    await ctx.db.patch(usage._id, {
-      ...snapshot.normalizedUsage,
-      updatedAt: now,
-    });
-  }
-
-  const credit = unlimited
-    ? null
-    : await getOwnerUsageCreditRow(ctx, args.ownerId);
   const reservedMicroCents = unlimited
     ? 0
-    : activeManagedUsageReservationMicroCents(usage);
-  const availableCreditMicroCents = getUsageCreditBalanceMicroCents(credit);
-  // Voice admission reserves a real monetary ceiling. Every other managed
-  // admission therefore sees both included headroom and purchased credits net
-  // of active reservations, rather than an advisory per-session maximum.
+    : activeManagedUsageReservationMicroCents(args.usage);
+  const availableCreditMicroCents = getUsageCreditBalanceMicroCents(
+    args.credit,
+  );
+  // Voice admission reserves a real monetary ceiling. Other managed
+  // admissions see included headroom and purchased credits net of those
+  // reservations.
   const firstExceeded = findExceededWindow(
     snapshot,
     (window) =>
@@ -6257,23 +6292,109 @@ export const runResolveManagedModelAccess = async (
       reservedMicroCents,
   );
   const exceededWindow = firstExceeded?.window ?? null;
-
-  return buildManagedModelAccessResult({
+  const access = buildManagedModelAccessResult({
     plan,
     isAnonymous: args.isAnonymous,
     unlimited,
     exceededWindow,
     lifetimeExhausted:
       exceededWindow !== null && firstExceeded?.lifetime === true,
-    now,
+    now: args.now,
   });
+  return {
+    allowance: {
+      access,
+      remainingMicroCents: unlimited
+        ? null
+        : Math.max(
+            0,
+            computeManagedUsageRemainingMicroCents({
+              snapshot,
+              credit: args.credit,
+              usage: args.usage,
+            }),
+          ),
+    },
+    normalizedUsage: snapshot.normalizedUsage,
+    usageChanged: snapshot.changed,
+  };
 };
 
-export type ManagedModelAllowanceResult = {
-  access: ManagedModelAccessResult;
-  /** Spend still available right now; `null` when the owner is unlimited. */
-  remainingMicroCents: number | null;
+const resolveManagedModelAllowanceForWrite = async (
+  ctx: MutationCtx,
+  args: ResolveManagedModelAllowanceArgs,
+): Promise<ManagedModelAllowanceResult> => {
+  await assertOwnerMigrationWriteAllowed(
+    ctx,
+    args.ownerId,
+    args.ownerGeneration,
+  );
+  const { profile, usage } = await ensureBillingRecordsForOwnerAuthorized(
+    ctx,
+    args.ownerId,
+  );
+  const now = Date.now();
+  const credit = hasUnlimitedUsage(profile)
+    ? null
+    : await getOwnerUsageCreditRow(ctx, args.ownerId);
+  const resolved = resolveManagedModelAllowanceFromBillingState({
+    profile,
+    usage,
+    credit,
+    isAnonymous: args.isAnonymous,
+    now,
+  });
+  if (resolved.usageChanged) {
+    await ctx.db.patch(usage._id, {
+      ...resolved.normalizedUsage,
+      updatedAt: now,
+    });
+  }
+  return resolved.allowance;
 };
+
+/** Read-only allowance using stored rows or the defaults writers create. */
+export const runPeekManagedModelAllowance = async (
+  ctx: QueryCtx | MutationCtx,
+  args: ResolveManagedModelAllowanceArgs,
+): Promise<ManagedModelAllowanceResult> => {
+  await assertOwnerMigrationWriteAllowed(
+    ctx,
+    args.ownerId,
+    args.ownerGeneration,
+  );
+  const now = Date.now();
+  const { profile, usage } = await readBillingRecordsForOwner(
+    ctx,
+    args.ownerId,
+    now,
+  );
+  const credit = hasUnlimitedUsage(profile)
+    ? null
+    : await getOwnerUsageCreditRow(ctx, args.ownerId);
+  return resolveManagedModelAllowanceFromBillingState({
+    profile,
+    usage,
+    credit,
+    isAnonymous: args.isAnonymous,
+    now,
+  }).allowance;
+};
+
+export const runPeekManagedModelAccess = async (
+  ctx: QueryCtx | MutationCtx,
+  args: ResolveManagedModelAllowanceArgs,
+): Promise<ManagedModelAccessResult> =>
+  (await runPeekManagedModelAllowance(ctx, args)).access;
+
+// Reusable cores let standalone mutations and the combined gate mutation run
+// the same billing math. Writers still initialize missing rows and persist
+// window normalization; snapshot readers do both in memory.
+export const runResolveManagedModelAccess = async (
+  ctx: MutationCtx,
+  args: ResolveManagedModelAllowanceArgs,
+): Promise<ManagedModelAccessResult> =>
+  (await resolveManagedModelAllowanceForWrite(ctx, args)).access;
 
 /**
  * Audience policy plus remaining spend, for callers that hand a fixed budget
@@ -6283,20 +6404,9 @@ export type ManagedModelAllowanceResult = {
  */
 export const runResolveManagedModelAllowance = async (
   ctx: MutationCtx,
-  args: {
-    ownerId: string;
-    isAnonymous?: boolean;
-    ownerGeneration: string;
-  },
-): Promise<ManagedModelAllowanceResult> => {
-  const access = await runResolveManagedModelAccess(ctx, args);
-  if (access.unlimited) return { access, remainingMicroCents: null };
-  const remainingMicroCents = await getOwnerAvailableManagedUsageMicroCents(
-    ctx,
-    { ownerId: args.ownerId, now: Date.now() },
-  );
-  return { access, remainingMicroCents };
-};
+  args: ResolveManagedModelAllowanceArgs,
+): Promise<ManagedModelAllowanceResult> =>
+  await resolveManagedModelAllowanceForWrite(ctx, args);
 
 export const runEnforceManagedUsageLimit = async (
   ctx: MutationCtx,

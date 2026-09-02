@@ -19,15 +19,15 @@ export const STELLA_PROVIDER = "stella";
 // Opaque "let the backend pick" sentinel. The concrete model is chosen per
 // agent type + audience on the backend; this stays the per-agent *default*.
 export const STELLA_DEFAULT_MODEL = `${STELLA_PROVIDER}/default`;
-// Legacy branded aliases remain parseable for old clients. The public
-// catalog exposes the current default (Muse Spark 1.2 Contributor) plus the still
-// selectable raw DeepSeek V4 Flash model.
+// Legacy branded aliases remain parseable for old clients. The public catalog
+// exposes Muse as the default plus the DeepSeek routes available for fallback
+// and explicit selection.
 export const STELLA_STANDARD_MODEL = `${STELLA_PROVIDER}/standard`;
 export const STELLA_PRIORITY_MODEL = `${STELLA_PROVIDER}/priority`;
 export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;
 // Bump this whenever Stella default/model/mode mappings change. Desktop
 // subscribes to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 22, 0, 0);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 8, 2, 0, 0);
 
 export type StellaCatalogModel = {
   id: string;

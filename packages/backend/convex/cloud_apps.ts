@@ -390,11 +390,6 @@ export const resolveOwnerExecutionInMutation = async (
   return await assertExecutionAvailable(ctx, ownerId, execution);
 };
 
-const THREAD_MESSAGE_MAX_BYTES = 512 * 1024;
-export const THREAD_TURN_MESSAGE_LIMIT = 1_024;
-export const THREAD_TURN_MESSAGE_MAX_BYTES = 4 * 1024 * 1024;
-const THREAD_MESSAGE_ROLES = new Set(["user", "assistant", "toolResult"]);
-
 // The build lane's quota counts builds: "build", the pre-routing "auto"
 // (which may become a build), and legacy rows from before lanes existed.
 // Chat, wake, agent, and operation turns share the same table but draw from
@@ -433,37 +428,6 @@ const hashToken = async (value: string): Promise<string> => {
   ).join("");
 };
 
-const utf8ByteLength = (value: string): number =>
-  new TextEncoder().encode(value).byteLength;
-
-export const assertThreadMessagePayload = (
-  role: string,
-  payloadJson: string,
-): void => {
-  if (!THREAD_MESSAGE_ROLES.has(role)) {
-    throw new ConvexError("Invalid agent thread message role.");
-  }
-  if (utf8ByteLength(payloadJson) > THREAD_MESSAGE_MAX_BYTES) {
-    throw new ConvexError("Agent thread message is too large.");
-  }
-  let payload: unknown;
-  try {
-    payload = JSON.parse(payloadJson) as unknown;
-  } catch {
-    throw new ConvexError("Agent thread message is invalid JSON.");
-  }
-  if (
-    !payload ||
-    typeof payload !== "object" ||
-    Array.isArray(payload) ||
-    (payload as { role?: unknown }).role !== role
-  ) {
-    throw new ConvexError(
-      "Agent thread message payload does not match its role.",
-    );
-  }
-};
-
 const assertExpectedOwnerGenerationActive = async (
   ctx: Pick<ActionCtx, "runQuery">,
   ownerId: string,
@@ -476,65 +440,6 @@ const assertExpectedOwnerGenerationActive = async (
       message: "This request started before the account data was reset.",
     });
   }
-};
-
-// Allocates the next seq and inserts one AgentMessage row into a spawned
-// agent's THREAD transcript projection. Callers hold the mutation
-// transaction, so max(seq)+1 is race-free. Rows are keyed by (turnId,
-// ordinal): a redelivered batch is a no-op, and a re-emitted row for the same
-// ordinal replaces the projection (the BuildSession's copy is authoritative).
-export const appendThreadMessage = async (
-  ctx: MutationCtx,
-  args: {
-    threadId: string;
-    ownerId: string;
-    turnId: string;
-    ordinal: number;
-    role: string;
-    payloadJson: string;
-    now: number;
-  },
-): Promise<{ seq: number; inserted: boolean }> => {
-  const replay = await ctx.db
-    .query("cloud_thread_messages")
-    .withIndex("by_turnId_and_ordinal", (q) =>
-      q.eq("turnId", args.turnId).eq("ordinal", args.ordinal),
-    )
-    .unique();
-  if (replay) {
-    if (
-      replay.conversationId !== args.threadId ||
-      replay.ownerId !== args.ownerId
-    ) {
-      throw new ConvexError("Agent thread message replay does not match.");
-    }
-    if (replay.role !== args.role || replay.payloadJson !== args.payloadJson) {
-      await ctx.db.patch(replay._id, {
-        role: args.role,
-        payloadJson: args.payloadJson,
-      });
-    }
-    return { seq: replay.seq, inserted: false };
-  }
-  const last = await ctx.db
-    .query("cloud_thread_messages")
-    .withIndex("by_conversationId_and_seq", (q) =>
-      q.eq("conversationId", args.threadId),
-    )
-    .order("desc")
-    .first();
-  const seq = (last?.seq ?? -1) + 1;
-  await ctx.db.insert("cloud_thread_messages", {
-    conversationId: args.threadId,
-    ownerId: args.ownerId,
-    seq,
-    ordinal: args.ordinal,
-    role: args.role,
-    payloadJson: args.payloadJson,
-    turnId: args.turnId,
-    createdAt: args.now,
-  });
-  return { seq, inserted: true };
 };
 
 export const CHAT_TITLE_MAX = 56;
@@ -1976,12 +1881,10 @@ export const isTurnStillActive = async (
 // ---------------------------------------------------------------------------
 // The conversation index. Everything below is a projection of the
 // OrchestratorSession DO's journal: the DO is the only writer, Convex is the
-// only place that can answer "list my conversations" and "search everything".
+// only place that can answer "list my conversations".
 // ---------------------------------------------------------------------------
 
 const PREVIEW_MAX_CHARS = 160;
-const EXCERPT_TEXT_MAX = 4_000;
-const INDEX_EXCERPT_BATCH_MAX = 50;
 /** One purge pass; the caller loops until `hasMore` is false. */
 const PURGE_BATCH = 100;
 
@@ -2058,14 +1961,6 @@ const logCloud = (event: string, fields: Record<string, unknown>): void => {
   );
 };
 
-export type ConversationIndexExcerpt = {
-  turnId: string;
-  seqStart: number;
-  seqEnd: number;
-  text: string;
-  createdAt: number;
-};
-
 export type ConversationIndexUpsertArgs = {
   conversationId: string;
   ownerId: string;
@@ -2078,13 +1973,11 @@ export type ConversationIndexUpsertArgs = {
   lastPreview?: string;
   lastRole?: string;
   activity?: string;
-  excerpts?: ConversationIndexExcerpt[];
   force?: boolean;
 };
 
 export type ConversationIndexUpsertResult = {
   accepted: boolean;
-  excerptsAccepted: boolean;
   reason?: string;
   lastSeq: number;
   epoch: number;
@@ -2119,19 +2012,14 @@ export const upsertConversationIndex = async (
     // table can tell them apart: the row was LOST (self-heal below), or it
     // was DELETED with its conversation (account deletion drops the index row
     // because it carries `ownerId`). Self-healing the second case re-creates
-    // a deleted owner's conversation — and, through `writeExcerpts`, their
-    // transcript — from a flush that a still-resident DO started before the
-    // purge and retried after it. Ask before rebuilding anything.
+    // a deleted owner's conversation from a flush that a still-resident DO
+    // started before the purge and retried after it. Ask before rebuilding.
     if (await conversationTombstoned(ctx, args.conversationId)) {
-      // `excerptsAccepted: false` matters as much as `accepted: false`: it is
-      // what stops `ConversationIndex.run` shipping the remaining batches,
-      // and what keeps the DO from marking them synced.
       logCloud("conversation_index_after_purge", {
         conversationId: args.conversationId,
       });
       return {
         accepted: false,
-        excerptsAccepted: false,
         reason: "purged",
         lastSeq: -1,
         epoch: 0,
@@ -2143,7 +2031,6 @@ export const upsertConversationIndex = async (
     if (args.createdAt === undefined) {
       return {
         accepted: false,
-        excerptsAccepted: false,
         reason: "unknown_conversation",
         lastSeq: -1,
         epoch: 0,
@@ -2163,10 +2050,8 @@ export const upsertConversationIndex = async (
       ...(args.lastRole ? { lastRole: args.lastRole } : {}),
       ...(args.activity ? { activity: args.activity } : {}),
     });
-    await writeExcerpts(ctx, args);
     return {
       accepted: true,
-      excerptsAccepted: true,
       lastSeq: args.lastSeq,
       epoch: args.epoch,
     };
@@ -2180,7 +2065,6 @@ export const upsertConversationIndex = async (
     });
     return {
       accepted: false,
-      excerptsAccepted: false,
       reason: "owner_mismatch",
       lastSeq: row.lastSeq ?? -1,
       epoch: row.epoch ?? 0,
@@ -2191,7 +2075,6 @@ export const upsertConversationIndex = async (
     // must not resurrect the row.
     return {
       accepted: false,
-      excerptsAccepted: false,
       reason: "deleted",
       lastSeq: row.lastSeq ?? -1,
       epoch: row.epoch ?? 0,
@@ -2200,13 +2083,10 @@ export const upsertConversationIndex = async (
   const currentEpoch = row.epoch ?? 0;
   const currentSeq = row.lastSeq ?? -1;
   if (args.epoch < currentEpoch) {
-    // A rewind advances the epoch specifically to fence delayed flushes from
-    // the removed suffix. Their excerpts are projection data too: accepting
-    // them would make Recall resurrect content the journal can no longer
-    // return, even though the conversation head itself stayed fenced.
+    // A rewind advances the epoch to fence delayed flushes from the removed
+    // suffix.
     return {
       accepted: false,
-      excerptsAccepted: false,
       reason: "stale_epoch",
       lastSeq: currentSeq,
       epoch: currentEpoch,
@@ -2217,12 +2097,8 @@ export const upsertConversationIndex = async (
     args.epoch === currentEpoch &&
     args.lastSeq <= currentSeq
   ) {
-    // Same-epoch replay: the ordered fields stay where they are, while an
-    // excerpt batch may still finish an earlier partial delivery.
-    await writeExcerpts(ctx, args);
     return {
       accepted: false,
-      excerptsAccepted: true,
       reason: "stale",
       lastSeq: currentSeq,
       epoch: currentEpoch,
@@ -2249,10 +2125,8 @@ export const upsertConversationIndex = async (
       ? { title: clip(args.title.trim(), CHAT_TITLE_MAX) }
       : {}),
   });
-  await writeExcerpts(ctx, args);
   return {
     accepted: true,
-    excerptsAccepted: true,
     lastSeq: args.lastSeq,
     epoch: args.epoch,
   };
@@ -2271,95 +2145,16 @@ export const upsertConversationIndexInternal = internalMutation({
     lastPreview: v.optional(v.string()),
     lastRole: v.optional(v.string()),
     activity: v.optional(v.string()),
-    excerpts: v.optional(
-      v.array(
-        v.object({
-          turnId: v.string(),
-          seqStart: v.number(),
-          seqEnd: v.number(),
-          text: v.string(),
-          createdAt: v.number(),
-        }),
-      ),
-    ),
     force: v.optional(v.boolean()),
   },
   returns: v.object({
     accepted: v.boolean(),
-    /**
-     * Reported separately from `accepted` on purpose. Excerpts are keyed by
-     * turn and idempotent, so a flush the (epoch, lastSeq) fence rejects as
-     * stale still lands them — otherwise a DO retrying after a half-recorded
-     * flush would be refused forever and its excerpts would never sync.
-     */
-    excerptsAccepted: v.boolean(),
     reason: v.optional(v.string()),
     lastSeq: v.number(),
     epoch: v.number(),
   }),
   handler: async (ctx, args) => await upsertConversationIndex(ctx, args),
 });
-
-// Excerpts are keyed by turn and rewritten in place, so a replayed flush or a
-// /reindex costs an update rather than a duplicate.
-const writeExcerpts = async (
-  ctx: MutationCtx,
-  args: {
-    conversationId: string;
-    ownerId: string;
-    excerpts?: Array<{
-      turnId: string;
-      seqStart: number;
-      seqEnd: number;
-      text: string;
-      createdAt: number;
-    }>;
-  },
-): Promise<void> => {
-  const excerpts = args.excerpts ?? [];
-  if (excerpts.length === 0) return;
-  if (excerpts.length > INDEX_EXCERPT_BATCH_MAX) {
-    throw new ConvexError(
-      `An index flush carries at most ${INDEX_EXCERPT_BATCH_MAX} excerpts.`,
-    );
-  }
-  for (const excerpt of excerpts) {
-    const searchText = clip(excerpt.text, EXCERPT_TEXT_MAX);
-    if (!searchText.trim()) continue;
-    const existing = await ctx.db
-      .query("cloud_message_excerpts")
-      .withIndex("by_turnId", (q) => q.eq("turnId", excerpt.turnId))
-      .unique();
-    if (existing) {
-      // turnId is a global idempotency key, not a bearer capability. A flush
-      // for one conversation must never be able to rewrite a row that key
-      // already bound to another owner or conversation.
-      if (
-        existing.ownerId !== args.ownerId ||
-        existing.conversationId !== args.conversationId
-      ) {
-        throw new ConvexError(
-          "Excerpt id is already owned by another conversation.",
-        );
-      }
-      await ctx.db.patch(existing._id, {
-        seqStart: excerpt.seqStart,
-        seqEnd: excerpt.seqEnd,
-        searchText,
-      });
-      continue;
-    }
-    await ctx.db.insert("cloud_message_excerpts", {
-      ownerId: args.ownerId,
-      conversationId: args.conversationId,
-      turnId: excerpt.turnId,
-      seqStart: excerpt.seqStart,
-      seqEnd: excerpt.seqEnd,
-      searchText,
-      createdAt: excerpt.createdAt,
-    });
-  }
-};
 
 /**
  * Cards are journal rows, so they survive scrollback. A build card used to
@@ -2620,9 +2415,9 @@ export const tombstoneConversationInternal = internalMutation({
 });
 
 /**
- * Drops every Convex row derived from one conversation: the search excerpts,
- * and the turn/event rows that carry its prompts. Batched, because a long
- * conversation exceeds a single transaction.
+ * Drops every Convex row derived from one conversation, including turn/event
+ * rows that carry prompts. Batched because a long conversation exceeds one
+ * transaction.
  */
 export const purgeConversationRowsInternal = internalMutation({
   args: {
@@ -2646,22 +2441,7 @@ export const purgeConversationRowsInternal = internalMutation({
         throw new ConvexError("Conversation not found.");
       }
     }
-    const excerpts = await ctx.db
-      .query("cloud_message_excerpts")
-      .withIndex("by_conversationId_and_seqStart", (q) =>
-        q.eq("conversationId", args.conversationId),
-      )
-      .take(PURGE_BATCH);
-    for (const row of excerpts) {
-      if (purgeFence && row.ownerId !== purgeFence.ownerId) {
-        throw new ConvexError("Conversation not found.");
-      }
-      await ctx.db.delete(row._id);
-    }
-    if (excerpts.length === PURGE_BATCH) return { hasMore: true };
-
-    // Agents spawned from this conversation carry their own thread transcript
-    // — the model's working notes about the user's request. They go too.
+    // Spawned-agent control-plane rows belong to the conversation and go too.
     const threads = await ctx.db
       .query("cloud_agent_threads")
       .withIndex("by_conversationId_and_updatedAt", (q) =>
@@ -2672,14 +2452,6 @@ export const purgeConversationRowsInternal = internalMutation({
       if (purgeFence && thread.ownerId !== purgeFence.ownerId) {
         throw new ConvexError("Conversation not found.");
       }
-      const messages = await ctx.db
-        .query("cloud_thread_messages")
-        .withIndex("by_conversationId_and_seq", (q) =>
-          q.eq("conversationId", thread.threadId),
-        )
-        .take(PURGE_BATCH);
-      for (const row of messages) await ctx.db.delete(row._id);
-      if (messages.length === PURGE_BATCH) return { hasMore: true };
       await ctx.db.delete(thread._id);
     }
     if (threads.length === 10) return { hasMore: true };
@@ -2699,16 +2471,8 @@ export const purgeConversationRowsInternal = internalMutation({
         .withIndex("by_turnId_and_seq", (q) => q.eq("turnId", turn.turnId))
         .take(PURGE_BATCH);
       for (const event of events) await ctx.db.delete(event._id);
-      // Children first, and the turn only once its last child is gone — every
-      // index into an event or a thread message starts at the turn, so an
-      // orphan can never be found again.
+      // Children first, and the turn only once its last child is gone.
       if (events.length === PURGE_BATCH) return { hasMore: true };
-      const orphanMessages = await ctx.db
-        .query("cloud_thread_messages")
-        .withIndex("by_turnId", (q) => q.eq("turnId", turn.turnId))
-        .take(PURGE_BATCH);
-      for (const row of orphanMessages) await ctx.db.delete(row._id);
-      if (orphanMessages.length === PURGE_BATCH) return { hasMore: true };
       await ctx.db.delete(turn._id);
     }
     return { hasMore: turns.length === 20 };
@@ -3000,24 +2764,6 @@ export const sweepConversationTombstonesInternal = internalMutation({
       .take(Math.min(500, Math.max(1, args.limit ?? 200)));
     for (const row of rows) await ctx.db.delete(row._id);
     return { deleted: rows.length };
-  },
-});
-
-/**
- * Drains the pre-DO transcript table. It is declared in the schema for exactly
- * this reason: an undeclared table keeps its documents, and abandoned user
- * transcripts are not an acceptable resting state. Unindexed by design — this
- * is a whole-table drain, bounded per call, run until `remaining` is 0. Delete
- * the table, this mutation, and its cron once every deployment reports 0.
- */
-export const drainLegacyCloudMessagesInternal = internalMutation({
-  args: { limit: v.optional(v.number()) },
-  returns: v.object({ deleted: v.number(), remaining: v.boolean() }),
-  handler: async (ctx, args) => {
-    const limit = Math.min(500, Math.max(1, args.limit ?? 200));
-    const rows = await ctx.db.query("cloud_messages").take(limit);
-    for (const row of rows) await ctx.db.delete(row._id);
-    return { deleted: rows.length, remaining: rows.length === limit };
   },
 });
 
@@ -3490,10 +3236,7 @@ const spawnCloudAgent = async (
       ...(originDeviceId ? { originDeviceId } : {}),
       ...(originConversationId ? { originConversationId } : {}),
       execution,
-      sandboxLeaseExpiresAt: cloudAgentSandboxLeaseExpiresAt(
-        "cloud",
-        args.now,
-      ),
+      sandboxLeaseExpiresAt: cloudAgentSandboxLeaseExpiresAt("cloud", args.now),
       updatedAt: args.now,
     });
   }
@@ -3512,10 +3255,7 @@ const spawnCloudAgent = async (
       agentType: "general",
       attemptGeneration,
       execution,
-      sandboxLeaseExpiresAt: cloudAgentSandboxLeaseExpiresAt(
-        "cloud",
-        args.now,
-      ),
+      sandboxLeaseExpiresAt: cloudAgentSandboxLeaseExpiresAt("cloud", args.now),
       status: "running",
       createdAt: args.now,
       updatedAt: args.now,
@@ -5192,17 +4932,17 @@ export const listStorageInternal = internalQuery({
     );
     const [namespaced, legacy] = await Promise.all([
       ctx.db
-      .query("cloud_app_storage")
-      .withIndex("by_appId_and_viewerNamespace", (q) =>
-        q.eq("appId", args.appId).eq("viewerNamespace", args.viewerNamespace),
-      )
-      .take(101),
+        .query("cloud_app_storage")
+        .withIndex("by_appId_and_viewerNamespace", (q) =>
+          q.eq("appId", args.appId).eq("viewerNamespace", args.viewerNamespace),
+        )
+        .take(101),
       ctx.db
-      .query("cloud_app_storage")
-      .withIndex("by_appId_and_userId", (q) =>
-        q.eq("appId", args.appId).eq("userId", args.userId),
-      )
-      .take(101),
+        .query("cloud_app_storage")
+        .withIndex("by_appId_and_userId", (q) =>
+          q.eq("appId", args.appId).eq("userId", args.userId),
+        )
+        .take(101),
     ]);
     const byKey = new Map(legacy.map((row) => [row.key, row]));
     for (const row of namespaced) byKey.set(row.key, row);
@@ -5238,17 +4978,17 @@ export const setStorageInternal = internalMutation({
     }
     const [namespacedRows, legacyRows] = await Promise.all([
       ctx.db
-      .query("cloud_app_storage")
-      .withIndex("by_appId_and_viewerNamespace", (q) =>
-        q.eq("appId", args.appId).eq("viewerNamespace", args.viewerNamespace),
-      )
-      .take(101),
+        .query("cloud_app_storage")
+        .withIndex("by_appId_and_viewerNamespace", (q) =>
+          q.eq("appId", args.appId).eq("viewerNamespace", args.viewerNamespace),
+        )
+        .take(101),
       ctx.db
-      .query("cloud_app_storage")
-      .withIndex("by_appId_and_userId", (q) =>
-        q.eq("appId", args.appId).eq("userId", args.userId),
-      )
-      .take(101),
+        .query("cloud_app_storage")
+        .withIndex("by_appId_and_userId", (q) =>
+          q.eq("appId", args.appId).eq("userId", args.userId),
+        )
+        .take(101),
     ]);
     const byKey = new Map(legacyRows.map((row) => [row.key, row]));
     for (const row of namespacedRows) byKey.set(row.key, row);
@@ -5331,7 +5071,8 @@ export const deleteStorageInternal = internalMutation({
         .unique(),
     ]);
     if (namespaced) await ctx.db.delete(namespaced._id);
-    if (legacy && legacy._id !== namespaced?._id) await ctx.db.delete(legacy._id);
+    if (legacy && legacy._id !== namespaced?._id)
+      await ctx.db.delete(legacy._id);
     return null;
   },
 });
@@ -5395,8 +5136,14 @@ export const appendTurnEventProjection = async (
   if (turn.ownerGeneration !== args.ownerGeneration) {
     return { ok: false, reason: "generation_stale" };
   }
-  if (turn.sessionId !== args.sessionId) return { ok: false, reason: "invalid" };
-  const duplicate = { ok: true as const, inserted: false, terminalAccepted: false, duplicate: true };
+  if (turn.sessionId !== args.sessionId)
+    return { ok: false, reason: "invalid" };
+  const duplicate = {
+    ok: true as const,
+    inserted: false,
+    terminalAccepted: false,
+    duplicate: true,
+  };
   if (args.eventSeq !== undefined) {
     const existing = await ctx.db
       .query("agent_events")
@@ -5451,7 +5198,12 @@ export const appendTurnEventProjection = async (
       payloadJson: args.payloadJson,
       createdAt: args.now,
     });
-    return { ok: true, inserted: true, terminalAccepted: false, duplicate: false };
+    return {
+      ok: true,
+      inserted: true,
+      terminalAccepted: false,
+      duplicate: false,
+    };
   }
   // Closed turns accept nothing more: a second terminal is a redelivery of the
   // verdict, and a straggling progress event describes a past the UI has
@@ -5580,7 +5332,10 @@ export const appendEventInternal = internalMutation({
           : "Unknown cloud turn.",
       );
     }
-    return { inserted: result.inserted, terminalAccepted: result.terminalAccepted };
+    return {
+      inserted: result.inserted,
+      terminalAccepted: result.terminalAccepted,
+    };
   },
 });
 
@@ -5609,9 +5364,7 @@ export const recordBuild = async (
   await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
   const expectedPrefix = `builds/${await hashSha256Hex(args.ownerId)}/${args.buildId}`;
   if (args.artifactPrefix !== expectedPrefix) {
-    throw new ConvexError(
-      "Build artifact prefix does not match its build id.",
-    );
+    throw new ConvexError("Build artifact prefix does not match its build id.");
   }
   const callbackTitle = args.title?.trim().slice(0, 32) || undefined;
   const turn = await ctx.db
@@ -5650,9 +5403,7 @@ export const recordBuild = async (
     ) {
       return false;
     }
-    throw new ConvexError(
-      "Build id is already bound to different artifacts.",
-    );
+    throw new ConvexError("Build id is already bound to different artifacts.");
   }
   const turnBuild = await ctx.db
     .query("cloud_app_builds")

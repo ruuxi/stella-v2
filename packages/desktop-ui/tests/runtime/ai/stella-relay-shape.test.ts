@@ -244,6 +244,9 @@ describe("Stella gateway route shape", () => {
     const model = route!.model;
     expect(model.api).toBe("openai-responses");
     expect(model.provider).toBe("openrouter");
+    expect(
+      (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
+    ).toBe("meta/muse-spark-1.2-contributor");
     expect(model.baseUrl).toBe(RELAY);
   });
 
@@ -258,11 +261,11 @@ describe("Stella gateway route shape", () => {
     expect(model.baseUrl).toBe(RELAY);
   });
 
-  it("Muse route: Responses API transport, xhigh effort survives the clamp", () => {
+  it("Muse route: Responses transport keeps xhigh effort", () => {
     const route = makeRoute("stella/default");
     const model = route!.model;
     // xhigh is Stella's default rung for Muse; the model's thinkingLevelMap
-    // must keep it from being clamped to high by the responses adapter.
+    // must keep it from being clamped to high by the Responses adapter.
     expect(model.thinkingLevelMap).toMatchObject({ xhigh: "xhigh" });
   });
 
@@ -383,7 +386,10 @@ describe("Stella gateway auth (baseUrl-based detection)", () => {
       jsonResponse({
         responseId: "resp_g",
         candidates: [
-          { content: { role: "model", parts: [{ text: "hi" }] }, finishReason: "STOP" },
+          {
+            content: { role: "model", parts: [{ text: "hi" }] },
+            finishReason: "STOP",
+          },
         ],
         modelVersion: "gemini-3-flash-preview",
         usageMetadata: {
@@ -422,8 +428,8 @@ describe("Stella gateway auth (baseUrl-based detection)", () => {
   });
 });
 
-describe("Stella Muse Responses transport (default model)", () => {
-  it("posts the default model to the relay /responses path with stream:false, reasoning.effort=xhigh, and parses usage", async () => {
+describe("Stella Muse Responses transport", () => {
+  it("posts the default model to responses with xhigh reasoning and parses usage", async () => {
     const calls = captureRequest(() =>
       jsonResponse({
         id: "resp_muse",
@@ -473,18 +479,15 @@ describe("Stella Muse Responses transport (default model)", () => {
 
     const call = calls.find((c) => c.url.startsWith(`${RELAY}/`));
     expect(call).toBeDefined();
-    // The OpenAI Responses adapter posts to <relay base>/responses.
     expect(call!.url).toBe(`${RELAY}/responses`);
     expect(call!.headers.get("authorization")).toBe(`Bearer ${CAPABILITY}`);
-    const body = JSON.parse(String(call!.init?.body)) as Record<string, any>;
+    const body = JSON.parse(String(call!.init?.body));
     expect(body.model).toBe("stella/default");
     expect(body.stream).toBe(false);
     expect(body.input).toEqual([
       { role: "user", content: [{ type: "input_text", text: "hi" }] },
     ]);
     expect(body.max_output_tokens).toBe(2048);
-    // Reasoning is mandatory for this model and must ship at Stella's top
-    // rung — not clamped down to high by the adapter.
     expect(body.reasoning).toMatchObject({ effort: "xhigh" });
   });
 });

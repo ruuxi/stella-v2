@@ -4,8 +4,11 @@
 
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { Type } from "@sinclair/typebox";
-import { Value } from "@sinclair/typebox/value";
+import type { AnySchema } from "ajv";
+import {
+  getJsonSchemaValidationErrors,
+  isJsonSchemaValue,
+} from "./utils/validation.js";
 import type { Api, Model } from "./types.js";
 
 export type ModelsJsonModel = Partial<
@@ -54,233 +57,332 @@ type ModelsJson = {
   providers: Record<string, ModelsJsonProvider>;
 };
 
-const nonEmptyString = Type.String({ minLength: 1 });
-const stringRecord = Type.Record(Type.String(), Type.String());
-const thinkingLevelMapSchema = Type.Object({
-  off: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-  minimal: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-  low: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-  medium: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-  high: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-  xhigh: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-});
-const percentileCutoffsSchema = Type.Object({
-  p50: Type.Optional(Type.Number()),
-  p75: Type.Optional(Type.Number()),
-  p90: Type.Optional(Type.Number()),
-  p99: Type.Optional(Type.Number()),
-});
-const chatTemplateKwargSchema = Type.Union([
-  Type.String(),
-  Type.Number(),
-  Type.Boolean(),
-  Type.Null(),
-  Type.Object({
-    $var: Type.Union([
-      Type.Literal("thinking.enabled"),
-      Type.Literal("thinking.effort"),
-    ]),
-    omitWhenOff: Type.Optional(Type.Boolean()),
-  }),
-]);
-const stringOrNumber = Type.Union([Type.String(), Type.Number()]);
-const compatSchema = Type.Object({
-  supportsStore: Type.Optional(Type.Boolean()),
-  supportsDeveloperRole: Type.Optional(Type.Boolean()),
-  supportsReasoningEffort: Type.Optional(Type.Boolean()),
-  supportsUsageInStreaming: Type.Optional(Type.Boolean()),
-  maxTokensField: Type.Optional(
-    Type.Union([
-      Type.Literal("max_completion_tokens"),
-      Type.Literal("max_tokens"),
-    ]),
-  ),
-  requiresToolResultName: Type.Optional(Type.Boolean()),
-  requiresAssistantAfterToolResult: Type.Optional(Type.Boolean()),
-  requiresThinkingAsText: Type.Optional(Type.Boolean()),
-  requiresReasoningContentOnAssistantMessages: Type.Optional(Type.Boolean()),
-  replayReasoningContentField: Type.Optional(Type.Boolean()),
-  thinkingFormat: Type.Optional(
-    Type.Union([
-      Type.Literal("openai"),
-      Type.Literal("openrouter"),
-      Type.Literal("deepseek"),
-      Type.Literal("zai"),
-      Type.Literal("qwen"),
-      Type.Literal("chat-template"),
-      Type.Literal("qwen-chat-template"),
-    ]),
-  ),
-  chatTemplateKwargs: Type.Optional(
-    Type.Record(Type.String(), chatTemplateKwargSchema),
-  ),
-  openRouterRouting: Type.Optional(
-    Type.Object({
-      allow_fallbacks: Type.Optional(Type.Boolean()),
-      require_parameters: Type.Optional(Type.Boolean()),
-      data_collection: Type.Optional(
-        Type.Union([Type.Literal("deny"), Type.Literal("allow")]),
-      ),
-      zdr: Type.Optional(Type.Boolean()),
-      enforce_distillable_text: Type.Optional(Type.Boolean()),
-      order: Type.Optional(Type.Array(Type.String())),
-      only: Type.Optional(Type.Array(Type.String())),
-      ignore: Type.Optional(Type.Array(Type.String())),
-      quantizations: Type.Optional(Type.Array(Type.String())),
-      sort: Type.Optional(
-        Type.Union([
-          Type.String(),
-          Type.Object({
-            by: Type.Optional(Type.String()),
-            partition: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-          }),
-        ]),
-      ),
-      max_price: Type.Optional(
-        Type.Object({
-          prompt: Type.Optional(stringOrNumber),
-          completion: Type.Optional(stringOrNumber),
-          image: Type.Optional(stringOrNumber),
-          audio: Type.Optional(stringOrNumber),
-          request: Type.Optional(stringOrNumber),
-        }),
-      ),
-      preferred_min_throughput: Type.Optional(
-        Type.Union([Type.Number(), percentileCutoffsSchema]),
-      ),
-      preferred_max_latency: Type.Optional(
-        Type.Union([Type.Number(), percentileCutoffsSchema]),
-      ),
-    }),
-  ),
-  vercelGatewayRouting: Type.Optional(
-    Type.Object({
-      only: Type.Optional(Type.Array(Type.String())),
-      order: Type.Optional(Type.Array(Type.String())),
-    }),
-  ),
-  zaiToolStream: Type.Optional(Type.Boolean()),
-  supportsStrictMode: Type.Optional(Type.Boolean()),
-  cacheControlFormat: Type.Optional(Type.Literal("anthropic")),
-  sendSessionAffinityHeaders: Type.Optional(Type.Boolean()),
-  sendSessionIdHeader: Type.Optional(Type.Boolean()),
-  supportsLongCacheRetention: Type.Optional(Type.Boolean()),
-  supportsEagerToolInputStreaming: Type.Optional(Type.Boolean()),
-  // dormant: nothing reads these since tool_search removal; kept only so
-  // generated model catalogs (contracts/models.generated.ts) still validate.
-  supportsToolReferences: Type.Optional(Type.Boolean()),
-  supportsToolSearch: Type.Optional(Type.Boolean()),
-  deferredToolsMode: Type.Optional(Type.Literal("kimi")),
-});
-const costSchema = Type.Object({
-  input: Type.Optional(Type.Number()),
-  output: Type.Optional(Type.Number()),
-  cacheRead: Type.Optional(Type.Number()),
-  cacheWrite: Type.Optional(Type.Number()),
-});
-const remoteCatalogCostSchema = Type.Object({
-  input: Type.Number({ minimum: 0 }),
-  output: Type.Number({ minimum: 0 }),
-  cacheRead: Type.Number({ minimum: 0 }),
-  cacheWrite: Type.Number({ minimum: 0 }),
-});
-const openRouterAutoSentinelCostSchema = Type.Object({
-  input: Type.Literal(-1_000_000),
-  output: Type.Literal(-1_000_000),
-  cacheRead: Type.Literal(0),
-  cacheWrite: Type.Literal(0),
-});
-const modelFields = {
-  name: Type.Optional(nonEmptyString),
-  reasoning: Type.Optional(Type.Boolean()),
-  thinkingLevelMap: Type.Optional(thinkingLevelMapSchema),
-  input: Type.Optional(
-    Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image")])),
-  ),
-  cost: Type.Optional(costSchema),
-  contextWindow: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
-  maxTokens: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
-  toolOutputTokenLimit: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
-  headers: Type.Optional(stringRecord),
-  compat: Type.Optional(compatSchema),
-};
-const modelDefinitionSchema = Type.Object({
-  id: nonEmptyString,
-  api: Type.Optional(nonEmptyString),
-  baseUrl: Type.Optional(nonEmptyString),
-  ...modelFields,
-});
-const modelOverrideSchema = Type.Object(modelFields);
-const providerSchema = Type.Object({
-  name: Type.Optional(nonEmptyString),
-  baseUrl: Type.Optional(nonEmptyString),
-  apiKey: Type.Optional(nonEmptyString),
-  api: Type.Optional(nonEmptyString),
-  headers: Type.Optional(stringRecord),
-  compat: Type.Optional(compatSchema),
-  authHeader: Type.Optional(Type.Boolean()),
-  models: Type.Optional(Type.Array(modelDefinitionSchema)),
-  modelOverrides: Type.Optional(
-    Type.Record(Type.String(), modelOverrideSchema),
-  ),
-});
-const modelsJsonSchema = Type.Object({
-  providers: Type.Record(Type.String(), providerSchema),
-});
+const stringSchema = { type: "string" } as const;
+const numberSchema = { type: "number" } as const;
+const booleanSchema = { type: "boolean" } as const;
+const nullSchema = { type: "null" } as const;
+const nonEmptyStringSchema = { type: "string", minLength: 1 } as const;
+const nullableStringSchema = {
+  anyOf: [stringSchema, nullSchema],
+} as const;
+const stringRecordSchema = {
+  type: "object",
+  patternProperties: { "^(.*)$": stringSchema },
+} as const;
+const textOrImageSchema = {
+  anyOf: [
+    { const: "text", type: "string" },
+    { const: "image", type: "string" },
+  ],
+} as const;
+const stringOrNumberSchema = {
+  anyOf: [stringSchema, numberSchema],
+} as const;
+const thinkingLevelMapSchema = {
+  type: "object",
+  properties: {
+    off: nullableStringSchema,
+    minimal: nullableStringSchema,
+    low: nullableStringSchema,
+    medium: nullableStringSchema,
+    high: nullableStringSchema,
+    xhigh: nullableStringSchema,
+  },
+} as const;
+const percentileCutoffsSchema = {
+  type: "object",
+  properties: {
+    p50: numberSchema,
+    p75: numberSchema,
+    p90: numberSchema,
+    p99: numberSchema,
+  },
+} as const;
+const chatTemplateKwargSchema = {
+  anyOf: [
+    stringSchema,
+    numberSchema,
+    booleanSchema,
+    nullSchema,
+    {
+      type: "object",
+      properties: {
+        $var: {
+          anyOf: [
+            { const: "thinking.enabled", type: "string" },
+            { const: "thinking.effort", type: "string" },
+          ],
+        },
+        omitWhenOff: booleanSchema,
+      },
+      required: ["$var"],
+    },
+  ],
+} as const;
+const compatSchema = {
+  type: "object",
+  properties: {
+    supportsStore: booleanSchema,
+    supportsDeveloperRole: booleanSchema,
+    supportsReasoningEffort: booleanSchema,
+    supportsUsageInStreaming: booleanSchema,
+    maxTokensField: {
+      anyOf: [
+        { const: "max_completion_tokens", type: "string" },
+        { const: "max_tokens", type: "string" },
+      ],
+    },
+    requiresToolResultName: booleanSchema,
+    requiresAssistantAfterToolResult: booleanSchema,
+    requiresThinkingAsText: booleanSchema,
+    requiresReasoningContentOnAssistantMessages: booleanSchema,
+    replayReasoningContentField: booleanSchema,
+    thinkingFormat: {
+      anyOf: [
+        { const: "openai", type: "string" },
+        { const: "openrouter", type: "string" },
+        { const: "deepseek", type: "string" },
+        { const: "zai", type: "string" },
+        { const: "qwen", type: "string" },
+        { const: "chat-template", type: "string" },
+        { const: "qwen-chat-template", type: "string" },
+      ],
+    },
+    chatTemplateKwargs: {
+      type: "object",
+      patternProperties: { "^(.*)$": chatTemplateKwargSchema },
+    },
+    openRouterRouting: {
+      type: "object",
+      properties: {
+        allow_fallbacks: booleanSchema,
+        require_parameters: booleanSchema,
+        data_collection: {
+          anyOf: [
+            { const: "deny", type: "string" },
+            { const: "allow", type: "string" },
+          ],
+        },
+        zdr: booleanSchema,
+        enforce_distillable_text: booleanSchema,
+        order: { type: "array", items: stringSchema },
+        only: { type: "array", items: stringSchema },
+        ignore: { type: "array", items: stringSchema },
+        quantizations: { type: "array", items: stringSchema },
+        sort: {
+          anyOf: [
+            stringSchema,
+            {
+              type: "object",
+              properties: {
+                by: stringSchema,
+                partition: nullableStringSchema,
+              },
+            },
+          ],
+        },
+        max_price: {
+          type: "object",
+          properties: {
+            prompt: stringOrNumberSchema,
+            completion: stringOrNumberSchema,
+            image: stringOrNumberSchema,
+            audio: stringOrNumberSchema,
+            request: stringOrNumberSchema,
+          },
+        },
+        preferred_min_throughput: {
+          anyOf: [numberSchema, percentileCutoffsSchema],
+        },
+        preferred_max_latency: {
+          anyOf: [numberSchema, percentileCutoffsSchema],
+        },
+      },
+    },
+    vercelGatewayRouting: {
+      type: "object",
+      properties: {
+        only: { type: "array", items: stringSchema },
+        order: { type: "array", items: stringSchema },
+      },
+    },
+    zaiToolStream: booleanSchema,
+    supportsStrictMode: booleanSchema,
+    cacheControlFormat: { const: "anthropic", type: "string" },
+    sendSessionAffinityHeaders: booleanSchema,
+    sendSessionIdHeader: booleanSchema,
+    supportsLongCacheRetention: booleanSchema,
+    supportsEagerToolInputStreaming: booleanSchema,
+    // dormant: nothing reads these since tool_search removal; kept only so
+    // generated model catalogs (contracts/models.generated.ts) still validate.
+    supportsToolReferences: booleanSchema,
+    supportsToolSearch: booleanSchema,
+    deferredToolsMode: { const: "kimi", type: "string" },
+  },
+} as const;
+const costSchema = {
+  type: "object",
+  properties: {
+    input: numberSchema,
+    output: numberSchema,
+    cacheRead: numberSchema,
+    cacheWrite: numberSchema,
+  },
+} as const;
+const remoteCatalogCostSchema = {
+  type: "object",
+  properties: {
+    input: { type: "number", minimum: 0 },
+    output: { type: "number", minimum: 0 },
+    cacheRead: { type: "number", minimum: 0 },
+    cacheWrite: { type: "number", minimum: 0 },
+  },
+  required: ["input", "output", "cacheRead", "cacheWrite"],
+} as const;
+const openRouterAutoSentinelCostSchema = {
+  type: "object",
+  properties: {
+    input: { const: -1_000_000, type: "number" },
+    output: { const: -1_000_000, type: "number" },
+    cacheRead: { const: 0, type: "number" },
+    cacheWrite: { const: 0, type: "number" },
+  },
+  required: ["input", "output", "cacheRead", "cacheWrite"],
+} as const;
+const modelFieldProperties = {
+  name: nonEmptyStringSchema,
+  reasoning: booleanSchema,
+  thinkingLevelMap: thinkingLevelMapSchema,
+  input: { type: "array", items: textOrImageSchema },
+  cost: costSchema,
+  contextWindow: { type: "number", exclusiveMinimum: 0 },
+  maxTokens: { type: "number", exclusiveMinimum: 0 },
+  toolOutputTokenLimit: { type: "number", exclusiveMinimum: 0 },
+  headers: stringRecordSchema,
+  compat: compatSchema,
+} as const;
+const modelDefinitionSchema = {
+  type: "object",
+  properties: {
+    id: nonEmptyStringSchema,
+    api: nonEmptyStringSchema,
+    baseUrl: nonEmptyStringSchema,
+    ...modelFieldProperties,
+  },
+  required: ["id"],
+} as const satisfies AnySchema;
+const modelOverrideSchema = {
+  type: "object",
+  properties: modelFieldProperties,
+} as const satisfies AnySchema;
+const providerSchema = {
+  type: "object",
+  properties: {
+    name: nonEmptyStringSchema,
+    baseUrl: nonEmptyStringSchema,
+    apiKey: nonEmptyStringSchema,
+    api: nonEmptyStringSchema,
+    headers: stringRecordSchema,
+    compat: compatSchema,
+    authHeader: booleanSchema,
+    models: { type: "array", items: modelDefinitionSchema },
+    modelOverrides: {
+      type: "object",
+      patternProperties: { "^(.*)$": modelOverrideSchema },
+    },
+  },
+} as const satisfies AnySchema;
+const modelsJsonSchema = {
+  type: "object",
+  properties: {
+    providers: {
+      type: "object",
+      patternProperties: { "^(.*)$": providerSchema },
+    },
+  },
+  required: ["providers"],
+} as const satisfies AnySchema;
 
-const remoteCatalogModelFields = {
-  id: nonEmptyString,
-  name: nonEmptyString,
-  provider: Type.Optional(nonEmptyString),
-  reasoning: Type.Boolean(),
-  thinkingLevelMap: Type.Optional(thinkingLevelMapSchema),
-  input: Type.Array(
-    Type.Union([Type.Literal("text"), Type.Literal("image")]),
-  ),
-  cost: Type.Optional(remoteCatalogCostSchema),
-  contextWindow: Type.Number({ exclusiveMinimum: 0 }),
-  maxTokens: Type.Number({ exclusiveMinimum: 0 }),
-  headers: Type.Optional(stringRecord),
-  compat: Type.Optional(compatSchema),
-};
-const remoteCatalogModelSchema = Type.Object({
-  ...remoteCatalogModelFields,
-  api: nonEmptyString,
-  baseUrl: nonEmptyString,
-});
+const remoteCatalogModelProperties = {
+  id: nonEmptyStringSchema,
+  name: nonEmptyStringSchema,
+  provider: nonEmptyStringSchema,
+  reasoning: booleanSchema,
+  thinkingLevelMap: thinkingLevelMapSchema,
+  input: { type: "array", items: textOrImageSchema },
+  cost: remoteCatalogCostSchema,
+  contextWindow: { type: "number", exclusiveMinimum: 0 },
+  maxTokens: { type: "number", exclusiveMinimum: 0 },
+  headers: stringRecordSchema,
+  compat: compatSchema,
+} as const;
+const remoteCatalogRequired = [
+  "id",
+  "name",
+  "reasoning",
+  "input",
+  "contextWindow",
+  "maxTokens",
+] as const;
+const remoteCatalogModelSchema = {
+  type: "object",
+  properties: {
+    ...remoteCatalogModelProperties,
+    api: nonEmptyStringSchema,
+    baseUrl: nonEmptyStringSchema,
+  },
+  required: [...remoteCatalogRequired, "api", "baseUrl"],
+} as const satisfies AnySchema;
 // Azure deployments resolve their endpoint from request options or the user's
 // resource configuration, so their catalog models intentionally use an empty
 // baseUrl. Key this exception to the transport contract rather than the
 // provider name; every other remote transport still requires a URL.
-const azureRemoteCatalogModelSchema = Type.Object({
-  ...remoteCatalogModelFields,
-  api: Type.Literal("azure-openai-responses"),
-  baseUrl: Type.String(),
-});
+const azureRemoteCatalogModelSchema = {
+  type: "object",
+  properties: {
+    ...remoteCatalogModelProperties,
+    api: { const: "azure-openai-responses", type: "string" },
+    baseUrl: stringSchema,
+  },
+  required: [...remoteCatalogRequired, "api", "baseUrl"],
+} as const satisfies AnySchema;
 // OpenRouter's automatic router cannot know the selected upstream model's
 // price until request routing. Its catalog uses this exact sentinel contract;
 // keep the exception pinned to that transport/model shape so no other
 // negative or non-finite cost can enter the runtime catalog.
-const openRouterAutoRemoteCatalogModelSchema = Type.Object({
-  ...remoteCatalogModelFields,
-  id: Type.Literal("openrouter/auto"),
-  provider: Type.Literal("openrouter"),
-  api: Type.Literal("openai-completions"),
-  baseUrl: Type.Literal("https://openrouter.ai/api/v1"),
-  cost: openRouterAutoSentinelCostSchema,
-});
+const openRouterAutoRemoteCatalogModelSchema = {
+  type: "object",
+  properties: {
+    ...remoteCatalogModelProperties,
+    id: { const: "openrouter/auto", type: "string" },
+    provider: { const: "openrouter", type: "string" },
+    api: { const: "openai-completions", type: "string" },
+    baseUrl: {
+      const: "https://openrouter.ai/api/v1",
+      type: "string",
+    },
+    cost: openRouterAutoSentinelCostSchema,
+  },
+  required: [...remoteCatalogRequired, "provider", "cost", "api", "baseUrl"],
+} as const satisfies AnySchema;
 
 // `providerId` is the authoritative identity derived from the fetched
 // endpoint/cache key. Entry-controlled `provider` metadata is not trusted to
 // select provider-specific validation exceptions before the runtime overwrites
 // it during composition.
-const remoteCatalogSchemaFor = (providerId: string, value: unknown) => {
+const remoteCatalogSchemaFor = (
+  providerId: string,
+  value: unknown,
+): AnySchema => {
   if (!value || typeof value !== "object") return remoteCatalogModelSchema;
-  const entry = value as Record<string, unknown>;
-  if (providerId === "openrouter" && entry.id === "openrouter/auto") {
+  if (
+    providerId === "openrouter" &&
+    "id" in value &&
+    value.id === "openrouter/auto"
+  ) {
     return openRouterAutoRemoteCatalogModelSchema;
   }
-  return entry.api === "azure-openai-responses"
+  return "api" in value && value.api === "azure-openai-responses"
     ? azureRemoteCatalogModelSchema
     : remoteCatalogModelSchema;
 };
@@ -289,15 +391,24 @@ export const isRemoteCatalogModel = (
   providerId: string,
   value: unknown,
 ): value is RemoteCatalogModel =>
-  Value.Check(remoteCatalogSchemaFor(providerId, value), value);
+  isJsonSchemaValue<RemoteCatalogModel>(
+    remoteCatalogSchemaFor(providerId, value),
+    value,
+  );
 
 export const getRemoteCatalogModelValidationErrors = (
   providerId: string,
   value: unknown,
 ): string[] =>
-  [...Value.Errors(remoteCatalogSchemaFor(providerId, value), value)]
+  getJsonSchemaValidationErrors(
+    remoteCatalogSchemaFor(providerId, value),
+    value,
+  )
     .slice(0, 8)
-    .map((error) => `${error.path || "root"}: ${error.message}`);
+    .map(
+      (error) =>
+        `${error.instancePath || "root"}: ${error.message ?? "is invalid"}`,
+    );
 
 /** Strip JSONC line comments and trailing commas without touching strings. */
 const stripJsonComments = (value: string): string =>
@@ -338,17 +449,18 @@ export class ModelConfig {
 
     try {
       const parsed = JSON.parse(stripJsonComments(content)) as unknown;
-      if (!Value.Check(modelsJsonSchema, parsed)) {
-        const details = [...Value.Errors(modelsJsonSchema, parsed)]
+      if (!isJsonSchemaValue<ModelsJson>(modelsJsonSchema, parsed)) {
+        const details = getJsonSchemaValidationErrors(modelsJsonSchema, parsed)
           .slice(0, 8)
-          .map((error) => `  - ${error.path || "root"}: ${error.message}`)
+          .map(
+            (error) =>
+              `  - ${error.instancePath || "root"}: ${error.message ?? "is invalid"}`,
+          )
           .join("\n");
         throw new Error(`Invalid models.json schema:\n${details}`);
       }
       const providers = new Map<string, ModelsJsonProvider>();
-      for (const [providerId, provider] of Object.entries(
-        (parsed as ModelsJson).providers,
-      )) {
+      for (const [providerId, provider] of Object.entries(parsed.providers)) {
         if (!providerId.trim()) {
           throw new Error(`Invalid provider configuration: ${providerId}`);
         }
@@ -410,16 +522,12 @@ export const resolveModelConfigValue = (
   if (config.startsWith("!")) {
     try {
       const invocation = getModelConfigCommandInvocation(config.slice(1));
-      const value = execFileSync(
-        invocation.executable,
-        invocation.args,
-        {
-          encoding: "utf8",
-          timeout: 10_000,
-          stdio: ["ignore", "pipe", "ignore"],
-          windowsHide: true,
-        },
-      ).trim();
+      const value = execFileSync(invocation.executable, invocation.args, {
+        encoding: "utf8",
+        timeout: 10_000,
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
+      }).trim();
       return value || undefined;
     } catch {
       return undefined;

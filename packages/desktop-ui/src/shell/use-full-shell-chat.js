@@ -14,6 +14,7 @@ import { useConversationDisplayMessages } from "@/features/chat/hooks/use-conver
 import { useConversationFiles } from "@/features/chat/hooks/use-conversation-files";
 import { useConversationMessages } from "@/features/chat/hooks/use-conversation-messages";
 import { useComposerMessageState } from "@/features/chat/hooks/use-composer-message-state";
+import { takePendingComposerDraft } from "@/global/onboarding/chat/pending-handoff";
 import { useStreamingChat } from "@/features/chat/hooks/use-streaming-chat";
 import { useThreadActivity } from "@/features/chat/hooks/use-thread-activity";
 import {
@@ -137,6 +138,8 @@ export function useFullShellChat({
   activeConversationIdRef.current = activeConversationId;
   const previousComposerConversationIdRef = useRef(activeConversationId);
   const restoredConversationScrollRef = useRef(null);
+  // Text the onboarding hand-off asked to submit as soon as the composer can.
+  const pendingAutoSendTextRef = useRef(null);
   // Auth scope is a hard renderer privacy boundary. Clear composer content,
   // attachment handles, and per-tab memories in a layout effect so no frame
   // can paint the previous owner's unsent text during identity bootstrap.
@@ -172,9 +175,17 @@ export function useFullShellChat({
     if (activeConversationId) {
       const remembered =
         composerMemoryByConversationRef.current.get(activeConversationId);
-      setMessage(remembered?.message ?? "");
+      // First-run onboarding can leave a draft for the first conversation:
+      // the starter the user tapped, or what they typed to skip ahead. It
+      // never overrides a tab's own remembered text.
+      const pendingDraft = remembered?.message
+        ? null
+        : takePendingComposerDraft();
+      setMessage(remembered?.message ?? pendingDraft?.text ?? "");
       setChatContext(remembered?.chatContext ?? null);
       setSelectedText(remembered?.selectedText ?? null);
+      pendingAutoSendTextRef.current =
+        pendingDraft?.send ? pendingDraft.text : null;
     }
     previousComposerConversationIdRef.current = activeConversationId;
   }, [
@@ -634,6 +645,16 @@ export function useFullShellChat({
     conversationId: activeConversationId,
     requireConversationId: true,
   });
+  // Submit the onboarding hand-off once the composer is live with that exact
+  // text. A rejected send restores the text through the normal path, so the
+  // user still sees their draft rather than losing it.
+  useEffect(() => {
+    const text = pendingAutoSendTextRef.current;
+    if (!text || !canSubmit || isStreaming) return;
+    if (latestMessageRef.current !== text) return;
+    pendingAutoSendTextRef.current = null;
+    void handleSend();
+  }, [canSubmit, handleSend, isStreaming, latestMessageRef, message]);
   // Per-conversation model selection: mirror the global model preferences
   // to whichever conversation is active so each tab remembers its own
   // engine/model/reasoning pick. Cloud and local conversations both retain

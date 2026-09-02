@@ -248,9 +248,169 @@ describe("owner-fence leases in real Workerd", () => {
         requestJson(
           `/owner/${encodeURIComponent(ownerId)}/__test/fence-snapshot`,
         ),
-      (snapshot) => snapshot.body.active.length === 0,
+      (snapshot) => Object.keys(snapshot.body.fence?.active ?? {}).length === 0,
     );
     expect(expired.body.active).toEqual([]);
+  }, 30_000);
+
+  test("the gate registers a lease in the same call that serves the snapshot", async () => {
+    const ownerId = "owner-snapshot-lease";
+    const lease = {
+      ownerId,
+      leaseId: "lease-snapshot-1",
+      sessionId: "session:conversation-1",
+      turnId: "desktop:device-1:turn-1",
+      ownerGeneration: `generation:${ownerId}`,
+      namespace: "orchestrator",
+      role: "orchestrator",
+    };
+    const combined = await requestJson(
+      `/owner/${encodeURIComponent(ownerId)}/__test/snapshot-with-lease`,
+      lease,
+    );
+    expect(combined.status).toBe(200);
+    expect(combined.body.snapshot).toMatchObject({
+      ownerId,
+      ownerGeneration: lease.ownerGeneration,
+      writable: true,
+    });
+    expect(combined.body.lease.status).toBe("registered");
+    const generation = combined.body.lease.generation as string;
+    expect(typeof generation).toBe("string");
+    expect(typeof combined.body.lease.expiresAt).toBe("number");
+
+    // It is the production fence's own lease: the fence observes it, and the
+    // `assert` and `unregister` routes accept it.
+    const observed = await requestJson(
+      `/owner/${encodeURIComponent(ownerId)}/__test/fence-snapshot`,
+    );
+    expect(observed.body.fence.generation).toBe(generation);
+    expect(
+      observed.body.active.map((entry: { leaseId: string }) => entry.leaseId),
+    ).toEqual([lease.leaseId]);
+    const asserted = await requestJson(
+      `/owner/${encodeURIComponent(ownerId)}/owner-fence/assert`,
+      {
+        ownerId,
+        ownerGeneration: lease.ownerGeneration,
+        generation,
+        leaseId: lease.leaseId,
+      },
+    );
+    expect(asserted.status).toBe(200);
+
+    // A caller behind the snapshot's generation gets the snapshot and no lease.
+    const stale = await requestJson(
+      `/owner/${encodeURIComponent(ownerId)}/__test/snapshot-with-lease`,
+      {
+        ...lease,
+        leaseId: "lease-snapshot-stale",
+        ownerGeneration: "generation:previous",
+      },
+    );
+    expect(stale.status).toBe(200);
+    expect(stale.body.lease).toEqual({
+      status: "skipped",
+      reason: "generation_stale",
+    });
+    const afterStale = await requestJson(
+      `/owner/${encodeURIComponent(ownerId)}/__test/fence-snapshot`,
+    );
+    expect(afterStale.body.active).toHaveLength(1);
+
+    const unregistered = await requestJson(
+      `/owner/${encodeURIComponent(ownerId)}/owner-fence/unregister`,
+      {
+        ownerId,
+        ownerGeneration: lease.ownerGeneration,
+        generation,
+        leaseId: lease.leaseId,
+        sessionId: lease.sessionId,
+        turnId: lease.turnId,
+      },
+    );
+    expect(unregistered.status).toBe(200);
+    const released = await requestJson(
+      `/owner/${encodeURIComponent(ownerId)}/__test/fence-snapshot`,
+    );
+    expect(released.body.active).toEqual([]);
+  }, 30_000);
+
+  test("the OwnerGate alarm preserves fence and gate deadlines in both orders", async () => {
+    const register = async (
+      ownerId: string,
+      leaseId: string,
+      expiresAt: number,
+    ) => {
+      const response = await requestJson(
+        `/owner/${encodeURIComponent(ownerId)}/owner-fence/register`,
+        {
+          ownerId,
+          ownerGeneration: `generation:${ownerId}`,
+          leaseId,
+          sessionId: `session:${ownerId}`,
+          turnId: `turn:${ownerId}`,
+          role: "activity",
+          namespace: "activity",
+          expiresAt,
+        },
+      );
+      expect(response.status).toBe(200);
+      return response;
+    };
+    const snapshot = (ownerId: string) =>
+      requestJson(
+        `/owner/${encodeURIComponent(ownerId)}/__test/fence-snapshot`,
+      );
+
+    const fenceFirstOwner = "owner-multiplex-fence-first";
+    await register(
+      fenceFirstOwner,
+      "lease-multiplex-fence-first",
+      Date.now() + 800,
+    );
+    await requestJson(
+      `/owner/${encodeURIComponent(fenceFirstOwner)}/__test/seed-gate-alarm`,
+      { dispatchId: "gate-after-fence", delayMs: 2_500 },
+    );
+    const fenceExpired = await eventually(
+      () => snapshot(fenceFirstOwner),
+      (value) => Object.keys(value.body.fence?.active ?? {}).length === 0,
+    );
+    expect(fenceExpired.body.gateDeadlines).toContainEqual(
+      expect.objectContaining({
+        dispatch_id: "gate-after-fence",
+        payload_json: "{}",
+      }),
+    );
+    expect(fenceExpired.body.alarmAt).toBeGreaterThan(Date.now());
+
+    const gateFirstOwner = "owner-multiplex-gate-first";
+    await register(
+      gateFirstOwner,
+      "lease-multiplex-gate-first",
+      Date.now() + 2_500,
+    );
+    await requestJson(
+      `/owner/${encodeURIComponent(gateFirstOwner)}/__test/seed-gate-alarm`,
+      { dispatchId: "gate-before-fence", delayMs: 800 },
+    );
+    const gateExpired = await eventually(
+      () => snapshot(gateFirstOwner),
+      (value) =>
+        value.body.gateDeadlines.some(
+          (deadline: Record<string, unknown>) =>
+            deadline.dispatch_id === "gate-before-fence" &&
+            deadline.payload_json === null,
+        ),
+    );
+    expect(Object.keys(gateExpired.body.fence.active)).toHaveLength(1);
+    expect(gateExpired.body.alarmAt).toBeGreaterThan(Date.now());
+    const bothExpired = await eventually(
+      () => snapshot(gateFirstOwner),
+      (value) => Object.keys(value.body.fence?.active ?? {}).length === 0,
+    );
+    expect(bothExpired.body.active).toEqual([]);
   }, 30_000);
 
   test("restart recovery clears an orphaned attach, failed destroy debt, and world slot", async () => {

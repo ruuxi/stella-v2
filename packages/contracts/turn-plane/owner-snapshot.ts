@@ -4,12 +4,13 @@ import type { ManagedModelAudience } from "../gateway/capability.js";
 /**
  * The owner snapshot is the one control-plane read the owner gate Durable
  * Object performs. Convex serves it; the gate caches it for `ttlMs` and Convex
- * pushes an invalidation when billing state changes.
+ * pushes a replacement when owner state changes.
  */
 
 export const OWNER_SNAPSHOT_VERSION = 1 as const;
 
-export const CONVEX_OWNER_SNAPSHOT_PATH = "/api/gateway/owner-snapshot" as const;
+export const CONVEX_OWNER_SNAPSHOT_PATH =
+  "/api/gateway/owner-snapshot" as const;
 /** cloud-builder route Convex calls (service secret) when an owner's plan changes. */
 export const BUILDER_OWNER_SNAPSHOT_CHANGED_PATH =
   "/internal/owners/snapshot-changed" as const;
@@ -89,6 +90,12 @@ export type OwnerSnapshot = {
 
 export type OwnerSnapshotChangedRequest = {
   ownerId: string;
+  /**
+   * A push with a snapshot replaces the gate's cached copy. A push without
+   * one marks the existing copy stale so the gate refreshes it in the
+   * background on its next read.
+   */
+  snapshot?: OwnerSnapshot;
   reason:
     | "billing"
     | "generation"

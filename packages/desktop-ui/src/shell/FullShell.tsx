@@ -8,28 +8,27 @@ import {
 } from "react";
 import { RouterProvider } from "@tanstack/react-router";
 import { useTheme } from "@/context/theme-context";
-import { useUiState } from "@/context/ui-state";
-import {
-  CREATURE_HIDDEN_PHASES,
-  type Phase as OnboardingPhase,
-} from "@/global/onboarding/onboarding-flow";
-import { useDiscoveryFlow } from "@/global/onboarding/DiscoveryFlow";
-import { useOnboardingOverlay } from "@/global/onboarding/use-onboarding-overlay";
 import {
   readLocalOnboardingCompleted,
   useOnboardingState,
 } from "@/global/onboarding/use-onboarding-state";
-import { useBootstrapState } from "@/bootstrap/bootstrap-state";
+import { setPendingComposerDraft } from "@/global/onboarding/chat/pending-handoff";
+import type { OnboardingChatHandoff } from "@/global/onboarding/chat/use-onboarding-chat";
+import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { router } from "@/router";
 import { ShiftingGradient } from "./background/ShiftingGradient";
 import { AskStellaSelectionChip } from "./selection/AskStellaSelectionChip";
 import "./full-shell.layout.css";
 import "./mobile.css";
 import { platformCapabilities } from "@/platform/capabilities";
+import {
+  dismissLaunchSplash,
+  holdLaunchSplashUntilLive,
+} from "./launch-splash";
 
 /* Onboarding is loaded as a dynamic chunk that contains the whole flow:
- * every phase component, the character mark, the legal dialog,
- * and all onboarding CSS.
+ * the conversation surface, every card, the demo scenes, and all
+ * onboarding CSS.
  *
  * Returning users (`appReady === true` at first paint) never fetch this
  * chunk. After completion the React subtree unmounts and the lazy
@@ -41,108 +40,62 @@ const onboardingChunkPromise: { current: Promise<unknown> | null } = {
 const loadOnboardingChunk = () => {
   if (!onboardingChunkPromise.current) {
     onboardingChunkPromise.current = import(
-      "@/global/onboarding/OnboardingOverlay"
+      "@/global/onboarding/chat/OnboardingChat"
     );
   }
   return onboardingChunkPromise.current;
 };
 
-const OnboardingView = lazy(() =>
-  import("@/global/onboarding/OnboardingOverlay").then((module) => ({
-    default: module.OnboardingView,
+const OnboardingChatView = lazy(() =>
+  import("@/global/onboarding/chat/OnboardingChat").then((module) => ({
+    default: module.OnboardingChat,
   })),
 );
 
-const dismissLaunchSplash = () => {
-  const launch = document.getElementById("stella-launch");
-  if (!launch) return;
-
-  launch.dataset.exiting = "true";
-  window.setTimeout(() => {
-    launch.remove();
-  }, 260);
-};
-
 type OnboardingExperienceProps = {
-  activeConversationId: string | null;
   onEnteredApp: () => void;
 };
 
-function OnboardingExperience({
-  activeConversationId,
-  onEnteredApp,
-}: OnboardingExperienceProps) {
-  const [stellaHiddenByPhase, setStellaHiddenByPhase] = useState(false);
-  const onboarding = useOnboardingOverlay();
-  const {
-    handleDiscoveryConfirm,
-    discoveryWelcomeExpected,
-    discoveryWelcomeReady,
-  } = useDiscoveryFlow({
-    conversationId: activeConversationId,
-  });
+/**
+ * First run as a conversation. Mounts inside the normal window chrome and
+ * completes through the shared onboarding state, so the shell's hand-off
+ * to the real chat is the same flip of `onboardingDone`.
+ */
+function OnboardingExperience({ onEnteredApp }: OnboardingExperienceProps) {
+  const { completed: onboardingDone, complete: completeOnboarding } =
+    useOnboardingState();
+  const { hasConnectedAccount } = useAuthSessionState();
 
   useEffect(() => {
     let cancelled = false;
     void loadOnboardingChunk().finally(() => {
       if (!cancelled) dismissLaunchSplash();
     });
-
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const handleOnboardingPhaseChange = useCallback(
-    (phase: OnboardingPhase) => {
-      onboarding.persistPhase(phase);
-      setStellaHiddenByPhase(CREATURE_HIDDEN_PHASES.has(phase));
+  useEffect(() => {
+    if (!onboardingDone) return;
+    onEnteredApp();
+  }, [onEnteredApp, onboardingDone]);
+
+  const handleComplete = useCallback(
+    (handoff: OnboardingChatHandoff) => {
+      if (handoff.composerDraft) setPendingComposerDraft(handoff.composerDraft);
+      completeOnboarding();
     },
-    [onboarding],
+    [completeOnboarding],
   );
 
-  // Once the split flow starts, the mark is decorative beside controls. Keep
-  // it alive — a frozen frame reads as a rendering glitch — but
-  // OnboardingOverlay pauses it outright on low-power machines so form
-  // interactions and demos still own the frame budget. Hidden phases are
-  // paused through `stellaHiddenByPhase`.
-  const pauseStellaAnimation =
-    onboarding.onboardingExiting || stellaHiddenByPhase;
-
-  useEffect(() => {
-    if (!onboarding.onboardingDone) return;
-    onEnteredApp();
-  }, [onEnteredApp, onboarding.onboardingDone]);
-
   return (
-    <div
-      className="onboarding-layout"
-      data-split={onboarding.splitMode || undefined}
-    >
-      <Suspense fallback={null}>
-        <OnboardingView
-          hasExpanded={onboarding.hasExpanded}
-          onboardingDone={onboarding.onboardingDone}
-          onboardingExiting={onboarding.onboardingExiting}
-          isAuthenticated={onboarding.isAuthenticated}
-          splitMode={onboarding.splitMode}
-          splitEntering={onboarding.splitEntering}
-          hasStarted={onboarding.hasStarted}
-          stellaAnimationRef={onboarding.stellaAnimationRef}
-          stellaAnimationPaused={pauseStellaAnimation}
-          stellaAnimationHidden={stellaHiddenByPhase}
-          onboardingKey={onboarding.onboardingKey}
-          initialPhase={onboarding.initialPhase}
-          triggerFlash={onboarding.triggerFlash}
-          startOnboarding={onboarding.startOnboarding}
-          completeOnboarding={onboarding.completeOnboarding}
-          onDiscoveryConfirm={handleDiscoveryConfirm}
-          onPhaseChange={handleOnboardingPhaseChange}
-          discoveryWelcomeExpected={discoveryWelcomeExpected}
-          discoveryWelcomeReady={discoveryWelcomeReady}
-        />
-      </Suspense>
-    </div>
+    <Suspense fallback={null}>
+      <OnboardingChatView
+        isAuthenticated={hasConnectedAccount}
+        onComplete={handleComplete}
+      />
+    </Suspense>
   );
 }
 
@@ -175,7 +128,7 @@ const HostedChatSurface = () => (
 
 const WebsiteShell = () => {
   useEffect(() => {
-    dismissLaunchSplash();
+    holdLaunchSplashUntilLive();
   }, []);
 
   return (
@@ -186,8 +139,6 @@ const WebsiteShell = () => {
 };
 
 const DesktopFullShell = () => {
-  const { state } = useUiState();
-  const activeConversationId = state.conversationId;
   const { completed: onboardingDone, hydrated: onboardingHydrated } =
     useOnboardingState();
   // Returning users resolve `onboardingDone` synchronously from shared UI state,
@@ -197,7 +148,6 @@ const DesktopFullShell = () => {
   const [hasEnteredApp, setHasEnteredApp] = useState(() =>
     readLocalOnboardingCompleted(),
   );
-  const { runtimeStatus, retryRuntimeBootstrap } = useBootstrapState();
 
   const onboardingResolved = onboardingHydrated || onboardingDone;
   const appReady = onboardingResolved && onboardingDone && hasEnteredApp;
@@ -218,37 +168,26 @@ const DesktopFullShell = () => {
     window.electronAPI?.ui.setAppReady?.(appReady);
   }, [appReady]);
 
-  // Keep the static launch splash up for returning users until React has
-  // mounted the real shell. First-run onboarding dismisses it after its chunk
-  // is loaded from OnboardingExperience.
+  // Keep the static launch splash up for returning users until the shell is
+  // *live* — auth resolved and the active conversation selected — so the
+  // window reveals once, fully working, instead of showing a shell whose
+  // composer enables and conversation list fills in a moment later. The root
+  // layout calls `dismissLaunchSplash()` at that point; `holdLaunchSplash…`
+  // bounds the wait so offline or cold starts never sit behind the splash.
+  // First-run onboarding dismisses it after its chunk is loaded from
+  // OnboardingExperience.
   useEffect(() => {
     if (appReady) {
-      dismissLaunchSplash();
+      holdLaunchSplashUntilLive();
     }
   }, [appReady]);
-
-  useEffect(() => {
-    if (!appReady) return;
-    if (activeConversationId) return;
-    if (runtimeStatus !== "ready") return;
-
-    // Bootstrap can finish while RouterProvider is still unmounted during
-    // onboarding. If the handoff ever loses the conversation id, kick the
-    // light bootstrap loop once more after the real app tree mounts instead
-    // of leaving the chat runtime stuck in its initial loading state until a
-    // process relaunch.
-    retryRuntimeBootstrap();
-  }, [activeConversationId, appReady, retryRuntimeBootstrap, runtimeStatus]);
 
   return (
     <ShellChrome windowMode={needsOnboarding ? "onboarding" : "app"}>
       {appReady ? (
         <HostedChatSurface />
       ) : needsOnboarding ? (
-        <OnboardingExperience
-          activeConversationId={activeConversationId}
-          onEnteredApp={() => setHasEnteredApp(true)}
-        />
+        <OnboardingExperience onEnteredApp={() => setHasEnteredApp(true)} />
       ) : null}
     </ShellChrome>
   );

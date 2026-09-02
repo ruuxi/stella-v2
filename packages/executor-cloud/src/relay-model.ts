@@ -6,6 +6,7 @@ import {
   isDeepSeekV4FlashModel,
   isMuseSpark12ContributorModel,
 } from "@stella/contracts/stella-api";
+import { loadModelRegistry } from "@stella/contracts/model-registry";
 import {
   GATEWAY_AGENT_TYPE_HEADER,
   GATEWAY_PROTOCOLS,
@@ -487,6 +488,7 @@ export const createCloudRelayModel = async (
     agentType: args.agentType,
     ...(args.fetch ? { fetch: args.fetch } : {}),
   };
+  await loadModelRegistry();
   return execution.engine === "stella"
     ? await managedRelayModel({
         execution,

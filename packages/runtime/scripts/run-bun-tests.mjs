@@ -53,11 +53,20 @@ for (const file of files) {
   }
 }
 
-const child = spawn(process.execPath, ["test", ...files], {
-  cwd: runtimeRoot,
-  env: process.env,
-  stdio: "inherit",
-});
+const child = spawn(
+  process.execPath,
+  [
+    "test",
+    "--preload",
+    path.join(runtimeRoot, "tests", "setup", "model-registry.ts"),
+    ...files,
+  ],
+  {
+    cwd: runtimeRoot,
+    env: process.env,
+    stdio: "inherit",
+  },
+);
 const exitCode = await new Promise((resolve, reject) => {
   child.once("error", reject);
   child.once("exit", (code, signal) => {

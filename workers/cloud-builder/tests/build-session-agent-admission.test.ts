@@ -73,7 +73,10 @@ const harness = async (
   const values = new Map<string, unknown>();
   const sqlFake = openSqlStorageFake();
   let alarm: number | null = null;
-  const put = async (key: string | Record<string, unknown>, value?: unknown) => {
+  const put = async (
+    key: string | Record<string, unknown>,
+    value?: unknown,
+  ) => {
     if (typeof key === "string") {
       values.set(key, structuredClone(value));
       return;
@@ -190,9 +193,10 @@ const harness = async (
      * and a later wake actually produce. Nothing in-memory carries over.
      */
     restart: () => {
-      const replacement = Object.create(
-        BuildSession.prototype,
-      ) as InstanceType<typeof BuildSession> & Record<string, unknown>;
+      const replacement = Object.create(BuildSession.prototype) as InstanceType<
+        typeof BuildSession
+      > &
+        Record<string, unknown>;
       Object.assign(replacement, instance, {
         controlPlaneCapabilities: new Map(),
         agentTurnExecutions: new Map(),
@@ -209,19 +213,14 @@ const invoke = <T>(
   name: string,
   ...args: unknown[]
 ): T =>
-  (instance[name] as (...rest: unknown[]) => T).call(
-    instance,
-    ...args,
-  ) as T;
+  (instance[name] as (...rest: unknown[]) => T).call(instance, ...args) as T;
 
 const dispatch = async (
   instance: Record<string, unknown>,
   body: unknown,
   headers: Record<string, string> = {},
 ): Promise<Response> =>
-  await (
-    instance.fetch as (request: Request) => Promise<Response>
-  )(
+  await (instance.fetch as (request: Request) => Promise<Response>)(
     new Request("https://build-session/turn", {
       method: "POST",
       headers: {
@@ -407,7 +406,9 @@ describe("BuildSession agent-turn admission", () => {
     expect(await response.json()).toMatchObject({
       error: "Connect Claude before using that cloud execution route.",
     });
-    expect(h.gates.releases).toEqual([{ ownerId: "owner-1", turnId: "turn-1" }]);
+    expect(h.gates.releases).toEqual([
+      { ownerId: "owner-1", turnId: "turn-1" },
+    ]);
     h.close();
   });
 
@@ -452,7 +453,6 @@ describe("owner gate release", () => {
     const h = await harness();
     await dispatch(h.instance, agentDispatch());
     const turn = h.values.get("turn") as Record<string, unknown>;
-
     const delivered = await invoke<Promise<boolean>>(
       h.instance,
       "deliverTerminal",
@@ -466,7 +466,9 @@ describe("owner gate release", () => {
     );
 
     expect(delivered).toBe(true);
-    expect(h.gates.releases).toEqual([{ ownerId: "owner-1", turnId: "turn-1" }]);
+    expect(h.gates.releases).toEqual([
+      { ownerId: "owner-1", turnId: "turn-1" },
+    ]);
     const completed = h.outbox.events.find(
       (event): event is ThreadCompletedEvent =>
         event.kind === "thread.completed",
@@ -549,7 +551,9 @@ describe("owner gate release", () => {
       canceled: true,
       preAdmission: true,
     });
-    expect(h.gates.releases).toEqual([{ ownerId: "owner-1", turnId: "turn-1" }]);
+    expect(h.gates.releases).toEqual([
+      { ownerId: "owner-1", turnId: "turn-1" },
+    ]);
     expect(h.started).toEqual([]);
     h.close();
   });
@@ -674,20 +678,26 @@ describe("the parent conversation wake", () => {
     });
 
     await expect(
-      invoke<Promise<void>>(h.instance, "wakeParentConversation", completedTurn, {
-        status: "completed",
-        threadUpdatedAt: 1,
-      }),
+      invoke<Promise<void>>(
+        h.instance,
+        "wakeParentConversation",
+        completedTurn,
+        {
+          status: "completed",
+          threadUpdatedAt: 1,
+        },
+      ),
     ).rejects.toThrow(/refused \(503\)/u);
     h.close();
   });
 });
 
 describe("the thread transcript a continuation reads", () => {
-  test("appends commit locally and project as one batch", async () => {
+  test("appends commit locally without a Convex message projection", async () => {
     const h = await harness();
     await dispatch(h.instance, agentDispatch());
     const turn = h.values.get("turn") as Record<string, unknown>;
+    const outboxCount = h.outbox.events.length;
 
     await invoke<Promise<void>>(h.instance, "appendThreadTranscript", turn, [
       { ordinal: 0, role: "user", payloadJson: '{"role":"user"}' },
@@ -704,16 +714,7 @@ describe("the thread transcript a continuation reads", () => {
       ["turn-1", "user"],
       ["turn-1", "assistant"],
     ]);
-    const projected = h.outbox.events.filter(
-      (event) => event.kind === "thread.messages",
-    );
-    expect(projected).toHaveLength(1);
-    expect(projected[0]).toMatchObject({
-      threadId: THREAD_ID,
-      turnId: "turn-1",
-      attemptGeneration: 1,
-      batchOrdinal: 1,
-    });
+    expect(h.outbox.events).toHaveLength(outboxCount);
     h.close();
   });
 

@@ -17,12 +17,10 @@ import {
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
 const MAX_EDIT_PASSES = 32;
-const EXCERPT_DELETE_BATCH = 200;
 
 const editKindValidator = v.union(v.literal("fork"), v.literal("rewind"));
 const editStateValidator = v.union(
   v.literal("preparing"),
-  v.literal("projecting"),
   v.literal("complete"),
   v.literal("failed"),
   v.literal("canceled"),
@@ -57,7 +55,6 @@ const operationValidator = v.object({
   lastPreview: v.optional(v.string()),
   lastRole: v.optional(v.string()),
   completedAt: v.optional(v.number()),
-  projectionComplete: v.optional(v.boolean()),
   lastError: v.optional(v.string()),
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -500,7 +497,6 @@ export const commitForkInternal = internalMutation({
       resultLastSeq: args.result.lastSeq,
       lastPreview: args.result.lastPreview,
       lastRole: args.result.lastRole,
-      projectionComplete: true,
       completedAt: args.now,
       updatedAt: args.now,
     });
@@ -541,7 +537,7 @@ export const commitRewindInternal = internalMutation({
     if (operation.ownerGeneration !== args.ownerGeneration) {
       conflict("This edit belongs to an earlier account-data generation.");
     }
-    if (operation.state === "complete" || operation.state === "projecting") {
+    if (operation.state === "complete") {
       return {
         conversationId: operation.sourceConversationId,
         previousEpoch: operation.previousEpoch!,
@@ -575,13 +571,12 @@ export const commitRewindInternal = internalMutation({
       ...(args.result.lastSeq < 0 ? { allowEmpty: true } : {}),
     });
     await ctx.db.patch(operation._id, {
-      state: "projecting",
+      state: "complete",
       previousEpoch: args.result.previousEpoch,
       nextEpoch: args.result.nextEpoch,
       resultLastSeq: args.result.lastSeq,
       lastPreview: args.result.lastPreview,
       lastRole: args.result.lastRole,
-      projectionComplete: false,
       completedAt: args.now,
       updatedAt: args.now,
     });
@@ -592,56 +587,6 @@ export const commitRewindInternal = internalMutation({
       lastSeq: args.result.lastSeq,
       replayed: false,
     };
-  },
-});
-
-export const cleanupRewindProjectionInternal = internalMutation({
-  args: {
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    operationId: v.string(),
-  },
-  returns: v.object({ complete: v.boolean(), deleted: v.number() }),
-  handler: async (ctx, args) => {
-    await assertOwnerMigrationWriteAllowed(
-      ctx,
-      args.ownerId,
-      args.ownerGeneration,
-    );
-    const operation = await readOperationById(ctx, args.operationId);
-    if (
-      !operation ||
-      operation.ownerId !== args.ownerId ||
-      operation.kind !== "rewind"
-    ) {
-      return notFound();
-    }
-    if (operation.ownerGeneration !== args.ownerGeneration) {
-      conflict("This edit belongs to an earlier account-data generation.");
-    }
-    if (operation.state === "complete") return { complete: true, deleted: 0 };
-    if (operation.state !== "projecting") {
-      conflict("The rewind journal transition has not completed.");
-    }
-    const rows = await ctx.db
-      .query("cloud_message_excerpts")
-      .withIndex("by_conversationId_and_ownerId_and_seqStart", (q) =>
-        q
-          .eq("conversationId", operation.sourceConversationId)
-          .eq("ownerId", args.ownerId)
-          .gt("seqStart", operation.throughSeq),
-      )
-      .take(EXCERPT_DELETE_BATCH);
-    for (const row of rows) await ctx.db.delete(row._id);
-    if (rows.length === EXCERPT_DELETE_BATCH) {
-      return { complete: false, deleted: rows.length };
-    }
-    await ctx.db.patch(operation._id, {
-      state: "complete",
-      projectionComplete: true,
-      updatedAt: Date.now(),
-    });
-    return { complete: true, deleted: rows.length };
   },
 });
 
@@ -707,12 +652,6 @@ const commitRewindRef = makeFunctionReference<
   },
   RewindClientResult
 >("cloud_conversation_edits:commitRewindInternal");
-
-const cleanupRewindRef = makeFunctionReference<
-  "mutation",
-  { ownerId: string; ownerGeneration: string; operationId: string },
-  { complete: boolean; deleted: number }
->("cloud_conversation_edits:cleanupRewindProjectionInternal");
 
 const builderEndpoint = (): { url: string; secret: string } => {
   const url = process.env.CLOUD_BUILDER_URL?.trim().replace(/\/+$/, "");
@@ -810,22 +749,6 @@ const runToCompletion = async (
     message:
       "The conversation edit is still copying. Retry the same requestId.",
   });
-};
-
-const finishRewindProjection = async (
-  ctx: ActionCtx,
-  ownerId: string,
-  ownerGeneration: string,
-  operationId: string,
-): Promise<void> => {
-  for (;;) {
-    const result = await ctx.runMutation(cleanupRewindRef, {
-      ownerId,
-      ownerGeneration,
-      operationId,
-    });
-    if (result.complete) return;
-  }
 };
 
 export const forkMyConversation = action({
@@ -934,13 +857,7 @@ export const rewindMyConversation = action({
       activeTurnPolicy: args.activeTurnPolicy,
       now: Date.now(),
     });
-    if (operation.state === "complete" || operation.state === "projecting") {
-      await finishRewindProjection(
-        ctx,
-        ownerId,
-        ownerGeneration,
-        operation.operationId,
-      );
+    if (operation.state === "complete") {
       return {
         conversationId: operation.sourceConversationId,
         previousEpoch: operation.previousEpoch!,
@@ -965,12 +882,6 @@ export const rewindMyConversation = action({
       result: worker,
       now: Date.now(),
     });
-    await finishRewindProjection(
-      ctx,
-      ownerId,
-      ownerGeneration,
-      operation.operationId,
-    );
     return result;
   },
 });
@@ -993,9 +904,9 @@ export const authorizeEditTargetPurgeInternal = internalMutation({
     const edit = await readOperationById(ctx, args.editOperationId);
     return Boolean(
       edit &&
-      edit.ownerId === args.ownerId &&
-      edit.kind === "fork" &&
-      edit.targetConversationId === args.targetConversationId,
+        edit.ownerId === args.ownerId &&
+        edit.kind === "fork" &&
+        edit.targetConversationId === args.targetConversationId,
     );
   },
 });

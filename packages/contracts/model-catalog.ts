@@ -1,4 +1,4 @@
-import { MODELS } from "./models.generated.js";
+import { getLoadedModelRegistry } from "./model-registry.js";
 import { isRetiredAssistantProvider } from "./provider-display.js";
 
 export type CatalogApi = string;
@@ -12,7 +12,10 @@ export type CatalogModel<TApi extends CatalogApi = CatalogApi> = {
   baseUrl: string;
   reasoning: boolean;
   thinkingLevelMap?: Partial<
-    Record<"off" | "minimal" | "low" | "medium" | "high" | "xhigh", string | null>
+    Record<
+      "off" | "minimal" | "low" | "medium" | "high" | "xhigh",
+      string | null
+    >
   >;
   input: ("text" | "image")[];
   cost: {
@@ -59,10 +62,11 @@ export type RuntimeListModelsRequest = {
 };
 
 export function getAllModels(): CatalogModel[] {
-  return Object.keys(MODELS)
+  const models = getLoadedModelRegistry();
+  return Object.keys(models)
     .filter((provider) => !isRetiredAssistantProvider(provider))
     .sort()
     .flatMap((provider) =>
-      Object.values(MODELS[provider as keyof typeof MODELS]),
+      Object.values(models[provider as keyof typeof models]),
     ) as CatalogModel[];
 }

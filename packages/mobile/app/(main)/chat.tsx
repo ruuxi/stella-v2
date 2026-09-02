@@ -8,7 +8,7 @@ import {
   View,
 } from "react-native";
 import { useIsFocused } from "expo-router";
-import { isGuest } from "../../src/lib/guest-mode";
+import { authClient } from "../../src/lib/auth-client";
 import {
   getDesktopBridgeStatus,
   getPreferredPhoneAccess,
@@ -47,17 +47,19 @@ import {
 import { type DesktopConnection } from "../../src/lib/top-bar-status";
 import { attachmentsSettled } from "../../src/lib/chat-attachments";
 import { useIsOffline } from "../../src/lib/use-network-status";
+import {
+  publishActivityHub,
+  publishComputerControl,
+  requestOpenSidebar,
+} from "../../src/lib/main-shell-store";
 import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
 import { ChatPane } from "../../src/components/ChatPane";
-import { ActivityHubSheet } from "../../src/components/ActivityHubSheet";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { CloudBrowserInterventionCard } from "../../src/components/CloudBrowserInterventionCard";
 import { ComposerNotice } from "../../src/components/ComposerNotice";
 import { ComputerDeviceSheet } from "../../src/components/ComputerDeviceSheet";
-import { StellaMarkHero } from "../../src/components/stella-mark/StellaMarkHero";
 import { PairPhoneSheet } from "../../src/components/PairPhoneSheet";
-import { SignInPrompt } from "../../src/components/SignInPrompt";
 import type { ChatArtifact } from "../../src/types";
 import { useT } from "../../src/i18n";
 
@@ -79,41 +81,15 @@ type DeviceStatus = {
 };
 
 /**
- * The one chat. Its transcript is the signed-in cloud conversation, and each
- * turn's execution placement is decided server-side: the paired computer is
- * offered first and cloud takes the turn when no computer is reachable. Pairing
+ * The one chat. Its transcript belongs to the current connected or anonymous
+ * session, and each turn's execution placement is decided server-side: the
+ * paired computer is offered first and cloud takes the turn when no computer
+ * is reachable. Pairing
  * therefore only changes what Stella can reach, never where the conversation
  * lives, so the surface is the same with or without a computer.
  */
-/** The character above the guest hero copy, sized like the device sheet's. */
-const HERO_MARK_SIZE = 96;
-
 export default function ChatScreen() {
-  return isGuest() ? <GuestChatSurface /> : <SignedInChatScreen />;
-}
-
-function GuestChatSurface() {
-  const colors = useColors();
-  const t = useT();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  return (
-    <View style={styles.centerSurface}>
-      <View style={styles.heroBlock}>
-        <View style={styles.heroMark}>
-          <StellaMarkHero size={HERO_MARK_SIZE} faceColor={colors.background} />
-        </View>
-        <Text style={styles.heroTitle}>
-          {t("mobile.computer.guestHeroTitle")}
-        </Text>
-        <Text style={styles.heroBody}>
-          {t("mobile.computer.guestHeroBody")}
-        </Text>
-      </View>
-      <View style={styles.signInSection}>
-        <SignInPrompt />
-      </View>
-    </View>
-  );
+  return <SignedInChatScreen />;
 }
 
 function SignedInChatScreen() {
@@ -274,6 +250,8 @@ function ChatSurface(props: {
   } = props;
   const colors = useColors();
   const t = useT();
+  const session = authClient.useSession();
+  const anonymous = session.data?.user?.isAnonymous === true;
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const offline = useIsOffline();
   const isFocused = useIsFocused();
@@ -284,7 +262,6 @@ function ChatSurface(props: {
   );
   const [pairSheetOpen, setPairSheetOpen] = useState(false);
   const [deviceSheetOpen, setDeviceSheetOpen] = useState(false);
-  const [activityHubOpen, setActivityHubOpen] = useState(false);
   const [appActive, setAppActive] = useState(
     () =>
       AppState.currentState !== "background" &&
@@ -448,6 +425,63 @@ function ChatSurface(props: {
         ? "connected"
         : "disconnected";
 
+  // The top bar's computer button is chrome owned by the layout above this
+  // route, so its state and tap handler travel through the shell store.
+  const openComputer = useCallback(() => {
+    if (access) setDeviceSheetOpen(true);
+    else if (pairingResolved) setPairSheetOpen(true);
+  }, [access, pairingResolved]);
+  const computerLabel = !access
+    ? t("mobile.computer.pairLabel")
+    : connection === "connecting"
+      ? t("mobile.computer.connectingLabel")
+      : connection === "connected"
+        ? t("mobile.computer.connectedLabel")
+        : t("mobile.computer.disconnectedLabel");
+  useEffect(() => {
+    if (!access && !pairingResolved) {
+      publishComputerControl(null);
+      return;
+    }
+    publishComputerControl({
+      connection: access ? connection : null,
+      label: computerLabel,
+      onPress: openComputer,
+    });
+  }, [access, pairingResolved, connection, computerLabel, openComputer]);
+
+  // The sidebar shows this conversation's background work, so it reads the
+  // same rows the retired activity sheet did, published as they change.
+  const {
+    conversationTasks,
+    conversationArtifacts,
+    activityArtifactsByTaskId,
+    conversationOwnedArtifacts,
+  } = thread;
+  useEffect(() => {
+    publishActivityHub({
+      tasks: conversationTasks,
+      artifacts: conversationArtifacts,
+      artifactsByTaskId: activityArtifactsByTaskId,
+      conversationArtifacts: conversationOwnedArtifacts,
+      access,
+    });
+  }, [
+    conversationTasks,
+    conversationArtifacts,
+    activityArtifactsByTaskId,
+    conversationOwnedArtifacts,
+    access,
+  ]);
+  // Leaving the chat (sign-out, authority swap) clears what the chrome shows.
+  useEffect(
+    () => () => {
+      publishActivityHub(null);
+      publishComputerControl(null);
+    },
+    [],
+  );
+
   const platformLabel =
     status.platform?.trim() || t("mobile.computer.defaultDeviceLabel");
   const statusLabel = status.checking
@@ -564,39 +598,12 @@ function ChatSurface(props: {
         onAddQuote={thread.addQuote}
         onRemoveQuote={thread.removeQuote}
         maxAttachments={thread.maxAttachments}
-        dictationAnonymous={false}
+        dictationAnonymous={anonymous}
         onOpenArtifact={setSelectedArtifact}
         conversationId={thread.conversationId}
         activityTasks={thread.conversationTasks}
-        onOpenActivityHub={() => setActivityHubOpen(true)}
-        onOpenDeviceSheet={
-          access
-            ? () => setDeviceSheetOpen(true)
-            : pairingResolved
-              ? () => setPairSheetOpen(true)
-              : undefined
-        }
-        {...(access
-          ? {
-              computerConnection: connection,
-              computerConnectionLabel:
-                connection === "connecting"
-                  ? t("mobile.computer.connectingLabel")
-                  : connection === "connected"
-                    ? t("mobile.computer.connectedLabel")
-                    : t("mobile.computer.disconnectedLabel"),
-            }
-          : {})}
+        onOpenActivity={requestOpenSidebar}
         catchingUp={thread.catchingUp}
-      />
-      <ActivityHubSheet
-        visible={activityHubOpen}
-        onClose={() => setActivityHubOpen(false)}
-        tasks={thread.conversationTasks}
-        artifacts={thread.conversationArtifacts}
-        artifactsByTaskId={thread.activityArtifactsByTaskId}
-        conversationArtifacts={thread.conversationOwnedArtifacts}
-        access={access}
       />
       <PairPhoneSheet
         visible={pairSheetOpen}
@@ -680,35 +687,6 @@ const makeStyles = (colors: {
       color: colors.text,
       fontFamily: fonts.sans.medium,
       fontSize: 14,
-    },
-    heroMark: {
-      marginBottom: 12,
-    },
-    heroBlock: {
-      alignItems: "center",
-      gap: 8,
-    },
-    heroTitle: {
-      color: colors.textMuted,
-      fontFamily: fonts.display.regularItalic,
-      fontSize: 22,
-      letterSpacing: -0.5,
-      opacity: 0.7,
-      textAlign: "center",
-    },
-    heroBody: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 15,
-      letterSpacing: -0.2,
-      lineHeight: 22,
-      marginTop: 8,
-      maxWidth: 280,
-      textAlign: "center",
-    },
-    signInSection: {
-      alignItems: "center",
-      marginTop: 28,
     },
     authorityIssue: {
       alignItems: "center",

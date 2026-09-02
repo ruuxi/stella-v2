@@ -11,6 +11,8 @@ import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot"
 import type {
   OwnerGateAdmission,
   OwnerGateAdmitInput,
+  OwnerGateFenceLeaseRequest,
+  OwnerGateSnapshotWithLease,
 } from "../../src/owner-gate.js";
 
 export const sampleOwnerSnapshot = (
@@ -45,12 +47,21 @@ export type FakeOwnerGates = {
       admit: (input: OwnerGateAdmitInput) => Promise<OwnerGateAdmission>;
       release: (input: { turnId: string }) => Promise<void>;
       snapshot: () => Promise<OwnerSnapshot>;
+      snapshotWithFenceLease: (input: {
+        lease: OwnerGateFenceLeaseRequest;
+      }) => Promise<OwnerGateSnapshotWithLease>;
       invalidate: () => Promise<void>;
     };
   };
   admits: Array<{ ownerId: string; input: OwnerGateAdmitInput }>;
   releases: Array<{ ownerId: string; turnId: string }>;
   snapshots: string[];
+  /** Every combined snapshot-plus-register call, with what the gate did. */
+  fenceLeases: Array<{
+    ownerId: string;
+    lease: OwnerGateFenceLeaseRequest;
+    outcome: OwnerGateSnapshotWithLease["lease"];
+  }>;
   invalidations: string[];
 };
 
@@ -61,13 +72,42 @@ export const fakeOwnerGates = (
       ownerId: string,
       input: OwnerGateAdmitInput,
     ) => OwnerGateAdmission | Promise<OwnerGateAdmission>;
+    /** Replace the combined call; the default mirrors the gate's own rules. */
+    snapshotWithFenceLease?: (
+      ownerId: string,
+      lease: OwnerGateFenceLeaseRequest,
+    ) => OwnerGateSnapshotWithLease | Promise<OwnerGateSnapshotWithLease>;
   } = {},
 ): FakeOwnerGates => {
   const snapshot = options.snapshot ?? sampleOwnerSnapshot();
   const admits: FakeOwnerGates["admits"] = [];
   const releases: FakeOwnerGates["releases"] = [];
   const snapshots: string[] = [];
+  const fenceLeases: FakeOwnerGates["fenceLeases"] = [];
   const invalidations: string[] = [];
+  const defaultSnapshotWithFenceLease = (
+    _ownerId: string,
+    lease: OwnerGateFenceLeaseRequest,
+  ): OwnerGateSnapshotWithLease => {
+    if (!snapshot.writable) {
+      return { snapshot, lease: { status: "skipped", reason: "not_writable" } };
+    }
+    if (lease.ownerGeneration !== snapshot.ownerGeneration) {
+      return {
+        snapshot,
+        lease: { status: "skipped", reason: "generation_stale" },
+      };
+    }
+    return {
+      snapshot,
+      lease: {
+        status: "registered",
+        generation:
+          lease.generation ?? `fence-generation-${fenceLeases.length + 1}`,
+        expiresAt: Date.now() + 30 * 60_000,
+      },
+    };
+  };
   const defaultAdmit = (
     _ownerId: string,
     input: OwnerGateAdmitInput,
@@ -99,6 +139,17 @@ export const fakeOwnerGates = (
           snapshots.push(ownerId);
           return snapshot;
         },
+        snapshotWithFenceLease: async ({ lease }) => {
+          const outcome = await (
+            options.snapshotWithFenceLease ?? defaultSnapshotWithFenceLease
+          )(ownerId, lease);
+          fenceLeases.push({
+            ownerId,
+            lease: structuredClone(lease),
+            outcome: structuredClone(outcome.lease),
+          });
+          return outcome;
+        },
         invalidate: async () => {
           invalidations.push(ownerId);
         },
@@ -107,6 +158,7 @@ export const fakeOwnerGates = (
     admits,
     releases,
     snapshots,
+    fenceLeases,
     invalidations,
   };
 };

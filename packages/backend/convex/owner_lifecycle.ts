@@ -18,10 +18,38 @@ import {
 export const LEGACY_OWNER_GENERATION = "legacy";
 const PURGE_LEASE_MS = 9 * 60_000;
 const MAX_RETRY_DELAY_MS = 15 * 60_000;
+const CONFIGURATION_RETRY_DELAY_MS = 24 * 60 * 60_000;
+const OWNER_PURGE_CONFIGURATION_ERROR =
+  "CLOUD_BUILDER_URL or BUILDER_SERVICE_SECRET is missing";
 
 type OwnerLifecycleState = "open" | "resetting" | "deleting";
 type OwnerPurgeMode = "reset" | "delete";
 type OwnerPurgeStage = "core" | "cloud" | "complete";
+type OwnerPurgeRetryPlan =
+  | { kind: "scheduled"; delayMs: number }
+  | { kind: "sweeper"; delayMs: number };
+
+const ownerPurgeRetryDelayMs = (args: {
+  attempts: number;
+  error: string;
+  retryAfterMs: number | undefined;
+}): OwnerPurgeRetryPlan => {
+  if (args.error.includes(OWNER_PURGE_CONFIGURATION_ERROR)) {
+    return {
+      kind: "sweeper",
+      delayMs: CONFIGURATION_RETRY_DELAY_MS,
+    };
+  }
+  const exponentialDelayMs =
+    5_000 * 2 ** Math.min(Math.max(0, args.attempts - 1), 8);
+  return {
+    kind: "scheduled",
+    delayMs: Math.min(
+      MAX_RETRY_DELAY_MS,
+      Math.max(1_000, Math.floor(args.retryAfterMs ?? exponentialDelayMs)),
+    ),
+  };
+};
 
 const readOwnerLifecycle = async (ctx: Pick<QueryCtx, "db">, ownerId: string) =>
   await ctx.db
@@ -175,7 +203,11 @@ export const readOwnerDataAccessState = async (
 ): Promise<OwnerDataAccessState> => {
   const lifecycle = await readOwnerLifecycle(ctx, ownerId);
   if (!lifecycle) {
-    return { allowed: true, state: "open", generation: LEGACY_OWNER_GENERATION };
+    return {
+      allowed: true,
+      state: "open",
+      generation: LEGACY_OWNER_GENERATION,
+    };
   }
   return {
     allowed: lifecycle.state === "open",
@@ -187,7 +219,8 @@ export const readOwnerDataAccessState = async (
 export const getOwnerDataAccessStateInternal = internalQuery({
   args: { ownerId: v.string() },
   returns: ownerDataAccessStateValidator,
-  handler: async (ctx, args) => await readOwnerDataAccessState(ctx, args.ownerId),
+  handler: async (ctx, args) =>
+    await readOwnerDataAccessState(ctx, args.ownerId),
 });
 
 /** Action-side admission seam used before credentials, billing, or upstream IO. */
@@ -601,23 +634,26 @@ export const scheduleOwnerPurgeRetryInternal = internalMutation({
     ) {
       return false;
     }
-    const delay = Math.min(
-      MAX_RETRY_DELAY_MS,
-      Math.max(1_000, Math.floor(args.retryAfterMs ?? 5_000)),
-    );
+    const retry = ownerPurgeRetryDelayMs({
+      attempts: job.attempts,
+      error: args.error,
+      retryAfterMs: args.retryAfterMs,
+    });
     await ctx.db.patch(job._id, {
       stage: args.stage,
       leaseId: undefined,
       leaseExpiresAt: undefined,
-      nextRetryAt: args.now + delay,
+      nextRetryAt: args.now + retry.delayMs,
       lastError: args.error.slice(0, 2_000),
       updatedAt: args.now,
     });
-    await ctx.scheduler.runAfter(
-      delay,
-      internal.owner_lifecycle.resumeOwnerPurgeJobInternal,
-      { ownerId: args.ownerId, operationId: args.operationId },
-    );
+    if (retry.kind === "scheduled") {
+      await ctx.scheduler.runAfter(
+        retry.delayMs,
+        internal.owner_lifecycle.resumeOwnerPurgeJobInternal,
+        { ownerId: args.ownerId, operationId: args.operationId },
+      );
+    }
     return true;
   },
 });

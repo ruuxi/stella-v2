@@ -31,6 +31,10 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { DatabaseSync } from "node:sqlite";
 
+import { loadModelRegistry } from "@stella/contracts/model-registry";
+import "../ai/utils/http-proxy.js";
+import { registerBuiltInApiProviders } from "../ai/providers/register-builtins.js";
+
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { runRecall } from "../kernel/agent-runtime/context-lookup.js";
 import {
@@ -50,6 +54,9 @@ import {
   readRecallFtsHealth,
 } from "../kernel/storage/recall-read-queries.js";
 import { redactBenchmarkBrief } from "./recall-benchmark-redaction.js";
+
+await loadModelRegistry();
+registerBuiltInApiProviders();
 
 const REPO_ROOT = process.cwd();
 const readArg = (name: string): string | undefined => {

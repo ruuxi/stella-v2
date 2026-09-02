@@ -101,7 +101,7 @@ export default {
         throw new Error(`unexpected method: ${String(request.method)}`);
       },
     });
-    const codeTool = createCloudCodeAgentTool({
+    const codeTool = await createCloudCodeAgentTool({
       loader: env.LOADER,
       tools: integrationTools,
       executionScope: "workerd:mcp-list-acceptance",

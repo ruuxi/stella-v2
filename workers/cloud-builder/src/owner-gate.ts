@@ -6,8 +6,9 @@
  * It holds exactly one control-plane read — the owner snapshot Convex serves
  * from `GET /api/gateway/owner-snapshot` (plan quotas, model allowance,
  * default execution, owner generation, write fence) — cached for the
- * snapshot's own `ttlMs` and invalidated by Convex's push when billing or
- * lifecycle state changes. Everything else it decides from its own SQLite:
+ * snapshot's own `ttlMs`. Convex normally pushes the replacement snapshot
+ * when billing or lifecycle state changes; a push without one marks the copy
+ * stale for background refresh. Everything else it decides from its own SQLite:
  * rolling start windows (burst per 10 minutes, daily per 24 hours) and the
  * registry of running turns (per-lane concurrency, one running agent per
  * workspace). Conversation and thread objects admit through it and release
@@ -18,7 +19,8 @@
  * Refusals are values, never thrown: an RPC caller maps them straight to the
  * turn-start error contract. Only a snapshot that cannot be obtained at all
  * fails closed — as `internal`, retryable — and even then a snapshot cached
- * within three ttls is served rather than refusing the owner outright.
+ * within three ttls is served while a single background refresh runs rather
+ * than putting a Convex call on the turn path.
  */
 
 import { DurableObject } from "cloudflare:workers";
@@ -95,10 +97,18 @@ import {
   type DeviceRegistration,
 } from "./dispatch-policy.js";
 import { enqueueOutbox } from "./outbox.js";
+import {
+  HEADER_OWNER_FENCE_ID,
+  createOwnerFenceHost,
+} from "./owner-fence-do.js";
+import type {
+  OwnerFenceLeaseNamespace,
+  OwnerFenceLeaseRole,
+} from "./owner-fence-store.js";
 
 export type OwnerGateEnv = Pick<
   Cloudflare.Env,
-  "STELLA_CONVEX_SITE_URL" | "BUILDER_SERVICE_SECRET"
+  "STELLA_CONVEX_SITE_URL" | "BUILDER_SERVICE_SECRET" | "BACKUP_BUCKET"
 > &
   Partial<
     Pick<
@@ -161,16 +171,67 @@ export type OwnerGateAdmission =
   | { ok: true; snapshot: OwnerSnapshot; replayed: boolean }
   | OwnerGateRefusal;
 
+/** One exact owner-fence lease carried along with a snapshot read. */
+export type OwnerGateFenceLeaseRequest = {
+  leaseId: string;
+  sessionId: string;
+  turnId: string;
+  ownerGeneration: string;
+  namespace: OwnerFenceLeaseNamespace;
+  role: OwnerFenceLeaseRole;
+  /** The open-fence generation an exact replay expects to still hold. */
+  generation?: string;
+  expiresAt?: number;
+};
+
+export type OwnerGateFenceLeaseOutcome =
+  | { status: "registered"; generation: string; expiresAt: number }
+  /** The fence host refused, exactly as `POST /owner-fence/register` would. */
+  | { status: "refused"; httpStatus: number; code?: string; error?: string }
+  /** The snapshot did not authorize the caller, so no register was tried. */
+  | { status: "skipped"; reason: "not_writable" | "generation_stale" };
+
+export type OwnerGateSnapshotWithLease =
+  | { snapshot: OwnerSnapshot; lease: OwnerGateFenceLeaseOutcome }
+  | {
+      snapshot: null;
+      snapshotError: {
+        code: "owner_purged" | "internal";
+        message: string;
+        retryable: boolean;
+      };
+      lease: { status: "skipped"; reason: "snapshot_unavailable" };
+    };
+
 export const OWNER_GATE_BURST_WINDOW_MS = 10 * 60_000;
 export const OWNER_GATE_DAILY_WINDOW_MS = 24 * 60 * 60_000;
 /** Grace added to `TURN_TIMEOUT_MS` before a running row is presumed released. */
 export const OWNER_GATE_RUNNING_GRACE_MS = 60_000;
-export const OWNER_GATE_SNAPSHOT_TIMEOUT_MS = 10_000;
+/**
+ * Synchronous fetches are limited to three seconds. Production saw the old
+ * ten-second timeout turn into 8-18 second admissions, and a Convex call must
+ * not hold the turn path when the gate already has a usable snapshot.
+ */
+export const OWNER_GATE_SNAPSHOT_TIMEOUT_MS = 3_000;
+/** Background refreshes stay off the turn path and may wait longer for Convex. */
+export const OWNER_GATE_BACKGROUND_SNAPSHOT_TIMEOUT_MS = 10_000;
 /** A cloud start refused as unavailable (503) is retried once, after this. */
 export const DISPATCH_CLOUD_RETRY_DELAY_MS = 1_000;
 export const DISPATCH_CLOUD_MAX_ATTEMPTS = 2;
-/** A cached snapshot may be served this many ttls past its own after a fetch failure. */
+/**
+ * Hard ceiling for stale-while-revalidate. Before it, the gate serves its
+ * copy immediately; at or beyond it, admission waits for a bounded fetch and
+ * fails closed if Convex is unavailable.
+ */
 export const OWNER_GATE_STALE_SNAPSHOT_TTLS = 3;
+/**
+ * While a proven presence socket is attached, the alarm re-arms this often so
+ * the object stays resident and the next turn's snapshot read is a warm
+ * storage read rather than a wake from hibernation. Cheap, but its effect on
+ * the second send was not measured when it landed; see
+ * docs/perf/cloud-turn-latency-handoff.md before tuning or removing it.
+ */
+export const OWNER_GATE_PRESENCE_KEEPALIVE_MS = 30_000;
 const DEFAULT_TURN_TIMEOUT_MS = 900_000;
 const SNAPSHOT_KEY = "ownerSnapshot";
 const CONCURRENCY_RETRY_MIN_MS = 1_000;
@@ -266,7 +327,12 @@ const DDL = [
      ON dispatch_offers(device_id, status)`,
 ];
 
-type CachedSnapshot = { snapshot: OwnerSnapshot; cachedAt: number };
+type CachedSnapshot = {
+  snapshot: OwnerSnapshot;
+  cachedAt: number;
+  /** Convex announced a change but could not include a replacement. */
+  stale?: true;
+};
 
 /** How the snapshot fetch failed. `owner_purged` is definite; the rest are not. */
 export class OwnerGateSnapshotError extends Error {
@@ -711,9 +777,7 @@ type DispatchRow = {
 };
 
 const optional = <T>(value: T | null | undefined, key: string) =>
-  value === null || value === undefined || value === ""
-    ? {}
-    : { [key]: value };
+  value === null || value === undefined || value === "" ? {} : { [key]: value };
 
 export const dispatchSummary = (row: DispatchRow): DispatchSummary => ({
   dispatchId: row.dispatch_id,
@@ -787,14 +851,21 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   /** The owner this object gates. The namespace is addressed by name only. */
   private ownerId(): string {
     const name = this.ctx.id.name ?? "";
-    if (!name) throw new Error("Owner gate objects must be addressed by owner id.");
+    if (!name)
+      throw new Error("Owner gate objects must be addressed by owner id.");
     return name;
   }
 
   private ensureSchema(): void {
     if (this.schemaReady) return;
+    const startedAt = performance.now();
     for (const statement of DDL) this.ctx.storage.sql.exec(statement);
     this.schemaReady = true;
+    const schemaMs = Math.round(performance.now() - startedAt);
+    log("info", "owner_gate_wake_timing", {
+      schemaMs,
+      totalMs: schemaMs,
+    });
   }
 
   private turnTimeoutMs(): number {
@@ -808,7 +879,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
    * One GET to Convex. Split out so tests replace the transport without
    * touching the caching and failure policy around it.
    */
-  protected async fetchSnapshot(ownerId: string): Promise<OwnerSnapshot> {
+  protected async fetchSnapshot(
+    ownerId: string,
+    timeoutMs: number,
+  ): Promise<OwnerSnapshot> {
     const base = (this.env.STELLA_CONVEX_SITE_URL ?? "")
       .trim()
       .replace(/\/+$/, "");
@@ -829,7 +903,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
             authorization: `Bearer ${secret}`,
             accept: "application/json",
           },
-          signal: AbortSignal.timeout(OWNER_GATE_SNAPSHOT_TIMEOUT_MS),
+          signal: AbortSignal.timeout(timeoutMs),
         },
       );
     } catch (error) {
@@ -868,38 +942,55 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   /**
-   * The cached snapshot when fresh, else a refetch. A failed refetch serves a
-   * copy up to `OWNER_GATE_STALE_SNAPSHOT_TTLS` ttls old, then fails closed.
-   * A definite "owner gone" from Convex is never papered over by the cache.
+   * Serves any cached copy below the hard ceiling without waiting on Convex.
+   * Copies beyond `ttlMs`, plus copies marked stale by a snapshot-less push,
+   * start one shared background refresh. This stale-while-revalidate rule
+   * keeps the synchronous control plane off the turn path after production
+   * showed ten-second fetches stalling admissions. With no usable copy, or
+   * with `refresh: true`, the refresh stays synchronous and uses the three
+   * second bound. Background refreshes use a ten-second bound because they do
+   * not hold admission. When one reports a definite "owner gone", it removes
+   * the exact cached record that started the refresh so later reads fail
+   * closed.
    */
   async snapshot(
     options: { refresh?: boolean; now?: number } = {},
   ): Promise<OwnerSnapshot> {
     const now = options.now ?? Date.now();
     const cached = await this.ctx.storage.get<CachedSnapshot>(SNAPSHOT_KEY);
-    if (
-      !options.refresh &&
-      cached &&
-      now - cached.cachedAt < cached.snapshot.ttlMs
-    ) {
+    const ageMs = cached ? now - cached.cachedAt : 0;
+    const belowHardCeiling =
+      cached && ageMs < cached.snapshot.ttlMs * OWNER_GATE_STALE_SNAPSHOT_TTLS;
+    if (!options.refresh && cached && belowHardCeiling) {
+      if (cached.stale || ageMs >= cached.snapshot.ttlMs) {
+        if (ageMs >= cached.snapshot.ttlMs) {
+          log("info", "owner_snapshot_served_stale", {
+            ownerId: this.ownerId(),
+            ageMs,
+          });
+        }
+        this.refreshSnapshotInBackground(now);
+      }
       return cached.snapshot;
     }
     try {
-      return await this.refreshSnapshot(now);
+      return await this.refreshSnapshot(now, OWNER_GATE_SNAPSHOT_TIMEOUT_MS);
     } catch (error) {
       if (error instanceof OwnerGateSnapshotError && !error.retryable) {
         throw error;
       }
-      if (
-        cached &&
-        now - cached.cachedAt <
-          cached.snapshot.ttlMs * OWNER_GATE_STALE_SNAPSHOT_TTLS
-      ) {
-        log("error", "owner_snapshot_served_stale", {
+      if (cached && belowHardCeiling) {
+        log("error", "owner_snapshot_refresh_failed", {
           ownerId: this.ownerId(),
-          ageMs: now - cached.cachedAt,
+          ageMs,
           message: error instanceof Error ? error.message : String(error),
         });
+        if (ageMs >= cached.snapshot.ttlMs) {
+          log("info", "owner_snapshot_served_stale", {
+            ownerId: this.ownerId(),
+            ageMs,
+          });
+        }
         return cached.snapshot;
       }
       throw error instanceof OwnerGateSnapshotError
@@ -912,15 +1003,142 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     }
   }
 
-  private refreshSnapshot(now: number): Promise<OwnerSnapshot> {
+  /**
+   * The snapshot read and one exact owner-fence `register` in a single round
+   * trip, for a caller that would otherwise make them back to back. The
+   * register runs only when the snapshot still authorizes the caller's
+   * generation, so a stale or fenced-off caller never leaves a lease behind,
+   * and it runs through the same fence host `POST /owner-fence/register`
+   * uses: the lease protocol is unchanged, only the transport is. A snapshot
+   * that cannot be obtained is returned as a value rather than thrown, so the
+   * caller can tell "nothing was registered" from a lost response.
+   */
+  async snapshotWithFenceLease(input: {
+    lease: OwnerGateFenceLeaseRequest;
+    now?: number;
+  }): Promise<OwnerGateSnapshotWithLease> {
+    const now = input.now ?? Date.now();
+    let snapshot: OwnerSnapshot;
+    try {
+      snapshot = await this.snapshot({ now });
+    } catch (error) {
+      const failure =
+        error instanceof OwnerGateSnapshotError
+          ? error
+          : new OwnerGateSnapshotError(
+              "internal",
+              error instanceof Error ? error.message : String(error),
+              true,
+            );
+      return {
+        snapshot: null,
+        snapshotError: {
+          code: failure.code,
+          message: failure.message,
+          retryable: failure.retryable,
+        },
+        lease: { status: "skipped", reason: "snapshot_unavailable" },
+      };
+    }
+    if (!snapshot.writable) {
+      return { snapshot, lease: { status: "skipped", reason: "not_writable" } };
+    }
+    if (snapshot.ownerGeneration !== input.lease.ownerGeneration) {
+      return {
+        snapshot,
+        lease: { status: "skipped", reason: "generation_stale" },
+      };
+    }
+    const ownerId = this.ownerId();
+    const response = await createOwnerFenceHost({
+      ctx: this.ctx,
+      env: this.env,
+    }).fetch(
+      "register",
+      new Request("https://owner-gate/owner-fence/register", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          [HEADER_OWNER_FENCE_ID]: ownerId,
+        },
+        body: JSON.stringify({ ...input.lease, ownerId }),
+      }),
+    );
+    const body = (await response.json().catch(() => null)) as {
+      generation?: unknown;
+      expiresAt?: unknown;
+      code?: unknown;
+      error?: unknown;
+    } | null;
+    if (
+      response.ok &&
+      typeof body?.generation === "string" &&
+      typeof body.expiresAt === "number"
+    ) {
+      return {
+        snapshot,
+        lease: {
+          status: "registered",
+          generation: body.generation,
+          expiresAt: body.expiresAt,
+        },
+      };
+    }
+    return {
+      snapshot,
+      lease: {
+        status: "refused",
+        httpStatus: response.status,
+        ...(typeof body?.code === "string" ? { code: body.code } : {}),
+        ...(typeof body?.error === "string" ? { error: body.error } : {}),
+      },
+    };
+  }
+
+  private refreshSnapshotInBackground(now: number): void {
+    if (this.snapshotInflight) return;
+    void this.refreshSnapshot(
+      now,
+      OWNER_GATE_BACKGROUND_SNAPSHOT_TIMEOUT_MS,
+    ).catch((error) => {
+      log("error", "owner_snapshot_refresh_failed", {
+        ownerId: this.ownerId(),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  private refreshSnapshot(
+    now: number,
+    timeoutMs: number,
+  ): Promise<OwnerSnapshot> {
     if (this.snapshotInflight) return this.snapshotInflight;
     const work = (async () => {
-      const snapshot = await this.fetchSnapshot(this.ownerId());
-      await this.ctx.storage.put(SNAPSHOT_KEY, {
-        snapshot,
-        cachedAt: now,
-      } satisfies CachedSnapshot);
-      return snapshot;
+      const cachedBeforeRefresh =
+        await this.ctx.storage.get<CachedSnapshot>(SNAPSHOT_KEY);
+      try {
+        const snapshot = await this.fetchSnapshot(this.ownerId(), timeoutMs);
+        return (await this.storeSnapshot(snapshot, now)).snapshot;
+      } catch (error) {
+        if (
+          cachedBeforeRefresh &&
+          error instanceof OwnerGateSnapshotError &&
+          !error.retryable
+        ) {
+          const current =
+            await this.ctx.storage.get<CachedSnapshot>(SNAPSHOT_KEY);
+          if (
+            current?.cachedAt === cachedBeforeRefresh.cachedAt &&
+            current.snapshot.fetchedAt ===
+              cachedBeforeRefresh.snapshot.fetchedAt &&
+            current.snapshot.ownerGeneration ===
+              cachedBeforeRefresh.snapshot.ownerGeneration
+          ) {
+            await this.ctx.storage.delete(SNAPSHOT_KEY);
+          }
+        }
+        throw error;
+      }
     })().finally(() => {
       if (this.snapshotInflight === work) this.snapshotInflight = null;
     });
@@ -928,9 +1146,67 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     return work;
   }
 
-  /** Convex pushed a change: the next read refetches. */
+  private async storeSnapshot(
+    snapshot: OwnerSnapshot,
+    cachedAt: number,
+  ): Promise<{ snapshot: OwnerSnapshot; stored: boolean }> {
+    const cached = await this.ctx.storage.get<CachedSnapshot>(SNAPSHOT_KEY);
+    const olderFetchedAt =
+      cached && snapshot.fetchedAt < cached.snapshot.fetchedAt;
+    const ambiguousGenerationAtSameTime =
+      cached &&
+      snapshot.fetchedAt === cached.snapshot.fetchedAt &&
+      snapshot.ownerGeneration !== cached.snapshot.ownerGeneration;
+    if (cached && (olderFetchedAt || ambiguousGenerationAtSameTime)) {
+      log("info", "owner_snapshot_replacement_ignored", {
+        ownerId: this.ownerId(),
+        cachedGeneration: cached.snapshot.ownerGeneration,
+        cachedFetchedAt: cached.snapshot.fetchedAt,
+        pushedGeneration: snapshot.ownerGeneration,
+        pushedFetchedAt: snapshot.fetchedAt,
+      });
+      return { snapshot: cached.snapshot, stored: false };
+    }
+    await this.ctx.storage.put(SNAPSHOT_KEY, {
+      snapshot,
+      cachedAt,
+    } satisfies CachedSnapshot);
+    return { snapshot, stored: true };
+  }
+
+  /**
+   * Convex pushed a complete replacement. A lower `fetchedAt`, or a different
+   * generation at the same timestamp, cannot overwrite the cached copy. A
+   * stored replacement clears the stale mark and pre-warms the next turn.
+   */
+  async replaceSnapshot(snapshot: OwnerSnapshot): Promise<void> {
+    if (snapshot.ownerId !== this.ownerId()) {
+      throw new Error("Pushed owner snapshot does not match this owner gate.");
+    }
+    const result = await this.storeSnapshot(snapshot, Date.now());
+    if (result.stored) {
+      log("info", "owner_snapshot_replaced", {
+        ownerId: this.ownerId(),
+        generation: result.snapshot.ownerGeneration,
+        fetchedAt: result.snapshot.fetchedAt,
+      });
+    }
+  }
+
+  /**
+   * A snapshot-less Convex push marks the cached copy stale instead of
+   * deleting it. The next read serves the copy and refreshes in the
+   * background, because invalidation must not put Convex back on the turn
+   * path. With no cached copy, the next read still fetches synchronously.
+   */
   async invalidate(): Promise<void> {
-    await this.ctx.storage.delete(SNAPSHOT_KEY);
+    const cached = await this.ctx.storage.get<CachedSnapshot>(SNAPSHOT_KEY);
+    if (cached) {
+      await this.ctx.storage.put(SNAPSHOT_KEY, {
+        ...cached,
+        stale: true,
+      } satisfies CachedSnapshot);
+    }
     log("info", "owner_snapshot_invalidated", { ownerId: this.ownerId() });
   }
 
@@ -957,7 +1233,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     now: number,
   ): number | null {
     const rows = this.ctx.storage.sql
-      .exec<{ at: number }>(
+      .exec<{
+        at: number;
+      }>(
         `SELECT at FROM starts WHERE lane = ? AND at > ? ORDER BY at ASC`,
         lane,
         now - windowMs,
@@ -973,7 +1251,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     const now = input.now ?? Date.now();
     const turnId = input.turnId?.trim() ?? "";
     if (!turnId || (input.lane !== "chat" && input.lane !== "agent")) {
-      return refuse("internal", "Owner gate admission requires a lane and turn id.", false);
+      return refuse(
+        "internal",
+        "Owner gate admission requires a lane and turn id.",
+        false,
+      );
     }
     let snapshot: OwnerSnapshot;
     try {
@@ -1001,8 +1283,16 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         message: failure.message,
       });
       return failure.code === "owner_purged"
-        ? refuse("owner_purged", "This account's cloud data is no longer available.", false)
-        : refuse("internal", "Stella can't check your plan right now. Try again shortly.", true);
+        ? refuse(
+            "owner_purged",
+            "This account's cloud data is no longer available.",
+            false,
+          )
+        : refuse(
+            "internal",
+            "Stella can't check your plan right now. Try again shortly.",
+            true,
+          );
     }
     if (
       input.expectedGeneration &&
@@ -1023,10 +1313,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     }
     this.prune(now);
     const existing = this.ctx.storage.sql
-      .exec<{ lane: string }>(
-        `SELECT lane FROM running WHERE turn_id = ?`,
-        turnId,
-      )
+      .exec<{
+        lane: string;
+      }>(`SELECT lane FROM running WHERE turn_id = ?`, turnId)
       .toArray();
     if (existing.length > 0) {
       return { ok: true, snapshot, replayed: true };
@@ -1065,7 +1354,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     }
     if (enforce) {
       const running = this.ctx.storage.sql
-        .exec<{ started_at: number }>(
+        .exec<{
+          started_at: number;
+        }>(
           `SELECT started_at FROM running WHERE lane = ? ORDER BY started_at ASC`,
           input.lane,
         )
@@ -1090,7 +1381,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     const workspace = input.workspace?.trim() || null;
     if (input.lane === "agent" && workspace) {
       const busy = this.ctx.storage.sql
-        .exec<{ turn_id: string; started_at: number }>(
+        .exec<{
+          turn_id: string;
+          started_at: number;
+        }>(
           `SELECT turn_id, started_at FROM running WHERE lane = 'agent' AND workspace = ?`,
           workspace,
         )
@@ -1162,7 +1456,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         conversation_id: string;
         workspace: string | null;
         started_at: number;
-      }>(`SELECT turn_id, lane, conversation_id, workspace, started_at FROM running ORDER BY started_at ASC`)
+      }>(
+        `SELECT turn_id, lane, conversation_id, workspace, started_at FROM running ORDER BY started_at ASC`,
+      )
       .toArray()
       .map((row) => ({
         turnId: row.turn_id,
@@ -1173,7 +1469,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       }));
     const count = (lane: OwnerGateLane): number =>
       this.ctx.storage.sql
-        .exec<{ n: number }>(
+        .exec<{
+          n: number;
+        }>(
           `SELECT COUNT(*) AS n FROM starts WHERE lane = ? AND at > ?`,
           lane,
           now - OWNER_GATE_DAILY_WINDOW_MS,
@@ -1240,6 +1538,15 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
    */
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/owner-fence/")) {
+      if (request.method !== "POST") {
+        return Response.json({ error: "Method not allowed." }, { status: 405 });
+      }
+      return await createOwnerFenceHost({
+        ctx: this.ctx,
+        env: this.env,
+      }).fetch(url.pathname.slice("/owner-fence/".length), request);
+    }
     if (url.pathname !== "/presence") {
       return Response.json({ error: "Not found." }, { status: 404 });
     }
@@ -1308,7 +1615,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       new TextEncoder().encode(text).byteLength >
       DEVICE_PRESENCE_MAX_FRAME_BYTES
     ) {
-      this.closeSocket(socket, DEVICE_PRESENCE_CLOSE.protocol, "frame_too_large");
+      this.closeSocket(
+        socket,
+        DEVICE_PRESENCE_CLOSE.protocol,
+        "frame_too_large",
+      );
       return;
     }
     let parsed: unknown;
@@ -1324,13 +1635,23 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     }
     const attachment = this.attachment(socket);
     if (!attachment) {
-      this.closeSocket(socket, DEVICE_PRESENCE_CLOSE.unauthorized, "unauthorized");
+      this.closeSocket(
+        socket,
+        DEVICE_PRESENCE_CLOSE.unauthorized,
+        "unauthorized",
+      );
       return;
     }
     this.ensureSchema();
     const now = Date.now();
     if (attachment.authExpiresAtMs <= now) {
-      await this.dropSocket(socket, attachment, DEVICE_PRESENCE_CLOSE.stale, "stale", now);
+      await this.dropSocket(
+        socket,
+        attachment,
+        DEVICE_PRESENCE_CLOSE.stale,
+        "stale",
+        now,
+      );
       return;
     }
     const frame = parsed as DevicePresenceDeviceFrame;
@@ -1395,7 +1716,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       try {
         snapshot = await this.snapshot({ now });
       } catch {
-        this.closeSocket(socket, DEVICE_PRESENCE_CLOSE.internal, "presence_unavailable");
+        this.closeSocket(
+          socket,
+          DEVICE_PRESENCE_CLOSE.internal,
+          "presence_unavailable",
+        );
         return;
       }
       const device = (snapshot.devices ?? []).find(
@@ -1445,7 +1770,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       return;
     }
     if (attachment.phase !== "connected" || !attachment.presenceSessionId) {
-      this.closeSocket(socket, DEVICE_PRESENCE_CLOSE.unauthorized, "unauthorized");
+      this.closeSocket(
+        socket,
+        DEVICE_PRESENCE_CLOSE.unauthorized,
+        "unauthorized",
+      );
       return;
     }
     attachment.lastSeenAtMs = now;
@@ -1873,7 +2202,12 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       return row;
     }
     if (row.state === "computer_claimed" && row.executor_device_id) {
-      this.adjustSlots(row.executor_device_id, row.kind as ExecutionKind, 1, now);
+      this.adjustSlots(
+        row.executor_device_id,
+        row.kind as ExecutionKind,
+        1,
+        now,
+      );
     }
     this.withdrawOffers(row.dispatch_id, null, fallbackReason, now);
     if (row.on_no_eligible_computer === "cloud") {
@@ -2061,7 +2395,8 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     now: number,
   ): Promise<DispatchRow> {
     const sessions = this.env.ORCHESTRATOR_SESSIONS;
-    if (!sessions) throw new Error("Orchestrator session namespace is not bound.");
+    if (!sessions)
+      throw new Error("Orchestrator session namespace is not bound.");
     const request: CloudTurnStartRequest = {
       protocol: TURN_PLANE_PROTOCOL,
       clientMsgId: row.dispatch_id,
@@ -2184,19 +2519,24 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     expectedGeneration: string | undefined,
     now: number,
   ): Promise<
-    { ok: true; snapshot: OwnerSnapshot } | { ok: false; error: DispatchError["error"] }
+    | { ok: true; snapshot: OwnerSnapshot }
+    | { ok: false; error: DispatchError["error"] }
   > {
     let snapshot: OwnerSnapshot;
     try {
       snapshot = await this.snapshot({ now });
-      if (expectedGeneration && expectedGeneration !== snapshot.ownerGeneration) {
+      if (
+        expectedGeneration &&
+        expectedGeneration !== snapshot.ownerGeneration
+      ) {
         // The cache can lag a rotation whose push was lost. One forced
         // refresh separates "stale cache" from "stale caller".
         snapshot = await this.snapshot({ refresh: true, now });
       }
     } catch (error) {
       const purged =
-        error instanceof OwnerGateSnapshotError && error.code === "owner_purged";
+        error instanceof OwnerGateSnapshotError &&
+        error.code === "owner_purged";
       log("error", "dispatch_snapshot_unavailable", {
         ownerId: this.ownerId(),
         message: error instanceof Error ? error.message : String(error),
@@ -2576,7 +2916,12 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     const cloudNeverStarted =
       row.state === "cloud_committed" && !row.cloud_turn_id;
     if (row.state === "computer_claimed" && row.executor_device_id) {
-      this.adjustSlots(row.executor_device_id, row.kind as ExecutionKind, 1, now);
+      this.adjustSlots(
+        row.executor_device_id,
+        row.kind as ExecutionKind,
+        1,
+        now,
+      );
     }
     this.withdrawOffers(row.dispatch_id, null, "canceled", now);
     const next = await this.patchDispatch(
@@ -2716,7 +3061,12 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         );
         return;
       }
-      this.adjustSlots(row.executor_device_id, row.kind as ExecutionKind, 1, now);
+      this.adjustSlots(
+        row.executor_device_id,
+        row.kind as ExecutionKind,
+        1,
+        now,
+      );
       const released = await this.patchDispatch(
         row,
         {
@@ -2837,7 +3187,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         row.state !== "cancel_pending" &&
         row.state !== "reconciliation_required"
       ) {
-        deny("conflict", "Execution is not owned by an accepted computer claim.");
+        deny(
+          "conflict",
+          "Execution is not owned by an accepted computer claim.",
+        );
         return;
       }
       this.adjustSlots(attachment.deviceId, row.kind as ExecutionKind, 1, now);
@@ -2848,7 +3201,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
           payload_json: null,
           payload_expires_at: null,
           lease_expires_at: null,
-          ...(frame.errorCode ? { error_code: frame.errorCode.slice(0, 128) } : {}),
+          ...(frame.errorCode
+            ? { error_code: frame.errorCode.slice(0, 128) }
+            : {}),
           ...(frame.errorMessage
             ? { error_message: frame.errorMessage.slice(0, 1024) }
             : {}),
@@ -2971,8 +3326,14 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
 
   // ── Alarms ────────────────────────────────────────────────────────────
 
-  private async scheduleAlarm(now: number): Promise<void> {
-    let next = Number.POSITIVE_INFINITY;
+  private async scheduleAlarm(
+    now: number,
+    options: {
+      fenceDeadline?: number | null;
+      preserveExisting?: boolean;
+    } = {},
+  ): Promise<void> {
+    let next = options.fenceDeadline ?? Number.POSITIVE_INFINITY;
     for (const socket of this.sockets()) {
       const attachment = this.attachment(socket);
       if (!attachment) continue;
@@ -2981,6 +3342,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         attachment.lastSeenAtMs + DEVICE_PRESENCE_STALE_AFTER_MS,
         attachment.authExpiresAtMs,
       );
+      // A proven socket keeps the object resident between turns.
+      if (attachment.phase === "connected") {
+        next = Math.min(next, now + OWNER_GATE_PRESENCE_KEEPALIVE_MS);
+      }
     }
     const deadline = this.ctx.storage.sql
       .exec<{ at: number | null }>(
@@ -3003,6 +3368,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       )
       .toArray()[0]?.at;
     if (typeof deadline === "number") next = Math.min(next, deadline);
+    if (options.preserveExisting !== false) {
+      const existingAlarm = await this.ctx.storage.getAlarm();
+      if (existingAlarm !== null) next = Math.min(next, existingAlarm);
+    }
     if (!Number.isFinite(next)) return;
     try {
       await this.ctx.storage.setAlarm(Math.max(now + 250, next));
@@ -3015,9 +3384,26 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   async alarm(): Promise<void> {
     this.ensureSchema();
     const now = Date.now();
-    await this.expirePresence(now);
-    await this.expireDispatches(now);
-    await this.scheduleAlarm(now);
+    const ownerFenceHost = createOwnerFenceHost({
+      ctx: this.ctx,
+      env: this.env,
+    });
+    let fenceDeadline: number | null = null;
+    let fenceAlarmCompleted = false;
+    try {
+      fenceDeadline = await ownerFenceHost.alarm(now);
+      fenceAlarmCompleted = true;
+      await this.expirePresence(now);
+      await this.expireDispatches(now);
+    } finally {
+      if (!fenceAlarmCompleted) {
+        fenceDeadline = await ownerFenceHost.nextDeadline();
+      }
+      await this.scheduleAlarm(now, {
+        fenceDeadline,
+        preserveExisting: false,
+      });
+    }
   }
 
   private async expirePresence(now: number): Promise<void> {

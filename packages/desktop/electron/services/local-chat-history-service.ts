@@ -58,42 +58,6 @@ type LocalChatHistoryServiceOptions = {
   onTaskDecorationUpdated?: (payload: TaskDecorationUpdatedPayload) => void;
 };
 
-type FirstReportPayload = {
-  slug: string;
-  title: string;
-  html: string;
-};
-
-const REPORT_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
-
-const normalizeReportSlug = (value: unknown): string => {
-  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
-  const slug = raw
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
-  return REPORT_SLUG_RE.test(slug) ? slug : "welcome";
-};
-
-const firstReportInputSchema = z.looseObject({
-  slug: z.unknown().optional(),
-  title: z.string(),
-  html: z.string(),
-});
-
-const normalizeFirstReport = (value: unknown): FirstReportPayload | null => {
-  const parsed = firstReportInputSchema.safeParse(value);
-  if (!parsed.success) return null;
-  const title = parsed.data.title.trim();
-  const html = parsed.data.html;
-  if (!title || !html.trim()) return null;
-  return {
-    slug: normalizeReportSlug(parsed.data.slug),
-    title,
-    html,
-  };
-};
-
 const openNodeSqliteDatabase = (dbPath: string): SqliteDatabase =>
   new DatabaseSync(dbPath) as unknown as SqliteDatabase;
 
@@ -476,7 +440,6 @@ export class LocalChatHistoryService {
   persistDiscoveryWelcome(args: {
     conversationId: string;
     message: string;
-    firstReport?: unknown;
   }): { ok: true } {
     const message = args.message.trim();
     const store = this.getStore();
@@ -490,54 +453,6 @@ export class LocalChatHistoryService {
           payload: { text: message },
           timestamp: Date.now(),
         }),
-      });
-    }
-
-    const firstReport = normalizeFirstReport(args.firstReport);
-    if (firstReport) {
-      const timestamp = Date.now();
-      const filePath = path.join(
-        this.stellaAppDir,
-        "outputs",
-        "html",
-        `${firstReport.slug}.html`,
-      );
-      void (async () => {
-        await fs.mkdir(path.dirname(filePath), { recursive: true });
-        await fs.writeFile(filePath, firstReport.html, "utf8");
-        const bytes = Buffer.byteLength(firstReport.html, "utf8");
-        const event = store.appendEvent({
-          conversationId: args.conversationId,
-          type: "tool_result",
-          requestId: `onboarding-first-report-${timestamp}`,
-          timestamp: timestamp + 1,
-          payload: {
-            toolName: "html",
-            result: `Canvas "${firstReport.title}" saved to ${filePath} and opened in the panel.`,
-            resultPreview: `Canvas "${firstReport.title}" saved to ${filePath} and opened in the panel.`,
-            details: {
-              filePath,
-              slug: firstReport.slug,
-              title: firstReport.title,
-              createdAt: timestamp,
-              bytes,
-            },
-            filePath,
-            slug: firstReport.slug,
-            title: firstReport.title,
-            createdAt: timestamp,
-            bytes,
-            agentType: "orchestrator",
-          },
-        });
-        this.onUpdated?.({
-          conversationId: args.conversationId,
-          event: projectLocalChatUpdateEvent(
-            event,
-          ) as unknown as LocalChatUpdatedPayload["event"],
-        });
-      })().catch((error) => {
-        console.warn("[local-chat] Failed to persist first report:", error);
       });
     }
 

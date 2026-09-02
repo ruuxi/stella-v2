@@ -30,7 +30,7 @@ describe("website chat hosting", () => {
     );
     if (!fs.existsSync(htmlPath)) return;
     const html = fs.readFileSync(htmlPath, "utf8");
-    expect(html).not.toMatch(/modulepreload[^>]+OnboardingOverlay/i);
+    expect(html).not.toMatch(/modulepreload[^>]+OnboardingChat/i);
     expect(read("packages/desktop-ui/src/shell/FullShell.tsx")).toContain(
       "platformCapabilities.onboarding ? <DesktopFullShell /> : <WebsiteShell />",
     );

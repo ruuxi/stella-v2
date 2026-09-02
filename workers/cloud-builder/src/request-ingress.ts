@@ -62,7 +62,7 @@ export const serviceJsonBodyLimit = (
       : CLOUD_BUILDER_BODY_LIMITS.tinyControl;
   }
   if (
-    /^\/conversations\/[^/]+\/(cards|purge|reindex|cancel)$/u.test(pathname) ||
+    /^\/conversations\/[^/]+\/(cards|purge|cancel)$/u.test(pathname) ||
     /^\/internal\/dev-acceptance\/conversations\/[^/]+\/probe$/u.test(
       pathname,
     ) ||

@@ -18,7 +18,7 @@ describe("billing audience model restrictions", () => {
     expect(isRestrictedModelOverrideAudience("pro_fallback")).toBe(false);
   });
 
-  it("lets restricted audiences pick the Muse default or V4 Flash", () => {
+  it("lets restricted audiences pick the supported Stella catalog models", () => {
     expect(isRestrictedAudienceAllowedStellaModelId("stella/light")).toBe(true);
     expect(
       isRestrictedAudienceAllowedStellaModelId(

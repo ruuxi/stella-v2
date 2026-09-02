@@ -43,8 +43,7 @@ export type ModelConfig = {
    * Wire protocol for the managed gateway request. When omitted, the runtime
    * infers it from the gateway provider (`resolveManagedProtocol` in
    * `runtime_ai/managed.ts`). Set explicitly for models whose gateway hosts a
-   * mix of protocols — e.g. OpenRouter serves most models over Chat
-   * Completions but Muse Spark 1.2 Contributor over the Responses API.
+   * mix of protocols, such as OpenRouter serving Muse through Responses.
    */
   api?: ManagedProtocol;
   temperature?: number;
@@ -70,11 +69,16 @@ export const MODEL_MODES = [
 
 export type ModelMode = (typeof MODEL_MODES)[number];
 
-type ModeConfig = Omit<
+type RoutedModelConfig = Omit<
   ModelConfig,
-  "fallback" | "fallbackManagedGatewayProvider" | "fallbackProviderOptions"
-> & {
-  fallbackMode?: ModelMode;
+  | "fallback"
+  | "fallbackManagedGatewayProvider"
+  | "fallbackServiceTier"
+  | "fallbackProviderOptions"
+>;
+
+type ModeConfig = RoutedModelConfig & {
+  fallbackConfig?: RoutedModelConfig;
 };
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -199,9 +203,8 @@ export const MUSE_SPARK_1_2_CONTRIBUTOR_MODEL =
 const MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG: ModeConfig = {
   model: MUSE_SPARK_1_2_CONTRIBUTOR_MODEL,
   managedGatewayProvider: "openrouter",
-  // OpenRouter serves this model through its Responses API (verified live:
-  // /api/v1/responses works streaming and non-streaming; reasoning is
-  // mandatory). Every other OpenRouter-hosted model keeps Chat Completions.
+  // OpenRouter serves this model through its Responses API. Reasoning is
+  // mandatory. Every other OpenRouter-hosted model keeps Chat Completions.
   api: "openai-responses",
   temperature: 1.0,
   providerOptions: {
@@ -209,6 +212,9 @@ const MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG: ModeConfig = {
       reasoningEffort: "xhigh",
     },
   },
+  // A provider outage must not change Stella's default. The runtime retries
+  // Muse first, then dispatches this fallback only if the primary still fails.
+  fallbackConfig: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
 };
 
 /**
@@ -285,8 +291,7 @@ type InternalModelConfigKey = keyof typeof INTERNAL_MODEL_CONFIGS;
 type TaskModelSelection = ModelMode | InternalModelConfigKey;
 
 // Legacy mode names remain parseable so old clients fail over cleanly. All
-// modes resolve to the current default (Muse Spark 1.2 Contributor); DeepSeek V4
-// Flash 0731 stays selectable via its explicit raw ids.
+// modes use Muse as the primary and DeepSeek V4 Flash as the runtime fallback.
 const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
   standard: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
   priority: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
@@ -368,7 +373,7 @@ const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
 
 /**
  * Stella model ids accepted from clients. The OpenRouter Muse default and
- * every routed DeepSeek V4 Flash spelling are public catalog rows;
+ * every routed DeepSeek V4 Flash spelling are public catalog rows.
  * `stella/light` remains as a compatibility alias for existing preferences
  * and older clients.
  *
@@ -466,16 +471,11 @@ const buildResolvedModeConfig = (
   rawModeCatalog: Record<ModelMode, ModeConfig>,
 ): ModelConfig => {
   const config = rawModeCatalog[mode];
-  return buildResolvedConfig(config, rawModeCatalog);
+  return buildResolvedConfig(config);
 };
 
-const buildResolvedConfig = (
-  config: ModeConfig,
-  rawModeCatalog: Record<ModelMode, ModeConfig>,
-): ModelConfig => {
-  const fallbackConfig = config.fallbackMode
-    ? rawModeCatalog[config.fallbackMode]
-    : undefined;
+const buildResolvedConfig = (config: ModeConfig): ModelConfig => {
+  const fallbackConfig = config.fallbackConfig;
 
   return {
     model: config.model,
@@ -627,10 +627,9 @@ export function isModelMode(value: string): value is ModelMode {
 // behind a mode/task selection when they are catalog defaults; use this list
 // only for extras that have no mode of their own.
 //
-// DeepSeek V4 Flash 0731 lost the default slot to Muse Spark 1.2 Contributor but
-// stays selectable and price-synced via its active CrofAI route id. The
-// legacy Fireworks/DeepSeek-direct spellings alias onto that same row at
-// request time, so only the canonical id needs tracking here.
+// DeepSeek V4 Flash 0731 backs Muse's failover path and stays selectable and
+// price-synced via its active CrofAI route id. The legacy Fireworks and
+// DeepSeek-direct spellings alias onto that same row at request time.
 export const ADDITIONAL_MANAGED_MODEL_IDS = [
   DEEPSEEK_V4_FLASH_CROF_MODEL,
   // The Wafer-hosted Fast variant is selectable but backs no mode or task.

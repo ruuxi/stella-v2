@@ -65,7 +65,7 @@ import { AgentWorkCard } from "./AgentWorkCard";
 import { AgentCompletionCard } from "./AgentCompletionCard";
 import { MapRouteCard } from "./MapRouteCard";
 import { ToolActivityTrace } from "./ToolActivityTrace";
-import { ActivityPill } from "./ActivityPill";
+import { RunningTasksPill, runningTaskCount } from "./RunningTasksPill";
 import { deriveToolActivity } from "../lib/tool-activity";
 import { scheduleReceiptText } from "../lib/schedule-receipt-summary";
 import {
@@ -94,7 +94,6 @@ import { canSubmitFinalizedDictation } from "../lib/dictation-send";
 import { hasAiConsent, requestAiConsent } from "../lib/ai-consent";
 import type { RealtimeVoiceActionDispatch } from "../lib/realtime-voice-protocol";
 import type { StoredPhoneAccess } from "../lib/phone-access";
-import type { DesktopConnection } from "../lib/top-bar-status";
 import {
   bytesToDataUri,
   readDesktopArtifactFile,
@@ -2474,7 +2473,7 @@ const makePlusMenuStyles = (colors: Colors) =>
       // In-tree overlay covering the chat root (no Modal), so Liquid Glass can
       // sample the content behind the menu. `box-none` lets taps fall through
       // to the backdrop / menu children only.
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       zIndex: 50,
     },
     scrim: {
@@ -2485,7 +2484,7 @@ const makePlusMenuStyles = (colors: Colors) =>
       // second glass layer beneath the menu triggers Apple's glass-on-glass
       // suppression and renders the menu clear — so the frost comes entirely
       // from the single glass surface (the menu card), never from the backdrop.
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "rgba(0, 0, 0, 0.2)",
     },
     menuHeader: {
@@ -2782,13 +2781,6 @@ export type ChatPaneProps = {
   onAddQuote?: (text: string) => void;
   onRemoveQuote?: (id: string) => void;
 
-  /** Opens the computer device sheet from the floating status control. */
-  onOpenDeviceSheet?: () => void;
-  /** Live paired-computer state shown by that status control. */
-  computerConnection?: DesktopConnection;
-  /** Localized accessibility label for the current connection state. */
-  computerConnectionLabel?: string;
-
   /** Headers passed to the dictation upload (e.g. mobile device id for guests). */
   dictationAnonymous: boolean;
   dictationHeaders?: Record<string, string>;
@@ -2805,17 +2797,18 @@ export type ChatPaneProps = {
   conversationId?: string | null;
 
   /**
-   * Background tasks for the floating activity pill (running count). The
-   * cloud chat omits it.
+   * Background tasks for the floating running-count pill. The cloud chat
+   * omits it.
    */
   activityTasks?: MobileTask[];
 
   /**
-   * Opens the activity hub sheet (tasks + files + search). When provided, the
-   * always-present activity pill renders to the left of the floating settings
-   * button with the same visibility rules. The cloud chat omits it.
+   * Reveals the activity (the sidebar, where tasks, schedules and files
+   * live). While anything runs, a "N in progress" pill floats above the
+   * composer and taps through to it; message rows with agent work use it
+   * too. The cloud chat omits it.
    */
-  onOpenActivityHub?: () => void;
+  onOpenActivity?: () => void;
 
   /**
    * True while a catch-up sync is pulling turns the phone may have missed
@@ -2883,15 +2876,12 @@ export function ChatPane({
   quotes,
   onAddQuote,
   onRemoveQuote,
-  onOpenDeviceSheet,
-  computerConnection,
-  computerConnectionLabel,
   dictationAnonymous,
   dictationHeaders,
   onOpenArtifact,
   conversationId = null,
   activityTasks,
-  onOpenActivityHub,
+  onOpenActivity,
   catchingUp = false,
 }: ChatPaneProps) {
   const colors = useColors();
@@ -3556,31 +3546,20 @@ export function ChatPane({
     return out;
   }, [enableAttachments, pickDocument, pickImage, readAloud, t, takePhoto]);
 
-  // Floating computer-status control (computer chat only): opens the device
-  // sheet. The cloud chat passes no handler, so nothing renders.
-  const floatingAnchorRef = useRef<View>(null);
-  const hasFloatingMenu = Boolean(onOpenDeviceSheet);
-
   // Debounced catch-up indicator (show delay + minimum visible time), so
   // instant no-op pulls on every tab return never flash the pill.
   const catchUpVisible = useCatchUpIndicatorVisible(catchingUp);
 
-  const onPressFloating = useCallback(() => {
-    if (!onOpenDeviceSheet) return;
+  // Floating running-count pill: only while background work is in flight,
+  // and only when there is somewhere (the sidebar) to take it.
+  const runningTasks = runningTaskCount(activityTasks ?? []);
+  const hasRunningPill = Boolean(onOpenActivity) && runningTasks > 0;
+  const onPressRunningPill = useCallback(() => {
+    if (!onOpenActivity) return;
     tapLight();
     Keyboard.dismiss();
-    onOpenDeviceSheet();
-  }, [onOpenDeviceSheet]);
-
-  // Floating activity pill (left of the gear): always present alongside it,
-  // opens the activity hub sheet — tasks, files, and search.
-  const hasActivityPill = Boolean(onOpenActivityHub);
-  const onPressActivityPill = useCallback(() => {
-    if (!onOpenActivityHub) return;
-    tapLight();
-    Keyboard.dismiss();
-    onOpenActivityHub();
-  }, [onOpenActivityHub]);
+    onOpenActivity();
+  }, [onOpenActivity]);
 
   // Hide the floating button while scrolling up (reading back through
   // history) and bring it back when scrolling down toward the latest. The
@@ -3897,7 +3876,7 @@ export function ChatPane({
             onOpenStellaFile={onOpenStellaFile}
             onOpenMessageMenu={setMessageMenu}
             onEndSelecting={stopSelectingMessage}
-            onOpenAgentActivity={onOpenActivityHub}
+            onOpenAgentActivity={onOpenActivity}
             desktopAccess={realtimeVoiceDesktopAccess}
           />
         </FadeInMessage>
@@ -3916,7 +3895,7 @@ export function ChatPane({
       selectingMessageId,
       startSelectingMessage,
       stopSelectingMessage,
-      onOpenActivityHub,
+      onOpenActivity,
       realtimeVoiceDesktopAccess,
     ],
   );
@@ -4017,6 +3996,7 @@ export function ChatPane({
     dictationBelow,
     dictationInline,
     modelPickerPinned: Boolean(composerModelPicker?.pinned),
+    hasAttachments: (attachments?.length ?? 0) > 0,
   });
 
   const hasPlusMenu = composerEnabled;
@@ -4244,50 +4224,17 @@ export function ChatPane({
               bottomOffset={footerHeight + FLOATING_CONTROL_LIFT - 24}
             />
           ) : null}
-          {hasActivityPill && !searchOpen ? (
+          {hasRunningPill && !searchOpen ? (
             <Animated.View
               pointerEvents={floatingHidden ? "none" : "auto"}
               style={[
-                styles.floatingActivityPill,
-                {
-                  bottom: footerHeight + FLOATING_CONTROL_ROW_LIFT,
-                  // See the settings button below: never fade a Liquid Glass
-                  // ancestor's opacity (it drops the material). Fade only on
-                  // the fallback; on glass the material fades via `present`
-                  // and the pill's own content fade.
-                  opacity: liquidGlassSupported ? 1 : floatingAnim,
-                  transform: [
-                    {
-                      translateY: floatingAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [12, 0],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            >
-              <ActivityPill
-                tasks={activityTasks ?? []}
-                colors={colors}
-                onPress={onPressActivityPill}
-                present={!floatingHidden}
-                contentOpacity={floatingAnim}
-              />
-            </Animated.View>
-          ) : null}
-          {hasFloatingMenu && !searchOpen ? (
-            <Animated.View
-              ref={floatingAnchorRef}
-              collapsable={false}
-              pointerEvents={floatingHidden ? "none" : "auto"}
-              style={[
-                styles.floatingMenuButton,
+                styles.floatingRunningPill,
                 {
                   bottom: footerHeight + FLOATING_CONTROL_ROW_LIFT,
                   // See ScrollToBottomFab: never fade a Liquid Glass ancestor's
                   // opacity (it drops the material). Fade only on the fallback;
-                  // on glass the material fades via `present` and the icon below.
+                  // on glass the material fades via `present` and the pill's
+                  // own content fade.
                   opacity: liquidGlassSupported ? 1 : floatingAnim,
                   transform: [
                     {
@@ -4300,68 +4247,13 @@ export function ChatPane({
                 },
               ]}
             >
-              <Pressable
-                accessibilityLabel={
-                  computerConnectionLabel ?? "Computer connection status"
-                }
-                accessibilityRole="button"
-                hitSlop={6}
-                onPress={onPressFloating}
-                style={({ pressed }) => [
-                  styles.floatingMenuPressable,
-                  pressed && styles.scrollToBottomFabPressed,
-                ]}
-              >
-                <GlassSurface
-                  glass="clear"
-                  interactive
-                  present={!floatingHidden}
-                  radius={20}
-                  fallbackColor={colors.surface}
-                  style={styles.floatingMenuGlass}
-                >
-                  {/* Fading border overlay so the hairline dissolves with the
-                      glass instead of lingering as an outline when hidden. */}
-                  <Animated.View
-                    pointerEvents="none"
-                    style={[
-                      StyleSheet.absoluteFill,
-                      styles.floatingMenuRing,
-                      { opacity: floatingAnim },
-                    ]}
-                  />
-                  <Animated.View
-                    style={[styles.connectionBadge, { opacity: floatingAnim }]}
-                  >
-                    {computerConnection === "connecting" ? (
-                      <ActivityIndicator
-                        size="small"
-                        color={colors.textMuted}
-                      />
-                    ) : (
-                      <>
-                        <Icon
-                          name="monitor"
-                          size={20}
-                          color={colors.text}
-                          weight="regular"
-                        />
-                        <View
-                          style={[
-                            styles.connectionDot,
-                            {
-                              backgroundColor:
-                                computerConnection === "connected"
-                                  ? colors.ok
-                                  : colors.danger,
-                            },
-                          ]}
-                        />
-                      </>
-                    )}
-                  </Animated.View>
-                </GlassSurface>
-              </Pressable>
+              <RunningTasksPill
+                running={runningTasks}
+                colors={colors}
+                onPress={onPressRunningPill}
+                present={!floatingHidden}
+                contentOpacity={floatingAnim}
+              />
             </Animated.View>
           ) : null}
         </View>
@@ -4460,74 +4352,6 @@ export function ChatPane({
               ))}
             </View>
           )}
-          {showAttachmentStrip && (
-            <View style={styles.attachmentStrip}>
-              {(attachments ?? []).map((attachment) => (
-                <View key={attachment.id} style={styles.attachmentThumb}>
-                  {attachment.kind === "image" ? (
-                    <Image
-                      source={{ uri: attachment.uri }}
-                      style={styles.attachmentImage}
-                      contentFit="cover"
-                    />
-                  ) : (
-                    <View style={styles.attachmentFile}>
-                      <Icon
-                        name="file-text"
-                        size={18}
-                        color={colors.textMuted}
-                      />
-                      <Text style={styles.attachmentFileName} numberOfLines={2}>
-                        {attachment.name}
-                      </Text>
-                    </View>
-                  )}
-                  {attachment.status !== "ready" && (
-                    <Pressable
-                      style={styles.attachmentStatusScrim}
-                      disabled={attachment.status === "uploading"}
-                      accessibilityRole="button"
-                      accessibilityLabel={
-                        attachment.status === "uploading"
-                          ? t("chat.attachments.uploading")
-                          : t("chat.attachments.retryUpload")
-                      }
-                      onPress={() => onRetryAttachment?.(attachment.id)}
-                    >
-                      {attachment.status === "uploading" ? (
-                        <ActivityIndicator size="small" color="#ffffff" />
-                      ) : (
-                        <Icon
-                          name="refresh-cw"
-                          size={16}
-                          color="#ffffff"
-                          weight="bold"
-                        />
-                      )}
-                    </Pressable>
-                  )}
-                  <Pressable
-                    style={styles.attachmentRemove}
-                    accessibilityLabel={t("chat.attachments.remove")}
-                    onPress={() => onRemoveAttachment?.(attachment.id)}
-                    hitSlop={4}
-                  >
-                    <Icon
-                      name="x"
-                      size={12}
-                      // The button's scrim is a fixed dark wash (it sits over
-                      // arbitrary photo content), so the glyph has to be a
-                      // fixed light colour too — `accentForeground` inverts
-                      // with the theme and goes near-black in every dark one.
-                      color="#ffffff"
-                      weight="bold"
-                    />
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          )}
-
           <GlassSurface
             glass="regular"
             // Softer than the menu tint: enough contrast for the input text
@@ -4537,6 +4361,81 @@ export function ChatPane({
             fallbackColor={colors.surface}
             style={styles.shell}
           >
+            {showAttachmentStrip ? (
+              // Pending attachments sit inside the composer, above the text,
+              // in a horizontal rail so any number of them stays one row.
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                style={styles.attachmentStrip}
+                contentContainerStyle={styles.attachmentStripContent}
+              >
+                {(attachments ?? []).map((attachment) => (
+                  <View key={attachment.id} style={styles.attachmentThumb}>
+                    {attachment.kind === "image" ? (
+                      <Image
+                        source={{ uri: attachment.uri }}
+                        style={styles.attachmentImage}
+                        contentFit="cover"
+                      />
+                    ) : (
+                      <View style={styles.attachmentFile}>
+                        <Icon
+                          name="file-text"
+                          size={18}
+                          color={colors.textMuted}
+                        />
+                        <Text style={styles.attachmentFileName} numberOfLines={2}>
+                          {attachment.name}
+                        </Text>
+                      </View>
+                    )}
+                    {attachment.status !== "ready" && (
+                      <Pressable
+                        style={styles.attachmentStatusScrim}
+                        disabled={attachment.status === "uploading"}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                          attachment.status === "uploading"
+                            ? t("chat.attachments.uploading")
+                            : t("chat.attachments.retryUpload")
+                        }
+                        onPress={() => onRetryAttachment?.(attachment.id)}
+                      >
+                        {attachment.status === "uploading" ? (
+                          <ActivityIndicator size="small" color="#ffffff" />
+                        ) : (
+                          <Icon
+                            name="refresh-cw"
+                            size={16}
+                            color="#ffffff"
+                            weight="bold"
+                          />
+                        )}
+                      </Pressable>
+                    )}
+                    <Pressable
+                      style={styles.attachmentRemove}
+                      accessibilityLabel={t("chat.attachments.remove")}
+                      onPress={() => onRemoveAttachment?.(attachment.id)}
+                      hitSlop={4}
+                    >
+                      <Icon
+                        name="x"
+                        size={12}
+                        // The button's scrim is a fixed dark wash (it sits over
+                        // arbitrary photo content), so the glyph has to be a
+                        // fixed light colour too — `accentForeground` inverts
+                        // with the theme and goes near-black in every dark one.
+                        color="#ffffff"
+                        weight="bold"
+                      />
+                    </Pressable>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : null}
             {dictationInline ? (
               <View style={styles.formPill}>
                 {plusButton}
@@ -4800,7 +4699,9 @@ const makeStyles = (colors: Colors) =>
       borderWidth: StyleSheet.hairlineWidth,
     },
     scrollToBottomFabPressed: { opacity: 0.88 },
-    floatingMenuButton: {
+    // Running-count pill: floats at the composer's trailing edge while
+    // background work is in flight.
+    floatingRunningPill: {
       position: "absolute",
       right: CHAT_HORIZONTAL_INSET,
       shadowColor: "#000",
@@ -4808,52 +4709,6 @@ const makeStyles = (colors: Colors) =>
       shadowOpacity: 0.06,
       shadowRadius: 5,
       elevation: 2,
-    },
-    // Activity pill: same floating language as the settings button, sitting
-    // just to its left (button is 40pt wide + an 8pt gutter).
-    floatingActivityPill: {
-      position: "absolute",
-      right: CHAT_HORIZONTAL_INSET + 48,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.06,
-      shadowRadius: 5,
-      elevation: 2,
-    },
-    floatingMenuPressable: {
-      height: 40,
-      width: 40,
-    },
-    floatingMenuGlass: {
-      alignItems: "center",
-      borderRadius: 20,
-      flex: 1,
-      justifyContent: "center",
-      overflow: "hidden",
-      width: 40,
-    },
-    connectionBadge: {
-      alignItems: "center",
-      height: 28,
-      justifyContent: "center",
-      width: 28,
-    },
-    connectionDot: {
-      borderColor: colors.surface,
-      borderRadius: 4,
-      borderWidth: 1.5,
-      bottom: 1,
-      height: 8,
-      position: "absolute",
-      right: 1,
-      width: 8,
-    },
-    // See scrollToBottomFabRing: fading overlay so the hairline dissolves with
-    // the glass rather than lingering as an outline when the button hides.
-    floatingMenuRing: {
-      borderColor: fadeHex(colors.border, 0.6),
-      borderRadius: 20,
-      borderWidth: StyleSheet.hairlineWidth,
     },
     // "Catching up" pill — top-center, overlaid (no layout participation).
     catchUpPill: {
@@ -5153,14 +5008,18 @@ const makeStyles = (colors: Colors) =>
       paddingTop: 12,
     },
 
+    // Attachment rail inside the shell: sized by its content so the input
+    // below keeps its own height, scrolling sideways once thumbs overflow.
     attachmentStrip: {
-      // `composerWrap` centres its children, which would shrink-wrap this row
-      // and centre the thumbnails; stretch so they start at the left edge.
-      alignSelf: "stretch",
+      flexGrow: 0,
+      flexShrink: 0,
+    },
+    attachmentStripContent: {
       flexDirection: "row",
       gap: 8,
-      paddingBottom: 10,
-      paddingHorizontal: 4,
+      paddingBottom: 2,
+      paddingHorizontal: 12,
+      paddingTop: 12,
     },
     // Removable quoted-text chips (message-menu Quote / assistant "Ask Stella").
     // Stretched left like the attachment strip; each chip collapses the quote to

@@ -1,5 +1,5 @@
-import { describe, expect, mock, test } from "bun:test";
 import { Type } from "@sinclair/typebox";
+import { describe, expect, mock, test } from "bun:test";
 import type { AgentTool } from "@stella/runtime/kernel/agent-core/types.js";
 import type { CloudCodeExecutorFactory } from "../src/cloud-code-executor.js";
 
@@ -9,8 +9,11 @@ mock.module("cloudflare:workers", () => ({
   WorkerEntrypoint: class {},
 }));
 
-const { executeCloudCodeWithExecutorFactory } =
-  await import("../src/cloud-code-executor.js");
+const {
+  CLOUD_CODE_MAX_SOURCE_BYTES,
+  CLOUD_CODE_MAX_TIMEOUT_MS,
+  executeCloudCodeWithExecutorFactory,
+} = await import("../src/cloud-code-executor.js");
 const { createCloudCodeAgentTool } = await import("../src/cloud-code-tool.js");
 mock.restore();
 
@@ -31,10 +34,12 @@ describe("cloud code AgentTool adapter", () => {
       name: "mcp.server/tool",
       label: "MCP discovered tool",
       description: "Read a value from a discovered MCP server.",
-      parameters: Type.Object(
-        { key: Type.String() },
-        { additionalProperties: false },
-      ),
+      parameters: {
+        type: "object",
+        properties: { key: { type: "string" } },
+        required: ["key"],
+        additionalProperties: false,
+      } as AgentTool["parameters"],
       codeEligibility: "read_only",
       execute: async (toolCallId, params, signal) => {
         routed = { toolCallId, params, signal };
@@ -52,7 +57,7 @@ describe("cloud code AgentTool adapter", () => {
         return { result: value };
       },
     });
-    const code = createCloudCodeAgentTool({
+    const code = await createCloudCodeAgentTool({
       loader,
       tools: [discoveredTool],
       executionScope: "generation:conversation:turn",
@@ -62,6 +67,26 @@ describe("cloud code AgentTool adapter", () => {
     const outerSignal = new AbortController().signal;
 
     expect(code.name).toBe("code");
+    expect(code.parameters).toEqual({
+      type: "object",
+      properties: {
+        code: {
+          type: "string",
+          minLength: 1,
+          maxLength: CLOUD_CODE_MAX_SOURCE_BYTES,
+          description:
+            'An async JavaScript function expression, for example `async () => { return await codemode.web({ query: "..." }); }`.',
+        },
+        timeout_ms: {
+          type: "integer",
+          minimum: 1,
+          maximum: CLOUD_CODE_MAX_TIMEOUT_MS,
+          description: "Optional execution deadline in milliseconds.",
+        },
+      },
+      required: ["code"],
+      additionalProperties: false,
+    });
     expect(code.description).toContain("mcp_servertool -> mcp.server/tool");
     expect(code.description).not.toContain("node_repl");
     const output = await code.execute(
@@ -102,7 +127,7 @@ describe("cloud code AgentTool adapter", () => {
         return { result: Object.keys(providers[0]?.fns ?? {}) };
       },
     });
-    const code = createCloudCodeAgentTool({
+    const code = await createCloudCodeAgentTool({
       loader,
       tools: [protectedTool],
       executionScope: "generation:conversation:turn",
@@ -153,7 +178,7 @@ describe("cloud code AgentTool adapter", () => {
         }
       },
     });
-    const code = createCloudCodeAgentTool({
+    const code = await createCloudCodeAgentTool({
       loader,
       tools: [discoveredTool],
       executionScope: "generation:conversation:turn",
@@ -172,7 +197,7 @@ describe("cloud code AgentTool adapter", () => {
     );
   });
 
-  test("does not recursively expose code or the legacy node_repl name", () => {
+  test("does not recursively expose code or the legacy node_repl name", async () => {
     const intrinsic = (name: string): AgentTool => ({
       name,
       label: name,
@@ -180,7 +205,7 @@ describe("cloud code AgentTool adapter", () => {
       parameters: { type: "object" },
       execute: async () => result("no"),
     });
-    const code = createCloudCodeAgentTool({
+    const code = await createCloudCodeAgentTool({
       loader,
       tools: [intrinsic("code"), intrinsic("node_repl")],
       executionScope: "generation:conversation:turn",
@@ -197,13 +222,17 @@ describe("cloud code AgentTool adapter", () => {
       name: "looks_like_a_read",
       label: "Unclassified",
       description: "The prose claims this only reads, but prose is not policy.",
-      parameters: Type.Object({}, { additionalProperties: false }),
+      parameters: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      } as AgentTool["parameters"],
       execute: async () => {
         ran = true;
         return result("unexpected");
       },
     };
-    const code = createCloudCodeAgentTool({
+    const code = await createCloudCodeAgentTool({
       loader,
       tools: [unclassified],
       executionScope: "generation:conversation:turn",
@@ -221,7 +250,7 @@ describe("cloud code AgentTool adapter", () => {
 
   test("derives a stable execution id from scope and outer tool call", async () => {
     const seen: string[] = [];
-    const code = createCloudCodeAgentTool({
+    const code = await createCloudCodeAgentTool({
       loader,
       tools: [],
       executionScope: "generation:conversation:turn",

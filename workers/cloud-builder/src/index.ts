@@ -46,7 +46,6 @@ import {
   type InteriorBuildRecordedEvent,
   type OutboxEvent,
   type ThreadCompletedEvent,
-  type ThreadMessagesEvent,
   type ThreadSpawnedEvent,
   type TurnEventEvent,
   type TurnStartedEvent,
@@ -54,6 +53,7 @@ import {
 import {
   HEADER_PRESENCE_DEVICE_ID,
   OwnerGate,
+  parseOwnerSnapshot,
   snapshotAllowsExecutionEngine,
   type OwnerGateRefusalCode,
 } from "./owner-gate.js";
@@ -151,13 +151,10 @@ import {
 import { parseOwnerTransferRequest } from "./owner-transfer.js";
 import { OwnerTransferArchiveConflictError } from "./owner-transfer.js";
 import {
-  OWNER_PRODUCT_TRANSFER_LEASE_MS,
-  assertOwnerTransferReservation,
   collectCheckpointRecoveryReferences,
   createOwnerTransferBudget,
   isValidOwnerTransferPrefixPair,
   missingOwnerProductTransferBinding,
-  ownerTransferLeaseConflicts,
   parseOwnerProductTransferRequest,
   replaceOwnerPrefix,
   takeOwnerTransferBatch,
@@ -190,17 +187,12 @@ import {
   retireTransientAppBuild,
 } from "./app-build-artifacts.js";
 import {
-  normalizeOwnerGeneration,
-  ownerGenerationMatches,
-  ownerPurgeBeginDisposition,
-  ownerPurgeReleaseDisposition,
-} from "./owner-generation.js";
-import {
-  OwnerFenceStore,
-  type LegacyOwnerFenceActiveMirror,
-  type OwnerFenceLeaseNamespace,
-  type OwnerFenceLeaseRole,
-} from "./owner-fence-store.js";
+  HEADER_OWNER_FENCE_ID,
+  OWNER_FENCE_LEASE_TTL_MS,
+  type OwnerPurgeFence,
+  type OwnerPurgeMode,
+} from "./owner-fence-do.js";
+import { normalizeOwnerGeneration } from "./owner-generation.js";
 import { parseConversationEditRequest } from "./conversation-edit-protocol.js";
 import {
   conversationEditErrorResponse,
@@ -268,7 +260,6 @@ import {
   type TurnBrokerTarget,
 } from "./turn-credential-broker.js";
 import {
-  handleTurnStateOwnerRoute,
   type TurnStateTransferActivationResponse,
   type TurnStateTransferDestinationStatus,
   type TurnStateTransferExportResponse,
@@ -676,40 +667,6 @@ const exactTurnIdentityMatches = (
   JSON.stringify(current.browserResume ?? null) ===
     JSON.stringify(expected.browserResume ?? null);
 
-type OwnerPurgeMode = "temporary" | "permanent";
-type OwnerPurgeFence = {
-  /** Bound on the first trusted direct call into this owner-named DO. */
-  ownerId?: string;
-  generation: string;
-  /** Convex lifecycle operation that created the current blocked fence. */
-  beginRequestId?: string;
-  /** Makes a durable retry of the last temporary release idempotent. */
-  lastReleasedGeneration?: string;
-  /** Released generation whose rejoin produced the current blocked fence. */
-  rejoinedFromGeneration?: string;
-  state: "open" | "blocked";
-  mode?: OwnerPurgeMode;
-  /** SQL rows are authoritative; `active` remains a bounded rollback mirror. */
-  leaseStorageVersion?: 2;
-  active: Record<
-    string,
-    {
-      leaseId: string;
-      sessionId: string;
-      turnId: string;
-      namespace: "build" | "orchestrator" | "activity";
-      role: "run" | "aux" | "orchestrator" | "activity" | "transfer" | "world";
-      /** Convex owner-lifecycle generation carried by the admitted activity. */
-      ownerGeneration?: string;
-      /** Fence generation returned when this exact lease was admitted. */
-      reservationGeneration?: string;
-      workspace?: string;
-      /** Optional bounded lease used by cross-service control-plane work. */
-      expiresAt?: number;
-    }
-  >;
-};
-
 type BuildOwnerFenceLeaseReceipt = {
   schemaVersion: 1;
   ownerId: string;
@@ -737,7 +694,6 @@ const BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX = "ownerFenceLeaseReceipt:";
 const BUILD_OWNER_FENCE_LEASE_SLOT_PREFIX = "ownerFenceLeaseSlot:";
 const SANDBOX_WORLD_LEASE_RETIREMENT_PREFIX =
   "ownerFenceSandboxWorldRetirement:";
-const OWNER_FENCE_LEASE_TTL_MS = 30 * 60_000;
 const OWNER_FENCE_LEASE_RETRY_MS = 30_000;
 const OWNER_FENCE_LEASE_RENEW_LEAD_MS = 5 * 60_000;
 const ownerFenceLeaseReceiptKey = (leaseId: string): string =>
@@ -1166,8 +1122,6 @@ const HEADER_BUILD_SESSION_NAME = "x-stella-build-session-name";
 const HEADER_TURN_BROKER_ENDPOINT = "x-stella-turn-broker-endpoint";
 const HEADER_PREVIEW_BASE_URL = "x-stella-preview-base-url";
 const HEADER_PREVIEW_CAPABILITY = "x-stella-preview-capability";
-const HEADER_OWNER_FENCE_ID = "x-stella-owner-fence-id";
-
 type ConversationCaller = {
   ownerId: string;
   subject: string;
@@ -1394,7 +1348,11 @@ const handleTurnStartRoute = async (
   try {
     body = JSON.parse(text);
   } catch {
-    return turnStartErrorResponse("bad_request", "Malformed JSON request.", false);
+    return turnStartErrorResponse(
+      "bad_request",
+      "Malformed JSON request.",
+      false,
+    );
   }
   const parsed = parseCloudTurnStartRequest(body);
   if (!parsed.ok) {
@@ -1416,7 +1374,8 @@ const handleTurnStartRoute = async (
   headers.set(HEADER_OWNER, ownerId);
   headers.set(HEADER_TURN_AUTH_KIND, authKind);
   headers.set(HEADER_CONVERSATION_ID, conversationId);
-  if (ownerGeneration) headers.set(TURN_OWNER_GENERATION_HEADER, ownerGeneration);
+  if (ownerGeneration)
+    headers.set(TURN_OWNER_GENERATION_HEADER, ownerGeneration);
   if (tokenExpiresAtMs !== null) {
     headers.set(HEADER_TOKEN_EXP, String(tokenExpiresAtMs));
   }
@@ -1545,7 +1504,11 @@ const handleDispatchSubmitRoute = async (
   try {
     body = JSON.parse(text);
   } catch {
-    return dispatchErrorResponse("bad_request", "Malformed JSON request.", false);
+    return dispatchErrorResponse(
+      "bad_request",
+      "Malformed JSON request.",
+      false,
+    );
   }
   const parsed = parseDispatchSubmitRequest(body);
   if (!parsed.ok) {
@@ -1755,7 +1718,9 @@ const handleDispatchControlRoute = async (
       );
     }
     const cancelRequestId =
-      typeof raw?.cancelRequestId === "string" ? raw.cancelRequestId.trim() : "";
+      typeof raw?.cancelRequestId === "string"
+        ? raw.cancelRequestId.trim()
+        : "";
     if (!cancelRequestId || cancelRequestId.length > 128) {
       return dispatchErrorResponse(
         "bad_request",
@@ -2573,7 +2538,9 @@ export class BuildSession extends DurableObject<Env> {
       conversationId,
       execution:
         turn.execution ??
-        (turn.kind === "agent" ? undefined : APP_BUILD_CONTROL_PLANE_EXECUTION)!,
+        (turn.kind === "agent"
+          ? undefined
+          : APP_BUILD_CONTROL_PLANE_EXECUTION)!,
       audience: turn.audience,
       budgetMicroCents: turn.budgetMicroCents,
       agentTypes: ["general"],
@@ -2759,7 +2726,10 @@ export class BuildSession extends DurableObject<Env> {
     }
     const terminal = options.terminal === true;
     const event: TurnEventEvent = {
-      ...this.outboxBase(turn, `${turn.turnId}:${attemptGeneration}:${eventSeq}`),
+      ...this.outboxBase(
+        turn,
+        `${turn.turnId}:${attemptGeneration}:${eventSeq}`,
+      ),
       kind: "turn.event",
       turnId: turn.turnId,
       ...(turn.kind === "agent" ? { attemptGeneration } : {}),
@@ -2780,12 +2750,8 @@ export class BuildSession extends DurableObject<Env> {
   }
 
   /**
-   * Commit transcript rows to this thread's own table and project them.
-   *
-   * The rows are the authority here — a continuation reads them back from
-   * SQLite, not from Convex — so the write happens first and the projection
-   * follows. Re-appending the same ordinals is a no-op and emits nothing,
-   * which is what makes a retried commit safe.
+   * Commit transcript rows to this thread's own table. A continuation reads
+   * them back from SQLite, and re-appending the same ordinals is a no-op.
    */
   private async appendThreadTranscript(
     turn: TurnRequest,
@@ -2795,31 +2761,12 @@ export class BuildSession extends DurableObject<Env> {
       throw new AgentTurnAuthorityLostError();
     }
     const attemptGeneration = turn.attemptGeneration ?? 1;
-    const receipt = appendThreadMessages(this.ctx.storage.sql, {
+    appendThreadMessages(this.ctx.storage.sql, {
       turnId: turn.turnId,
       attemptGeneration,
       messages,
       now: Date.now(),
     });
-    if (receipt.messages.length === 0) return;
-    await this.enqueueOutboxDurable([
-      {
-        ...this.outboxBase(
-          turn,
-          `${turn.threadId}:${turn.turnId}:${attemptGeneration}:${receipt.batchOrdinal}`,
-        ),
-        kind: "thread.messages",
-        threadId: turn.threadId,
-        turnId: turn.turnId,
-        attemptGeneration,
-        batchOrdinal: receipt.batchOrdinal,
-        messages: receipt.messages.map((message) => ({
-          ordinal: message.ordinal,
-          role: message.role,
-          payloadJson: message.payloadJson,
-        })),
-      } satisfies ThreadMessagesEvent,
-    ]);
   }
 
   private trackTurn<T>(turnId: string, work: Promise<T>): Promise<T> {
@@ -2918,9 +2865,8 @@ export class BuildSession extends DurableObject<Env> {
     return tracked;
   }
 
-  private async ownerFence(ownerId: string) {
-    const ownerHash = await sha256Hex(ownerId);
-    return this.env.BUILD_SESSIONS.getByName(`owner-purge-${ownerHash}`);
+  private ownerFence(ownerId: string) {
+    return this.env.OWNER_GATES.getByName(ownerId);
   }
 
   private async callOwnerFence(
@@ -2928,8 +2874,8 @@ export class BuildSession extends DurableObject<Env> {
     path: string,
     body: Record<string, unknown>,
   ): Promise<Response> {
-    return (await this.ownerFence(ownerId)).fetch(
-      `https://build-session/owner-fence/${path}`,
+    return this.ownerFence(ownerId).fetch(
+      `https://owner-gate/owner-fence/${path}`,
       {
         method: "POST",
         headers: {
@@ -5430,485 +5376,6 @@ export class BuildSession extends DurableObject<Env> {
     execution.assertActive();
   }
 
-  private async ownerFenceFetch(
-    path: string,
-    request: Request,
-  ): Promise<Response> {
-    const turnStateRoute = path.startsWith("turn-state/");
-    const body = (turnStateRoute ? {} : await request.json()) as {
-      ownerId?: string;
-      generation?: string;
-      expectedGeneration?: string;
-      requestId?: string;
-      leaseId?: string;
-      ownerGeneration?: string;
-      mode?: OwnerPurgeMode;
-      sessionId?: string;
-      turnId?: string;
-      namespace?: "build" | "orchestrator" | "activity";
-      role?: "run" | "aux" | "orchestrator" | "activity" | "transfer" | "world";
-      workspace?: string;
-      expiresAt?: number;
-    };
-    const current = (await this.ctx.storage.get<OwnerPurgeFence>(
-      "ownerPurgeFence",
-    )) ?? {
-      generation: crypto.randomUUID(),
-      state: "open",
-      active: {},
-    };
-    const scopedOwnerId =
-      (turnStateRoute
-        ? request.headers.get(HEADER_OWNER_FENCE_ID)
-        : body.ownerId
-      )?.trim() ?? "";
-    if (
-      !scopedOwnerId ||
-      scopedOwnerId.length > 512 ||
-      /[\u0000-\u001f\u007f]/u.test(scopedOwnerId) ||
-      (current.ownerId !== undefined && current.ownerId !== scopedOwnerId)
-    ) {
-      return json({ error: "Owner fence identity does not match." }, 409);
-    }
-    const now = Date.now();
-    const leaseStore = new OwnerFenceStore(this.ctx.storage.sql);
-    leaseStore.initialize(now);
-    if (current.ownerId === undefined || current.leaseStorageVersion !== 2) {
-      let migrationFailed = false;
-      await this.ctx.storage.transaction(async (txn) => {
-        if (current.ownerId === undefined) current.ownerId = scopedOwnerId;
-        if (current.leaseStorageVersion !== 2) {
-          const migrated = leaseStore.migrateLegacyActiveMirror({
-            ownerId: scopedOwnerId,
-            fenceGeneration: current.generation,
-            active: current.active as LegacyOwnerFenceActiveMirror,
-            now,
-          });
-          if (migrated.invalid.length > 0 || migrated.conflicts.length > 0) {
-            migrationFailed = true;
-            return;
-          }
-          current.leaseStorageVersion = 2;
-        }
-        const mirror = leaseStore.boundedLegacyActiveMirror(now);
-        if (mirror.status !== "complete") {
-          migrationFailed = true;
-          return;
-        }
-        current.active = mirror.active;
-        await txn.put("ownerPurgeFence", current);
-        const nextExpiry = leaseStore.nextExpiry();
-        if (nextExpiry !== null) {
-          const existingAlarm = await txn.getAlarm();
-          if (existingAlarm === null || existingAlarm > nextExpiry) {
-            await txn.setAlarm(nextExpiry);
-          }
-        }
-      });
-      if (migrationFailed) {
-        log("error", "owner_fence_lease_migration_blocked", {
-          activeLeaseCount: Object.keys(current.active).length,
-        });
-        return json(
-          {
-            code: "lease_migration_blocked",
-            error: "Owner lease migration is blocked.",
-          },
-          503,
-        );
-      }
-    } else {
-      const expired = leaseStore.expireDueLeases(now);
-      if (expired.length > 0) {
-        const mirror = leaseStore.boundedLegacyActiveMirror(now);
-        if (mirror.status !== "complete") {
-          return json(
-            { code: "lease_capacity", error: "Owner lease capacity exceeded." },
-            503,
-          );
-        }
-        current.active = mirror.active;
-        await this.ctx.storage.put("ownerPurgeFence", current);
-      }
-    }
-    if (turnStateRoute) {
-      const response = await handleTurnStateOwnerRoute({
-        path,
-        request,
-        scopedOwnerId,
-        fence: {
-          ownerId: scopedOwnerId,
-          generation: current.generation,
-          state: current.state,
-          active: current.active as LegacyOwnerFenceActiveMirror,
-        },
-        storage: this.ctx.storage,
-        bucket: this.env.BACKUP_BUCKET,
-        nativeIntegritySecret: this.env.BUILDER_SERVICE_SECRET,
-      });
-      if (response) return response;
-    }
-    if (path === "register") {
-      const ownerGeneration = normalizeOwnerGeneration(body.ownerGeneration);
-      const activeLeases = Object.values(current.active);
-      const isTransferControlActivity =
-        body.role === "activity" &&
-        (body.turnId?.startsWith("owner-product-transfer:") ||
-          body.turnId?.startsWith("owner-transfer:"));
-      const transferBusy =
-        body.role === "transfer"
-          ? activeLeases.some((lease) =>
-              lease.role === "transfer"
-                ? ownerTransferLeaseConflicts(lease, body)
-                : !(
-                    lease.role === "activity" &&
-                    (lease.turnId.startsWith("owner-product-transfer:") ||
-                      lease.turnId.startsWith("owner-transfer:"))
-                  ),
-            )
-          : activeLeases.some((lease) => lease.role === "transfer") &&
-            !isTransferControlActivity;
-      const invalidTransferExpiry =
-        body.role === "transfer" &&
-        (typeof body.expiresAt !== "number" ||
-          !Number.isFinite(body.expiresAt) ||
-          body.expiresAt <= now ||
-          body.expiresAt > now + OWNER_PRODUCT_TRANSFER_LEASE_MS);
-      if (current.state !== "open") {
-        return json(
-          {
-            code:
-              current.mode === "permanent"
-                ? "owner_purge_permanent"
-                : "owner_purge_temporary",
-            error: "Owner purge is active.",
-          },
-          409,
-        );
-      }
-      if (transferBusy) {
-        return json(
-          { code: "transfer_busy", error: "Owner activity is busy." },
-          409,
-        );
-      }
-      if (
-        (body.generation !== undefined &&
-          body.generation !== current.generation) ||
-        !body.leaseId ||
-        !body.sessionId ||
-        !body.turnId ||
-        !ownerGeneration ||
-        invalidTransferExpiry
-      ) {
-        return json(
-          { code: "bad_request", error: "Invalid owner lease." },
-          400,
-        );
-      }
-      const namespace: OwnerFenceLeaseNamespace =
-        body.namespace === "orchestrator"
-          ? "orchestrator"
-          : body.namespace === "activity"
-            ? "activity"
-            : "build";
-      const role: OwnerFenceLeaseRole =
-        body.role === "run"
-          ? "run"
-          : body.role === "orchestrator"
-            ? "orchestrator"
-            : body.role === "transfer"
-              ? "transfer"
-              : body.role === "activity"
-                ? "activity"
-                : body.role === "world"
-                  ? "world"
-                  : "aux";
-      const expiresAt =
-        typeof body.expiresAt === "number" &&
-        Number.isFinite(body.expiresAt) &&
-        body.expiresAt > now
-          ? body.expiresAt
-          : now + OWNER_FENCE_LEASE_TTL_MS;
-      const registration = {
-        leaseId: body.leaseId,
-        ownerId: scopedOwnerId,
-        ownerGeneration,
-        reservationGeneration: current.generation,
-        sessionId: body.sessionId,
-        turnId: body.turnId,
-        namespace,
-        role,
-        expiresAt,
-        ...(role === "world" ? { worldSlot: 1 as const } : {}),
-      };
-      if (
-        !leaseStore.activeLease(body.leaseId, now) &&
-        leaseStore.activeLeaseCount(now) >= 512
-      ) {
-        return json(
-          { code: "lease_capacity", error: "Owner lease capacity exceeded." },
-          503,
-        );
-      }
-      let result!: ReturnType<OwnerFenceStore["registerLeaseExact"]>;
-      await this.ctx.storage.transaction(async (txn) => {
-        result = leaseStore.registerLeaseExact(registration, now);
-        if (result.status === "replayed") {
-          const renewed = leaseStore.renewLeaseExact(
-            result.lease,
-            expiresAt,
-            now,
-          );
-          if (renewed.status === "renewed") {
-            result = { status: "replayed", lease: renewed.lease };
-          }
-        }
-        if (result.status === "conflict") return;
-        const mirror = leaseStore.boundedLegacyActiveMirror(now);
-        if (mirror.status !== "complete") {
-          throw new Error("Owner fence rollback mirror exceeded its bound.");
-        }
-        current.active = mirror.active;
-        await txn.put("ownerPurgeFence", current);
-        const nextExpiry = leaseStore.nextExpiry();
-        if (nextExpiry !== null) {
-          const existingAlarm = await txn.getAlarm();
-          if (existingAlarm === null || existingAlarm > nextExpiry) {
-            await txn.setAlarm(nextExpiry);
-          }
-        }
-      });
-      if (result.status === "conflict") {
-        return json(
-          {
-            code: result.code === "world_busy" ? "world_busy" : "bad_request",
-            error:
-              result.code === "world_busy"
-                ? "Another world is already attached for this owner."
-                : "Owner lease identity conflicts.",
-          },
-          409,
-        );
-      }
-      return json({
-        generation: current.generation,
-        expiresAt: result.lease.expiresAt,
-      });
-    }
-    if (path === "unregister") {
-      if (!body.leaseId || !body.sessionId || !body.turnId) {
-        return json({ error: "Invalid owner lease." }, 400);
-      }
-      const active = leaseStore.lease(body.leaseId);
-      if (!active || active.state === "retired") {
-        return json({ ok: true, alreadyUnregistered: true });
-      }
-      if (
-        active.sessionId !== body.sessionId ||
-        active.turnId !== body.turnId ||
-        (active.ownerGeneration !== undefined &&
-          !ownerGenerationMatches(active.ownerGeneration, body.ownerGeneration))
-      ) {
-        return json({ error: "Owner lease identity does not match." }, 409);
-      }
-      await this.ctx.storage.transaction(async (txn) => {
-        const retired = leaseStore.retireLeaseExact(active, now);
-        if (
-          retired.status !== "retired" &&
-          retired.status !== "already_retired"
-        ) {
-          throw new Error("Exact owner lease retirement failed.");
-        }
-        const mirror = leaseStore.boundedLegacyActiveMirror(now);
-        if (mirror.status !== "complete") {
-          throw new Error("Owner fence rollback mirror exceeded its bound.");
-        }
-        current.active = mirror.active;
-        await txn.put("ownerPurgeFence", current);
-      });
-      return json({ ok: true });
-    }
-    if (path === "renew") {
-      if (
-        current.state !== "open" ||
-        body.generation !== current.generation ||
-        !body.leaseId ||
-        !body.sessionId ||
-        !body.turnId
-      ) {
-        return json({ error: "Owner purge fence changed." }, 409);
-      }
-      const lease = leaseStore.activeLease(body.leaseId, now);
-      if (
-        !lease ||
-        lease.sessionId !== body.sessionId ||
-        lease.turnId !== body.turnId ||
-        !ownerGenerationMatches(lease.ownerGeneration, body.ownerGeneration)
-      ) {
-        return json({ error: "Owner lease identity does not match." }, 409);
-      }
-      const expiresAt = now + OWNER_FENCE_LEASE_TTL_MS;
-      let renewed!: ReturnType<OwnerFenceStore["renewLeaseExact"]>;
-      await this.ctx.storage.transaction(async (txn) => {
-        renewed = leaseStore.renewLeaseExact(lease, expiresAt, now);
-        if (renewed.status !== "renewed") return;
-        const mirror = leaseStore.boundedLegacyActiveMirror(now);
-        if (mirror.status !== "complete") {
-          throw new Error("Owner fence rollback mirror exceeded its bound.");
-        }
-        current.active = mirror.active;
-        await txn.put("ownerPurgeFence", current);
-        const nextExpiry = leaseStore.nextExpiry();
-        if (nextExpiry !== null) {
-          const existingAlarm = await txn.getAlarm();
-          if (existingAlarm === null || existingAlarm > nextExpiry) {
-            await txn.setAlarm(nextExpiry);
-          }
-        }
-      });
-      return renewed.status === "renewed"
-        ? json({ ok: true, expiresAt: renewed.lease.expiresAt })
-        : json({ error: "Owner purge fence changed." }, 409);
-    }
-    if (path === "assert") {
-      if (
-        current.state !== "open" ||
-        body.generation !== current.generation ||
-        !body.leaseId
-      ) {
-        return json({ error: "Owner purge fence changed." }, 409);
-      }
-      const lease = leaseStore.activeLease(body.leaseId, now);
-      if (
-        !lease ||
-        !ownerGenerationMatches(lease.ownerGeneration, body.ownerGeneration)
-      ) {
-        return json({ error: "Owner purge fence changed." }, 409);
-      }
-      const expiresAt = now + OWNER_FENCE_LEASE_TTL_MS;
-      let renewed!: ReturnType<OwnerFenceStore["renewLeaseExact"]>;
-      await this.ctx.storage.transaction(async (txn) => {
-        renewed = leaseStore.renewLeaseExact(lease, expiresAt, now);
-        if (renewed.status !== "renewed") return;
-        const mirror = leaseStore.boundedLegacyActiveMirror(now);
-        if (mirror.status !== "complete") {
-          throw new Error("Owner fence rollback mirror exceeded its bound.");
-        }
-        current.active = mirror.active;
-        await txn.put("ownerPurgeFence", current);
-        const nextExpiry = leaseStore.nextExpiry();
-        if (nextExpiry !== null) {
-          const existingAlarm = await txn.getAlarm();
-          if (existingAlarm === null || existingAlarm > nextExpiry) {
-            await txn.setAlarm(nextExpiry);
-          }
-        }
-      });
-      return renewed.status === "renewed"
-        ? json({ ok: true, expiresAt: renewed.lease.expiresAt })
-        : json({ error: "Owner purge fence changed." }, 409);
-    }
-    if (path === "assert-transfer") {
-      const lease = body.leaseId ? current.active[body.leaseId] : undefined;
-      const assertion = assertOwnerTransferReservation(lease, body, current);
-      if (assertion.ok) {
-        // A purge that began after this reservation must wait for transfer
-        // acknowledgement (or its bounded expiry). Normal turn assertions
-        // still fail as soon as the purge fence closes.
-        return json({ ok: true, generation: current.generation });
-      }
-      return json(
-        {
-          code: assertion.code,
-          error: "Ownership-transfer reservation is no longer active.",
-        },
-        409,
-      );
-    }
-    if (path === "assert-blocked") {
-      return current.state === "blocked" &&
-        body.generation === current.generation
-        ? json({
-            ok: true,
-            active: current.active,
-            ...(current.beginRequestId
-              ? { beginRequestId: current.beginRequestId }
-              : {}),
-          })
-        : json({ error: "Owner purge generation is not active." }, 409);
-    }
-    if (path === "begin") {
-      const requestedMode =
-        body.mode === "permanent" ? "permanent" : "temporary";
-      const disposition = ownerPurgeBeginDisposition({
-        state: current.state,
-        mode: current.mode,
-        generation: current.generation,
-        beginRequestId: current.beginRequestId,
-        lastReleasedGeneration: current.lastReleasedGeneration,
-        rejoinedFromGeneration: current.rejoinedFromGeneration,
-        requestId: body.requestId,
-        expectedGeneration: body.expectedGeneration,
-        requestedMode,
-      });
-      if (disposition.action === "reject") {
-        return json({ error: "Owner purge generation cannot be joined." }, 409);
-      }
-      if (disposition.action === "start") {
-        current.generation = crypto.randomUUID();
-        current.beginRequestId = normalizeOwnerGeneration(body.requestId)!;
-        current.state = "blocked";
-        current.mode = disposition.mode;
-        if (disposition.rejoined) {
-          current.rejoinedFromGeneration = normalizeOwnerGeneration(
-            body.expectedGeneration,
-          )!;
-        } else {
-          delete current.rejoinedFromGeneration;
-        }
-      } else if (disposition.upgradeToPermanent) {
-        current.mode = "permanent";
-      }
-      await this.ctx.storage.put("ownerPurgeFence", current);
-      return json({
-        generation: current.generation,
-        mode: current.mode,
-        active: current.active,
-        ...(disposition.rejoined ? { rejoined: true } : {}),
-      });
-    }
-    if (path === "release") {
-      const disposition = ownerPurgeReleaseDisposition({
-        state: current.state,
-        mode: current.mode,
-        generation: current.generation,
-        lastReleasedGeneration: current.lastReleasedGeneration,
-        requestedGeneration: body.generation,
-        activeLeaseCount: leaseStore.activeLeaseCount(now),
-      });
-      if (disposition === "already-released") {
-        return json({
-          ok: true,
-          generation: current.generation,
-          alreadyReleased: true,
-        });
-      }
-      if (disposition !== "release") {
-        return json({ error: "Owner purge fence cannot be released." }, 409);
-      }
-      current.lastReleasedGeneration = current.generation;
-      current.generation = crypto.randomUUID();
-      current.state = "open";
-      delete current.beginRequestId;
-      delete current.mode;
-      delete current.rejoinedFromGeneration;
-      await this.ctx.storage.put("ownerPurgeFence", current);
-      return json({ ok: true, generation: current.generation });
-    }
-    return json({ error: "Not found." }, 404);
-  }
-
   private sandbox(
     id: string,
     size: InstanceSize = "large",
@@ -6076,9 +5543,8 @@ export class BuildSession extends DurableObject<Env> {
     }
     // Deferred projections are durability debt like any other: without a wake
     // a queue outage would strand a terminal state Convex never hears about.
-    const outboxDebt = await this.ctx.storage.get<OutboxEvent[]>(
-      OUTBOX_DEBT_KEY,
-    );
+    const outboxDebt =
+      await this.ctx.storage.get<OutboxEvent[]>(OUTBOX_DEBT_KEY);
     if (outboxDebt && outboxDebt.length > 0) {
       const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
       const current = await this.ctx.storage.getAlarm();
@@ -6086,37 +5552,6 @@ export class BuildSession extends DurableObject<Env> {
         await this.ctx.storage.setAlarm(retryAt);
       }
     }
-    const fence =
-      await this.ctx.storage.get<OwnerPurgeFence>("ownerPurgeFence");
-    if (fence?.leaseStorageVersion !== 2) return;
-    const store = new OwnerFenceStore(this.ctx.storage.sql);
-    store.initialize();
-    const nextExpiry = store.nextExpiry();
-    if (nextExpiry === null) return;
-    const existing = await this.ctx.storage.getAlarm();
-    await this.ctx.storage.setAlarm(
-      existing === null ? nextExpiry : Math.min(existing, nextExpiry),
-    );
-  }
-
-  /** Expiry is authoritative in SQL and reflected atomically to rollback KV. */
-  private async expireOwnerFenceLeasesForAlarm(
-    now = Date.now(),
-  ): Promise<void> {
-    const fence =
-      await this.ctx.storage.get<OwnerPurgeFence>("ownerPurgeFence");
-    if (fence?.leaseStorageVersion !== 2) return;
-    const store = new OwnerFenceStore(this.ctx.storage.sql);
-    store.initialize(now);
-    await this.ctx.storage.transaction(async (txn) => {
-      store.expireDueLeases(now);
-      const mirror = store.boundedLegacyActiveMirror(now);
-      if (mirror.status !== "complete") {
-        throw new Error("Owner fence rollback mirror exceeded its bound.");
-      }
-      fence.active = mirror.active;
-      await txn.put("ownerPurgeFence", fence);
-    });
   }
 
   /**
@@ -7394,7 +6829,6 @@ export class BuildSession extends DurableObject<Env> {
   async alarm(): Promise<void> {
     await this.retryDueSandboxDestroyDebts();
     await this.retryOwnerFenceLeaseRetirements();
-    await this.expireOwnerFenceLeasesForAlarm();
     await this.retryOutboxDebt();
     try {
       await this.runScheduledTurnAlarm();
@@ -9152,12 +8586,6 @@ export class BuildSession extends DurableObject<Env> {
     if (request.method !== "POST") {
       return json({ error: "Method not allowed." }, 405);
     }
-    if (url.pathname.startsWith("/owner-fence/")) {
-      return this.ownerFenceFetch(
-        url.pathname.slice("/owner-fence/".length),
-        request,
-      );
-    }
     if (url.pathname === "/owner-purge-cancel") {
       return this.cancelForOwnerPurge(request);
     }
@@ -9560,7 +8988,9 @@ export class BuildSession extends DurableObject<Env> {
    */
   private async admitAgentTurnThroughOwnerGate(
     turn: TurnRequest,
-  ): Promise<{ ok: true; snapshot: OwnerSnapshot } | { ok: false; response: Response }> {
+  ): Promise<
+    { ok: true; snapshot: OwnerSnapshot } | { ok: false; response: Response }
+  > {
     const gate = this.ownerGateFor(turn.ownerId);
     let snapshot: OwnerSnapshot;
     if (turn.gateAdmittedByCaller) {
@@ -9575,7 +9005,10 @@ export class BuildSession extends DurableObject<Env> {
         return {
           ok: false,
           response: json(
-            { error: "Stella can't check your plan right now. Try again shortly." },
+            {
+              error:
+                "Stella can't check your plan right now. Try again shortly.",
+            },
             503,
           ),
         };
@@ -12910,8 +12343,8 @@ type OwnerPurgeRequest = {
   browserProfiles?: string[];
 };
 
-const ownerFenceStub = async (env: Env, ownerId: string) =>
-  env.BUILD_SESSIONS.getByName(`owner-purge-${await sha256Hex(ownerId)}`);
+const ownerFenceStub = (env: Env, ownerId: string) =>
+  env.OWNER_GATES.getByName(ownerId);
 
 const callOwnerFence = async (
   env: Env,
@@ -12919,17 +12352,14 @@ const callOwnerFence = async (
   path: string,
   body: Record<string, unknown>,
 ): Promise<Response> =>
-  (await ownerFenceStub(env, ownerId)).fetch(
-    `https://build-session/owner-fence/${path}`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        [HEADER_OWNER_FENCE_ID]: ownerId,
-      },
-      body: JSON.stringify({ ...body, ownerId }),
+  ownerFenceStub(env, ownerId).fetch(`https://owner-gate/owner-fence/${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      [HEADER_OWNER_FENCE_ID]: ownerId,
     },
-  );
+    body: JSON.stringify({ ...body, ownerId }),
+  });
 
 const withOwnerActivityLease = async <T>(
   env: Env,
@@ -15304,8 +14734,8 @@ export default {
         },
       );
     }
-    // Convex learned an owner's plan, generation, engines or pairing changed:
-    // the owner gate drops its cached snapshot and refetches on next use.
+    // Convex learned an owner's plan, generation, engines or pairing changed.
+    // A complete push pre-warms the gate; a snapshot-less push marks it stale.
     if (
       request.method === "POST" &&
       url.pathname === BUILDER_OWNER_SNAPSHOT_CHANGED_PATH
@@ -15318,10 +14748,20 @@ export default {
       if (!ownerId || ownerId.length > 512) {
         return json({ error: "ownerId is required." }, 400);
       }
-      await env.OWNER_GATES.getByName(ownerId).invalidate();
+      const gate = env.OWNER_GATES.getByName(ownerId);
+      if (body?.snapshot !== undefined) {
+        const snapshot = parseOwnerSnapshot(body.snapshot, ownerId);
+        if (!snapshot) {
+          return json({ error: "snapshot is malformed." }, 400);
+        }
+        await gate.replaceSnapshot(snapshot);
+      } else {
+        await gate.invalidate();
+      }
       log("info", "owner_snapshot_changed", {
         requestId,
         reason: typeof body?.reason === "string" ? body.reason : "unknown",
+        pushedSnapshot: body?.snapshot !== undefined,
       });
       return json({ ok: true });
     }
@@ -15344,7 +14784,7 @@ export default {
     // surfaces. Pure pass-throughs: the DO owns every decision, this worker
     // only proves the caller holds the service secret.
     const conversationAdminMatch = url.pathname.match(
-      /^\/conversations\/([^/]+)\/(cards|purge|reindex)$/,
+      /^\/conversations\/([^/]+)\/(cards|purge)$/,
     );
     if (request.method === "POST" && conversationAdminMatch) {
       return env.ORCHESTRATOR_SESSIONS.getByName(

@@ -202,3 +202,54 @@
   width: 100%;
   justify-content: center;
 }
+
+/* Post-sign-in finishing state: the dialog holds while the anonymous→account
+ * ownership transfer lands, so the shell behind it is never swapped out. */
+.auth-dialog-body--finishing[data-slot="dialog-body"] {
+  align-items: center;
+  gap: 18px;
+}
+
+.auth-dialog-finishing-dots {
+  display: flex;
+  gap: 5px;
+  height: 6px;
+  opacity: 0.55;
+  color: var(--text-strong);
+}
+
+.auth-dialog-finishing-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: auth-dialog-finishing-dot 1.2s ease-in-out infinite;
+}
+
+.auth-dialog-finishing-dots span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.auth-dialog-finishing-dots span:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes auth-dialog-finishing-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.2;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-dialog-finishing-dots span {
+    animation: none;
+    opacity: 0.6;
+  }
+}

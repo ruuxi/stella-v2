@@ -10,6 +10,7 @@ import {
 } from "@/ui/dialog";
 import { MagicLinkAuthFlow } from "./MagicLinkAuthFlow";
 import { authClient } from "./lib/auth-client";
+import { useOwnershipMigrationInProgress } from "@/global/auth/hooks/use-ownership-migration-in-progress";
 import { useAuthSessionState } from "./hooks/use-auth-session-state";
 import {
   applyAndVerifyAccountSessionToken,
@@ -133,58 +134,95 @@ const pollDesktopSocialAuth = async (
 export const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
   const t = useT();
   const { hasConnectedAccount } = useAuthSessionState();
+  // Signing in from anonymous moves the anonymous data to the new account.
+  // The dialog owns that wait: it stays open in a finishing state until the
+  // transfer lands, then closes onto a shell that is already up to date.
+  // The shell itself is never swapped out for a placeholder.
+  const migrationInProgress = useOwnershipMigrationInProgress();
+  const finishing = hasConnectedAccount && migrationInProgress;
 
   useEffect(() => {
-    if (hasConnectedAccount && open) {
+    if (hasConnectedAccount && !migrationInProgress && open) {
       onOpenChange(false);
     }
-  }, [hasConnectedAccount, open, onOpenChange]);
+  }, [hasConnectedAccount, migrationInProgress, open, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent fit className="auth-dialog-content">
         <VisuallyHidden asChild>
-          <DialogTitle>{t("global.auth.welcomeTitle")}</DialogTitle>
+          <DialogTitle>
+            {t(
+              finishing
+                ? "global.auth.finishingTitle"
+                : "global.auth.welcomeTitle",
+            )}
+          </DialogTitle>
         </VisuallyHidden>
         <VisuallyHidden asChild>
           <DialogDescription>
-            {t("global.auth.welcomeDescription")}
+            {t(
+              finishing
+                ? "global.auth.finishingSub"
+                : "global.auth.welcomeDescription",
+            )}
           </DialogDescription>
         </VisuallyHidden>
         <DialogCloseButton className="auth-dialog-close" />
-        <DialogBody className="auth-dialog-body">
-          <div className="auth-dialog-hero">
-            <p className="auth-dialog-headline">
-              {t("global.auth.welcomeTitle")}
-            </p>
-            <p className="auth-dialog-sub">{t("global.auth.welcomeSub")}</p>
-          </div>
-          <GoogleAuthButton />
-          <div className="auth-dialog-method-divider">
-            <span>{t("global.auth.orUseEmail")}</span>
-          </div>
-          <MagicLinkAuthFlow
-            className="auth-dialog-flow"
-            hideEmailLabel
-            inputVariant="normal"
-            emailPlaceholder={t("global.auth.emailPlaceholder")}
-            autoFocus
-            formClassName="auth-dialog-form"
-            inputClassName="auth-dialog-input"
-            buttonClassName="pill-btn pill-btn--primary pill-btn--lg auth-dialog-cta"
-            buttonVariant="primary"
-            buttonSize="large"
-            submitLabel={t("common.continue")}
-            sendingLabel={t("global.auth.sending")}
-            resendLabel={t("global.auth.resendEmail")}
-            extrasClassName="auth-dialog-extras"
-            extrasInnerClassName="auth-dialog-extras-inner"
-            sentClassName="auth-dialog-sent"
-            sentMessage={t("global.auth.magicLinkSentDesktop")}
-            openInboxClassName="pill-btn pill-btn--primary pill-btn--lg auth-dialog-open-inbox"
-            errorClassName="auth-dialog-error"
-          />
-        </DialogBody>
+        {finishing ? (
+          <DialogBody
+            className="auth-dialog-body auth-dialog-body--finishing"
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <div className="auth-dialog-hero">
+              <p className="auth-dialog-headline">
+                {t("global.auth.finishingTitle")}
+              </p>
+              <p className="auth-dialog-sub">{t("global.auth.finishingSub")}</p>
+            </div>
+            <div className="auth-dialog-finishing-dots" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
+          </DialogBody>
+        ) : (
+          <DialogBody className="auth-dialog-body">
+            <div className="auth-dialog-hero">
+              <p className="auth-dialog-headline">
+                {t("global.auth.welcomeTitle")}
+              </p>
+              <p className="auth-dialog-sub">{t("global.auth.welcomeSub")}</p>
+            </div>
+            <GoogleAuthButton />
+            <div className="auth-dialog-method-divider">
+              <span>{t("global.auth.orUseEmail")}</span>
+            </div>
+            <MagicLinkAuthFlow
+              className="auth-dialog-flow"
+              hideEmailLabel
+              inputVariant="normal"
+              emailPlaceholder={t("global.auth.emailPlaceholder")}
+              autoFocus
+              formClassName="auth-dialog-form"
+              inputClassName="auth-dialog-input"
+              buttonClassName="pill-btn pill-btn--primary pill-btn--lg auth-dialog-cta"
+              buttonVariant="primary"
+              buttonSize="large"
+              submitLabel={t("common.continue")}
+              sendingLabel={t("global.auth.sending")}
+              resendLabel={t("global.auth.resendEmail")}
+              extrasClassName="auth-dialog-extras"
+              extrasInnerClassName="auth-dialog-extras-inner"
+              sentClassName="auth-dialog-sent"
+              sentMessage={t("global.auth.magicLinkSentDesktop")}
+              openInboxClassName="pill-btn pill-btn--primary pill-btn--lg auth-dialog-open-inbox"
+              errorClassName="auth-dialog-error"
+            />
+          </DialogBody>
+        )}
       </DialogContent>
     </Dialog>
   );

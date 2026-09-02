@@ -33,6 +33,7 @@ import {
   getAgentCompletion,
 } from "@stella/runtime/kernel/agent-runtime/run-shared.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import { loadModelRegistry } from "@stella/contracts/model-registry";
 import {
   isManagedModelAudience,
   type ManagedModelAudience,
@@ -155,7 +156,10 @@ export type TurnComputeUse =
   | Readonly<{
       kind: "sandbox";
       reason:
-        "native_engine" | "process_tool" | "filesystem_tool" | "interior_build";
+        | "native_engine"
+        | "process_tool"
+        | "filesystem_tool"
+        | "interior_build";
       instanceSize: "small" | "large";
       coldStartMs: number;
       restoreMs: number;
@@ -801,6 +805,12 @@ export const runResidentStellaLoop = async (
     now: input.now(),
   });
 
+  // The model registry is a lazy import in the Worker (it is 433 KB of
+  // catalog that must not be evaluated on every object wake). The relay
+  // factory loads it, but a caller may inject its own model, and the Agent's
+  // defaults still read the registry synchronously — so settle it here,
+  // before the latch below, where an await is still allowed.
+  await loadModelRegistry();
   context.assertActive();
   // No await between this synchronous latch and constructing the Agent. The
   // next async admission boundary repeats the check.

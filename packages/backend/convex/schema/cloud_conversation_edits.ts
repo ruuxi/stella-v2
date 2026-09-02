@@ -16,7 +16,6 @@ export const cloudConversationEditsSchema = {
     kind: v.union(v.literal("fork"), v.literal("rewind")),
     state: v.union(
       v.literal("preparing"),
-      v.literal("projecting"),
       v.literal("complete"),
       v.literal("failed"),
       v.literal("canceled"),
@@ -40,7 +39,6 @@ export const cloudConversationEditsSchema = {
     lastPreview: v.optional(v.string()),
     lastRole: v.optional(v.string()),
     completedAt: v.optional(v.number()),
-    projectionComplete: v.optional(v.boolean()),
     lastError: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),

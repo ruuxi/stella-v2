@@ -7,15 +7,15 @@ const source = async (relativeUrl: string): Promise<string> =>
 
 describe("mobile Cloud Home Settings reachability", () => {
   test("mounts the editor route from the signed-in Settings surface", async () => {
-    const [accountRoute, cloudHomeRoute] = await Promise.all([
-      source("../../../app/(main)/account.tsx"),
+    const [settingsRoute, cloudHomeRoute] = await Promise.all([
+      source("../../../app/(main)/settings.tsx"),
       source("../../../app/(main)/cloud-home.tsx"),
     ]);
 
-    expect(accountRoute).toContain('router.push("/cloud-home")');
-    expect(accountRoute).toContain('t("mobile.cloudHome.openSettingsLabel")');
-    expect(accountRoute.indexOf("{isSignedIn ? (")).toBeLessThan(
-      accountRoute.indexOf('router.push("/cloud-home")'),
+    expect(settingsRoute).toContain('router.push("/cloud-home")');
+    expect(settingsRoute).toContain('t("mobile.cloudHome.openSettingsLabel")');
+    expect(settingsRoute.indexOf("{isSignedIn ? (")).toBeLessThan(
+      settingsRoute.indexOf('router.push("/cloud-home")'),
     );
     expect(cloudHomeRoute).toContain("<CloudHomeSettings");
     expect(cloudHomeRoute).toContain("observeCloudConversationIdentity(");
@@ -24,7 +24,7 @@ describe("mobile Cloud Home Settings reachability", () => {
       'key={identity?.identityKey ?? "signed-out"}',
     );
     expect(cloudHomeRoute).toContain("identity={identity}");
-    expect(cloudHomeRoute).toContain('router.replace("/account")');
+    expect(cloudHomeRoute).toContain('router.replace("/settings")');
     expect(cloudHomeRoute).toContain('router.replace("/login")');
   });
 

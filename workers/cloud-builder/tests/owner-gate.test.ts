@@ -8,9 +8,11 @@ mock.module("cloudflare:workers", () => ({
   WorkerEntrypoint: class {},
 }));
 const {
+  OWNER_GATE_BACKGROUND_SNAPSHOT_TIMEOUT_MS,
   OWNER_GATE_BURST_WINDOW_MS,
   OWNER_GATE_DAILY_WINDOW_MS,
   OWNER_GATE_RUNNING_GRACE_MS,
+  OWNER_GATE_SNAPSHOT_TIMEOUT_MS,
   OwnerGate,
   OwnerGateSnapshotError,
   parseOwnerSnapshot,
@@ -29,10 +31,36 @@ mock.restore();
 const NOW = 1_800_000_000_000;
 const TURN_TIMEOUT_MS = 900_000;
 
+const deferred = <T>() => {
+  let resolve = (_value: T): void => {
+    throw new Error("Deferred promise was resolved before initialization.");
+  };
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
+
+const readImmediately = async <T>(read: Promise<T>): Promise<T> => {
+  const outcome = await Promise.race([
+    read.then((value) => ({ kind: "value" as const, value })),
+    new Promise<{ kind: "blocked" }>((resolve) => {
+      setTimeout(() => resolve({ kind: "blocked" }), 0);
+    }),
+  ]);
+  expect(outcome.kind).toBe("value");
+  if (outcome.kind === "blocked") {
+    throw new Error("Snapshot read blocked on its background refresh.");
+  }
+  return outcome.value;
+};
+
 const gateHarness = (
   options: {
     snapshot?: ReturnType<typeof sampleOwnerSnapshot>;
-    fetch?: () => Promise<ReturnType<typeof sampleOwnerSnapshot>>;
+    fetch?: (
+      timeoutMs: number,
+    ) => Promise<ReturnType<typeof sampleOwnerSnapshot>>;
     values?: Map<string, unknown>;
   } = {},
 ) => {
@@ -51,6 +79,7 @@ const gateHarness = (
   > &
     Record<string, unknown>;
   let fetches = 0;
+  const fetchTimeouts: number[] = [];
   const snapshot = options.snapshot ?? sampleOwnerSnapshot();
   Object.assign(instance, {
     ctx: { storage, id: { name: "owner-1", toString: () => "owner-1" } },
@@ -59,9 +88,10 @@ const gateHarness = (
       BUILDER_SERVICE_SECRET: "secret",
       TURN_TIMEOUT_MS: String(TURN_TIMEOUT_MS),
     },
-    fetchSnapshot: async () => {
+    fetchSnapshot: async (_ownerId: string, timeoutMs: number) => {
       fetches += 1;
-      if (options.fetch) return await options.fetch();
+      fetchTimeouts.push(timeoutMs);
+      if (options.fetch) return await options.fetch(timeoutMs);
       return snapshot;
     },
   });
@@ -69,6 +99,7 @@ const gateHarness = (
     instance,
     values,
     fetches: () => fetches,
+    fetchTimeouts: () => [...fetchTimeouts],
     close: () => sqlFake.close(),
   };
 };
@@ -161,7 +192,9 @@ describe("OwnerGate admission", () => {
       chat("d4", NOW + OWNER_GATE_DAILY_WINDOW_MS + 1),
     );
     expect(nextDay.ok).toBe(true);
-    expect((await instance.status(NOW + OWNER_GATE_DAILY_WINDOW_MS + 1)).starts.chat).toBe(2);
+    expect(
+      (await instance.status(NOW + OWNER_GATE_DAILY_WINDOW_MS + 1)).starts.chat,
+    ).toBe(2);
   });
 
   test("an unlimited plan skips the windows but never the concurrency ceiling", async () => {
@@ -261,7 +294,10 @@ describe("OwnerGate admission", () => {
     await instance.release({ turnId: "b1" });
     await instance.release({ turnId: "wake-1" });
     expect((await instance.admit(chat("b3", NOW + 1))).ok).toBe(false);
-    expect((await instance.admit(chat("b4", NOW + OWNER_GATE_DAILY_WINDOW_MS + 1))).ok).toBe(true);
+    expect(
+      (await instance.admit(chat("b4", NOW + OWNER_GATE_DAILY_WINDOW_MS + 1)))
+        .ok,
+    ).toBe(true);
   });
 
   test("refuses a non-writable owner and a definitely purged owner", async () => {
@@ -284,14 +320,17 @@ describe("OwnerGate admission", () => {
 
   test("a stale service generation is refused only after one forced refresh", async () => {
     let generation = "generation-1";
+    let fetchedAt = NOW;
     const { instance, fetches } = open({
-      fetch: async () => sampleOwnerSnapshot({ ownerGeneration: generation }),
+      fetch: async () =>
+        sampleOwnerSnapshot({ ownerGeneration: generation, fetchedAt }),
     });
     expect((await instance.admit(chat("s1"))).ok).toBe(true);
     expect(fetches()).toBe(1);
     // Convex rotated the generation and the push was lost: the caller is
     // newer than the cache, so the gate refreshes before deciding.
     generation = "generation-2";
+    fetchedAt += 1;
     const refreshed = await instance.admit(
       chat("s2", NOW, { expectedGeneration: "generation-2" }),
     );
@@ -306,19 +345,112 @@ describe("OwnerGate admission", () => {
 });
 
 describe("OwnerGate snapshot cache", () => {
-  test("serves the cache within ttl, refetches after, and invalidation forces a refetch", async () => {
-    const { instance, fetches } = open();
+  test("uses separate synchronous and background snapshot deadlines", async () => {
+    const initial = sampleOwnerSnapshot();
+    const { instance, fetchTimeouts } = open({ snapshot: initial });
     await instance.snapshot({ now: NOW });
-    await instance.snapshot({ now: NOW + 1_000 });
-    expect(fetches()).toBe(1);
-    await instance.snapshot({ now: NOW + 300_001 });
-    expect(fetches()).toBe(2);
-    await instance.invalidate();
-    await instance.snapshot({ now: NOW + 300_002 });
-    expect(fetches()).toBe(3);
+    await instance.snapshot({ now: NOW + initial.ttlMs + 1 });
+    await Promise.resolve();
+    expect(fetchTimeouts()).toEqual([
+      OWNER_GATE_SNAPSHOT_TIMEOUT_MS,
+      OWNER_GATE_BACKGROUND_SNAPSHOT_TIMEOUT_MS,
+    ]);
   });
 
-  test("a failed refetch serves a copy up to three ttls old, then fails closed as internal", async () => {
+  test("serves a stale copy immediately while one background refresh runs", async () => {
+    const refresh = deferred<ReturnType<typeof sampleOwnerSnapshot>>();
+    let refreshing = false;
+    const initial = sampleOwnerSnapshot();
+    const { instance, fetches } = open({
+      fetch: async () => (refreshing ? await refresh.promise : initial),
+    });
+    await instance.snapshot({ now: NOW });
+    expect(fetches()).toBe(1);
+    refreshing = true;
+    const staleAt = NOW + initial.ttlMs + 1;
+    const first = await readImmediately(instance.snapshot({ now: staleAt }));
+    const second = await readImmediately(
+      instance.snapshot({ now: staleAt + 1 }),
+    );
+    expect(first.fetchedAt).toBe(initial.fetchedAt);
+    expect(second.fetchedAt).toBe(initial.fetchedAt);
+    expect(fetches()).toBe(2);
+
+    const refreshed = sampleOwnerSnapshot({
+      fetchedAt: initial.fetchedAt + 1,
+      plan: "go",
+    });
+    refresh.resolve(refreshed);
+    expect(
+      (await instance.snapshot({ refresh: true, now: staleAt + 2 })).plan,
+    ).toBe("go");
+  });
+
+  test("invalidation marks the copy stale and the next read does not wait", async () => {
+    const refresh = deferred<ReturnType<typeof sampleOwnerSnapshot>>();
+    let refreshing = false;
+    const initial = sampleOwnerSnapshot();
+    const { instance, fetches, values } = open({
+      fetch: async () => (refreshing ? await refresh.promise : initial),
+    });
+    await instance.snapshot({ now: NOW });
+    await instance.invalidate();
+    expect(values.get("ownerSnapshot")).toMatchObject({ stale: true });
+
+    refreshing = true;
+    const cached = await readImmediately(
+      instance.snapshot({ now: NOW + 1_000 }),
+    );
+    expect(cached.fetchedAt).toBe(initial.fetchedAt);
+    expect(fetches()).toBe(2);
+
+    const refreshed = sampleOwnerSnapshot({ fetchedAt: initial.fetchedAt + 1 });
+    refresh.resolve(refreshed);
+    await instance.snapshot({ refresh: true, now: NOW + 1_001 });
+    expect(values.get("ownerSnapshot")).not.toMatchObject({ stale: true });
+  });
+
+  test("a pushed snapshot replaces the cache and an older push is ignored", async () => {
+    const initial = sampleOwnerSnapshot({ fetchedAt: 100 });
+    const { instance, fetches, values } = open({ snapshot: initial });
+    await instance.snapshot({ now: Date.now() });
+    await instance.invalidate();
+
+    const newer = sampleOwnerSnapshot({
+      ownerGeneration: "generation-2",
+      fetchedAt: 200,
+      plan: "go",
+    });
+    await instance.replaceSnapshot(newer);
+    expect(values.get("ownerSnapshot")).toMatchObject({
+      snapshot: { ownerGeneration: "generation-2", fetchedAt: 200, plan: "go" },
+    });
+    expect(values.get("ownerSnapshot")).not.toMatchObject({ stale: true });
+
+    await instance.replaceSnapshot(
+      sampleOwnerSnapshot({
+        ownerGeneration: "generation-1",
+        fetchedAt: 150,
+        plan: "free",
+      }),
+    );
+    await instance.replaceSnapshot(
+      sampleOwnerSnapshot({
+        ownerGeneration: "generation-3",
+        fetchedAt: 200,
+        plan: "free",
+      }),
+    );
+    const stored = await instance.snapshot({ now: Date.now() });
+    expect(stored).toMatchObject({
+      ownerGeneration: "generation-2",
+      fetchedAt: 200,
+      plan: "go",
+    });
+    expect(fetches()).toBe(1);
+  });
+
+  test("the hard ceiling still fails closed when its synchronous refresh fails", async () => {
     let fail = false;
     const { instance, fetches } = open({
       fetch: async () => {
@@ -334,12 +466,57 @@ describe("OwnerGate snapshot cache", () => {
     const stale = await instance.admit(chat("k2", NOW + 750_000));
     expect(stale.ok).toBe(true);
     expect(fetches()).toBe(2);
+    await Promise.resolve();
     const tooOld = await instance.admit(chat("k3", NOW + 900_001));
     expect(tooOld).toMatchObject({
       ok: false,
       code: "internal",
       retryable: true,
     });
+    expect(fetches()).toBe(3);
+  });
+
+  test("a definite purge discovered in the background removes the stale copy", async () => {
+    let purged = false;
+    const { instance } = open({
+      fetch: async () => {
+        if (purged) {
+          throw new OwnerGateSnapshotError("owner_purged", "gone", false);
+        }
+        return sampleOwnerSnapshot();
+      },
+    });
+    await instance.snapshot({ now: NOW });
+    purged = true;
+    expect(
+      (await readImmediately(instance.snapshot({ now: NOW + 300_001 })))
+        .writable,
+    ).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(await instance.admit(chat("purged", NOW + 300_002))).toMatchObject({
+      ok: false,
+      code: "owner_purged",
+      retryable: false,
+    });
+  });
+
+  test("a gate with no snapshot waits for its initial fetch", async () => {
+    const initial = deferred<ReturnType<typeof sampleOwnerSnapshot>>();
+    const { instance, fetches } = open({
+      fetch: async () => await initial.promise,
+    });
+    let settled = false;
+    const read = instance.snapshot({ now: NOW }).then((snapshot) => {
+      settled = true;
+      return snapshot;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fetches()).toBe(1);
+    expect(settled).toBe(false);
+    initial.resolve(sampleOwnerSnapshot());
+    expect((await read).ownerGeneration).toBe("generation-1");
   });
 
   test("a snapshot fetch failure with no cache fails closed as internal", async () => {
@@ -390,7 +567,10 @@ describe("owner snapshot parsing", () => {
       { ...base, quotas: { chat: base.quotas.chat } },
       {
         ...base,
-        quotas: { ...base.quotas, chat: { ...base.quotas.chat, concurrent: -1 } },
+        quotas: {
+          ...base.quotas,
+          chat: { ...base.quotas.chat, concurrent: -1 },
+        },
       },
       { ...base, allowance: { ...base.allowance, audience: "vip" } },
       { ...base, allowance: { ...base.allowance, budgetMicroCents: NaN } },

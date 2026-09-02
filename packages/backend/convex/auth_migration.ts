@@ -5897,56 +5897,7 @@ export const commitCloudConversationTransferBatch = internalMutation({
         .take(1)
     )[0];
     if (thread) {
-      const messages = await ctx.db
-        .query("cloud_thread_messages")
-        .withIndex("by_conversationId_and_ownerId_and_seq", (q) =>
-          q
-            .eq("conversationId", thread.threadId)
-            .eq("ownerId", args.fromOwnerId),
-        )
-        .take(CLOUD_PROJECTION_BATCH_SIZE);
-      await Promise.all(
-        messages.map((message) =>
-          ctx.db.patch(message._id, { ownerId: args.toOwnerId }),
-        ),
-      );
-      if (messages.length < CLOUD_PROJECTION_BATCH_SIZE) {
-        await ctx.db.patch(thread._id, { ownerId: args.toOwnerId });
-      }
-      return await finish({ complete: false, progressed: true });
-    }
-
-    const legacyMessages = await ctx.db
-      .query("cloud_messages")
-      .withIndex("by_conversationId_and_ownerId_and_seq", (q) =>
-        q
-          .eq("conversationId", args.conversationId)
-          .eq("ownerId", args.fromOwnerId),
-      )
-      .take(CLOUD_PROJECTION_BATCH_SIZE);
-    if (legacyMessages.length > 0) {
-      await Promise.all(
-        legacyMessages.map((message) =>
-          ctx.db.patch(message._id, { ownerId: args.toOwnerId }),
-        ),
-      );
-      return await finish({ complete: false, progressed: true });
-    }
-
-    const excerpts = await ctx.db
-      .query("cloud_message_excerpts")
-      .withIndex("by_conversationId_and_ownerId_and_seqStart", (q) =>
-        q
-          .eq("conversationId", args.conversationId)
-          .eq("ownerId", args.fromOwnerId),
-      )
-      .take(CLOUD_PROJECTION_BATCH_SIZE);
-    if (excerpts.length > 0) {
-      await Promise.all(
-        excerpts.map((excerpt) =>
-          ctx.db.patch(excerpt._id, { ownerId: args.toOwnerId }),
-        ),
-      );
+      await ctx.db.patch(thread._id, { ownerId: args.toOwnerId });
       return await finish({ complete: false, progressed: true });
     }
 
@@ -7374,24 +7325,7 @@ export const migrateCloudProductCoreBatch = internalMutation({
         .take(1)
     )[0];
     if (thread) {
-      const messages = await ctx.db
-        .query("cloud_thread_messages")
-        .withIndex("by_conversationId_and_ownerId_and_seq", (q) =>
-          q
-            .eq("conversationId", thread.threadId)
-            .eq("ownerId", args.fromOwnerId),
-        )
-        .take(CLOUD_PROJECTION_BATCH_SIZE);
-      if (messages.length > 0) {
-        await Promise.all(
-          messages.map((message) =>
-            ctx.db.patch(message._id, { ownerId: args.toOwnerId }),
-          ),
-        );
-      }
-      if (messages.length < CLOUD_PROJECTION_BATCH_SIZE) {
-        await ctx.db.patch(thread._id, { ownerId: args.toOwnerId });
-      }
+      await ctx.db.patch(thread._id, { ownerId: args.toOwnerId });
       return { hasMore: true, progressed: true };
     }
     const scheduleReceipt = (
@@ -7495,50 +7429,17 @@ export const migrateCloudProductCoreBatch = internalMutation({
       }
       return { hasMore: true, progressed: true };
     }
-    const ownerOnlyTables = [
-      "cloud_message_excerpts",
-      "cloud_thread_messages",
-      "cloud_scheduled_turns",
-    ] as const;
-    for (const table of ownerOnlyTables) {
-      if (table === "cloud_message_excerpts") {
-        const row = (
-          await ctx.db
-            .query(table)
-            .withIndex("by_ownerId_and_createdAt", (q) =>
-              q.eq("ownerId", args.fromOwnerId),
-            )
-            .take(1)
-        )[0];
-        if (row) {
-          await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
-          return { hasMore: true, progressed: true };
-        }
-      } else if (table === "cloud_thread_messages") {
-        const row = (
-          await ctx.db
-            .query(table)
-            .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-            .take(1)
-        )[0];
-        if (row) {
-          await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
-          return { hasMore: true, progressed: true };
-        }
-      } else {
-        const row = (
-          await ctx.db
-            .query(table)
-            .withIndex("by_ownerId_and_updatedAt", (q) =>
-              q.eq("ownerId", args.fromOwnerId),
-            )
-            .take(1)
-        )[0];
-        if (row) {
-          await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
-          return { hasMore: true, progressed: true };
-        }
-      }
+    const scheduledTurn = (
+      await ctx.db
+        .query("cloud_scheduled_turns")
+        .withIndex("by_ownerId_and_updatedAt", (q) =>
+          q.eq("ownerId", args.fromOwnerId),
+        )
+        .take(1)
+    )[0];
+    if (scheduledTurn) {
+      await ctx.db.patch(scheduledTurn._id, { ownerId: args.toOwnerId });
+      return { hasMore: true, progressed: true };
     }
     return { hasMore: false, progressed: false };
   },
@@ -8466,7 +8367,9 @@ export const auditOwnershipMigrationResidue = internalQuery({
         "auth_revoked_sessions",
         await ctx.db
           .query("auth_revoked_sessions")
-          .withIndex("by_ownerId_and_sessionId", (q) => q.eq("ownerId", ownerId))
+          .withIndex("by_ownerId_and_sessionId", (q) =>
+            q.eq("ownerId", ownerId),
+          )
           .take(1),
       ],
       [
@@ -8660,29 +8563,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
         await ctx.db
           .query("cloud_agent_threads")
           .withIndex("by_ownerId_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "cloud_thread_messages",
-        await ctx.db
-          .query("cloud_thread_messages")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "cloud_messages",
-        await ctx.db
-          .query("cloud_messages")
-          .withIndex("by_ownerId_and_seq", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "cloud_message_excerpts",
-        await ctx.db
-          .query("cloud_message_excerpts")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
             q.eq("ownerId", ownerId),
           )
           .take(1),

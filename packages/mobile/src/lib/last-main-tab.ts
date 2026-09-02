@@ -1,22 +1,26 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-export type MainTabId = "chat" | "account";
+export type MainTabId = "chat" | "settings" | "account";
 
 export const MAIN_TAB_HREFS: Record<MainTabId, string> = {
   chat: "/chat",
+  settings: "/settings",
   account: "/account",
 };
 
 const LAST_MAIN_TAB_KEY = "stella-mobile:last-main-tab";
 
 export function readMainTabFromPath(pathname: string): MainTabId | null {
+  if (pathname === "/settings") return "settings";
   if (pathname === "/account") return "account";
   if (pathname === "/chat") return "chat";
   return null;
 }
 
 function parseMainTab(value: string | null): MainTabId | null {
-  if (value === "chat" || value === "account") return value;
+  if (value === "chat" || value === "settings" || value === "account") {
+    return value;
+  }
   return null;
 }
 

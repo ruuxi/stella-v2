@@ -3123,6 +3123,17 @@ describe("crash-safe ownership migration lifecycle", () => {
         createdAt: 1,
         updatedAt: 1,
       });
+      await ctx.db.insert("cloud_agent_threads", {
+        threadId: "cloud-thread",
+        ownerId: fromOwnerId,
+        conversationId: "cloud-conversation",
+        description: "Test thread",
+        placement: "cloud",
+        agentType: "general",
+        status: "completed",
+        createdAt: 1,
+        updatedAt: 1,
+      });
     });
     const transferOperationId = "a".repeat(64);
     const transferPlanFingerprint = "b".repeat(64);
@@ -3136,6 +3147,25 @@ describe("crash-safe ownership migration lifecycle", () => {
       transferPlanFingerprint,
       transferStage: "conversations",
     });
+    await t.mutation(migrationInternal.commitCloudConversationTransferBatch, {
+      ...ownerArgs,
+      leaseId: "copy-lease",
+      leaseGeneration: 1,
+      leaseNow: 1_001,
+      conversationId: "cloud-conversation",
+      transferOperationId,
+      transferPlanFingerprint,
+      transferStage: "conversations",
+    });
+
+    expect(
+      await t.run(async (ctx) =>
+        ctx.db
+          .query("cloud_agent_threads")
+          .withIndex("by_threadId", (q) => q.eq("threadId", "cloud-thread"))
+          .unique(),
+      ),
+    ).toMatchObject({ ownerId: toOwnerId });
 
     await t.mutation(migrationInternal.finishOwnershipMigrationPass, {
       ...ownerArgs,

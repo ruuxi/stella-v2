@@ -1,87 +1,108 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
-import type { UiMode, UiState } from '@/shared/contracts/ui'
-import { getElectronApi } from '@/platform/electron/electron'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { ReactNode } from "react";
+import type { UiMode, UiState } from "@/shared/contracts/ui";
+import { getElectronApi } from "@/platform/electron/electron";
 
 type UiStateContextValue = {
-  state: UiState
-  setMode: (mode: UiMode) => void
-  setConversationId: (id: string | null) => void
-  updateState: (partial: Partial<UiState>) => void
-}
+  state: UiState;
+  setMode: (mode: UiMode) => void;
+  setConversationId: (id: string | null) => void;
+  updateState: (partial: Partial<UiState>) => void;
+};
 
 const defaultState: UiState = {
-  mode: 'chat',
+  mode: "chat",
   conversationId: null,
   isVoiceRtcActive: false,
-}
+};
 
-const UiStateContext = createContext<UiStateContextValue | null>(null)
+const UiStateContext = createContext<UiStateContextValue | null>(null);
+
+const isSameUiState = (a: UiState, b: UiState): boolean =>
+  a.mode === b.mode &&
+  a.conversationId === b.conversationId &&
+  a.isVoiceRtcActive === b.isVoiceRtcActive;
 
 export const UiStateProvider = ({ children }: { children: ReactNode }) => {
-  const [state, setState] = useState<UiState>(defaultState)
-  const hasHydratedFromMainRef = useRef(false)
-  const pendingLocalStateRef = useRef<Partial<UiState>>({})
+  const [state, setState] = useState<UiState>(defaultState);
+  const hasHydratedFromMainRef = useRef(false);
+  const pendingLocalStateRef = useRef<Partial<UiState>>({});
 
   const applyHydratedState = useCallback((nextState: UiState) => {
     if (hasHydratedFromMainRef.current) {
-      return
+      return;
     }
 
-    hasHydratedFromMainRef.current = true
-    const pendingLocalState = pendingLocalStateRef.current
-    pendingLocalStateRef.current = {}
-    setState({ ...nextState, ...pendingLocalState })
-  }, [])
+    hasHydratedFromMainRef.current = true;
+    const pendingLocalState = pendingLocalStateRef.current;
+    pendingLocalStateRef.current = {};
+    setState({ ...nextState, ...pendingLocalState });
+  }, []);
 
   useEffect(() => {
-    const api = getElectronApi()
+    const api = getElectronApi();
     if (!api) {
-      return
+      return;
     }
 
-    void api.ui.getState().then(applyHydratedState).catch(() => {
-      applyHydratedState(defaultState)
-    })
+    void api.ui
+      .getState()
+      .then(applyHydratedState)
+      .catch(() => {
+        applyHydratedState(defaultState);
+      });
 
     const unsubscribe = api.ui.onState((nextState) => {
-      hasHydratedFromMainRef.current = true
-      pendingLocalStateRef.current = {}
-      setState({ ...nextState })
-    })
+      hasHydratedFromMainRef.current = true;
+      pendingLocalStateRef.current = {};
+      // Main broadcasts the full state after every write from any window.
+      // Keep the previous object when nothing changed so an echo of our own
+      // write does not re-render every consumer of this context.
+      setState((prev) =>
+        isSameUiState(prev, nextState) ? prev : { ...nextState },
+      );
+    });
 
     return () => {
-      unsubscribe()
-    }
-  }, [applyHydratedState])
+      unsubscribe();
+    };
+  }, [applyHydratedState]);
 
   const updateState = useCallback((partial: Partial<UiState>) => {
-    setState((prev) => ({ ...prev, ...partial }))
+    setState((prev) => ({ ...prev, ...partial }));
     if (!hasHydratedFromMainRef.current) {
       pendingLocalStateRef.current = {
         ...pendingLocalStateRef.current,
         ...partial,
-      }
+      };
     }
-    const api = getElectronApi()
+    const api = getElectronApi();
     if (api) {
-      void api.ui.setState(partial)
+      void api.ui.setState(partial);
     }
-  }, [])
+  }, []);
 
   const setMode = useCallback(
     (mode: UiMode) => {
-      updateState({ mode })
+      updateState({ mode });
     },
     [updateState],
-  )
+  );
 
   const setConversationId = useCallback(
     (conversationId: string | null) => {
-      updateState({ conversationId })
+      updateState({ conversationId });
     },
     [updateState],
-  )
+  );
 
   const value = useMemo<UiStateContextValue>(
     () => ({
@@ -91,17 +112,19 @@ export const UiStateProvider = ({ children }: { children: ReactNode }) => {
       updateState,
     }),
     [state, setMode, setConversationId, updateState],
-  )
+  );
 
-  return <UiStateContext.Provider value={value}>{children}</UiStateContext.Provider>
-}
+  return (
+    <UiStateContext.Provider value={value}>{children}</UiStateContext.Provider>
+  );
+};
 
 export const useUiState = () => {
-  const context = useContext(UiStateContext)
+  const context = useContext(UiStateContext);
   if (!context) {
-    throw new Error('useUiState must be used within UiStateProvider')
+    throw new Error("useUiState must be used within UiStateProvider");
   }
-  return context
-}
+  return context;
+};
 
-export const useOptionalUiState = () => useContext(UiStateContext)
+export const useOptionalUiState = () => useContext(UiStateContext);

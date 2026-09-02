@@ -79,16 +79,34 @@ describe("RootLayout ownership migration query gate", () => {
     ).toContain("canQueryOwnershipFencedCloudData &&");
   });
 
-  test("keeps the child shell unmounted while migration is loading or pending", () => {
-    const guardedStartup = sourceBetween(
+  test("never swaps the mounted shell for a placeholder while migration is loading or pending", () => {
+    // The shell is already mounted (with a null conversation and fenced
+    // queries skipped) before cloud auth is ready. Replacing it with a
+    // placeholder for the status round-trip, or for a pending transfer,
+    // produced a visible remount of the home surface. The sign-in dialog owns
+    // the post-sign-in wait instead; only a *failed* migration takes over the
+    // screen, because it needs the retry action.
+    expect(ROOT_SOURCE).not.toContain("CloudStartupPending");
+    const failedGuard = sourceBetween(
       "if (ownershipMigrationGate.isFailed)",
-      "return <CloudStartupPending />;",
+      "<RootChrome conversationId={conversationId} />",
     );
-    expect(guardedStartup).toContain("onRetry={retryOwnershipMigration}");
-    expect(guardedStartup).toContain("ownershipMigrationGate.isLoading");
-    expect(guardedStartup).toContain("ownershipMigrationGate.isPending");
-    expect(ROOT_SOURCE.indexOf("return <CloudStartupPending />;")).toBeLessThan(
-      ROOT_SOURCE.indexOf("<RootChrome conversationId={conversationId} />"),
+    expect(failedGuard).toContain("onRetry={retryOwnershipMigration}");
+    expect(failedGuard).not.toMatch(
+      /if \([^)]*ownershipMigrationGate\.(isLoading|isPending)[^)]*\) \{\s*return/,
     );
+  });
+
+  test("dismisses the launch splash only once the shell is live or a startup failure is shown", () => {
+    const liveness = sourceBetween(
+      "const shellIsLive =",
+      "useEffect(() => {\n    if (shouldDismissLaunchSplash) dismissLaunchSplash();",
+    );
+    expect(liveness).toContain("conversationId !== null");
+    expect(liveness).toContain("!isOnChatRoute && isCloudConversationReady");
+    expect(liveness).toContain("authBootstrapError");
+    expect(liveness).toContain("ownershipMigrationGate.isFailed");
+    expect(liveness).toContain("showsCloudCreateFailure");
+    expect(liveness).toContain('authBootstrapStatus === "reauth_required"');
   });
 });

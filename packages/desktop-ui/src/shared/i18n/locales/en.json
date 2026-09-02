@@ -1601,6 +1601,8 @@
       "welcomeTitle": "Welcome to Stella",
       "welcomeDescription": "Sign in with your email to start using Stella.",
       "welcomeSub": "Use Google or your email to sign in. No password needed.",
+      "finishingTitle": "Finishing sign-in",
+      "finishingSub": "Moving your chats to this account. This only takes a moment.",
       "orUseEmail": "or use email",
       "emailLabel": "Email",
       "emailPlaceholder": "you@example.com",

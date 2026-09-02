@@ -19,13 +19,16 @@ import {
   readLocalOnboardingCompleted,
   useOnboardingState,
 } from "@/global/onboarding/use-onboarding-state";
-import { useBootstrapState } from "@/bootstrap/bootstrap-state";
 import { router } from "@/router";
 import { ShiftingGradient } from "./background/ShiftingGradient";
 import { AskStellaSelectionChip } from "./selection/AskStellaSelectionChip";
 import "./full-shell.layout.css";
 import "./mobile.css";
 import { platformCapabilities } from "@/platform/capabilities";
+import {
+  dismissLaunchSplash,
+  holdLaunchSplashUntilLive,
+} from "./launch-splash";
 
 /* Onboarding is loaded as a dynamic chunk that contains the whole flow:
  * every phase component, the character mark, the legal dialog,
@@ -52,16 +55,6 @@ const OnboardingView = lazy(() =>
     default: module.OnboardingView,
   })),
 );
-
-const dismissLaunchSplash = () => {
-  const launch = document.getElementById("stella-launch");
-  if (!launch) return;
-
-  launch.dataset.exiting = "true";
-  window.setTimeout(() => {
-    launch.remove();
-  }, 260);
-};
 
 type OnboardingExperienceProps = {
   activeConversationId: string | null;
@@ -175,7 +168,7 @@ const HostedChatSurface = () => (
 
 const WebsiteShell = () => {
   useEffect(() => {
-    dismissLaunchSplash();
+    holdLaunchSplashUntilLive();
   }, []);
 
   return (
@@ -188,6 +181,9 @@ const WebsiteShell = () => {
 const DesktopFullShell = () => {
   const { state } = useUiState();
   const activeConversationId = state.conversationId;
+  // `activeConversationId` is only handed to onboarding below. It is owned by
+  // the root layout (cloud selection) and must never drive a runtime
+  // re-bootstrap from here: a null id is the normal pre-selection state.
   const { completed: onboardingDone, hydrated: onboardingHydrated } =
     useOnboardingState();
   // Returning users resolve `onboardingDone` synchronously from shared UI state,
@@ -197,7 +193,6 @@ const DesktopFullShell = () => {
   const [hasEnteredApp, setHasEnteredApp] = useState(() =>
     readLocalOnboardingCompleted(),
   );
-  const { runtimeStatus, retryRuntimeBootstrap } = useBootstrapState();
 
   const onboardingResolved = onboardingHydrated || onboardingDone;
   const appReady = onboardingResolved && onboardingDone && hasEnteredApp;
@@ -218,27 +213,19 @@ const DesktopFullShell = () => {
     window.electronAPI?.ui.setAppReady?.(appReady);
   }, [appReady]);
 
-  // Keep the static launch splash up for returning users until React has
-  // mounted the real shell. First-run onboarding dismisses it after its chunk
-  // is loaded from OnboardingExperience.
+  // Keep the static launch splash up for returning users until the shell is
+  // *live* — auth resolved and the active conversation selected — so the
+  // window reveals once, fully working, instead of showing a shell whose
+  // composer enables and conversation list fills in a moment later. The root
+  // layout calls `dismissLaunchSplash()` at that point; `holdLaunchSplash…`
+  // bounds the wait so offline or cold starts never sit behind the splash.
+  // First-run onboarding dismisses it after its chunk is loaded from
+  // OnboardingExperience.
   useEffect(() => {
     if (appReady) {
-      dismissLaunchSplash();
+      holdLaunchSplashUntilLive();
     }
   }, [appReady]);
-
-  useEffect(() => {
-    if (!appReady) return;
-    if (activeConversationId) return;
-    if (runtimeStatus !== "ready") return;
-
-    // Bootstrap can finish while RouterProvider is still unmounted during
-    // onboarding. If the handoff ever loses the conversation id, kick the
-    // light bootstrap loop once more after the real app tree mounts instead
-    // of leaving the chat runtime stuck in its initial loading state until a
-    // process relaunch.
-    retryRuntimeBootstrap();
-  }, [activeConversationId, appReady, retryRuntimeBootstrap, runtimeStatus]);
 
   return (
     <ShellChrome windowMode={needsOnboarding ? "onboarding" : "app"}>

@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TopSheet } from "./TopSheet";
 import { Icon, type IconName } from "./Icon";
-import { ConnectHeroAnimation } from "./ConnectHeroAnimation";
+import { StellaMarkHero } from "./stella-mark/StellaMarkHero";
 import { ComputerSettingsSheet } from "./ComputerSettingsSheet";
 import { PairPhoneSheet } from "./PairPhoneSheet";
 import { type StoredPhoneAccess } from "../lib/phone-access";
@@ -18,6 +18,10 @@ import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
 import { fadeHex } from "../theme/oklch";
+
+/** The character at the top of the sheet: the same hero onboarding opens
+ *  with, sized to sit above the device name without crowding it. */
+const HERO_MARK_SIZE = 96;
 
 /** Live presence goes stale quickly; refresh while the sheet is on screen. */
 const EXECUTION_DEVICE_POLL_MS = 15_000;
@@ -166,7 +170,9 @@ export function ComputerDeviceSheet({
         ]}
       >
         <View style={styles.deviceHero}>
-          <ConnectHeroAnimation />
+          <View style={styles.heroMark}>
+            <StellaMarkHero size={HERO_MARK_SIZE} faceColor={colors.background} />
+          </View>
           <Text style={styles.deviceName}>{platformLabel}</Text>
           <View style={styles.statusRow}>
             {connecting ? null : (
@@ -370,6 +376,9 @@ const makeStyles = (colors: Colors) =>
       alignItems: "center",
       gap: 4,
       marginTop: 24,
+    },
+    heroMark: {
+      marginBottom: 12,
     },
     deviceName: {
       color: colors.text,

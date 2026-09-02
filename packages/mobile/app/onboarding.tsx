@@ -10,7 +10,6 @@ import {
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppBackdrop } from "../src/components/AppBackdrop";
-import { ConnectHeroAnimation } from "../src/components/ConnectHeroAnimation";
 import { StellaMarkHero } from "../src/components/stella-mark/StellaMarkHero";
 import { isGuest } from "../src/lib/guest-mode";
 import { markOnboardingSeen } from "../src/lib/onboarding";
@@ -114,7 +113,7 @@ export default function OnboardingScreen() {
             <ThemeStep styles={styles} colors={colors} t={t} />
           ) : null}
           {step === 2 ? (
-            <ConnectStep styles={styles} guest={guest} t={t} />
+            <ConnectStep styles={styles} colors={colors} guest={guest} t={t} />
           ) : null}
         </Animated.View>
 
@@ -244,16 +243,20 @@ function ThemeStep({
 
 function ConnectStep({
   styles,
+  colors,
   guest,
   t,
 }: {
   styles: OnboardingStyles;
+  colors: Colors;
   guest: boolean;
   t: Translate;
 }) {
   return (
     <View style={styles.stepBody}>
-      <ConnectHeroAnimation />
+      <View style={styles.creatureSlot}>
+        <StellaMarkHero size={HERO_SIZE} faceColor={colors.background} />
+      </View>
       <Text style={styles.title}>{t("mobile.onboarding.connectTitle")}</Text>
       <Text style={styles.body}>
         {guest

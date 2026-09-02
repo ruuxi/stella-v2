@@ -55,7 +55,7 @@ import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { CloudBrowserInterventionCard } from "../../src/components/CloudBrowserInterventionCard";
 import { ComposerNotice } from "../../src/components/ComposerNotice";
 import { ComputerDeviceSheet } from "../../src/components/ComputerDeviceSheet";
-import { ConnectHeroAnimation } from "../../src/components/ConnectHeroAnimation";
+import { StellaMarkHero } from "../../src/components/stella-mark/StellaMarkHero";
 import { PairPhoneSheet } from "../../src/components/PairPhoneSheet";
 import { SignInPrompt } from "../../src/components/SignInPrompt";
 import type { ChatArtifact } from "../../src/types";
@@ -85,6 +85,9 @@ type DeviceStatus = {
  * therefore only changes what Stella can reach, never where the conversation
  * lives, so the surface is the same with or without a computer.
  */
+/** The character above the guest hero copy, sized like the device sheet's. */
+const HERO_MARK_SIZE = 96;
+
 export default function ChatScreen() {
   return isGuest() ? <GuestChatSurface /> : <SignedInChatScreen />;
 }
@@ -96,7 +99,9 @@ function GuestChatSurface() {
   return (
     <View style={styles.centerSurface}>
       <View style={styles.heroBlock}>
-        <ConnectHeroAnimation />
+        <View style={styles.heroMark}>
+          <StellaMarkHero size={HERO_MARK_SIZE} faceColor={colors.background} />
+        </View>
         <Text style={styles.heroTitle}>
           {t("mobile.computer.guestHeroTitle")}
         </Text>
@@ -675,6 +680,9 @@ const makeStyles = (colors: {
       color: colors.text,
       fontFamily: fonts.sans.medium,
       fontSize: 14,
+    },
+    heroMark: {
+      marginBottom: 12,
     },
     heroBlock: {
       alignItems: "center",

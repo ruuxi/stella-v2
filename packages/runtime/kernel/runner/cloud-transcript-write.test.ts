@@ -133,7 +133,7 @@ describe("cloud transcript writer", () => {
     writer.stop();
   });
 
-  test("persists begin before delivery and resolves only after lease ACK", async () => {
+  test("persists begin and keeps sequence bounds from the lease ACK", async () => {
     const opened = openStore();
     stores.push(opened);
     const responseGate = deferred<Response>();
@@ -180,6 +180,8 @@ describe("cloud transcript writer", () => {
         leaseToken: "lease-1",
         expiresAt,
         history: ['{"role":"user","content":"older","timestamp":0}'],
+        contextStartSeq: 4,
+        contextEndSeq: 9,
       }),
     );
     await expect(beginPromise).resolves.toEqual({
@@ -187,6 +189,8 @@ describe("cloud transcript writer", () => {
       leaseToken: "lease-1",
       expiresAt,
       history: ['{"role":"user","content":"older","timestamp":0}'],
+      contextStartSeq: 4,
+      contextEndSeq: 9,
     });
     // The acknowledged begin remains as the in-flight crash marker, but the
     // current writer must not redeliver it while the provider is running.
@@ -194,6 +198,73 @@ describe("cloud transcript writer", () => {
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(requests).toBe(1);
     writer.stop();
+  });
+
+  test("refreshes the cached history only after the finish is acknowledged", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    let historyRequests = 0;
+    const writer = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      fetchImpl: (async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith("/history")) {
+          historyRequests += 1;
+          return Response.json({
+            history:
+              historyRequests === 1
+                ? ['{"role":"user","content":"before","timestamp":1}']
+                : [
+                    '{"role":"user","content":"before","timestamp":1}',
+                    '{"role":"assistant","content":"after","timestamp":2}',
+                  ],
+            contextStartSeq: 1,
+            contextEndSeq: historyRequests === 1 ? 1 : 3,
+          });
+        }
+        if (url.endsWith("/begin")) {
+          return Response.json({
+            turnId: "turn-1",
+            leaseToken: "lease-1",
+            expiresAt: Date.now() + 60_000,
+            history: ['{"role":"user","content":"before","timestamp":1}'],
+            contextStartSeq: 1,
+            contextEndSeq: 1,
+          });
+        }
+        return new Response(null, { status: 204 });
+      }) as unknown as typeof fetch,
+    });
+
+    await writer.refreshHistory("conversation-1");
+    expect(writer.peekHistory("conversation-1")?.contextEndSeq).toBe(1);
+
+    await writer.begin({
+      conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
+      localTurnId: "local-turn-1",
+      clientMsgId: "message-1",
+      userMessageJson: '{"role":"user","content":[],"timestamp":2}',
+    });
+    await writer.finish({
+      conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
+      localTurnId: "local-turn-1",
+      leaseToken: "lease-1",
+      records: [],
+      phase: "completed",
+    });
+
+    await waitFor(
+      () => writer.peekHistory("conversation-1")?.contextEndSeq === 3,
+    );
+    expect(historyRequests).toBe(2);
+    expect(writer.peekHistory("conversation-1")?.history).toHaveLength(2);
+    writer.stop();
+    expect(writer.peekHistory("conversation-1")).toBeNull();
   });
 
   test("begin carries attachment messages larger than one MiB without local rejection", async () => {
@@ -220,6 +291,8 @@ describe("cloud transcript writer", () => {
           turnId: "turn-1",
           leaseToken: "lease-1",
           expiresAt: Date.now() + 60_000,
+          contextStartSeq: 0,
+          contextEndSeq: 0,
           history: [],
         });
       }) as unknown as typeof fetch,
@@ -250,18 +323,27 @@ describe("cloud transcript writer", () => {
   test("deterministic malformed begin is dead-lettered and rejected once", async () => {
     const opened = openStore();
     stores.push(opened);
-    let requests = 0;
+    let beginRequests = 0;
     const writer = createCloudTranscriptWriter({
       deviceId: "device-1",
       store: opened.store,
       getAuthToken: () => "token",
       getBaseUrl: async () => "https://builder.example",
-      fetchImpl: (async () => {
-        requests += 1;
+      fetchImpl: (async (input: string | URL | Request) => {
+        if (String(input).endsWith("/history")) {
+          return Response.json({
+            history: [],
+            contextStartSeq: 0,
+            contextEndSeq: 0,
+          });
+        }
+        beginRequests += 1;
         return Response.json({ code: "bad_request" }, { status: 400 });
       }) as unknown as typeof fetch,
     });
 
+    await writer.refreshHistory("conversation-1");
+    expect(writer.peekHistory("conversation-1")).not.toBeNull();
     await expect(
       writer.begin({
         conversationId: "conversation-1",
@@ -271,8 +353,9 @@ describe("cloud transcript writer", () => {
         userMessageJson: '{"role":"user","content":[],"timestamp":1}',
       }),
     ).rejects.toThrow("rejected as malformed");
-    expect(requests).toBe(1);
+    expect(beginRequests).toBe(1);
     expect(writer.pending()).toBe(0);
+    expect(writer.peekHistory("conversation-1")).toBeNull();
     writer.stop();
   });
 
@@ -350,6 +433,8 @@ describe("cloud transcript writer", () => {
             turnId: "turn-1",
             leaseToken: "lease-1",
             expiresAt: Date.now() + 60_000,
+            contextStartSeq: 0,
+            contextEndSeq: 0,
             history: [],
           });
         }
@@ -404,6 +489,13 @@ describe("cloud transcript writer", () => {
       getBaseUrl: async () => "https://builder.example",
       heartbeatIntervalMs: 15,
       fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input).endsWith("/history")) {
+          return Response.json({
+            history: [],
+            contextStartSeq: 0,
+            contextEndSeq: 0,
+          });
+        }
         if (String(input).endsWith("/begin")) {
           beginRequests += 1;
           const body = String(init?.body);
@@ -413,6 +505,8 @@ describe("cloud transcript writer", () => {
             turnId: "turn-1",
             leaseToken: "lease-1",
             expiresAt: Date.now() + 60_000,
+            contextStartSeq: 0,
+            contextEndSeq: 0,
             history: [],
           });
         }
@@ -482,6 +576,8 @@ describe("cloud transcript writer", () => {
               turnId: "turn-1",
               leaseToken: "lease-1",
               expiresAt: Date.now() + 60_000,
+              contextStartSeq: 0,
+              contextEndSeq: 0,
               history: [],
             })
           : Response.json({ code: "turn_finished" }, { status: 409 });
@@ -529,6 +625,8 @@ describe("cloud transcript writer", () => {
             turnId: "turn-1",
             leaseToken: "lease-1",
             expiresAt: Date.now() + 60_000,
+            contextStartSeq: 0,
+            contextEndSeq: 0,
             history: [],
           });
         }
@@ -556,6 +654,8 @@ describe("cloud transcript writer", () => {
         turnId: "turn-1",
         leaseToken: "lease-1",
         expiresAt: Date.now() + 60_000,
+        contextStartSeq: 0,
+        contextEndSeq: 0,
         history: [],
       }),
     );
@@ -598,6 +698,8 @@ describe("cloud transcript writer", () => {
             turnId: "turn-1",
             leaseToken: "lease-1",
             expiresAt: Date.now() + 60_000,
+            contextStartSeq: 0,
+            contextEndSeq: 0,
             history: [],
           });
         }
@@ -629,13 +731,13 @@ describe("cloud transcript writer", () => {
         turnId: "turn-1",
         leaseToken: "lease-1",
         expiresAt: Date.now() + 60_000,
+        contextStartSeq: 0,
+        contextEndSeq: 0,
         history: [],
       }),
     );
     await waitFor(() => leaseLostAt > 0);
-    expect(leaseLostAt).toBeLessThanOrEqual(
-      renewalStartedAt + silenceMs + 30,
-    );
+    expect(leaseLostAt).toBeLessThanOrEqual(renewalStartedAt + silenceMs + 30);
     expect(beginRequests).toBeGreaterThanOrEqual(2);
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(leaseLosses).toBe(1);
@@ -663,6 +765,8 @@ describe("cloud transcript writer", () => {
                 turnId: "turn-1",
                 leaseToken: "lease-1",
                 expiresAt: Date.now() + 60_000,
+                contextStartSeq: 0,
+                contextEndSeq: 0,
                 history: [],
               })) as unknown as typeof fetch,
       });
@@ -717,6 +821,8 @@ describe("cloud transcript writer", () => {
           turnId: "turn-1",
           leaseToken: "lease-1",
           expiresAt: Date.now() + 60_000,
+          contextStartSeq: 0,
+          contextEndSeq: 0,
           history: [],
         });
       }) as unknown as typeof fetch,
@@ -748,7 +854,16 @@ describe("cloud transcript writer", () => {
             turnId: "turn-1",
             leaseToken: "lease-1",
             expiresAt: Date.now() + 60_000,
+            contextStartSeq: 0,
+            contextEndSeq: 0,
             history: [],
+          });
+        }
+        if (url.endsWith("/history")) {
+          return Response.json({
+            history: [],
+            contextStartSeq: 0,
+            contextEndSeq: 0,
           });
         }
         recoveredFinishBodies.push(JSON.parse(String(init?.body)));
@@ -760,6 +875,7 @@ describe("cloud transcript writer", () => {
     expect(endpoints.map((url) => url.split("/").at(-1))).toEqual([
       "begin",
       "finish",
+      "history",
     ]);
     expect(recoveredFinishBodies).toEqual([
       {
@@ -799,6 +915,8 @@ describe("cloud transcript writer", () => {
           turnId: "turn-1",
           leaseToken: "lease-1",
           expiresAt: Date.now() + 60_000,
+          contextStartSeq: 0,
+          contextEndSeq: 0,
           history: [],
         })) as unknown as typeof fetch,
     });
@@ -828,6 +946,8 @@ describe("cloud transcript writer", () => {
             turnId: "turn-1",
             leaseToken: "lease-1",
             expiresAt: Date.now() + 60_000,
+            contextStartSeq: 0,
+            contextEndSeq: 0,
             history: [],
           });
         }
@@ -876,6 +996,8 @@ describe("cloud transcript writer", () => {
           turnId: "turn-1",
           leaseToken: "lease-1",
           expiresAt: Date.now() + 60_000,
+          contextStartSeq: 0,
+          contextEndSeq: 0,
           history: [],
         })) as unknown as typeof fetch,
     });
@@ -958,6 +1080,8 @@ describe("cloud transcript writer", () => {
             turnId: "turn-1",
             leaseToken: "lease-1",
             expiresAt: Date.now() + 60_000,
+            contextStartSeq: 0,
+            contextEndSeq: 0,
             history: [],
           });
         }
@@ -1012,7 +1136,16 @@ describe("cloud transcript writer", () => {
             turnId: "turn-1",
             leaseToken: "lease-1",
             expiresAt: Date.now() + 60_000,
+            contextStartSeq: 0,
+            contextEndSeq: 0,
             history: [],
+          });
+        }
+        if (url.endsWith("/history")) {
+          return Response.json({
+            history: [],
+            contextStartSeq: 0,
+            contextEndSeq: 0,
           });
         }
         finishBodies.push(JSON.parse(String(init?.body)));
@@ -1024,6 +1157,7 @@ describe("cloud transcript writer", () => {
     expect(endpoints.map((url) => url.split("/").at(-1))).toEqual([
       "begin",
       "finish",
+      "history",
     ]);
     expect(finishBodies).toEqual([
       {
@@ -1601,6 +1735,8 @@ describe("cloud transcript writer", () => {
           turnId: "desktop:device-1:local-turn-active",
           leaseToken: "lease-active",
           expiresAt: Date.now() + 60_000,
+          contextStartSeq: 0,
+          contextEndSeq: 0,
           history: [],
         });
       }) as unknown as typeof fetch,

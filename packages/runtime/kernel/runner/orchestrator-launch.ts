@@ -23,7 +23,11 @@ import type {
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
 import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
-import { CloudTranscriptAlreadyAdmittedError } from "./cloud-transcript-write.js";
+import {
+  CloudTranscriptAlreadyAdmittedError,
+  type CloudTranscriptBeginAck,
+  type CloudTranscriptHistory,
+} from "./cloud-transcript-write.js";
 
 type BuildAgentContext = (
   args: BuildAgentContextArgs,
@@ -33,6 +37,10 @@ type DeferredTerminalCallback =
   | { kind: "end"; event: RuntimeEndEvent }
   | { kind: "error"; event: RuntimeErrorEvent }
   | { kind: "interrupted"; event: RuntimeInterruptedEvent };
+
+type OrchestratorRunOutcome =
+  | { kind: "fulfilled" }
+  | { kind: "rejected"; error: unknown };
 
 const buildCloudUserMessage = (
   prepared: PreparedOrchestratorRun,
@@ -304,6 +312,11 @@ export const launchPreparedOrchestratorRun = (args: {
     let ephemeralCaptureStarted = false;
     let deferredTerminal: DeferredTerminalCallback | null = null;
     let runError: unknown;
+    let discardCloudOutput = false;
+    let optimisticBegin: {
+      cachedContextEndSeq: number;
+      promise: Promise<CloudTranscriptBeginAck>;
+    } | null = null;
     const callbacks: RuntimeRunCallbacks = isCloudTurn
       ? {
           ...args.runtimeCallbacks,
@@ -326,50 +339,67 @@ export const launchPreparedOrchestratorRun = (args: {
     try {
       if (isCloudTurn) {
         const userMessage = buildCloudUserMessage(prepared);
-        const begin = await context.cloudTranscript.begin({
-          conversationId: prepared.conversationId,
-          ownerGeneration: cloudOwnerGeneration!,
-          localTurnId: prepared.runId,
-          clientMsgId: args.userMessageId,
-          userMessageJson: JSON.stringify(userMessage),
-          onLeaseLost: (reason) => {
-            prepared.abortController.abort(
-              `Cloud conversation lease ended (${reason}).`,
-            );
-          },
-          signal: prepared.abortController.signal,
-        });
-        leaseToken = begin.leaseToken;
-        const canonicalHistory = parseCanonicalCloudHistory(begin.history);
-        prepared.agentContext = {
-          ...prepared.agentContext,
-          threadHistory: canonicalHistory,
+        const beginCloudTurn = (): Promise<CloudTranscriptBeginAck> =>
+          context.cloudTranscript.begin({
+            conversationId: prepared.conversationId,
+            ownerGeneration: cloudOwnerGeneration!,
+            localTurnId: prepared.runId,
+            clientMsgId: args.userMessageId,
+            userMessageJson: JSON.stringify(userMessage),
+            onLeaseLost: (reason) => {
+              prepared.abortController.abort(
+                `Cloud conversation lease ended (${reason}).`,
+              );
+            },
+            signal: prepared.abortController.signal,
+          });
+        const seedCloudHistory = (window: CloudTranscriptHistory): void => {
+          const canonicalHistory = parseCanonicalCloudHistory(window.history);
+          prepared.agentContext = {
+            ...prepared.agentContext,
+            threadHistory: canonicalHistory,
+          };
+          context.runtimeStore.beginEphemeralThreadCapture({
+            threadKey: orchestratorSession.threadKey,
+            captureId: prepared.runId,
+            seedMessages: canonicalHistory,
+          });
+          ephemeralCaptureStarted = true;
+          // The same long-lived native session may previously have been seeded
+          // from local SQLite. Force its next turn to replace that state with
+          // the Durable Object's canonical history. External engines read the
+          // overwritten agentContext directly.
+          orchestratorSession.notifyHistoryChanged();
+          // Claude Code and Codex otherwise resume their own locally persisted
+          // CLI transcript and skip Stella's supplied history. A cloud turn must
+          // instead seed a fresh CLI session from the Durable Object window.
+          context.runtimeStore.setThreadExternalSessionId(
+            orchestratorSession.threadKey,
+            null,
+          );
+          context.runtimeStore.setThreadExternalDeliveredEntryId(
+            orchestratorSession.threadKey,
+            null,
+          );
         };
-        context.runtimeStore.beginEphemeralThreadCapture({
-          threadKey: orchestratorSession.threadKey,
-          captureId: prepared.runId,
-          seedMessages: canonicalHistory,
-        });
-        ephemeralCaptureStarted = true;
-        // The same long-lived native session may previously have been seeded
-        // from local SQLite. Force its next turn to replace that state with
-        // the Durable Object's canonical history. External engines read the
-        // overwritten agentContext directly.
-        orchestratorSession.notifyHistoryChanged();
-        // Claude Code and Codex otherwise resume their own locally persisted
-        // CLI transcript and skip Stella's supplied history. A cloud turn must
-        // instead seed a fresh CLI session from the Durable Object window.
-        context.runtimeStore.setThreadExternalSessionId(
-          orchestratorSession.threadKey,
-          null,
+        const cachedHistory = context.cloudTranscript.peekHistory(
+          prepared.conversationId,
         );
-        context.runtimeStore.setThreadExternalDeliveredEntryId(
-          orchestratorSession.threadKey,
-          null,
-        );
+        if (cachedHistory) {
+          seedCloudHistory(cachedHistory);
+          optimisticBegin = {
+            cachedContextEndSeq: cachedHistory.contextEndSeq,
+            promise: beginCloudTurn(),
+          };
+        } else {
+          void context.cloudTranscript.refreshHistory(prepared.conversationId);
+          const begin = await beginCloudTurn();
+          leaseToken = begin.leaseToken;
+          seedCloudHistory(begin);
+        }
       }
 
-      await runOrchestratorTurn({
+      const runPromise = runOrchestratorTurn({
         runId: prepared.runId,
         conversationId: prepared.conversationId,
         storageMode: prepared.storageMode,
@@ -444,6 +474,42 @@ export const launchPreparedOrchestratorRun = (args: {
           ),
         compactionScheduler: context.state.compactionScheduler,
       });
+      if (optimisticBegin) {
+        const runOutcomePromise =
+          (async (): Promise<OrchestratorRunOutcome> => {
+            try {
+              await runPromise;
+              return { kind: "fulfilled" };
+            } catch (error) {
+              return { kind: "rejected", error };
+            }
+          })();
+        let begin: CloudTranscriptBeginAck;
+        try {
+          begin = await optimisticBegin.promise;
+        } catch (error) {
+          prepared.abortController.abort(error);
+          await runOutcomePromise;
+          throw error;
+        }
+        leaseToken = begin.leaseToken;
+        if (begin.contextEndSeq !== optimisticBegin.cachedContextEndSeq) {
+          const changedError = new Error(
+            "This conversation changed on another device. Send that again.",
+          );
+          prepared.abortController.abort(changedError);
+          await runOutcomePromise;
+          deferredTerminal = null;
+          discardCloudOutput = true;
+          throw changedError;
+        }
+        const runOutcome = await runOutcomePromise;
+        if (runOutcome.kind === "rejected") {
+          throw runOutcome.error;
+        }
+      } else {
+        await runPromise;
+      }
     } catch (error) {
       runError = error;
     } finally {
@@ -465,24 +531,27 @@ export const launchPreparedOrchestratorRun = (args: {
       }
     }
 
-    if (isCloudTurn && leaseToken && ephemeralCaptureStarted) {
+    if (isCloudTurn && leaseToken) {
       try {
-        const records = context.runtimeStore
-          .readEphemeralThreadCapture({
-            threadKey: orchestratorSession.threadKey,
-            captureId: prepared.runId,
-          })
-          .filter(
-            (message) =>
-              message.payload !== undefined &&
-              (message.payload.role === "assistant" ||
-                message.payload.role === "toolResult"),
-          )
-          .map((message, ordinal) => ({
-            ordinal,
-            role: message.payload!.role as "assistant" | "toolResult",
-            payloadJson: JSON.stringify(message.payload),
-          }));
+        const records =
+          discardCloudOutput || !ephemeralCaptureStarted
+            ? []
+            : context.runtimeStore
+                .readEphemeralThreadCapture({
+                  threadKey: orchestratorSession.threadKey,
+                  captureId: prepared.runId,
+                })
+                .filter(
+                  (message) =>
+                    message.payload !== undefined &&
+                    (message.payload.role === "assistant" ||
+                      message.payload.role === "toolResult"),
+                )
+                .map((message, ordinal) => ({
+                  ordinal,
+                  role: message.payload!.role as "assistant" | "toolResult",
+                  payloadJson: JSON.stringify(message.payload),
+                }));
         const reportCloudSyncFailure = (message: string): void => {
           args.runtimeCallbacks.onError({
             runId: prepared.runId,
@@ -512,11 +581,18 @@ export const launchPreparedOrchestratorRun = (args: {
         }
         flushDeferredTerminal(args.runtimeCallbacks, deferredTerminal);
       } finally {
-        context.runtimeStore.endEphemeralThreadCapture({
-          threadKey: orchestratorSession.threadKey,
-          captureId: prepared.runId,
-        });
+        if (ephemeralCaptureStarted) {
+          context.runtimeStore.endEphemeralThreadCapture({
+            threadKey: orchestratorSession.threadKey,
+            captureId: prepared.runId,
+          });
+        }
       }
+    } else if (isCloudTurn && ephemeralCaptureStarted) {
+      context.runtimeStore.endEphemeralThreadCapture({
+        threadKey: orchestratorSession.threadKey,
+        captureId: prepared.runId,
+      });
     }
     if (runError !== undefined) throw runError;
   })().catch((error) => {

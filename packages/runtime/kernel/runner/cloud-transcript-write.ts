@@ -40,6 +40,8 @@ export type CloudTranscriptBeginAck = {
   expiresAt: number;
   /** Canonical pre-prompt serialized `AgentMessage`s. */
   history: string[];
+  contextStartSeq: number;
+  contextEndSeq: number;
 };
 
 export type CloudTranscriptHistory = {
@@ -146,10 +148,15 @@ export type CloudTranscriptWriterOptions = {
 export type CloudTranscriptWriter = {
   /** Reads the canonical bounded DO history without acquiring a turn lease. */
   history: (conversationId: string) => Promise<CloudTranscriptHistory>;
+  /** Returns the last successfully refreshed canonical history window. */
+  peekHistory: (conversationId: string) => CloudTranscriptHistory | null;
+  /** Refreshes the cached canonical window without surfacing network errors. */
+  refreshHistory: (conversationId: string) => Promise<void>;
   /**
    * Persists the admission request, then waits for the Durable Object to grant
-   * the single-writer lease. A local provider must not start before this
-   * resolves.
+   * the single-writer lease. A caller with a cached canonical window may start
+   * speculatively, but must validate the ACK's `contextEndSeq` before keeping
+   * the result.
    */
   begin: (
     request: CloudTranscriptBeginRequest,
@@ -304,7 +311,11 @@ const parseBeginAck = (value: unknown): CloudTranscriptBeginAck | null => {
     !Number.isFinite(candidate.expiresAt) ||
     candidate.expiresAt <= Date.now() ||
     !Array.isArray(candidate.history) ||
-    !candidate.history.every((entry) => typeof entry === "string")
+    !candidate.history.every((entry) => typeof entry === "string") ||
+    typeof candidate.contextStartSeq !== "number" ||
+    !Number.isInteger(candidate.contextStartSeq) ||
+    typeof candidate.contextEndSeq !== "number" ||
+    !Number.isInteger(candidate.contextEndSeq)
   ) {
     return null;
   }
@@ -313,6 +324,8 @@ const parseBeginAck = (value: unknown): CloudTranscriptBeginAck | null => {
     leaseToken: candidate.leaseToken,
     expiresAt: candidate.expiresAt,
     history: candidate.history,
+    contextStartSeq: candidate.contextStartSeq,
+    contextEndSeq: candidate.contextEndSeq,
   };
 };
 
@@ -364,6 +377,9 @@ export const createCloudTranscriptWriter = (
   const log = options.onLog ?? (() => {});
   const beginWaiters = new Map<string, BeginWaiter[]>();
   const finishFailureCallbacks = new Map<string, (message: string) => void>();
+  const historyWindows = new Map<string, CloudTranscriptHistory>();
+  const historyRefreshes = new Map<string, Promise<void>>();
+  const historyCacheVersions = new Map<string, number>();
   /**
    * Acknowledged begins stay in SQLite until finish replaces them. Membership
    * here means this process still owns the provider run, so the background
@@ -399,9 +415,101 @@ export const createCloudTranscriptWriter = (
   let journalDraining = false;
   let stopped = false;
 
-  type ActiveBegin = NonNullable<
-    ReturnType<typeof activeBegins.get>
-  >;
+  const loadHistory = async (
+    conversationId: string,
+  ): Promise<CloudTranscriptHistory> => {
+    if (stopped) {
+      throw new Error("Cloud transcript writer is stopped.");
+    }
+    const token = options.getAuthToken();
+    if (!token) throw new Error("Sign in to load cloud conversation history.");
+    const baseUrl = await options.getBaseUrl();
+    if (!baseUrl) {
+      throw new Error("Cloud conversation history is unavailable.");
+    }
+    const response = await doFetch(
+      `${baseUrl.replace(
+        /\/+$/,
+        "",
+      )}/conversations/${encodeURIComponent(conversationId)}/history`,
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(
+        response.status === 404
+          ? "Cloud conversation was not found."
+          : "Cloud conversation history could not be loaded.",
+      );
+    }
+    const body = (await response.json()) as Partial<CloudTranscriptHistory>;
+    if (
+      !Array.isArray(body.history) ||
+      !body.history.every((entry) => typeof entry === "string") ||
+      typeof body.contextStartSeq !== "number" ||
+      !Number.isInteger(body.contextStartSeq) ||
+      typeof body.contextEndSeq !== "number" ||
+      !Number.isInteger(body.contextEndSeq)
+    ) {
+      throw new Error("Cloud conversation history response is malformed.");
+    }
+    return {
+      history: body.history,
+      contextStartSeq: body.contextStartSeq,
+      contextEndSeq: body.contextEndSeq,
+    };
+  };
+
+  const clearHistory = (conversationId: string): void => {
+    historyWindows.delete(conversationId);
+    historyCacheVersions.set(
+      conversationId,
+      (historyCacheVersions.get(conversationId) ?? 0) + 1,
+    );
+  };
+
+  const refreshHistory = (conversationId: string): Promise<void> => {
+    if (stopped) return Promise.resolve();
+    const existing = historyRefreshes.get(conversationId);
+    if (existing) return existing;
+    const cacheVersion = historyCacheVersions.get(conversationId) ?? 0;
+    const refresh = loadHistory(conversationId)
+      .then((window) => {
+        if (
+          !stopped &&
+          (historyCacheVersions.get(conversationId) ?? 0) === cacheVersion
+        ) {
+          historyWindows.set(conversationId, window);
+        }
+      })
+      .catch((error: unknown) => {
+        log("error", "cloud_transcript_history_refresh_failed", {
+          conversationId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        if (historyRefreshes.get(conversationId) === refresh) {
+          historyRefreshes.delete(conversationId);
+        }
+      });
+    historyRefreshes.set(conversationId, refresh);
+    return refresh;
+  };
+
+  const refreshHistoryAfterFinishAck = (conversationId: string): void => {
+    const existing = historyRefreshes.get(conversationId);
+    if (existing) {
+      void existing.then(() => refreshHistory(conversationId));
+      return;
+    }
+    void refreshHistory(conversationId);
+  };
+
+  type ActiveBegin = NonNullable<ReturnType<typeof activeBegins.get>>;
 
   const notifyLeaseLost = (
     id: string,
@@ -858,6 +966,7 @@ export const createCloudTranscriptWriter = (
             reason: result.reason,
           });
         }
+        clearHistory(active.entry.conversationId);
         if (result.kind === "dead_letter") {
           options.store.deadLetterCloudTranscriptOutbox(id, result.reason);
         } else {
@@ -899,6 +1008,9 @@ export const createCloudTranscriptWriter = (
           attempts: entry.attempts + 1,
         });
         if (result.kind === "dead_letter") {
+          if (entry.kind === "begin") {
+            clearHistory(entry.conversationId);
+          }
           const durableFailureUserMessageId =
             entry.kind === "finish"
               ? failureNotificationUserMessageId(entry)
@@ -976,6 +1088,9 @@ export const createCloudTranscriptWriter = (
           continue;
         }
         if (result.kind === "terminal") {
+          if (entry.kind === "begin") {
+            clearHistory(entry.conversationId);
+          }
           finishFailureCallbacks.delete(entry.id);
           options.store.deleteCloudTranscriptOutbox(entry.id);
           activeBegins.delete(entry.id);
@@ -1024,6 +1139,7 @@ export const createCloudTranscriptWriter = (
         if (entry.kind === "finish") {
           finishFailureCallbacks.delete(entry.id);
           options.store.deleteCloudTranscriptOutbox(entry.id);
+          refreshHistoryAfterFinishAck(entry.conversationId);
           continue;
         }
         const ack = result.begin;
@@ -1143,50 +1259,9 @@ export const createCloudTranscriptWriter = (
   resume();
 
   return {
-    history: async (conversationId) => {
-      if (stopped) {
-        throw new Error("Cloud transcript writer is stopped.");
-      }
-      const token = options.getAuthToken();
-      if (!token)
-        throw new Error("Sign in to load cloud conversation history.");
-      const baseUrl = await options.getBaseUrl();
-      if (!baseUrl) {
-        throw new Error("Cloud conversation history is unavailable.");
-      }
-      const response = await doFetch(
-        `${baseUrl.replace(
-          /\/+$/,
-          "",
-        )}/conversations/${encodeURIComponent(conversationId)}/history`,
-        {
-          method: "GET",
-          headers: { authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        },
-      );
-      if (!response.ok) {
-        throw new Error(
-          response.status === 404
-            ? "Cloud conversation was not found."
-            : "Cloud conversation history could not be loaded.",
-        );
-      }
-      const body = (await response.json()) as Partial<CloudTranscriptHistory>;
-      if (
-        !Array.isArray(body.history) ||
-        !body.history.every((entry) => typeof entry === "string") ||
-        typeof body.contextStartSeq !== "number" ||
-        typeof body.contextEndSeq !== "number"
-      ) {
-        throw new Error("Cloud conversation history response is malformed.");
-      }
-      return {
-        history: body.history,
-        contextStartSeq: body.contextStartSeq,
-        contextEndSeq: body.contextEndSeq,
-      };
-    },
+    history: loadHistory,
+    peekHistory: (conversationId) => historyWindows.get(conversationId) ?? null,
+    refreshHistory,
     begin: (request) => {
       if (stopped) {
         return Promise.reject(new Error("Cloud transcript writer is stopped."));
@@ -1357,9 +1432,7 @@ export const createCloudTranscriptWriter = (
         throw new Error("Cloud journal append requires an id and records.");
       }
       const ownerGeneration = normalizeOwnerGeneration(
-        request.ownerGeneration ??
-          (await options.getOwnerGeneration?.()) ??
-          "",
+        request.ownerGeneration ?? (await options.getOwnerGeneration?.()) ?? "",
       );
       const payload: JournalAppendPayload = {
         deviceId: options.deviceId,
@@ -1411,6 +1484,9 @@ export const createCloudTranscriptWriter = (
       }
       activeBegins.clear();
       finishFailureCallbacks.clear();
+      historyWindows.clear();
+      historyRefreshes.clear();
+      historyCacheVersions.clear();
     },
   };
 };

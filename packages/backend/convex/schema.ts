@@ -27,6 +27,7 @@ import { cloudConversationEditsSchema } from "./schema/cloud_conversation_edits"
 import { accountExternalMediaSchema } from "./schema/account_external_media";
 import { cloudBrowserSchema } from "./schema/cloud_browser";
 import { cloudOutboxSchema } from "./schema/cloud_outbox";
+import { xBotSchema } from "./schema/x_bot";
 
 export default defineSchema({
   ...conversationsSchema,
@@ -57,4 +58,5 @@ export default defineSchema({
   ...accountExternalMediaSchema,
   ...cloudBrowserSchema,
   ...cloudOutboxSchema,
+  ...xBotSchema,
 });

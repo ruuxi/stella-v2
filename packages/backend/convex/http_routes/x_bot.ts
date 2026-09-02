@@ -1,13 +1,15 @@
 import type { HttpRouter } from "convex/server";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { httpAction } from "../_generated/server";
 import {
   consumeWebhookDedup,
   consumeWebhookRateLimit,
 } from "../http_shared/webhook_controls";
-import { parseXBotMentions } from "../lib/x_bot";
+import { isValidXUsername, parseXBotMentions } from "../lib/x_bot";
 
 const X_BOT_WEBHOOK_PATH = "/api/x/bot/webhook";
+const X_BOT_PAGE_PATH_PREFIX = "/api/x/bot/page/";
+const X_BOT_PAGE_CACHE_CONTROL = "public, max-age=60, s-maxage=60";
 const X_BOT_RATE_WINDOW_MS = 60 * 60 * 1000;
 const X_BOT_RATE_LIMIT = 30;
 
@@ -64,6 +66,38 @@ const verifyWebhookSignature = async (
 };
 
 export const registerXBotRoutes = (http: HttpRouter): void => {
+  // Public JSON behind stella.sh/x/<handle>. Handles are already public on
+  // X and the rows hold only what the bot itself posted.
+  http.route({
+    pathPrefix: X_BOT_PAGE_PATH_PREFIX,
+    method: "GET",
+    handler: httpAction(async (ctx, request) => {
+      let handle: string;
+      try {
+        handle = decodeURIComponent(
+          new URL(request.url).pathname.slice(X_BOT_PAGE_PATH_PREFIX.length),
+        )
+          .trim()
+          .replace(/^@/, "");
+      } catch {
+        return jsonResponse({ error: "Invalid handle" }, 400);
+      }
+      if (!isValidXUsername(handle)) {
+        return jsonResponse({ error: "Invalid handle" }, 400);
+      }
+      const page = await ctx.runQuery(api.data.x_bot.listXBotRunsByHandle, {
+        handle,
+      });
+      return new Response(JSON.stringify(page), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": X_BOT_PAGE_CACHE_CONTROL,
+        },
+      });
+    }),
+  });
+
   http.route({
     path: X_BOT_WEBHOOK_PATH,
     method: "GET",

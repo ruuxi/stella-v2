@@ -1,0 +1,197 @@
+/* stella.sh/x/<handle>: the plan the X bot replied with, addressed to one
+   person. Same visual language as the invite handoff pages. */
+
+.page {
+  width: min(100%, 68rem);
+  margin-inline: auto;
+  padding: clamp(2.5rem, 7vw, 5.5rem) clamp(1rem, 4vw, 2.5rem) clamp(3rem, 8vw, 6rem);
+  display: grid;
+  gap: clamp(2rem, 4vw, 3.5rem);
+}
+
+.hero {
+  display: grid;
+  gap: 1.1rem;
+  max-width: 44rem;
+}
+
+.badge {
+  width: fit-content;
+  padding: 0.42rem 0.68rem;
+  border: 1px solid rgba(82, 104, 134, 0.14);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--page-muted);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display), serif;
+  font-size: clamp(2.4rem, 6.5vw, 4.4rem);
+  font-weight: 300;
+  line-height: 0.98;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+}
+
+.lede {
+  margin: 0;
+  color: var(--page-muted);
+  font-size: 1.05rem;
+  line-height: 1.6;
+  letter-spacing: -0.02em;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 1.4rem;
+  margin-top: 0.4rem;
+}
+
+.replyLink,
+.homeLink {
+  width: fit-content;
+  color: var(--page-foreground);
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.replyLink:hover,
+.homeLink:hover {
+  color: var(--page-accent-hover);
+}
+
+.run {
+  display: grid;
+  gap: 1.4rem;
+  padding: clamp(1.1rem, 2.5vw, 1.8rem);
+  border: 1px solid rgba(82, 104, 134, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(244, 249, 255, 0.9)),
+    var(--page-panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.runFeatured {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.card {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid rgba(82, 104, 134, 0.16);
+  border-radius: 0.45rem;
+  box-shadow: var(--shadow-card);
+}
+
+.runBody {
+  display: grid;
+  gap: 1.3rem;
+}
+
+.runTitle {
+  margin: 0;
+  font-family: var(--font-display), serif;
+  font-size: 1.7rem;
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.chat {
+  display: grid;
+  gap: 0.9rem;
+  max-width: 40rem;
+}
+
+.exchange {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.userMessage {
+  justify-self: end;
+  margin: 0;
+  max-width: 85%;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 18px 18px 6px 18px;
+  background: #e5edfc;
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.assistantMessage {
+  margin: 0;
+  max-width: 90%;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+}
+
+.promptBlock {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 40rem;
+}
+
+.promptLabel {
+  color: var(--page-muted);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.prompt {
+  margin: 0;
+  padding: 0.8rem 1rem;
+  border: 1px solid rgba(82, 104, 134, 0.12);
+  background: rgba(255, 255, 255, 0.68);
+  color: var(--page-foreground);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.meta {
+  margin: 0;
+  color: var(--page-muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.earlier {
+  display: grid;
+  gap: 1.2rem;
+}
+
+.earlierTitle {
+  margin: 0;
+  font-family: var(--font-display), serif;
+  font-size: 1.9rem;
+  font-weight: 400;
+  letter-spacing: -0.04em;
+}
+
+.earlierList {
+  display: grid;
+  gap: 1.4rem;
+}
+
+.footer {
+  display: flex;
+}

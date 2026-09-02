@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { normalizeXReply, parseXBotMentions, parseXPostContext } from "./x_bot";
+import {
+  normalizeXReply,
+  parseXBotMentions,
+  parseXBotPromoterUsernames,
+  parseXBotReplyPlan,
+  parseXPostContext,
+  resolveXBotPageHandle,
+  stripLinkableText,
+} from "./x_bot";
 
 describe("parseXBotMentions", () => {
   const event = {
@@ -153,17 +161,99 @@ describe("parseXPostContext", () => {
 });
 
 describe("normalizeXReply", () => {
-  it("removes formatting and normalizes the Stella address", () => {
+  it("removes formatting and anything X would auto-link", () => {
     expect(
       normalizeXReply(
         '```text\n"I can handle that. Get Stella at https://stella.sh/."\n```',
       ),
-    ).toBe("I can handle that. Get Stella at stella.sh.");
+    ).toBe("I can handle that. Get Stella.");
+    expect(normalizeXReply("Grab it from stella.sh today")).toBe(
+      "Grab it today",
+    );
+    expect(normalizeXReply("Try www.stella.sh/download now")).toBe("Try now");
   });
 
   it("caps replies without splitting a Unicode character", () => {
     const reply = normalizeXReply(`I can help ${"🙂".repeat(300)}`, 40);
     expect(Array.from(reply).length).toBeLessThanOrEqual(40);
     expect(reply.endsWith("…")).toBe(true);
+  });
+});
+
+describe("stripLinkableText", () => {
+  it("keeps ordinary sentences with periods intact", () => {
+    expect(stripLinkableText("Install it. Then run it. Done.")).toBe(
+      "Install it. Then run it. Done.",
+    );
+  });
+});
+
+describe("parseXBotReplyPlan", () => {
+  it("normalizes a structured plan and drops links everywhere", () => {
+    expect(
+      parseXBotReplyPlan({
+        reply: "I can set that up. See stella.sh",
+        headline: "I can set up that server for your friends.",
+        exchanges: [
+          {
+            user: "Set up a modded Minecraft server for my friends",
+            stella: "Installing Fabric, then I will ask before opening the port.",
+          },
+          { user: "", stella: "ignored" },
+          {
+            user: "Invite them",
+            stella: "Drafting the Discord message for your approval.",
+          },
+          { user: "third", stella: "dropped" },
+        ],
+      }),
+    ).toEqual({
+      reply: "I can set that up. See",
+      headline: "I can set up that server for your friends.",
+      exchanges: [
+        {
+          user: "Set up a modded Minecraft server for my friends",
+          stella: "Installing Fabric, then I will ask before opening the port.",
+        },
+        {
+          user: "Invite them",
+          stella: "Drafting the Discord message for your approval.",
+        },
+      ],
+    });
+  });
+
+  it("rejects plans missing the reply, headline, or exchanges", () => {
+    expect(parseXBotReplyPlan({ reply: "x", headline: "y" })).toBeNull();
+    expect(parseXBotReplyPlan({ reply: "x", exchanges: [] })).toBeNull();
+    expect(parseXBotReplyPlan(null)).toBeNull();
+  });
+});
+
+describe("resolveXBotPageHandle", () => {
+  const promoters = parseXBotPromoterUsernames("@1_missthesun, Stella_Team,bad handle");
+
+  it("parses the promoter allowlist", () => {
+    expect(promoters).toEqual(["1_missthesun", "stella_team"]);
+  });
+
+  it("addresses the page to the summoner by default", () => {
+    expect(
+      resolveXBotPageHandle(
+        { authorUsername: "alex" },
+        { authorUsername: "poster" },
+        promoters,
+      ),
+    ).toEqual({ handle: "alex", isPromoterSummon: false });
+  });
+
+  it("addresses the page to the poster when a promoter summons", () => {
+    expect(
+      resolveXBotPageHandle(
+        { authorUsername: "1_MissTheSun" },
+        { authorUsername: "poster" },
+        promoters,
+      ),
+    ).toEqual({ handle: "poster", isPromoterSummon: true });
   });
 });

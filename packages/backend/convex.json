@@ -1,4 +1,12 @@
 {
   "$schema": "./node_modules/convex/schemas/convex.schema.json",
-  "typescriptCompiler": "tsgo"
+  "typescriptCompiler": "tsgo",
+  "node": {
+    "externalPackages": [
+      "@resvg/resvg-wasm",
+      "@fontsource/cormorant-garamond",
+      "@fontsource/ibm-plex-mono",
+      "@fontsource/manrope"
+    ]
+  }
 }

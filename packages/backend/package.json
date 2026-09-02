@@ -20,6 +20,10 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1106.0",
+    "@fontsource/cormorant-garamond": "5.2.6",
+    "@fontsource/ibm-plex-mono": "5.2.6",
+    "@fontsource/manrope": "5.2.6",
+    "@resvg/resvg-wasm": "2.6.2",
     "@better-auth/expo": "1.6.11",
     "@convex-dev/better-auth": "^0.12.5",
     "@convex-dev/r2": "^0.10.2",
@@ -38,6 +42,7 @@
     "parse5": "^8.0.0",
     "pdf-parse": "^2.4.5",
     "pngjs": "^7.0.0",
+    "satori": "0.33.4",
     "stripe": "22.2.0",
     "turndown": "^7.2.0",
     "zod": "^4.4.3"

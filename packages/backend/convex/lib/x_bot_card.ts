@@ -19,7 +19,7 @@ export type XBotCardInput = {
   logoDataUri: string;
 };
 
-export type XBotCardFontFamily = "display" | "sans" | "mono";
+export type XBotCardFontFamily = "display" | "sans";
 
 type Style = Record<string, string | number>;
 
@@ -47,7 +47,6 @@ const CHAT_TEXT_WEAK = "rgba(17, 17, 17, 0.5)";
 export const X_BOT_CARD_FONT_FAMILIES: Record<XBotCardFontFamily, string> = {
   display: "Cormorant Garamond",
   sans: "Manrope",
-  mono: "IBM Plex Mono",
 };
 
 const el = (
@@ -294,10 +293,11 @@ export const buildXBotCardTree = (input: XBotCardInput): XBotCardNode =>
                     color: MUTED,
                   }),
                   text(`stella.sh/x/${input.handle}`, {
-                    fontFamily: X_BOT_CARD_FONT_FAMILIES.mono,
-                    fontWeight: 500,
-                    fontSize: 44,
-                    letterSpacing: "-0.02em",
+                    fontFamily: X_BOT_CARD_FONT_FAMILIES.display,
+                    fontWeight: 400,
+                    fontSize: 60,
+                    lineHeight: 1,
+                    letterSpacing: "-0.03em",
                     color: INK,
                   }),
                 ],

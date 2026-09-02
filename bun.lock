@@ -123,7 +123,6 @@
         "@convex-dev/rate-limiter": "^0.3.2",
         "@convex-dev/resend": "^0.2.6",
         "@fontsource/cormorant-garamond": "5.2.6",
-        "@fontsource/ibm-plex-mono": "5.2.6",
         "@fontsource/manrope": "5.2.6",
         "@google/genai": "^2.6.0",
         "@resvg/resvg-wasm": "2.6.2",
@@ -1013,8 +1012,6 @@
     "@floating-ui/utils": ["@floating-ui/utils@0.2.11", "", {}, "sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg=="],
 
     "@fontsource/cormorant-garamond": ["@fontsource/cormorant-garamond@5.2.6", "", {}, "sha512-96gARFOXq0U8qwDrB0W5P1/b+ars5kAB7PRo9Lh+JWipGUVuFY2V0VrX6PDZ1uPO0IT/RAADR6hQNCg6DnmGkQ=="],
-
-    "@fontsource/ibm-plex-mono": ["@fontsource/ibm-plex-mono@5.2.6", "", {}, "sha512-LTZJNTcpoT19fmwERZNMDI+ljHueuyhF2Qn+bICJ4Y4hxBLAAoJ2MRsGnyp0QNutW6t/25eyZpvaUK1LDrCo7Q=="],
 
     "@fontsource/manrope": ["@fontsource/manrope@5.2.6", "", {}, "sha512-tboCPLGXWWkNORL7gRhA1m16FJj2QuObk2lhBvkNrpjW0911pGawvHwxuierKHojPtXptfMJo7CUWxXGkKN5zA=="],
 

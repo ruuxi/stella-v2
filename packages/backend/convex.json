@@ -5,7 +5,6 @@
     "externalPackages": [
       "@resvg/resvg-wasm",
       "@fontsource/cormorant-garamond",
-      "@fontsource/ibm-plex-mono",
       "@fontsource/manrope"
     ]
   }

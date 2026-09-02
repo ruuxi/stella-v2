@@ -41,10 +41,12 @@ const X_BOT_SANS_FONT_FILES = {
   medium: "@fontsource/manrope/files/manrope-latin-500-normal.woff",
   semibold: "@fontsource/manrope/files/manrope-latin-600-normal.woff",
 } as const;
-const X_BOT_DISPLAY_FONT_FILE =
-  "@fontsource/cormorant-garamond/files/cormorant-garamond-latin-300-normal.woff";
-const X_BOT_MONO_FONT_FILE =
-  "@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff";
+const X_BOT_DISPLAY_FONT_FILES = {
+  light:
+    "@fontsource/cormorant-garamond/files/cormorant-garamond-latin-300-normal.woff",
+  regular:
+    "@fontsource/cormorant-garamond/files/cormorant-garamond-latin-400-normal.woff",
+} as const;
 const X_BOT_RESVG_WASM_FILE = "@resvg/resvg-wasm/index_bg.wasm";
 const X_MEDIA_APPEND_CHUNK_BYTES = 4 * 1024 * 1024;
 
@@ -259,10 +261,16 @@ type CardFont = {
 let cardFontsPromise: Promise<CardFont[]> | null = null;
 const loadCardFonts = (): Promise<CardFont[]> => {
   cardFontsPromise ??= Promise.all([
-    readPackageFile(X_BOT_DISPLAY_FONT_FILE).then((data) => ({
+    readPackageFile(X_BOT_DISPLAY_FONT_FILES.light).then((data) => ({
       name: X_BOT_CARD_FONT_FAMILIES.display,
       data: toArrayBuffer(data),
       weight: 300 as const,
+      style: "normal" as const,
+    })),
+    readPackageFile(X_BOT_DISPLAY_FONT_FILES.regular).then((data) => ({
+      name: X_BOT_CARD_FONT_FAMILIES.display,
+      data: toArrayBuffer(data),
+      weight: 400 as const,
       style: "normal" as const,
     })),
     readPackageFile(X_BOT_SANS_FONT_FILES.regular).then((data) => ({
@@ -281,12 +289,6 @@ const loadCardFonts = (): Promise<CardFont[]> => {
       name: X_BOT_CARD_FONT_FAMILIES.sans,
       data: toArrayBuffer(data),
       weight: 600 as const,
-      style: "normal" as const,
-    })),
-    readPackageFile(X_BOT_MONO_FONT_FILE).then((data) => ({
-      name: X_BOT_CARD_FONT_FAMILIES.mono,
-      data: toArrayBuffer(data),
-      weight: 500 as const,
       style: "normal" as const,
     })),
   ]);

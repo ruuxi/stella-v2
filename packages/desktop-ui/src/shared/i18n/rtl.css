@@ -30,20 +30,10 @@
   left: -6px;
 }
 
-/* Onboarding's prev/next chevron buttons are positioned glyphs
- * (`<path d="M15 18l-6-6 6-6"/>`). The icon meaning ("go back") is
- * semantically tied to direction, not to the literal arrow shape.
- * Flip the SVG so the arrow points the correct way under RTL. */
-[dir="rtl"] .onboarding-phase-nav-btn--prev svg,
-[dir="rtl"] .onboarding-phase-nav-btn--next svg {
-  transform: scaleX(-1);
-}
-
 /* Settings panel rows also use `text-align: left` for the row label
  * column — convert to logical start so RTL labels align to the
  * (visually) right edge of the row. */
 [dir="rtl"] .settings-row-info,
-[dir="rtl"] .settings-card-desc,
-[dir="rtl"] .onboarding-discovery-row {
+[dir="rtl"] .settings-card-desc {
   text-align: start;
 }

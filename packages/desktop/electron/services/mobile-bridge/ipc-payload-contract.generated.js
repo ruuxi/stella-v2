@@ -163,7 +163,6 @@ export const IPC_PAYLOAD_CONTRACT = {
     "nativeIntegrations:list": { kind: "none" },
     "officePreview:list": { kind: "passthrough" },
     "officePreview:start": { kind: "object", fields: ["filePath", "conversationId"] },
-    "onboarding:generateWelcomeHtml": { kind: "passthrough" },
     "onboarding:synthesizeCoreMemory": { kind: "passthrough" },
     "overlay:hideWindowHighlight": { kind: "none" },
     "overlay:previewWindowHighlightAtPoint": { kind: "passthrough" },
@@ -269,6 +268,5 @@ export const IPC_PAYLOAD_CONTRACT = {
     "window:maximize": { kind: "none" },
     "window:minimize": { kind: "none" },
     "window:setNativeButtonsVisible": { kind: "passthrough" },
-    "window:setOnboardingPresentation": { kind: "passthrough" },
     "window:show": { kind: "passthrough" },
 };

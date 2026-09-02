@@ -7,10 +7,7 @@
 
 import { getSynthesisPromptConfig } from "@/prompts";
 import type { DiscoveryCategory } from "@stella/contracts/discovery";
-import type {
-  OnboardingSynthesisResponse,
-  OnboardingWelcomeHtmlResponse,
-} from "@stella/contracts/desktop/onboarding";
+import type { OnboardingSynthesisResponse } from "@stella/contracts/desktop/onboarding";
 
 type SynthesisResult = OnboardingSynthesisResponse;
 
@@ -38,22 +35,5 @@ export async function synthesizeCoreMemory(
     includeAuth: options.includeAuth ?? true,
     includeWelcomeHtml: options.includeWelcomeHtml ?? true,
     ...(options.includeStarters ? { includeStarters: true } : {}),
-  });
-}
-
-export async function generateWelcomeHtml(
-  coreMemory: string,
-  options: Pick<SynthesisRequestOptions, "includeAuth"> = {},
-): Promise<OnboardingWelcomeHtmlResponse> {
-  const onboardingApi = window.electronAPI?.onboarding;
-  if (!onboardingApi?.generateWelcomeHtml) {
-    throw new Error(
-      "Onboarding welcome HTML IPC is unavailable in this renderer context.",
-    );
-  }
-
-  return await onboardingApi.generateWelcomeHtml({
-    coreMemory,
-    includeAuth: options.includeAuth ?? true,
   });
 }

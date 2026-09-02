@@ -5,9 +5,7 @@ import {
   nextOnboardingChatStep,
   ONBOARDING_CHAT_STEPS,
   readOnboardingChatProgress,
-  readOnboardingVariant,
   writeOnboardingChatProgress,
-  writeOnboardingVariant,
 } from "@/global/onboarding/chat/onboarding-chat-flow";
 import {
   clearPendingHandoff,
@@ -29,14 +27,6 @@ describe("chat onboarding flow", () => {
     expect(ONBOARDING_CHAT_STEPS).toContain("theme");
     expect(nextOnboardingChatStep("discovery")).toBe("capabilities");
     expect(nextOnboardingChatStep("ready")).toBeNull();
-  });
-
-  it("defaults to the chat variant and round-trips the legacy switch", () => {
-    expect(readOnboardingVariant()).toBe("chat");
-    writeOnboardingVariant("legacy");
-    expect(readOnboardingVariant()).toBe("legacy");
-    writeOnboardingVariant("chat");
-    expect(readOnboardingVariant()).toBe("chat");
   });
 
   it("persists resume progress and drops malformed entries", () => {

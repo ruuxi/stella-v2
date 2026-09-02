@@ -21,7 +21,7 @@ import {
   DISCOVERY_CATEGORIES_CHANGED_EVENT,
   DISCOVERY_CATEGORIES_KEY,
 } from "@stella/contracts/discovery";
-import { BROWSERS, type BrowserId } from "@/global/onboarding/onboarding-flow";
+import { BROWSERS, type BrowserId } from "../browsers";
 import type { OnboardingChatAnswer } from "../onboarding-chat-flow";
 import {
   startDiscoveryJob,

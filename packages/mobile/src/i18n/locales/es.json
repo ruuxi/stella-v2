@@ -617,36 +617,186 @@
         "updateChatGptSpeed": "No se pudo actualizar la velocidad de ChatGPT.",
         "updateDirectRuntime": "No se pudo actualizar el ajuste directo de {runtime}."
       }
+    },
+    "onboardingReplay": {
+      "title": "Onboarding",
+      "action": "Replay",
+      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched."
     }
   },
   "onboarding": {
-    "ready": "Preparándose...",
-    "retryStart": "Reintentar inicio de Stella",
-    "startStella": "Iniciar Stella",
     "legalFooter": "Al usar Stella, aceptas nuestros {terms} y {privacy}.",
     "termsOfService": "Términos del servicio",
     "privacyPolicy": "Política de privacidad",
-    "previousStep": "Paso anterior",
-    "nextStep": "Paso siguiente",
-    "stepTitles": {
-      "engine": "Elige qué impulsa a Stella.",
-      "extension": "Añade Stella a tu navegador.",
-      "browser": "Deja que Stella te conozca.",
-      "theme": "¿Cómo debería verse Stella?",
-      "voice": "Habla en lugar de escribir.",
-      "enter": "Stella casi está lista."
-    },
-    "acts": {
-      "discover": "Descubre",
-      "personalize": "Hazla tuya",
-      "connect": "Conecta",
-      "flow": "Tu flujo",
-      "ready": "Listo"
-    },
-    "discovery": {
-      "devEnvironment": {
-        "label": "Tu entorno de desarrollo",
-        "description": "Las herramientas que usas, los proyectos en los que trabajas y cómo está configurado tu entorno"
+    "chat": {
+      "skipSetup": "Skip setup",
+      "composerPlaceholder": "Or just ask me something to get started",
+      "send": "Send",
+      "messages": {
+        "discovery": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you.\n\nOne quick thing before we start.",
+        "capabilities": "Here's what that looks like day to day.",
+        "theme": "Now, how should I look?",
+        "extras": "Almost done. A little housekeeping, then we start.",
+        "readyGeneric": "That's it. I'll get to know you as we go.\n\nWhat do you want to do first?",
+        "readyPending": "That's everything. I'm still writing up what I noticed, so give me a moment, or just dive in.",
+        "readyFailed": "That's everything. I couldn't finish reading your browser this time, but we can start anyway and I'll learn as we go.",
+        "memory": "One more thing that makes me different."
+      },
+      "replies": {
+        "discoveryAccepted": "Go ahead, take a look.",
+        "discoverySkipped": "Not right now.",
+        "capabilitiesDone": "Got it.",
+        "capabilitiesSkipped": "Skip the tour.",
+        "themeDone": "That one.",
+        "themeSkipped": "Keep the default.",
+        "extrasDone": "Done.",
+        "extrasSkipped": "Skip for now.",
+        "memoryDone": "Nice.",
+        "memorySkipped": "Skip it."
+      },
+      "discovery": {
+        "title": "Give me a head start",
+        "body": "Most assistants start from zero and learn you slowly, chat by chat. Point me at your browser and I'll build a starting memory from it, so I'm useful to you from day one instead of weeks in.",
+        "browserLabel": "Your browser",
+        "includeDev": "My coding setup",
+        "accept": "Get a head start",
+        "skip": "Not now",
+        "hint": "About a minute, in the background.",
+        "settledTitle": "Building your memory from {target}",
+        "settledTitleGeneric": "Building your memory",
+        "settledDesc": "I'll keep going while we finish up.",
+        "settledSkippedTitle": "Skipped for now",
+        "settledSkippedDesc": "I'll build up memory from our conversations instead.",
+        "status": {
+          "idle": "Done",
+          "collecting": "Reading",
+          "synthesizing": "Writing your profile",
+          "saving": "Saving",
+          "done": "Done",
+          "failed": "Didn't finish"
+        },
+        "alsoLabel": "Also include",
+        "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
+      },
+      "capabilities": {
+        "errands": {
+          "word": "Errands",
+          "title": "Ask once. Consider it handled.",
+          "caption": "I open the site, fill in the form, and finish the job, the same way you would."
+        },
+        "shopping": {
+          "word": "Shopping",
+          "title": "I can buy things, with your OK.",
+          "caption": "I find it and get it to checkout. You confirm the total, and I place the order."
+        },
+        "work": {
+          "word": "Work",
+          "title": "Real files. Real apps.",
+          "caption": "Spreadsheets, documents, slides: I work inside the real apps on this computer."
+        },
+        "build": {
+          "word": "Build",
+          "title": "Say it. I'll build it.",
+          "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
+        },
+        "games": {
+          "word": "Games",
+          "title": "Even your games.",
+          "caption": "Want something the game doesn't do? I'll write the mod and install it for you."
+        },
+        "settledTitle": "The quick tour",
+        "replay": "Replay this demo",
+        "tablist": "Capability demos"
+      },
+      "memory": {
+        "titleChatbot": "You know this one",
+        "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
+        "titleStella": "With me it's one conversation",
+        "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
+        "showStella": "Now ask me",
+        "skip": "Skip",
+        "settledTitle": "One conversation",
+        "settledDesc": "No threads to manage. I remember."
+      },
+      "theme": {
+        "title": "Pick a look",
+        "body": "Hover to try one on. Click to keep it.",
+        "appearance": "Appearance",
+        "themes": "Theme",
+        "mode": {
+          "light": "Light",
+          "dark": "Dark",
+          "system": "System"
+        },
+        "confirm": "Done",
+        "skip": "Keep the default",
+        "hint": "Everything here changes live.",
+        "settledTitle": "Default",
+        "gradientStyle": "Gradient style",
+        "gradientColor": "Gradient color",
+        "gradient": {
+          "soft": "Soft",
+          "flat": "Flat",
+          "relative": "Relative",
+          "strong": "Strong"
+        }
+      },
+      "extras": {
+        "title": "Two quick extras",
+        "titleOne": "One quick extra",
+        "body": "Neither is required, but both make me a lot more useful.",
+        "bodyOne": "Not required, but it makes me a lot more useful.",
+        "accessibilityTitle": "Accessibility",
+        "accessibilityDesc": "So I can act on selected text and what's under your cursor.",
+        "screenTitle": "Screen Recording",
+        "screenDesc": "So I can see the screen when you ask me to.",
+        "enable": "Enable",
+        "enabled": "Enabled",
+        "extensionTitle": "Stella for Chrome",
+        "extensionDesc": "Lets me see the page you're on and act inside your browser. Works in Chrome, Arc, Brave, and Edge.",
+        "getExtension": "Get extension",
+        "extensionOpened": "Opened",
+        "memoryTitle": "Remember across chats",
+        "memoryDesc": "Use what I've saved about you when it's relevant. Nothing is deleted if you turn this off.",
+        "restartHint": "Screen access needs a quick restart to take effect.",
+        "restart": "Restart Stella",
+        "skip": "Skip for now",
+        "hint": "All of this lives in Settings too.",
+        "settledTitle": "Extras",
+        "settledSkippedTitle": "Extras skipped",
+        "settledPermissions": "Permissions",
+        "settledExtension": "Extension",
+        "settledMemory": "Memory"
+      },
+      "ready": {
+        "pendingLabel": "Still reading",
+        "pendingBody": "I'm writing up what I noticed. Your starters will personalize once that's done, or just start now.",
+        "highlightsLabel": "What I picked up",
+        "startersLabel": "Try one of these",
+        "startersLabelPersonal": "Made for you",
+        "notesSummary": "See everything I noted",
+        "notesFoot": "You can read or edit this any time in Settings › Memory.",
+        "start": "Start chatting",
+        "startAnyway": "Start anyway",
+        "hint": "Or type anything below.",
+        "generic": {
+          "plan": {
+            "title": "Plan my week",
+            "prompt": "Help me plan my week. Ask me what's on my plate and lay it out day by day."
+          },
+          "browse": {
+            "title": "Find me a good dinner spot",
+            "prompt": "Find a well-reviewed dinner spot near me for this weekend and hold a reservation for two."
+          },
+          "file": {
+            "title": "Tidy up a document",
+            "prompt": "I have a document that needs cleaning up. I'll share it and you fix the structure and wording."
+          },
+          "watch": {
+            "title": "Watch a site for changes",
+            "prompt": "Keep an eye on a web page for me and tell me when it changes."
+          }
+        }
       }
     }
   },
@@ -1612,6 +1762,8 @@
       "welcomeTitle": "Te damos la bienvenida a Stella",
       "welcomeDescription": "Inicia sesión con tu correo para empezar a usar Stella.",
       "welcomeSub": "Usa Google o tu correo para iniciar sesión. No hace falta contraseña.",
+      "finishingTitle": "Finalizando el inicio de sesión",
+      "finishingSub": "Estamos moviendo tus chats a esta cuenta. Solo tardará un momento.",
       "orUseEmail": "o usa el correo",
       "emailLabel": "Correo electrónico",
       "emailPlaceholder": "tu@ejemplo.com",

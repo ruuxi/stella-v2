@@ -452,27 +452,6 @@ body[data-display-expanding="true"] .shell-topbar-tablist {
   color: var(--primary-foreground);
 }
 
-.onboarding-layout {
-  /* Bound the onboarding "stage" so the layout is consistent across every
-   * display size — small laptops, normal monitors, 4K, ultrawide, Studio
-   * Display, etc. The Electron window now covers the entire display, so
-   * without this cap, every percentage-based position inside (Stella
-   * creature, split-right column, dialogue placement) would scale with
-   * the screen and the scene would look completely different on a 13"
-   * laptop vs. a 5K monitor. With the cap, all interior percentages
-   * refer to a virtual ~1400×950 stage centered in the window. */
-  width: min(100%, 1400px);
-  height: min(100%, 950px);
-  margin: auto;
-  display: flex;
-  min-height: 0;
-  position: relative;
-  z-index: 2;
-  overflow: hidden;
-  pointer-events: auto;
-  -webkit-app-region: no-drag;
-}
-
 .content-area {
   flex: 1;
   min-width: 0;
@@ -671,27 +650,6 @@ body[data-display-expanding="true"] .shell-topbar-tablist {
   display: none;
 }
 
-/* New session view - minimal home screen */
-.new-session-view {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  padding: 0;
-  max-width: none;
-  width: 100%;
-  overflow: hidden;
-  position: relative;
-  -webkit-app-region: no-drag;
-}
-
-/* Onboarding exit — fade out before switching to main app */
-.new-session-view[data-exiting] {
-  opacity: 0;
-  transition: opacity 0.5s ease-out;
-}
-
 .composer-wrap--entering {
   animation: composerFadeIn 0.6s ease-out forwards;
   animation-delay: 0.3s;
@@ -707,97 +665,6 @@ body[data-display-expanding="true"] .shell-topbar-tablist {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-.onboarding-stella-animation {
-  --stella-shift-x: 0px;
-  --stella-shift-y: 0px;
-  position: absolute;
-  top: 35%;
-  left: 50%;
-  transform: translate(
-    calc(-50% + var(--stella-shift-x)),
-    calc(-50% + var(--stella-shift-y))
-  );
-  z-index: 4;
-  /* Square, and sized to the creature's 420px canvas: the orb fills a round
-   * footprint, so a landscape box would leave the click target reaching well
-   * past the wisp on either side. The canvas itself is a fixed pixel size
-   * centered in here — these dimensions set the hit area and the transition,
-   * never the rendered size. */
-  width: 420px;
-  height: 420px;
-  cursor: default;
-  pointer-events: auto;
-  -webkit-app-region: no-drag;
-  transition:
-    opacity 0.5s ease,
-    transform 1.6s cubic-bezier(0.25, 0.1, 0.25, 1),
-    width 1.6s cubic-bezier(0.25, 0.1, 0.25, 1),
-    height 1.6s cubic-bezier(0.25, 0.1, 0.25, 1);
-  will-change: transform, opacity;
-}
-
-.onboarding-stella-animation[data-expanded="true"] {
-  cursor: default;
-}
-
-/* Split mode: parked at the smaller left-hand position. Opacity is
- * controlled per-phase below — transform/size animate smoothly so any
- * later shift glides instead of jumping. */
-.onboarding-stella-animation[data-split="true"] {
-  --stella-shift-x: clamp(-350px, -25vw, 0px);
-  --stella-shift-y: min(10vh, 95px);
-  width: 260px;
-  height: 260px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-/* Initial split-mode entry: fade out in place, then snap to the
- * smaller left-hand position while invisible so the user sees a fade
- * rather than a slide. Released ~400ms later by the overlay hook so
- * subsequent transform changes resume the animated default. */
-.onboarding-stella-animation[data-split="true"][data-split-entering] {
-  transition:
-    opacity 0.35s ease,
-    transform 0s linear 0.35s,
-    width 0s linear 0.35s,
-    height 0s linear 0.35s;
-}
-
-/* The form-like split phases reveal the parked creature: fade it back
- * in at the already-snapped left position. Full-stage demo phases
- * (voice and enter — CREATURE_HIDDEN_PHASES)
- * fade it out via `data-hidden` from FullShell instead. */
-.new-session-view:has(.onboarding-dialogue[data-phase="engine"])
-  .onboarding-stella-animation[data-split="true"],
-.new-session-view:has(.onboarding-dialogue[data-phase="permissions"])
-  .onboarding-stella-animation[data-split="true"],
-.new-session-view:has(.onboarding-dialogue[data-phase="browser"])
-  .onboarding-stella-animation[data-split="true"],
-.new-session-view:has(.onboarding-dialogue[data-phase="extension"])
-  .onboarding-stella-animation[data-split="true"],
-.new-session-view:has(.onboarding-dialogue[data-phase="theme"])
-  .onboarding-stella-animation[data-split="true"] {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* Hidden by phase (CREATURE_HIDDEN_PHASES, before being unmounted at
- * exit): smoothly fade out instead of disappearing instantly. Position
- * and size still animate on any underlying shift so re-entry is
- * graceful. */
-.onboarding-stella-animation[data-hidden] {
-  opacity: 0 !important;
-  pointer-events: none;
-}
-
-/* Instantly hide Stella during exit — no transition so it can't flash back */
-.new-session-view[data-exiting] .onboarding-stella-animation {
-  opacity: 0 !important;
-  pointer-events: none;
-  transition: none;
 }
 
 /* ── Compact mode: window narrower than 600px ── */

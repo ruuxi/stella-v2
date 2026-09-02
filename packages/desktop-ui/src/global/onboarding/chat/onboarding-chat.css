@@ -508,6 +508,112 @@
   opacity: 1;
 }
 
+/* Only the active chapter is mounted. Keeping inactive demo trees out of the
+ * DOM prevents their shimmer and caret animations from consuming frames. */
+.obc-cap-chapter {
+  grid-row: 1;
+  grid-column: 1;
+  display: flex;
+  padding: clamp(12px, 1.5vw, 20px);
+  opacity: 0;
+  transform: scale(0.985);
+  transition:
+    opacity 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+  overflow: hidden;
+  backface-visibility: hidden;
+}
+
+.obc-cap-chapter[data-active] {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.obc-cap-chapter > * {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.obc-cap-words__word {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px 0;
+  border: none;
+  background: transparent;
+  cursor: default;
+}
+
+.obc-cap-words__word:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+
+.obc-cap-words__label {
+  font-size: var(--font-size-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--foreground);
+  opacity: 0.4;
+  transition: opacity 0.25s ease;
+}
+
+.obc-cap-words__word[data-completed] .obc-cap-words__label {
+  opacity: 0.55;
+}
+
+.obc-cap-words__word:hover:not(:disabled) .obc-cap-words__label {
+  opacity: 0.85;
+}
+
+.obc-cap-words__word[data-active] .obc-cap-words__label {
+  opacity: 0.95;
+}
+
+.obc-cap-words__track {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 36px;
+  height: 2px;
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--foreground) 10%, transparent);
+  overflow: hidden;
+}
+
+.obc-cap-words__word[data-completed] .obc-cap-words__track {
+  background: color-mix(in oklch, var(--foreground) 22%, transparent);
+}
+
+/* Keyed per play in JS (`playNonce`), with `animationDuration` set to
+ * the chapter's script length, so the fill always tracks the run. */
+.obc-cap-words__fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--foreground) 55%, transparent),
+    color-mix(in oklch, var(--foreground) 85%, transparent)
+  );
+  transform-origin: left center;
+  animation: obcCapWordFill linear forwards;
+}
+
+@keyframes obcCapWordFill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
 .obc-cap-words {
   display: flex;
   justify-content: center;

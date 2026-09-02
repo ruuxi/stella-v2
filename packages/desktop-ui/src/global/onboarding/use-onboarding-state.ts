@@ -1,20 +1,11 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { uiState } from "@/platform/ui-state";
-import { SPLIT_STEP_ORDER, type Phase } from "./onboarding-flow";
 import {
   clearPostOnboardingHints,
   seedPostOnboardingHints,
 } from "./post-onboarding-hints";
 
 const ONBOARDING_COMPLETE_KEY = "stella-onboarding-complete";
-/**
- * Persists the current onboarding phase so a user who quits the app
- * mid-flow lands back on the same step instead of the very first
- * "Start Stella" screen. Cleared on completion and on hard reset.
- * Only split-flow phases are persisted (intro is the entry surface
- * itself, and `complete`/`done` mean we're already past onboarding).
- */
-const ONBOARDING_PHASE_KEY = "stella-onboarding-phase";
 const ONBOARDING_COMPLETE_EVENT = "stella:onboarding-complete-changed";
 
 export const readLocalOnboardingCompleted = () => {
@@ -27,26 +18,6 @@ const writeLocalOnboardingCompleted = (completed: boolean) => {
     return;
   }
   uiState.removeItem(ONBOARDING_COMPLETE_KEY);
-};
-
-const SPLIT_PHASE_SET = new Set<Phase>(SPLIT_STEP_ORDER);
-
-export const readOnboardingPhase = (): Phase | null => {
-  const raw = uiState.getItem(ONBOARDING_PHASE_KEY);
-  if (!raw) return null;
-  if (!SPLIT_PHASE_SET.has(raw as Phase)) {
-    uiState.removeItem(ONBOARDING_PHASE_KEY);
-    return null;
-  }
-  return raw as Phase;
-};
-
-const writeOnboardingPhase = (phase: Phase | null) => {
-  if (!phase || !SPLIT_PHASE_SET.has(phase)) {
-    uiState.removeItem(ONBOARDING_PHASE_KEY);
-    return;
-  }
-  uiState.setItem(ONBOARDING_PHASE_KEY, phase);
 };
 
 /**
@@ -180,7 +151,6 @@ export function useOnboardingState() {
     durableCompleted = true;
     durableHydrated = true;
     writeLocalOnboardingCompleted(true);
-    writeOnboardingPhase(null);
     // Seed the one-time post-onboarding sidebar hints.
     // Idempotent — re-completing onboarding without a reset is a no-op.
     seedPostOnboardingHints();
@@ -198,7 +168,6 @@ export function useOnboardingState() {
     durableCompleted = false;
     durableHydrated = true;
     writeLocalOnboardingCompleted(false);
-    writeOnboardingPhase(null);
     // Reset clears the seeded marker too so the next completion re-shows
     // the post-onboarding hints, matching brand-new-install behavior.
     clearPostOnboardingHints();
@@ -211,9 +180,5 @@ export function useOnboardingState() {
       });
   }, []);
 
-  const persistPhase = useCallback((phase: Phase | null) => {
-    writeOnboardingPhase(phase);
-  }, []);
-
-  return { completed, hydrated, complete, reset, persistPhase };
+  return { completed, hydrated, complete, reset };
 }

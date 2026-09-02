@@ -78,8 +78,6 @@ import {
 import type {
   OnboardingSynthesisRequest,
   OnboardingSynthesisResponse,
-  OnboardingWelcomeHtmlRequest,
-  OnboardingWelcomeHtmlResponse,
 } from "@stella/contracts/desktop/onboarding";
 import type { DiscoveryKnowledgeSeedPayload } from "@stella/contracts/discovery";
 import {
@@ -451,13 +449,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     relaunch: () => ipcRenderer.send("app:relaunch"),
     hardReset: () =>
       ipcRenderer.invoke("app:hardResetLocalState") as Promise<{ ok: boolean }>,
-    setOnboardingPresentation: (active: boolean) =>
-      ipcRenderer.invoke(
-        "window:setOnboardingPresentation",
-        active,
-      ) as Promise<{
-        ok: boolean;
-      }>,
   },
 
   updates: {
@@ -1557,11 +1548,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
         "onboarding:synthesizeCoreMemory",
         payload,
       ) as Promise<OnboardingSynthesisResponse>,
-    generateWelcomeHtml: (payload: OnboardingWelcomeHtmlRequest) =>
-      ipcRenderer.invoke(
-        "onboarding:generateWelcomeHtml",
-        payload,
-      ) as Promise<OnboardingWelcomeHtmlResponse>,
   },
 
   discovery: {
@@ -1912,7 +1898,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     persistDiscoveryWelcome: (payload: {
       conversationId: string;
       message: string;
-      firstReport?: unknown;
     }) => ipcRenderer.invoke("localChat:persistDiscoveryWelcome", payload),
     listSyncMessages: (payload: {
       conversationId: string;

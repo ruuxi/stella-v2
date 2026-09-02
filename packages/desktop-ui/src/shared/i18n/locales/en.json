@@ -141,8 +141,7 @@
     "onboardingReplay": {
       "title": "Onboarding",
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
-      "legacyToggle": "Use the previous onboarding flow"
+      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched."
     },
     "systemPrompt": {
       "title": "System prompt",
@@ -625,35 +624,9 @@
     }
   },
   "onboarding": {
-    "ready": "Getting ready...",
-    "retryStart": "Retry Stella Startup",
-    "startStella": "Start Stella",
     "legalFooter": "By using Stella, you agree to our {terms} and {privacy}.",
     "termsOfService": "Terms of Service",
     "privacyPolicy": "Privacy Policy",
-    "previousStep": "Previous step",
-    "nextStep": "Next step",
-    "stepTitles": {
-      "engine": "Pick what powers Stella.",
-      "extension": "Add Stella to your browser.",
-      "browser": "Let Stella get to know you.",
-      "theme": "How should Stella look?",
-      "voice": "Speak instead of type.",
-      "enter": "Stella is almost ready."
-    },
-    "acts": {
-      "discover": "Discover",
-      "personalize": "Make it yours",
-      "connect": "Connect",
-      "flow": "Your flow",
-      "ready": "Ready"
-    },
-    "discovery": {
-      "devEnvironment": {
-        "label": "Your coding setup",
-        "description": "Tools you use, projects you work on, and how your environment is configured"
-      }
-    },
     "chat": {
       "skipSetup": "Skip setup",
       "composerPlaceholder": "Or just ask me something to get started",

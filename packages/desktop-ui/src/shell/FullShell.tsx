@@ -8,18 +8,10 @@ import {
 } from "react";
 import { RouterProvider } from "@tanstack/react-router";
 import { useTheme } from "@/context/theme-context";
-import { useUiState } from "@/context/ui-state";
-import {
-  CREATURE_HIDDEN_PHASES,
-  type Phase as OnboardingPhase,
-} from "@/global/onboarding/onboarding-flow";
-import { useDiscoveryFlow } from "@/global/onboarding/DiscoveryFlow";
-import { useOnboardingOverlay } from "@/global/onboarding/use-onboarding-overlay";
 import {
   readLocalOnboardingCompleted,
   useOnboardingState,
 } from "@/global/onboarding/use-onboarding-state";
-import { readOnboardingVariant } from "@/global/onboarding/chat/onboarding-chat-flow";
 import { setPendingComposerDraft } from "@/global/onboarding/chat/pending-handoff";
 import type { OnboardingChatHandoff } from "@/global/onboarding/chat/use-onboarding-chat";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
@@ -35,8 +27,8 @@ import {
 } from "./launch-splash";
 
 /* Onboarding is loaded as a dynamic chunk that contains the whole flow:
- * every phase component, the character mark, the legal dialog,
- * and all onboarding CSS.
+ * the conversation surface, every card, the demo scenes, and all
+ * onboarding CSS.
  *
  * Returning users (`appReady === true` at first paint) never fetch this
  * chunk. After completion the React subtree unmounts and the lazy
@@ -48,31 +40,10 @@ const onboardingChunkPromise: { current: Promise<unknown> | null } = {
 const loadOnboardingChunk = () => {
   if (!onboardingChunkPromise.current) {
     onboardingChunkPromise.current = import(
-      "@/global/onboarding/OnboardingOverlay"
-    );
-  }
-  return onboardingChunkPromise.current;
-};
-
-const OnboardingView = lazy(() =>
-  import("@/global/onboarding/OnboardingOverlay").then((module) => ({
-    default: module.OnboardingView,
-  })),
-);
-
-/* The chat-style onboarding is its own lazy chunk for the same reason: a
- * returning user never pays for it. It shares nothing with the legacy
- * overlay chunk except the discovery pipeline services. */
-const chatOnboardingChunkPromise: { current: Promise<unknown> | null } = {
-  current: null,
-};
-const loadChatOnboardingChunk = () => {
-  if (!chatOnboardingChunkPromise.current) {
-    chatOnboardingChunkPromise.current = import(
       "@/global/onboarding/chat/OnboardingChat"
     );
   }
-  return chatOnboardingChunkPromise.current;
+  return onboardingChunkPromise.current;
 };
 
 const OnboardingChatView = lazy(() =>
@@ -81,26 +52,23 @@ const OnboardingChatView = lazy(() =>
   })),
 );
 
-type ChatOnboardingExperienceProps = {
+type OnboardingExperienceProps = {
   onEnteredApp: () => void;
 };
 
 /**
- * First run as a conversation. Mounts inside the normal window chrome (no
- * fullscreen presentation, no split layout) and completes through the same
- * shared onboarding state the legacy flow uses, so the shell's hand-off to
- * the real chat is identical for both variants.
+ * First run as a conversation. Mounts inside the normal window chrome and
+ * completes through the shared onboarding state, so the shell's hand-off
+ * to the real chat is the same flip of `onboardingDone`.
  */
-function ChatOnboardingExperience({
-  onEnteredApp,
-}: ChatOnboardingExperienceProps) {
+function OnboardingExperience({ onEnteredApp }: OnboardingExperienceProps) {
   const { completed: onboardingDone, complete: completeOnboarding } =
     useOnboardingState();
   const { hasConnectedAccount } = useAuthSessionState();
 
   useEffect(() => {
     let cancelled = false;
-    void loadChatOnboardingChunk().finally(() => {
+    void loadOnboardingChunk().finally(() => {
       if (!cancelled) dismissLaunchSplash();
     });
     return () => {
@@ -128,89 +96,6 @@ function ChatOnboardingExperience({
         onComplete={handleComplete}
       />
     </Suspense>
-  );
-}
-
-type OnboardingExperienceProps = {
-  activeConversationId: string | null;
-  onEnteredApp: () => void;
-};
-
-function OnboardingExperience({
-  activeConversationId,
-  onEnteredApp,
-}: OnboardingExperienceProps) {
-  const [stellaHiddenByPhase, setStellaHiddenByPhase] = useState(false);
-  const onboarding = useOnboardingOverlay();
-  const {
-    handleDiscoveryConfirm,
-    discoveryWelcomeExpected,
-    discoveryWelcomeReady,
-  } = useDiscoveryFlow({
-    conversationId: activeConversationId,
-  });
-
-  useEffect(() => {
-    let cancelled = false;
-    void loadOnboardingChunk().finally(() => {
-      if (!cancelled) dismissLaunchSplash();
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const handleOnboardingPhaseChange = useCallback(
-    (phase: OnboardingPhase) => {
-      onboarding.persistPhase(phase);
-      setStellaHiddenByPhase(CREATURE_HIDDEN_PHASES.has(phase));
-    },
-    [onboarding],
-  );
-
-  // Once the split flow starts, the mark is decorative beside controls. Keep
-  // it alive — a frozen frame reads as a rendering glitch — but
-  // OnboardingOverlay pauses it outright on low-power machines so form
-  // interactions and demos still own the frame budget. Hidden phases are
-  // paused through `stellaHiddenByPhase`.
-  const pauseStellaAnimation =
-    onboarding.onboardingExiting || stellaHiddenByPhase;
-
-  useEffect(() => {
-    if (!onboarding.onboardingDone) return;
-    onEnteredApp();
-  }, [onEnteredApp, onboarding.onboardingDone]);
-
-  return (
-    <div
-      className="onboarding-layout"
-      data-split={onboarding.splitMode || undefined}
-    >
-      <Suspense fallback={null}>
-        <OnboardingView
-          hasExpanded={onboarding.hasExpanded}
-          onboardingDone={onboarding.onboardingDone}
-          onboardingExiting={onboarding.onboardingExiting}
-          isAuthenticated={onboarding.isAuthenticated}
-          splitMode={onboarding.splitMode}
-          splitEntering={onboarding.splitEntering}
-          hasStarted={onboarding.hasStarted}
-          stellaAnimationRef={onboarding.stellaAnimationRef}
-          stellaAnimationPaused={pauseStellaAnimation}
-          stellaAnimationHidden={stellaHiddenByPhase}
-          onboardingKey={onboarding.onboardingKey}
-          initialPhase={onboarding.initialPhase}
-          triggerFlash={onboarding.triggerFlash}
-          startOnboarding={onboarding.startOnboarding}
-          completeOnboarding={onboarding.completeOnboarding}
-          onDiscoveryConfirm={handleDiscoveryConfirm}
-          onPhaseChange={handleOnboardingPhaseChange}
-          discoveryWelcomeExpected={discoveryWelcomeExpected}
-          discoveryWelcomeReady={discoveryWelcomeReady}
-        />
-      </Suspense>
-    </div>
   );
 }
 
@@ -254,11 +139,6 @@ const WebsiteShell = () => {
 };
 
 const DesktopFullShell = () => {
-  const { state } = useUiState();
-  const activeConversationId = state.conversationId;
-  // `activeConversationId` is only handed to onboarding below. It is owned by
-  // the root layout (cloud selection) and must never drive a runtime
-  // re-bootstrap from here: a null id is the normal pre-selection state.
   const { completed: onboardingDone, hydrated: onboardingHydrated } =
     useOnboardingState();
   // Returning users resolve `onboardingDone` synchronously from shared UI state,
@@ -307,16 +187,7 @@ const DesktopFullShell = () => {
       {appReady ? (
         <HostedChatSurface />
       ) : needsOnboarding ? (
-        readOnboardingVariant() === "legacy" ? (
-          <OnboardingExperience
-            activeConversationId={activeConversationId}
-            onEnteredApp={() => setHasEnteredApp(true)}
-          />
-        ) : (
-          <ChatOnboardingExperience
-            onEnteredApp={() => setHasEnteredApp(true)}
-          />
-        )
+        <OnboardingExperience onEnteredApp={() => setHasEnteredApp(true)} />
       ) : null}
     </ShellChrome>
   );

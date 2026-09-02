@@ -57,8 +57,6 @@ import type {
 import type {
   OnboardingSynthesisRequest,
   OnboardingSynthesisResponse,
-  OnboardingWelcomeHtmlRequest,
-  OnboardingWelcomeHtmlResponse,
 } from "@stella/contracts/onboarding";
 import type {
   RuntimeVoiceOrchestratorConfig,
@@ -175,7 +173,6 @@ export type ElectronUiApi = {
   reload: () => void;
   relaunch: () => void;
   hardReset: () => Promise<{ ok: boolean }>;
-  setOnboardingPresentation: (active: boolean) => Promise<{ ok: boolean }>;
 };
 
 export type ElectronCaptureApi = {
@@ -1011,9 +1008,6 @@ export type ElectronOnboardingApi = {
   synthesizeCoreMemory: (
     payload: OnboardingSynthesisRequest,
   ) => Promise<OnboardingSynthesisResponse>;
-  generateWelcomeHtml: (
-    payload: OnboardingWelcomeHtmlRequest,
-  ) => Promise<OnboardingWelcomeHtmlResponse>;
   complete: () => Promise<{ ok: boolean }>;
   reset: () => Promise<{ ok: boolean }>;
 };
@@ -1359,7 +1353,6 @@ export type ElectronLocalChatApi = {
   persistDiscoveryWelcome: (payload: {
     conversationId: string;
     message: string;
-    firstReport?: unknown;
   }) => Promise<{ ok: true }>;
   listSyncMessages: (payload: {
     conversationId: string;

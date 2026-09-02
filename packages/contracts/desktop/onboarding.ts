@@ -29,12 +29,3 @@ export type OnboardingSynthesisResponse = {
   /** 4 personalized starter prompts drawn from the core memory. */
   starters?: OnboardingStarter[];
 };
-
-export type OnboardingWelcomeHtmlRequest = {
-  coreMemory: string;
-  includeAuth?: boolean;
-};
-
-export type OnboardingWelcomeHtmlResponse = {
-  welcomeHtml: string;
-};

@@ -45,26 +45,6 @@ export const nextOnboardingChatStep = (
     : null;
 };
 
-/* ── Variant switch ──────────────────────────────────────────────────
- * The legacy split-screen flow stays in the tree until the chat flow is
- * signed off. The switch lives in shared UI state so Settings can flip it
- * and a replay lands on the chosen variant. */
-
-export type OnboardingVariant = "chat" | "legacy";
-
-const VARIANT_KEY = "stella-onboarding-variant";
-
-export const readOnboardingVariant = (): OnboardingVariant =>
-  uiState.getItem(VARIANT_KEY) === "legacy" ? "legacy" : "chat";
-
-export const writeOnboardingVariant = (variant: OnboardingVariant) => {
-  if (variant === "chat") {
-    uiState.removeItem(VARIANT_KEY);
-    return;
-  }
-  uiState.setItem(VARIANT_KEY, variant);
-};
-
 /* ── Resume ──────────────────────────────────────────────────────────
  * Quitting mid-flow lands the user back on the same message with the
  * earlier ones already answered. Cleared on completion and on replay. */

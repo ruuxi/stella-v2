@@ -49,7 +49,6 @@ import {
   type ChoreographyCue,
 } from "@/global/onboarding/demo/use-choreography";
 import type { OnboardingChatAnswer } from "../onboarding-chat-flow";
-import "@/global/onboarding/OnboardingCapabilitiesPhase.css";
 
 type CapabilitiesCardProps = {
   active: boolean;
@@ -425,7 +424,7 @@ export function CapabilitiesCard({
       <div className="obc-cap-frame">
         <div className="obc-cap-stage" aria-hidden="true">
           {/* Only the active chapter mounts so inactive demos never burn frames. */}
-          <div key={activeChapter.id} className="onboarding-cap-chapter" data-active>
+          <div key={activeChapter.id} className="obc-cap-chapter" data-active>
             <Chapter
               spec={activeChapter}
               active={active}
@@ -459,19 +458,19 @@ export function CapabilitiesCard({
               type="button"
               role="tab"
               aria-selected={isActive}
-              className="onboarding-cap-words__word"
+              className="obc-cap-words__word"
               data-active={isActive || undefined}
               data-completed={playedChapters.has(chapter.id) || undefined}
               onClick={() => playChapter(index)}
             >
-              <span className="onboarding-cap-words__label">
+              <span className="obc-cap-words__label">
                 {t(`onboarding.chat.capabilities.${chapter.id}.word`)}
               </span>
-              <span className="onboarding-cap-words__track" aria-hidden="true">
+              <span className="obc-cap-words__track" aria-hidden="true">
                 {isActive ? (
                   <span
                     key={playNonce}
-                    className="onboarding-cap-words__fill"
+                    className="obc-cap-words__fill"
                     style={{ animationDuration: `${scriptEnd(chapter.cues)}ms` }}
                   />
                 ) : null}

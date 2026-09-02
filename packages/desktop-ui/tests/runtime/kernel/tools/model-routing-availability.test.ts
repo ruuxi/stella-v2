@@ -165,15 +165,6 @@ describe("model-control renderer availability", () => {
     expect(source).not.toContain("developerModeEnabled");
   });
 
-  it("keeps onboarding model selection available", async () => {
-    const source = await read(
-      "packages/desktop-ui/src/global/onboarding/OnboardingEnginePhase.jsx",
-    );
-    expect(source).toContain("Bring your own provider");
-    expect(source).toContain("claude_code_local");
-    expect(source).not.toContain("developerModeEnabled");
-  });
-
   it("removes the obsolete setting and compatibility helpers", async () => {
     const settings = await read(
       "packages/desktop-ui/src/global/settings/tabs/GeneralTab.tsx",

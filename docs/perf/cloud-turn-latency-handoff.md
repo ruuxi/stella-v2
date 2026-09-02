@@ -154,6 +154,32 @@ Observations:
   the keepalive does anything.
 - Step 4 (container image rebuild) is still open.
 
+## Optimistic local turn start (2026-09-02, `9cdae2143`)
+
+The desktop no longer waits for `local-turns/begin` before calling the model
+on a locally executed cloud turn. `CloudTranscriptWriter` keeps a per
+conversation cache of the canonical history window (`peekHistory`,
+`refreshHistory`), refreshed after every acknowledged finish. When a cached
+window exists, `orchestrator-launch.ts` seeds the run from it and starts
+begin and `runOrchestratorTurn` together. Begin acks now carry
+`contextStartSeq` / `contextEndSeq`; equal `contextEndSeq` proves the cached
+window is the one begin would have returned.
+
+- Begin rejected: the run is aborted and the error surfaces exactly as the
+  sequential path did. Partial local output is discarded.
+- Window mismatch (another device wrote meanwhile): the run is aborted, a
+  `failed` finish is sent so no lease dangles, and the user sees "This
+  conversation changed on another device. Send that again." Restarting under
+  the same run id was not done because the prepared run owns a single
+  AbortController registered with the supervisor.
+- No cached window (first turn after launch): sequential as before, and the
+  cache is primed for the next turn.
+
+Cloud-executed turns (browser, mobile, desktop in cloud mode) are unchanged:
+there begin is the start of execution, so the one-round-trip begin above is
+the relevant fix. Tests: `kernel/runner/orchestrator-launch.test.ts`,
+`kernel/runner/cloud-transcript-write.test.ts`.
+
 ## Next steps, in order of value (as written before steps 1 to 3 landed)
 
 1. **Fold fence register into the snapshot call.** The gate already has the

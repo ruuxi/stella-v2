@@ -125,6 +125,35 @@ real fence store), the local-turn begin cases in
 without a second register, stale generation and fenced-off owner register
 nothing), and the keepalive cases in `tests/device-presence-socket.test.ts`.
 
+## Measured after steps 1 to 3 (2026-09-02, dev at `709be8d31`)
+
+Deployed from a clean worktree of master (Worker version `14891e3a`) and
+measured with the same recipe: six sends 45 s apart after a 3 minute idle.
+
+| | Before any work | After fence-in-gate | After steps 1 to 3 |
+|---|---|---|---|
+| Cold send (3+ min idle) | 1,652 ms | 541 ms | 506 ms (+359 ms one-time JWT key fetch after deploy) |
+| Warm send, at the Worker | 356 ms | 323 to 380 ms | 165 to 196 ms |
+| Warm send, DO handler | 314 ms | 300 to 354 ms | 60 to 80 ms |
+| Finish | 349 to 1,202 ms | 414 to 638 ms | 211 to 332 ms |
+
+The handler is now one gate round trip (`snapshotWithFenceLease`), and the
+remaining warm cost at the Worker is the Worker-to-object hop plus that call.
+
+Observations:
+
+- One send in six spent 1,065 ms inside the gate call with 2 ms of CPU. The
+  earlier run before steps 1 to 3 had one send in nine with a similar
+  signature (a 1.7 s stall in the conversation object's key-value read). No
+  alarm, refresh, or purge coincided with either. Treat as occasional slow
+  object wake or storage on the platform; two samples is not enough to act on.
+- The step 3 keepalive never engaged: the harness desktop attaches no proven
+  presence socket, so no gate alarm fired at all during the run. Whether it
+  helps a real desktop session is still unmeasured. Check that the desktop
+  actually opens `/owners/me/devices/:id/presence` at launch before assuming
+  the keepalive does anything.
+- Step 4 (container image rebuild) is still open.
+
 ## Next steps, in order of value (as written before steps 1 to 3 landed)
 
 1. **Fold fence register into the snapshot call.** The gate already has the

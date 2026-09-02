@@ -13,6 +13,10 @@
     "./protocol/*": "./protocol/*.ts",
     "./telemetry": "./telemetry/index.ts",
     "./telemetry/*": "./telemetry/*.ts",
+    "./gateway": "./gateway/index.ts",
+    "./gateway/*": "./gateway/*.ts",
+    "./turn-plane": "./turn-plane/index.ts",
+    "./turn-plane/*": "./turn-plane/*.ts",
     "./*": "./*.ts"
   }
 }

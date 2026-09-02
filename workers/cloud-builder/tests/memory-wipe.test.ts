@@ -239,7 +239,7 @@ describe("memory-only R2 wipe", () => {
     };
     const home = new CloudHomeStore(state.bucket, {
       base: "https://convex.example",
-      serviceSecret: "secret",
+      bearer: "secret",
       ownerId,
       ownerGeneration,
       fetch: async () => Response.json([catalogEntry]),

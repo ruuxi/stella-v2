@@ -1,6 +1,7 @@
 import { makeFunctionReference, type HttpRouter } from "convex/server";
 import { ConvexError } from "convex/values";
 import { httpAction } from "../_generated/server";
+import { authorizeControlPlaneRequest } from "../lib/capability_verify";
 
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -138,8 +139,14 @@ const ROUTES: CloudHomeRoute[] = [
 
 /**
  * Private metadata/control-plane endpoints for the cloud-builder Worker. Raw
- * R2 keys are returned only across this service-secret boundary. Browser,
- * desktop, and mobile clients use JWT-authenticated Worker routes instead.
+ * R2 keys are returned only across this boundary. Browser, desktop, and
+ * mobile clients use JWT-authenticated Worker routes instead.
+ *
+ * Two callers: the Worker's user-facing cloud-home routes present the
+ * service secret and name the owner in the body; a running turn's tools
+ * (OrchestratorSession/BuildSession) present the control-plane turn
+ * capability, whose subject and generation ARE the owner — anything the body
+ * says about the owner is ignored in that case.
  */
 export function registerCloudHomeRoutes(http: HttpRouter) {
   http.route({
@@ -169,15 +176,24 @@ export function registerCloudHomeRoutes(http: HttpRouter) {
       path: route.path,
       method: "POST",
       handler: httpAction(async (ctx, request) => {
+        let capabilityOwner: {
+          ownerId: string;
+          ownerGeneration: string;
+        } | null = null;
         if (!serviceAuthorized(request)) {
-          return json({ error: "Unauthorized" }, 401);
+          const auth = await authorizeControlPlaneRequest(ctx, request);
+          if (!auth.ok) return auth.response;
+          capabilityOwner = {
+            ownerId: auth.authority.ownerId,
+            ownerGeneration: auth.authority.ownerGeneration,
+          };
         }
         const body = (await request.json().catch(() => null)) as Record<
           string,
           unknown
         > | null;
         if (!body) return json({ error: "JSON body required" }, 400);
-        const owner = requiredOwner(body);
+        const owner = capabilityOwner ?? requiredOwner(body);
         if (!owner) {
           return json({ error: "ownerId and ownerGeneration required" }, 400);
         }

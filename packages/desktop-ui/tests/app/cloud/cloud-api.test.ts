@@ -10,21 +10,17 @@ describe("cloud API references", () => {
     expect(getFunctionName(cloudApi.getMyCloudConversationIdentity)).toBe(
       "cloud_apps:getMyCloudConversationIdentity",
     );
-    expect(getFunctionName(cloudApi.getMyExecutionPlacementIdentity)).toBe(
-      "execution_placement:getMyExecutionPlacementIdentity",
+    expect(getFunctionName(cloudApi.getModelGatewayConfig)).toBe(
+      "gateway_capabilities:getModelGatewayConfig",
     );
-    expect(getFunctionName(cloudApi.startCloudChat)).toBe(
-      "cloud_apps:startCloudChat",
-    );
-    expect(getFunctionName(cloudApi.submitBrowserExecution)).toBe(
-      "execution_placement:submitMyBrowserExecution",
-    );
-    expect(getFunctionName(cloudApi.getExecutionDispatchStatus)).toBe(
-      "execution_placement:getMyExecutionDispatchStatus",
-    );
-    expect(getFunctionName(cloudApi.cancelExecutionDispatch)).toBe(
-      "execution_placement:cancelMyExecutionDispatch",
-    );
+    // Desktop turn starts go to the builder's turn route, not a mutation,
+    // and placement is the owner gate's HTTP surface rather than Convex.
+    expect(cloudApi).not.toHaveProperty("startCloudChat");
+    expect(cloudApi).not.toHaveProperty("submitBrowserExecution");
+    expect(cloudApi).not.toHaveProperty("getExecutionDispatchStatus");
+    expect(cloudApi).not.toHaveProperty("cancelExecutionDispatch");
+    expect(cloudApi).not.toHaveProperty("listMyExecutionDestinations");
+    expect(cloudApi).not.toHaveProperty("getMyExecutionPlacementIdentity");
     expect(getFunctionName(cloudApi.listMyRecentAgentThreads)).toBe(
       "cloud_apps:listMyRecentAgentThreads",
     );

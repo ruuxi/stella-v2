@@ -22,6 +22,8 @@ const environment = () => ({
   BUILD_SESSIONS: methods("getByName"),
   ORCHESTRATOR_SESSIONS: methods("getByName"),
   OWNER_TRANSFER_COORDINATORS: methods("getByName"),
+  OWNER_GATES: methods("getByName"),
+  TURN_OUTBOX: methods("send", "sendBatch"),
   BROWSER_GATEWAY: methods("fetch"),
   APP_BUILDS: methods("get", "put", "delete", "list"),
   APP_ROUTES: methods("get", "put", "delete", "list"),
@@ -37,6 +39,12 @@ const environment = () => ({
   TRUSTED_APPS_HOST_BASE_URL: "https://apps-auth.example",
   STELLA_CONVEX_SITE_URL: "https://deployment.convex.site",
   STELLA_CONVEX_CLOUD_URL: "https://deployment.convex.cloud",
+  MODEL_GATEWAY: methods("fetch"),
+  MODEL_GATEWAY_URL: "https://model-gateway.example",
+  CLOUD_BUILDER_PUBLIC_URL: "https://builder.example",
+  CAPABILITY_SIGNING_KEY:
+    "-----BEGIN PRIVATE KEY-----\nMIGH\n-----END PRIVATE KEY-----\n",
+  CAPABILITY_SIGNING_KID: "builder-1",
 });
 
 describe("Cloud Builder readiness route", () => {

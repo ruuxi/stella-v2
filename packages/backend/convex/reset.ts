@@ -14,7 +14,6 @@ import { makeFunctionReference } from "convex/server";
 import { requireUserId } from "./auth";
 import {
   ensureExternalOwnerPurge,
-  quiesceOwnerExecutionPlacement,
   quiesceOwnerIntegrationCalls,
   stopOwnerSchedules,
 } from "./cloud_purge";
@@ -141,12 +140,6 @@ const runOwnerReset = async (
 
   let retryStage: "core" | "cloud" = "core";
   try {
-    // Hold every execution gate for the whole reset. The Convex lifecycle was
-    // opened atomically with the durable job before this helper was entered.
-    await ctx.runMutation(
-      internal.stella_provider.relay_resume_store.beginOwnerRelayResumePurge,
-      { ...fence, nowMs: Date.now() },
-    );
     await ensureExternalOwnerPurge(ctx, { ...fence, mode: "reset" });
     await ctx.runMutation(
       internal.media_jobs.cancelOwnerMediaProviderDispatchesInternal,
@@ -236,12 +229,6 @@ const runOwnerReset = async (
       );
     }
     await stopOwnerSchedules(ctx, fence);
-    const placement = await quiesceOwnerExecutionPlacement(ctx, fence);
-    if (!placement.ready) {
-      throw new Error(
-        "Owner reset is waiting for accepted desktop/cloud execution to stop; device verification keys and dispatch locators were retained for retry.",
-      );
-    }
     const tts = await ctx.runAction(
       internal.account_tts_purge.purgeOwnerTtsResetInternal,
       { ...fence, leaseId },
@@ -284,21 +271,6 @@ const runOwnerReset = async (
           hasMore = result.hasMore;
         }
       }),
-      (async () => {
-        const drain = async () => {
-          let hasMore = true;
-          while (hasMore) {
-            const result: { hasMore: boolean } = await ctx.runMutation(
-              internal.stella_provider.relay_resume_store
-                .deleteOwnerRelayResumeBatch,
-              { ...fence, nowMs: Date.now() },
-            );
-            hasMore = result.hasMore;
-          }
-        };
-        await drain();
-        await drain();
-      })(),
       ctx.runAction(internal.cloudflare_tunnels.purgeOwnerTunnels, {
         ...fence,
         leaseId,
@@ -659,38 +631,6 @@ export const remainingOwnerResetStoresInternal = internalQuery({
       ownerResidueCheck("connector_turn_payloads", () =>
         ctx.db
           .query("connector_turn_payloads")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .first(),
-      ),
-      ownerResidueCheck("stella_relay_billing_receipts", () =>
-        ctx.db
-          .query("stella_relay_billing_receipts")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .first(),
-      ),
-      ownerResidueCheck("stella_relay_cancellation_intents", () =>
-        ctx.db
-          .query("stella_relay_cancellation_intents")
-          .withIndex("by_ownerId_and_expiresAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .first(),
-      ),
-      ownerResidueCheck("stella_relay_response_leases", () =>
-        ctx.db
-          .query("stella_relay_response_leases")
-          .withIndex("by_ownerId_and_expiresAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .first(),
-      ),
-      ownerResidueCheck("stella_relay_response_streams", () =>
-        ctx.db
-          .query("stella_relay_response_streams")
           .withIndex("by_ownerId_and_createdAt", (q) =>
             q.eq("ownerId", ownerId),
           )

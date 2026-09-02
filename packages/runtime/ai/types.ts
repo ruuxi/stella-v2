@@ -649,6 +649,13 @@ export interface Model<TApi extends Api> {
    */
   toolOutputTokenLimit?: number;
   headers?: Record<string, string>;
+  /**
+   * Transport override for every vendor SDK client built for this model.
+   * A Cloudflare Durable Object injects its service-binding `fetch` here so
+   * model traffic reaches the gateway Worker without leaving the edge.
+   * Defaults to the global `fetch`.
+   */
+  fetch?: typeof fetch;
   /** Compatibility overrides for OpenAI-compatible APIs. If not set, auto-detected from baseUrl. */
   compat?: TApi extends "openai-completions"
     ? OpenAICompletionsCompat

@@ -556,6 +556,220 @@ export const rotateMyInteriorStableRoute = mutation({
   },
 });
 
+export type RecordInteriorBuildArgs = {
+  buildId: string;
+  ownerId: string;
+  ownerGeneration: string;
+  turnId: string;
+  threadId: string;
+  sourceRevision?: string;
+  baseRevision?: string;
+  artifactPrefix: string;
+  artifactManifestJson: string;
+  manifestSha256?: string;
+  artifactDigest: string;
+  artifactSizeBytes: number;
+  bridgeAbi: number;
+  minShellVersion: string;
+  now: number;
+};
+
+/**
+ * Records an immutable Stella-interior build candidate (delivered as an
+ * `interior-build.recorded` outbox event). Activation stays a signed-in user
+ * operation; the builder may publish bytes and record metadata, but it cannot
+ * move an owner's active route.
+ */
+export const recordInteriorBuild = async (
+  ctx: MutationCtx,
+  args: RecordInteriorBuildArgs,
+): Promise<{ created: boolean; buildId: string; deployableId: string }> => {
+  const buildId = requireNonEmpty(
+    args.buildId,
+    "buildId",
+    MAX_BUILD_ID_LENGTH,
+  );
+  const ownerId = requireNonEmpty(args.ownerId, "ownerId", 1024);
+  await assertOwnerDataWriteAllowed(ctx, ownerId, args.ownerGeneration);
+  const turnId = requireNonEmpty(args.turnId, "turnId", 160);
+  const threadId = requireNonEmpty(args.threadId, "threadId", 160);
+  const sourceRevision =
+    args.sourceRevision === undefined
+      ? undefined
+      : requireNonEmpty(
+          args.sourceRevision,
+          "sourceRevision",
+          MAX_REVISION_LENGTH,
+        );
+  if (sourceRevision !== undefined && !SHA256_DIGEST.test(sourceRevision)) {
+    throw new ConvexError("sourceRevision must be a SHA-256 revision.");
+  }
+  const baseRevision =
+    args.baseRevision === undefined
+      ? undefined
+      : requireNonEmpty(
+          args.baseRevision,
+          "baseRevision",
+          MAX_REVISION_LENGTH,
+        );
+  if (baseRevision !== undefined && !SHA256_DIGEST.test(baseRevision)) {
+    throw new ConvexError("baseRevision must be a SHA-256 revision.");
+  }
+  const artifactDigest = normalizeDigest(args.artifactDigest);
+  const artifactSizeBytes = validateNaturalNumber(
+    args.artifactSizeBytes,
+    "artifactSizeBytes",
+  );
+  if (artifactSizeBytes < 1 || artifactSizeBytes > MAX_ARTIFACT_BYTES) {
+    throw new ConvexError("artifactSizeBytes is outside its allowed bounds.");
+  }
+  const bridgeAbi = validateNaturalNumber(args.bridgeAbi, "bridgeAbi");
+  if (bridgeAbi < 1 || bridgeAbi > 10_000) {
+    throw new ConvexError("bridgeAbi is outside its allowed bounds.");
+  }
+  const minShellVersion = requireNonEmpty(
+    args.minShellVersion,
+    "minShellVersion",
+    MAX_VERSION_LENGTH,
+  );
+  if (!SEMVER.test(minShellVersion)) {
+    throw new ConvexError("minShellVersion must be a semantic version.");
+  }
+  const ownerHash = (await sha256Utf8(ownerId)).slice("sha256:".length);
+  const expectedBuildHash = (
+    await sha256Utf8(
+      `${ownerId}\0${turnId}\0${artifactDigest.slice("sha256:".length)}`,
+    )
+  ).slice("sha256:".length);
+  const expectedBuildId = `interior-${expectedBuildHash.slice(0, 48)}`;
+  if (buildId !== expectedBuildId) {
+    throw new ConvexError(
+      "buildId does not match its owner, turn, and artifact digest.",
+    );
+  }
+  const artifactPrefix = requireNonEmpty(
+    args.artifactPrefix,
+    "artifactPrefix",
+    512,
+  );
+  if (artifactPrefix !== `interiors/${ownerHash}/${buildId}`) {
+    throw new ConvexError(
+      "artifactPrefix does not match its owner and buildId.",
+    );
+  }
+  const artifactManifestJson = await validateManifestJson(
+    args.artifactManifestJson,
+    {
+      buildId,
+      artifactPrefix,
+      artifactDigest,
+      artifactSizeBytes,
+      bridgeAbi,
+      minShellVersion,
+    },
+  );
+  const manifestSha256 = await sha256Utf8(artifactManifestJson);
+  if (
+    args.manifestSha256 !== undefined &&
+    normalizeDigest(args.manifestSha256) !== manifestSha256
+  ) {
+    throw new ConvexError(
+      "manifestSha256 does not match the exact manifestJson bytes.",
+    );
+  }
+  const now = validateNaturalNumber(args.now, "now");
+  const deployableId = deployableIdForOwner(ownerId);
+
+  const turn = await ctx.db
+    .query("agent_turns")
+    .withIndex("by_turnId", (q) => q.eq("turnId", turnId))
+    .unique();
+  const thread = await ctx.db
+    .query("cloud_agent_threads")
+    .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
+    .unique();
+  if (
+    !turn ||
+    !thread ||
+    turn.ownerId !== ownerId ||
+    thread.ownerId !== ownerId ||
+    turn.threadId !== threadId
+  ) {
+    throw new ConvexError(
+      "Interior candidate does not belong to a cloud agent turn of this owner.",
+    );
+  }
+
+  const existing = await ctx.db
+    .query("cloud_interior_builds")
+    .withIndex("by_buildId", (q) => q.eq("buildId", buildId))
+    .unique();
+  if (existing) {
+    const identical =
+      existing.ownerId === ownerId &&
+      existing.deployableId === deployableId &&
+      existing.turnId === turnId &&
+      existing.threadId === threadId &&
+      existing.sourceRevision === sourceRevision &&
+      existing.baseRevision === baseRevision &&
+      existing.artifactPrefix === artifactPrefix &&
+      existing.artifactManifestJson === artifactManifestJson &&
+      existing.manifestSha256 === manifestSha256 &&
+      existing.artifactDigest === artifactDigest &&
+      existing.artifactSizeBytes === artifactSizeBytes &&
+      existing.bridgeAbi === bridgeAbi &&
+      existing.minShellVersion === minShellVersion;
+    if (!identical) {
+      throw new ConvexError(
+        "buildId is already bound to a different immutable candidate.",
+      );
+    }
+    return { created: false, buildId, deployableId };
+  }
+
+  const deployment = await getOwnerDeployment(ctx, ownerId);
+  if (deployment && deployment.deployableId !== deployableId) {
+    throw new ConvexError("Invalid Stella interior deployable.");
+  }
+  if (!deployment) {
+    await ctx.db.insert("cloud_interior_deployables", {
+      deployableId,
+      ownerId,
+      stableRouteId: await allocateStableRouteId(ctx),
+      kind: INTERIOR_KIND,
+      routeRevision: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } else if (
+    !deployment.stableRouteId ||
+    !STABLE_ROUTE_ID.test(deployment.stableRouteId)
+  ) {
+    await ctx.db.patch(deployment._id, {
+      stableRouteId: await allocateStableRouteId(ctx),
+      updatedAt: now,
+    });
+  }
+  await ctx.db.insert("cloud_interior_builds", {
+    buildId,
+    deployableId,
+    ownerId,
+    turnId,
+    threadId,
+    ...(sourceRevision === undefined ? {} : { sourceRevision }),
+    ...(baseRevision === undefined ? {} : { baseRevision }),
+    artifactPrefix,
+    artifactManifestJson,
+    manifestSha256,
+    artifactDigest,
+    artifactSizeBytes,
+    bridgeAbi,
+    minShellVersion,
+    createdAt: now,
+  });
+  return { created: true, buildId, deployableId };
+};
+
 export const recordInteriorBuildInternal = internalMutation({
   args: {
     buildId: v.string(),
@@ -579,192 +793,7 @@ export const recordInteriorBuildInternal = internalMutation({
     buildId: v.string(),
     deployableId: v.string(),
   }),
-  handler: async (ctx, args) => {
-    const buildId = requireNonEmpty(
-      args.buildId,
-      "buildId",
-      MAX_BUILD_ID_LENGTH,
-    );
-    const ownerId = requireNonEmpty(args.ownerId, "ownerId", 1024);
-    await assertOwnerDataWriteAllowed(ctx, ownerId, args.ownerGeneration);
-    const turnId = requireNonEmpty(args.turnId, "turnId", 160);
-    const threadId = requireNonEmpty(args.threadId, "threadId", 160);
-    const sourceRevision =
-      args.sourceRevision === undefined
-        ? undefined
-        : requireNonEmpty(
-            args.sourceRevision,
-            "sourceRevision",
-            MAX_REVISION_LENGTH,
-          );
-    if (sourceRevision !== undefined && !SHA256_DIGEST.test(sourceRevision)) {
-      throw new ConvexError("sourceRevision must be a SHA-256 revision.");
-    }
-    const baseRevision =
-      args.baseRevision === undefined
-        ? undefined
-        : requireNonEmpty(
-            args.baseRevision,
-            "baseRevision",
-            MAX_REVISION_LENGTH,
-          );
-    if (baseRevision !== undefined && !SHA256_DIGEST.test(baseRevision)) {
-      throw new ConvexError("baseRevision must be a SHA-256 revision.");
-    }
-    const artifactDigest = normalizeDigest(args.artifactDigest);
-    const artifactSizeBytes = validateNaturalNumber(
-      args.artifactSizeBytes,
-      "artifactSizeBytes",
-    );
-    if (artifactSizeBytes < 1 || artifactSizeBytes > MAX_ARTIFACT_BYTES) {
-      throw new ConvexError("artifactSizeBytes is outside its allowed bounds.");
-    }
-    const bridgeAbi = validateNaturalNumber(args.bridgeAbi, "bridgeAbi");
-    if (bridgeAbi < 1 || bridgeAbi > 10_000) {
-      throw new ConvexError("bridgeAbi is outside its allowed bounds.");
-    }
-    const minShellVersion = requireNonEmpty(
-      args.minShellVersion,
-      "minShellVersion",
-      MAX_VERSION_LENGTH,
-    );
-    if (!SEMVER.test(minShellVersion)) {
-      throw new ConvexError("minShellVersion must be a semantic version.");
-    }
-    const ownerHash = (await sha256Utf8(ownerId)).slice("sha256:".length);
-    const expectedBuildHash = (
-      await sha256Utf8(
-        `${ownerId}\0${turnId}\0${artifactDigest.slice("sha256:".length)}`,
-      )
-    ).slice("sha256:".length);
-    const expectedBuildId = `interior-${expectedBuildHash.slice(0, 48)}`;
-    if (buildId !== expectedBuildId) {
-      throw new ConvexError(
-        "buildId does not match its owner, turn, and artifact digest.",
-      );
-    }
-    const artifactPrefix = requireNonEmpty(
-      args.artifactPrefix,
-      "artifactPrefix",
-      512,
-    );
-    if (artifactPrefix !== `interiors/${ownerHash}/${buildId}`) {
-      throw new ConvexError(
-        "artifactPrefix does not match its owner and buildId.",
-      );
-    }
-    const artifactManifestJson = await validateManifestJson(
-      args.artifactManifestJson,
-      {
-        buildId,
-        artifactPrefix,
-        artifactDigest,
-        artifactSizeBytes,
-        bridgeAbi,
-        minShellVersion,
-      },
-    );
-    const manifestSha256 = await sha256Utf8(artifactManifestJson);
-    if (
-      args.manifestSha256 !== undefined &&
-      normalizeDigest(args.manifestSha256) !== manifestSha256
-    ) {
-      throw new ConvexError(
-        "manifestSha256 does not match the exact manifestJson bytes.",
-      );
-    }
-    const now = validateNaturalNumber(args.now, "now");
-    const deployableId = deployableIdForOwner(ownerId);
-
-    const turn = await ctx.db
-      .query("agent_turns")
-      .withIndex("by_turnId", (q) => q.eq("turnId", turnId))
-      .unique();
-    const thread = await ctx.db
-      .query("cloud_agent_threads")
-      .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
-      .unique();
-    if (
-      !turn ||
-      !thread ||
-      turn.ownerId !== ownerId ||
-      thread.ownerId !== ownerId ||
-      turn.threadId !== threadId
-    ) {
-      throw new ConvexError(
-        "Interior candidate does not belong to a cloud agent turn of this owner.",
-      );
-    }
-
-    const existing = await ctx.db
-      .query("cloud_interior_builds")
-      .withIndex("by_buildId", (q) => q.eq("buildId", buildId))
-      .unique();
-    if (existing) {
-      const identical =
-        existing.ownerId === ownerId &&
-        existing.deployableId === deployableId &&
-        existing.turnId === turnId &&
-        existing.threadId === threadId &&
-        existing.sourceRevision === sourceRevision &&
-        existing.baseRevision === baseRevision &&
-        existing.artifactPrefix === artifactPrefix &&
-        existing.artifactManifestJson === artifactManifestJson &&
-        existing.manifestSha256 === manifestSha256 &&
-        existing.artifactDigest === artifactDigest &&
-        existing.artifactSizeBytes === artifactSizeBytes &&
-        existing.bridgeAbi === bridgeAbi &&
-        existing.minShellVersion === minShellVersion;
-      if (!identical) {
-        throw new ConvexError(
-          "buildId is already bound to a different immutable candidate.",
-        );
-      }
-      return { created: false, buildId, deployableId };
-    }
-
-    const deployment = await getOwnerDeployment(ctx, ownerId);
-    if (deployment && deployment.deployableId !== deployableId) {
-      throw new ConvexError("Invalid Stella interior deployable.");
-    }
-    if (!deployment) {
-      await ctx.db.insert("cloud_interior_deployables", {
-        deployableId,
-        ownerId,
-        stableRouteId: await allocateStableRouteId(ctx),
-        kind: INTERIOR_KIND,
-        routeRevision: 0,
-        createdAt: now,
-        updatedAt: now,
-      });
-    } else if (
-      !deployment.stableRouteId ||
-      !STABLE_ROUTE_ID.test(deployment.stableRouteId)
-    ) {
-      await ctx.db.patch(deployment._id, {
-        stableRouteId: await allocateStableRouteId(ctx),
-        updatedAt: now,
-      });
-    }
-    await ctx.db.insert("cloud_interior_builds", {
-      buildId,
-      deployableId,
-      ownerId,
-      turnId,
-      threadId,
-      ...(sourceRevision === undefined ? {} : { sourceRevision }),
-      ...(baseRevision === undefined ? {} : { baseRevision }),
-      artifactPrefix,
-      artifactManifestJson,
-      manifestSha256,
-      artifactDigest,
-      artifactSizeBytes,
-      bridgeAbi,
-      minShellVersion,
-      createdAt: now,
-    });
-    return { created: true, buildId, deployableId };
-  },
+  handler: async (ctx, args) => await recordInteriorBuild(ctx, args),
 });
 
 export const getInteriorRouteByStableRouteIdInternal = internalQuery({

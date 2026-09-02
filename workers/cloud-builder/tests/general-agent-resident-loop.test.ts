@@ -81,12 +81,17 @@ const TURN: GeneralAgentTurnRequest = {
     attemptGeneration: 1,
   },
   prompt: "Summarize what we decided.",
-  turnToken: "turn-token",
-  convexCallbackBase: "https://convex.example.com",
   brokerRoute: { sessionId: "session-1", endpoint: "https://broker.test" },
   execution: EXECUTION,
+  audience: "pro",
+  budgetMicroCents: 250_000_000,
   watchdogMs: 600_000,
 };
+
+const MODEL_GATEWAY = {
+  origin: "https://gateway.test",
+  capability: "header.turn-capability.signature",
+} as const;
 
 const assistantHeader = {
   role: "assistant",
@@ -217,6 +222,7 @@ const harness = (args: {
         }),
         recordInteriorBuildRequest: async () => {},
       },
+      modelGateway: MODEL_GATEWAY,
       sql: fake.sql,
       tools: RESIDENT_TOOLS,
       workspacePrompt: { office: false },

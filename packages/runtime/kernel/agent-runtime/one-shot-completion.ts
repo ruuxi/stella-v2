@@ -163,9 +163,18 @@ export const runOneShotCompletion = async (args: {
       stellaAppDir: runtime.stellaDataDir,
       modelId: candidateRoute?.model.id ?? candidate,
     });
-    const candidateApiKey = candidateUsesClaudeCode
-      ? undefined
-      : (await candidateRoute?.getApiKey())?.trim();
+    let candidateApiKey: string | undefined;
+    if (!candidateUsesClaudeCode) {
+      try {
+        candidateApiKey = (await candidateRoute?.getApiKey())?.trim();
+      } catch (error) {
+        // A Stella route whose session capability cannot be minted (gateway
+        // not yet advertised, exchange refused) is unusable for this
+        // utility call, exactly like a route with no credential at all.
+        lastRouteError = error;
+        candidateApiKey = undefined;
+      }
+    }
     const usable =
       candidateUsesClaudeCode ||
       Boolean(candidateApiKey) ||

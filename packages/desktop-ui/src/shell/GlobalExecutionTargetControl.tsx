@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
+import type { DeviceDestination } from "@stella/contracts/turn-plane/placement";
 import { cloudApi } from "@/features/cloud/cloud-api";
+import { listExecutionDevices } from "@/features/cloud/placement-client";
+import { getConvexToken } from "@/global/auth/services/auth-token";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import {
@@ -18,16 +21,58 @@ import {
 import { AppWindowMac, Check, Globe } from "@/ui/icons";
 import { platformCapabilities } from "@/platform/capabilities";
 
+/** Live presence goes stale quickly; refresh while the picker is open. */
+const DEVICE_POLL_INTERVAL_MS = 15_000;
+
 export function GlobalExecutionTargetControl() {
   const { isCloudConversationReady } = useCloudConversationSession();
   const { hasConnectedAccount } = useAuthSessionState();
   const [open, setOpen] = useState(false);
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
   const target = useExecutionTarget();
-  const destinations = useQuery(
-    cloudApi.listMyExecutionDestinations,
+  // Placement lives on the cloud builder, so the only Convex read left here
+  // is where that builder is.
+  const realtime = useQuery(
+    cloudApi.getCloudRealtimeConfig,
     isCloudConversationReady && hasConnectedAccount ? {} : "skip",
   );
+  const socketOrigin =
+    typeof realtime?.socketOrigin === "string" && realtime.socketOrigin
+      ? realtime.socketOrigin
+      : null;
+  const [destinations, setDestinations] = useState<
+    DeviceDestination[] | undefined
+  >(undefined);
+
+  // The owner gate holds presence, so this is a read of live device state
+  // rather than a Convex subscription. Poll only while the picker is open.
+  useEffect(() => {
+    if (
+      !open ||
+      !socketOrigin ||
+      !isCloudConversationReady ||
+      !hasConnectedAccount
+    ) {
+      return;
+    }
+    let active = true;
+    const read = () => {
+      void listExecutionDevices({
+        socketOrigin,
+        getToken: (options) => getConvexToken(options ?? {}),
+      })
+        .then((response) => {
+          if (active) setDestinations(response.devices);
+        })
+        .catch(() => undefined);
+    };
+    read();
+    const timer = window.setInterval(read, DEVICE_POLL_INTERVAL_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [hasConnectedAccount, isCloudConversationReady, open, socketOrigin]);
 
   useEffect(() => {
     void getDeviceIdOrNull().then(setCurrentDeviceId, () =>
@@ -54,7 +99,7 @@ export function GlobalExecutionTargetControl() {
     target.mode === "cloud"
       ? "Cloud"
       : target.mode === "device"
-        ? (selectedDevice?.name ?? "Computer")
+        ? (selectedDevice?.label ?? "Computer")
         : platformCapabilities.automaticExecutionLabel;
   const TriggerIcon = target.mode === "cloud" ? Globe : AppWindowMac;
 
@@ -111,8 +156,8 @@ export function GlobalExecutionTargetControl() {
             const selectable =
               device.online &&
               device.remoteExecutionEnabled &&
-              device.ready &&
-              !device.busy;
+              device.availability?.ready === true &&
+              (device.availability?.chatSlots ?? 0) > 0;
             const unavailableLabel = !device.online
               ? "Offline"
               : !device.remoteExecutionEnabled
@@ -129,7 +174,7 @@ export function GlobalExecutionTargetControl() {
                 }
               >
                 <AppWindowMac size={16} />
-                <span>{device.name}</span>
+                <span>{device.label ?? "Computer"}</span>
                 {!selectable ? (
                   <small>{unavailableLabel}</small>
                 ) : target.mode === "device" &&

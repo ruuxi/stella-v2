@@ -3477,60 +3477,11 @@ export const discardAnonymousTransientHandshakesBatch = internalMutation({
       await ctx.db.delete(connectIntent._id);
       return { hasMore: true };
     }
-    let dispatchPayload: Doc<"execution_dispatch_payloads"> | undefined;
-    for (const ownerId of migrationOwnerIds) {
-      dispatchPayload = (
-        await ctx.db
-          .query("execution_dispatch_payloads")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1)
-      )[0];
-      if (dispatchPayload) break;
-    }
-    if (dispatchPayload) {
-      const authority = await ctx.db
-        .query("execution_dispatches")
-        .withIndex("by_dispatchId", (q) =>
-          q.eq("dispatchId", dispatchPayload.dispatchId),
-        )
-        .unique();
-      if (
-        authority &&
-        authority.state !== "completed" &&
-        authority.state !== "failed" &&
-        authority.state !== "canceled"
-      ) {
-        blockOwnershipMigration(
-          "Automatic placement payload cleanup ran before execution quiescence.",
-        );
-      }
-      await ctx.db.delete(dispatchPayload._id);
-      return { hasMore: true };
-    }
-    let offer: Doc<"execution_offers"> | undefined;
-    for (const ownerId of migrationOwnerIds) {
-      offer = (
-        await ctx.db
-          .query("execution_offers")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1)
-      )[0];
-      if (offer) break;
-    }
-    if (offer) {
-      if (offer.status === "open") {
-        blockOwnershipMigration(
-          "Automatic placement offer cleanup ran before execution quiescence.",
-        );
-      }
-      await ctx.db.delete(offer._id);
-      return { hasMore: true };
-    }
-    let dispatch: Doc<"execution_dispatches"> | undefined;
+    let dispatch: Doc<"cloud_dispatches"> | undefined;
     for (const ownerId of migrationOwnerIds) {
       dispatch = (
         await ctx.db
-          .query("execution_dispatches")
+          .query("cloud_dispatches")
           .withIndex("by_ownerId_and_updatedAt", (q) =>
             q.eq("ownerId", ownerId),
           )
@@ -3539,40 +3490,9 @@ export const discardAnonymousTransientHandshakesBatch = internalMutation({
       if (dispatch) break;
     }
     if (dispatch) {
-      if (
-        dispatch.state !== "completed" &&
-        dispatch.state !== "failed" &&
-        dispatch.state !== "canceled"
-      ) {
-        blockOwnershipMigration(
-          "Automatic placement authority cleanup ran before execution quiescence.",
-        );
-      }
-      if (dispatch.migrationId && dispatch.migrationId !== migration._id) {
-        blockOwnershipMigration(
-          "Automatic placement authority belongs to another account migration.",
-        );
-      }
+      // A display-only projection of owner-gate rows. The gate holds the
+      // authority and fences on the owner generation the link rotates.
       await ctx.db.delete(dispatch._id);
-      return { hasMore: true };
-    }
-    let presence: Doc<"desktop_execution_presence"> | undefined;
-    for (const ownerId of migrationOwnerIds) {
-      presence = (
-        await ctx.db
-          .query("desktop_execution_presence")
-          .withIndex("by_ownerId_and_deviceId", (q) => q.eq("ownerId", ownerId))
-          .take(1)
-      )[0];
-      if (presence) break;
-    }
-    if (presence) {
-      if (presence.migrationId !== migration._id) {
-        blockOwnershipMigration(
-          "Automatic placement presence cleanup ran before execution quiescence.",
-        );
-      }
-      await ctx.db.delete(presence._id);
       return { hasMore: true };
     }
     return { hasMore: false };
@@ -5939,13 +5859,7 @@ export const commitCloudConversationTransferBatch = internalMutation({
         .take(1)
     )[0];
     if (turn) {
-      const [tokens, invocations, events] = await Promise.all([
-        ctx.db
-          .query("cloud_turn_tokens")
-          .withIndex("by_turnId_and_ownerId", (q) =>
-            q.eq("turnId", turn.turnId).eq("ownerId", args.fromOwnerId),
-          )
-          .take(CLOUD_PROJECTION_BATCH_SIZE),
+      const [invocations, events] = await Promise.all([
         ctx.db
           .query("cloud_app_op_invocations")
           .withIndex("by_ownerId_and_turnId_and_createdAt", (q) =>
@@ -5958,16 +5872,12 @@ export const commitCloudConversationTransferBatch = internalMutation({
           turnId: turn.turnId,
         }),
       ]);
-      await Promise.all([
-        ...tokens.map((token) =>
-          ctx.db.patch(token._id, { ownerId: args.toOwnerId }),
-        ),
-        ...invocations.map((invocation) =>
+      await Promise.all(
+        invocations.map((invocation) =>
           ctx.db.patch(invocation._id, { ownerId: args.toOwnerId }),
         ),
-      ]);
+      );
       if (
-        tokens.length < CLOUD_PROJECTION_BATCH_SIZE &&
         invocations.length < CLOUD_PROJECTION_BATCH_SIZE &&
         !events.sourceHasMore
       ) {
@@ -7408,13 +7318,7 @@ export const migrateCloudProductCoreBatch = internalMutation({
         .take(1)
     )[0];
     if (turn) {
-      const [tokens, invocation, events] = await Promise.all([
-        ctx.db
-          .query("cloud_turn_tokens")
-          .withIndex("by_turnId_and_ownerId", (q) =>
-            q.eq("turnId", turn.turnId).eq("ownerId", args.fromOwnerId),
-          )
-          .take(CLOUD_PROJECTION_BATCH_SIZE),
+      const [invocation, events] = await Promise.all([
         ctx.db
           .query("cloud_app_op_invocations")
           .withIndex("by_ownerId_and_turnId_and_createdAt", (q) =>
@@ -7427,21 +7331,10 @@ export const migrateCloudProductCoreBatch = internalMutation({
           turnId: turn.turnId,
         }),
       ]);
-      if (tokens.length > 0) {
-        await Promise.all(
-          tokens.map((token) =>
-            ctx.db.patch(token._id, { ownerId: args.toOwnerId }),
-          ),
-        );
-      }
       if (invocation) {
         await ctx.db.patch(invocation._id, { ownerId: args.toOwnerId });
       }
-      if (
-        tokens.length < CLOUD_PROJECTION_BATCH_SIZE &&
-        !invocation &&
-        !events.sourceHasMore
-      ) {
+      if (!invocation && !events.sourceHasMore) {
         await ctx.db.patch(turn._id, { ownerId: args.toOwnerId });
       }
       return { hasMore: true, progressed: true };
@@ -7605,7 +7498,6 @@ export const migrateCloudProductCoreBatch = internalMutation({
     const ownerOnlyTables = [
       "cloud_message_excerpts",
       "cloud_thread_messages",
-      "cloud_turn_tokens",
       "cloud_scheduled_turns",
     ] as const;
     for (const table of ownerOnlyTables) {
@@ -7623,17 +7515,6 @@ export const migrateCloudProductCoreBatch = internalMutation({
           return { hasMore: true, progressed: true };
         }
       } else if (table === "cloud_thread_messages") {
-        const row = (
-          await ctx.db
-            .query(table)
-            .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-            .take(1)
-        )[0];
-        if (row) {
-          await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
-          return { hasMore: true, progressed: true };
-        }
-      } else if (table === "cloud_turn_tokens") {
         const row = (
           await ctx.db
             .query(table)
@@ -8026,40 +7907,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
           .take(1),
       ],
       [
-        "stella_relay_response_streams",
-        await ctx.db
-          .query("stella_relay_response_streams")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "stella_relay_response_leases",
-        await ctx.db
-          .query("stella_relay_response_leases")
-          .withIndex("by_ownerId_and_expiresAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "stella_relay_cancellation_intents",
-        await ctx.db
-          .query("stella_relay_cancellation_intents")
-          .withIndex("by_ownerId_and_expiresAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "stella_relay_owner_purges",
-        await ctx.db
-          .query("stella_relay_owner_purges")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
         "tts_hls_segments",
         [
           ...(await ctx.db
@@ -8163,10 +8010,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
       "media_private_payload_chunks",
       "media_provider_cancellations",
       "media_owner_purges",
-      "stella_relay_response_streams",
-      "stella_relay_response_leases",
-      "stella_relay_cancellation_intents",
-      "stella_relay_owner_purges",
       "tts_hls_segments",
       "tts_stream_tickets",
       // Provider actions observe the permanent source fence, self-cancel, and
@@ -8403,62 +8246,19 @@ export const auditOwnershipMigrationResidue = internalQuery({
           .take(1),
       ],
       [
-        "desktop_execution_presence",
+        "cloud_dispatches",
         [
           ...(await ctx.db
-            .query("desktop_execution_presence")
-            .withIndex("by_ownerId_and_deviceId", (q) =>
-              q.eq("ownerId", args.fromOwnerId),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("desktop_execution_presence")
-            .withIndex("by_ownerId_and_deviceId", (q) =>
-              q.eq("ownerId", args.toOwnerId),
-            )
-            .take(1)),
-        ],
-      ],
-      [
-        "execution_dispatches",
-        [
-          ...(await ctx.db
-            .query("execution_dispatches")
+            .query("cloud_dispatches")
             .withIndex("by_ownerId_and_updatedAt", (q) =>
               q.eq("ownerId", args.fromOwnerId),
             )
             .take(1)),
           ...(await ctx.db
-            .query("execution_dispatches")
+            .query("cloud_dispatches")
             .withIndex("by_ownerId_and_updatedAt", (q) =>
               q.eq("ownerId", args.toOwnerId),
             )
-            .take(1)),
-        ],
-      ],
-      [
-        "execution_offers",
-        [
-          ...(await ctx.db
-            .query("execution_offers")
-            .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-            .take(1)),
-          ...(await ctx.db
-            .query("execution_offers")
-            .withIndex("by_ownerId", (q) => q.eq("ownerId", args.toOwnerId))
-            .take(1)),
-        ],
-      ],
-      [
-        "execution_dispatch_payloads",
-        [
-          ...(await ctx.db
-            .query("execution_dispatch_payloads")
-            .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-            .take(1)),
-          ...(await ctx.db
-            .query("execution_dispatch_payloads")
-            .withIndex("by_ownerId", (q) => q.eq("ownerId", args.toOwnerId))
             .take(1)),
         ],
       ],
@@ -8876,13 +8676,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
         await ctx.db
           .query("cloud_messages")
           .withIndex("by_ownerId_and_seq", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "cloud_turn_tokens",
-        await ctx.db
-          .query("cloud_turn_tokens")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
           .take(1),
       ],
       [
@@ -9535,39 +9328,6 @@ export const migrateOwnership = internalAction({
                 ),
           error:
             "Account linking is waiting for a remote execution attempt to become quiescent.",
-          now,
-        },
-      );
-      return null;
-    }
-
-    const executionPlacement = await Promise.all(
-      [args.fromOwnerId, args.toOwnerId].map((ownerId) =>
-        ctx.runMutation(
-          internal.execution_placement
-            .quiesceOwnerExecutionPlacementForMigrationInternal,
-          { migrationId, ownerId, now: Date.now() },
-        ),
-      ),
-    );
-    if (executionPlacement.some((result) => !result.ready)) {
-      const retryAt = executionPlacement
-        .map((result) => result.nextCheckAt)
-        .filter((at): at is number => at !== undefined);
-      const now = Date.now();
-      await ctx.runMutation(
-        internal.auth_migration.finishOwnershipMigrationPass,
-        {
-          ...ownerIds,
-          leaseId,
-          leaseGeneration,
-          outcome: "pending",
-          retryAfterMs:
-            retryAt.length === 0
-              ? 1_000
-              : Math.min(60_000, Math.max(1_000, Math.min(...retryAt) - now)),
-          error:
-            "Account linking is waiting for automatic placement execution to become quiescent.",
           now,
         },
       );

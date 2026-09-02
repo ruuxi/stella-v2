@@ -1,7 +1,13 @@
 /// <reference types="vite/client" />
 
 import { convexTest } from "convex-test";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  generateCapabilityKeyPair,
+  importCapabilitySigningKey,
+  signCapability,
+  type CapabilitySigningKey,
+} from "@stella/contracts/gateway/jwt";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -9,7 +15,60 @@ const SERVICE_SECRET = "cloud-integrations-service-secret";
 const OWNER_ID = "owner:cloud-integration-http";
 const OWNER_GENERATION = "generation:cloud-integration-http";
 const TURN_ID = "turn:cloud-integration-http";
-const TURN_TOKEN = "turn-token-cloud-integration-http";
+const CONVERSATION_ID = "conversation:cloud-integration-http";
+const CAPABILITY_KID = "builder-test";
+const EXECUTION = {
+  engine: "stella" as const,
+  provider: "stella" as const,
+  model: "stella/default",
+  reasoningEffort: "default" as const,
+};
+
+let signingKey: CapabilitySigningKey;
+/** Control-plane turn capability for the fixture owner's orchestrator turn. */
+let CAPABILITY = "";
+
+const mintCapability = async (
+  overrides: {
+    ownerId?: string;
+    ownerGeneration?: string;
+    turnId?: string;
+    conversationId?: string;
+    aud?: "stella-control-plane" | "stella-model-gateway";
+    agentTypes?: string[];
+  } = {},
+): Promise<string> => {
+  const { token } = await signCapability(
+    {
+      iss: "stella-cloud-builder",
+      aud: overrides.aud ?? "stella-control-plane",
+      sub: overrides.ownerId ?? OWNER_ID,
+      gen: overrides.ownerGeneration ?? OWNER_GENERATION,
+      kind: "turn",
+      audience: "free",
+      budgetMicroCents: 0,
+      agentTypes: overrides.agentTypes ?? ["orchestrator"],
+      turn: {
+        turnId: overrides.turnId ?? TURN_ID,
+        conversationId: overrides.conversationId ?? CONVERSATION_ID,
+        execution: EXECUTION,
+      },
+    },
+    signingKey,
+    { ttlMs: 60_000 },
+  );
+  return token;
+};
+
+beforeAll(async () => {
+  const pair = await generateCapabilityKeyPair();
+  process.env.CAPABILITY_JWKS = JSON.stringify({
+    keys: [
+      { kid: CAPABILITY_KID, issuer: "stella-cloud-builder", jwk: pair.publicJwk },
+    ],
+  });
+  signingKey = await importCapabilitySigningKey(pair.privateKeyPem, CAPABILITY_KID);
+});
 const READ_TOOL = "native__gmail__GMAIL_GET_PROFILE";
 const WRITE_TOOL = "native__gmail__GMAIL_SEND_EMAIL";
 const POLICY_VERSION = "2026-08-26.gmail-get-profile.v1";
@@ -75,23 +134,13 @@ const createTest = async () => {
       ownerGeneration: OWNER_GENERATION,
       turnId: TURN_ID,
       sessionId: "session:cloud-integration-http",
-      conversationId: "conversation:cloud-integration-http",
+      conversationId: CONVERSATION_ID,
       prompt: "Read a connected message.",
       status: "running",
       kind: "chat",
       agentType: "orchestrator",
-      activeTokenHash: await sha256Hex(TURN_TOKEN),
       createdAt: now,
       updatedAt: now,
-    });
-    await ctx.db.insert("cloud_turn_tokens", {
-      tokenHash: await sha256Hex(TURN_TOKEN),
-      ownerId: OWNER_ID,
-      ownerGeneration: OWNER_GENERATION,
-      turnId: TURN_ID,
-      agentType: "orchestrator",
-      createdAt: now,
-      expiresAt: now + 60_000,
     });
     await ctx.db.insert("integrations_public", {
       id: "gmail",
@@ -181,15 +230,16 @@ const rpcRequest = (
   method: string,
   params: Record<string, unknown> = {},
   id: string | number = "rpc-1",
-  authenticated = true,
+  authenticated: boolean | string = true,
 ) => ({
   method: "POST",
   headers: {
     "content-type": "application/json",
     ...(authenticated
       ? {
-          authorization: `Bearer ${SERVICE_SECRET}`,
-          "x-stella-turn-token": TURN_TOKEN,
+          authorization: `Bearer ${
+            typeof authenticated === "string" ? authenticated : CAPABILITY
+          }`,
         }
       : {}),
   },
@@ -202,8 +252,10 @@ const initializeParams = {
   clientInfo: { name: "stella-cloud-test", version: "1" },
 };
 
-beforeEach(() => {
+beforeEach(async () => {
+  // Still needed: tools/list cursors are HMAC-signed with the service secret.
   process.env.BUILDER_SERVICE_SECRET = SERVICE_SECRET;
+  CAPABILITY = await mintCapability();
   process.env.COMPOSIO_API_KEY = "test-composio-key";
   process.env.COMPOSIO_TOOL_ROUTER_URL =
     "https://tool-router.test/api/v3.1/tool_router";
@@ -215,39 +267,42 @@ afterEach(() => {
 });
 
 describe("POST /api/cloud/integrations/mcp", () => {
-  it("requires both service auth and an active orchestrator turn token", async () => {
+  it("requires a builder-issued control-plane capability for an orchestrator turn", async () => {
     const t = await createTest();
-    const response = await t.fetch(
-      "/api/cloud/integrations/mcp",
-      rpcRequest(
-        "initialize",
-        initializeParams,
-        "initialize-unauthorized",
-        false,
-      ),
-    );
-
-    expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toMatchObject({
-      error: { code: -32001, message: "Unauthorized" },
-    });
-
-    await t.run(async (ctx) => {
-      const turn = await ctx.db
-        .query("agent_turns")
-        .withIndex("by_turnId", (q) => q.eq("turnId", TURN_ID))
-        .unique();
-      if (!turn) throw new Error("missing turn");
-      await ctx.db.patch(turn._id, {
-        status: "completed",
-        updatedAt: Date.now(),
+    const expectUnauthorized = async (id: string, bearer: false | string) => {
+      const response = await t.fetch(
+        "/api/cloud/integrations/mcp",
+        rpcRequest("initialize", initializeParams, id, bearer),
+      );
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: -32001, message: "Unauthorized" },
       });
-    });
-    const finished = await t.fetch(
-      "/api/cloud/integrations/mcp",
-      rpcRequest("initialize", initializeParams, "initialize-finished"),
+    };
+    await expectUnauthorized("initialize-missing", false);
+    // A model-gateway capability (the one a sandbox may hold) never reaches
+    // the control plane, even when every other claim is right.
+    await expectUnauthorized(
+      "initialize-gateway-audience",
+      await mintCapability({ aud: "stella-model-gateway" }),
     );
-    expect(finished.status).toBe(401);
+    // MCP is orchestrator-only: a spawned agent's capability is refused.
+    await expectUnauthorized(
+      "initialize-general-agent",
+      await mintCapability({ agentTypes: ["general"] }),
+    );
+    const stale = await mintCapability({ ownerGeneration: "generation:stale" });
+    const staleResponse = await t.fetch(
+      "/api/cloud/integrations/mcp",
+      rpcRequest("initialize", initializeParams, "initialize-stale", stale),
+    );
+    expect(staleResponse.status).toBe(401);
+
+    const authorized = await t.fetch(
+      "/api/cloud/integrations/mcp",
+      rpcRequest("initialize", initializeParams, "initialize-ok"),
+    );
+    expect(authorized.status).toBe(200);
   });
 
   it("implements initialize and tools/list with a fail-closed live catalog", async () => {
@@ -267,11 +322,7 @@ describe("POST /api/cloud/integrations/mcp", () => {
     });
     const notification = await t.fetch("/api/cloud/integrations/mcp", {
       method: "POST",
-      headers: {
-        authorization: `Bearer ${SERVICE_SECRET}`,
-        "x-stella-turn-token": TURN_TOKEN,
-        "content-type": "application/json",
-      },
+      headers: rpcRequest("ping").headers,
       body: JSON.stringify({
         jsonrpc: "2.0",
         method: "notifications/initialized",
@@ -487,7 +538,12 @@ describe("POST /api/cloud/integrations/mcp", () => {
     const otherOwnerId = "owner:cursor-cross-scope";
     const otherGeneration = "generation:cursor-cross-scope";
     const otherTurnId = "turn:cursor-cross-scope";
-    const otherToken = "turn-token-cursor-cross-scope";
+    const otherCapability = await mintCapability({
+      ownerId: otherOwnerId,
+      ownerGeneration: otherGeneration,
+      turnId: otherTurnId,
+      conversationId: "conversation:cursor-cross-scope",
+    });
     await t.run(async (ctx) => {
       const now = Date.now();
       await ctx.db.insert("cloud_owner_lifecycles", {
@@ -507,26 +563,15 @@ describe("POST /api/cloud/integrations/mcp", () => {
         status: "running",
         kind: "chat",
         agentType: "orchestrator",
-        activeTokenHash: await sha256Hex(otherToken),
         createdAt: now,
         updatedAt: now,
-      });
-      await ctx.db.insert("cloud_turn_tokens", {
-        tokenHash: await sha256Hex(otherToken),
-        ownerId: otherOwnerId,
-        ownerGeneration: otherGeneration,
-        turnId: otherTurnId,
-        agentType: "orchestrator",
-        createdAt: now,
-        expiresAt: now + 60_000,
       });
     });
     const crossOwner = await t.fetch("/api/cloud/integrations/mcp", {
       method: "POST",
       headers: {
-        authorization: `Bearer ${SERVICE_SECRET}`,
+        authorization: `Bearer ${otherCapability}`,
         "content-type": "application/json",
-        "x-stella-turn-token": otherToken,
       },
       body: JSON.stringify({
         jsonrpc: "2.0",
@@ -650,14 +695,7 @@ describe("POST /api/cloud/integrations/mcp", () => {
     expect(upstream).not.toHaveBeenCalled();
   });
 
-  it.each([
-    "reset",
-    "source migration",
-    "lease loss",
-    "turn completion",
-    "token expiry",
-    "token deletion",
-  ] as const)(
+  it.each(["reset", "source migration", "lease loss", "turn completion"] as const)(
     "revalidates the final dispatch fence after a slow status check: %s",
     async (race) => {
       const t = await createTest();
@@ -696,7 +734,9 @@ describe("POST /api/cloud/integrations/mcp", () => {
                   .collect();
                 if (receipts.length !== 1) throw new Error("missing receipt");
                 await ctx.db.patch(receipts[0]._id, { leaseExpiresAt: 0 });
-              } else if (race === "turn completion") {
+              } else {
+                // The projected turn row is the only thing that can say the
+                // capability's turn has ended; it must fence dispatch.
                 const turn = await ctx.db
                   .query("agent_turns")
                   .withIndex("by_turnId", (q) => q.eq("turnId", TURN_ID))
@@ -704,22 +744,9 @@ describe("POST /api/cloud/integrations/mcp", () => {
                 if (!turn) throw new Error("missing turn");
                 await ctx.db.patch(turn._id, {
                   status: "completed",
+                  terminalKind: "completed",
                   updatedAt: Date.now(),
                 });
-              } else {
-                const tokenHash = await sha256Hex(TURN_TOKEN);
-                const token = await ctx.db
-                  .query("cloud_turn_tokens")
-                  .withIndex("by_tokenHash", (q) =>
-                    q.eq("tokenHash", tokenHash),
-                  )
-                  .unique();
-                if (!token) throw new Error("missing token");
-                if (race === "token deletion") {
-                  await ctx.db.delete(token._id);
-                } else {
-                  await ctx.db.patch(token._id, { expiresAt: 0 });
-                }
               }
             });
             return Response.json({

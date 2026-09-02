@@ -14,7 +14,7 @@ import { desktopReleasesSchema } from "./schema/desktop_releases";
 import { emojiPacksSchema } from "./schema/emoji_packs";
 import { canvasSharesSchema } from "./schema/canvas_shares";
 import { promptsSchema } from "./schema/prompts";
-import { relayResumeSchema } from "./schema/relay_resume";
+import { gatewaySchema } from "./schema/gateway";
 import { cloudAppsSchema } from "./schema/cloud_apps";
 import { cloudEnginesSchema } from "./schema/cloud_engines";
 import { cloudAgentHomeSchema } from "./schema/cloud_agent_home";
@@ -26,6 +26,7 @@ import { executionPlacementSchema } from "./schema/execution_placement";
 import { cloudConversationEditsSchema } from "./schema/cloud_conversation_edits";
 import { accountExternalMediaSchema } from "./schema/account_external_media";
 import { cloudBrowserSchema } from "./schema/cloud_browser";
+import { cloudOutboxSchema } from "./schema/cloud_outbox";
 
 export default defineSchema({
   ...conversationsSchema,
@@ -43,7 +44,7 @@ export default defineSchema({
   ...emojiPacksSchema,
   ...canvasSharesSchema,
   ...promptsSchema,
-  ...relayResumeSchema,
+  ...gatewaySchema,
   ...cloudAppsSchema,
   ...cloudEnginesSchema,
   ...cloudAgentHomeSchema,
@@ -55,4 +56,5 @@ export default defineSchema({
   ...cloudConversationEditsSchema,
   ...accountExternalMediaSchema,
   ...cloudBrowserSchema,
+  ...cloudOutboxSchema,
 });

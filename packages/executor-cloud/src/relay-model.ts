@@ -5,61 +5,39 @@ import type {
 import {
   isDeepSeekV4FlashModel,
   isMuseSpark12ContributorModel,
-  stellaCloudModelEndpointFromSiteUrl,
-  stellaManagedRelayBaseUrlFromSiteUrl,
 } from "@stella/contracts/stella-api";
+import {
+  GATEWAY_AGENT_TYPE_HEADER,
+  GATEWAY_PROTOCOLS,
+  GATEWAY_PROVIDERS,
+  GATEWAY_RESOLVE_PATH,
+  gatewayRelayBaseUrl,
+  type GatewayModelResolution,
+  type GatewayProtocol,
+  type GatewayProvider,
+  type GatewayResolveRequest,
+} from "@stella/contracts/gateway/api";
 import { clampThinkingLevel } from "@stella/runtime/ai/models.js";
 import type {
   Api,
   Model,
   ModelThinkingLevel,
 } from "@stella/runtime/ai/types.js";
-import {
-  CLOUD_MODEL_DIAGNOSTIC_SENTINELS,
-  CLOUD_MODEL_PROXY_DIAGNOSTIC_CODES,
-  CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER,
-  type CloudModelDiagnosticCode,
-} from "@stella/contracts/cloud-model-diagnostic";
+import { CLOUD_MODEL_DIAGNOSTIC_SENTINELS } from "@stella/contracts/cloud-model-diagnostic";
 import { findRegistryModel } from "@stella/runtime/kernel/model-routing-matching.js";
 import type { ThinkingLevel } from "@stella/runtime/kernel/agent-core/types.js";
 
 /**
- * Header carrying the opaque per-turn token to Convex. The relay resolves it
- * to the turn's owner and authorized execution selection; credentials never
- * enter the sandbox.
- */
-export const CLOUD_TURN_TOKEN_HEADER = "x-stella-turn-token";
-
-/**
- * Selects an owner-connected subscription. This is only a provider flag; the
- * relay resolves and refreshes the encrypted OAuth credential server-side.
+ * Selects an owner-connected subscription on the gateway's native lane. The
+ * gateway keys the lane off the capability's `credential` claim; this header
+ * is informational so relay logs on both sides can be joined.
  */
 export const CLOUD_LLM_CREDENTIAL_HEADER = "x-stella-llm-credential";
 
 export const DEFAULT_CLOUD_ANTHROPIC_ENGINE_MODEL = "claude-sonnet-4-6";
 export const DEFAULT_CLOUD_CODEX_ENGINE_MODEL = "gpt-5.6-sol";
 
-const MANAGED_RELAY_PROVIDERS = [
-  "anthropic",
-  "openai",
-  "google",
-  "fireworks",
-  "deepseek",
-  "crof",
-  "wafer",
-  "openrouter",
-  "meta",
-  "xai",
-] as const;
-type ManagedRelayProvider = (typeof MANAGED_RELAY_PROVIDERS)[number];
-
-const MANAGED_PROTOCOLS = [
-  "anthropic-messages",
-  "openai-responses",
-  "openai-completions",
-  "google-generative-ai",
-] as const satisfies readonly Api[];
-type ManagedProtocol = (typeof MANAGED_PROTOCOLS)[number];
+const RESOLVE_TIMEOUT_MS = 15_000;
 
 const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,191}$/;
 const ENGINE_MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,191}$/;
@@ -133,6 +111,37 @@ export const validateCloudExecutionSelection = (
   return execution;
 };
 
+/**
+ * What every gateway-bound model carries: the vendor SDK's base URL points at
+ * the gateway relay prefix, the capability is the bearer, the agent type
+ * names the policy the gateway applies, and an injected `fetch` (a service
+ * binding inside a Durable Object) replaces the global one when present.
+ */
+type GatewayModelTransport = {
+  gatewayOrigin: string;
+  capability: string;
+  agentType: string;
+  fetch?: typeof fetch;
+};
+
+const gatewayHeaders = (
+  transport: GatewayModelTransport,
+  extra: Record<string, string> = {},
+): Record<string, string> => ({
+  [GATEWAY_AGENT_TYPE_HEADER]: transport.agentType,
+  authorization: `Bearer ${transport.capability}`,
+  ...extra,
+});
+
+const withTransport = <T extends Model<Api>>(
+  model: T,
+  transport: GatewayModelTransport,
+): T => ({
+  ...model,
+  baseUrl: gatewayRelayBaseUrl(transport.gatewayOrigin),
+  ...(transport.fetch ? { fetch: transport.fetch } : {}),
+});
+
 const genericSubscriptionModel = (
   provider: "anthropic" | "openai-codex",
   modelId: string,
@@ -150,303 +159,341 @@ const genericSubscriptionModel = (
   maxTokens: 16_384,
 });
 
+/**
+ * Connected Claude / ChatGPT subscriptions keep their native adapters; the
+ * gateway forwards the bytes on its native lane using the owner's connected
+ * credential selected by the capability's `credential` claim.
+ */
 const subscriptionRelayModel = (args: {
   execution: CloudExecutionSelection;
-  siteUrl: string;
-  turnToken: string;
-  agentType: string;
+  transport: GatewayModelTransport;
 }): Model<Api> => {
   const provider = args.execution.engine as "anthropic" | "openai-codex";
   const modelId = args.execution.model;
   const registryModel =
     findRegistryModel(provider, [modelId, modelId.replace(/\./g, "-")]) ??
     genericSubscriptionModel(provider, modelId);
-  const relayModelId = `stella/${provider}/${modelId}`;
-  return {
-    ...registryModel,
-    id: relayModelId,
-    name:
-      provider === "anthropic"
-        ? "Claude (subscription)"
-        : "ChatGPT (subscription)",
-    provider,
-    api:
-      provider === "anthropic"
-        ? "anthropic-messages"
-        : "openai-codex-responses",
-    baseUrl: stellaManagedRelayBaseUrlFromSiteUrl(args.siteUrl),
-    headers: {
-      ...(registryModel.headers ?? {}),
-      "X-Stella-Agent-Type": args.agentType,
-      [CLOUD_TURN_TOKEN_HEADER]: args.turnToken,
-      [CLOUD_LLM_CREDENTIAL_HEADER]: provider,
-    },
-  } as Model<Api>;
+  return withTransport(
+    {
+      ...registryModel,
+      id: `stella/${provider}/${modelId}`,
+      name:
+        provider === "anthropic"
+          ? "Claude (subscription)"
+          : "ChatGPT (subscription)",
+      provider,
+      api:
+        provider === "anthropic"
+          ? "anthropic-messages"
+          : "openai-codex-responses",
+      headers: {
+        ...(registryModel.headers ?? {}),
+        ...gatewayHeaders(args.transport, {
+          [CLOUD_LLM_CREDENTIAL_HEADER]: provider,
+        }),
+      },
+    } as Model<Api>,
+    args.transport,
+  );
 };
 
+const isGatewayProvider = (value: unknown): value is GatewayProvider =>
+  typeof value === "string" &&
+  (GATEWAY_PROVIDERS as readonly string[]).includes(value);
+
+const isGatewayProtocol = (value: unknown): value is GatewayProtocol =>
+  typeof value === "string" &&
+  (GATEWAY_PROTOCOLS as readonly string[]).includes(value);
+
+const isOptionalPositiveInteger = (value: unknown): boolean =>
+  value === undefined ||
+  (typeof value === "number" && Number.isSafeInteger(value) && value > 0);
+
+/** Structural check of the gateway's resolve response before it is trusted. */
+export const parseGatewayModelResolution = (
+  value: unknown,
+): GatewayModelResolution | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (
+    typeof row.requestedModel !== "string" ||
+    !MODEL_ID_PATTERN.test(row.requestedModel) ||
+    typeof row.resolvedModel !== "string" ||
+    !MODEL_ID_PATTERN.test(row.resolvedModel) ||
+    !isGatewayProvider(row.provider) ||
+    !isGatewayProtocol(row.protocol) ||
+    typeof row.reasoning !== "boolean" ||
+    typeof row.supportsImages !== "boolean" ||
+    !isOptionalPositiveInteger(row.contextWindow) ||
+    !isOptionalPositiveInteger(row.maxOutputTokens)
+  ) {
+    return null;
+  }
+  return {
+    requestedModel: row.requestedModel,
+    resolvedModel: row.resolvedModel,
+    provider: row.provider,
+    protocol: row.protocol,
+    reasoning: row.reasoning,
+    supportsImages: row.supportsImages,
+    ...(row.contextWindow !== undefined
+      ? { contextWindow: row.contextWindow as number }
+      : {}),
+    ...(row.maxOutputTokens !== undefined
+      ? { maxOutputTokens: row.maxOutputTokens as number }
+      : {}),
+  };
+};
+
+/** The gateway's wire protocol is the runtime adapter id. */
+const apiForProtocol = (protocol: GatewayProtocol): Api => protocol;
+
+/**
+ * Build the managed-lane model from a gateway resolution. Request bodies keep
+ * sending the `stella/...` alias (`id = execution.model`); the gateway pins
+ * the alias to the admitted execution and maps it upstream. The resolved
+ * upstream id only selects registry metadata (context window, thinking map)
+ * and is stashed as `upstreamModelId` for diagnostics.
+ */
 export const createResolvedManagedRelayModel = (args: {
   execution: CloudExecutionSelection;
-  siteUrl: string;
-  turnToken: string;
+  resolution: GatewayModelResolution;
+  gatewayOrigin: string;
+  capability: string;
   agentType: string;
-  resolvedModelId: string;
-  relayProvider: string;
-  api?: string;
+  fetch?: typeof fetch;
 }): Model<Api> => {
-  if (
-    !MODEL_ID_PATTERN.test(args.resolvedModelId) ||
-    !(MANAGED_RELAY_PROVIDERS as readonly string[]).includes(
-      args.relayProvider,
-    ) ||
-    (args.api !== undefined &&
-      !(MANAGED_PROTOCOLS as readonly string[]).includes(args.api))
-  ) {
-    throw new Error(
-      "The cloud model resolver returned invalid provider metadata.",
-    );
-  }
-  const relayProvider = args.relayProvider as ManagedRelayProvider;
+  const { resolution } = args;
+  const relayProvider = resolution.provider;
   const directModelPrefix =
     relayProvider === "xai" ? "x-ai/" : `${relayProvider}/`;
   const nativeModelId =
-    (relayProvider === "anthropic" ||
-      relayProvider === "openai" ||
-      relayProvider === "google" ||
-      relayProvider === "deepseek" ||
-      relayProvider === "crof" ||
-      relayProvider === "wafer" ||
-      relayProvider === "xai" ||
-      relayProvider === "meta") &&
-    args.resolvedModelId.startsWith(directModelPrefix)
-      ? args.resolvedModelId.slice(directModelPrefix.length)
-      : args.resolvedModelId;
+    relayProvider !== "openrouter" &&
+    relayProvider !== "fireworks" &&
+    resolution.resolvedModel.startsWith(directModelPrefix)
+      ? resolution.resolvedModel.slice(directModelPrefix.length)
+      : resolution.resolvedModel;
   const registryModel = findRegistryModel(relayProvider, [
-    args.resolvedModelId,
+    resolution.resolvedModel,
     nativeModelId,
     nativeModelId.replace(/\./g, "-"),
   ]);
-  const api: Api = args.api
-    ? (args.api as ManagedProtocol)
-    : relayProvider === "anthropic"
-      ? "anthropic-messages"
-      : relayProvider === "google"
-        ? "google-generative-ai"
-        : relayProvider === "crof" || relayProvider === "wafer"
-          ? "openai-completions"
-          : relayProvider === "openrouter"
-            ? isMuseSpark12ContributorModel(args.resolvedModelId)
-              ? "openai-responses"
-              : "openai-completions"
-            : registryModel?.api ?? "openai-responses";
-  const model = {
-    ...(registryModel ?? {
-      id: nativeModelId,
-      name: nativeModelId,
-      provider: relayProvider,
+  const api = apiForProtocol(resolution.protocol);
+  const transport: GatewayModelTransport = {
+    gatewayOrigin: args.gatewayOrigin,
+    capability: args.capability,
+    agentType: args.agentType,
+    ...(args.fetch ? { fetch: args.fetch } : {}),
+  };
+  const model = withTransport(
+    {
+      ...(registryModel ?? {
+        id: nativeModelId,
+        name: nativeModelId,
+        provider: relayProvider,
+        api,
+        reasoning: resolution.reasoning,
+        input: resolution.supportsImages ? ["text", "image"] : ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 80_000,
+        maxTokens: 16_384,
+      }),
+      id: args.execution.model,
+      name: args.execution.model.replace(/^stella\//, ""),
+      provider: registryModel?.provider ?? relayProvider,
       api,
-      reasoning: true,
-      input: ["text", "image"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 80_000,
-      maxTokens: 16_384,
-    }),
-    id: args.execution.model,
-    name: args.execution.model.replace(/^stella\//, ""),
-    provider: registryModel?.provider ?? relayProvider,
-    api,
-    baseUrl: stellaManagedRelayBaseUrlFromSiteUrl(args.siteUrl),
-    ...(isDeepSeekV4FlashModel(args.resolvedModelId)
-      ? {
-          thinkingLevelMap: {
-            ...registryModel?.thinkingLevelMap,
-            ...(relayProvider === "crof" || relayProvider === "wafer"
-              ? {
-                  minimal: "low",
-                  low: "low",
-                  medium: "medium",
-                  high: "high",
-                  xhigh: "high",
-                  off: "none",
-                }
-              : {
-                  minimal: "low",
-                  low: "low",
-                  medium: "high",
-                  high: "max",
-                  xhigh: "max",
-                  off: "none",
-                }),
-          },
-        }
-      : {}),
-    ...(isMuseSpark12ContributorModel(args.resolvedModelId)
-      ? {
-          thinkingLevelMap: {
-            ...registryModel?.thinkingLevelMap,
-            xhigh: "xhigh",
-          } as NonNullable<Model<Api>["thinkingLevelMap"]>,
-        }
-      : {}),
-    headers: {
-      ...(registryModel?.headers ?? {}),
-      "X-Stella-Agent-Type": args.agentType,
-      [CLOUD_TURN_TOKEN_HEADER]: args.turnToken,
-    },
-  } as Model<Api>;
+      ...(resolution.contextWindow !== undefined
+        ? { contextWindow: resolution.contextWindow }
+        : {}),
+      ...(resolution.maxOutputTokens !== undefined
+        ? { maxTokens: resolution.maxOutputTokens }
+        : {}),
+      ...(isDeepSeekV4FlashModel(resolution.resolvedModel)
+        ? {
+            thinkingLevelMap: {
+              ...registryModel?.thinkingLevelMap,
+              ...(relayProvider === "crof" || relayProvider === "wafer"
+                ? {
+                    minimal: "low",
+                    low: "low",
+                    medium: "medium",
+                    high: "high",
+                    xhigh: "high",
+                    off: "none",
+                  }
+                : {
+                    minimal: "low",
+                    low: "low",
+                    medium: "high",
+                    high: "max",
+                    xhigh: "max",
+                    off: "none",
+                  }),
+            },
+          }
+        : {}),
+      ...(isMuseSpark12ContributorModel(resolution.resolvedModel)
+        ? {
+            thinkingLevelMap: {
+              ...registryModel?.thinkingLevelMap,
+              xhigh: "xhigh",
+            } as NonNullable<Model<Api>["thinkingLevelMap"]>,
+          }
+        : {}),
+      headers: {
+        ...(registryModel?.headers ?? {}),
+        ...gatewayHeaders(transport),
+      },
+    } as Model<Api>,
+    transport,
+  );
   (model as Model<Api> & { upstreamModelId?: string }).upstreamModelId =
     nativeModelId;
   return model;
 };
 
+const transportCodeOf = (error: unknown): string => {
+  if (!error || typeof error !== "object") return "";
+  const direct = Reflect.get(error, "code");
+  if (typeof direct === "string") return direct;
+  const cause = Reflect.get(error, "cause");
+  if (!cause || typeof cause !== "object") return "";
+  const nested = Reflect.get(cause, "code");
+  return typeof nested === "string" ? nested : "";
+};
+
+/**
+ * Collapse a failed gateway round trip to a static sentinel. Exception causes
+ * can carry transport or provider detail and must never enter Builder logs
+ * or acceptance output.
+ */
+const resolveTransportFailure = (error: unknown): Error => {
+  const transportCode = transportCodeOf(error);
+  if (
+    transportCode === "ConnectionRefused" ||
+    transportCode === "ECONNREFUSED"
+  ) {
+    return new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_refused);
+  }
+  if (transportCode === "Timeout" || transportCode === "ETIMEDOUT") {
+    return new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_timeout);
+  }
+  if (
+    transportCode === "NetworkUnreachable" ||
+    transportCode === "ENETUNREACH" ||
+    transportCode === "EHOSTUNREACH"
+  ) {
+    return new Error(
+      CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_unreachable,
+    );
+  }
+  return new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_connect);
+};
+
 const managedRelayModel = async (args: {
   execution: CloudExecutionSelection;
-  siteUrl: string;
-  turnToken: string;
-  agentType: string;
+  transport: GatewayModelTransport;
   signal?: AbortSignal;
-  loopbackStage?: () =>
-    | "idle"
-    | "entered"
-    | "broker_started"
-    | "broker_responded";
 }): Promise<Model<Api>> => {
-  const timeoutSignal = AbortSignal.timeout(15_000);
+  const timeoutSignal = AbortSignal.timeout(RESOLVE_TIMEOUT_MS);
+  const request: GatewayResolveRequest = {
+    model: args.execution.model,
+    agentType: args.transport.agentType,
+  };
   let response: Response;
   try {
-    response = await fetch(
-      stellaCloudModelEndpointFromSiteUrl(args.siteUrl),
+    response = await (args.transport.fetch ?? fetch)(
+      `${args.transport.gatewayOrigin.replace(/\/+$/, "")}${GATEWAY_RESOLVE_PATH}`,
       {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          [CLOUD_TURN_TOKEN_HEADER]: args.turnToken,
+          accept: "application/json",
+          ...gatewayHeaders(args.transport),
         },
-        body: JSON.stringify({ model: args.execution.model }),
+        body: JSON.stringify(request),
         signal: args.signal
           ? AbortSignal.any([args.signal, timeoutSignal])
           : timeoutSignal,
       },
     );
   } catch (error) {
-    // Preserve an explicit turn cancellation. Every other loopback failure is
-    // collapsed to a static sentinel; exception causes can contain transport
-    // or provider detail and must not enter Builder logs or acceptance output.
+    // Preserve an explicit turn cancellation; everything else is a sentinel.
     if (args.signal?.aborted) throw error;
-    const loopbackStage = args.loopbackStage?.() ?? "idle";
-    if (loopbackStage === "entered") {
-      throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_handler);
-    }
-    if (loopbackStage === "broker_started") {
-      throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_broker);
-    }
-    if (loopbackStage === "broker_responded") {
-      throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_response);
-    }
-    const transportCode = (() => {
-      if (!error || typeof error !== "object") return "";
-      const direct = Reflect.get(error, "code");
-      if (typeof direct === "string") return direct;
-      const cause = Reflect.get(error, "cause");
-      if (!cause || typeof cause !== "object") return "";
-      const nested = Reflect.get(cause, "code");
-      return typeof nested === "string" ? nested : "";
-    })();
-    if (
-      transportCode === "ConnectionRefused" ||
-      transportCode === "ECONNREFUSED"
-    ) {
-      throw new Error(
-        CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_refused,
-      );
-    }
-    if (transportCode === "Timeout" || transportCode === "ETIMEDOUT") {
-      throw new Error(
-        CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_timeout,
-      );
-    }
-    if (
-      transportCode === "NetworkUnreachable" ||
-      transportCode === "ENETUNREACH" ||
-      transportCode === "EHOSTUNREACH"
-    ) {
-      throw new Error(
-        CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_unreachable,
-      );
-    }
-    throw new Error(
-      CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_connect,
-    );
+    throw resolveTransportFailure(error);
   }
   if (!response.ok) {
-    const localDiagnostic = response.headers.get(
-      CLOUD_MODEL_PROXY_DIAGNOSTIC_HEADER,
-    );
     await response.body?.cancel().catch(() => undefined);
-    if (
-      CLOUD_MODEL_PROXY_DIAGNOSTIC_CODES.includes(
-        localDiagnostic as (typeof CLOUD_MODEL_PROXY_DIAGNOSTIC_CODES)[number],
-      )
-    ) {
-      throw new Error(
-        CLOUD_MODEL_DIAGNOSTIC_SENTINELS[
-          localDiagnostic as CloudModelDiagnosticCode
-        ],
-      );
-    }
     throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_http_failure);
   }
-  let resolution: {
-    resolvedModel?: unknown;
-    relayProvider?: unknown;
-    api?: unknown;
-  };
+  let payload: unknown;
   try {
-    resolution = (await response.json()) as typeof resolution;
+    payload = await response.json();
   } catch {
     throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_response_invalid);
   }
-  if (
-    typeof resolution.resolvedModel !== "string" ||
-    typeof resolution.relayProvider !== "string" ||
-    typeof resolution.api !== "string"
-  ) {
+  const resolution = parseGatewayModelResolution(payload);
+  if (!resolution || resolution.requestedModel !== args.execution.model) {
     throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_response_invalid);
   }
   try {
     return createResolvedManagedRelayModel({
-      ...args,
-      resolvedModelId: resolution.resolvedModel,
-      relayProvider: resolution.relayProvider,
-      api: resolution.api,
+      execution: args.execution,
+      resolution,
+      ...args.transport,
     });
   } catch {
     throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_response_invalid);
   }
 };
 
-/**
- * Create the exact relay adapter selected at dispatch. Managed routes retain
- * Stella's provider-specific request shape; connected subscriptions use their
- * subscription Anthropic/Codex adapters while credentials remain in Convex.
- */
-export const createCloudRelayModel = async (args: {
-  siteUrl: string;
-  turnToken: string;
+export type CloudRelayModelArgs = {
+  /** Public origin of the model gateway (`MODEL_GATEWAY_URL`). */
+  gatewayOrigin: string;
+  /** Turn capability minted by the admitting Durable Object. */
+  capability: string;
   agentType: string;
   execution: CloudExecutionSelection;
   /** Exact turn fiber cancellation; connected routes are synchronous/local. */
   signal?: AbortSignal;
-  /** Bounded local proxy progress, used only to classify a failed loopback. */
-  loopbackStage?: () =>
-    | "idle"
-    | "entered"
-    | "broker_started"
-    | "broker_responded";
-}): Promise<Model<Api>> => {
+  /**
+   * Transport override. A Durable Object passes its `MODEL_GATEWAY` service
+   * binding here so model traffic never leaves Cloudflare's network; a
+   * sandbox omits it and reaches the public origin.
+   */
+  fetch?: typeof fetch;
+};
+
+/**
+ * Create the exact gateway-bound adapter selected at dispatch. Managed routes
+ * are resolved through `POST /v1/models/resolve` so the sandbox learns which
+ * provider protocol to speak; connected subscriptions keep their native
+ * Anthropic/Codex adapters on the gateway's native lane.
+ */
+export const createCloudRelayModel = async (
+  args: CloudRelayModelArgs,
+): Promise<Model<Api>> => {
   const execution = validateCloudExecutionSelection(args.execution);
+  const gatewayOrigin = args.gatewayOrigin.trim();
+  if (!/^https?:\/\//i.test(gatewayOrigin)) {
+    throw new Error("Cloud model gateway origin must be an HTTP(S) URL.");
+  }
+  if (typeof args.capability !== "string" || !args.capability.trim()) {
+    throw new Error("Cloud model gateway capability is required.");
+  }
+  const transport: GatewayModelTransport = {
+    gatewayOrigin,
+    capability: args.capability,
+    agentType: args.agentType,
+    ...(args.fetch ? { fetch: args.fetch } : {}),
+  };
   return execution.engine === "stella"
-    ? await managedRelayModel({ ...args, execution })
-    : subscriptionRelayModel({ ...args, execution });
+    ? await managedRelayModel({
+        execution,
+        transport,
+        ...(args.signal ? { signal: args.signal } : {}),
+      })
+    : subscriptionRelayModel({ execution, transport });
 };
 
 /**

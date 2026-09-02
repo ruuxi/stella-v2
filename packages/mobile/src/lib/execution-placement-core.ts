@@ -1,5 +1,14 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
+import {
+  PLACEMENT_PROTOCOL,
+  type DispatchPayload,
+  type DispatchSubmitRequest,
+} from "@stella/contracts/turn-plane/placement";
+import {
+  buildMobilePairingChallenge,
+  canonicalDispatchPayloadJson,
+} from "@stella/contracts/turn-plane/pairing-proof";
 
 export type AutomaticExecutionKind = "chat" | "agent";
 export type AutomaticExecutionSubject = "portable" | "computer" | "cloud";
@@ -26,7 +35,6 @@ export type AutomaticExecutionStatusSnapshot = {
 };
 
 const EXECUTION_STATES = new Set([
-  "queued",
   "offering",
   "computer_claimed",
   "computer_accepted",
@@ -35,6 +43,7 @@ const EXECUTION_STATES = new Set([
   "cloud_running",
   "cancel_pending",
   "reconciliation_required",
+  "blocked",
   "completed",
   "failed",
   "canceled",
@@ -211,7 +220,12 @@ export const automaticExecutionConversationClientCreateId = (
   return `mobile-placement:${normalized}`.slice(0, 128);
 };
 
-const TERMINAL_EXECUTION_STATES = new Set(["completed", "failed", "canceled"]);
+const TERMINAL_EXECUTION_STATES = new Set([
+  "completed",
+  "failed",
+  "canceled",
+  "blocked",
+]);
 
 export const isAutomaticExecutionTerminal = (
   dispatch: AutomaticExecutionStatusSnapshot,
@@ -292,7 +306,7 @@ export const automaticExecutionResultText = (
   dispatch: AutomaticExecutionStatusSnapshot,
 ): string => {
   if (dispatch.state === "canceled") return "Stopped.";
-  if (dispatch.state === "failed") {
+  if (dispatch.state === "failed" || dispatch.state === "blocked") {
     return (
       dispatch.errorMessage?.trim() ||
       (dispatch.errorCode === "COMPUTER_REQUIRED_UNAVAILABLE"
@@ -377,42 +391,50 @@ export const buildAutomaticExecutionAdmission = (
   if (!attachments.every(validAttachmentPath)) {
     throw new Error("An attachment does not name a drive file.");
   }
-  const payloadJson = JSON.stringify({
+  // Exactly the bytes an executing device receives. The builder re-derives
+  // this string from the parsed payload with the same contract helper, so the
+  // hash the pair proof commits to is reproducible on both sides.
+  const payload: DispatchPayload = {
+    schemaVersion: 1,
     prompt,
+    conversationId,
+    clientMsgId: idempotencyKey,
     ...(attachments.length ? { attachments } : {}),
     ...(input.kind === "agent"
       ? { description: input.description?.trim() || prompt.slice(0, 160) }
       : {}),
-  });
+  };
+  const payloadJson = canonicalDispatchPayloadJson(payload);
+  // The contract's `dispatchPayloadHash` is WebCrypto; React Native has no
+  // `crypto.subtle`, so the same digest is taken with @noble over the same
+  // canonical bytes.
   const payloadHash = bytesToHex(sha256(utf8ToBytes(payloadJson)));
-  const challenge = [
-    "execution-placement-v1",
+  const challenge = buildMobilePairingChallenge({
     idempotencyKey,
     conversationId,
     payloadHash,
-    input.kind,
+    kind: input.kind,
     subject,
-    target.mode,
+    targetMode: target.mode,
     targetDeviceId,
-  ].join(":");
-  return {
-    challenge,
-    body: {
-      idempotencyKey,
-      payloadJson,
-      payloadHash,
-      kind: input.kind,
-      subject,
-      targetMode: target.mode,
-      ...(targetDeviceId ? { targetDeviceId } : {}),
-      conversationId,
-      ...(input.parentTurnId?.trim()
-        ? { parentTurnId: input.parentTurnId.trim() }
-        : {}),
-      ...(input.threadId?.trim() ? { threadId: input.threadId.trim() } : {}),
-      requiredCapabilities: [
-        ...new Set([input.kind, ...(input.requiredCapabilities ?? [])]),
-      ],
-    },
+  });
+  const body: DispatchSubmitRequest = {
+    protocol: PLACEMENT_PROTOCOL,
+    idempotencyKey,
+    kind: input.kind,
+    ingress: "mobile",
+    subject,
+    targetMode: target.mode,
+    ...(targetDeviceId ? { targetDeviceId } : {}),
+    conversationId,
+    ...(input.parentTurnId?.trim()
+      ? { parentTurnId: input.parentTurnId.trim() }
+      : {}),
+    ...(input.threadId?.trim() ? { threadId: input.threadId.trim() } : {}),
+    requiredCapabilities: [
+      ...new Set([input.kind, ...(input.requiredCapabilities ?? [])]),
+    ],
+    payload,
   };
+  return { challenge, payloadJson, payloadHash, body };
 };

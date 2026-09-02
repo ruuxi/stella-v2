@@ -409,15 +409,15 @@ class ConversationHubImpl implements ConversationHub {
       );
     }
 
-    // The DO never adopts its first connector as owner: a conversation id would
-    // otherwise be a bearer token, and anyone who guessed or leaked a UUID
-    // would own the object. Unbound means asking Convex, which is the only
-    // authority for who a conversation belongs to.
+    // Unbound means the session decides: conversation ids are client-minted
+    // UUIDs, so the first VERIFIED connector is the client that minted the id
+    // and becomes the owner. An unverified request never reaches here — the
+    // worker stripped and re-stamped every identity header before forwarding.
     let ownerId = this.deps.reader.ownerId();
     if (!ownerId) {
       let record: Awaited<ReturnType<typeof this.deps.lookupOwner>>;
       try {
-        record = await this.deps.lookupOwner();
+        record = await this.deps.lookupOwner(identity);
       } catch (error) {
         this.deps.log("error", "conversation_owner_lookup_failed", {
           conversationId,

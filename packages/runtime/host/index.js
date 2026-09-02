@@ -1750,16 +1750,13 @@ export class StellaRuntimeHost {
     }
     async startPlacedChat(payload, target) {
         const client = this.ensureHostConvexClient();
-        const expectedOwnerGeneration = payload.ownerGeneration?.trim();
-        const useAnonymousCloudAdmission = target.mode === "cloud" && !this.configCache.hasConnectedAccount;
-        if (!client || !expectedOwnerGeneration) {
+        if (!client) {
             throw new Error("Cross-device execution is not ready on this computer.");
         }
-        if (!useAnonymousCloudAdmission) {
-            await this.syncHostExecutionPlacement();
-            if (!this.hostExecutionPlacementBridge?.isRunning) {
-                throw new Error("Cross-device execution is not ready on this computer.");
-            }
+        await this.syncHostExecutionPlacement();
+        const bridge = this.hostExecutionPlacementBridge;
+        if (!bridge?.isRunning) {
+            throw new Error("Cross-device execution is not ready on this computer.");
         }
         const idempotencyKey = (payload.userMessageEventId?.trim() || payload.requestId?.trim() || `desktop:${crypto.randomUUID()}`).slice(0, 128);
         const attachments = await this.uploadPlacedAttachments(client, payload, idempotencyKey);
@@ -1767,39 +1764,27 @@ export class StellaRuntimeHost {
         const userPrompt = typeof payload.userPrompt === "string" ? payload.userPrompt.trim() : "";
         const prompt = selectedText ? `${userPrompt || "Please help with this context."}\n\nSelected text:\n${selectedText}` : userPrompt;
         if (!prompt) throw new Error("A prompt is required.");
-        const payloadJson = JSON.stringify({
+        // Exactly the bytes the executing device (this one, another computer,
+        // or the cloud) receives. The owner gate hashes and hands them over.
+        const dispatchPayload = {
             schemaVersion: 1,
             prompt,
-            expectedOwnerGeneration,
             conversationId: payload.conversationId,
             clientMsgId: idempotencyKey,
             userMessageEventId: payload.userMessageEventId ?? idempotencyKey,
             ...(payload.locale ? { locale: payload.locale } : {}),
             ...(attachments.length ? { attachments } : {}),
+        };
+        const dispatch = await bridge.submitDesktopExecution({
+            idempotencyKey,
+            requestedTargetMode: target.mode,
+            ...(target.mode === "device" ? { requestedExecutorDeviceId: target.deviceId } : {}),
+            payload: dispatchPayload,
+            kind: "chat",
+            subject: "portable",
+            conversationId: payload.conversationId,
+            requiredCapabilities: ["chat", ...(attachments.length ? ["attachments"] : [])],
         });
-        const payloadHash = createHash("sha256").update(payloadJson, "utf8").digest("hex");
-        const dispatch = useAnonymousCloudAdmission
-            ? await client.mutation(anyApi.execution_placement.submitMyBrowserExecution, {
-                idempotencyKey,
-                expectedOwnerGeneration,
-                payloadJson,
-                payloadHash,
-                kind: "chat",
-                subject: "cloud",
-                conversationId: payload.conversationId,
-                requiredCapabilities: ["chat"],
-            })
-            : await this.hostExecutionPlacementBridge.submitDesktopExecution({
-                idempotencyKey,
-                requestedTargetMode: target.mode,
-                ...(target.mode === "device" ? { requestedExecutorDeviceId: target.deviceId } : {}),
-                payloadJson,
-                payloadHash,
-                kind: "chat",
-                subject: "portable",
-                conversationId: payload.conversationId,
-                requiredCapabilities: ["chat", ...(attachments.length ? ["attachments"] : [])],
-            });
         if (!dispatch?.dispatchId) throw new Error("Execution placement returned an invalid dispatch.");
         const runId = `placed:${dispatch.dispatchId}`;
         const requestId = payload.requestId;
@@ -1862,9 +1847,7 @@ export class StellaRuntimeHost {
             }
             if (["completed", "failed", "canceled"].includes(status.state)) finish(status);
         };
-        placed.subscription = client.onUpdate(anyApi.execution_placement.getMyExecutionDispatchStatus, { dispatchId: dispatch.dispatchId }, onStatus, (error) => {
-            console.warn("[execution-placement] Source dispatch status stream failed.", error);
-        });
+        placed.subscription = bridge.watchDispatch(dispatch.dispatchId, onStatus);
         onStatus(dispatch);
         return { runId };
     }
@@ -1948,10 +1931,10 @@ export class StellaRuntimeHost {
     async cancelChat(runId) {
         const placed = this.placedDispatchByRunId.get(runId);
         if (placed) {
-            const client = this.ensureHostConvexClient();
-            if (!client)
+            const bridge = this.hostExecutionPlacementBridge;
+            if (!bridge)
                 throw new Error("Execution placement is unavailable.");
-            await client.mutation(anyApi.execution_placement.cancelMyExecutionDispatch, {
+            await bridge.cancelDispatch({
                 dispatchId: placed.dispatchId,
                 cancelRequestId: `cancel:${placed.dispatchId}`,
                 reason: "Canceled by the user.",

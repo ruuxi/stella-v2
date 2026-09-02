@@ -6,9 +6,12 @@
  * (a long-lived connection) — into a single snapshot, and owns the outbound
  * side: sending a turn, cancelling one, and paging backwards.
  *
- * Turn *starts* deliberately do not go over the socket. Quota, engine
- * resolution and turn-token minting live in Convex, and a socket verb would
- * be a way around all three.
+ * Turn *starts* deliberately do not go over the socket. On the desktop they
+ * are an authenticated `POST /conversations/:id/turns` to the builder (the
+ * conversation Durable Object owns admission: idempotency, owner adoption,
+ * quota, journaling); in the web shell they go to the owner gate's placement
+ * routes on the same builder, which decide between a paired computer and the
+ * cloud. A socket verb would be a way around all of that.
  */
 
 import {
@@ -19,14 +22,21 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
-  useConvex,
-  useMutation,
   useQueries,
   useQuery,
   type RequestForQueries,
 } from "convex/react";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
+import { getConvexToken } from "@/global/auth/services/auth-token";
 import { cloudApi } from "./cloud-api";
+import { markCloudConversationCreated } from "./cloud-conversation-selection";
+import {
+  CloudTurnStartClientError,
+  CloudTurnStartTransportError,
+  cloudTurnStartRequest,
+  newCloudConversationId,
+  startCloudTurn,
+} from "./turn-start-client";
 import {
   getCloudExecutionSelectionSnapshot,
   reconcileCloudExecutionSelection,
@@ -44,6 +54,12 @@ import {
   sha256Hex,
   waitForBrowserExecutionTurn,
 } from "./browser-execution-placement";
+import {
+  cancelDispatch,
+  getDispatchStatus,
+  PlacementClientError,
+  submitDispatch,
+} from "./placement-client";
 import { PROTOCOL_VERSION } from "./conversation-protocol";
 import type { ConversationState } from "./conversation-store";
 import {
@@ -233,6 +249,9 @@ const waitForRenderedAcceptanceBrowserDispatch = async (
 const serializedErrorPayload = (
   error: unknown,
 ): Record<string, unknown> | null => {
+  // The owner gate answers with a typed client error carrying the contract's
+  // code; a Convex-shaped `data.code` and an embedded JSON body still parse.
+  if (error instanceof PlacementClientError) return { code: error.code };
   const data = (error as { data?: unknown })?.data;
   if (data && typeof data === "object" && !Array.isArray(data)) {
     return data as Record<string, unknown>;
@@ -260,7 +279,7 @@ export const classifyBrowserDispatchRejection = async (
   const code = typeof payload?.code === "string" ? payload.code : "";
   return {
     outcome:
-      code === "OWNER_DATA_GENERATION_STALE"
+      code === "generation_stale" || code === "OWNER_DATA_GENERATION_STALE"
         ? "owner_generation_rejected"
         : "other_rejected",
     errorCodeSha256: await sha256Hex(code || "<no-error-code>"),
@@ -294,24 +313,6 @@ const reportRenderedAcceptanceAuthority = (
     });
 };
 
-export const cloudTurnStartArgs = (
-  clientMsgId: string,
-  expectedOwnerGeneration: string,
-  submission: PendingCloudTurnSubmission,
-) => ({
-  prompt: submission.prompt,
-  expectedOwnerGeneration,
-  clientMsgId,
-  ...(submission.requestedConversationId
-    ? { conversationId: submission.requestedConversationId }
-    : {}),
-  ...(submission.locale ? { locale: submission.locale } : {}),
-  ...(submission.imagePaths.length
-    ? { attachments: [...submission.imagePaths] }
-    : {}),
-  ...(submission.execution ? { execution: submission.execution } : {}),
-});
-
 export const useConversation = (
   conversationId: string | null,
   /** Applied to the prompt before it is sent (drive attachments, etc.). */
@@ -323,10 +324,6 @@ export const useConversation = (
 ): CloudConversationView => {
   const config = useCloudRealtimeConfig();
   const { locale } = useI18n();
-  const convex = useConvex();
-  const startLegacyTurn = useMutation(cloudApi.startCloudChat);
-  const submitBrowserExecution = useMutation(cloudApi.submitBrowserExecution);
-  const cancelExecutionDispatch = useMutation(cloudApi.cancelExecutionDispatch);
   const { isCloudConversationReady, accountScope, ownerSubject } =
     useCloudConversationSession();
   const webShell = isWebShell();
@@ -464,10 +461,37 @@ export const useConversation = (
       try {
         if (!isCurrentAuthority()) return;
         if (!webShell) {
-          const result = await startLegacyTurn(
-            cloudTurnStartArgs(clientMsgId, entry.ownerGeneration, submission),
-          );
+          // The conversation id was minted on this client (at send time for
+          // a new conversation, or by New Chat) and frozen into the
+          // submission, so a retry replays into the same conversation.
+          const targetConversationId = submission.requestedConversationId;
+          if (!targetConversationId) {
+            throw new Error("Open a cloud conversation before sending.");
+          }
+          const socketOrigin = config.socketBaseUrl;
+          if (!socketOrigin) {
+            throw new Error(
+              "Stella's cloud isn't reachable yet. Try again in a moment.",
+            );
+          }
+          const result = await startCloudTurn({
+            socketOrigin,
+            conversationId: targetConversationId,
+            request: cloudTurnStartRequest(clientMsgId, submission, entry.text),
+            getToken: (options) => getConvexToken(options ?? {}),
+          });
           if (!isCurrentAuthority()) return;
+          // Route validation must accept the client-minted id before Convex
+          // has projected the conversation row.
+          if (result.createdConversation) {
+            markCloudConversationCreated(
+              result.conversationId,
+              entry.accountScope,
+            );
+          }
+          // A replayed admission is the same success: the first attempt
+          // landed and this is the receipt the dropped response never
+          // delivered.
           pendingPrompts.bind(
             sendAuthority,
             clientMsgId,
@@ -487,15 +511,20 @@ export const useConversation = (
         if (!requestedConversationId) {
           throw new Error("Open a cloud conversation before sending.");
         }
+        const placementOrigin = config.socketBaseUrl;
+        if (!placementOrigin) {
+          throw new Error(
+            "Stella's cloud isn't reachable yet. Try again in a moment.",
+          );
+        }
         const submitArgs = await browserExecutionSubmitArgs({
           clientMsgId,
-          expectedOwnerGeneration: entry.ownerGeneration,
           conversationId: requestedConversationId,
           submission,
         });
-        // SHA-256 above is asynchronous. Re-fence immediately before the first
-        // external side effect so a same-account generation rotation cannot
-        // send a retired payload.
+        // Building the request is asynchronous. Re-fence immediately before
+        // the first external side effect so a same-account generation
+        // rotation cannot send a retired payload.
         if (!isCurrentAuthority()) return;
         const renderedAcceptanceBarrier =
           import.meta.env.DEV && typeof window !== "undefined"
@@ -505,7 +534,7 @@ export const useConversation = (
           // The development harness deliberately holds the exact request after
           // the normal client fence, then rotates the owner generation. There
           // is intentionally no second client check after release: the proof
-          // is that Convex itself rejects the frozen stale generation. This
+          // is that the owner gate itself rejects the retired generation. This
           // branch is absent from production and receives hashes only.
           await waitForRenderedAcceptanceBrowserDispatch(
             entry,
@@ -516,7 +545,11 @@ export const useConversation = (
           try {
             return {
               accepted: true as const,
-              result: await submitBrowserExecution(submitArgs),
+              result: await submitDispatch({
+                socketOrigin: placementOrigin,
+                request: submitArgs,
+                getToken: (options) => getConvexToken(options ?? {}),
+              }),
             };
           } catch (error) {
             return { accepted: false as const, error };
@@ -555,9 +588,11 @@ export const useConversation = (
 
         const current = pendingPrompts.find(sendAuthority, clientMsgId);
         if (current?.cancelRequested) {
-          const canceled = await cancelExecutionDispatch(
-            browserExecutionCancelArgs(result.dispatchId),
-          );
+          const canceled = await cancelDispatch({
+            socketOrigin: placementOrigin,
+            getToken: (options) => getConvexToken(options ?? {}),
+            ...browserExecutionCancelArgs(result.dispatchId),
+          });
           if (!isCurrentAuthority()) return;
           if (canceled.state === "canceled") {
             pendingPrompts.acknowledgeTerminal(
@@ -573,7 +608,11 @@ export const useConversation = (
         const settled = await waitForBrowserExecutionTurn({
           dispatchId: result.dispatchId,
           queryStatus: (dispatchId) =>
-            convex.query(cloudApi.getExecutionDispatchStatus, { dispatchId }),
+            getDispatchStatus({
+              socketOrigin: placementOrigin,
+              dispatchId,
+              getToken: (options) => getConvexToken(options ?? {}),
+            }),
           isCurrentAccount: isCurrentAuthority,
         });
         if (settled.status === "stale") return;
@@ -623,14 +662,7 @@ export const useConversation = (
         pendingPrompts.releaseDispatch(sendAuthority, clientMsgId);
       }
     },
-    [
-      cancelExecutionDispatch,
-      convex,
-      onSent,
-      startLegacyTurn,
-      submitBrowserExecution,
-      webShell,
-    ],
+    [config.socketBaseUrl, onSent, webShell],
   );
 
   // A fresh renderer hydrates only the exact current lifecycle generation.
@@ -639,6 +671,10 @@ export const useConversation = (
   // stable claim prevents StrictMode/multi-mount duplicate dispatchers.
   useEffect(() => {
     if (!authority || !pendingPrompts.isAuthorityReady(authority)) return;
+    // Every surface now posts straight to the builder; until its origin is
+    // known a hydrated row would fail for no reason. The effect re-runs when
+    // the realtime config resolves.
+    if (!config.resolved) return;
     for (const entry of allPending) {
       if (
         entry.accountScope !== authority.accountScope ||
@@ -651,7 +687,14 @@ export const useConversation = (
       }
       void dispatch(entry);
     }
-  }, [allPending, authority, conversationId, dispatch]);
+  }, [
+    allPending,
+    authority,
+    config.resolved,
+    conversationId,
+    dispatch,
+    webShell,
+  ]);
 
   const send = useCallback(
     async (prompt: string): Promise<void> => {
@@ -679,8 +722,14 @@ export const useConversation = (
       const selectedExecution =
         getCloudExecutionSelectionSnapshot() ?? cloudEngine?.execution ?? null;
       if (!authority) return;
+      // Desktop: a send with no conversation open starts one, and the id is
+      // ours to pick. Frozen into the submission so every retry addresses
+      // the same conversation. The web shell keeps placement's rule that a
+      // conversation must already be open.
+      const requestedConversationId =
+        conversationId ?? (webShell ? null : newCloudConversationId());
       const submission: PendingCloudTurnSubmission = {
-        requestedConversationId: conversationId,
+        requestedConversationId,
         prompt: decoratePrompt(text, attachments),
         imagePaths: attachments
           .filter(
@@ -746,10 +795,14 @@ export const useConversation = (
         pendingPrompts.requestCancel(authority, clientMsgId);
         return true;
       }
+      const placementOrigin = config.socketBaseUrl;
+      if (!placementOrigin) return false;
       try {
-        const canceled = await cancelExecutionDispatch(
-          browserExecutionCancelArgs(entry.dispatchId),
-        );
+        const canceled = await cancelDispatch({
+          socketOrigin: placementOrigin,
+          getToken: (options) => getConvexToken(options ?? {}),
+          ...browserExecutionCancelArgs(entry.dispatchId),
+        });
         if (canceled.state === "canceled") {
           pendingPrompts.acknowledgeTerminal(
             authority,
@@ -763,7 +816,7 @@ export const useConversation = (
         return false;
       }
     },
-    [authority, cancelExecutionDispatch],
+    [authority, config.socketBaseUrl],
   );
   const cancelTurn = useCallback(
     async (turnId: string): Promise<boolean> => {
@@ -779,9 +832,14 @@ export const useConversation = (
         (journalDispatchId?.kind === "message"
           ? journalDispatchId.clientMsgId
           : undefined);
-      if (dispatchId) {
+      const placementOrigin = config.socketBaseUrl;
+      if (dispatchId && placementOrigin) {
         try {
-          await cancelExecutionDispatch(browserExecutionCancelArgs(dispatchId));
+          await cancelDispatch({
+            socketOrigin: placementOrigin,
+            getToken: (options) => getConvexToken(options ?? {}),
+            ...browserExecutionCancelArgs(dispatchId),
+          });
           return true;
         } catch {
           return false;
@@ -790,7 +848,7 @@ export const useConversation = (
       // Compatibility for a turn created before browser placement shipped.
       return store?.cancelTurn(turnId) ?? false;
     },
-    [cancelExecutionDispatch, state.records, store],
+    [config.socketBaseUrl, state.records, store],
   );
   const loadOlder = useCallback(() => store?.loadOlder(), [store]);
   const retryConnection = useCallback(() => store?.retry(), [store]);
@@ -814,6 +872,12 @@ export const useConversation = (
  * The message we wrote is the only part a user should ever read.
  */
 const friendlySendError = (error: unknown): string => {
+  if (
+    error instanceof CloudTurnStartClientError ||
+    error instanceof CloudTurnStartTransportError
+  ) {
+    return error.message;
+  }
   const data = (error as { data?: unknown })?.data;
   if (typeof data === "string" && data.trim()) return data.trim();
   const message = (data as { message?: unknown })?.message;
@@ -830,6 +894,10 @@ const friendlySendError = (error: unknown): string => {
 
 /** True only when the server may have committed before transport failed. */
 const isAmbiguousTransportFailure = (error: unknown): boolean => {
+  // The builder answered: nothing was committed, so the exact payload can be
+  // retried by hand but must not re-arm itself on the next launch.
+  if (error instanceof CloudTurnStartClientError) return false;
+  if (error instanceof CloudTurnStartTransportError) return true;
   if (error instanceof TypeError) return true;
   if ((error as { data?: unknown })?.data !== undefined) return false;
   const message = error instanceof Error ? error.message : String(error ?? "");

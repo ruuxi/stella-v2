@@ -8,6 +8,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { scheduleOwnerSnapshotChanged } from "./lib/owner_snapshot_notify";
 import {
   ownerLifecycleStateValidator,
   ownerPurgeModeValidator,
@@ -161,24 +162,32 @@ const ownerDataAccessStateValidator = v.object({
   generation: v.string(),
 });
 
+export type OwnerDataAccessState = {
+  allowed: boolean;
+  state: OwnerLifecycleState;
+  generation: string;
+};
+
+/** Non-throwing read of the lifecycle fence, for snapshots and projections. */
+export const readOwnerDataAccessState = async (
+  ctx: Pick<QueryCtx, "db">,
+  ownerId: string,
+): Promise<OwnerDataAccessState> => {
+  const lifecycle = await readOwnerLifecycle(ctx, ownerId);
+  if (!lifecycle) {
+    return { allowed: true, state: "open", generation: LEGACY_OWNER_GENERATION };
+  }
+  return {
+    allowed: lifecycle.state === "open",
+    state: lifecycle.state,
+    generation: lifecycle.generation,
+  };
+};
+
 export const getOwnerDataAccessStateInternal = internalQuery({
   args: { ownerId: v.string() },
   returns: ownerDataAccessStateValidator,
-  handler: async (ctx, args) => {
-    const lifecycle = await readOwnerLifecycle(ctx, args.ownerId);
-    if (!lifecycle) {
-      return {
-        allowed: true,
-        state: "open" as const,
-        generation: LEGACY_OWNER_GENERATION,
-      };
-    }
-    return {
-      allowed: lifecycle.state === "open",
-      state: lifecycle.state,
-      generation: lifecycle.generation,
-    };
-  },
+  handler: async (ctx, args) => await readOwnerDataAccessState(ctx, args.ownerId),
 });
 
 /** Action-side admission seam used before credentials, billing, or upstream IO. */
@@ -285,6 +294,7 @@ export const beginOwnerDataPurgeInternal = internalMutation({
         operationId,
         updatedAt: args.now,
       });
+      await scheduleOwnerSnapshotChanged(ctx, args.ownerId, "generation");
     } else {
       await ctx.db.insert("cloud_owner_lifecycles", {
         ownerId: args.ownerId,
@@ -294,6 +304,7 @@ export const beginOwnerDataPurgeInternal = internalMutation({
         createdAt: args.now,
         updatedAt: args.now,
       });
+      await scheduleOwnerSnapshotChanged(ctx, args.ownerId, "generation");
     }
 
     if (args.authUserId) {
@@ -654,6 +665,7 @@ export const finishOwnerCloudPurgeInternal = internalMutation({
         operationId: undefined,
         updatedAt: args.now,
       });
+      await scheduleOwnerSnapshotChanged(ctx, args.ownerId, "generation");
     } else {
       // Better Auth's beforeDelete hook may have lost its action response and
       // aborted before removing the component user. Completion publishes a

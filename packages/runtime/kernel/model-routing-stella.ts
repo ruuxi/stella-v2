@@ -13,10 +13,14 @@ import {
   STELLA_STANDARD_MODEL,
   isDeepSeekV4FlashModel,
   isMuseSpark12ContributorModel,
-  stellaManagedRelayBaseUrlFromSiteUrl,
   type StellaRelayProvider,
 } from "@stella/contracts/stella-api";
+import { gatewayRelayBaseUrl } from "@stella/contracts/gateway/api";
 import { readConfiguredStellaSiteUrl } from "@stella/contracts/convex-urls";
+import {
+  createGatewaySessionClient,
+  getRememberedStellaGatewayOrigin,
+} from "./gateway-session.js";
 import type { ResolvedLlmRoute } from "./model-routing.js";
 
 /**
@@ -30,8 +34,20 @@ const STELLA_MAX_TOKENS = 16_384;
 const STELLA_AUTH_REFRESH_SKEW_MS = 15_000;
 export const STELLA_PROVIDER = "stella";
 
+/**
+ * Relay base for a Stella route built before the catalog advertised the
+ * gateway origin. A reserved `.invalid` host can never resolve, so a
+ * provisional route that slips past catalog enrichment fails closed on DNS
+ * instead of sending a capability to some SDK default endpoint; the catalog
+ * layer replaces the route (or fails loudly) before any model call.
+ */
+export const STELLA_GATEWAY_ORIGIN_PENDING =
+  "https://model-gateway.unconfigured.invalid";
+
 export type StellaSiteConfig = {
   baseUrl: string | null;
+  /** Device identity forwarded on the session capability exchange. */
+  deviceId?: string;
   getAuthToken: () => string | null | undefined;
   refreshAuthToken?: () =>
     | Promise<string | null | undefined>
@@ -245,11 +261,11 @@ export const getManagedStellaRegistryLookup = (
 
 const createRelayModel = (args: {
   siteBaseUrl: string;
+  gatewayOrigin: string | null;
   requestedModelId: string;
   resolvedModelId: string;
   provider: ManagedGatewayProvider;
   agentType: string;
-  authToken: string;
   registryModel?: Model<Api> | null;
 }): Model<Api> => {
   const lookup = getManagedStellaRegistryLookup(args.resolvedModelId);
@@ -277,7 +293,9 @@ const createRelayModel = (args: {
     name: modelName(args.requestedModelId),
     provider: registryModel?.provider ?? args.provider,
     api: apiForRelay(args.provider, registryModel, args.resolvedModelId),
-    baseUrl: stellaManagedRelayBaseUrlFromSiteUrl(args.siteBaseUrl),
+    baseUrl: gatewayRelayBaseUrl(
+      args.gatewayOrigin ?? STELLA_GATEWAY_ORIGIN_PENDING,
+    ),
     ...(isDeepSeekV4FlashModel(args.resolvedModelId)
       ? {
           thinkingLevelMap: {
@@ -318,13 +336,12 @@ const createRelayModel = (args: {
       : {}),
     headers: {
       ...(registryModel?.headers ?? {}),
-      // `X-Stella-Agent-Type` lets the relay attribute usage to the
-      // right per-agent bucket. The relay strips this header before
-      // forwarding upstream. The previous `X-Stella-Relay: 1` sentinel
-      // is gone — provider adapters now detect the relay by baseUrl
-      // (so a missing header can never accidentally route native auth
-      // headers through to providers that wouldn't accept Stella's
-      // token shape).
+      // `X-Stella-Agent-Type` lets the gateway validate the capability's
+      // agent-type allowlist and attribute usage to the right per-agent
+      // bucket; it is stripped before forwarding upstream. Provider adapters
+      // detect the gateway by baseUrl (`/v1/relay`), never by header, so a
+      // missing header can never accidentally route native auth headers
+      // through to providers that wouldn't accept a capability token.
       "X-Stella-Agent-Type": args.agentType,
     },
   } as Model<Api>;
@@ -336,6 +353,20 @@ const createRelayModel = (args: {
   // include the underlying model slug.
   (model as Model<Api> & { upstreamModelId?: string }).upstreamModelId =
     nativeId;
+  if (!args.gatewayOrigin) {
+    // Provisional route (built before any catalog fetch): resolve the relay
+    // base lazily so the route self-heals the moment the catalog remembers
+    // the origin, instead of pinning the unresolvable sentinel forever.
+    Object.defineProperty(model, "baseUrl", {
+      enumerable: true,
+      configurable: true,
+      get: () =>
+        gatewayRelayBaseUrl(
+          getRememberedStellaGatewayOrigin(args.siteBaseUrl) ??
+            STELLA_GATEWAY_ORIGIN_PENDING,
+        ),
+    });
+  }
   return model;
 };
 
@@ -347,6 +378,13 @@ export const createStellaRoute = (args: {
   modelId: string;
   resolvedModelId?: string;
   registryModel?: Model<Api> | null;
+  /**
+   * Gateway origin advertised by the model catalog. Defaults to the origin
+   * remembered from the last catalog fetch for this site; a route built
+   * before any catalog fetch gets the pending sentinel and must go through
+   * `withStellaModelCatalogMetadata` before use.
+   */
+  gatewayOrigin?: string | null;
 }): ResolvedLlmRoute | null => {
   const siteBaseUrl = normalizeStellaBase(args.site.baseUrl);
   const authToken = args.site.getAuthToken()?.trim();
@@ -361,32 +399,50 @@ export const createStellaRoute = (args: {
     args.resolvedModelId ?? resolveOfflineStellaModelId(args.modelId);
   if (!resolvedModelId) return null;
   const relayProvider = inferManagedGatewayProviderFromModel(resolvedModelId);
+  const gatewayOrigin =
+    args.gatewayOrigin ?? getRememberedStellaGatewayOrigin(siteBaseUrl);
 
-  const refreshApiKey = async (): Promise<string | undefined> => {
+  const refreshAuthToken = async (): Promise<string | undefined> => {
     const nextToken = (await args.site.refreshAuthToken?.())?.trim();
     return nextToken || undefined;
   };
 
-  const getApiKey = async (): Promise<string | undefined> => {
+  // The Better Auth JWT never reaches a model request. It is exchanged at the
+  // gateway for a session capability; near-expiry JWTs are refreshed first
+  // so the exchange itself never fails on a stale token.
+  const currentAuthToken = async (): Promise<string | undefined> => {
     const currentToken = args.site.getAuthToken()?.trim() || authToken;
     if (currentToken && shouldRefreshToken(currentToken)) {
-      return (await refreshApiKey()) || currentToken;
+      return (await refreshAuthToken()) || currentToken;
     }
-    return currentToken || (await refreshApiKey()) || undefined;
+    return currentToken || (await refreshAuthToken()) || undefined;
   };
+
+  const session = createGatewaySessionClient({
+    // Resolved per call: a provisional route created before the catalog
+    // fetch learns the origin as soon as the catalog remembers it.
+    gatewayOrigin: () =>
+      gatewayOrigin ?? getRememberedStellaGatewayOrigin(siteBaseUrl),
+    getAuthToken: currentAuthToken,
+    refreshAuthToken: args.site.refreshAuthToken ? refreshAuthToken : undefined,
+    deviceId: args.site.deviceId,
+  });
 
   return {
     route: "stella",
     model: createRelayModel({
       siteBaseUrl,
+      gatewayOrigin,
       requestedModelId: args.modelId,
       resolvedModelId,
       provider: relayProvider,
       agentType: args.agentType,
-      authToken: authToken || "",
       registryModel: args.registryModel,
     }),
-    getApiKey,
-    refreshApiKey: args.site.refreshAuthToken ? refreshApiKey : undefined,
+    getApiKey: () => session.getCapability(),
+    // A 401/402 from the gateway means the capability is no longer good
+    // (expired, revoked by a data-generation bump, or budget exhausted):
+    // drop it and exchange a fresh one for the retry.
+    refreshApiKey: () => session.refreshCapability(),
   };
 };

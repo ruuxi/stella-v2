@@ -8,11 +8,8 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
-const startCloudChat = makeFunctionReference<"mutation">(
-  "cloud_apps:startCloudChat",
-);
-const startCloudChatInternal = makeFunctionReference<"mutation">(
-  "cloud_apps:startCloudChatTurnInternal",
+const startAppBuildTurn = makeFunctionReference<"mutation">(
+  "cloud_apps:startAppBuildTurn",
 );
 const createMyConversation = makeFunctionReference<"mutation">(
   "cloud_apps:createMyConversation",
@@ -64,22 +61,6 @@ const seedGeneration = async (
   });
 };
 
-const seedConversation = async (
-  t: TestHarness,
-  ownerId: string,
-  conversationId: string,
-) => {
-  await t.run(async (ctx) => {
-    await ctx.db.insert("cloud_conversations", {
-      ownerId,
-      conversationId,
-      title: "Reliable chat",
-      createdAt: 1,
-      updatedAt: 1,
-    });
-  });
-};
-
 const turnsForClient = async (
   t: TestHarness,
   ownerId: string,
@@ -99,8 +80,8 @@ const scheduledForTurn = async (t: TestHarness, turnId: string) =>
   await t.run(async (ctx) =>
     (await ctx.db.system.query("_scheduled_functions").collect()).filter(
       (entry) =>
-        (entry.name.includes("runOrchestratorTurnInternal") ||
-          entry.name.includes("runCloudTurnInternal")) &&
+        (entry.name.includes("runCloudTurnInternal") ||
+          entry.name.includes("routeCloudTurnInternal")) &&
         entry.state.kind !== "canceled" &&
         typeof entry.args[0] === "object" &&
         entry.args[0] !== null &&
@@ -111,7 +92,7 @@ const scheduledForTurn = async (t: TestHarness, turnId: string) =>
     ),
   );
 
-describe("cloud chat reliable-delivery authority", () => {
+describe("cloud conversation lifecycle authority", () => {
   it("publishes conversation lifecycle authority to anonymous onboarding owners", async () => {
     const t = createTest();
     const subject = "anonymous-conversation-owner";
@@ -235,28 +216,34 @@ describe("cloud chat reliable-delivery authority", () => {
       }),
     ).rejects.toThrow(/could not be created/iu);
   });
+});
 
-  it("replays a lost first-message response with one conversation, turn, and schedule", async () => {
+describe("app build lane reliable delivery", () => {
+  it("creates the app on first use and replays a lost response with one turn and dispatch", async () => {
     const t = createTest();
-    const subject = "chat-replay-owner";
+    const subject = "build-replay-owner";
     const ownerId = ownerIdFor(subject);
-    const generation = "generation-chat-replay";
-    const clientMsgId = "chat:lost-response-0001";
+    const generation = "generation-build-replay";
+    const clientMsgId = "build:lost-response-0001";
     await seedGeneration(t, ownerId, generation);
     const args = {
-      prompt: "Explain durable delivery in one paragraph.",
+      prompt: "Create a habit tracker with a progress ring.",
+      appId: "app-build-replay-0001",
       clientMsgId,
       expectedOwnerGeneration: generation,
-      locale: "fr",
-      attachments: ["images/chart.png"],
     };
 
-    // Treat the first return value as a response that was committed by Convex
-    // but lost by the transport. The retry must recover the same receipt.
-    const committed = await identity(t, subject).mutation(startCloudChat, args);
-    const recovered = await identity(t, subject).mutation(startCloudChat, args);
+    const committed = await identity(t, subject).mutation(
+      startAppBuildTurn,
+      args,
+    );
+    const recovered = await identity(t, subject).mutation(
+      startAppBuildTurn,
+      args,
+    );
 
     expect(recovered).toEqual(committed);
+    expect(committed.appId).toBe(args.appId);
     const turns = await turnsForClient(t, ownerId, clientMsgId);
     expect(turns).toHaveLength(1);
     expect(turns[0]).toMatchObject({
@@ -264,228 +251,123 @@ describe("cloud chat reliable-delivery authority", () => {
       ownerGeneration: generation,
       conversationId: committed.conversationId,
       turnId: committed.turnId,
-      prompt: args.prompt,
-      clientMsgId,
-      kind: "chat",
+      appId: args.appId,
+      kind: "build",
+      lane: "build",
     });
     expect(turns[0]?.chatIntentFingerprint).toMatch(/^[a-f0-9]{64}$/u);
     await t.run(async (ctx) => {
-      const conversations = await ctx.db
-        .query("cloud_conversations")
-        .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
-        .collect();
-      expect(conversations).toHaveLength(1);
+      expect(
+        await ctx.db
+          .query("cloud_apps")
+          .withIndex("by_appId", (q) => q.eq("appId", args.appId))
+          .unique(),
+      ).toMatchObject({ ownerId, status: "building", title: "New app" });
+      expect(
+        await ctx.db
+          .query("cloud_conversations")
+          .withIndex("by_ownerId_and_updatedAt", (q) =>
+            q.eq("ownerId", ownerId),
+          )
+          .collect(),
+      ).toHaveLength(1);
     });
     expect(await scheduledForTurn(t, committed.turnId)).toHaveLength(1);
   });
 
-  it("fails closed when a client id changes payload or requested conversation authority", async () => {
+  it("fails closed when a client id changes payload, app, or conversation authority", async () => {
     const t = createTest();
-    const subject = "chat-collision-owner";
+    const subject = "build-conflict-owner";
     const ownerId = ownerIdFor(subject);
-    const generation = "generation-chat-collision";
-    const conversationId = "conversation-chat-collision-a";
-    const otherConversationId = "conversation-chat-collision-b";
-    const clientMsgId = "chat:collision-0001";
+    const generation = "generation-build-conflict";
     await seedGeneration(t, ownerId, generation);
-    await seedConversation(t, ownerId, conversationId);
-    await seedConversation(t, ownerId, otherConversationId);
     const first = {
-      prompt: "Keep these exact bytes.",
-      conversationId,
-      clientMsgId,
+      prompt: "Add a dark theme.",
+      appId: "app-build-conflict-0001",
+      clientMsgId: "build:conflict-0001",
       expectedOwnerGeneration: generation,
-      locale: "en",
-      attachments: ["images/a.png"],
     };
-    const receipt = await identity(t, subject).mutation(startCloudChat, first);
+    const receipt = await identity(t, subject).mutation(
+      startAppBuildTurn,
+      first,
+    );
 
-    await expect(
-      identity(t, subject).mutation(startCloudChat, {
-        ...first,
-        prompt: "These are changed bytes.",
-      }),
-    ).rejects.toThrow("different request");
-    await expect(
-      identity(t, subject).mutation(startCloudChat, {
-        ...first,
-        locale: "fr",
-      }),
-    ).rejects.toThrow("different request");
-    await expect(
-      identity(t, subject).mutation(startCloudChat, {
-        ...first,
-        attachments: ["images/b.png"],
-      }),
-    ).rejects.toThrow("different request");
-    await expect(
-      identity(t, subject).mutation(startCloudChat, {
-        ...first,
-        conversationId: otherConversationId,
-      }),
-    ).rejects.toThrow("different request");
-
-    expect(await turnsForClient(t, ownerId, clientMsgId)).toHaveLength(1);
+    for (const changed of [
+      { prompt: "Add a light theme." },
+      { appId: "app-build-conflict-0002" },
+      { conversationId: "3f0a5c2e-6a1b-4a0c-9c3e-2b7d8e1f0a11" },
+      { locale: "fr" },
+      { attachments: ["images/mock.png"] },
+    ]) {
+      await expect(
+        identity(t, subject).mutation(startAppBuildTurn, {
+          ...first,
+          ...changed,
+        }),
+      ).rejects.toThrow(/already used for a different request|not found/iu);
+    }
+    expect(await turnsForClient(t, ownerId, first.clientMsgId)).toHaveLength(1);
     expect(await scheduledForTurn(t, receipt.turnId)).toHaveLength(1);
   });
 
-  it("does not let direct and placement-independent internal authority adopt each other's client id", async () => {
+  it("rejects predecessor-generation replay after a reset", async () => {
     const t = createTest();
-    const subject = "chat-authority-owner";
+    const subject = "build-generation-owner";
     const ownerId = ownerIdFor(subject);
-    const generation = "generation-chat-authority";
-    const conversationId = "conversation-chat-authority";
-    const clientMsgId = "chat:authority-0001";
-    const prompt = "Keep caller authority distinct.";
-    await seedGeneration(t, ownerId, generation);
-    await seedConversation(t, ownerId, conversationId);
-    const receipt = await identity(t, subject).mutation(startCloudChat, {
-      prompt,
-      conversationId,
-      clientMsgId,
-      expectedOwnerGeneration: generation,
-    });
-
-    await expect(
-      t.mutation(startCloudChatInternal, {
-        ownerId,
-        ownerGeneration: generation,
-        conversationId,
-        prompt,
-        clientMsgId,
-        now: 2,
-      }),
-    ).rejects.toThrow("different request");
-    expect(await turnsForClient(t, ownerId, clientMsgId)).toHaveLength(1);
-    expect(await scheduledForTurn(t, receipt.turnId)).toHaveLength(1);
-  });
-
-  it("rejects predecessor-generation replay and generation rewriting after reset", async () => {
-    const t = createTest();
-    const subject = "chat-reset-owner";
-    const ownerId = ownerIdFor(subject);
-    const beforeReset = "generation-before-reset";
-    const afterReset = "generation-after-reset";
-    const conversationId = "conversation-chat-reset";
-    const clientMsgId = "chat:generation-0001";
-    await seedGeneration(t, ownerId, beforeReset);
-    await seedConversation(t, ownerId, conversationId);
+    await seedGeneration(t, ownerId, "generation-before");
     const args = {
-      prompt: "Do not cross the reset boundary.",
-      conversationId,
-      clientMsgId,
-      expectedOwnerGeneration: beforeReset,
+      prompt: "Ship it.",
+      appId: "app-build-generation-0001",
+      clientMsgId: "build:generation-0001",
+      expectedOwnerGeneration: "generation-before",
     };
-    const receipt = await identity(t, subject).mutation(startCloudChat, args);
+    await identity(t, subject).mutation(startAppBuildTurn, args);
     await t.run(async (ctx) => {
       const lifecycle = await ctx.db
         .query("cloud_owner_lifecycles")
         .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
         .unique();
-      expect(lifecycle).not.toBeNull();
       await ctx.db.patch(lifecycle!._id, {
-        generation: afterReset,
-        updatedAt: 3,
+        generation: "generation-after",
+        updatedAt: 2,
       });
     });
 
     await expect(
-      identity(t, subject).mutation(startCloudChat, args),
-    ).rejects.toThrow("started before the account data was reset");
+      identity(t, subject).mutation(startAppBuildTurn, args),
+    ).rejects.toThrow(/reset|generation/iu);
     await expect(
-      identity(t, subject).mutation(startCloudChat, {
+      identity(t, subject).mutation(startAppBuildTurn, {
         ...args,
-        expectedOwnerGeneration: afterReset,
+        expectedOwnerGeneration: "generation-after",
       }),
-    ).rejects.toThrow("different request");
-
-    expect(await turnsForClient(t, ownerId, clientMsgId)).toHaveLength(1);
-    expect(await scheduledForTurn(t, receipt.turnId)).toHaveLength(1);
+    ).rejects.toThrow(/already used for a different request/iu);
   });
 
-  it("rejects legacy or duplicate residue instead of guessing replay authority", async () => {
+  it("keeps identical client ids isolated by owner and never adopts another owner's app", async () => {
     const t = createTest();
-    const subject = "chat-residue-owner";
-    const ownerId = ownerIdFor(subject);
-    const generation = "generation-chat-residue";
-    const conversationId = "conversation-chat-residue";
-    await seedGeneration(t, ownerId, generation);
-    await seedConversation(t, ownerId, conversationId);
-    await t.run(async (ctx) => {
-      await ctx.db.insert("agent_turns", {
-        turnId: "turn-legacy-residue",
-        sessionId: "session-legacy-residue",
-        ownerId,
-        conversationId,
-        prompt: "Legacy residue",
-        status: "running",
-        lane: "chat",
-        kind: "chat",
-        agentType: "orchestrator",
-        clientMsgId: "chat:legacy-residue",
-        createdAt: 1,
-        updatedAt: 1,
-      });
-      for (const suffix of ["a", "b"]) {
-        await ctx.db.insert("agent_turns", {
-          turnId: `turn-duplicate-${suffix}`,
-          sessionId: `session-duplicate-${suffix}`,
-          ownerId,
-          conversationId,
-          prompt: "Duplicate residue",
-          status: "running",
-          lane: "chat",
-          kind: "chat",
-          agentType: "orchestrator",
-          clientMsgId: "chat:duplicate-residue",
-          ownerGeneration: generation,
-          chatIntentFingerprint: `${suffix}`.repeat(64),
-          createdAt: 1,
-          updatedAt: 1,
-        });
-      }
-    });
-
-    await expect(
-      identity(t, subject).mutation(startCloudChat, {
-        prompt: "Legacy residue",
-        conversationId,
-        clientMsgId: "chat:legacy-residue",
-        expectedOwnerGeneration: generation,
-      }),
-    ).rejects.toThrow("different request");
-    await expect(
-      identity(t, subject).mutation(startCloudChat, {
-        prompt: "Duplicate residue",
-        conversationId,
-        clientMsgId: "chat:duplicate-residue",
-        expectedOwnerGeneration: generation,
-      }),
-    ).rejects.toThrow("conflicting prior deliveries");
-  });
-
-  it("keeps identical client ids isolated by owner and replays one build app id", async () => {
-    const t = createTest();
-    const sharedClientMsgId = "chat:cross-owner-0001";
+    const sharedClientMsgId = "build:cross-owner-0001";
     const owners = [
-      { subject: "chat-owner-a", generation: "generation-owner-a" },
-      { subject: "chat-owner-b", generation: "generation-owner-b" },
+      { subject: "build-owner-a", generation: "generation-owner-a" },
+      { subject: "build-owner-b", generation: "generation-owner-b" },
     ];
     for (const owner of owners) {
       await seedGeneration(t, ownerIdFor(owner.subject), owner.generation);
     }
     const first = await identity(t, owners[0]!.subject).mutation(
-      startCloudChat,
+      startAppBuildTurn,
       {
-        prompt: "Owner A message.",
+        prompt: "Owner A app.",
+        appId: "app-owner-a-0001",
         clientMsgId: sharedClientMsgId,
         expectedOwnerGeneration: owners[0]!.generation,
       },
     );
     const second = await identity(t, owners[1]!.subject).mutation(
-      startCloudChat,
+      startAppBuildTurn,
       {
-        prompt: "Owner B message.",
+        prompt: "Owner B app.",
+        appId: "app-owner-b-0001",
         clientMsgId: sharedClientMsgId,
         expectedOwnerGeneration: owners[1]!.generation,
       },
@@ -493,33 +375,20 @@ describe("cloud chat reliable-delivery authority", () => {
     expect(second.turnId).not.toBe(first.turnId);
     expect(second.conversationId).not.toBe(first.conversationId);
 
-    const buildClientMsgId = "chat:build-replay-0001";
-    const buildArgs = {
-      prompt: "Create a new app that shows one blue square.",
-      clientMsgId: buildClientMsgId,
-      expectedOwnerGeneration: owners[0]!.generation,
-    };
-    const build = await identity(t, owners[0]!.subject).mutation(
-      startCloudChat,
-      buildArgs,
-    );
-    const replayedBuild = await identity(t, owners[0]!.subject).mutation(
-      startCloudChat,
-      buildArgs,
-    );
-    expect(build.appId).toMatch(/^app-/u);
-    expect(replayedBuild).toEqual(build);
-    expect(
-      await turnsForClient(t, ownerIdFor(owners[0]!.subject), buildClientMsgId),
-    ).toHaveLength(1);
-    await t.run(async (ctx) => {
-      expect(
-        await ctx.db
-          .query("cloud_apps")
-          .withIndex("by_appId", (q) => q.eq("appId", build.appId!))
-          .unique(),
-      ).not.toBeNull();
-    });
-    expect(await scheduledForTurn(t, build.turnId)).toHaveLength(1);
+    await expect(
+      identity(t, owners[1]!.subject).mutation(startAppBuildTurn, {
+        prompt: "Owner B on A's app.",
+        appId: "app-owner-a-0001",
+        clientMsgId: "build:cross-owner-0002",
+        expectedOwnerGeneration: owners[1]!.generation,
+      }),
+    ).rejects.toThrow(/App not found/u);
+    await expect(
+      identity(t, owners[1]!.subject).mutation(startAppBuildTurn, {
+        prompt: "Bad id.",
+        appId: "x",
+        expectedOwnerGeneration: owners[1]!.generation,
+      }),
+    ).rejects.toThrow(/App not found/u);
   });
 });

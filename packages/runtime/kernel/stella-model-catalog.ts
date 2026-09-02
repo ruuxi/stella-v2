@@ -24,6 +24,12 @@ import {
   resolveOfflineStellaModelId,
   type StellaSiteConfig,
 } from "./model-routing-stella.js";
+import {
+  STELLA_GATEWAY_UNCONFIGURED_MESSAGE,
+  getRememberedStellaGatewayOrigin,
+  normalizeGatewayOrigin,
+  rememberStellaGatewayOrigin,
+} from "./gateway-session.js";
 
 type CatalogModel = {
   id: string;
@@ -49,11 +55,14 @@ type CatalogApiModel = {
 type CatalogApiResponse = {
   data?: CatalogApiModel[];
   defaults?: CatalogDefaultModel[];
+  /** Model-gateway origin every Stella route must relay through. */
+  gateway?: { origin?: unknown };
 };
 
 type StellaModelCatalog = {
   models: CatalogModel[];
   defaults: CatalogDefaultModel[];
+  gateway: { origin: string };
 };
 
 type CatalogCacheEntry = StellaModelCatalog;
@@ -99,6 +108,11 @@ const publishCatalogToModelRuntime = async (
   catalog: StellaModelCatalog,
   site: StellaSiteConfig,
 ): Promise<void> => {
+  // Every served catalog (memory, disk, network) re-asserts the gateway
+  // origin so routes built outside this module can find it.
+  if (site.baseUrl) {
+    rememberStellaGatewayOrigin(site.baseUrl, catalog.gateway.origin);
+  }
   const routes = catalog.models
     .filter((model) => model.id.startsWith(`${STELLA_PROVIDER}/`))
     .map((model) =>
@@ -110,6 +124,7 @@ const publishCatalogToModelRuntime = async (
           model.upstreamModel ??
           resolveOfflineStellaModelId(model.id) ??
           undefined,
+        gatewayOrigin: catalog.gateway.origin,
       }),
     )
     .filter((route): route is NonNullable<typeof route> => Boolean(route));
@@ -142,6 +157,7 @@ const diskCachePathForIdentity = (
 const cloneCatalog = (catalog: StellaModelCatalog): StellaModelCatalog => ({
   models: catalog.models,
   defaults: catalog.defaults,
+  gateway: { origin: catalog.gateway.origin },
 });
 
 const isCatalogModel = (value: unknown): value is CatalogModel => {
@@ -172,7 +188,11 @@ const parsePersistedCatalog = (
   if (!value || typeof value !== "object") return null;
   const candidate = value as {
     cacheKey?: unknown;
-    catalog?: { models?: unknown; defaults?: unknown };
+    catalog?: {
+      models?: unknown;
+      defaults?: unknown;
+      gateway?: { origin?: unknown };
+    };
   };
   if (typeof candidate.cacheKey !== "string") return null;
   const models = candidate.catalog?.models;
@@ -181,8 +201,12 @@ const parsePersistedCatalog = (
   if (!models.every(isCatalogModel) || !defaults.every(isCatalogDefault)) {
     return null;
   }
+  // A pre-gateway disk copy carries no origin; it reads as "nothing stored"
+  // so the next lookup fetches a catalog that does.
+  const gatewayOrigin = normalizeGatewayOrigin(candidate.catalog?.gateway?.origin);
+  if (!gatewayOrigin) return null;
   return {
-    catalog: { models, defaults },
+    catalog: { models, defaults, gateway: { origin: gatewayOrigin } },
     storedCacheKey: candidate.cacheKey,
   };
 };
@@ -352,6 +376,13 @@ const fetchCatalogFromNetwork = (
         return yield* Effect.fail(new Error(`HTTP ${res.status}`));
       }
       const data = (yield* tryCatalogOp(() => res.json())) as CatalogApiResponse;
+      // The gateway origin is part of the catalog contract: without it no
+      // Stella route can be built, so its absence is a catalog failure, not
+      // a partial success.
+      const gatewayOrigin = normalizeGatewayOrigin(data.gateway?.origin);
+      if (!gatewayOrigin) {
+        return yield* Effect.fail(new Error(STELLA_GATEWAY_UNCONFIGURED_MESSAGE));
+      }
       const catalog: StellaModelCatalog = {
         models: (data.data ?? [])
           .filter((model) => !model.type || model.type === "language")
@@ -362,6 +393,7 @@ const fetchCatalogFromNetwork = (
             upstreamModel: model.upstreamModel,
           })),
         defaults: data.defaults ?? [],
+        gateway: { origin: gatewayOrigin },
       };
       catalogCache.set(request.cacheKey, cloneCatalog(catalog));
       yield* writeCatalogToDiskEffect(
@@ -508,6 +540,16 @@ const resolveStellaModelAliasEffect = (args: {
     const modelId = args.route.model.id.trim();
     const passthrough = getStellaVerbatimUpstreamModel(modelId);
     if (passthrough) {
+      // Verbatim ids need no alias lookup, but the route still needs the
+      // gateway origin the catalog advertises; fetch it once per site.
+      if (!getRememberedStellaGatewayOrigin(args.site.baseUrl)) {
+        yield* fetchStellaModelCatalogEffect({
+          site: args.site,
+          deviceId: args.deviceId,
+          modelCatalogUpdatedAt: args.modelCatalogUpdatedAt,
+          stellaDataDir: args.stellaDataDir,
+        });
+      }
       return passthrough;
     }
 
@@ -567,9 +609,21 @@ export const withStellaModelCatalogMetadata = (args: {
             ),
           );
         }
-        return args.route;
+        // Offline fallback: the alias resolved locally, but the route still
+        // has to relay through a known gateway. Rebuild it so a provisional
+        // (pre-catalog) baseUrl never reaches a provider adapter.
+        const gatewayOrigin = yield* requireGatewayOrigin(args.site);
+        return (
+          createStellaRoute({
+            site: args.site,
+            agentType: args.agentType,
+            modelId: args.route.model.id,
+            gatewayOrigin,
+          }) ?? args.route
+        );
       }
 
+      const gatewayOrigin = yield* requireGatewayOrigin(args.site);
       const lookup = getManagedStellaRegistryLookup(resolvedModelId);
       const registryModel =
         findRegistryModel(lookup.provider, lookup.candidates) ??
@@ -586,6 +640,7 @@ export const withStellaModelCatalogMetadata = (args: {
         modelId: args.route.model.id,
         resolvedModelId,
         registryModel,
+        gatewayOrigin,
       });
 
       return {
@@ -594,3 +649,18 @@ export const withStellaModelCatalogMetadata = (args: {
       };
     }),
   );
+
+/**
+ * The gateway origin is configuration, not data: once the catalog (memory,
+ * disk, or network) has been consulted and still no origin is known, the
+ * deployment is misconfigured and every Stella model call must fail closed.
+ */
+const requireGatewayOrigin = (
+  site: StellaSiteConfig,
+): Effect.Effect<string, Error> =>
+  Effect.suspend(() => {
+    const origin = getRememberedStellaGatewayOrigin(site.baseUrl);
+    return origin
+      ? Effect.succeed(origin)
+      : Effect.fail(new Error(STELLA_GATEWAY_UNCONFIGURED_MESSAGE));
+  });

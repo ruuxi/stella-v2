@@ -48,33 +48,70 @@ import {
   assertOwnerDataAccessActive,
   assertOwnerDataWriteAllowed,
   assertOwnerPurgeOperation,
-  LEGACY_OWNER_GENERATION,
 } from "./owner_lifecycle";
 import { hashSha256Hex } from "./lib/crypto_utils";
 import { normalizeChatAttachmentPaths } from "./lib/chat_attachments";
 import { createManagedUsageDispatchGuard } from "./lib/managed_billing";
 import { runManagedDispatchAttempt } from "./runtime_ai/managed";
 import {
-  browserSuspensionReplayMatches,
   completeCloudBrowserInteractionForResumeTurn,
   markBrowserResumeDispatchFailed,
   projectCloudBrowserSuspension,
 } from "./cloud_browser";
-import { cloudBrowserResumeReceiptValidator } from "./schema/cloud_browser";
+import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 
-type CloudPlanQuota = {
+type OwnerModelAllowance = {
+  audience: ManagedModelAudience;
+  budgetMicroCents: number;
+  maxRequests?: number;
+  unlimited: boolean;
+};
+
+/**
+ * The managed-model allowance a Builder turn capability is minted from.
+ * Convex is the only party that knows the owner's plan and remaining managed
+ * balance; the admitting Durable Object signs exactly these numbers into the
+ * capability and the model gateway meters against them without calling back.
+ */
+const resolveOwnerModelAllowance = async (
+  ctx: ActionCtx,
+  ownerId: string,
+  ownerGeneration: string,
+): Promise<OwnerModelAllowance> =>
+  (await ctx.runMutation(
+    internal.gateway_capabilities.getOwnerModelAllowanceInternal,
+    { ownerId, ownerGeneration },
+  )) as OwnerModelAllowance;
+
+export const ownerModelAllowanceFields = async (
+  ctx: ActionCtx,
+  ownerId: string,
+  ownerGeneration: string,
+): Promise<{ audience: ManagedModelAudience; budgetMicroCents: number }> => {
+  const allowance = await resolveOwnerModelAllowance(
+    ctx,
+    ownerId,
+    ownerGeneration,
+  );
+  return {
+    audience: allowance.audience,
+    budgetMicroCents: allowance.budgetMicroCents,
+  };
+};
+
+export type CloudPlanQuota = {
   dailyTurns: number;
   concurrentTurns: number;
   burstStarts: number;
 };
 
-const CLOUD_PLAN_QUOTAS: Record<SubscriptionPlan, CloudPlanQuota> = {
+export const CLOUD_PLAN_QUOTAS: Record<SubscriptionPlan, CloudPlanQuota> = {
   free: { dailyTurns: 3, concurrentTurns: 1, burstStarts: 4 },
   go: { dailyTurns: 10, concurrentTurns: 1, burstStarts: 6 },
   pro: { dailyTurns: 25, concurrentTurns: 2, burstStarts: 10 },
 };
 
-const UNLIMITED_CLOUD_QUOTA: CloudPlanQuota = {
+export const UNLIMITED_CLOUD_QUOTA: CloudPlanQuota = {
   dailyTurns: 200,
   concurrentTurns: 6,
   burstStarts: 40,
@@ -90,10 +127,14 @@ const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
 export const CLOUD_APP_ROUTE_MODEL_BILLING_POLICY =
   "stella_control_plane_overhead" as const;
 
-const resolveCloudPlan = async (
+export const resolveCloudPlan = async (
   ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
   ownerId: string,
-): Promise<{ plan: SubscriptionPlan; quota: CloudPlanQuota }> => {
+): Promise<{
+  plan: SubscriptionPlan;
+  quota: CloudPlanQuota;
+  unlimited: boolean;
+}> => {
   const profile = await ctx.db
     .query("billing_profiles")
     .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
@@ -104,12 +145,11 @@ const resolveCloudPlan = async (
     profile.activePlan !== "free"
       ? profile.activePlan
       : "free";
+  const unlimited = profile?.usageMode === "unlimited";
   return {
     plan,
-    quota:
-      profile?.usageMode === "unlimited"
-        ? UNLIMITED_CLOUD_QUOTA
-        : CLOUD_PLAN_QUOTAS[plan],
+    quota: unlimited ? UNLIMITED_CLOUD_QUOTA : CLOUD_PLAN_QUOTAS[plan],
+    unlimited,
   };
 };
 
@@ -165,20 +205,6 @@ const isCloudBuildTurnDispatchableRef = makeFunctionReference<
   },
   boolean
 >("cloud_apps:isCloudBuildTurnDispatchableInternal");
-const isCloudBuildTurnAttemptAuthoritativeRef = makeFunctionReference<
-  "query",
-  {
-    tokenHash: string;
-    ownerId: string;
-    ownerGeneration: string;
-    conversationId: string;
-    appId: string;
-    turnId: string;
-    sessionId: string;
-    now: number;
-  },
-  boolean
->("cloud_apps:isCloudBuildTurnAttemptAuthoritativeInternal");
 const getOpsManifestRef = makeFunctionReference<
   "query",
   { appId: string },
@@ -198,33 +224,6 @@ const assertCloudRouteDispatchRef = makeFunctionReference<
   { ownerId: string; ownerGeneration: string; turnId: string },
   null
 >("cloud_apps:assertCloudRouteDispatchAllowedInternal");
-const runOrchestratorTurnRef = makeFunctionReference<"action", any, any>(
-  "cloud_apps:runOrchestratorTurnInternal",
-);
-const isCloudChatTurnDispatchableRef = makeFunctionReference<
-  "query",
-  {
-    ownerId: string;
-    ownerGeneration: string;
-    conversationId: string;
-    turnId: string;
-    sessionId: string;
-  },
-  boolean
->("cloud_apps:isCloudChatTurnDispatchableInternal");
-const isCloudChatTurnAttemptAuthoritativeRef = makeFunctionReference<
-  "query",
-  {
-    tokenHash: string;
-    ownerId: string;
-    ownerGeneration: string;
-    conversationId: string;
-    turnId: string;
-    sessionId: string;
-    now: number;
-  },
-  boolean
->("cloud_apps:isCloudChatTurnAttemptAuthoritativeInternal");
 type CloudAgentThreadControl = {
   status: string;
   runningTurnId: string | null;
@@ -238,31 +237,6 @@ type CloudAgentThreadControl = {
     threadUpdatedAt: number;
   };
 };
-type AgentThreadControlReceipt = {
-  threadId: string;
-  attemptGeneration: number;
-  threadUpdatedAt: number;
-  status:
-    | "running"
-    | "waiting_for_user"
-    | "resuming"
-    | "completed"
-    | "failed"
-    | "canceled";
-};
-const agentThreadControlReceiptValidator = v.object({
-  threadId: v.string(),
-  attemptGeneration: v.number(),
-  threadUpdatedAt: v.number(),
-  status: v.union(
-    v.literal("running"),
-    v.literal("waiting_for_user"),
-    v.literal("resuming"),
-    v.literal("completed"),
-    v.literal("failed"),
-    v.literal("canceled"),
-  ),
-});
 const getCloudAgentThreadControlRef = makeFunctionReference<
   "query",
   {
@@ -276,50 +250,12 @@ const getCloudAgentThreadControlRef = makeFunctionReference<
   },
   CloudAgentThreadControl | null
 >("cloud_apps:getCloudAgentThreadControlInternal");
-const runCloudAgentTurnRef = makeFunctionReference<"action", any, any>(
-  "cloud_apps:runCloudAgentTurnInternal",
-);
-const storeTurnTokenRef = makeFunctionReference<"mutation", any, any>(
-  "cloud_apps:storeTurnTokenInternal",
-);
-const ensureTurnTokenForDispatchRef = makeFunctionReference<
-  "mutation",
-  any,
-  boolean
->("cloud_apps:ensureTurnTokenForDispatchInternal");
-const failCloudAgentDispatchRef = makeFunctionReference<"mutation", any, any>(
-  "cloud_apps:failCloudAgentDispatchInternal",
-);
-const completeAgentThreadRef = makeFunctionReference<"mutation", any, any>(
-  "cloud_apps:completeAgentThreadInternal",
+const dispatchCloudAgentTurnRef = makeFunctionReference<"action", any, null>(
+  "cloud_agent_dispatch:dispatchCloudAgentTurnInternal",
 );
 const cancelCloudAgentTurnRef = makeFunctionReference<"mutation", any, any>(
   "cloud_apps:cancelCloudAgentTurnInternal",
 );
-const isCloudAgentTurnDispatchableRef = makeFunctionReference<
-  "query",
-  {
-    ownerId: string;
-    ownerGeneration: string;
-    threadId: string;
-    turnId: string;
-    attemptGeneration: number;
-  },
-  boolean
->("cloud_apps:isCloudAgentTurnDispatchableInternal");
-const isCloudAgentTurnAttemptAuthoritativeRef = makeFunctionReference<
-  "query",
-  {
-    tokenHash: string;
-    ownerId: string;
-    ownerGeneration: string;
-    threadId: string;
-    turnId: string;
-    attemptGeneration: number;
-    now: number;
-  },
-  boolean
->("cloud_apps:isCloudAgentTurnAttemptAuthoritativeInternal");
 const getEngineSettingsRef = makeFunctionReference<
   "query",
   { ownerId: string },
@@ -330,7 +266,7 @@ const getEngineSettingsRef = makeFunctionReference<
   }
 >("cloud_engines:getEngineSettingsInternal");
 
-const resolveOwnerExecution = async (
+export const resolveOwnerExecution = async (
   ctx: { runQuery: (ref: any, args: any) => Promise<any> },
   ownerId: string,
 ): Promise<CloudExecutionSelection> => {
@@ -409,7 +345,7 @@ const parseLegacySpawnExecution = (
 };
 
 const assertExecutionAvailable = async (
-  ctx: Pick<MutationCtx, "db">,
+  ctx: Pick<QueryCtx, "db">,
   ownerId: string,
   selection: CloudExecutionSelection,
 ): Promise<CloudExecutionSelection> => {
@@ -434,8 +370,8 @@ const assertExecutionAvailable = async (
   return execution;
 };
 
-const resolveOwnerExecutionInMutation = async (
-  ctx: Pick<MutationCtx, "db">,
+export const resolveOwnerExecutionInMutation = async (
+  ctx: Pick<QueryCtx, "db">,
   ownerId: string,
 ): Promise<CloudExecutionSelection> => {
   const settings = await ctx.db
@@ -454,17 +390,9 @@ const resolveOwnerExecutionInMutation = async (
   return await assertExecutionAvailable(ctx, ownerId, execution);
 };
 
-const TURN_TOKEN_TTL_MS = 30 * 60_000;
-const TURN_TOKEN_ATTEMPT_ROW_LIMIT = 32;
-const THREAD_CONTEXT_ROW_LIMIT = 400;
-// One active turn can contribute at most 1,024 rows. Scanning that turn plus
-// the 400-row context suffix makes excludeTurnId deterministic without an
-// unbounded collect.
-const THREAD_CONTEXT_SCAN_LIMIT = 1_424;
-const THREAD_CONTEXT_MAX_BYTES = 4 * 1024 * 1024;
 const THREAD_MESSAGE_MAX_BYTES = 512 * 1024;
-const THREAD_TURN_MESSAGE_LIMIT = 1_024;
-const THREAD_TURN_MESSAGE_MAX_BYTES = 4 * 1024 * 1024;
+export const THREAD_TURN_MESSAGE_LIMIT = 1_024;
+export const THREAD_TURN_MESSAGE_MAX_BYTES = 4 * 1024 * 1024;
 const THREAD_MESSAGE_ROLES = new Set(["user", "assistant", "toolResult"]);
 
 // The build lane's quota counts builds: "build", the pre-routing "auto"
@@ -508,7 +436,7 @@ const hashToken = async (value: string): Promise<string> => {
 const utf8ByteLength = (value: string): number =>
   new TextEncoder().encode(value).byteLength;
 
-const assertThreadMessagePayload = (
+export const assertThreadMessagePayload = (
   role: string,
   payloadJson: string,
 ): void => {
@@ -551,10 +479,11 @@ const assertExpectedOwnerGenerationActive = async (
 };
 
 // Allocates the next seq and inserts one AgentMessage row into a spawned
-// agent's THREAD transcript. Callers hold the mutation transaction, so
-// max(seq)+1 is race-free. User conversations do not come through here — their
-// transcript is the DO's journal.
-const appendThreadMessage = async (
+// agent's THREAD transcript projection. Callers hold the mutation
+// transaction, so max(seq)+1 is race-free. Rows are keyed by (turnId,
+// ordinal): a redelivered batch is a no-op, and a re-emitted row for the same
+// ordinal replaces the projection (the BuildSession's copy is authoritative).
+export const appendThreadMessage = async (
   ctx: MutationCtx,
   args: {
     threadId: string;
@@ -565,7 +494,7 @@ const appendThreadMessage = async (
     payloadJson: string;
     now: number;
   },
-): Promise<number> => {
+): Promise<{ seq: number; inserted: boolean }> => {
   const replay = await ctx.db
     .query("cloud_thread_messages")
     .withIndex("by_turnId_and_ordinal", (q) =>
@@ -575,13 +504,17 @@ const appendThreadMessage = async (
   if (replay) {
     if (
       replay.conversationId !== args.threadId ||
-      replay.ownerId !== args.ownerId ||
-      replay.role !== args.role ||
-      replay.payloadJson !== args.payloadJson
+      replay.ownerId !== args.ownerId
     ) {
       throw new ConvexError("Agent thread message replay does not match.");
     }
-    return replay.seq;
+    if (replay.role !== args.role || replay.payloadJson !== args.payloadJson) {
+      await ctx.db.patch(replay._id, {
+        role: args.role,
+        payloadJson: args.payloadJson,
+      });
+    }
+    return { seq: replay.seq, inserted: false };
   }
   const last = await ctx.db
     .query("cloud_thread_messages")
@@ -601,10 +534,10 @@ const appendThreadMessage = async (
     turnId: args.turnId,
     createdAt: args.now,
   });
-  return seq;
+  return { seq, inserted: true };
 };
 
-const CHAT_TITLE_MAX = 56;
+export const CHAT_TITLE_MAX = 56;
 
 // Resolves the conversation a turn lands in, creating one (titled from the
 // first prompt) when the caller has none. Ownership is checked here so every
@@ -699,21 +632,6 @@ const resolveConversationId = async (
   };
 };
 
-/**
- * The one implementation of "start a chat-lane turn" (contract C1). Every
- * caller — the signed-in composer, scheduled turns, desktop-dispatched cloud
- * work, and the agent-completion wake — goes through here so the transcript,
- * the turn token, and the orchestrator dispatch can never drift apart.
- *
- * `hiddenMessage` keeps the prompt out of the rendered transcript (lifecycle
- * and scheduled prompts are context, not something the user typed);
- * `hiddenTurn` additionally marks the turn row so the UI renders no user
- * bubble for it. The assistant reply stays visible in both cases.
- *
- * The prompt is NOT written to a transcript here. The conversation DO appends
- * it as the turn's first journal row, from the same dispatch that starts the
- * turn — one writer, one order, no second authority for message content.
- */
 // BCP-47-shaped, e.g. "es" or "zh-Hans". Anything else is dropped rather
 // than rejected — locale is a hint, never a reason to fail a send.
 const LOCALE_PATTERN = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
@@ -721,125 +639,6 @@ const LOCALE_PATTERN = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
 const normalizeLocale = (value: string | undefined): string | undefined => {
   const trimmed = value?.trim();
   return trimmed && LOCALE_PATTERN.test(trimmed) ? trimmed : undefined;
-};
-
-const startChatTurn = async (
-  ctx: MutationCtx,
-  args: {
-    ownerId: string;
-    conversationId?: string;
-    prompt: string;
-    lane?: string;
-    source?: string;
-    title?: string;
-    hiddenMessage?: boolean;
-    hiddenTurn?: boolean;
-    clientMsgId?: string;
-    locale?: string;
-    attachments?: string[];
-    execution?: CloudExecutionSelection;
-    ownerGeneration?: string;
-    chatIntentFingerprint?: string;
-    /** Server-issued receipt carried into a lifecycle wake. The conversation
-     * DO persists it outside model-visible tool arguments. */
-    agentThreadControl?: AgentThreadControlReceipt;
-    now: number;
-  },
-): Promise<{ conversationId: string; turnId: string }> => {
-  const lifecycle = await assertOwnerDataWriteAllowed(
-    ctx,
-    args.ownerId,
-    args.ownerGeneration,
-  );
-  const explicitExecution = args.execution
-    ? await assertExecutionAvailable(ctx, args.ownerId, args.execution)
-    : undefined;
-  const conversation = await resolveConversationId(ctx, {
-    ownerId: args.ownerId,
-    conversationId: args.conversationId,
-    title: args.title ?? args.prompt,
-    ...(explicitExecution ? { execution: explicitExecution } : {}),
-    now: args.now,
-  });
-  const execution = explicitExecution
-    ? explicitExecution
-    : conversation.execution
-      ? await assertExecutionAvailable(
-          ctx,
-          args.ownerId,
-          conversation.execution,
-        )
-      : await resolveOwnerExecutionInMutation(ctx, args.ownerId);
-  if (!conversation.execution) {
-    await ctx.db.patch(conversation.documentId, { execution });
-  }
-  if (Boolean(args.clientMsgId) !== Boolean(args.chatIntentFingerprint)) {
-    throw new ConvexError(
-      "Reliable chat admission is missing its payload fence.",
-    );
-  }
-  const conversationId = conversation.conversationId;
-  const turnId = crypto.randomUUID();
-  const sessionId = `chat-${conversationId.slice(0, 8)}`;
-  await ctx.db.insert("agent_turns", {
-    turnId,
-    sessionId,
-    ownerId: args.ownerId,
-    conversationId,
-    prompt: args.prompt,
-    status: "running",
-    lane: args.lane ?? "chat",
-    kind: "chat",
-    agentType: "orchestrator",
-    ...(args.source ? { source: args.source } : {}),
-    ...(args.hiddenTurn ? { hidden: true } : {}),
-    ...(args.clientMsgId ? { clientMsgId: args.clientMsgId } : {}),
-    ownerGeneration: lifecycle.generation,
-    ...(args.chatIntentFingerprint
-      ? { chatIntentFingerprint: args.chatIntentFingerprint }
-      : {}),
-    execution,
-    createdAt: args.now,
-    updatedAt: args.now,
-  });
-  const turnToken =
-    crypto.randomUUID().replaceAll("-", "") +
-    crypto.randomUUID().replaceAll("-", "");
-  // The token hash is written by runOrchestratorTurnInternal immediately
-  // before it dispatches, so the hash always exists before the DO can present
-  // the raw token. Hashing is SubtleCrypto, which belongs in the action.
-  await ctx.scheduler.runAfter(0, runOrchestratorTurnRef, {
-    ownerId: args.ownerId,
-    conversationId,
-    turnId,
-    sessionId,
-    prompt: args.prompt,
-    turnToken,
-    ownerGeneration: lifecycle.generation,
-    execution,
-    // The DO writes the prompt row; these are the flags it needs to write it
-    // the way the old Convex insert did.
-    ...(args.hiddenMessage ? { hiddenMessage: true } : {}),
-    ...(args.source ? { source: args.source } : {}),
-    ...(args.clientMsgId ? { clientMsgId: args.clientMsgId } : {}),
-    // Transcript metadata the journal needs and only Convex holds: the lane
-    // labels the turn record, and title/createdAt seed `meta` so the DO's index
-    // flush can re-create a lost index row instead of being refused.
-    lane: args.lane ?? "chat",
-    title: conversation.title,
-    conversationCreatedAt: conversation.createdAt,
-    ...(normalizeLocale(args.locale)
-      ? { locale: normalizeLocale(args.locale) }
-      : {}),
-    ...(args.attachments?.length ? { attachments: args.attachments } : {}),
-    ...(args.agentThreadControl
-      ? { agentThreadControl: args.agentThreadControl }
-      : {}),
-    ...(process.env.CONVEX_SITE_URL?.trim()
-      ? { convexCallbackBase: process.env.CONVEX_SITE_URL.trim() }
-      : {}),
-  });
-  return { conversationId, turnId };
 };
 
 // Client-minted, so it is validated like any other client string before it is
@@ -880,11 +679,7 @@ const normalizeRequestedConversationId = (
   return trimmed;
 };
 
-type ChatIntentAuthority =
-  | "composer-direct"
-  | "composer-placement"
-  | "chat-internal"
-  | "chat-placement";
+type ChatIntentAuthority = "composer-direct";
 
 /**
  * Stable semantic payload for a client-minted chat/build id. Fixed field order
@@ -1148,308 +943,8 @@ const findTurnByClientMsgId = async (
   };
 };
 
-type ExecutionPlacementAttempt = {
-  dispatchId: string;
-  attemptId: string;
-  attemptGeneration: number;
-};
-
-const executionPlacementAttemptValidator = v.object({
-  dispatchId: v.string(),
-  attemptId: v.string(),
-  attemptGeneration: v.number(),
-});
-
-const assertExecutionPlacementAdmission = async (
-  ctx: MutationCtx,
-  args: {
-    ownerId: string;
-    ownerGeneration: string;
-    conversationId: string;
-    kind: "chat" | "agent";
-    clientMsgId?: string;
-    parentTurnId?: string;
-    threadId?: string;
-    placementAttempt?: ExecutionPlacementAttempt;
-  },
-) => {
-  const attempt = args.placementAttempt;
-  if (!attempt) return;
-  const dispatch = await ctx.db
-    .query("execution_dispatches")
-    .withIndex("by_dispatchId", (q) => q.eq("dispatchId", attempt.dispatchId))
-    .unique();
-  const matches =
-    Number.isSafeInteger(attempt.attemptGeneration) &&
-    attempt.attemptGeneration > 0 &&
-    args.clientMsgId === attempt.dispatchId &&
-    dispatch?.ownerId === args.ownerId &&
-    dispatch.ownerGeneration === args.ownerGeneration &&
-    dispatch.kind === args.kind &&
-    dispatch.conversationId === args.conversationId &&
-    (args.kind === "chat" ||
-      (dispatch.parentTurnId === args.parentTurnId &&
-        dispatch.threadId === args.threadId)) &&
-    dispatch.placement === "cloud" &&
-    dispatch.state === "cloud_committed" &&
-    dispatch.cloudAttemptId === attempt.attemptId &&
-    dispatch.attemptGeneration === attempt.attemptGeneration;
-  if (!matches) {
-    throw new ConvexError({
-      code: "EXECUTION_PLACEMENT_FENCE_CLOSED",
-      message:
-        "This execution placement attempt no longer owns cloud admission.",
-    });
-  }
-};
-
-const canceledPlacementResolutionValidator = v.union(
-  v.null(),
-  v.object({ status: v.literal("canceled") }),
-  v.object({
-    status: v.literal("turn"),
-    kind: v.union(v.literal("chat"), v.literal("agent")),
-    conversationId: v.string(),
-    threadId: v.optional(v.string()),
-    turnId: v.string(),
-    attemptGeneration: v.optional(v.number()),
-  }),
-);
-
-/**
- * Serializes cancellation against placement-only cloud admission. Both this
- * mutation and the fenced admission mutation read the same dispatch and stable
- * turn-id range, so either the turn commits first and is returned for external
- * cancellation, or cancellation terminalizes first and later admission fails.
- */
-export const resolveCanceledExecutionPlacementAdmissionInternal =
-  internalMutation({
-    args: {
-      ownerId: v.string(),
-      ownerGeneration: v.string(),
-      dispatchId: v.string(),
-      attemptId: v.optional(v.string()),
-      attemptGeneration: v.number(),
-      now: v.number(),
-    },
-    returns: canceledPlacementResolutionValidator,
-    handler: async (ctx, args) => {
-      const dispatch = await ctx.db
-        .query("execution_dispatches")
-        .withIndex("by_dispatchId", (q) => q.eq("dispatchId", args.dispatchId))
-        .unique();
-      if (
-        !dispatch ||
-        dispatch.ownerId !== args.ownerId ||
-        dispatch.ownerGeneration !== args.ownerGeneration ||
-        dispatch.placement !== "cloud" ||
-        dispatch.state !== "cancel_pending"
-      ) {
-        return null;
-      }
-      const turns = await ctx.db
-        .query("agent_turns")
-        .withIndex("by_ownerId_and_clientMsgId", (q) =>
-          q.eq("ownerId", args.ownerId).eq("clientMsgId", args.dispatchId),
-        )
-        .take(2);
-      const turn = turns.length === 1 ? turns[0] : undefined;
-      const exactTurn =
-        turn !== undefined &&
-        turn.ownerId === args.ownerId &&
-        turn.ownerGeneration === args.ownerGeneration &&
-        turn.kind === dispatch.kind &&
-        turn.conversationId === dispatch.conversationId &&
-        turn.clientMsgId === args.dispatchId &&
-        (dispatch.cloudTurnId === undefined ||
-          turn.turnId === dispatch.cloudTurnId) &&
-        (dispatch.kind === "chat" ||
-          (Boolean(turn.threadId) &&
-            (dispatch.threadId === undefined ||
-              turn.threadId === dispatch.threadId) &&
-            Number.isSafeInteger(turn.attemptGeneration) &&
-            turn.attemptGeneration! > 0));
-      if (exactTurn && turn) {
-        return {
-          status: "turn" as const,
-          kind: turn.kind as "chat" | "agent",
-          conversationId: turn.conversationId!,
-          ...(turn.threadId ? { threadId: turn.threadId } : {}),
-          turnId: turn.turnId,
-          ...(turn.attemptGeneration !== undefined
-            ? { attemptGeneration: turn.attemptGeneration }
-            : {}),
-        };
-      }
-      // A row exists for this reliable dispatch id but does not name the exact
-      // canceled placement. Never reinterpret duplicate/stale residue as
-      // proof that admission won, and never terminalize the placement as if no
-      // turn existed: reconciliation must retain the cancel_pending record for
-      // an operator-safe retry.
-      if (turns.length > 0) return null;
-      if (
-        !args.attemptId ||
-        dispatch.cloudAttemptId !== args.attemptId ||
-        dispatch.attemptGeneration !== args.attemptGeneration
-      ) {
-        return null;
-      }
-      await ctx.db.patch(dispatch._id, {
-        state: "canceled",
-        cloudAttemptId: undefined,
-        cloudAttemptLeaseExpiresAt: undefined,
-        terminalAt: args.now,
-        revision: dispatch.revision + 1,
-        updatedAt: args.now,
-      });
-      const payload = await ctx.db
-        .query("execution_dispatch_payloads")
-        .withIndex("by_dispatchId", (q) => q.eq("dispatchId", args.dispatchId))
-        .unique();
-      if (payload) await ctx.db.delete(payload._id);
-      return { status: "canceled" as const };
-    },
-  });
-
 const MAX_DISPATCHED_PROMPT_CHARS = 8_000;
 const LEGACY_SANDBOX_ADMISSION_SCAN_LIMIT = 256;
-
-/**
- * Contract C1: the shared chat-turn entry for non-composer callers
- * (scheduled turns, desktop dispatch). Draws on the same per-owner chat
- * budget as the composer so a robot caller cannot outspend a human one.
- */
-export const startCloudChatTurnInternal = internalMutation({
-  args: {
-    ownerId: v.string(),
-    conversationId: v.optional(v.string()),
-    prompt: v.string(),
-    hidden: v.optional(v.boolean()),
-    hiddenMessage: v.optional(v.boolean()),
-    hiddenTurn: v.optional(v.boolean()),
-    source: v.optional(v.string()),
-    clientMsgId: v.optional(v.string()),
-    /** Drive paths of the turn's attachments; the DO hydrates them. */
-    attachments: v.optional(v.array(v.string())),
-    placementAttempt: v.optional(executionPlacementAttemptValidator),
-    execution: v.optional(cloudExecutionSelectionValidator),
-    ownerGeneration: v.string(),
-    now: v.number(),
-  },
-  returns: v.object({ conversationId: v.string(), turnId: v.string() }),
-  handler: async (ctx, args) => {
-    const lifecycle = await assertOwnerDataWriteAllowed(
-      ctx,
-      args.ownerId,
-      args.ownerGeneration,
-    );
-    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
-    const prompt = args.prompt.trim();
-    if (!prompt || prompt.length > MAX_DISPATCHED_PROMPT_CHARS) {
-      throw new ConvexError(
-        `A cloud chat turn needs 1–${MAX_DISPATCHED_PROMPT_CHARS} characters.`,
-      );
-    }
-    const clientMsgId = normalizeClientMsgId(args.clientMsgId);
-    const hiddenMessage = args.hiddenMessage ?? args.hidden === true;
-    const hiddenTurn = args.hiddenTurn ?? args.hidden === true;
-    const requestedExecution = args.execution
-      ? normalizeCloudExecutionSelection(args.execution)
-      : undefined;
-    const normalizedAttachments = normalizeChatAttachmentPaths(
-      args.attachments ?? [],
-    );
-    const intentFingerprint = clientMsgId
-      ? await chatIntentFingerprint({
-          authority: args.placementAttempt ? "chat-placement" : "chat-internal",
-          conversationId: args.conversationId,
-          prompt,
-          source: args.source,
-          hiddenMessage,
-          hiddenTurn,
-          attachments: normalizedAttachments,
-          execution: requestedExecution,
-        })
-      : undefined;
-    if (clientMsgId) {
-      const replayed = await findTurnByClientMsgId(ctx, {
-        ownerId: args.ownerId,
-        ownerGeneration: lifecycle.generation,
-        clientMsgId,
-        requestedConversationId: args.conversationId,
-        intentFingerprint: intentFingerprint!,
-        allowedKinds: ["chat"],
-      });
-      if (replayed) return replayed;
-    }
-    await assertExecutionPlacementAdmission(ctx, {
-      ownerId: args.ownerId,
-      ownerGeneration: lifecycle.generation,
-      conversationId: args.conversationId ?? "",
-      kind: "chat",
-      ...(clientMsgId ? { clientMsgId } : {}),
-      ...(args.placementAttempt
-        ? { placementAttempt: args.placementAttempt }
-        : {}),
-    });
-    // Account linking creates this fence synchronously before the authenticated
-    // session changes owners. Refuse every new source-owner turn while the
-    // transfer is unresolved so a stale scheduled fire or already-running
-    // caller cannot recreate anonymous conversations after the migration's
-    // final residue check.
-    const ownerMigrations = await ctx.db
-      .query("auth_owner_migrations")
-      .withIndex("by_fromOwnerId_and_updatedAt", (q) =>
-        q.eq("fromOwnerId", args.ownerId),
-      )
-      .order("desc")
-      .take(8);
-    if (ownerMigrations.length > 0) {
-      throw new ConvexError(
-        "This identity is being linked to an account. Retry the turn after the transfer finishes.",
-      );
-    }
-    // Scheduled fires already passed their own per-owner daily budget in
-    // cloud_schedule.ts; charging them here too would let a robot caller
-    // exhaust the human's composer allowance.
-    const scheduled = args.source === "schedule";
-    if (!scheduled) {
-      const { quota } = await resolveCloudPlan(ctx, args.ownerId);
-      await enforceMutationRateLimit(
-        ctx,
-        "cloud_chat_start",
-        args.ownerId,
-        { rate: quota.burstStarts * 5, periodMs: 10 * 60_000 },
-        "Too many cloud turns in a row. Wait a moment and try again.",
-      );
-      await enforceMutationRateLimit(
-        ctx,
-        "cloud_chat_daily",
-        args.ownerId,
-        { rate: quota.dailyTurns * 20, periodMs: 24 * 60 * 60_000 },
-        "You've reached today's cloud chat limit. Try again tomorrow.",
-      );
-    }
-    return await startChatTurn(ctx, {
-      ownerId: args.ownerId,
-      conversationId: args.conversationId,
-      prompt,
-      source: args.source,
-      hiddenMessage,
-      hiddenTurn,
-      ...(clientMsgId ? { clientMsgId } : {}),
-      ...(normalizedAttachments.length
-        ? { attachments: normalizedAttachments }
-        : {}),
-      ...(requestedExecution ? { execution: requestedExecution } : {}),
-      ownerGeneration: lifecycle.generation,
-      ...(intentFingerprint
-        ? { chatIntentFingerprint: intentFingerprint }
-        : {}),
-      now: args.now,
-    });
-  },
-});
 
 export const createTurnInternal = internalMutation({
   args: {
@@ -1879,24 +1374,43 @@ export const getMyCloudLimits = query({
   },
 });
 
-type CloudComposerTurnArgs = {
+const APP_ID_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
+
+const normalizeAppId = (value: string): string => {
+  const trimmed = value.trim();
+  if (!APP_ID_PATTERN.test(trimmed)) throw new ConvexError("App not found.");
+  return trimmed;
+};
+
+type AppBuildTurnArgs = {
   ownerId: string;
-  ownerGeneration?: string;
+  ownerGeneration: string;
   prompt: string;
+  appId: string;
   conversationId?: string;
-  appId?: string;
   clientMsgId?: string;
   locale?: string;
   attachments?: string[];
   execution?: CloudExecutionSelection;
-  placementAttempt?: ExecutionPlacementAttempt;
   now: number;
 };
 
-const startCloudComposerTurn = async (
+/**
+ * The apps product's build/operation lane, and nothing else. Plain chat never
+ * enters Convex any more: clients start chat turns on the cloud-builder
+ * (`POST /conversations/:id/turns`) and Convex learns about them through the
+ * outbox. An app target is therefore explicit — the old "does this message
+ * sound like it wants an app?" heuristic is gone; the orchestrator delegates
+ * builds through its spawn tool instead.
+ *
+ * A client-minted `appId` that does not exist yet creates the app (with a
+ * provisional title the first finished build replaces), so "make me a new
+ * app" is still one call; an id that belongs to someone else reads as absent.
+ */
+const startAppBuildTurnCore = async (
   ctx: MutationCtx,
-  args: CloudComposerTurnArgs,
-): Promise<{ conversationId: string; appId?: string; turnId: string }> => {
+  args: AppBuildTurnArgs,
+): Promise<{ conversationId: string; appId: string; turnId: string }> => {
   const ownerId = args.ownerId;
   const prompt = args.prompt.trim();
   if (!prompt || prompt.length > 4_000) {
@@ -1910,6 +1424,7 @@ const startCloudComposerTurn = async (
     args.ownerGeneration,
   );
   await assertOwnerMigrationWriteAllowed(ctx, ownerId, lifecycle.generation);
+  const appId = normalizeAppId(args.appId);
   const clientMsgId = normalizeClientMsgId(args.clientMsgId);
   const normalizedLocale = normalizeLocale(args.locale);
   const normalizedAttachments = normalizeChatAttachmentPaths(
@@ -1920,11 +1435,9 @@ const startCloudComposerTurn = async (
     : undefined;
   const intentFingerprint = clientMsgId
     ? await chatIntentFingerprint({
-        authority: args.placementAttempt
-          ? "composer-placement"
-          : "composer-direct",
+        authority: "composer-direct",
         conversationId: args.conversationId,
-        appId: args.appId,
+        appId,
         prompt,
         locale: normalizedLocale,
         attachments: normalizedAttachments,
@@ -1940,103 +1453,36 @@ const startCloudComposerTurn = async (
       clientMsgId,
       requestedConversationId: args.conversationId,
       intentFingerprint: intentFingerprint!,
-      allowedKinds: ["chat", "build"],
+      allowedKinds: ["build"],
     });
-    if (replayed) return replayed;
-  }
-  await assertExecutionPlacementAdmission(ctx, {
-    ownerId,
-    ownerGeneration: lifecycle.generation,
-    conversationId: args.conversationId ?? "",
-    kind: "chat",
-    ...(clientMsgId ? { clientMsgId } : {}),
-    ...(args.placementAttempt
-      ? { placementAttempt: args.placementAttempt }
-      : {}),
-  });
-  const { plan, quota } = await resolveCloudPlan(ctx, ownerId);
-
-  // Resolve the target app first: turns aimed at an active app that has
-  // registered operations enter the routed lane, which never reserves build
-  // quota up front (the router re-checks it if the model chooses a build).
-  let targetApp: {
-    appId: string;
-    ownerId: string;
-    status: string;
-    title?: string;
-  } | null = null;
-  let inferredAppId: string | undefined;
-  let wantsNewApp = false;
-  if (args.appId) {
-    const requestedAppId = args.appId;
-    const app = await ctx.db
-      .query("cloud_apps")
-      .withIndex("by_appId", (q) => q.eq("appId", requestedAppId))
-      .unique();
-    if (!app || app.ownerId !== ownerId)
-      throw new ConvexError("App not found.");
-    targetApp = app;
-  } else {
-    // No explicit target: infer it from the message so the normal chat
-    // composer needs no app picker. Naming an app targets it; with exactly
-    // one app, follow-ups target it unless the user asks for something new.
-    const myApps = await ctx.db
-      .query("cloud_apps")
-      .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
-      .order("desc")
-      .take(20);
-    const active = myApps.filter((app) => app.status === "active");
-    const escapeRegExp = (value: string) =>
-      value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const named = active.filter(
-      (app) =>
-        app.title !== "New app" &&
-        new RegExp(
-          `(^|[^A-Za-z0-9])${escapeRegExp(app.title)}([^A-Za-z0-9]|$)`,
-          "i",
-        ).test(prompt),
-    );
-    wantsNewApp =
-      /\bnew app\b/i.test(prompt) ||
-      /\b(?:make|build|create)\b[\s\S]{0,60}\bapp\b/i.test(prompt);
-    if (named.length === 1) {
-      targetApp = named[0]!;
-      inferredAppId = named[0]!.appId;
-    } else if (!wantsNewApp && named.length === 0 && active.length === 1) {
-      targetApp = active[0]!;
-      inferredAppId = active[0]!.appId;
+    if (replayed) {
+      return {
+        conversationId: replayed.conversationId,
+        appId: replayed.appId ?? appId,
+        turnId: replayed.turnId,
+      };
     }
   }
+  const { plan, quota } = await resolveCloudPlan(ctx, ownerId);
+  const existingApp = await ctx.db
+    .query("cloud_apps")
+    .withIndex("by_appId", (q) => q.eq("appId", appId))
+    .unique();
+  if (existingApp && existingApp.ownerId !== ownerId) {
+    throw new ConvexError("App not found.");
+  }
+  // Turns aimed at an active app that has registered operations enter the
+  // routed lane, which never reserves build quota up front (the router
+  // re-checks it if the model chooses a build).
   const opsManifest =
-    targetApp && targetApp.status === "active"
+    existingApp?.status === "active"
       ? await ctx.db
           .query("cloud_app_operations")
-          .withIndex("by_appId", (q) => q.eq("appId", targetApp!.appId))
+          .withIndex("by_appId", (q) => q.eq("appId", appId))
           .unique()
       : null;
   const routed = opsManifest !== null;
-  // No app targeted and no clear ask for one: this is plain chat. It runs
-  // as the orchestrator loop in the builder DO — token cost only, no
-  // sandbox, no app row. Only an explicit "make/build/create an app"
-  // fallthrough still enters the legacy build lane with a fresh app.
-  const chatLane = !routed && !targetApp && !wantsNewApp;
-
-  if (chatLane) {
-    await enforceMutationRateLimit(
-      ctx,
-      "cloud_chat_start",
-      ownerId,
-      { rate: quota.burstStarts * 5, periodMs: 10 * 60_000 },
-      "You're sending messages quickly. Wait a moment and try again.",
-    );
-    await enforceMutationRateLimit(
-      ctx,
-      "cloud_chat_daily",
-      ownerId,
-      { rate: quota.dailyTurns * 20, periodMs: 24 * 60 * 60_000 },
-      "You've reached today's cloud chat limit. Try again tomorrow.",
-    );
-  } else if (routed) {
+  if (routed) {
     await enforceMutationRateLimit(
       ctx,
       "cloud_ops_start",
@@ -2080,25 +1526,6 @@ const startCloudComposerTurn = async (
   }
 
   const now = args.now;
-  if (chatLane) {
-    return await startChatTurn(ctx, {
-      ownerId,
-      conversationId: args.conversationId,
-      prompt,
-      ...(clientMsgId ? { clientMsgId } : {}),
-      ...(normalizedLocale ? { locale: normalizedLocale } : {}),
-      ...(normalizedAttachments.length
-        ? { attachments: normalizedAttachments }
-        : {}),
-      ...(requestedExecution ? { execution: requestedExecution } : {}),
-      ownerGeneration: lifecycle.generation,
-      ...(intentFingerprint
-        ? { chatIntentFingerprint: intentFingerprint }
-        : {}),
-      now,
-    });
-  }
-
   const explicitExecution = requestedExecution
     ? await assertExecutionAvailable(ctx, ownerId, requestedExecution)
     : undefined;
@@ -2119,17 +1546,7 @@ const startCloudComposerTurn = async (
   }
   const { conversationId } = conversation;
   const turnId = crypto.randomUUID();
-  const turnToken =
-    crypto.randomUUID().replaceAll("-", "") +
-    crypto.randomUUID().replaceAll("-", "");
-
-  let appId = args.appId ?? inferredAppId;
-  let isNewApp = false;
-  if (appId) {
-    if (!targetApp) throw new ConvexError("App not found.");
-  } else {
-    appId = `app-${crypto.randomUUID()}`;
-    isNewApp = true;
+  if (!existingApp) {
     // Provisional name only — the real app name arrives with the first
     // finished build and replaces this everywhere it is shown.
     await ctx.db.insert("cloud_apps", {
@@ -2173,7 +1590,6 @@ const startCloudComposerTurn = async (
       turnId,
       sessionId,
       prompt,
-      turnToken,
       ownerGeneration: lifecycle.generation,
       execution,
       ...(!routed && process.env.CONVEX_SITE_URL?.trim()
@@ -2184,58 +1600,36 @@ const startCloudComposerTurn = async (
   return { conversationId, appId, turnId };
 };
 
-const cloudComposerTurnArgsValidator = {
-  prompt: v.string(),
-  conversationId: v.optional(v.string()),
-  appId: v.optional(v.string()),
-  /** Per-message id from the composer; makes a retried send idempotent. */
-  clientMsgId: v.optional(v.string()),
-  /** Client UI locale for the reply-language directive (e.g. "es"). */
-  locale: v.optional(v.string()),
-  /** Drive paths of attached images the turn should see as image blocks. */
-  attachments: v.optional(v.array(v.string())),
-  /** Exact route for this conversation from this turn forward. */
-  execution: v.optional(cloudExecutionSelectionValidator),
-};
-
-const cloudComposerTurnResultValidator = v.object({
-  conversationId: v.string(),
-  appId: v.optional(v.string()),
-  turnId: v.string(),
-});
-
-export const startCloudChat = mutation({
+export const startAppBuildTurn = mutation({
   args: {
-    ...cloudComposerTurnArgsValidator,
+    prompt: v.string(),
+    /** The app to build or operate. A fresh client-minted id creates one. */
+    appId: v.string(),
+    conversationId: v.optional(v.string()),
+    /** Per-message id from the composer; makes a retried send idempotent. */
+    clientMsgId: v.optional(v.string()),
+    /** Client UI locale, part of the idempotency fingerprint. */
+    locale: v.optional(v.string()),
+    /** Drive paths of attached images, part of the idempotency fingerprint. */
+    attachments: v.optional(v.array(v.string())),
+    /** Exact route for this conversation from this turn forward. */
+    execution: v.optional(cloudExecutionSelectionValidator),
     expectedOwnerGeneration: v.string(),
   },
-  returns: cloudComposerTurnResultValidator,
+  returns: v.object({
+    conversationId: v.string(),
+    appId: v.string(),
+    turnId: v.string(),
+  }),
   handler: async (ctx, args) => {
-    const { expectedOwnerGeneration, ...composerArgs } = args;
-    return await startCloudComposerTurn(ctx, {
-      ...composerArgs,
+    const { expectedOwnerGeneration, ...buildArgs } = args;
+    return await startAppBuildTurnCore(ctx, {
+      ...buildArgs,
       ownerId: await requireOwnerId(ctx),
       ownerGeneration: expectedOwnerGeneration,
       now: Date.now(),
     });
   },
-});
-
-/**
- * Browser placement entry. It shares the signed-in/anonymous composer router
- * byte-for-byte, but admission is fenced to one current placement attempt
- * before quota, app inference, turn insertion, or scheduling can occur.
- */
-export const startCloudComposerTurnInternal = internalMutation({
-  args: {
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    ...cloudComposerTurnArgsValidator,
-    placementAttempt: executionPlacementAttemptValidator,
-    now: v.number(),
-  },
-  returns: cloudComposerTurnResultValidator,
-  handler: async (ctx, args) => await startCloudComposerTurn(ctx, args),
 });
 
 export const failCloudTurnInternal = internalMutation({
@@ -2293,7 +1687,6 @@ export const runCloudTurnInternal = internalAction({
     turnId: v.string(),
     sessionId: v.string(),
     prompt: v.string(),
-    turnToken: v.string(),
     ownerGeneration: v.string(),
     execution: v.optional(cloudExecutionSelectionValidator),
     convexCallbackBase: v.optional(v.string()),
@@ -2318,7 +1711,6 @@ export const runCloudTurnInternal = internalAction({
       turnId: args.turnId,
       sessionId: args.sessionId,
       prompt: args.prompt,
-      turnToken: args.turnToken,
       ownerGeneration: args.ownerGeneration,
       ...(args.execution ? { execution: args.execution } : {}),
       ...(pinnedCallbackBase ? { convexCallbackBase: pinnedCallbackBase } : {}),
@@ -2407,62 +1799,23 @@ export const runCloudTurnInternal = internalAction({
       );
       return null;
     }
-    const tokenHash = await hashToken(args.turnToken);
-    let tokenReady = false;
+    let allowance: { audience: ManagedModelAudience; budgetMicroCents: number };
     try {
-      if (dispatchAttempt === 0) {
-        await ctx.runMutation(storeTurnTokenRef, {
-          tokenHash,
-          ownerId: args.ownerId,
-          ownerGeneration: args.ownerGeneration,
-          turnId: args.turnId,
-          agentType: "general",
-          execution,
-          now: Date.now(),
-        });
-        tokenReady = true;
-      } else {
-        tokenReady = await ctx.runMutation(ensureTurnTokenForDispatchRef, {
-          tokenHash,
-          ownerId: args.ownerId,
-          ownerGeneration: args.ownerGeneration,
-          turnId: args.turnId,
-          agentType: "general",
-          execution,
-          now: Date.now(),
-        });
-      }
+      allowance = await ownerModelAllowanceFields(
+        ctx,
+        args.ownerId,
+        args.ownerGeneration,
+      );
     } catch (error) {
       console.error(
         JSON.stringify({
           service: "convex-cloud-apps",
-          event: "build_dispatch_token_pending",
+          event: "build_dispatch_allowance_retrying",
           turnId: args.turnId,
           dispatchAttempt,
           message: error instanceof Error ? error.message : String(error),
         }),
       );
-      return null;
-    }
-    if (!tokenReady) {
-      await ctx.scheduler.cancel(retryId).catch(() => undefined);
-      return null;
-    }
-    const authoritative = await ctx.runQuery(
-      isCloudBuildTurnAttemptAuthoritativeRef,
-      {
-        tokenHash,
-        ownerId: args.ownerId,
-        ownerGeneration: args.ownerGeneration,
-        conversationId: args.conversationId,
-        appId: args.appId,
-        turnId: args.turnId,
-        sessionId: args.sessionId,
-        now: Date.now(),
-      },
-    );
-    if (!authoritative) {
-      await ctx.scheduler.cancel(retryId).catch(() => undefined);
       return null;
     }
     let response: Response;
@@ -2483,9 +1836,10 @@ export const runCloudTurnInternal = internalAction({
             turnId: args.turnId,
             sessionId: args.sessionId,
             prompt: args.prompt,
-            turnToken: args.turnToken,
             convexCallbackBase: pinnedCallbackBase,
             execution,
+            audience: allowance.audience,
+            budgetMicroCents: allowance.budgetMicroCents,
           }),
           signal: AbortSignal.timeout(30_000),
         },
@@ -2535,231 +1889,6 @@ export const runCloudTurnInternal = internalAction({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Cloud chat — the orchestrator loop lives in the builder's OrchestratorSession
-// DO; these functions are its Convex half: canonical transcript rows, turn
-// tokens, spawned-agent threads, and the wake path that turns a finished
-// subagent into a hidden orchestrator follow-up turn.
-// ---------------------------------------------------------------------------
-
-export const storeTurnTokenInternal = internalMutation({
-  args: {
-    tokenHash: v.string(),
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    turnId: v.string(),
-    agentType: v.string(),
-    execution: v.optional(cloudExecutionSelectionValidator),
-    now: v.number(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    await assertOwnerMigrationWriteAllowed(
-      ctx,
-      args.ownerId,
-      args.ownerGeneration,
-    );
-    const turn = await ctx.db
-      .query("agent_turns")
-      .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
-      .unique();
-    if (
-      !turn ||
-      turn.ownerId !== args.ownerId ||
-      turn.ownerGeneration !== args.ownerGeneration ||
-      turn.status !== "running" ||
-      turn.terminalKind
-    ) {
-      throw new ConvexError("Cloud turn is no longer active.");
-    }
-    const execution = args.execution
-      ? normalizeCloudExecutionSelection(args.execution)
-      : undefined;
-    // A turn has exactly one live executor attempt. Querying and replacing the
-    // bounded attempt set in this mutation serializes concurrent redispatches;
-    // whichever token commits last invalidates every earlier capability.
-    const priorAttempts = await ctx.db
-      .query("cloud_turn_tokens")
-      .withIndex("by_turnId_and_ownerId", (q) =>
-        q.eq("turnId", args.turnId).eq("ownerId", args.ownerId),
-      )
-      .take(TURN_TOKEN_ATTEMPT_ROW_LIMIT + 1);
-    if (priorAttempts.length > TURN_TOKEN_ATTEMPT_ROW_LIMIT) {
-      throw new ConvexError(
-        "Cloud turn has too many stale executor attempts to rotate safely.",
-      );
-    }
-    for (const attempt of priorAttempts) await ctx.db.delete(attempt._id);
-    await ctx.db.insert("cloud_turn_tokens", {
-      tokenHash: args.tokenHash,
-      ownerId: args.ownerId,
-      ownerGeneration: args.ownerGeneration,
-      turnId: args.turnId,
-      agentType: args.agentType,
-      ...(execution ? { execution } : {}),
-      createdAt: args.now,
-      expiresAt: args.now + TURN_TOKEN_TTL_MS,
-    });
-    await ctx.db.patch(turn._id, { activeTokenHash: args.tokenHash });
-    return null;
-  },
-});
-
-/**
- * Restart half of cloud-agent dispatch admission. A pre-published retry may
- * run after the first action died before storing its capability, so it may
- * fill an empty token slot or reuse the exact token already there. It must
- * never rotate a newer capability back to the stale action's token.
- */
-export const ensureTurnTokenForDispatchInternal = internalMutation({
-  args: {
-    tokenHash: v.string(),
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    turnId: v.string(),
-    agentType: v.string(),
-    execution: v.optional(cloudExecutionSelectionValidator),
-    now: v.number(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    await assertOwnerMigrationWriteAllowed(
-      ctx,
-      args.ownerId,
-      args.ownerGeneration,
-    );
-    const turn = await ctx.db
-      .query("agent_turns")
-      .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
-      .unique();
-    if (
-      !turn ||
-      turn.ownerId !== args.ownerId ||
-      turn.ownerGeneration !== args.ownerGeneration ||
-      turn.status !== "running" ||
-      turn.terminalKind
-    ) {
-      return false;
-    }
-    const attempts = await ctx.db
-      .query("cloud_turn_tokens")
-      .withIndex("by_turnId_and_ownerId", (q) =>
-        q.eq("turnId", args.turnId).eq("ownerId", args.ownerId),
-      )
-      .take(2);
-    if (attempts.length > 1) {
-      throw new ConvexError("Cloud turn token authority is ambiguous.");
-    }
-    const execution = args.execution
-      ? normalizeCloudExecutionSelection(args.execution)
-      : undefined;
-    const current = attempts[0];
-    if (current) {
-      const exact =
-        current.tokenHash === args.tokenHash &&
-        current.ownerGeneration === args.ownerGeneration &&
-        current.agentType === args.agentType &&
-        JSON.stringify(current.execution ?? null) ===
-          JSON.stringify(execution ?? null);
-      if (!exact) return false;
-      // A prolonged builder outage may outlive the ordinary token TTL. The
-      // exact pre-published dispatch retry remains the admission owner, so it
-      // renews only its unchanged capability; a different token is never
-      // rotated back.
-      await ctx.db.patch(current._id, {
-        expiresAt: args.now + TURN_TOKEN_TTL_MS,
-      });
-      if (turn.activeTokenHash !== args.tokenHash) {
-        await ctx.db.patch(turn._id, { activeTokenHash: args.tokenHash });
-      }
-      return true;
-    }
-    await ctx.db.insert("cloud_turn_tokens", {
-      tokenHash: args.tokenHash,
-      ownerId: args.ownerId,
-      ownerGeneration: args.ownerGeneration,
-      turnId: args.turnId,
-      agentType: args.agentType,
-      ...(execution ? { execution } : {}),
-      createdAt: args.now,
-      expiresAt: args.now + TURN_TOKEN_TTL_MS,
-    });
-    await ctx.db.patch(turn._id, { activeTokenHash: args.tokenHash });
-    return true;
-  },
-});
-
-export type TurnTokenAuthority = {
-  tokenHash: string;
-  ownerId: string;
-  ownerGeneration: string;
-  turnId: string;
-  now: number;
-};
-
-/**
- * Resolves only the single current capability for a turn. The owner lifecycle,
- * migration fence, token row, current-attempt range, and turn row all
- * participate in one Convex transaction so reset, migration, redispatch, or a
- * terminal write cannot race this authority check.
- */
-export const resolveCurrentTurnToken = async (
-  ctx: QueryCtx | MutationCtx,
-  args: TurnTokenAuthority,
-  requireActive: boolean,
-): Promise<{
-  token: Doc<"cloud_turn_tokens">;
-  turn?: Doc<"agent_turns">;
-} | null> => {
-  const tokenRows = await ctx.db
-    .query("cloud_turn_tokens")
-    .withIndex("by_tokenHash", (q) => q.eq("tokenHash", args.tokenHash))
-    .take(2);
-  if (tokenRows.length !== 1) return null;
-  const token = tokenRows[0]!;
-  if (
-    token.expiresAt <= args.now ||
-    token.ownerId !== args.ownerId ||
-    token.ownerGeneration !== args.ownerGeneration ||
-    token.turnId !== args.turnId
-  ) {
-    return null;
-  }
-  try {
-    await assertOwnerMigrationWriteAllowed(
-      ctx,
-      args.ownerId,
-      args.ownerGeneration,
-    );
-  } catch {
-    return null;
-  }
-  const currentAttempts = await ctx.db
-    .query("cloud_turn_tokens")
-    .withIndex("by_turnId_and_ownerId", (q) =>
-      q.eq("turnId", args.turnId).eq("ownerId", args.ownerId),
-    )
-    .take(2);
-  if (currentAttempts.length !== 1 || currentAttempts[0]!._id !== token._id) {
-    return null;
-  }
-  if (!requireActive) return { token };
-  const turn = await ctx.db
-    .query("agent_turns")
-    .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
-    .unique();
-  if (
-    !turn ||
-    turn.ownerId !== args.ownerId ||
-    turn.ownerGeneration !== args.ownerGeneration ||
-    turn.status !== "running" ||
-    turn.terminalKind
-  ) {
-    return null;
-  }
-  return { token, turn };
-};
-
 /** Exact preflight for a direct app/build turn redispatch. */
 export const isCloudBuildTurnDispatchableInternal = internalQuery({
   args: {
@@ -2795,161 +1924,15 @@ export const isCloudBuildTurnDispatchableInternal = internalQuery({
   },
 });
 
-export const isCloudChatTurnDispatchableInternal = internalQuery({
-  args: {
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    conversationId: v.string(),
-    turnId: v.string(),
-    sessionId: v.string(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    await assertOwnerMigrationWriteAllowed(
-      ctx,
-      args.ownerId,
-      args.ownerGeneration,
-    );
-    const turn = await ctx.db
-      .query("agent_turns")
-      .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
-      .unique();
-    return Boolean(
-      turn &&
-        turn.ownerId === args.ownerId &&
-        turn.ownerGeneration === args.ownerGeneration &&
-        turn.conversationId === args.conversationId &&
-        turn.sessionId === args.sessionId &&
-        turn.kind === "chat" &&
-        turn.status === "running" &&
-        !turn.terminalKind,
-    );
-  },
-});
-
-/** Token-inclusive authority checked immediately before a direct build POST. */
-export const isCloudBuildTurnAttemptAuthoritativeInternal = internalQuery({
-  args: {
-    tokenHash: v.string(),
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    conversationId: v.string(),
-    appId: v.string(),
-    turnId: v.string(),
-    sessionId: v.string(),
-    now: v.number(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const authority = await resolveCurrentTurnToken(ctx, args, true);
-    const turn = authority?.turn;
-    return Boolean(
-      turn &&
-        turn.kind === "build" &&
-        turn.conversationId === args.conversationId &&
-        turn.appId === args.appId &&
-        turn.sessionId === args.sessionId,
-    );
-  },
-});
-
-export const isCloudChatTurnAttemptAuthoritativeInternal = internalQuery({
-  args: {
-    tokenHash: v.string(),
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    conversationId: v.string(),
-    turnId: v.string(),
-    sessionId: v.string(),
-    now: v.number(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const authority = await resolveCurrentTurnToken(ctx, args, true);
-    const turn = authority?.turn;
-    return Boolean(
-      turn &&
-        turn.kind === "chat" &&
-        turn.conversationId === args.conversationId &&
-        turn.sessionId === args.sessionId,
-    );
-  },
-});
-
-/** Service tools may act only while their exact orchestrator turn still owns
- * the conversation. This closes delayed tool POSTs after terminalization. */
-export const isActiveCloudParentTurnInternal = internalQuery({
-  args: {
-    tokenHash: v.string(),
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    conversationId: v.string(),
-    turnId: v.string(),
-    now: v.number(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const authority = await resolveCurrentTurnToken(ctx, args, true);
-    return Boolean(
-      authority?.turn?.kind === "chat" &&
-        authority.turn.conversationId === args.conversationId,
-    );
-  },
-});
-
-export const getTurnTokenByHashInternal = internalQuery({
-  args: {
-    tokenHash: v.string(),
-    now: v.number(),
-    requireActive: v.optional(v.boolean()),
-  },
-  returns: v.union(
-    v.null(),
-    v.object({
-      _id: v.id("cloud_turn_tokens"),
-      _creationTime: v.number(),
-      tokenHash: v.string(),
-      ownerId: v.string(),
-      ownerGeneration: v.optional(v.string()),
-      turnId: v.string(),
-      agentType: v.string(),
-      execution: v.optional(cloudExecutionSelectionValidator),
-      createdAt: v.number(),
-      expiresAt: v.number(),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const tokenRows = await ctx.db
-      .query("cloud_turn_tokens")
-      .withIndex("by_tokenHash", (q) => q.eq("tokenHash", args.tokenHash))
-      .take(2);
-    if (tokenRows.length !== 1) return null;
-    const row = tokenRows[0]!;
-    if (!row.ownerGeneration) return null;
-    const resolved = await resolveCurrentTurnToken(
-      ctx,
-      {
-        tokenHash: args.tokenHash,
-        ownerId: row.ownerId,
-        ownerGeneration: row.ownerGeneration,
-        turnId: row.turnId,
-        now: args.now,
-      },
-      args.requireActive === true,
-    );
-    return resolved?.token ?? null;
-  },
-});
-
 /**
- * Last transaction-plane barrier for unmetered provider I/O made with a cloud
- * turn capability (for example, a connected Claude/ChatGPT subscription).
- * Metered calls combine this same authority with their billing marker; BYOK
- * still needs a final active-attempt check even though no Stella charge exists.
+ * Last transaction-plane barrier before provider I/O made on behalf of a
+ * cloud turn. The capability the caller presented is the authority (signed,
+ * turn-bound, expiring); this only closes the window after Convex has seen
+ * the turn end. The turn row is a projection that may not have landed yet
+ * for a turn that just started, so its absence is not a refusal.
  */
-export const assertActiveTurnTokenDispatchInternal = internalMutation({
+export const assertActiveTurnDispatchInternal = internalMutation({
   args: {
-    tokenHash: v.string(),
     ownerId: v.string(),
     ownerGeneration: v.string(),
     turnId: v.string(),
@@ -2957,7 +1940,12 @@ export const assertActiveTurnTokenDispatchInternal = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    if (!(await resolveCurrentTurnToken(ctx, args, true))?.turn) {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    if (!(await isTurnStillActive(ctx, args))) {
       throw new ConvexError({
         code: "TURN_NOT_ACTIVE",
         message: "Cloud turn is no longer active.",
@@ -2967,177 +1955,23 @@ export const assertActiveTurnTokenDispatchInternal = internalMutation({
   },
 });
 
-export const purgeExpiredTurnTokensInternal = internalMutation({
-  args: {},
-  returns: v.number(),
-  handler: async (ctx) => {
-    const expired = await ctx.db
-      .query("cloud_turn_tokens")
-      .withIndex("by_expiresAt", (q) => q.lte("expiresAt", Date.now()))
-      .take(200);
-    for (const row of expired) await ctx.db.delete(row._id);
-    return expired.length;
-  },
-});
-
-/**
- * A spawned agent's thread transcript, for `send_input` continuations.
- *
- * Scoped to THREADS by construction: the id must name a real
- * `cloud_agent_threads` row. User conversations are not reachable here — their
- * transcript is the DO's journal, and this route is the one place a
- * conversation id used to be honoured on the strength of nothing but its
- * shape.
- */
-export const listThreadMessagesInternal = internalQuery({
-  args: {
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    threadId: v.string(),
-    excludeTurnId: v.optional(v.string()),
-  },
-  returns: v.array(
-    v.object({
-      seq: v.number(),
-      role: v.string(),
-      payloadJson: v.string(),
-      turnId: v.string(),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
-    const thread = await ctx.db
-      .query("cloud_agent_threads")
-      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
-      .unique();
-    if (
-      !thread ||
-      thread.ownerId !== args.ownerId ||
-      thread.ownerGeneration !== args.ownerGeneration
-    ) {
-      throw new ConvexError("Unknown agent thread.");
-    }
-    // Newest 400 rows outside the current attempt, returned oldest-first. The
-    // fixed scan ceiling covers a maximum-size current turn plus that context
-    // suffix. If legacy/unbounded current-turn data exhausts the ceiling before
-    // finding the suffix, fail closed rather than manufacturing partial history.
-    const rows = await ctx.db
-      .query("cloud_thread_messages")
-      .withIndex("by_conversationId_and_ownerId_and_seq", (q) =>
-        q.eq("conversationId", args.threadId).eq("ownerId", args.ownerId),
-      )
-      .order("desc")
-      .take(THREAD_CONTEXT_SCAN_LIMIT + 1);
-    const candidates = rows.filter((row) => row.turnId !== args.excludeTurnId);
-    if (
-      rows.length > THREAD_CONTEXT_SCAN_LIMIT &&
-      candidates.length < THREAD_CONTEXT_ROW_LIMIT
-    ) {
-      throw new ConvexError(
-        "Agent thread history exceeds the safe scan bound.",
-      );
-    }
-    const selected: typeof candidates = [];
-    let selectedBytes = 0;
-    for (const row of candidates.slice(0, THREAD_CONTEXT_ROW_LIMIT)) {
-      assertThreadMessagePayload(row.role, row.payloadJson);
-      const rowBytes = utf8ByteLength(row.payloadJson);
-      if (selectedBytes + rowBytes > THREAD_CONTEXT_MAX_BYTES) break;
-      selectedBytes += rowBytes;
-      selected.push(row);
-    }
-    const oldestFirst = selected.reverse();
-    // The row and byte ceilings can cut through a prior exchange. Starting a
-    // provider history with that exchange's assistant/toolResult rows would
-    // orphan them from the user request (and, for a tool result, its call).
-    // Every bounded candidate above is validated before this trim, so a
-    // malformed leading row still rejects the authoritative history instead
-    // of disappearing behind boundary repair. If the bounded suffix contains
-    // no clean boundary, degrade to empty history rather than fabricate one.
-    const safeStart = oldestFirst.findIndex((row) => row.role === "user");
-    if (safeStart < 0) return [];
-    return oldestFirst.slice(safeStart).map((row) => ({
-      seq: row.seq,
-      role: row.role,
-      payloadJson: row.payloadJson,
-      turnId: row.turnId,
-    }));
-  },
-});
-
-export const appendThreadMessagesInternal = internalMutation({
-  args: {
-    tokenHash: v.string(),
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    threadId: v.string(),
-    turnId: v.string(),
-    messages: v.array(
-      v.object({
-        ordinal: v.number(),
-        role: v.string(),
-        payloadJson: v.string(),
-      }),
-    ),
-    now: v.number(),
-  },
-  returns: v.object({ lastSeq: v.number() }),
-  handler: async (ctx, args) => {
-    const authority = await resolveCurrentTurnToken(ctx, args, true);
-    const turn = authority?.turn;
-    if (!turn) throw new ConvexError("Cloud turn is no longer active.");
-    // A spawned-agent turn writes ONLY its own thread transcript. Its turn
-    // token must never reach the parent user conversation, where a hijacked
-    // sandbox could forge assistant/user history the orchestrator would reload
-    // as genuine context. Since the DO took ownership of conversation content
-    // this check is also the only thing standing between a sandbox token and
-    // the conversation index — the other half of that guarantee is the
-    // `x-stella-owner` compare on the DO's own append surface.
-    if (turn.kind !== "agent" || !turn.threadId) {
-      throw new ConvexError("Only agent turns write a thread transcript.");
-    }
-    if (turn.threadId !== args.threadId) {
-      throw new ConvexError("Turn does not belong to this thread.");
-    }
-    if (
-      args.messages.length < 1 ||
-      args.messages.length > THREAD_TURN_MESSAGE_LIMIT
-    ) {
-      throw new ConvexError("Invalid agent thread message batch size.");
-    }
-    const ordinals = new Set<number>();
-    let totalBytes = 0;
-    for (const message of args.messages) {
-      if (
-        !Number.isSafeInteger(message.ordinal) ||
-        message.ordinal < 0 ||
-        message.ordinal >= THREAD_TURN_MESSAGE_LIMIT ||
-        ordinals.has(message.ordinal)
-      ) {
-        throw new ConvexError("Invalid agent thread message ordinal.");
-      }
-      ordinals.add(message.ordinal);
-      assertThreadMessagePayload(message.role, message.payloadJson);
-      totalBytes += utf8ByteLength(message.payloadJson);
-      if (totalBytes > THREAD_TURN_MESSAGE_MAX_BYTES) {
-        throw new ConvexError("Agent thread message batch is too large.");
-      }
-    }
-    let lastSeq = -1;
-    for (const message of args.messages) {
-      lastSeq = await appendThreadMessage(ctx, {
-        threadId: args.threadId,
-        ownerId: turn.ownerId,
-        turnId: args.turnId,
-        ordinal: message.ordinal,
-        role: message.role,
-        payloadJson: message.payloadJson,
-        now: args.now,
-      });
-    }
-    return { lastSeq };
-  },
-});
+/** True unless Convex has a row for the turn that says it is over. */
+export const isTurnStillActive = async (
+  ctx: Pick<QueryCtx, "db">,
+  args: { ownerId: string; ownerGeneration: string; turnId: string },
+): Promise<boolean> => {
+  const turn = await ctx.db
+    .query("agent_turns")
+    .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
+    .unique();
+  if (!turn) return true;
+  return (
+    turn.ownerId === args.ownerId &&
+    turn.ownerGeneration === args.ownerGeneration &&
+    turn.status === "running" &&
+    !turn.terminalKind
+  );
+};
 
 // ---------------------------------------------------------------------------
 // The conversation index. Everything below is a projection of the
@@ -3163,7 +1997,7 @@ const PURGE_BATCH = 100;
  */
 const CONVERSATION_TOMBSTONE_RETENTION_MS = 30 * 24 * 60 * 60_000;
 
-const clip = (value: string, max: number): string =>
+export const clip = (value: string, max: number): string =>
   value.length > max ? value.slice(0, max) : value;
 
 /**
@@ -3199,7 +2033,7 @@ export const recordConversationTombstone = async (
   });
 };
 
-const conversationTombstoned = async (
+export const conversationTombstoned = async (
   ctx: MutationCtx,
   conversationId: string,
 ): Promise<boolean> => {
@@ -3224,8 +2058,41 @@ const logCloud = (event: string, fields: Record<string, unknown>): void => {
   );
 };
 
+export type ConversationIndexExcerpt = {
+  turnId: string;
+  seqStart: number;
+  seqEnd: number;
+  text: string;
+  createdAt: number;
+};
+
+export type ConversationIndexUpsertArgs = {
+  conversationId: string;
+  ownerId: string;
+  ownerGeneration: string;
+  epoch: number;
+  lastSeq: number;
+  updatedAt: number;
+  createdAt?: number;
+  title?: string;
+  lastPreview?: string;
+  lastRole?: string;
+  activity?: string;
+  excerpts?: ConversationIndexExcerpt[];
+  force?: boolean;
+};
+
+export type ConversationIndexUpsertResult = {
+  accepted: boolean;
+  excerptsAccepted: boolean;
+  reason?: string;
+  lastSeq: number;
+  epoch: number;
+};
+
 /**
- * The DO's only write into Convex's half of a conversation.
+ * The DO's only write into Convex's half of a conversation (delivered as a
+ * `conversation.index` outbox event).
  *
  * Fenced on `(epoch, lastSeq)`: a retried or reordered flush is dropped as
  * stale rather than moving the row backwards. `updatedAt` takes max() because
@@ -3235,6 +2102,162 @@ const logCloud = (event: string, fields: Record<string, unknown>): void => {
  * The reply always carries the row's CURRENT lastSeq, accepted or not, so a DO
  * that lost track of what it had synced can converge without a second call.
  */
+export const upsertConversationIndex = async (
+  ctx: MutationCtx,
+  args: ConversationIndexUpsertArgs,
+): Promise<ConversationIndexUpsertResult> => {
+  await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
+  const row = await ctx.db
+    .query("cloud_conversations")
+    .withIndex("by_conversationId", (q) =>
+      q.eq("conversationId", args.conversationId),
+    )
+    .unique();
+
+  if (!row) {
+    // A missing row means one of two opposite things, and only the tombstone
+    // table can tell them apart: the row was LOST (self-heal below), or it
+    // was DELETED with its conversation (account deletion drops the index row
+    // because it carries `ownerId`). Self-healing the second case re-creates
+    // a deleted owner's conversation — and, through `writeExcerpts`, their
+    // transcript — from a flush that a still-resident DO started before the
+    // purge and retried after it. Ask before rebuilding anything.
+    if (await conversationTombstoned(ctx, args.conversationId)) {
+      // `excerptsAccepted: false` matters as much as `accepted: false`: it is
+      // what stops `ConversationIndex.run` shipping the remaining batches,
+      // and what keeps the DO from marking them synced.
+      logCloud("conversation_index_after_purge", {
+        conversationId: args.conversationId,
+      });
+      return {
+        accepted: false,
+        excerptsAccepted: false,
+        reason: "purged",
+        lastSeq: -1,
+        epoch: 0,
+      };
+    }
+    // Self-heal: a lost index row is rebuilt from what the DO mirrored into
+    // its own `meta` on first contact. Requires `createdAt` — without it the
+    // rebuilt row would sort wrong forever, and the DO always has it.
+    if (args.createdAt === undefined) {
+      return {
+        accepted: false,
+        excerptsAccepted: false,
+        reason: "unknown_conversation",
+        lastSeq: -1,
+        epoch: 0,
+      };
+    }
+    await ctx.db.insert("cloud_conversations", {
+      conversationId: args.conversationId,
+      ownerId: args.ownerId,
+      title: clip(args.title?.trim() || "Conversation", CHAT_TITLE_MAX),
+      createdAt: args.createdAt,
+      updatedAt: Math.max(args.updatedAt, args.createdAt),
+      lastSeq: args.lastSeq,
+      epoch: args.epoch,
+      ...(args.lastPreview
+        ? { lastPreview: clip(args.lastPreview, PREVIEW_MAX_CHARS) }
+        : {}),
+      ...(args.lastRole ? { lastRole: args.lastRole } : {}),
+      ...(args.activity ? { activity: args.activity } : {}),
+    });
+    await writeExcerpts(ctx, args);
+    return {
+      accepted: true,
+      excerptsAccepted: true,
+      lastSeq: args.lastSeq,
+      epoch: args.epoch,
+    };
+  }
+
+  if (row.ownerId !== args.ownerId) {
+    // A DO speaking for the wrong owner is a bug or an attack; either way it
+    // never overwrites an index row.
+    logCloud("conversation_index_owner_mismatch", {
+      conversationId: args.conversationId,
+    });
+    return {
+      accepted: false,
+      excerptsAccepted: false,
+      reason: "owner_mismatch",
+      lastSeq: row.lastSeq ?? -1,
+      epoch: row.epoch ?? 0,
+    };
+  }
+  if (row.deletedAt !== undefined) {
+    // Tombstoned: a flush that was already in flight when the purge started
+    // must not resurrect the row.
+    return {
+      accepted: false,
+      excerptsAccepted: false,
+      reason: "deleted",
+      lastSeq: row.lastSeq ?? -1,
+      epoch: row.epoch ?? 0,
+    };
+  }
+  const currentEpoch = row.epoch ?? 0;
+  const currentSeq = row.lastSeq ?? -1;
+  if (args.epoch < currentEpoch) {
+    // A rewind advances the epoch specifically to fence delayed flushes from
+    // the removed suffix. Their excerpts are projection data too: accepting
+    // them would make Recall resurrect content the journal can no longer
+    // return, even though the conversation head itself stayed fenced.
+    return {
+      accepted: false,
+      excerptsAccepted: false,
+      reason: "stale_epoch",
+      lastSeq: currentSeq,
+      epoch: currentEpoch,
+    };
+  }
+  if (
+    args.force !== true &&
+    args.epoch === currentEpoch &&
+    args.lastSeq <= currentSeq
+  ) {
+    // Same-epoch replay: the ordered fields stay where they are, while an
+    // excerpt batch may still finish an earlier partial delivery.
+    await writeExcerpts(ctx, args);
+    return {
+      accepted: false,
+      excerptsAccepted: true,
+      reason: "stale",
+      lastSeq: currentSeq,
+      epoch: currentEpoch,
+    };
+  }
+  await ctx.db.patch(row._id, {
+    epoch: args.epoch,
+    lastSeq: args.lastSeq,
+    updatedAt: Math.max(row.updatedAt, args.updatedAt),
+    // A desktop-local turn reaches the DO directly rather than passing
+    // through resolveConversationId. Its first accepted index flush is the
+    // corresponding proof that this is no longer an intentional empty.
+    ...(row.allowEmpty === true && args.lastSeq >= 0
+      ? { allowEmpty: undefined }
+      : {}),
+    ...(args.lastPreview !== undefined
+      ? { lastPreview: clip(args.lastPreview, PREVIEW_MAX_CHARS) }
+      : {}),
+    ...(args.lastRole !== undefined ? { lastRole: args.lastRole } : {}),
+    ...(args.activity !== undefined ? { activity: args.activity } : {}),
+    // Title stays Convex's: it is set from the first prompt at creation and
+    // the DO has nothing better to say about it.
+    ...(row.title.trim() === "" && args.title?.trim()
+      ? { title: clip(args.title.trim(), CHAT_TITLE_MAX) }
+      : {}),
+  });
+  await writeExcerpts(ctx, args);
+  return {
+    accepted: true,
+    excerptsAccepted: true,
+    lastSeq: args.lastSeq,
+    epoch: args.epoch,
+  };
+};
+
 export const upsertConversationIndexInternal = internalMutation({
   args: {
     conversationId: v.string(),
@@ -3274,158 +2297,7 @@ export const upsertConversationIndexInternal = internalMutation({
     lastSeq: v.number(),
     epoch: v.number(),
   }),
-  handler: async (ctx, args) => {
-    await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
-    const row = await ctx.db
-      .query("cloud_conversations")
-      .withIndex("by_conversationId", (q) =>
-        q.eq("conversationId", args.conversationId),
-      )
-      .unique();
-
-    if (!row) {
-      // A missing row means one of two opposite things, and only the tombstone
-      // table can tell them apart: the row was LOST (self-heal below), or it
-      // was DELETED with its conversation (account deletion drops the index row
-      // because it carries `ownerId`). Self-healing the second case re-creates
-      // a deleted owner's conversation — and, through `writeExcerpts`, their
-      // transcript — from a flush that a still-resident DO started before the
-      // purge and retried after it. Ask before rebuilding anything.
-      if (await conversationTombstoned(ctx, args.conversationId)) {
-        // `excerptsAccepted: false` matters as much as `accepted: false`: it is
-        // what stops `ConversationIndex.run` shipping the remaining batches,
-        // and what keeps the DO from marking them synced.
-        logCloud("conversation_index_after_purge", {
-          conversationId: args.conversationId,
-        });
-        return {
-          accepted: false,
-          excerptsAccepted: false,
-          reason: "purged",
-          lastSeq: -1,
-          epoch: 0,
-        };
-      }
-      // Self-heal: a lost index row is rebuilt from what the DO mirrored into
-      // its own `meta` on first contact. Requires `createdAt` — without it the
-      // rebuilt row would sort wrong forever, and the DO always has it.
-      if (args.createdAt === undefined) {
-        return {
-          accepted: false,
-          excerptsAccepted: false,
-          reason: "unknown_conversation",
-          lastSeq: -1,
-          epoch: 0,
-        };
-      }
-      await ctx.db.insert("cloud_conversations", {
-        conversationId: args.conversationId,
-        ownerId: args.ownerId,
-        title: clip(args.title?.trim() || "Conversation", CHAT_TITLE_MAX),
-        createdAt: args.createdAt,
-        updatedAt: Math.max(args.updatedAt, args.createdAt),
-        lastSeq: args.lastSeq,
-        epoch: args.epoch,
-        ...(args.lastPreview
-          ? { lastPreview: clip(args.lastPreview, PREVIEW_MAX_CHARS) }
-          : {}),
-        ...(args.lastRole ? { lastRole: args.lastRole } : {}),
-        ...(args.activity ? { activity: args.activity } : {}),
-      });
-      await writeExcerpts(ctx, args);
-      return {
-        accepted: true,
-        excerptsAccepted: true,
-        lastSeq: args.lastSeq,
-        epoch: args.epoch,
-      };
-    }
-
-    if (row.ownerId !== args.ownerId) {
-      // A DO speaking for the wrong owner is a bug or an attack; either way it
-      // never overwrites an index row.
-      logCloud("conversation_index_owner_mismatch", {
-        conversationId: args.conversationId,
-      });
-      return {
-        accepted: false,
-        excerptsAccepted: false,
-        reason: "owner_mismatch",
-        lastSeq: row.lastSeq ?? -1,
-        epoch: row.epoch ?? 0,
-      };
-    }
-    if (row.deletedAt !== undefined) {
-      // Tombstoned: a flush that was already in flight when the purge started
-      // must not resurrect the row.
-      return {
-        accepted: false,
-        excerptsAccepted: false,
-        reason: "deleted",
-        lastSeq: row.lastSeq ?? -1,
-        epoch: row.epoch ?? 0,
-      };
-    }
-    const currentEpoch = row.epoch ?? 0;
-    const currentSeq = row.lastSeq ?? -1;
-    if (args.epoch < currentEpoch) {
-      // A rewind advances the epoch specifically to fence delayed flushes from
-      // the removed suffix. Their excerpts are projection data too: accepting
-      // them would make Recall resurrect content the journal can no longer
-      // return, even though the conversation head itself stayed fenced.
-      return {
-        accepted: false,
-        excerptsAccepted: false,
-        reason: "stale_epoch",
-        lastSeq: currentSeq,
-        epoch: currentEpoch,
-      };
-    }
-    if (
-      args.force !== true &&
-      args.epoch === currentEpoch &&
-      args.lastSeq <= currentSeq
-    ) {
-      // Same-epoch replay: the ordered fields stay where they are, while an
-      // excerpt batch may still finish an earlier partial delivery.
-      await writeExcerpts(ctx, args);
-      return {
-        accepted: false,
-        excerptsAccepted: true,
-        reason: "stale",
-        lastSeq: currentSeq,
-        epoch: currentEpoch,
-      };
-    }
-    await ctx.db.patch(row._id, {
-      epoch: args.epoch,
-      lastSeq: args.lastSeq,
-      updatedAt: Math.max(row.updatedAt, args.updatedAt),
-      // A desktop-local turn reaches the DO directly rather than passing
-      // through resolveConversationId. Its first accepted index flush is the
-      // corresponding proof that this is no longer an intentional empty.
-      ...(row.allowEmpty === true && args.lastSeq >= 0
-        ? { allowEmpty: undefined }
-        : {}),
-      ...(args.lastPreview !== undefined
-        ? { lastPreview: clip(args.lastPreview, PREVIEW_MAX_CHARS) }
-        : {}),
-      ...(args.lastRole !== undefined ? { lastRole: args.lastRole } : {}),
-      ...(args.activity !== undefined ? { activity: args.activity } : {}),
-      // Title stays Convex's: it is set from the first prompt at creation and
-      // the DO has nothing better to say about it.
-      ...(row.title.trim() === "" && args.title?.trim()
-        ? { title: clip(args.title.trim(), CHAT_TITLE_MAX) }
-        : {}),
-    });
-    await writeExcerpts(ctx, args);
-    return {
-      accepted: true,
-      excerptsAccepted: true,
-      lastSeq: args.lastSeq,
-      epoch: args.epoch,
-    };
-  },
+  handler: async (ctx, args) => await upsertConversationIndex(ctx, args),
 });
 
 // Excerpts are keyed by turn and rewritten in place, so a replayed flush or a
@@ -3488,43 +2360,6 @@ const writeExcerpts = async (
     });
   }
 };
-
-/**
- * One call per DO lifetime: an OrchestratorSession that has never been bound
- * asks who owns it. The DO must never adopt its first connector as owner —
- * that would turn a conversation id into a bearer token — so this is the only
- * way ownership enters a fresh DO.
- */
-export const getConversationOwnerInternal = internalQuery({
-  args: { conversationId: v.string() },
-  returns: v.union(
-    v.null(),
-    v.object({
-      ownerId: v.string(),
-      ownerGeneration: v.string(),
-      createdAt: v.number(),
-      title: v.string(),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("cloud_conversations")
-      .withIndex("by_conversationId", (q) =>
-        q.eq("conversationId", args.conversationId),
-      )
-      .unique();
-    // A tombstoned conversation reads as unknown, so a DO recreated under the
-    // same name discards itself instead of binding to a dead owner record.
-    if (!row || row.deletedAt !== undefined) return null;
-    const lifecycle = await assertOwnerDataWriteAllowed(ctx, row.ownerId);
-    return {
-      ownerId: row.ownerId,
-      ownerGeneration: lifecycle.generation,
-      createdAt: row.createdAt,
-      title: row.title,
-    };
-  },
-});
 
 /**
  * Cards are journal rows, so they survive scrollback. A build card used to
@@ -3729,6 +2564,48 @@ const conversationOwnerPurgeFence = (args: {
   };
 };
 
+/**
+ * Marks a conversation deleted: invisible, unwritable, and stripped of the
+ * user's words on the spot. The storage purge is a separate, retried step.
+ */
+export const tombstoneConversation = async (
+  ctx: MutationCtx,
+  args: {
+    conversationId: string;
+    ownerId?: string;
+    operationId?: string;
+    generation?: string;
+    now: number;
+  },
+): Promise<{ ok: boolean; ownerId: string }> => {
+  const purgeFence = conversationOwnerPurgeFence(args);
+  if (purgeFence) await assertOwnerPurgeOperation(ctx, purgeFence);
+  const row = await ctx.db
+    .query("cloud_conversations")
+    .withIndex("by_conversationId", (q) =>
+      q.eq("conversationId", args.conversationId),
+    )
+    .unique();
+  if (!row || (args.ownerId && row.ownerId !== args.ownerId)) {
+    throw new ConvexError("Conversation not found.");
+  }
+  if (row.deletedAt !== undefined) {
+    return { ok: true, ownerId: row.ownerId };
+  }
+  // The tombstone keeps only what the purge needs: identity. The title and
+  // preview are the user's words, and they go now rather than whenever the
+  // DO gets around to answering.
+  await ctx.db.patch(row._id, {
+    deletedAt: args.now,
+    title: "",
+    lastPreview: undefined,
+    lastRole: undefined,
+    activity: undefined,
+    updatedAt: args.now,
+  });
+  return { ok: true, ownerId: row.ownerId };
+};
+
 export const tombstoneConversationInternal = internalMutation({
   args: {
     conversationId: v.string(),
@@ -3739,34 +2616,7 @@ export const tombstoneConversationInternal = internalMutation({
     now: v.number(),
   },
   returns: v.object({ ok: v.boolean(), ownerId: v.string() }),
-  handler: async (ctx, args) => {
-    const purgeFence = conversationOwnerPurgeFence(args);
-    if (purgeFence) await assertOwnerPurgeOperation(ctx, purgeFence);
-    const row = await ctx.db
-      .query("cloud_conversations")
-      .withIndex("by_conversationId", (q) =>
-        q.eq("conversationId", args.conversationId),
-      )
-      .unique();
-    if (!row || (args.ownerId && row.ownerId !== args.ownerId)) {
-      throw new ConvexError("Conversation not found.");
-    }
-    if (row.deletedAt !== undefined) {
-      return { ok: true, ownerId: row.ownerId };
-    }
-    // The tombstone keeps only what the purge needs: identity. The title and
-    // preview are the user's words, and they go now rather than whenever the
-    // DO gets around to answering.
-    await ctx.db.patch(row._id, {
-      deletedAt: args.now,
-      title: "",
-      lastPreview: undefined,
-      lastRole: undefined,
-      activity: undefined,
-      updatedAt: args.now,
-    });
-    return { ok: true, ownerId: row.ownerId };
-  },
+  handler: async (ctx, args) => await tombstoneConversation(ctx, args),
 });
 
 /**
@@ -4171,290 +3021,6 @@ export const drainLegacyCloudMessagesInternal = internalMutation({
   },
 });
 
-export const runOrchestratorTurnInternal = internalAction({
-  args: {
-    ownerId: v.string(),
-    conversationId: v.string(),
-    turnId: v.string(),
-    sessionId: v.string(),
-    prompt: v.string(),
-    turnToken: v.string(),
-    ownerGeneration: v.string(),
-    execution: v.optional(cloudExecutionSelectionValidator),
-    // Prompt-row metadata. The DO appends the user message to its journal as
-    // the turn's first record, so the flags that used to shape the Convex
-    // transcript insert travel with the dispatch instead.
-    hiddenMessage: v.optional(v.boolean()),
-    source: v.optional(v.string()),
-    clientMsgId: v.optional(v.string()),
-    // Transcript metadata Convex is authoritative for. `lane` labels the turn
-    // record; `title` and `conversationCreatedAt` seed the DO's `meta` so its
-    // index flush can re-create a lost `cloud_conversations` row.
-    lane: v.optional(v.string()),
-    title: v.optional(v.string()),
-    conversationCreatedAt: v.optional(v.number()),
-    // Reply-language hint the DO persists per conversation.
-    locale: v.optional(v.string()),
-    // Drive paths of attached images; the DO hydrates them into image blocks.
-    attachments: v.optional(v.array(v.string())),
-    agentThreadControl: v.optional(agentThreadControlReceiptValidator),
-    convexCallbackBase: v.optional(v.string()),
-    dispatchAttempt: v.optional(v.number()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const builderUrl = process.env.CLOUD_BUILDER_URL?.trim();
-    const builderSecret = process.env.BUILDER_SERVICE_SECRET?.trim();
-    const failure = "Stella couldn't start on this. Try again in a moment.";
-    const dispatchAttempt = args.dispatchAttempt ?? 0;
-    const pinnedCallbackBase =
-      args.convexCallbackBase?.trim() ?? process.env.CONVEX_SITE_URL?.trim();
-    const retryId = await ctx.scheduler.runAfter(
-      45_000,
-      runOrchestratorTurnRef,
-      {
-        ownerId: args.ownerId,
-        conversationId: args.conversationId,
-        turnId: args.turnId,
-        sessionId: args.sessionId,
-        prompt: args.prompt,
-        turnToken: args.turnToken,
-        ownerGeneration: args.ownerGeneration,
-        ...(args.execution ? { execution: args.execution } : {}),
-        ...(args.hiddenMessage ? { hiddenMessage: true } : {}),
-        ...(args.source ? { source: args.source } : {}),
-        ...(args.clientMsgId ? { clientMsgId: args.clientMsgId } : {}),
-        ...(args.lane ? { lane: args.lane } : {}),
-        ...(args.title ? { title: args.title } : {}),
-        ...(args.conversationCreatedAt !== undefined
-          ? { conversationCreatedAt: args.conversationCreatedAt }
-          : {}),
-        ...(args.locale ? { locale: args.locale } : {}),
-        ...(args.attachments?.length ? { attachments: args.attachments } : {}),
-        ...(args.agentThreadControl
-          ? { agentThreadControl: args.agentThreadControl }
-          : {}),
-        ...(pinnedCallbackBase
-          ? { convexCallbackBase: pinnedCallbackBase }
-          : {}),
-        dispatchAttempt: dispatchAttempt + 1,
-      },
-    );
-    try {
-      await assertExpectedOwnerGenerationActive(
-        ctx,
-        args.ownerId,
-        args.ownerGeneration,
-      );
-    } catch (error) {
-      const data =
-        error && typeof error === "object" && "data" in error
-          ? (error as { data?: unknown }).data
-          : undefined;
-      const definitelyStale =
-        data !== null &&
-        typeof data === "object" &&
-        (data as { code?: unknown }).code === "OWNER_DATA_GENERATION_STALE";
-      if (definitelyStale) {
-        await ctx.scheduler.cancel(retryId).catch(() => undefined);
-      }
-      console.warn(
-        JSON.stringify({
-          service: "convex-cloud-apps",
-          event: definitelyStale
-            ? "chat_dispatch_authority_lost"
-            : "chat_dispatch_authority_retrying",
-          turnId: args.turnId,
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
-      return null;
-    }
-    if (!builderUrl || !builderSecret || !pinnedCallbackBase) {
-      await ctx.runMutation(failCloudTurnRef, {
-        ownerId: args.ownerId,
-        ownerGeneration: args.ownerGeneration,
-        turnId: args.turnId,
-        message: failure,
-        now: Date.now(),
-      });
-      await ctx.scheduler.cancel(retryId).catch(() => undefined);
-      return null;
-    }
-    let dispatchable: boolean;
-    try {
-      dispatchable = await ctx.runQuery(isCloudChatTurnDispatchableRef, {
-        ownerId: args.ownerId,
-        ownerGeneration: args.ownerGeneration,
-        conversationId: args.conversationId,
-        turnId: args.turnId,
-        sessionId: args.sessionId,
-      });
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          service: "convex-cloud-apps",
-          event: "chat_dispatch_preflight_retrying",
-          turnId: args.turnId,
-          dispatchAttempt,
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
-      return null;
-    }
-    if (!dispatchable) {
-      await ctx.scheduler.cancel(retryId).catch(() => undefined);
-      return null;
-    }
-    let execution: CloudExecutionSelection;
-    try {
-      execution =
-        args.execution ?? (await resolveOwnerExecution(ctx, args.ownerId));
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          service: "convex-cloud-apps",
-          event: "chat_dispatch_execution_retrying",
-          turnId: args.turnId,
-          dispatchAttempt,
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
-      return null;
-    }
-    const tokenHash = await hashToken(args.turnToken);
-    let tokenReady = false;
-    try {
-      if (dispatchAttempt === 0) {
-        await ctx.runMutation(storeTurnTokenRef, {
-          tokenHash,
-          ownerId: args.ownerId,
-          ownerGeneration: args.ownerGeneration,
-          turnId: args.turnId,
-          agentType: "orchestrator",
-          execution,
-          now: Date.now(),
-        });
-        tokenReady = true;
-      } else {
-        tokenReady = await ctx.runMutation(ensureTurnTokenForDispatchRef, {
-          tokenHash,
-          ownerId: args.ownerId,
-          ownerGeneration: args.ownerGeneration,
-          turnId: args.turnId,
-          agentType: "orchestrator",
-          execution,
-          now: Date.now(),
-        });
-      }
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          service: "convex-cloud-apps",
-          event: "chat_dispatch_token_pending",
-          turnId: args.turnId,
-          dispatchAttempt,
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
-      return null;
-    }
-    if (!tokenReady) {
-      await ctx.scheduler.cancel(retryId).catch(() => undefined);
-      return null;
-    }
-    const authoritative = await ctx.runQuery(
-      isCloudChatTurnAttemptAuthoritativeRef,
-      {
-        tokenHash,
-        ownerId: args.ownerId,
-        ownerGeneration: args.ownerGeneration,
-        conversationId: args.conversationId,
-        turnId: args.turnId,
-        sessionId: args.sessionId,
-        now: Date.now(),
-      },
-    );
-    if (!authoritative) {
-      await ctx.scheduler.cancel(retryId).catch(() => undefined);
-      return null;
-    }
-    let response: Response;
-    try {
-      response = await fetch(
-        `${builderUrl.replace(/\/+$/, "")}/conversations/${encodeURIComponent(args.conversationId)}/turns`,
-        {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${builderSecret}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            kind: "chat",
-            ownerId: args.ownerId,
-            ownerGeneration: args.ownerGeneration,
-            conversationId: args.conversationId,
-            turnId: args.turnId,
-            sessionId: args.sessionId,
-            prompt: args.prompt,
-            turnToken: args.turnToken,
-            convexCallbackBase: pinnedCallbackBase,
-            execution,
-            ...(args.hiddenMessage ? { hiddenMessage: true } : {}),
-            ...(args.source ? { source: args.source } : {}),
-            ...(args.clientMsgId ? { clientMsgId: args.clientMsgId } : {}),
-            ...(args.lane ? { lane: args.lane } : {}),
-            ...(args.title ? { title: args.title } : {}),
-            ...(args.conversationCreatedAt !== undefined
-              ? { conversationCreatedAt: args.conversationCreatedAt }
-              : {}),
-            ...(args.locale ? { locale: args.locale } : {}),
-            ...(args.attachments?.length
-              ? { attachments: args.attachments }
-              : {}),
-            ...(args.agentThreadControl
-              ? { agentThreadControl: args.agentThreadControl }
-              : {}),
-          }),
-          signal: AbortSignal.timeout(30_000),
-        },
-      );
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          service: "convex-cloud-apps",
-          event: "chat_dispatch_response_ambiguous",
-          turnId: args.turnId,
-          dispatchAttempt,
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
-      return null;
-    }
-    if (response.ok) {
-      await ctx.scheduler.cancel(retryId).catch(() => undefined);
-      return null;
-    }
-    if (
-      response.status === 408 ||
-      response.status === 425 ||
-      response.status === 429 ||
-      response.status >= 500
-    ) {
-      return null;
-    }
-    await ctx.runMutation(failCloudTurnRef, {
-      ownerId: args.ownerId,
-      ownerGeneration: args.ownerGeneration,
-      turnId: args.turnId,
-      message: "Stella hit a snag starting this chat. Try again.",
-      now: Date.now(),
-    });
-    await ctx.scheduler.cancel(retryId).catch(() => undefined);
-    return null;
-  },
-});
-
 type SpawnCloudAgentResult = {
   ok: boolean;
   threadId?: string;
@@ -4515,10 +3081,16 @@ const spawnIntentFingerprint = async (
   );
 
 /**
- * The one implementation of "put a background agent in the cloud".
- * `parentTurnId` is absent for desktop-dispatched spawns, which have no cloud
- * turn above them; every other gate (plan quota, one-running-agent
- * exclusivity) applies identically either way.
+ * The Convex-started half of "put a background agent in the cloud": the
+ * desktop runtime's `spawn_agent` with cloud placement. The orchestrator's
+ * own spawns never come through here any more (OrchestratorSession ->
+ * BuildSession directly; Convex learns about them through `thread.spawned`).
+ *
+ * The thread and turn rows are written optimistically so the originating
+ * desktop's recovery subscription sees the thread at once; the builder is
+ * told the same ids, and the outbox projection of the same turn is a
+ * duplicate. Every gate (plan quota, one-running-agent exclusivity) applies
+ * to both origins identically because the outbox never adds rows here.
  */
 const spawnCloudAgent = async (
   ctx: MutationCtx,
@@ -4527,8 +3099,6 @@ const spawnCloudAgent = async (
     ownerGeneration: string;
     conversationId: string;
     parentTurnId?: string;
-    /** Hashed service-route capability for the active orchestrator parent. */
-    parentTokenHash?: string;
     description: string;
     prompt: string;
     threadId?: string;
@@ -4538,7 +3108,6 @@ const spawnCloudAgent = async (
     model?: string;
     source?: string;
     clientMsgId?: string;
-    placementAttempt?: ExecutionPlacementAttempt;
     originDeviceId?: string;
     originConversationId?: string;
     now: number;
@@ -4650,45 +3219,6 @@ const spawnCloudAgent = async (
       };
     }
   }
-  if (args.parentTokenHash) {
-    if (!args.parentTurnId) {
-      return { ok: false, error: "An active parent turn is required." };
-    }
-    const parentAuthority = await resolveCurrentTurnToken(
-      ctx,
-      {
-        tokenHash: args.parentTokenHash,
-        ownerId: args.ownerId,
-        ownerGeneration: args.ownerGeneration,
-        turnId: args.parentTurnId,
-        now: args.now,
-      },
-      true,
-    );
-    const parent = parentAuthority?.turn;
-    if (
-      !parent ||
-      parent.kind !== "chat" ||
-      parent.conversationId !== args.conversationId
-    ) {
-      return {
-        ok: false,
-        error: "That orchestrator turn is no longer active.",
-      };
-    }
-  }
-  await assertExecutionPlacementAdmission(ctx, {
-    ownerId: args.ownerId,
-    ownerGeneration: args.ownerGeneration,
-    conversationId: args.conversationId,
-    kind: "agent",
-    ...(clientMsgId ? { clientMsgId } : {}),
-    ...(args.parentTurnId ? { parentTurnId: args.parentTurnId } : {}),
-    ...(args.threadId ? { threadId: args.threadId } : {}),
-    ...(args.placementAttempt
-      ? { placementAttempt: args.placementAttempt }
-      : {}),
-  });
   let parentExecution: CloudExecutionSelection | undefined;
   if (args.parentTurnId) {
     const parentTurnId = args.parentTurnId;
@@ -5015,22 +3545,21 @@ const spawnCloudAgent = async (
     createdAt: args.now,
     updatedAt: args.now,
   });
-  const turnToken =
-    crypto.randomUUID().replaceAll("-", "") +
-    crypto.randomUUID().replaceAll("-", "");
-  await ctx.scheduler.runAfter(0, runCloudAgentTurnRef, {
+  await ctx.scheduler.runAfter(0, dispatchCloudAgentTurnRef, {
     ownerId: args.ownerId,
+    ownerGeneration: lifecycle.generation,
     conversationId: args.conversationId,
     threadId,
     turnId,
-    prompt: args.prompt,
-    turnToken,
-    ownerGeneration: lifecycle.generation,
     attemptGeneration,
+    prompt: args.prompt,
+    description: args.description,
     execution,
-    ...(process.env.CONVEX_SITE_URL?.trim()
-      ? { convexCallbackBase: process.env.CONVEX_SITE_URL.trim() }
-      : {}),
+    source: args.source === "desktop" ? "desktop" : "agent-thread",
+    ...(clientMsgId ? { clientMsgId } : {}),
+    ...(args.parentTurnId ? { parentTurnId: args.parentTurnId } : {}),
+    ...(originDeviceId ? { originDeviceId } : {}),
+    ...(originConversationId ? { originConversationId } : {}),
   });
   return {
     ok: true,
@@ -5087,40 +3616,6 @@ const resolveCloudAgentReplayInput = async (
   }
   return { conversationId: turn.conversationId };
 };
-
-export const spawnCloudAgentInternal = internalMutation({
-  args: {
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    conversationId: v.string(),
-    parentTurnId: v.optional(v.string()),
-    parentTokenHash: v.optional(v.string()),
-    description: v.string(),
-    prompt: v.string(),
-    threadId: v.optional(v.string()),
-    expectedAttemptGeneration: v.optional(v.number()),
-    expectedTerminalUpdatedAt: v.optional(v.number()),
-    execution: v.optional(cloudExecutionSelectionValidator),
-    // spawn_agent's per-spawn engine override ("claude" | "claude/<model>").
-    model: v.optional(v.string()),
-    source: v.optional(v.string()),
-    clientMsgId: v.optional(v.string()),
-    placementAttempt: v.optional(executionPlacementAttemptValidator),
-    originDeviceId: v.optional(v.string()),
-    originConversationId: v.optional(v.string()),
-    now: v.number(),
-  },
-  returns: v.object({
-    ok: v.boolean(),
-    threadId: v.optional(v.string()),
-    turnId: v.optional(v.string()),
-    attemptGeneration: v.optional(v.number()),
-    threadUpdatedAt: v.optional(v.number()),
-    status: v.optional(v.literal("running")),
-    error: v.optional(v.string()),
-  }),
-  handler: async (ctx, args) => await spawnCloudAgent(ctx, args),
-});
 
 /**
  * Desktop `spawn_agent` with cloud placement lands here. Authenticated by
@@ -5638,83 +4133,6 @@ export const getMyCloudAgentThreadControl = query({
   },
 });
 
-export const isCloudAgentTurnDispatchableInternal = internalQuery({
-  args: {
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    threadId: v.string(),
-    turnId: v.string(),
-    attemptGeneration: v.number(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
-    const thread = await ctx.db
-      .query("cloud_agent_threads")
-      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
-      .unique();
-    const turn = await ctx.db
-      .query("agent_turns")
-      .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
-      .unique();
-    return Boolean(
-      thread &&
-        thread.ownerId === args.ownerId &&
-        thread.ownerGeneration === args.ownerGeneration &&
-        thread.attemptGeneration === args.attemptGeneration &&
-        thread.status === "running" &&
-        turn &&
-        turn.ownerId === args.ownerId &&
-        turn.ownerGeneration === args.ownerGeneration &&
-        turn.attemptGeneration === args.attemptGeneration &&
-        turn.threadId === args.threadId &&
-        turn.status === "running",
-    );
-  },
-});
-
-/**
- * Runtime authority for one already-admitted agent executor. Unlike the
- * scheduler's dispatchability check above, this includes the current token
- * hash so rotating a token quiesces an already-running stale sandbox even when
- * the logical turn and attempt generation did not change.
- */
-export const isCloudAgentTurnAttemptAuthoritativeInternal = internalQuery({
-  args: {
-    tokenHash: v.string(),
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    threadId: v.string(),
-    turnId: v.string(),
-    attemptGeneration: v.number(),
-    now: v.number(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const authority = await resolveCurrentTurnToken(ctx, args, true);
-    const turn = authority?.turn;
-    if (
-      !turn ||
-      turn.kind !== "agent" ||
-      turn.threadId !== args.threadId ||
-      turn.attemptGeneration !== args.attemptGeneration
-    ) {
-      return false;
-    }
-    const thread = await ctx.db
-      .query("cloud_agent_threads")
-      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
-      .unique();
-    return Boolean(
-      thread &&
-        thread.ownerId === args.ownerId &&
-        thread.ownerGeneration === args.ownerGeneration &&
-        thread.attemptGeneration === args.attemptGeneration &&
-        thread.status === "running",
-    );
-  },
-});
-
 export const cancelCloudAgentTurnInternal = internalMutation({
   args: {
     ownerId: v.string(),
@@ -5799,9 +4217,6 @@ export const cancelCloudAgentTurnInternal = internalMutation({
     if (turn.status === "canceled" || turn.terminalKind === "canceled") {
       await ctx.db.patch(turn._id, {
         cancelRequestId: args.controlRequestId,
-        ...(turn.terminalTokenHash || !turn.activeTokenHash
-          ? {}
-          : { terminalTokenHash: turn.activeTokenHash }),
       });
       if (thread.status === "running") {
         await ctx.db.patch(thread._id, {
@@ -5865,9 +4280,6 @@ export const cancelCloudAgentTurnInternal = internalMutation({
       terminalKind: "canceled",
       errorMessage: payloadJson,
       cancelRequestId: args.controlRequestId,
-      ...(turn.activeTokenHash
-        ? { terminalTokenHash: turn.activeTokenHash }
-        : {}),
       updatedAt: args.now,
     });
     await ctx.db.patch(thread._id, {
@@ -6075,274 +4487,12 @@ export const cancelMyCloudAgentThread = action({
   },
 });
 
-export const runCloudAgentTurnInternal = internalAction({
-  args: {
-    ownerId: v.string(),
-    conversationId: v.string(),
-    threadId: v.string(),
-    turnId: v.string(),
-    prompt: v.string(),
-    turnToken: v.string(),
-    ownerGeneration: v.string(),
-    attemptGeneration: v.number(),
-    execution: v.optional(cloudExecutionSelectionValidator),
-    browserResume: v.optional(cloudBrowserResumeReceiptValidator),
-    convexCallbackBase: v.optional(v.string()),
-    dispatchAttempt: v.optional(v.number()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const builderUrl = process.env.CLOUD_BUILDER_URL?.trim();
-    const builderSecret = process.env.BUILDER_SERVICE_SECRET?.trim();
-    const failure = "Stella couldn't start that agent. Try again in a moment.";
-    const dispatchAttempt = args.dispatchAttempt ?? 0;
-    const pinnedCallbackBase =
-      args.convexCallbackBase?.trim() ?? process.env.CONVEX_SITE_URL?.trim();
-    // Publish the next exact attempt before the first await/read. The action is
-    // otherwise the only copy of this admission after the creating mutation's
-    // scheduled call starts, so a process loss in any preflight gap must leave
-    // a durable successor behind.
-    const retryId = await ctx.scheduler.runAfter(45_000, runCloudAgentTurnRef, {
-      ownerId: args.ownerId,
-      conversationId: args.conversationId,
-      threadId: args.threadId,
-      turnId: args.turnId,
-      prompt: args.prompt,
-      turnToken: args.turnToken,
-      ownerGeneration: args.ownerGeneration,
-      attemptGeneration: args.attemptGeneration,
-      ...(args.execution ? { execution: args.execution } : {}),
-      ...(args.browserResume ? { browserResume: args.browserResume } : {}),
-      ...(pinnedCallbackBase ? { convexCallbackBase: pinnedCallbackBase } : {}),
-      dispatchAttempt: dispatchAttempt + 1,
-    });
-    try {
-      await assertExpectedOwnerGenerationActive(
-        ctx,
-        args.ownerId,
-        args.ownerGeneration,
-      );
-    } catch (error) {
-      const data =
-        error && typeof error === "object" && "data" in error
-          ? (error as { data?: unknown }).data
-          : undefined;
-      const definitelyStale =
-        data !== null &&
-        typeof data === "object" &&
-        (data as { code?: unknown }).code === "OWNER_DATA_GENERATION_STALE";
-      if (definitelyStale) {
-        await ctx.scheduler.cancel(retryId).catch(() => undefined);
-      }
-      console.warn(
-        JSON.stringify({
-          service: "convex-cloud-apps",
-          event: definitelyStale
-            ? "agent_dispatch_authority_lost"
-            : "agent_dispatch_authority_retrying",
-          turnId: args.turnId,
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
-      return null;
-    }
-    if (!builderUrl || !builderSecret) {
-      await ctx.runMutation(failCloudAgentDispatchRef, {
-        ownerId: args.ownerId,
-        ownerGeneration: args.ownerGeneration,
-        conversationId: args.conversationId,
-        threadId: args.threadId,
-        turnId: args.turnId,
-        attemptGeneration: args.attemptGeneration,
-        message: failure,
-        now: Date.now(),
-      });
-      await ctx.scheduler.cancel(retryId).catch(() => undefined);
-      return null;
-    }
-    const initiallyDispatchable = await ctx.runQuery(
-      isCloudAgentTurnDispatchableRef,
-      {
-        ownerId: args.ownerId,
-        ownerGeneration: args.ownerGeneration,
-        threadId: args.threadId,
-        turnId: args.turnId,
-        attemptGeneration: args.attemptGeneration,
-      },
-    );
-    if (!initiallyDispatchable) {
-      await ctx.scheduler.cancel(retryId).catch(() => undefined);
-      return null;
-    }
-    const execution =
-      args.execution ?? (await resolveOwnerExecution(ctx, args.ownerId));
-    const convexCallbackBase = pinnedCallbackBase;
-    if (!convexCallbackBase) {
-      await ctx.runMutation(failCloudAgentDispatchRef, {
-        ownerId: args.ownerId,
-        ownerGeneration: args.ownerGeneration,
-        conversationId: args.conversationId,
-        threadId: args.threadId,
-        turnId: args.turnId,
-        attemptGeneration: args.attemptGeneration,
-        message: failure,
-        now: Date.now(),
-      });
-      await ctx.scheduler.cancel(retryId).catch(() => undefined);
-      return null;
-    }
-    const tokenHash = await hashToken(args.turnToken);
-    let tokenReady = false;
-    try {
-      if (dispatchAttempt === 0) {
-        await ctx.runMutation(storeTurnTokenRef, {
-          tokenHash,
-          ownerId: args.ownerId,
-          ownerGeneration: args.ownerGeneration,
-          turnId: args.turnId,
-          agentType: "general",
-          execution,
-          now: Date.now(),
-        });
-        tokenReady = true;
-      } else {
-        tokenReady = await ctx.runMutation(ensureTurnTokenForDispatchRef, {
-          tokenHash,
-          ownerId: args.ownerId,
-          ownerGeneration: args.ownerGeneration,
-          turnId: args.turnId,
-          agentType: "general",
-          execution,
-          now: Date.now(),
-        });
-      }
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          service: "convex-cloud-apps",
-          event: "agent_dispatch_token_pending",
-          turnId: args.turnId,
-          dispatchAttempt,
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
-      // The pre-published successor owns recovery. It can fill an empty token
-      // slot but cannot rotate a different/newer token back to this attempt.
-      return null;
-    }
-    if (!tokenReady) {
-      await ctx.scheduler.cancel(retryId).catch(() => undefined);
-      return null;
-    }
-    const authoritative = await ctx.runQuery(
-      isCloudAgentTurnAttemptAuthoritativeRef,
-      {
-        tokenHash,
-        ownerId: args.ownerId,
-        ownerGeneration: args.ownerGeneration,
-        threadId: args.threadId,
-        turnId: args.turnId,
-        attemptGeneration: args.attemptGeneration,
-        now: Date.now(),
-      },
-    );
-    if (!authoritative) {
-      await ctx.scheduler.cancel(retryId).catch(() => undefined);
-      return null;
-    }
-    let response: Response;
-    try {
-      response = await fetch(
-        `${builderUrl.replace(/\/+$/, "")}/sessions/${args.threadId}/turns`,
-        {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${builderSecret}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            kind: "agent",
-            ownerId: args.ownerId,
-            ownerGeneration: args.ownerGeneration,
-            attemptGeneration: args.attemptGeneration,
-            conversationId: args.conversationId,
-            threadId: args.threadId,
-            turnId: args.turnId,
-            prompt: args.prompt,
-            turnToken: args.turnToken,
-            convexCallbackBase,
-            execution,
-            ...(args.browserResume
-              ? { browserResume: args.browserResume }
-              : {}),
-          }),
-          signal: AbortSignal.timeout(30_000),
-        },
-      );
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          service: "convex-cloud-apps",
-          event: "agent_dispatch_response_ambiguous",
-          turnId: args.turnId,
-          dispatchAttempt,
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
-      // The request may already have committed in the BuildSession. Its exact
-      // durable replay receipt lets the pre-published successor converge.
-      return null;
-    }
-    if (response.ok) {
-      await ctx.scheduler.cancel(retryId).catch(() => undefined);
-      return null;
-    }
-    if (
-      response.status === 408 ||
-      response.status === 425 ||
-      response.status === 429 ||
-      response.status >= 500
-    ) {
-      console.error(
-        JSON.stringify({
-          service: "convex-cloud-apps",
-          event: "agent_dispatch_response_retrying",
-          turnId: args.turnId,
-          dispatchAttempt,
-          status: response.status,
-        }),
-      );
-      return null;
-    }
-    console.error(
-      JSON.stringify({
-        service: "convex-cloud-apps",
-        event: "agent_dispatch_response_rejected",
-        turnId: args.turnId,
-        dispatchAttempt,
-        status: response.status,
-      }),
-    );
-    await ctx.runMutation(failCloudAgentDispatchRef, {
-      ownerId: args.ownerId,
-      ownerGeneration: args.ownerGeneration,
-      conversationId: args.conversationId,
-      threadId: args.threadId,
-      turnId: args.turnId,
-      attemptGeneration: args.attemptGeneration,
-      message: "Stella hit a snag starting that agent. Try again.",
-      now: Date.now(),
-    });
-    await ctx.scheduler.cancel(retryId).catch(() => undefined);
-    return null;
-  },
-});
-
 /**
- * Definitive pre-admission failure is one transaction: terminal turn, thread
- * projection, and descendant wake either all commit or none do. This also
- * repairs the legacy crash window where the turn was failed but its thread
- * remained running.
+ * Definitive pre-admission failure is one transaction: the terminal turn and
+ * the thread projection either both commit or neither does. No wake: a turn
+ * that never reached the builder has no Durable Object above it to tell, and
+ * the thread's terminal state is what Activity and the desktop's recovery
+ * subscription read.
  */
 export const failCloudAgentDispatchInternal = internalMutation({
   args: {
@@ -6427,217 +4577,99 @@ export const failCloudAgentDispatchInternal = internalMutation({
       errorMessage: args.message,
       updatedAt: args.now,
     });
-    if (thread.originDeviceId && thread.originConversationId) return null;
-    await startChatTurn(ctx, {
-      ownerId: thread.ownerId,
-      conversationId: thread.conversationId,
-      prompt: `[Agent failed] ${thread.description} (thread ${thread.threadId})\n\n${args.message}`,
-      lane: "wake",
-      source: "agent-thread",
-      hiddenMessage: true,
-      ownerGeneration: args.ownerGeneration,
-      agentThreadControl: {
-        threadId: thread.threadId,
-        attemptGeneration: args.attemptGeneration,
-        threadUpdatedAt: args.now,
-        status: "failed",
-      },
-      now: args.now,
-    });
     return null;
   },
 });
 
-export const completeAgentThreadInternal = internalMutation({
+export type AgentThreadCompletionStatus =
+  | "completed"
+  | "failed"
+  | "canceled"
+  | "waiting_for_user";
+
+export type AgentThreadCompletionResult =
+  | { applied: true; conversationId: string; originDelivery: boolean }
+  | {
+      applied: false;
+      reason: "unknown_thread" | "owner_mismatch" | "stale" | "duplicate";
+    };
+
+/**
+ * Projects a BuildSession's terminal verdict onto its thread row (delivered
+ * as a `thread.completed` outbox event). The wake of the parent orchestrator
+ * is no longer Convex's job — the BuildSession tells the OrchestratorSession
+ * directly — so this is purely the projection the UI, Activity, and the
+ * desktop's recovery subscription read.
+ *
+ * Fenced on `attemptGeneration`: a late verdict for an attempt a continuation
+ * has already replaced is an idempotent no-op, never a demotion of the newer
+ * attempt. A verdict for an attempt Convex has not seen yet (its
+ * `thread.spawned` is still in flight) is applied and carries the generation
+ * forward, so delivery order cannot lose a completion.
+ */
+export const completeAgentThread = async (
+  ctx: MutationCtx,
   args: {
-    // Present only for token-authenticated HTTP calls. Service callbacks are
-    // separately authenticated but must still name completingTurnId below.
-    tokenHash: v.optional(v.string()),
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    threadId: v.string(),
-    attemptGeneration: v.number(),
-    status: v.string(),
-    resultJson: v.optional(v.string()),
-    errorMessage: v.optional(v.string()),
-    wake: v.optional(v.boolean()),
-    // Set when the caller authenticated with a turn token: the token's turn
-    // must belong to the thread it is completing. Service-secret callers
-    // (the DOs) omit it.
-    callerTurnId: v.optional(v.string()),
-    // The turn whose outcome this is, from either credential. A thread outlives
-    // its turns, so this is what says whether the caller still speaks for it.
-    completingTurnId: v.string(),
-    now: v.number(),
+    ownerId: string;
+    ownerGeneration: string;
+    threadId: string;
+    turnId: string;
+    attemptGeneration: number;
+    status: AgentThreadCompletionStatus;
+    resultJson?: string;
+    errorMessage?: string;
+    now: number;
   },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
-    if (!["completed", "failed", "canceled"].includes(args.status)) {
-      throw new ConvexError("Invalid thread status.");
-    }
-    if (
-      !Number.isSafeInteger(args.attemptGeneration) ||
-      args.attemptGeneration < 1
-    ) {
-      throw new ConvexError("Invalid attempt generation.");
-    }
-    const completing = await ctx.db
-      .query("agent_turns")
-      .withIndex("by_turnId", (q) => q.eq("turnId", args.completingTurnId))
-      .unique();
-    if (args.tokenHash) {
-      if (args.callerTurnId !== args.completingTurnId) {
-        throw new ConvexError("Cloud turn is no longer active.");
-      }
-      const exactTerminalReceipt =
-        Boolean(completing?.terminalKind) &&
-        completing?.terminalTokenHash === args.tokenHash;
-      if (!exactTerminalReceipt) {
-        if (completing?.terminalTokenHash) {
-          throw new ConvexError("Cloud turn is no longer active.");
-        }
-        const authority = await resolveCurrentTurnToken(
-          ctx,
-          {
-            tokenHash: args.tokenHash,
-            ownerId: args.ownerId,
-            ownerGeneration: args.ownerGeneration,
-            turnId: args.completingTurnId,
-            now: args.now,
-          },
-          false,
-        );
-        if (!authority) {
-          throw new ConvexError("Cloud turn is no longer active.");
-        }
-      }
-    }
-    const thread = await ctx.db
-      .query("cloud_agent_threads")
-      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
-      .unique();
-    if (
-      !thread ||
-      thread.ownerId !== args.ownerId ||
-      thread.ownerGeneration !== args.ownerGeneration
-    ) {
-      throw new ConvexError("Unknown agent thread.");
-    }
-    // A late terminal receipt from attempt N is an idempotent no-op after
-    // attempt N+1 has taken the thread. It may finish its own turn, but it must
-    // never project that result onto the reused thread identity.
-    if (thread.attemptGeneration !== args.attemptGeneration) return null;
-
-    // This callback is thread-scoped, and the only thing that used to fence it
-    // was the thread not being "running" — which a continuation has just
-    // undone. So an outcome delivered late for a superseded turn (a DO
-    // replaying a terminal payload it never managed to deliver) would cancel
-    // the thread out from under the turn now running on it: the user is told
-    // the agent stopped, and the live turn's own report is dropped as a
-    // duplicate when it finally lands. A turn that a newer turn on the same
-    // thread has already replaced completes itself, not the thread.
-    if (
-      !completing ||
-      completing.ownerId !== args.ownerId ||
-      completing.ownerGeneration !== args.ownerGeneration ||
-      completing.threadId !== args.threadId ||
-      completing.attemptGeneration !== args.attemptGeneration
-    ) {
-      throw new ConvexError("Turn does not belong to this thread.");
-    }
-    if (
-      !completing.terminalKind ||
-      completing.status === "running" ||
-      completing.status !== args.status
-    ) {
-      // Thread completion is a projection of the already-durable terminal turn,
-      // never an alternate terminalization path. This also makes a still-live
-      // sandbox token incapable of closing the thread while retaining callback
-      // authority.
-      throw new ConvexError("Cloud turn is not terminal with that status.");
-    }
-    if (thread.status !== "running") return null;
-    await ctx.db.patch(thread._id, {
-      status: args.status,
-      resultJson: args.resultJson,
-      errorMessage: args.errorMessage,
-      updatedAt: args.now,
-    });
-    if (args.wake === false) return null;
-    // Desktop-originated threads have exactly one terminal-delivery owner:
-    // the originating device's reactive subscription. Waking the cloud
-    // conversation as well would duplicate the agent report in two
-    // orchestrators. The desktop ACKs only after durable local persistence.
-    if (thread.originDeviceId && thread.originConversationId) {
-      return null;
-    }
-
-    // Wake the orchestrator with a lifecycle turn, mirroring the desktop
-    // runtime's follow-up delivery for task lifecycle events. The turn itself
-    // is VISIBLE — it is the only turn that carries the orchestrator's relay
-    // of the agent's report, so hiding it would hide the result from the
-    // user. Only its lifecycle prompt is hidden (the UI skips the user bubble
-    // for lane "wake"; the transcript row below stays hidden context).
-    let resultText = args.errorMessage ?? "";
-    if (args.resultJson) {
-      try {
-        const parsed = JSON.parse(args.resultJson) as { finalText?: string };
-        resultText =
-          typeof parsed.finalText === "string" && parsed.finalText.trim()
-            ? parsed.finalText
-            : args.resultJson;
-      } catch {
-        resultText = args.resultJson;
-      }
-    }
-    const label =
-      args.status === "completed"
-        ? "[Agent completed]"
-        : args.status === "canceled"
-          ? "[Agent canceled]"
-          : "[Agent failed]";
-    const lifecycleText = `${label} ${thread.description} (thread ${thread.threadId})\n\n${
-      resultText || "No result was reported."
-    }`;
-    const wake = await startChatTurn(ctx, {
-      ownerId: thread.ownerId,
-      conversationId: thread.conversationId,
-      prompt: lifecycleText,
-      lane: "wake",
-      source: "agent-thread",
-      hiddenMessage: true,
-      ownerGeneration: args.ownerGeneration,
-      agentThreadControl: {
-        threadId: thread.threadId,
-        attemptGeneration: args.attemptGeneration,
-        threadUpdatedAt: args.now,
-        status: args.status as "completed" | "failed" | "canceled",
-      },
-      now: args.now,
-    });
-    // C4: the sandbox emits `output_files` on its own hidden turn, but the
-    // files belong to the next VISIBLE turn — the wake turn carrying the
-    // agent's report — so they surface where the user is actually reading.
-    // The card is a journal row keyed by that turn, so it survives scrollback
-    // instead of living only inside the tail's event window.
-    const files = await collectThreadOutputFiles(ctx, args.threadId);
-    if (files.length > 0) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.cloud_apps.postConversationCardInternal,
-        {
-          ownerId: thread.ownerId,
-          ownerGeneration: args.ownerGeneration,
-          conversationId: thread.conversationId,
-          sourceTurnId: wake.turnId,
-          card: { type: "files", files },
-        },
-      );
-    }
-    return null;
-  },
-});
+): Promise<AgentThreadCompletionResult> => {
+  if (
+    !Number.isSafeInteger(args.attemptGeneration) ||
+    args.attemptGeneration < 1
+  ) {
+    throw new ConvexError("Invalid attempt generation.");
+  }
+  const thread = await ctx.db
+    .query("cloud_agent_threads")
+    .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
+    .unique();
+  if (!thread) return { applied: false, reason: "unknown_thread" };
+  if (thread.ownerId !== args.ownerId) {
+    return { applied: false, reason: "owner_mismatch" };
+  }
+  if (
+    thread.ownerGeneration !== undefined &&
+    thread.ownerGeneration !== args.ownerGeneration
+  ) {
+    return { applied: false, reason: "stale" };
+  }
+  const currentAttempt = thread.attemptGeneration ?? 0;
+  if (args.attemptGeneration < currentAttempt) {
+    return { applied: false, reason: "stale" };
+  }
+  if (
+    args.attemptGeneration === currentAttempt &&
+    thread.status !== "running" &&
+    thread.status !== "resuming"
+  ) {
+    // The first verdict for an attempt wins; a second one (or a repeat of the
+    // same one) is at-least-once delivery, not a change of mind.
+    return { applied: false, reason: "duplicate" };
+  }
+  await ctx.db.patch(thread._id, {
+    status: args.status,
+    attemptGeneration: args.attemptGeneration,
+    resultJson: args.resultJson,
+    errorMessage: args.errorMessage,
+    ...(args.status === "waiting_for_user" ? { sandboxLeaseExpiresAt: 0 } : {}),
+    updatedAt: args.now,
+  });
+  return {
+    applied: true,
+    conversationId: thread.conversationId,
+    originDelivery: Boolean(
+      thread.originDeviceId && thread.originConversationId,
+    ),
+  };
+};
 
 const OUTPUT_FILE_CARD_MAX = 20;
 
@@ -6646,7 +4678,7 @@ const OUTPUT_FILE_CARD_MAX = 20;
  * thread's turns and each turn's events, because this runs inside the
  * completion mutation and must not be able to blow its read budget.
  */
-const collectThreadOutputFiles = async (
+export const collectThreadOutputFiles = async (
   ctx: MutationCtx,
   threadId: string,
 ): Promise<Array<Record<string, unknown>>> => {
@@ -6682,26 +4714,6 @@ const collectThreadOutputFiles = async (
   }
   return [...byPath.values()].slice(0, OUTPUT_FILE_CARD_MAX);
 };
-
-// Dev-only probe: drives the chat lane end to end without a signed-in
-// client. Run with `bunx convex run cloud_apps:startChatProbeInternal`.
-export const startChatProbeInternal = internalMutation({
-  args: {
-    prompt: v.string(),
-    ownerId: v.optional(v.string()),
-    conversationId: v.optional(v.string()),
-  },
-  returns: v.object({ conversationId: v.string(), turnId: v.string() }),
-  handler: async (ctx, args) =>
-    await startChatTurn(ctx, {
-      ownerId: args.ownerId ?? "probe:cloud-chat",
-      conversationId: args.conversationId,
-      prompt: args.prompt,
-      source: "probe",
-      title: `[probe] ${args.prompt.slice(0, 40)}`,
-      now: Date.now(),
-    }),
-});
 
 export const getTurnProbeInternal = internalQuery({
   args: { turnId: v.string() },
@@ -7324,20 +5336,216 @@ export const deleteStorageInternal = internalMutation({
   },
 });
 
+export type TurnEventProjectionArgs = {
+  ownerId: string;
+  ownerGeneration: string;
+  turnId: string;
+  attemptGeneration?: number;
+  sessionId: string;
+  /** Caller-assigned per-turn position; absent means "append". */
+  seq?: number;
+  /** The DO's per-attempt ordinal (outbox identity). */
+  eventSeq?: number;
+  kind: string;
+  payloadJson: string;
+  terminal: boolean;
+  connectedAccount?: boolean;
+  now: number;
+};
+
+export type TurnEventProjectionResult =
+  | {
+      ok: true;
+      inserted: boolean;
+      terminalAccepted: boolean;
+      duplicate: boolean;
+    }
+  | {
+      ok: false;
+      reason:
+        | "unknown_turn"
+        | "owner_mismatch"
+        | "generation_stale"
+        | "not_active"
+        | "invalid";
+    };
+
+/**
+ * Projects one executor event (delivered as a `turn.event` outbox event, or
+ * written by Convex's own cancellation/operation paths).
+ *
+ * Identity is (turnId, attemptGeneration, eventSeq): a redelivery is a
+ * duplicate, never a second row. Terminal events are idempotent per attempt —
+ * the first terminal for a turn closes it and every later one, whatever it
+ * says, is a duplicate. A hosted-browser wait (`waiting_for_user`, not
+ * terminal) additionally projects the interaction row and parks the thread.
+ */
+export const appendTurnEventProjection = async (
+  ctx: MutationCtx,
+  args: TurnEventProjectionArgs,
+): Promise<TurnEventProjectionResult> => {
+  const turn = await ctx.db
+    .query("agent_turns")
+    .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
+    .unique();
+  if (!turn) return { ok: false, reason: "unknown_turn" };
+  if (turn.ownerId !== args.ownerId) {
+    return { ok: false, reason: "owner_mismatch" };
+  }
+  if (turn.ownerGeneration !== args.ownerGeneration) {
+    return { ok: false, reason: "generation_stale" };
+  }
+  if (turn.sessionId !== args.sessionId) return { ok: false, reason: "invalid" };
+  const duplicate = { ok: true as const, inserted: false, terminalAccepted: false, duplicate: true };
+  if (args.eventSeq !== undefined) {
+    const existing = await ctx.db
+      .query("agent_events")
+      .withIndex("by_turnId_and_attemptGeneration_and_eventSeq", (q) =>
+        q
+          .eq("turnId", args.turnId)
+          .eq("attemptGeneration", args.attemptGeneration)
+          .eq("eventSeq", args.eventSeq),
+      )
+      .first();
+    if (existing) return duplicate;
+  } else if (args.seq !== undefined) {
+    const existing = await ctx.db
+      .query("agent_events")
+      .withIndex("by_turnId_and_seq", (q) =>
+        q.eq("turnId", args.turnId).eq("seq", args.seq!),
+      )
+      .first();
+    if (existing) return duplicate;
+  }
+  const isBrowserSuspension =
+    args.kind === "waiting_for_user" && args.terminal === false;
+  if (isBrowserSuspension) {
+    if (
+      turn.kind !== "agent" ||
+      !turn.threadId ||
+      !Number.isSafeInteger(args.attemptGeneration) ||
+      args.attemptGeneration !== turn.attemptGeneration
+    ) {
+      return { ok: false, reason: "invalid" };
+    }
+    // The projection does its own liveness check after the exact-replay
+    // check, so a re-emitted wait for an already parked turn is a duplicate
+    // rather than a refusal.
+    const projected = await projectCloudBrowserSuspension(ctx, {
+      turn,
+      payloadJson: args.payloadJson,
+      connectedAccount: args.connectedAccount === true,
+      now: args.now,
+    });
+    if (projected.replayed) return duplicate;
+    await ctx.db.insert("agent_events", {
+      ownerId: turn.ownerId,
+      turnId: args.turnId,
+      sessionId: turn.sessionId,
+      seq: args.seq ?? (await nextEventSeq(ctx, args.turnId)),
+      ...(args.attemptGeneration !== undefined
+        ? { attemptGeneration: args.attemptGeneration }
+        : {}),
+      ...(args.eventSeq !== undefined ? { eventSeq: args.eventSeq } : {}),
+      kind: args.kind,
+      payloadJson: args.payloadJson,
+      createdAt: args.now,
+    });
+    return { ok: true, inserted: true, terminalAccepted: false, duplicate: false };
+  }
+  // Closed turns accept nothing more: a second terminal is a redelivery of the
+  // verdict, and a straggling progress event describes a past the UI has
+  // already rendered as finished.
+  if (turn.terminalKind) return duplicate;
+  if (turn.status !== "running" && turn.status !== "resuming") {
+    return { ok: false, reason: "not_active" };
+  }
+  if (turn.kind === "agent") {
+    if (
+      !turn.threadId ||
+      !Number.isSafeInteger(args.attemptGeneration) ||
+      args.attemptGeneration! < 1 ||
+      turn.attemptGeneration !== args.attemptGeneration
+    ) {
+      return { ok: false, reason: "not_active" };
+    }
+    const thread = await ctx.db
+      .query("cloud_agent_threads")
+      .withIndex("by_threadId", (q) => q.eq("threadId", turn.threadId!))
+      .unique();
+    // The thread row is itself a projection (`thread.spawned`) and may land
+    // after this event; only a row that contradicts the turn refuses it.
+    if (
+      thread &&
+      (thread.ownerId !== args.ownerId ||
+        thread.ownerGeneration !== args.ownerGeneration ||
+        (thread.attemptGeneration ?? 0) > args.attemptGeneration! ||
+        (thread.attemptGeneration === args.attemptGeneration &&
+          thread.status !== "running" &&
+          thread.status !== "resuming"))
+    ) {
+      return { ok: false, reason: "not_active" };
+    }
+  }
+  if (turn.browserResume) {
+    await completeCloudBrowserInteractionForResumeTurn(ctx, {
+      turn,
+      now: args.now,
+    });
+  }
+  await ctx.db.insert("agent_events", {
+    ownerId: turn.ownerId,
+    turnId: args.turnId,
+    sessionId: turn.sessionId,
+    seq: args.seq ?? (await nextEventSeq(ctx, args.turnId)),
+    ...(args.attemptGeneration !== undefined
+      ? { attemptGeneration: args.attemptGeneration }
+      : {}),
+    ...(args.eventSeq !== undefined ? { eventSeq: args.eventSeq } : {}),
+    kind: args.kind,
+    payloadJson: args.payloadJson,
+    createdAt: args.now,
+  });
+  if (turn.status === "resuming") {
+    await ctx.db.patch(turn._id, { status: "running", updatedAt: args.now });
+  }
+  if (args.terminal) {
+    await ctx.db.patch(turn._id, {
+      status: ["completed", "failed", "canceled", "timeout"].includes(args.kind)
+        ? args.kind
+        : "failed",
+      terminalKind: args.kind,
+      resultJson: args.kind === "completed" ? args.payloadJson : undefined,
+      errorMessage: args.kind === "completed" ? undefined : args.payloadJson,
+      updatedAt: args.now,
+    });
+    await scheduleTerminalCard(
+      ctx,
+      turn,
+      args.kind,
+      args.payloadJson,
+      args.ownerGeneration,
+    );
+  }
+  return {
+    ok: true,
+    inserted: true,
+    terminalAccepted: args.terminal,
+    duplicate: false,
+  };
+};
+
+/** Convex-internal writer for one turn event (ops probes, tests). */
 export const appendEventInternal = internalMutation({
   args: {
-    // Present only when the caller authenticated with a per-turn capability.
-    // Service-secret callbacks omit it and retain their separate trusted path.
-    tokenHash: v.optional(v.string()),
     ownerId: v.string(),
     ownerGeneration: v.string(),
     turnId: v.string(),
     attemptGeneration: v.optional(v.number()),
     sessionId: v.string(),
     seq: v.number(),
-    // Executors that can't coordinate a shared counter with the DO (the
-    // in-sandbox agent, the orchestrator loop) let Convex assign max(seq)+1.
-    // Auto-seq events skip the duplicate check by construction.
+    // Executors that can't coordinate a shared counter let Convex assign
+    // max(seq)+1. Auto-seq events skip the duplicate check by construction.
     autoSeq: v.optional(v.boolean()),
     kind: v.string(),
     payloadJson: v.string(),
@@ -7347,238 +5555,138 @@ export const appendEventInternal = internalMutation({
   },
   returns: v.object({ inserted: v.boolean(), terminalAccepted: v.boolean() }),
   handler: async (ctx, args) => {
-    const turn = await ctx.db
-      .query("agent_turns")
-      .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
-      .unique();
-    if (
-      !turn ||
-      turn.ownerId !== args.ownerId ||
-      turn.ownerGeneration !== args.ownerGeneration ||
-      turn.sessionId !== args.sessionId
-    ) {
-      throw new ConvexError("Unknown cloud turn.");
-    }
-    const isBrowserSuspension =
-      args.kind === "waiting_for_user" && args.terminal === false;
-    const exactBrowserSuspensionReplay =
-      isBrowserSuspension &&
-      Boolean(args.tokenHash) &&
-      turn.kind === "agent" &&
-      Boolean(turn.threadId) &&
-      Number.isSafeInteger(args.attemptGeneration) &&
-      args.attemptGeneration === turn.attemptGeneration
-        ? await browserSuspensionReplayMatches(ctx, {
-            ownerId: args.ownerId,
-            ownerGeneration: args.ownerGeneration,
-            turnId: args.turnId,
-            threadId: turn.threadId!,
-            attemptGeneration: args.attemptGeneration!,
-            tokenHash: args.tokenHash!,
-            payloadJson: args.payloadJson,
-          })
-        : false;
-    if (args.tokenHash) {
-      // HTTP token verification is useful for an early 401, but it cannot grant
-      // write authority across the following action -> mutation boundary. Read
-      // the current token attempt and owner-generation/migration fence in this
-      // same transaction as the append. `requireActive` is deliberately false:
-      // an exact retry after a terminal event committed but its HTTP response
-      // was lost must reach the idempotent terminal check below. A first write
-      // still proves that the loaded turn and (for agents) thread are live.
-      const exactTerminalReceipt =
-        Boolean(turn.terminalKind) && turn.terminalTokenHash === args.tokenHash;
-      const exactDurableTerminalAdmission =
-        args.terminal &&
-        !turn.terminalKind &&
-        turn.status === "running" &&
-        turn.activeTokenHash === args.tokenHash;
-      if (
-        exactTerminalReceipt ||
-        exactDurableTerminalAdmission ||
-        exactBrowserSuspensionReplay
-      ) {
-        if (exactBrowserSuspensionReplay) {
-          await assertOwnerMigrationWriteAllowed(
-            ctx,
-            args.ownerId,
-            args.ownerGeneration,
-          );
-        } else {
-          await assertOwnerDataWriteAllowed(
-            ctx,
-            args.ownerId,
-            args.ownerGeneration,
-          );
-        }
-      } else {
-        if (turn.terminalTokenHash) {
-          throw new ConvexError("Cloud turn is no longer active.");
-        }
-        const authority = await resolveCurrentTurnToken(
-          ctx,
-          {
-            tokenHash: args.tokenHash,
-            ownerId: args.ownerId,
-            ownerGeneration: args.ownerGeneration,
-            turnId: args.turnId,
-            now: args.now,
-          },
-          false,
-        );
-        if (!authority) {
-          throw new ConvexError("Cloud turn is no longer active.");
-        }
-      }
-    } else {
-      await assertOwnerDataWriteAllowed(
-        ctx,
-        args.ownerId,
-        args.ownerGeneration,
-      );
-    }
-    if (isBrowserSuspension) {
-      if (
-        !args.tokenHash ||
-        turn.kind !== "agent" ||
-        !turn.threadId ||
-        !Number.isSafeInteger(args.attemptGeneration) ||
-        args.attemptGeneration !== turn.attemptGeneration
-      ) {
-        throw new ConvexError("Invalid hosted browser waiting event.");
-      }
-      if (exactBrowserSuspensionReplay) {
-        return { inserted: false, terminalAccepted: false };
-      }
-      if (turn.status !== "running" || turn.terminalKind) {
-        throw new ConvexError("Cloud turn is no longer active.");
-      }
-      const seq = args.autoSeq
-        ? await nextEventSeq(ctx, args.turnId)
-        : args.seq;
-      if (!args.autoSeq) {
-        const duplicate = await ctx.db
-          .query("agent_events")
-          .withIndex("by_turnId_and_seq", (q) =>
-            q.eq("turnId", args.turnId).eq("seq", seq),
-          )
-          .unique();
-        if (duplicate) {
-          return { inserted: false, terminalAccepted: false };
-        }
-      }
-      await projectCloudBrowserSuspension(ctx, {
-        turn,
-        tokenHash: args.tokenHash,
-        payloadJson: args.payloadJson,
-        connectedAccount: args.connectedAccount === true,
-        now: args.now,
-      });
-      await ctx.db.insert("agent_events", {
-        ownerId: turn.ownerId,
-        turnId: args.turnId,
-        sessionId: turn.sessionId,
-        seq,
-        kind: args.kind,
-        payloadJson: args.payloadJson,
-        createdAt: args.now,
-      });
-      return { inserted: true, terminalAccepted: false };
-    }
-    if (turn.terminalKind) {
-      const storedPayload =
-        turn.terminalKind === "completed" ? turn.resultJson : turn.errorMessage;
-      if (
-        args.terminal &&
-        args.kind === turn.terminalKind &&
-        storedPayload === args.payloadJson
-      ) {
-        return { inserted: false, terminalAccepted: false };
-      }
-      if (args.terminal) {
-        throw new ConvexError(
-          "Cloud turn is already terminal with a different result.",
-        );
-      }
-      return { inserted: false, terminalAccepted: false };
-    }
-    if (turn.status !== "running") {
-      throw new ConvexError("Cloud turn is no longer active.");
-    }
-    if (turn.browserResume) {
-      await completeCloudBrowserInteractionForResumeTurn(ctx, {
-        turn,
-        now: args.now,
-      });
-    }
-    if (turn.kind === "agent") {
-      if (
-        !turn.threadId ||
-        !Number.isSafeInteger(args.attemptGeneration) ||
-        args.attemptGeneration! < 1 ||
-        turn.attemptGeneration !== args.attemptGeneration
-      ) {
-        throw new ConvexError("Cloud agent attempt is no longer active.");
-      }
-      const thread = await ctx.db
-        .query("cloud_agent_threads")
-        .withIndex("by_threadId", (q) => q.eq("threadId", turn.threadId!))
-        .unique();
-      if (
-        !thread ||
-        thread.ownerId !== args.ownerId ||
-        thread.ownerGeneration !== args.ownerGeneration ||
-        thread.attemptGeneration !== args.attemptGeneration ||
-        thread.status !== "running"
-      ) {
-        throw new ConvexError("Cloud agent attempt is no longer active.");
-      }
-    }
-    const seq = args.autoSeq ? await nextEventSeq(ctx, args.turnId) : args.seq;
-    if (!args.autoSeq) {
-      const duplicate = await ctx.db
-        .query("agent_events")
-        .withIndex("by_turnId_and_seq", (q) =>
-          q.eq("turnId", args.turnId).eq("seq", seq),
-        )
-        .unique();
-      if (duplicate) {
-        return { inserted: false, terminalAccepted: false };
-      }
-    }
-    await ctx.db.insert("agent_events", {
-      ownerId: turn.ownerId,
+    await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
+    const result = await appendTurnEventProjection(ctx, {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
       turnId: args.turnId,
-      sessionId: turn.sessionId,
-      seq,
+      ...(args.attemptGeneration !== undefined
+        ? { attemptGeneration: args.attemptGeneration }
+        : {}),
+      sessionId: args.sessionId,
+      ...(args.autoSeq ? {} : { seq: args.seq }),
       kind: args.kind,
       payloadJson: args.payloadJson,
-      createdAt: args.now,
+      terminal: args.terminal,
+      ...(args.connectedAccount !== undefined
+        ? { connectedAccount: args.connectedAccount }
+        : {}),
+      now: args.now,
     });
-    if (args.terminal) {
-      await ctx.db.patch(turn._id, {
-        status: ["completed", "failed", "canceled", "timeout"].includes(
-          args.kind,
-        )
-          ? args.kind
-          : "failed",
-        terminalKind: args.kind,
-        resultJson: args.kind === "completed" ? args.payloadJson : undefined,
-        errorMessage: args.kind === "completed" ? undefined : args.payloadJson,
-        ...(args.tokenHash ? { terminalTokenHash: args.tokenHash } : {}),
-        updatedAt: args.now,
-      });
-      await scheduleTerminalCard(
-        ctx,
-        turn,
-        args.kind,
-        args.payloadJson,
-        args.ownerGeneration,
+    if (!result.ok) {
+      throw new ConvexError(
+        result.reason === "not_active"
+          ? "Cloud turn is no longer active."
+          : "Unknown cloud turn.",
       );
     }
-    return { inserted: true, terminalAccepted: args.terminal };
+    return { inserted: result.inserted, terminalAccepted: result.terminalAccepted };
   },
 });
+
+export type RecordBuildArgs = {
+  buildId: string;
+  appId: string;
+  ownerId: string;
+  ownerGeneration: string;
+  turnId: string;
+  artifactPrefix: string;
+  previewUrl: string;
+  metricsJson: string;
+  slug: string;
+  title?: string;
+  now: number;
+};
+
+/**
+ * Records a finished app build (delivered as a `build.recorded` outbox event).
+ * Returns false for an exact replay of an already recorded build.
+ */
+export const recordBuild = async (
+  ctx: MutationCtx,
+  args: RecordBuildArgs,
+): Promise<boolean> => {
+  await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
+  const expectedPrefix = `builds/${await hashSha256Hex(args.ownerId)}/${args.buildId}`;
+  if (args.artifactPrefix !== expectedPrefix) {
+    throw new ConvexError(
+      "Build artifact prefix does not match its build id.",
+    );
+  }
+  const callbackTitle = args.title?.trim().slice(0, 32) || undefined;
+  const turn = await ctx.db
+    .query("agent_turns")
+    .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
+    .unique();
+  const app = await ctx.db
+    .query("cloud_apps")
+    .withIndex("by_appId", (q) => q.eq("appId", args.appId))
+    .unique();
+  if (
+    !turn ||
+    !app ||
+    turn.ownerId !== args.ownerId ||
+    turn.appId !== args.appId ||
+    app.ownerId !== args.ownerId
+  ) {
+    throw new ConvexError(
+      "Build callback does not match its owner, app, and turn.",
+    );
+  }
+  const existing = await ctx.db
+    .query("cloud_app_builds")
+    .withIndex("by_buildId", (q) => q.eq("buildId", args.buildId))
+    .unique();
+  if (existing) {
+    if (
+      existing.ownerId === args.ownerId &&
+      existing.appId === args.appId &&
+      existing.turnId === args.turnId &&
+      existing.artifactPrefix === args.artifactPrefix &&
+      existing.previewUrl === args.previewUrl &&
+      existing.metricsJson === args.metricsJson &&
+      existing.slug === args.slug &&
+      existing.callbackTitle === callbackTitle
+    ) {
+      return false;
+    }
+    throw new ConvexError(
+      "Build id is already bound to different artifacts.",
+    );
+  }
+  const turnBuild = await ctx.db
+    .query("cloud_app_builds")
+    .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
+    .first();
+  if (turnBuild) {
+    throw new ConvexError("That turn already recorded a build.");
+  }
+  if (turn.terminalKind || turn.status !== "running") {
+    throw new ConvexError("Build callback arrived after its turn closed.");
+  }
+  await ctx.db.insert("cloud_app_builds", {
+    buildId: args.buildId,
+    appId: args.appId,
+    ownerId: args.ownerId,
+    turnId: args.turnId,
+    status: "pending",
+    artifactPrefix: args.artifactPrefix,
+    previewUrl: args.previewUrl,
+    slug: args.slug,
+    metricsJson: args.metricsJson,
+    callbackTitle,
+    createdAt: args.now,
+    updatedAt: args.now,
+  });
+  // Apps carry their real product name (from the finished build), never the
+  // prompt text that created them.
+  const title = callbackTitle;
+  await ctx.db.patch(app._id, {
+    ...(title && title !== app.title ? { title } : {}),
+    updatedAt: args.now,
+  });
+  return true;
+};
 
 export const recordBuildInternal = internalMutation({
   args: {
@@ -7596,85 +5704,7 @@ export const recordBuildInternal = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
-    const expectedPrefix = `builds/${await hashSha256Hex(args.ownerId)}/${args.buildId}`;
-    if (args.artifactPrefix !== expectedPrefix) {
-      throw new ConvexError(
-        "Build artifact prefix does not match its build id.",
-      );
-    }
-    const callbackTitle = args.title?.trim().slice(0, 32) || undefined;
-    const turn = await ctx.db
-      .query("agent_turns")
-      .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
-      .unique();
-    const app = await ctx.db
-      .query("cloud_apps")
-      .withIndex("by_appId", (q) => q.eq("appId", args.appId))
-      .unique();
-    if (
-      !turn ||
-      !app ||
-      turn.ownerId !== args.ownerId ||
-      turn.appId !== args.appId ||
-      app.ownerId !== args.ownerId
-    ) {
-      throw new ConvexError(
-        "Build callback does not match its owner, app, and turn.",
-      );
-    }
-    const existing = await ctx.db
-      .query("cloud_app_builds")
-      .withIndex("by_buildId", (q) => q.eq("buildId", args.buildId))
-      .unique();
-    if (existing) {
-      if (
-        existing.ownerId === args.ownerId &&
-        existing.appId === args.appId &&
-        existing.turnId === args.turnId &&
-        existing.artifactPrefix === args.artifactPrefix &&
-        existing.previewUrl === args.previewUrl &&
-        existing.metricsJson === args.metricsJson &&
-        existing.slug === args.slug &&
-        existing.callbackTitle === callbackTitle
-      ) {
-        return null;
-      }
-      throw new ConvexError(
-        "Build id is already bound to different artifacts.",
-      );
-    }
-    const turnBuild = await ctx.db
-      .query("cloud_app_builds")
-      .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
-      .first();
-    if (turnBuild) {
-      throw new ConvexError("That turn already recorded a build.");
-    }
-    if (turn.terminalKind || turn.status !== "running") {
-      throw new ConvexError("Build callback arrived after its turn closed.");
-    }
-    await ctx.db.insert("cloud_app_builds", {
-      buildId: args.buildId,
-      appId: args.appId,
-      ownerId: args.ownerId,
-      turnId: args.turnId,
-      status: "pending",
-      artifactPrefix: args.artifactPrefix,
-      previewUrl: args.previewUrl,
-      slug: args.slug,
-      metricsJson: args.metricsJson,
-      callbackTitle,
-      createdAt: args.now,
-      updatedAt: args.now,
-    });
-    // Apps carry their real product name (from the finished build), never the
-    // prompt text that created them.
-    const title = callbackTitle;
-    await ctx.db.patch(app._id, {
-      ...(title && title !== app.title ? { title } : {}),
-      updatedAt: args.now,
-    });
+    await recordBuild(ctx, args);
     return null;
   },
 });
@@ -7938,10 +5968,6 @@ export const startBenchmarkTurn = internalAction({
       ownerGeneration: generation,
       now: Date.now(),
     });
-    const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
-    const turnToken = Array.from(tokenBytes, (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join("");
     const response = await fetch(
       `${builderUrl.replace(/\/+$/, "")}/sessions/${sessionId}/turns`,
       {
@@ -7956,8 +5982,8 @@ export const startBenchmarkTurn = internalAction({
           appId,
           turnId,
           prompt: benchmarkPrompt,
-          turnToken,
           convexCallbackBase: process.env.CONVEX_SITE_URL,
+          ...(await ownerModelAllowanceFields(ctx, ownerId, generation)),
         }),
       },
     );
@@ -8000,9 +6026,6 @@ export const startLifecycleTurn = internalAction({
       ownerGeneration: generation,
       now: Date.now(),
     });
-    const turnToken =
-      crypto.randomUUID().replaceAll("-", "") +
-      crypto.randomUUID().replaceAll("-", "");
     const response = await fetch(
       `${builderUrl.replace(/\/+$/, "")}/sessions/${sessionId}/turns`,
       {
@@ -8017,8 +6040,8 @@ export const startLifecycleTurn = internalAction({
           appId: app.appId,
           turnId,
           prompt,
-          turnToken,
           convexCallbackBase: process.env.CONVEX_SITE_URL,
+          ...(await ownerModelAllowanceFields(ctx, app.ownerId, generation)),
         }),
       },
     );
@@ -8207,8 +6230,8 @@ export const startLifecycleProbe = internalAction({
           appId: app.appId,
           turnId: args.turnId,
           prompt,
-          turnToken: crypto.randomUUID().replaceAll("-", ""),
           convexCallbackBase: process.env.CONVEX_SITE_URL,
+          ...(await ownerModelAllowanceFields(ctx, app.ownerId, generation)),
           preflightDelayMs: args.preflightDelayMs,
           watchdogMs: args.watchdogMs,
         }),
@@ -8991,7 +7014,6 @@ export const routeCloudTurnInternal = internalAction({
     turnId: v.string(),
     sessionId: v.string(),
     prompt: v.string(),
-    turnToken: v.string(),
     execution: v.optional(cloudExecutionSelectionValidator),
   },
   returns: v.null(),
@@ -9023,7 +7045,6 @@ export const routeCloudTurnInternal = internalAction({
         turnId: args.turnId,
         sessionId: args.sessionId,
         prompt: args.prompt,
-        turnToken: args.turnToken,
         ownerGeneration: args.ownerGeneration,
         ...(args.execution ? { execution: args.execution } : {}),
       });

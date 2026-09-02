@@ -5,6 +5,7 @@ import type { FunctionReference } from "convex/server";
 import { describe, expect, it } from "vitest";
 import { internal } from "./_generated/api";
 import schema from "./schema";
+import { createControlPlaneSigner } from "../tests/helpers/control_plane_capability";
 
 const modules = import.meta.glob("./**/*.ts");
 const createTest = () => convexTest(schema, modules);
@@ -124,17 +125,23 @@ describe("cloud schedule mutation receipts", () => {
   it("returns an HTTP conflict for a reused id with different intent", async () => {
     const t = createTest();
     await seedLifecycle(t);
-    const previousSecret = process.env.BUILDER_SERVICE_SECRET;
-    process.env.BUILDER_SERVICE_SECRET = "schedule-receipt-service-secret";
+    const previousJwks = process.env.CAPABILITY_JWKS;
+    const signer = await createControlPlaneSigner("schedule-receipt-kid");
+    process.env.CAPABILITY_JWKS = signer.jwksJson;
+    const capability = await signer.mint({
+      ownerId: OWNER,
+      ownerGeneration: GENERATION,
+      turnId: "turn:schedule-receipt",
+      conversationId: "conversation:schedule-receipt",
+      agentTypes: ["orchestrator"],
+    });
     const request = (prompt: string) => ({
       method: "POST",
       headers: {
-        authorization: "Bearer schedule-receipt-service-secret",
+        authorization: `Bearer ${capability}`,
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        ownerId: OWNER,
-        ownerGeneration: GENERATION,
         requestId: "schedule-request-http-conflict",
         action: "create",
         prompt,
@@ -156,10 +163,10 @@ describe("cloud schedule mutation receipts", () => {
         error: "Schedule request id was already used for a different operation.",
       });
     } finally {
-      if (previousSecret === undefined) {
-        delete process.env.BUILDER_SERVICE_SECRET;
+      if (previousJwks === undefined) {
+        delete process.env.CAPABILITY_JWKS;
       } else {
-        process.env.BUILDER_SERVICE_SECRET = previousSecret;
+        process.env.CAPABILITY_JWKS = previousJwks;
       }
     }
   });

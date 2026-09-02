@@ -99,7 +99,7 @@ const makeStore = (
 ) =>
   new CloudHomeStore(requireBucket(env), {
     base: endpointBase(env),
-    serviceSecret: env.BUILDER_SERVICE_SECRET,
+    bearer: env.BUILDER_SERVICE_SECRET,
     ownerId,
     ownerGeneration,
     assertExternalWrite,
@@ -276,7 +276,7 @@ export const handleUserCloudHomeRoute = async (args: {
       // R2 activity fence is closed for the wipe itself.
       const home = new CloudHomeStore(requireBucket(args.env), {
         base: endpointBase(args.env),
-        serviceSecret: args.env.BUILDER_SERVICE_SECRET,
+        bearer: args.env.BUILDER_SERVICE_SECRET,
         ownerId: args.ownerId,
         ownerGeneration,
       });

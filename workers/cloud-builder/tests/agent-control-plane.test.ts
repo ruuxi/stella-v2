@@ -3,11 +3,16 @@ import {
   AgentControlPlaneError,
   TranscriptNotCanonicalError,
   createAgentControlPlane,
+  type AgentControlPlaneTransport,
 } from "../src/agent-control-plane.js";
 import type { SealedTurnTranscript } from "../src/agent-turn-journal.js";
-import { sha256Hex } from "../src/hash.js";
 import { interiorBuildRequestKey } from "../src/interior-build-request.js";
 import { nativeHistoryCursorFromRows } from "../src/native-state-checkpoint.js";
+import {
+  appendThreadMessages,
+  readThreadHistory,
+} from "../src/thread-transcript.js";
+import { openSqlStorageFake } from "./fixtures/sql-storage.js";
 
 const IDENTITY = {
   ownerId: "owner-1",
@@ -18,8 +23,7 @@ const IDENTITY = {
   sessionId: "session-1",
 } as const;
 
-const SERVICE_SECRET = "service-secret";
-const TURN_TOKEN = "turn-token";
+const CAPABILITY = "control-plane-capability";
 const BASE = "https://convex.example.com";
 
 type Capture = {
@@ -41,9 +45,73 @@ const fakeStorage = () => {
   };
 };
 
+/**
+ * The BuildSession-owned half of the control plane, backed by the same SQLite
+ * helpers the Durable Object uses, so a test exercises the real transcript
+ * semantics (idempotent ordinals, rowid ordering) rather than a stand-in.
+ */
+const fakeTransport = () => {
+  const { sql, close } = openSqlStorageFake();
+  const events: Array<{
+    seq: number | "auto";
+    kind: string;
+    payload: unknown;
+    terminal: boolean;
+  }> = [];
+  const appends: Array<
+    ReadonlyArray<{ ordinal: number; role: string; payloadJson: string }>
+  > = [];
+  let failAppend: Error | null = null;
+  const transport: AgentControlPlaneTransport = {
+    readHistory: ({ excludeCurrentTurn }) =>
+      readThreadHistory(sql, {
+        ...(excludeCurrentTurn ? { excludeTurnId: IDENTITY.turnId } : {}),
+      }),
+    appendMessages: async (messages) => {
+      if (failAppend) throw failAppend;
+      appends.push(messages);
+      appendThreadMessages(sql, {
+        turnId: IDENTITY.turnId,
+        attemptGeneration: IDENTITY.attemptGeneration,
+        messages,
+        now: 1_800_000_000_000,
+      });
+    },
+    emitEvent: async (args) => {
+      events.push({
+        seq: args.seq,
+        kind: args.kind,
+        payload: args.payload,
+        terminal: args.terminal,
+      });
+    },
+  };
+  return {
+    sql,
+    close,
+    events,
+    appends,
+    transport,
+    seed: (
+      rows: ReadonlyArray<{ ordinal: number; role: string; payloadJson: string }>,
+      turnId = "turn-earlier",
+    ) =>
+      appendThreadMessages(sql, {
+        turnId,
+        attemptGeneration: 1,
+        messages: rows,
+        now: 1_799_000_000_000,
+      }),
+    failNextAppend: (error: Error) => {
+      failAppend = error;
+    },
+  };
+};
+
 const harness = (respond: (capture: Capture, index: number) => Response) => {
   const captures: Capture[] = [];
   const { values, storage } = fakeStorage();
+  const transport = fakeTransport();
   const send: typeof fetch = async (input, init) => {
     const capture: Capture = {
       url: String(input),
@@ -59,51 +127,38 @@ const harness = (respond: (capture: Capture, index: number) => Response) => {
   return {
     captures,
     values,
+    transport,
     control: createAgentControlPlane({
-      convexCallbackBase: `${BASE}/`,
-      serviceSecret: SERVICE_SECRET,
-      turnToken: TURN_TOKEN,
+      convexSiteUrl: `${BASE}/`,
+      capability: CAPABILITY,
       identity: IDENTITY,
       storage,
+      transport: transport.transport,
       fetch: send,
     }),
   };
 };
 
-const ROW = {
-  turnId: IDENTITY.turnId,
+const PAYLOAD_JSON = JSON.stringify({
   role: "assistant",
-  payloadJson: JSON.stringify({
-    role: "assistant",
-    content: [{ type: "text", text: "done" }],
-  }),
-} as const;
+  content: [{ type: "text", text: "done" }],
+});
 
 const sealed = async (): Promise<SealedTurnTranscript> => ({
   turnId: IDENTITY.turnId,
   attemptGeneration: IDENTITY.attemptGeneration,
-  historyCursor: await nativeHistoryCursorFromRows([{ ...ROW }]),
-  rows: [{ ordinal: 0, role: "assistant", payloadJson: ROW.payloadJson }],
+  historyCursor: await nativeHistoryCursorFromRows([
+    { turnId: IDENTITY.turnId, role: "assistant", payloadJson: PAYLOAD_JSON },
+  ]),
+  rows: [{ ordinal: 0, role: "assistant", payloadJson: PAYLOAD_JSON }],
 });
 
-const historyResponse = (
-  rows: readonly { turnId: string; role: string; payloadJson: string }[],
-): Response =>
-  Response.json({
-    messages: rows.map((row, index) => ({ seq: index, ...row })),
-  });
-
 describe("resident transcript append", () => {
-  test("retries the identical bytes once, then verifies the canonical cursor", async () => {
+  test("commits to the thread's own table and verifies the canonical cursor", async () => {
     const batch = await sealed();
-    const { captures, control } = harness((capture, index) => {
-      if (capture.url.endsWith("/api/cloud/messages")) {
-        return index === 0
-          ? new Response("nope", { status: 500 })
-          : Response.json({ ok: true });
-      }
-      return historyResponse([ROW]);
-    });
+    const { captures, control, transport } = harness(() =>
+      Response.json({ ok: true }),
+    );
 
     const receipt = await control.appendAndVerifyTranscript(batch);
 
@@ -112,116 +167,103 @@ describe("resident transcript append", () => {
       historyCursor: batch.historyCursor,
       rowCount: 1,
     });
-    const appends = captures.filter((capture) =>
-      capture.url.endsWith("/api/cloud/messages"),
-    );
-    expect(appends).toHaveLength(2);
-    expect(appends[1]?.body).toBe(appends[0]?.body);
-    expect(JSON.parse(appends[0]?.body ?? "null")).toEqual({
-      conversationId: IDENTITY.threadId,
-      turnId: IDENTITY.turnId,
-      messages: [
-        { ordinal: 0, role: "assistant", payloadJson: ROW.payloadJson },
-      ],
-    });
-    expect(appends[0]?.headers["x-stella-turn-token"]).toBe(TURN_TOKEN);
-    expect(appends[0]?.headers.authorization).toBeUndefined();
+    // The transcript is no longer a Convex round trip at all.
+    expect(captures).toHaveLength(0);
+    expect(transport.appends).toEqual([
+      [{ ordinal: 0, role: "assistant", payloadJson: PAYLOAD_JSON }],
+    ]);
+    expect(
+      readThreadHistory(transport.sql, {}).map((row) => ({
+        turnId: row.turnId,
+        role: row.role,
+      })),
+    ).toEqual([{ turnId: IDENTITY.turnId, role: "assistant" }]);
+    transport.close();
   });
 
-  test("posts once when the first append is accepted", async () => {
+  test("a replayed commit writes the rows once", async () => {
     const batch = await sealed();
-    const { captures, control } = harness((capture) =>
-      capture.url.endsWith("/api/cloud/messages")
-        ? Response.json({ ok: true })
-        : historyResponse([ROW]),
-    );
+    const { control, transport } = harness(() => Response.json({ ok: true }));
 
     await control.appendAndVerifyTranscript(batch);
+    await control.appendAndVerifyTranscript(batch);
 
-    expect(
-      captures.filter((capture) => capture.url.endsWith("/api/cloud/messages")),
-    ).toHaveLength(1);
+    expect(readThreadHistory(transport.sql, {})).toHaveLength(1);
+    transport.close();
   });
 
-  test("refuses a transcript Convex did not make canonical", async () => {
+  test("refuses a transcript the thread's own rows did not make canonical", async () => {
     const batch = await sealed();
-    const { control } = harness((capture) =>
-      capture.url.endsWith("/api/cloud/messages")
-        ? Response.json({ ok: true })
-        : historyResponse([{ ...ROW, payloadJson: '{"role":"assistant"}' }]),
-    );
+    const { control, transport } = harness(() => Response.json({ ok: true }));
 
-    await expect(control.appendAndVerifyTranscript(batch)).rejects.toBeInstanceOf(
-      TranscriptNotCanonicalError,
-    );
-  });
-
-  test("gives up after the second identical attempt fails", async () => {
-    const batch = await sealed();
-    const { captures, control } = harness(
-      () => new Response("nope", { status: 503 }),
-    );
-
+    // A cursor that does not name the last committed row means the sealed
+    // batch and the thread's rows disagree; the commit must not be reported
+    // as canonical.
     await expect(
-      control.appendAndVerifyTranscript(batch),
-    ).rejects.toBeInstanceOf(AgentControlPlaneError);
-    expect(captures).toHaveLength(2);
-    expect(captures[1]?.body).toBe(captures[0]?.body);
+      control.appendAndVerifyTranscript({
+        ...batch,
+        historyCursor: `${batch.historyCursor}-stale`,
+      }),
+    ).rejects.toBeInstanceOf(TranscriptNotCanonicalError);
+    transport.close();
+  });
+
+  test("surfaces a failed commit rather than reporting a canonical transcript", async () => {
+    const batch = await sealed();
+    const { control, transport } = harness(() => Response.json({ ok: true }));
+    transport.failNextAppend(new Error("storage refused"));
+
+    await expect(control.appendAndVerifyTranscript(batch)).rejects.toThrow(
+      /storage refused/u,
+    );
+    transport.close();
   });
 });
 
 describe("authoritative history load", () => {
-  test("scopes the fetch to this owner, thread and excluded attempt", async () => {
-    const { captures, control } = harness(() => historyResponse([ROW]));
+  test("reads this thread's rows and can exclude the current turn", async () => {
+    const { captures, control, transport } = harness(() =>
+      Response.json({ ok: true }),
+    );
+    transport.seed([
+      { ordinal: 0, role: "user", payloadJson: '{"role":"user"}' },
+    ]);
+    transport.transport.appendMessages([
+      { ordinal: 0, role: "assistant", payloadJson: PAYLOAD_JSON },
+    ]);
 
-    const rows = await control.loadAuthoritativeHistory({
+    const whole = await control.loadAuthoritativeHistory({
+      excludeCurrentTurn: false,
+    });
+    const prior = await control.loadAuthoritativeHistory({
       excludeCurrentTurn: true,
     });
 
-    expect(rows).toHaveLength(1);
-    const url = new URL(captures[0]?.url ?? "");
-    expect(url.pathname).toBe("/api/cloud/context");
-    expect(Object.fromEntries(url.searchParams)).toEqual({
-      conversationId: IDENTITY.threadId,
-      ownerId: IDENTITY.ownerId,
-      ownerGeneration: IDENTITY.ownerGeneration,
-      excludeTurnId: IDENTITY.turnId,
-    });
-    expect(captures[0]?.headers.authorization).toBe(`Bearer ${SERVICE_SECRET}`);
+    expect(whole.map((row) => row.turnId)).toEqual([
+      "turn-earlier",
+      IDENTITY.turnId,
+    ]);
+    expect(prior.map((row) => row.turnId)).toEqual(["turn-earlier"]);
+    // No control-plane call is made to read a thread's own transcript.
+    expect(captures).toHaveLength(0);
+    transport.close();
   });
 
-  test("omits the exclusion when the caller wants the whole thread", async () => {
-    const { captures, control } = harness(() => historyResponse([]));
-
-    await control.loadAuthoritativeHistory({ excludeCurrentTurn: false });
+  test("an empty thread loads no rows", async () => {
+    const { control, transport } = harness(() => Response.json({ ok: true }));
 
     expect(
-      new URL(captures[0]?.url ?? "").searchParams.get("excludeTurnId"),
-    ).toBeNull();
-  });
-
-  test("rejects a row that is not a history row", async () => {
-    const { control } = harness(() =>
-      Response.json({ messages: [{ seq: 0, role: "assistant" }] }),
-    );
-
-    await expect(
-      control.loadAuthoritativeHistory({ excludeCurrentTurn: false }),
-    ).rejects.toBeInstanceOf(AgentControlPlaneError);
-  });
-
-  test("rejects a body that is not history at all", async () => {
-    const { control } = harness(() => new Response("<html>", { status: 200 }));
-
-    await expect(
-      control.loadAuthoritativeHistory({ excludeCurrentTurn: false }),
-    ).rejects.toBeInstanceOf(AgentControlPlaneError);
+      await control.loadAuthoritativeHistory({ excludeCurrentTurn: false }),
+    ).toEqual([]);
+    transport.close();
   });
 });
 
-describe("worker-authenticated callbacks", () => {
-  test("an event names the exact attempt and proves the turn token", async () => {
-    const { captures, control } = harness(() => Response.json({ ok: true }));
+describe("turn events and Convex-answerable calls", () => {
+  test("an event goes to the session's outbox transport, not Convex", async () => {
+    const { captures, control, transport } = harness(() =>
+      Response.json({ ok: true }),
+    );
 
     await control.emit({
       seq: 4,
@@ -230,61 +272,89 @@ describe("worker-authenticated callbacks", () => {
       terminal: false,
     });
 
-    expect(captures[0]?.url).toBe(`${BASE}/api/cloud/events`);
-    expect(captures[0]?.headers.authorization).toBe(
-      `Bearer ${SERVICE_SECRET}`,
+    expect(captures).toHaveLength(0);
+    expect(transport.events).toEqual([
+      { seq: 4, kind: "assistant_delta", payload: { text: "hi" }, terminal: false },
+    ]);
+    transport.close();
+  });
+
+  test("a web search presents the turn's control-plane capability", async () => {
+    const { captures, control, transport } = harness(() =>
+      Response.json({ text: "results" }),
     );
-    expect(JSON.parse(captures[0]?.body ?? "null")).toEqual({
-      turnId: IDENTITY.turnId,
-      attemptGeneration: IDENTITY.attemptGeneration,
-      sessionId: IDENTITY.sessionId,
-      seq: 4,
-      kind: "assistant_delta",
-      payload: { text: "hi" },
-      terminal: false,
-      ownerId: IDENTITY.ownerId,
-      ownerGeneration: IDENTITY.ownerGeneration,
-      tokenHash: await sha256Hex(TURN_TOKEN),
-    });
-  });
-
-  test("a failing callback surfaces its status", async () => {
-    const { control } = harness(() => new Response("no", { status: 401 }));
-
-    await expect(
-      control.emit({ seq: "auto", kind: "turn_end", payload: {} }),
-    ).rejects.toThrow(/failed with 401/u);
-  });
-
-  test("a web search reaches the search route and reports no results plainly", async () => {
-    const { captures, control } = harness(() => Response.json({}));
 
     const result = await control.web({ query: "effect fibers" });
 
     expect(captures[0]?.url).toBe(`${BASE}/api/cloud/web-search`);
-    expect(result.content).toEqual([
-      { type: "text", text: "No results found." },
-    ]);
+    expect(captures[0]?.headers.authorization).toBe(`Bearer ${CAPABILITY}`);
+    expect(JSON.parse(captures[0]?.body ?? "null")).toEqual({
+      query: "effect fibers",
+      ownerId: IDENTITY.ownerId,
+      ownerGeneration: IDENTITY.ownerGeneration,
+    });
     expect(result.details).toEqual({
       mode: "search",
       query: "effect fibers",
-      text: "",
+      text: "results",
     });
+    transport.close();
+  });
+
+  test("a lazily resolved capability is fetched per call", async () => {
+    const { values, storage } = fakeStorage();
+    const transport = fakeTransport();
+    const seen: string[] = [];
+    let minted = 0;
+    const control = createAgentControlPlane({
+      convexSiteUrl: BASE,
+      capability: async () => `capability-${(minted += 1)}`,
+      identity: IDENTITY,
+      storage,
+      transport: transport.transport,
+      fetch: (async (_input, init) => {
+        seen.push(
+          (init?.headers as Record<string, string>).authorization as string,
+        );
+        return Response.json({});
+      }) as typeof fetch,
+    });
+
+    await control.web({ query: "one" });
+    await control.web({ query: "two" });
+
+    expect(seen).toEqual(["Bearer capability-1", "Bearer capability-2"]);
+    expect(values.size).toBe(0);
+    transport.close();
+  });
+
+  test("a failing Convex call surfaces its status", async () => {
+    const { control, transport } = harness(
+      () => new Response("no", { status: 401 }),
+    );
+
+    await expect(control.web({ query: "anything" })).rejects.toBeInstanceOf(
+      AgentControlPlaneError,
+    );
+    transport.close();
   });
 
   test("the web tool takes a query or a url, never both and never neither", async () => {
-    const { control } = harness(() => Response.json({}));
+    const { control, transport } = harness(() => Response.json({}));
 
     await expect(control.web({})).rejects.toThrow(/Either query or url/u);
     await expect(
       control.web({ query: "a", url: "https://example.com" }),
     ).rejects.toThrow(/not both/u);
+    transport.close();
   });
 });
 
 describe("interior build request", () => {
   test("records the request under the exact attempt's key", async () => {
-    const { values, control } = harness(() => Response.json({ ok: true }));
+    const { values, control, transport } = harness(() =>
+      Response.json({ ok: true }),
+    );
 
     await control.recordInteriorBuildRequest(
       { schemaVersion: 1, note: "ship the interior" },
@@ -302,5 +372,6 @@ describe("interior build request", () => {
       requestedAt: 1_800_000_000_000,
       note: "ship the interior",
     });
+    transport.close();
   });
 });

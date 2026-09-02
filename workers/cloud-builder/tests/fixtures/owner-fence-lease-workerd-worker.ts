@@ -15,6 +15,7 @@ type FixtureEnv = {
 
 type TestTurn = {
   kind: "agent";
+  conversationId: string;
   ownerId: string;
   ownerGeneration: string;
   turnId: string;
@@ -22,8 +23,6 @@ type TestTurn = {
   attemptGeneration: number;
   appId: "agent";
   prompt: string;
-  turnToken: string;
-  convexCallbackBase: string;
   ownerPurgeLeaseId?: string;
   ownerPurgeGeneration?: string;
   execution?: {
@@ -70,6 +69,7 @@ const turnFrom = (body: Record<string, unknown>): TestTurn => {
   }
   return {
     kind: "agent",
+    conversationId: "conversation-1",
     ownerId,
     ownerGeneration,
     turnId,
@@ -77,8 +77,6 @@ const turnFrom = (body: Record<string, unknown>): TestTurn => {
     attemptGeneration: 1,
     appId: "agent",
     prompt: "fixture",
-    turnToken: `token:${turnId}`,
-    convexCallbackBase: "https://fixture.invalid",
   };
 };
 

@@ -48,7 +48,7 @@ describe("app build lane", () => {
   test("keeps remote authority I/O outside the concurrency gate", () => {
     expect(APP_TURN_BODY).toContain("APP_TURN_ADMISSION_CLAIM_KEY");
     expect(APP_TURN_BODY).toContain("assertTurnWritable");
-    expect(APP_TURN_BODY).toContain("assertConvexAppTurnAuthority");
+    expect(APP_TURN_BODY).toContain("assertAppTurnIdentity");
     expect(APP_TURN_BODY).not.toContain("blockConcurrencyWhile");
   });
 

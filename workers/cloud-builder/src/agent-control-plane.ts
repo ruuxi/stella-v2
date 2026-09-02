@@ -1,21 +1,21 @@
 /**
- * The typed worker-to-Convex client a resident general-agent turn talks to.
+ * The typed client a resident general-agent turn talks to.
  *
  * A resident turn has no executor process, so the calls the container path
  * makes over the turn broker are made here directly. Every one of them is
  * already load-bearing somewhere in `index.ts` or `orchestrator-session.ts`;
  * this module is where a resident turn reaches them without importing either.
  *
- * Two different credentials, deliberately. History and events authenticate as
- * this worker (`BUILDER_SERVICE_SECRET`) and carry a hash of the turn token so
- * Convex can resolve the exact attempt transactionally. The transcript append
- * presents the raw turn token, because that route's authority is the attempt's,
- * not the worker's.
+ * Only one of them is still a Convex call. The thread transcript and the turn
+ * event stream belong to the `BuildSession` now — the transcript lives in its
+ * SQLite and the events leave through the outbox — so both arrive here as
+ * injected callbacks rather than HTTP. What remains synchronous is web search,
+ * which only the control plane can answer, and it authenticates with this
+ * turn's control-plane capability rather than the worker's shared secret.
  */
 
 import type { AgentToolResult } from "@stella/runtime/kernel/agent-core/types.js";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
-import { AGENT_HISTORY_MAX_ROWS } from "@stella/executor-cloud/agent-history";
 import { normalizeSafePublicUrl } from "@stella/runtime/kernel/tools/url-guard.js";
 import { fetchReadableText } from "@stella/runtime/kernel/tools/web-fetch-core.js";
 import {
@@ -24,14 +24,12 @@ import {
 } from "@stella/runtime/kernel/tools/safety.js";
 import type { TurnBrokerInteriorBuildRequest } from "@stella/contracts/turn-credential-broker";
 import type { SealedTurnTranscript } from "./agent-turn-journal.js";
-import { sha256Hex } from "./hash.js";
 import {
   interiorBuildRequestKey,
   interiorBuildRequestRecord,
 } from "./interior-build-request.js";
 import { nativeHistoryCursorFromRows } from "./native-state-checkpoint.js";
 
-const HISTORY_RESPONSE_MAX_BYTES = 5 * 1024 * 1024;
 const CALLBACK_TIMEOUT_MS = 30_000;
 
 export type CanonicalTranscriptReceipt = Readonly<{
@@ -112,27 +110,51 @@ const boundedSignal = (signal?: AbortSignal): AbortSignal =>
     ? AbortSignal.any([signal, AbortSignal.timeout(CALLBACK_TIMEOUT_MS)])
     : AbortSignal.timeout(CALLBACK_TIMEOUT_MS);
 
-const isHistoryRow = (row: unknown): row is AgentHistoryRow =>
-  Boolean(row) &&
-  typeof row === "object" &&
-  !Array.isArray(row) &&
-  typeof (row as AgentHistoryRow).seq === "number" &&
-  typeof (row as AgentHistoryRow).role === "string" &&
-  typeof (row as AgentHistoryRow).payloadJson === "string" &&
-  typeof (row as AgentHistoryRow).turnId === "string";
+/**
+ * The transcript and event transports the owning `BuildSession` supplies.
+ * They are injected rather than implemented here because both are now that
+ * object's own state: the rows live in its SQLite, and the events leave
+ * through its outbox with a DO-assigned ordinal.
+ */
+export type AgentControlPlaneTransport = Readonly<{
+  /** This thread's rows, oldest first, excluding the current turn on request. */
+  readHistory(options: { excludeCurrentTurn: boolean }): AgentHistoryRow[];
+  /** Commit transcript rows and project them. Idempotent on (turn, ordinal). */
+  appendMessages(
+    messages: ReadonlyArray<{
+      ordinal: number;
+      role: string;
+      payloadJson: string;
+    }>,
+  ): Promise<void>;
+  /** One turn event; `"auto"` takes the next DO-assigned ordinal. */
+  emitEvent(args: {
+    seq: number | "auto";
+    kind: string;
+    payload: unknown;
+    terminal: boolean;
+    signal?: AbortSignal;
+  }): Promise<void>;
+}>;
 
 export const createAgentControlPlane = (deps: {
-  convexCallbackBase: string;
-  serviceSecret: string;
-  turnToken: string;
+  /** Convex site origin for the one route that is still a Convex call. */
+  convexSiteUrl: string;
+  /** This turn's control-plane capability. Never leaves the Durable Object. */
+  capability: string | (() => Promise<string>);
   identity: AgentControlPlaneIdentity;
   storage: DurableObjectStorage;
+  transport: AgentControlPlaneTransport;
   fetch?: typeof fetch;
 }): GeneralAgentControlPlane => {
-  const base = deps.convexCallbackBase.replace(/\/+$/u, "");
+  const base = deps.convexSiteUrl.replace(/\/+$/u, "");
   const send = deps.fetch ?? fetch;
+  const capability = async (): Promise<string> =>
+    typeof deps.capability === "string"
+      ? deps.capability
+      : await deps.capability();
 
-  const serviceCall = async (
+  const convexCall = async (
     path: string,
     body: Record<string, unknown>,
     signal?: AbortSignal,
@@ -142,14 +164,13 @@ export const createAgentControlPlane = (deps: {
       response = await send(`${base}${path}`, {
         method: "POST",
         headers: {
-          authorization: `Bearer ${deps.serviceSecret}`,
+          authorization: `Bearer ${await capability()}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({
           ...body,
           ownerId: deps.identity.ownerId,
           ownerGeneration: deps.identity.ownerGeneration,
-          tokenHash: await sha256Hex(deps.turnToken),
         }),
         signal: boundedSignal(signal),
       });
@@ -168,85 +189,32 @@ export const createAgentControlPlane = (deps: {
     excludeCurrentTurn: boolean;
     signal?: AbortSignal;
   }): Promise<AgentHistoryRow[]> => {
+    options.signal?.throwIfAborted();
     if (!deps.identity.threadId) return [];
-    const url = new URL(`${base}/api/cloud/context`);
-    url.searchParams.set("conversationId", deps.identity.threadId);
-    url.searchParams.set("ownerId", deps.identity.ownerId);
-    url.searchParams.set("ownerGeneration", deps.identity.ownerGeneration);
-    if (options.excludeCurrentTurn) {
-      url.searchParams.set("excludeTurnId", deps.identity.turnId);
-    }
-    const response = await send(url, {
-      headers: { authorization: `Bearer ${deps.serviceSecret}` },
-      signal: boundedSignal(options.signal),
+    return deps.transport.readHistory({
+      excludeCurrentTurn: options.excludeCurrentTurn,
     });
-    if (!response.ok) {
-      throw new AgentControlPlaneError(
-        "/api/cloud/context",
-        response.status,
-      );
-    }
-    const text = await response.text();
-    if (new TextEncoder().encode(text).byteLength > HISTORY_RESPONSE_MAX_BYTES) {
-      throw new AgentControlPlaneError("/api/cloud/context");
-    }
-    let payload: unknown;
-    try {
-      payload = JSON.parse(text) as unknown;
-    } catch {
-      throw new AgentControlPlaneError("/api/cloud/context");
-    }
-    const messages =
-      payload && typeof payload === "object" && !Array.isArray(payload)
-        ? (payload as { messages?: unknown }).messages
-        : undefined;
-    if (
-      !Array.isArray(messages) ||
-      messages.length > AGENT_HISTORY_MAX_ROWS ||
-      !messages.every(isHistoryRow)
-    ) {
-      throw new AgentControlPlaneError("/api/cloud/context");
-    }
-    return messages;
   };
 
   /**
-   * The exact bytes are posted, retried once unchanged, and then verified
-   * against what Convex says is canonical. A retry that changed the batch
-   * could commit a different transcript than the one the cursor was computed
-   * from, which is the failure this ordering exists to prevent.
+   * Commit, then verify. The rows are the authority, so "canonical" means
+   * "what this thread's table says after the append" — the same check the
+   * Convex round trip used to make, minus the round trip. A retry that
+   * changed the batch would commit a different transcript than the one the
+   * cursor was computed from, which is the failure this ordering prevents.
    */
   const appendAndVerifyTranscript = async (
     sealed: SealedTurnTranscript,
     options?: { signal?: AbortSignal },
   ): Promise<CanonicalTranscriptReceipt> => {
-    const body = JSON.stringify({
-      conversationId: deps.identity.threadId,
-      turnId: deps.identity.turnId,
-      messages: sealed.rows.map((row) => ({
+    options?.signal?.throwIfAborted();
+    await deps.transport.appendMessages(
+      sealed.rows.map((row) => ({
         ordinal: row.ordinal,
         role: row.role,
         payloadJson: row.payloadJson,
       })),
-    });
-    const post = async (): Promise<Response> =>
-      await send(`${base}/api/cloud/messages`, {
-        method: "POST",
-        headers: {
-          "x-stella-turn-token": deps.turnToken,
-          "content-type": "application/json",
-        },
-        body,
-        signal: boundedSignal(options?.signal),
-      });
-    let response = await post();
-    if (!response.ok) response = await post();
-    if (!response.ok) {
-      throw new AgentControlPlaneError(
-        "/api/cloud/messages",
-        response.status,
-      );
-    }
+    );
     const canonicalRows = await loadAuthoritativeHistory({
       excludeCurrentTurn: false,
       ...(options?.signal ? { signal: options.signal } : {}),
@@ -266,19 +234,13 @@ export const createAgentControlPlane = (deps: {
     loadAuthoritativeHistory,
     appendAndVerifyTranscript,
     emit: async (args) => {
-      await serviceCall(
-        "/api/cloud/events",
-        {
-          turnId: deps.identity.turnId,
-          attemptGeneration: deps.identity.attemptGeneration,
-          sessionId: deps.identity.sessionId,
-          seq: args.seq,
-          kind: args.kind,
-          payload: args.payload,
-          terminal: args.terminal ?? false,
-        },
-        args.signal,
-      );
+      await deps.transport.emitEvent({
+        seq: args.seq,
+        kind: args.kind,
+        payload: args.payload,
+        terminal: args.terminal ?? false,
+        ...(args.signal ? { signal: args.signal } : {}),
+      });
     },
     // The desktop `web` tool's fetch pipeline, with per-redirect-hop SSRF
     // re-validation. workerd has no resolver hook, so the guard runs
@@ -305,7 +267,7 @@ export const createAgentControlPlane = (deps: {
           details: { mode: "fetch", url },
         };
       }
-      const payload = await serviceCall(
+      const payload = await convexCall(
         "/api/cloud/web-search",
         {
           query,

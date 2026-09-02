@@ -3,19 +3,6 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-const reconcileExecutionPlacementRef = makeFunctionReference<
-  "mutation",
-  { now?: number },
-  {
-    expiredOffers: number;
-    computerReconciliation: number;
-    cloudRetries: number;
-    cloudTerminals: number;
-    cloudCancellations: number;
-    expiredPayloads: number;
-  }
->("execution_placement:reconcileExecutionPlacementInternal");
-
 const maintainAgentEventOwnershipRef = makeFunctionReference<
   "action",
   { maxBatches?: number },
@@ -45,12 +32,6 @@ crons.interval(
   { minutes: 5 },
   internal.channels.connector_turn_payloads.purgeExpired,
   { maxBatches: 10 },
-);
-crons.interval(
-  "stella relay resume cleanup",
-  { minutes: 1 },
-  internal.stella_provider.relay_resume_store.drainExpiredRelayResumeStreams,
-  {},
 );
 crons.interval(
   "thread lifecycle sweep",
@@ -193,13 +174,6 @@ crons.interval(
 );
 
 crons.interval(
-  "purge expired cloud turn tokens",
-  { minutes: 30 },
-  internal.cloud_apps.purgeExpiredTurnTokensInternal,
-  {},
-);
-
-crons.interval(
   "repair legacy agent event ownership",
   { hours: 6 },
   maintainAgentEventOwnershipRef,
@@ -309,13 +283,6 @@ crons.interval(
   { minutes: 1 },
   internal.auth_migration.sweepMigratedSourceIdentityDeletionsInternal,
   { limit: 10 },
-);
-
-crons.interval(
-  "reconcile automatic execution placement",
-  { seconds: 30 },
-  reconcileExecutionPlacementRef,
-  {},
 );
 
 crons.interval(

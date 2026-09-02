@@ -1,6 +1,4 @@
-import { useMemo, useState } from "react";
-import { makeFunctionReference } from "convex/server";
-import { useQuery } from "convex/react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TopSheet } from "./TopSheet";
@@ -9,13 +7,20 @@ import { ConnectHeroAnimation } from "./ConnectHeroAnimation";
 import { ComputerSettingsSheet } from "./ComputerSettingsSheet";
 import { PairPhoneSheet } from "./PairPhoneSheet";
 import { type StoredPhoneAccess } from "../lib/phone-access";
-import type { AutomaticExecutionTarget } from "../lib/execution-placement";
+import {
+  listExecutionDevices,
+  type AutomaticExecutionTarget,
+  type ExecutionDeviceDestination,
+} from "../lib/execution-placement";
 import type { ComputerModelSettings } from "../lib/use-computer-model-settings";
 import { tapLight } from "../lib/haptics";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
 import { fadeHex } from "../theme/oklch";
+
+/** Live presence goes stale quickly; refresh while the sheet is on screen. */
+const EXECUTION_DEVICE_POLL_MS = 15_000;
 
 type ComputerDeviceSheetProps = {
   visible: boolean;
@@ -69,10 +74,30 @@ export function ComputerDeviceSheet({
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
   const [pairSheetOpen, setPairSheetOpen] = useState(false);
   const [targetSheetOpen, setTargetSheetOpen] = useState(false);
-  const destinations = useQuery(
-    executionDestinationsRef,
-    visible ? {} : "skip",
-  );
+  const [destinations, setDestinations] = useState<
+    ExecutionDeviceDestination[] | undefined
+  >(undefined);
+  // Device presence lives on the owner gate, so this is a poll while the
+  // sheet is on screen rather than a Convex subscription.
+  useEffect(() => {
+    if (!visible) return;
+    let active = true;
+    const controller = new AbortController();
+    const read = () => {
+      void listExecutionDevices({ signal: controller.signal })
+        .then((devices) => {
+          if (active) setDestinations(devices);
+        })
+        .catch(() => undefined);
+    };
+    read();
+    const timer = setInterval(read, EXECUTION_DEVICE_POLL_MS);
+    return () => {
+      active = false;
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [visible]);
   const selectedDestination =
     executionTarget.mode === "device"
       ? destinations?.find(
@@ -99,7 +124,7 @@ export function ComputerDeviceSheet({
           ? "Automatic"
           : executionTarget.mode === "cloud"
             ? "Cloud"
-            : (selectedDestination?.name ??
+            : (selectedDestination?.label ??
               `Computer ${executionTarget.deviceId.slice(0, 4).toUpperCase()}`),
       onPress: () => {
         tapLight();
@@ -234,26 +259,11 @@ export function ComputerDeviceSheet({
   );
 }
 
-type ExecutionDestination = {
-  deviceId: string;
-  name: string;
-  online: boolean;
-  ready: boolean;
-  busy: boolean;
-  remoteExecutionEnabled: boolean;
-};
-
-const executionDestinationsRef = makeFunctionReference<
-  "query",
-  Record<string, never>,
-  ExecutionDestination[]
->("execution_placement:listMyExecutionDestinations");
-
 function ExecutionTargetSheet(props: {
   visible: boolean;
   onClose: () => void;
   pairedDesktops: StoredPhoneAccess[];
-  destinations: ExecutionDestination[] | undefined;
+  destinations: ExecutionDeviceDestination[] | undefined;
   target: AutomaticExecutionTarget;
   onSelect: (target: AutomaticExecutionTarget) => void;
 }) {
@@ -296,15 +306,15 @@ function ExecutionTargetSheet(props: {
     ...computers.map((device) => ({
       key: device.deviceId,
       icon: "monitor" as IconName,
-      label: device.name,
+      label: device.label ?? "Computer",
       selected:
         props.target.mode === "device" &&
         props.target.deviceId === device.deviceId,
       disabled:
         !device.online ||
         !device.remoteExecutionEnabled ||
-        !device.ready ||
-        device.busy,
+        device.availability?.ready !== true ||
+        (device.availability?.chatSlots ?? 0) <= 0,
       unavailableLabel: !device.online
         ? "Offline"
         : !device.remoteExecutionEnabled

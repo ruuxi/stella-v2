@@ -86,7 +86,7 @@ const harness = async (
     ownerGeneration,
     {
       base: "https://convex.example",
-      serviceSecret: "secret",
+      bearer: "secret",
       ownerGeneration,
       fetch: async (input) => {
         const path = new URL(String(input)).pathname;

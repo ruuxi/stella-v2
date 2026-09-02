@@ -28,7 +28,6 @@ export type SandboxLifecycleIdentity = Readonly<{
   ownerId: string;
   ownerGeneration: string;
   turnId: string;
-  turnToken: string;
   attemptGeneration: number;
 }>;
 
@@ -48,7 +47,6 @@ export const sandboxLifecycleId = async (
     !identity.ownerId ||
     !identity.ownerGeneration ||
     !identity.turnId ||
-    !identity.turnToken ||
     !Number.isSafeInteger(identity.attemptGeneration) ||
     identity.attemptGeneration < 1
   ) {
@@ -60,7 +58,6 @@ export const sandboxLifecycleId = async (
     identity.ownerId,
     identity.ownerGeneration,
     identity.turnId,
-    identity.turnToken,
     String(identity.attemptGeneration),
   ].join("\u0000");
   const digest = bytesToHex(

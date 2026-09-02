@@ -28,7 +28,6 @@ import {
 
 const DEFAULT_BROWSER_PROFILE_ID = "default" as const;
 const MAX_ACTIVE_INTERACTIONS = 24;
-const TURN_TOKEN_ATTEMPT_LIMIT = 8;
 const MAX_INTERACTION_LIFETIME_MS = 24 * 60 * 60_000;
 
 type BrowserInteractionKind = "login_takeover" | "device_code";
@@ -247,8 +246,8 @@ const applyProfileResetRef = makeFunctionReference<
 const activateResumeTurnRef = makeFunctionReference<"mutation", any, null>(
   "cloud_browser:activateBrowserResumeTurnInternal",
 );
-const runCloudAgentTurnRef = makeFunctionReference<"action", any, null>(
-  "cloud_apps:runCloudAgentTurnInternal",
+const dispatchCloudAgentTurnRef = makeFunctionReference<"action", any, null>(
+  "cloud_agent_dispatch:dispatchCloudAgentTurnInternal",
 );
 
 const projectSummary = (
@@ -460,7 +459,6 @@ const exactSuspensionMatches = (
     turnId: string;
     threadId: string;
     attemptGeneration: number;
-    tokenHash: string;
     payloadHash: string;
     suspension: BrowserSuspension;
   },
@@ -470,7 +468,6 @@ const exactSuspensionMatches = (
   row.turnId === args.turnId &&
   row.threadId === args.threadId &&
   row.attemptGeneration === args.attemptGeneration &&
-  row.suspensionTokenHash === args.tokenHash &&
   row.suspensionEventPayloadHash === args.payloadHash &&
   row.interactionId === args.suspension.interactionId &&
   row.revision >= args.suspension.interactionRevision &&
@@ -483,38 +480,10 @@ const exactSuspensionMatches = (
   row.displayTitle === args.suspension.displayTitle &&
   row.expiresAt === args.suspension.expiresAt;
 
-export const browserSuspensionReplayMatches = async (
-  ctx: QueryCtx | MutationCtx,
-  args: {
-    ownerId: string;
-    ownerGeneration: string;
-    turnId: string;
-    threadId: string;
-    attemptGeneration: number;
-    tokenHash: string;
-    payloadJson: string;
-  },
-): Promise<boolean> => {
-  const suspension = parseBrowserSuspension(args.payloadJson);
-  const rows = await ctx.db
-    .query("cloud_browser_interactions")
-    .withIndex("by_interactionId", (q) =>
-      q.eq("interactionId", suspension.interactionId),
-    )
-    .take(2);
-  if (rows.length !== 1) return false;
-  return exactSuspensionMatches(rows[0]!, {
-    ...args,
-    suspension,
-    payloadHash: await hashSha256Hex(args.payloadJson),
-  });
-};
-
 export const projectCloudBrowserSuspension = async (
   ctx: MutationCtx,
   args: {
     turn: Doc<"agent_turns">;
-    tokenHash: string;
     payloadJson: string;
     connectedAccount: boolean;
     now: number;
@@ -556,7 +525,6 @@ export const projectCloudBrowserSuspension = async (
     turnId: turn.turnId,
     threadId: turn.threadId,
     attemptGeneration: turn.attemptGeneration!,
-    tokenHash: args.tokenHash,
     payloadHash,
     suspension,
   };
@@ -584,38 +552,24 @@ export const projectCloudBrowserSuspension = async (
   if (existingForTurn.length > 0) {
     throw new ConvexError("That hosted turn is already waiting for a browser.");
   }
-  const authorityTokenRows = await ctx.db
-    .query("cloud_turn_tokens")
-    .withIndex("by_tokenHash", (q) => q.eq("tokenHash", args.tokenHash))
-    .take(2);
-  const token =
-    authorityTokenRows.length === 1 ? authorityTokenRows[0] : undefined;
-  if (
-    !token ||
-    token.ownerId !== turn.ownerId ||
-    token.ownerGeneration !== turn.ownerGeneration ||
-    token.turnId !== turn.turnId
-  ) {
-    throw new ConvexError("Cloud turn is no longer active.");
-  }
   // A browser handoff is a new sensitive capability even though it arrives
-  // through the executor's service route rather than a live user JWT. Bind it
-  // to the time the turn capability was minted so revokeActiveSessions also
-  // fences an executor that was already running when the user revoked access.
+  // through the executor's outbox rather than a live user JWT. Bind it to the
+  // time the turn was admitted so revokeActiveSessions also fences an
+  // executor that was already running when the user revoked access.
   //
-  // Turn tokens carry no `sessionId`, so the per-session tombstone lookup used
-  // for user JWTs cannot apply here. The equivalent predicate is "a revocation
-  // landed after this capability was minted". A tombstone's `expiresAt` is
-  // `revokedAt + JWT_EXPIRATION_SECONDS` (30 min) and `TURN_TOKEN_TTL_MS` is
-  // also 30 min, so a live tombstone always outlives every turn token it needs
-  // to fence.
+  // Turn capabilities carry no `sessionId`, so the per-session tombstone
+  // lookup used for user JWTs cannot apply here. The equivalent predicate is
+  // "a revocation landed after this turn started". A tombstone's `expiresAt`
+  // is `revokedAt + JWT_EXPIRATION_SECONDS` (30 min) and the turn capability
+  // TTL is also 30 min, so a live tombstone always outlives every capability
+  // it needs to fence.
   const revocationAfterMint = await ctx.db
     .query("auth_revoked_sessions")
     .withIndex("by_ownerId_and_sessionId", (q) => q.eq("ownerId", turn.ownerId))
     .filter((q) =>
       q.and(
         q.gt(q.field("expiresAt"), args.now),
-        q.gt(q.field("revokedAt"), token.createdAt),
+        q.gt(q.field("revokedAt"), turn.createdAt),
       ),
     )
     .first();
@@ -628,7 +582,6 @@ export const projectCloudBrowserSuspension = async (
   if (
     turn.status !== "running" ||
     turn.terminalKind ||
-    turn.activeTokenHash !== args.tokenHash ||
     suspension.expiresAt <= args.now ||
     suspension.expiresAt > args.now + MAX_INTERACTION_LIFETIME_MS
   ) {
@@ -681,24 +634,12 @@ export const projectCloudBrowserSuspension = async (
       : {}),
     revision: suspension.interactionRevision,
     expiresAt: suspension.expiresAt,
-    suspensionTokenHash: args.tokenHash,
     suspensionEventPayloadHash: payloadHash,
     createdAt: args.now,
     updatedAt: args.now,
   });
-  const tokenRows = await ctx.db
-    .query("cloud_turn_tokens")
-    .withIndex("by_turnId_and_ownerId", (q) =>
-      q.eq("turnId", turn.turnId).eq("ownerId", turn.ownerId),
-    )
-    .take(TURN_TOKEN_ATTEMPT_LIMIT + 1);
-  if (tokenRows.length > TURN_TOKEN_ATTEMPT_LIMIT) {
-    throw new ConvexError("Cloud turn token authority is ambiguous.");
-  }
-  for (const token of tokenRows) await ctx.db.delete(token._id);
   await ctx.db.patch(turn._id, {
     status: "waiting_for_user",
-    activeTokenHash: undefined,
     updatedAt: args.now,
   });
   await ctx.db.patch(thread._id, {
@@ -1279,58 +1220,8 @@ export const getBrowserInteractionControlInternal = internalQuery({
   },
 });
 
-export const getBrowserSuspensionReplayAuthorityInternal = internalQuery({
-  args: {
-    interactionId: v.string(),
-    turnId: v.string(),
-    threadId: v.string(),
-    attemptGeneration: v.number(),
-    tokenHash: v.string(),
-    payloadHash: v.string(),
-  },
-  returns: v.union(
-    v.null(),
-    v.object({
-      tokenHash: v.string(),
-      ownerId: v.string(),
-      ownerGeneration: v.string(),
-      turnId: v.string(),
-      agentType: v.string(),
-      expiresAt: v.number(),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("cloud_browser_interactions")
-      .withIndex("by_interactionId", (q) =>
-        q.eq("interactionId", args.interactionId),
-      )
-      .take(2);
-    if (rows.length !== 1) return null;
-    const row = rows[0]!;
-    if (
-      row.turnId !== args.turnId ||
-      row.threadId !== args.threadId ||
-      row.attemptGeneration !== args.attemptGeneration ||
-      row.suspensionTokenHash !== args.tokenHash ||
-      row.suspensionEventPayloadHash !== args.payloadHash
-    ) {
-      return null;
-    }
-    return {
-      tokenHash: args.tokenHash,
-      ownerId: row.ownerId,
-      ownerGeneration: row.ownerGeneration,
-      turnId: row.turnId,
-      agentType: "general",
-      expiresAt: row.expiresAt,
-    };
-  },
-});
-
 export const createBrowserInteractionInternal = internalMutation({
   args: {
-    tokenHash: v.string(),
     turnId: v.string(),
     payloadJson: v.string(),
     connectedAccount: v.boolean(),
@@ -1530,9 +1421,6 @@ const applyBrowserResumeReceipt = async (
     throw new ConvexError("Hosted agent attempt generation is exhausted.");
   }
   const resumeTurnId = crypto.randomUUID();
-  const turnToken =
-    crypto.randomUUID().replaceAll("-", "") +
-    crypto.randomUUID().replaceAll("-", "");
   const prompt = `[Browser ${args.receipt.result}] ${args.receipt.safeMessage}`;
   await ctx.db.insert("agent_turns", {
     turnId: resumeTurnId,
@@ -1585,7 +1473,6 @@ const applyBrowserResumeReceipt = async (
     expectedRevision: nextRevision,
     resumeTurnId,
     attemptGeneration,
-    turnToken,
     now: args.now,
   });
   return projectSummary({
@@ -1678,7 +1565,6 @@ export const activateBrowserResumeTurnInternal = internalMutation({
     expectedRevision: v.number(),
     resumeTurnId: v.string(),
     attemptGeneration: v.number(),
-    turnToken: v.string(),
     now: v.number(),
   },
   returns: v.null(),
@@ -1744,20 +1630,23 @@ export const activateBrowserResumeTurnInternal = internalMutation({
         updatedAt: args.now,
       });
     }
-    await ctx.scheduler.runAfter(0, runCloudAgentTurnRef, {
+    await ctx.scheduler.runAfter(0, dispatchCloudAgentTurnRef, {
       ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
       conversationId: row.conversationId,
       threadId: row.threadId,
       turnId: turn.turnId,
-      prompt: turn.prompt,
-      turnToken: args.turnToken,
-      ownerGeneration: args.ownerGeneration,
       attemptGeneration: args.attemptGeneration,
+      prompt: turn.prompt,
+      description: thread.description,
       ...(turn.execution ? { execution: turn.execution } : {}),
-      ...(turn.browserResume ? { browserResume: turn.browserResume } : {}),
-      ...(process.env.CONVEX_SITE_URL?.trim()
-        ? { convexCallbackBase: process.env.CONVEX_SITE_URL.trim() }
+      source: "browser-resume",
+      ...(turn.parentTurnId ? { parentTurnId: turn.parentTurnId } : {}),
+      ...(thread.originDeviceId ? { originDeviceId: thread.originDeviceId } : {}),
+      ...(thread.originConversationId
+        ? { originConversationId: thread.originConversationId }
         : {}),
+      ...(turn.browserResume ? { browserResume: turn.browserResume } : {}),
     });
     return null;
   },
@@ -1962,19 +1851,8 @@ export const applyBrowserProfileResetInternal = internalMutation({
           status: "canceled",
           terminalKind: "canceled",
           errorMessage: payloadJson,
-          activeTokenHash: undefined,
           updatedAt: args.now,
         });
-        const tokens = await ctx.db
-          .query("cloud_turn_tokens")
-          .withIndex("by_turnId_and_ownerId", (q) =>
-            q.eq("turnId", turn.turnId).eq("ownerId", args.ownerId),
-          )
-          .take(TURN_TOKEN_ATTEMPT_LIMIT + 1);
-        if (tokens.length > TURN_TOKEN_ATTEMPT_LIMIT) {
-          throw new ConvexError("Cloud turn token authority is ambiguous.");
-        }
-        for (const token of tokens) await ctx.db.delete(token._id);
       }
       const thread = await ctx.db
         .query("cloud_agent_threads")

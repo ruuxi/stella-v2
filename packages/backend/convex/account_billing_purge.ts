@@ -103,7 +103,7 @@ const ownerBillingTableValidator = v.union(
   v.literal("billing_voice_sessions"),
   v.literal("billing_media_usage_receipts"),
   v.literal("billing_invoice_payments"),
-  v.literal("stella_relay_billing_receipts"),
+  v.literal("gateway_usage_receipts"),
   v.literal("billing_stripe_operation_resolutions"),
   v.literal("billing_stripe_operations"),
   v.literal("billing_managed_dispatch_leases"),
@@ -123,7 +123,7 @@ type OwnerBillingTable =
   | "billing_voice_sessions"
   | "billing_media_usage_receipts"
   | "billing_invoice_payments"
-  | "stella_relay_billing_receipts"
+  | "gateway_usage_receipts"
   | "billing_stripe_operation_resolutions"
   | "billing_stripe_operations"
   | "billing_managed_dispatch_leases"
@@ -139,7 +139,7 @@ const OWNER_BILLING_TABLES: readonly OwnerBillingTable[] = [
   "billing_voice_sessions",
   "billing_media_usage_receipts",
   "billing_invoice_payments",
-  "stella_relay_billing_receipts",
+  "gateway_usage_receipts",
   "billing_stripe_operations",
   "billing_stripe_operation_resolutions",
   "billing_managed_dispatch_leases",
@@ -1576,10 +1576,10 @@ export const deleteOwnerBillingTableBatchInternal = internalMutation({
             .take(DELETE_BATCH_SIZE)
         ).map((row) => row._id);
         break;
-      case "stella_relay_billing_receipts":
+      case "gateway_usage_receipts":
         ids = (
           await ctx.db
-            .query("stella_relay_billing_receipts")
+            .query("gateway_usage_receipts")
             .withIndex("by_ownerId_and_createdAt", (q) =>
               q.eq("ownerId", args.ownerId),
             )
@@ -1988,9 +1988,9 @@ const findLocalBillingResidue = async (
         .first(),
     ],
     [
-      "stella_relay_billing_receipts",
+      "gateway_usage_receipts",
       ctx.db
-        .query("stella_relay_billing_receipts")
+        .query("gateway_usage_receipts")
         .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
         .first(),
     ],

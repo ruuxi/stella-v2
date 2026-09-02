@@ -2,12 +2,33 @@
  * Shared utilities for Google Generative AI and Google Vertex providers.
  */
 
-import { type Content, FinishReason, FunctionCallingConfigMode, type Part } from "@google/genai";
+import { type Content, FinishReason, FunctionCallingConfigMode, type GoogleGenAI, type Part } from "@google/genai";
 import type { Context, ImageContent, Model, StopReason, TextContent, Tool } from "../types.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
 import { transformMessages } from "./transform-messages.js";
 
 type GoogleApiType = "google-generative-ai" | "google-vertex";
+
+/**
+ * Route the SDK's HTTP calls through `model.fetch` when one is injected.
+ *
+ * `@google/genai` has no public `fetch` constructor option: its `ApiClient`
+ * calls the global `fetch` from `apiCall`. The client exposes that
+ * `ApiClient` as a protected field, so the one supported seam is to replace
+ * `apiCall` on the instance. Fails loudly if the SDK ever hides it, because
+ * silently falling back to the global fetch would bypass a Durable Object's
+ * service binding.
+ */
+export function withModelFetch<T extends GoogleApiType>(client: GoogleGenAI, model: Model<T>): GoogleGenAI {
+	const fetchImpl = model.fetch;
+	if (!fetchImpl) return client;
+	const apiClient = (client as unknown as { apiClient?: { apiCall?: unknown } }).apiClient;
+	if (!apiClient || typeof apiClient.apiCall !== "function") {
+		throw new Error("@google/genai no longer exposes ApiClient.apiCall; cannot inject model.fetch");
+	}
+	apiClient.apiCall = (url: string, requestInit?: RequestInit) => fetchImpl(url, requestInit);
+	return client;
+}
 
 /**
  * Thinking level for Gemini 3 models.

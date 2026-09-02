@@ -8,14 +8,19 @@ const modules = import.meta.glob("./**/*.ts");
 
 /**
  * The phone's standalone chat responder is gone: one chat rides cloud
- * conversations, and execution placement decides where a turn runs. Nothing
- * should answer at the old responder's addresses, and no build of the app
- * should be able to reach a mobile chat runtime that no longer exists.
+ * conversations. So is Convex's placement ingress — the phone now submits to
+ * the cloud-builder's turn route with its pairing proof and the owner gate
+ * decides where the turn runs. Nothing should answer at either address, and
+ * no build of the app should be able to reach a runtime that no longer exists.
  */
 const RETIRED_ROUTES = [
   "/api/mobile/offline-chat",
   "/api/mobile/offline-chat/stream",
   "/api/mobile/chat",
+  "/api/mobile/execution/submit",
+  "/api/mobile/execution/cancel",
+  "/api/execution-placement/presence/socket/check",
+  "/api/execution-placement/presence/socket/disconnect",
 ];
 
 describe("retired mobile offline chat responder", () => {
@@ -31,15 +36,12 @@ describe("retired mobile offline chat responder", () => {
     }
   });
 
-  it("keeps the placement routes the one chat sends through", async () => {
+  it("no longer serves execution status from Convex", async () => {
     const t = convexTest(schema, modules);
-    // Unauthenticated, so this proves the route exists and refuses rather than
-    // that a turn was admitted.
-    const response = await t.fetch("/api/mobile/execution/submit", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    expect(response.status).not.toBe(404);
+    const response = await t.fetch(
+      "/api/mobile/execution/status?dispatchId=abc",
+      { method: "GET" },
+    );
+    expect(response.status).toBe(404);
   });
 });

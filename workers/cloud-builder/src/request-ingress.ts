@@ -22,8 +22,17 @@ export const publicJsonBodyLimit = (
   pathname: string,
 ): number | null => {
   if (method !== "POST") return null;
+  if (/^\/conversations\/[^/]+\/turns$/u.test(pathname)) {
+    return CLOUD_BUILDER_BODY_LIMITS.turn;
+  }
   if (/^\/conversations\/[^/]+\/journal$/u.test(pathname)) {
     return CLOUD_BUILDER_BODY_LIMITS.conversationAppend;
+  }
+  if (pathname === "/owners/me/dispatches") {
+    return CLOUD_BUILDER_BODY_LIMITS.turn;
+  }
+  if (/^\/owners\/me\/dispatches\/[^/]+\/cancel$/u.test(pathname)) {
+    return CLOUD_BUILDER_BODY_LIMITS.tinyControl;
   }
   const localTurn = pathname.match(
     /^\/conversations\/[^/]+\/local-turns\/(begin|finish)$/u,
@@ -47,10 +56,7 @@ export const serviceJsonBodyLimit = (
   pathname: string,
 ): number | null => {
   if (method !== "POST" || pathname === "/m0/echo") return null;
-  if (
-    /^\/sessions\/[^/]+\/(turns|cancel)$/u.test(pathname) ||
-    /^\/conversations\/[^/]+\/turns$/u.test(pathname)
-  ) {
+  if (/^\/sessions\/[^/]+\/(turns|cancel)$/u.test(pathname)) {
     return pathname.endsWith("/turns")
       ? CLOUD_BUILDER_BODY_LIMITS.turn
       : CLOUD_BUILDER_BODY_LIMITS.tinyControl;
@@ -66,7 +72,8 @@ export const serviceJsonBodyLimit = (
     pathname === "/routes/activate" ||
     pathname === "/routes/suspend" ||
     pathname === "/internal/owners/activity/register" ||
-    pathname === "/internal/owners/activity/unregister"
+    pathname === "/internal/owners/activity/unregister" ||
+    pathname === "/internal/owners/snapshot-changed"
   ) {
     return CLOUD_BUILDER_BODY_LIMITS.tinyControl;
   }

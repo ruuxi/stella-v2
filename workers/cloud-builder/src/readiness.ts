@@ -6,7 +6,10 @@ export const CLOUD_BUILDER_REQUIRED_FIELDS = [
   "BUILD_SESSIONS",
   "ORCHESTRATOR_SESSIONS",
   "OWNER_TRANSFER_COORDINATORS",
+  "OWNER_GATES",
+  "TURN_OUTBOX",
   "BROWSER_GATEWAY",
+  "MODEL_GATEWAY",
   "APP_BUILDS",
   "APP_ROUTES",
   "BACKUP_BUCKET",
@@ -21,6 +24,10 @@ export const CLOUD_BUILDER_REQUIRED_FIELDS = [
   "TRUSTED_APPS_HOST_BASE_URL",
   "STELLA_CONVEX_SITE_URL",
   "STELLA_CONVEX_CLOUD_URL",
+  "MODEL_GATEWAY_URL",
+  "CLOUD_BUILDER_PUBLIC_URL",
+  "CAPABILITY_SIGNING_KEY",
+  "CAPABILITY_SIGNING_KID",
 ] as const;
 
 export type CloudBuilderRequiredField =
@@ -82,7 +89,10 @@ const validators: Readonly<
   BUILD_SESSIONS: (value) => hasMethods(value, ["getByName"]),
   ORCHESTRATOR_SESSIONS: (value) => hasMethods(value, ["getByName"]),
   OWNER_TRANSFER_COORDINATORS: (value) => hasMethods(value, ["getByName"]),
+  OWNER_GATES: (value) => hasMethods(value, ["getByName"]),
+  TURN_OUTBOX: (value) => hasMethods(value, ["send", "sendBatch"]),
   BROWSER_GATEWAY: (value) => hasMethods(value, ["fetch"]),
+  MODEL_GATEWAY: (value) => hasMethods(value, ["fetch"]),
   APP_BUILDS: (value) => hasMethods(value, ["get", "put", "delete", "list"]),
   APP_ROUTES: (value) => hasMethods(value, ["get", "put", "delete", "list"]),
   BACKUP_BUCKET: (value) => hasMethods(value, ["get", "put", "delete", "list"]),
@@ -98,6 +108,13 @@ const validators: Readonly<
   TRUSTED_APPS_HOST_BASE_URL: isHttpsOrigin,
   STELLA_CONVEX_SITE_URL: isHttpsOrigin,
   STELLA_CONVEX_CLOUD_URL: isHttpsOrigin,
+  MODEL_GATEWAY_URL: isHttpsOrigin,
+  CLOUD_BUILDER_PUBLIC_URL: isHttpsOrigin,
+  CAPABILITY_SIGNING_KEY: (value) =>
+    typeof value === "string" &&
+    /-----BEGIN PRIVATE KEY-----[\s\S]+-----END PRIVATE KEY-----/u.test(value),
+  CAPABILITY_SIGNING_KID: (value) =>
+    typeof value === "string" && /^[A-Za-z0-9._-]{1,64}$/u.test(value),
 };
 
 /**

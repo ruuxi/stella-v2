@@ -1,26 +1,37 @@
+/**
+ * Renderer client for Stella-managed chat completions.
+ *
+ * Calls go straight to the model gateway
+ * (`{gateway.origin}/v1/relay/chat/completions`) with a session capability,
+ * never through Convex. The managed lane is request/response only: the
+ * gateway streams from the provider internally and returns one complete
+ * ChatCompletion object, so `stream` is always `false` here.
+ */
 import {
-  createServiceRequest,
-  postServiceJson,
-} from "@/platform/http/service-request";
+  GATEWAY_AGENT_TYPE_HEADER,
+  GATEWAY_REQUEST_ID_HEADER,
+  gatewayRelayBaseUrl,
+  type GatewayErrorBody,
+} from "@stella/contracts/gateway/api";
+import { cloudApi } from "@/features/cloud/cloud-api";
+import { convexClient } from "@/platform/convex/convex-client";
 import {
-  STELLA_CHAT_COMPLETIONS_PATH,
   STELLA_DEFAULT_MODEL,
-  STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
   extractChatText,
   type ChatCompletionResponse,
   type ChatMessage,
 } from "@/shared/stella-api";
+import { getGatewaySessionCapability } from "./gateway-session";
 
 export { extractChatText };
 
-type ChatRequestBase = {
+const CHAT_COMPLETIONS_PATH = "/chat/completions";
+const DEFAULT_AGENT_TYPE = "app";
+
+export type ChatJsonRequest = {
   agentType: string;
   messages: ChatMessage[];
-  path?: string;
   headers?: Record<string, string>;
-};
-
-type ChatJsonRequest = ChatRequestBase & {
   body?: Record<string, unknown>;
 };
 
@@ -36,7 +47,7 @@ export type StellaLlmPromptRequest = {
   messages?: ChatMessage[];
 };
 
-export type StellaLlmRequestBase = (
+export type StellaLlmRequest = (
   | StellaLlmMessageRequest
   | StellaLlmPromptRequest
 ) & {
@@ -44,19 +55,8 @@ export type StellaLlmRequestBase = (
   model?: string;
   maxTokens?: number;
   temperature?: number;
-  stream?: boolean;
   body?: Record<string, unknown>;
 };
-
-export type StellaLlmJsonRequest = StellaLlmRequestBase & {
-  stream?: false;
-};
-
-export type StellaLlmStreamRequest = StellaLlmRequestBase & {
-  stream: true;
-};
-
-export type StellaLlmRequest = StellaLlmJsonRequest | StellaLlmStreamRequest;
 
 export interface StellaLlmTextOptions {
   agentType?: string;
@@ -66,6 +66,103 @@ export interface StellaLlmTextOptions {
   temperature?: number;
   body?: Record<string, unknown>;
 }
+
+// ---------------------------------------------------------------------------
+// Gateway origin
+// ---------------------------------------------------------------------------
+
+let gatewayOriginPromise: Promise<string> | null = null;
+
+const normalizeGatewayOrigin = (value: unknown): string => {
+  const trimmed = typeof value === "string" ? value.trim().replace(/\/+$/, "") : "";
+  if (!trimmed) {
+    throw new Error(
+      "Stella model gateway is not configured (MODEL_GATEWAY_URL on the backend).",
+    );
+  }
+  return trimmed;
+};
+
+/**
+ * The gateway origin Convex advertises for this deployment. Resolved once per
+ * renderer session; a failed lookup is not cached so the next call retries.
+ */
+const resolveGatewayOrigin = (): Promise<string> => {
+  if (!gatewayOriginPromise) {
+    const pending = convexClient
+      .query(cloudApi.getModelGatewayConfig, {})
+      .then((config) => normalizeGatewayOrigin(config.origin));
+    pending.catch(() => {
+      if (gatewayOriginPromise === pending) gatewayOriginPromise = null;
+    });
+    gatewayOriginPromise = pending;
+  }
+  return gatewayOriginPromise;
+};
+
+// ---------------------------------------------------------------------------
+// Request plumbing
+// ---------------------------------------------------------------------------
+
+const readGatewayErrorDetail = async (response: Response): Promise<string> => {
+  try {
+    const body = (await response.json()) as Partial<GatewayErrorBody>;
+    const error = body?.error;
+    if (!error) return "";
+    const code = typeof error.code === "string" ? error.code : "";
+    const message = typeof error.message === "string" ? error.message : "";
+    return [code, message].filter(Boolean).join(": ");
+  } catch {
+    return "";
+  }
+};
+
+const postGatewayChatCompletion = async <TResponse>(args: {
+  agentType: string;
+  body: Record<string, unknown>;
+  headers?: Record<string, string>;
+  errorPrefix: string;
+}): Promise<TResponse> => {
+  const gatewayOrigin = await resolveGatewayOrigin();
+  const url = `${gatewayRelayBaseUrl(gatewayOrigin)}${CHAT_COMPLETIONS_PATH}`;
+  // Stable per call so a retry after a capability refresh replays the cached
+  // result instead of running (and billing) the completion twice.
+  const requestId = crypto.randomUUID();
+  const payload = JSON.stringify({ ...args.body, stream: false });
+
+  const send = (capability: string): Promise<Response> =>
+    fetch(url, {
+      method: "POST",
+      headers: {
+        ...args.headers,
+        Authorization: `Bearer ${capability}`,
+        "Content-Type": "application/json",
+        [GATEWAY_AGENT_TYPE_HEADER]: args.agentType,
+        [GATEWAY_REQUEST_ID_HEADER]: requestId,
+      },
+      body: payload,
+    });
+
+  let response = await send(await getGatewaySessionCapability(gatewayOrigin));
+  if (response.status === 401 || response.status === 402) {
+    // The capability is no longer good (expired, revoked by a data-generation
+    // bump, or its budget is spent): exchange a fresh one and retry once.
+    response = await send(
+      await getGatewaySessionCapability(gatewayOrigin, { forceRefresh: true }),
+    );
+  }
+  if (!response.ok) {
+    const detail = await readGatewayErrorDetail(response);
+    throw new Error(
+      `${args.errorPrefix} failed with HTTP ${response.status}${detail ? ` (${detail})` : ""}`,
+    );
+  }
+  return (await response.json()) as TResponse;
+};
+
+// ---------------------------------------------------------------------------
+// Public helpers
+// ---------------------------------------------------------------------------
 
 const messagesFromPrompt = (
   prompt: string,
@@ -81,8 +178,8 @@ const messagesForRequest = (options: StellaLlmRequest): ChatMessage[] =>
   typeof options.prompt === "string"
     ? messagesFromPrompt(options.prompt, options.systemPrompt, options.messages)
     : options.messages !== undefined
-    ? options.messages
-    : [];
+      ? options.messages
+      : [];
 
 const bodyForStellaLlm = (options: StellaLlmRequest): Record<string, unknown> => ({
   ...options.body,
@@ -90,70 +187,28 @@ const bodyForStellaLlm = (options: StellaLlmRequest): Record<string, unknown> =>
   messages: messagesForRequest(options),
   ...(options.maxTokens != null ? { max_tokens: options.maxTokens } : {}),
   ...(options.temperature != null ? { temperature: options.temperature } : {}),
-  stream: options.stream ?? false,
 });
 
-const requestOptionsForStellaLlm = (options: StellaLlmRequest) => ({
-  headers: {
-    "X-Stella-Agent-Type": options.agentType ?? "app",
-  },
-  errorMessage: (response: Response) =>
-    `Stella LLM call failed with HTTP ${response.status}`,
-});
-
+/** Raw chat completion: the caller supplies the full body (model included). */
 export async function callChatCompletion<TResponse = ChatCompletionResponse>(
   options: ChatJsonRequest,
 ): Promise<TResponse> {
-  return await postServiceJson<TResponse>(
-    options.path ?? STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
-    {
-      ...options.body,
-      messages: options.messages,
-    },
-    {
-      headers: {
-        ...options.headers,
-        "X-Stella-Agent-Type": options.agentType,
-      },
-      errorMessage: (response) =>
-        `Chat completion failed with HTTP ${response.status}`,
-    },
-  );
+  return await postGatewayChatCompletion<TResponse>({
+    agentType: options.agentType,
+    body: { ...options.body, messages: options.messages },
+    headers: options.headers,
+    errorPrefix: "Chat completion",
+  });
 }
 
 export async function callStellaLlm<TResponse = ChatCompletionResponse>(
-  options: StellaLlmJsonRequest,
-): Promise<TResponse>;
-export async function callStellaLlm(
-  options: StellaLlmStreamRequest,
-): Promise<Response>;
-export async function callStellaLlm<TResponse = ChatCompletionResponse>(
   options: StellaLlmRequest,
-): Promise<TResponse | Response> {
-  if (options.stream === true) {
-    const { endpoint, headers } = await createServiceRequest(
-      STELLA_CHAT_COMPLETIONS_PATH,
-      {
-        ...requestOptionsForStellaLlm(options).headers,
-        "Content-Type": "application/json",
-      },
-    );
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(bodyForStellaLlm(options)),
-    });
-    if (!response.ok) {
-      throw new Error(`Stella LLM call failed with HTTP ${response.status}`);
-    }
-    return response;
-  }
-
-  return await postServiceJson<TResponse>(
-    STELLA_CHAT_COMPLETIONS_PATH,
-    bodyForStellaLlm(options),
-    requestOptionsForStellaLlm(options),
-  );
+): Promise<TResponse> {
+  return await postGatewayChatCompletion<TResponse>({
+    agentType: options.agentType ?? DEFAULT_AGENT_TYPE,
+    body: bodyForStellaLlm(options),
+    errorPrefix: "Stella LLM call",
+  });
 }
 
 export async function callStellaLlmText(

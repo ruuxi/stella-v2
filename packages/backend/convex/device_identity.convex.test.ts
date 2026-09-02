@@ -68,6 +68,13 @@ describe("device identity succession", () => {
       const rows = await ctx.db.query("paired_mobile_devices").collect();
       expect(rows).toHaveLength(1);
       expect(rows[0]!.desktopDeviceId).toBe(deviceId);
+      // The owner gate verifies mobile proofs against the desktop id in its
+      // snapshot; a rotation that did not announce itself would strand it.
+      const pushes = (
+        await ctx.db.system.query("_scheduled_functions").collect()
+      ).filter((entry) => entry.name.includes("notifyOwnerSnapshotChanged"));
+      expect(pushes).toHaveLength(1);
+      expect((pushes[0]!.args[0] as { reason: string }).reason).toBe("pairing");
     });
   });
 

@@ -1,0 +1,165 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "stella-v2-model-gateway-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.05
+    }
+  },
+  "limits": {
+    // Managed completions stream from the provider for minutes; assembly and
+    // usage parsing are CPU-light but the wall clock is long.
+    "cpu_ms": 60000
+  },
+  "vars": {
+    "ENVIRONMENT": "development",
+    // Canonical development deployment used by source builds and test traffic.
+    "STELLA_CONVEX_SITE_URL": "https://outgoing-bulldog-865.convex.site",
+    // JSON `GatewayJwks` holding the PUBLIC ES256 keys of both capability
+    // issuers (Convex `CAPABILITY_SIGNING_KID` and cloud-builder's). Ops
+    // replaces this placeholder at deploy time; an empty key set rejects every
+    // capability, so the worker fails closed rather than open.
+    "CAPABILITY_JWKS": "{\"keys\":[]}"
+  },
+  "secrets": {
+    "required": [
+      "OPENROUTER_API_KEY",
+      "FIREWORKS_API_KEY",
+      "DEEPSEEK_API_KEY",
+      "CROF_API_KEY",
+      "WAFER_API_KEY",
+      "XAI_API_KEY",
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "GOOGLE_AI_API_KEY",
+      "META_MODEL_API_KEY",
+      "GATEWAY_SERVICE_SECRET",
+      "STELLA_RELAY_PROBE_SECRET"
+    ]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        // One object per capability `jti`: budget/request ledger plus the
+        // replayable result cache for idempotent retries.
+        "name": "CAPABILITY_LEDGER",
+        "class_name": "CapabilityLedger"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["CapabilityLedger"]
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "USAGE_QUEUE",
+        "queue": "stella-v2-gateway-usage-dev"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "stella-v2-gateway-usage-dev",
+        "max_batch_size": 50,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "dead_letter_queue": "stella-v2-gateway-usage-dlq-dev"
+      }
+    ]
+  },
+  "ratelimits": [
+    {
+      "name": "ANON_IP_LIMITER",
+      // Account-local integer namespace. Replace if already allocated.
+      "namespace_id": "41011",
+      "simple": { "limit": 60, "period": 60 }
+    }
+  ],
+  "env": {
+    "production": {
+      "name": "stella-v2-model-gateway",
+      "workers_dev": true,
+      "preview_urls": false,
+      "limits": {
+        "cpu_ms": 60000
+      },
+      "vars": {
+        "ENVIRONMENT": "production",
+        // Pinned to the packaged desktop release authority.
+        "STELLA_CONVEX_SITE_URL": "https://intent-jackal-330.convex.site",
+        // Replaced by ops with the production issuers' public keys.
+        "CAPABILITY_JWKS": "{\"keys\":[]}"
+      },
+      "secrets": {
+        "required": [
+          "OPENROUTER_API_KEY",
+          "FIREWORKS_API_KEY",
+          "DEEPSEEK_API_KEY",
+          "CROF_API_KEY",
+          "WAFER_API_KEY",
+          "XAI_API_KEY",
+          "OPENAI_API_KEY",
+          "ANTHROPIC_API_KEY",
+          "GOOGLE_AI_API_KEY",
+          "META_MODEL_API_KEY",
+          "GATEWAY_SERVICE_SECRET",
+          "STELLA_RELAY_PROBE_SECRET"
+        ]
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "CAPABILITY_LEDGER",
+            "class_name": "CapabilityLedger"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["CapabilityLedger"]
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "USAGE_QUEUE",
+            "queue": "stella-v2-gateway-usage"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "stella-v2-gateway-usage",
+            "max_batch_size": 50,
+            "max_batch_timeout": 5,
+            "max_retries": 5,
+            "dead_letter_queue": "stella-v2-gateway-usage-dlq"
+          }
+        ]
+      },
+      "ratelimits": [
+        {
+          "name": "ANON_IP_LIMITER",
+          // Must differ from development.
+          "namespace_id": "41012",
+          "simple": { "limit": 60, "period": 60 }
+        }
+      ]
+    }
+  }
+}

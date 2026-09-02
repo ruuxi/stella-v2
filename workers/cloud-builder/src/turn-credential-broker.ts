@@ -4,7 +4,6 @@ import {
   TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH,
   TURN_BROKER_NATIVE_STATE_CHECKPOINT_PATH,
   TURN_BROKER_RESPONSE_HEADERS,
-  TURN_BROKER_TURN_TOKEN_HEADER,
   TURN_BROKER_VERSION,
   type TurnBrokerHandoff,
   type TurnBrokerIdentity,
@@ -12,33 +11,39 @@ import {
 import { sha256Hex } from "./hash.js";
 
 /**
- * The reusable Convex turn token never crosses the BuildSession boundary.
- * A sandbox gets this independently random, short-lived capability instead;
- * it can only ask the owning BuildSession to perform one of the bounded
- * turn-scoped requests below.
+ * No control-plane credential ever crosses the BuildSession boundary. A
+ * sandbox gets this independently random, short-lived capability instead; it
+ * can only ask the owning BuildSession to perform one of the bounded
+ * turn-scoped requests below. Two of them the session performs itself — the
+ * turn's event stream and its thread transcript are the session's own state
+ * now — and the rest it forwards to Convex under the turn's control-plane
+ * capability, which the sandbox never sees.
+ *
+ * Model traffic does not pass through here. The sandbox holds a separate
+ * turn capability that is only valid at the model gateway, and speaks to the
+ * gateway directly.
  */
 export const TURN_BROKER_MAX_TTL_MS = 30 * 60_000;
 export const TURN_BROKER_MAX_REQUESTS = 4_096;
-export const TURN_BROKER_MAX_RELAY_REQUESTS = 1_024;
 
 const CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const RELAY_PATH_PATTERN =
-  /^\/api\/stella\/relay(?:\/[A-Za-z0-9._~!$&'()*+,;=:@/-]{1,768})?$/;
-const MAX_RELAY_QUERY_BYTES = 2_048;
 const MAX_CALLBACK_BODY_BYTES = 16 * 1024 * 1024;
-const MAX_RELAY_BODY_BYTES = 24 * 1024 * 1024;
 const MAX_CONTROL_BODY_BYTES = 64 * 1024;
 const MAX_TURN_STATE_CHECKPOINT_BODY_BYTES = 5 * 1024 * 1024;
 
-const CALLBACK_PATHS = new Set([
+/** Convex routes a sandbox may reach, forwarded under the turn capability. */
+const CONVEX_CALLBACK_PATHS = new Set([
   "/api/cloud/drive/files",
   "/api/cloud/drive/sync",
-  "/api/cloud/events",
-  "/api/cloud/messages",
   "/api/cloud/web-search",
 ]);
+
+/** The turn's event stream. Handled by the BuildSession, projected by outbox. */
+export const TURN_BROKER_EVENTS_PATH = "/api/cloud/events";
+/** The thread transcript. Written to the BuildSession's own table. */
+export const TURN_BROKER_MESSAGES_PATH = "/api/cloud/messages";
 
 /** Raw-token-free durable state owned by one BuildSession. */
 export type TurnBrokerRecord = TurnBrokerIdentity & {
@@ -48,7 +53,6 @@ export type TurnBrokerRecord = TurnBrokerIdentity & {
   expiresAt: number;
   nextSequence: number;
   requestCount: number;
-  relayRequestCount: number;
   state: "active" | "revoked";
   revokedAt?: number;
   lastClaim?: {
@@ -72,9 +76,9 @@ export type TurnBrokerTarget = {
     | "builder-callback"
     | "callback"
     | "interior-build-request"
-    | "model-resolution"
-    | "model-relay";
-  method: "POST" | "GET" | "DELETE";
+    | "turn-event"
+    | "thread-messages";
+  method: "POST";
   path: string;
   maxBodyBytes: number;
 };
@@ -147,7 +151,7 @@ const validRecord = (record: TurnBrokerRecord): boolean => {
       : record.lastClaim !== undefined &&
         record.lastClaim.sequence === record.nextSequence - 1 &&
         UUID_PATTERN.test(record.lastClaim.requestId) &&
-        ["POST", "GET", "DELETE"].includes(record.lastClaim.method) &&
+        record.lastClaim.method === "POST" &&
         boundedIdentityPart(record.lastClaim.targetPath, 2_048) &&
         /^[0-9a-f]{64}$/.test(record.lastClaim.bodySha256);
   return (
@@ -164,9 +168,6 @@ const validRecord = (record: TurnBrokerRecord): boolean => {
     Number.isSafeInteger(record.requestCount) &&
     record.requestCount >= 0 &&
     record.nextSequence === record.requestCount + 1 &&
-    Number.isSafeInteger(record.relayRequestCount) &&
-    record.relayRequestCount >= 0 &&
-    record.relayRequestCount <= record.requestCount &&
     ((record.state === "active" && record.revokedAt === undefined) ||
       (record.state === "revoked" &&
         Number.isSafeInteger(record.revokedAt) &&
@@ -275,7 +276,6 @@ export const issueTurnBrokerCredential = async (args: {
       expiresAt,
       nextSequence: 1,
       requestCount: 0,
-      relayRequestCount: 0,
       state: "active",
     },
   };
@@ -328,6 +328,10 @@ const exactPath = (targetPath: string): URL | null => {
   }
 };
 
+/**
+ * Every broker target is an exact-path POST with no query string. Anything
+ * else — including the retired model relay paths — is denied.
+ */
 export const validateTurnBrokerTarget = (
   methodValue: unknown,
   targetPath: unknown,
@@ -335,115 +339,71 @@ export const validateTurnBrokerTarget = (
   if (typeof methodValue !== "string" || typeof targetPath !== "string") {
     return null;
   }
-  const method = methodValue.toUpperCase();
-  if (method !== methodValue || !["POST", "GET", "DELETE"].includes(method)) {
-    return null;
-  }
+  if (methodValue !== "POST") return null;
   const parsed = exactPath(targetPath);
-  if (!parsed) return null;
+  if (!parsed || parsed.search) return null;
 
-  if (CALLBACK_PATHS.has(parsed.pathname)) {
-    return method === "POST" && !parsed.search
-      ? {
-          kind: "callback",
-          method,
-          path: parsed.pathname,
-          maxBodyBytes: MAX_CALLBACK_BODY_BYTES,
-        }
-      : null;
+  if (CONVEX_CALLBACK_PATHS.has(parsed.pathname)) {
+    return {
+      kind: "callback",
+      method: "POST",
+      path: parsed.pathname,
+      maxBodyBytes: MAX_CALLBACK_BODY_BYTES,
+    };
   }
-  if (parsed.pathname === "/api/stella/cloud-model") {
-    return method === "POST" && !parsed.search
-      ? {
-          kind: "model-resolution",
-          method,
-          path: parsed.pathname,
-          maxBodyBytes: MAX_CONTROL_BODY_BYTES,
-        }
-      : null;
+  if (parsed.pathname === TURN_BROKER_EVENTS_PATH) {
+    return {
+      kind: "turn-event",
+      method: "POST",
+      path: parsed.pathname,
+      maxBodyBytes: MAX_CALLBACK_BODY_BYTES,
+    };
+  }
+  if (parsed.pathname === TURN_BROKER_MESSAGES_PATH) {
+    return {
+      kind: "thread-messages",
+      method: "POST",
+      path: parsed.pathname,
+      maxBodyBytes: MAX_CALLBACK_BODY_BYTES,
+    };
   }
   if (parsed.pathname === TURN_BROKER_NATIVE_STATE_CHECKPOINT_PATH) {
-    return method === "POST" && !parsed.search
-      ? {
-          kind: "builder-callback",
-          method,
-          path: parsed.pathname,
-          maxBodyBytes: MAX_TURN_STATE_CHECKPOINT_BODY_BYTES,
-        }
-      : null;
+    return {
+      kind: "builder-callback",
+      method: "POST",
+      path: parsed.pathname,
+      maxBodyBytes: MAX_TURN_STATE_CHECKPOINT_BODY_BYTES,
+    };
   }
   if (parsed.pathname === TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH) {
-    return method === "POST" && !parsed.search
-      ? {
-          kind: "interior-build-request",
-          method,
-          path: parsed.pathname,
-          maxBodyBytes: MAX_CONTROL_BODY_BYTES,
-        }
-      : null;
+    return {
+      kind: "interior-build-request",
+      method: "POST",
+      path: parsed.pathname,
+      maxBodyBytes: MAX_CONTROL_BODY_BYTES,
+    };
   }
   if (parsed.pathname === "/api/cloud/browser/command") {
-    return method === "POST" && !parsed.search
-      ? {
-          kind: "browser-gateway",
-          method,
-          path: parsed.pathname,
-          maxBodyBytes: MAX_CONTROL_BODY_BYTES,
-        }
-      : null;
-  }
-  if (
-    RELAY_PATH_PATTERN.test(parsed.pathname) &&
-    !parsed.pathname.includes("//") &&
-    !parsed.pathname
-      .split("/")
-      .some((segment) => segment === "." || segment === "..") &&
-    parsed.search.length <= MAX_RELAY_QUERY_BYTES
-  ) {
     return {
-      kind: "model-relay",
-      method: method as TurnBrokerTarget["method"],
-      path: `${parsed.pathname}${parsed.search}`,
-      maxBodyBytes:
-        method === "POST" ? MAX_RELAY_BODY_BYTES : MAX_CONTROL_BODY_BYTES,
+      kind: "browser-gateway",
+      method: "POST",
+      path: parsed.pathname,
+      maxBodyBytes: MAX_CONTROL_BODY_BYTES,
     };
   }
   return null;
 };
 
-/** Bind model-shaped routes to the exact engine Convex selected at dispatch. */
+/**
+ * Engine-scoped targets. Callbacks are engine-agnostic; the Browser Gateway
+ * belongs to Stella's own tool loop and is refused for connected engines.
+ */
 export const turnBrokerTargetMatchesEngine = (
   target: TurnBrokerTarget,
   engine: TurnBrokerEngine,
 ): boolean => {
-  if (
-    target.kind === "callback" ||
-    target.kind === "builder-callback" ||
-    // The agent asks for an interior build; the engine it ran on is irrelevant.
-    target.kind === "interior-build-request"
-  ) {
-    return true;
-  }
   if (target.kind === "browser-gateway") return engine === "stella";
-  if (target.kind === "model-resolution") return engine === "stella";
-  if (engine === "stella") return true;
-  const pathname = new URL(target.path, "https://turn-broker.invalid").pathname;
-  if (engine === "anthropic") {
-    return (
-      target.method === "POST" &&
-      (pathname.endsWith("/v1/messages") ||
-        pathname.endsWith("/v1/messages/count_tokens"))
-    );
-  }
-  return (
-    pathname.endsWith("/responses") ||
-    pathname.endsWith("/v1/responses") ||
-    pathname.endsWith("/responses/compact") ||
-    pathname.endsWith("/v1/responses/compact") ||
-    /^\/api\/stella\/relay\/(?:v1\/)?responses\/[A-Za-z0-9._~-]{1,200}$/.test(
-      pathname,
-    )
-  );
+  return true;
 };
 
 const integerHeader = (headers: Headers, name: string): number | null => {
@@ -601,11 +561,7 @@ export const claimTurnBrokerRequest = async (args: {
       : failure(409, "replay");
   }
   if (sequence > record.nextSequence) return failure(409, "out_of_order");
-  if (
-    record.requestCount >= TURN_BROKER_MAX_REQUESTS ||
-    (target.kind === "model-relay" &&
-      record.relayRequestCount >= TURN_BROKER_MAX_RELAY_REQUESTS)
-  ) {
+  if (record.requestCount >= TURN_BROKER_MAX_REQUESTS) {
     return failure(429, "limit_exceeded");
   }
 
@@ -617,8 +573,6 @@ export const claimTurnBrokerRequest = async (args: {
       ...record,
       nextSequence: record.nextSequence + 1,
       requestCount: record.requestCount + 1,
-      relayRequestCount:
-        record.relayRequestCount + (target.kind === "model-relay" ? 1 : 0),
       lastClaim: {
         sequence,
         requestId,
@@ -681,8 +635,6 @@ export const readTurnBrokerRequestBody = async (
 
 const forbiddenUpstreamHeader = (name: string): boolean => {
   const lower = name.toLowerCase();
-  const allowedStellaHeader =
-    lower === "x-stella-relay-request-id" || lower === "x-stella-relay-resume";
   return (
     lower === "authorization" ||
     lower === "proxy-authorization" ||
@@ -692,9 +644,7 @@ const forbiddenUpstreamHeader = (name: string): boolean => {
     lower === "set-cookie" ||
     lower === "host" ||
     lower === "content-length" ||
-    lower === TURN_BROKER_TURN_TOKEN_HEADER ||
-    lower.startsWith("x-stella-broker-") ||
-    (lower.startsWith("x-stella-") && !allowedStellaHeader) ||
+    lower.startsWith("x-stella-") ||
     lower.startsWith("cf-") ||
     lower === "forwarded" ||
     lower.startsWith("x-forwarded-") ||
@@ -705,23 +655,21 @@ const forbiddenUpstreamHeader = (name: string): boolean => {
   );
 };
 
-/** Strip every caller credential and transport hop before Builder mediation. */
+/**
+ * Strip every caller credential and transport hop, then attach the turn's
+ * control-plane capability. This is the only place it is written onto a
+ * sandbox-originated request, and it is written after the strip so nothing
+ * the sandbox sent can survive alongside it.
+ */
 export const turnBrokerUpstreamHeaders = (
   incoming: Headers,
-  rawTurnToken: string,
-  engine: TurnBrokerEngine,
+  controlPlaneCapability: string,
 ): Headers => {
   const headers = new Headers();
   incoming.forEach((value, name) => {
     if (!forbiddenUpstreamHeader(name)) headers.set(name, value);
   });
-  headers.set(TURN_BROKER_TURN_TOKEN_HEADER, rawTurnToken);
-  headers.set("x-stella-agent-type", "general");
-  if (engine === "anthropic" || engine === "openai-codex") {
-    headers.set("x-stella-llm-credential", engine);
-  } else {
-    headers.delete("x-stella-llm-credential");
-  }
+  headers.set("authorization", `Bearer ${controlPlaneCapability}`);
   return headers;
 };
 
@@ -732,16 +680,10 @@ export const turnBrokerSandboxResponseHeaders = (
   const headers = new Headers();
   incoming.forEach((value, name) => {
     const lower = name.toLowerCase();
-    const allowedStellaResponseHeader =
-      lower === "x-stella-relay-request-id" ||
-      lower === "x-stella-response-id" ||
-      lower === "x-stella-upstream-request-id";
     if (
       lower !== "set-cookie" &&
       lower !== "authorization" &&
-      lower !== TURN_BROKER_TURN_TOKEN_HEADER &&
-      !lower.startsWith("x-stella-broker-") &&
-      (!lower.startsWith("x-stella-") || allowedStellaResponseHeader) &&
+      !lower.startsWith("x-stella-") &&
       !lower.startsWith("cf-")
     ) {
       headers.set(name, value);
@@ -757,19 +699,15 @@ const finiteTurnBrokerUpstreamErrorResponse = (upstream: Response): Response => 
   headers.delete("transfer-encoding");
   headers.set("cache-control", "no-store");
   headers.set("content-type", "application/json; charset=utf-8");
-  // A managed relay can publish its non-OK status before the upstream body
-  // reaches EOF. Do not carry that live body across the BuildSession Durable
+  // A callback can publish its non-OK status before the upstream body reaches
+  // EOF. Do not carry that live body across the BuildSession Durable
   // Object/service-binding boundary: the outer Worker (and therefore the
   // sandbox fetch) can otherwise wait forever before the executor gets a
   // chance to apply its own finite error-body guard.
   void upstream.body?.cancel().catch(() => undefined);
   return new Response(
     JSON.stringify({
-      type: "error",
-      error: {
-        type: upstream.status === 429 ? "rate_limit_error" : "api_error",
-        message: `Managed model relay returned HTTP ${upstream.status}.`,
-      },
+      error: `Turn callback returned HTTP ${upstream.status}.`,
     }),
     {
       status: upstream.status,
@@ -794,35 +732,20 @@ export const turnBrokerDenialResponse = (
   );
 
 export const turnBrokerUpstreamUrl = (
-  convexCallbackBase: string,
-  expectedConvexOrigin: string,
+  convexOrigin: string,
   target: TurnBrokerTarget,
 ): string => {
-  if (
-    target.kind === "builder-callback" ||
-    target.kind === "interior-build-request"
-  ) {
-    throw new Error("Builder-local broker callbacks have no upstream URL.");
+  if (target.kind !== "callback") {
+    throw new Error("Only Convex broker callbacks have an upstream URL.");
   }
-  if (target.kind === "browser-gateway") {
-    throw new Error("Browser Gateway broker calls have no Convex URL.");
-  }
-  const base = new URL(convexCallbackBase);
-  const expected = new URL(expectedConvexOrigin);
+  const base = new URL(convexOrigin);
   if (
     base.protocol !== "https:" ||
-    expected.protocol !== "https:" ||
     base.username ||
     base.password ||
-    expected.username ||
-    expected.password ||
     base.search ||
     base.hash ||
-    expected.search ||
-    expected.hash ||
-    base.pathname !== "/" ||
-    expected.pathname !== "/" ||
-    base.origin !== expected.origin
+    base.pathname !== "/"
   ) {
     throw new Error("Turn callback base must be a credential-free HTTPS URL.");
   }
@@ -834,42 +757,29 @@ export const turnBrokerUpstreamUrl = (
 };
 
 /**
- * The only place a raw turn token is attached to a sandbox-originated call.
- * It runs inside Builder after the durable claim and final live revalidation.
+ * The only place the turn's control-plane capability is attached to a
+ * sandbox-originated call. It runs inside Builder after the durable claim and
+ * final live revalidation, and the capability never travels the other way.
  */
 export const forwardTurnBrokerRequest = async (args: {
   target: TurnBrokerTarget;
   body: Uint8Array;
   incomingHeaders: Headers;
-  convexCallbackBase: string;
-  expectedConvexOrigin: string;
-  rawTurnToken: string;
-  engine: TurnBrokerEngine;
+  convexOrigin: string;
+  controlPlaneCapability: string;
   signal: AbortSignal;
   fetchImpl?: typeof fetch;
 }): Promise<Response> => {
-  if (
-    args.target.kind === "builder-callback" ||
-    args.target.kind === "browser-gateway" ||
-    args.target.kind === "interior-build-request"
-  ) {
+  if (args.target.kind !== "callback") {
     throw new Error("Builder-local callback cannot be forwarded to Convex.");
   }
-  if (!turnBrokerTargetMatchesEngine(args.target, args.engine)) {
-    throw new Error("Turn broker target does not match the dispatched engine.");
-  }
   const upstream = await (args.fetchImpl ?? fetch)(
-    turnBrokerUpstreamUrl(
-      args.convexCallbackBase,
-      args.expectedConvexOrigin,
-      args.target,
-    ),
+    turnBrokerUpstreamUrl(args.convexOrigin, args.target),
     {
       method: args.target.method,
       headers: turnBrokerUpstreamHeaders(
         args.incomingHeaders,
-        args.rawTurnToken,
-        args.engine,
+        args.controlPlaneCapability,
       ),
       ...(args.body.byteLength > 0 ? { body: args.body } : {}),
       signal: args.signal,

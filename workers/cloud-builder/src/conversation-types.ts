@@ -378,11 +378,16 @@ export interface ConversationHubDeps {
   ctx: DurableObjectState;
   reader: JournalReader;
   /**
-   * Service-secret lookup of the conversation's owner, single-flighted by the
-   * caller. Returns null when Convex has no such conversation — the hub must
-   * then close 4404 rather than adopt the connector as owner.
+   * Resolves the conversation's owner for a verified connector. The session
+   * is the owner authority: a bound conversation answers from its journal
+   * (null when the connector is not its owner), and an unbound one adopts
+   * the verified connector — conversation ids are client-minted UUIDs, so
+   * the first authenticated caller is by construction the client that
+   * minted the id. Null means the hub must close 4404.
    */
-  lookupOwner: () => Promise<ConversationOwnerRecord | null>;
+  lookupOwner: (
+    identity: SocketIdentity,
+  ) => Promise<ConversationOwnerRecord | null>;
   cancelTurn: (turnId: string) => Promise<void>;
   /** Storage flushes a lagging Convex index projection on first connect. */
   onConnect: () => void;

@@ -1,5 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import { nativeHistoryCursorFromRows } from "../src/native-state-checkpoint.js";
+import { openSqlStorageFake } from "./fixtures/sql-storage.js";
+import { fakeOutbox } from "./helpers/turn-plane-fakes.js";
 
 mock.module("cloudflare:workers", () => ({
   DurableObject: class {},
@@ -19,6 +21,7 @@ mock.restore();
 
 const mapStorage = (values = new Map<string, unknown>()) => {
   let alarm: number | null = null;
+  const { sql } = openSqlStorageFake();
   const get = async <T>(key: string): Promise<T | undefined> =>
     values.get(key) as T | undefined;
   const put = async (
@@ -36,9 +39,11 @@ const mapStorage = (values = new Map<string, unknown>()) => {
     for (const entry of Array.isArray(key) ? key : [key]) values.delete(entry);
   };
   const storage = {
+    sql,
     get,
     put,
     delete: remove,
+    getAlarm: async () => alarm,
     list: async <T>({ prefix = "", limit = 1_000 } = {}) =>
       new Map(
         [...values.entries()]
@@ -69,13 +74,12 @@ const mapStorage = (values = new Map<string, unknown>()) => {
 
 const turn = () => ({
   kind: "agent" as const,
+  conversationId: "conversation-1",
   ownerId: "owner-1",
   ownerGeneration: "generation-1",
   appId: "agent",
   turnId: "turn-1",
   prompt: "make the change",
-  turnToken: "turn-token",
-  convexCallbackBase: "https://convex.example",
   threadId: "thread-1",
   workspace: "cloud",
   attemptGeneration: 1,
@@ -122,12 +126,11 @@ const harness = () => {
       blockConcurrencyWhile: async <T>(operation: () => Promise<T>) =>
         await operation(),
     },
-    env: {},
+    env: { TURN_OUTBOX: fakeOutbox().queue },
     agentTurnExecutions: new Map(),
     builderFallbackRecoveries: new Set(),
     turnStateCheckpointRuns: new Map(),
     assertTurnWritable: async () => undefined,
-    assertConvexAgentTurnAuthority: async () => undefined,
     quiesceCurrentAgentSession: async () => undefined,
   });
   return { instance, state, current };
@@ -267,7 +270,7 @@ describe("Builder fallback recovery", () => {
       receipt: accepted,
     });
     const calls: string[] = [];
-    instance["fetchCanonicalAgentHistory"] = async () => rows;
+    instance["fetchCanonicalAgentHistory"] = () => rows;
     instance["publishAgentTurnWorkspace"] = async () => {
       calls.push("publish");
       return {};
@@ -319,7 +322,7 @@ describe("Builder fallback recovery", () => {
       receipt: accepted,
     });
     const canonical: typeof browserRows = [];
-    instance["fetchCanonicalAgentHistory"] = async () => canonical;
+    instance["fetchCanonicalAgentHistory"] = () => canonical;
     const calls: string[] = [];
     instance["publishAgentTurnWorkspace"] = async () => {
       calls.push("publish-original");
@@ -328,28 +331,24 @@ describe("Builder fallback recovery", () => {
     instance["abortUnpublishedTurnStateOperation"] = async () => {
       throw new Error("original suspension checkpoint must not be aborted");
     };
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as {
-        messages: typeof messages;
-      };
+    instance["appendThreadTranscript"] = async (
+      _turn: unknown,
+      appended: typeof messages,
+    ) => {
       canonical.push(
-        ...body.messages.map((message) => ({
+        ...appended.map((message) => ({
           ...message,
           turnId: current.turnId,
         })),
       );
       calls.push("append-suspension-transcript");
-      return new Response("{}", { status: 200 });
-    }) as typeof fetch;
-    try {
-      const result = await instance[
-        "reconcileAgentCheckpointAfterQuiescence"
-      ](current, marker, "executor lost after checkpoint");
-      expect(result).toEqual(accepted);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    };
+    const result = await instance["reconcileAgentCheckpointAfterQuiescence"](
+      current,
+      marker,
+      "executor lost after checkpoint",
+    );
+    expect(result).toEqual(accepted);
 
     expect(calls).toEqual([
       "append-suspension-transcript",
@@ -388,7 +387,7 @@ describe("Builder fallback recovery", () => {
     };
     state.values.set("turnStateCheckpointOperation:req-pending", pending);
     const calls: string[] = [];
-    instance["fetchCanonicalAgentHistory"] = async () => rows;
+    instance["fetchCanonicalAgentHistory"] = () => rows;
     instance["executeTurnStateCheckpoint"] = async () => {
       calls.push("finish-checkpoint");
       const committed = receipt(candidateCursor, pending.operationId);
@@ -457,7 +456,7 @@ describe("Builder fallback recovery", () => {
       observedBrowserSuspension(),
     );
     instance["recoverAgentTurnAfterExecutorLoss"] = async () => accepted;
-    instance["fetchCanonicalAgentHistory"] = async () => browserRows;
+    instance["fetchCanonicalAgentHistory"] = () => browserRows;
     instance["ownsExactTurn"] = async () => true;
     const calls: string[] = [];
     instance["terminateCurrentAgentSandbox"] = async () => {
@@ -535,7 +534,7 @@ describe("Builder fallback recovery", () => {
     });
     const canonicalJournal: typeof rows = [];
     let transcriptCommits = 0;
-    instance["fetchCanonicalAgentHistory"] = async () => canonicalJournal;
+    instance["fetchCanonicalAgentHistory"] = () => canonicalJournal;
     let publishCalls = 0;
     const publishedOperations = new Set<string>();
     let publicationCommits = 0;
@@ -553,36 +552,29 @@ describe("Builder fallback recovery", () => {
       return {};
     };
 
-    const originalFetch = globalThis.fetch;
+    // The transcript is committed to the thread's own table now, so the lost
+    // response this journal exists for is a failed local commit rather than a
+    // failed Convex callback. The rows still land exactly once.
     let transcriptCalls = 0;
-    globalThis.fetch = (async (_input, init) => {
+    instance["appendThreadTranscript"] = async () => {
       transcriptCalls += 1;
-      expect(new Headers(init?.headers).get("x-stella-turn-token")).toBe(
-        current.turnToken,
-      );
-      expect(new Headers(init?.headers).get("authorization")).toBeNull();
       if (canonicalJournal.length === 0) {
         canonicalJournal.push(...structuredClone(rows));
         transcriptCommits += 1;
       }
       if (transcriptCalls === 1) throw new Error("transcript ACK lost");
-      return new Response("{}", { status: 200 });
-    }) as typeof fetch;
-    try {
-      await expect(
-        instance["advanceBuilderFallback"](current, fallback),
-      ).rejects.toThrow("transcript ACK lost");
-      await expect(
-        instance["advanceBuilderFallback"](current, fallback),
-      ).rejects.toThrow("publish ACK lost");
-      expect(
-        (state.values.get(fallbackKey) as { transcriptCommitted: boolean })
-          .transcriptCommitted,
-      ).toBe(true);
-      await instance["advanceBuilderFallback"](current, fallback);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    };
+    await expect(
+      instance["advanceBuilderFallback"](current, fallback),
+    ).rejects.toThrow("transcript ACK lost");
+    await expect(
+      instance["advanceBuilderFallback"](current, fallback),
+    ).rejects.toThrow("publish ACK lost");
+    expect(
+      (state.values.get(fallbackKey) as { transcriptCommitted: boolean })
+        .transcriptCommitted,
+    ).toBe(true);
+    await instance["advanceBuilderFallback"](current, fallback);
 
     expect(transcriptCalls).toBe(2);
     expect(transcriptCommits).toBe(1);

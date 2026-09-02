@@ -3,7 +3,6 @@ import { describe, expect, mock, test } from "bun:test";
 import {
   TURN_BROKER_HEADERS,
   TURN_BROKER_RESPONSE_HEADERS,
-  TURN_BROKER_TURN_TOKEN_HEADER,
 } from "@stella/contracts/turn-credential-broker";
 import { ExactTurnCancellationLedger } from "../src/execution-placement-turn-cancellation.js";
 import { sha256Hex } from "../src/hash.js";
@@ -166,13 +165,12 @@ const builderHarness = async (
   });
   const turn = {
     kind: "agent",
+    conversationId: "conversation-1",
     ownerId,
     ownerGeneration,
     appId: "",
     turnId,
     prompt: "continue",
-    turnToken: "raw-token-held-by-builder",
-    convexCallbackBase: "https://convex.example",
     threadId,
     workspace: "cloud",
     attemptGeneration,
@@ -224,6 +222,9 @@ const builderHarness = async (
         ? { BROWSER_GATEWAY: options.browserGateway }
         : {}),
     },
+    // The one route a sandbox still reaches through Convex authenticates with
+    // this turn's control-plane capability; signing it is covered elsewhere.
+    controlPlaneCapability: async () => "control-plane-capability",
     exactTurnCancellations: ledger,
     agentTurnExecutions:
       options.running === false
@@ -239,7 +240,6 @@ const builderHarness = async (
           ]),
     turnStateCheckpointRuns: new Map(),
     assertTurnWritable: async () => undefined,
-    assertConvexAgentTurnAuthority: async () => undefined,
     executeTurnStateCheckpoint: async (args: {
       operationKey: string;
       operation: {
@@ -685,24 +685,25 @@ describe("native state Builder integration", () => {
       });
     }) as typeof fetch;
     try {
-      const response = await client.postJson("/api/cloud/events", {
+      const response = await client.postJson("/api/cloud/web-search", {
         turnId,
-        kind: "progress",
+        query: "progress",
       });
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ accepted: true });
       expect(response.headers.get("set-cookie")).toBeNull();
       expect(response.headers.get("x-stella-broker-private")).toBeNull();
-      expect(response.headers.get("x-stella-response-id")).toBe("response-1");
+      // Every x-stella-* response header is Builder/backend-private now that
+      // no model relay answers through the broker.
+      expect(response.headers.get("x-stella-response-id")).toBeNull();
     } finally {
       globalThis.fetch = originalFetch;
       client.close();
     }
 
-    expect(upstreamUrl).toBe("https://convex.example/api/cloud/events");
-    expect(upstreamHeaders.get("authorization")).toBeNull();
-    expect(upstreamHeaders.get(TURN_BROKER_TURN_TOKEN_HEADER)).toBe(
-      "raw-token-held-by-builder",
+    expect(upstreamUrl).toBe("https://convex.example/api/cloud/web-search");
+    expect(upstreamHeaders.get("authorization")).toBe(
+      "Bearer control-plane-capability",
     );
     expect(upstreamHeaders.get(TURN_BROKER_HEADERS.ownerId)).toBeNull();
     expect(
@@ -710,7 +711,6 @@ describe("native state Builder integration", () => {
     ).toMatchObject({
       nextSequence: 2,
       requestCount: 1,
-      relayRequestCount: 0,
     });
   });
 
@@ -741,9 +741,9 @@ describe("native state Builder integration", () => {
       throw new Error("unreachable");
     }) as typeof fetch;
     try {
-      const pending = client.postJson("/api/cloud/events", {
+      const pending = client.postJson("/api/cloud/web-search", {
         turnId,
-        kind: "progress",
+        query: "progress",
       });
       await upstreamStarted;
       harness.executionAbort.abort(new Error("exact turn stopped"));

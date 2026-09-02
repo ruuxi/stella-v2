@@ -1,13 +1,20 @@
-const MICRO_CENTS_PER_CENT = 1_000_000;
-const CENTS_PER_DOLLAR = 100;
+import {
+  computeUsageCostMicroCents as computeUsageCostMicroCentsWithCatalog,
+  DEFAULT_TOKEN_PRICE,
+  dollarsToMicroCents,
+  normalizeTokenPriceConfig,
+  parsePositiveNumber,
+  type TokenPriceCatalog,
+  type TokenPriceConfig,
+  type UsageCostArgs,
+} from "@stella/model-catalog/pricing";
 
-export type TokenPriceConfig = {
-  inputPerMillionUsd: number;
-  outputPerMillionUsd: number;
-  cacheReadPerMillionUsd?: number;
-  cacheWritePerMillionUsd?: number;
-  reasoningPerMillionUsd?: number;
-};
+export {
+  centsToMicroCents,
+  dollarsToMicroCents,
+  microCentsToDollars,
+} from "@stella/model-catalog/pricing";
+export type { TokenPriceConfig } from "@stella/model-catalog/pricing";
 
 export type RealtimePriceConfig = {
   textInputPerMillionUsd: number;
@@ -166,60 +173,9 @@ const lookupTtsPriceConfig = (
     ? DEFAULT_TTS_PRICE_CATALOG["gpt-4o-mini-tts"]
     : undefined);
 
-const DEFAULT_TOKEN_PRICE: TokenPriceConfig = {
-  // Reference baseline from OpenCode Go docs/token table.
-  inputPerMillionUsd: 0.6,
-  outputPerMillionUsd: 3.0,
-};
-
 const DEFAULT_SERVICE_PRICE_CATALOG: ServicePriceCatalog = {
   defaultUsd: 0,
   services: {},
-};
-
-type TokenPriceCatalog = {
-  default: TokenPriceConfig;
-  models: Record<string, TokenPriceConfig>;
-};
-
-const parsePositiveNumber = (value: unknown, fallback: number): number => {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    return fallback;
-  }
-  return value;
-};
-
-const normalizePriceConfig = (
-  value: unknown,
-  fallback: TokenPriceConfig,
-): TokenPriceConfig => {
-  if (!value || typeof value !== "object") {
-    return fallback;
-  }
-
-  const record = value as Record<string, unknown>;
-  return {
-    inputPerMillionUsd: parsePositiveNumber(
-      record.inputPerMillionUsd,
-      fallback.inputPerMillionUsd,
-    ),
-    outputPerMillionUsd: parsePositiveNumber(
-      record.outputPerMillionUsd,
-      fallback.outputPerMillionUsd,
-    ),
-    cacheReadPerMillionUsd: parsePositiveNumber(
-      record.cacheReadPerMillionUsd,
-      fallback.cacheReadPerMillionUsd ?? 0,
-    ),
-    cacheWritePerMillionUsd: parsePositiveNumber(
-      record.cacheWritePerMillionUsd,
-      fallback.cacheWritePerMillionUsd ?? 0,
-    ),
-    reasoningPerMillionUsd: parsePositiveNumber(
-      record.reasoningPerMillionUsd,
-      fallback.reasoningPerMillionUsd ?? fallback.outputPerMillionUsd,
-    ),
-  };
 };
 
 const loadTokenPriceCatalog = (): TokenPriceCatalog => {
@@ -233,7 +189,10 @@ const loadTokenPriceCatalog = (): TokenPriceCatalog => {
 
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const defaults = normalizePriceConfig(parsed.default, DEFAULT_TOKEN_PRICE);
+    const defaults = normalizeTokenPriceConfig(
+      parsed.default,
+      DEFAULT_TOKEN_PRICE,
+    );
     const modelEntries =
       parsed.models && typeof parsed.models === "object"
         ? (parsed.models as Record<string, unknown>)
@@ -245,7 +204,7 @@ const loadTokenPriceCatalog = (): TokenPriceCatalog => {
       if (!normalizedModel) {
         continue;
       }
-      models[normalizedModel] = normalizePriceConfig(config, defaults);
+      models[normalizedModel] = normalizeTokenPriceConfig(config, defaults);
     }
 
     return {
@@ -323,74 +282,18 @@ const XAI_REALTIME_AUDIO_PER_MINUTE_USD = 0.05;
 const isXaiRealtimeModel = (model: string): boolean =>
   model === "grok-voice-latest" || model.startsWith("grok-voice-");
 
-export const centsToMicroCents = (cents: number) =>
-  Math.round(cents * MICRO_CENTS_PER_CENT);
-
-export const dollarsToMicroCents = (dollars: number) =>
-  centsToMicroCents(dollars * CENTS_PER_DOLLAR);
-
-export const microCentsToDollars = (microCents: number) =>
-  microCents / (MICRO_CENTS_PER_CENT * CENTS_PER_DOLLAR);
-
 /**
- * Price one managed completion.
+ * Price one managed completion at Stella's configured token prices.
  *
- * Token conventions — every caller must normalize to these before calling,
- * because this function derives the billable buckets by subtraction:
- *
- * - `inputTokens` is GROSS: it includes `cachedInputTokens` and
- *   `cacheWriteInputTokens`. Providers disagree here (OpenAI's
- *   `prompt_tokens` and Google's `promptTokenCount` are gross, Anthropic's
- *   `input_tokens` is already net of both cache buckets), so the parsers
- *   are responsible for adding cache counts back in.
- * - `outputTokens` is GROSS: it includes `reasoningTokens`. Again providers
- *   disagree (OpenAI's `output_tokens` includes reasoning, Google's
- *   `candidatesTokenCount` excludes `thoughtsTokenCount`), so the parsers
- *   normalize to the inclusive form.
- *
- * Passing already-net counts double-discounts them and can silently bill a
- * request at zero.
+ * The pure calculator lives in `@stella/model-catalog/pricing`; this wrapper
+ * supplies the env-configured `STELLA_TOKEN_PRICE_CATALOG_JSON` catalog. See
+ * the package for the gross-token conventions every caller must follow.
  */
-export const computeUsageCostMicroCents = (args: {
-  model: string;
-  /** Gross prompt tokens, including cached reads and cache writes. */
-  inputTokens: number;
-  /** Gross completion tokens, including reasoning tokens. */
-  outputTokens: number;
-  cachedInputTokens?: number;
-  cacheWriteInputTokens?: number;
-  reasoningTokens?: number;
-  price?: TokenPriceConfig;
-}) => {
-  const catalog = getTokenPriceCatalog();
-  const price = args.price ?? catalog.models[args.model] ?? catalog.default;
-  const cachedInputTokens = Math.max(0, args.cachedInputTokens ?? 0);
-  const cacheWriteInputTokens = Math.max(0, args.cacheWriteInputTokens ?? 0);
-  const billableInputTokens = Math.max(
-    0,
-    args.inputTokens - cachedInputTokens - cacheWriteInputTokens,
-  );
-  const reasoningTokens = Math.max(0, args.reasoningTokens ?? 0);
-  const textOutputTokens = Math.max(0, args.outputTokens - reasoningTokens);
-
-  const inputUsd = (billableInputTokens / 1_000_000) * price.inputPerMillionUsd;
-  const cachedInputUsd =
-    (cachedInputTokens / 1_000_000) * (price.cacheReadPerMillionUsd ?? 0);
-  const cacheWriteUsd =
-    (cacheWriteInputTokens / 1_000_000) * (price.cacheWritePerMillionUsd ?? 0);
-  const outputUsd = (textOutputTokens / 1_000_000) * price.outputPerMillionUsd;
-  // A zero reasoning rate means "not published", not "free" — models.dev
-  // omits `cost.reasoning` for most models and the sync stores 0. No provider
-  // bills reasoning below its output rate, so fall back to it rather than
-  // handing out reasoning-heavy completions for nothing.
-  const reasoningUsd =
-    (reasoningTokens / 1_000_000) *
-    (price.reasoningPerMillionUsd || price.outputPerMillionUsd);
-
-  return dollarsToMicroCents(
-    inputUsd + cachedInputUsd + cacheWriteUsd + outputUsd + reasoningUsd,
-  );
-};
+export const computeUsageCostMicroCents = (args: UsageCostArgs) =>
+  computeUsageCostMicroCentsWithCatalog({
+    ...args,
+    catalog: getTokenPriceCatalog(),
+  });
 
 export const resolveServicePriceUsd = (serviceKey: string): number => {
   const catalog = getServicePriceCatalog();

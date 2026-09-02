@@ -1,0 +1,510 @@
+/// <reference types="vite/client" />
+
+import { GATEWAY_BUDGET_UNLIMITED } from "@stella/contracts/gateway/capability";
+import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { listManagedModelIds } from "@stella/model-catalog/model";
+import { STATIC_MANAGED_MODEL_PRICE_OVERRIDES } from "@stella/model-catalog/pricing";
+import {
+  CONVEX_GATEWAY_CONFIG_PATH,
+  CONVEX_GATEWAY_ENGINE_ACCESS_PATH,
+  CONVEX_GATEWAY_SESSION_CAPABILITY_PATH,
+  CONVEX_GATEWAY_USAGE_PATH,
+  type GatewayUsageEvent,
+} from "@stella/contracts/gateway/usage";
+import { components } from "./_generated/api";
+import { tokenIdentifierForBetterAuthUserId } from "./auth";
+import betterAuthSchema from "./betterAuth/schema";
+import { encryptEnginePayload } from "./cloud_engines";
+import schema from "./schema";
+
+const modules = import.meta.glob("./**/*.ts");
+const betterAuthModules = import.meta.glob("./betterAuth/**/*.ts");
+
+const SERVICE_SECRET = "gateway-service-secret";
+const OWNER_ID = "https://convex.test|gateway-owner";
+const OWNER_GENERATION = "gateway-generation";
+const ANON_OWNER_ID = "https://convex.test|gateway-anon";
+const ANON_MAX_REQUESTS = 3;
+
+const toPem = (pkcs8: Uint8Array) => {
+  let binary = "";
+  for (const byte of pkcs8) binary += String.fromCharCode(byte);
+  const lines = btoa(binary).match(/.{1,64}/g) ?? [];
+  return `-----BEGIN PRIVATE KEY-----\n${lines.join("\n")}\n-----END PRIVATE KEY-----\n`;
+};
+
+beforeAll(async () => {
+  const values: Record<string, string> = {
+    GATEWAY_SERVICE_SECRET: SERVICE_SECRET,
+    STELLA_INCLUDED_USAGE_UTILIZATION_RATE: "0.5",
+    STELLA_FREE_ROLLING_LIMIT_USD: "100",
+    STELLA_FREE_ROLLING_WINDOW_HOURS: "5",
+    STELLA_FREE_WEEKLY_LIMIT_USD: "200",
+    STELLA_FREE_MONTHLY_LIMIT_USD: "300",
+    STELLA_FREE_LIFETIME_LIMIT_USD: "8",
+    STELLA_GO_PRICE_CENTS: "1000",
+    STELLA_PRO_PRICE_CENTS: "2000",
+    STELLA_ANON_MAX_REQUESTS: String(ANON_MAX_REQUESTS),
+    ANON_DEVICE_ID_HASH_SALT: "gateway-test-salt",
+    CAPABILITY_SIGNING_KID: "convex-test",
+    CLOUD_LLM_CREDENTIALS_KEY: btoa(String.fromCharCode(...new Uint8Array(32))),
+    MODEL_GATEWAY_URL: "https://gateway.test/",
+  };
+  for (const [key, value] of Object.entries(values)) process.env[key] = value;
+  const pair = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  process.env.CAPABILITY_SIGNING_KEY = toPem(
+    new Uint8Array(await crypto.subtle.exportKey("pkcs8", pair.privateKey)),
+  );
+});
+
+afterEach(() => {
+  process.env.GATEWAY_SERVICE_SECRET = SERVICE_SECRET;
+  process.env.MODEL_GATEWAY_URL = "https://gateway.test/";
+  delete process.env.STELLA_DEPLOYMENT_IDENTITY;
+});
+
+const createTest = async () => {
+  const t = convexTest(schema, modules);
+  t.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+  rateLimiterTest.register(t);
+  await t.run(async (ctx) => {
+    const now = Date.now();
+    for (const ownerId of [OWNER_ID, ANON_OWNER_ID]) {
+      await ctx.db.insert("cloud_owner_lifecycles", {
+        ownerId,
+        generation: OWNER_GENERATION,
+        state: "open",
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    await ctx.db.insert("conversations", {
+      ownerId: OWNER_ID,
+      isDefault: true,
+      eventCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+  return t;
+};
+
+type Harness = Awaited<ReturnType<typeof createTest>>;
+
+const serviceHeaders = {
+  authorization: `Bearer ${SERVICE_SECRET}`,
+  "content-type": "application/json",
+};
+
+const post = (t: Harness, path: string, body: unknown, headers = serviceHeaders) =>
+  t.fetch(path, { method: "POST", headers, body: JSON.stringify(body) });
+
+const usageEvent = (
+  overrides: Partial<GatewayUsageEvent> & { requestId: string },
+): GatewayUsageEvent => ({
+  v: 1,
+  capabilityId: "cap-1",
+  kind: "session",
+  ownerId: OWNER_ID,
+  ownerGeneration: OWNER_GENERATION,
+  audience: "free",
+  agentType: "chat",
+  provider: "anthropic",
+  protocol: "anthropic-messages",
+  requestedModel: "stella/default",
+  resolvedModel: "anthropic/claude-sonnet-4.6",
+  usage: { inputTokens: 100, outputTokens: 20, reported: true },
+  chargedMicroCents: 1_234,
+  outcome: "succeeded",
+  startedAt: 1_000,
+  finishedAt: 1_250,
+  billable: true,
+  ...overrides,
+});
+
+const readLedger = (t: Harness) =>
+  t.run(async (ctx) => {
+    const [logs, window, receipts, anonRows] = await Promise.all([
+      ctx.db
+        .query("usage_logs")
+        .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", OWNER_ID))
+        .collect(),
+      ctx.db
+        .query("billing_usage_windows")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", OWNER_ID))
+        .unique(),
+      ctx.db.query("gateway_usage_receipts").collect(),
+      ctx.db.query("anon_device_usage").collect(),
+    ]);
+    return { logs, window, receipts, anonRows };
+  });
+
+describe("gateway service authentication", () => {
+  it("rejects missing or wrong bearer secrets and disables itself without one", async () => {
+    const t = await createTest();
+    const unauthenticated = await t.fetch(CONVEX_GATEWAY_CONFIG_PATH, {
+      method: "GET",
+    });
+    expect(unauthenticated.status).toBe(401);
+    const wrong = await t.fetch(CONVEX_GATEWAY_CONFIG_PATH, {
+      method: "GET",
+      headers: { authorization: "Bearer not-the-secret" },
+    });
+    expect(wrong.status).toBe(401);
+    delete process.env.GATEWAY_SERVICE_SECRET;
+    const disabled = await t.fetch(CONVEX_GATEWAY_CONFIG_PATH, {
+      method: "GET",
+      headers: { authorization: `Bearer ${SERVICE_SECRET}` },
+    });
+    expect(disabled.status).toBe(503);
+  });
+});
+
+describe("POST /api/gateway/usage", () => {
+  it("bills each request id once and only records receipts for the rest", async () => {
+    const t = await createTest();
+    const batch = {
+      v: 1,
+      events: [
+        usageEvent({
+          requestId: "req-succeeded",
+          usage: {
+            inputTokens: 100,
+            outputTokens: 20,
+            cachedInputTokens: 10,
+            cacheWriteTokens: 4,
+            reasoningTokens: 5,
+            reported: true,
+          },
+        }),
+        usageEvent({
+          requestId: "req-aborted",
+          outcome: "aborted",
+          chargedMicroCents: 50,
+          usage: { inputTokens: 30, outputTokens: 0, reported: false },
+        }),
+        usageEvent({
+          requestId: "req-failed",
+          outcome: "failed",
+          chargedMicroCents: 0,
+          upstreamStatus: 500,
+        }),
+        usageEvent({
+          requestId: "req-native",
+          billable: false,
+          chargedMicroCents: 0,
+        }),
+        usageEvent({
+          requestId: "req-stale",
+          ownerGeneration: "generation-before-reset",
+        }),
+        usageEvent({
+          requestId: "req-anon",
+          ownerId: ANON_OWNER_ID,
+          audience: "anonymous",
+          chargedMicroCents: 0,
+          anonymous: { deviceId: "device-1", ipHash: "ip-hash-1" },
+        }),
+        { requestId: "req-malformed", v: 1 },
+      ],
+    };
+
+    const first = await post(t, CONVEX_GATEWAY_USAGE_PATH, batch);
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({
+      accepted: ["req-succeeded", "req-aborted", "req-failed", "req-native", "req-anon"],
+      duplicate: [],
+      rejected: [
+        { requestId: "req-malformed", reason: "malformed_owner" },
+        { requestId: "req-stale", reason: "generation_stale" },
+      ],
+    });
+
+    const ledger = await readLedger(t);
+    expect(ledger.logs).toHaveLength(2);
+    expect(ledger.logs.map((log) => log.agentType)).toEqual([
+      "proxy:chat",
+      "proxy:chat",
+    ]);
+    expect(ledger.logs[0]).toMatchObject({
+      model: "anthropic/claude-sonnet-4.6",
+      costMicroCents: 1_234,
+      inputTokens: 100,
+      outputTokens: 20,
+      totalTokens: 120,
+      cachedInputTokens: 10,
+      cacheWriteInputTokens: 4,
+      reasoningTokens: 5,
+      durationMs: 250,
+      success: true,
+    });
+    expect(ledger.logs[1]).toMatchObject({
+      costMicroCents: 50,
+      success: false,
+    });
+    expect(ledger.window).toMatchObject({
+      totalUsageMicroCents: 1_284,
+      totalRequestCount: 2,
+    });
+    expect(ledger.receipts.map((receipt) => receipt.requestId).sort()).toEqual([
+      "req-aborted",
+      "req-anon",
+      "req-failed",
+      "req-native",
+      "req-succeeded",
+    ]);
+    // Device bucket plus the network bucket, each consumed once.
+    expect(ledger.anonRows).toHaveLength(2);
+    expect(ledger.anonRows.every((row) => row.requestCount === 1)).toBe(true);
+
+    const replay = await post(t, CONVEX_GATEWAY_USAGE_PATH, batch);
+    expect(await replay.json()).toEqual({
+      accepted: [],
+      duplicate: ["req-succeeded", "req-aborted", "req-failed", "req-native", "req-anon"],
+      rejected: [
+        { requestId: "req-malformed", reason: "malformed_owner" },
+        { requestId: "req-stale", reason: "generation_stale" },
+      ],
+    });
+    const after = await readLedger(t);
+    expect(after.logs).toHaveLength(2);
+    expect(after.window).toMatchObject({ totalUsageMicroCents: 1_284 });
+    expect(after.receipts).toHaveLength(5);
+    expect(after.anonRows.every((row) => row.requestCount === 1)).toBe(true);
+  });
+
+  it("treats a request id repeated inside one batch as a duplicate", async () => {
+    const t = await createTest();
+    const response = await post(t, CONVEX_GATEWAY_USAGE_PATH, {
+      v: 1,
+      events: [usageEvent({ requestId: "twice" }), usageEvent({ requestId: "twice" })],
+    });
+    expect(await response.json()).toEqual({
+      accepted: ["twice"],
+      duplicate: ["twice"],
+      rejected: [],
+    });
+    expect((await readLedger(t)).logs).toHaveLength(1);
+  });
+
+  it("rejects malformed batches", async () => {
+    const t = await createTest();
+    expect((await post(t, CONVEX_GATEWAY_USAGE_PATH, { v: 2, events: [] })).status).toBe(400);
+    expect((await post(t, CONVEX_GATEWAY_USAGE_PATH, { v: 1 })).status).toBe(400);
+  });
+});
+
+describe("GET /api/gateway/config", () => {
+  it("serves synced prices, static fill-ins, and anonymous ceilings", async () => {
+    const t = await createTest();
+    const syncedModel = listManagedModelIds()[0]!;
+    const staticModel = Object.keys(STATIC_MANAGED_MODEL_PRICE_OVERRIDES).find(
+      (model) => model !== syncedModel,
+    )!;
+    await t.run(async (ctx) => {
+      await ctx.db.insert("billing_model_prices", {
+        model: syncedModel,
+        source: "models.dev",
+        sourceProvider: "test",
+        sourceModelId: syncedModel,
+        inputPerMillionUsd: 1.5,
+        outputPerMillionUsd: 6,
+        cacheReadPerMillionUsd: 0.15,
+        cacheWritePerMillionUsd: 1.875,
+        reasoningPerMillionUsd: 6,
+        sourceUpdatedAt: "2026-01-01",
+        syncedAt: 1_700_000_000_000,
+      });
+    });
+    const response = await t.fetch(CONVEX_GATEWAY_CONFIG_PATH, {
+      method: "GET",
+      headers: { authorization: `Bearer ${SERVICE_SECRET}` },
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      v: number;
+      prices: Array<Record<string, unknown>>;
+      anonymous: Record<string, number>;
+      updatedAt: number;
+    };
+    expect(body.v).toBe(1);
+    expect(body.anonymous).toEqual({
+      maxRequestsPerDevice: ANON_MAX_REQUESTS,
+      maxRequestsPerIp: ANON_MAX_REQUESTS * 10,
+    });
+    expect(body.updatedAt).toBe(1_700_000_000_000);
+    expect(body.prices.find((price) => price.model === syncedModel)).toEqual({
+      model: syncedModel,
+      inputPerMillionUsd: 1.5,
+      outputPerMillionUsd: 6,
+      cacheReadPerMillionUsd: 0.15,
+      cacheWritePerMillionUsd: 1.875,
+      reasoningPerMillionUsd: 6,
+    });
+    const staticPrice = STATIC_MANAGED_MODEL_PRICE_OVERRIDES[staticModel]!;
+    expect(body.prices.find((price) => price.model === staticModel)).toEqual({
+      model: staticModel,
+      inputPerMillionUsd: staticPrice.inputPerMillionUsd,
+      outputPerMillionUsd: staticPrice.outputPerMillionUsd,
+      cacheReadPerMillionUsd: staticPrice.cacheReadPerMillionUsd ?? 0,
+      cacheWritePerMillionUsd: staticPrice.cacheWritePerMillionUsd ?? 0,
+      reasoningPerMillionUsd:
+        staticPrice.reasoningPerMillionUsd ?? staticPrice.outputPerMillionUsd,
+    });
+  });
+});
+
+describe("POST /api/gateway/engine-access", () => {
+  it("resolves a stored credential with its expiry and fails closed otherwise", async () => {
+    const t = await createTest();
+    const request = (body: unknown) => post(t, CONVEX_GATEWAY_ENGINE_ACCESS_PATH, body);
+
+    expect(
+      (await request({ ownerId: OWNER_ID, ownerGeneration: OWNER_GENERATION, provider: "gemini" })).status,
+    ).toBe(400);
+    expect(
+      (await request({ ownerId: OWNER_ID, ownerGeneration: "stale", provider: "anthropic" })).status,
+    ).toBe(409);
+    expect(
+      (await request({ ownerId: OWNER_ID, ownerGeneration: OWNER_GENERATION, provider: "anthropic" })).status,
+    ).toBe(404);
+
+    const expires = Date.now() + 3_600_000;
+    const payloadEncrypted = await encryptEnginePayload({
+      access: "codex-access-token",
+      refresh: "codex-refresh-token",
+      expires,
+      accountId: "acct-123",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("cloud_llm_credentials", {
+        ownerId: OWNER_ID,
+        provider: "openai-codex",
+        payloadEncrypted,
+        label: "test",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    const resolved = await request({
+      ownerId: OWNER_ID,
+      ownerGeneration: OWNER_GENERATION,
+      provider: "openai-codex",
+    });
+    expect(resolved.status).toBe(200);
+    expect(await resolved.json()).toEqual({
+      accessToken: "codex-access-token",
+      accountId: "acct-123",
+      expiresAt: expires,
+    });
+  });
+});
+
+describe("POST /api/gateway/session-capability", () => {
+  const seedUser = async (t: Harness, key: string, isAnonymous: boolean) => {
+    const user = (await t.mutation(components.betterAuth.adapter.create, {
+      input: {
+        model: "user",
+        data: {
+          name: key,
+          email: `${key}@stella.test`,
+          emailVerified: !isAnonymous,
+          isAnonymous,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+    })) as { _id: string };
+    const ownerId = tokenIdentifierForBetterAuthUserId(user._id);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("cloud_owner_lifecycles", {
+        ownerId,
+        generation: OWNER_GENERATION,
+        state: isAnonymous ? "open" : "open",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    return ownerId;
+  };
+
+  it("mints a capability for a known owner and 404s for unknown or purging owners", async () => {
+    const t = await createTest();
+    const ownerId = await seedUser(t, "signed-in", false);
+    const minted = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
+      ownerId,
+      isAnonymous: false,
+    });
+    expect(minted.status).toBe(200);
+    const body = (await minted.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({ audience: "free", budgetMicroCents: 500_000_000 });
+    expect(typeof body.capability).toBe("string");
+    expect((body.capability as string).split(".")).toHaveLength(3);
+    expect(body.expiresAt as number).toBeGreaterThan(Date.now());
+
+    const unknown = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
+      ownerId: "https://convex.test|nobody",
+      isAnonymous: false,
+    });
+    expect(unknown.status).toBe(404);
+
+    await t.run(async (ctx) => {
+      const lifecycle = await ctx.db
+        .query("cloud_owner_lifecycles")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+        .unique();
+      await ctx.db.patch(lifecycle!._id, { state: "deleting" });
+    });
+    const purging = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
+      ownerId,
+      isAnonymous: false,
+    });
+    expect(purging.status).toBe(404);
+  });
+
+  it("never promotes an anonymous account to a billed audience", async () => {
+    const t = await createTest();
+    const ownerId = await seedUser(t, "anon", true);
+    const minted = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
+      ownerId,
+      isAnonymous: false,
+      deviceId: "device-anon",
+    });
+    expect(minted.status).toBe(200);
+    expect(await minted.json()).toMatchObject({
+      audience: "anonymous",
+      budgetMicroCents: GATEWAY_BUDGET_UNLIMITED,
+      maxRequests: ANON_MAX_REQUESTS,
+    });
+    expect((await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, { ownerId })).status).toBe(400);
+  });
+});
+
+describe("GET /api/stella/models", () => {
+  it("advertises the model gateway origin", async () => {
+    const t = await createTest();
+    const response = await t.fetch("/api/stella/models", { method: "GET" });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      data: unknown[];
+      gateway: { origin: string };
+      updatedAt: number;
+    };
+    expect(body.gateway).toEqual({ origin: "https://gateway.test" });
+    expect(body.data.length).toBeGreaterThan(0);
+  });
+
+  it("fails in production when the gateway origin is unset", async () => {
+    const t = await createTest();
+    delete process.env.MODEL_GATEWAY_URL;
+    process.env.STELLA_DEPLOYMENT_IDENTITY = "prod:intent-jackal-330";
+    const response = await t.fetch("/api/stella/models", { method: "GET" });
+    expect(response.status).toBe(500);
+  });
+});

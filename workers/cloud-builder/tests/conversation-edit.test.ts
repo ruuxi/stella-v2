@@ -400,7 +400,7 @@ describe("canonical fork and rewind journal transitions", () => {
     );
   });
 
-  test("an old-epoch index response cannot mark a rewound cache head synced", async () => {
+  test("an old-epoch index send cannot mark a rewound cache head synced", async () => {
     const { journal } = await openJournal();
     bind(journal, "conversation-1");
     journal.appendMessage({
@@ -411,25 +411,25 @@ describe("canonical fork and rewind journal transitions", () => {
       message: message("old", 1),
     });
 
-    let respond!: (value: Response) => void;
-    let requestStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      requestStarted = resolve;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
     });
-    globalThis.fetch = (() =>
-      new Promise<Response>((resolve) => {
-        respond = resolve;
-        requestStarted();
-      })) as typeof fetch;
+    let sendStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      sendStarted = resolve;
+    });
     const index = new ConversationIndex(
       journal,
       () => undefined,
-      () => ({
-        base: "https://convex.example",
-        secret: "secret",
-        ownerGeneration: "generation-1",
-      }),
-      { purged: () => false, onPurged: () => undefined },
+      () => ({ ownerId: "owner-1", ownerGeneration: "generation-1" }),
+      {
+        enqueue: async () => {
+          sendStarted();
+          await gate;
+        },
+        purged: () => false,
+      },
     );
     const flushing = index.flush({ activity: "idle", updatedAt: 1 });
     await started;
@@ -446,15 +446,7 @@ describe("canonical fork and rewind journal transitions", () => {
       retiredAt: 2,
       resultJson: JSON.stringify({ complete: true, nextEpoch: 2, lastSeq: -1 }),
     });
-    respond(
-      Response.json({
-        accepted: false,
-        excerptsAccepted: false,
-        reason: "stale_epoch",
-        epoch: 2,
-        lastSeq: -1,
-      }),
-    );
+    release();
     await flushing;
     expect(journal.meta().index_synced_seq).toBe(-1);
 
@@ -468,7 +460,7 @@ describe("canonical fork and rewind journal transitions", () => {
     expect(index.lagging()).toBe(true);
   });
 
-  test("malformed 2xx index verdicts retry and never advance projection cursors", async () => {
+  test("a refused outbox send never advances projection cursors", async () => {
     const { journal } = await openJournal();
     bind(journal, "conversation-invalid-verdict");
     journal.appendMessage({
@@ -487,29 +479,24 @@ describe("canonical fork and rewind journal transitions", () => {
     });
 
     let calls = 0;
-    globalThis.fetch = (async () => {
-      calls += 1;
-      if (calls === 1) return new Response("", { status: 200 });
-      if (calls === 2) return Response.json({ accepted: true });
-      return new Response("<html>proxy error</html>", {
-        status: 200,
-        headers: { "content-type": "text/html" },
-      });
-    }) as typeof fetch;
     const index = new ConversationIndex(
       journal,
       () => undefined,
-      () => ({
-        base: "https://convex.example",
-        secret: "secret",
-        ownerGeneration: "generation-1",
-      }),
-      { purged: () => false, onPurged: () => undefined },
+      () => ({ ownerId: "owner-1", ownerGeneration: "generation-1" }),
+      {
+        enqueue: async () => {
+          calls += 1;
+          throw new Error("queue unavailable");
+        },
+        purged: () => false,
+      },
     );
 
     const result = await index.flush({ activity: "idle", updatedAt: 1 });
 
-    expect(calls).toBe(3);
+    // One attempt per flush: the queue is durable once it accepts, so the
+    // retry ladder is the next turn end or connect, not a tight loop here.
+    expect(calls).toBe(1);
     expect(result).toEqual({ accepted: false, pendingExcerpts: 1 });
     expect(journal.meta().index_synced_seq).toBe(-1);
     expect(journal.unsyncedExcerptCount()).toBe(1);

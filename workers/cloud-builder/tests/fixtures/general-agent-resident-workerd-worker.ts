@@ -63,14 +63,20 @@ const IDENTITY = {
 
 const TURN: GeneralAgentTurnRequest = {
   kind: "agent",
+  conversationId: "conversation-1",
   identity: IDENTITY,
   prompt: "Summarize what we decided.",
-  turnToken: "turn-token",
-  convexCallbackBase: "https://convex.example.com",
   brokerRoute: { sessionId: "session-1", endpoint: "https://broker.test" },
   execution: EXECUTION,
+  audience: "pro",
+  budgetMicroCents: 250_000_000,
   watchdogMs: 600_000,
 };
+
+const MODEL_GATEWAY = {
+  origin: "https://gateway.test",
+  capability: "header.turn-capability.signature",
+} as const;
 
 const assistantHeader = {
   role: "assistant",
@@ -243,6 +249,7 @@ export class ResidentTurnHarness extends DurableObject {
         }),
         recordInteriorBuildRequest: async () => {},
       },
+      modelGateway: MODEL_GATEWAY,
       sql: this.ctx.storage.sql,
       tools: TOOLS,
       workspacePrompt: { office: false },

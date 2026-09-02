@@ -61,6 +61,7 @@ const NOW = 1_800_000_000_000;
 
 const TURN_REQUEST = {
   kind: "agent",
+  conversationId: "conversation-1",
   ownerId: "owner-1",
   ownerGeneration: "generation-7",
   appId: "agent",
@@ -68,14 +69,19 @@ const TURN_REQUEST = {
   threadId: "thread-1",
   attemptGeneration: 1,
   prompt: "Wire the ladder.",
-  turnToken: "turn-token",
-  convexCallbackBase: "https://convex.example.com",
   execution: EXECUTION,
   turnBrokerRoute: {
     sessionId: "session-1",
     endpoint: "https://broker.test",
   },
+  audience: "pro",
+  budgetMicroCents: 250_000_000,
   watchdogMs: 600_000,
+} as const;
+
+const MODEL_GATEWAY = {
+  origin: "https://gateway.test",
+  capability: "header.turn-capability.signature",
 } as const;
 
 const scriptedStream = (): StreamFn => {
@@ -180,6 +186,7 @@ export class WiredTurnHarness extends DurableObject {
         return await runResidentStellaLoop({
           turn: {
             kind: "agent",
+            conversationId: "conversation-1",
             identity: {
               ownerId: TURN_REQUEST.ownerId,
               ownerGeneration: TURN_REQUEST.ownerGeneration,
@@ -188,10 +195,10 @@ export class WiredTurnHarness extends DurableObject {
               attemptGeneration: TURN_REQUEST.attemptGeneration,
             },
             prompt: TURN_REQUEST.prompt,
-            turnToken: TURN_REQUEST.turnToken,
-            convexCallbackBase: TURN_REQUEST.convexCallbackBase,
             brokerRoute: TURN_REQUEST.turnBrokerRoute,
             execution: EXECUTION,
+            audience: TURN_REQUEST.audience,
+            budgetMicroCents: TURN_REQUEST.budgetMicroCents,
             watchdogMs: TURN_REQUEST.watchdogMs,
           },
           execution: EXECUTION,
@@ -215,6 +222,7 @@ export class WiredTurnHarness extends DurableObject {
             }),
             recordInteriorBuildRequest: async () => {},
           },
+          modelGateway: MODEL_GATEWAY,
           sql: this.ctx.storage.sql,
           tools: TOOLS,
           workspacePrompt: { office: false },

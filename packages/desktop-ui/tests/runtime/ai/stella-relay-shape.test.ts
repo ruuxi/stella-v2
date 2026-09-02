@@ -1,29 +1,38 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createStellaRoute } from "@stella/runtime/kernel/model-routing-stella";
+import {
+  rememberStellaGatewayOrigin,
+  resetGatewaySessionState,
+} from "@stella/runtime/kernel/gateway-session";
 import { streamSimple } from "@stella/runtime/ai/stream";
 import { transformMessages } from "@stella/runtime/ai/providers/transform-messages";
 import type { Context, Message, Model } from "@stella/runtime/ai/types";
 
 /**
- * Wire-shape integration tests for the Stella relay path.
+ * Wire-shape integration tests for the Stella model-gateway path.
  *
  * For each upstream provider, we:
- *   1. Build a route via `createStellaRoute` and assert the relay `baseUrl`
- *      + provider + api the pi-mono adapter will dispatch on.
- *   2. (Anthropic + Google only) Stub `fetch`, invoke `streamSimple`, and
- *      assert the adapter targets the relay path with
- *      `Authorization: Bearer <stella-token>` (NOT `x-api-key` /
- *      `x-goog-api-key`). That's the load-bearing part of the baseUrl-based
- *      relay auth detection; if it ever regresses, every relayed Anthropic /
- *      Google request 401s at the relay.
+ *   1. Build a route via `createStellaRoute` and assert the gateway relay
+ *      `baseUrl` + provider + api the adapter will dispatch on.
+ *   2. (Anthropic, Google, Responses) Stub `fetch`, invoke `streamSimple`,
+ *      and assert the adapter targets the relay path with
+ *      `Authorization: Bearer <session capability>` (NOT `x-api-key` /
+ *      `x-goog-api-key`), `stream: false`, and a per-request
+ *      `x-stella-request-id`. That's the load-bearing part of the
+ *      baseUrl-based gateway detection; if it ever regresses, every relayed
+ *      request 401s at the gateway or is rejected as `stream_unsupported`.
  */
 
 const STELLA_SITE = "https://stella.example.test";
+const GATEWAY = "https://gateway.example.test";
+const RELAY = `${GATEWAY}/v1/relay`;
 const STELLA_TOKEN = "stella-jwt";
+const CAPABILITY = "session-capability-jwt";
 
 const site = {
   baseUrl: STELLA_SITE,
+  deviceId: "device-shape",
   getAuthToken: () => STELLA_TOKEN,
 };
 
@@ -44,17 +53,11 @@ const userContext = (text: string): Context => ({
   ],
 });
 
-const sseResponse = (body: string, contentType = "text/event-stream") =>
-  new Response(body, {
+const jsonResponse = (body: unknown) =>
+  new Response(JSON.stringify(body), {
     status: 200,
-    headers: { "content-type": contentType },
+    headers: { "content-type": "application/json" },
   });
-
-const drain = async (stream: AsyncIterable<unknown>) => {
-  for await (const _ of stream) {
-    // ignore individual events
-  }
-};
 
 // Bun's vitest-compatible runner doesn't implement `vi.stubGlobal`, so we
 // install/restore `globalThis.fetch` by hand. Vitest also runs this fine.
@@ -62,6 +65,11 @@ type CapturedCall = { url: string; init?: RequestInit; headers: Headers };
 
 const originalFetch: typeof fetch = globalThis.fetch;
 
+/**
+ * Stubs fetch for the whole gateway conversation: the session capability
+ * exchange answers with a fixed capability, every other call gets the
+ * provided provider-native response.
+ */
 const captureRequest = (response: () => Response): CapturedCall[] => {
   const calls: CapturedCall[] = [];
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -76,54 +84,80 @@ const captureRequest = (response: () => Response): CapturedCall[] => {
         ? init.headers
         : new Headers(init?.headers as HeadersInit | undefined);
     calls.push({ url, init, headers });
+    if (url === `${GATEWAY}/v1/capabilities/session`) {
+      return jsonResponse({
+        capability: CAPABILITY,
+        expiresAt: Date.now() + 60 * 60 * 1000,
+        audience: "pro",
+        budgetMicroCents: -1,
+      });
+    }
     return response();
   }) as typeof fetch;
   return calls;
 };
 
+beforeEach(() => {
+  rememberStellaGatewayOrigin(STELLA_SITE, GATEWAY);
+});
+
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  resetGatewaySessionState();
   vi.restoreAllMocks();
 });
 
-describe("Stella relay route shape", () => {
-  it("Anthropic relay: baseUrl, api, provider, headers", () => {
+describe("Stella gateway route shape", () => {
+  it("Anthropic: baseUrl, api, provider, headers", () => {
     const route = makeRoute("stella/anthropic/claude-opus-4.7");
     expect(route).not.toBeNull();
     const model = route!.model;
     expect(model.api).toBe("anthropic-messages");
     expect(model.provider).toBe("anthropic");
     expect(model.id).toBe("stella/anthropic/claude-opus-4.7");
-    expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
+    expect(model.baseUrl).toBe(RELAY);
     expect(model.headers).toMatchObject({ "X-Stella-Agent-Type": "general" });
     expect(model.headers).not.toHaveProperty("X-Stella-Relay");
   });
 
-  it("OpenAI relay: baseUrl, api, provider", () => {
+  it("OpenAI: baseUrl, api, provider", () => {
     const route = makeRoute("stella/openai/gpt-5.5");
     const model = route!.model;
     expect(model.api).toBe("openai-responses");
     expect(model.provider).toBe("openai");
-    expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
+    expect(model.baseUrl).toBe(RELAY);
   });
 
-  it("Google relay: baseUrl, api, provider", () => {
+  it("Google: baseUrl, api, provider", () => {
     const route = makeRoute("stella/google/gemini-3-flash-preview");
     const model = route!.model;
     expect(model.api).toBe("google-generative-ai");
     expect(model.provider).toBe("google");
-    expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
+    expect(model.baseUrl).toBe(RELAY);
   });
 
-  it("Fireworks relay: baseUrl, api, provider", () => {
+  it("Fireworks: baseUrl, api, provider", () => {
     const route = makeRoute("stella/accounts/fireworks/models/kimi-k2p6");
     const model = route!.model;
     expect(model.api).toBe("openai-responses");
     expect(model.provider).toBe("fireworks");
-    expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
+    expect(model.baseUrl).toBe(RELAY);
+  });
+
+  it("falls back to an unresolvable relay until the catalog advertises the gateway", () => {
+    resetGatewaySessionState();
+    const route = makeRoute("stella/openai/gpt-5.5");
+    expect(route!.model.baseUrl).toBe(
+      "https://model-gateway.unconfigured.invalid/v1/relay",
+    );
+    // The capability exchange fails closed too: no origin, no credential.
+    return expect(route!.getApiKey()).rejects.toThrow(
+      /model gateway is not configured/i,
+    );
   });
 
   it("creates a Stella route when auth is refreshable but not loaded yet", async () => {
+    const calls = captureRequest(() => jsonResponse({}));
     const route = createStellaRoute({
       site: {
         baseUrl: STELLA_SITE,
@@ -136,7 +170,14 @@ describe("Stella relay route shape", () => {
     });
 
     expect(route).not.toBeNull();
-    expect(await route!.getApiKey()).toBe(STELLA_TOKEN);
+    // The Better Auth JWT is exchanged for a session capability; the JWT
+    // itself never becomes the model request credential.
+    expect(await route!.getApiKey()).toBe(CAPABILITY);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe(`${GATEWAY}/v1/capabilities/session`);
+    expect(calls[0]!.headers.get("authorization")).toBe(
+      `Bearer ${STELLA_TOKEN}`,
+    );
   });
 
   it("does not create a refresh-only route for signed-out users", () => {
@@ -168,15 +209,15 @@ describe("Stella relay route shape", () => {
     expect(route).toBeNull();
   });
 
-  it("OpenRouter relay: baseUrl, api, provider", () => {
+  it("OpenRouter: baseUrl, api, provider", () => {
     const route = makeRoute("stella/moonshotai/kimi-k2");
     const model = route!.model;
     expect(model.api).toBe("openai-completions");
     expect(model.provider).toBe("openrouter");
-    expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
+    expect(model.baseUrl).toBe(RELAY);
   });
 
-  it("DeepSeek relay uses the Responses API against the deepseek provider", () => {
+  it("DeepSeek uses the Responses API against the deepseek provider", () => {
     const route = makeRoute("stella/deepseek/deepseek-v4-flash");
     const model = route!.model;
     expect(model.api).toBe("openai-responses");
@@ -184,10 +225,10 @@ describe("Stella relay route shape", () => {
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
     ).toBe("deepseek-v4-flash");
-    expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
+    expect(model.baseUrl).toBe(RELAY);
   });
 
-  it("retired Stella aliases resolve to the Muse relay", () => {
+  it("retired Stella aliases resolve to the Muse route", () => {
     const route = makeRoute("stella/designer");
     const model = route!.model;
     expect(model.api).toBe("openai-responses");
@@ -195,15 +236,15 @@ describe("Stella relay route shape", () => {
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
     ).toBe("meta/muse-spark-1.2-contributor");
-    expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
+    expect(model.baseUrl).toBe(RELAY);
   });
 
-  it("Stella alias (light) resolves to the Muse relay", () => {
+  it("Stella alias (light) resolves to the Muse route", () => {
     const route = makeRoute("stella/light");
     const model = route!.model;
     expect(model.api).toBe("openai-responses");
     expect(model.provider).toBe("openrouter");
-    expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
+    expect(model.baseUrl).toBe(RELAY);
   });
 
   it("Stella default resolves to Muse Spark 1.2 Contributor on OpenRouter", () => {
@@ -214,10 +255,10 @@ describe("Stella relay route shape", () => {
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
     ).toBe("meta/muse-spark-1.2-contributor");
-    expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
+    expect(model.baseUrl).toBe(RELAY);
   });
 
-  it("Muse relay: Responses API transport, xhigh effort survives the clamp", () => {
+  it("Muse route: Responses API transport, xhigh effort survives the clamp", () => {
     const route = makeRoute("stella/default");
     const model = route!.model;
     // xhigh is Stella's default rung for Muse; the model's thinkingLevelMap
@@ -225,7 +266,7 @@ describe("Stella relay route shape", () => {
     expect(model.thinkingLevelMap).toMatchObject({ xhigh: "xhigh" });
   });
 
-  it("the explicit DeepSeek V4 Flash pick still routes to the CrofAI relay", () => {
+  it("the explicit DeepSeek V4 Flash pick still routes to the CrofAI provider", () => {
     // The previous default stays fully routable: its canonical CrofAI id
     // keeps the CrofAI completions transport and effort ladder.
     const route = makeRoute("stella/crof/deepseek-v4-flash-0731");
@@ -246,7 +287,7 @@ describe("Stella relay route shape", () => {
     });
   });
 
-  it("the Wafer Fast variant routes to the Wafer relay", () => {
+  it("the Wafer Fast variant routes to the Wafer provider", () => {
     const route = makeRoute("stella/wafer/deepseek-v4-flash-0731-fast");
     const model = route!.model;
     expect(model.api).toBe("openai-completions");
@@ -254,7 +295,7 @@ describe("Stella relay route shape", () => {
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
     ).toBe("deepseek-v4-flash-0731-fast");
-    // Wafer shares CrofAI's effort ladder via the relay's body normalization.
+    // Wafer shares CrofAI's effort ladder via the gateway's body normalization.
     expect(model.thinkingLevelMap).toMatchObject({
       minimal: "low",
       low: "low",
@@ -265,7 +306,7 @@ describe("Stella relay route shape", () => {
     });
   });
 
-  it("Stella standard compatibility alias resolves to the Muse relay", () => {
+  it("Stella standard compatibility alias resolves to the Muse route", () => {
     const route = makeRoute("stella/standard");
     const model = route!.model;
     expect(model.api).toBe("openai-responses");
@@ -273,10 +314,10 @@ describe("Stella relay route shape", () => {
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
     ).toBe("meta/muse-spark-1.2-contributor");
-    expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
+    expect(model.baseUrl).toBe(RELAY);
   });
 
-  it("the retained Fireworks spelling still routes to the Fireworks relay", () => {
+  it("the retained Fireworks spelling still routes to the Fireworks provider", () => {
     // Rollback safety: flipping DEEPSEEK_V4_FLASH_ROUTE back must not need a
     // client change, so the client still knows how to route this id.
     const route = makeRoute(
@@ -288,137 +329,156 @@ describe("Stella relay route shape", () => {
   });
 });
 
-describe("Stella relay auth (baseUrl-based detection)", () => {
-  it("Anthropic adapter sends Authorization: Bearer to the Stella relay (not x-api-key)", async () => {
-    // Anthropic SSE that closes immediately so the adapter resolves
-    // without us having to mock the full streaming protocol.
+describe("Stella gateway auth (baseUrl-based detection)", () => {
+  it("Anthropic adapter sends Authorization: Bearer <capability> to the gateway (not x-api-key), non-streaming", async () => {
     const calls = captureRequest(() =>
-      sseResponse(
-        [
-          `event: message_start\ndata: ${JSON.stringify({
-            type: "message_start",
-            message: {
-              id: "msg_1",
-              type: "message",
-              role: "assistant",
-              model: "claude-opus-4.7",
-              content: [],
-              stop_reason: null,
-              stop_sequence: null,
-              usage: { input_tokens: 0, output_tokens: 0 },
-            },
-          })}\n\n`,
-          `event: message_delta\ndata: ${JSON.stringify({
-            type: "message_delta",
-            delta: { stop_reason: "end_turn", stop_sequence: null },
-            usage: { output_tokens: 0 },
-          })}\n\n`,
-          `event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`,
-        ].join(""),
-      ),
+      jsonResponse({
+        id: "msg_1",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-4.7",
+        content: [{ type: "text", text: "hi there" }],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 3, output_tokens: 2 },
+      }),
     );
 
     const route = makeRoute("stella/anthropic/claude-opus-4.7")!;
     const apiKey = (await route.getApiKey()) ?? "";
-    expect(apiKey).toBe(STELLA_TOKEN);
+    expect(apiKey).toBe(CAPABILITY);
 
-    await drain(
-      streamSimple(route.model, userContext("hi"), { apiKey, maxTokens: 8 }),
-    );
+    const result = await streamSimple(route.model, userContext("hi"), {
+      apiKey,
+      maxTokens: 8,
+    }).result();
+    expect(result.stopReason).toBe("stop");
+    expect(result.content).toEqual([{ type: "text", text: "hi there" }]);
 
-    // Exactly one request, hitting the relay
-    expect(calls.length).toBeGreaterThan(0);
     const messagesCall = calls.find((c) => c.url.endsWith("/messages"));
     expect(
       messagesCall,
       `expected POST to /messages, got URLs: ${calls.map((c) => c.url).join(", ")}`,
     ).toBeDefined();
-    // The Anthropic SDK appends `/v1/messages` to the neutral Stella
-    // relay prefix. The backend resolves the upstream provider from the
-    // model instead of from the URL.
-    expect(messagesCall!.url).toBe(
-      `${STELLA_SITE}/api/stella/relay/v1/messages`,
-    );
+    // The Anthropic SDK appends `/v1/messages` to the neutral relay prefix.
+    // The gateway resolves the upstream provider from the model.
+    expect(messagesCall!.url).toBe(`${RELAY}/v1/messages`);
     expect(messagesCall!.headers.get("authorization")).toBe(
-      `Bearer ${STELLA_TOKEN}`,
+      `Bearer ${CAPABILITY}`,
     );
     expect(messagesCall!.headers.get("x-api-key")).toBeNull();
     expect(messagesCall!.headers.get("x-stella-agent-type")).toBe("general");
+    expect(messagesCall!.headers.get("x-stella-request-id")).toMatch(
+      /^[0-9a-f-]{36}$/u,
+    );
+    const body = JSON.parse(String(messagesCall!.init?.body)) as Record<
+      string,
+      unknown
+    >;
+    expect(body.stream).toBe(false);
   });
 
-  it("Google adapter forwards Authorization: Bearer when the baseUrl is the Stella relay", async () => {
+  it("Google adapter forwards Authorization: Bearer <capability> and calls generateContent", async () => {
     const calls = captureRequest(() =>
-      sseResponse(
-        `data: ${JSON.stringify({
-          candidates: [
-            { content: { parts: [{ text: "" }] }, finishReason: "STOP" },
-          ],
-          modelVersion: "gemini-3-flash-preview",
-          usageMetadata: {
-            promptTokenCount: 1,
-            candidatesTokenCount: 0,
-            totalTokenCount: 1,
-          },
-        })}\n\n`,
-      ),
+      jsonResponse({
+        responseId: "resp_g",
+        candidates: [
+          { content: { role: "model", parts: [{ text: "hi" }] }, finishReason: "STOP" },
+        ],
+        modelVersion: "gemini-3-flash-preview",
+        usageMetadata: {
+          promptTokenCount: 1,
+          candidatesTokenCount: 1,
+          totalTokenCount: 2,
+        },
+      }),
     );
 
     const route = makeRoute("stella/google/gemini-3-flash-preview")!;
     const apiKey = (await route.getApiKey()) ?? "";
 
-    await drain(
-      streamSimple(route.model, userContext("hi"), { apiKey, maxTokens: 8 }),
-    );
+    const result = await streamSimple(route.model, userContext("hi"), {
+      apiKey,
+      maxTokens: 8,
+    }).result();
+    expect(result.stopReason).toBe("stop");
+    expect(result.content).toEqual([{ type: "text", text: "hi" }]);
 
-    // Google SDK calls fetch with the full URL containing
-    // `:streamGenerateContent`. We only care that SOMETHING was forwarded
-    // to the Stella relay base and the Authorization Bearer header was
-    // present.
-    const relayCall = calls.find((c) =>
-      c.url.startsWith(`${STELLA_SITE}/api/stella/relay/`),
-    );
+    const relayCall = calls.find((c) => c.url.startsWith(`${RELAY}/`));
     expect(
       relayCall,
-      `expected POST to the Stella relay, got URLs: ${calls
+      `expected POST to the gateway relay, got URLs: ${calls
         .map((c) => c.url)
         .join(", ")}`,
     ).toBeDefined();
+    expect(relayCall!.url).toContain(":generateContent");
+    expect(relayCall!.url).not.toContain(":streamGenerateContent");
     expect(relayCall!.headers.get("authorization")).toBe(
-      `Bearer ${STELLA_TOKEN}`,
+      `Bearer ${CAPABILITY}`,
+    );
+    expect(relayCall!.headers.get("x-stella-request-id")).toMatch(
+      /^[0-9a-f-]{36}$/u,
     );
   });
 });
 
 describe("Stella Muse Responses transport (default model)", () => {
-  it("streams the default model to the relay /responses path with reasoning.effort=xhigh and parses usage", async () => {
+  it("posts the default model to the relay /responses path with stream:false, reasoning.effort=xhigh, and parses usage", async () => {
     const calls = captureRequest(() =>
-      sseResponse(
-        [
-          `data: ${JSON.stringify({ type: "response.created", response: { id: "resp_muse" } })}\n\n`,
-          `data: ${JSON.stringify({ type: "response.output_text.delta", item_id: "msg_1", delta: "hello" })}\n\n`,
-          `data: ${JSON.stringify({ type: "response.completed", response: { id: "resp_muse", status: "completed", model: "meta/muse-spark-1.2-contributor", usage: { input_tokens: 11, output_tokens: 7, total_tokens: 18, output_tokens_details: { reasoning_tokens: 5 } } } })}\n\n`,
-          "data: [DONE]\n\n",
-        ].join(""),
-      ),
+      jsonResponse({
+        id: "resp_muse",
+        object: "response",
+        created_at: 1,
+        status: "completed",
+        model: "meta/muse-spark-1.2-contributor",
+        error: null,
+        incomplete_details: null,
+        output: [
+          {
+            type: "message",
+            id: "msg_1",
+            role: "assistant",
+            status: "completed",
+            content: [{ type: "output_text", text: "hello", annotations: [] }],
+          },
+        ],
+        usage: {
+          input_tokens: 11,
+          output_tokens: 7,
+          total_tokens: 18,
+          input_tokens_details: { cached_tokens: 0 },
+          output_tokens_details: { reasoning_tokens: 5 },
+        },
+      }),
     );
 
     const route = makeRoute("stella/default")!;
     const apiKey = (await route.getApiKey()) ?? "";
-    await drain(
-      streamSimple(route.model, userContext("hi"), {
-        apiKey,
-        maxTokens: 2048,
-        reasoning: "xhigh",
-      }),
-    );
+    const result = await streamSimple(route.model, userContext("hi"), {
+      apiKey,
+      maxTokens: 2048,
+      reasoning: "xhigh",
+    }).result();
 
-    const call = calls.find((c) => c.url !== undefined);
+    expect(result.stopReason).toBe("stop");
+    expect(result.content).toEqual([
+      { type: "text", text: "hello", textSignature: '{"v":1,"id":"msg_1"}' },
+    ]);
+    expect(result.usage).toMatchObject({
+      input: 11,
+      output: 7,
+      reasoning: 5,
+      totalTokens: 18,
+    });
+
+    const call = calls.find((c) => c.url.startsWith(`${RELAY}/`));
     expect(call).toBeDefined();
     // The OpenAI Responses adapter posts to <relay base>/responses.
-    expect(call!.url).toBe(`${STELLA_SITE}/api/stella/relay/responses`);
+    expect(call!.url).toBe(`${RELAY}/responses`);
+    expect(call!.headers.get("authorization")).toBe(`Bearer ${CAPABILITY}`);
     const body = JSON.parse(String(call!.init?.body)) as Record<string, any>;
     expect(body.model).toBe("stella/default");
-    expect(body.stream).toBe(true);
+    expect(body.stream).toBe(false);
     expect(body.input).toEqual([
       { role: "user", content: [{ type: "input_text", text: "hi" }] },
     ]);

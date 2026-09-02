@@ -30,14 +30,22 @@ describe("automatic mobile execution admission", () => {
       kind: "chat",
       prompt: "  hello  ",
     });
-    expect(admission.body.payloadJson).toBe('{"prompt":"hello"}');
-    expect(/^[a-f0-9]{64}$/.test(admission.body.payloadHash)).toBe(true);
+    expect(admission.payloadJson).toBe(
+      JSON.stringify({
+        schemaVersion: 1,
+        prompt: "hello",
+        conversationId: "conv:one",
+        clientMsgId: "msg:01JPLACEMENT",
+      }),
+    );
+    expect(admission.body.payload.prompt).toBe("hello");
+    expect(/^[a-f0-9]{64}$/.test(admission.payloadHash)).toBe(true);
     expect(admission.challenge).toBe(
       [
         "execution-placement-v1",
         admission.body.idempotencyKey,
         admission.body.conversationId,
-        admission.body.payloadHash,
+        admission.payloadHash,
         "chat",
         "portable",
         "automatic",

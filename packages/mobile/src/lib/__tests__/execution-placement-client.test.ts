@@ -1,0 +1,281 @@
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+// Expo's module setup runs on import and expects the RN global.
+(globalThis as Record<string, unknown>).__DEV__ = false;
+
+// The placement client is HTTP-only; SecureStore and the Convex client are
+// only reachable through the pairing store and the builder-origin lookup.
+mock.module("react-native", () => ({ Platform: { OS: "ios" } }));
+// The real pairing proof is exercised here, so expo-crypto's randomness is
+// stubbed rather than the proof builder.
+mock.module("expo-crypto", () => ({
+  getRandomBytes: (length: number) => new Uint8Array(length).fill(7),
+}));
+mock.module("expo-secure-store", () => ({
+  getItem: () => null,
+  setItem: () => {},
+  deleteItemAsync: async () => {},
+  getItemAsync: async () => null,
+  setItemAsync: async () => {},
+}));
+mock.module("../auth-token", () => ({
+  getConvexToken: async () => "jwt-account",
+  clearCachedToken: () => {},
+}));
+// bun's module mock registry is process-global and a sibling suite replaces
+// `../http`. Own it here: the transport under test is the request shaping
+// (route, origin, body, proof headers), which is what this stub records.
+mock.module("../http", () => ({
+  getJson: (path: string, options?: Record<string, unknown>) =>
+    transport({ method: "GET", path, body: undefined, options: options ?? {} }),
+  postJson: (path: string, body: unknown, options?: Record<string, unknown>) =>
+    transport({ method: "POST", path, body, options: options ?? {} }),
+}));
+mock.module("../convex", () => ({
+  getConvexClient: () => ({
+    query: async () => ({
+      httpOrigin: "https://convex.example",
+      socketOrigin: BUILDER_ORIGIN,
+      protocol: 1,
+    }),
+  }),
+}));
+
+const BUILDER_ORIGIN = "https://builder.example";
+
+const {
+  cancelAutomaticExecution,
+  getAutomaticExecutionStatus,
+  listExecutionDevices,
+  submitAutomaticExecution,
+} = await import("../execution-placement");
+const { buildAutomaticExecutionAdmission } = await import(
+  "../execution-placement-core"
+);
+const {
+  buildMobilePairingChallenge,
+  canonicalDispatchPayloadJson,
+  deriveMobilePairingKey,
+  verifyMobilePairingProof,
+} = await import("@stella/contracts/turn-plane/pairing-proof");
+
+const access = {
+  desktopDeviceId: "desktop-1",
+  mobileDeviceId: "phone-1",
+  pairSecret: "pair-secret",
+  approvedAt: 1,
+};
+
+const dispatch = (overrides: Record<string, unknown> = {}) => ({
+  dispatchId: "exec:mobile",
+  idempotencyKey: "mobile:one",
+  kind: "chat",
+  ingress: "mobile",
+  subject: "portable",
+  conversationId: "conv:mobile",
+  state: "offering",
+  revision: 1,
+  createdAt: 1,
+  updatedAt: 1,
+  ...overrides,
+});
+
+type Call = {
+  method: "GET" | "POST";
+  path: string;
+  body: unknown;
+  options: Record<string, unknown>;
+};
+
+let calls: Call[] = [];
+let respond: (call: Call) => unknown = () => ({
+  protocol: 1,
+  dispatch: dispatch(),
+});
+
+const transport = async (call: Call) => {
+  calls.push(call);
+  const answer = respond(call);
+  if (answer instanceof Error) throw answer;
+  return answer;
+};
+
+beforeEach(() => {
+  calls = [];
+  respond = () => ({ protocol: 1, dispatch: dispatch() });
+});
+
+const headersOf = (call: Call) =>
+  (call.options.headers ?? {}) as Record<string, string>;
+
+describe("mobile execution placement client", () => {
+  test("submits to the builder's dispatch route with the pairing proof", async () => {
+    respond = () => ({
+      protocol: 1,
+      dispatch: dispatch({ state: "computer_claimed" }),
+      replayed: false,
+    });
+    const input = {
+      idempotencyKey: "mobile:one",
+      conversationId: "conv:mobile",
+      kind: "chat" as const,
+      prompt: "what is on my calendar",
+      target: { mode: "device" as const, deviceId: "desktop-1" },
+    };
+    const result = await submitAutomaticExecution({ ...input, access });
+
+    expect(result.dispatchId).toBe("exec:mobile");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.path).toBe("/owners/me/dispatches");
+    expect(calls[0]!.options.origin).toBe(BUILDER_ORIGIN);
+
+    const admission = buildAutomaticExecutionAdmission(input);
+    const headers = headersOf(calls[0]!);
+    expect(headers["x-stella-mobile-device-id"]).toBe("phone-1");
+    expect(headers["x-stella-mobile-desktop-device-id"]).toBe("desktop-1");
+    expect(headers["x-stella-mobile-pair-proof-challenge"]).toBe(
+      admission.challenge,
+    );
+    // The proof is the unchanged HMAC over the contract's message, so the
+    // builder's own verifier accepts it against the derived pairing key.
+    const verified = await verifyMobilePairingProof({
+      fields: {
+        mobileDeviceId: headers["x-stella-mobile-device-id"]!,
+        desktopDeviceId: headers["x-stella-mobile-desktop-device-id"]!,
+        challenge: headers["x-stella-mobile-pair-proof-challenge"]!,
+        proof: headers["x-stella-mobile-pair-proof"]!,
+        issuedAt: Number(headers["x-stella-mobile-pair-proof-issued-at"]),
+      },
+      publicKey: await deriveMobilePairingKey(access.pairSecret),
+      expectedChallenge: buildMobilePairingChallenge({
+        idempotencyKey: "mobile:one",
+        conversationId: "conv:mobile",
+        payloadHash: admission.payloadHash,
+        kind: "chat",
+        subject: "portable",
+        targetMode: "device",
+        targetDeviceId: "desktop-1",
+      }),
+    });
+    expect(verified.ok).toBe(true);
+
+    expect(calls[0]!.body).toEqual({
+      protocol: 1,
+      idempotencyKey: "mobile:one",
+      kind: "chat",
+      ingress: "mobile",
+      subject: "portable",
+      targetMode: "device",
+      targetDeviceId: "desktop-1",
+      conversationId: "conv:mobile",
+      requiredCapabilities: ["chat"],
+      requestingDeviceId: "phone-1",
+      payload: {
+        schemaVersion: 1,
+        prompt: "what is on my calendar",
+        conversationId: "conv:mobile",
+        clientMsgId: "mobile:one",
+      },
+    });
+    // The proof commits to exactly the payload bytes the builder will store.
+    expect(admission.payloadJson).toBe(
+      canonicalDispatchPayloadJson(
+        (calls[0]!.body as { payload: never }).payload,
+      ),
+    );
+  });
+
+  test("sends no pairing proof for an explicitly hosted turn", async () => {
+    await submitAutomaticExecution({
+      idempotencyKey: "mobile:one",
+      conversationId: "conv:mobile",
+      kind: "chat",
+      prompt: "summarize this lease",
+      target: { mode: "cloud" },
+      access,
+    });
+    expect(headersOf(calls[0]!)["x-stella-mobile-pair-proof"]).toBeUndefined();
+    expect(calls[0]!.body).toMatchObject({ targetMode: "cloud" });
+    expect(calls[0]!.body).not.toHaveProperty("requestingDeviceId");
+  });
+
+  test("refuses a computer the phone has not paired with", async () => {
+    await expect(
+      submitAutomaticExecution({
+        idempotencyKey: "mobile:one",
+        conversationId: "conv:mobile",
+        kind: "chat",
+        prompt: "open my notes",
+        target: { mode: "device", deviceId: "desktop-other" },
+        access,
+      }),
+    ).rejects.toThrow("not paired with this phone");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("reads status from the builder's dispatch route", async () => {
+    respond = () => ({
+      protocol: 1,
+      dispatch: dispatch({ state: "completed", cloudTurnId: "turn-1" }),
+    });
+    const status = await getAutomaticExecutionStatus("exec:mobile");
+    expect(status).toMatchObject({ state: "completed", cloudTurnId: "turn-1" });
+    expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.path).toBe("/owners/me/dispatches/exec%3Amobile");
+    expect(calls[0]!.options.origin).toBe(BUILDER_ORIGIN);
+  });
+
+  test("treats a dispatch the gate no longer owns as gone", async () => {
+    respond = () => Object.assign(new Error("gone"), { status: 404 });
+    expect(await getAutomaticExecutionStatus("exec:gone")).toBeNull();
+  });
+
+  test("cancels through the builder's cancel route", async () => {
+    respond = () => ({
+      protocol: 1,
+      dispatch: dispatch({ state: "canceled" }),
+    });
+    const canceled = await cancelAutomaticExecution({
+      dispatchId: "exec:mobile",
+      cancelRequestId: "cancel:mobile:one",
+      reason: "Stopped from the mobile conversation.",
+    });
+    expect(canceled.state).toBe("canceled");
+    expect(calls[0]!.path).toBe("/owners/me/dispatches/exec%3Amobile/cancel");
+    expect(calls[0]!.body).toEqual({
+      protocol: 1,
+      cancelRequestId: "cancel:mobile:one",
+      reason: "Stopped from the mobile conversation.",
+    });
+  });
+
+  test("reads the owner's execution destinations from the gate", async () => {
+    respond = () => ({
+      protocol: 1,
+      devices: [
+        {
+          deviceId: "desktop-1",
+          label: "Studio iMac",
+          remoteExecutionEnabled: true,
+          online: true,
+        },
+      ],
+      cloud: { capabilities: ["chat"] },
+    });
+    const devices = await listExecutionDevices();
+    expect(devices).toHaveLength(1);
+    expect(calls[0]!.path).toBe("/owners/me/devices");
+    expect(calls[0]!.options.origin).toBe(BUILDER_ORIGIN);
+  });
+
+  test("surfaces a refusal from the gate", async () => {
+    respond = () => new Error("No computer with what this needs is online.");
+    await expect(
+      cancelAutomaticExecution({
+        dispatchId: "exec:mobile",
+        cancelRequestId: "cancel:mobile:one",
+      }),
+    ).rejects.toThrow("No computer with what this needs is online.");
+  });
+});

@@ -32,7 +32,7 @@ import {
   assertOwnerDataAccessActive,
   assertOwnerDataWriteAllowed,
 } from "./owner_lifecycle";
-import { resolveCurrentTurnToken } from "./cloud_apps";
+import { isTurnStillActive } from "./cloud_apps";
 
 const MB = 1024 * 1024;
 
@@ -594,9 +594,7 @@ export const checkDriveWriteInternal = internalQuery({
 export const recordDriveFilesInternal = internalMutation({
   args: {
     ownerId: v.string(),
-    turnAuthority: v.optional(
-      v.object({ tokenHash: v.string(), turnId: v.string() }),
-    ),
+    turnAuthority: v.optional(v.object({ turnId: v.string() })),
     files: v.array(
       v.object({
         path: v.string(),
@@ -638,19 +636,11 @@ export const recordDriveFilesInternal = internalMutation({
     await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
     if (
       args.turnAuthority &&
-      !(
-        await resolveCurrentTurnToken(
-          ctx,
-          {
-            tokenHash: args.turnAuthority.tokenHash,
-            ownerId: args.ownerId,
-            ownerGeneration: args.ownerGeneration,
-            turnId: args.turnAuthority.turnId,
-            now: args.now,
-          },
-          true,
-        )
-      )?.turn
+      !(await isTurnStillActive(ctx, {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        turnId: args.turnAuthority.turnId,
+      }))
     ) {
       // Immutable R2 PUTs happen before this final metadata transaction. A
       // Stop or token rotation that wins the race must reject every row while

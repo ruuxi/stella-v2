@@ -44,7 +44,7 @@ const fireworksModel: Model<"openai-completions"> = {
   name: "DeepSeek V4 Flash 0731",
   api: "openai-completions",
   provider: "fireworks",
-  baseUrl: "https://stella.example.test/api/stella/relay",
+  baseUrl: "https://model-gateway.example.test/v1/relay",
   reasoning: true,
   input: ["text"],
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -114,7 +114,7 @@ describe("openai-completions chat template kwargs", () => {
 });
 
 describe("openai-completions prompt cache affinity", () => {
-  it("uses the broader prompt cache key for Fireworks relay requests", () => {
+  it("uses the broader prompt cache key for Fireworks gateway requests", () => {
     const params = buildOpenAICompletionsParams(fireworksModel, context, {
       sessionId: "general-thread-1",
       promptCacheKey: "conversation-1",

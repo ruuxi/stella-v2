@@ -214,11 +214,11 @@ export function createManagedUsageDispatchGuard(
     /** Immutable exact-attempt billing authority for fixed-cost provider I/O. */
     billing?: ManagedDispatchBillingEnvelope;
     /**
-     * Optional cloud-turn capability rechecked by the durable pre-I/O billing
-     * marker. It is not persisted as billing attribution; it only decides
-     * whether this physical attempt may cross the provider boundary.
+     * Optional cloud turn rechecked by the durable pre-I/O billing marker: the
+     * turn capability already authenticated the caller, this only refuses once
+     * Convex has seen the turn end. Not persisted as billing attribution.
      */
-    turnAuthority?: { tokenHash: string; turnId: string };
+    turnAuthority?: { turnId: string };
     beforeDispatch?: () => Promise<void>;
   },
 ): ManagedDispatchGuard {
@@ -428,12 +428,10 @@ export function createManagedUsageDispatchGuard(
                     }
                   } else {
                     await ctx.runMutation(
-                      internal.cloud_apps
-                        .assertActiveTurnTokenDispatchInternal,
+                      internal.cloud_apps.assertActiveTurnDispatchInternal,
                       {
                         ownerId: args.ownerId,
                         ownerGeneration: args.ownerGeneration,
-                        tokenHash: args.turnAuthority!.tokenHash,
                         turnId: args.turnAuthority!.turnId,
                         now: Date.now(),
                       },

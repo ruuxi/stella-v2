@@ -16,6 +16,10 @@ import {
 } from "../cloud_drive";
 import { assertOwnerDataAccessActive } from "../owner_lifecycle";
 import { r2 } from "../r2_files";
+import {
+  authorizeControlPlaneRequest,
+  type ControlPlaneTurnAuthority,
+} from "../lib/capability_verify";
 
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -27,69 +31,25 @@ const serviceAuthorized = (request: Request): boolean => {
   );
 };
 
-const hashToken = async (value: string): Promise<string> => {
-  const bytes = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value),
-  );
-  return Array.from(new Uint8Array(bytes), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
-};
+type TurnAuthority = Pick<
+  ControlPlaneTurnAuthority,
+  "ownerId" | "ownerGeneration" | "turnId"
+>;
 
-type TurnTokenRow = {
-  tokenHash: string;
-  ownerId: string;
-  ownerGeneration: string;
-  turnId: string;
-  agentType: string;
-  expiresAt: number;
-};
-
-// Same per-turn credential the event/message callbacks accept (see
-// http_routes/cloud_apps.ts): the sandbox never holds anything longer-lived.
-const verifyTurnToken = async (
-  ctx: { runQuery: (ref: any, args: any) => Promise<any> },
-  request: Request,
-): Promise<TurnTokenRow | null> => {
-  const token = request.headers.get("x-stella-turn-token")?.trim();
-  if (!token) return null;
-  const row = (await ctx.runQuery(
-    internal.cloud_apps.getTurnTokenByHashInternal,
-    {
-      tokenHash: await hashToken(token),
-      now: Date.now(),
-      requireActive: true,
-    },
-  )) as
-    | (Omit<TurnTokenRow, "ownerGeneration"> & {
-        ownerGeneration?: string;
-      })
-    | null;
-  if (!row || typeof row.ownerGeneration !== "string") return null;
-  try {
-    const current = await assertOwnerDataAccessActive(ctx, row.ownerId);
-    if (current.generation !== row.ownerGeneration) return null;
-  } catch {
-    return null;
-  }
-  return { ...row, ownerGeneration: row.ownerGeneration };
-};
-
-const assertTurnTokenActive = async (
+/**
+ * Last barrier before drive I/O on behalf of a turn: the capability proved the
+ * turn; this refuses only once Convex has seen the turn end.
+ */
+const assertTurnActive = async (
   ctx: { runMutation: (ref: any, args: any) => Promise<any> },
-  token: TurnTokenRow,
+  turn: TurnAuthority,
 ): Promise<void> => {
-  await ctx.runMutation(
-    internal.cloud_apps.assertActiveTurnTokenDispatchInternal,
-    {
-      tokenHash: token.tokenHash,
-      ownerId: token.ownerId,
-      ownerGeneration: token.ownerGeneration,
-      turnId: token.turnId,
-      now: Date.now(),
-    },
-  );
+  await ctx.runMutation(internal.cloud_apps.assertActiveTurnDispatchInternal, {
+    ownerId: turn.ownerId,
+    ownerGeneration: turn.ownerGeneration,
+    turnId: turn.turnId,
+    now: Date.now(),
+  });
 };
 
 type DriveSkip = { path: string; reason: string };
@@ -245,15 +205,16 @@ const CHAT_ATTACHMENT_MAX_BYTES = 3 * 1024 * 1024;
 export function registerCloudDriveRoutes(http: HttpRouter) {
   // The orchestrator DO's image hydration: a chat turn whose prompt carries
   // drive image attachments asks for short-lived GETs so the model actually
-  // sees the pixels, not just the paths. Turn-token scoped — a turn can only
-  // read its own owner's drive — and deliberately narrow: images only, hard
-  // size/count caps, point lookups by exact path.
+  // sees the pixels, not just the paths. Turn-capability scoped — a turn can
+  // only read its own owner's drive — and deliberately narrow: images only,
+  // hard size/count caps, point lookups by exact path.
   http.route({
     path: "/api/cloud/drive/attachments",
     method: "POST",
     handler: httpAction(async (ctx, request) => {
-      const token = await verifyTurnToken(ctx, request);
-      if (!token) return json({ error: "Unauthorized" }, 401);
+      const auth = await authorizeControlPlaneRequest(ctx, request);
+      if (!auth.ok) return auth.response;
+      const token = auth.authority;
       const body = (await request.json().catch(() => ({}))) as {
         turnId?: string;
         paths?: unknown;
@@ -290,7 +251,7 @@ export function registerCloudDriveRoutes(http: HttpRouter) {
       }> = [];
       const skipped: Array<{ path: string; reason: string }> = [];
       try {
-        await assertTurnTokenActive(ctx, token);
+        await assertTurnActive(ctx, token);
       } catch {
         return json({ error: "Cloud turn is no longer active." }, 409);
       }
@@ -337,8 +298,9 @@ export function registerCloudDriveRoutes(http: HttpRouter) {
     path: "/api/cloud/drive/sync",
     method: "POST",
     handler: httpAction(async (ctx, request) => {
-      const token = await verifyTurnToken(ctx, request);
-      if (!token) return json({ error: "Unauthorized" }, 401);
+      const auth = await authorizeControlPlaneRequest(ctx, request);
+      if (!auth.ok) return auth.response;
+      const token = auth.authority;
       const body = (await request.json().catch(() => ({}))) as {
         turnId?: string;
         include?: unknown;
@@ -348,11 +310,13 @@ export function registerCloudDriveRoutes(http: HttpRouter) {
       if (body.turnId && token.turnId !== body.turnId) {
         return json({ error: "Forbidden" }, 403);
       }
+      // The turn row is a projection that may land after the turn's first
+      // sync; when it is here it must agree with the capability.
       const turn = await ctx.runQuery(
         internal.cloud_drive.getTurnDriveIdentityInternal,
         { turnId: token.turnId },
       );
-      if (!turn || turn.ownerId !== token.ownerId) {
+      if (turn && turn.ownerId !== token.ownerId) {
         return json({ error: "Forbidden" }, 403);
       }
       const include = Array.isArray(body.include)
@@ -374,15 +338,15 @@ export function registerCloudDriveRoutes(http: HttpRouter) {
           )
         : [];
       try {
-        await assertTurnTokenActive(ctx, token);
+        await assertTurnActive(ctx, token);
       } catch {
         return json({ error: "Cloud turn is no longer active." }, 409);
       }
-      // The owner's whole drive, which is exactly what the turn token already
-      // reaches: one owner, one drive, one world to hydrate it into.
+      // The owner's whole drive, which is exactly what the turn capability
+      // already reaches: one owner, one drive, one world to hydrate it into.
       const manifest = await buildDriveSyncManifest(
         ctx,
-        turn.ownerId,
+        token.ownerId,
         token.ownerGeneration,
         "",
         include,
@@ -401,9 +365,15 @@ export function registerCloudDriveRoutes(http: HttpRouter) {
     path: "/api/cloud/drive/files",
     method: "POST",
     handler: httpAction(async (ctx, request) => {
+      // Two callers: a turn (capability) reporting the files it produced, and
+      // the platform (service secret) writing on an owner's behalf.
       const service = serviceAuthorized(request);
-      const token = service ? null : await verifyTurnToken(ctx, request);
-      if (!service && !token) return json({ error: "Unauthorized" }, 401);
+      let token: TurnAuthority | null = null;
+      if (!service) {
+        const auth = await authorizeControlPlaneRequest(ctx, request);
+        if (!auth.ok) return auth.response;
+        token = auth.authority;
+      }
       const body = (await request.json()) as {
         turnId?: string;
         ownerId?: string;
@@ -412,8 +382,8 @@ export function registerCloudDriveRoutes(http: HttpRouter) {
         batchKey?: string;
         files?: DriveFileReport[];
       };
-      // A turn token speaks only for its own turn, and only ever for the
-      // owner Convex bound to that turn at dispatch.
+      // A turn capability speaks only for its own turn, and only ever for the
+      // owner the Durable Object admitted it for.
       if (token && body.turnId && token.turnId !== body.turnId) {
         return json({ error: "Forbidden" }, 403);
       }
@@ -460,17 +430,17 @@ export function registerCloudDriveRoutes(http: HttpRouter) {
       // one thing only: whether `replaced` can mean anything here (see below).
       let hydrated = false;
       if (token) {
-        // The turn-token to turn join is the write boundary: the token proves
-        // which turn is writing, and this proves that turn belongs to the
-        // owner whose drive is about to change.
+        // The capability proves which turn is writing and for which owner;
+        // the projected turn row, when it has landed, must agree and says
+        // whether this kind of turn was shown the drive first.
         const turn = await ctx.runQuery(
           internal.cloud_drive.getTurnDriveIdentityInternal,
           { turnId: token.turnId },
         );
-        if (!turn || turn.ownerId !== ownerId) {
+        if (turn && turn.ownerId !== ownerId) {
           return json({ error: "Forbidden" }, 403);
         }
-        hydrated = turn.hydratesDrive;
+        hydrated = turn?.hydratesDrive ?? false;
       }
 
       // Non-destructive before quota: a file diverted here is a different
@@ -610,7 +580,7 @@ export function registerCloudDriveRoutes(http: HttpRouter) {
       };
       if (token) {
         try {
-          await assertTurnTokenActive(ctx, token);
+          await assertTurnActive(ctx, token);
         } catch {
           return json({ error: "Cloud turn is no longer active." }, 409);
         }
@@ -669,14 +639,7 @@ export function registerCloudDriveRoutes(http: HttpRouter) {
             ? ((await ctx.runMutation(recordDriveFilesRef, {
                 ownerId,
                 ownerGeneration,
-                ...(token
-                  ? {
-                      turnAuthority: {
-                        tokenHash: token.tokenHash,
-                        turnId: token.turnId,
-                      },
-                    }
-                  : {}),
+                ...(token ? { turnAuthority: { turnId: token.turnId } } : {}),
                 files: recorded,
                 ...(writeKey ? { writeKey } : {}),
                 now: Date.now(),

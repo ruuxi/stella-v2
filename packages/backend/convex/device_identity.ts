@@ -5,6 +5,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { requireSensitiveUserId } from "./auth";
+import { scheduleOwnerSnapshotChanged } from "./lib/owner_snapshot_notify";
 import { enforceMutationRateLimit, RATE_STANDARD } from "./lib/rate_limits";
 
 /**
@@ -261,6 +262,11 @@ export const adoptDeviceIdentitySuccession = mutation({
       deviceId,
       rotatedAt: Date.now(),
     });
+    // Every pairing grant in the owner snapshot now names the new desktop id;
+    // the gate would otherwise verify mobile proofs against the retired one.
+    if (migratedPairings > 0) {
+      await scheduleOwnerSnapshotChanged(ctx, ownerId, "pairing");
+    }
 
     return {
       ok: true as const,

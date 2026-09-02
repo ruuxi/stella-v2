@@ -15,7 +15,10 @@ import type {
   AgentModelReasoningEffort,
   CloudExecutionSelection,
 } from "@stella/contracts/agent-engine";
-import { stellaManagedRelayBaseUrlFromSiteUrl } from "@stella/contracts/stella-api";
+import {
+  GATEWAY_AGENT_TYPE_HEADER,
+  gatewayRelayBaseUrl,
+} from "@stella/contracts/gateway/api";
 import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
 import { isolateToolProcessLaunch } from "@stella/runtime/kernel/tools/process-isolation.js";
 import type { ToolProcessIdentity } from "@stella/runtime/kernel/tools/types.js";
@@ -265,25 +268,28 @@ export const resolveClaudeReasoningArgs = (
 export const resolveClaudeModelArgs = (model: string): string[] =>
   model === "default" ? [] : ["--model", model];
 
+/**
+ * Claude Code talks to the model gateway's native lane directly: its base URL
+ * is the gateway relay prefix and its OAuth bearer is the turn capability.
+ * The gateway swaps that bearer for the owner's connected Anthropic
+ * credential; no provider secret ever enters this process tree.
+ */
 export const buildClaudeChildEnv = (options: {
   initialEnv: NodeJS.ProcessEnv;
-  callbackBase: string;
+  gatewayOrigin: string;
   stateRoot: string;
-  relayToken: string;
+  capability: string;
   reasoningEffort: AgentModelReasoningEffort;
 }): NodeJS.ProcessEnv => {
   const childEnv: NodeJS.ProcessEnv = {
     ...options.initialEnv,
-    ANTHROPIC_BASE_URL: stellaManagedRelayBaseUrlFromSiteUrl(
-      options.callbackBase,
-    ),
-    CLAUDE_CODE_OAUTH_TOKEN: options.relayToken,
+    ANTHROPIC_BASE_URL: gatewayRelayBaseUrl(options.gatewayOrigin),
+    CLAUDE_CODE_OAUTH_TOKEN: options.capability,
     CLAUDE_CONFIG_DIR: options.stateRoot,
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",
     ANTHROPIC_CUSTOM_HEADERS: [
-      `x-stella-turn-token: ${options.relayToken}`,
+      `${GATEWAY_AGENT_TYPE_HEADER}: general`,
       "x-stella-llm-credential: anthropic",
-      "x-stella-agent-type: general",
     ].join("\n"),
   };
   // These are forbidden legacy executor credentials, not Claude credentials.
@@ -384,8 +390,8 @@ const runClaude = async (options: {
   inputPrompt: string;
   systemPrompt: string;
   execution: Extract<CloudExecutionSelection, { engine: "anthropic" }>;
-  callbackBase: string;
-  relayToken: string;
+  gatewayOrigin: string;
+  capability: string;
   stateRoot: string;
   threadId: string;
   mcpServerConfig: CloudClaudeMcpServerConfig;
@@ -421,9 +427,9 @@ const runClaude = async (options: {
     let initialized = resume;
     const childEnv = buildClaudeChildEnv({
       initialEnv: process.env,
-      callbackBase: options.callbackBase,
+      gatewayOrigin: options.gatewayOrigin,
       stateRoot,
-      relayToken: options.relayToken,
+      capability: options.capability,
       reasoningEffort: options.execution.reasoningEffort,
     });
     const result = await runJsonLines({
@@ -516,9 +522,10 @@ export const runNativeAgentTurn = async (options: {
   prompt: string;
   systemPrompt: string;
   execution: Extract<CloudExecutionSelection, { engine: "anthropic" }>;
-  callbackBase: string;
-  /** Loopback-only sentinel; never a Convex or Builder capability. */
-  relayToken: string;
+  /** Public origin of the model gateway (`MODEL_GATEWAY_URL`). */
+  gatewayOrigin: string;
+  /** Turn capability; only valid at the gateway, budgeted, and expiring. */
+  capability: string;
   threadId: string;
   turnId: string;
   authoritativeHistoryCursor: string;
@@ -555,8 +562,8 @@ export const runNativeAgentTurn = async (options: {
     inputPrompt: options.prompt,
     systemPrompt: options.systemPrompt,
     execution: options.execution,
-    callbackBase: options.callbackBase,
-    relayToken: options.relayToken,
+    gatewayOrigin: options.gatewayOrigin,
+    capability: options.capability,
     stateRoot,
     threadId: options.threadId,
     mcpServerConfig,

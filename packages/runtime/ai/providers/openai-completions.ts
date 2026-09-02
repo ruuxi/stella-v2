@@ -1,6 +1,7 @@
 import { isIP } from "node:net";
 import OpenAI from "openai";
 import type {
+  ChatCompletion,
   ChatCompletionAssistantMessageParam,
   ChatCompletionChunk,
   ChatCompletionContentPart,
@@ -48,6 +49,11 @@ import {
   hasCopilotVisionInput,
 } from "./github-copilot-headers.js";
 import { requestWithAuthRefresh } from "./auth-refresh.js";
+import {
+  GATEWAY_REQUEST_TIMEOUT_MS,
+  gatewayRequestHeaders,
+  isGatewayRelayBaseUrl,
+} from "./model-gateway.js";
 import { buildBaseOptions } from "./simple-options.js";
 import { transformMessages } from "./transform-messages.js";
 
@@ -191,31 +197,71 @@ export const streamOpenAICompletions: StreamFunction<
         params =
           nextParams as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming;
       }
-      const requestOptions = {
+      // Gateway mode: the managed lane is request/response. The SDK is called
+      // with `stream: false`; the complete ChatCompletion is then replayed
+      // through the chunk accumulator below as a handful of synthetic chunks.
+      const gatewayMode = isGatewayRelayBaseUrl(model.baseUrl);
+      const requestOptions = (perAttemptHeaders?: Record<string, string>) => ({
         ...(options?.signal ? { signal: options.signal } : {}),
-        ...(options?.timeoutMs !== undefined
-          ? { timeout: options.timeoutMs }
-          : {}),
+        ...(gatewayMode
+          ? { timeout: GATEWAY_REQUEST_TIMEOUT_MS }
+          : options?.timeoutMs !== undefined
+            ? { timeout: options.timeoutMs }
+            : {}),
         ...(options?.maxRetries !== undefined
           ? { maxRetries: options.maxRetries }
           : {}),
-      };
-      const { data: openaiStream, response } = await requestWithAuthRefresh({
-        apiKey,
-        refreshApiKey: options?.refreshApiKey,
-        request: (requestApiKey) =>
-          createClient(
-            model,
-            context,
-            requestApiKey,
-            options?.headers,
-            cacheSessionId,
-            promptCacheKey,
-            compat,
-          )
-            .chat.completions.create(params, requestOptions)
-            .withResponse(),
+        ...(perAttemptHeaders ? { headers: perAttemptHeaders } : {}),
       });
+      const clientForKey = (requestApiKey: string) =>
+        createClient(
+          model,
+          context,
+          requestApiKey,
+          options?.headers,
+          cacheSessionId,
+          promptCacheKey,
+          compat,
+        );
+      let openaiStream:
+        | AsyncIterable<ChatCompletionChunk>
+        | Iterable<ChatCompletionChunk>;
+      let response: Response;
+      if (gatewayMode) {
+        const {
+          stream: _stream,
+          stream_options: _streamOptions,
+          ...rest
+        } = params as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming & {
+          stream_options?: unknown;
+        };
+        const nonStreamingParams: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming =
+          { ...rest, stream: false };
+        const completed = await requestWithAuthRefresh({
+          apiKey,
+          refreshApiKey: options?.refreshApiKey,
+          request: (requestApiKey) =>
+            clientForKey(requestApiKey)
+              .chat.completions.create(
+                nonStreamingParams,
+                requestOptions(gatewayRequestHeaders()),
+              )
+              .withResponse(),
+        });
+        response = completed.response;
+        openaiStream = synthesizeChatCompletionChunks(completed.data);
+      } else {
+        const opened = await requestWithAuthRefresh({
+          apiKey,
+          refreshApiKey: options?.refreshApiKey,
+          request: (requestApiKey) =>
+            clientForKey(requestApiKey)
+              .chat.completions.create(params, requestOptions())
+              .withResponse(),
+        });
+        response = opened.response;
+        openaiStream = opened.data;
+      }
       await options?.onResponse?.(
         { status: response.status, headers: headersToRecord(response.headers) },
         model,
@@ -610,7 +656,101 @@ function createClient(
       : model.baseUrl,
     dangerouslyAllowBrowser: true,
     defaultHeaders,
+    ...(model.fetch ? { fetch: model.fetch } : {}),
   });
+}
+
+const COMPLETION_REASONING_FIELDS = [
+  "reasoning_content",
+  "reasoning",
+  "reasoning_text",
+] as const;
+
+/**
+ * Gateway mode: replay one complete `ChatCompletion` through the streaming
+ * chunk accumulator. The accumulator handles a chunk's fields in a fixed
+ * order (content, then reasoning, then tool calls), so the message is split
+ * into one chunk per part kind — reasoning, text, tool calls — to keep the
+ * block order a real stream produces (thinking before text before tools).
+ * Each part arrives as ONE whole-string delta; `finish_reason`, `usage`, and
+ * OpenRouter's opaque `reasoning_details` ride on the final chunk.
+ */
+export function synthesizeChatCompletionChunks(
+  completion: ChatCompletion,
+): ChatCompletionChunk[] {
+  const choice = completion.choices[0];
+  const message = choice?.message as
+    | (ChatCompletion.Choice["message"] & Record<string, unknown>)
+    | undefined;
+  const base = {
+    id: completion.id,
+    created: completion.created,
+    model: completion.model,
+    object: "chat.completion.chunk" as const,
+    ...(completion.service_tier !== undefined
+      ? { service_tier: completion.service_tier }
+      : {}),
+    ...(completion.system_fingerprint !== undefined
+      ? { system_fingerprint: completion.system_fingerprint }
+      : {}),
+  };
+  const chunk = (
+    delta: ChatCompletionChunk.Choice.Delta & Record<string, unknown>,
+    terminal = false,
+  ): ChatCompletionChunk => ({
+    ...base,
+    choices: [
+      {
+        index: choice?.index ?? 0,
+        delta,
+        finish_reason: terminal ? (choice?.finish_reason ?? null) : null,
+        logprobs: null,
+      },
+    ],
+    ...(terminal ? { usage: completion.usage ?? null } : {}),
+  });
+
+  const chunks: ChatCompletionChunk[] = [];
+  const reasoningField = message
+    ? COMPLETION_REASONING_FIELDS.find(
+        (field) =>
+          typeof message[field] === "string" &&
+          (message[field] as string).length > 0,
+      )
+    : undefined;
+  if (reasoningField) {
+    chunks.push(chunk({ role: "assistant", [reasoningField]: message![reasoningField] }));
+  }
+  if (typeof message?.content === "string" && message.content.length > 0) {
+    chunks.push(chunk({ role: "assistant", content: message.content }));
+  }
+
+  const terminalDelta: ChatCompletionChunk.Choice.Delta & Record<string, unknown> = {
+    role: "assistant",
+  };
+  const toolCalls = (message?.tool_calls ?? []).flatMap((toolCall, index) =>
+    toolCall.type === "function"
+      ? [
+          {
+            index,
+            id: toolCall.id,
+            type: "function" as const,
+            function: {
+              name: toolCall.function.name,
+              arguments: toolCall.function.arguments,
+            },
+          },
+        ]
+      : [],
+  );
+  if (toolCalls.length > 0) {
+    terminalDelta.tool_calls = toolCalls;
+  }
+  if (Array.isArray(message?.reasoning_details)) {
+    terminalDelta.reasoning_details = message.reasoning_details;
+  }
+  chunks.push(chunk(terminalDelta, true));
+  return chunks;
 }
 
 export function buildOpenAICompletionsParams(

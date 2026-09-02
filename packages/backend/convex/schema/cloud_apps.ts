@@ -244,14 +244,6 @@ export const cloudAppsSchema = {
     status: v.string(),
     lane: v.optional(v.string()),
     terminalKind: v.optional(v.string()),
-    // Exact current capability that committed the terminal event. Persisting
-    // its hash lets the durable terminal outbox replay after token expiry
-    // without accepting a rotated/stale executor.
-    terminalTokenHash: v.optional(v.string()),
-    // Current physical executor capability, copied here as a durable receipt
-    // when token rows rotate. Only exact service-auth terminal recovery may
-    // use it after the short-lived token row expires.
-    activeTokenHash: v.optional(v.string()),
     errorMessage: v.optional(v.string()),
     resultJson: v.optional(v.string()),
     // "chat" (orchestrator in the DO), "build" (legacy app build), or
@@ -334,11 +326,9 @@ export const cloudAppsSchema = {
   // (`send_input`). The user-facing conversation transcript is not here: it
   // lives in the OrchestratorSession DO (see cloud_conversations above).
   //
-  // The invariant this table's NAME now carries, and which
-  // `appendThreadMessagesInternal` enforces: a spawned agent's turn token can
-  // only ever write its own thread. It must never reach the parent user
-  // conversation, where a hijacked sandbox could forge history the
-  // orchestrator would reload as genuine context.
+  // The BuildSession keeps the authoritative transcript in its own storage;
+  // rows here arrive through `thread.messages` outbox events and exist for
+  // the UI. Nothing reads them back into model context.
   cloud_thread_messages: defineTable({
     conversationId: v.string(),
     ownerId: v.string(),
@@ -420,31 +410,6 @@ export const cloudAppsSchema = {
       searchField: "searchText",
       filterFields: ["ownerId"],
     }),
-
-  // Short-lived per-turn credentials. Only the SHA-256 hash is stored; the
-  // raw token travels to the executor and authenticates relay model calls
-  // and event/message callbacks for exactly one turn.
-  cloud_turn_tokens: defineTable({
-    tokenHash: v.string(),
-    ownerId: v.string(),
-    /** Owner-data generation captured when this capability was minted. */
-    ownerGeneration: v.optional(v.string()),
-    turnId: v.string(),
-    agentType: v.string(),
-    /**
-     * The only model route this capability authorizes. Optional solely for
-     * tokens minted by a rolling deployment before route binding existed.
-     */
-    execution: v.optional(cloudExecutionSelectionValidator),
-    createdAt: v.number(),
-    expiresAt: v.number(),
-  })
-    .index("by_tokenHash", ["tokenHash"])
-    .index("by_expiresAt", ["expiresAt"])
-    .index("by_turnId_and_ownerId", ["turnId", "ownerId"])
-    // Deleting an account must not leave live credentials behind for up to the
-    // token TTL; the expiry cron is a floor, not a deletion path.
-    .index("by_ownerId", ["ownerId"]),
 
   // Durable spawned-agent threads (cloud analog of the desktop runtime's
   // agent threads). One row per spawn_agent call from the cloud orchestrator.
@@ -553,12 +518,26 @@ export const cloudAppsSchema = {
     ownerId: v.optional(v.string()),
     turnId: v.string(),
     sessionId: v.string(),
+    /** Arrival order within the turn; what readers order by. */
     seq: v.number(),
+    /**
+     * Outbox identity: the Durable Object's monotonic per-attempt ordinal
+     * (`turn.event.eventSeq`). Together with (turnId, attemptGeneration) it is
+     * the idempotency key for at-least-once delivery. Absent on rows Convex
+     * writes itself (cancellations, operation outcomes).
+     */
+    attemptGeneration: v.optional(v.number()),
+    eventSeq: v.optional(v.number()),
     kind: v.string(),
     payloadJson: v.string(),
     createdAt: v.number(),
   })
     .index("by_turnId_and_seq", ["turnId", "seq"])
+    .index("by_turnId_and_attemptGeneration_and_eventSeq", [
+      "turnId",
+      "attemptGeneration",
+      "eventSeq",
+    ])
     .index("by_turnId_and_ownerId_and_seq", ["turnId", "ownerId", "seq"])
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
     .index("by_sessionId_and_createdAt", ["sessionId", "createdAt"])

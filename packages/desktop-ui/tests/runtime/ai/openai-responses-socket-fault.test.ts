@@ -6,28 +6,25 @@ import { afterEach, describe, expect, it } from "vitest";
 import { streamOpenAIResponses } from "../../../../runtime/ai/providers/openai-responses.js";
 import type { Context, Model } from "../../../../runtime/ai/types.js";
 
+/**
+ * Gateway-mode transport tests for the OpenAI Responses adapter against a
+ * real node:http server. The managed lane is request/response: one POST
+ * with `stream: false`, one complete JSON `Response` object back. These
+ * tests pin the wire shape (headers, body, identities), abort propagation,
+ * error surfacing, and the capability re-exchange on 401.
+ */
+
 const servers = new Set<http.Server>();
 
-const sse = (events: unknown[]): string =>
-  events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
-
-const completedResponse = (id: string, text = "") => ({
-  id,
-  status: "completed",
-  output: [],
-  usage: {
-    input_tokens: 1,
-    output_tokens: text ? 1 : 0,
-    total_tokens: text ? 2 : 1,
-    input_tokens_details: { cached_tokens: 0 },
-  },
-});
-
-const modelFor = (port: number, path = "/v1"): Model<"openai-responses"> => ({
+const modelFor = (
+  port: number,
+  path = "/v1/relay",
+  provider = "openai",
+): Model<"openai-responses"> => ({
   id: "test-model",
-  name: "Fault injection model",
+  name: "Gateway transport model",
   api: "openai-responses",
-  provider: "openai",
+  provider,
   baseUrl: `http://127.0.0.1:${port}${path}`,
   reasoning: false,
   input: ["text"],
@@ -46,30 +43,63 @@ const listen = async (server: http.Server): Promise<number> => {
   return (server.address() as AddressInfo).port;
 };
 
-const complete = (
+const readBody = async (request: http.IncomingMessage): Promise<string> => {
+  let body = "";
+  for await (const chunk of request) body += chunk.toString();
+  return body;
+};
+
+const completeResponse = (id: string) => ({
+  id,
+  object: "response",
+  created_at: 1,
+  status: "completed",
+  model: "test-model",
+  error: null,
+  incomplete_details: null,
+  output: [
+    {
+      type: "reasoning",
+      id: "rs_1",
+      summary: [{ type: "summary_text", text: "Plan the answer." }],
+      encrypted_content: "enc_opaque",
+    },
+    {
+      type: "message",
+      id: "msg_1",
+      role: "assistant",
+      status: "completed",
+      content: [{ type: "output_text", text: "hello", annotations: [] }],
+    },
+    {
+      type: "function_call",
+      id: "fc_1",
+      call_id: "call_1",
+      name: "read_file",
+      arguments: '{"path":"/tmp/evidence.txt"}',
+      status: "completed",
+    },
+  ],
+  usage: {
+    input_tokens: 12,
+    output_tokens: 9,
+    total_tokens: 21,
+    input_tokens_details: { cached_tokens: 4 },
+    output_tokens_details: { reasoning_tokens: 3 },
+  },
+});
+
+const sendJson = (
   response: http.ServerResponse,
-  responseId: string,
-  relay?: { requestId: string; sequence?: number },
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
 ) => {
-  response.writeHead(200, {
-    "content-type": "text/event-stream",
-    ...(relay
-      ? {
-          "x-stella-relay-resume": "1",
-          "x-stella-relay-request-id": relay.requestId,
-        }
-      : {}),
+  response.writeHead(status, {
+    "content-type": "application/json",
+    ...headers,
   });
-  response.end(
-    sse([
-      {
-        type: "response.completed",
-        sequence_number: 0,
-        ...(relay ? { stella_relay_sequence: relay.sequence ?? 1 } : {}),
-        response: completedResponse(responseId),
-      },
-    ]) + "data: [DONE]\n\n",
-  );
+  response.end(JSON.stringify(body));
 };
 
 afterEach(async () => {
@@ -81,588 +111,329 @@ afterEach(async () => {
   servers.clear();
 });
 
-describe("OpenAI Responses socket fault recovery", () => {
-  it("retries a pre-header close with one stable idempotency key and identical body", async () => {
-    const idempotencyKeys: Array<string | undefined> = [];
-    const requestBodies: string[] = [];
-    const retries: Array<{ attempt: number; delayMs: number }> = [];
-    const lifecycle: Array<Record<string, unknown>> = [];
-    const server = http.createServer(async (request, response) => {
-      idempotencyKeys.push(request.headers["idempotency-key"] as string);
-      let body = "";
-      for await (const chunk of request) body += chunk.toString();
-      requestBodies.push(body);
-      if (requestBodies.length === 1) {
-        request.socket.destroy();
-        return;
-      }
-      complete(response, "resp_fault_injection");
-    });
-    const port = await listen(server);
-
-    const result = await streamOpenAIResponses(modelFor(port), context, {
-      apiKey: "test",
-      onProviderRetry: ({ attempt, delayMs }) =>
-        retries.push({ attempt, delayMs }),
-      onProviderRequestLifecycle: (proof) => lifecycle.push(proof),
-    }).result();
-
-    expect(result.stopReason).toBe("stop");
-    expect(result.responseId).toBe("resp_fault_injection");
-    expect(requestBodies).toHaveLength(2);
-    expect(idempotencyKeys[0]).toMatch(/^stella-response-/);
-    expect(idempotencyKeys[1]).toBe(idempotencyKeys[0]);
-    expect(requestBodies[1]).toBe(requestBodies[0]);
-    expect(retries).toHaveLength(1);
-    expect(lifecycle.map((event) => event.phase)).toEqual([
-      "request-admitted",
-      "request-dispatched",
-      "request-dispatched",
-      "stream-open",
-      "transport-closed",
-    ]);
-    expect(lifecycle.map((event) => event.physicalAttempt)).toEqual([
-      1, 1, 2, 2, 2,
-    ]);
-    const proofHashes = lifecycle.map((event) => event.requestIdSha256);
-    expect(new Set(proofHashes).size).toBe(1);
-    expect(proofHashes[0]).toMatch(/^[a-f0-9]{64}$/u);
-    expect(JSON.stringify(lifecycle)).not.toContain(idempotencyKeys[0]);
-  });
-
-  it("resumes a provider-durable response by id and cursor without duplicating deltas", async () => {
-    const responseId = "resp_resume_fault";
-    const requests: Array<{ method?: string; url?: string }> = [];
-    const server = http.createServer(async (request, response) => {
-      requests.push({ method: request.method, url: request.url });
-      if (request.method === "POST") {
-        for await (const _chunk of request) {
-          // Drain the create body before faulting the response stream.
-        }
-        response.writeHead(200, {
-          "content-type": "text/event-stream",
-          connection: "close",
-        });
-        response.write(
-          sse([
-            {
-              type: "response.created",
-              sequence_number: 0,
-              response: { id: responseId },
-            },
-            {
-              type: "response.output_item.added",
-              sequence_number: 1,
-              output_index: 0,
-              item: {
-                type: "message",
-                id: "msg_resume",
-                role: "assistant",
-                content: [],
-                status: "in_progress",
-              },
-            },
-            {
-              type: "response.output_text.delta",
-              sequence_number: 2,
-              output_index: 0,
-              item_id: "msg_resume",
-              content_index: 0,
-              delta: "hel",
-            },
-          ]),
-        );
-        setImmediate(() => response.destroy());
-        return;
-      }
-
-      response.writeHead(200, { "content-type": "text/event-stream" });
-      response.end(
-        sse([
-          {
-            type: "response.output_text.delta",
-            sequence_number: 2,
-            output_index: 0,
-            item_id: "msg_resume",
-            content_index: 0,
-            delta: "hel",
-          },
-          {
-            type: "response.output_text.delta",
-            sequence_number: 3,
-            output_index: 0,
-            item_id: "msg_resume",
-            content_index: 0,
-            delta: "lo",
-          },
-          {
-            type: "response.output_item.done",
-            sequence_number: 4,
-            output_index: 0,
-            item: {
-              type: "message",
-              id: "msg_resume",
-              role: "assistant",
-              status: "completed",
-              content: [
-                { type: "output_text", text: "hello", annotations: [] },
-              ],
-            },
-          },
-          {
-            type: "response.completed",
-            sequence_number: 5,
-            response: completedResponse(responseId, "hello"),
-          },
-        ]) + "data: [DONE]\n\n",
-      );
-    });
-    const port = await listen(server);
-
-    const stream = streamOpenAIResponses(modelFor(port), context, {
-      apiKey: "test",
-      onPayload: (payload) => ({
-        ...(payload as Record<string, unknown>),
-        background: true,
-        store: true,
-      }),
-    });
-    const textDeltas: string[] = [];
-    const eventsDone = (async () => {
-      for await (const event of stream) {
-        if (event.type === "text_delta") textDeltas.push(event.delta);
-      }
-    })();
-    const result = await stream.result();
-    await eventsDone;
-
-    expect(result.content).toMatchObject([{ type: "text", text: "hello" }]);
-    expect(textDeltas.join("")).toBe("hello");
-    expect(requests).toHaveLength(2);
-    expect(requests[0]).toMatchObject({ method: "POST", url: "/v1/responses" });
-    expect(requests[1]?.method).toBe("GET");
-    expect(requests[1]?.url).toContain(
-      `/v1/responses/${responseId}?stream=true&starting_after=2`,
-    );
-  });
-
-  it("resumes relay-buffered tool arguments from the advertised cursor without replaying POST", async () => {
+describe("OpenAI Responses gateway transport", () => {
+  it("posts stream:false once and converts the complete Response into the streaming protocol", async () => {
     const requests: Array<{
       method?: string;
       url?: string;
-      body: string;
-      relayRequestId?: string;
-      idempotencyKey?: string;
+      body: Record<string, unknown>;
+      headers: http.IncomingHttpHeaders;
     }> = [];
     const server = http.createServer(async (request, response) => {
-      let body = "";
-      for await (const chunk of request) body += chunk.toString();
-      const relayRequestId = request.headers["x-stella-relay-request-id"] as
-        | string
-        | undefined;
       requests.push({
         method: request.method,
         url: request.url,
-        body,
-        relayRequestId,
-        idempotencyKey: request.headers["idempotency-key"] as
-          | string
-          | undefined,
+        body: JSON.parse(await readBody(request)) as Record<string, unknown>,
+        headers: request.headers,
       });
-      const stableRelayId = requests[0]!.relayRequestId!;
-      if (request.method === "POST") {
-        response.writeHead(200, {
-          "content-type": "text/event-stream",
-          "x-stella-relay-resume": "1",
-          "x-stella-relay-request-id": stableRelayId,
-          connection: "close",
-        });
-        response.write(
-          sse([
-            {
-              type: "response.created",
-              sequence_number: 0,
-              stella_relay_sequence: 1,
-              response: { id: "resp_provider" },
-            },
-            {
-              type: "response.output_item.added",
-              sequence_number: 1,
-              stella_relay_sequence: 2,
-              output_index: 0,
-              item: {
-                type: "function_call",
-                id: "item_tool",
-                call_id: "call_tool",
-                name: "read_file",
-                arguments: "",
-                status: "in_progress",
-              },
-            },
-            {
-              type: "response.function_call_arguments.delta",
-              sequence_number: 2,
-              stella_relay_sequence: 3,
-              output_index: 0,
-              item_id: "item_tool",
-              delta: '{"path":"/tmp/',
-            },
-          ]),
-        );
-        setImmediate(() => response.destroy());
-        return;
-      }
-
-      response.writeHead(200, {
-        "content-type": "text/event-stream",
-        "x-stella-relay-resume": "1",
-        "x-stella-relay-request-id": stableRelayId,
-      });
-      response.end(
-        sse([
-          {
-            type: "response.function_call_arguments.delta",
-            sequence_number: 2,
-            stella_relay_sequence: 3,
-            output_index: 0,
-            item_id: "item_tool",
-            delta: '{"path":"/tmp/',
-          },
-          {
-            type: "response.function_call_arguments.delta",
-            sequence_number: 3,
-            stella_relay_sequence: 4,
-            output_index: 0,
-            item_id: "item_tool",
-            delta: 'evidence.txt"}',
-          },
-          {
-            type: "response.output_item.done",
-            sequence_number: 4,
-            stella_relay_sequence: 5,
-            output_index: 0,
-            item: {
-              type: "function_call",
-              id: "item_tool",
-              call_id: "call_tool",
-              name: "read_file",
-              arguments: '{"path":"/tmp/evidence.txt"}',
-              status: "completed",
-            },
-          },
-          {
-            type: "response.completed",
-            sequence_number: 5,
-            stella_relay_sequence: 6,
-            response: completedResponse("resp_provider"),
-          },
-        ]) + "data: [DONE]\n\n",
-      );
+      sendJson(response, 200, completeResponse("resp_gateway"));
     });
     const port = await listen(server);
+    const lifecycle: Array<Record<string, unknown>> = [];
+    const events: string[] = [];
 
-    const result = await streamOpenAIResponses(
-      modelFor(port, "/api/stella/relay"),
-      { messages: [{ role: "user", content: "read it", timestamp: 0 }] },
-      { apiKey: "test" },
-    ).result();
+    const stream = streamOpenAIResponses(modelFor(port), context, {
+      apiKey: "session-capability",
+      onProviderRequestLifecycle: (proof) => lifecycle.push(proof),
+    });
+    for await (const event of stream) events.push(event.type);
+    const result = await stream.result();
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ method: "POST", url: "/v1/relay/responses" });
+    expect(requests[0]!.body.stream).toBe(false);
+    expect(requests[0]!.body.model).toBe("test-model");
+    expect(requests[0]!.headers.authorization).toBe("Bearer session-capability");
+    expect(requests[0]!.headers["x-stella-request-id"]).toMatch(
+      /^[0-9a-f-]{36}$/u,
+    );
+    expect(requests[0]!.headers["idempotency-key"]).toMatch(/^stella-response-/);
 
     expect(result.stopReason).toBe("toolUse");
+    expect(result.responseId).toBe("resp_gateway");
     expect(result.content).toEqual([
       {
+        type: "thinking",
+        thinking: "Plan the answer.",
+        thinkingSignature: JSON.stringify(completeResponse("x").output[0]),
+      },
+      {
+        type: "text",
+        text: "hello",
+        textSignature: '{"v":1,"id":"msg_1"}',
+      },
+      {
         type: "toolCall",
-        id: "call_tool|item_tool",
+        id: "call_1|fc_1",
         name: "read_file",
         arguments: { path: "/tmp/evidence.txt" },
       },
     ]);
-    expect(requests.map((request) => request.method)).toEqual(["POST", "GET"]);
-    expect(requests[0]?.relayRequestId).toMatch(/^stella-relay-/);
-    expect(requests[0]?.idempotencyKey).toMatch(/^stella-response-/);
-    expect(requests[1]?.url).toContain(
-      `/api/stella/relay/responses/${requests[0]!.relayRequestId}?stream=true&starting_after=3`,
+    expect(result.usage).toMatchObject({
+      input: 8,
+      output: 9,
+      reasoning: 3,
+      cacheRead: 4,
+      cacheWrite: 0,
+      totalTokens: 21,
+    });
+    // Every part: start, exactly one whole delta, end.
+    expect(events).toEqual([
+      "start",
+      "thinking_start",
+      "thinking_delta",
+      "thinking_end",
+      "text_start",
+      "text_delta",
+      "text_end",
+      "toolcall_start",
+      "toolcall_delta",
+      "toolcall_end",
+      "done",
+    ]);
+    expect(lifecycle.map((event) => event.phase)).toEqual([
+      "request-admitted",
+      "request-dispatched",
+      "stream-open",
+      "transport-closed",
+    ]);
+    expect(lifecycle.map((event) => event.physicalAttempt)).toEqual([1, 1, 1, 1]);
+    expect(lifecycle.at(-1)).toMatchObject({ outcome: "completed" });
+    expect(JSON.stringify(lifecycle)).not.toContain(
+      requests[0]!.headers["idempotency-key"],
     );
   });
 
-  it("uses GET cursor zero when a managed relay body closes before event one", async () => {
-    const methods: string[] = [];
-    let upstreamExecutions = 0;
-    let relayRequestId = "";
+  it("aborts the in-flight gateway request and reports stopReason aborted", async () => {
+    let observeRequest!: () => void;
+    const requestObserved = new Promise<void>((resolve) => {
+      observeRequest = resolve;
+    });
+    let resolveClosed!: () => void;
+    const socketClosed = new Promise<void>((resolve) => {
+      resolveClosed = resolve;
+    });
     const server = http.createServer(async (request, response) => {
-      methods.push(request.method ?? "");
-      for await (const _chunk of request) {
-        // Drain request bodies.
-      }
-      if (request.method === "POST") {
-        upstreamExecutions += 1;
-        relayRequestId = request.headers["x-stella-relay-request-id"] as string;
-        response.writeHead(200, {
-          "content-type": "text/event-stream",
-          "x-stella-relay-resume": "1",
-          "x-stella-relay-request-id": relayRequestId,
-          connection: "close",
-        });
-        response.flushHeaders();
-        setImmediate(() => response.destroy());
-        return;
-      }
-      expect(request.url).toContain(
-        `/api/stella/relay/responses/${relayRequestId}?stream=true&starting_after=0`,
+      await readBody(request);
+      request.socket.once("close", () => resolveClosed());
+      observeRequest();
+      // Never answer: the client must give up on its own abort.
+      response.on("close", () => undefined);
+    });
+    const port = await listen(server);
+    const controller = new AbortController();
+    const lifecycle: Array<Record<string, unknown>> = [];
+
+    const stream = streamOpenAIResponses(modelFor(port), context, {
+      apiKey: "session-capability",
+      signal: controller.signal,
+      onProviderRequestLifecycle: (proof) => lifecycle.push(proof),
+    });
+    await requestObserved;
+    controller.abort("user canceled");
+    const result = await stream.result();
+    await socketClosed;
+
+    expect(result.stopReason).toBe("aborted");
+    expect(result.content).toEqual([]);
+    expect(lifecycle.at(-1)).toMatchObject({
+      phase: "transport-closed",
+      outcome: "canceled",
+    });
+  });
+
+  it("surfaces gateway HTTP errors with the provider's retry-after", async () => {
+    const server = http.createServer(async (request, response) => {
+      await readBody(request);
+      sendJson(
+        response,
+        429,
+        {
+          error: {
+            code: "rate_limited",
+            message: "slow down please",
+            retryable: true,
+          },
+        },
+        { "retry-after": "7" },
       );
-      complete(response, "resp_zero_event", { requestId: relayRequestId });
     });
     const port = await listen(server);
 
-    const result = await streamOpenAIResponses(
-      modelFor(port, "/api/stella/relay"),
-      context,
-      { apiKey: "test" },
-    ).result();
+    const result = await streamOpenAIResponses(modelFor(port), context, {
+      apiKey: "session-capability",
+    }).result();
 
-    expect(result.stopReason).toBe("stop");
-    expect(methods).toEqual(["POST", "GET"]);
-    expect(upstreamExecutions).toBe(1);
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toContain("slow down please");
+    expect(result.retryAfterMs).toBe(7_000);
+  });
+
+  it("re-exchanges the capability after a 401 and retries with a fresh request id", async () => {
+    const seen: Array<{ authorization?: string; requestId?: string }> = [];
+    const server = http.createServer(async (request, response) => {
+      await readBody(request);
+      seen.push({
+        authorization: request.headers.authorization,
+        requestId: request.headers["x-stella-request-id"] as string | undefined,
+      });
+      if (seen.length === 1) {
+        sendJson(response, 401, {
+          error: {
+            code: "capability_expired",
+            message: "capability expired",
+            retryable: true,
+          },
+        });
+        return;
+      }
+      sendJson(response, 200, completeResponse("resp_after_refresh"));
+    });
+    const port = await listen(server);
+    let refreshes = 0;
+
+    const result = await streamOpenAIResponses(modelFor(port), context, {
+      apiKey: "stale-capability",
+      refreshApiKey: async () => {
+        refreshes += 1;
+        return "fresh-capability";
+      },
+    }).result();
+
+    expect(result.stopReason).toBe("toolUse");
+    expect(result.responseId).toBe("resp_after_refresh");
+    expect(refreshes).toBe(1);
+    expect(seen.map((entry) => entry.authorization)).toEqual([
+      "Bearer stale-capability",
+      "Bearer fresh-capability",
+    ]);
+    expect(seen[0]!.requestId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(seen[1]!.requestId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(seen[1]!.requestId).not.toBe(seen[0]!.requestId);
+  });
+
+  it("surfaces a 402 budget exhaustion as a non-retryable error without a retry-after", async () => {
+    let refreshes = 0;
+    const server = http.createServer(async (request, response) => {
+      await readBody(request);
+      sendJson(response, 402, {
+        error: {
+          code: "budget_exhausted",
+          message: "managed budget exhausted",
+          retryable: false,
+        },
+      });
+    });
+    const port = await listen(server);
+
+    const result = await streamOpenAIResponses(modelFor(port), context, {
+      apiKey: "session-capability",
+      refreshApiKey: async () => {
+        refreshes += 1;
+        return "fresh-capability";
+      },
+    }).result();
+
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toContain("managed budget exhausted");
+    expect(result.retryAfterMs).toBeUndefined();
+    expect(refreshes).toBe(0);
   });
 
   it("overrides static turn headers and assigns distinct identities to distinct model requests", async () => {
     const identities: Array<{
       idempotencyKey?: string;
-      relayRequestId?: string;
+      requestId?: string;
     }> = [];
     const server = http.createServer(async (request, response) => {
-      for await (const _chunk of request) {
-        // Drain the body.
-      }
-      const identity = {
-        idempotencyKey: request.headers["idempotency-key"] as
-          | string
-          | undefined,
-        relayRequestId: request.headers["x-stella-relay-request-id"] as
-          | string
-          | undefined,
-      };
-      identities.push(identity);
-      complete(response, `resp_${identities.length}`, {
-        requestId: identity.relayRequestId!,
+      await readBody(request);
+      identities.push({
+        idempotencyKey: request.headers["idempotency-key"] as string | undefined,
+        requestId: request.headers["x-stella-request-id"] as string | undefined,
       });
+      sendJson(response, 200, completeResponse(`resp_${identities.length}`));
     });
     const port = await listen(server);
-    const model = modelFor(port, "/api/stella/relay");
+    const model = modelFor(port);
     const sharedOptions = {
-      apiKey: "test",
+      apiKey: "session-capability",
       sessionId: "one-agent-turn",
       headers: {
         "idempotency-key": "static-turn-idempotency-key",
-        "x-stella-relay-request-id": "static-turn-relay-request-id",
+        "x-stella-request-id": "static-turn-request-id",
       },
     };
 
-    const first = await streamOpenAIResponses(
-      model,
-      context,
-      sharedOptions,
-    ).result();
-    const second = await streamOpenAIResponses(
-      model,
-      context,
-      sharedOptions,
-    ).result();
+    const first = await streamOpenAIResponses(model, context, sharedOptions).result();
+    const second = await streamOpenAIResponses(model, context, sharedOptions).result();
 
-    expect(first.stopReason).toBe("stop");
-    expect(second.stopReason).toBe("stop");
+    expect(first.stopReason).toBe("toolUse");
+    expect(second.stopReason).toBe("toolUse");
     expect(identities).toHaveLength(2);
     expect(identities[0]?.idempotencyKey).toMatch(/^stella-response-/);
-    expect(identities[0]?.relayRequestId).toMatch(/^stella-relay-/);
-    expect(identities[1]?.idempotencyKey).not.toBe(
-      identities[0]?.idempotencyKey,
-    );
-    expect(identities[1]?.relayRequestId).not.toBe(
-      identities[0]?.relayRequestId,
-    );
+    expect(identities[0]?.requestId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(identities[1]?.idempotencyKey).not.toBe(identities[0]?.idempotencyKey);
+    expect(identities[1]?.requestId).not.toBe(identities[0]?.requestId);
   });
 
-  it("cancels a managed relay request when aborted before response headers", async () => {
-    const methods: string[] = [];
-    let relayRequestId = "";
-    let releasePost!: () => void;
-    const postBlocked = new Promise<void>((resolve) => {
-      releasePost = resolve;
-    });
-    let observePost!: () => void;
-    const postObserved = new Promise<void>((resolve) => {
-      observePost = resolve;
-    });
-    let resolveDelete!: () => void;
-    const deleted = new Promise<void>((resolve) => {
-      resolveDelete = resolve;
-    });
+  it("keeps direct-provider base URLs on the streaming transport", async () => {
+    const requests: Array<{ url?: string; body: Record<string, unknown> }> = [];
     const server = http.createServer(async (request, response) => {
-      methods.push(request.method ?? "");
-      if (request.method === "DELETE") {
-        expect(request.url).toBe(
-          `/api/stella/relay/responses/${relayRequestId}`,
-        );
-        response.writeHead(204);
-        response.end();
-        resolveDelete();
-        releasePost();
-        return;
-      }
-      relayRequestId = request.headers["x-stella-relay-request-id"] as string;
-      for await (const _chunk of request) {
-        // Drain request bodies.
-      }
-      observePost();
-      await postBlocked;
-      response.destroy();
-    });
-    const port = await listen(server);
-    const controller = new AbortController();
-
-    const stream = streamOpenAIResponses(
-      modelFor(port, "/api/stella/relay"),
-      context,
-      { apiKey: "test", signal: controller.signal },
-    );
-    await postObserved;
-    controller.abort("user canceled before headers");
-    const result = await stream.result();
-    await deleted;
-
-    expect(result.stopReason).toBe("aborted");
-    expect(relayRequestId).toMatch(/^stella-relay-/);
-    expect(methods).toEqual(["POST", "DELETE"]);
-  });
-
-  it("fails closed on an advertised request-id mismatch", async () => {
-    let posts = 0;
-    const server = http.createServer(async (request, response) => {
-      posts += 1;
-      for await (const _chunk of request) {
-        // Drain the body.
-      }
-      complete(response, "resp_mismatch", {
-        requestId: "relay_mismatched_response_id",
+      requests.push({
+        url: request.url,
+        body: JSON.parse(await readBody(request)) as Record<string, unknown>,
       });
-    });
-    const port = await listen(server);
-
-    const result = await streamOpenAIResponses(
-      modelFor(port, "/api/stella/relay"),
-      context,
-      { apiKey: "test" },
-    ).result();
-
-    expect(result.stopReason).toBe("error");
-    expect(result.errorMessage).toContain("mismatched resume request id");
-    expect(posts).toBe(1);
-  });
-
-  it("surfaces an expired relay cursor without replaying the original POST", async () => {
-    let posts = 0;
-    let gets = 0;
-    let relayRequestId = "";
-    const server = http.createServer(async (request, response) => {
-      for await (const _chunk of request) {
-        // Drain request bodies.
-      }
-      if (request.method === "POST") {
-        posts += 1;
-        relayRequestId = request.headers["x-stella-relay-request-id"] as string;
-        response.writeHead(200, {
-          "content-type": "text/event-stream",
-          "x-stella-relay-resume": "1",
-          "x-stella-relay-request-id": relayRequestId,
-          connection: "close",
-        });
-        response.write(
-          sse([
-            {
-              type: "response.created",
-              sequence_number: 0,
-              stella_relay_sequence: 1,
-              response: { id: "resp_expired" },
-            },
-          ]),
-        );
-        setImmediate(() => response.destroy());
-        return;
-      }
-      gets += 1;
-      response.writeHead(410, { "content-type": "application/json" });
+      response.writeHead(200, { "content-type": "text/event-stream" });
       response.end(
-        JSON.stringify({ error: { message: "Relay resume cursor expired" } }),
-      );
-    });
-    const port = await listen(server);
-
-    const result = await streamOpenAIResponses(
-      modelFor(port, "/api/stella/relay"),
-      context,
-      { apiKey: "test" },
-    ).result();
-
-    expect(result.stopReason).toBe("error");
-    expect(result.errorMessage).toContain("Relay resume cursor expired");
-    expect(posts).toBe(1);
-    expect(gets).toBe(1);
-  });
-
-  it("never replays POST after a partial stream without a durable resume id", async () => {
-    const requests: Array<{ method?: string; url?: string }> = [];
-    const server = http.createServer(async (request, response) => {
-      requests.push({ method: request.method, url: request.url });
-      for await (const _chunk of request) {
-        // Drain the request body before faulting the response stream.
-      }
-      response.writeHead(200, {
-        "content-type": "text/event-stream",
-        connection: "close",
-      });
-      response.write(
-        sse([
+        [
+          { type: "response.created", sequence_number: 0, response: { id: "resp_direct" } },
           {
-            type: "response.created",
-            sequence_number: 0,
-            response: { id: "resp_socket_fault" },
-          },
-          {
-            type: "response.output_item.added",
+            type: "response.completed",
             sequence_number: 1,
-            output_index: 0,
-            item: {
-              type: "message",
-              id: "msg_socket_fault",
-              role: "assistant",
-              content: [],
-              status: "in_progress",
+            response: {
+              id: "resp_direct",
+              status: "completed",
+              output: [],
+              usage: {
+                input_tokens: 1,
+                output_tokens: 0,
+                total_tokens: 1,
+                input_tokens_details: { cached_tokens: 0 },
+              },
             },
           },
-          {
-            type: "response.output_text.delta",
-            sequence_number: 2,
-            output_index: 0,
-            item_id: "msg_socket_fault",
-            content_index: 0,
-            delta: "hel",
-          },
-        ]),
+        ]
+          .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+          .join("") + "data: [DONE]\n\n",
       );
-      setImmediate(() => response.destroy());
     });
     const port = await listen(server);
 
-    const result = await streamOpenAIResponses(modelFor(port), context, {
+    const result = await streamOpenAIResponses(modelFor(port, "/v1"), context, {
       apiKey: "test",
-      onPayload: (payload) => ({
-        ...(payload as Record<string, unknown>),
-        background: false,
-        store: false,
-      }),
+    }).result();
+
+    expect(result.stopReason).toBe("stop");
+    expect(result.responseId).toBe("resp_direct");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.url).toBe("/v1/responses");
+    expect(requests[0]!.body.stream).toBe(true);
+  });
+
+  it("does not replay a direct-provider POST after a socket fault", async () => {
+    let posts = 0;
+    const server = http.createServer(async (request) => {
+      posts += 1;
+      await readBody(request);
+      request.socket.destroy();
+    });
+    const port = await listen(server);
+
+    const result = await streamOpenAIResponses(modelFor(port, "/v1"), context, {
+      apiKey: "test",
     }).result();
 
     expect(result.stopReason).toBe("error");
-    expect(result.errorMessage).toContain("was not replayed");
-    expect(requests).toEqual([{ method: "POST", url: "/v1/responses" }]);
+    expect(posts).toBe(1);
   });
 });

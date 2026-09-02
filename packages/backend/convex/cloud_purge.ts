@@ -83,9 +83,6 @@ const logPurge = (event: string, fields: Record<string, unknown>): void => {
  *  stopped      — must stop DOING something before it is drained. Schedules
  *                 spend money on a timer; a drain that merely gets there
  *                 eventually is not a fix.
- *  quiesced     — an external executor observes the control rows. Publish and
- *                 acknowledge cancellation (or wait for its bounded lease)
- *                 before deleting those rows.
  *  child        — no owner index at all. Reachable only through a parent, which
  *                 means the parent's drain owns it and the completeness check
  *                 for the parent covers it.
@@ -98,7 +95,6 @@ type StoreStyle =
   | "bytes"
   | "external-ref"
   | "stopped"
-  | "quiesced"
   | "leased"
   | "child"
   | "global";
@@ -129,9 +125,6 @@ const OWNER_STORES = {
   // `sessionId === threadId`. Those children must be scanned before the thread
   // row disappears or strict readback loses the only remaining owner locator.
   cloud_agent_threads: "cascade",
-  // Live per-turn credentials. The expiry cron is a floor on how long a stolen
-  // one survives, never a deletion path.
-  cloud_turn_tokens: "simple",
   // Browser profile/session bytes live in the Gateway. Keep the interaction
   // receipts until the owner-level `default` profile purge is confirmed.
   cloud_browser_interactions: "external-ref",
@@ -187,13 +180,9 @@ const OWNER_STORES = {
   cloud_llm_credentials: "simple",
   cloud_engine_connects: "simple",
   cloud_engine_settings: "simple",
-  // Automatic-placement state and private request payloads. Accepted desktop
-  // work must observe cancel_pending and acknowledge (or lose its bounded
-  // executor lease) before its control/payload locators can be removed.
-  desktop_execution_presence: "quiesced",
-  execution_dispatches: "quiesced",
-  execution_offers: "quiesced",
-  execution_dispatch_payloads: "quiesced",
+  // Read-only projection of the owner gate's dispatch rows. The gate owns
+  // placement; deleting the projection removes nothing an executor observes.
+  cloud_dispatches: "simple",
   // Cloud projects. Each names a sandbox checkpoint in the worker's KV whose
   // key hashes `<owner>:project:<slug>` and cannot be derived without the row.
   cloud_projects: "external-ref",
@@ -229,7 +218,6 @@ const SIMPLE_TABLES = [
   "cloud_message_excerpts",
   "cloud_messages",
   "cloud_thread_messages",
-  "cloud_turn_tokens",
   "cloud_memory_lifecycles",
   "cloud_memory_wipe_jobs",
   "cloud_agent_home_preferences",
@@ -242,23 +230,12 @@ const SIMPLE_TABLES = [
   "cloud_llm_credentials",
   "cloud_engine_connects",
   "cloud_engine_settings",
-] as const;
-
-const QUIESCED_TABLES = [
-  // Children/control signals first, dispatch parents next, presence last.
-  "execution_offers",
-  "execution_dispatch_payloads",
-  "execution_dispatches",
-  "desktop_execution_presence",
+  "cloud_dispatches",
 ] as const;
 
 const LEASED_TABLES = ["cloud_integration_call_receipts"] as const;
 
-const OWNER_INDEXED_TABLES = [
-  ...SIMPLE_TABLES,
-  ...QUIESCED_TABLES,
-  ...LEASED_TABLES,
-] as const;
+const OWNER_INDEXED_TABLES = [...SIMPLE_TABLES, ...LEASED_TABLES] as const;
 
 const AGENT_HOME_TABLES = [
   "cloud_agent_home_docs",
@@ -279,7 +256,6 @@ const purgeOperationArgs = {
 } as const;
 
 type SimpleTable = (typeof SIMPLE_TABLES)[number];
-type QuiescedTable = (typeof QUIESCED_TABLES)[number];
 type LeasedTable = (typeof LEASED_TABLES)[number];
 type OwnerIndexedTable = (typeof OWNER_INDEXED_TABLES)[number];
 
@@ -294,15 +270,6 @@ type _SimpleTablesMatchRegistry =
     : never;
 const _simpleTablesInSync: _SimpleTablesMatchRegistry = true;
 void _simpleTablesInSync;
-
-type _QuiescedTablesMatchRegistry =
-  QuiescedTable extends StoresWithStyle<"quiesced">
-    ? StoresWithStyle<"quiesced"> extends QuiescedTable
-      ? true
-      : never
-    : never;
-const _quiescedTablesInSync: _QuiescedTablesMatchRegistry = true;
-void _quiescedTablesInSync;
 
 type _LeasedTablesMatchRegistry =
   LeasedTable extends StoresWithStyle<"leased">
@@ -347,14 +314,6 @@ const drainOwnerIndexedTable = async (
     case "cloud_thread_messages": {
       const rows = await ctx.db
         .query("cloud_thread_messages")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
-    case "cloud_turn_tokens": {
-      const rows = await ctx.db
-        .query("cloud_turn_tokens")
         .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
         .take(BATCH);
       ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
@@ -485,34 +444,10 @@ const drainOwnerIndexedTable = async (
       ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
       break;
     }
-    case "desktop_execution_presence": {
+    case "cloud_dispatches": {
       const rows = await ctx.db
-        .query("desktop_execution_presence")
-        .withIndex("by_ownerId_and_deviceId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
-    case "execution_dispatches": {
-      const rows = await ctx.db
-        .query("execution_dispatches")
+        .query("cloud_dispatches")
         .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
-    case "execution_offers": {
-      const rows = await ctx.db
-        .query("execution_offers")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
-    case "execution_dispatch_payloads": {
-      const rows = await ctx.db
-        .query("execution_dispatch_payloads")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
         .take(BATCH);
       ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
       break;
@@ -1597,14 +1532,6 @@ export const remainingOwnerStoresInternal = internalQuery({
               .take(1),
           );
           break;
-        case "cloud_turn_tokens":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_turn_tokens")
-              .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-              .take(1),
-          );
-          break;
         case "cloud_browser_interactions":
           await check(store, () =>
             ctx.db
@@ -1873,39 +1800,13 @@ export const remainingOwnerStoresInternal = internalQuery({
               .take(1),
           );
           break;
-        case "desktop_execution_presence":
+        case "cloud_dispatches":
           await check(store, () =>
             ctx.db
-              .query("desktop_execution_presence")
-              .withIndex("by_ownerId_and_deviceId", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
-        case "execution_dispatches":
-          await check(store, () =>
-            ctx.db
-              .query("execution_dispatches")
+              .query("cloud_dispatches")
               .withIndex("by_ownerId_and_updatedAt", (q) =>
                 q.eq("ownerId", ownerId),
               )
-              .take(1),
-          );
-          break;
-        case "execution_offers":
-          await check(store, () =>
-            ctx.db
-              .query("execution_offers")
-              .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-              .take(1),
-          );
-          break;
-        case "execution_dispatch_payloads":
-          await check(store, () =>
-            ctx.db
-              .query("execution_dispatch_payloads")
-              .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
               .take(1),
           );
           break;
@@ -2223,41 +2124,6 @@ export const stopOwnerSchedules = async (
   throw new Error("Owner schedule stop exceeded its bounded drain budget.");
 };
 
-export type OwnerExecutionPlacementQuiescence = {
-  ready: boolean;
-  pendingDispatches: number;
-  terminalizedDispatches: number;
-  cancellationSignals: number;
-  hasMore: boolean;
-  nextCheckAt?: number;
-};
-
-/**
- * Publish cancellation for every accepted automatic-placement dispatch before
- * any device key or control row is deleted. Calls are bounded; accepted work
- * remains durable debt until its signed cancellation ACK arrives or its
- * executor lease expires.
- */
-export const quiesceOwnerExecutionPlacement = async (
-  ctx: ActionCtx,
-  args: { ownerId: string; operationId: string; generation: string },
-): Promise<OwnerExecutionPlacementQuiescence> => {
-  for (let pass = 0; pass < MAX_PASSES; pass += 1) {
-    const result: OwnerExecutionPlacementQuiescence = await ctx.runMutation(
-      internal.execution_placement
-        .quiesceOwnerExecutionPlacementForPurgeInternal,
-      { ...args, now: Date.now() },
-    );
-    if (result.ready || !result.hasMore) return result;
-  }
-  logPurge("owner_execution_placement_quiesce_truncated", {
-    passes: MAX_PASSES,
-  });
-  throw new Error(
-    "Owner execution placement cancellation exceeded its bounded drain budget.",
-  );
-};
-
 // ─── The whole cloud stack ───────────────────────────────────────────────────
 
 /**
@@ -2343,13 +2209,6 @@ export const purgeOwnerCloudStack = internalAction({
       };
 
       await stopOwnerSchedules(ctx, fence);
-      const placementQuiescence = await quiesceOwnerExecutionPlacement(
-        ctx,
-        fence,
-      );
-      if (!placementQuiescence.ready) {
-        pending.push("execution_placement");
-      }
       const integrationQuiescence = await quiesceOwnerIntegrationCalls(
         ctx,
         ownerId,
@@ -2716,25 +2575,6 @@ export const purgeOwnerCloudStack = internalAction({
         }
       }
 
-      // Placement rows are safe to retire only after accepted work observed a
-      // cancellation and ACKed, or its bounded executor lease expired. Keep
-      // the child/control order explicit even though each row is owner-indexed.
-      if (placementQuiescence.ready) {
-        for (const table of QUIESCED_TABLES) {
-          for (let p = 0; p < MAX_PASSES; p += 1) {
-            const result: { hasMore: boolean } = await ctx.runMutation(
-              internal.cloud_purge.deleteOwnerCloudBatch,
-              { ...fence, table },
-            );
-            if (!result.hasMore) break;
-            if (p === MAX_PASSES - 1) {
-              pending.push(table);
-              logPurge("owner_quiesced_table_drain_truncated", { table });
-            }
-          }
-        }
-      }
-
       // 9. Turns and their cascade.
       for (let turnPass = 0; turnPass < MAX_PASSES; turnPass += 1) {
         const result: { hasMore: boolean } = await ctx.runMutation(
@@ -2858,11 +2698,6 @@ export const purgeOwnerCloudStack = internalAction({
           },
         );
         await releaseExternalOwnerPurge(ownerId, purgeGeneration);
-        await ctx.runMutation(
-          internal.stella_provider.relay_resume_store
-            .finishOwnerRelayResumePurge,
-          { ...fence, leaseId },
-        );
       }
       const finished: boolean = await ctx.runMutation(
         internal.owner_lifecycle.finishOwnerCloudPurgeInternal,

@@ -11976,10 +11976,10 @@ export const reviewedMemoryArchitectureBoundary = async () => {
     agentAttemptStart,
   );
   const historyLoaderStart = buildSessionSource.indexOf(
-    "  private async fetchCanonicalAgentHistory(",
+    "  private fetchCanonicalAgentHistory(",
   );
   const historyLoaderEnd = buildSessionSource.indexOf(
-    "  private async assertConvexAppTurnAuthority(",
+    "  private async assertAgentExecutionActive(",
     historyLoaderStart + 1,
   );
   assert(
@@ -11991,12 +11991,12 @@ export const reviewedMemoryArchitectureBoundary = async () => {
     historyLoaderEnd,
   );
   assert(
-    historyLoaderSource.includes(
-      'contextUrl.searchParams.set("conversationId", turn.threadId)',
-    ) &&
-      historyLoaderSource.includes("return messages as AgentHistoryRow[]") &&
+    // The thread transcript is the BuildSession's own table now; the child
+    // still receives exactly that thread's rows and nothing wider.
+    historyLoaderSource.includes("return readThreadHistory(this.ctx.storage.sql, {") &&
+      historyLoaderSource.includes("excludeTurnId: turn.turnId") &&
       agentTurnSource.includes(
-        "const history = await this.fetchCanonicalAgentHistory(turn, {",
+        "const history = this.fetchCanonicalAgentHistory(turn, {",
       ) &&
       agentTurnSource.includes('cloudSkillHome.loadSkillCatalog("general")') &&
       !agentTurnSource.includes("readDocuments(") &&

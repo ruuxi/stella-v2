@@ -13,13 +13,25 @@
  * back incrementally as they are produced, so an eviction at minute four of a
  * five-minute turn no longer discards everything the turn did.
  *
+ * This object is also the turn gateway's admission authority. A turn start
+ * arrives from the Worker with a verified caller on trusted headers; the DO
+ * decides idempotency (by `clientMsgId`), ownership (a fresh conversation
+ * adopts its first verified caller — conversation ids are client-minted
+ * UUIDs), quota (through the owner gate), the execution, and mints the turn's
+ * two capabilities itself. Convex learns about all of it through the
+ * `TURN_OUTBOX` queue: `conversation.created`, `turn.started`, every
+ * `turn.event` (with a DO-assigned `eventSeq`), `conversation.index`,
+ * `thread.spawned`, `conversation.deleted`. No Convex call sits on a turn's
+ * critical path; the synchronous callbacks that remain (search, recall,
+ * schedules, drive attachments, integrations, the agent home) present the
+ * turn's control-plane capability.
+ *
  * What did NOT change, deliberately: the turn lifecycle. Accepted turns are
  * still durable under `queued:*` before the 202, the alarm still retries
- * terminal delivery, `terminal`/`terminalDelivered` still guarantee exactly
- * one terminal state, and `agent_events` still carries `started` + terminal to
- * Convex — that is what drives quota, Activity, and the turn row. Only the
- * transcript moved. The journal's `turns` table is a projection of that
- * machinery and is never consulted to decide whether a terminal event is owed.
+ * terminal delivery (now "retry the enqueue"), and `terminal` /
+ * `terminalDelivered` still guarantee exactly one terminal state. The
+ * journal's `turns` table is a projection of that machinery and is never
+ * consulted to decide whether a terminal event is owed.
  *
  * The loop itself is `packages/runtime`'s agent-core Agent — the same code
  * the desktop ships — with the tool set pinned in code below. Frontmatter
@@ -68,6 +80,46 @@ import {
   resolveCloudThinkingLevel,
 } from "@stella/executor-cloud/relay-model";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
+import {
+  OUTBOX_EVENT_VERSION,
+  type ConversationCreatedEvent,
+  type ConversationDeletedEvent,
+  type OutboxEvent,
+  type ThreadSpawnedEvent,
+  type TurnEventEvent,
+  type TurnStartedEvent,
+} from "@stella/contracts/turn-plane/outbox";
+import {
+  TURN_OWNER_GENERATION_HEADER,
+  TURN_PLANE_PROTOCOL,
+  type CloudAgentTurnStartRequest,
+  type CloudAgentTurnStartResponse,
+  type CloudTurnLane,
+  type CloudTurnSource,
+  type CloudTurnStartRequest,
+  type CloudTurnStartResponse,
+} from "@stella/contracts/turn-plane/turn-start";
+import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
+import {
+  mintTurnCapabilities,
+  type MintedTurnCapability,
+} from "./capability-signer.js";
+import {
+  snapshotAllowsExecutionEngine,
+  type OwnerGateAdmission,
+  type OwnerGateAdmitInput,
+} from "./owner-gate.js";
+import { enqueueOutbox } from "./outbox.js";
+import {
+  HEADER_GATE_ADMITTED,
+  HEADER_TURN_AUTH_KIND,
+  conversationTitleFor,
+  parseCloudExecutionSelection,
+  parseCloudTurnStartRequest,
+  serviceOnlyTurnFields,
+  turnStartErrorResponse,
+} from "./turn-start-request.js";
 import { CLOUD_HISTORY_TOKEN_BUDGET } from "@stella/executor-cloud/prune-history";
 import { AgentHome, buildResidentMemorySection } from "./agent-home.js";
 import type { CloudSkillCatalogSnapshot } from "./cloud-home-store.js";
@@ -75,7 +127,7 @@ import {
   buildCloudSkillCatalogPrompt,
   createCloudSkillTools,
 } from "./cloud-skill-tools.js";
-import { isValidCloudSpawnModel } from "./cloud-spawn-model.js";
+import { resolveCloudSpawnExecution } from "./cloud-spawn-model.js";
 import { sha256Hex } from "./hash.js";
 import {
   authorizeDevAcceptanceProbe,
@@ -112,6 +164,7 @@ import {
   CONTEXT_MAX_SPILL_HYDRATIONS,
   EXCERPT_TEXT_MAX,
   EXCERPT_USER_HALF_MAX,
+  HEADER_OWNER,
   INBOX_MAX_BYTES,
   INBOX_MAX_ROWS,
   INITIAL_WINDOW_RECORDS,
@@ -168,10 +221,7 @@ import {
   retainedTurnBlocksOwnerTransfer,
   type OwnerTransferRequest,
 } from "./owner-transfer.js";
-import {
-  mayReusePendingOwnerLookup,
-  normalizeOwnerGeneration,
-} from "./owner-generation.js";
+import { normalizeOwnerGeneration } from "./owner-generation.js";
 import { parseVoiceJournalRecords } from "./journal-append-protocol.js";
 import {
   CONVERSATION_EDIT_LEASE_MS,
@@ -215,66 +265,102 @@ type Env = Pick<
       | "STELLA_CONVEX_SITE_URL"
       | "ENABLE_DEV_ACCEPTANCE_PROBES"
       | "STELLA_DEPLOYMENT_IDENTITY"
+      | "MODEL_GATEWAY"
+      | "MODEL_GATEWAY_URL"
+      | "CLOUD_BUILDER_PUBLIC_URL"
+      | "CAPABILITY_SIGNING_KEY"
+      | "CAPABILITY_SIGNING_KID"
+      | "OWNER_GATES"
+      | "TURN_OUTBOX"
     >
   >;
 
+/**
+ * An admitted chat turn, exactly as persisted under `queued:*`. Every field
+ * is derived by this DO at admission — from the verified caller, the owner
+ * snapshot, and the validated request body — never copied from a caller.
+ */
 export type ChatTurnRequest = {
   kind: "chat";
   ownerId: string;
+  /** Owner-data generation from the owner snapshot at admission. */
+  ownerGeneration: string;
   conversationId: string;
   turnId: string;
   sessionId: string;
   prompt: string;
-  turnToken: string;
-  /** Convex owner-data generation captured when this turn was admitted. */
-  ownerGeneration: string;
-  convexCallbackBase: string;
-  watchdogMs?: number;
-  // Resolved and persisted by Convex. Optional only while an older queued
-  // dispatch drains during rolling deployment.
-  execution?: CloudExecutionSelection;
-  // Transcript metadata Convex holds and the journal needs. All optional so a
-  // dispatch from an older Convex deployment still runs, just with a plainer
-  // rendered record.
-  lane?: string;
-  source?: string;
+  /** The execution this turn was admitted with; both capabilities pin it. */
+  execution: CloudExecutionSelection;
+  /** Managed-model audience from the owner snapshot at admission. */
+  audience: ManagedModelAudience;
+  /** Spend ceiling for this turn's model calls (`GATEWAY_BUDGET_UNLIMITED` allowed). */
+  budgetMicroCents: number;
+  lane: CloudTurnLane;
+  source?: CloudTurnSource;
   title?: string;
-  conversationCreatedAt?: number;
   // Keeps the prompt out of the rendered transcript (lifecycle and scheduled
   // prompts are context, not something the user typed). Still model context.
   hiddenMessage?: boolean;
-  // Resolves the client's optimistic echo against the durable prompt row.
-  clientMsgId?: string;
+  // Resolves the client's optimistic echo against the durable prompt row, and
+  // keys the admission receipt.
+  clientMsgId: string;
   // The client's UI locale (e.g. "es", "zh-Hans"), used for the reply-language
   // directive. Persisted per conversation so later turns without one (schedule
   // fires, agent-completion wakes) keep answering in the user's language.
   locale?: string;
   // Drive paths of attached images. The DO hydrates them into image content
-  // blocks on this turn's prompt via the turn-token-scoped attachment route;
+  // blocks on this turn's prompt via the capability-scoped attachment route;
   // the prompt text separately names the paths (the composer's preamble), so
   // later turns can still reach the files through the drive.
   attachments?: string[];
   /**
-   * Exact server-issued control receipt for a cloud-agent lifecycle wake.
-   * Kept structured (and out of the model's tool arguments) so a thread id
-   * can never be rebound to whichever mutable attempt happens to be current.
+   * Exact control receipt for a cloud-agent lifecycle wake. Kept structured
+   * (and out of the model's tool arguments) so a thread id can never be
+   * rebound to whichever mutable attempt happens to be current.
    */
   agentThreadControl?: CloudAgentControlReceipt;
+  watchdogMs?: number;
   /** Worker-issued owner purge lease generation. */
   ownerPurgeGeneration?: string;
   ownerPurgeLeaseId?: string;
-  /** Set by the DO when the dispatch is accepted; used to restore queue order. */
+  /** Set by the DO when the turn is accepted; used to restore queue order. */
   queuedAt?: number;
 };
 
-type CloudAgentControlStatus = "running" | "completed" | "failed" | "canceled";
+type CloudAgentControlStatus =
+  | "running"
+  | "waiting_for_user"
+  | "resuming"
+  | "completed"
+  | "failed"
+  | "canceled";
+
+const CLOUD_AGENT_CONTROL_STATUSES: readonly CloudAgentControlStatus[] = [
+  "running",
+  "waiting_for_user",
+  "resuming",
+  "completed",
+  "failed",
+  "canceled",
+];
+
+/** Running or about to be: the thread cannot take a follow-up yet. */
+const isCloudAgentControlActive = (status: CloudAgentControlStatus): boolean =>
+  status === "running" || status === "resuming";
 
 type CloudAgentControlReceipt = {
   threadId: string;
   attemptGeneration: number;
   threadUpdatedAt: number;
   status: CloudAgentControlStatus;
+  /** The agent turn that ran this attempt; what a pause cancels. */
+  turnId?: string;
+  /** The execution the thread runs with; a continuation inherits it. */
+  execution?: CloudExecutionSelection;
 };
+
+/** The one workspace a cloud owner has: one running sandboxed agent at a time. */
+const OWNER_WORLD_WORKSPACE = "world";
 
 type CloudAgentToolKind = "spawn_agent" | "send_input" | "pause_agent";
 
@@ -285,18 +371,25 @@ type CloudAgentToolOutcome = {
   disposition?: "paused" | "pending" | "already_terminal";
 };
 
+/**
+ * Durable admission intent, keyed by `clientMsgId`. Written before the
+ * owner-fence register so a lost response replays against the exact same
+ * turn id and lease instead of admitting the message twice.
+ */
 type ChatTurnAdmissionReceipt = {
-  schemaVersion?: 1;
+  schemaVersion: 2;
   fingerprint: string;
-  ownerId?: string;
-  ownerGeneration?: string;
-  turnId?: string;
-  leaseId?: string;
-  phase?: "registering" | "accepted";
-  queuedAt?: number;
+  ownerId: string;
+  ownerGeneration: string;
+  turnId: string;
+  leaseId: string;
+  phase: "registering" | "accepted";
+  /** This admission bound a previously unowned conversation. */
+  createdConversation: boolean;
+  queuedAt: number;
   acceptedAt?: number;
-  createdAt?: number;
-  updatedAt?: number;
+  createdAt: number;
+  updatedAt: number;
 };
 
 type OwnerFencedTurn = {
@@ -362,17 +455,6 @@ type LocalTurnFinishReceipt = {
 
 const OWNER_TRANSFER_KEY = "conversationOwnerTransfer";
 
-// Current Convex dispatches always include an execution selection that was
-// persisted with the turn token. Missing execution is rolling-deploy
-// compatibility for old queued turns only; those legacy tokens are bound to
-// the original concrete model and cannot authorize the new opaque default.
-const LEGACY_UNBOUND_CLOUD_EXECUTION: CloudExecutionSelection = {
-  engine: "stella",
-  provider: "stella",
-  model: "stella/anthropic/claude-sonnet-4.6",
-  reasoningEffort: "default",
-};
-
 class OwnerPurgeFenceError extends Error {}
 class OwnerFenceLeaseConflictError extends Error {}
 class OwnerFenceRegistrationUncertainError extends Error {}
@@ -401,8 +483,22 @@ const localTurnReceiptKey = (turnId: string): string =>
   `${LOCAL_TURN_RECEIPT_PREFIX}${turnId}`;
 const localClientMessageKey = (clientMsgId: string): string =>
   `${LOCAL_CLIENT_MESSAGE_PREFIX}${clientMsgId}`;
-const chatTurnAdmissionKey = (turnId: string): string =>
-  `${CHAT_TURN_ADMISSION_PREFIX}${turnId}`;
+const chatTurnAdmissionKey = (clientMsgId: string): string =>
+  `${CHAT_TURN_ADMISSION_PREFIX}${clientMsgId}`;
+const TURN_EVENT_SEQ_PREFIX = "turnEventSeq:";
+const turnEventSeqKey = (turnId: string): string =>
+  `${TURN_EVENT_SEQ_PREFIX}${turnId}`;
+/**
+ * Set once `conversation.created` has been handed to the outbox. Adoption
+ * (binding the owner) happens at the first verified contact — a socket
+ * connect or a turn — but Convex has nothing to index until a turn exists,
+ * so the projection is the first turn's job whichever contact came first.
+ */
+const CONVERSATION_PROJECTED_KEY = "conversationProjected";
+/** Outbox events that could not be enqueued yet; the alarm retries them. */
+const OUTBOX_DEBT_KEY = "outboxDebt";
+const OUTBOX_DEBT_MAX = 64;
+const OUTBOX_DEBT_RETRY_MS = 30_000;
 const cloudAgentControlKey = (threadId: string): string =>
   `${CLOUD_AGENT_CONTROL_PREFIX}${threadId}`;
 const cloudAgentToolOutcomeKey = (turnId: string, toolCallId: string): string =>
@@ -411,24 +507,19 @@ const ownerFenceLeaseReceiptKey = (leaseId: string): string =>
   `${OWNER_FENCE_LEASE_RECEIPT_PREFIX}${leaseId}`;
 
 const isDurableChatTurnAdmissionIntent = (
-  receipt: ChatTurnAdmissionReceipt,
-): boolean =>
-  receipt.schemaVersion === 1 &&
+  receipt: Partial<ChatTurnAdmissionReceipt>,
+): receipt is ChatTurnAdmissionReceipt =>
+  receipt.schemaVersion === 2 &&
+  typeof receipt.fingerprint === "string" &&
   typeof receipt.ownerId === "string" &&
   typeof receipt.ownerGeneration === "string" &&
   typeof receipt.turnId === "string" &&
   typeof receipt.leaseId === "string" &&
   (receipt.phase === "registering" || receipt.phase === "accepted") &&
+  typeof receipt.createdConversation === "boolean" &&
   Number.isFinite(receipt.queuedAt) &&
   Number.isFinite(receipt.createdAt) &&
   Number.isFinite(receipt.updatedAt);
-
-const isLegacyAcceptedChatTurnReceipt = (
-  receipt: ChatTurnAdmissionReceipt,
-): boolean =>
-  receipt.schemaVersion === undefined &&
-  typeof receipt.fingerprint === "string" &&
-  Number.isFinite(receipt.acceptedAt);
 
 const localTurnRetirementDeadline = (lease: LocalTurnLease): number => {
   if (!lease.cancelRequested) return lease.expiresAt;
@@ -437,43 +528,56 @@ const localTurnRetirementDeadline = (lease: LocalTurnLease): number => {
     : Number.POSITIVE_INFINITY;
 };
 
-const chatTurnFingerprintSource = (turn: ChatTurnRequest): string =>
+/**
+ * The semantic identity of a turn start: everything the caller chose. Ids the
+ * DO mints (turnId, sessionId) and facts the snapshot supplies (generation,
+ * audience, budget) are deliberately absent, so a retry after a lost response
+ * replays and a different message under the same `clientMsgId` conflicts.
+ */
+const chatTurnFingerprintSource = (
+  ownerId: string,
+  conversationId: string,
+  request: CloudTurnStartRequest,
+): string =>
   JSON.stringify({
-    kind: turn.kind,
-    ownerId: turn.ownerId,
-    ownerGeneration: turn.ownerGeneration,
-    conversationId: turn.conversationId,
-    turnId: turn.turnId,
-    sessionId: turn.sessionId,
-    prompt: turn.prompt,
-    turnToken: turn.turnToken,
-    convexCallbackBase: turn.convexCallbackBase,
-    watchdogMs: turn.watchdogMs,
-    execution: turn.execution
+    kind: "chat",
+    ownerId,
+    conversationId,
+    clientMsgId: request.clientMsgId,
+    prompt: request.prompt,
+    execution: request.execution
       ? {
-          engine: turn.execution.engine,
-          provider: turn.execution.provider,
-          model: turn.execution.model,
-          reasoningEffort: turn.execution.reasoningEffort,
+          engine: request.execution.engine,
+          provider: request.execution.provider,
+          model: request.execution.model,
+          reasoningEffort: request.execution.reasoningEffort,
         }
       : undefined,
-    lane: turn.lane,
-    source: turn.source,
-    title: turn.title,
-    conversationCreatedAt: turn.conversationCreatedAt,
-    hiddenMessage: turn.hiddenMessage,
-    clientMsgId: turn.clientMsgId,
-    locale: turn.locale,
-    attachments: turn.attachments,
-    agentThreadControl: turn.agentThreadControl
+    lane: request.lane,
+    source: request.source,
+    title: request.title,
+    hiddenMessage: request.hiddenMessage,
+    locale: request.locale,
+    attachments: request.attachments,
+    agentThreadControl: request.agentThreadControl
       ? {
-          threadId: turn.agentThreadControl.threadId,
-          attemptGeneration: turn.agentThreadControl.attemptGeneration,
-          threadUpdatedAt: turn.agentThreadControl.threadUpdatedAt,
-          status: turn.agentThreadControl.status,
+          threadId: request.agentThreadControl.threadId,
+          attemptGeneration: request.agentThreadControl.attemptGeneration,
+          threadUpdatedAt: request.agentThreadControl.threadUpdatedAt,
+          status: request.agentThreadControl.status,
         }
       : undefined,
   });
+
+const TERMINAL_STATUS: Record<
+  string,
+  NonNullable<TurnEventEvent["terminalStatus"]>
+> = {
+  completed: "completed",
+  failed: "failed",
+  canceled: "canceled",
+  timeout: "failed",
+};
 
 const json = (body: unknown, status = 200): Response =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -505,15 +609,27 @@ const normalizeCloudAgentControlReceipt = (
     candidate.attemptGeneration! < 1 ||
     !Number.isSafeInteger(candidate.threadUpdatedAt) ||
     candidate.threadUpdatedAt! < 0 ||
-    !["running", "completed", "failed", "canceled"].includes(status ?? "")
+    !CLOUD_AGENT_CONTROL_STATUSES.includes(status as CloudAgentControlStatus)
   ) {
     return null;
   }
+  const turnId =
+    typeof candidate.turnId === "string" ? candidate.turnId.trim() : "";
+  if (candidate.turnId !== undefined && (!turnId || turnId.length > 128)) {
+    return null;
+  }
+  const execution =
+    candidate.execution === undefined
+      ? undefined
+      : parseCloudExecutionSelection(candidate.execution);
+  if (candidate.execution !== undefined && !execution) return null;
   return {
     threadId,
     attemptGeneration: candidate.attemptGeneration!,
     threadUpdatedAt: candidate.threadUpdatedAt!,
     status: status as CloudAgentControlStatus,
+    ...(turnId ? { turnId } : {}),
+    ...(execution ? { execution } : {}),
   };
 };
 
@@ -530,20 +646,32 @@ const advanceCloudAgentControlReceipt = (
   // completed attempt as running. Within one generation the state machine is
   // authoritative — running may advance to one immutable terminal status,
   // while a delayed running receipt can never resurrect that attempt.
-  const existingTerminal = existing.status !== "running";
-  const receiptTerminal = receipt.status !== "running";
-  if (!existingTerminal && receiptTerminal) return receipt;
+  const existingTerminal = !isCloudAgentControlActive(existing.status);
+  const receiptTerminal = !isCloudAgentControlActive(receipt.status);
+  // The turn id and execution are facts of the attempt, not of its status:
+  // a lifecycle receipt from the BuildSession carries neither, and advancing
+  // the status must not forget them.
+  const merged = (winner: CloudAgentControlReceipt): CloudAgentControlReceipt => ({
+    ...winner,
+    ...(winner.turnId === undefined && existing.turnId !== undefined
+      ? { turnId: existing.turnId }
+      : {}),
+    ...(winner.execution === undefined && existing.execution !== undefined
+      ? { execution: existing.execution }
+      : {}),
+  });
+  if (!existingTerminal && receiptTerminal) return merged(receipt);
   if (existingTerminal && !receiptTerminal) return existing;
   if (existingTerminal && receiptTerminal) {
     if (receipt.status !== existing.status) {
       throw new Error("A terminal cloud agent attempt cannot be rewritten.");
     }
     return receipt.threadUpdatedAt > existing.threadUpdatedAt
-      ? receipt
+      ? merged(receipt)
       : existing;
   }
   return receipt.threadUpdatedAt > existing.threadUpdatedAt
-    ? receipt
+    ? merged(receipt)
     : existing;
 };
 
@@ -719,6 +847,12 @@ type OwedTerminal = {
    * deliver an empty completion and lose what the model actually said.
    */
   payload?: Record<string, unknown>;
+  /**
+   * The per-turn ordinal assigned to the terminal event when the terminal was
+   * decided. A retried enqueue reuses it, so Convex sees one terminal event
+   * however many times the alarm has to resend it.
+   */
+  eventSeq?: number;
 };
 
 /** Correlates a committed assistant row with the deltas that preceded it. */
@@ -816,11 +950,12 @@ export class OrchestratorSession extends DurableObject<Env> {
    */
   private sealed = false;
 
-  private ownerLookup: Promise<ConversationOwnerRecord | null> | null = null;
   private ownerTransferWork: Promise<Response> | null = null;
   private ownerTransferRequest: OwnerTransferRequest | null = null;
   /** Serializes `/turn` admission through durable replay classification. */
   private turnAdmissionTail: Promise<void> = Promise.resolve();
+  /** Serializes per-turn event ordinal allocation (a get+put pair). */
+  private eventSeqTail: Promise<unknown> = Promise.resolve();
   /** Persisted with accepted turns so cold-start index flushes stay fenced. */
   private ownerGeneration?: string;
 
@@ -836,16 +971,16 @@ export class OrchestratorSession extends DurableObject<Env> {
     this.index = new ConversationIndex(
       this.journal,
       log,
-      () => this.convexEndpoint(),
+      () => this.indexIdentity(),
       {
+        enqueue: (events) => this.enqueueOutbox(events),
         purged: () => this.purged(),
-        onPurged: () => this.sealPurged("convex_fence"),
       },
     );
     this.hub = createConversationHub({
       ctx,
       reader: this.reader(),
-      lookupOwner: () => this.lookupOwner(),
+      lookupOwner: (identity) => this.resolveOwnerForCaller(identity),
       cancelTurn: (turnId) => this.cancelTurn(turnId),
       onConnect: () => this.flushIndexIfLagging(),
       conversationId: () => this.conversationId(),
@@ -1285,127 +1420,201 @@ export class OrchestratorSession extends DurableObject<Env> {
     );
   }
 
-  private convexEndpoint(): {
-    base: string;
-    secret: string;
-    ownerGeneration: string;
-  } | null {
-    const base = (this.convexBase ?? this.env.STELLA_CONVEX_SITE_URL ?? "")
-      .trim()
-      .replace(/\/+$/, "");
-    if (!base || !this.env.BUILDER_SERVICE_SECRET || !this.ownerGeneration) {
-      return null;
-    }
-    return {
-      base,
-      secret: this.env.BUILDER_SERVICE_SECRET,
-      ownerGeneration: this.ownerGeneration,
-    };
+  /** Who the projection belongs to; null until the conversation is bound. */
+  private indexIdentity(): { ownerId: string; ownerGeneration: string } | null {
+    const ownerId = this.journal.meta().owner_id;
+    if (!ownerId || !this.ownerGeneration) return null;
+    return { ownerId, ownerGeneration: this.ownerGeneration };
   }
 
-  /** Last dispatch's callback origin, so flushes work between turns too. */
-  private convexBase?: string;
+  // -------------------------------------------------------------------------
+  // Owner gate and outbox
+  // -------------------------------------------------------------------------
 
-  /**
-   * The DO never adopts its first connector as owner: `conversationId` would
-   * become a bearer token and anyone who guessed a UUID would own the object.
-   * Ownership comes from Convex, once, and is then immutable.
-   */
-  private lookupOwner(
-    forceGenerationRefresh = false,
-  ): Promise<ConversationOwnerRecord | null> {
-    const bound = this.journal.meta();
-    if (!forceGenerationRefresh && bound.owner_id && this.ownerGeneration) {
-      return Promise.resolve({
-        ownerId: bound.owner_id,
-        ownerGeneration: this.ownerGeneration,
-        createdAt: bound.created_at,
-        title: bound.title,
-      });
-    }
-    if (
-      mayReusePendingOwnerLookup(forceGenerationRefresh) &&
-      this.ownerLookup
-    ) {
-      return this.ownerLookup;
-    }
-    const conversationId = this.conversationId();
-    const base = (this.convexBase ?? this.env.STELLA_CONVEX_SITE_URL ?? "")
-      .trim()
-      .replace(/\/+$/, "");
-    const secret = this.env.BUILDER_SERVICE_SECRET;
-    if (!conversationId || !base || !secret) return Promise.resolve(null);
-    const work = (async (): Promise<ConversationOwnerRecord | null> => {
-      const response = await fetch(
-        `${base}/api/cloud/conversation-owner?conversationId=${encodeURIComponent(
-          conversationId,
-        )}`,
-        {
-          headers: { authorization: `Bearer ${secret}` },
-          signal: AbortSignal.timeout(15_000),
-        },
-      );
-      if (response.status === 404) {
-        // Convex has never heard of this id, so nothing legitimate addressed
-        // this object. Leave no state behind: otherwise anyone who guesses a
-        // UUID mints a permanent empty DO. Only a definite 404 does this — a
-        // misconfigured endpoint returns null far above without touching
-        // storage, and a bound DO never reaches this code at all.
-        await this.resetUnknownConversation();
-        return null;
-      }
-      if (!response.ok) {
-        throw new Error(
-          `Conversation owner lookup failed (${response.status}).`,
-        );
-      }
-      const payload = (await response.json()) as ConversationOwnerRecord;
-      const ownerId =
-        typeof payload?.ownerId === "string" ? payload.ownerId.trim() : "";
-      const ownerGeneration = normalizeOwnerGeneration(
-        payload?.ownerGeneration,
-      );
-      if (!ownerId || !ownerGeneration) return null;
-      const record = { ...payload, ownerId, ownerGeneration };
-      this.ownerGeneration = ownerGeneration;
-      await this.ctx.storage.put("ownerDataGeneration", ownerGeneration);
-      this.journal.bindOwner({ ...record, conversationId });
-      return record;
-    })();
-    // A fresh admission lookup deliberately remains outside the shared cache:
-    // a concurrent socket lookup may have captured the lifecycle generation
-    // before Convex rotated it.
-    if (forceGenerationRefresh) return work;
-    const shared = work.finally(() => {
-      if (this.ownerLookup === shared) this.ownerLookup = null;
-    });
-    this.ownerLookup = shared;
-    return shared;
+  private ownerGate(ownerId: string) {
+    const gates = this.env.OWNER_GATES;
+    if (!gates) throw new Error("Owner gate namespace is not bound.");
+    return gates.getByName(ownerId);
   }
 
-  /**
-   * Wipe an object that Convex says does not exist, then put the schema back so
-   * the instance stays usable if a real dispatch arrives later. Refuses if the
-   * journal holds anything: an owner-bound conversation whose index row was
-   * lost must be recovered or purged deliberately, never wiped by a read.
-   */
-  private async resetUnknownConversation(): Promise<void> {
-    const meta = this.journal.meta();
-    if (meta.owner_id || meta.next_seq > 0) return;
+  private async ownerGateSnapshot(ownerId: string): Promise<OwnerSnapshot> {
+    return await this.ownerGate(ownerId).snapshot();
+  }
+
+  /** A refusal, never a throw: the caller maps it to the start contract. */
+  private async ownerGateAdmit(
+    ownerId: string,
+    input: OwnerGateAdmitInput,
+  ): Promise<OwnerGateAdmission> {
     try {
-      await this.ctx.storage.deleteAll();
-      await this.journal.bootstrap();
-      if (this.ctx.id.name) this.journal.setConversationId(this.ctx.id.name);
-      log("info", "conversation_unknown_reset", {
-        conversationId: this.ctx.id.name ?? "",
-      });
+      return await this.ownerGate(ownerId).admit(input);
     } catch (error) {
-      // Never fatal: the caller's job is to refuse the connect, and it does
-      // that whether or not the wipe succeeded.
-      log("error", "conversation_unknown_reset_failed", {
-        message: error instanceof Error ? error.message : String(error),
+      log("error", "owner_gate_admit_failed", {
+        turnId: input.turnId,
+        lane: input.lane,
+        message: errorMessage(error),
+      });
+      return {
+        ok: false,
+        code: "internal",
+        message: "Stella can't check your plan right now. Try again shortly.",
+        retryable: true,
+      };
+    }
+  }
+
+  /**
+   * Best-effort and idempotent. A release the gate never receives is bounded
+   * by its own `TURN_TIMEOUT_MS` grace, so a lost call costs a slot for
+   * minutes, never forever.
+   */
+  private async releaseOwnerGate(
+    turn: Pick<ChatTurnRequest, "ownerId" | "turnId">,
+  ): Promise<void> {
+    try {
+      await this.ownerGate(turn.ownerId).release({ turnId: turn.turnId });
+    } catch (error) {
+      log("error", "owner_gate_release_failed", {
+        turnId: turn.turnId,
+        message: errorMessage(error),
       });
     }
+  }
+
+  private async enqueueOutbox(events: OutboxEvent[]): Promise<void> {
+    await enqueueOutbox(this.env, events);
+  }
+
+  /**
+   * Enqueue, or remember the debt and let the alarm retry. For the
+   * projections a turn start owes (`conversation.created`, `turn.started`,
+   * `thread.spawned`, `conversation.deleted`) a queue outage must never turn
+   * into a lost row: Convex cannot index a conversation it never heard of.
+   */
+  private async enqueueOutboxDurable(events: OutboxEvent[]): Promise<void> {
+    if (events.length === 0) return;
+    try {
+      await this.enqueueOutbox(events);
+    } catch (error) {
+      log("error", "outbox_enqueue_deferred", {
+        events: events.map((event) => `${event.kind}:${event.key}`),
+        message: errorMessage(error),
+      });
+      await this.ctx.blockConcurrencyWhile(async () => {
+        const debt =
+          (await this.ctx.storage.get<OutboxEvent[]>(OUTBOX_DEBT_KEY)) ?? [];
+        const merged = [...debt, ...events].slice(-OUTBOX_DEBT_MAX);
+        await this.ctx.storage.put(OUTBOX_DEBT_KEY, merged);
+        const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
+        const current = await this.ctx.storage.getAlarm();
+        if (current === null || current > retryAt) {
+          await this.ctx.storage.setAlarm(retryAt);
+        }
+      });
+    }
+  }
+
+  private async retryOutboxDebt(): Promise<void> {
+    const debt = await this.ctx.storage.get<OutboxEvent[]>(OUTBOX_DEBT_KEY);
+    if (!debt || debt.length === 0) return;
+    try {
+      await this.enqueueOutbox(debt);
+      await this.ctx.storage.delete(OUTBOX_DEBT_KEY);
+    } catch (error) {
+      log("error", "outbox_debt_retry_failed", {
+        events: debt.length,
+        message: errorMessage(error),
+      });
+      const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
+      const current = await this.ctx.storage.getAlarm();
+      if (current === null || current > retryAt) {
+        await this.ctx.storage.setAlarm(retryAt);
+      }
+    }
+  }
+
+  private outboxBase(
+    turn: Pick<ChatTurnRequest, "ownerId" | "ownerGeneration">,
+    key: string,
+  ) {
+    return {
+      v: OUTBOX_EVENT_VERSION,
+      key,
+      ownerId: turn.ownerId,
+      ownerGeneration: turn.ownerGeneration,
+      emittedAt: Date.now(),
+    } as const;
+  }
+
+  /**
+   * The next per-turn event ordinal, durable before it is used so a restart
+   * can never hand out one twice. Serialized: two events of one turn can be
+   * emitted concurrently and share the same get+put window otherwise.
+   */
+  private nextTurnEventSeq(turnId: string): Promise<number> {
+    const tail: Promise<unknown> = this.eventSeqTail ?? Promise.resolve();
+    const work = tail.then(async () => {
+      const key = turnEventSeqKey(turnId);
+      const next = ((await this.ctx.storage.get<number>(key)) ?? 0) + 1;
+      await this.ctx.storage.put(key, next);
+      return next;
+    });
+    this.eventSeqTail = work.catch(() => undefined);
+    return work;
+  }
+
+  /**
+   * The owner of this conversation for a verified caller — the session is
+   * the authority. Bound: the caller must be the owner (null otherwise, so the
+   * route answers 404 and confirms nothing). Unbound: adopt the caller. This
+   * is what lets a client subscribe to a conversation it has just minted
+   * before its first turn: the socket binds the prospective owner, and the
+   * first turn projects `conversation.created` to Convex. The generation
+   * comes from the owner gate's snapshot; a write path passes
+   * `refreshGeneration` because a new write capability must be fenced on the
+   * generation that is current now, not the one cached with the last turn.
+   */
+  private async resolveOwnerForCaller(
+    caller: { ownerId: string },
+    options: { refreshGeneration?: boolean } = {},
+  ): Promise<ConversationOwnerRecord | null> {
+    const callerId = caller.ownerId.trim();
+    if (!callerId || this.purged()) return null;
+    const meta = this.journal.meta();
+    if (meta.owner_id && meta.owner_id !== callerId) return null;
+    if (meta.owner_id && this.ownerGeneration && !options.refreshGeneration) {
+      return {
+        ownerId: meta.owner_id,
+        ownerGeneration: this.ownerGeneration,
+        createdAt: meta.created_at,
+        title: meta.title,
+      };
+    }
+    const snapshot = await this.ownerGateSnapshot(callerId);
+    if (!snapshot.writable) return null;
+    if (this.purged()) return null;
+    if (!this.journal.meta().owner_id) {
+      const conversationId = this.conversationId();
+      this.journal.bindOwner({
+        ownerId: callerId,
+        ownerGeneration: snapshot.ownerGeneration,
+        createdAt: Date.now(),
+        title: "",
+        conversationId,
+      });
+      log("info", "conversation_adopted", { conversationId, via: "connect" });
+    }
+    if (this.ownerGeneration !== snapshot.ownerGeneration) {
+      this.ownerGeneration = snapshot.ownerGeneration;
+      await this.ctx.storage.put("ownerDataGeneration", snapshot.ownerGeneration);
+    }
+    const bound = this.journal.meta();
+    return {
+      ownerId: bound.owner_id,
+      ownerGeneration: snapshot.ownerGeneration,
+      createdAt: bound.created_at,
+      title: bound.title,
+    };
   }
 
   private reader(): JournalReader {
@@ -1713,22 +1922,24 @@ export class OrchestratorSession extends DurableObject<Env> {
         true,
       );
       await this.assertOwnerTurn(exactTurn);
-      await this.ctx.storage.put({
-        terminal: true,
-        terminalOwed: {
-          kind: "canceled",
-          message: TERMINAL_NOTICE.canceled,
-        } satisfies OwedTerminal,
-      });
+      const owed: OwedTerminal = {
+        kind: "canceled",
+        message: TERMINAL_NOTICE.canceled,
+        eventSeq: await this.nextTurnEventSeq(exactTurn.turnId),
+      };
+      await this.ctx.storage.put({ terminal: true, terminalOwed: owed });
       await execution?.interrupt(new Error("The chat turn was stopped."));
       this.recordTerminal(exactTurn, "canceled", TERMINAL_NOTICE.canceled);
       try {
-        await this.event(
+        await this.emitTurnEvent(
           exactTurn,
-          "auto",
           "canceled",
           { message: TERMINAL_NOTICE.canceled },
-          true,
+          {
+            terminal: true,
+            eventSeq: owed.eventSeq,
+            errorMessage: TERMINAL_NOTICE.canceled,
+          },
         );
         await this.ctx.storage.put("terminalDelivered", true);
       } catch {
@@ -1989,64 +2200,86 @@ export class OrchestratorSession extends DurableObject<Env> {
     if (queued.length > 0) await this.ensureQueueAlarm();
   }
 
+  /**
+   * A synchronous Convex callback during a turn. The bearer is the turn's
+   * control-plane capability: Convex binds on its `turn.turnId`, `sub` and
+   * `gen` claims, so no owner fields in the body are trusted there.
+   */
   private convexPost(
-    base: string,
     path: string,
     body: unknown,
-    ownerGeneration?: string,
-    options?: { turnToken?: string; signal?: AbortSignal },
+    options: { capability: string; signal?: AbortSignal },
   ): Promise<Response> {
-    const callbackBody =
-      ownerGeneration &&
-      body &&
-      typeof body === "object" &&
-      !Array.isArray(body)
-        ? { ...(body as Record<string, unknown>), ownerGeneration }
-        : body;
-    return fetch(`${base.replace(/\/+$/, "")}${path}`, {
+    const base = (this.env.STELLA_CONVEX_SITE_URL ?? "")
+      .trim()
+      .replace(/\/+$/, "");
+    if (!base) {
+      return Promise.reject(new Error("Convex site URL is not configured."));
+    }
+    return fetch(`${base}${path}`, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${this.env.BUILDER_SERVICE_SECRET}`,
+        authorization: `Bearer ${options.capability}`,
         "content-type": "application/json",
         accept: "application/json, text/event-stream",
-        ...(options?.turnToken
-          ? { "x-stella-turn-token": options.turnToken }
-          : {}),
       },
-      body: JSON.stringify(callbackBody),
-      signal: options?.signal
+      body: JSON.stringify(body),
+      signal: options.signal
         ? AbortSignal.any([options.signal, AbortSignal.timeout(30_000)])
         : AbortSignal.timeout(30_000),
     });
   }
 
-  private async event(
+  /**
+   * One `turn.event` on the outbox. Throws when the queue refused so the
+   * terminal paths keep their re-armed alarm; the ordinal is allocated (and
+   * durable) before the send, and a retry passes it back in so Convex sees
+   * exactly one event per ordinal.
+   */
+  private async emitTurnEvent(
     turn: ChatTurnRequest,
-    seq: number | "auto",
-    kind: string,
+    eventKind: string,
     payload: unknown,
-    terminal = false,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    const response = await this.convexPost(
-      turn.convexCallbackBase,
-      "/api/cloud/events",
-      {
-        ownerId: turn.ownerId,
-        turnId: turn.turnId,
-        sessionId: turn.sessionId,
-        tokenHash: await sha256Hex(turn.turnToken),
-        seq,
-        kind,
-        payload,
-        terminal,
-      },
-      turn.ownerGeneration,
-      signal ? { signal } : undefined,
-    );
-    if (!response.ok) {
-      throw new Error(`Convex event callback failed with ${response.status}.`);
-    }
+    options: {
+      terminal?: boolean;
+      eventSeq?: number;
+      errorMessage?: string;
+      resultJson?: string;
+    } = {},
+  ): Promise<number> {
+    const eventSeq =
+      options.eventSeq ?? (await this.nextTurnEventSeq(turn.turnId));
+    const terminal = options.terminal === true;
+    const event: TurnEventEvent = {
+      ...this.outboxBase(turn, `${turn.turnId}:${eventSeq}`),
+      kind: "turn.event",
+      turnId: turn.turnId,
+      sessionId: turn.sessionId,
+      eventSeq,
+      eventKind,
+      payload,
+      terminal,
+      ...(terminal
+        ? { terminalStatus: TERMINAL_STATUS[eventKind] ?? "failed" }
+        : {}),
+      ...(options.errorMessage ? { errorMessage: options.errorMessage } : {}),
+      ...(options.resultJson ? { resultJson: options.resultJson } : {}),
+      createdAt: Date.now(),
+    };
+    await this.enqueueOutbox([event]);
+    return eventSeq;
+  }
+
+  /** The terminal ordinal, assigned once and remembered with the debt. */
+  private async terminalEventSeq(
+    turn: ChatTurnRequest,
+    owed: OwedTerminal,
+  ): Promise<number> {
+    if (owed.eventSeq !== undefined) return owed.eventSeq;
+    const eventSeq = await this.nextTurnEventSeq(turn.turnId);
+    owed.eventSeq = eventSeq;
+    await this.ctx.storage.put("terminalOwed", owed);
+    return eventSeq;
   }
 
   /**
@@ -2194,8 +2427,10 @@ export class OrchestratorSession extends DurableObject<Env> {
   async alarm(): Promise<void> {
     // A turn can finish after its remote lease was removed but before the
     // unregister response arrived. Reconcile that durable debt before using
-    // this wake-up for the conversation lifecycle.
+    // this wake-up for the conversation lifecycle. Same for projections the
+    // queue refused at admission time.
     await this.retryOwnerFenceLeaseRetirements();
+    await this.retryOutboxDebt();
     const localLease =
       await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
     if (localLease) {
@@ -2280,17 +2515,20 @@ export class OrchestratorSession extends DurableObject<Env> {
       await this.ctx.storage.put("terminalOwed", owed);
     }
     try {
-      await this.event(
+      await this.emitTurnEvent(
         turn,
-        "auto",
         owed.kind,
         owed.payload ?? { message: owed.message },
-        true,
+        {
+          terminal: true,
+          eventSeq: await this.terminalEventSeq(turn, owed),
+          ...(owed.kind !== "completed" ? { errorMessage: owed.message } : {}),
+        },
       );
       await this.ctx.storage.put("terminalDelivered", true);
     } catch (error) {
-      // Single-shot delivery would strand the turn "running" on one
-      // transient Convex failure; retry via a re-armed alarm.
+      // A single enqueue attempt would strand the turn "running" on one
+      // transient queue failure; retry via a re-armed alarm.
       const attempts =
         ((await this.ctx.storage.get<number>("alarmAttempts")) ?? 0) + 1;
       if (attempts <= 5) {
@@ -2304,6 +2542,9 @@ export class OrchestratorSession extends DurableObject<Env> {
         });
       }
     }
+    // The loop that would have released the gate is gone with the isolate
+    // that ran it; the alarm is the last party that knows this turn ended.
+    await this.releaseOwnerGate(turn);
     // Before the projection work, not after it. Every exit above has now
     // either re-armed the alarm for its own retry or consumed it for good, so
     // this is the first moment the queue can be honestly re-fenced — and
@@ -2360,11 +2601,14 @@ export class OrchestratorSession extends DurableObject<Env> {
       return json({ error: "Method not allowed." }, 405);
     }
     const conversationEdit = await this.activeConversationEditLock();
+    // `/turn` re-checks the lock inside its own admission critical section
+    // and answers with the turn-start contract's `conversation_locked`.
     if (
       conversationEdit &&
       url.pathname !== "/cancel" &&
       url.pathname !== "/purge" &&
-      url.pathname !== "/owner-purge-cancel"
+      url.pathname !== "/owner-purge-cancel" &&
+      url.pathname !== "/turn"
     ) {
       return json(
         {
@@ -2641,134 +2885,246 @@ export class OrchestratorSession extends DurableObject<Env> {
       return await this.cancelExactChatTurn(cancellation);
     }
     if (url.pathname !== "/turn") return json({ error: "Not found." }, 404);
-    const turn = (await request.json()) as ChatTurnRequest;
-    const ownerGeneration = turn.ownerGeneration?.trim();
-    if (!ownerGeneration || !/^\S{1,512}$/.test(ownerGeneration)) {
-      return json({ error: "ownerGeneration required" }, 400);
-    }
-    turn.ownerGeneration = ownerGeneration;
-    if (turn.agentThreadControl !== undefined) {
-      const control = normalizeCloudAgentControlReceipt(
-        turn.agentThreadControl,
+    return await this.handleTurnStart(request);
+  }
+
+  /**
+   * Turn admission. The Worker has verified the caller and stamped the
+   * trusted identity headers; everything else is decided here, in this
+   * order: request shape, service-only fields, ownership (adopting a fresh
+   * conversation), idempotency on `clientMsgId`, the owner gate, the
+   * execution, then the durable admission intent, the owner fence, and the
+   * queued turn — with the projections Convex needs going out last.
+   */
+  private async handleTurnStart(request: Request): Promise<Response> {
+    // These headers are trustable because a Durable Object namespace is not
+    // publicly addressable: only the Worker can produce this request, and it
+    // strips any client-supplied x-stella-* before forwarding.
+    const ownerId = request.headers.get(HEADER_OWNER)?.trim() ?? "";
+    const authKind = request.headers.get(HEADER_TURN_AUTH_KIND)?.trim() ?? "";
+    if (!ownerId || (authKind !== "user" && authKind !== "service")) {
+      return turnStartErrorResponse(
+        "unauthorized",
+        "Sign in to send messages.",
+        false,
       );
-      if (!control || turn.source !== "agent-thread") {
-        return json({ error: "Invalid cloud agent control receipt." }, 400);
-      }
-      turn.agentThreadControl = control;
     }
-    // These fields are issued only by this DO. A caller cannot choose queue
-    // order or replay an owner-purge lease from a previous admission.
-    delete turn.queuedAt;
-    delete turn.ownerPurgeGeneration;
-    delete turn.ownerPurgeLeaseId;
+    const expectedGeneration =
+      authKind === "service"
+        ? normalizeOwnerGeneration(
+            request.headers.get(TURN_OWNER_GENERATION_HEADER),
+          )
+        : null;
+    if (authKind === "service" && !expectedGeneration) {
+      return turnStartErrorResponse(
+        "bad_request",
+        `Service callers must send ${TURN_OWNER_GENERATION_HEADER}.`,
+        false,
+      );
+    }
+    const parsed = parseCloudTurnStartRequest(
+      await request.json().catch(() => null),
+    );
+    if (!parsed.ok) {
+      return turnStartErrorResponse("bad_request", parsed.message, false);
+    }
+    const start = parsed.request;
+    if (authKind === "user") {
+      const restricted = serviceOnlyTurnFields(start);
+      if (restricted.length > 0) {
+        return turnStartErrorResponse(
+          "forbidden",
+          `${restricted.join(", ")} require service authentication.`,
+          false,
+        );
+      }
+    }
+    const lane: CloudTurnLane = start.lane ?? "chat";
+    if ((lane === "wake") !== (start.agentThreadControl !== undefined)) {
+      return turnStartErrorResponse(
+        "bad_request",
+        "wake turns carry agentThreadControl; other lanes must not.",
+        false,
+      );
+    }
+    if (this.purged()) {
+      return turnStartErrorResponse(
+        "owner_purged",
+        "This conversation was deleted.",
+        false,
+      );
+    }
+    const conversationId = this.conversationId();
     const admissionFingerprint = await sha256Hex(
-      chatTurnFingerprintSource(turn),
+      chatTurnFingerprintSource(ownerId, conversationId, start),
     );
     return await this.withTurnAdmissionLock(async () => {
-      const [receipt, queued, current] = await Promise.all([
-        this.ctx.storage.get<ChatTurnAdmissionReceipt>(
-          chatTurnAdmissionKey(turn.turnId),
-        ),
-        this.ctx.storage.get<ChatTurnRequest>(`queued:${turn.turnId}`),
-        this.ctx.storage.get<ChatTurnRequest>("turn"),
-      ]);
-      let admissionIntent: ChatTurnAdmissionReceipt | undefined;
-      if (receipt) {
-        if (receipt.fingerprint !== admissionFingerprint) {
-          return json(
-            {
-              code: "idempotency_conflict",
-              message: "That turn id was already used for a different turn.",
-            },
-            409,
-          );
-        }
-        if (isLegacyAcceptedChatTurnReceipt(receipt)) {
-          return json({ accepted: true, replayed: true }, 202);
-        }
-        if (
-          !isDurableChatTurnAdmissionIntent(receipt) ||
-          receipt.ownerId !== turn.ownerId ||
-          receipt.ownerGeneration !== turn.ownerGeneration ||
-          receipt.turnId !== turn.turnId
-        ) {
-          return json(
-            {
-              code: "idempotency_conflict",
-              message: "That turn id has malformed admission authority.",
-            },
-            409,
-          );
-        }
-        if (receipt.phase === "accepted") {
-          return json({ accepted: true, replayed: true }, 202);
-        }
-        // The intent is keyed only by turn id, so even an owner-generation
-        // ABA retry reaches this exact identity before it can derive another
-        // generation-scoped run slot or mint a second owner-fence lease.
-        turn.ownerPurgeLeaseId = receipt.leaseId;
-        turn.queuedAt = receipt.queuedAt;
-        admissionIntent = receipt;
-      }
-
-      // Rolling-deploy compatibility: turns accepted before the admission
-      // receipt existed are still classified from their exact durable request.
-      // Check both sides of the queued -> current swap because a crash may
-      // leave the same turn visible in both records.
-      const legacyMatches = [queued, current].filter(
-        (candidate): candidate is ChatTurnRequest =>
-          candidate?.turnId === turn.turnId,
-      );
-      if (!admissionIntent && legacyMatches.length > 0) {
-        const legacyFingerprints = await Promise.all(
-          legacyMatches.map((candidate) =>
-            sha256Hex(chatTurnFingerprintSource(candidate)),
-          ),
+      const boundOwner = this.journal.meta().owner_id;
+      if (boundOwner && boundOwner !== ownerId) {
+        return turnStartErrorResponse(
+          "owner_mismatch",
+          "That conversation belongs to another account.",
+          false,
         );
-        if (
-          legacyFingerprints.some(
-            (fingerprint) => fingerprint !== admissionFingerprint,
-          )
-        ) {
-          return json(
-            {
-              code: "idempotency_conflict",
-              message: "That turn id was already used for a different turn.",
-            },
-            409,
+      }
+      const receiptKey = chatTurnAdmissionKey(start.clientMsgId);
+      const stored =
+        await this.ctx.storage.get<Partial<ChatTurnAdmissionReceipt>>(
+          receiptKey,
+        );
+      let receipt: ChatTurnAdmissionReceipt | undefined;
+      if (stored) {
+        if (stored.fingerprint !== admissionFingerprint) {
+          return turnStartErrorResponse(
+            "idempotency_conflict",
+            "That message id was already used for a different message.",
+            false,
           );
         }
-        await this.ctx.storage.put(chatTurnAdmissionKey(turn.turnId), {
-          fingerprint: admissionFingerprint,
-          acceptedAt: legacyMatches[0]?.queuedAt ?? Date.now(),
-        } satisfies ChatTurnAdmissionReceipt);
-        return json({ accepted: true, replayed: true }, 202);
+        if (
+          !isDurableChatTurnAdmissionIntent(stored) ||
+          stored.ownerId !== ownerId
+        ) {
+          return turnStartErrorResponse(
+            "idempotency_conflict",
+            "That message id has malformed admission authority.",
+            false,
+          );
+        }
+        if (stored.phase === "accepted") {
+          return json(
+            {
+              protocol: TURN_PLANE_PROTOCOL,
+              conversationId,
+              turnId: stored.turnId,
+              accepted: true,
+              replayed: true,
+              createdConversation: stored.createdConversation,
+            } satisfies CloudTurnStartResponse,
+            202,
+          );
+        }
+        // The intent is keyed by clientMsgId, so a retry after a lost
+        // response reaches this exact identity before it can mint a second
+        // turn id or owner-fence lease.
+        receipt = stored;
+      }
+      const turnId = receipt?.turnId ?? crypto.randomUUID();
+      const leaseId = receipt?.leaseId ?? crypto.randomUUID();
+      const queuedAt = receipt?.queuedAt ?? Date.now();
+
+      const admission = await this.ownerGateAdmit(ownerId, {
+        lane: "chat",
+        turnId,
+        conversationId,
+        ...(expectedGeneration ? { expectedGeneration } : {}),
+        // An agent-completion wake is the system finishing the user's own
+        // request; a burst window must never swallow it.
+        quota: lane === "wake" ? "bypass" : "enforce",
+      });
+      if (!admission.ok) {
+        return turnStartErrorResponse(
+          admission.code,
+          admission.message,
+          admission.retryable,
+          admission.retryAfterMs,
+        );
+      }
+      const snapshot = admission.snapshot;
+      const refuse = async (
+        code: Parameters<typeof turnStartErrorResponse>[0],
+        message: string,
+        retryable: boolean,
+      ): Promise<Response> => {
+        await this.releaseOwnerGate({ ownerId, turnId });
+        return turnStartErrorResponse(code, message, retryable);
+      };
+      const execution = start.execution ?? snapshot.execution;
+      if (!snapshotAllowsExecutionEngine(snapshot, execution.engine)) {
+        return await refuse(
+          "execution_unavailable",
+          execution.engine === "anthropic"
+            ? "Connect Claude before using that cloud execution route."
+            : "Connect ChatGPT before using that cloud execution route.",
+          false,
+        );
       }
 
-      if (!admissionIntent) {
-        const now = Date.now();
-        const leaseId = crypto.randomUUID();
-        turn.queuedAt = now;
-        turn.ownerPurgeLeaseId = leaseId;
-        admissionIntent = {
-          schemaVersion: 1,
+      // Adoption. Conversation ids are client-minted UUIDs, so the first
+      // verified caller is the client that minted the id. A socket connect
+      // may already have bound the owner; the conversation is "created" for
+      // Convex by whichever turn first projects it. Bound here, before the
+      // fence, so a crash between the two leaves an owned conversation with a
+      // `registering` intent rather than an unowned turn.
+      const now = Date.now();
+      const createdConversation =
+        receipt?.createdConversation ??
+        !(await this.ctx.storage.get<boolean>(CONVERSATION_PROJECTED_KEY));
+      if (!this.journal.meta().owner_id) {
+        this.journal.bindOwner({
+          ownerId,
+          ownerGeneration: snapshot.ownerGeneration,
+          createdAt: now,
+          title: conversationTitleFor(start),
+          conversationId,
+        });
+        log("info", "conversation_adopted", { conversationId, via: "turn" });
+      } else if (start.title || !this.journal.meta().title) {
+        // `setTitle` only fills an empty title: a socket-adopted conversation
+        // has none yet, and an explicit hint never overwrites a chosen one.
+        this.journal.setTitle(conversationTitleFor(start));
+      }
+      if (this.ownerGeneration !== snapshot.ownerGeneration) {
+        this.ownerGeneration = snapshot.ownerGeneration;
+        await this.ctx.storage.put(
+          "ownerDataGeneration",
+          snapshot.ownerGeneration,
+        );
+      }
+
+      const turn: ChatTurnRequest = {
+        kind: "chat",
+        ownerId,
+        ownerGeneration: snapshot.ownerGeneration,
+        conversationId,
+        turnId,
+        sessionId: `chat-${conversationId.slice(0, 8)}`,
+        prompt: start.prompt,
+        execution,
+        audience: snapshot.allowance.audience,
+        budgetMicroCents: snapshot.allowance.budgetMicroCents,
+        lane,
+        clientMsgId: start.clientMsgId,
+        ...(start.source ? { source: start.source } : {}),
+        ...(start.title ? { title: start.title } : {}),
+        ...(start.hiddenMessage ? { hiddenMessage: true } : {}),
+        ...(start.locale ? { locale: start.locale } : {}),
+        ...(start.attachments ? { attachments: start.attachments } : {}),
+        ...(start.agentThreadControl
+          ? { agentThreadControl: start.agentThreadControl }
+          : {}),
+        ownerPurgeLeaseId: leaseId,
+        queuedAt,
+      };
+
+      if (!receipt) {
+        receipt = {
+          schemaVersion: 2,
           fingerprint: admissionFingerprint,
-          ownerId: turn.ownerId,
-          ownerGeneration: turn.ownerGeneration,
-          turnId: turn.turnId,
+          ownerId,
+          ownerGeneration: snapshot.ownerGeneration,
+          turnId,
           leaseId,
           phase: "registering",
-          queuedAt: now,
+          createdConversation,
+          queuedAt,
           createdAt: now,
           updatedAt: now,
         };
         // Persist the full request/owner/lease binding before the external
         // register boundary. A crash at any later prequeue point can only
-        // resume this intent; changed payload or generation is a conflict.
-        await this.ctx.storage.put(
-          chatTurnAdmissionKey(turn.turnId),
-          admissionIntent,
-        );
+        // resume this intent; a changed payload is a conflict.
+        await this.ctx.storage.put(receiptKey, receipt);
       }
 
       try {
@@ -2780,35 +3136,35 @@ export class OrchestratorSession extends DurableObject<Env> {
         await this.assertOwnerTurn(turn);
       } catch (error) {
         if (error instanceof OwnerFenceLeaseConflictError) {
-          return json(
-            {
-              code: "idempotency_conflict",
-              message: "That turn id was already used for a different turn.",
-            },
-            409,
+          return await refuse(
+            "idempotency_conflict",
+            "That message id was already used for a different message.",
+            false,
           );
         }
         if (error instanceof OwnerFenceRegistrationUncertainError) {
-          return json(
-            {
-              code: "owner_fence_registration_uncertain",
-              message:
-                "Starting that turn is still being reconciled. Try again.",
-            },
-            503,
+          return await refuse(
+            "internal",
+            "Starting that turn is still being reconciled. Try again.",
+            true,
           );
         }
         await this.unregisterOwnerTurn(turn);
         if (error instanceof OwnerPurgeFenceError) {
-          return json({ error: "Owner cloud activity is being purged." }, 409);
+          return await refuse(
+            "owner_purged",
+            "This account's cloud data is being reset or deleted.",
+            false,
+          );
         }
+        await this.releaseOwnerGate({ ownerId, turnId });
         throw error;
       }
 
-      // Accept immediately and run in the background. The exact request
-      // receipt, queued turn, and owner generation commit together before the
-      // 202, so a lost response/restart can replay without registering a new
-      // owner fence or overwriting the original lease/payload.
+      // Accept and run in the background. The exact request receipt, queued
+      // turn, and owner generation commit together before the 202, so a lost
+      // response/restart can replay without registering a new owner fence or
+      // overwriting the original lease/payload.
       let heldForLocalTurn = false;
       let editConflict = false;
       await this.ctx.blockConcurrencyWhile(async () => {
@@ -2821,19 +3177,19 @@ export class OrchestratorSession extends DurableObject<Env> {
         // this same DO. Recheck inside the admission critical section so a
         // register/assert winner cannot persist after its orphan was retired.
         await this.assertOwnerFenceLeaseReceiptActive(turn);
-        if (turn.ownerPurgeLeaseId !== admissionIntent!.leaseId) {
+        if (turn.ownerPurgeLeaseId !== receipt!.leaseId) {
           throw new OwnerPurgeFenceError();
         }
-        this.ownerGeneration = turn.ownerGeneration;
         await this.ctx.storage.put({
           [`queued:${turn.turnId}`]: turn,
-          [chatTurnAdmissionKey(turn.turnId)]: {
-            ...admissionIntent,
+          [receiptKey]: {
+            ...receipt!,
             phase: "accepted",
             acceptedAt: turn.queuedAt!,
             updatedAt: Date.now(),
           } satisfies ChatTurnAdmissionReceipt,
           ownerDataGeneration: turn.ownerGeneration,
+          [CONVERSATION_PROJECTED_KEY]: true,
         });
         const localLease =
           await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
@@ -2852,17 +3208,66 @@ export class OrchestratorSession extends DurableObject<Env> {
       });
       if (editConflict) {
         await this.unregisterOwnerTurn(turn);
-        return json(
-          {
-            code: "conversation_edit_in_progress",
-            message: "This conversation is being edited. Try again shortly.",
-            retryAfterMs: 1_000,
-          },
-          409,
+        await this.releaseOwnerGate(turn);
+        return turnStartErrorResponse(
+          "conversation_locked",
+          "This conversation is being edited. Try again shortly.",
+          true,
+          1_000,
         );
       }
+
+      // Projections, after the durable commit and before the 202: the queue
+      // is durable, so once these are enqueued (or debted) Convex will learn
+      // of the conversation and the turn no matter what this isolate does next.
+      const projections: OutboxEvent[] = [];
+      if (createdConversation) {
+        const meta = this.journal.meta();
+        projections.push({
+          ...this.outboxBase(turn, conversationId),
+          kind: "conversation.created",
+          conversationId,
+          createdAt: meta.created_at > 0 ? meta.created_at : now,
+          title: meta.title,
+          execution,
+        } satisfies ConversationCreatedEvent);
+      }
+      projections.push({
+        ...this.outboxBase(turn, turnId),
+        kind: "turn.started",
+        turnId,
+        turnKind: "chat",
+        conversationId,
+        sessionId: turn.sessionId,
+        lane,
+        ...(turn.source ? { source: turn.source } : {}),
+        clientMsgId: turn.clientMsgId,
+        ...(turn.hiddenMessage ? { hidden: true } : {}),
+        ...(turn.agentThreadControl
+          ? {
+              threadId: turn.agentThreadControl.threadId,
+              attemptGeneration: turn.agentThreadControl.attemptGeneration,
+            }
+          : {}),
+        agentType: "orchestrator",
+        execution,
+        prompt: turn.prompt,
+        createdAt: queuedAt,
+      } satisfies TurnStartedEvent);
+      await this.enqueueOutboxDurable(projections);
+
       if (!heldForLocalTurn) this.enqueue(turn);
-      return json({ accepted: true, replayed: false }, 202);
+      return json(
+        {
+          protocol: TURN_PLANE_PROTOCOL,
+          conversationId,
+          turnId,
+          accepted: true,
+          replayed: false,
+          createdConversation,
+        } satisfies CloudTurnStartResponse,
+        202,
+      );
     });
   }
 
@@ -2953,7 +3358,6 @@ export class OrchestratorSession extends DurableObject<Env> {
       const currentOwnerId = this.journal.ownerId();
       if (currentOwnerId === body.toOwnerId) {
         this.ownerGeneration = body.toOwnerGeneration;
-        this.ownerLookup = null;
         await this.ctx.storage.put(
           "ownerDataGeneration",
           body.toOwnerGeneration,
@@ -3058,7 +3462,6 @@ export class OrchestratorSession extends DurableObject<Env> {
       );
     }
     this.ownerGeneration = body.toOwnerGeneration;
-    this.ownerLookup = null;
     await this.ctx.storage.put("ownerDataGeneration", body.toOwnerGeneration);
     await this.ctx.storage.delete(OWNER_TRANSFER_KEY);
     log("info", "conversation_owner_transferred", {
@@ -3083,18 +3486,19 @@ export class OrchestratorSession extends DurableObject<Env> {
   ): Promise<Response> {
     try {
       const now = Date.now();
+      const owed: OwedTerminal = {
+        kind: "canceled",
+        message: TERMINAL_NOTICE.canceled,
+        eventSeq: await this.nextTurnEventSeq(turn.turnId),
+      };
       await this.ctx.storage.put({
         turn,
         terminal: true,
         terminalDelivered: false,
-        terminalOwed: {
-          kind: "canceled",
-          message: TERMINAL_NOTICE.canceled,
-        } satisfies OwedTerminal,
+        terminalOwed: owed,
         alarmAttempts: 0,
       });
       await this.ctx.storage.delete(`queued:${turn.turnId}`);
-      this.convexBase = turn.convexCallbackBase;
       this.ownerGeneration = turn.ownerGeneration;
       this.bindConversation(turn);
       this.journal.upsertTurn({
@@ -3126,12 +3530,15 @@ export class OrchestratorSession extends DurableObject<Env> {
       this.publish(prompt.record);
       this.recordTerminal(turn, "canceled", TERMINAL_NOTICE.canceled);
       try {
-        await this.event(
+        await this.emitTurnEvent(
           turn,
-          "auto",
           "canceled",
           { message: TERMINAL_NOTICE.canceled },
-          true,
+          {
+            terminal: true,
+            eventSeq: owed.eventSeq,
+            errorMessage: TERMINAL_NOTICE.canceled,
+          },
         );
         await this.ctx.storage.put("terminalDelivered", true);
       } catch {
@@ -3148,6 +3555,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       return json({ ok: false, canceled: true, preAdmission: true });
     } finally {
       await this.unregisterOwnerTurn(turn);
+      await this.releaseOwnerGate(turn);
     }
   }
 
@@ -3189,6 +3597,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     } catch (error) {
       await this.ctx.storage.delete(`queued:${turn.turnId}`);
       await this.unregisterOwnerTurn(turn);
+      await this.releaseOwnerGate(turn);
       if (error instanceof OwnerPurgeFenceError) {
         log("info", "chat_turn_dropped_owner_purge", {
           turnId: turn.turnId,
@@ -3198,12 +3607,13 @@ export class OrchestratorSession extends DurableObject<Env> {
       }
       throw error;
     }
-    // A dispatch that raced the deletion of its own conversation. Running it
+    // A turn that raced the deletion of its own conversation. Running it
     // would rebuild the transcript the purge just destroyed, in an object no
     // later purge will visit.
     if (this.purged()) {
       await this.ctx.storage.delete(`queued:${turn.turnId}`);
       await this.unregisterOwnerTurn(turn);
+      await this.releaseOwnerGate(turn);
       log("info", "chat_turn_dropped_deleted", { turnId: turn.turnId });
       return json({ ok: false, deleted: true });
     }
@@ -3217,6 +3627,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       log("info", "chat_turn_duplicate_ignored", { turnId: turn.turnId });
       await this.ctx.storage.delete(`queued:${turn.turnId}`);
       await this.unregisterOwnerTurn(turn);
+      await this.releaseOwnerGate(turn);
       return json({ ok: false, duplicate: true });
     }
     // A prior turn that never delivered its terminal event (isolate restart
@@ -3227,19 +3638,16 @@ export class OrchestratorSession extends DurableObject<Env> {
       stale.turnId !== turn.turnId &&
       !(await this.ctx.storage.get<boolean>("terminalDelivered"))
     ) {
-      await this.event(
+      const interrupted = "Stella was interrupted answering this. Try again.";
+      await this.emitTurnEvent(
         stale,
-        "auto",
         "failed",
-        { message: "Stella was interrupted answering this. Try again." },
-        true,
+        { message: interrupted },
+        { terminal: true, errorMessage: interrupted },
       ).catch(() => undefined);
+      await this.releaseOwnerGate(stale);
       // Additive: the same terminal fact, in the transcript the clients read.
-      this.recordTerminal(
-        stale,
-        "failed",
-        "Stella was interrupted answering this. Try again.",
-      );
+      this.recordTerminal(stale, "failed", interrupted);
       // The interrupted turn's rows are real content and this is the last
       // moment anything knows they belong to a finished turn. Only the excerpt
       // is built here: the flush, the drain and rollover all belong to a turn
@@ -3254,8 +3662,8 @@ export class OrchestratorSession extends DurableObject<Env> {
     // costs a re-run of a turn that has produced nothing yet.
     //
     // The stale-turn recovery above deliberately sits outside the window: it
-    // blocks on a Convex round trip of up to 30 s, and it needs the previous
-    // turn to still be under `turn` in order to recover it at all.
+    // yields on the outbox send, and it needs the previous turn to still be
+    // under `turn` in order to recover it at all.
     let preCanceled: ExactTurnCancellation | null = null;
     await this.ctx.blockConcurrencyWhile(async () => {
       // This check and the queued -> current swap share the same critical
@@ -3279,7 +3687,6 @@ export class OrchestratorSession extends DurableObject<Env> {
     if (preCanceled) {
       return await this.finishPreCanceledTurn(turn, preCanceled);
     }
-    this.convexBase = turn.convexCallbackBase;
     this.ownerGeneration = turn.ownerGeneration;
     this.journal.upsertTurn({
       turnId: turn.turnId,
@@ -3323,15 +3730,31 @@ export class OrchestratorSession extends DurableObject<Env> {
       await this.assertOwnerTurn(turn);
       await assertExactTurnActive();
       this.activeTurnId = turn.turnId;
-      // Binding is safe from a turn dispatch and only from a turn dispatch:
-      // Convex resolved the conversation and checked ownership before it minted
-      // the turn token. A socket connector is never trusted this way — see
-      // lookupOwner().
+      // Admission already bound the owner; this only re-asserts it and sets
+      // the title on a turn that carried one.
       this.bindConversation(turn);
-      await this.event(turn, "auto", "started", {}, false, executionSignal);
+      await this.emitTurnEvent(turn, "started", {});
       await assertExactTurnActive();
 
-      const base = turn.convexCallbackBase.replace(/\/+$/, "");
+      const base = (this.env.STELLA_CONVEX_SITE_URL ?? "")
+        .trim()
+        .replace(/\/+$/, "");
+      if (!base) throw new Error("Convex site URL is not configured.");
+      // Both capabilities, minted before any callback: the control-plane one
+      // is the bearer for every synchronous Convex route this turn touches
+      // (agent home, attachments, search, recall, schedules, integrations),
+      // the model one is the only credential the model gateway ever sees.
+      const capabilities = await mintTurnCapabilities(this.env, {
+        ownerId: turn.ownerId,
+        ownerGeneration: turn.ownerGeneration,
+        turnId: turn.turnId,
+        conversationId: turn.conversationId,
+        execution: turn.execution,
+        audience: turn.audience,
+        budgetMicroCents: turn.budgetMicroCents,
+        agentTypes: ["orchestrator"],
+      });
+      await assertExactTurnActive();
 
       // Repair BEFORE the prompt row exists. An eviction, a cancel or a
       // watchdog abort can leave the tail as an assistant message with
@@ -3408,7 +3831,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         turn.ownerGeneration,
         {
           base,
-          serviceSecret: this.env.BUILDER_SERVICE_SECRET,
+          bearer: capabilities.controlPlane.token,
           ownerGeneration: turn.ownerGeneration,
           // The orchestrator turn holds this activity lease until its terminal
           // finally block. Reassert it immediately before each R2 PUT so reset
@@ -3456,7 +3879,12 @@ export class OrchestratorSession extends DurableObject<Env> {
         this.resolveTurnLocale(turn, () =>
           assertTurnExecutionActive(turnCancellation, executionSignal),
         ),
-        this.loadChatAttachmentImages(base, turn, executionSignal),
+        this.loadChatAttachmentImages(
+          base,
+          turn,
+          capabilities.controlPlane,
+          executionSignal,
+        ),
         requireCloudContext(
           "skill_catalog",
           agentHome.loadSkillCatalog("orchestrator"),
@@ -3508,15 +3936,21 @@ export class OrchestratorSession extends DurableObject<Env> {
         throw error;
       }
 
-      const executionSelection =
-        turn.execution ?? LEGACY_UNBOUND_CLOUD_EXECUTION;
+      const executionSelection = turn.execution;
       await assertExactTurnActive();
+      const modelGatewayOrigin = this.env.MODEL_GATEWAY_URL?.trim() ?? "";
+      const modelGateway = this.env.MODEL_GATEWAY;
+      if (!modelGatewayOrigin || !modelGateway) {
+        throw new Error("Model gateway is not configured.");
+      }
+      const turnCapability = capabilities.model;
       const model = await createCloudRelayModel({
-        siteUrl: base,
-        turnToken: turn.turnToken,
+        gatewayOrigin: modelGatewayOrigin,
+        capability: turnCapability.token,
         agentType: "orchestrator",
         execution: executionSelection,
         signal: executionSignal,
+        fetch: (input, init) => modelGateway.fetch(input, init),
       });
       await assertExactTurnActive();
       // No await is allowed between this local latch and constructing the
@@ -3540,11 +3974,17 @@ export class OrchestratorSession extends DurableObject<Env> {
             model,
             executionSelection.reasoningEffort,
           ),
-          tools: this.createTools(turn, agentHome, skillCatalog, memoryEnabled),
+          tools: this.createTools(
+            turn,
+            agentHome,
+            skillCatalog,
+            memoryEnabled,
+            capabilities.controlPlane,
+          ),
           messages: history,
         },
         sessionId: turn.conversationId,
-        getApiKey: () => turn.turnToken,
+        getApiKey: () => turnCapability.token,
         toolExecution: "sequential",
         toolInactivityTimeoutMs: 60_000,
         // Re-prune and strip stale images before EVERY provider call, exactly
@@ -3695,22 +4135,27 @@ export class OrchestratorSession extends DurableObject<Env> {
       // firing mid-delivery declared a finished turn timed out, and clients
       // group on the last row per turn — so the user saw "timed out" over a
       // reply that had actually arrived.
+      const completedOwed: OwedTerminal = {
+        kind: "completed",
+        message: "",
+        payload: { text: finalText, wallClockMs },
+        eventSeq: await this.nextTurnEventSeq(turn.turnId),
+      };
       await this.ctx.storage.put({
         terminal: true,
-        terminalOwed: {
-          kind: "completed",
-          message: "",
-          payload: { text: finalText, wallClockMs },
-        } satisfies OwedTerminal,
+        terminalOwed: completedOwed,
       });
       this.recordTerminal(turn, "completed", undefined, wallClockMs);
       try {
-        await this.event(
+        await this.emitTurnEvent(
           turn,
-          "auto",
           "completed",
           { text: finalText, wallClockMs },
-          true,
+          {
+            terminal: true,
+            eventSeq: completedOwed.eventSeq,
+            resultJson: JSON.stringify({ finalText }),
+          },
         );
         await this.ctx.storage.put("terminalDelivered", true);
       } catch {
@@ -3781,21 +4226,24 @@ export class OrchestratorSession extends DurableObject<Env> {
         // Same pairing as `/cancel`: the alarm retries what is owed, so what
         // is owed becomes durable in the same write that says a terminal was
         // reached at all.
-        await this.ctx.storage.put({
-          terminal: true,
-          terminalOwed: {
-            kind: "failed",
-            message: terminalNotice,
-            payload: terminalPayload,
-          } satisfies OwedTerminal,
-        });
+        const failedOwed: OwedTerminal = {
+          kind: "failed",
+          message: terminalNotice,
+          payload: terminalPayload,
+          eventSeq: await this.nextTurnEventSeq(turn.turnId),
+        };
+        await this.ctx.storage.put({ terminal: true, terminalOwed: failedOwed });
         // The raw message is often a provider error blob or infrastructure
         // detail; it belongs in logs, never in the user's chat bubble — and
         // never in a frame either. `ref` in the socket's error frame is the
         // correlation key back to this log line.
         this.recordTerminal(turn, "failed", terminalNotice);
         try {
-          await this.event(turn, "auto", "failed", terminalPayload, true);
+          await this.emitTurnEvent(turn, "failed", terminalPayload, {
+            terminal: true,
+            eventSeq: failedOwed.eventSeq,
+            errorMessage: terminalNotice,
+          });
           await this.ctx.storage.put("terminalDelivered", true);
         } catch {
           // Delivery failed; the re-armed alarm retries so the turn cannot
@@ -3829,6 +4277,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         this.currentTurnCancellation = undefined;
       }
       await this.unregisterOwnerTurn(turn);
+      await this.releaseOwnerGate(turn);
     }
   }
 
@@ -3875,13 +4324,14 @@ export class OrchestratorSession extends DurableObject<Env> {
 
   /**
    * Hydrate the turn's attached drive images into image content blocks.
-   * Turn-token scoped: the route only signs images the token's owner holds,
-   * image-typed and size-capped. Failure of any piece degrades to a turn
-   * without pixels — the prompt text still names the paths.
+   * Capability scoped: the route only signs images the capability's owner
+   * holds, image-typed and size-capped. Failure of any piece degrades to a
+   * turn without pixels — the prompt text still names the paths.
    */
   private async loadChatAttachmentImages(
     base: string,
     turn: ChatTurnRequest,
+    controlPlane: Pick<MintedTurnCapability, "token">,
     signal?: AbortSignal,
   ): Promise<ImageContent[]> {
     const paths = (turn.attachments ?? []).slice(0, 4);
@@ -3894,7 +4344,7 @@ export class OrchestratorSession extends DurableObject<Env> {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            "x-stella-turn-token": turn.turnToken,
+            authorization: `Bearer ${controlPlane.token}`,
           },
           body: JSON.stringify({ turnId: turn.turnId, paths }),
           signal: signal
@@ -3984,7 +4434,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       this.journal.bindOwner({
         ownerId: turn.ownerId,
         ownerGeneration: turn.ownerGeneration,
-        createdAt: turn.conversationCreatedAt ?? Date.now(),
+        createdAt: turn.queuedAt ?? Date.now(),
         title: turn.title ?? "",
         conversationId: turn.conversationId,
       });
@@ -5696,15 +6146,16 @@ export class OrchestratorSession extends DurableObject<Env> {
         410,
       );
     }
-    // A new local turn is a new write capability, so it must refresh Convex's
-    // generation even when this DO already has an owner cached. Renewal of an
-    // admitted exact lease keeps the generation that lease was fenced with.
+    // A new local turn is a new write capability, so it must refresh the
+    // owner generation even when this DO already has one cached. Renewal of
+    // an admitted exact lease keeps the generation that lease was fenced with.
     const isNewAdmission = suppliedLeaseToken === undefined;
-    const ownerRecord = await this.lookupOwner(isNewAdmission);
-    // A forced refresh returning null is an authoritative refusal (for
-    // example, Convex returned 404 or an invalid owner payload). Cached DO
-    // owner/generation fields must never turn that refusal into a new write
-    // capability. Exact renewals instead remain bound to their admitted lease.
+    const ownerRecord = await this.resolveOwnerForCaller(identity, {
+      refreshGeneration: isNewAdmission,
+    });
+    // A refused resolution (not the owner, owner not writable) must never be
+    // turned into a new write capability by cached DO fields. Exact renewals
+    // instead remain bound to their admitted lease.
     if (isNewAdmission && !ownerRecord) {
       return json({ error: "Conversation not found." }, 404);
     }
@@ -6954,10 +7405,13 @@ export class OrchestratorSession extends DurableObject<Env> {
     ) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
-    const ownerRecord = await this.lookupOwner(true);
-    // Voice append is a fresh owner write. A definite missing/invalid Convex
-    // owner response must not fall back to the DO's cached binding or cached
-    // lifecycle generation, including on idempotent receipt replay.
+    const ownerRecord = await this.resolveOwnerForCaller(
+      { ownerId },
+      { refreshGeneration: true },
+    );
+    // Voice append is a fresh owner write. A refused resolution must not fall
+    // back to the DO's cached binding or cached lifecycle generation,
+    // including on idempotent receipt replay.
     if (!ownerRecord) {
       return json({ error: "Conversation not found." }, 404);
     }
@@ -7379,12 +7833,14 @@ export class OrchestratorSession extends DurableObject<Env> {
     }
     // A build- or operation-only conversation reaches this handler having never
     // run an orchestrator turn, so `meta.owner_id` is still empty and an index
-    // flush would be a no-op. Bind first: without it the row keeps `lastSeq`
-    // null and the orphan sweep eventually deletes a conversation that has real
-    // content. Failure is not fatal — the card still lands and the next socket
-    // connect binds and flushes.
+    // flush would be a no-op. Bind first (the caller is Convex, behind the
+    // service secret): without it the row keeps `lastSeq` null and the orphan
+    // sweep eventually deletes a conversation that has real content.
     try {
-      const owner = await this.lookupOwner(true);
+      const owner = await this.resolveOwnerForCaller(
+        { ownerId },
+        { refreshGeneration: true },
+      );
       if (
         !owner ||
         owner.ownerId !== ownerId ||
@@ -7493,6 +7949,9 @@ export class OrchestratorSession extends DurableObject<Env> {
    */
   private async handlePurge(): Promise<Response> {
     const now = Date.now();
+    // Read before anything is destroyed: the deletion projection needs the
+    // owner this object belonged to, and `deleteAll()` takes that with it.
+    const identity = this.indexIdentity();
     this.journal.markDeleted(now);
     this.sealed = true;
     this.archive.seal();
@@ -7540,9 +7999,15 @@ export class OrchestratorSession extends DurableObject<Env> {
     // The alarm goes with it rather than being left to `deleteAll()`: nothing
     // is queued any more, so there is no wake to guarantee, and an alarm
     // surviving here wakes a destroyed conversation on a timer for no work.
+    const dropped: ChatTurnRequest[] = [];
     await this.ctx.blockConcurrencyWhile(async () => {
-      const stragglers = await this.ctx.storage.list({ prefix: "queued:" });
-      for (const key of stragglers.keys()) await this.ctx.storage.delete(key);
+      const stragglers = await this.ctx.storage.list<ChatTurnRequest>({
+        prefix: "queued:",
+      });
+      for (const [key, straggler] of stragglers) {
+        dropped.push(straggler);
+        await this.ctx.storage.delete(key);
+      }
       await this.ctx.storage.deleteAlarm();
       if (stragglers.size > 0) {
         log("info", "conversation_purge_dropped_queued", {
@@ -7551,17 +8016,31 @@ export class OrchestratorSession extends DurableObject<Env> {
         });
       }
     });
+    for (const straggler of dropped) await this.releaseOwnerGate(straggler);
     // `deleteAll()` drops the tables, but THIS instance keeps serving: its
     // `Journal` was bootstrapped in the constructor and every method still
     // issues SQL. Without re-running the DDL the next request to reach this
     // object — a stale tab's socket upgrade, the dev probe, a retried sweep —
     // dies on `no such table: segments` and the worker answers 500 until the
     // platform happens to evict the object. Re-bootstrapping leaves an empty,
-    // unbound journal, which is what turns those requests back into the
-    // refusal they are supposed to be: `lookupOwner` finds no Convex row and
-    // the socket closes 4404 "That conversation no longer exists."
+    // unbound journal; the in-memory seal is what keeps a stale tab from
+    // adopting it, and the socket closes 4404 "That conversation no longer
+    // exists."
     await this.journal.bootstrap();
     if (this.ctx.id.name) this.journal.setConversationId(this.ctx.id.name);
+    if (identity) {
+      // After the wipe, best-effort: Convex's own purge already tombstoned
+      // the row before calling here; this closes the loop for a purge that
+      // started on this side.
+      await this.enqueueOutboxDurable([
+        {
+          ...this.outboxBase(identity, purgedId),
+          kind: "conversation.deleted",
+          conversationId: purgedId,
+          deletedAt: now,
+        } satisfies ConversationDeletedEvent,
+      ]).catch(() => undefined);
+    }
     log("info", "conversation_purged", { conversationId: purgedId });
     return json({ purged: true });
   }
@@ -7730,8 +8209,8 @@ export class OrchestratorSession extends DurableObject<Env> {
       expected === "any"
         ? true
         : expected === "running"
-          ? receipt.status === "running"
-          : receipt.status !== "running";
+          ? isCloudAgentControlActive(receipt.status)
+          : !isCloudAgentControlActive(receipt.status);
     if (!statusMatches) {
       throw new Error(
         expected === "running"
@@ -7771,61 +8250,187 @@ export class OrchestratorSession extends DurableObject<Env> {
     agentHome: AgentHome,
     skillCatalog: CloudSkillCatalogSnapshot,
     memoryEnabled: boolean,
+    controlPlane: Pick<MintedTurnCapability, "token">,
   ): AgentTool[] {
-    const base = turn.convexCallbackBase;
     const toolContext = {
       ownerId: turn.ownerId,
       ownerGeneration: turn.ownerGeneration,
       conversationId: turn.conversationId,
       agentHome,
       post: (path: string, body: unknown, signal?: AbortSignal) =>
-        this.convexPost(base, path, body, turn.ownerGeneration, {
-          turnToken: turn.turnToken,
+        this.convexPost(path, body, {
+          capability: controlPlane.token,
           ...(signal ? { signal } : {}),
         }),
     };
-    const spawn = async (
-      body: Record<string, unknown>,
+
+    /**
+     * A deterministic id for one tool call, UUID-shaped so it can name a
+     * Durable Object and travel wherever a turn id does. Deterministic on
+     * purpose: a retried tool call after a lost response reaches the same
+     * BuildSession with the same turn id, and both the gate and the session
+     * classify it as a replay instead of admitting a second agent.
+     */
+    const toolScopedId = async (
+      purpose: "thread" | "turn",
       toolCallId: string,
+    ): Promise<string> => {
+      const hex = await sha256Hex(
+        `cloud-agent\0${purpose}\0${turn.ownerGeneration}\0${turn.turnId}\0${toolCallId}`,
+      );
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+    };
+
+    /**
+     * Dispatch one agent attempt straight to its BuildSession. Admission is
+     * the owner gate's (agent lane, one running agent per owner world); the
+     * BuildSession mints its own capabilities from the owner id, generation,
+     * audience and budget carried here — the parent's control-plane
+     * capability is never shared with it.
+     */
+    const dispatchAgentTurn = async (
+      args: {
+        threadId: string;
+        attemptGeneration: number;
+        turnId: string;
+        clientMsgId: string;
+        description: string;
+        prompt: string;
+        execution: CloudExecutionSelection;
+      },
       signal?: AbortSignal,
     ): Promise<CloudAgentControlReceipt> => {
-      const clientMsgId = await sha256Hex(
-        `cloud-spawn\0${turn.ownerGeneration}\0${turn.turnId}\0${toolCallId}`,
-      );
-      const response = await this.convexPost(
-        base,
-        "/api/cloud/spawn",
+      const admission = await this.ownerGateAdmit(turn.ownerId, {
+        lane: "agent",
+        turnId: args.turnId,
+        conversationId: turn.conversationId,
+        workspace: OWNER_WORLD_WORKSPACE,
+        expectedGeneration: turn.ownerGeneration,
+      });
+      if (!admission.ok) throw new Error(admission.message);
+      const release = () =>
+        this.releaseOwnerGate({ ownerId: turn.ownerId, turnId: args.turnId });
+      if (
+        !snapshotAllowsExecutionEngine(admission.snapshot, args.execution.engine)
+      ) {
+        await release();
+        throw new Error(
+          args.execution.engine === "anthropic"
+            ? "Connect Claude before using that cloud execution route."
+            : "Connect ChatGPT before using that cloud execution route.",
+        );
+      }
+      const publicOrigin = (this.env.CLOUD_BUILDER_PUBLIC_URL ?? "")
+        .trim()
+        .replace(/\/+$/, "");
+      if (!publicOrigin) {
+        await release();
+        throw new Error(
+          "Cloud agents are unavailable: the builder's public origin is not configured.",
+        );
+      }
+      const now = Date.now();
+      // The same shape Convex sends for a desktop-dispatched agent, so the
+      // BuildSession has one admission path. The turn id is pinned so a
+      // retried tool call replays against the same attempt.
+      const payload: CloudAgentTurnStartRequest = {
+        protocol: TURN_PLANE_PROTOCOL,
+        kind: "agent",
+        ownerId: turn.ownerId,
+        ownerGeneration: turn.ownerGeneration,
+        conversationId: turn.conversationId,
+        threadId: args.threadId,
+        attemptGeneration: args.attemptGeneration,
+        turnId: args.turnId,
+        prompt: args.prompt,
+        description: args.description,
+        execution: args.execution,
+        audience: admission.snapshot.allowance.audience,
+        budgetMicroCents: admission.snapshot.allowance.budgetMicroCents,
+        source: "agent-thread",
+        clientMsgId: args.clientMsgId,
+        parentTurnId: turn.turnId,
+      };
+      let response: Response;
+      try {
+        response = await this.env.BUILD_SESSIONS.getByName(args.threadId).fetch(
+          "https://build-session/turn",
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-stella-build-session-name": args.threadId,
+              "x-stella-turn-broker-endpoint": `${publicOrigin}/sessions/${encodeURIComponent(args.threadId)}/turn-broker`,
+              // This dispatch already holds the owner gate admission taken
+              // above, and releases it on every failure below. Without this
+              // the BuildSession would admit the same turn a second time.
+              [HEADER_GATE_ADMITTED]: "1",
+            },
+            body: JSON.stringify(payload),
+            ...(signal ? { signal } : {}),
+          },
+        );
+      } catch (error) {
+        await release();
+        throw new Error(
+          `Spawning the agent failed: ${errorMessage(error)}`.slice(0, 400),
+        );
+      }
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: unknown;
+          message?: unknown;
+        };
+        await release();
+        const detail =
+          typeof body.error === "string"
+            ? body.error
+            : typeof body.message === "string"
+              ? body.message
+              : `Spawning the agent failed (${response.status}).`;
+        throw new Error(detail);
+      }
+      // The session answers with the attempt it admitted; a pinned turn id
+      // must come back unchanged, and a replay must name the same attempt.
+      const accepted = (await response
+        .json()
+        .catch(() => null)) as Partial<CloudAgentTurnStartResponse> | null;
+      if (
+        accepted &&
+        ((typeof accepted.turnId === "string" &&
+          accepted.turnId !== args.turnId) ||
+          (typeof accepted.attemptGeneration === "number" &&
+            accepted.attemptGeneration !== args.attemptGeneration))
+      ) {
+        await release();
+        throw new Error(
+          `${args.threadId} was continued while this request was in flight. Refresh its status and try again.`,
+        );
+      }
+      await this.enqueueOutboxDurable([
         {
-          ownerId: turn.ownerId,
+          ...this.outboxBase(turn, `${args.threadId}:${args.attemptGeneration}`),
+          kind: "thread.spawned",
+          threadId: args.threadId,
           conversationId: turn.conversationId,
           parentTurnId: turn.turnId,
-          clientMsgId,
-          ...body,
-        },
-        turn.ownerGeneration,
-        { turnToken: turn.turnToken, ...(signal ? { signal } : {}) },
-      );
-      const payload = (await response.json()) as {
-        ok?: boolean;
-        threadId?: string;
-        attemptGeneration?: number;
-        threadUpdatedAt?: number;
-        status?: string;
-        error?: string;
+          attemptGeneration: args.attemptGeneration,
+          description: args.description,
+          prompt: args.prompt,
+          execution: args.execution,
+          placement: "cloud",
+          workspace: OWNER_WORLD_WORKSPACE,
+          createdAt: now,
+        } satisfies ThreadSpawnedEvent,
+      ]);
+      return {
+        threadId: args.threadId,
+        attemptGeneration: args.attemptGeneration,
+        threadUpdatedAt: now,
+        status: "running",
+        turnId: args.turnId,
+        execution: args.execution,
       };
-      if (!response.ok || payload.ok !== true || !payload.threadId) {
-        throw new Error(payload.error ?? "Spawning the agent failed.");
-      }
-      const control = normalizeCloudAgentControlReceipt({
-        threadId: payload.threadId,
-        attemptGeneration: payload.attemptGeneration,
-        threadUpdatedAt: payload.threadUpdatedAt,
-        status: payload.status,
-      });
-      if (!control) {
-        throw new Error("Cloud agent returned an invalid control receipt.");
-      }
-      return control;
     };
 
     const toolFingerprint = async (
@@ -7878,11 +8483,9 @@ export class OrchestratorSession extends DurableObject<Env> {
             model?: string;
           };
           const model = args.model?.trim();
-          if (model && model !== "default" && !isValidCloudSpawnModel(model)) {
-            throw new Error(
-              'Cloud spawn model must be "claude[/model]", "codex[/model]", or a canonical "stella/..." model, optionally followed by :low, :medium, :high, or :xhigh.',
-            );
-          }
+          // Parsed before the replay read so an invalid override fails the
+          // same way every time, without consulting the ledger.
+          const execution = resolveCloudSpawnExecution(model, turn.execution);
           const fingerprint = await toolFingerprint("spawn_agent", {
             description: args.description,
             prompt: args.prompt,
@@ -7895,14 +8498,16 @@ export class OrchestratorSession extends DurableObject<Env> {
             fingerprint,
           );
           if (!outcome) {
-            const admitted = await spawn(
+            const admitted = await dispatchAgentTurn(
               {
-                action: "spawn",
+                threadId: await toolScopedId("thread", toolCallId),
+                attemptGeneration: 1,
+                turnId: await toolScopedId("turn", toolCallId),
+                clientMsgId: await toolScopedId("turn", toolCallId),
                 description: args.description,
                 prompt: args.prompt,
-                ...(model && model !== "default" ? { model } : {}),
+                execution,
               },
-              toolCallId,
               signal,
             );
             outcome = await this.commitCloudAgentToolOutcome(
@@ -7976,16 +8581,18 @@ export class OrchestratorSession extends DurableObject<Env> {
               threadId,
               "terminal",
             );
-            const admitted = await spawn(
+            const admitted = await dispatchAgentTurn(
               {
-                action: "spawn",
                 threadId: prior.threadId,
-                expectedAttemptGeneration: prior.attemptGeneration,
-                expectedThreadUpdatedAt: prior.threadUpdatedAt,
+                attemptGeneration: prior.attemptGeneration + 1,
+                turnId: await toolScopedId("turn", toolCallId),
+                clientMsgId: await toolScopedId("turn", toolCallId),
                 description: args.description,
                 prompt: args.message,
+                // A continuation keeps the thread's own route; the parent's
+                // is the fallback for a thread admitted without one.
+                execution: prior.execution ?? turn.execution,
               },
-              toolCallId,
               signal,
             );
             outcome = await this.commitCloudAgentToolOutcome(
@@ -8051,82 +8658,28 @@ export class OrchestratorSession extends DurableObject<Env> {
             threadId,
             "any",
           );
-          const cancelRequestId = await sha256Hex(
-            JSON.stringify([
-              "pause_agent",
-              turn.turnId,
-              control.threadId,
-              toolCallId,
-            ]),
-          );
-          // Resolve the exact active turn first, then let its BuildSession DO
-          // atomically claim cancellation, stop the process, and deliver the
-          // terminal event. A pre-dispatch pause is persisted by that DO and
-          // consumed as soon as the delayed turn arrives.
-          const response = await this.convexPost(
-            base,
-            "/api/cloud/spawn",
-            {
-              action: "cancel",
-              ownerId: turn.ownerId,
-              conversationId: turn.conversationId,
-              parentTurnId: turn.turnId,
-              threadId: control.threadId,
-              expectedAttemptGeneration: control.attemptGeneration,
-              expectedThreadUpdatedAt: control.threadUpdatedAt,
-              cancelRequestId,
-            },
-            turn.ownerGeneration,
-            { turnToken: turn.turnToken, ...(signal ? { signal } : {}) },
-          );
-          if (!response.ok) {
-            throw new Error(`Could not pause ${control.threadId}. Try again.`);
-          }
-          const canceled = (await response.json()) as {
-            status?: string;
-            turnId?: string;
-            attemptGeneration?: number;
-            threadUpdatedAt?: number;
-            alreadyCanceled?: boolean;
-            currentControl?: unknown;
-          };
-          const canceledControl = normalizeCloudAgentControlReceipt({
-            threadId: control.threadId,
-            attemptGeneration: canceled.attemptGeneration,
-            threadUpdatedAt: canceled.threadUpdatedAt,
-            status: canceled.status,
-          });
-          if (!canceledControl) {
-            throw new Error("Cloud agent returned an invalid control receipt.");
-          }
-          const currentAfterCancel = normalizeCloudAgentControlReceipt(
-            canceled.currentControl,
-          );
-          if (!currentAfterCancel) {
-            throw new Error("Cloud agent returned an invalid current control.");
-          }
-          await this.rememberCloudAgentControlReceipt(currentAfterCancel);
-          if (canceledControl.attemptGeneration !== control.attemptGeneration) {
-            throw new Error(
-              `${control.threadId} was continued while it was being paused. Try again if the newer turn should also stop.`,
+          let disposition: NonNullable<CloudAgentToolOutcome["disposition"]>;
+          let finalControl = control;
+          if (!isCloudAgentControlActive(control.status)) {
+            disposition = "already_terminal";
+          } else {
+            if (!control.turnId) {
+              throw new Error(
+                `${control.threadId} has no exact running turn to pause. Wait for its latest lifecycle update and try again.`,
+              );
+            }
+            const cancelRequestId = await sha256Hex(
+              JSON.stringify([
+                "pause_agent",
+                turn.turnId,
+                control.threadId,
+                toolCallId,
+              ]),
             );
-          }
-          if (
-            currentAfterCancel.attemptGeneration !==
-              control.attemptGeneration ||
-            (canceled.alreadyCanceled === true
-              ? currentAfterCancel.status === "running"
-              : !sameCloudAgentControlReceipt(currentAfterCancel, control))
-          ) {
-            throw new Error(
-              `${control.threadId} was continued while it was being paused. Try again if the newer turn should also stop.`,
-            );
-          }
-          let alreadyTerminal =
-            !canceled.turnId && currentAfterCancel.status !== "running";
-          let cancellationPending = false;
-          let finalControl = currentAfterCancel;
-          if (canceled.turnId) {
+            // The BuildSession atomically claims cancellation, stops the
+            // process, and delivers the terminal lifecycle wake. A
+            // pre-dispatch pause is persisted there and consumed as soon as
+            // the delayed turn arrives.
             const teardown = await this.env.BUILD_SESSIONS.getByName(
               control.threadId,
             ).fetch("https://build-session/cancel", {
@@ -8135,8 +8688,8 @@ export class OrchestratorSession extends DurableObject<Env> {
               body: JSON.stringify({
                 ownerId: turn.ownerId,
                 ownerGeneration: turn.ownerGeneration,
-                turnId: canceled.turnId,
-                attemptGeneration: canceledControl.attemptGeneration,
+                turnId: control.turnId,
+                attemptGeneration: control.attemptGeneration,
                 cancelRequestId,
                 reason: "Paused by orchestrator.",
               }),
@@ -8145,93 +8698,41 @@ export class OrchestratorSession extends DurableObject<Env> {
             const teardownResult = (await teardown
               .json()
               .catch(() => ({}))) as {
+              canceled?: boolean;
               pending?: boolean;
               reason?: string;
             };
-            cancellationPending =
-              teardown.status === 202 && teardownResult.pending === true;
             if (teardown.status === 409) {
               if (teardownResult.reason === "terminal_already_decided") {
-                alreadyTerminal = true;
+                disposition = "already_terminal";
               } else {
                 throw new Error(
                   `${control.threadId} was continued while it was being paused. Try again if the newer turn should also stop.`,
                 );
               }
-            }
-            if (!teardown.ok && !alreadyTerminal) {
+            } else if (!teardown.ok) {
               throw new Error(
                 `Could not pause ${control.threadId}. Try again.`,
               );
-            }
-            if (teardown.ok) {
-              const committed = await this.convexPost(
-                base,
-                "/api/cloud/spawn",
-                {
-                  action: "cancel_ack",
-                  ownerId: turn.ownerId,
-                  conversationId: turn.conversationId,
-                  threadId: control.threadId,
-                  turnId: canceled.turnId,
-                  attemptGeneration: canceledControl.attemptGeneration,
-                  cancelRequestId,
-                },
-                turn.ownerGeneration,
-                { turnToken: turn.turnToken, ...(signal ? { signal } : {}) },
-              );
-              if (!committed.ok) {
-                throw new Error(
-                  `Could not record the pause for ${control.threadId}. Try again.`,
-                );
-              }
-              const committedPayload = (await committed.json()) as {
-                threadId?: string;
-                attemptGeneration?: number;
-                threadUpdatedAt?: number;
-                status?: string;
-                currentControl?: unknown;
-              };
-              const acknowledgedTarget = normalizeCloudAgentControlReceipt({
-                threadId: committedPayload.threadId,
-                attemptGeneration: committedPayload.attemptGeneration,
-                threadUpdatedAt: committedPayload.threadUpdatedAt,
-                status: committedPayload.status,
+            } else if (
+              teardown.status === 202 &&
+              teardownResult.pending === true
+            ) {
+              disposition = "pending";
+            } else {
+              disposition = "paused";
+              // The BuildSession decided the terminal; its lifecycle wake
+              // repeats the same status and advances nothing further.
+              finalControl = await this.rememberCloudAgentControlReceipt({
+                ...control,
+                status: "canceled",
+                threadUpdatedAt: Math.max(
+                  Date.now(),
+                  control.threadUpdatedAt + 1,
+                ),
               });
-              const acknowledgedCurrent = normalizeCloudAgentControlReceipt(
-                committedPayload.currentControl,
-              );
-              if (!acknowledgedTarget || !acknowledgedCurrent) {
-                throw new Error(
-                  "Cloud agent returned an invalid control receipt.",
-                );
-              }
-              await this.rememberCloudAgentControlReceipt(acknowledgedCurrent);
-              if (
-                acknowledgedTarget.attemptGeneration !==
-                  canceledControl.attemptGeneration ||
-                acknowledgedCurrent.attemptGeneration !==
-                  canceledControl.attemptGeneration ||
-                acknowledgedCurrent.status === "running"
-              ) {
-                throw new Error(
-                  `${control.threadId} was continued while it was being paused. Try again if the newer turn should also stop.`,
-                );
-              }
-              finalControl = acknowledgedCurrent;
             }
           }
-          if (finalControl.status === "running") {
-            throw new Error(
-              `Could not record the pause for ${control.threadId}. Try again.`,
-            );
-          }
-          const disposition: NonNullable<CloudAgentToolOutcome["disposition"]> =
-            cancellationPending
-              ? "pending"
-              : alreadyTerminal
-                ? "already_terminal"
-                : "paused";
           const outcome = await this.commitCloudAgentToolOutcome(
             turn,
             toolCallId,
@@ -8293,17 +8794,16 @@ export class OrchestratorSession extends DurableObject<Env> {
             };
           }
           const response = await this.convexPost(
-            base,
             "/api/cloud/web-search",
             {
               query,
               ownerId: turn.ownerId,
+              ownerGeneration: turn.ownerGeneration,
               ...(args.category?.trim()
                 ? { category: args.category.trim() }
                 : {}),
             },
-            turn.ownerGeneration,
-            { turnToken: turn.turnToken, ...(signal ? { signal } : {}) },
+            { capability: controlPlane.token, ...(signal ? { signal } : {}) },
           );
           if (!response.ok) {
             throw new Error(`Web search failed (${response.status}).`);

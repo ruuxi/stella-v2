@@ -1,84 +1,69 @@
+import {
+  PLACEMENT_PROTOCOL,
+  type DispatchPayload,
+  type DispatchSubmitRequest,
+  type DispatchSummary,
+  type ExecutionTargetMode,
+} from "@stella/contracts/turn-plane/placement";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { PendingCloudTurnSubmission } from "./conversation-store";
 import type { DesktopExecutionTarget } from "../execution-placement/execution-target-store";
 
-export type BrowserExecutionDispatch = {
-  dispatchId: string;
-  idempotencyKey: string;
-  kind: "chat" | "agent";
-  ingress: string;
-  subject: string;
-  conversationId: string;
-  state: string;
-  placement?: "computer" | "cloud";
-  cloudTurnId?: string;
-  errorCode?: string;
-  errorMessage?: string;
-};
+/** The gate's dispatch row, as the browser reads it. */
+export type BrowserExecutionDispatch = DispatchSummary;
 
-export type BrowserExecutionSubmitArgs = {
-  idempotencyKey: string;
-  expectedOwnerGeneration: string;
-  payloadJson: string;
-  payloadHash: string;
-  kind: "chat";
-  subject: "cloud";
-  conversationId: string;
-  requiredCapabilities: ["chat"];
-  requestedTargetMode: "automatic" | "cloud" | "device";
-  requestedExecutorDeviceId?: string;
-};
-
-const routingFields = (target?: DesktopExecutionTarget) => {
+const routingFields = (
+  target?: DesktopExecutionTarget,
+): { targetMode: ExecutionTargetMode; targetDeviceId?: string } => {
   const selected = target ?? { mode: "automatic" as const };
   return {
-    requestedTargetMode: selected.mode,
+    targetMode: selected.mode,
     ...(selected.mode === "device"
-      ? { requestedExecutorDeviceId: selected.deviceId }
+      ? { targetDeviceId: selected.deviceId }
       : {}),
   };
 };
 
+/** Only the four fields the gate carries, in a stable key order. */
 const canonicalExecution = (
   execution: CloudExecutionSelection | null,
-): {
-  engine: string;
-  provider: string;
-  model: string;
-  reasoningEffort: string;
-} | null =>
+): CloudExecutionSelection | null =>
   execution
-    ? {
+    ? ({
         engine: execution.engine,
         provider: execution.provider,
         model: execution.model,
         reasoningEffort: execution.reasoningEffort,
-      }
+      } as CloudExecutionSelection)
     : null;
 
-/** Exact bytes fingerprinted by Convex and reused by an idempotent retry. */
-export const browserExecutionPayloadJson = (args: {
+/**
+ * Exactly the bytes an executing device receives. The owner gate hashes this
+ * object, hands it to whichever computer claims the offer, and deletes its
+ * copy on ack — so an idempotent retry must rebuild it identically.
+ */
+export const browserExecutionPayload = (args: {
   clientMsgId: string;
-  expectedOwnerGeneration: string;
   conversationId: string;
   submission: PendingCloudTurnSubmission;
-}): string => {
+}): DispatchPayload => {
   if (args.submission.requestedConversationId !== args.conversationId) {
     throw new Error(
       "Reliable browser execution changed conversation authority.",
     );
   }
-  return JSON.stringify({
+  const execution = canonicalExecution(args.submission.execution);
+  return {
     schemaVersion: 1,
     prompt: args.submission.prompt,
-    expectedOwnerGeneration: args.expectedOwnerGeneration,
     conversationId: args.conversationId,
     clientMsgId: args.clientMsgId,
-    locale: args.submission.locale,
-    attachments: [...args.submission.imagePaths],
-    execution: canonicalExecution(args.submission.execution),
-    ...routingFields(args.submission.executionTarget),
-  });
+    ...(args.submission.locale ? { locale: args.submission.locale } : {}),
+    ...(args.submission.imagePaths.length
+      ? { attachments: [...args.submission.imagePaths] }
+      : {}),
+    ...(execution ? { execution } : {}),
+  };
 };
 
 export const sha256Hex = async (value: string): Promise<string> => {
@@ -89,25 +74,22 @@ export const sha256Hex = async (value: string): Promise<string> => {
     .join("");
 };
 
+/** The `POST /owners/me/dispatches` body for one browser-originated turn. */
 export const browserExecutionSubmitArgs = async (args: {
   clientMsgId: string;
-  expectedOwnerGeneration: string;
   conversationId: string;
   submission: PendingCloudTurnSubmission;
-}): Promise<BrowserExecutionSubmitArgs> => {
-  const payloadJson = browserExecutionPayloadJson(args);
-  return {
-    idempotencyKey: args.clientMsgId,
-    expectedOwnerGeneration: args.expectedOwnerGeneration,
-    payloadJson,
-    payloadHash: await sha256Hex(payloadJson),
-    kind: "chat",
-    subject: "cloud",
-    conversationId: args.conversationId,
-    requiredCapabilities: ["chat"],
-    ...routingFields(args.submission.executionTarget),
-  };
-};
+}): Promise<DispatchSubmitRequest> => ({
+  protocol: PLACEMENT_PROTOCOL,
+  idempotencyKey: args.clientMsgId,
+  kind: "chat",
+  ingress: "browser",
+  subject: "cloud",
+  conversationId: args.conversationId,
+  requiredCapabilities: ["chat"],
+  ...routingFields(args.submission.executionTarget),
+  payload: browserExecutionPayload(args),
+});
 
 export const browserExecutionCancelArgs = (dispatchId: string) => ({
   dispatchId,
@@ -115,13 +97,17 @@ export const browserExecutionCancelArgs = (dispatchId: string) => ({
   reason: "Canceled by the user.",
 });
 
-const TERMINAL_STATES = new Set(["completed", "failed", "canceled"]);
+const TERMINAL_STATES = new Set(["completed", "failed", "canceled", "blocked"]);
 
 export type BrowserExecutionWaitResult =
   | { status: "started"; dispatch: BrowserExecutionDispatch; turnId: string }
   | { status: "terminal"; dispatch: BrowserExecutionDispatch }
   | { status: "stale" };
 
+/**
+ * Polls the owner gate until placement produces a turn to subscribe to, or
+ * the dispatch settles. The caller injects the authenticated status reader.
+ */
 export const waitForBrowserExecutionTurn = async (args: {
   dispatchId: string;
   queryStatus: (dispatchId: string) => Promise<BrowserExecutionDispatch | null>;

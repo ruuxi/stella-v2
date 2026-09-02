@@ -13,8 +13,14 @@ import {
 } from "@stella/runtime/kernel/stella-model-catalog";
 import { modelRuntime } from "@stella/runtime/ai/model-runtime";
 import { getFileEditToolFamily } from "@stella/runtime/kernel/tools/file-edit-policy";
+import {
+  getRememberedStellaGatewayOrigin,
+  rememberStellaGatewayOrigin,
+  resetGatewaySessionState,
+} from "@stella/runtime/kernel/gateway-session";
 
 const originalFetch = globalThis.fetch;
+const GATEWAY = "https://gateway.example.test";
 
 const site = (token: string) => ({
   baseUrl: "https://stella.example.test",
@@ -29,6 +35,7 @@ describe("Stella model catalog metadata", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     invalidateStellaModelCatalogCache();
+    resetGatewaySessionState();
     vi.restoreAllMocks();
   });
 
@@ -36,6 +43,7 @@ describe("Stella model catalog metadata", () => {
     globalThis.fetch = vi.fn(async () => {
       return new Response(
         JSON.stringify({
+          gateway: { origin: GATEWAY },
           data: [],
           defaults: [
             {
@@ -80,6 +88,7 @@ describe("Stella model catalog metadata", () => {
     globalThis.fetch = vi.fn(async () => {
       return new Response(
         JSON.stringify({
+          gateway: { origin: GATEWAY },
           data: [],
           defaults: [
             {
@@ -135,6 +144,7 @@ describe("Stella model catalog metadata", () => {
     globalThis.fetch = vi.fn(async () => {
       return new Response(
         JSON.stringify({
+          gateway: { origin: GATEWAY },
           data: [],
           defaults: [
             {
@@ -176,6 +186,7 @@ describe("Stella model catalog metadata", () => {
     globalThis.fetch = vi.fn(async () => {
       return new Response(
         JSON.stringify({
+          gateway: { origin: GATEWAY },
           data: [
             {
               id: "stella/soda",
@@ -218,6 +229,7 @@ describe("Stella model catalog metadata", () => {
       async () =>
         new Response(
           JSON.stringify({
+            gateway: { origin: GATEWAY },
             data: [
               {
                 id: "stella/gpt-5.6-sol",
@@ -263,6 +275,7 @@ describe("Stella model catalog metadata", () => {
       async () =>
         new Response(
           JSON.stringify({
+            gateway: { origin: GATEWAY },
             data: [
               {
                 id: "stella/gpt-5.5",
@@ -303,7 +316,7 @@ describe("Stella model catalog metadata", () => {
   it("fails after one catalog lookup when no override can resolve the model", async () => {
     const fetchMock = vi.fn(
       async () =>
-        new Response(JSON.stringify({ data: [], defaults: [] }), {
+        new Response(JSON.stringify({ gateway: { origin: GATEWAY }, data: [], defaults: [] }), {
           status: 200,
         }),
     );
@@ -329,7 +342,8 @@ describe("Stella model catalog metadata", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("classifies explicit Stella passthrough ids without fetching catalog", async () => {
+  it("classifies explicit Stella passthrough ids without fetching catalog once the gateway is known", async () => {
+    rememberStellaGatewayOrigin("https://stella.example.test", GATEWAY);
     const fetchMock = vi.fn();
     globalThis.fetch = fetchMock as typeof fetch;
 
@@ -360,12 +374,119 @@ describe("Stella model catalog metadata", () => {
     ).toBe("write_edit");
   });
 
+  it("fetches the catalog once for a passthrough id when the gateway origin is not yet known", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ gateway: { origin: GATEWAY }, data: [], defaults: [] }),
+          { status: 200 },
+        ),
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const route = resolveLlmRoute({
+      stellaAppDir: "/tmp/stella",
+      modelName: "stella/anthropic/claude-opus-4.6",
+      agentType: "general",
+      site: site("token-passthrough-cold"),
+    });
+    expect(route.model.baseUrl).toBe(
+      "https://model-gateway.unconfigured.invalid/v1/relay",
+    );
+    const enriched = await withStellaModelCatalogMetadata({
+      route,
+      agentType: "general",
+      site: site("token-passthrough-cold"),
+      deviceId: "device-a",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(enriched.model.baseUrl).toBe(`${GATEWAY}/v1/relay`);
+    expect(getRememberedStellaGatewayOrigin("https://stella.example.test")).toBe(GATEWAY);
+  });
+
+  it("fails closed when the catalog does not advertise a gateway origin", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [],
+            defaults: [
+              {
+                agentType: "general",
+                model: "stella/standard",
+                resolvedModel: "openai/gpt-5.5",
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const route = resolveLlmRoute({
+      stellaAppDir: "/tmp/stella",
+      modelName: undefined,
+      agentType: "general",
+      site: site("token-no-gateway"),
+    });
+    await expect(
+      withStellaModelCatalogMetadata({
+        route,
+        agentType: "general",
+        site: site("token-no-gateway"),
+        deviceId: "device-no-gateway",
+      }),
+    ).rejects.toThrow(/model gateway is not configured/i);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/Catalog fetch failed: .*gateway\.origin/),
+    );
+    await expect(route.getApiKey()).rejects.toThrow(/model gateway is not configured/i);
+  });
+
+  it("relays every enriched route through the catalog-advertised gateway", async () => {
+    globalThis.fetch = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          gateway: { origin: `${GATEWAY}/` },
+          data: [],
+          defaults: [
+            {
+              agentType: "general",
+              model: "stella/standard",
+              resolvedModel: "openai/gpt-5.5",
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+
+    const route = resolveLlmRoute({
+      stellaAppDir: "/tmp/stella",
+      modelName: undefined,
+      agentType: "general",
+      site: site("token-relay"),
+    });
+    const enriched = await withStellaModelCatalogMetadata({
+      route,
+      agentType: "general",
+      site: site("token-relay"),
+      deviceId: "device-relay",
+    });
+
+    expect(enriched.model.baseUrl).toBe(`${GATEWAY}/v1/relay`);
+  });
+
   it("uses modelCatalogUpdatedAt as the cache invalidation key", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
+            gateway: { origin: GATEWAY },
             data: [
               {
                 id: "stella/standard",
@@ -388,6 +509,7 @@ describe("Stella model catalog metadata", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
+            gateway: { origin: GATEWAY },
             data: [
               {
                 id: "stella/standard",
@@ -443,6 +565,7 @@ describe("Stella model catalog metadata", () => {
       const fetchMock = vi.fn(async () => {
         return new Response(
           JSON.stringify({
+            gateway: { origin: GATEWAY },
             data: [],
             defaults: [
               {
@@ -472,6 +595,7 @@ describe("Stella model catalog metadata", () => {
         stellaDataDir,
       });
       invalidateStellaModelCatalogCache();
+      resetGatewaySessionState();
       const second = await withStellaModelCatalogMetadata({
         route,
         agentType: "general",
@@ -484,6 +608,10 @@ describe("Stella model catalog metadata", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(first.toolPolicyModel?.id).toBe("openai/gpt-5.5");
       expect(second.toolPolicyModel?.id).toBe("openai/gpt-5.5");
+      // The disk copy carries the gateway origin, so a cold process can
+      // route without a network round-trip.
+      expect(second.model.baseUrl).toBe(`${GATEWAY}/v1/relay`);
+      expect(getRememberedStellaGatewayOrigin("https://stella.example.test")).toBe(GATEWAY);
     } finally {
       await rm(stellaDataDir, { recursive: true, force: true });
     }
@@ -492,6 +620,7 @@ describe("Stella model catalog metadata", () => {
   const catalogResponse = (resolvedModel: string) =>
     new Response(
       JSON.stringify({
+        gateway: { origin: GATEWAY },
         data: [],
         defaults: [
           { agentType: "general", model: "stella/standard", resolvedModel },

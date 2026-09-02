@@ -2,7 +2,8 @@
 
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { generateCapabilityKeyPair } from "@stella/contracts/gateway/jwt";
 import { internal } from "./_generated/api";
 import schema from "./schema";
 import { CAPABILITIES, type CapabilityAudience } from "./capability_contract";
@@ -10,6 +11,15 @@ import { CAPABILITIES, type CapabilityAudience } from "./capability_contract";
 const modules = import.meta.glob("./**/*.ts");
 
 const OWNER_ID = "https://issuer.test|capability-owner";
+const OWNER_GENERATION = "capability-generation";
+
+// Session capabilities are ES256-signed; mint a throwaway key the way
+// gateway_capabilities.convex.test.ts does so signing can run in-process.
+beforeAll(async () => {
+  const { privateKeyPem } = await generateCapabilityKeyPair();
+  process.env.CAPABILITY_SIGNING_KEY = privateKeyPem;
+  process.env.CAPABILITY_SIGNING_KID = "media-gate-test";
+});
 
 const createTest = () => {
   const t = convexTest(schema, modules);
@@ -56,6 +66,20 @@ const onPlan = async (
     plan,
   });
   return asOwner(t);
+};
+
+/** Open the owner's data lifecycle so generation-bound gateway paths admit them. */
+const openOwnerLifecycle = async (t: ReturnType<typeof createTest>) => {
+  await t.run(async (ctx) => {
+    const now = Date.now();
+    await ctx.db.insert("cloud_owner_lifecycles", {
+      ownerId: OWNER_ID,
+      generation: OWNER_GENERATION,
+      state: "open",
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
 };
 
 type DenialBody = {
@@ -270,31 +294,47 @@ describe("orchestration is not a capability", () => {
   // more usage, which is why Pro suits it, but usage is the billing axis and
   // this table is the entitlement one. Pro lists it as marketing copy only.
   //
-  // This test exists to keep it that way. `agentType: "orchestrator"` is what
-  // every ordinary desktop chat already sends, so anyone who wires the string
-  // into the capability path would silently lock Free and Go out of chat
-  // entirely — a failure that would otherwise surface as a support ticket
-  // rather than a red test.
-  it("never denies a relay turn on the free plan for orchestrator", async () => {
+  // This test exists to keep it that way. Model access is now granted by a
+  // session capability the model gateway meters locally, so the invariant is
+  // that a free-plan owner's allowance is positive and a capability can be
+  // minted for them — with no agent-type restriction, so `orchestrator` (what
+  // every ordinary desktop chat sends) is never locked out. Anyone who wires
+  // the string into the capability path would silently lock Free and Go out
+  // of chat entirely — a failure that would otherwise surface as a support
+  // ticket rather than a red test.
+  it("never denies model access on the free plan for orchestrator", async () => {
     ensureEnv();
     const t = createTest();
-    const owner = await onPlan(t, "free");
-    const response = await owner.fetch(
-      "/api/stella/relay/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "X-Stella-Agent-Type": "orchestrator",
-        },
-        body: JSON.stringify({
-          model: "stella/light",
-          messages: [{ role: "user", content: "hi" }],
-          agentType: "orchestrator",
-        }),
-      },
+    await openOwnerLifecycle(t);
+    await onPlan(t, "free");
+
+    const allowance = await t.mutation(
+      internal.gateway_capabilities.getOwnerModelAllowanceInternal,
+      { ownerId: OWNER_ID, ownerGeneration: OWNER_GENERATION },
     );
-    expect(response.status).not.toBe(402);
+    expect(allowance.audience).toBe("free");
+    expect(allowance.unlimited || allowance.budgetMicroCents > 0).toBe(true);
+
+    const session = await t.action(
+      internal.gateway_capabilities.signSessionCapabilityInternal,
+      { ownerId: OWNER_ID, isAnonymous: false },
+    );
+    expect(session.audience).toBe("free");
+    expect(session.budgetMicroCents).toBe(allowance.budgetMicroCents);
+    expect(session.maxRequests).toBeUndefined();
+
+    const [, payload] = session.capability.split(".");
+    const claims = JSON.parse(
+      Buffer.from(payload!, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    expect(claims).toMatchObject({
+      sub: OWNER_ID,
+      gen: OWNER_GENERATION,
+      kind: "session",
+      audience: "free",
+    });
+    // No agent-type claim: the capability acts as any agent type, orchestrator included.
+    expect(claims.agentTypes).toBeUndefined();
   });
 
   it("has no orchestrator row to enforce", () => {

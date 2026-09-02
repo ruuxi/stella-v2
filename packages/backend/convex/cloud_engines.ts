@@ -35,6 +35,7 @@ import {
   type CloudExecutionSelection,
 } from "./lib/cloud_execution";
 import { assertOwnerMigrationWriteAllowed, requireUserId } from "./auth";
+import { scheduleOwnerSnapshotChanged } from "./lib/owner_snapshot_notify";
 import {
   assertOwnerDataAccessActive,
   LEGACY_OWNER_GENERATION,
@@ -481,6 +482,7 @@ export const storeCredentialInternal = internalMutation({
         updatedAt: args.now,
       });
     }
+    await scheduleOwnerSnapshotChanged(ctx, args.ownerId, "engine");
     return null;
   },
 });
@@ -827,6 +829,7 @@ export const disconnectEngine = mutation({
         updatedAt: Date.now(),
       });
     }
+    await scheduleOwnerSnapshotChanged(ctx, ownerId, "engine");
     return null;
   },
 });
@@ -1022,6 +1025,7 @@ export const setMyCloudEngine = mutation({
         updatedAt: now,
       });
     }
+    await scheduleOwnerSnapshotChanged(ctx, ownerId, "engine");
     return null;
   },
 });
@@ -1050,6 +1054,7 @@ export const setMyCloudExecution = mutation({
         updatedAt: now,
       });
     }
+    await scheduleOwnerSnapshotChanged(ctx, ownerId, "engine");
     return null;
   },
 });
@@ -1192,11 +1197,18 @@ export const resolveEngineProbeInternal = internalAction({
  * (and persisting the refreshed payload) when it is near expiry. Called from
  * the relay's authorization path; tokens never leave the server.
  */
+export type EngineAccess = {
+  accessToken: string;
+  accountId?: string;
+  /** Absolute ms timestamp of the access token's expiry; never cache past it. */
+  expiresAt: number;
+};
+
 export const resolveEngineAccess = async (
   ctx: Pick<ActionCtx, "runQuery" | "runMutation">,
   ownerId: string,
   provider: CloudEngineProvider,
-): Promise<{ accessToken: string; accountId?: string } | null> => {
+): Promise<EngineAccess | null> => {
   type CredentialRow = {
     _id: Id<"cloud_llm_credentials">;
     payloadEncrypted: string;
@@ -1222,7 +1234,11 @@ export const resolveEngineAccess = async (
       return null;
     }
     if (payload.expires > Date.now()) {
-      return { accessToken: payload.access, accountId: payload.accountId };
+      return {
+        accessToken: payload.access,
+        accountId: payload.accountId,
+        expiresAt: payload.expires,
+      };
     }
 
     const leaseId = crypto.randomUUID();
@@ -1293,6 +1309,7 @@ export const resolveEngineAccess = async (
       return {
         accessToken: nextPayload.access,
         accountId: nextPayload.accountId,
+        expiresAt: nextPayload.expires,
       };
     }
     row = await readCredential();

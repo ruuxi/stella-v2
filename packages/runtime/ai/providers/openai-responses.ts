@@ -1,9 +1,9 @@
 import OpenAI from "openai";
 import type {
+  ResponseCreateParamsNonStreaming,
   ResponseCreateParamsStreaming,
   ResponseStreamEvent,
 } from "openai/resources/responses/responses.js";
-import { sleepMs } from "../effect-runtime.js";
 import { getEnvApiKey } from "../env-api-keys.js";
 import { clampThinkingLevel } from "../models.js";
 import type {
@@ -22,7 +22,6 @@ import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
 import { anomalousStreamStopError } from "../utils/provider-stop.js";
 import { hashProviderRequestIdentity } from "../utils/provider-request-proof.js";
-import { resilientEventStream } from "../utils/resilient-event-stream.js";
 import { readRetryAfterMs } from "../utils/retry.js";
 import {
   isCloudflareProvider,
@@ -34,9 +33,16 @@ import {
 } from "./github-copilot-headers.js";
 import { requestWithAuthRefresh } from "./auth-refresh.js";
 import {
+  GATEWAY_REQUEST_TIMEOUT_MS,
+  gatewayRequestHeaders,
+  isGatewayRelayBaseUrl,
+  isPerRequestIdentityHeader,
+} from "./model-gateway.js";
+import {
   convertResponsesMessages,
   convertResponsesTools,
   processResponsesStream,
+  synthesizeResponsesStreamEvents,
 } from "./openai-responses-shared.js";
 import { buildBaseOptions } from "./simple-options.js";
 
@@ -45,27 +51,11 @@ const OPENAI_TOOL_CALL_PROVIDERS = new Set([
   "openai-codex",
   "opencode",
 ]);
-const STELLA_RELAY_RESUME_HEADER = "x-stella-relay-resume";
-const STELLA_RELAY_REQUEST_ID_HEADER = "x-stella-relay-request-id";
-const STELLA_RELAY_RESUME_VERSION = "1";
-const RELAY_REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{16,100}$/u;
-
-const isManagedStellaRelayBaseUrl = (baseUrl: string): boolean => {
-  try {
-    return new URL(baseUrl).pathname
-      .replace(/\/+$/u, "")
-      .endsWith("/api/stella/relay");
-  } catch {
-    return false;
-  }
-};
 
 const newRequestNonce = (): string =>
   (globalThis as { crypto?: Crypto }).crypto?.randomUUID?.() ??
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
-const validRelayRequestId = (value: string): boolean =>
-  RELAY_REQUEST_ID_PATTERN.test(value);
 /**
  * Resolve cache retention preference.
  * Defaults to "short" and uses PI_CACHE_RETENTION for backward compatibility.
@@ -126,9 +116,6 @@ export const streamOpenAIResponses: StreamFunction<
 
   // Start async processing
   (async () => {
-    let detachRelayAbortListener = () => {};
-    let relayCancellationWork: Promise<boolean> | undefined;
-    let relayCancellationRequired = false;
     let requestIdSha256: string | undefined;
     let physicalAttempt = 0;
     const notifyRequestLifecycle = async (
@@ -187,44 +174,32 @@ export const streamOpenAIResponses: StreamFunction<
         params = nextParams as ResponseCreateParamsStreaming;
       }
 
+      // Gateway mode: the managed lane is request/response. The SDK is called
+      // with `stream: false`, waits out one complete Response, and the object
+      // is expanded into the same event sequence the SSE assembler consumes.
+      const gatewayMode = isGatewayRelayBaseUrl(model.baseUrl);
+
       // One nonce identifies exactly one logical model request. Agent tool
       // loops call this provider again and therefore receive a different
-      // nonce; physical transport retries and cursor resumes below retain it.
+      // nonce; an auth-refresh retry below retains it.
       const requestNonce = newRequestNonce();
       const idempotencyKey = `stella-response-${requestNonce}`;
-      const proposedRelayRequestId = isManagedStellaRelayBaseUrl(model.baseUrl)
-        ? `stella-relay-${requestNonce}`
-        : undefined;
-      relayCancellationRequired = proposedRelayRequestId !== undefined;
       // The adapter owns the raw transport id. Only its digest crosses the
       // callback boundary, and it is bound before the first POST dispatch.
-      requestIdSha256 = await hashProviderRequestIdentity(
-        proposedRelayRequestId ?? idempotencyKey,
-      );
+      requestIdSha256 = await hashProviderRequestIdentity(idempotencyKey);
       await notifyRequestLifecycle("request-admitted");
-      const requestOptions = (
-        signal?: AbortSignal,
-        initializeRelay = false,
-        recoveryTimeoutMs?: number,
-      ) => {
-        const timeout =
-          recoveryTimeoutMs === undefined
-            ? options?.timeoutMs
-            : options?.timeoutMs === undefined
-              ? recoveryTimeoutMs
-              : Math.min(options.timeoutMs, recoveryTimeoutMs);
+      const requestOptions = (perAttemptHeaders?: Record<string, string>) => {
+        const timeout = gatewayMode
+          ? GATEWAY_REQUEST_TIMEOUT_MS
+          : options?.timeoutMs;
         return {
-          ...(signal ? { signal } : {}),
+          ...(options?.signal ? { signal: options.signal } : {}),
           ...(timeout !== undefined ? { timeout } : {}),
-          // The bounded recovery state machine owns every physical retry.
+          // The runtime recovery envelope owns every physical retry.
           maxRetries: 0,
           headers: {
             "Idempotency-Key": idempotencyKey,
-            ...(initializeRelay && proposedRelayRequestId
-              ? {
-                  [STELLA_RELAY_REQUEST_ID_HEADER]: proposedRelayRequestId,
-                }
-              : {}),
+            ...perAttemptHeaders,
           },
         };
       };
@@ -247,194 +222,43 @@ export const streamOpenAIResponses: StreamFunction<
           refreshApiKey: options?.refreshApiKey,
           request: async (requestApiKey) => {
             activeApiKey = requestApiKey;
+            physicalAttempt += 1;
+            await notifyRequestLifecycle("request-dispatched");
             return await request(clientForKey(requestApiKey));
           },
         });
 
-      let relayRequestId = proposedRelayRequestId;
-      let relayResumeCapable = false;
-      let relayAbortListenerAttached = false;
-      const providerDurableResumeEnabled =
-        params.background === true && params.store !== false;
-
-      const attachRelayAbortListener = (requestId: string) => {
-        if (!options?.signal || relayAbortListenerAttached) return;
-        relayAbortListenerAttached = true;
-        const cancelRelayResponse = () => {
-          relayCancellationWork ??= (async () => {
-            // A pre-header abort can race the relay reservation. Retrying only
-            // 404 lets the server's bounded cancellation tombstone win that
-            // race without retrying the upstream Responses POST.
-            for (const delayMs of [0, 100, 250, 500, 1_000]) {
-              if (delayMs > 0) await sleepMs(delayMs);
-              try {
-                await withActiveAuth(async (client) => {
-                  await client.delete<void>(
-                    `/responses/${encodeURIComponent(requestId)}`,
-                    {
-                      maxRetries: 0,
-                      timeout: options.timeoutMs ?? 10_000,
-                    },
-                  );
-                });
-                return true;
-              } catch (error) {
-                if ((error as { status?: unknown })?.status !== 404) {
-                  return false;
-                }
-              }
-            }
-            return false;
-          })();
+      let events:
+        | AsyncIterable<ResponseStreamEvent>
+        | Iterable<ResponseStreamEvent>;
+      let response: Response;
+      if (gatewayMode) {
+        const nonStreamingParams: ResponseCreateParamsNonStreaming = {
+          ...params,
+          stream: false,
         };
-        if (options.signal.aborted) cancelRelayResponse();
-        else
-          options.signal.addEventListener("abort", cancelRelayResponse, {
-            once: true,
-          });
-        detachRelayAbortListener = () =>
-          options.signal?.removeEventListener("abort", cancelRelayResponse);
-      };
-      if (proposedRelayRequestId) {
-        attachRelayAbortListener(proposedRelayRequestId);
+        const completed = await withActiveAuth((client) =>
+          client.responses
+            .create(nonStreamingParams, requestOptions(gatewayRequestHeaders()))
+            .withResponse(),
+        );
+        response = completed.response;
+        events = synthesizeResponsesStreamEvents(completed.data);
+      } else {
+        const opened = await withActiveAuth((client) =>
+          client.responses.create(params, requestOptions()).withResponse(),
+        );
+        response = opened.response;
+        events = opened.data;
       }
-
-      const noteResponse = async (response: Response): Promise<void> => {
-        const headers = headersToRecord(response.headers);
-        const advertisedVersion = response.headers
-          .get(STELLA_RELAY_RESUME_HEADER)
-          ?.trim();
-        const advertisedRequestId = response.headers
-          .get(STELLA_RELAY_REQUEST_ID_HEADER)
-          ?.trim();
-        if (
-          advertisedVersion === STELLA_RELAY_RESUME_VERSION &&
-          advertisedRequestId
-        ) {
-          if (!validRelayRequestId(advertisedRequestId)) {
-            throw new Error(
-              "Stella relay returned an invalid resume request id",
-            );
-          }
-          if (relayRequestId && advertisedRequestId !== relayRequestId) {
-            throw new Error(
-              "Stella relay returned a mismatched resume request id",
-            );
-          }
-          relayResumeCapable = true;
-          relayRequestId = advertisedRequestId;
-          attachRelayAbortListener(advertisedRequestId);
-        }
-        await options?.onResponse?.(
-          { status: response.status, headers },
-          model,
-        );
-        await notifyRequestLifecycle("stream-open");
-      };
-
-      const connect = async (
-        signal?: AbortSignal,
-        timeoutMs?: number,
-      ): Promise<AsyncIterable<ResponseStreamEvent>> => {
-        physicalAttempt += 1;
-        await notifyRequestLifecycle("request-dispatched");
-        const { data, response } = await withActiveAuth((client) =>
-          client.responses
-            .create(params, requestOptions(signal, true, timeoutMs))
-            .withResponse(),
-        );
-        await noteResponse(response);
-        return data;
-      };
-      const resume = async ({
-        runId,
-        cursor,
-        signal,
-        timeoutMs,
-      }: {
-        runId: string;
-        cursor: number;
-        signal?: AbortSignal;
-        timeoutMs?: number;
-      }): Promise<AsyncIterable<ResponseStreamEvent>> => {
-        physicalAttempt += 1;
-        await notifyRequestLifecycle("request-dispatched");
-        const { data, response } = await withActiveAuth((client) =>
-          client.responses
-            .retrieve(
-              runId,
-              { stream: true, starting_after: cursor },
-              requestOptions(signal, false, timeoutMs),
-            )
-            .withResponse(),
-        );
-        await noteResponse(response);
-        return data;
-      };
-
-      const openaiStream = resilientEventStream<ResponseStreamEvent>({
-        connect,
-        resume,
-        // The managed client proposes the durable id before POST, so even a
-        // pre-header failure tries GET cursor zero rather than replaying POST.
-        getInitialResumeState: () =>
-          proposedRelayRequestId
-            ? { runId: proposedRelayRequestId, cursor: 0 }
-            : relayResumeCapable && relayRequestId
-              ? { runId: relayRequestId, cursor: 0 }
-              : undefined,
-        getRunId: (event) => {
-          if (relayResumeCapable) return relayRequestId;
-          return providerDurableResumeEnabled &&
-            "response" in event &&
-            event.response?.id
-            ? event.response.id
-            : undefined;
-        },
-        getSequence: (event) => {
-          const relaySequence = (
-            event as ResponseStreamEvent & {
-              stella_relay_sequence?: unknown;
-            }
-          ).stella_relay_sequence;
-          if (relayResumeCapable) {
-            if (
-              typeof relaySequence !== "number" ||
-              !Number.isSafeInteger(relaySequence) ||
-              relaySequence < 1
-            ) {
-              throw new Error(
-                "Stella relay event is missing a valid durable cursor",
-              );
-            }
-            return relaySequence;
-          }
-          return typeof event.sequence_number === "number"
-            ? event.sequence_number
-            : undefined;
-        },
-        isTerminal: (event) =>
-          event.type === "response.completed" ||
-          event.type === "response.incomplete" ||
-          event.type === "response.failed" ||
-          event.type === "error",
-        abortSource: (source, reason) => {
-          // OpenAI's Stream owns the platform AbortController used by its
-          // fetch/body reader. The recovery timer is Effect-owned; at this SDK
-          // boundary it interrupts that already-owned physical request.
-          (
-            source as AsyncIterable<ResponseStreamEvent> & {
-              controller?: AbortController;
-            }
-          ).controller?.abort(reason);
-        },
-        ...(options?.signal ? { signal: options.signal } : {}),
-        onReconnect: ({ attempt, delayMs, reason }) =>
-          options?.onProviderRetry?.({ attempt, delayMs, reason }),
-      });
+      await options?.onResponse?.(
+        { status: response.status, headers: headersToRecord(response.headers) },
+        model,
+      );
+      await notifyRequestLifecycle("stream-open");
       stream.push({ type: "start", partial: output });
 
-      await processResponsesStream(openaiStream, output, stream, model, {
+      await processResponsesStream(events, output, stream, model, {
         serviceTier: options?.serviceTier,
         applyServiceTierPricing: (usage, serviceTier) =>
           applyServiceTierPricing(usage, serviceTier, model),
@@ -450,10 +274,8 @@ export const streamOpenAIResponses: StreamFunction<
 
       await notifyRequestLifecycle("transport-closed", "completed");
       stream.push({ type: "done", reason: output.stopReason, message: output });
-      detachRelayAbortListener();
       stream.end();
     } catch (error) {
-      detachRelayAbortListener();
       for (const block of output.content) {
         delete (block as { index?: number }).index;
         // partialJson is only a streaming scratch buffer; never persist it.
@@ -468,22 +290,10 @@ export const streamOpenAIResponses: StreamFunction<
       // below this layer has already honored it.
       const retryAfterMs = readRetryAfterMs(error);
       if (retryAfterMs !== undefined) output.retryAfterMs = retryAfterMs;
-      const canceled = options?.signal?.aborted === true;
-      // A managed relay owns a background provider response after the local
-      // body closes. Do not claim `transport-closed` until its exact DELETE
-      // completed; the run-scoped wrapper will publish `outcome-unknown` when
-      // cancellation could not be confirmed and therefore cannot truthfully
-      // report `transport-joined`/provider-stopped.
-      const relayCancellationConfirmed =
-        !canceled ||
-        !relayCancellationRequired ||
-        (await relayCancellationWork?.catch(() => false)) === true;
-      if (relayCancellationConfirmed) {
-        await notifyRequestLifecycle(
-          "transport-closed",
-          canceled ? "canceled" : "error",
-        );
-      }
+      await notifyRequestLifecycle(
+        "transport-closed",
+        options?.signal?.aborted ? "canceled" : "error",
+      );
       stream.push({ type: "error", reason: output.stopReason, error: output });
       stream.end();
     }
@@ -577,15 +387,11 @@ function createClient(
   if (optionsHeaders) {
     Object.assign(headers, optionsHeaders);
   }
-  // These two headers are transport identities, not session/cache identity.
+  // These headers are transport identities, not session/cache identity.
   // Request-level values generated in streamOpenAIResponses must win even if
   // an older caller supplied one static value for the whole agent turn.
   for (const name of Object.keys(headers)) {
-    const lower = name.toLowerCase();
-    if (
-      lower === "idempotency-key" ||
-      lower === STELLA_RELAY_REQUEST_ID_HEADER
-    ) {
+    if (isPerRequestIdentityHeader(name)) {
       delete headers[name];
     }
   }
@@ -606,6 +412,7 @@ function createClient(
       : model.baseUrl,
     dangerouslyAllowBrowser: true,
     defaultHeaders,
+    ...(model.fetch ? { fetch: model.fetch } : {}),
   });
 }
 

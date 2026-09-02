@@ -511,7 +511,6 @@ export const assertCodeIntegrationDispatchLeaseInternal = internalMutation({
     leaseId: v.string(),
     name: v.string(),
     revision: v.string(),
-    tokenHash: v.string(),
     turnId: v.string(),
     expectedSessionId: v.string(),
     expectedComposioUserId: v.string(),
@@ -609,29 +608,21 @@ export const assertCodeIntegrationDispatchLeaseInternal = internalMutation({
         message: "Connected-tool dispatch lease is no longer current.",
       });
     }
-    // The HTTP admission query can become stale while the provider status and
-    // session metadata requests are in flight. Recheck the exact token hash and
-    // running orchestrator turn in this final transaction, immediately before
-    // renewing the provider-dispatch lease.
-    const token = await ctx.db
-      .query("cloud_turn_tokens")
-      .withIndex("by_tokenHash", (q) => q.eq("tokenHash", args.tokenHash))
-      .unique();
+    // The HTTP admission (a signed turn capability) can become stale while
+    // the provider status and session metadata requests are in flight. The
+    // projected turn row is the only thing that can say the turn has ended;
+    // recheck it in this final transaction, immediately before renewing the
+    // provider-dispatch lease.
     const turn = await ctx.db
       .query("agent_turns")
       .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
       .unique();
     if (
-      !token ||
-      token.expiresAt <= args.now ||
-      token.ownerId !== args.ownerId ||
-      token.ownerGeneration !== args.ownerGeneration ||
-      token.turnId !== args.turnId ||
-      token.agentType !== "orchestrator" ||
-      !turn ||
-      turn.ownerId !== args.ownerId ||
-      turn.turnId !== args.turnId ||
-      turn.status !== "running"
+      turn &&
+      (turn.ownerId !== args.ownerId ||
+        turn.ownerGeneration !== args.ownerGeneration ||
+        turn.status !== "running" ||
+        turn.terminalKind)
     ) {
       throw new ConvexError({
         code: "TURN_NOT_ACTIVE",

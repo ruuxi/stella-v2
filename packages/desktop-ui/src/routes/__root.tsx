@@ -537,8 +537,12 @@ function RootLayout() {
     request.inFlight = true;
     request.attempt += 1;
     const { attempt, clientCreateId } = request;
+    // Conversation ids are minted on the client; the create id doubles as
+    // the conversation id so the route, the socket and the first turn all
+    // agree before Convex has projected the row.
     void createCloudConversation({
       clientCreateId,
+      requestedConversationId: clientCreateId,
       expectedOwnerGeneration: request.ownerGeneration,
     })
       .then((created) => {

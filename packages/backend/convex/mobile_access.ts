@@ -15,6 +15,7 @@ import {
   requireSensitiveUserId,
 } from "./auth";
 import { LEGACY_OWNER_GENERATION } from "./owner_lifecycle";
+import { scheduleOwnerSnapshotChanged } from "./lib/owner_snapshot_notify";
 import {
   constantTimeEqual,
   hashSha256Hex,
@@ -377,6 +378,7 @@ export const revokePairedMobileDevice = mutation({
       return null;
     }
     await ctx.db.patch(record._id, { revokedAt: Date.now() });
+    await scheduleOwnerSnapshotChanged(ctx, ownerId, "pairing");
     return null;
   },
 });
@@ -599,6 +601,7 @@ export const completePairingSession = internalMutation({
     }
 
     await ctx.db.patch(pairingSession._id, { usedAt: approvedAt });
+    await scheduleOwnerSnapshotChanged(ctx, args.ownerId, "pairing");
 
     return {
       desktopDeviceId: pairingSession.desktopDeviceId,

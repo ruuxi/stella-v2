@@ -81,7 +81,6 @@ const routeArgs = {
   turnId: TURN_ID,
   sessionId: "cloud-app-route-session",
   prompt: "Add my reading habit.",
-  turnToken: "cloud-app-route-token",
 };
 
 const managedLeaseState = async (t: Awaited<ReturnType<typeof createTest>>) =>

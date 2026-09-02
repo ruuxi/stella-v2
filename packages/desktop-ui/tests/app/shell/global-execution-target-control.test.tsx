@@ -8,13 +8,44 @@ const mocks = vi.hoisted(() => ({
   hasConnectedAccount: false,
   isCloudConversationReady: true,
   queryCalls: [] as unknown[],
+  deviceReads: [] as unknown[],
 }));
 
 vi.mock("convex/react", () => ({
   useQuery: (_reference: unknown, args: unknown) => {
     mocks.queryCalls.push(args);
-    return args === "skip" ? undefined : [];
+    return args === "skip"
+      ? undefined
+      : { httpOrigin: null, socketOrigin: "https://builder.example", protocol: 1 };
   },
+}));
+
+vi.mock("@/features/cloud/placement-client", () => ({
+  listExecutionDevices: async (args: unknown) => {
+    mocks.deviceReads.push(args);
+    return {
+      protocol: 1,
+      devices: [
+        {
+          deviceId: "desktop-studio",
+          label: "Studio iMac",
+          remoteExecutionEnabled: true,
+          online: true,
+          availability: {
+            ready: true,
+            chatSlots: 1,
+            agentSlots: 1,
+            capabilities: ["chat"],
+          },
+        },
+      ],
+      cloud: { capabilities: ["chat"] },
+    };
+  },
+}));
+
+vi.mock("@/global/auth/services/auth-token", () => ({
+  getConvexToken: async () => "jwt-account",
 }));
 
 vi.mock("@/global/auth/hooks/use-cloud-conversation-session", () => ({
@@ -39,7 +70,20 @@ vi.mock("@/platform/electron/device", () => ({
 }));
 
 vi.mock("@/ui/popover", () => ({
-  Popover: ({ children }: { children: ReactNode }) => <>{children}</>,
+  Popover: ({
+    children,
+    onOpenChange,
+  }: {
+    children: ReactNode;
+    onOpenChange: (open: boolean) => void;
+  }) => (
+    <>
+      <button type="button" data-open-picker onClick={() => onOpenChange(true)}>
+        open
+      </button>
+      {children}
+    </>
+  ),
   PopoverBody: ({ children }: { children: ReactNode }) => <>{children}</>,
   PopoverContent: ({ children }: { children: ReactNode }) => <>{children}</>,
   PopoverTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -64,6 +108,7 @@ describe("GlobalExecutionTargetControl", () => {
     mocks.hasConnectedAccount = false;
     mocks.isCloudConversationReady = true;
     mocks.queryCalls = [];
+    mocks.deviceReads = [];
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -84,12 +129,34 @@ describe("GlobalExecutionTargetControl", () => {
     expect(container.textContent).toContain("Cloud");
   });
 
-  it("loads owned devices after an account is connected", async () => {
+  it("looks up the owner gate only after an account is connected", async () => {
     mocks.hasConnectedAccount = true;
     await act(async () => {
       root.render(<GlobalExecutionTargetControl />);
     });
 
     expect(mocks.queryCalls).toEqual([{}]);
+    // Presence is read from the gate, and only while the picker is open.
+    expect(mocks.deviceReads).toEqual([]);
+  });
+
+  it("reads live device presence from the owner gate while open", async () => {
+    mocks.hasConnectedAccount = true;
+    await act(async () => {
+      root.render(<GlobalExecutionTargetControl />);
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("button[data-open-picker]")
+        ?.click();
+    });
+
+    expect(mocks.deviceReads).toEqual([
+      {
+        socketOrigin: "https://builder.example",
+        getToken: expect.any(Function),
+      },
+    ]);
+    expect(container.textContent).toContain("Studio iMac");
   });
 });

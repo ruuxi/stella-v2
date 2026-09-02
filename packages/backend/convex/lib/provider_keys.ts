@@ -1,9 +1,8 @@
 /**
  * Shared BYOK (Bring Your Own Key) resolution utilities.
  *
- * Used by both model_resolver.ts (AI SDK model instances) and
- * stella_provider.ts (Stella provider endpoint) to resolve API keys through
- * a unified lookup chain: user key → OpenRouter → env var.
+ * Used by model_resolver.ts (AI SDK model instances) to resolve API keys
+ * through a unified lookup chain: user key → OpenRouter → env var.
  */
 
 import type { ActionCtx } from "../_generated/server";

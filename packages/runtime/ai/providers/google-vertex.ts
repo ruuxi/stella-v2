@@ -32,6 +32,7 @@ import {
 	mapStopReason,
 	mapToolChoice,
 	retainThoughtSignature,
+	withModelFetch,
 } from "./google-shared.js";
 import { buildBaseOptions, clampReasoning } from "./simple-options.js";
 
@@ -362,13 +363,16 @@ function createClient(
 
 	const hasHttpOptions = Object.values(httpOptions).some(Boolean);
 
-	return new GoogleGenAI({
-		vertexai: true,
-		project,
-		location,
-		apiVersion: API_VERSION,
-		httpOptions: hasHttpOptions ? httpOptions : undefined,
-	});
+	return withModelFetch(
+		new GoogleGenAI({
+			vertexai: true,
+			project,
+			location,
+			apiVersion: API_VERSION,
+			httpOptions: hasHttpOptions ? httpOptions : undefined,
+		}),
+		model,
+	);
 }
 
 function createClientWithApiKey(
@@ -384,12 +388,15 @@ function createClientWithApiKey(
 
 	const hasHttpOptions = Object.values(httpOptions).some(Boolean);
 
-	return new GoogleGenAI({
-		vertexai: true,
-		apiKey,
-		apiVersion: API_VERSION,
-		httpOptions: hasHttpOptions ? httpOptions : undefined,
-	});
+	return withModelFetch(
+		new GoogleGenAI({
+			vertexai: true,
+			apiKey,
+			apiVersion: API_VERSION,
+			httpOptions: hasHttpOptions ? httpOptions : undefined,
+		}),
+		model,
+	);
 }
 
 function resolveApiKey(options?: GoogleVertexOptions): string | undefined {

@@ -1,8 +1,7 @@
-import { createHash } from "node:crypto";
 import { describe, expect, test } from "vitest";
 import {
   browserExecutionCancelArgs,
-  browserExecutionPayloadJson,
+  browserExecutionPayload,
   browserExecutionSubmitArgs,
   waitForBrowserExecutionTurn,
 } from "../../../src/features/cloud/browser-execution-placement";
@@ -23,63 +22,61 @@ const frozenSubmission = {
 } as const;
 
 describe("browser execution placement", () => {
-  test("fingerprints exact frozen conversation, client, locale, attachment, and model bytes", async () => {
+  test("carries the exact frozen prompt, locale, attachment, and model bytes", async () => {
     const input = {
       clientMsgId: "client:frozen-browser",
-      expectedOwnerGeneration: "generation-browser-a",
       conversationId: "conversation-browser",
       submission: frozenSubmission,
     };
-    const payloadJson = browserExecutionPayloadJson(input);
-    expect(payloadJson).toBe(
-      JSON.stringify({
-        schemaVersion: 1,
-        prompt: frozenSubmission.prompt,
-        expectedOwnerGeneration: "generation-browser-a",
-        conversationId: "conversation-browser",
-        clientMsgId: "client:frozen-browser",
-        locale: "fr",
-        attachments: ["images/chart.png"],
-        execution: frozenSubmission.execution,
-        requestedTargetMode: "device",
-        requestedExecutorDeviceId: "desktop-living-room",
-      }),
-    );
+    expect(browserExecutionPayload(input)).toEqual({
+      schemaVersion: 1,
+      prompt: frozenSubmission.prompt,
+      conversationId: "conversation-browser",
+      clientMsgId: "client:frozen-browser",
+      locale: "fr",
+      attachments: ["images/chart.png"],
+      execution: frozenSubmission.execution,
+    });
     const first = await browserExecutionSubmitArgs(input);
     const retry = await browserExecutionSubmitArgs(input);
     expect(retry).toEqual(first);
     expect(first).toEqual({
+      protocol: 1,
       idempotencyKey: "client:frozen-browser",
-      expectedOwnerGeneration: "generation-browser-a",
-      payloadJson,
-      payloadHash: createHash("sha256")
-        .update(payloadJson, "utf8")
-        .digest("hex"),
       kind: "chat",
+      ingress: "browser",
       subject: "cloud",
       conversationId: "conversation-browser",
       requiredCapabilities: ["chat"],
-      requestedTargetMode: "device",
-      requestedExecutorDeviceId: "desktop-living-room",
+      targetMode: "device",
+      targetDeviceId: "desktop-living-room",
+      payload: browserExecutionPayload(input),
     });
   });
 
-  test("automatic browser placement is explicit and resolves without a desktop id", async () => {
+  test("refuses a submission frozen against another conversation", () => {
+    expect(() =>
+      browserExecutionPayload({
+        clientMsgId: "client:mismatch",
+        conversationId: "conversation-other",
+        submission: frozenSubmission,
+      }),
+    ).toThrow("changed conversation authority");
+  });
+
+  test("automatic browser placement is explicit and resolves without a device id", async () => {
     const submission = {
       ...frozenSubmission,
       executionTarget: { mode: "automatic" as const },
     };
     const result = await browserExecutionSubmitArgs({
       clientMsgId: "client:automatic-browser",
-      expectedOwnerGeneration: "generation-browser-a",
       conversationId: "conversation-browser",
       submission,
     });
-    expect(result.requestedTargetMode).toBe("automatic");
-    expect(result).not.toHaveProperty("requestedExecutorDeviceId");
-    expect(JSON.parse(result.payloadJson)).toMatchObject({
-      requestedTargetMode: "automatic",
-    });
+    expect(result.targetMode).toBe("automatic");
+    expect(result).not.toHaveProperty("targetDeviceId");
+    expect(result.payload).not.toHaveProperty("targetMode");
   });
 
   test("waits for the placement turn id and fences a stale account response", async () => {

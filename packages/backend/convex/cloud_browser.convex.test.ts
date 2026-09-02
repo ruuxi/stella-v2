@@ -25,18 +25,7 @@ const OWNER_GENERATION = "generation:browser-owner";
 const CONVERSATION_ID = "conversation:browser";
 const THREAD_ID = "thread:browser";
 const TURN_ID = "turn:browser";
-const TOKEN = "browser-turn-token";
 const NOW = 10_000;
-
-const sha256Hex = async (value: string): Promise<string> => {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value),
-  );
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
-};
 
 const suspension = (overrides: Record<string, unknown> = {}) => ({
   schemaVersion: 1 as const,
@@ -103,19 +92,10 @@ const seedActiveTurn = async (t: TestHarness) => {
       updatedAt: 1,
     });
   });
-  await t.mutation(internal.cloud_apps.storeTurnTokenInternal, {
-    tokenHash: await sha256Hex(TOKEN),
-    ownerId: OWNER_ID,
-    ownerGeneration: OWNER_GENERATION,
-    turnId: TURN_ID,
-    agentType: "general",
-    now: NOW,
-  });
 };
 
 const projectWait = async (t: TestHarness, payloadJson = waitingPayload()) =>
   await t.mutation(internal.cloud_apps.appendEventInternal, {
-    tokenHash: await sha256Hex(TOKEN),
     ownerId: OWNER_ID,
     ownerGeneration: OWNER_GENERATION,
     turnId: TURN_ID,
@@ -162,7 +142,7 @@ describe("cloud browser control projection", () => {
     });
   });
 
-  it("atomically projects a wait, revokes its token, and admits only an exact replay", async () => {
+  it("atomically projects a wait and parks the turn and thread until a decision", async () => {
     const t = createTest();
     await seedActiveTurn(t);
 
@@ -170,6 +150,8 @@ describe("cloud browser control projection", () => {
       inserted: true,
       terminalAccepted: false,
     });
+    // An exact re-emission of the same wait is admitted as a replay; a
+    // different wait for the parked turn is refused (below).
     expect(await projectWait(t)).toEqual({
       inserted: false,
       terminalAccepted: false,
@@ -204,19 +186,10 @@ describe("cloud browser control projection", () => {
         .withIndex("by_threadId", (q) => q.eq("threadId", THREAD_ID))
         .unique();
       expect(turn?.status).toBe("waiting_for_user");
-      expect(turn?.activeTokenHash).toBeUndefined();
       expect(thread).toMatchObject({
         status: "waiting_for_user",
         sandboxLeaseExpiresAt: 0,
       });
-      expect(
-        await ctx.db
-          .query("cloud_turn_tokens")
-          .withIndex("by_turnId_and_ownerId", (q) =>
-            q.eq("turnId", TURN_ID).eq("ownerId", OWNER_ID),
-          )
-          .collect(),
-      ).toHaveLength(0);
       expect(
         await ctx.db
           .query("agent_events")
@@ -230,14 +203,14 @@ describe("cloud browser control projection", () => {
         t,
         waitingPayload({ interactionId: "interaction:different" }),
       ),
-    ).rejects.toThrow("no longer active");
+    ).rejects.toThrow(/already projected|no longer active/u);
   });
 
   it("rejects a new browser wait from a turn capability invalidated by session revocation", async () => {
     const t = createTest();
     await seedActiveTurn(t);
-    // A turn token carries no `sessionId` claim, so its authority is voided by
-    // any revocation the owner performed after the token was minted.
+    // A turn capability carries no `sessionId` claim, so its authority is
+    // voided by any revocation the owner performed after the turn started.
     await t.run(async (ctx) => {
       await ctx.db.insert("auth_revoked_sessions", {
         ownerId: OWNER_ID,
@@ -262,7 +235,6 @@ describe("cloud browser control projection", () => {
         .withIndex("by_turnId", (q) => q.eq("turnId", TURN_ID))
         .unique();
       expect(turn).toMatchObject({ status: "running" });
-      expect(turn?.activeTokenHash).toBe(await sha256Hex(TOKEN));
     });
   });
 
@@ -377,17 +349,7 @@ describe("cloud browser control projection", () => {
       });
       return turn!;
     });
-    const resumeTokenHash = await sha256Hex("fresh-resume-token");
-    await t.mutation(internal.cloud_apps.storeTurnTokenInternal, {
-      tokenHash: resumeTokenHash,
-      ownerId: OWNER_ID,
-      ownerGeneration: OWNER_GENERATION,
-      turnId: resumeTurn.turnId,
-      agentType: "general",
-      now: NOW + 2,
-    });
     await t.mutation(internal.cloud_apps.appendEventInternal, {
-      tokenHash: resumeTokenHash,
       ownerId: OWNER_ID,
       ownerGeneration: OWNER_GENERATION,
       turnId: resumeTurn.turnId,

@@ -1,11 +1,11 @@
+/**
+ * Convex-hosted Stella endpoints: the model catalog and the prompt bundle.
+ * Model traffic itself goes to the model gateway advertised by the catalog
+ * (`gateway.origin`, see `@stella/contracts/gateway/api`), never to Convex.
+ */
 const STELLA_API_BASE_PATH = "/api/stella";
 export const STELLA_MODELS_PATH = `${STELLA_API_BASE_PATH}/models`;
-export const STELLA_CLOUD_MODEL_PATH = `${STELLA_API_BASE_PATH}/cloud-model`;
 export const STELLA_PROMPTS_PATH = `${STELLA_API_BASE_PATH}/prompts`;
-export const STELLA_RELAY_PATH_PREFIX = `${STELLA_API_BASE_PATH}/relay`;
-export const STELLA_CHAT_COMPLETIONS_PATH = `${STELLA_RELAY_PATH_PREFIX}/chat/completions`;
-export const STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/openrouter/api/v1/chat/completions`;
-export const STELLA_OPENROUTER_RESPONSES_PATH = `${STELLA_API_BASE_PATH}/openrouter/api/v1/responses`;
 export const STELLA_DEFAULT_MODEL = "stella/default";
 export const STELLA_STANDARD_MODEL = "stella/standard";
 /**
@@ -55,21 +55,15 @@ export const STELLA_RELAY_PROVIDERS = [
 ] as const;
 export type StellaRelayProvider = (typeof STELLA_RELAY_PROVIDERS)[number];
 
+/**
+ * Reduce a configured Stella site URL to its root. Accepts the root itself or
+ * one of the Convex-hosted Stella endpoints (`/api/stella`, `/models`,
+ * `/prompts`), with or without a trailing slash.
+ */
 export const normalizeStellaSiteUrl = (value: string): string =>
   value
     .trim()
-    .replace(/\/chat\/completions\/?$/i, "")
-    .replace(/\/responses\/?$/i, "")
-    .replace(/\/runtime\/?$/i, "")
-    .replace(/\/models\/?$/i, "")
-    .replace(/\/api\/stella\/v1\/?$/i, "")
-    .replace(/\/api\/stella\/relay(?:\/.*)?$/i, "")
-    .replace(
-      /\/api\/stella\/(?:anthropic|openai|fireworks|deepseek|crof|wafer)(?:\/v1)?\/?$/i,
-      "",
-    )
-    .replace(/\/api\/stella\/google\/v1beta\/?$/i, "")
-    .replace(/\/api\/stella\/openrouter\/api\/v1\/?$/i, "")
+    .replace(/\/api\/stella\/(?:models|prompts)\/?$/i, "")
     .replace(/\/api\/stella\/?$/i, "")
     .replace(/\/+$/, "");
 
@@ -81,12 +75,6 @@ export const stellaApiBaseUrlFromSiteUrl = (siteUrl: string): string =>
 
 export const stellaPromptEndpointFromSiteUrl = (siteUrl: string): string =>
   stellaUrlFromSiteUrl(siteUrl, STELLA_PROMPTS_PATH);
-
-export const stellaCloudModelEndpointFromSiteUrl = (siteUrl: string): string =>
-  stellaUrlFromSiteUrl(siteUrl, STELLA_CLOUD_MODEL_PATH);
-
-export const stellaManagedRelayBaseUrlFromSiteUrl = (siteUrl: string): string =>
-  stellaUrlFromSiteUrl(siteUrl, STELLA_RELAY_PATH_PREFIX);
 
 type ChatContentPart =
   | { type?: string; text?: string }

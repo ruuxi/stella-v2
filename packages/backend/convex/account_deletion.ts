@@ -12,7 +12,6 @@ import { ConvexError, v, type VLiteral } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import {
   ensureExternalOwnerPurge,
-  quiesceOwnerExecutionPlacement,
   quiesceOwnerIntegrationCalls,
   stopOwnerSchedules,
 } from "./cloud_purge";
@@ -909,13 +908,6 @@ export const purgeOwnerCloudData = internalAction({
         ownerId,
         startedAt: Date.now(),
       });
-      // Fence relay resume before any long-running deletion work. Reservations
-      // and active stream appends reject this owner once the gate is visible, so
-      // response plaintext cannot be recreated behind a completed drain.
-      await ctx.runMutation(
-        internal.stella_provider.relay_resume_store.beginOwnerRelayResumePurge,
-        { ...fence, nowMs: Date.now() },
-      );
       await ensureExternalOwnerPurge(ctx, { ...fence, mode: "delete" });
       await ctx.runMutation(
         internal.media_jobs.cancelOwnerMediaProviderDispatchesInternal,
@@ -1020,12 +1012,6 @@ export const purgeOwnerCloudData = internalAction({
       // spending model tokens while deletion runs. Stop them before any long
       // table/R2 drain; the strict cloud-stack purge below repeats this guard.
       await stopOwnerSchedules(ctx, fence);
-      const placement = await quiesceOwnerExecutionPlacement(ctx, fence);
-      if (!placement.ready) {
-        throw new Error(
-          "Account deletion is waiting for accepted desktop/cloud execution to stop; device verification keys and dispatch locators were retained for retry.",
-        );
-      }
       const externalMedia = await ctx.runAction(
         internal.account_external_media.purgeOwnerExternalMediaInternal,
         { ...fence, leaseId },
@@ -1081,24 +1067,6 @@ export const purgeOwnerCloudData = internalAction({
         ...OWNER_TABLES.map((table) => drainOwnerTable(ctx, fence, table)),
         ...MOBILE_TABLES.map((table) => drainMobileTable(ctx, fence, table)),
         ...EXTRA_TABLES.map((table) => drainExtraTable(ctx, fence, table)),
-        (async () => {
-          const drain = async () => {
-            let hasMore = true;
-            while (hasMore) {
-              const result: { hasMore: boolean } = await ctx.runMutation(
-                internal.stella_provider.relay_resume_store
-                  .deleteOwnerRelayResumeBatch,
-                { ...fence, nowMs: Date.now() },
-              );
-              hasMore = result.hasMore;
-            }
-          };
-          await drain();
-          // A second pass closes the window for work that was already in flight
-          // when the durable purge gate became visible. The account-deletion
-          // gate remains until its TTL cleanup; unlike reset, it is not reopened.
-          await drain();
-        })(),
         // Cloudflare DNS/tunnel first; the exact Convex locator row last.
         ctx.runAction(internal.cloudflare_tunnels.purgeOwnerTunnels, {
           ...fence,

@@ -14,6 +14,9 @@ import {
   openSqlStorageFake,
   type SqlStorageFake,
 } from "./fixtures/sql-storage.js";
+import { readThreadHistory } from "../src/thread-transcript.js";
+import { fakeOutbox } from "./helpers/turn-plane-fakes.js";
+import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 
 mock.module("cloudflare:workers", () => ({
   DurableObject: class {},
@@ -47,8 +50,6 @@ const residentTurn = () => ({
   threadId: THREAD_ID,
   attemptGeneration: 1,
   prompt: "ship it",
-  turnToken: "token-1",
-  convexCallbackBase: "https://convex.example",
   execution: STELLA,
   turnBrokerRoute: {
     sessionId: "broker:agent-evicted",
@@ -78,47 +79,15 @@ afterEach(() => {
   while (opened.length) opened.pop()?.close();
 });
 
-type PostedTranscript = {
-  conversationId: string;
-  turnId: string;
-  messages: Array<{ ordinal: number; role: string; payloadJson: string }>;
-};
-
 /**
- * A Convex stand-in that answers `/api/cloud/context` from whatever
- * `/api/cloud/messages` last committed. The cursor check inside the control
- * plane is therefore real: a recovery that posted different rows than it hashed
- * would fail here rather than being asserted around.
+ * The transcript is this session's own table now, so the cursor check inside
+ * the control plane is exercised against the same rows a continuation would
+ * read back: a recovery that committed different rows than it hashed fails
+ * here rather than being asserted around.
  */
-const convexStub = () => {
-  const posted: PostedTranscript[] = [];
-  const fetchStub = async (
-    input: string | URL,
-    init?: RequestInit,
-  ): Promise<Response> => {
-    const url = new URL(typeof input === "string" ? input : input.toString());
-    if (url.pathname === "/api/cloud/messages") {
-      posted.push(JSON.parse(String(init?.body)) as PostedTranscript);
-      return new Response("{}", { status: 200 });
-    }
-    if (url.pathname === "/api/cloud/context") {
-      const committed = posted.at(-1);
-      return Response.json({
-        messages: (committed?.messages ?? []).map((row) => ({
-          seq: row.ordinal,
-          role: row.role,
-          payloadJson: row.payloadJson,
-          turnId: committed!.turnId,
-        })),
-      });
-    }
-    if (url.pathname === "/api/cloud/events") {
-      return new Response("{}", { status: 200 });
-    }
-    throw new Error(`Unexpected Convex call: ${url.pathname}`);
-  };
-  return { posted, fetchStub };
-};
+const committedTranscript = (
+  harness: ReturnType<typeof recoveryHarness>,
+): AgentHistoryRow[] => readThreadHistory(harness.storage.sql, {});
 
 const recoveryHarness = () => {
   const values = new Map<string, unknown>();
@@ -188,7 +157,11 @@ const recoveryHarness = () => {
   let destroyFailures = 0;
   Object.assign(instance, {
     ctx,
-    env: { BUILDER_SERVICE_SECRET: "builder-secret" },
+    env: {
+      BUILDER_SERVICE_SECRET: "builder-secret",
+      STELLA_CONVEX_SITE_URL: "https://convex.example",
+      TURN_OUTBOX: fakeOutbox().queue,
+    },
     exactTurnCancellations: new ExactTurnCancellationLedger(storage),
     runningTurns: new Map<string, Set<Promise<unknown>>>(),
     agentTurnExecutions: new Map<string, unknown>(),
@@ -213,7 +186,6 @@ const recoveryHarness = () => {
     deleteTurnStoragePreservingExactCancellations: async () => true,
     settleAgentTransientBackup: async () => true,
     assertTurnWritable: async () => undefined,
-    assertConvexAgentTurnAuthority: async () => undefined,
     ownsExactTurn: async () => true,
     interruptAgentForBuilderFallback: async () => undefined,
     reconcileAgentCheckpointAfterQuiescence: async (
@@ -320,28 +292,23 @@ describe("resident agent turn recovery", () => {
       phase: "resident",
       instanceSize: "large",
     });
-    const convex = convexStub();
-    const original = globalThis.fetch;
-    globalThis.fetch = convex.fetchStub as typeof fetch;
-    try {
-      await runAlarm(harness.instance, turn);
-    } finally {
-      globalThis.fetch = original;
-    }
+    await runAlarm(harness.instance, turn);
 
-    expect(convex.posted).toHaveLength(1);
-    const committed = convex.posted[0]!;
-    expect(committed.conversationId).toBe(THREAD_ID);
-    expect(committed.messages.map((row) => row.role)).toEqual([
+    const committed = committedTranscript(harness);
+    expect(committed.map((row) => row.turnId)).toEqual([
+      turn.turnId,
+      turn.turnId,
+      turn.turnId,
+      turn.turnId,
+    ]);
+    expect(committed.map((row) => row.role)).toEqual([
       "user",
       "assistant",
       "toolResult",
       "assistant",
     ]);
-    expect(committed.messages[2]!.payloadJson).toContain(
-      INTERRUPTED_TOOL_RESULT_TEXT,
-    );
-    expect(JSON.parse(committed.messages[2]!.payloadJson)).toMatchObject({
+    expect(committed[2]!.payloadJson).toContain(INTERRUPTED_TOOL_RESULT_TEXT);
+    expect(JSON.parse(committed[2]!.payloadJson)).toMatchObject({
       toolCallId: "call-1",
       isError: true,
     });
@@ -383,14 +350,7 @@ describe("resident agent turn recovery", () => {
       createdAt: 1_700_000_000_000,
       updatedAt: 1_700_000_000_000,
     });
-    const convex = convexStub();
-    const original = globalThis.fetch;
-    globalThis.fetch = convex.fetchStub as typeof fetch;
-    try {
-      await runAlarm(harness.instance, turn);
-    } finally {
-      globalThis.fetch = original;
-    }
+    await runAlarm(harness.instance, turn);
 
     expect(harness.destroyed).toEqual([
       {
@@ -408,7 +368,7 @@ describe("resident agent turn recovery", () => {
     expect(harness.values.has(agentComputeKey(turn.turnId, 1))).toBe(false);
     expect(harness.values.has(`ownerFenceLeaseReceipt:${leaseId}`)).toBe(false);
     expect(harness.values.get("sandboxId")).toBe("stale-predecessor");
-    expect(convex.posted).toHaveLength(1);
+    expect(committedTranscript(harness)).toHaveLength(4);
   });
 
   test("destroy failure retains exact compute and world slot until the retry succeeds", async () => {
@@ -453,14 +413,7 @@ describe("resident agent turn recovery", () => {
     ).toMatchObject({ phase: "registered" });
     expect(harness.ownerFenceCalls).toEqual([]);
 
-    const convex = convexStub();
-    const original = globalThis.fetch;
-    globalThis.fetch = convex.fetchStub as typeof fetch;
-    try {
-      await runAlarm(harness.instance, turn);
-    } finally {
-      globalThis.fetch = original;
-    }
+    await runAlarm(harness.instance, turn);
     expect(harness.destroyed).toHaveLength(2);
     expect(harness.ownerFenceCalls.at(-1)).toMatchObject({
       path: "unregister",

@@ -3453,7 +3453,7 @@ describe("crash-safe ownership migration lifecycle", () => {
     ]);
   });
 
-  it("quiesces and discards both principals' execution-placement authority", async () => {
+  it("discards both principals' dispatch projections", async () => {
     const t = createTest();
     await t.mutation(migrationInternal.prepareOwnershipMigration, ownerArgs);
     const claim = await t.mutation(migrationInternal.claimOwnershipMigration, {
@@ -3466,99 +3466,28 @@ describe("crash-safe ownership migration lifecycle", () => {
         [fromOwnerId, claim.fromOwnerGeneration!, "source"],
         [toOwnerId, claim.toOwnerGeneration!, "destination"],
       ] as const) {
-        await ctx.db.insert("desktop_execution_presence", {
-          ownerId,
-          ownerGeneration,
-          deviceId: `desktop-${suffix}`,
-          devicePublicKey: `public-key-${suffix}`,
-          deviceKeyFingerprint: `fingerprint-${suffix}`,
-          presenceSessionId: `presence-${suffix}`,
-          protocolVersion: 1,
-          appVersion: "test",
-          capabilities: ["chat"],
-          status: "ready",
-          heartbeatSeq: 1,
-          proofSeq: 1,
-          lastProofOperation: "presence-register",
-          lastProofBodyHash: `proof-hash-${suffix}`,
-          chatSlotCapacity: 1,
-          agentSlotCapacity: 0,
-          availableChatSlots: 1,
-          availableAgentSlots: 0,
-          leaseExpiresAt: 10_000,
-          createdAt: 1,
-          updatedAt: 1,
-        });
-        await ctx.db.insert("execution_dispatches", {
+        await ctx.db.insert("cloud_dispatches", {
           dispatchId: `dispatch-${suffix}`,
           ownerId,
           ownerGeneration,
           idempotencyKey: `dispatch-idempotency-${suffix}`,
-          payloadHash: `payload-hash-${suffix}`,
-          payloadSizeBytes: 2,
           kind: "chat",
           ingress: "desktop",
           subject: "portable",
           conversationId: `conversation-${suffix}`,
-          requiredCapabilities: ["chat"],
-          routingPolicyVersion: 1,
-          onNoEligibleComputer: "blocked",
-          state: "queued",
+          state: "computer_running",
           revision: 1,
-          attemptGeneration: 1,
           createdAt: 1,
           updatedAt: 1,
-        });
-        await ctx.db.insert("execution_offers", {
-          ownerId,
-          ownerGeneration,
-          dispatchId: `dispatch-${suffix}`,
-          deviceId: `desktop-${suffix}`,
-          presenceSessionId: `presence-${suffix}`,
-          status: "open",
-          expiresAt: 10_000,
-          createdAt: 1,
-          updatedAt: 1,
-        });
-        await ctx.db.insert("execution_dispatch_payloads", {
-          ownerId,
-          ownerGeneration,
-          dispatchId: `dispatch-${suffix}`,
-          payloadJson: "{}",
-          payloadHash: `payload-hash-${suffix}`,
-          expiresAt: 10_000,
-          createdAt: 1,
         });
       }
     });
 
     await expect(
       t.query(migrationInternal.auditOwnershipMigrationResidue, ownerArgs),
-    ).resolves.toEqual({
-      kind: "retry",
-      table: "desktop_execution_presence",
-    });
+    ).resolves.toEqual({ kind: "retry", table: "cloud_dispatches" });
 
-    await expect(
-      t.mutation(migrationInternal.discardAnonymousTransientHandshakesBatch, {
-        ...ownerArgs,
-        leaseId: "placement-lease",
-        leaseGeneration: claim.leaseGeneration!,
-        leaseNow: 1_001,
-      }),
-    ).rejects.toThrow("before execution quiescence");
-
-    for (const ownerId of [fromOwnerId, toOwnerId]) {
-      await expect(
-        t.mutation(
-          internal.execution_placement
-            .quiesceOwnerExecutionPlacementForMigrationInternal,
-          { migrationId: claim.migrationId!, ownerId, now: 1_002 },
-        ),
-      ).resolves.toMatchObject({ ready: true, terminalizedDispatches: 1 });
-    }
-
-    for (let pass = 0; pass < 8; pass += 1) {
+    for (let pass = 0; pass < 2; pass += 1) {
       await expect(
         t.mutation(migrationInternal.discardAnonymousTransientHandshakesBatch, {
           ...ownerArgs,
@@ -3579,20 +3508,9 @@ describe("crash-safe ownership migration lifecycle", () => {
     await expect(
       t.query(migrationInternal.auditOwnershipMigrationResidue, ownerArgs),
     ).resolves.toEqual({ kind: "clear" });
-
     await expect(
-      t.run(async (ctx) => ({
-        presence: await ctx.db.query("desktop_execution_presence").collect(),
-        dispatches: await ctx.db.query("execution_dispatches").collect(),
-        offers: await ctx.db.query("execution_offers").collect(),
-        payloads: await ctx.db.query("execution_dispatch_payloads").collect(),
-      })),
-    ).resolves.toEqual({
-      presence: [],
-      dispatches: [],
-      offers: [],
-      payloads: [],
-    });
+      t.run(async (ctx) => await ctx.db.query("cloud_dispatches").collect()),
+    ).resolves.toEqual([]);
   });
 
   it("moves versioned Memory and authorized Skills without stale leases", async () => {

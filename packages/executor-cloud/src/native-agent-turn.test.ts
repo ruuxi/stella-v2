@@ -140,15 +140,22 @@ describe("native engine reasoning selection", () => {
         STELLA_CODEX_TURN_TOKEN: "codex-token",
         KEEP_ME: "safe",
       },
-      callbackBase: "https://example.convex.site",
+      gatewayOrigin: "https://gateway.example.test",
       stateRoot: "/workspace/drive/.stella/claude",
-      relayToken: "loopback-relay-sentinel",
+      capability: "turn-capability-jwt",
       reasoningEffort: "none",
     });
     expect(env.STELLA_TURN_TOKEN).toBeUndefined();
     expect(env.STELLA_CODEX_TURN_TOKEN).toBeUndefined();
     expect(env.KEEP_ME).toBe("safe");
-    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("loopback-relay-sentinel");
+    expect(env.ANTHROPIC_BASE_URL).toBe(
+      "https://gateway.example.test/v1/relay",
+    );
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("turn-capability-jwt");
+    expect(env.ANTHROPIC_CUSTOM_HEADERS).toBe(
+      "x-stella-agent-type: general\nx-stella-llm-credential: anthropic",
+    );
+    expect(env.ANTHROPIC_CUSTOM_HEADERS).not.toContain("turn-token");
     expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBe("unset");
   });
 
@@ -249,8 +256,8 @@ describe("native engine reasoning selection", () => {
           model: "claude-sonnet-4-6",
           reasoningEffort: "high",
         },
-        callbackBase: "https://example.convex.site",
-        relayToken: "loopback-relay-sentinel",
+        gatewayOrigin: "https://gateway.example.test",
+        capability: "turn-capability-jwt",
         threadId: "thread",
         turnId: "turn",
         authoritativeHistoryCursor: nativeHistoryCursorFromRows([]),

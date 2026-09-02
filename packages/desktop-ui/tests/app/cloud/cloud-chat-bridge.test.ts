@@ -19,10 +19,9 @@ import {
   localCloudTaskOverlay,
   shouldUseLocalCloudOverlay,
 } from "../../../src/features/cloud/use-cloud-chat-bridge";
-import {
-  classifyBrowserDispatchRejection,
-  cloudTurnStartArgs,
-} from "../../../src/features/cloud/use-conversation";
+import { classifyBrowserDispatchRejection } from "../../../src/features/cloud/use-conversation";
+import { PlacementClientError } from "../../../src/features/cloud/placement-client";
+import { cloudTurnStartRequest } from "../../../src/features/cloud/turn-start-client";
 import { sha256Hex } from "../../../src/features/cloud/browser-execution-placement";
 import {
   publishCloudExecutionSelection,
@@ -274,10 +273,10 @@ describe("cloud chat bridge authority", () => {
         reasoningEffort: "high",
       } as const,
     };
-    const firstAttempt = cloudTurnStartArgs(
+    const firstAttempt = cloudTurnStartRequest(
       "client-frozen",
-      "generation-frozen",
       submission,
+      "frozen prompt",
     );
 
     publishCloudExecutionSelection({
@@ -288,19 +287,25 @@ describe("cloud chat bridge authority", () => {
     });
 
     expect(
-      cloudTurnStartArgs("client-frozen", "generation-frozen", submission),
+      cloudTurnStartRequest("client-frozen", submission, "frozen prompt"),
     ).toEqual(firstAttempt);
-    expect(firstAttempt).toMatchObject({
+    expect(firstAttempt).toEqual({
+      protocol: 1,
       clientMsgId: "client-frozen",
-      expectedOwnerGeneration: "generation-frozen",
-      conversationId: "conversation-1",
-      locale: "fr",
+      prompt: "frozen prompt",
       execution: submission.execution,
+      locale: "fr",
       attachments: ["images/input.png"],
+      source: "desktop",
+      title: "frozen prompt",
     });
+    // The conversation is addressed by the URL, never by the body, and the
+    // owner generation is no longer a request field.
+    expect(firstAttempt).not.toHaveProperty("conversationId");
+    expect(firstAttempt).not.toHaveProperty("expectedOwnerGeneration");
   });
 
-  test("routes hosted sends and Stop through placement while retaining legacy Electron chat", () => {
+  test("routes hosted sends and Stop through placement and desktop sends to the builder turn route", () => {
     const conversationSource = fs.readFileSync(
       path.join(SOURCE_ROOT, "features/cloud/use-conversation.ts"),
       "utf8",
@@ -309,9 +314,8 @@ describe("cloud chat bridge authority", () => {
       path.join(SOURCE_ROOT, "features/cloud/use-cloud-chat-bridge.tsx"),
       "utf8",
     );
-    expect(conversationSource).toContain(
-      "submitBrowserExecution = useMutation(cloudApi.submitBrowserExecution)",
-    );
+    expect(conversationSource).toContain("await submitDispatch({");
+    expect(conversationSource).toContain("socketOrigin: placementOrigin,");
     expect(conversationSource).toContain(
       "cloudApi.getMyCloudConversationIdentity",
     );
@@ -332,14 +336,25 @@ describe("cloud chat bridge authority", () => {
     expect(conversationSource).toContain(
       "__STELLA_RENDERED_ACCEPTANCE_AUTHORITY__",
     );
+    expect(conversationSource).toContain("getDispatchStatus({");
     expect(conversationSource).toContain(
-      "convex.query(cloudApi.getExecutionDispatchStatus",
+      "...browserExecutionCancelArgs(dispatchId),",
     );
-    expect(conversationSource).toContain(
-      "await cancelExecutionDispatch(browserExecutionCancelArgs(dispatchId))",
-    );
+    expect(conversationSource).not.toContain("cloudApi.getExecutionDispatchStatus");
+    expect(conversationSource).not.toContain("cloudApi.cancelExecutionDispatch");
     expect(conversationSource).toContain("if (!webShell)");
-    expect(conversationSource).toContain("startLegacyTurn(");
+    expect(conversationSource).toContain("await startCloudTurn({");
+    expect(conversationSource).toContain(
+      "conversationId: targetConversationId,",
+    );
+    expect(conversationSource).toContain(
+      "getToken: (options) => getConvexToken(options ?? {}),",
+    );
+    expect(conversationSource).toContain(
+      "conversationId ?? (webShell ? null : newCloudConversationId())",
+    );
+    expect(conversationSource).not.toContain("startLegacyTurn");
+    expect(conversationSource).not.toContain("cloudApi.startCloudChat");
     expect(bridgeSource).toContain("conversation.cancelPending(");
   });
 
@@ -375,6 +390,16 @@ describe("cloud chat bridge authority", () => {
     ).resolves.toEqual({
       outcome: "other_rejected",
       errorCodeSha256: await sha256Hex("<no-error-code>"),
+    });
+
+    // The owner gate's own refusal carries the contract's code.
+    await expect(
+      classifyBrowserDispatchRejection(
+        new PlacementClientError({ code: "generation_stale", status: 409 }),
+      ),
+    ).resolves.toEqual({
+      outcome: "owner_generation_rejected",
+      errorCodeSha256: await sha256Hex("generation_stale"),
     });
 
     const otherCode = "OWNER_SESSION_REVOKED";
@@ -535,6 +560,7 @@ describe("cloud chat bridge authority", () => {
       "activeAccountScopeRef.current !== operation.accountScope",
     );
     expect(root).toContain("activeRouteIntentRef.current !== routeIntent");
+    expect(root).toContain("requestedConversationId: clientCreateId,");
     expect(root).toContain("cloudApi.getMyCloudConversationIdentity");
     expect(root).not.toContain("cloudApi.getMyExecutionPlacementIdentity");
     expect(root).toContain(

@@ -28,11 +28,6 @@ aesthetics.
 
 ## Retained imperative seams (deliberate, with reasons)
 
-- `ai/utils/resilient-event-stream.ts` — reconnect/backoff state machine.
-  Timers/listeners are finally-scoped and its single consumer runs under a
-  run-scoped fiber; a
-  Stream/Schedule rewrite risks resume-cursor parity for zero ownership
-  gain.
 - Provider adapters (`ai/providers/*`) — boundary code over SDKs/fetch.
   Network lifetime derives from run-scope relay signals (phases 2–3);
   bodies close exactly once on every reader exit path (phase 4).

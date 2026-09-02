@@ -4,12 +4,11 @@ import {
   TURN_BROKER_HEADERS,
   TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH,
   TURN_BROKER_NATIVE_STATE_CHECKPOINT_PATH,
-  TURN_BROKER_TURN_TOKEN_HEADER,
   type TurnBrokerHandoff,
 } from "@stella/contracts/turn-credential-broker";
 import { sha256Hex } from "../src/hash.js";
 import {
-  TURN_BROKER_MAX_RELAY_REQUESTS,
+  TURN_BROKER_MAX_REQUESTS,
   claimTurnBrokerRequest,
   forwardTurnBrokerRequest,
   issueTurnBrokerCredential,
@@ -141,7 +140,7 @@ describe("BuildSession turn credential broker", () => {
     if (!accepted.ok) throw new Error(accepted.code);
     expect(accepted.disposition).toBe("claim");
     expect(accepted.target).toEqual({
-      kind: "callback",
+      kind: "turn-event",
       method: "POST",
       path: "/api/cloud/events",
       maxBodyBytes: 16 * 1024 * 1024,
@@ -149,7 +148,6 @@ describe("BuildSession turn credential broker", () => {
     expect(accepted.record).toMatchObject({
       nextSequence: 2,
       requestCount: 1,
-      relayRequestCount: 0,
       lastClaim: {
         sequence: 1,
         requestId: "00000000-0000-4000-8000-000000000001",
@@ -210,21 +208,15 @@ describe("BuildSession turn credential broker", () => {
       validateTurnBrokerTarget("GET", TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH),
     ).toBeNull();
     expect(() =>
-      turnBrokerUpstreamUrl(
-        "https://convex.example/",
-        "https://convex.example/",
-        target,
-      ),
-    ).toThrow("no upstream URL");
+      turnBrokerUpstreamUrl("https://convex.example/", target),
+    ).toThrow("upstream URL");
     await expect(
       forwardTurnBrokerRequest({
         target,
         body: new Uint8Array(),
         incomingHeaders: new Headers(),
-        convexCallbackBase: "https://convex.example/",
-        expectedConvexOrigin: "https://convex.example/",
-        rawTurnToken: "turn-token",
-        engine: "stella",
+        convexOrigin: "https://convex.example/",
+        controlPlaneCapability: "control-plane-capability",
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow("cannot be forwarded to Convex");
@@ -354,14 +346,19 @@ describe("BuildSession turn credential broker", () => {
     ).toMatchObject({ ok: false, status: 400, code: "malformed" });
   });
 
-  test("does not let a valid capability escape its callback and relay allowlist", async () => {
+  test("does not let a valid capability escape its callback allowlist", async () => {
     const { handoff, record } = await issued();
     for (const deniedPath of [
       "/api/cloud/projects/credentials",
-      "/api/cloud/events?redirect=/api/stella/relay/responses",
-      "/api/stella/relay/../../cloud/projects/credentials",
-      "/api/stella/relay/%2e%2e/cloud/projects/credentials",
-      "https://attacker.example/api/stella/relay/responses",
+      "/api/cloud/events?redirect=/api/cloud/messages",
+      "/api/cloud/events/../projects/credentials",
+      "/api/cloud/events/%2e%2e/projects/credentials",
+      "https://attacker.example/api/cloud/events",
+      // The retired model relay never comes back through the broker: model
+      // traffic goes straight to the gateway with a turn capability.
+      "/api/stella/cloud-model",
+      "/api/stella/relay/v1/messages",
+      "/api/stella/relay/responses",
     ]) {
       const denied = await claim(record, handoff, {
         headers: headers(handoff, {
@@ -374,47 +371,50 @@ describe("BuildSession turn credential broker", () => {
         code: "target_denied",
       });
     }
+    for (const method of ["GET", "DELETE", "post"]) {
+      expect(validateTurnBrokerTarget(method, "/api/cloud/events")).toBeNull();
+    }
 
-    expect(
-      validateTurnBrokerTarget("POST", "/api/stella/cloud-model"),
-    ).toMatchObject({ kind: "model-resolution" });
     expect(
       validateTurnBrokerTarget(
         "POST",
         TURN_BROKER_NATIVE_STATE_CHECKPOINT_PATH,
       ),
     ).toMatchObject({ kind: "builder-callback" });
-    expect(
-      validateTurnBrokerTarget(
-        "GET",
-        "/api/stella/relay/responses/request_123?cursor=next",
-      ),
-    ).toMatchObject({ kind: "model-relay", method: "GET" });
+    // The turn's own event stream and thread transcript stop at the
+    // BuildSession; only the Convex-answerable routes are forwarded.
+    expect(validateTurnBrokerTarget("POST", "/api/cloud/messages")).toEqual({
+      kind: "thread-messages",
+      method: "POST",
+      path: "/api/cloud/messages",
+      maxBodyBytes: 16 * 1024 * 1024,
+    });
+    expect(validateTurnBrokerTarget("POST", "/api/cloud/web-search")).toEqual({
+      kind: "callback",
+      method: "POST",
+      path: "/api/cloud/web-search",
+      maxBodyBytes: 16 * 1024 * 1024,
+    });
   });
 
-  test("bounds body size and relay-call amplification", async () => {
+  test("bounds body size and total call amplification", async () => {
     const { handoff, record } = await issued();
-    const relayHeaders = headers(handoff, {
-      [TURN_BROKER_HEADERS.targetPath]: "/api/stella/relay/v1/messages",
-    });
     expect(
       await claim(record, handoff, {
-        headers: relayHeaders,
-        bodyBytes: 24 * 1024 * 1024 + 1,
+        bodyBytes: 16 * 1024 * 1024 + 1,
       }),
     ).toMatchObject({ ok: false, status: 413, code: "body_too_large" });
     expect(
       await claim(
         {
           ...record,
-          nextSequence: TURN_BROKER_MAX_RELAY_REQUESTS + 1,
-          requestCount: TURN_BROKER_MAX_RELAY_REQUESTS,
-          relayRequestCount: TURN_BROKER_MAX_RELAY_REQUESTS,
+          nextSequence: TURN_BROKER_MAX_REQUESTS + 1,
+          requestCount: TURN_BROKER_MAX_REQUESTS,
           lastClaim: {
-            sequence: TURN_BROKER_MAX_RELAY_REQUESTS,
+            sequence: TURN_BROKER_MAX_REQUESTS,
             requestId: "00000000-0000-4000-8000-000000000008",
             method: "POST",
-            targetPath: "/api/stella/relay/v1/messages",
+            targetPath: "/api/cloud/events",
             bodySha256: await sha256Hex("{}"),
           },
         },
@@ -422,114 +422,77 @@ describe("BuildSession turn credential broker", () => {
         {
           headers: headers(handoff, {
             [TURN_BROKER_HEADERS.sequence]: String(
-              TURN_BROKER_MAX_RELAY_REQUESTS + 1,
+              TURN_BROKER_MAX_REQUESTS + 1,
             ),
-            [TURN_BROKER_HEADERS.targetPath]: "/api/stella/relay/v1/messages",
           }),
         },
       ),
     ).toMatchObject({ ok: false, status: 429, code: "limit_exceeded" });
   });
 
-  test("Builder strips caller credentials, injects the raw token once, and scrubs the response", () => {
+  test("Builder strips caller credentials, injects the turn capability once, and scrubs the response", () => {
     const upstream = turnBrokerUpstreamHeaders(
       new Headers({
         authorization: "Bearer attacker-controlled",
         "x-api-key": "attacker-controlled",
         cookie: "session=attacker-controlled",
-        [TURN_BROKER_TURN_TOKEN_HEADER]: "attacker-controlled",
         [TURN_BROKER_HEADERS.sequence]: "99",
         "x-stella-owner": "attacker-controlled",
-        "content-type": "application/json",
+        "x-stella-agent-type": "orchestrator",
         "x-stella-llm-credential": "anthropic",
+        "content-type": "application/json",
       }),
-      "builder-held-raw-authority",
-      "anthropic",
+      "control-plane-capability",
     );
-    expect(upstream.get("authorization")).toBeNull();
     expect(upstream.get("x-api-key")).toBeNull();
     expect(upstream.get("cookie")).toBeNull();
     expect(upstream.get(TURN_BROKER_HEADERS.sequence)).toBeNull();
     expect(upstream.get("x-stella-owner")).toBeNull();
-    expect(upstream.get(TURN_BROKER_TURN_TOKEN_HEADER)).toBe(
-      "builder-held-raw-authority",
+    expect(upstream.get("x-stella-agent-type")).toBeNull();
+    expect(upstream.get("x-stella-llm-credential")).toBeNull();
+    expect(upstream.get("authorization")).toBe(
+      "Bearer control-plane-capability",
     );
-    expect(upstream.get("x-stella-llm-credential")).toBe("anthropic");
-    expect(upstream.get("x-stella-agent-type")).toBe("general");
+    expect(upstream.get("content-type")).toBe("application/json");
 
     const response = turnBrokerSandboxResponseHeaders(
       new Headers({
         "content-type": "application/json",
         "set-cookie": "backend=secret",
-        [TURN_BROKER_TURN_TOKEN_HEADER]: "never-return",
+        authorization: "Bearer never-return",
         "x-stella-broker-debug": "never-return",
+        "x-stella-response-id": "never-return",
         "x-request-id": "safe-request-id",
       }),
     );
     expect(response.get("set-cookie")).toBeNull();
-    expect(response.get(TURN_BROKER_TURN_TOKEN_HEADER)).toBeNull();
+    expect(response.get("authorization")).toBeNull();
     expect(response.get("x-stella-broker-debug")).toBeNull();
+    expect(response.get("x-stella-response-id")).toBeNull();
     expect(response.get("x-request-id")).toBe("safe-request-id");
   });
 
   test("constructs upstream URLs only on the pinned Convex origin", () => {
-    const target = validateTurnBrokerTarget(
-      "POST",
-      "/api/stella/relay/responses?stream=true",
-    );
+    const target = validateTurnBrokerTarget("POST", "/api/cloud/web-search");
     if (!target) throw new Error("missing target");
-    expect(
-      turnBrokerUpstreamUrl(
-        "https://tenant.convex.site",
-        "https://tenant.convex.site",
-        target,
-      ),
-    ).toBe("https://tenant.convex.site/api/stella/relay/responses?stream=true");
+    expect(turnBrokerUpstreamUrl("https://tenant.convex.site", target)).toBe(
+      "https://tenant.convex.site/api/cloud/web-search",
+    );
     expect(() =>
-      turnBrokerUpstreamUrl(
-        "http://tenant.convex.site",
-        "https://tenant.convex.site",
-        target,
-      ),
+      turnBrokerUpstreamUrl("http://tenant.convex.site", target),
     ).toThrow("HTTPS");
     expect(() =>
-      turnBrokerUpstreamUrl(
-        "https://attacker.example",
-        "https://tenant.convex.site",
-        target,
-      ),
+      turnBrokerUpstreamUrl("https://tenant.convex.site/nested", target),
     ).toThrow("HTTPS");
-  });
-
-  test("binds relay shapes to the exact dispatched engine", () => {
-    const anthropic = validateTurnBrokerTarget(
-      "POST",
-      "/api/stella/relay/v1/messages",
-    );
-    const codex = validateTurnBrokerTarget(
-      "POST",
-      "/api/stella/relay/responses",
-    );
-    const resolver = validateTurnBrokerTarget(
-      "POST",
-      "/api/stella/cloud-model",
-    );
-    if (!anthropic || !codex || !resolver) throw new Error("missing target");
-    expect(turnBrokerTargetMatchesEngine(anthropic, "anthropic")).toBe(true);
-    expect(turnBrokerTargetMatchesEngine(codex, "anthropic")).toBe(false);
-    expect(turnBrokerTargetMatchesEngine(codex, "openai-codex")).toBe(true);
-    expect(turnBrokerTargetMatchesEngine(anthropic, "openai-codex")).toBe(
-      false,
-    );
-    expect(turnBrokerTargetMatchesEngine(resolver, "stella")).toBe(true);
-    expect(turnBrokerTargetMatchesEngine(resolver, "anthropic")).toBe(false);
+    const local = validateTurnBrokerTarget("POST", "/api/cloud/events");
+    if (!local) throw new Error("missing target");
+    expect(() =>
+      turnBrokerUpstreamUrl("https://tenant.convex.site", local),
+    ).toThrow("upstream URL");
   });
 
   test("mediates the complete upstream call without returning raw authority", async () => {
-    const target = validateTurnBrokerTarget(
-      "POST",
-      "/api/stella/relay/v1/messages",
-    );
+    const target = validateTurnBrokerTarget("POST", "/api/cloud/web-search");
     if (!target) throw new Error("missing target");
     let observedUrl = "";
     let observedHeaders = new Headers();
@@ -540,10 +503,8 @@ describe("BuildSession turn credential broker", () => {
         authorization: "Bearer local-dummy",
         "content-type": "application/json",
       }),
-      convexCallbackBase: "https://tenant.convex.site",
-      expectedConvexOrigin: "https://tenant.convex.site",
-      rawTurnToken: "builder-only-authority",
-      engine: "anthropic",
+      convexOrigin: "https://tenant.convex.site",
+      controlPlaneCapability: "builder-only-authority",
       signal: new AbortController().signal,
       fetchImpl: (async (input, init) => {
         observedUrl = String(input);
@@ -558,22 +519,18 @@ describe("BuildSession turn credential broker", () => {
       }) as typeof fetch,
     });
     expect(observedUrl).toBe(
-      "https://tenant.convex.site/api/stella/relay/v1/messages",
+      "https://tenant.convex.site/api/cloud/web-search",
     );
-    expect(observedHeaders.get("authorization")).toBeNull();
-    expect(observedHeaders.get(TURN_BROKER_TURN_TOKEN_HEADER)).toBe(
-      "builder-only-authority",
+    expect(observedHeaders.get("authorization")).toBe(
+      "Bearer builder-only-authority",
     );
     expect(response.headers.get("set-cookie")).toBeNull();
-    expect(response.headers.get(TURN_BROKER_TURN_TOKEN_HEADER)).toBeNull();
+    expect(response.headers.get("authorization")).toBeNull();
     expect(await response.json()).toEqual({ ok: true });
   });
 
   test("terminates a non-OK upstream body before it crosses the service binding", async () => {
-    const target = validateTurnBrokerTarget(
-      "POST",
-      "/api/stella/relay/v1/messages",
-    );
+    const target = validateTurnBrokerTarget("POST", "/api/cloud/web-search");
     if (!target) throw new Error("missing target");
     let canceled = false;
     const response = await forwardTurnBrokerRequest({
@@ -583,10 +540,8 @@ describe("BuildSession turn credential broker", () => {
         authorization: "Bearer local-dummy",
         "content-type": "application/json",
       }),
-      convexCallbackBase: "https://tenant.convex.site",
-      expectedConvexOrigin: "https://tenant.convex.site",
-      rawTurnToken: "builder-only-authority",
-      engine: "anthropic",
+      convexOrigin: "https://tenant.convex.site",
+      controlPlaneCapability: "builder-only-authority",
       signal: new AbortController().signal,
       fetchImpl: (async () =>
         new Response(
@@ -618,21 +573,14 @@ describe("BuildSession turn credential broker", () => {
     expect(response.headers.get("content-length")).not.toBe("999");
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(await response.json()).toEqual({
-      type: "error",
-      error: {
-        type: "rate_limit_error",
-        message: "Managed model relay returned HTTP 429.",
-      },
+      error: "Turn callback returned HTTP 429.",
     });
     await Promise.resolve();
     expect(canceled).toBe(true);
   });
 
   test("never follows an upstream redirect carrying raw turn authority", async () => {
-    const target = validateTurnBrokerTarget(
-      "POST",
-      "/api/stella/relay/v1/messages",
-    );
+    const target = validateTurnBrokerTarget("POST", "/api/cloud/web-search");
     if (!target) throw new Error("missing target");
     let observedRedirect: RequestRedirect | undefined;
     let calls = 0;
@@ -644,17 +592,15 @@ describe("BuildSession turn credential broker", () => {
           authorization: "Bearer local-only",
           "content-type": "application/json",
         }),
-        convexCallbackBase: "https://tenant.convex.site",
-        expectedConvexOrigin: "https://tenant.convex.site",
-        rawTurnToken: "builder-only-authority",
-        engine: "anthropic",
+        convexOrigin: "https://tenant.convex.site",
+        controlPlaneCapability: "builder-only-authority",
         signal: new AbortController().signal,
         fetchImpl: (async (_input, init) => {
           calls += 1;
           observedRedirect = init?.redirect;
-          expect(
-            new Headers(init?.headers).get(TURN_BROKER_TURN_TOKEN_HEADER),
-          ).toBe("builder-only-authority");
+          expect(new Headers(init?.headers).get("authorization")).toBe(
+            "Bearer builder-only-authority",
+          );
           return new Response(null, {
             status: 307,
             headers: { location: "https://attacker.example/stolen" },

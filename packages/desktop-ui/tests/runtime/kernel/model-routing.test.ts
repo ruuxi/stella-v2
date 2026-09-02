@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Model } from "@stella/runtime/ai/types";
 import {
+  rememberStellaGatewayOrigin,
+  resetGatewaySessionState,
+} from "@stella/runtime/kernel/gateway-session";
+import {
   getStellaVerbatimUpstreamModel,
   isOpenEndedGatewayProvider,
   isOpenEndedModelReference,
@@ -157,11 +161,44 @@ vi.mock("@stella/runtime/ai/models", () => ({
   },
 }));
 
+const GATEWAY = "https://gateway.example.test";
+
 describe("resolveLlmRoute", () => {
   beforeEach(() => {
     credentials.clear();
     oauthCredentials.clear();
+    resetGatewaySessionState();
+    rememberStellaGatewayOrigin("https://stella.example.test", GATEWAY);
   });
+
+  const capabilityExchange = () => {
+    const exchange = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            capability: "session-capability",
+            expiresAt: Date.now() + 3_600_000,
+            audience: "pro",
+            budgetMicroCents: -1,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = exchange as unknown as typeof fetch;
+    return {
+      exchange,
+      bearer: (index = 0) =>
+        new Headers(
+          (exchange.mock.calls[index]?.[1] as RequestInit | undefined)?.headers as
+            | HeadersInit
+            | undefined,
+        ).get("authorization"),
+      restore: () => {
+        globalThis.fetch = originalFetch;
+      },
+    };
+  };
 
   const site = {
     baseUrl: "https://stella.example.test",
@@ -609,9 +646,7 @@ describe("resolveLlmRoute", () => {
     expect(resolved.route).toBe("stella");
     expect(resolved.model.provider).toBe("anthropic");
     expect(resolved.model.id).toBe("stella/anthropic/claude-opus-4.6");
-    expect(resolved.model.baseUrl).toBe(
-      "https://stella.example.test/api/stella/relay",
-    );
+    expect(resolved.model.baseUrl).toBe(`${GATEWAY}/v1/relay`);
   });
 
   it("routes Stella aliases (stella/designer, etc.) through Stella unchanged", async () => {
@@ -677,6 +712,7 @@ describe("resolveLlmRoute", () => {
       async () =>
         new Response(
           JSON.stringify({
+            gateway: { origin: GATEWAY },
             data: [
               {
                 id: "stella/managed-provider-collision",
@@ -720,26 +756,40 @@ describe("resolveLlmRoute", () => {
     }
   });
 
-  it("refreshes near-expiry Stella tokens before model calls", async () => {
+  it("refreshes near-expiry Stella tokens before exchanging a session capability", async () => {
     const refreshAuthToken = vi.fn(async () => "fresh-stella-token");
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
     );
+    const gateway = capabilityExchange();
+    try {
+      const resolved = resolveLlmRoute({
+        stellaAppDir: "/tmp/stella",
+        modelName: "stella/default",
+        agentType: "general",
+        site: {
+          baseUrl: "https://stella.example.test",
+          deviceId: "device-refresh",
+          getAuthToken: () => jwtWithExpiry(Date.now() + 10_000),
+          refreshAuthToken,
+        },
+      });
 
-    const resolved = resolveLlmRoute({
-      stellaAppDir: "/tmp/stella",
-      modelName: "stella/default",
-      agentType: "general",
-      site: {
-        baseUrl: "https://stella.example.test",
-        getAuthToken: () => jwtWithExpiry(Date.now() + 10_000),
-        refreshAuthToken,
-      },
-    });
-
-    expect(resolved.route).toBe("stella");
-    await expect(resolved.getApiKey()).resolves.toBe("fresh-stella-token");
-    expect(refreshAuthToken).toHaveBeenCalledTimes(1);
+      expect(resolved.route).toBe("stella");
+      // The model credential is the gateway capability, never the JWT.
+      await expect(resolved.getApiKey()).resolves.toBe("session-capability");
+      expect(refreshAuthToken).toHaveBeenCalledTimes(1);
+      expect(gateway.exchange).toHaveBeenCalledTimes(1);
+      expect(gateway.exchange.mock.calls[0]?.[0]).toBe(
+        `${GATEWAY}/v1/capabilities/session`,
+      );
+      expect(gateway.bearer()).toBe("Bearer fresh-stella-token");
+      expect(
+        JSON.parse(String((gateway.exchange.mock.calls[0]?.[1] as RequestInit).body)),
+      ).toEqual({ deviceId: "device-refresh" });
+    } finally {
+      gateway.restore();
+    }
   });
 
   it("uses pushed Stella tokens without refreshing before the fallback window", async () => {
@@ -748,21 +798,32 @@ describe("resolveLlmRoute", () => {
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
     );
+    const gateway = capabilityExchange();
+    try {
+      const resolved = resolveLlmRoute({
+        stellaAppDir: "/tmp/stella",
+        modelName: "stella/default",
+        agentType: "general",
+        site: {
+          baseUrl: "https://stella.example.test",
+          getAuthToken: () => currentToken,
+          refreshAuthToken,
+        },
+      });
 
-    const resolved = resolveLlmRoute({
-      stellaAppDir: "/tmp/stella",
-      modelName: "stella/default",
-      agentType: "general",
-      site: {
-        baseUrl: "https://stella.example.test",
-        getAuthToken: () => currentToken,
-        refreshAuthToken,
-      },
-    });
-
-    expect(resolved.route).toBe("stella");
-    await expect(resolved.getApiKey()).resolves.toBe(currentToken);
-    expect(refreshAuthToken).not.toHaveBeenCalled();
+      expect(resolved.route).toBe("stella");
+      await expect(resolved.getApiKey()).resolves.toBe("session-capability");
+      expect(refreshAuthToken).not.toHaveBeenCalled();
+      expect(gateway.bearer()).toBe(`Bearer ${currentToken}`);
+      // Cached: a second lookup does not exchange again.
+      await expect(resolved.getApiKey()).resolves.toBe("session-capability");
+      expect(gateway.exchange).toHaveBeenCalledTimes(1);
+      // refreshApiKey (401/402 from the gateway) re-exchanges immediately.
+      await expect(resolved.refreshApiKey?.()).resolves.toBe("session-capability");
+      expect(gateway.exchange).toHaveBeenCalledTimes(2);
+    } finally {
+      gateway.restore();
+    }
   });
 
   it("routes by parsed provider id when a matching local credential exists", async () => {

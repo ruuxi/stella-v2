@@ -96,19 +96,32 @@ export const isConnectedOwnerIdAction = async (
   ctx: Pick<ActionCtx, "runQuery">,
   ownerId: string,
 ): Promise<boolean> => {
+  const account = await resolveOwnerAccountAction(ctx, ownerId);
+  return account !== null && !account.isAnonymous;
+};
+
+export type OwnerAccount = { userId: string; isAnonymous: boolean };
+
+/**
+ * Resolve the Better Auth user behind an owner id for service routes whose
+ * caller was authenticated elsewhere (the model gateway verifies the JWT).
+ * Null for a malformed id or a missing/deleted user.
+ */
+export const resolveOwnerAccountAction = async (
+  ctx: Pick<ActionCtx, "runQuery">,
+  ownerId: string,
+): Promise<OwnerAccount | null> => {
   const separator = ownerId.lastIndexOf("|");
   const userId = separator >= 0 ? ownerId.slice(separator + 1) : "";
-  if (!userId) return false;
+  if (!userId || ownerId !== tokenIdentifierForBetterAuthUserId(userId)) {
+    return null;
+  }
   const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
     model: "user",
     where: [{ field: "_id", value: userId }],
   })) as { _id?: string; isAnonymous?: boolean | null } | null;
-  return Boolean(
-    user &&
-      user._id === userId &&
-      user.isAnonymous !== true &&
-      ownerId === tokenIdentifierForBetterAuthUserId(userId),
-  );
+  if (!user || user._id !== userId) return null;
+  return { userId, isAnonymous: user.isAnonymous === true };
 };
 
 export const getAuthBaseUrl = () =>

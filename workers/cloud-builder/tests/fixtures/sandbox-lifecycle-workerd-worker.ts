@@ -77,7 +77,6 @@ export class SandboxLifecycleProof extends DurableObject<FixtureEnv> {
       ownerId: "owner-reused",
       ownerGeneration: "generation-reused",
       turnId: "turn-reused",
-      turnToken: "turn-token-reused",
     };
     const [oldId, successorId] = await Promise.all([
       sandboxLifecycleId("agent", { ...base, attemptGeneration: 1 }),

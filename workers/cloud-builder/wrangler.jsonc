@@ -31,9 +31,25 @@
     // values; the Worker and DO independently deny the route without them.
     "ENABLE_DEV_ACCEPTANCE_PROBES": "1",
     "STELLA_DEPLOYMENT_IDENTITY": "dev:outgoing-bulldog-865",
+    // Public origin of the model gateway. Durable Objects reach it through the
+    // MODEL_GATEWAY service binding (the hostname only has to parse there);
+    // sandboxes use this origin directly with their turn capability.
+    "MODEL_GATEWAY_URL": "https://stella-v2-model-gateway-dev.lolruuxi.workers.dev",
+    // Key id under which the gateway's JWKS holds this Worker's public key.
+    "CAPABILITY_SIGNING_KID": "builder-1",
+    // This Worker's own public origin. Durable Objects need it to hand a
+    // spawned agent's sandbox the turn-broker endpoint; a DO has no request
+    // origin to derive it from.
+    "CLOUD_BUILDER_PUBLIC_URL": "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
   },
   "secrets": {
-    "required": ["BUILDER_SERVICE_SECRET", "META_MODEL_API_KEY"],
+    // CAPABILITY_SIGNING_KEY is the PKCS8 PEM of the ES256 private key that
+    // signs turn capabilities; it never leaves this Worker.
+    "required": [
+      "BUILDER_SERVICE_SECRET",
+      "META_MODEL_API_KEY",
+      "CAPABILITY_SIGNING_KEY",
+    ],
   },
   "worker_loaders": [
     {
@@ -51,6 +67,13 @@
       // behind a private Worker boundary. Builder receives only this fetcher.
       "binding": "BROWSER_GATEWAY",
       "service": "stella-v2-browser-gateway-dev",
+    },
+    {
+      // Model gateway. Durable Objects send model traffic through this
+      // binding with a turn capability as the bearer; sandboxes reach the
+      // same Worker at MODEL_GATEWAY_URL.
+      "binding": "MODEL_GATEWAY",
+      "service": "stella-v2-model-gateway-dev",
     },
   ],
   "r2_buckets": [
@@ -131,8 +154,9 @@
         "class_name": "OwnerTransferCoordinator",
       },
       {
-        "name": "DEVICE_PRESENCE",
-        "class_name": "DevicePresence",
+        // One object per owner: plan snapshot, quota windows, running turns.
+        "name": "OWNER_GATES",
+        "class_name": "OwnerGate",
       },
     ],
   },
@@ -161,7 +185,36 @@
       "tag": "v6",
       "new_sqlite_classes": ["DevicePresence"],
     },
+    {
+      "tag": "v7",
+      "new_sqlite_classes": ["OwnerGate"],
+    },
+    {
+      // Device presence moved into the owner gate: one object per owner
+      // holding presence, offers, and claims together.
+      "tag": "v8",
+      "deleted_classes": ["DevicePresence"],
+    },
   ],
+  "queues": {
+    "producers": [
+      {
+        // Durable Objects append control-plane projections here; the
+        // consumer below batches them into Convex `POST /api/cloud/outbox`.
+        "binding": "TURN_OUTBOX",
+        "queue": "stella-v2-turn-outbox-dev",
+      },
+    ],
+    "consumers": [
+      {
+        "queue": "stella-v2-turn-outbox-dev",
+        "max_batch_size": 50,
+        "max_batch_timeout": 2,
+        "max_retries": 10,
+        "dead_letter_queue": "stella-v2-turn-outbox-dlq-dev",
+      },
+    ],
+  },
   "env": {
     "bn118": {
       "name": "stella-v2-cloud-builder-basic-nightingale-118",
@@ -178,9 +231,16 @@
         "STELLA_CONVEX_CLOUD_URL": "https://basic-nightingale-118.convex.cloud",
         "ENABLE_DEV_ACCEPTANCE_PROBES": "1",
         "STELLA_DEPLOYMENT_IDENTITY": "preview:basic-nightingale-118",
+        "MODEL_GATEWAY_URL": "https://stella-v2-model-gateway-dev.lolruuxi.workers.dev",
+        "CAPABILITY_SIGNING_KID": "builder-1",
+        "CLOUD_BUILDER_PUBLIC_URL": "https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev",
       },
       "secrets": {
-        "required": ["BUILDER_SERVICE_SECRET", "META_MODEL_API_KEY"],
+        "required": [
+          "BUILDER_SERVICE_SECRET",
+          "META_MODEL_API_KEY",
+          "CAPABILITY_SIGNING_KEY",
+        ],
       },
       "worker_loaders": [
         {
@@ -196,6 +256,10 @@
         {
           "binding": "BROWSER_GATEWAY",
           "service": "stella-v2-browser-gateway-basic-nightingale-118",
+        },
+        {
+          "binding": "MODEL_GATEWAY",
+          "service": "stella-v2-model-gateway-dev",
         },
       ],
       "r2_buckets": [
@@ -272,8 +336,8 @@
             "class_name": "OwnerTransferCoordinator",
           },
           {
-            "name": "DEVICE_PRESENCE",
-            "class_name": "DevicePresence",
+            "name": "OWNER_GATES",
+            "class_name": "OwnerGate",
           },
         ],
       },
@@ -302,7 +366,32 @@
           "tag": "v6",
           "new_sqlite_classes": ["DevicePresence"],
         },
+        {
+          "tag": "v7",
+          "new_sqlite_classes": ["OwnerGate"],
+        },
+        {
+          "tag": "v8",
+          "deleted_classes": ["DevicePresence"],
+        },
       ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "TURN_OUTBOX",
+            "queue": "stella-v2-turn-outbox-dev",
+          },
+        ],
+        "consumers": [
+          {
+            "queue": "stella-v2-turn-outbox-dev",
+            "max_batch_size": 50,
+            "max_batch_timeout": 2,
+            "max_retries": 10,
+            "dead_letter_queue": "stella-v2-turn-outbox-dlq-dev",
+          },
+        ],
+      },
     },
     "production": {
       "name": "stella-v2-cloud-builder-prod",
@@ -318,9 +407,16 @@
         "STELLA_CONVEX_SITE_URL": "https://intent-jackal-330.convex.site",
         "STELLA_CONVEX_CLOUD_URL": "https://intent-jackal-330.convex.cloud",
         "STELLA_DEPLOYMENT_IDENTITY": "prod:intent-jackal-330",
+        "MODEL_GATEWAY_URL": "https://stella-v2-model-gateway.lolruuxi.workers.dev",
+        "CAPABILITY_SIGNING_KID": "builder-1",
+        "CLOUD_BUILDER_PUBLIC_URL": "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev",
       },
       "secrets": {
-        "required": ["BUILDER_SERVICE_SECRET", "META_MODEL_API_KEY"],
+        "required": [
+          "BUILDER_SERVICE_SECRET",
+          "META_MODEL_API_KEY",
+          "CAPABILITY_SIGNING_KEY",
+        ],
       },
       "worker_loaders": [
         {
@@ -336,6 +432,10 @@
         {
           "binding": "BROWSER_GATEWAY",
           "service": "stella-v2-browser-gateway-prod",
+        },
+        {
+          "binding": "MODEL_GATEWAY",
+          "service": "stella-v2-model-gateway",
         },
       ],
       "r2_buckets": [
@@ -412,8 +512,8 @@
             "class_name": "OwnerTransferCoordinator",
           },
           {
-            "name": "DEVICE_PRESENCE",
-            "class_name": "DevicePresence",
+            "name": "OWNER_GATES",
+            "class_name": "OwnerGate",
           },
         ],
       },
@@ -442,7 +542,32 @@
           "tag": "v6",
           "new_sqlite_classes": ["DevicePresence"],
         },
+        {
+          "tag": "v7",
+          "new_sqlite_classes": ["OwnerGate"],
+        },
+        {
+          "tag": "v8",
+          "deleted_classes": ["DevicePresence"],
+        },
       ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "TURN_OUTBOX",
+            "queue": "stella-v2-turn-outbox",
+          },
+        ],
+        "consumers": [
+          {
+            "queue": "stella-v2-turn-outbox",
+            "max_batch_size": 50,
+            "max_batch_timeout": 2,
+            "max_retries": 10,
+            "dead_letter_queue": "stella-v2-turn-outbox-dlq",
+          },
+        ],
+      },
     },
   },
 }

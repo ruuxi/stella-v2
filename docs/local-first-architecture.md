@@ -56,8 +56,10 @@ Orchestrator and General execution remains on the desktop:
    orchestrator against its local session and persisted local history.
 4. `LocalAgentManager` starts General agent turns locally and persists their
    thread/event lifecycle through `SessionStore`.
-5. Provider and Stella relay requests remain ordinary model networking; the
-   agent loop and transcript owner stay local.
+5. Provider requests and Stella-managed requests to the model gateway Worker
+   (`workers/model-gateway`, `POST <gateway>/v1/relay/*` with a session
+   capability) remain ordinary model networking; the agent loop and transcript
+   owner stay local.
 
 The cloud executor, cloud orchestrator, journal-socket transcript, and cloud
 conversation canonicalization descendants are intentionally excluded.

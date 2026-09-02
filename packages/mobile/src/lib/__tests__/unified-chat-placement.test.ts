@@ -73,7 +73,7 @@ describe("the one chat's placement offer", () => {
       "chat",
       "attachments",
     ]);
-    expect(JSON.parse(admission.body.payloadJson).attachments).toEqual([
+    expect(admission.body.payload.attachments).toEqual([
       "uploads/2026-08-29/receipt.png",
     ]);
   });
@@ -93,7 +93,7 @@ describe("the one chat's placement offer", () => {
     expect(admission.body.subject).toBe("cloud");
     // The envelope is unchanged: both placements would read the same paths.
     // Only the destination differs, and the user never sees it.
-    expect(JSON.parse(admission.body.payloadJson).attachments).toEqual([
+    expect(admission.body.payload.attachments).toEqual([
       "uploads/2026-08-29/receipt.png",
       "uploads/2026-08-29/lease.pdf",
     ]);

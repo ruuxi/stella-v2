@@ -4,10 +4,6 @@ import {
   type PaginationResult,
 } from "convex/server";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import type {
-  BrowserExecutionDispatch,
-  BrowserExecutionSubmitArgs,
-} from "./browser-execution-placement";
 
 export type CloudConversation = {
   conversationId: string;
@@ -90,19 +86,6 @@ export type StellaInteriorDeployment = {
   previousBuildId: string | null;
   routeRevision: number;
   builds: StellaInteriorBuild[];
-};
-
-export type ExecutionDestination = {
-  deviceId: string;
-  name: string;
-  platform?: string;
-  online: boolean;
-  ready: boolean;
-  busy: boolean;
-  remoteExecutionEnabled: boolean;
-  availableChatSlots: number;
-  availableAgentSlots: number;
-  updatedAt?: number;
 };
 
 /** One spawned cloud agent. Mirrors the `cloud_agent_threads` row. */
@@ -225,21 +208,13 @@ export const cloudApi = {
       protocol: number;
     }
   >("cloud_apps:getCloudRealtimeConfig"),
-  getMyExecutionPlacementIdentity: makeFunctionReference<
+  // Renderer-side model calls (dictation cleanup and the like) talk to the
+  // model gateway directly; this says where it lives.
+  getModelGatewayConfig: makeFunctionReference<
     "query",
     Record<string, never>,
-    {
-      ownerId: string;
-      ownerGeneration: string;
-      protocolVersion: number;
-      serverTime: number;
-    }
-  >("execution_placement:getMyExecutionPlacementIdentity"),
-  listMyExecutionDestinations: makeFunctionReference<
-    "query",
-    Record<string, never>,
-    ExecutionDestination[]
-  >("execution_placement:listMyExecutionDestinations"),
+    { origin: string }
+  >("gateway_capabilities:getModelGatewayConfig"),
   deleteMyConversation: makeFunctionReference<
     "action",
     { conversationId: string },
@@ -286,43 +261,6 @@ export const cloudApi = {
     { appId: string },
     CloudBuild[]
   >("cloud_apps:listMyAppBuilds"),
-  startCloudChat: makeFunctionReference<
-    "mutation",
-    {
-      prompt: string;
-      expectedOwnerGeneration: string;
-      conversationId?: string;
-      appId?: string;
-      // Idempotency key for the optimistic echo: it rides through to the
-      // journal's prompt row, so a retried send resolves the same bubble
-      // instead of starting a second turn.
-      clientMsgId?: string;
-      // UI locale for the cloud reply-language directive; omitted for English.
-      locale?: string;
-      // Drive paths of attached images the turn should see as image blocks.
-      attachments?: string[];
-      // Exact cloud route selected in the browser. Sending it on every turn
-      // also makes model changes apply to an already-open conversation.
-      execution?: CloudExecutionSelection;
-    },
-    // appId is absent for chat-lane turns (plain conversation, no app).
-    { conversationId: string; appId?: string; turnId: string }
-  >("cloud_apps:startCloudChat"),
-  submitBrowserExecution: makeFunctionReference<
-    "mutation",
-    BrowserExecutionSubmitArgs,
-    BrowserExecutionDispatch
-  >("execution_placement:submitMyBrowserExecution"),
-  getExecutionDispatchStatus: makeFunctionReference<
-    "query",
-    { dispatchId: string },
-    BrowserExecutionDispatch | null
-  >("execution_placement:getMyExecutionDispatchStatus"),
-  cancelExecutionDispatch: makeFunctionReference<
-    "mutation",
-    { dispatchId: string; cancelRequestId: string; reason?: string },
-    BrowserExecutionDispatch
-  >("execution_placement:cancelMyExecutionDispatch"),
   applyMyBuild: makeFunctionReference<
     "action",
     { buildId: string },

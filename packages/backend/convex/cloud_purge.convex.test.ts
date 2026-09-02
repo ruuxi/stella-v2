@@ -1483,7 +1483,6 @@ describe("owner purge adversarial invariants", () => {
         displayOrigin: "https://accounts.example",
         revision: 1,
         expiresAt: 60_000,
-        suspensionTokenHash: "c".repeat(64),
         suspensionEventPayloadHash: "d".repeat(64),
         createdAt: 1,
         updatedAt: 1,

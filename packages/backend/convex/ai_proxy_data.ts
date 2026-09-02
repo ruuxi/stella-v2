@@ -1,9 +1,13 @@
 /**
- * Data access for AI proxy rate limiting (anon_device_usage table).
+ * Data access for anonymous trial counters (anon_device_usage table).
  */
 
 import { ConvexError, v } from 'convex/values'
-import { internalMutation } from './_generated/server'
+import {
+  internalMutation,
+  type MutationCtx,
+  type QueryCtx,
+} from './_generated/server'
 import { internal } from './_generated/api'
 import { hashSha256Hex } from './lib/crypto_utils'
 import { clampIntToRange } from './lib/number_utils'
@@ -11,6 +15,21 @@ import { ANON_DEVICE_USAGE_RETENTION_MS } from './lib/anonymous_usage'
 
 const MAX_CLIENT_ADDRESS_KEY_LENGTH = 128
 const CLIENT_ADDRESS_KEY_PATTERN = /^[0-9a-fA-F:.]+$/
+
+/**
+ * Constant `deviceId` prefix for the per-network counter. Keyed on the
+ * gateway's IP hash, it has no resettable per-install component, so it is the
+ * durable ceiling that survives a local-data wipe (which mints a fresh
+ * anonymous identity and therefore a fresh per-device counter).
+ */
+export const ANON_IP_BUCKET_DEVICE_ID = 'anon-ip'
+
+/** An anonymous owner is its own trial device unless the caller names one. */
+export const anonymousTrialDeviceId = (ownerId: string): string =>
+  `anon-jwt:${ownerId}`
+
+export const anonymousIpBucketDeviceId = (ipHash: string): string =>
+  `${ANON_IP_BUCKET_DEVICE_ID}:${ipHash}`
 
 const normalizeClientAddressKey = (value: string | undefined) => {
   if (!value) return undefined
@@ -74,55 +93,99 @@ export const purgeStaleDeviceUsage = internalMutation({
   },
 })
 
+export type DeviceAllowanceArgs = {
+  deviceId: string
+  maxRequests: number
+  clientAddressKey?: string
+}
+
+export type DeviceAllowanceResult = {
+  allowed: boolean
+  requestCount: number
+  remaining: number
+  firstRequestAt: number
+  lastRequestAt: number
+}
+
+/** Current count for a device without consuming an allowance. */
+export const readDeviceAllowance = async (
+  ctx: QueryCtx | MutationCtx,
+  args: DeviceAllowanceArgs,
+): Promise<{ requestCount: number; remaining: number }> => {
+  const maxRequests = clampIntToRange(
+    args.maxRequests,
+    1,
+    Number.MAX_SAFE_INTEGER,
+  )
+  const deviceHash = await hashDeviceId(args.deviceId, args.clientAddressKey)
+  const existing = await ctx.db
+    .query('anon_device_usage')
+    .withIndex('by_deviceId', (q) => q.eq('deviceId', deviceHash))
+    .unique()
+  const now = Date.now()
+  const requestCount =
+    existing && now - existing.lastRequestAt <= ANON_DEVICE_USAGE_RETENTION_MS
+      ? existing.requestCount
+      : 0
+  return { requestCount, remaining: Math.max(0, maxRequests - requestCount) }
+}
+
 /**
- * Atomically checks and consumes one anonymous request allowance.
+ * Atomically checks and consumes one anonymous request allowance. The caller
+ * must already hold owner/generation authority for the write.
  */
+export const consumeDeviceAllowanceAuthorized = async (
+  ctx: MutationCtx,
+  args: DeviceAllowanceArgs,
+): Promise<DeviceAllowanceResult> => {
+  const maxRequests = clampIntToRange(
+    args.maxRequests,
+    1,
+    Number.MAX_SAFE_INTEGER,
+  )
+  const deviceHash = await hashDeviceId(args.deviceId, args.clientAddressKey)
+  const existing = await ctx.db
+    .query('anon_device_usage')
+    .withIndex('by_deviceId', (q) => q.eq('deviceId', deviceHash))
+    .unique()
+
+  const now = Date.now()
+  let requestCount = 1
+  let firstRequestAt = now
+
+  if (existing) {
+    const stale = now - existing.lastRequestAt > ANON_DEVICE_USAGE_RETENTION_MS
+    requestCount = stale ? 1 : existing.requestCount + 1
+    firstRequestAt = stale ? now : existing.firstRequestAt
+    await ctx.db.patch(existing._id, {
+      requestCount,
+      firstRequestAt,
+      lastRequestAt: now,
+    })
+  } else {
+    await ctx.db.insert('anon_device_usage', {
+      deviceId: deviceHash,
+      requestCount,
+      firstRequestAt,
+      lastRequestAt: now,
+    })
+  }
+
+  return {
+    allowed: requestCount <= maxRequests,
+    requestCount,
+    remaining: Math.max(0, maxRequests - requestCount),
+    firstRequestAt,
+    lastRequestAt: now,
+  }
+}
+
 export const consumeDeviceAllowance = internalMutation({
   args: {
     deviceId: v.string(),
     maxRequests: v.number(),
     clientAddressKey: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
-    const maxRequests = clampIntToRange(
-      args.maxRequests,
-      1,
-      Number.MAX_SAFE_INTEGER,
-    )
-    const deviceHash = await hashDeviceId(args.deviceId, args.clientAddressKey)
-    const existing = await ctx.db
-      .query('anon_device_usage')
-      .withIndex('by_deviceId', (q) => q.eq('deviceId', deviceHash))
-      .unique()
-
-    const now = Date.now()
-    let requestCount = 1
-    let firstRequestAt = now
-
-    if (existing) {
-      const stale = now - existing.lastRequestAt > ANON_DEVICE_USAGE_RETENTION_MS
-      requestCount = stale ? 1 : existing.requestCount + 1
-      firstRequestAt = stale ? now : existing.firstRequestAt
-      await ctx.db.patch(existing._id, {
-        requestCount,
-        firstRequestAt,
-        lastRequestAt: now,
-      })
-    } else {
-      await ctx.db.insert('anon_device_usage', {
-        deviceId: deviceHash,
-        requestCount,
-        firstRequestAt,
-        lastRequestAt: now,
-      })
-    }
-
-    return {
-      allowed: requestCount <= maxRequests,
-      requestCount,
-      remaining: Math.max(0, maxRequests - requestCount),
-      firstRequestAt,
-      lastRequestAt: now,
-    }
-  },
+  handler: async (ctx, args) =>
+    await consumeDeviceAllowanceAuthorized(ctx, args),
 })

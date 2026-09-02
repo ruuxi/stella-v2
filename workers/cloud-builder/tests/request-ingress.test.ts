@@ -36,6 +36,17 @@ describe("Cloud Builder request ingress", () => {
     expect(serviceJsonBodyLimit("POST", "/sessions/thread-1/turns")).toBe(
       CLOUD_BUILDER_BODY_LIMITS.turn,
     );
+    // Turn starts carry a user JWT or the service secret; the route owns
+    // its own bounded read, so the service ingress table must not claim it.
+    expect(publicJsonBodyLimit("POST", "/conversations/conversation-1/turns")).toBe(
+      CLOUD_BUILDER_BODY_LIMITS.turn,
+    );
+    expect(
+      serviceJsonBodyLimit("POST", "/conversations/conversation-1/turns"),
+    ).toBeNull();
+    expect(serviceJsonBodyLimit("POST", "/internal/owners/snapshot-changed")).toBe(
+      CLOUD_BUILDER_BODY_LIMITS.tinyControl,
+    );
     expect(serviceJsonBodyLimit("POST", "/owners/purge")).toBe(
       CLOUD_BUILDER_BODY_LIMITS.conversationAppend,
     );

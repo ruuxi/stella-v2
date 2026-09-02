@@ -2,7 +2,9 @@
 // orchestrator, the cloud analog of the desktop runtime's local scheduler
 // (packages/runtime/kernel/local-scheduler-service.ts). Rows live in
 // cloud_scheduled_turns; a Convex cron sweeps due rows every minute and
-// dispatches each one through the shared chat-turn entry in cloud_apps.
+// starts each one on the cloud-builder (`POST /conversations/:id/turns`,
+// lane "schedule") with the service secret; Convex learns about the turn
+// through the outbox like any other.
 //
 // Two hard limits keep a schedule from becoming a token firehose: at most
 // MAX_SCHEDULES_PER_OWNER live rows, and no schedule may fire more often than
@@ -31,6 +33,7 @@ import {
   assertOwnerDataWriteAllowed,
   assertOwnerPurgeOperation,
 } from "./owner_lifecycle";
+import { isBuilderTurnError, startBuilderTurn } from "./lib/builder_turns";
 
 /** ConvexError carries its readable text in `data`, not in `message`. */
 const readableError = (error: unknown): string => {
@@ -125,21 +128,6 @@ export const getScheduleBudgetInternal = internalQuery({
   returns: v.object({ plan: v.string(), dailyFires: v.number() }),
   handler: async (ctx, args) => await resolveScheduleBudget(ctx, args.ownerId),
 });
-
-const startCloudChatTurnRef = makeFunctionReference<
-  "mutation",
-  {
-    ownerId: string;
-    ownerGeneration: string;
-    conversationId?: string;
-    prompt: string;
-    hiddenMessage?: boolean;
-    hiddenTurn?: boolean;
-    source?: string;
-    now: number;
-  },
-  { conversationId: string; turnId: string }
->("cloud_apps:startCloudChatTurnInternal");
 
 const listDueSchedulesRef = makeFunctionReference<"query", any, any>(
   "cloud_schedule:listDueSchedulesInternal",
@@ -967,6 +955,10 @@ export const finishScheduleFireInternal = internalMutation({
   },
 });
 
+/** Reliable-delivery id for one schedule fire (`CLIENT_MSG_ID_PATTERN`). */
+export const scheduleClientMsgId = (fireId: string): string =>
+  `sched-${fireId.replace(/[^A-Za-z0-9._:-]/g, "")}`.slice(0, 64);
+
 export const dispatchDueSchedulesInternal = internalAction({
   args: {},
   returns: v.object({ due: v.number(), dispatched: v.number() }),
@@ -1051,33 +1043,48 @@ export const dispatchDueSchedulesInternal = internalAction({
           });
           continue;
         }
-        const dispatch = (conversationId?: string) =>
-          ctx.runMutation(startCloudChatTurnRef, {
+        // Conversation ids are client-minted: a schedule without a pinned
+        // conversation mints one and pins it below. The fire id makes the
+        // start idempotent — a retried fire after a lost response replays the
+        // same turn instead of running the prompt twice.
+        const dispatch = (conversationId: string) =>
+          startBuilderTurn({
             ownerId: row.ownerId,
-            ownerGeneration,
+            ownerGeneration: ownerGeneration!,
             conversationId,
-            prompt: row.prompt,
-            // The two knobs pull apart here. The turn stays visible — a reply
-            // with no row above it reads as a message from nowhere — but the
-            // prompt is the model's own wake instruction, not the owner's
-            // words, so the chat surface renders it as the scheduled run it is
-            // (keyed off `source`) rather than as a message they sent. The
-            // instruction stays in the transcript the model reads, which is
-            // what `hiddenMessage: false` keeps.
-            hiddenMessage: false,
-            hiddenTurn: false,
-            source: "schedule",
-            now,
+            request: {
+              clientMsgId: scheduleClientMsgId(fireId),
+              prompt: row.prompt,
+              lane: "schedule",
+              // The prompt is the model's own wake instruction, not the
+              // owner's words; the chat surface renders it as the scheduled
+              // run it is, keyed off `source`. It stays visible in the
+              // transcript the model reads.
+              source: "schedule",
+              ...(row.description
+                ? { title: row.description.slice(0, 120) }
+                : {}),
+            },
           });
         // The pinned conversation can be deleted from the web app while the
         // schedule lives on. Start a fresh one rather than letting the
         // schedule fail silently on every fire from then on.
-        const started = await dispatch(row.conversationId).catch((error) => {
-          const message = readableError(error);
-          if (!row.conversationId || !/conversation not found/i.test(message)) {
+        const started = await dispatch(
+          row.conversationId ?? crypto.randomUUID(),
+        ).catch((error) => {
+          if (
+            !row.conversationId ||
+            !isBuilderTurnError(error) ||
+            !(
+              error.code === "owner_mismatch" ||
+              error.code === "forbidden" ||
+              error.status === 404 ||
+              error.status === 410
+            )
+          ) {
             throw error;
           }
-          return dispatch();
+          return dispatch(crypto.randomUUID());
         });
         if (
           !row.conversationId ||

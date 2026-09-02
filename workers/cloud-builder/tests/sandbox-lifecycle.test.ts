@@ -234,7 +234,6 @@ describe("sandbox lifecycle identity and safe diagnostics", () => {
     ownerId: "owner-a",
     ownerGeneration: "generation-1",
     turnId: "reused-turn",
-    turnToken: "opaque-turn-token-a",
     attemptGeneration: 1,
   };
 
@@ -256,7 +255,7 @@ describe("sandbox lifecycle identity and safe diagnostics", () => {
     expect(
       await sandboxLifecycleId("agent", {
         ...exact,
-        turnToken: "opaque-turn-token-b",
+        turnId: "other-turn",
       }),
     ).not.toBe(current);
     expect(current).toMatch(/^agent-[a-f0-9]{40}$/);

@@ -329,8 +329,8 @@ export const executeWebSearch = async (
   options: {
     ownerId: string;
     ownerGeneration: string;
-    /** Exact active cloud-turn capability for HTTP executor calls. */
-    turnAuthority?: { tokenHash: string; turnId: string };
+    /** The cloud turn this search runs for (capability-authenticated route). */
+    turnAuthority?: { turnId: string };
     signal: AbortSignal;
     category?: string;
   },

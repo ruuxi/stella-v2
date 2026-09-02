@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 import { makeFunctionReference } from "convex/server";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import {
   action,
   internalAction,
@@ -39,6 +39,7 @@ import {
 import {
   buildManagedModelPriceEntries,
   listManagedModelPriceLookupCandidates,
+  STATIC_MANAGED_MODEL_PRICE_OVERRIDES,
   type ManagedModelPriceEntry,
   type ModelsDevApi,
 } from "./lib/models_dev";
@@ -70,6 +71,7 @@ import {
   STRIPE_RECEIPT_INTEGRITY_VERSION,
 } from "./lib/stripe_operation_integrity";
 import { hashSha256Hex } from "./lib/crypto_utils";
+import { scheduleOwnerSnapshotChanged } from "./lib/owner_snapshot_notify";
 import { emitInferenceTelemetryMetric } from "./lib/telemetry_metric";
 import { ownershipMigrationSourceDigest } from "./lib/auth_migration_paths";
 import {
@@ -97,7 +99,16 @@ import {
   remainingStripeProviderBudgetMs,
   resolvePinnedStripeCustomerAuthorityKey,
 } from "./stripe_operation_dispatch";
-import { relayBillingUsageForDelivery } from "./stella_provider/relay_billing";
+import {
+  anonymousIpBucketDeviceId,
+  anonymousTrialDeviceId,
+  consumeDeviceAllowanceAuthorized,
+} from "./ai_proxy_data";
+import {
+  isAnonDeviceHashSaltMissingError,
+  logMissingSaltOnce,
+} from "./http_shared/anon_device";
+import { managedModelAudienceValidator } from "./schema/gateway";
 import {
   managedDispatchBillingEnvelopeValidator,
   managedDispatchCapturedUsageValidator,
@@ -989,6 +1000,22 @@ const buildUsageSnapshot = (args: {
   };
 };
 
+/**
+ * Spend an owner may still make on managed models right now: included
+ * headroom across every usage window (lifetime included), plus purchased
+ * credits, minus the ceilings held by admitted-but-unbilled attempts. May be
+ * negative. The usage-limit gate, voice reservations, and gateway capability
+ * budgets all read this one number so no admission path drifts.
+ */
+const computeManagedUsageRemainingMicroCents = (args: {
+  snapshot: UsageSnapshot;
+  credit: { balanceMicroCents: number } | null;
+  usage: { activeReservedMicroCents?: number };
+}): number =>
+  getIncludedUsageHeadroomMicroCents(args.snapshot) +
+  getUsageCreditBalanceMicroCents(args.credit) -
+  activeManagedUsageReservationMicroCents(args.usage);
+
 const getOwnerAvailableManagedUsageMicroCents = async (
   ctx: MutationCtx,
   args: { ownerId: string; now: number },
@@ -1011,12 +1038,9 @@ const getOwnerAvailableManagedUsageMicroCents = async (
     });
   }
   const credit = await getOwnerUsageCreditRow(ctx, args.ownerId);
-  const reservedMicroCents = activeManagedUsageReservationMicroCents(usage);
   return Math.max(
     0,
-    getIncludedUsageHeadroomMicroCents(snapshot) +
-      getUsageCreditBalanceMicroCents(credit) -
-      reservedMicroCents,
+    computeManagedUsageRemainingMicroCents({ snapshot, credit, usage }),
   );
 };
 
@@ -4362,9 +4386,7 @@ export const markManagedProviderDispatchMayHaveStartedInternal =
       attemptId: v.string(),
       leaseId: v.string(),
       billing: managedDispatchBillingEnvelopeValidator,
-      turnAuthority: v.optional(
-        v.object({ tokenHash: v.string(), turnId: v.string() }),
-      ),
+      turnAuthority: v.optional(v.object({ turnId: v.string() })),
       now: v.number(),
     },
     returns: v.boolean(),
@@ -4397,47 +4419,19 @@ export const markManagedProviderDispatchMayHaveStartedInternal =
         args.ownerGeneration,
       );
       if (args.turnAuthority) {
-        if (!SHA256_HEX_PATTERN.test(args.turnAuthority.tokenHash)) {
-          throw new ConvexError({
-            code: "TURN_NOT_ACTIVE",
-            message: "Cloud turn dispatch authority is invalid.",
-          });
-        }
-        const [tokenRows, currentAttempts, turn] = await Promise.all([
-          ctx.db
-            .query("cloud_turn_tokens")
-            .withIndex("by_tokenHash", (q) =>
-              q.eq("tokenHash", args.turnAuthority!.tokenHash),
-            )
-            .take(2),
-          ctx.db
-            .query("cloud_turn_tokens")
-            .withIndex("by_turnId_and_ownerId", (q) =>
-              q
-                .eq("turnId", args.turnAuthority!.turnId)
-                .eq("ownerId", args.ownerId),
-            )
-            .take(2),
-          ctx.db
-            .query("agent_turns")
-            .withIndex("by_turnId", (q) =>
-              q.eq("turnId", args.turnAuthority!.turnId),
-            )
-            .unique(),
-        ]);
-        const token = tokenRows.length === 1 ? tokenRows[0] : undefined;
+        // The turn capability authenticated the caller; the projected turn
+        // row, once it exists, is the only thing that can say the turn ended.
+        const turn = await ctx.db
+          .query("agent_turns")
+          .withIndex("by_turnId", (q) =>
+            q.eq("turnId", args.turnAuthority!.turnId),
+          )
+          .unique();
         if (
-          !token ||
-          currentAttempts.length !== 1 ||
-          currentAttempts[0]!._id !== token._id ||
-          token.expiresAt <= args.now ||
-          token.ownerId !== args.ownerId ||
-          token.ownerGeneration !== args.ownerGeneration ||
-          token.turnId !== args.turnAuthority.turnId ||
-          !turn ||
-          turn.ownerId !== args.ownerId ||
-          turn.status !== "running" ||
-          turn.terminalKind
+          turn &&
+          (turn.ownerId !== args.ownerId ||
+            turn.status !== "running" ||
+            turn.terminalKind)
         ) {
           throw new ConvexError({
             code: "TURN_NOT_ACTIVE",
@@ -5775,6 +5769,7 @@ export const syncSubscriptionFromStripe = internalMutation({
         updatedAt: now,
       });
     }
+    await scheduleOwnerSnapshotChanged(ctx, ownerId, "billing");
 
     return { updated: true, ownerId, activePlan: nextPlan };
   },
@@ -5842,6 +5837,7 @@ export const setAdminBillingPlan = internalMutation({
       });
     }
 
+    await scheduleOwnerSnapshotChanged(ctx, ownerId, "billing");
     return {
       ownerId,
       activePlan: nextPlan,
@@ -6273,6 +6269,35 @@ export const runResolveManagedModelAccess = async (
   });
 };
 
+export type ManagedModelAllowanceResult = {
+  access: ManagedModelAccessResult;
+  /** Spend still available right now; `null` when the owner is unlimited. */
+  remainingMicroCents: number | null;
+};
+
+/**
+ * Audience policy plus remaining spend, for callers that hand a fixed budget
+ * to a party that cannot consult billing per request (gateway capabilities).
+ * Audience comes from the same policy as `resolveManagedModelAccess`; the
+ * remaining spend from the same math as `enforceManagedUsageLimit`.
+ */
+export const runResolveManagedModelAllowance = async (
+  ctx: MutationCtx,
+  args: {
+    ownerId: string;
+    isAnonymous?: boolean;
+    ownerGeneration: string;
+  },
+): Promise<ManagedModelAllowanceResult> => {
+  const access = await runResolveManagedModelAccess(ctx, args);
+  if (access.unlimited) return { access, remainingMicroCents: null };
+  const remainingMicroCents = await getOwnerAvailableManagedUsageMicroCents(
+    ctx,
+    { ownerId: args.ownerId, now: Date.now() },
+  );
+  return { access, remainingMicroCents };
+};
+
 export const runEnforceManagedUsageLimit = async (
   ctx: MutationCtx,
   args: {
@@ -6322,26 +6347,33 @@ export const runEnforceManagedUsageLimit = async (
     Math.floor(args.minimumRemainingMicroCents ?? 0),
   );
   const credit = await getOwnerUsageCreditRow(ctx, args.ownerId);
-  const reservedMicroCents = activeManagedUsageReservationMicroCents(usage);
-  const availableCreditMicroCents = getUsageCreditBalanceMicroCents(credit);
-  const requiredUnreservedMicroCents =
-    minimumRemainingMicroCents + reservedMicroCents;
-  const isBlockedByBuffer = (window: { used: number; limit: number }) => {
-    const availableMicroCents =
-      Math.max(0, window.limit - window.used) + availableCreditMicroCents;
-    return minimumRemainingMicroCents > 0
-      ? availableMicroCents < requiredUnreservedMicroCents
-      : availableMicroCents <= requiredUnreservedMicroCents;
-  };
+  const remainingMicroCents = computeManagedUsageRemainingMicroCents({
+    snapshot,
+    credit,
+    usage,
+  });
+  const blocked =
+    minimumRemainingMicroCents > 0
+      ? remainingMicroCents < minimumRemainingMicroCents
+      : remainingMicroCents <= 0;
 
-  const firstExceeded = findExceededWindow(snapshot, isBlockedByBuffer);
-
-  if (firstExceeded) {
+  if (blocked) {
+    // Name the bucket that ran out (lifetime first, then the shortest window)
+    // so the message and Retry-After describe the blocking allowance.
+    const reservedMicroCents = activeManagedUsageReservationMicroCents(usage);
+    const availableCreditMicroCents = getUsageCreditBalanceMicroCents(credit);
+    const exceeded = findExceededWindow(snapshot, (window) => {
+      const availableMicroCents =
+        Math.max(0, window.limit - window.used) + availableCreditMicroCents;
+      return minimumRemainingMicroCents > 0
+        ? availableMicroCents < minimumRemainingMicroCents + reservedMicroCents
+        : availableMicroCents <= reservedMicroCents;
+    }) ?? { window: snapshot.rolling, lifetime: false as const };
     return {
       allowed: false,
       plan,
-      message: buildLimitMessage(plan, firstExceeded.lifetime),
-      retryAfterMs: Math.max(1_000, firstExceeded.window.resetAt - now),
+      message: buildLimitMessage(plan, exceeded.lifetime),
+      retryAfterMs: Math.max(1_000, exceeded.window.resetAt - now),
       unlimited: false,
     };
   }
@@ -6439,95 +6471,266 @@ export const logManagedUsage = internalMutation({
     }),
 });
 
-/**
- * Charge one logical resumable relay request exactly once. Reading the durable
- * receipt, recording usage, and setting `billedAt` share one Convex mutation,
- * so concurrent/retried finalizers either OCC-retry into `already_billed` or
- * commit the whole charge atomically. The receipt's captured owner generation
- * prevents a delayed callback from crossing a reset/delete fence.
- */
-export const logRelayManagedUsage = internalMutation({
-  args: {
-    relayRequestId: v.string(),
-    requestBinding: v.string(),
-    nowMs: v.number(),
-  },
-  returns: v.union(
-    v.literal("billed"),
-    v.literal("already_billed"),
-    v.literal("not_ready"),
-    v.literal("not_found"),
-    v.literal("conflict"),
-    v.literal("delegated"),
+// ---------------------------------------------------------------------------
+// Model gateway usage ingest
+// ---------------------------------------------------------------------------
+
+const gatewayUsageOutcomeValidator = v.union(
+  v.literal("succeeded"),
+  v.literal("failed"),
+  v.literal("aborted"),
+);
+
+/** The subset of `GatewayUsageEvent` the ledger needs; the route projects onto it. */
+export const gatewayUsageEventValidator = v.object({
+  requestId: v.string(),
+  ownerId: v.string(),
+  ownerGeneration: v.string(),
+  audience: managedModelAudienceValidator,
+  agentType: v.string(),
+  conversationId: v.optional(v.string()),
+  resolvedModel: v.string(),
+  usage: v.object({
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+    cachedInputTokens: v.optional(v.number()),
+    cacheWriteTokens: v.optional(v.number()),
+    reasoningTokens: v.optional(v.number()),
+    costMicroCents: v.optional(v.number()),
+    reported: v.boolean(),
+  }),
+  chargedMicroCents: v.number(),
+  outcome: gatewayUsageOutcomeValidator,
+  startedAt: v.number(),
+  finishedAt: v.number(),
+  billable: v.boolean(),
+  anonymous: v.optional(
+    v.object({
+      deviceId: v.optional(v.string()),
+      ipHash: v.optional(v.string()),
+    }),
   ),
+});
+
+type GatewayUsageEventInput = Infer<typeof gatewayUsageEventValidator>;
+
+const gatewayUsageFenceReason = async (
+  ctx: MutationCtx,
+  event: GatewayUsageEventInput,
+): Promise<string | null> => {
+  try {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      event.ownerId,
+      event.ownerGeneration,
+    );
+    return null;
+  } catch (error) {
+    if (!(error instanceof ConvexError)) throw error;
+    const data = error.data as { code?: unknown } | string | undefined;
+    const code =
+      typeof data === "object" && data && typeof data.code === "string"
+        ? data.code
+        : "OWNER_FENCED";
+    switch (code) {
+      case "OWNER_DATA_GENERATION_STALE":
+        return "generation_stale";
+      case "OWNER_DATA_PURGE_ACTIVE":
+        return "owner_purging";
+      case "OWNERSHIP_MIGRATED":
+        return "owner_migrated";
+      default:
+        return code.toLowerCase();
+    }
+  }
+};
+
+const resolveGatewayUsageConversationId = async (
+  ctx: MutationCtx,
+  ownerId: string,
+  value: string | undefined,
+): Promise<Id<"conversations"> | undefined> => {
+  if (!value) return undefined;
+  const conversationId = ctx.db.normalizeId("conversations", value);
+  if (!conversationId) return undefined;
+  const conversation = await ctx.db.get(conversationId);
+  return conversation && conversation.ownerId === ownerId
+    ? conversationId
+    : undefined;
+};
+
+/**
+ * Anonymous trials are metered by request, not money: bump the per-device
+ * counter (the anonymous identity itself when the gateway named no device)
+ * and the per-network bucket. Missing salt disables counting, never billing.
+ */
+const consumeGatewayAnonymousAllowance = async (
+  ctx: MutationCtx,
+  event: GatewayUsageEventInput,
+) => {
+  const deviceId =
+    event.anonymous?.deviceId?.trim() || anonymousTrialDeviceId(event.ownerId);
+  const ipHash = event.anonymous?.ipHash?.trim();
+  try {
+    await consumeDeviceAllowanceAuthorized(ctx, {
+      deviceId,
+      maxRequests: getMaxAnonRequests(),
+    });
+    if (ipHash) {
+      await consumeDeviceAllowanceAuthorized(ctx, {
+        deviceId: anonymousIpBucketDeviceId(ipHash),
+        maxRequests: getMaxAnonRequestsPerIp(),
+      });
+    }
+  } catch (error) {
+    if (!isAnonDeviceHashSaltMissingError(error)) throw error;
+    logMissingSaltOnce("gateway-usage");
+  }
+};
+
+/**
+ * Ledger write for model-gateway usage events. Idempotent on `requestId`
+ * through `gateway_usage_receipts`: the receipt and the charge share one
+ * transaction, so a retried batch can never bill twice. Failed and
+ * non-billable events only leave a receipt; anonymous events consume the
+ * trial counters; everything else charges exactly what the gateway settled.
+ */
+export const ingestGatewayUsageBatchInternal = internalMutation({
+  args: {
+    events: v.array(gatewayUsageEventValidator),
+    now: v.number(),
+  },
+  returns: v.object({
+    accepted: v.array(v.string()),
+    duplicate: v.array(v.string()),
+    rejected: v.array(v.object({ requestId: v.string(), reason: v.string() })),
+  }),
   handler: async (ctx, args) => {
-    const receipt = await ctx.db
-      .query("stella_relay_billing_receipts")
-      .withIndex("by_relayRequestId", (q) =>
-        q.eq("relayRequestId", args.relayRequestId),
-      )
-      .unique();
-    if (!receipt) return "not_found" as const;
-    if (receipt.requestBinding !== args.requestBinding) {
-      return "conflict" as const;
-    }
-    if (receipt.billingAuthority === "managed_dispatch") {
-      return "delegated" as const;
-    }
-    // Rows created before generation capture was introduced cannot be billed
-    // safely: resolving the owner's current generation here would let a
-    // delayed pre-reset request charge the reopened account.
-    if (receipt.ownerGeneration === undefined) {
-      return "conflict" as const;
-    }
-    if (receipt.billedAt !== undefined) return "already_billed" as const;
-    if (
-      receipt.phase !== "terminal" ||
-      receipt.terminalStatus === undefined ||
-      receipt.success === undefined ||
-      receipt.billingReady !== true
-    ) {
-      return "not_ready" as const;
+    const accepted: string[] = [];
+    const duplicate: string[] = [];
+    const rejected: Array<{ requestId: string; reason: string }> = [];
+    const seen = new Set<string>();
+
+    for (const event of args.events) {
+      if (seen.has(event.requestId)) {
+        duplicate.push(event.requestId);
+        continue;
+      }
+      seen.add(event.requestId);
+      const existing = await ctx.db
+        .query("gateway_usage_receipts")
+        .withIndex("by_requestId", (q) => q.eq("requestId", event.requestId))
+        .unique();
+      if (existing) {
+        duplicate.push(event.requestId);
+        continue;
+      }
+
+      const fenceReason = await gatewayUsageFenceReason(ctx, event);
+      if (fenceReason) {
+        rejected.push({ requestId: event.requestId, reason: fenceReason });
+        continue;
+      }
+
+      const chargeable = event.billable && event.outcome !== "failed";
+      if (chargeable && event.audience === "anonymous") {
+        await consumeGatewayAnonymousAllowance(ctx, event);
+      } else if (chargeable) {
+        const inputTokens = toNonNegativeInt(event.usage.inputTokens);
+        const outputTokens = toNonNegativeInt(event.usage.outputTokens);
+        await persistManagedUsage(ctx, {
+          ownerId: event.ownerId,
+          ownerGeneration: event.ownerGeneration,
+          agentType: `proxy:${event.agentType}`,
+          model: event.resolvedModel,
+          durationMs: Math.max(0, event.finishedAt - event.startedAt),
+          success: event.outcome === "succeeded",
+          conversationId: await resolveGatewayUsageConversationId(
+            ctx,
+            event.ownerId,
+            event.conversationId,
+          ),
+          inputTokens,
+          outputTokens,
+          totalTokens: inputTokens + outputTokens,
+          cachedInputTokens: event.usage.cachedInputTokens,
+          cacheWriteInputTokens: event.usage.cacheWriteTokens,
+          reasoningTokens: event.usage.reasoningTokens,
+          costMicroCents: event.chargedMicroCents,
+        });
+      }
+
+      await ctx.db.insert("gateway_usage_receipts", {
+        requestId: event.requestId,
+        ownerId: event.ownerId,
+        ownerGeneration: event.ownerGeneration,
+        chargedMicroCents: toNonNegativeInt(event.chargedMicroCents),
+        createdAt: args.now,
+      });
+      accepted.push(event.requestId);
     }
 
-    const actualUsage = receipt.hasActualUsage
-      ? {
-          inputTokens: receipt.actualInputTokens,
-          outputTokens: receipt.actualOutputTokens,
-          totalTokens: receipt.actualTotalTokens,
-          cachedInputTokens: receipt.actualCachedInputTokens,
-          cacheWriteInputTokens: receipt.actualCacheWriteInputTokens,
-          reasoningTokens: receipt.actualReasoningTokens,
-          costMicroCents: receipt.actualCostMicroCents,
-        }
-      : undefined;
-    const usage = relayBillingUsageForDelivery({
-      estimatedInputTokens: receipt.estimatedInputTokens,
-      estimatedOutputTokens: receipt.estimatedOutputTokens,
-      success: receipt.success,
-      hasActualUsage: receipt.hasActualUsage,
-      actualUsage,
-    });
-    await persistManagedUsage(ctx, {
-      ownerId: receipt.ownerId,
-      ownerGeneration: receipt.ownerGeneration,
-      agentType: `proxy:${receipt.agentType}`,
-      model: receipt.model,
-      durationMs: receipt.durationMs ?? 0,
-      success: receipt.success,
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      totalTokens: usage.totalTokens,
-      cachedInputTokens: usage.cachedInputTokens,
-      cacheWriteInputTokens: usage.cacheWriteInputTokens,
-      reasoningTokens: usage.reasoningTokens,
-      costMicroCents: usage.costMicroCents,
-    });
-    await ctx.db.patch(receipt._id, {
-      billedAt: args.nowMs,
-      updatedAt: args.nowMs,
-    });
-    return "billed" as const;
+    return { accepted, duplicate, rejected };
+  },
+});
+
+const gatewayModelPriceValidator = v.object({
+  model: v.string(),
+  inputPerMillionUsd: v.number(),
+  outputPerMillionUsd: v.number(),
+  cacheReadPerMillionUsd: v.number(),
+  cacheWritePerMillionUsd: v.number(),
+  reasoningPerMillionUsd: v.number(),
+});
+
+/**
+ * Prices the gateway uses to estimate and settle managed requests: the synced
+ * `billing_model_prices` row when present, else the static fill-in, for every
+ * managed model id. Models with neither are omitted (the gateway falls back
+ * to its default price).
+ */
+export const listGatewayModelPricesInternal = internalQuery({
+  args: {},
+  returns: v.object({
+    prices: v.array(gatewayModelPriceValidator),
+    updatedAt: v.number(),
+  }),
+  handler: async (ctx) => {
+    const modelIds = Array.from(
+      new Set([
+        ...listManagedModelIds(),
+        ...Object.keys(STATIC_MANAGED_MODEL_PRICE_OVERRIDES),
+      ]),
+    ).sort();
+    const prices: Infer<typeof gatewayModelPriceValidator>[] = [];
+    let updatedAt = 0;
+    for (const model of modelIds) {
+      const row = await getManagedModelPriceRow(ctx, model);
+      if (row) {
+        prices.push({
+          model,
+          inputPerMillionUsd: row.inputPerMillionUsd,
+          outputPerMillionUsd: row.outputPerMillionUsd,
+          cacheReadPerMillionUsd: row.cacheReadPerMillionUsd,
+          cacheWritePerMillionUsd: row.cacheWritePerMillionUsd,
+          reasoningPerMillionUsd: row.reasoningPerMillionUsd,
+        });
+        updatedAt = Math.max(updatedAt, row.syncedAt);
+        continue;
+      }
+      const staticPrice = STATIC_MANAGED_MODEL_PRICE_OVERRIDES[model];
+      if (!staticPrice) continue;
+      prices.push({
+        model,
+        inputPerMillionUsd: staticPrice.inputPerMillionUsd,
+        outputPerMillionUsd: staticPrice.outputPerMillionUsd,
+        cacheReadPerMillionUsd: staticPrice.cacheReadPerMillionUsd ?? 0,
+        cacheWritePerMillionUsd: staticPrice.cacheWritePerMillionUsd ?? 0,
+        reasoningPerMillionUsd:
+          staticPrice.reasoningPerMillionUsd ?? staticPrice.outputPerMillionUsd,
+      });
+    }
+    return { prices, updatedAt };
   },
 });
 

@@ -42,8 +42,6 @@ const agentTurn = (overrides: Record<string, unknown> = {}) => ({
   threadId: "thread-1",
   attemptGeneration: 1,
   prompt: "hello",
-  turnToken: "token-1",
-  convexCallbackBase: "https://convex.example",
   execution: STELLA,
   turnBrokerRoute: {
     sessionId: "session-1",
@@ -147,7 +145,6 @@ const expectedSandboxId = async (
     ownerId: turn.ownerId,
     ownerGeneration: turn.ownerGeneration,
     turnId: turn.turnId,
-    turnToken: turn.turnToken,
     attemptGeneration: turn.attemptGeneration,
   });
 

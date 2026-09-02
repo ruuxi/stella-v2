@@ -62,11 +62,7 @@ export const cloudBrowserSchema = {
     displayTitle: v.optional(v.string()),
     revision: v.number(),
     expiresAt: v.number(),
-    /**
-     * Revoked capability receipt used only to admit an exact lost-response
-     * replay of the original waiting event after its live token row is gone.
-     */
-    suspensionTokenHash: v.string(),
+    /** Hash of the exact waiting event bytes, so a replay must match. */
     suspensionEventPayloadHash: v.string(),
     decision: v.optional(v.union(v.literal("done"), v.literal("cancel"))),
     decisionRequestId: v.optional(v.string()),

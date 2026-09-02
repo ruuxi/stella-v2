@@ -7,6 +7,11 @@ import {
   readRequestTextBounded,
 } from "../http_shared/bounded_request_body";
 import {
+  authorizeControlPlaneRequest,
+  capabilityAllowsAgentType,
+  type ControlPlaneTurnAuthority,
+} from "../lib/capability_verify";
+import {
   ComposioUpstreamHttpError,
   composioFetch,
   composioSessionUserIdFromPayload,
@@ -27,14 +32,10 @@ const MAX_RPC_BATCH_ITEMS = 16;
 const MAX_RPC_BATCH_RESPONSE_BYTES = 256 * 1024;
 const SAFE_REQUEST_ID = /^[A-Za-z0-9._:-]{1,256}$/u;
 
-type TurnTokenRow = {
-  ownerId: string;
-  ownerGeneration: string;
-  turnId: string;
-  agentType: string;
-  expiresAt: number;
-  tokenHash: string;
-};
+type TurnTokenRow = Pick<
+  ControlPlaneTurnAuthority,
+  "ownerId" | "ownerGeneration" | "turnId"
+>;
 
 type CodeToolSummary = {
   name: string;
@@ -144,7 +145,6 @@ const assertDispatchRef = makeFunctionReference<
     leaseId: string;
     name: string;
     revision: string;
-    tokenHash: string;
     turnId: string;
     expectedSessionId: string;
     expectedComposioUserId: string;
@@ -180,13 +180,6 @@ type CompleteCallArgs = {
   resultJson?: string;
   errorCode?: string;
   now: number;
-};
-
-const serviceAuthorized = (request: Request): boolean => {
-  const secret = process.env.BUILDER_SERVICE_SECRET?.trim();
-  return Boolean(
-    secret && request.headers.get("authorization") === `Bearer ${secret}`,
-  );
 };
 
 const sha256Hex = async (value: string): Promise<string> => {
@@ -287,25 +280,20 @@ const decodeToolsCursor = async (
   return payload.afterName;
 };
 
+/**
+ * MCP is an orchestrator-only surface: the control-plane capability the
+ * OrchestratorSession minted for its turn. A capability scoped to other agent
+ * types (a spawned agent's) is refused, and a sandbox never holds the
+ * control-plane audience at all.
+ */
 const verifyActiveOrchestratorTurn = async (
-  ctx: { runQuery: (ref: any, args: any) => Promise<any> },
+  ctx: Parameters<typeof authorizeControlPlaneRequest>[0],
   request: Request,
 ): Promise<TurnTokenRow | null> => {
-  if (!serviceAuthorized(request)) return null;
-  const token = request.headers.get("x-stella-turn-token")?.trim();
-  if (!token) return null;
-  const row = (await ctx.runQuery(
-    internal.cloud_apps.getTurnTokenByHashInternal,
-    {
-      tokenHash: await sha256Hex(token),
-      now: Date.now(),
-      requireActive: true,
-    },
-  )) as TurnTokenRow | null;
-  return row?.agentType === "orchestrator" &&
-    typeof row.ownerGeneration === "string"
-    ? row
-    : null;
+  const auth = await authorizeControlPlaneRequest(ctx, request);
+  if (!auth.ok) return null;
+  if (!capabilityAllowsAgentType(auth.authority, "orchestrator")) return null;
+  return auth.authority;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -883,7 +871,6 @@ export function registerCloudIntegrationRoutes(http: HttpRouter) {
             leaseId,
             name,
             revision,
-            tokenHash: turn.tokenHash,
             turnId: turn.turnId,
             expectedSessionId: claim.sessionId,
             expectedComposioUserId: composioUserId,

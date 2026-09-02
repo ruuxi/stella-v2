@@ -10,9 +10,12 @@ export type CloudConversationOutboxAuthority = {
 
 export type PendingCloudTurnSubmission = {
   /**
-   * Immutable conversation authority from the first send. `null` means that
-   * this request creates its conversation. It must not be replaced with the
-   * conversation id returned by admission, or a retry would change payloads.
+   * Immutable conversation authority from the first send. On the desktop a
+   * send with no conversation open mints this id itself, so the first turn
+   * creates the conversation under an id the client already knows. `null`
+   * survives only on the web shell, where placement requires an open
+   * conversation. It must not be replaced after admission, or a retry would
+   * change payloads.
    */
   requestedConversationId: string | null;
   /** Exact model-visible prompt; retries must not redecorate it. */

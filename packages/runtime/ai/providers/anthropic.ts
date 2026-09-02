@@ -2,6 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import type {
 	CacheControlEphemeral,
 	ContentBlockParam,
+	Message as AnthropicMessage,
+	MessageCreateParamsNonStreaming,
 	MessageCreateParamsStreaming,
 	MessageParam,
 	RawMessageStreamEvent,
@@ -39,6 +41,7 @@ import { normalizeProviderToolInputSchema } from "../utils/tool-schema.js";
 
 import { resolveCloudflareBaseUrl } from "./cloudflare.js";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.js";
+import { GATEWAY_REQUEST_TIMEOUT_MS, gatewayRequestHeaders, isGatewayRelayBaseUrl } from "./model-gateway.js";
 import { requestWithAuthRefresh } from "./auth-refresh.js";
 import { adjustMaxTokensForThinking, buildBaseOptions } from "./simple-options.js";
 import { transformMessages } from "./transform-messages.js";
@@ -575,7 +578,7 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 			// redacted_thinking block(s) from the offending message and retry.
 			// Bounded so a persistent 400 can never loop forever.
 			let thinkingStripAttempts = 0;
-			const openStream = async (): Promise<Response> => {
+			const withThinkingStripRetry = async <T>(attempt: () => Promise<T>): Promise<T> => {
 				while (true) {
 					try {
 						if (requestBudget.used >= requestBudget.limit) {
@@ -585,12 +588,7 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 							);
 						}
 						requestBudget.used += 1;
-						return await requestWithAuthRefresh({
-							apiKey,
-							refreshApiKey: options?.client ? undefined : options?.refreshApiKey,
-							request: (requestApiKey) =>
-								createRequestClient(requestApiKey).messages.create({ ...params, stream: true }, requestOptions).asResponse(),
-						});
+						return await attempt();
 					} catch (err) {
 						if (
 							thinkingStripAttempts < MAX_THINKING_STRIP_RETRIES &&
@@ -607,8 +605,44 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 					}
 				}
 			};
-			let response = await openStream();
-			await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
+			const openStream = (): Promise<Response> =>
+				withThinkingStripRetry(() =>
+					requestWithAuthRefresh({
+						apiKey,
+						refreshApiKey: options?.client ? undefined : options?.refreshApiKey,
+						request: (requestApiKey) =>
+							createRequestClient(requestApiKey).messages.create({ ...params, stream: true }, requestOptions).asResponse(),
+					}),
+				);
+			// Gateway mode: the managed lane is request/response. One non-streaming
+			// call returns the complete Message; a fresh request id is minted for
+			// every physical attempt (auth refresh, thinking-strip, pause_turn).
+			const gatewayMode = isGatewayRelayBaseUrl(model.baseUrl);
+			const openGatewayMessage = (): Promise<{ message: AnthropicMessage; response: Response }> =>
+				withThinkingStripRetry(() =>
+					requestWithAuthRefresh({
+						apiKey,
+						refreshApiKey: options?.client ? undefined : options?.refreshApiKey,
+						request: async (requestApiKey) => {
+							const nonStreamingParams: MessageCreateParamsNonStreaming = { ...params, stream: false };
+							const { data, response } = await createRequestClient(requestApiKey)
+								.messages.create(nonStreamingParams, {
+									...requestOptions,
+									timeout: GATEWAY_REQUEST_TIMEOUT_MS,
+									headers: gatewayRequestHeaders(),
+								})
+								.withResponse();
+							return { message: data, response };
+						},
+					}),
+				);
+			const open = async (): Promise<{ response: Response; message?: AnthropicMessage }> =>
+				gatewayMode ? await openGatewayMessage() : { response: await openStream() };
+			let opened = await open();
+			await options?.onResponse?.(
+				{ status: opened.response.status, headers: headersToRecord(opened.response.headers) },
+				model,
+			);
 			stream.push({ type: "start", partial: output });
 
 			type Block = (ThinkingContent | TextContent | (ToolCall & { partialJson: string })) & { index: number };
@@ -621,7 +655,22 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 				const segmentStart = output.content.length;
 				const usageBase = { ...output.usage };
 
-				for await (const event of iterateAnthropicEvents(response, effectiveSignal)) {
+				if (opened.message) {
+					const converted = messageToAssistant(opened.message, {
+						output,
+						stream,
+						usageBase,
+						model,
+						isOAuth,
+						tools: context.tools,
+					});
+					pausedTurn = converted.pausedTurn;
+					sawUncapturedBlock = converted.sawUncapturedBlock;
+					if (output.stopReason === "error" && output.errorMessage) {
+						requestBudget.exhaustionReason = output.errorMessage;
+					}
+				} else {
+				for await (const event of iterateAnthropicEvents(opened.response, effectiveSignal)) {
 				if (event.type === "message_start") {
 					output.responseId = event.message.id;
 					// Capture initial token usage from message_start event
@@ -795,6 +844,7 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 					calculateCost(model, output.usage);
 				}
 				}
+				}
 
 				if (
 					!pausedTurn ||
@@ -823,8 +873,11 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 				}
 				output.stopReason = "error";
 				output.errorMessage = undefined;
-				response = await openStream();
-				await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
+				opened = await open();
+				await options?.onResponse?.(
+					{ status: opened.response.status, headers: headersToRecord(opened.response.headers) },
+					model,
+				);
 			}
 
 			if (options?.signal?.aborted) {
@@ -1031,6 +1084,7 @@ function createClient(
 				model.headers,
 				optionsHeaders,
 			),
+			...transportOptions(model),
 		});
 
 		return { client, isOAuthToken: false };
@@ -1053,6 +1107,7 @@ function createClient(
 				dynamicHeaders,
 				optionsHeaders,
 			),
+			...transportOptions(model),
 		});
 
 		return { client, isOAuthToken: false };
@@ -1076,25 +1131,27 @@ function createClient(
 				model.headers,
 				optionsHeaders,
 			),
+			...transportOptions(model),
 		});
 
 		return { client, isOAuthToken: true };
 	}
 
-	// Stella-relay auth: send the Stella JWT as `Authorization: Bearer ...`
-	// (what the Convex relay reads), not Anthropic's native `x-api-key`.
-	// Use the SDK's `authToken` constructor option so the SDK doesn't ALSO
-	// emit `x-api-key` carrying the Stella token — same pattern as the
-	// OAuth branch above. Detect the relay by baseUrl rather than a
-	// sentinel header so a missing/renamed header never silently falls
-	// back to anthropic-native auth against the relay (which would 401).
-	const isStellaRelay = typeof model.baseUrl === "string"
-		&& /\/api\/stella(?:\/|$)/i.test(model.baseUrl);
-	if (isStellaRelay) {
+	// Stella model gateway: the session/turn capability travels as
+	// `Authorization: Bearer ...`, not Anthropic's native `x-api-key`. Use the
+	// SDK's `authToken` constructor option so the SDK doesn't ALSO emit
+	// `x-api-key` carrying the capability — same pattern as the OAuth branch
+	// above. Detect the gateway by baseUrl rather than a sentinel header so a
+	// missing/renamed header never silently falls back to anthropic-native
+	// auth against the gateway (which would 401). The client-level timeout is
+	// load-bearing: without it the SDK refuses non-streaming requests whose
+	// max_tokens imply more than ten minutes of generation.
+	if (isGatewayRelayBaseUrl(model.baseUrl)) {
 		const client = new Anthropic({
 			apiKey: null,
 			authToken: apiKey,
 			baseURL: model.baseUrl,
+			timeout: GATEWAY_REQUEST_TIMEOUT_MS,
 			dangerouslyAllowBrowser: true,
 			defaultHeaders: mergeHeaders(
 				{
@@ -1105,6 +1162,7 @@ function createClient(
 				model.headers,
 				optionsHeaders,
 			),
+			...transportOptions(model),
 		});
 		return { client, isOAuthToken: false };
 	}
@@ -1123,9 +1181,116 @@ function createClient(
 			model.headers,
 			optionsHeaders,
 		),
+		...transportOptions(model),
 	});
 
 	return { client, isOAuthToken: false };
+}
+
+/** Injected transport for the SDK client; the global fetch when absent. */
+function transportOptions(model: Model<"anthropic-messages">): { fetch?: typeof fetch } {
+	return model.fetch ? { fetch: model.fetch } : {};
+}
+
+/**
+ * Convert one complete Anthropic `Message` (gateway mode) into the streaming
+ * event protocol: every content block becomes `*_start`, one whole-string
+ * `*_delta`, `*_end`, producing exactly the AssistantMessage the SSE path
+ * would have assembled for the same content. Opaque round-trip material
+ * (thinking signatures, redacted thinking payloads, tool ids) is preserved
+ * verbatim.
+ */
+export function messageToAssistant(
+	message: AnthropicMessage,
+	args: {
+		output: AssistantMessage;
+		stream: AssistantMessageEventStream;
+		/** Usage accumulated by earlier pause_turn segments. */
+		usageBase: AssistantMessage["usage"];
+		model: Model<"anthropic-messages">;
+		isOAuth: boolean;
+		tools?: Tool[];
+	},
+): { pausedTurn: boolean; sawUncapturedBlock: boolean } {
+	const { output, stream, usageBase } = args;
+	let sawUncapturedBlock = false;
+	const blockIndex = () => output.content.length - 1;
+
+	output.responseId = message.id;
+	output.usage.input = usageBase.input + (message.usage.input_tokens || 0);
+	output.usage.output = usageBase.output + (message.usage.output_tokens || 0);
+	output.usage.cacheRead = usageBase.cacheRead + (message.usage.cache_read_input_tokens || 0);
+	output.usage.cacheWrite = usageBase.cacheWrite + (message.usage.cache_creation_input_tokens || 0);
+	// Anthropic doesn't provide total_tokens, compute from components
+	output.usage.totalTokens =
+		output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
+	calculateCost(args.model, output.usage);
+
+	for (const block of message.content) {
+		if (block.type === "text") {
+			const text: TextContent = { type: "text", text: "" };
+			output.content.push(text);
+			stream.push({ type: "text_start", contentIndex: blockIndex(), partial: output });
+			if (block.text.length > 0) {
+				text.text = block.text;
+				stream.push({ type: "text_delta", contentIndex: blockIndex(), delta: block.text, partial: output });
+			}
+			stream.push({ type: "text_end", contentIndex: blockIndex(), content: text.text, partial: output });
+		} else if (block.type === "thinking") {
+			const thinking: ThinkingContent = { type: "thinking", thinking: "", thinkingSignature: "" };
+			output.content.push(thinking);
+			stream.push({ type: "thinking_start", contentIndex: blockIndex(), partial: output });
+			if (block.thinking.length > 0) {
+				thinking.thinking = block.thinking;
+				stream.push({
+					type: "thinking_delta",
+					contentIndex: blockIndex(),
+					delta: block.thinking,
+					partial: output,
+				});
+			}
+			thinking.thinkingSignature = block.signature || "";
+			stream.push({ type: "thinking_end", contentIndex: blockIndex(), content: thinking.thinking, partial: output });
+		} else if (block.type === "redacted_thinking") {
+			const thinking: ThinkingContent = {
+				type: "thinking",
+				thinking: "[Reasoning redacted]",
+				thinkingSignature: block.data,
+				redacted: true,
+			};
+			output.content.push(thinking);
+			stream.push({ type: "thinking_start", contentIndex: blockIndex(), partial: output });
+			stream.push({ type: "thinking_end", contentIndex: blockIndex(), content: thinking.thinking, partial: output });
+		} else if (block.type === "tool_use") {
+			const toolCall: ToolCall = {
+				type: "toolCall",
+				id: block.id,
+				name: args.isOAuth ? fromClaudeCodeName(block.name, args.tools) : block.name,
+				arguments: (block.input as Record<string, any>) ?? {},
+			};
+			output.content.push(toolCall);
+			stream.push({ type: "toolcall_start", contentIndex: blockIndex(), partial: output });
+			stream.push({
+				type: "toolcall_delta",
+				contentIndex: blockIndex(),
+				delta: JSON.stringify(toolCall.arguments),
+				partial: output,
+			});
+			stream.push({ type: "toolcall_end", contentIndex: blockIndex(), toolCall, partial: output });
+		} else {
+			sawUncapturedBlock = true;
+		}
+	}
+
+	let pausedTurn = false;
+	if (message.stop_reason) {
+		pausedTurn = message.stop_reason === "pause_turn";
+		output.stopReason = mapStopReason(message.stop_reason);
+		if (output.stopReason === "error" && !output.errorMessage) {
+			output.errorMessage = pausedTurn ? pausedTurnStopMessage() : providerAbortedStopMessage(message.stop_reason);
+		}
+	}
+	return { pausedTurn, sawUncapturedBlock };
 }
 
 function buildParams(

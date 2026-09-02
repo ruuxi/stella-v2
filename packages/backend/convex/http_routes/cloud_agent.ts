@@ -1,15 +1,17 @@
 // Backends for the cloud orchestrator's memory and scheduling tools
 // (contract C8). The orchestrator DO holds no database, so its Recall and
-// Schedule tools call these routes with the builder service secret — the same
-// trust boundary as /api/cloud/spawn. Sandboxes never reach these routes:
-// a per-turn token is not accepted here, because memory and schedules are
-// account-wide state, not turn-scoped state.
+// Schedule tools call these routes with the control-plane turn capability the
+// DO minted for the running turn. Sandboxes never reach these routes: the
+// control-plane audience never leaves the DO, and memory and schedules are
+// account-wide state, not turn-scoped state. The owner is the capability's
+// subject; a caller-supplied owner id is ignored.
 
 import type { HttpRouter } from "convex/server";
 import { ConvexError } from "convex/values";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { normalizeScheduleInput } from "../cloud_schedule";
+import { authorizeControlPlaneRequest } from "../lib/capability_verify";
 
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -60,21 +62,15 @@ export function registerCloudAgentRoutes(http: HttpRouter) {
     path: "/api/cloud/recall",
     method: "POST",
     handler: httpAction(async (ctx, request) => {
-      if (!serviceAuthorized(request))
-        return json({ error: "Unauthorized" }, 401);
-      const body = (await request.json()) as {
-        ownerId?: string;
-        ownerGeneration?: string;
+      const auth = await authorizeControlPlaneRequest(ctx, request);
+      if (!auth.ok) return auth.response;
+      const { ownerId, ownerGeneration } = auth.authority;
+      const body = (await request.json().catch(() => ({}))) as {
         query?: string;
         /** The tool's search terms, unjoined — see below. */
         terms?: unknown;
         limit?: number;
       };
-      const ownerId = body.ownerId?.trim();
-      const ownerGeneration = body.ownerGeneration?.trim();
-      if (!ownerId || !ownerGeneration) {
-        return json({ error: "ownerId and ownerGeneration required" }, 400);
-      }
       const query = (body.query ?? "").trim();
       // Terms are forwarded whole rather than reconstructed by splitting
       // `query`: "pivot table broken" is one term the model chose, and a
@@ -178,11 +174,10 @@ export function registerCloudAgentRoutes(http: HttpRouter) {
     path: "/api/cloud/schedule",
     method: "POST",
     handler: httpAction(async (ctx, request) => {
-      if (!serviceAuthorized(request))
-        return json({ error: "Unauthorized" }, 401);
-      const body = (await request.json()) as {
-        ownerId?: string;
-        ownerGeneration?: string;
+      const auth = await authorizeControlPlaneRequest(ctx, request);
+      if (!auth.ok) return auth.response;
+      const { ownerId, ownerGeneration } = auth.authority;
+      const body = (await request.json().catch(() => ({}))) as {
         action?: string;
         requestId?: string;
         scheduleId?: string;
@@ -192,13 +187,7 @@ export function registerCloudAgentRoutes(http: HttpRouter) {
         status?: string;
         schedule?: unknown;
       };
-      const ownerId = body.ownerId?.trim();
-      if (!ownerId) return json({ error: "ownerId required" }, 400);
       const action = body.action ?? "list";
-      const ownerGeneration = body.ownerGeneration?.trim();
-      if (!ownerGeneration) {
-        return json({ error: "ownerGeneration required" }, 400);
-      }
       const now = Date.now();
       const requestId = body.requestId?.trim();
       if (

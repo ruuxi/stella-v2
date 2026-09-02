@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -51,6 +51,28 @@ vi.mock("@stella/runtime/ai/stream", () => ({
 }));
 
 import { runOneShotCompletion } from "@stella/runtime/kernel/agent-runtime/one-shot-completion";
+import {
+  rememberStellaGatewayOrigin,
+  resetGatewaySessionState,
+} from "@stella/runtime/kernel/gateway-session";
+
+const originalFetch = globalThis.fetch;
+const capabilityExchange = () => {
+  const exchange = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          capability: "session-capability",
+          expiresAt: Date.now() + 3_600_000,
+          audience: "pro",
+          budgetMicroCents: -1,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+  );
+  globalThis.fetch = exchange as unknown as typeof fetch;
+  return exchange;
+};
 
 const makeRuntime = (args: { authToken: string | null; dataDir: string }) => ({
   stellaAppDir: "/tmp/does-not-matter-app-dir",
@@ -81,10 +103,17 @@ beforeEach(() => {
   scheduledSessionCloses.length = 0;
   claudeCodeEngineActive = false;
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "one-shot-test-"));
+  resetGatewaySessionState();
+  rememberStellaGatewayOrigin("https://site.example.test", "https://gateway.example.test");
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
 });
 
 describe("runOneShotCompletion", () => {
   it("keeps managed ChatGPT utilities off the native Codex path", async () => {
+    const exchange = capabilityExchange();
     fs.writeFileSync(
       path.join(dataDir, "preferences.json"),
       JSON.stringify({ agentRuntimeEngine: "codex_cli" }),
@@ -95,6 +124,26 @@ describe("runOneShotCompletion", () => {
     });
     expect(result.text).toBe("relay summary");
     expect(completeSimpleCalls).toHaveLength(1);
+    // The managed route relays through the gateway with a session capability.
+    expect(exchange).toHaveBeenCalledTimes(1);
+    expect(completeSimpleCalls[0]?.options).toMatchObject({
+      apiKey: "session-capability",
+    });
+    expect(
+      (completeSimpleCalls[0]?.model as { baseUrl: string }).baseUrl,
+    ).toBe("https://gateway.example.test/v1/relay");
+  });
+
+  it("falls through to the engine when the gateway is not configured", async () => {
+    resetGatewaySessionState();
+    claudeCodeEngineActive = true;
+    const result = await runOneShotCompletion({
+      request,
+      runtime: makeRuntime({ authToken: "token", dataDir }),
+    });
+    expect(result.text).toBe("summarizing agent progress now");
+    expect(claudeCodeCalls).toHaveLength(1);
+    expect(completeSimpleCalls).toHaveLength(0);
   });
 
   it("uses the Claude Code engine when no LLM route resolves (signed-out CC user)", async () => {

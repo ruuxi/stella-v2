@@ -134,7 +134,7 @@ describe("CloudHomeStore", () => {
     };
     const store = new CloudHomeStore(r2.bucket, {
       base: "https://convex.example",
-      serviceSecret: "secret",
+      bearer: "secret",
       ownerId,
       ownerGeneration,
       assertExternalWrite: async () => {
@@ -205,7 +205,7 @@ describe("CloudHomeStore", () => {
     const ownerHash = await sha256Hex(ownerId);
     const store = new CloudHomeStore(r2.bucket, {
       base: "https://convex.example",
-      serviceSecret: "secret",
+      bearer: "secret",
       ownerId,
       ownerGeneration,
       assertExternalWrite: async () => {
@@ -280,7 +280,7 @@ describe("CloudHomeStore", () => {
     };
     const store = new CloudHomeStore(r2.bucket, {
       base: "https://convex.example",
-      serviceSecret: "secret",
+      bearer: "secret",
       ownerId,
       ownerGeneration,
       assertExternalWrite: async () => {
@@ -309,7 +309,7 @@ describe("CloudHomeStore", () => {
     const otherHash = await sha256Hex("other-owner");
     const store = new CloudHomeStore(r2.bucket, {
       base: "https://convex.example",
-      serviceSecret: "secret",
+      bearer: "secret",
       ownerId,
       ownerGeneration,
       fetch: async () =>
@@ -368,7 +368,7 @@ describe("CloudHomeStore", () => {
     };
     const store = new CloudHomeStore(r2.bucket, {
       base: "https://convex.example",
-      serviceSecret: "secret",
+      bearer: "secret",
       ownerId,
       ownerGeneration,
       fetch: async () => Response.json([entry]),

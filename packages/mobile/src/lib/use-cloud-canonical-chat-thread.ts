@@ -634,11 +634,13 @@ export const useCloudCanonicalChatThread = (
       readStatus: (dispatchId) =>
         getAutomaticExecutionStatus(dispatchId, {
           signal: controller.signal,
+          builderOrigin: authority.socketOrigin,
         }),
       cancel: (command) =>
         cancelAutomaticExecution({
           ...command,
           signal: controller.signal,
+          builderOrigin: authority.socketOrigin,
         }),
     })
       .catch(() => {
@@ -653,7 +655,12 @@ export const useCloudCanonicalChatThread = (
           canonicalCancellationRef.current = null;
         }
       });
-  }, [authority.conversationId, localStop, runningDispatchId]);
+  }, [
+    authority.conversationId,
+    authority.socketOrigin,
+    localStop,
+    runningDispatchId,
+  ]);
 
   return {
     ...local,

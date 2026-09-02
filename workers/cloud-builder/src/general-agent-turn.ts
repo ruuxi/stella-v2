@@ -34,6 +34,10 @@ import {
 } from "@stella/runtime/kernel/agent-runtime/run-shared.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import {
+  isManagedModelAudience,
+  type ManagedModelAudience,
+} from "@stella/contracts/gateway/capability";
+import {
   isCloudBrowserResumeReceipt,
   type CloudBrowserResumeReceipt,
   type CloudBrowserSuspension,
@@ -77,14 +81,16 @@ export type GeneralAgentTurnRequest = Readonly<{
   kind: "agent";
   identity: GeneralAgentTurnIdentity;
   prompt: string;
-  turnToken: string;
-  convexCallbackBase: string;
   /**
    * Derived from trusted outer-router headers; the JSON body cannot set it. A
    * resident turn keeps it because a later tool may still attach a container.
    */
   brokerRoute: TrustedTurnBrokerRoute;
   execution: CloudExecutionSelection;
+  /** Managed-model audience Convex resolved for the owner at dispatch. */
+  audience: ManagedModelAudience;
+  /** Spend ceiling for this turn's model calls (`GATEWAY_BUDGET_UNLIMITED` allowed). */
+  budgetMicroCents: number;
   browserResume?: CloudBrowserResumeReceipt;
   watchdogMs: number;
 }>;
@@ -267,8 +273,6 @@ export const parseGeneralAgentTurnRequest = (args: {
     "ownerGeneration",
     "threadId",
     "turnId",
-    "turnToken",
-    "convexCallbackBase",
   ] as const) {
     if (!boundedText(row[field])) {
       throw new GeneralAgentTurnRequestError(field);
@@ -288,6 +292,15 @@ export const parseGeneralAgentTurnRequest = (args: {
   }
   const execution = executionSelection(row.execution);
   if (!execution) throw new GeneralAgentTurnRequestError("execution");
+  if (!isManagedModelAudience(row.audience)) {
+    throw new GeneralAgentTurnRequestError("audience");
+  }
+  if (
+    typeof row.budgetMicroCents !== "number" ||
+    !Number.isFinite(row.budgetMicroCents)
+  ) {
+    throw new GeneralAgentTurnRequestError("budgetMicroCents");
+  }
   if (
     row.browserResume !== undefined &&
     !isCloudBrowserResumeReceipt(row.browserResume)
@@ -309,10 +322,10 @@ export const parseGeneralAgentTurnRequest = (args: {
       attemptGeneration: row.attemptGeneration as number,
     },
     prompt: row.prompt,
-    turnToken: row.turnToken as string,
-    convexCallbackBase: row.convexCallbackBase as string,
     brokerRoute: args.brokerRoute,
     execution,
+    audience: row.audience,
+    budgetMicroCents: row.budgetMicroCents,
     ...(row.browserResume
       ? { browserResume: row.browserResume as CloudBrowserResumeReceipt }
       : {}),
@@ -658,20 +671,33 @@ export const runGeneralAgentTurn = async (args: {
   return { kind: "resident", result };
 };
 
+/**
+ * How a resident turn reaches the model gateway. The capability is minted by
+ * the admitting BuildSession from the turn's audience/budget; `fetch` is the
+ * `MODEL_GATEWAY` service binding so model traffic never leaves Cloudflare.
+ */
+export type ResidentModelGateway = Readonly<{
+  origin: string;
+  capability: string;
+  fetch?: typeof fetch;
+}>;
+
 export type ResidentModelFactory = (args: {
-  siteUrl: string;
-  turnToken: string;
+  gatewayOrigin: string;
+  capability: string;
   execution: StellaExecution;
   signal: AbortSignal;
+  fetch?: typeof fetch;
 }) => Promise<Model<Api>>;
 
 const relayModelFactory: ResidentModelFactory = async (args) =>
   await createCloudRelayModel({
-    siteUrl: args.siteUrl,
-    turnToken: args.turnToken,
+    gatewayOrigin: args.gatewayOrigin,
+    capability: args.capability,
     agentType: "general",
     execution: args.execution,
     signal: args.signal,
+    ...(args.fetch ? { fetch: args.fetch } : {}),
   });
 
 export type ResidentStellaLoopInput = Readonly<{
@@ -679,6 +705,7 @@ export type ResidentStellaLoopInput = Readonly<{
   execution: StellaExecution;
   context: TurnExecutionContext;
   control: GeneralAgentControlPlane;
+  modelGateway: ResidentModelGateway;
   sql: SqlStorage;
   tools: readonly AgentTool[];
   workspacePrompt: Readonly<{
@@ -751,10 +778,11 @@ export const runResidentStellaLoop = async (
 
   context.assertActive();
   const model = await (input.createModel ?? relayModelFactory)({
-    siteUrl: turn.convexCallbackBase,
-    turnToken: turn.turnToken,
+    gatewayOrigin: input.modelGateway.origin,
+    capability: input.modelGateway.capability,
     execution: input.execution,
     signal: context.signal,
+    ...(input.modelGateway.fetch ? { fetch: input.modelGateway.fetch } : {}),
   });
 
   const journal = AgentTurnJournal.open({
@@ -795,7 +823,7 @@ export const runResidentStellaLoop = async (
       messages: history,
     },
     sessionId: turn.identity.threadId,
-    getApiKey: () => turn.turnToken,
+    getApiKey: () => input.modelGateway.capability,
     toolExecution: "sequential",
     toolInactivityTimeoutMs: 5 * 60_000,
     transformContext: buildDefaultTransformContext({ model }),

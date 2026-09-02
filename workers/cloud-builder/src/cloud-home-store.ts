@@ -16,7 +16,12 @@ export const CLOUD_SKILL_RUNTIME_MAX_BYTES = 50 * 1024 * 1024;
 
 export type CloudHomeEndpoint = {
   base: string;
-  serviceSecret: string;
+  /**
+   * The bearer presented to Convex: a turn's control-plane capability when
+   * a Durable Object calls during a turn, the builder service secret when a
+   * Worker route acts for a signed-in user outside any turn.
+   */
+  bearer: string;
   ownerId: string;
   ownerGeneration: string;
   fetch?: typeof fetch;
@@ -556,7 +561,7 @@ export class CloudHomeStore {
     private readonly bucket: R2Bucket,
     private readonly endpoint: CloudHomeEndpoint,
   ) {
-    if (!endpoint.base.trim() || !endpoint.serviceSecret.trim()) {
+    if (!endpoint.base.trim() || !endpoint.bearer.trim()) {
       throw new CloudHomeProtocolError(
         "Cloud-home control plane is unavailable.",
       );
@@ -595,7 +600,7 @@ export class CloudHomeStore {
       {
         method: "POST",
         headers: {
-          authorization: `Bearer ${this.endpoint.serviceSecret}`,
+          authorization: `Bearer ${this.endpoint.bearer}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({

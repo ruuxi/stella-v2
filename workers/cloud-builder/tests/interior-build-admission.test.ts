@@ -46,14 +46,13 @@ const brokerHarness = async () => {
   const values = new Map<string, unknown>();
   values.set("turn", {
     kind: "agent",
+    conversationId: "conversation-1",
     ownerId: identity.ownerId,
     ownerGeneration: identity.ownerGeneration,
     turnId: identity.turnId,
     attemptGeneration: identity.attemptGeneration,
     threadId: "thread-1",
     prompt: "prompt",
-    turnToken: "token",
-    convexCallbackBase: "https://convex.example",
     turnBrokerRoute: { sessionId: identity.sessionId },
     execution: { engine: "stella" },
   });
@@ -94,7 +93,6 @@ const brokerHarness = async () => {
       [identity.turnId, { cancellation: { aborted: false } }],
     ]),
     assertTurnWritable: async () => undefined,
-    assertConvexAgentTurnAuthority: async () => undefined,
   });
   const post = async (body: unknown): Promise<Response> => {
     const handle = (

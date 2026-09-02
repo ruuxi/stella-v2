@@ -67,7 +67,7 @@ export type PublicApiType = {
     "getCloudRealtimeConfig": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "listMyAppBuilds": FunctionReference<'query', 'public', { appId: string; }, any, string | undefined>;
     "getMyCloudLimits": FunctionReference<'query', 'public', {}, any, string | undefined>;
-    "startCloudChat": FunctionReference<'mutation', 'public', { attachments?: string[] | undefined; execution?: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; } | undefined; conversationId?: string | undefined; appId?: string | undefined; clientMsgId?: string | undefined; locale?: string | undefined; prompt: string; expectedOwnerGeneration: string; }, any, string | undefined>;
+    "startAppBuildTurn": FunctionReference<'mutation', 'public', { attachments?: string[] | undefined; execution?: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; } | undefined; conversationId?: string | undefined; clientMsgId?: string | undefined; locale?: string | undefined; prompt: string; appId: string; expectedOwnerGeneration: string; }, any, string | undefined>;
     "deleteMyConversation": FunctionReference<'action', 'public', { conversationId: string; }, any, string | undefined>;
     "spawnCloudAgentFromDesktop": FunctionReference<'mutation', 'public', { execution?: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; } | undefined; conversationId?: string | undefined; originDeviceId?: string | undefined; originConversationId?: string | undefined; ownerGeneration: string; description: string; prompt: string; clientMsgId: string; }, any, string | undefined>;
     "continueMyCloudAgentFromDesktop": FunctionReference<'mutation', 'public', { threadId: string; ownerGeneration: string; description: string; prompt: string; originDeviceId: string; originConversationId: string; expectedAttemptGeneration: number; expectedTerminalUpdatedAt: number; controlRequestId: string; }, any, string | undefined>;
@@ -90,6 +90,8 @@ export type PublicApiType = {
     "listMyPendingBrowserInteractions": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "getMyBrowserInteraction": FunctionReference<'action', 'public', { interactionId: string; }, any, string | undefined>;
     "mintMyBrowserLiveViewCapability": FunctionReference<'action', 'public', { interactionId: string; expectedRevision: number; }, any, string | undefined>;
+    "mintMyBrowserSessionTransferCapability": FunctionReference<'action', 'public', { interactionId: string; expectedRevision: number; }, any, string | undefined>;
+    "importMyBrowserSessionTransfer": FunctionReference<'action', 'public', { interactionId: string; expectedRevision: number; transfer: { schemaVersion: 1; algorithm: 'x25519-hkdf-sha256-aes-256-gcm-v1'; capabilityId: string; clientPublicKey: string; iv: string; ciphertext: string; }; }, any, string | undefined>;
     "decideMyBrowserInteraction": FunctionReference<'action', 'public', { requestId: string; interactionId: string; decision: 'done' | 'cancel'; expectedRevision: number; }, any, string | undefined>;
     "resetMyBrowserProfile": FunctionReference<'action', 'public', { requestId: string; }, any, string | undefined>;
   };
@@ -230,30 +232,17 @@ export type PublicApiType = {
     "isRemoteTurnClaimed": FunctionReference<'query', 'public', { requestId: string; }, any, string | undefined>;
   };
   "execution_placement": {
-    "submitMyBrowserExecution": FunctionReference<'mutation', 'public', { threadId?: string | undefined; parentTurnId?: string | undefined; conversationId: string; kind: 'agent' | 'chat'; idempotencyKey: string; payloadJson: string; subject: 'computer' | 'cloud' | 'portable'; payloadHash: string; requiredCapabilities: ('agent' | 'attachments' | 'chat' | 'computer-use' | 'local-files' | 'local-apps')[]; expectedOwnerGeneration: string; }, any, string | undefined>;
-    "submitMyDesktopExecution": FunctionReference<'mutation', 'public', { threadId?: string | undefined; parentTurnId?: string | undefined; requestedExecutorDeviceId?: string | undefined; conversationId: string; kind: 'agent' | 'chat'; deviceId: string; ownerGeneration: string; idempotencyKey: string; sequence: number; payloadJson: string; presenceSessionId: string; subject: 'computer' | 'cloud' | 'portable'; payloadHash: string; requestedTargetMode: 'cloud' | 'device'; requiredCapabilities: ('agent' | 'attachments' | 'chat' | 'computer-use' | 'local-files' | 'local-apps')[]; expectedOwnerGeneration: string; bodyHash: string; signature: string; }, any, string | undefined>;
-    "getMyExecutionPlacementIdentity": FunctionReference<'query', 'public', {}, any, string | undefined>;
-    "listMyExecutionDestinations": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "getMyExecutionPlacementIdentity": FunctionReference<'query', 'public', { deviceId?: string | undefined; }, any, string | undefined>;
+    "registerMyExecutionDevice": FunctionReference<'mutation', 'public', { deviceName?: string | undefined; platform?: string | undefined; capabilities?: ('agent' | 'attachments' | 'chat' | 'computer-use' | 'local-files' | 'local-apps')[] | undefined; deviceId: string; devicePublicKey: string; }, any, string | undefined>;
     "setMyExecutionDeviceRemoteEnabled": FunctionReference<'mutation', 'public', { deviceId: string; enabled: boolean; }, any, string | undefined>;
-    "registerMyExecutionPresence": FunctionReference<'mutation', 'public', { deviceName?: string | undefined; platform?: string | undefined; presenceTransport?: 'socket' | undefined; deviceId: string; ownerGeneration: string; status: 'ready' | 'draining'; devicePublicKey: string; appVersion: string; sequence: number; presenceSessionId: string; protocolVersion: number; capabilities: ('agent' | 'attachments' | 'chat' | 'computer-use' | 'local-files' | 'local-apps')[]; chatSlotCapacity: number; agentSlotCapacity: number; availableChatSlots: number; availableAgentSlots: number; bodyHash: string; signature: string; }, any, string | undefined>;
-    "heartbeatMyExecutionPresence": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; status: 'ready' | 'draining'; sequence: number; presenceSessionId: string; chatSlotCapacity: number; agentSlotCapacity: number; availableChatSlots: number; availableAgentSlots: number; bodyHash: string; signature: string; }, any, string | undefined>;
-    "connectMyExecutionPresenceSocket": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; sequence: number; presenceSessionId: string; nonce: string; bodyHash: string; signature: string; connectionId: string; }, any, string | undefined>;
-    "drainMyExecutionPresence": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; sequence: number; presenceSessionId: string; bodyHash: string; signature: string; }, any, string | undefined>;
-    "clearMyExecutionPresence": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; sequence: number; presenceSessionId: string; bodyHash: string; signature: string; }, any, string | undefined>;
-    "listMyExecutionOffers": FunctionReference<'query', 'public', { limit?: number | undefined; deviceId: string; presenceSessionId: string; }, any, string | undefined>;
-    "claimMyExecutionOffer": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; dispatchId: string; sequence: number; presenceSessionId: string; claimRequestId: string; bodyHash: string; signature: string; claimToken: string; }, any, string | undefined>;
-    "releaseMyExecutionClaim": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; reason: string; dispatchId: string; sequence: number; presenceSessionId: string; bodyHash: string; signature: string; claimToken: string; }, any, string | undefined>;
-    "ackMyExecutionClaim": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; dispatchId: string; sequence: number; presenceSessionId: string; payloadHash: string; bodyHash: string; signature: string; claimToken: string; }, any, string | undefined>;
-    "markMyExecutionRunning": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; dispatchId: string; sequence: number; presenceSessionId: string; bodyHash: string; signature: string; claimToken: string; }, any, string | undefined>;
-    "renewMyExecutionClaim": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; dispatchId: string; sequence: number; presenceSessionId: string; bodyHash: string; signature: string; claimToken: string; }, any, string | undefined>;
-    "completeMyExecutionDispatch": FunctionReference<'mutation', 'public', { resultJson?: string | undefined; errorCode?: string | undefined; errorMessage?: string | undefined; deviceId: string; ownerGeneration: string; outcome: 'failed' | 'completed' | 'canceled'; dispatchId: string; sequence: number; presenceSessionId: string; bodyHash: string; signature: string; claimToken: string; }, any, string | undefined>;
-    "cancelMyExecutionDispatch": FunctionReference<'mutation', 'public', { reason?: string | undefined; dispatchId: string; cancelRequestId: string; }, any, string | undefined>;
-    "getMyExecutionDispatchStatus": FunctionReference<'query', 'public', { dispatchId: string; }, any, string | undefined>;
-    "listMyAcceptedExecutionDispatches": FunctionReference<'query', 'public', { limit?: number | undefined; deviceId: string; presenceSessionId: string; }, any, string | undefined>;
+    "removeMyExecutionDevice": FunctionReference<'mutation', 'public', { deviceId: string; }, any, string | undefined>;
     "listMyExecutionActivity": FunctionReference<'query', 'public', { limit?: number | undefined; }, any, string | undefined>;
   };
   "feedback": {
     "submitFeedback": FunctionReference<'mutation', 'public', { platform?: string | undefined; appVersion?: string | undefined; message: string; }, any, string | undefined>;
+  };
+  "gateway_capabilities": {
+    "getModelGatewayConfig": FunctionReference<'query', 'public', {}, any, string | undefined>;
   };
   "local_agent_threads": {
     "startMyComputerAgentThread": FunctionReference<'mutation', 'public', { conversationId: string; threadId: string; ownerGeneration: string; description: string; agentType: string; attemptGeneration: number; originDeviceId: string; }, any, string | undefined>;

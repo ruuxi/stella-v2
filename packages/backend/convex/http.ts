@@ -18,42 +18,17 @@ import { registerDictationRoutes } from "./http_routes/dictation";
 import { registerXRoutes } from "./http_routes/x";
 import { registerXBotRoutes } from "./http_routes/x_bot";
 import { registerCloudAppRoutes } from "./http_routes/cloud_apps";
+import { registerOutboxRoutes } from "./http_routes/outbox";
 import { registerCloudAgentRoutes } from "./http_routes/cloud_agent";
 import { registerCloudHomeRoutes } from "./http_routes/cloud_home";
 import { registerCloudDriveRoutes } from "./http_routes/cloud_drive";
 import { registerCloudProjectRoutes } from "./http_routes/cloud_projects";
 import { registerCloudIntegrationRoutes } from "./http_routes/cloud_integrations";
 import { registerAppsSdkRoutes } from "./http_routes/apps_sdk";
-import { registerExecutionPresenceRoutes } from "./http_routes/execution_presence";
 import { STELLA_PROMPTS_PATH, stellaPrompts } from "./stella_prompts_http";
 
-// Stella provider endpoints
-import {
-  STELLA_ANTHROPIC_MESSAGES_PATH,
-  STELLA_CLOUD_MODEL_PATH,
-  STELLA_CROF_CHAT_COMPLETIONS_PATH,
-  STELLA_WAFER_CHAT_COMPLETIONS_PATH,
-  STELLA_DEEPSEEK_CHAT_COMPLETIONS_PATH,
-  STELLA_DEEPSEEK_RESPONSES_PATH,
-  STELLA_FIREWORKS_RESPONSES_PATH,
-  STELLA_GOOGLE_MODELS_PATH_PREFIX,
-  STELLA_MODELS_PATH,
-  STELLA_OPENAI_CHAT_COMPLETIONS_PATH,
-  STELLA_OPENAI_RESPONSES_PATH,
-  STELLA_META_CHAT_COMPLETIONS_PATH,
-  STELLA_META_RESPONSES_PATH,
-  STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
-  STELLA_OPENROUTER_RESPONSES_PATH,
-  STELLA_XAI_CHAT_COMPLETIONS_PATH,
-  STELLA_XAI_RESPONSES_PATH,
-  STELLA_RELAY_PATH_PREFIX,
-  stellaProviderModels,
-  stellaProviderCloudModel,
-  stellaProviderCancel,
-  stellaProviderOptions,
-  stellaProviderRelay,
-  stellaProviderResume,
-} from "./stella_provider";
+import { registerGatewayRoutes } from "./http_routes/gateway";
+import { registerStellaModelRoutes } from "./http_routes/stella_models";
 
 const http = httpRouter();
 
@@ -85,107 +60,37 @@ registerDictationRoutes(http);
 registerXRoutes(http);
 registerXBotRoutes(http);
 registerCloudAppRoutes(http);
+registerOutboxRoutes(http);
 registerCloudAgentRoutes(http);
 registerCloudHomeRoutes(http);
 registerCloudDriveRoutes(http);
 registerCloudProjectRoutes(http);
 registerCloudIntegrationRoutes(http);
 registerAppsSdkRoutes(http);
-registerExecutionPresenceRoutes(http);
 
 registerStripeRoutes(http);
 
 // ---------------------------------------------------------------------------
-// Stella provider endpoints
+// Model gateway service routes (GATEWAY_SERVICE_SECRET)
 // ---------------------------------------------------------------------------
 
-const stellaModelsOptionsHandler = httpAction(async (_ctx, request) =>
-  corsPreflightHandler(request),
-);
+registerGatewayRoutes(http);
 
-http.route({
-  path: STELLA_MODELS_PATH,
-  method: "OPTIONS",
-  handler: stellaModelsOptionsHandler,
-});
+// ---------------------------------------------------------------------------
+// Stella catalog endpoints (public, CORS)
+// ---------------------------------------------------------------------------
+
+registerStellaModelRoutes(http);
+
 http.route({
   path: STELLA_PROMPTS_PATH,
   method: "OPTIONS",
-  handler: stellaModelsOptionsHandler,
+  handler: httpAction(async (_ctx, request) => corsPreflightHandler(request)),
 });
 http.route({
   path: STELLA_PROMPTS_PATH,
   method: "GET",
   handler: stellaPrompts,
-});
-http.route({
-  path: STELLA_MODELS_PATH,
-  method: "GET",
-  handler: stellaProviderModels,
-});
-http.route({
-  path: STELLA_CLOUD_MODEL_PATH,
-  method: "POST",
-  handler: stellaProviderCloudModel,
-});
-
-for (const [path, provider] of [
-  [STELLA_ANTHROPIC_MESSAGES_PATH, "anthropic"],
-  [STELLA_OPENAI_CHAT_COMPLETIONS_PATH, "openai"],
-  [STELLA_OPENAI_RESPONSES_PATH, "openai"],
-  [STELLA_FIREWORKS_RESPONSES_PATH, "fireworks"],
-  [STELLA_DEEPSEEK_RESPONSES_PATH, "deepseek"],
-  [STELLA_DEEPSEEK_CHAT_COMPLETIONS_PATH, "deepseek"],
-  [STELLA_CROF_CHAT_COMPLETIONS_PATH, "crof"],
-  [STELLA_WAFER_CHAT_COMPLETIONS_PATH, "wafer"],
-  [STELLA_XAI_CHAT_COMPLETIONS_PATH, "xai"],
-  [STELLA_XAI_RESPONSES_PATH, "xai"],
-  [STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH, "openrouter"],
-  [STELLA_OPENROUTER_RESPONSES_PATH, "openrouter"],
-  [STELLA_META_CHAT_COMPLETIONS_PATH, "meta"],
-  [STELLA_META_RESPONSES_PATH, "meta"],
-] as const) {
-  http.route({
-    path,
-    method: "OPTIONS",
-    handler: stellaProviderOptions,
-  });
-  http.route({
-    path,
-    method: "POST",
-    handler: stellaProviderRelay(provider),
-  });
-}
-
-http.route({
-  pathPrefix: STELLA_RELAY_PATH_PREFIX,
-  method: "OPTIONS",
-  handler: stellaProviderOptions,
-});
-http.route({
-  pathPrefix: STELLA_RELAY_PATH_PREFIX,
-  method: "POST",
-  handler: stellaProviderRelay(),
-});
-http.route({
-  pathPrefix: STELLA_RELAY_PATH_PREFIX,
-  method: "GET",
-  handler: stellaProviderResume,
-});
-http.route({
-  pathPrefix: STELLA_RELAY_PATH_PREFIX,
-  method: "DELETE",
-  handler: stellaProviderCancel,
-});
-http.route({
-  pathPrefix: STELLA_GOOGLE_MODELS_PATH_PREFIX,
-  method: "OPTIONS",
-  handler: stellaProviderOptions,
-});
-http.route({
-  pathPrefix: STELLA_GOOGLE_MODELS_PATH_PREFIX,
-  method: "POST",
-  handler: stellaProviderRelay("google"),
 });
 
 export default http;

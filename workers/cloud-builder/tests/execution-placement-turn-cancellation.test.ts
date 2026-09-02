@@ -13,6 +13,14 @@ import {
 import { sha256Hex } from "../src/hash.js";
 import { localClientMessageFingerprintSource } from "../src/local-turn-protocol.js";
 import {
+  fakeOutbox,
+  fakeOwnerGates,
+  sampleOwnerSnapshot,
+  type FakeOutbox,
+  type FakeOwnerGates,
+} from "./helpers/turn-plane-fakes.js";
+import { openSqlStorageFake } from "./fixtures/sql-storage.js";
+import {
   startTurnExecution,
   type TurnExecutionContext,
 } from "../src/turn-cancellation.js";
@@ -64,11 +72,65 @@ const turn = (turnId: string, ownerGeneration = "generation-1") => ({
   turnId,
   sessionId: `session:${turnId}`,
   prompt: `prompt:${turnId}`,
-  turnToken: `token:${turnId}`,
-  convexCallbackBase: "https://convex.example",
+  execution: {
+    engine: "stella" as const,
+    provider: "stella" as const,
+    model: "stella/default",
+    reasoningEffort: "default" as const,
+  },
+  audience: "pro" as const,
+  budgetMicroCents: 250_000_000,
+  lane: "chat" as const,
+  clientMsgId: `client:${turnId}`,
 });
 
-const sessionHarness = (values = new Map<string, unknown>()) => {
+const UUID_SHAPE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * A turn start as the Worker forwards it: the caller's identity on trusted
+ * headers (service-authenticated here, so the generation rides along), the
+ * request body in the turn-plane contract shape.
+ */
+const chatTurnRequest = (
+  exact: ReturnType<typeof turn>,
+  overrides: Record<string, unknown> = {},
+) =>
+  new Request("https://orchestrator-session/turn", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-stella-owner": exact.ownerId,
+      "x-stella-turn-auth": "service",
+      "x-stella-owner-generation": exact.ownerGeneration,
+    },
+    body: JSON.stringify({
+      protocol: 1,
+      clientMsgId: exact.clientMsgId,
+      prompt: exact.prompt,
+      execution: exact.execution,
+      lane: exact.lane,
+      ...overrides,
+    }),
+  });
+
+const admissionReceipt = (
+  values: Map<string, unknown>,
+  exact: ReturnType<typeof turn>,
+) =>
+  values.get(`chatTurnAdmission:${exact.clientMsgId}`) as
+    | { turnId: string; leaseId: string; phase: string }
+    | undefined;
+
+const queuedKeys = (values: Map<string, unknown>): string[] =>
+  [...values.keys()].filter((key) => key.startsWith("queued:"));
+
+const sessionHarness = (
+  values = new Map<string, unknown>(),
+  plane: { gates?: FakeOwnerGates; outbox?: FakeOutbox } = {},
+) => {
+  const gates = plane.gates ?? fakeOwnerGates();
+  const outbox = plane.outbox ?? fakeOutbox();
   let alarm: number | null = null;
   const storage = {
     get: async <T>(key: string) => values.get(key) as T | undefined,
@@ -106,7 +168,13 @@ const sessionHarness = (values = new Map<string, unknown>()) => {
   const journalTerminal = new Map<string, string>();
   Object.assign(instance, {
     ctx,
-    env: {},
+    env: {
+      OWNER_GATES: gates.namespace,
+      TURN_OUTBOX: outbox.queue,
+      STELLA_CONVEX_SITE_URL: "https://convex.example",
+      CLOUD_BUILDER_PUBLIC_URL: "https://builder.example",
+    },
+    eventSeqTail: Promise.resolve(),
     exactTurnCancellations: new ExactTurnCancellationLedger(storage),
     turnExecutions: new Map<string, unknown>(),
     ownerFencedAppends: new Map<string, unknown>(),
@@ -114,6 +182,19 @@ const sessionHarness = (values = new Map<string, unknown>()) => {
     currentTurnAbort: undefined,
     currentAgent: undefined,
     journal: {
+      meta: () => ({
+        owner_id: "owner-1",
+        conversation_id: "conversation-1",
+        created_at: 1,
+        title: "Conversation",
+        epoch: 1,
+        next_seq: 0,
+        index_synced_seq: -1,
+        deleted_at: null,
+      }),
+      ownerId: () => "owner-1",
+      bindOwner: () => undefined,
+      setTitle: () => undefined,
       turnState: (turnId: string) =>
         journalTerminal.has(turnId)
           ? {
@@ -145,9 +226,67 @@ const sessionHarness = (values = new Map<string, unknown>()) => {
     instance,
     values,
     storage,
+    gates,
+    outbox,
     ledger: instance["exactTurnCancellations"] as ExactTurnCancellationLedger,
   };
 };
+
+/**
+ * The BuildSession namespace as the orchestrator's spawn tools see it. The
+ * handler receives the thread the stub was addressed by, the parsed JSON
+ * body, and the request headers, and answers for `/turn` and `/cancel`.
+ */
+const installBuildSessions = (
+  harness: ReturnType<typeof sessionHarness>,
+  handler: (call: {
+    threadId: string;
+    path: string;
+    body: Record<string, unknown>;
+    headers: Headers;
+  }) => Promise<Response> | Response,
+) => {
+  const calls: Array<{
+    threadId: string;
+    path: string;
+    body: Record<string, unknown>;
+    headers: Headers;
+  }> = [];
+  harness.instance["env"] = {
+    ...(harness.instance["env"] as Record<string, unknown>),
+    BUILD_SESSIONS: {
+      getByName: (threadId: string) => ({
+        fetch: async (url: string, init: RequestInit) => {
+          const call = {
+            threadId,
+            path: new URL(url).pathname,
+            body: JSON.parse(String(init.body)) as Record<string, unknown>,
+            headers: new Headers(init.headers),
+          };
+          calls.push(call);
+          return await handler(call);
+        },
+      }),
+    },
+  };
+  return calls;
+};
+
+const acceptedAgentTurn = (call: {
+  threadId: string;
+  body: Record<string, unknown>;
+}) =>
+  Response.json(
+    {
+      protocol: 1,
+      threadId: call.threadId,
+      turnId: call.body.turnId,
+      attemptGeneration: call.body.attemptGeneration,
+      accepted: true,
+      replayed: false,
+    },
+    { status: 202 },
+  );
 
 type ExecutableCloudTool = {
   name: string;
@@ -172,24 +311,37 @@ const cloudAgentTool = (
       agentHome: { available: boolean },
       skillCatalog: Record<string, never>,
       memoryEnabled: boolean,
+      controlPlane: { token: string },
     ) => ExecutableCloudTool[]
-  )(targetTurn, { available: false }, {}, false);
+  )(targetTurn, { available: false }, {}, false, {
+    token: "control-plane-capability",
+  });
   const tool = tools.find((candidate) => candidate.name === name);
   if (!tool) throw new Error(`Missing cloud agent tool: ${name}`);
   return tool;
 };
 
+/** The turn-plane agent dispatch shape both the orchestrator and Convex send. */
 const agentTurn = (turnId: string, ownerGeneration = "generation-1") => ({
-  kind: "agent",
+  kind: "agent" as const,
   ownerId: "owner-1",
   ownerGeneration,
+  conversationId: "conversation-1",
   appId: "agent",
   turnId,
   prompt: `prompt:${turnId}`,
-  turnToken: `token:${turnId}`,
-  convexCallbackBase: "https://convex.example",
+  description: "agent thread",
   threadId: "thread-1",
   attemptGeneration: 1,
+  source: "agent-thread" as const,
+  execution: {
+    engine: "stella" as const,
+    provider: "stella" as const,
+    model: "stella/default",
+    reasoningEffort: "default",
+  },
+  audience: "pro" as const,
+  budgetMicroCents: 250_000_000,
 });
 
 const appTurn = (turnId: string, ownerGeneration = "generation-1") => ({
@@ -200,12 +352,15 @@ const appTurn = (turnId: string, ownerGeneration = "generation-1") => ({
   turnId,
   sessionId: `session:${turnId}`,
   prompt: `prompt:${turnId}`,
-  turnToken: `token:${turnId}`,
-  convexCallbackBase: "https://convex.example",
+  audience: "pro" as const,
+  budgetMicroCents: 250_000_000,
 });
 
 const buildSessionHarness = (values = new Map<string, unknown>()) => {
   let alarm: number | null = null;
+  const gates = fakeOwnerGates();
+  const outbox = fakeOutbox();
+  const sqlFake = openSqlStorageFake();
   const put = async (
     key: string | Record<string, unknown>,
     value?: unknown,
@@ -226,6 +381,7 @@ const buildSessionHarness = (values = new Map<string, unknown>()) => {
     return values.delete(key);
   };
   const storage = {
+    sql: sqlFake.sql,
     get: async <T>(key: string) => values.get(key) as T | undefined,
     put,
     delete: remove,
@@ -267,12 +423,28 @@ const buildSessionHarness = (values = new Map<string, unknown>()) => {
     Record<string, unknown>;
   const ledger = new ExactTurnCancellationLedger(storage);
   const terminated: string[] = [];
+  const admissions: Array<Record<string, unknown>> = [];
   const delivered: string[] = [];
   const unregistered: string[] = [];
   let runAgentTurnCalls = 0;
   Object.assign(instance, {
     ctx,
-    env: { BUILDER_SERVICE_SECRET: "builder-secret" },
+    env: {
+      BUILDER_SERVICE_SECRET: "builder-secret",
+      STELLA_CONVEX_SITE_URL: "https://convex.example",
+      OWNER_GATES: gates.namespace,
+      TURN_OUTBOX: outbox.queue,
+    },
+    // Signing is exercised in capability-signer tests; admission here only
+    // needs it not to refuse the turn.
+    controlPlaneCapability: async () => "control-plane-capability",
+    admitAgentTurnThroughOwnerGate: async (target: {
+      audience: string;
+      budgetMicroCents: number;
+    }) => {
+      admissions.push(structuredClone(target));
+      return { ok: true, snapshot: sampleOwnerSnapshot() };
+    },
     exactTurnCancellations: ledger,
     runningTurns: new Map<string, Set<Promise<unknown>>>(),
     appTurnExecutions: new Map<string, unknown>(),
@@ -285,8 +457,6 @@ const buildSessionHarness = (values = new Map<string, unknown>()) => {
       return "purge-generation-1";
     },
     assertTurnWritable: async () => undefined,
-    assertConvexAgentTurnAuthority: async () => undefined,
-    assertConvexAppTurnAuthority: async () => undefined,
     unregisterTurnLease: async () => true,
     unregisterTurn: async (target: { turnId: string }) => {
       unregistered.push(target.turnId);
@@ -461,11 +631,20 @@ const cancelRequest = (body: unknown) =>
     body: JSON.stringify(body),
   });
 
+/**
+ * `protocol` is a wire field, not part of the record the session persists, so
+ * it is added here rather than by the fixtures the stored turn is compared to.
+ */
+const withWireProtocol = (body: unknown): unknown =>
+  body && typeof body === "object" && (body as { kind?: unknown }).kind === "agent"
+    ? { protocol: 1, ...(body as Record<string, unknown>) }
+    : body;
+
 const turnRequest = (body: unknown) =>
   new Request("https://build-session/turn", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(withWireProtocol(body)),
   });
 
 const ownerPurgeRequest = (body: unknown) =>
@@ -854,56 +1033,60 @@ describe("execution-placement exact cloud turn cancellation", () => {
     const original = sessionHarness(values);
     installFence(original);
     const exact = turn("turn-register-response-lost");
-    const first = await original.instance.fetch(turnRequest(exact));
+    const first = await original.instance.fetch(chatTurnRequest(exact));
     expect(first.status).toBe(503);
     expect(await first.json()).toMatchObject({
-      code: "owner_fence_registration_uncertain",
+      error: { code: "internal", retryable: true },
     });
-    expect(values.has(`queued:${exact.turnId}`)).toBe(false);
+    expect(queuedKeys(values)).toEqual([]);
     expect(ownerFenceLeaseReceipts(values)).toHaveLength(1);
+    const intent = admissionReceipt(values, exact);
+    expect(intent?.turnId).toMatch(UUID_SHAPE);
     expect(ownerFenceLeaseReceipts(values)[0]).toMatchObject({
-      turnId: exact.turnId,
+      turnId: intent?.turnId,
       phase: "registering",
     });
-    expect(values.get(`chatTurnAdmission:${exact.turnId}`)).toMatchObject({
-      schemaVersion: 1,
+    expect(intent).toMatchObject({
+      schemaVersion: 2,
       ownerId: exact.ownerId,
       ownerGeneration: exact.ownerGeneration,
-      turnId: exact.turnId,
       leaseId: ownerFenceLeaseReceipts(values)[0]?.leaseId,
       phase: "registering",
     });
 
     const conflicting = await original.instance.fetch(
-      turnRequest({ ...exact, prompt: "different payload" }),
+      chatTurnRequest(exact, { prompt: "different payload" }),
     );
     expect(conflicting.status).toBe(409);
     expect(await conflicting.json()).toMatchObject({
-      code: "idempotency_conflict",
+      error: { code: "idempotency_conflict" },
     });
     expect(registeredLeaseIds).toHaveLength(1);
+    // The generation is the snapshot's, not the caller's: a caller pinning a
+    // generation the gate does not know is refused before the fence.
     const changedGeneration = await original.instance.fetch(
-      turnRequest({ ...exact, ownerGeneration: "generation-2" }),
+      chatTurnRequest({ ...exact, ownerGeneration: "generation-2" }),
     );
-    expect(changedGeneration.status).toBe(409);
+    expect(changedGeneration.status).toBe(403);
     expect(await changedGeneration.json()).toMatchObject({
-      code: "idempotency_conflict",
+      error: { code: "generation_stale" },
     });
     expect(registeredLeaseIds).toHaveLength(1);
 
     const replacement = sessionHarness(values);
     installFence(replacement);
-    const replay = await replacement.instance.fetch(turnRequest(exact));
+    const replay = await replacement.instance.fetch(chatTurnRequest(exact));
     expect(replay.status).toBe(202);
     expect(await replay.json()).toMatchObject({
       accepted: true,
       replayed: false,
+      turnId: intent?.turnId,
     });
     expect(registeredLeaseIds).toHaveLength(2);
     expect(new Set(registeredLeaseIds).size).toBe(1);
     expect(remoteLeases.size).toBe(1);
-    expect(values.get(`queued:${exact.turnId}`)).toMatchObject({
-      turnId: exact.turnId,
+    expect(values.get(`queued:${intent?.turnId}`)).toMatchObject({
+      turnId: intent?.turnId,
       ownerPurgeLeaseId: registeredLeaseIds[0],
       ownerPurgeGeneration: "fence-generation-1",
     });
@@ -912,7 +1095,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
       phase: "registered",
       registrationGeneration: "fence-generation-1",
     });
-    expect(values.get(`chatTurnAdmission:${exact.turnId}`)).toMatchObject({
+    expect(admissionReceipt(values, exact)).toMatchObject({
       ownerGeneration: exact.ownerGeneration,
       leaseId: registeredLeaseIds[0],
       phase: "accepted",
@@ -961,7 +1144,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
       if (
         failQueueCommit &&
         typeof key !== "string" &&
-        Object.hasOwn(key, `queued:${exact.turnId}`)
+        Object.keys(key).some((entry) => entry.startsWith("queued:"))
       ) {
         failQueueCommit = false;
         throw new Error("queue commit interrupted");
@@ -969,16 +1152,17 @@ describe("execution-placement exact cloud turn cancellation", () => {
       await durablePut(key, value);
     };
 
-    await expect(original.instance.fetch(turnRequest(exact))).rejects.toThrow(
-      "queue commit interrupted",
-    );
-    expect(values.has(`queued:${exact.turnId}`)).toBe(false);
+    await expect(
+      original.instance.fetch(chatTurnRequest(exact)),
+    ).rejects.toThrow("queue commit interrupted");
+    expect(queuedKeys(values)).toEqual([]);
     expect(ownerFenceLeaseReceipts(values)[0]).toMatchObject({
       phase: "registered",
       registrationGeneration: "fence-generation-1",
     });
-    expect(values.get(`chatTurnAdmission:${exact.turnId}`)).toMatchObject({
-      schemaVersion: 1,
+    const intent = admissionReceipt(values, exact);
+    expect(intent).toMatchObject({
+      schemaVersion: 2,
       ownerGeneration: exact.ownerGeneration,
       leaseId: registeredLeaseIds[0],
       phase: "registering",
@@ -987,23 +1171,23 @@ describe("execution-placement exact cloud turn cancellation", () => {
     const replacement = sessionHarness(values);
     installFence(replacement);
     const changedGeneration = await replacement.instance.fetch(
-      turnRequest({ ...exact, ownerGeneration: "generation-2" }),
+      chatTurnRequest({ ...exact, ownerGeneration: "generation-2" }),
     );
-    expect(changedGeneration.status).toBe(409);
+    expect(changedGeneration.status).toBe(403);
     expect(await changedGeneration.json()).toMatchObject({
-      code: "idempotency_conflict",
+      error: { code: "generation_stale" },
     });
     expect(registeredLeaseIds).toHaveLength(1);
     expect(remoteLeases.size).toBe(1);
-    const replay = await replacement.instance.fetch(turnRequest(exact));
+    const replay = await replacement.instance.fetch(chatTurnRequest(exact));
     expect(replay.status).toBe(202);
     expect(registeredLeaseIds).toHaveLength(1);
     expect(remoteLeases.size).toBe(1);
-    expect(values.get(`queued:${exact.turnId}`)).toMatchObject({
+    expect(values.get(`queued:${intent?.turnId}`)).toMatchObject({
       ownerGeneration: exact.ownerGeneration,
       ownerPurgeLeaseId: registeredLeaseIds[0],
     });
-    expect(values.get(`chatTurnAdmission:${exact.turnId}`)).toMatchObject({
+    expect(admissionReceipt(values, exact)).toMatchObject({
       ownerGeneration: exact.ownerGeneration,
       leaseId: registeredLeaseIds[0],
       phase: "accepted",
@@ -1680,41 +1864,26 @@ describe("execution-placement exact cloud turn cancellation", () => {
     expect(unregisters).toBe(1);
   });
 
-  test("rejects a delayed stale app dispatch before durable admission", async () => {
+  test("rejects a malformed app dispatch before durable admission", async () => {
     const harness = buildSessionHarness();
-    delete harness.instance["assertConvexAppTurnAuthority"];
     let startCalls = 0;
     harness.instance["startAppTurn"] = async () => {
       startCalls += 1;
       return Response.json({ ok: true });
     };
-    const stale = appTurn("app-stale-after-purge", "owner-generation-old");
-    const originalFetch = globalThis.fetch;
-    let authorityBody: Record<string, unknown> | undefined;
-    globalThis.fetch = (async (
-      _input: RequestInfo | URL,
-      init?: RequestInit,
-    ) => {
-      authorityBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      return Response.json({ authoritative: false }, { status: 409 });
-    }) as typeof fetch;
-    try {
-      const response = await harness.instance.fetch(turnRequest(stale));
-      expect(response.status).toBe(409);
-      expect(await response.json()).toMatchObject({
-        error: "Cloud app attempt is no longer active.",
-      });
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-    expect(authorityBody).toMatchObject({
-      ownerId: stale.ownerId,
-      ownerGeneration: stale.ownerGeneration,
-      conversationId: stale.conversationId,
-      appId: stale.appId,
-      turnId: stale.turnId,
-      sessionId: stale.sessionId,
-      tokenHash: await sha256Hex(stale.turnToken),
+    // A dispatch that cannot name its session is refused at the boundary.
+    // There is no Convex authority round trip left to refuse it later: the
+    // owner-purge fence and this shape check are the whole gate.
+    const stale: Partial<ReturnType<typeof appTurn>> = {
+      ...appTurn("app-stale-after-purge", "owner-generation-old"),
+    };
+    delete stale.sessionId;
+
+    const response = await harness.instance.fetch(turnRequest(stale));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: "App turns require appId, conversationId, and sessionId.",
     });
     expect(startCalls).toBe(0);
     expect(harness.values.has("turn")).toBe(false);
@@ -1839,7 +2008,12 @@ describe("execution-placement exact cloud turn cancellation", () => {
     const gate = new Promise<void>((resolve) => {
       releaseAuthority = resolve;
     });
-    harness.instance["assertConvexAppTurnAuthority"] = async () => {
+    // The owner-purge fence is the replay path's one remote barrier now that
+    // the Convex authority round trip is gone.
+    let gated = false;
+    harness.instance["assertTurnWritable"] = async () => {
+      if (gated) return;
+      gated = true;
       authorityStarted();
       await gate;
     };
@@ -1940,14 +2114,18 @@ describe("execution-placement exact cloud turn cancellation", () => {
       terminal: boolean,
     ) => {
       receipts.push({ surface: "event", kind, payload, terminal });
+      return 1;
     };
-    harness.instance["callback"] = async (
-      _turn: unknown,
-      path: string,
-      body: Record<string, unknown>,
+    harness.instance["enqueueOutboxDurable"] = async (
+      events: Array<Record<string, unknown>>,
     ) => {
-      receipts.push({ surface: path, ...body });
-      return {};
+      for (const event of events) receipts.push({ surface: "outbox", ...event });
+    };
+    harness.instance["wakeParentConversation"] = async (
+      _turn: unknown,
+      completion: Record<string, unknown>,
+    ) => {
+      receipts.push({ surface: "wake", ...completion });
     };
 
     await (
@@ -1966,12 +2144,14 @@ describe("execution-placement exact cloud turn cancellation", () => {
         terminal: true,
       },
       expect.objectContaining({
-        surface: "/api/cloud/threads/complete",
+        surface: "outbox",
+        kind: "thread.completed",
         threadId: current.threadId,
         turnId: current.turnId,
         attemptGeneration: current.attemptGeneration,
         status: "failed",
       }),
+      expect.objectContaining({ surface: "wake", status: "failed" }),
     ]);
   });
 
@@ -2055,7 +2235,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
           "x-stella-turn-broker-endpoint":
             "https://broker.example/sessions/thread-1/turn-broker",
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(withWireProtocol(body)),
       });
 
     const replay = await harness.instance.fetch(turnRequest(dispatch));
@@ -2510,8 +2690,11 @@ describe("execution-placement exact cloud turn cancellation", () => {
     const forcedLookups: boolean[] = [];
     let ownerRegistrations = 0;
     let journalWrites = 0;
-    harness.instance["lookupOwner"] = async (force = false) => {
-      forcedLookups.push(force);
+    harness.instance["resolveOwnerForCaller"] = async (
+      _caller: unknown,
+      options: { refreshGeneration?: boolean } = {},
+    ) => {
+      forcedLookups.push(options.refreshGeneration === true);
       return {
         ownerId: "owner-1",
         ownerGeneration: "generation-2",
@@ -2581,8 +2764,11 @@ describe("execution-placement exact cloud turn cancellation", () => {
     const forcedLookups: boolean[] = [];
     let receiptReads = 0;
     let appendWork = 0;
-    harness.instance["lookupOwner"] = async (force = false) => {
-      forcedLookups.push(force);
+    harness.instance["resolveOwnerForCaller"] = async (
+      _caller: unknown,
+      options: { refreshGeneration?: boolean } = {},
+    ) => {
+      forcedLookups.push(options.refreshGeneration === true);
       return {
         ownerId: "owner-1",
         ownerGeneration: "generation-2",
@@ -2640,7 +2826,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
   test("a null forced owner refresh cannot fall back to cached local or voice authority", async () => {
     const localHarness = sessionHarness();
     let localRegistrations = 0;
-    localHarness.instance["lookupOwner"] = async () => null;
+    localHarness.instance["resolveOwnerForCaller"] = async () => null;
     localHarness.instance["ownerGeneration"] = "generation-1";
     localHarness.instance["journal"] = {
       ownerId: () => "owner-1",
@@ -2676,7 +2862,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
 
     const voiceHarness = sessionHarness();
     let voiceReceiptReads = 0;
-    voiceHarness.instance["lookupOwner"] = async () => null;
+    voiceHarness.instance["resolveOwnerForCaller"] = async () => null;
     voiceHarness.instance["ownerGeneration"] = "generation-1";
     voiceHarness.instance["journal"] = {
       ownerId: () => "owner-1",
@@ -2716,7 +2902,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     let unregisters = 0;
     let transactionCalls = 0;
     let oversizePrepared = false;
-    harness.instance["lookupOwner"] = async () => ({
+    harness.instance["resolveOwnerForCaller"] = async () => ({
       ownerId: "owner-1",
       ownerGeneration: "generation-1",
       createdAt: 1,
@@ -2975,7 +3161,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
       meta: () => ({ epoch: 1 }),
       isDeleted: () => false,
     };
-    harness.instance["lookupOwner"] = async () => ({
+    harness.instance["resolveOwnerForCaller"] = async () => ({
       ownerId: lease.ownerId,
       ownerGeneration: lease.ownerGeneration,
       createdAt: 1,
@@ -3222,7 +3408,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     harness.values.set("localTurnLease", lease);
     let retirements = 0;
     let unregisters = 0;
-    harness.instance["lookupOwner"] = async () => ({
+    harness.instance["resolveOwnerForCaller"] = async () => ({
       ownerId: lease.ownerId,
       ownerGeneration: lease.ownerGeneration,
       createdAt: 1,
@@ -3311,70 +3497,62 @@ describe("execution-placement exact cloud turn cancellation", () => {
         enqueues += 1;
       };
     };
-    const dispatch = (body: unknown) =>
-      new Request("https://orchestrator-session/turn", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
+    const gates = fakeOwnerGates();
+    const outbox = fakeOutbox();
+    // An already-projected conversation: the harness journal is bound.
+    values.set("conversationProjected", true);
 
-    const first = sessionHarness(values);
+    const first = sessionHarness(values, { gates, outbox });
     configure(first);
-    const accepted = await first.instance.fetch(dispatch(original));
+    const accepted = await first.instance.fetch(chatTurnRequest(original));
     expect(accepted.status).toBe(202);
-    expect(await accepted.json()).toEqual({
+    const acceptedBody = (await accepted.json()) as {
+      accepted: boolean;
+      replayed: boolean;
+      turnId: string;
+    };
+    expect(acceptedBody).toMatchObject({ accepted: true, replayed: false });
+    expect(acceptedBody.turnId).toMatch(UUID_SHAPE);
+    expect(registrations).toBe(1);
+    expect(enqueues).toBe(1);
+    expect(gates.admits).toHaveLength(1);
+    expect(outbox.events.map((event) => event.kind)).toEqual(["turn.started"]);
+    const queuedKey = `queued:${acceptedBody.turnId}`;
+    const queued = structuredClone(values.get(queuedKey));
+
+    const replacement = sessionHarness(values, { gates, outbox });
+    configure(replacement);
+    const replay = await replacement.instance.fetch(chatTurnRequest(original));
+    expect(replay.status).toBe(202);
+    expect(await replay.json()).toMatchObject({
       accepted: true,
-      replayed: false,
+      replayed: true,
+      turnId: acceptedBody.turnId,
     });
     expect(registrations).toBe(1);
     expect(enqueues).toBe(1);
-    const queuedKey = `queued:${original.turnId}`;
-    const queued = structuredClone(values.get(queuedKey));
-
-    const replacement = sessionHarness(values);
-    configure(replacement);
-    const replay = await replacement.instance.fetch(dispatch(original));
-    expect(replay.status).toBe(202);
-    expect(await replay.json()).toEqual({ accepted: true, replayed: true });
-    expect(registrations).toBe(1);
-    expect(enqueues).toBe(1);
+    expect(gates.admits).toHaveLength(1);
+    expect(outbox.events).toHaveLength(1);
     expect(values.get(queuedKey)).toEqual(queued);
 
     const conflict = await replacement.instance.fetch(
-      dispatch({ ...original, prompt: "changed payload" }),
+      chatTurnRequest(original, { prompt: "changed payload" }),
     );
     expect(conflict.status).toBe(409);
     expect(await conflict.json()).toMatchObject({
-      code: "idempotency_conflict",
+      error: { code: "idempotency_conflict" },
     });
     expect(registrations).toBe(1);
     expect(values.get(queuedKey)).toEqual(queued);
-
-    // Rolling-deploy/lost-response recovery also classifies an exact request
-    // after the durable queue row has moved to the current-turn slot.
-    values.set("turn", queued);
-    values.delete(queuedKey);
-    values.delete(`chatTurnAdmission:${original.turnId}`);
-    const currentReplacement = sessionHarness(values);
-    configure(currentReplacement);
-    const currentReplay = await currentReplacement.instance.fetch(
-      dispatch(original),
-    );
-    expect(currentReplay.status).toBe(202);
-    expect(await currentReplay.json()).toEqual({
-      accepted: true,
-      replayed: true,
-    });
-    expect(registrations).toBe(1);
-    expect(enqueues).toBe(1);
-    expect(values.get("turn")).toEqual(queued);
   });
 
   test("agent lifecycle wake receipts are validated and bound into exact turn replay", async () => {
     const values = new Map<string, unknown>();
-    const lifecycleTurn = {
-      ...turn("turn-agent-lifecycle-receipt"),
+    const exact = turn("turn-agent-lifecycle-receipt");
+    const wake = {
+      lane: "wake",
       source: "agent-thread",
+      hiddenMessage: true,
       agentThreadControl: {
         threadId: "thread-control-1",
         attemptGeneration: 3,
@@ -3382,48 +3560,64 @@ describe("execution-placement exact cloud turn cancellation", () => {
         status: "completed" as const,
       },
     };
-    const dispatch = (body: unknown) =>
-      new Request("https://orchestrator-session/turn", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    const first = sessionHarness(values);
+    const gates = fakeOwnerGates();
+    const first = sessionHarness(values, { gates });
     first.instance["enqueue"] = () => undefined;
-    const accepted = await first.instance.fetch(dispatch(lifecycleTurn));
+    const accepted = await first.instance.fetch(chatTurnRequest(exact, wake));
     expect(accepted.status).toBe(202);
+    const { turnId } = (await accepted.json()) as { turnId: string };
+    // A wake is the system finishing the user's own request: registered on
+    // the gate, never refused by a window.
+    expect(gates.admits[0]?.input).toMatchObject({ lane: "chat", quota: "bypass" });
+    expect(values.get(`queued:${turnId}`)).toMatchObject({
+      lane: "wake",
+      hiddenMessage: true,
+      agentThreadControl: wake.agentThreadControl,
+    });
 
-    const restarted = sessionHarness(values);
+    const restarted = sessionHarness(values, { gates });
     restarted.instance["enqueue"] = () => undefined;
-    const replay = await restarted.instance.fetch(dispatch(lifecycleTurn));
+    const replay = await restarted.instance.fetch(chatTurnRequest(exact, wake));
     expect(replay.status).toBe(202);
-    expect(await replay.json()).toEqual({ accepted: true, replayed: true });
+    expect(await replay.json()).toMatchObject({
+      accepted: true,
+      replayed: true,
+      turnId,
+    });
 
     const changedReceipt = await restarted.instance.fetch(
-      dispatch({
-        ...lifecycleTurn,
+      chatTurnRequest(exact, {
+        ...wake,
         agentThreadControl: {
-          ...lifecycleTurn.agentThreadControl,
+          ...wake.agentThreadControl,
           threadUpdatedAt: 301,
         },
       }),
     );
     expect(changedReceipt.status).toBe(409);
     expect(await changedReceipt.json()).toMatchObject({
-      code: "idempotency_conflict",
+      error: { code: "idempotency_conflict" },
     });
 
     const wrongSource = sessionHarness();
     wrongSource.instance["enqueue"] = () => undefined;
     const rejected = await wrongSource.instance.fetch(
-      dispatch({ ...lifecycleTurn, source: "user" }),
+      chatTurnRequest(exact, { ...wake, source: "user" }),
     );
     expect(rejected.status).toBe(400);
+    const controlWithoutWake = await wrongSource.instance.fetch(
+      chatTurnRequest(exact, {
+        agentThreadControl: wake.agentThreadControl,
+      }),
+    );
+    expect(controlWithoutWake.status).toBe(400);
   });
 
-  test("server-issued terminal receipts survive restart and fence send_input ABA", async () => {
+  test("send_input dispatches the next attempt straight to the BuildSession and fences ABA", async () => {
     const values = new Map<string, unknown>();
-    const first = sessionHarness(values);
+    const gates = fakeOwnerGates();
+    const outbox = fakeOutbox();
+    const first = sessionHarness(values, { gates, outbox });
     await (
       first.instance["rememberCloudAgentControlReceipt"] as (
         value: unknown,
@@ -3435,23 +3629,8 @@ describe("execution-placement exact cloud turn cancellation", () => {
       status: "completed",
     });
 
-    const restarted = sessionHarness(values);
-    const requests: Array<Record<string, unknown>> = [];
-    restarted.instance["convexPost"] = async (
-      _base: string,
-      _path: string,
-      body: Record<string, unknown>,
-    ) => {
-      requests.push(structuredClone(body));
-      return Response.json({
-        ok: true,
-        threadId: "thread-control-1",
-        turnId: "agent-turn-4",
-        attemptGeneration: 4,
-        threadUpdatedAt: 400,
-        status: "running",
-      });
-    };
+    const restarted = sessionHarness(values, { gates, outbox });
+    const calls = installBuildSessions(restarted, acceptedAgentTurn);
     const parentTurn = turn("turn-send-input-control");
     const sendInput = cloudAgentTool(
       restarted.instance,
@@ -3463,28 +3642,78 @@ describe("execution-placement exact cloud turn cancellation", () => {
       description: "Continue the audit",
       message: "Continue from the last result.",
     });
-    expect(requests[0]).toMatchObject({
-      action: "spawn",
+    expect(calls).toHaveLength(1);
+    const dispatched = calls[0]!;
+    expect(dispatched.threadId).toBe("thread-control-1");
+    expect(dispatched.path).toBe("/turn");
+    expect(dispatched.body).toMatchObject({
+      protocol: 1,
+      kind: "agent",
+      ownerId: "owner-1",
+      ownerGeneration: "generation-1",
+      conversationId: "conversation-1",
       threadId: "thread-control-1",
-      expectedAttemptGeneration: 3,
-      expectedThreadUpdatedAt: 300,
+      attemptGeneration: 4,
+      prompt: "Continue from the last result.",
+      description: "Continue the audit",
+      // No thread-level route was recorded, so the parent's is inherited.
+      execution: parentTurn.execution,
+      audience: "pro",
+      budgetMicroCents: 250_000_000,
+      source: "agent-thread",
+      parentTurnId: parentTurn.turnId,
+    });
+    expect(dispatched.body.turnId).toMatch(UUID_SHAPE);
+    expect(dispatched.body.clientMsgId).toBe(dispatched.body.turnId);
+    expect(dispatched.headers.get("x-stella-build-session-name")).toBe(
+      "thread-control-1",
+    );
+    expect(dispatched.headers.get("x-stella-turn-broker-endpoint")).toBe(
+      "https://builder.example/sessions/thread-control-1/turn-broker",
+    );
+    // The parent's own capability never travels to the child session.
+    expect(dispatched.headers.get("authorization")).toBeNull();
+    expect(JSON.stringify(dispatched.body)).not.toContain("control-plane-capability");
+    expect(gates.admits).toHaveLength(1);
+    expect(gates.admits[0]).toEqual({
+      ownerId: "owner-1",
+      input: {
+        lane: "agent",
+        turnId: dispatched.body.turnId,
+        conversationId: "conversation-1",
+        workspace: "world",
+        expectedGeneration: "generation-1",
+      },
+    });
+    expect(outbox.events).toHaveLength(1);
+    expect(outbox.events[0]).toMatchObject({
+      kind: "thread.spawned",
+      key: "thread-control-1:4",
+      threadId: "thread-control-1",
+      conversationId: "conversation-1",
+      parentTurnId: parentTurn.turnId,
+      attemptGeneration: 4,
+      description: "Continue the audit",
+      prompt: "Continue from the last result.",
+      placement: "cloud",
+      workspace: "world",
     });
     expect(delivered.details).toMatchObject({
       thread_id: "thread-control-1",
       attempt_generation: 4,
-      thread_updated_at: 400,
     });
-    expect(values.get("cloudAgentControl:thread-control-1")).toEqual({
+    expect(values.get("cloudAgentControl:thread-control-1")).toMatchObject({
       threadId: "thread-control-1",
       attemptGeneration: 4,
-      threadUpdatedAt: 400,
       status: "running",
+      turnId: dispatched.body.turnId,
+      execution: parentTurn.execution,
     });
 
-    const responseLostRestart = sessionHarness(values);
-    responseLostRestart.instance["convexPost"] = async () => {
+    const responseLostRestart = sessionHarness(values, { gates, outbox });
+    installBuildSessions(responseLostRestart, () => {
       throw new Error("an acknowledged tool outcome must not hit the network");
-    };
+    });
     const replayedSendInput = cloudAgentTool(
       responseLostRestart.instance,
       parentTurn,
@@ -3499,6 +3728,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
       },
     );
     expect(replayedDelivery.details).toEqual(delivered.details);
+    expect(gates.admits).toHaveLength(1);
 
     await (
       restarted.instance["rememberCloudAgentControlReceipt"] as (
@@ -3518,25 +3748,22 @@ describe("execution-placement exact cloud turn cancellation", () => {
     const observed = new Promise<void>((resolve) => {
       requestObserved = resolve;
     });
-    restarted.instance["convexPost"] = async (
-      _base: string,
-      _path: string,
-      body: Record<string, unknown>,
-    ) => {
-      requests.push(structuredClone(body));
+    const staleCalls = installBuildSessions(restarted, async () => {
       requestObserved();
       await responseGate;
       return Response.json(
-        { ok: false, error: "That cloud thread changed." },
+        { error: "That cloud thread changed." },
         { status: 409 },
       );
-    };
+    });
     const staleContinuation = sendInput.execute("tool-send-stale", {
       thread_id: "thread-control-1",
       description: "Stale continuation",
       message: "This must not bind to the successor.",
     });
     await observed;
+    // The successor attempt's own lifecycle receipt lands while the stale
+    // continuation is still in flight.
     await (
       restarted.instance["rememberCloudAgentControlReceipt"] as (
         value: unknown,
@@ -3551,13 +3778,12 @@ describe("execution-placement exact cloud turn cancellation", () => {
     await expect(staleContinuation).rejects.toThrow(
       "That cloud thread changed.",
     );
-    expect(requests[1]).toMatchObject({
-      action: "spawn",
-      threadId: "thread-control-1",
-      expectedAttemptGeneration: 4,
-      expectedThreadUpdatedAt: 450,
-    });
-    expect(values.get("cloudAgentControl:thread-control-1")).toEqual({
+    expect(staleCalls[0]?.body).toMatchObject({ attemptGeneration: 5 });
+    // A refused dispatch releases its gate admission.
+    expect(gates.releases.map((entry) => entry.turnId)).toEqual([
+      staleCalls[0]?.body.turnId,
+    ]);
+    expect(values.get("cloudAgentControl:thread-control-1")).toMatchObject({
       threadId: "thread-control-1",
       attemptGeneration: 5,
       threadUpdatedAt: 500,
@@ -3565,35 +3791,54 @@ describe("execution-placement exact cloud turn cancellation", () => {
     });
   });
 
-  test("spawn_agent replays its durable tool outcome without a second admission", async () => {
+  test("spawn_agent admits through the gate, dispatches deterministically, and replays its outcome", async () => {
     const values = new Map<string, unknown>();
     const parentTurn = turn("turn-spawn-outcome");
-    const first = sessionHarness(values);
-    let admissions = 0;
-    first.instance["convexPost"] = async () => {
-      admissions += 1;
-      return Response.json({
-        ok: true,
-        threadId: "thread-spawn-outcome",
-        turnId: "agent-turn-spawn-outcome",
-        attemptGeneration: 1,
-        threadUpdatedAt: 100,
-        status: "running",
-      });
-    };
+    const gates = fakeOwnerGates();
+    const outbox = fakeOutbox();
+    const first = sessionHarness(values, { gates, outbox });
+    const calls = installBuildSessions(first, acceptedAgentTurn);
     const spawn = cloudAgentTool(first.instance, parentTurn, "spawn_agent");
     const params = {
       description: "Audit the boundary",
       prompt: "Inspect it carefully.",
-      workspace: "cloud",
     };
     const original = await spawn.execute("tool-spawn-outcome", params);
-    expect(admissions).toBe(1);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.body).toMatchObject({
+      protocol: 1,
+      kind: "agent",
+      attemptGeneration: 1,
+      parentTurnId: parentTurn.turnId,
+      description: "Audit the boundary",
+      prompt: "Inspect it carefully.",
+      execution: parentTurn.execution,
+      source: "agent-thread",
+    });
+    expect(calls[0]?.threadId).toMatch(UUID_SHAPE);
+    expect(calls[0]?.body.threadId).toBe(calls[0]?.threadId);
+    expect(original.details).toMatchObject({
+      thread_id: calls[0]?.threadId,
+      attempt_generation: 1,
+    });
+    expect(gates.admits).toHaveLength(1);
+    expect(outbox.events.map((event) => event.kind)).toEqual(["thread.spawned"]);
 
-    const restarted = sessionHarness(values);
-    restarted.instance["convexPost"] = async () => {
+    // Ids derive from (generation, parent turn, tool call): a fresh isolate
+    // replaying the same call reaches the same BuildSession and turn.
+    const twin = sessionHarness(new Map(), { gates: fakeOwnerGates(), outbox: fakeOutbox() });
+    const twinCalls = installBuildSessions(twin, acceptedAgentTurn);
+    await cloudAgentTool(twin.instance, parentTurn, "spawn_agent").execute(
+      "tool-spawn-outcome",
+      params,
+    );
+    expect(twinCalls[0]?.threadId).toBe(calls[0]?.threadId);
+    expect(twinCalls[0]?.body.turnId).toBe(calls[0]?.body.turnId);
+
+    const restarted = sessionHarness(values, { gates, outbox });
+    installBuildSessions(restarted, () => {
       throw new Error("durable spawn replay must not hit the network");
-    };
+    });
     const replay = cloudAgentTool(
       restarted.instance,
       parentTurn,
@@ -3608,7 +3853,61 @@ describe("execution-placement exact cloud turn cancellation", () => {
         prompt: "Changed after the fact.",
       }),
     ).rejects.toThrow("replayed differently");
-    expect(admissions).toBe(1);
+    expect(gates.admits).toHaveLength(1);
+
+    // A model override resolves here; a connected engine is the snapshot's
+    // call, and a refused one releases the gate before any dispatch.
+    const refusedCalls = installBuildSessions(restarted, acceptedAgentTurn);
+    await expect(
+      replay.execute("tool-spawn-claude", {
+        ...params,
+        model: "claude:high",
+      }),
+    ).rejects.toThrow("Connect Claude");
+    expect(refusedCalls).toHaveLength(0);
+    expect(gates.releases).toHaveLength(1);
+    await expect(
+      replay.execute("tool-spawn-bad-model", { ...params, model: "gemini" }),
+    ).rejects.toThrow("Cloud spawn model must be");
+    const light = await replay.execute("tool-spawn-light", {
+      ...params,
+      model: "stella/light:low",
+    });
+    expect(light.details).toMatchObject({ attempt_generation: 1 });
+    expect(refusedCalls[0]?.body.execution).toEqual({
+      engine: "stella",
+      provider: "stella",
+      model: "stella/light",
+      reasoningEffort: "low",
+    });
+  });
+
+  test("a gate refusal is surfaced to the model and nothing is dispatched", async () => {
+    const gates = fakeOwnerGates({
+      admit: () => ({
+        ok: false,
+        code: "quota_concurrency",
+        message: "Another agent is already running in this workspace. Wait for it to finish.",
+        retryable: true,
+        retryAfterMs: 5_000,
+      }),
+    });
+    const harness = sessionHarness(new Map(), { gates });
+    const calls = installBuildSessions(harness, acceptedAgentTurn);
+    const spawn = cloudAgentTool(
+      harness.instance,
+      turn("turn-spawn-refused"),
+      "spawn_agent",
+    );
+    await expect(
+      spawn.execute("tool-spawn-refused", {
+        description: "Audit",
+        prompt: "Do it.",
+      }),
+    ).rejects.toThrow("already running in this workspace");
+    expect(calls).toHaveLength(0);
+    expect(harness.outbox.events).toHaveLength(0);
+    expect(gates.releases).toHaveLength(0);
   });
 
   test("an equal-clock terminal receipt advances running state and enables continuation", async () => {
@@ -3638,22 +3937,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
       threadUpdatedAt: 101,
       status: "running",
     });
-    let continuationBody: Record<string, unknown> | undefined;
-    harness.instance["convexPost"] = async (
-      _base: string,
-      _path: string,
-      body: Record<string, unknown>,
-    ) => {
-      continuationBody = structuredClone(body);
-      return Response.json({
-        ok: true,
-        threadId: "thread-equal-clock",
-        turnId: "agent-turn-equal-clock-2",
-        attemptGeneration: 2,
-        threadUpdatedAt: 200,
-        status: "running",
-      });
-    };
+    const calls = installBuildSessions(harness, acceptedAgentTurn);
     const sendInput = cloudAgentTool(
       harness.instance,
       turn("turn-equal-clock"),
@@ -3664,93 +3948,31 @@ describe("execution-placement exact cloud turn cancellation", () => {
       description: "Continue after completion",
       message: "Continue.",
     });
-    expect(continuationBody).toMatchObject({
-      expectedAttemptGeneration: 1,
-      expectedThreadUpdatedAt: 100,
+    expect(calls[0]?.body).toMatchObject({
+      threadId: "thread-equal-clock",
+      attemptGeneration: 2,
     });
   });
 
-  test("pause uses one exact receipt through builder teardown and cancel ACK", async () => {
+  test("pause cancels the exact running attempt at its BuildSession and records one outcome", async () => {
     const harness = sessionHarness();
-    await (
+    const remember = (
       harness.instance["rememberCloudAgentControlReceipt"] as (
         value: unknown,
       ) => Promise<unknown>
-    )({
+    ).bind(harness.instance);
+    await remember({
       threadId: "thread-pause-1",
       attemptGeneration: 7,
       threadUpdatedAt: 700,
       status: "running",
+      turnId: "agent-turn-7",
     });
-    const controlBodies: Array<Record<string, unknown>> = [];
-    const teardownBodies: Array<Record<string, unknown>> = [];
-    let cancelCalls = 0;
-    harness.instance["env"] = {
-      BUILD_SESSIONS: {
-        getByName: (threadId: string) => ({
-          fetch: async (_url: string, init: RequestInit) => {
-            expect(threadId).toBe("thread-pause-1");
-            teardownBodies.push(JSON.parse(String(init.body)));
-            return Response.json({ canceled: true, joined: true });
-          },
-        }),
-      },
-    };
-    harness.instance["convexPost"] = async (
-      _base: string,
-      _path: string,
-      body: Record<string, unknown>,
-    ) => {
-      controlBodies.push(structuredClone(body));
-      if (body.action === "cancel") {
-        cancelCalls += 1;
-        if (cancelCalls > 1) {
-          return Response.json({
-            ok: true,
-            threadId: "thread-pause-1",
-            status: "canceled",
-            attemptGeneration: 7,
-            threadUpdatedAt: 800,
-            alreadyCanceled: true,
-            currentControl: {
-              threadId: "thread-pause-1",
-              status: "canceled",
-              attemptGeneration: 7,
-              threadUpdatedAt: 800,
-            },
-          });
-        }
-        return Response.json({
-          ok: true,
-          threadId: "thread-pause-1",
-          status: "running",
-          turnId: "agent-turn-7",
-          attemptGeneration: 7,
-          threadUpdatedAt: 700,
-          alreadyCanceled: false,
-          currentControl: {
-            threadId: "thread-pause-1",
-            status: "running",
-            attemptGeneration: 7,
-            threadUpdatedAt: 700,
-          },
-        });
-      }
-      return Response.json({
-        ok: true,
-        canceled: true,
-        threadId: "thread-pause-1",
-        status: "canceled",
-        attemptGeneration: 7,
-        threadUpdatedAt: 750,
-        currentControl: {
-          threadId: "thread-pause-1",
-          status: "canceled",
-          attemptGeneration: 7,
-          threadUpdatedAt: 800,
-        },
-      });
-    };
+    const calls = installBuildSessions(harness, (call) => {
+      expect(call.threadId).toBe("thread-pause-1");
+      expect(call.path).toBe("/cancel");
+      return Response.json({ canceled: true, turnId: call.body.turnId, joined: true });
+    });
     const pause = cloudAgentTool(
       harness.instance,
       turn("turn-pause-control"),
@@ -3759,250 +3981,153 @@ describe("execution-placement exact cloud turn cancellation", () => {
     const result = await pause.execute("tool-pause-normal", {
       thread_id: "thread-pause-1",
     });
-    expect(controlBodies[0]).toMatchObject({
-      action: "cancel",
-      parentTurnId: "turn-pause-control",
-      threadId: "thread-pause-1",
-      expectedAttemptGeneration: 7,
-      expectedThreadUpdatedAt: 700,
-    });
-    expect(teardownBodies[0]).toMatchObject({
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.body).toMatchObject({
+      ownerId: "owner-1",
+      ownerGeneration: "generation-1",
       turnId: "agent-turn-7",
       attemptGeneration: 7,
+      reason: "Paused by orchestrator.",
     });
-    expect(controlBodies[1]).toMatchObject({
-      action: "cancel_ack",
-      threadId: "thread-pause-1",
-      turnId: "agent-turn-7",
-      attemptGeneration: 7,
-    });
+    expect(typeof calls[0]?.body.cancelRequestId).toBe("string");
     expect(result.details).toMatchObject({
       thread_id: "thread-pause-1",
+      canceled: true,
       attempt_generation: 7,
-      thread_updated_at: 800,
     });
-    expect(harness.values.get("cloudAgentControl:thread-pause-1")).toEqual({
+    expect(harness.values.get("cloudAgentControl:thread-pause-1")).toMatchObject({
       threadId: "thread-pause-1",
       attemptGeneration: 7,
-      threadUpdatedAt: 800,
       status: "canceled",
+      turnId: "agent-turn-7",
     });
 
     const replayed = await pause.execute("tool-pause-normal", {
       thread_id: "thread-pause-1",
     });
     expect(replayed.details).toEqual(result.details);
-    expect(teardownBodies).toHaveLength(1);
-    expect(controlBodies).toHaveLength(2);
+    expect(calls).toHaveLength(1);
+    // The session's lifecycle wake repeats the decided status; that is not
+    // a rewrite.
+    await remember({
+      threadId: "thread-pause-1",
+      attemptGeneration: 7,
+      threadUpdatedAt: 900,
+      status: "canceled",
+    });
 
-    await (
-      harness.instance["rememberCloudAgentControlReceipt"] as (
-        value: unknown,
-      ) => Promise<unknown>
-    )({
+    // The session already moved to a newer attempt: refuse loudly.
+    await remember({
       threadId: "thread-pause-1",
       attemptGeneration: 8,
-      threadUpdatedAt: 900,
-      status: "running",
-    });
-    let staleTeardownCalls = 0;
-    harness.instance["env"] = {
-      BUILD_SESSIONS: {
-        getByName: () => ({
-          fetch: async () => {
-            staleTeardownCalls += 1;
-            return Response.json({ canceled: true });
-          },
-        }),
-      },
-    };
-    const staleBodies: Array<Record<string, unknown>> = [];
-    harness.instance["convexPost"] = async (
-      _base: string,
-      _path: string,
-      body: Record<string, unknown>,
-    ) => {
-      staleBodies.push(structuredClone(body));
-      return Response.json({
-        ok: true,
-        threadId: "thread-pause-1",
-        status: "running",
-        attemptGeneration: 9,
-        threadUpdatedAt: 1_000,
-        alreadyCanceled: true,
-        currentControl: {
-          threadId: "thread-pause-1",
-          status: "running",
-          attemptGeneration: 9,
-          threadUpdatedAt: 1_000,
-        },
-      });
-    };
-    await expect(
-      pause.execute("tool-pause-stale", {
-        thread_id: "thread-pause-1",
-      }),
-    ).rejects.toThrow("was continued while it was being paused");
-    expect(staleBodies).toHaveLength(1);
-    expect(staleBodies[0]).toMatchObject({
-      action: "cancel",
-      parentTurnId: "turn-pause-control",
-      expectedAttemptGeneration: 8,
-      expectedThreadUpdatedAt: 900,
-    });
-    expect(staleTeardownCalls).toBe(0);
-    expect(harness.values.get("cloudAgentControl:thread-pause-1")).toEqual({
-      threadId: "thread-pause-1",
-      attemptGeneration: 9,
       threadUpdatedAt: 1_000,
       status: "running",
+      turnId: "agent-turn-8",
     });
-
-    let ackRaceTeardowns = 0;
-    harness.instance["env"] = {
-      BUILD_SESSIONS: {
-        getByName: () => ({
-          fetch: async (_url: string, init: RequestInit) => {
-            ackRaceTeardowns += 1;
-            expect(JSON.parse(String(init.body))).toMatchObject({
-              turnId: "agent-turn-9",
-              attemptGeneration: 9,
-            });
-            return Response.json({ canceled: true, joined: true });
-          },
-        }),
-      },
-    };
-    const ackRaceBodies: Array<Record<string, unknown>> = [];
-    harness.instance["convexPost"] = async (
-      _base: string,
-      _path: string,
-      body: Record<string, unknown>,
-    ) => {
-      ackRaceBodies.push(structuredClone(body));
-      if (body.action === "cancel") {
-        return Response.json({
-          ok: true,
-          threadId: "thread-pause-1",
-          status: "running",
-          turnId: "agent-turn-9",
-          attemptGeneration: 9,
-          threadUpdatedAt: 1_000,
-          alreadyCanceled: false,
-          currentControl: {
-            threadId: "thread-pause-1",
-            status: "running",
-            attemptGeneration: 9,
-            threadUpdatedAt: 1_000,
-          },
-        });
-      }
-      return Response.json({
-        ok: true,
-        canceled: true,
-        threadId: "thread-pause-1",
-        status: "canceled",
-        attemptGeneration: 9,
-        threadUpdatedAt: 1_050,
-        currentControl: {
-          threadId: "thread-pause-1",
-          status: "running",
-          attemptGeneration: 10,
-          threadUpdatedAt: 1_100,
-        },
-      });
-    };
+    const staleCalls = installBuildSessions(harness, () =>
+      Response.json({ canceled: false, reason: "superseded" }, { status: 409 }),
+    );
     await expect(
-      pause.execute("tool-pause-ack-race", {
-        thread_id: "thread-pause-1",
-      }),
+      pause.execute("tool-pause-stale", { thread_id: "thread-pause-1" }),
     ).rejects.toThrow("was continued while it was being paused");
-    expect(ackRaceTeardowns).toBe(1);
-    expect(ackRaceBodies).toHaveLength(2);
-    expect(ackRaceBodies[1]).toMatchObject({
-      action: "cancel_ack",
-      turnId: "agent-turn-9",
-      attemptGeneration: 9,
-    });
-    expect(harness.values.get("cloudAgentControl:thread-pause-1")).toEqual({
-      threadId: "thread-pause-1",
-      attemptGeneration: 10,
-      threadUpdatedAt: 1_100,
+    expect(staleCalls).toHaveLength(1);
+    expect(harness.values.get("cloudAgentControl:thread-pause-1")).toMatchObject({
+      attemptGeneration: 8,
       status: "running",
     });
+
+    // A pre-dispatch pause is persisted by the session and consumed later.
+    installBuildSessions(harness, () =>
+      Response.json({ canceled: true, pending: true }, { status: 202 }),
+    );
+    const pending = await pause.execute("tool-pause-pending", {
+      thread_id: "thread-pause-1",
+    });
+    expect(pending.content[0]?.text).toContain("Pause requested");
+    expect(harness.values.get("cloudAgentControl:thread-pause-1")).toMatchObject({
+      attemptGeneration: 8,
+      status: "running",
+    });
+
+    // The session had already decided a terminal for this attempt.
+    installBuildSessions(harness, () =>
+      Response.json(
+        { canceled: false, reason: "terminal_already_decided" },
+        { status: 409 },
+      ),
+    );
+    const decided = await pause.execute("tool-pause-decided", {
+      thread_id: "thread-pause-1",
+    });
+    expect(decided.content[0]?.text).toContain("had already stopped");
+
+    // A thread that is terminal here needs no teardown at all.
+    await remember({
+      threadId: "thread-pause-1",
+      attemptGeneration: 8,
+      threadUpdatedAt: 1_100,
+      status: "completed",
+    });
+    const idleCalls = installBuildSessions(harness, () => {
+      throw new Error("a terminal thread must not be torn down");
+    });
+    const idle = await pause.execute("tool-pause-idle", {
+      thread_id: "thread-pause-1",
+    });
+    expect(idle.content[0]?.text).toContain("had already stopped");
+    expect(idleCalls).toHaveLength(0);
   });
 
-  test("chat event replay and restart bind service auth to the immutable turn-token hash", async () => {
-    const originalFetch = globalThis.fetch;
-    const callbackBodies: Array<Record<string, unknown>> = [];
-    let loseFirstResponse = true;
-    globalThis.fetch = (async (
-      _input: string | URL | Request,
-      init?: RequestInit,
-    ) => {
-      callbackBodies.push(JSON.parse(String(init?.body)));
-      if (loseFirstResponse) {
-        loseFirstResponse = false;
-        throw new Error("response lost");
-      }
-      return new Response(null, { status: 204 });
-    }) as typeof fetch;
-    try {
-      const immutableTurn = turn("turn-token-rotation");
-      immutableTurn.turnToken = "turn-token-generation-1";
-      const first = sessionHarness();
-      delete first.instance["event"];
-      await expect(
-        (
-          first.instance["event"] as (
-            target: typeof immutableTurn,
-            seq: number,
-            kind: string,
-            payload: unknown,
-            terminal: boolean,
-          ) => Promise<void>
-        )(immutableTurn, 1, "started", { ok: true }, false),
-      ).rejects.toThrow("response lost");
+  test("the alarm retries an owed terminal as the same outbox event until the queue accepts it", async () => {
+    const values = new Map<string, unknown>();
+    const gates = fakeOwnerGates();
+    const outbox = fakeOutbox();
+    const owed = turn("turn-owed-terminal");
+    values.set("turn", owed);
+    values.set("terminal", true);
+    values.set("terminalDelivered", false);
+    values.set("alarmAttempts", 0);
+    values.set("terminalOwed", {
+      kind: "failed",
+      message: "Stella hit a problem answering this. Try again.",
+      payload: { message: "Stella hit a problem answering this. Try again." },
+      eventSeq: 3,
+    });
+    values.set("turnEventSeq:turn-owed-terminal", 3);
+    outbox.failNext(1);
 
-      const restarted = sessionHarness();
-      delete restarted.instance["event"];
-      await (
-        restarted.instance["event"] as (
-          target: typeof immutableTurn,
-          seq: number,
-          kind: string,
-          payload: unknown,
-          terminal: boolean,
-        ) => Promise<void>
-      )(immutableTurn, 1, "started", { ok: true }, false);
+    const first = sessionHarness(values, { gates, outbox });
+    await (
+      first.instance["runAlarm"] as (target: typeof owed) => Promise<void>
+    )(owed);
+    expect(outbox.events).toHaveLength(0);
+    expect(values.get("terminalDelivered")).toBe(false);
+    expect(values.get("alarmAttempts")).toBe(1);
+    expect(await first.storage.getAlarm()).not.toBeNull();
+    // The gate is released regardless: the loop that would have done so is
+    // gone with the isolate.
+    expect(gates.releases).toEqual([{ ownerId: "owner-1", turnId: owed.turnId }]);
 
-      const rotated = {
-        ...immutableTurn,
-        turnToken: "turn-token-generation-2",
-      };
-      await (
-        restarted.instance["event"] as (
-          target: typeof rotated,
-          seq: number,
-          kind: string,
-          payload: unknown,
-          terminal: boolean,
-        ) => Promise<void>
-      )(rotated, 2, "completed", { ok: true }, true);
-
-      const generationOneHash = await sha256Hex(immutableTurn.turnToken);
-      const generationTwoHash = await sha256Hex(rotated.turnToken);
-      expect(callbackBodies).toHaveLength(3);
-      expect(callbackBodies[0]?.tokenHash).toBe(generationOneHash);
-      expect(callbackBodies[1]?.tokenHash).toBe(generationOneHash);
-      expect(callbackBodies[2]?.tokenHash).toBe(generationTwoHash);
-      expect(generationTwoHash).not.toBe(generationOneHash);
-      expect(callbackBodies.every((body) => body.turnToken === undefined)).toBe(
-        true,
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    const restarted = sessionHarness(values, { gates, outbox });
+    await (
+      restarted.instance["runAlarm"] as (target: typeof owed) => Promise<void>
+    )(owed);
+    expect(values.get("terminalDelivered")).toBe(true);
+    expect(outbox.events).toHaveLength(1);
+    expect(outbox.events[0]).toMatchObject({
+      kind: "turn.event",
+      key: "turn-owed-terminal:3",
+      turnId: "turn-owed-terminal",
+      sessionId: owed.sessionId,
+      eventSeq: 3,
+      eventKind: "failed",
+      terminal: true,
+      terminalStatus: "failed",
+      errorMessage: "Stella hit a problem answering this. Try again.",
+    });
+    // The ordinal was consumed when the terminal was decided; the retry
+    // never allocated another.
+    expect(values.get("turnEventSeq:turn-owed-terminal")).toBe(3);
   });
 });
 

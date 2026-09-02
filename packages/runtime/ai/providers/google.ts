@@ -32,8 +32,10 @@ import {
 	mapStopReason,
 	mapToolChoice,
 	retainThoughtSignature,
+	withModelFetch,
 } from "./google-shared.js";
 import { requestWithAuthRefresh } from "./auth-refresh.js";
+import { GATEWAY_REQUEST_TIMEOUT_MS, gatewayRequestHeaders, isGatewayRelayBaseUrl } from "./model-gateway.js";
 import { buildBaseOptions, clampReasoning } from "./simple-options.js";
 
 export interface GoogleOptions extends StreamOptions {
@@ -82,13 +84,37 @@ export const streamGoogle: StreamFunction<"google-generative-ai", GoogleOptions>
 			if (nextParams !== undefined) {
 				params = nextParams as GenerateContentParameters;
 			}
+			// Gateway mode: the managed lane is request/response. One
+			// `generateContent` call returns the complete GenerateContentResponse,
+			// which the chunk loop below consumes as a single-element iterable —
+			// every part becomes one whole-string delta.
+			const gatewayMode = isGatewayRelayBaseUrl(model.baseUrl);
 			const googleStream = await requestWithAuthRefresh({
 				apiKey,
 				refreshApiKey: options?.refreshApiKey,
 				request: (requestApiKey) =>
 					retryWithBackoff(
-						() =>
-							createClient(model, requestApiKey, options?.headers).models.generateContentStream(params),
+						async () => {
+							const client = createClient(model, requestApiKey, options?.headers);
+							if (!gatewayMode) {
+								return client.models.generateContentStream(params);
+							}
+							const gatewayParams: GenerateContentParameters = {
+								...params,
+								config: {
+									...params.config,
+									httpOptions: {
+										...params.config?.httpOptions,
+										timeout: GATEWAY_REQUEST_TIMEOUT_MS,
+										headers: {
+											...params.config?.httpOptions?.headers,
+											...gatewayRequestHeaders(),
+										},
+									},
+								},
+							};
+							return [await client.models.generateContent(gatewayParams)];
+						},
 						{ signal: options?.signal },
 					),
 			});
@@ -356,23 +382,24 @@ function createClient(
 	if (model.headers || optionsHeaders) {
 		httpOptions.headers = { ...model.headers, ...optionsHeaders };
 	}
-	// Stella relay calls auth via `Authorization: Bearer <stella-token>`
-	// instead of `x-goog-api-key`. Detect by baseUrl rather than a sentinel
-	// header so a missing/renamed header never falls back to native Google
-	// auth against the relay (which would 401).
-	const isStellaRelay = typeof model.baseUrl === "string"
-		&& /\/api\/stella(?:\/|$)/i.test(model.baseUrl);
-	if (isStellaRelay && apiKey) {
+	// The Stella model gateway authenticates with `Authorization: Bearer
+	// <capability>` instead of `x-goog-api-key`. Detect by baseUrl rather
+	// than a sentinel header so a missing/renamed header never falls back to
+	// native Google auth against the gateway (which would 401).
+	if (isGatewayRelayBaseUrl(model.baseUrl) && apiKey) {
 		httpOptions.headers = {
 			...httpOptions.headers,
 			Authorization: `Bearer ${apiKey}`,
 		};
 	}
 
-	return new GoogleGenAI({
-		apiKey,
-		httpOptions: Object.keys(httpOptions).length > 0 ? httpOptions : undefined,
-	});
+	return withModelFetch(
+		new GoogleGenAI({
+			apiKey,
+			httpOptions: Object.keys(httpOptions).length > 0 ? httpOptions : undefined,
+		}),
+		model,
+	);
 }
 
 function buildParams(

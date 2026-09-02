@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { executionCapabilityValidator } from "./execution_placement";
 
 export const devicesSchema = {
   // Stable per-device profile data. Runtime liveness is intentionally scoped
@@ -13,6 +14,14 @@ export const devicesSchema = {
     devicePublicKey: v.optional(v.string()),
     platform: v.optional(v.string()),
     remoteExecutionEnabled: v.optional(v.boolean()),
+    /**
+     * What this desktop last told Convex it can run. Live availability is
+     * advertised on the owner gate's presence socket; this copy exists so the
+     * owner snapshot and the settings UI can describe a device that is offline.
+     */
+    executionCapabilities: v.optional(v.array(executionCapabilityValidator)),
+    /** Last registration of the execution key, for display and staleness. */
+    executionRegisteredAt: v.optional(v.number()),
   })
     .index("by_ownerId", ["ownerId"])
     .index("by_ownerId_and_deviceId", ["ownerId", "deviceId"]),

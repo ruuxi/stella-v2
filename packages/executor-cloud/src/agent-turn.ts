@@ -107,7 +107,6 @@ import {
   type TurnBrokerTurnStateCheckpointReceipt,
 } from "@stella/contracts/turn-credential-broker";
 import {
-  startTurnCredentialProxy,
   takeTurnBrokerHandoff,
   TurnCredentialBrokerClient,
 } from "./turn-credential-broker.js";
@@ -135,6 +134,47 @@ export { CLOUD_TOOL_PROCESS_IDENTITY } from "./cloud-process-isolation.js";
  */
 const TURN_INPUT_PATH = "/workspace/turn-input.json";
 
+export type CloudModelGatewayInput = {
+  /** Public origin of the model gateway (`MODEL_GATEWAY_URL`). */
+  origin: string;
+  /** Turn capability minted by the admitting Durable Object. */
+  capability: string;
+};
+
+/** Fail closed on anything but an HTTPS origin and a compact JWS capability. */
+export const parseCloudModelGatewayInput = (
+  value: unknown,
+): CloudModelGatewayInput | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.origin !== "string" || typeof row.capability !== "string") {
+    return null;
+  }
+  let origin: URL;
+  try {
+    origin = new URL(row.origin);
+  } catch {
+    return null;
+  }
+  const localHttp =
+    origin.protocol === "http:" &&
+    (origin.hostname === "127.0.0.1" || origin.hostname === "localhost");
+  if (
+    (origin.protocol !== "https:" && !localHttp) ||
+    origin.username ||
+    origin.password ||
+    origin.search ||
+    origin.hash ||
+    origin.pathname !== "/"
+  ) {
+    return null;
+  }
+  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(row.capability)) {
+    return null;
+  }
+  return { origin: origin.origin, capability: row.capability };
+};
+
 export type AgentTurnInput = {
   kind: "agent";
   ownerId: string;
@@ -150,6 +190,12 @@ export type AgentTurnInput = {
   nativeStateIntegrityKey: string;
   /** One-shot pointer to the Builder-owned, short-lived turn broker. */
   turnBroker: TurnBrokerInput;
+  /**
+   * Model gateway access for this exact turn. The capability is a signed,
+   * turn-scoped, budgeted, expiring token that is only valid at the gateway;
+   * the sandbox sends model traffic there directly.
+   */
+  modelGateway: CloudModelGatewayInput;
   /** Prior thread transcript rows, oldest first (send_input continuations). */
   history?: AgentHistoryRow[];
   /** Safe approval receipt used to resume a previously suspended code call. */
@@ -627,10 +673,17 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
         }),
         (client) => Effect.sync(() => client.close()),
       );
-      const credentialProxy = yield* Effect.acquireRelease(
-        Effect.sync(() => startTurnCredentialProxy(broker)),
-        (proxy) => Effect.sync(() => proxy.close()),
-      );
+      const modelGateway = parseCloudModelGatewayInput(input.modelGateway);
+      if (!modelGateway) {
+        return {
+          ok: false,
+          finalText: "",
+          error:
+            "Stella couldn't validate this agent's managed model access. Try again.",
+          usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
+          checkpointPolicy: "preserve_prior",
+        };
+      }
       let history: AgentMessage[];
       try {
         history = pruneAgentHistory(
@@ -970,8 +1023,8 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
                 prompt: input.prompt,
                 systemPrompt: cloudSystemPrompt,
                 execution: nativeExecution,
-                callbackBase: credentialProxy.siteBaseUrl,
-                relayToken: credentialProxy.dummyToken,
+                gatewayOrigin: modelGateway.origin,
+                capability: modelGateway.capability,
                 threadId: input.threadId,
                 turnId: input.turnId,
                 authoritativeHistoryCursor: nativeHistoryCursorFromRows(
@@ -1026,11 +1079,10 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
         const model = yield* Effect.tryPromise({
           try: () =>
             createCloudRelayModel({
-              siteUrl: credentialProxy.siteBaseUrl,
-              turnToken: credentialProxy.dummyToken,
+              gatewayOrigin: modelGateway.origin,
+              capability: modelGateway.capability,
               agentType: "general",
               execution: input.execution,
-              loopbackStage: credentialProxy.modelResolutionStage,
             }),
           catch: asError,
         });
@@ -1046,7 +1098,7 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
             messages: history,
           },
           sessionId: input.threadId,
-          getApiKey: () => credentialProxy.dummyToken,
+          getApiKey: () => modelGateway.capability,
           toolExecution: "sequential",
           toolInactivityTimeoutMs: 5 * 60_000,
           // Same division of labor as the desktop runtime and the orchestrator

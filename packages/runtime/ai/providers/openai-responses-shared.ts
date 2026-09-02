@@ -324,8 +324,111 @@ export function convertResponsesTools(tools: Tool[], options?: ConvertResponsesT
 // Stream processing
 // =============================================================================
 
+/**
+ * Gateway mode: expand one complete Responses `Response` object into the
+ * event sequence `processResponsesStream` would have consumed for the same
+ * content, so both transports share one assembler. Per output item:
+ * `response.output_item.added`, ONE whole-string delta, then
+ * `response.output_item.done` (with the original item, so opaque round-trip
+ * material — reasoning items, encrypted content, `${call_id}|${item_id}` —
+ * is preserved verbatim), followed by the terminal `response.completed`,
+ * `response.incomplete`, or `response.failed` event.
+ */
+export function synthesizeResponsesStreamEvents(response: OpenAI.Responses.Response): ResponseStreamEvent[] {
+	const events: ResponseStreamEvent[] = [];
+	let sequence = 0;
+	const next = () => sequence++;
+
+	events.push({ type: "response.created", response, sequence_number: next() });
+
+	response.output.forEach((item, outputIndex) => {
+		if (item.type === "reasoning") {
+			// The assembler mutates `currentItem.summary`; hand it a copy so the
+			// original item's JSON (the thinking signature) stays byte-identical.
+			events.push({
+				type: "response.output_item.added",
+				item: { ...item, summary: [] },
+				output_index: outputIndex,
+				sequence_number: next(),
+			});
+			const summaryText = item.summary?.map((part) => part.text).join("\n\n") || "";
+			const contentText = item.content?.map((part) => part.text).join("\n\n") || "";
+			const thinking = summaryText || contentText;
+			if (thinking.length > 0) {
+				events.push({
+					type: "response.reasoning_text.delta",
+					item_id: item.id,
+					output_index: outputIndex,
+					content_index: 0,
+					delta: thinking,
+					sequence_number: next(),
+				});
+			}
+		} else if (item.type === "message") {
+			// The text-delta handler mirrors deltas into `currentItem.content`;
+			// start it empty so the mirrored copy never doubles the item's text.
+			events.push({
+				type: "response.output_item.added",
+				item: { ...item, content: [], status: "in_progress" },
+				output_index: outputIndex,
+				sequence_number: next(),
+			});
+			const text = item.content.map((part) => (part.type === "output_text" ? part.text : part.refusal)).join("");
+			if (text.length > 0) {
+				events.push({
+					type: "response.output_text.delta",
+					item_id: item.id,
+					output_index: outputIndex,
+					content_index: 0,
+					delta: text,
+					logprobs: [],
+					sequence_number: next(),
+				});
+			}
+		} else if (item.type === "function_call") {
+			events.push({
+				type: "response.output_item.added",
+				item: { ...item, arguments: "" },
+				output_index: outputIndex,
+				sequence_number: next(),
+			});
+			if (item.arguments.length > 0) {
+				events.push({
+					type: "response.function_call_arguments.delta",
+					item_id: item.id ?? "",
+					output_index: outputIndex,
+					delta: item.arguments,
+					sequence_number: next(),
+				});
+			}
+		} else {
+			events.push({
+				type: "response.output_item.added",
+				item,
+				output_index: outputIndex,
+				sequence_number: next(),
+			});
+		}
+		events.push({
+			type: "response.output_item.done",
+			item,
+			output_index: outputIndex,
+			sequence_number: next(),
+		});
+	});
+
+	if (response.status === "failed") {
+		events.push({ type: "response.failed", response, sequence_number: next() });
+	} else if (response.status === "incomplete") {
+		events.push({ type: "response.incomplete", response, sequence_number: next() });
+	} else {
+		events.push({ type: "response.completed", response, sequence_number: next() });
+	}
+	return events;
+}
+
 export async function processResponsesStream<TApi extends Api>(
-	openaiStream: AsyncIterable<ResponseStreamEvent>,
+	openaiStream: AsyncIterable<ResponseStreamEvent> | Iterable<ResponseStreamEvent>,
 	output: AssistantMessage,
 	stream: AssistantMessageEventStream,
 	model: Model<TApi>,

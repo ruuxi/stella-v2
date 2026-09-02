@@ -596,6 +596,7 @@ export const createAgentOrchestration = (
       const runId = `local:sub:${crypto.randomUUID()}`;
       const site = {
         baseUrl: context.state.convexSiteUrl,
+        deviceId: context.deviceId,
         getAuthToken: () => context.state.authToken?.trim(),
         hasConnectedAccount: () => context.state.hasConnectedAccount,
         refreshAuthToken: async () => {
@@ -713,6 +714,7 @@ export const createAgentOrchestration = (
             agentType: subsidiaryAgentType,
             site: {
               baseUrl: context.state.convexSiteUrl,
+              deviceId: context.deviceId,
               getAuthToken: () => context.state.authToken?.trim(),
               hasConnectedAccount: () => context.state.hasConnectedAccount,
               refreshAuthToken: async () => {

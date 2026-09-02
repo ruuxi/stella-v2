@@ -28,8 +28,6 @@ const turn = {
   attemptGeneration: 1,
   threadId: "thread-1",
   prompt: "prompt",
-  turnToken: "token",
-  convexCallbackBase: "https://convex.example",
 };
 
 const gateHarness = (

@@ -6,7 +6,9 @@ Mobile chat lets a signed-in user select a thread, compose and send messages, in
 
 - `mobile-thread-list` searches and selects conversations.
 - `mobile-compose` drafts, attaches, and sends from the mobile composer.
-- `mobile-timeline` renders user, assistant, tool, error, and working states.
+- `mobile-timeline` renders user, assistant, tool, error, and working states. The
+  working mark uses the bouncing ellipsis while thinking and animated character
+  poses while a labelled tool is active.
 - `mobile-artifacts` opens or shares files and completion output.
 - `mobile-browser-intervention` presents pending cloud-browser actions.
 
@@ -25,7 +27,7 @@ Preconditions:
 
 - **Thread.** Capture `frame`, select a visible thread from fresh `screen` coordinates, and require its title/timeline.
 - **Compose.** Tap the composer, type a unique harmless prompt, and capture the draft before sending.
-- **Send.** Submit once and require the user turn, working state, or explicit error. Bound the wait and collect logs on failure.
+- **Send.** Submit once and require the user turn, working state, or explicit error. When the working state is reachable, capture frames during thinking and labelled tool work; require the ellipsis to move during thinking and the character body or orbit to change during tool work. Bound the wait and collect logs on failure.
 - **Artifact.** Open a visible artifact and require the preview or native share/open action appropriate to its type.
 - **Intervention.** Only when a real card exists, open it and require its declared login/device-code state before taking an action.
 - **Local cloud sign-in.** For a real login intervention on iOS, open the card and require the exact gateway-declared HTTPS origin in Stella's local WebView. Complete the fixture sign-in through visible simulator input, tap Done, require the checking/resume state, then have the resumed cloud browser revisit an authenticated page. This proves the cookie crossed through the encrypted import and survived a fresh Browser Run restore.

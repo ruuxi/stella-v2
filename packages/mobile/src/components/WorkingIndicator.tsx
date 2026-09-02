@@ -3,6 +3,10 @@ import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 import { ShimmerText } from "./ShimmerText";
 import { StellaMarkIndicator } from "./stella-mark/StellaMarkIndicator";
 import { computeWorkingIndicatorStatus } from "./working-indicator-status";
+import {
+  getWorkingIndicatorCharacterState,
+  type WorkingIndicatorCharacterState,
+} from "./working-indicator-character";
 import { useMinimumVisibleValue } from "../lib/use-minimum-visible-value";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
@@ -194,25 +198,42 @@ export const WorkingIndicator = memo(function WorkingIndicator({
   // `reasoningSeed`). Refreshed on each rising edge of `active` below.
   const [reasoningSeed, setReasoningSeed] = useState(() => String(Date.now()));
   const wasActiveRef = useRef(active);
-  const liveStatus = computeWorkingIndicatorStatus({
-    status,
-    toolName,
-    seed: toolCallId ?? reasoningSeed,
-  });
-  // The hold covers the mark as well as the label, because the pose is read
-  // off the held label below: without it the mark flapped between the thinking
-  // ellipsis and the tool star whenever a quick tool started and ended.
-  const heldStatus = useMinimumVisibleValue(liveStatus, STATUS_MIN_VISIBLE_MS);
+  const liveDisplay = useMemo(
+    () => ({
+      status: computeWorkingIndicatorStatus({
+        status,
+        toolName,
+        seed: toolCallId ?? reasoningSeed,
+      }),
+      characterState: getWorkingIndicatorCharacterState(toolName),
+    }),
+    [reasoningSeed, status, toolCallId, toolName],
+  );
+  // The hold covers the mark as well as the label. Without it the character
+  // would flap between thinking and tool poses whenever a quick tool starts
+  // and ends.
+  const heldDisplay = useMinimumVisibleValue(
+    liveDisplay,
+    STATUS_MIN_VISIBLE_MS,
+    (a, b) =>
+      a.status === b.status && a.characterState === b.characterState,
+  );
 
   // Snapshot the label while active so the exit animation shows a stable
   // last-known phrase even though the upstream activity clears the moment
   // `active` flips false (mirrors the desktop's frozen props).
-  const frozenStatusRef = useRef(heldStatus);
-  if (active) frozenStatusRef.current = heldStatus;
-  const displayStatus = active ? heldStatus : frozenStatusRef.current;
+  const frozenDisplayRef = useRef(heldDisplay);
+  if (active) frozenDisplayRef.current = heldDisplay;
+  const display = active ? heldDisplay : frozenDisplayRef.current;
+  const displayStatus = display.status;
   // With no label there is nothing to read, so the mark itself carries the
-  // state as the thinking ellipsis; a tool label gets the resting star beside it.
+  // state as the thinking ellipsis. A label gets the matching character pose.
   const hasLabel = displayStatus.length > 0;
+  const characterState: WorkingIndicatorCharacterState = hasLabel
+    ? display.characterState === "thinking"
+      ? "working"
+      : display.characterState
+    : "thinking";
   const [renderShell, setRenderShell] = useState(active);
   const shellProgress = useRef(new Animated.Value(active ? 1 : 0)).current;
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -296,7 +317,8 @@ export const WorkingIndicator = memo(function WorkingIndicator({
               <StellaMarkIndicator
                 active
                 size={INDICATOR_VIEWPORT_SIZE}
-                mode={hasLabel ? "star" : "dots"}
+                state={characterState}
+                faceColor={colors.card}
               />
             </View>
             {hasLabel ? (

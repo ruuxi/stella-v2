@@ -106,6 +106,86 @@ export const BREATHE_MS = 4000;
 /** Resting breathe depth: ±1.3% is visible without reading as a pulse. */
 export const BREATHE_AMPLITUDE = 0.013;
 
+export type ToolCharacterMotionState =
+  | "working"
+  | "writing"
+  | "searching"
+  | "reading";
+
+export type ToolCharacterMotion = {
+  translateX: number;
+  translateY: number;
+  rotationDeg: number;
+  scaleX: number;
+  scaleY: number;
+};
+
+/**
+ * Mobile-native versions of the desktop rig's tool poses. Working and writing
+ * carry the travelling twinkle as a soft squash through the silhouette;
+ * searching and reading leave room around the smaller body for orbiting marks.
+ */
+export function toolCharacterMotion(
+  state: ToolCharacterMotionState,
+  timeMs: number,
+): ToolCharacterMotion {
+  "worklet";
+  const breathe = breatheScale(timeMs, BREATHE_AMPLITUDE);
+  const bobX =
+    Math.sin(timeMs * 0.00042) * 0.45 +
+    Math.sin(timeMs * 0.001) * 0.16;
+  const bobY =
+    Math.sin(timeMs * 0.00058) * 0.36 +
+    Math.sin(timeMs * 0.0013) * 0.13;
+
+  if (state === "working" || state === "writing") {
+    const speed = state === "writing" ? 0.0026 : 0.0033;
+    const twinkle = Math.sin(timeMs * speed);
+    const strength = state === "writing" ? 0.045 : 0.06;
+    return {
+      translateX: bobX,
+      translateY: bobY,
+      rotationDeg: Math.sin(timeMs * 0.0012) * 2.6,
+      scaleX: breathe * (1 + strength * twinkle),
+      scaleY: breathe * (1 - strength * 0.62 * twinkle),
+    };
+  }
+
+  const bodyScale = state === "searching" ? 0.9 : 0.94;
+  return {
+    translateX: bobX * 0.55,
+    translateY: bobY * 0.55,
+    rotationDeg: Math.sin(timeMs * 0.0009) * 3,
+    scaleX: breathe * bodyScale,
+    scaleY: breathe * bodyScale,
+  };
+}
+
+export type OrbitMarkMotion = {
+  opacity: number;
+  rotationDeg: number;
+  scale: number;
+  translateX: number;
+  translateY: number;
+};
+
+/** One of the desktop search/read orbit's four moving sparkle marks. */
+export function orbitMarkMotion(
+  index: number,
+  timeMs: number,
+): OrbitMarkMotion {
+  "worklet";
+  const angle = timeMs * 0.0016 + (index * Math.PI * 2) / 4;
+  const depth = 0.5 + 0.5 * Math.max(0, Math.cos(angle));
+  return {
+    opacity: Math.max(0.2, Math.min(1, (Math.cos(angle) + 0.5) / 0.7)),
+    rotationDeg: ((angle * 40) / Math.PI) % 360,
+    scale: 0.62 + depth * 0.38,
+    translateX: Math.sin(angle),
+    translateY: -Math.cos(angle),
+  };
+}
+
 /**
  * Length of the linear clock ramp every periodic term reads. A common multiple
  * of the bounce cycle (1400ms) and the breathe period (4000ms), so the wrap is

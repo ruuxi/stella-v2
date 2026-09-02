@@ -21,6 +21,7 @@ import {
   eyePath,
   randomBetween,
 } from "./face";
+import type { ToolCharacterMotionState } from "./motion";
 
 /**
  * The character's eyes, laid over the mark's silhouette.
@@ -53,14 +54,53 @@ const GAZE_MS = 620;
 const GAZE_X = C * 0.085;
 const GAZE_Y = C * 0.06;
 
+type StellaFaceState = "idle" | ToolCharacterMotionState;
+
+const POSES_BY_STATE: Record<StellaFaceState, readonly EyePoseName[]> = {
+  idle: IDLE_POSES,
+  working: ["focus", "squint", "neutral"],
+  writing: ["focus", "neutral"],
+  searching: ["focus", "curious", "wide", "neutral"],
+  reading: ["focus", "squint"],
+};
+
+const POSE_EVERY_BY_STATE: Record<StellaFaceState, [number, number]> = {
+  idle: POSE_EVERY_MS,
+  working: [1800, 3200],
+  writing: [2400, 4200],
+  searching: [1000, 1800],
+  reading: [2200, 3800],
+};
+
+const BLINK_EVERY_BY_STATE: Record<StellaFaceState, [number, number]> = {
+  idle: BLINK_EVERY_MS,
+  working: [2800, 5500],
+  writing: [3000, 6000],
+  searching: [1600, 4000],
+  reading: [3000, 6000],
+};
+
+const FACE_TUNE_BY_STATE: Record<
+  StellaFaceState,
+  { size: number; gap: number; height: number }
+> = {
+  idle: { size: 1, gap: 1, height: 1 },
+  working: { size: 0.98, gap: 1, height: 0.96 },
+  writing: { size: 0.96, gap: 0.98, height: 0.95 },
+  searching: { size: 1.02, gap: 1.02, height: 1 },
+  reading: { size: 0.96, gap: 0.96, height: 0.98 },
+};
+
 export function StellaFace({
   size,
   color,
   active = true,
+  state = "idle",
 }: {
   size: number;
   color: string;
   active?: boolean;
+  state?: StellaFaceState;
 }) {
   const [poses, setPoses] = useState<{ from: EyePoseName; to: EyePoseName }>({
     from: "neutral",
@@ -76,9 +116,16 @@ export function StellaFace({
   useEffect(() => {
     if (!active) return;
     let timer: ReturnType<typeof setTimeout>;
+    const pool = POSES_BY_STATE[state];
+    const cadence = POSE_EVERY_BY_STATE[state];
+    setPoses((previous) => ({ from: previous.to, to: pool[0] }));
+    mix.value = 0;
+    mix.value = withTiming(1, {
+      duration: POSE_TRANSITION_MS,
+      easing: Easing.inOut(Easing.cubic),
+    });
     const schedule = () => {
       timer = setTimeout(() => {
-        const pool = IDLE_POSES;
         // Step by at least one so the same pose is never picked twice running.
         poseIndexRef.current =
           (poseIndexRef.current +
@@ -92,29 +139,30 @@ export function StellaFace({
           easing: Easing.inOut(Easing.cubic),
         });
         schedule();
-      }, randomBetween(POSE_EVERY_MS[0], POSE_EVERY_MS[1]));
+      }, randomBetween(cadence[0], cadence[1]));
     };
     schedule();
     return () => clearTimeout(timer);
-  }, [active, mix]);
+  }, [active, mix, state]);
 
   useEffect(() => {
     if (!active) return;
     let timer: ReturnType<typeof setTimeout>;
+    const cadence = BLINK_EVERY_BY_STATE[state];
     const schedule = () => {
       timer = setTimeout(() => {
         blink.value = withTiming(BLINK_FLOOR, { duration: BLINK_MS }, () => {
           blink.value = withTiming(1, { duration: BLINK_MS + 40 });
         });
         schedule();
-      }, randomBetween(BLINK_EVERY_MS[0], BLINK_EVERY_MS[1]));
+      }, randomBetween(cadence[0], cadence[1]));
     };
     schedule();
     return () => {
       clearTimeout(timer);
       cancelAnimation(blink);
     };
-  }, [active, blink]);
+  }, [active, blink, state]);
 
   useEffect(() => {
     if (!active) return;
@@ -144,16 +192,20 @@ export function StellaFace({
 
   const from = EYE_POSES[poses.from];
   const to = EYE_POSES[poses.to];
+  const tune = FACE_TUNE_BY_STATE[state];
+  const halfGap = HALF_GAP * tune.gap;
+  const eyeWidth = EYE_W * tune.size;
+  const eyeHeight = EYE_H * tune.size * tune.height;
 
   const leftProps = useAnimatedProps(() => ({
     d: eyePath(
       from,
       to,
       mix.value,
-      SOCKET_X - HALF_GAP + gazeX.value,
+      SOCKET_X - halfGap + gazeX.value,
       SOCKET_Y + gazeY.value,
-      EYE_W,
-      EYE_H * Math.max(blink.value, BLINK_FLOOR),
+      eyeWidth,
+      eyeHeight * Math.max(blink.value, BLINK_FLOOR),
     ),
   }));
   const rightProps = useAnimatedProps(() => ({
@@ -161,10 +213,10 @@ export function StellaFace({
       from,
       to,
       mix.value,
-      SOCKET_X + HALF_GAP + gazeX.value,
+      SOCKET_X + halfGap + gazeX.value,
       SOCKET_Y + gazeY.value,
-      EYE_W,
-      EYE_H * Math.max(blink.value, BLINK_FLOOR),
+      eyeWidth,
+      eyeHeight * Math.max(blink.value, BLINK_FLOOR),
     ),
   }));
 

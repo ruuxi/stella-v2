@@ -13,6 +13,8 @@ import {
   easeOutBack,
   easeOutCubic,
   morphEnvelope,
+  orbitMarkMotion,
+  toolCharacterMotion,
   voiceScale,
   wrappedDistance,
 } from "../stella-mark/motion";
@@ -130,5 +132,35 @@ describe("hero breathing", () => {
       expect(scale).toBeLessThanOrEqual(1 + BREATHE_AMPLITUDE + 1e-9);
     }
     expect(voiceScale(1, 0)).toBeGreaterThan(voiceScale(0, 0));
+  });
+});
+
+describe("tool character motion", () => {
+  test("working and writing visibly reshape the body over time", () => {
+    for (const state of ["working", "writing"] as const) {
+      const samples = [0, 320, 640, 960].map((timeMs) =>
+        toolCharacterMotion(state, timeMs),
+      );
+      const widths = samples.map((sample) => sample.scaleX);
+      expect(Math.max(...widths) - Math.min(...widths)).toBeGreaterThan(0.04);
+      expect(samples.some((sample) => Math.abs(sample.rotationDeg) > 1)).toBe(
+        true,
+      );
+    }
+  });
+
+  test("searching and reading make room for orbiting marks", () => {
+    expect(toolCharacterMotion("searching", 0).scaleX).toBeLessThan(0.92);
+    expect(toolCharacterMotion("reading", 0).scaleX).toBeLessThan(0.96);
+  });
+
+  test("orbit marks occupy different points on the same ellipse", () => {
+    const frames = [0, 1, 2, 3].map((index) => orbitMarkMotion(index, 0));
+    expect(
+      new Set(frames.map((frame) => frame.translateX.toFixed(3))).size,
+    ).toBeGreaterThan(1);
+    expect(
+      new Set(frames.map((frame) => frame.translateY.toFixed(3))).size,
+    ).toBeGreaterThan(1);
   });
 });

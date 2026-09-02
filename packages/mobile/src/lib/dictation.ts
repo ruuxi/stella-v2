@@ -172,8 +172,6 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         encoding: "pcm_16bit",
         interval: 80,
         keepAwake: true,
-        maxDurationMs: 15 * 60 * 1000,
-        autoStopOnMaxDuration: false,
         output: { primary: { enabled: false } },
       });
 

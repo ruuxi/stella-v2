@@ -15,6 +15,9 @@ const publicConvexSiteUrl =
   (publicConvexUrl?.endsWith(".convex.cloud")
     ? `${publicConvexUrl.slice(0, -".convex.cloud".length)}.convex.site`
     : undefined);
+const publicTurnstileSiteKey =
+  process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ||
+  desktopPublicEnv.VITE_TURNSTILE_SITE_KEY;
 
 const REVALIDATING_ASSET_CACHE =
   "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800";
@@ -29,6 +32,9 @@ const nextConfig: NextConfig = {
     ...(publicConvexUrl ? { NEXT_PUBLIC_CONVEX_URL: publicConvexUrl } : {}),
     ...(publicConvexSiteUrl
       ? { NEXT_PUBLIC_CONVEX_SITE_URL: publicConvexSiteUrl }
+      : {}),
+    ...(publicTurnstileSiteKey
+      ? { NEXT_PUBLIC_TURNSTILE_SITE_KEY: publicTurnstileSiteKey }
       : {}),
   },
   turbopack: {
@@ -65,6 +71,16 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      {
+        // The hosted Turnstile page hands tokens to the app that opened it;
+        // it must never be embedded by another site.
+        source: "/challenge",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          { key: "Cache-Control", value: "no-store" },
+        ],
+      },
       {
         source: "/chat",
         headers: [

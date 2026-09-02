@@ -302,7 +302,7 @@ describe("OwnerGate admission", () => {
 
   test("anonymous owners may chat but cannot enter the agent lane, even with quota bypass", async () => {
     const { instance } = open({
-      snapshot: sampleOwnerSnapshot({ isAnonymous: true }),
+      snapshot: sampleOwnerSnapshot({ isAnonymous: true, identityLevel: 0 }),
     });
     expect((await instance.admit(chat("anonymous-chat"))).ok).toBe(true);
     await instance.release({ turnId: "anonymous-chat" });
@@ -617,6 +617,14 @@ describe("owner snapshot parsing", () => {
       quotas: { chat: { burstStarts: 20 } },
     });
     expect(parseOwnerSnapshot(sampleOwnerSnapshot(), "owner-2")).toBeNull();
+    for (const identityLevel of [0, 1, 2, 3] as const) {
+      expect(
+        parseOwnerSnapshot(
+          sampleOwnerSnapshot({ identityLevel }),
+          "owner-1",
+        )?.identityLevel,
+      ).toBe(identityLevel);
+    }
   });
 
   test("rejects malformed quotas, allowances, executions, and engines", () => {
@@ -626,6 +634,10 @@ describe("owner snapshot parsing", () => {
       { ...base, ownerGeneration: "" },
       { ...base, writable: "yes" },
       { ...base, isAnonymous: "yes" },
+      { ...base, identityLevel: undefined },
+      { ...base, identityLevel: -1 },
+      { ...base, identityLevel: 1.5 },
+      { ...base, identityLevel: 4 },
       { ...base, enforcement: { status: "blocked" } },
       { ...base, enforcement: { status: "suspended", until: "later" } },
       { ...base, plan: "enterprise" },

@@ -86,6 +86,7 @@ describe("billing subscription status", () => {
     expect(signedOut).toMatchObject({
       authenticated: false,
       isAnonymous: true,
+      identityLevel: 0,
       usage: null,
       usagePolicy: {
         kind: "anonymous_requests",
@@ -107,6 +108,7 @@ describe("billing subscription status", () => {
     ).toMatchObject({
       authenticated: true,
       isAnonymous: true,
+      identityLevel: 0,
       plan: "free",
       usage: {
         rollingUsedUsd: 0,
@@ -140,6 +142,7 @@ describe("billing subscription status", () => {
     ).toMatchObject({
       authenticated: true,
       isAnonymous: false,
+      identityLevel: 1,
       plan: "free",
       usage: {
         rollingLimitUsd: 1,
@@ -181,6 +184,7 @@ describe("billing subscription status", () => {
     expect(
       await signedIn.query(api.billing.getSubscriptionStatus, {}),
     ).toMatchObject({
+      identityLevel: 1,
       plan: "go",
       usage: { lifetimeUsedUsd: 40, lifetimeLimitUsd: null },
     });

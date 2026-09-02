@@ -164,6 +164,7 @@ export const createHostRunnerHandlers = (context, options) => ({
         await options.clearSupersededDeviceId();
     },
     requestRuntimeAuthRefresh: async () => await context.services.authService.refreshRuntimeAuth(),
+    getChallengeToken: async () => await context.services.authService.getChallengeToken(),
     getScheduleScriptAuth: async () => await context.services.authService.getScheduleScriptAuth(),
     getAppBrowserContext: async () => {
         const apps = (await listRecentApps(3)) ?? [];

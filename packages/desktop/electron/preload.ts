@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { IpcRendererEvent } from "electron";
+import { IPC_AUTH_GET_CHALLENGE_TOKEN } from "./auth-challenge-ipc.js";
 import type { ChatContext } from "@stella/contracts";
 import type { StellaBrowserBridgeStatus } from "@stella/contracts/browser-bridge-status";
 import type {
@@ -1042,6 +1043,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getAuthSession: (options?: { allowCached?: boolean }) =>
       ipcRenderer.invoke(IPC_AUTH_GET_SESSION, options),
     signInAnonymous: () => ipcRenderer.invoke(IPC_AUTH_SIGN_IN_ANONYMOUS),
+    getChallengeToken: () =>
+      ipcRenderer.invoke(IPC_AUTH_GET_CHALLENGE_TOKEN) as Promise<
+        string | undefined
+      >,
     signOutAuth: () =>
       ipcRenderer.invoke(IPC_AUTH_SIGN_OUT) as Promise<{ ok: boolean }>,
     deleteAuthUser: () =>

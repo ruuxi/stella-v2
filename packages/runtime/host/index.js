@@ -32,6 +32,7 @@ import { probeRunningWorker } from "../worker/lifecycle-server.js";
 import { Cause, Effect, Exit, Fiber } from "effect";
 import { forkDelayed, hostRuntime, } from "./effect-runtime.js";
 import { clearPendingWorkerRestartFlag, evaluateWorkerStaleness, persistPendingWorkerRestartFlag, quiescencePollEffect, } from "./staleness.js";
+import { HOST_CHALLENGE_TOKEN_METHOD } from "./challenge-token-method.js";
 /*
  * Host-side Effect boundary: the staleness/build-stamp handshake, the
  * quiescence poll, and every host timer (reload debounce and ack/flush
@@ -2342,6 +2343,9 @@ export class StellaRuntimeHost {
                 token: null,
                 hasConnectedAccount: false,
             });
+        });
+        peer.registerRequestHandler(HOST_CHALLENGE_TOKEN_METHOD, async () => {
+            return ((await this.options.hostHandlers.getChallengeToken?.()) ?? null);
         });
         peer.registerRequestHandler(METHOD_NAMES.HOST_REMOTE_TURN_ADMIT, async (params) => {
             return this.admitRemoteTurnAttempt(params);

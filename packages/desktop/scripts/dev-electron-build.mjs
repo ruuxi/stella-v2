@@ -39,6 +39,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadEnv } from "vite";
 
 const scriptDir = import.meta.dirname;
 const desktopDir = path.resolve(scriptDir, "..");
@@ -110,6 +111,16 @@ const workerEntryPoints = {
 const preloadEntryPoints = {
   "electron/preload": "packages/desktop/electron/preload.ts",
 };
+const desktopUiDir = path.join(repoRootDir, "packages", "desktop-ui");
+const desktopPublicEnv = loadEnv(
+  process.env.NODE_ENV || "development",
+  desktopUiDir,
+  "VITE_",
+);
+const publicTurnstileSiteKey =
+  process.env.VITE_TURNSTILE_SITE_KEY ||
+  desktopPublicEnv.VITE_TURNSTILE_SITE_KEY ||
+  "";
 
 // Workspace packages are source inputs in this monorepo, not installed
 // runtime dependencies. Resolve them before `packages: "external"` is applied
@@ -196,6 +207,11 @@ const createBuildOptions = () => [
     absWorkingDir: repoRootDir,
     alias: workspaceAliases,
     bundle: true,
+    define: {
+      "process.env.VITE_TURNSTILE_SITE_KEY": JSON.stringify(
+        publicTurnstileSiteKey,
+      ),
+    },
     entryPoints: electronRuntimeEntryPoints,
     external: [
       "electron",

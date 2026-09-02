@@ -44,6 +44,9 @@ import {
 } from "../../src/lib/legal-text";
 import { loadLastMainTabHref } from "../../src/lib/last-main-tab";
 import { useT } from "../../src/i18n";
+import { signInMobileAnonymous } from "../../src/lib/anonymous-sign-in";
+import { getMobileChallengeToken } from "../../src/lib/auth-challenge";
+import { buildMagicLinkHeaders } from "../../src/lib/auth-captcha-headers";
 
 type LegalDoc = "terms" | "privacy" | null;
 
@@ -88,7 +91,7 @@ export default function LoginScreen() {
       clearCachedDesktopBridge();
       await setGuestMode(false);
 
-      const result = await authClient.signIn.anonymous();
+      const result = await signInMobileAnonymous();
       if (result.error) {
         throw new Error(
           result.error.message ?? "Could not start an anonymous session.",
@@ -116,11 +119,12 @@ export default function LoginScreen() {
 
     try {
       // In memory for this attempt only; the server stores just the hash.
+      const turnstileToken = await getMobileChallengeToken();
       const claimSecret = generateClaimSecret();
       claimSecretRef.current = claimSecret;
       const response = await fetch(`${env.convexSiteUrl}/api/auth/link/send`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: buildMagicLinkHeaders(turnstileToken),
         body: JSON.stringify({
           email: trimmed,
           claimHash: await hashClaimSecret(claimSecret),

@@ -69,3 +69,35 @@ describe("webhook rate-limit sharding", () => {
     expect((await consume("owner-a")).allowed).toBe(false);
   });
 });
+
+describe("auth IP limits", () => {
+  it("allows twenty anonymous sign-ins per IP before blocking", async () => {
+    const t = createTest();
+    const consume = () =>
+      t.mutation(internal.rate_limits.consumeAuthIpRateLimit, {
+        kind: "anonymous",
+        key: "203.0.113.10",
+      });
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      expect((await consume()).allowed).toBe(true);
+    }
+    expect((await consume()).allowed).toBe(false);
+  });
+
+  it("allows ten magic-link sends per IP before blocking", async () => {
+    const t = createTest();
+    const consume = () =>
+      t.mutation(internal.rate_limits.consumeAuthIpRateLimit, {
+        kind: "magic_link",
+        key: "203.0.113.11",
+      });
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      expect((await consume()).allowed).toBe(true);
+    }
+    const blocked = await consume();
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.retryAfterMs).toBeGreaterThan(0);
+  });
+});

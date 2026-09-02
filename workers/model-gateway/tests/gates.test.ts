@@ -161,17 +161,20 @@ describe("NetworkGate", () => {
         index < GATEWAY_NETWORK_LIMITS.anonymous.relayPerHour;
         index += 1
       ) {
-        expect(await relayGate.admitRelay({ audience: "anonymous" })).toEqual({
-          ok: true,
-        });
+        expect(
+          await relayGate.admitRelay({
+            audience: "anonymous",
+            capShare: 1,
+          }),
+        ).toEqual({ ok: true });
       }
       expect(
-        await relayGate.admitRelay({ audience: "anonymous" }),
+        await relayGate.admitRelay({ audience: "anonymous", capShare: 1 }),
       ).toMatchObject({ ok: false, refused: "rate_limited" });
       clock.now += 60 * 60_000 + 1;
-      expect(await relayGate.admitRelay({ audience: "anonymous" })).toEqual({
-        ok: true,
-      });
+      expect(
+        await relayGate.admitRelay({ audience: "anonymous", capShare: 1 }),
+      ).toEqual({ ok: true });
 
       const mintGate = networkGate();
       for (
@@ -193,14 +196,17 @@ describe("NetworkGate", () => {
       const anonymous = networkGate();
       for (let batch = 0; batch < 4; batch += 1) {
         for (let index = 0; index < 250; index += 1) {
-          expect(await anonymous.admitRelay({ audience: "anonymous" })).toEqual(
-            { ok: true },
-          );
+          expect(
+            await anonymous.admitRelay({
+              audience: "anonymous",
+              capShare: 1,
+            }),
+          ).toEqual({ ok: true });
         }
         clock.now += 61 * 60_000;
       }
       expect(
-        await anonymous.admitRelay({ audience: "anonymous" }),
+        await anonymous.admitRelay({ audience: "anonymous", capShare: 1 }),
       ).toMatchObject({ ok: false, refused: "rate_limited" });
 
       const free = networkGate();
@@ -209,18 +215,32 @@ describe("NetworkGate", () => {
         index < GATEWAY_NETWORK_LIMITS.free.relayPerDay;
         index += 1
       ) {
-        expect(await free.admitRelay({ audience: "free" })).toEqual({
+        expect(
+          await free.admitRelay({ audience: "free", capShare: 1 }),
+        ).toEqual({ ok: true });
+      }
+      expect(
+        await free.admitRelay({ audience: "free", capShare: 1 }),
+      ).toMatchObject({ ok: false, refused: "rate_limited" });
+      for (const audience of ["go", "go_fallback", "pro"] as const) {
+        expect(await free.admitRelay({ audience, capShare: 1 })).toEqual({
           ok: true,
         });
       }
-      expect(await free.admitRelay({ audience: "free" })).toMatchObject({
-        ok: false,
-        refused: "rate_limited",
-      });
-      for (const audience of ["go", "go_fallback", "pro"] as const) {
-        expect(await free.admitRelay({ audience })).toEqual({ ok: true });
-      }
     });
+  });
+
+  test("applies a cap share to free relay traffic", async () => {
+    const gate = networkGate();
+    const limit = GATEWAY_NETWORK_LIMITS.free.relayPerDay / 2;
+    for (let index = 0; index < limit; index += 1) {
+      expect(
+        await gate.admitRelay({ audience: "free", capShare: 0.5 }),
+      ).toEqual({ ok: true });
+    }
+    expect(
+      await gate.admitRelay({ audience: "free", capShare: 0.5 }),
+    ).toMatchObject({ ok: false, refused: "rate_limited" });
   });
 });
 
@@ -329,10 +349,13 @@ describe("TierBudget", () => {
         now: 1_300_002,
       });
       expect(alerts).toHaveLength(2);
-      expect(alerts[0]).toMatchObject({
-        source: "model-gateway",
-        audience: "anonymous",
-        window: "hourly",
+      expect(alerts[0]).toEqual({
+        text: JSON.stringify({
+          source: "model-gateway",
+          audience: "anonymous",
+          window: "hourly",
+          resetAt: 4_560_000,
+        }),
       });
     } finally {
       globalThis.fetch = originalFetch;

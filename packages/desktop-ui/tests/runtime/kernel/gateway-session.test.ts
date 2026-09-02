@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GATEWAY_SESSION_CAPABILITY_REFRESH_SKEW_MS,
   GatewaySessionExchangeError,
+  STELLA_GATEWAY_CHALLENGE_REQUIRED_MESSAGE,
   STELLA_GATEWAY_UNCONFIGURED_MESSAGE,
   createGatewaySessionClient,
   getRememberedStellaGatewayOrigin,
@@ -219,6 +220,66 @@ describe("session capability cache", () => {
       "Bearer stale-jwt",
       "Bearer fresh-jwt",
     ]);
+  });
+
+  it("answers challenge_required with one fresh token and re-exchanges once", async () => {
+    const { calls, fetchImpl } = exchangeFetch((call) =>
+      call.body &&
+      typeof call.body === "object" &&
+      "turnstileToken" in call.body
+        ? capabilityResponse("cap-verified", Date.now() + 3_600_000)
+        : new Response(
+            JSON.stringify({
+              error: {
+                code: "challenge_required",
+                message: "verify",
+                retryable: true,
+              },
+            }),
+            { status: 403, headers: { "content-type": "application/json" } },
+          ),
+    );
+    const getChallengeToken = vi.fn(async () => "turnstile-token");
+    const client = createGatewaySessionClient({
+      gatewayOrigin: () => GATEWAY,
+      getAuthToken: () => "jwt",
+      getChallengeToken,
+      fetch: fetchImpl,
+    });
+
+    await expect(client.getCapability()).resolves.toBe("cap-verified");
+    expect(getChallengeToken).toHaveBeenCalledTimes(1);
+    expect(calls.map((call) => call.body)).toEqual([
+      {},
+      { turnstileToken: "turnstile-token" },
+    ]);
+  });
+
+  it("uses the human-verification copy when no challenge token is available", async () => {
+    const { calls, fetchImpl } = exchangeFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "challenge_required",
+              message: "verify",
+              retryable: true,
+            },
+          }),
+          { status: 403, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const client = createGatewaySessionClient({
+      gatewayOrigin: () => GATEWAY,
+      getAuthToken: () => "jwt",
+      getChallengeToken: async () => undefined,
+      fetch: fetchImpl,
+    });
+
+    await expect(client.getCapability()).rejects.toThrow(
+      STELLA_GATEWAY_CHALLENGE_REQUIRED_MESSAGE,
+    );
+    expect(calls).toHaveLength(1);
   });
 
   it("surfaces gateway rejections with status and code", async () => {

@@ -1,5 +1,6 @@
 import type { HttpRouter } from "convex/server";
 import { ConvexError } from "convex/values";
+import { AUTH_CAPTCHA_HEADER } from "@stella/contracts/auth-challenge";
 import { httpAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
@@ -35,6 +36,11 @@ import {
 } from "../http_shared/webhook_controls";
 import { readJsonBody } from "../http_shared/request";
 import { getClientAddressKey } from "../lib/http_utils";
+import { isDisposableEmail } from "../lib/disposable_email_domains";
+import {
+  isTurnstileEnabled,
+  verifyTurnstileToken,
+} from "../lib/turnstile";
 import { MOBILE_BRIDGE_LEASE_MS } from "../mobile_bridge";
 import {
   verifyPairedMobileProof,
@@ -64,6 +70,7 @@ const MAGIC_LINK_RATE_LIMIT = 3;
 /** Per-IP cap on magic-link sends so one caller can't spam many addresses. */
 const MAGIC_LINK_IP_RATE_LIMIT = 10;
 const MAGIC_LINK_RATE_WINDOW_MS = 60_000;
+const MAGIC_LINK_IP_RATE_WINDOW_MS = 60 * 60_000;
 const MAGIC_LINK_EXPIRY_MS = 10 * 60_000;
 // Matches the `/api/auth/link/claim` window in `mobile_auth.claimLinkRequest`.
 // Do not keep an independently usable callback registration any longer.
@@ -1568,6 +1575,22 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         if (!email || !EMAIL_PATTERN.test(email)) {
           return errorResponse(400, "A valid email is required.", origin);
         }
+        if (isDisposableEmail(email)) {
+          return jsonResponse({ error: "email_not_supported" }, 400, origin);
+        }
+        const captchaToken =
+          request.headers.get(AUTH_CAPTCHA_HEADER)?.trim() ?? "";
+        if (isTurnstileEnabled() && !captchaToken) {
+          return jsonResponse({ error: "captcha_required" }, 400, origin);
+        }
+        const ipKey = getClientAddressKey(request);
+        const captchaResult = await verifyTurnstileToken(
+          captchaToken,
+          ipKey ?? undefined,
+        );
+        if (!captchaResult.ok) {
+          return jsonResponse({ error: "captcha_invalid" }, 403, origin);
+        }
         const claimHash =
           typeof body?.claimHash === "string" ? body.claimHash.trim() : "";
         if (!CLAIM_HASH_PATTERN.test(claimHash)) {
@@ -1608,14 +1631,13 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
         }
 
-        const ipKey = getClientAddressKey(request);
         if (ipKey) {
           const ipRateLimit = await consumeWebhookRateLimit(ctx, {
             scope: "mobile_magic_link_ip",
             key: ipKey,
             limit: MAGIC_LINK_IP_RATE_LIMIT,
-            windowMs: MAGIC_LINK_RATE_WINDOW_MS,
-            blockMs: MAGIC_LINK_RATE_WINDOW_MS,
+            windowMs: MAGIC_LINK_IP_RATE_WINDOW_MS,
+            blockMs: MAGIC_LINK_IP_RATE_WINDOW_MS,
           });
           if (!ipRateLimit.allowed) {
             return withCors(

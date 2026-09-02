@@ -2,7 +2,12 @@ import type {
   GatewayCapabilityKind,
   ManagedModelAudience,
 } from "./capability.js";
-import type { GatewayProtocol, GatewayProvider } from "./api.js";
+import type {
+  GatewayProtocol,
+  GatewayProvider,
+  IdentityLevel,
+  NetworkClass,
+} from "./api.js";
 
 /**
  * Usage events are the gateway's only write toward the control plane. They
@@ -54,6 +59,8 @@ export type GatewayUsageEvent = {
   billable: boolean;
   /** Anonymous trial accounting: the caller's network as the gateway hashed it. */
   anonymous?: { ipHash?: string };
+  /** Edge classification of the caller's network, for risk signals. */
+  networkClass?: NetworkClass;
 };
 
 export type GatewayUsageBatch = {
@@ -140,7 +147,16 @@ export type ConvexSessionCapabilityRequest = {
   isAnonymous: boolean;
   /** sha256hex(client ip).slice(0, 32) as the gateway computes it for usage events. */
   ipHash?: string;
+  /** Edge classification of the caller's network. */
+  networkClass?: NetworkClass;
+  /** Turnstile token presented for step-up; Convex verifies it with the secret key. */
+  turnstileToken?: string;
 };
+
+/** Convex answers the exchange with this when step-up is required and no valid token came. */
+export const CONVEX_SESSION_CHALLENGE_REQUIRED = "challenge_required" as const;
+
+export type { IdentityLevel };
 
 /** `POST /api/gateway/engine-access` request/response for the native lane. */
 export type ConvexEngineAccessRequest = {

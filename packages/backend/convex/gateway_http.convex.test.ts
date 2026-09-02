@@ -3,7 +3,7 @@
 import { GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS } from "@stella/contracts/gateway/api";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { listManagedModelIds } from "@stella/model-catalog/model";
 import { STATIC_MANAGED_MODEL_PRICE_OVERRIDES } from "@stella/model-catalog/pricing";
 import {
@@ -71,6 +71,8 @@ afterEach(() => {
   process.env.STELLA_ADMIN_API_SECRET = "gateway-admin-secret";
   process.env.MODEL_GATEWAY_URL = "https://gateway.test/";
   delete process.env.STELLA_DEPLOYMENT_IDENTITY;
+  delete process.env.TURNSTILE_SECRET_KEY;
+  vi.restoreAllMocks();
 });
 
 const createTest = async () => {
@@ -198,6 +200,31 @@ describe("gateway service authentication", () => {
       headers: { authorization: `Bearer ${SERVICE_SECRET}` },
     });
     expect(disabled.status).toBe(503);
+  });
+});
+
+describe("POST /api/gateway/alerts", () => {
+  it("forwards an authenticated gateway alert to the shared webhook", async () => {
+    const t = await createTest();
+    process.env.STELLA_ALERT_WEBHOOK_URL = "https://alerts.test/hook";
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 204 }));
+
+    const response = await post(t, "/api/gateway/alerts", {
+      text: "Gateway breaker tripped",
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://alerts.test/hook",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ text: "Gateway breaker tripped" }),
+      }),
+    );
+    delete process.env.STELLA_ALERT_WEBHOOK_URL;
   });
 });
 
@@ -543,6 +570,7 @@ describe("POST /api/gateway/session-capability", () => {
     expect(body).toMatchObject({
       audience: "free",
       budgetMicroCents: GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS.free,
+      identityLevel: 1,
     });
     expect(typeof body.capability).toBe("string");
     expect((body.capability as string).split(".")).toHaveLength(3);
@@ -581,6 +609,7 @@ describe("POST /api/gateway/session-capability", () => {
       audience: "anonymous",
       budgetMicroCents: dollarsToMicroCents(0.1),
       maxRequests: ANON_MAX_REQUESTS,
+      identityLevel: 0,
     });
     expect(
       (await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, { ownerId }))
@@ -603,6 +632,88 @@ describe("POST /api/gateway/session-capability", () => {
     });
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: "owner_suspended" });
+  });
+
+  it("requires step-up for a challenged owner and clears it after verification", async () => {
+    const t = await createTest();
+    const ownerId = await seedUser(t, "challenged", false);
+    await t.mutation(internal.owner_enforcement.setOwnerEnforcementInternal, {
+      ownerId,
+      status: "challenged",
+      reason: "risk signal",
+      actor: "test",
+    });
+
+    const missing = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
+      ownerId,
+      isAnonymous: false,
+    });
+    expect(missing.status).toBe(403);
+    expect(await missing.json()).toEqual({ error: "challenge_required" });
+
+    process.env.TURNSTILE_SECRET_KEY = "turnstile-secret";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ success: true }),
+    );
+    const verified = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
+      ownerId,
+      isAnonymous: false,
+      turnstileToken: "valid-token",
+    });
+    expect(verified.status).toBe(200);
+    expect(await verified.json()).toMatchObject({ identityLevel: 1 });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+      expect.objectContaining({ method: "POST" }),
+    );
+
+    const state = await t.query(
+      internal.owner_enforcement.getOwnerEnforcementStateInternal,
+      { ownerId },
+    );
+    expect(state.enforcement).toEqual({ status: "ok" });
+    const stored = await t.run(async (ctx) =>
+      ctx.db
+        .query("owner_enforcement")
+        .withIndex("by_owner", (query) => query.eq("ownerId", ownerId))
+        .unique(),
+    );
+    expect(stored).toMatchObject({
+      status: "ok",
+      actor: "challenge-passed",
+      reason: "turnstile verified",
+    });
+  });
+
+  it("challenges email-only Free owners on hosting and refuses anonymous owners", async () => {
+    const t = await createTest();
+    const freeOwner = await seedUser(t, "hosting-free", false);
+    const anonymousOwner = await seedUser(t, "hosting-anon", true);
+
+    const challenged = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
+      ownerId: freeOwner,
+      isAnonymous: false,
+      networkClass: "hosting",
+    });
+    expect(challenged.status).toBe(403);
+    expect(await challenged.json()).toEqual({ error: "challenge_required" });
+
+    const verified = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
+      ownerId: freeOwner,
+      isAnonymous: false,
+      networkClass: "hosting",
+      turnstileToken: "development-token",
+    });
+    expect(verified.status).toBe(200);
+
+    const refused = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
+      ownerId: anonymousOwner,
+      isAnonymous: true,
+      networkClass: "hosting",
+      ipHash: "hosting-network",
+    });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ error: "sign_in_required" });
   });
 });
 

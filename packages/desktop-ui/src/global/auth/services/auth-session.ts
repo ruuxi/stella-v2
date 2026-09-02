@@ -7,6 +7,10 @@ import {
   type AuthSessionSnapshot,
 } from "@stella/contracts/auth-session";
 import { configurePiRuntime } from "@/platform/electron/device";
+import {
+  captchaHeaders,
+  getPlatformChallengeToken,
+} from "@/platform/auth/challenge-token";
 import { getStellaInteriorBridge } from "@/platform/interior/interior-bridge";
 import { authClient } from "@/global/auth/lib/auth-client";
 import {
@@ -484,7 +488,12 @@ export const signInAnonymous = async () => {
         "Anonymous sign-in is not allowed while an existing identity is present.",
       );
     }
-    const result = await authClient.signIn.anonymous();
+    const turnstileToken = await getPlatformChallengeToken();
+    const result = await authClient.signIn.anonymous({
+      fetchOptions: {
+        headers: captchaHeaders(turnstileToken),
+      },
+    });
     if (result.error) {
       const failure = browserErrorObservation(result.error);
       console.warn("[auth] Browser anonymous sign-in failed.", {

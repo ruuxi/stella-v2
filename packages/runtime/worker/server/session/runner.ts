@@ -22,6 +22,7 @@ import * as SessionStorage from "./storage.js";
 import * as CliBridge from "./cli-bridge.js";
 import * as RunnerCell from "./runner-cell.js";
 import type { RuntimeRunner } from "../types.js";
+import { HOST_CHALLENGE_TOKEN_METHOD } from "../../../host/challenge-token-method.js";
 
 const resolveDesktopCliEntrypoint = (
   stellaAppDir: string,
@@ -151,6 +152,16 @@ export const layer = Layer.effect(
         await hostBus.request(METHOD_NAMES.HOST_RUNTIME_AUTH_REFRESH, payload, {
           retryOnDisconnect: true,
         }),
+      requestChallengeToken: async () => {
+        const token = await hostBus.request(
+          HOST_CHALLENGE_TOKEN_METHOD,
+          undefined,
+          { retryOnDisconnect: true },
+        );
+        return typeof token === "string" && token.trim()
+          ? token.trim()
+          : undefined;
+      },
       scheduleApi: {
         listCronJobs: async () =>
           await hostBus.request(

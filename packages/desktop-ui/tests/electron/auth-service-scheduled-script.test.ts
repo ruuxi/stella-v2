@@ -551,6 +551,32 @@ describe("AuthService main-process token authority", () => {
     expect(anonymousSignIn).toHaveBeenCalledTimes(1);
   });
 
+  it("attaches a fresh challenge token to main-process anonymous sign-in", async () => {
+    const { service } = createService();
+    const anonymousSignIn = vi.fn((request: Request) => {
+      expect(request.headers.get("x-captcha-response")).toBe("turnstile-token");
+      return json(
+        { ok: true },
+        { headers: { "set-auth-token": "bearer-anon" } },
+      );
+    });
+    installAuthRoutes({
+      "/sign-in/anonymous": anonymousSignIn,
+      "/convex/token": () => json({ token: futureJwt("anon") }),
+      "/get-session": () =>
+        json({
+          user: { id: "anon", isAnonymous: true },
+          session: { id: "s1" },
+        }),
+    });
+    configure(service);
+    vi.spyOn(service, "getChallengeToken").mockResolvedValue("turnstile-token");
+
+    await service.signInAnonymous();
+
+    expect(anonymousSignIn).toHaveBeenCalledTimes(1);
+  });
+
   it("allows explicit sign-out to create exactly one anonymous identity", async () => {
     const { service } = createService();
     const anonymousSignIn = vi.fn(() =>

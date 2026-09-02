@@ -5,6 +5,7 @@ import {
   type OwnerSnapshot,
   type OwnerSnapshotChangedRequest,
 } from "@stella/contracts/turn-plane/owner-snapshot";
+import type { IdentityLevel } from "@stella/contracts/gateway/api";
 import { internalAction, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { hasOwnerMigrationWriteFence, resolveOwnerAccountAction } from "./auth";
@@ -23,6 +24,10 @@ import {
 import { readOwnerDataAccessState } from "./owner_lifecycle";
 import { readOwnerEnforcement } from "./owner_enforcement";
 import { executionCapabilityValidator } from "./schema/execution_placement";
+import {
+  identityLevelValidator,
+  resolveIdentityLevel,
+} from "./lib/identity_level";
 import {
   managedModelAudienceValidator,
   ownerEnforcementValidator,
@@ -77,6 +82,7 @@ export const ownerSnapshotValidator = v.object({
   ownerId: v.string(),
   ownerGeneration: v.string(),
   isAnonymous: v.boolean(),
+  identityLevel: identityLevelValidator,
   writable: v.boolean(),
   enforcement: v.optional(ownerEnforcementValidator),
   plan: v.union(v.literal("free"), v.literal("go"), v.literal("pro")),
@@ -99,6 +105,7 @@ type OwnerSnapshotFields = {
   ownerId: string;
   ownerGeneration: string;
   isAnonymous: boolean;
+  identityLevel: IdentityLevel;
   writable: boolean;
   enforcement?: OwnerSnapshot["enforcement"];
   plan: OwnerSnapshot["plan"];
@@ -115,6 +122,7 @@ const ownerSnapshotFieldsValidator = v.object({
   ownerId: v.string(),
   ownerGeneration: v.string(),
   isAnonymous: v.boolean(),
+  identityLevel: identityLevelValidator,
   writable: v.boolean(),
   enforcement: v.optional(ownerEnforcementValidator),
   plan: v.union(v.literal("free"), v.literal("go"), v.literal("pro")),
@@ -143,6 +151,9 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
     const access = await readOwnerDataAccessState(ctx, ownerId);
     const migrationFenced = await hasOwnerMigrationWriteFence(ctx, ownerId);
     const enforcement = await readOwnerEnforcement(ctx, ownerId);
+    const identityLevel = args.isAnonymous
+      ? 0
+      : await resolveIdentityLevel(ctx, ownerId);
     const writable =
       access.allowed && !migrationFenced && enforcement.status !== "suspended";
     const { plan, quota, unlimited } = await resolveCloudPlan(ctx, ownerId);
@@ -210,15 +221,19 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
       ownerId,
       ownerGeneration: access.generation,
       isAnonymous: args.isAnonymous,
+      identityLevel,
       writable,
       ...(enforcement.status !== "ok" ? { enforcement } : {}),
       plan,
       unlimited,
       quotas: {
         chat: lane,
-        agent: args.isAnonymous
-          ? { burstStarts: 0, dailyTurns: 0, concurrent: 0 }
-          : lane,
+        agent:
+          identityLevel === 0
+            ? { burstStarts: 0, dailyTurns: 0, concurrent: 0 }
+            : identityLevel === 1 && plan === "free"
+              ? { burstStarts: 1, dailyTurns: 1, concurrent: 1 }
+              : lane,
       },
       allowance,
       execution,

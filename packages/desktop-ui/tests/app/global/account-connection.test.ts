@@ -143,10 +143,11 @@ describe("account connection renderer boundaries", () => {
     mocks.getConvexToken.mockResolvedValue("current-owner.jwt");
 
     await expect(
-      buildMagicLinkSendRequest("owner@example.com"),
+      buildMagicLinkSendRequest("owner@example.com", "turnstile-token"),
     ).resolves.toEqual({
       headers: {
         "Content-Type": "application/json",
+        "x-captcha-response": "turnstile-token",
         Authorization: "Bearer current-owner.jwt",
       },
       body: {

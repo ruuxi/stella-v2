@@ -11,7 +11,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ArrowRight, CheckCircle2, MailCheck, X } from "lucide-react";
+import { ArrowRight, MailCheck, X } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { clearCachedToken } from "@/lib/auth-token";
 import { reportGoogleAdsSignup } from "@/components/google-ads-tag";
@@ -33,7 +33,9 @@ type SignInDialogContextValue = {
   close: () => void;
 };
 
-const SignInDialogContext = createContext<SignInDialogContextValue | null>(null);
+const SignInDialogContext = createContext<SignInDialogContextValue | null>(
+  null,
+);
 
 /**
  * Window event used to open the sign-in dialog from non-React contexts (e.g.
@@ -146,7 +148,11 @@ function useOAuthReturnToken() {
     if (!token || !AUTH_TOKEN_PATTERN.test(token)) return;
 
     url.searchParams.delete("ott");
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    window.history.replaceState(
+      {},
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
 
     let cancelled = false;
     const verify = async () => {
@@ -193,18 +199,11 @@ export function useSignInDialog(): SignInDialogContextValue {
 }
 
 function DialogBody({ onClose }: { onClose: () => void }) {
-  const {
-    email,
-    setEmail,
-    status,
-    error,
-    handleMagicLinkSubmit,
-    reset,
-  } = useMagicLinkAuth();
+  const { email, setEmail, status, error, handleMagicLinkSubmit, reset } =
+    useMagicLinkAuth();
 
   const sending = status === "sending";
-  const sent = status === "sent" || status === "verifying";
-  const complete = status === "complete";
+  const sent = status === "sent";
 
   return (
     <>
@@ -215,10 +214,8 @@ function DialogBody({ onClose }: { onClose: () => void }) {
         <span className={styles.brandText}>Stella</span>
       </Link>
 
-      {complete ? (
-        <CompleteBody onClose={onClose} onReset={reset} />
-      ) : sent ? (
-        <SentBody email={email} status={status} onReset={reset} />
+      {sent ? (
+        <SentBody email={email} onReset={reset} />
       ) : (
         <>
           <h2 className={formStyles.title}>Sign in to Stella</h2>
@@ -289,15 +286,7 @@ function DialogBody({ onClose }: { onClose: () => void }) {
   );
 }
 
-function SentBody({
-  email,
-  status,
-  onReset,
-}: {
-  email: string;
-  status: "sent" | "verifying";
-  onReset: () => void;
-}) {
+function SentBody({ email, onReset }: { email: string; onReset: () => void }) {
   return (
     <>
       <h2 className={formStyles.title}>Check your inbox</h2>
@@ -310,9 +299,7 @@ function SentBody({
           </p>
         </div>
         <p className={formStyles.statusFootnote}>
-          {status === "verifying"
-            ? "Got it — finishing up your sign-in…"
-            : "Click the link in the email to finish signing in. This dialog will update automatically."}
+          Click the link in the email to finish signing in.
         </p>
       </div>
       <div className={formStyles.actions}>
@@ -322,44 +309,6 @@ function SentBody({
           onClick={onReset}
         >
           Use a different email
-        </button>
-      </div>
-    </>
-  );
-}
-
-function CompleteBody({
-  onClose,
-  onReset,
-}: {
-  onClose: () => void;
-  onReset: () => void;
-}) {
-  return (
-    <>
-      <h2 className={formStyles.title}>You&apos;re signed in</h2>
-      <div className={formStyles.statusCard}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          <CheckCircle2 size={18} aria-hidden="true" />
-          <p className={formStyles.statusBody}>
-            Your Stella account is now signed in on this device.
-          </p>
-        </div>
-      </div>
-      <div className={formStyles.actions}>
-        <button
-          type="button"
-          className={formStyles.linkButton}
-          onClick={onClose}
-        >
-          Done
-        </button>
-        <button
-          type="button"
-          className={formStyles.linkButton}
-          onClick={onReset}
-        >
-          Sign in as someone else
         </button>
       </div>
     </>

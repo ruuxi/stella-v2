@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import type { IdentityLevel } from "@stella/contracts/gateway/api";
 import { makeFunctionReference } from "convex/server";
 import { ConvexError, v, type Infer } from "convex/values";
 import {
@@ -23,6 +24,7 @@ import { getMonthlyBounds, getWeekBounds } from "./lib/billing_date";
 import {
   findPlanForStripePriceId,
   getAnonymousPlanConfig,
+  getFreeEmailAllowanceShare,
   getPlanCatalog,
   getPlanConfig,
   getStripeGoFirstMonthCouponId,
@@ -115,6 +117,10 @@ import {
   managedProviderDispatchOutcomeValidator,
 } from "./schema/billing";
 import { readExactVoiceProviderAttempt } from "./voice_dispatch";
+import {
+  identityLevelValidator,
+  resolveIdentityLevel,
+} from "./lib/identity_level";
 import {
   VOICE_REALTIME_AUTHORITY_LEASE_MS,
   VOICE_REALTIME_AUTHORITY_POLL_MS,
@@ -240,6 +246,7 @@ const planConfigShapeValidator = v.object({
 const subscriptionStatusReturnValidator = v.object({
   authenticated: v.boolean(),
   isAnonymous: v.boolean(),
+  identityLevel: identityLevelValidator,
   plan: planValidator,
   subscriptionStatus: v.string(),
   cancelAtPeriodEnd: v.boolean(),
@@ -911,19 +918,25 @@ const buildUsageSnapshot = (args: {
   };
   plan: SubscriptionPlan;
   isAnonymous?: boolean;
+  identityLevel?: IdentityLevel;
   now: number;
 }): UsageSnapshot => {
-  const planConfig = args.isAnonymous
+  const isAnonymous = args.isAnonymous ?? args.identityLevel === 0;
+  const planConfig = isAnonymous
     ? getAnonymousPlanConfig()
     : getPlanConfig(args.plan);
   const nowDate = new Date(args.now);
+  const allowanceShare =
+    !isAnonymous && args.plan === "free" && args.identityLevel === 1
+      ? getFreeEmailAllowanceShare()
+      : 1;
 
   const rollingWindowMs = Math.max(
     1,
     Math.floor(planConfig.rollingWindowHours * 60 * 60 * 1000),
   );
   const rollingLimitMicroCents = dollarsToMicroCents(
-    planConfig.rollingLimitUsd,
+    planConfig.rollingLimitUsd * allowanceShare,
   );
   const rollingWindowStartThreshold = args.now - rollingWindowMs;
   const rollingActive =
@@ -936,7 +949,9 @@ const buildUsageSnapshot = (args: {
   const rollingResetAt = rollingStart + rollingWindowMs;
 
   const week = getWeekBounds(nowDate);
-  const weeklyLimitMicroCents = dollarsToMicroCents(planConfig.weeklyLimitUsd);
+  const weeklyLimitMicroCents = dollarsToMicroCents(
+    planConfig.weeklyLimitUsd * allowanceShare,
+  );
   const weeklyActive = args.usage.weeklyWindowStartedAt >= week.start.getTime();
   const weeklyUsed = weeklyActive ? args.usage.weeklyUsageMicroCents : 0;
   const weeklyStart = weeklyActive
@@ -950,7 +965,7 @@ const buildUsageSnapshot = (args: {
       : nowDate;
   const month = getMonthlyBounds(nowDate, anchor);
   const monthlyLimitMicroCents = dollarsToMicroCents(
-    planConfig.monthlyLimitUsd,
+    planConfig.monthlyLimitUsd * allowanceShare,
   );
   const monthlyActive =
     args.usage.monthlyWindowStartedAt >= month.start.getTime();
@@ -971,7 +986,9 @@ const buildUsageSnapshot = (args: {
     lifetimeLimitUsd === undefined
       ? null
       : (() => {
-          const limit = dollarsToMicroCents(lifetimeLimitUsd);
+          const limit = dollarsToMicroCents(
+            lifetimeLimitUsd * allowanceShare,
+          );
           return {
             used: lifetimeUsed,
             limit,
@@ -1053,10 +1070,12 @@ const getOwnerAvailableManagedUsageMicroCents = async (
     args.ownerId,
   );
   if (hasUnlimitedUsage(profile)) return Number.POSITIVE_INFINITY;
+  const identityLevel = await resolveIdentityLevel(ctx, args.ownerId);
   const snapshot = buildUsageSnapshot({
     profile,
     usage,
     plan: profile.activePlan as SubscriptionPlan,
+    identityLevel,
     now: args.now,
   });
   if (snapshot.changed) {
@@ -1289,11 +1308,13 @@ const persistManagedUsageAuthorized = async (
   const plan = profile.activePlan as SubscriptionPlan;
   const now = Date.now();
   const unlimited = hasUnlimitedUsage(profile);
+  const identityLevel = await resolveIdentityLevel(ctx, args.ownerId);
 
   const snapshot = buildUsageSnapshot({
     profile,
     usage,
     plan,
+    identityLevel,
     now,
   });
   const creditToConsumeMicroCents = computeUsageCreditToConsume({
@@ -6266,6 +6287,7 @@ const resolveManagedModelAllowanceFromBillingState = (args: {
   usage: ManagedModelBillingUsage;
   credit: ManagedModelBillingCredit | null;
   isAnonymous?: boolean;
+  identityLevel: IdentityLevel;
   now: number;
 }): {
   allowance: ManagedModelAllowanceResult;
@@ -6279,6 +6301,7 @@ const resolveManagedModelAllowanceFromBillingState = (args: {
     usage: args.usage,
     plan,
     isAnonymous: args.isAnonymous,
+    identityLevel: args.identityLevel,
     now: args.now,
   });
   const reservedMicroCents = unlimited
@@ -6342,11 +6365,15 @@ const resolveManagedModelAllowanceForWrite = async (
   const credit = hasUnlimitedUsage(profile)
     ? null
     : await getOwnerUsageCreditRow(ctx, args.ownerId);
+  const identityLevel = args.isAnonymous
+    ? 0
+    : await resolveIdentityLevel(ctx, args.ownerId);
   const resolved = resolveManagedModelAllowanceFromBillingState({
     profile,
     usage,
     credit,
     isAnonymous: args.isAnonymous,
+    identityLevel,
     now,
   });
   if (resolved.usageChanged) {
@@ -6377,11 +6404,15 @@ export const runPeekManagedModelAllowance = async (
   const credit = hasUnlimitedUsage(profile)
     ? null
     : await getOwnerUsageCreditRow(ctx, args.ownerId);
+  const identityLevel = args.isAnonymous
+    ? 0
+    : await resolveIdentityLevel(ctx, args.ownerId);
   return resolveManagedModelAllowanceFromBillingState({
     profile,
     usage,
     credit,
     isAnonymous: args.isAnonymous,
+    identityLevel,
     now,
   }).allowance;
 };
@@ -6433,10 +6464,12 @@ export const runEnforceManagedUsageLimit = async (
   const now = Date.now();
   const plan = profile.activePlan as SubscriptionPlan;
   const unlimited = hasUnlimitedUsage(profile);
+  const identityLevel = await resolveIdentityLevel(ctx, args.ownerId);
   const snapshot = buildUsageSnapshot({
     profile,
     usage,
     plan,
+    identityLevel,
     now,
   });
 
@@ -7021,11 +7054,15 @@ export const getOwnerBillingWindowSummaryInternal = internalQuery({
     );
     const plan = profile.activePlan as SubscriptionPlan;
     const unlimited = hasUnlimitedUsage(profile);
+    const identityLevel = args.isAnonymous
+      ? 0
+      : await resolveIdentityLevel(ctx, args.ownerId);
     const snapshot = buildUsageSnapshot({
       profile,
       usage,
       plan,
       isAnonymous: args.isAnonymous,
+      identityLevel,
       now,
     });
     const credit = unlimited
@@ -7093,6 +7130,7 @@ export const getSubscriptionStatus = query({
       return {
         authenticated: false,
         isAnonymous: true,
+        identityLevel: 0 as const,
         plan: "free" as SubscriptionPlan,
         subscriptionStatus: "none",
         cancelAtPeriodEnd: false,
@@ -7110,7 +7148,7 @@ export const getSubscriptionStatus = query({
 
     const ownerId = identity.tokenIdentifier;
     const isAnonymous = isAnonymousIdentity(identity);
-    const [profile, usage] = await Promise.all([
+    const [profile, usage, identityLevel] = await Promise.all([
       ctx.db
         .query("billing_profiles")
         .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
@@ -7119,6 +7157,9 @@ export const getSubscriptionStatus = query({
         .query("billing_usage_windows")
         .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
         .unique(),
+      isAnonymous
+        ? Promise.resolve(0 as const)
+        : resolveIdentityLevel(ctx, ownerId),
     ]);
 
     // Use the stored `updatedAt` as a deterministic fallback when the caller
@@ -7132,6 +7173,10 @@ export const getSubscriptionStatus = query({
     const planConfig = isAnonymous
       ? getAnonymousPlanConfig()
       : getPlanConfig(plan);
+    const allowanceShare =
+      !isAnonymous && plan === "free" && identityLevel === 1
+        ? getFreeEmailAllowanceShare()
+        : 1;
 
     const usageSection =
       args.now !== undefined
@@ -7141,6 +7186,7 @@ export const getSubscriptionStatus = query({
               usage: normalizedUsage,
               plan,
               isAnonymous,
+              identityLevel,
               now: args.now!,
             });
             return {
@@ -7163,19 +7209,23 @@ export const getSubscriptionStatus = query({
               normalizedUsage.rollingUsageMicroCents,
             ),
             rollingLimitUsd: toCurrencyAmount(
-              dollarsToMicroCents(planConfig.rollingLimitUsd),
+              dollarsToMicroCents(
+                planConfig.rollingLimitUsd * allowanceShare,
+              ),
             ),
             weeklyUsedUsd: toCurrencyAmount(
               normalizedUsage.weeklyUsageMicroCents,
             ),
             weeklyLimitUsd: toCurrencyAmount(
-              dollarsToMicroCents(planConfig.weeklyLimitUsd),
+              dollarsToMicroCents(planConfig.weeklyLimitUsd * allowanceShare),
             ),
             monthlyUsedUsd: toCurrencyAmount(
               normalizedUsage.monthlyUsageMicroCents,
             ),
             monthlyLimitUsd: toCurrencyAmount(
-              dollarsToMicroCents(planConfig.monthlyLimitUsd),
+              dollarsToMicroCents(
+                planConfig.monthlyLimitUsd * allowanceShare,
+              ),
             ),
             lifetimeUsedUsd: toCurrencyAmount(
               normalizedUsage.totalUsageMicroCents,
@@ -7184,13 +7234,16 @@ export const getSubscriptionStatus = query({
               planConfig.lifetimeLimitUsd === undefined
                 ? null
                 : toCurrencyAmount(
-                    dollarsToMicroCents(planConfig.lifetimeLimitUsd),
+                    dollarsToMicroCents(
+                      planConfig.lifetimeLimitUsd * allowanceShare,
+                    ),
                   ),
           };
 
     return {
       authenticated: true,
       isAnonymous,
+      identityLevel,
       plan,
       subscriptionStatus: normalizedProfile.subscriptionStatus,
       cancelAtPeriodEnd: normalizedProfile.cancelAtPeriodEnd,

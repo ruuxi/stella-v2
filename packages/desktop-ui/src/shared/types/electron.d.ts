@@ -613,6 +613,7 @@ export type ElectronSystemApi = {
     allowCached?: boolean;
   }) => Promise<import("@stella/contracts/auth-session").AuthSessionSnapshot>;
   signInAnonymous: () => Promise<unknown>;
+  getChallengeToken: () => Promise<string | undefined>;
   signOutAuth: () => Promise<{ ok: boolean }>;
   deleteAuthUser: () => Promise<{ ok: boolean }>;
   applyAuthSessionToken: (sessionToken: string) => Promise<{ ok: boolean }>;

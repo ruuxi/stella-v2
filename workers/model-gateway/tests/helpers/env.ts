@@ -449,6 +449,11 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
   const networkGate = createNetworkGateNamespace(() => env);
   const tierBudget = createTierBudgetNamespace(() => env);
   const enforcementValues = new Map<string, string>();
+  const asnPolicyValues = new Map<string, string>();
+  const asnPolicyCalls: Array<{
+    key: string;
+    cacheTtl: number | undefined;
+  }> = [];
   const enforcementCalls: Array<
     | { kind: "get"; key: string; cacheTtl: number | undefined }
     | {
@@ -506,6 +511,12 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
         enforcementValues.delete(key);
       },
     },
+    ASN_POLICY: {
+      get: async (key: string, options?: { cacheTtl?: number }) => {
+        asnPolicyCalls.push({ key, cacheTtl: options?.cacheTtl });
+        return asnPolicyValues.get(key) ?? null;
+      },
+    },
     USAGE_QUEUE: {
       send: async (message: unknown) => {
         usageEvents.push(message);
@@ -533,6 +544,8 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
     tierBudget,
     enforcementValues,
     enforcementCalls,
+    asnPolicyValues,
+    asnPolicyCalls,
     deps(fetchImpl: typeof fetch, now: () => number = Date.now) {
       return {
         fetch: fetchImpl,
@@ -562,9 +575,10 @@ export const relayRequest = (
     body?: unknown;
     headers?: Record<string, string>;
     signal?: AbortSignal;
+    cf?: { asn: number; asOrganization?: string };
   } = {},
-): Request =>
-  new Request(`https://gateway.test${path}`, {
+): Request => {
+  const request = new Request(`https://gateway.test${path}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -574,6 +588,9 @@ export const relayRequest = (
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
     signal: options.signal,
   });
+  if (options.cf) Object.defineProperty(request, "cf", { value: options.cf });
+  return request;
+};
 
 export const readError = async (response: Response) =>
   (await response.json()) as {

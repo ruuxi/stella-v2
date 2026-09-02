@@ -42,6 +42,7 @@ import * as SessionStorage from "./storage.js";
 import * as RunEventBus from "./run-events.js";
 import * as RunnerHandle from "./runner.js";
 import type { AgentEventPayload } from "../types.js";
+import { HOST_CHALLENGE_TOKEN_METHOD } from "../../../host/challenge-token-method.js";
 
 const logger = createRuntimeLogger("worker.server");
 
@@ -1016,6 +1017,16 @@ export const layer = Layer.effect(
             } catch {
               return null;
             }
+          },
+          requestChallengeToken: async () => {
+            const token = await hostBus
+              .request(HOST_CHALLENGE_TOKEN_METHOD, undefined, {
+                retryOnDisconnect: true,
+              })
+              .catch(() => null);
+            return typeof token === "string" && token.trim()
+              ? token.trim()
+              : undefined;
           },
         },
       });

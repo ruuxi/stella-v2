@@ -67,6 +67,7 @@ const KNOWN_CODES = new Set<GatewayErrorCode>([
   "sign_in_required",
   "tier_paused",
   "owner_suspended",
+  "challenge_required",
   "body_too_large",
   "bad_request",
   "upstream_error",

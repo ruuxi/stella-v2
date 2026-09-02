@@ -3,13 +3,16 @@ import { convex } from "@convex-dev/better-auth/plugins";
 import { requireActionCtx } from "@convex-dev/better-auth/utils";
 import { Resend } from "@convex-dev/resend";
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import {
   anonymous,
   bearer,
+  captcha,
   generateExportedKeyPair,
   magicLink,
   oneTimeToken,
 } from "better-auth/plugins";
+import { AUTH_CAPTCHA_ENDPOINTS } from "@stella/contracts/auth-challenge";
 import { symmetricEncrypt } from "better-auth/crypto";
 import {
   action,
@@ -48,6 +51,12 @@ import {
   resolvesToManagedAppsHostOrigin,
 } from "./lib/dev_apps_host_origin";
 import { importPKCS8, SignJWT } from "jose";
+import { enforceAuthIpRateLimit } from "./lib/auth_ip_rate_limit";
+import { isDisposableEmail } from "./lib/disposable_email_domains";
+import {
+  getTurnstileSecretKey,
+  logTurnstileDisabledOnce,
+} from "./lib/turnstile";
 
 const getRequiredEnv = (name: string) => {
   const value = process.env[name];
@@ -537,6 +546,8 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
   const googleClientSecret =
     getOptionalEnv("GOOGLE_CLIENT_SECRET") ??
     getOptionalEnv("STELLA_NATIVE_OAUTH_GOOGLE_WORKSPACE_CLIENT_SECRET");
+  const turnstileSecretKey = getTurnstileSecretKey();
+  if (!turnstileSecretKey) logTurnstileDisabledOnce();
   const trustedOrigins = Array.from(
     new Set(
       [
@@ -567,9 +578,18 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
     // nothing here: it keys on `x-forwarded-for`, and Convex does not forward
     // a client IP to HTTP actions, so `getIp` returns null and both hooks
     // bail. Turning it off explicitly removes the illusion of coverage —
-    // auth-route limiting goes through `enforceHttpRateLimit`, keyed on
-    // email/device/owner instead of IP.
+    // Auth-route limiting goes through the Convex component below, keyed by
+    // the edge-provided client IP when one is available.
     rateLimit: { enabled: false },
+    hooks: {
+      before: createAuthMiddleware(async (hookCtx) => {
+        await enforceAuthIpRateLimit(
+          requireActionCtx(ctx),
+          hookCtx.request,
+          hookCtx.path,
+        );
+      }),
+    },
     // The desktop Google flow starts in the app and completes in the system
     // browser, so the oauth_state cookie is never present in the completing
     // browser. State is still verified against the `verification` table; only
@@ -692,6 +712,15 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       apple: createAppleProviderOptions,
     },
     plugins: [
+      ...(turnstileSecretKey
+        ? [
+            captcha({
+              provider: "cloudflare-turnstile",
+              secretKey: turnstileSecretKey,
+              endpoints: [...AUTH_CAPTCHA_ENDPOINTS],
+            }),
+          ]
+        : []),
       // Keep Expo's browser-driving authorization proxy, but not its native
       // redirect hook: that hook puts the full session cookie in `?cookie=`.
       // The one-time-token plugin below carries only a short-lived exchange
@@ -738,6 +767,12 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       }),
       magicLink({
         sendMagicLink: async ({ email, url }) => {
+          if (isDisposableEmail(email)) {
+            throw new APIError("BAD_REQUEST", {
+              message:
+                "That email provider isn't supported. Use a different address.",
+            });
+          }
           const actionCtx = requireActionCtx(ctx);
           const logoSrc = escapeHtmlAttribute(getEmailLogoSrc(siteUrl));
           const signInUrl = escapeHtmlAttribute(url);

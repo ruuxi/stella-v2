@@ -159,12 +159,13 @@ describe("GET /api/gateway/owner-snapshot", () => {
       ownerId,
       ownerGeneration: GENERATION,
       isAnonymous: false,
+      identityLevel: 1,
       writable: true,
       plan: "free",
       unlimited: false,
       quotas: {
         chat: { burstStarts: 4, dailyTurns: 3, concurrent: 1 },
-        agent: { burstStarts: 4, dailyTurns: 3, concurrent: 1 },
+        agent: { burstStarts: 1, dailyTurns: 1, concurrent: 1 },
       },
       allowance: {
         audience: "free",
@@ -251,6 +252,7 @@ describe("GET /api/gateway/owner-snapshot", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       isAnonymous: true,
+      identityLevel: 0,
       writable: true,
       quotas: {
         chat: { burstStarts: 4, dailyTurns: 3, concurrent: 1 },
@@ -278,6 +280,7 @@ describe("GET /api/gateway/owner-snapshot", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       isAnonymous: false,
+      identityLevel: 1,
       writable: false,
       enforcement: { status: "suspended", reason: "abuse review" },
       allowance: { budgetMicroCents: 0, maxRequests: 0 },
@@ -307,6 +310,9 @@ describe("GET /api/gateway/owner-snapshot", () => {
       scheduledNames.some((name) =>
         name.includes("pushOwnerEnforcementToGateway"),
       ),
+    ).toBe(true);
+    expect(
+      scheduledNames.some((name) => name.includes("postAlertInternal")),
     ).toBe(true);
   });
 });

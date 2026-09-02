@@ -102,6 +102,12 @@
       "binding": "APP_ROUTES",
       "id": "dc5c7bac2bd04ec7bbd6a89f18a04ee7",
     },
+    {
+      // Create one namespace per environment, then replace this id. Keys are
+      // decimal ASN numbers and values are NetworkClass strings.
+      "binding": "ASN_POLICY",
+      "id": "REPLACE_ME_ASN_POLICY_DEV",
+    },
   ],
   "containers": [
     {
@@ -285,6 +291,10 @@
           "binding": "APP_ROUTES",
           "id": "7a0ed79419de4637aba5b8c3ff248c0e",
         },
+        {
+          "binding": "ASN_POLICY",
+          "id": "REPLACE_ME_ASN_POLICY_BN118",
+        },
       ],
       "containers": [
         {
@@ -460,6 +470,10 @@
         {
           "binding": "APP_ROUTES",
           "id": "d3548a90824440bea312fc4600687077",
+        },
+        {
+          "binding": "ASN_POLICY",
+          "id": "REPLACE_ME_ASN_POLICY_PROD",
         },
       ],
       "containers": [

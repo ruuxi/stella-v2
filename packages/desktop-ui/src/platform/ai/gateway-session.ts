@@ -21,6 +21,7 @@ import {
 } from "@stella/contracts/gateway/api";
 import { getConvexToken } from "@/global/auth/services/auth-token";
 import { parseJwtPayload } from "@/shared/lib/jwt";
+import { getPlatformChallengeToken } from "@/platform/auth/challenge-token";
 
 /** Re-exchange this long before the capability's own expiry. */
 export const GATEWAY_SESSION_CAPABILITY_REFRESH_SKEW_MS = 60_000;
@@ -29,6 +30,8 @@ const GATEWAY_SESSION_EXCHANGE_TIMEOUT_MS = 15_000;
 
 export const STELLA_GATEWAY_SIGN_IN_REQUIRED_MESSAGE =
   "Sign in to Stella to use Stella models.";
+export const STELLA_GATEWAY_CHALLENGE_REQUIRED_MESSAGE =
+  "Stella needs to verify you're human before continuing.";
 
 type CapabilityCacheEntry = {
   capability: string;
@@ -116,8 +119,11 @@ const isSessionCapabilityResponse = (
 const exchangeOnce = async (args: {
   gatewayOrigin: string;
   authToken: string;
+  turnstileToken?: string;
 }): Promise<CapabilityCacheEntry> => {
-  const body: GatewaySessionCapabilityRequest = {};
+  const body: GatewaySessionCapabilityRequest = args.turnstileToken
+    ? { turnstileToken: args.turnstileToken }
+    : {};
   const response = await fetch(
     `${args.gatewayOrigin}${GATEWAY_SESSION_CAPABILITY_PATH}`,
     {
@@ -151,23 +157,52 @@ const exchange = async (args: {
   const inFlight = inFlightExchanges.get(args.key);
   if (inFlight) return inFlight;
   const work = (async () => {
-    try {
-      return await exchangeOnce(args);
-    } catch (error) {
-      // The gateway did not accept this JWT. A freshly minted one may, so
-      // try exactly once more before surfacing the failure.
-      if (
-        error instanceof GatewaySessionExchangeError &&
-        error.status === 401
-      ) {
-        const refreshed = (
-          await getConvexToken({ forceRefresh: true })
-        )?.trim();
-        if (refreshed && refreshed !== args.authToken) {
-          return await exchangeOnce({ ...args, authToken: refreshed });
+    let currentAuthToken = args.authToken;
+    let refreshedAuth = false;
+    let challenged = false;
+    let turnstileToken: string | undefined;
+    while (true) {
+      try {
+        return await exchangeOnce({
+          ...args,
+          authToken: currentAuthToken,
+          turnstileToken,
+        });
+      } catch (error) {
+        if (
+          error instanceof GatewaySessionExchangeError &&
+          error.status === 401 &&
+          !refreshedAuth &&
+          !turnstileToken
+        ) {
+          refreshedAuth = true;
+          const refreshed = (
+            await getConvexToken({ forceRefresh: true })
+          )?.trim();
+          if (refreshed && refreshed !== currentAuthToken) {
+            currentAuthToken = refreshed;
+            continue;
+          }
         }
+        if (
+          error instanceof GatewaySessionExchangeError &&
+          error.status === 403 &&
+          error.code === "challenge_required" &&
+          !challenged
+        ) {
+          challenged = true;
+          try {
+            turnstileToken = (await getPlatformChallengeToken())?.trim();
+          } catch {
+            throw new Error(STELLA_GATEWAY_CHALLENGE_REQUIRED_MESSAGE);
+          }
+          if (!turnstileToken) {
+            throw new Error(STELLA_GATEWAY_CHALLENGE_REQUIRED_MESSAGE);
+          }
+          continue;
+        }
+        throw error;
       }
-      throw error;
     }
   })();
   inFlightExchanges.set(args.key, work);

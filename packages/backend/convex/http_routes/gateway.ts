@@ -1,6 +1,7 @@
 import type { HttpRouter } from "convex/server";
 import { ConvexError } from "convex/values";
 import { isManagedModelAudience } from "@stella/contracts/gateway/capability";
+import type { NetworkClass } from "@stella/contracts/gateway/api";
 import { CONVEX_OWNER_SNAPSHOT_PATH } from "@stella/contracts/turn-plane/owner-snapshot";
 import {
   CONVEX_GATEWAY_CONFIG_PATH,
@@ -28,6 +29,7 @@ import {
 import { constantTimeEqual } from "../lib/crypto_utils";
 import { dollarsToMicroCents } from "../lib/billing_money";
 import { assertOwnerDataAccessActive } from "../owner_lifecycle";
+import { postAlert } from "../lib/alerts";
 
 /**
  * Service routes for the model gateway worker. Every route requires
@@ -47,6 +49,9 @@ export const GATEWAY_USAGE_MAX_BATCH_EVENTS = 500;
 const GATEWAY_USAGE_INGEST_CHUNK = 50;
 const MAX_ID_LENGTH = 512;
 const MAX_IP_HASH_LENGTH = 64;
+const MAX_TURNSTILE_TOKEN_LENGTH = 4_096;
+const MAX_ALERT_TEXT_LENGTH = 8_000;
+const GATEWAY_ALERTS_PATH = "/api/gateway/alerts";
 
 type UsageEventInput = FunctionArgs<
   typeof internal.billing.ingestGatewayUsageBatchInternal
@@ -127,6 +132,14 @@ const isFiniteNumber = (value: unknown): value is number =>
 const optionalNumber = (value: unknown): number | undefined =>
   isFiniteNumber(value) ? value : undefined;
 
+const isNetworkClass = (value: unknown): value is NetworkClass =>
+  value === "hosting" ||
+  value === "vpn" ||
+  value === "residential" ||
+  value === "mobile" ||
+  value === "edu" ||
+  value === "unknown";
+
 const convexErrorCode = (error: unknown): string | null => {
   if (!(error instanceof ConvexError)) return null;
   const data = error.data as { code?: unknown } | string | undefined;
@@ -149,7 +162,11 @@ const sessionCapability = httpAction(async (ctx, request) => {
     typeof body.isAnonymous !== "boolean" ||
     (body.ipHash !== undefined &&
       (typeof body.ipHash !== "string" ||
-        body.ipHash.length > MAX_IP_HASH_LENGTH))
+        body.ipHash.length > MAX_IP_HASH_LENGTH)) ||
+    (body.networkClass !== undefined && !isNetworkClass(body.networkClass)) ||
+    (body.turnstileToken !== undefined &&
+      (typeof body.turnstileToken !== "string" ||
+        body.turnstileToken.length > MAX_TURNSTILE_TOKEN_LENGTH))
   ) {
     return json({ error: "bad_request" }, 400);
   }
@@ -163,10 +180,19 @@ const sessionCapability = httpAction(async (ctx, request) => {
     typeof body.ipHash === "string" && body.ipHash.trim()
       ? body.ipHash.trim()
       : undefined;
+  const networkClass = isNetworkClass(body.networkClass)
+    ? body.networkClass
+    : undefined;
+  const turnstileToken =
+    typeof body.turnstileToken === "string" && body.turnstileToken.trim()
+      ? body.turnstileToken.trim()
+      : undefined;
   const capabilityRequest: ConvexSessionCapabilityRequest = {
     ownerId,
     isAnonymous,
     ...(ipHash ? { ipHash } : {}),
+    ...(networkClass ? { networkClass } : {}),
+    ...(turnstileToken ? { turnstileToken } : {}),
   };
   try {
     const result = await ctx.runAction(
@@ -183,10 +209,26 @@ const sessionCapability = httpAction(async (ctx, request) => {
         return json({ error: "capability_signing_unavailable" }, 503);
       case "OWNER_SUSPENDED":
         return json({ error: "owner_suspended" }, 403);
+      case "CHALLENGE_REQUIRED":
+        return json({ error: "challenge_required" }, 403);
+      case "SIGN_IN_REQUIRED":
+        return json({ error: "sign_in_required" }, 403);
       default:
         throw error;
     }
   }
+});
+
+const alerts = httpAction(async (_ctx, request) => {
+  const denied = requireGatewayServiceRequest(request);
+  if (denied) return denied;
+  const body = await readJsonObject(request);
+  const alertText = typeof body?.text === "string" ? body.text.trim() : "";
+  if (!alertText || alertText.length > MAX_ALERT_TEXT_LENGTH) {
+    return json({ error: "bad_request" }, 400);
+  }
+  await postAlert(alertText);
+  return json({ ok: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -495,6 +537,11 @@ export const registerGatewayRoutes = (http: HttpRouter) => {
     path: CONVEX_GATEWAY_USAGE_PATH,
     method: "POST",
     handler: usage,
+  });
+  http.route({
+    path: GATEWAY_ALERTS_PATH,
+    method: "POST",
+    handler: alerts,
   });
   http.route({
     path: CONVEX_GATEWAY_CONFIG_PATH,

@@ -30,6 +30,11 @@ const result = spawnSync(process.execPath, [viteBin, "build"], {
     VITE_STELLA_WEB_BUILD: "1",
     VITE_CONVEX_URL: convexUrl,
     VITE_CONVEX_SITE_URL: convexSiteUrl,
+    VITE_TURNSTILE_SITE_KEY:
+      process.env.VITE_TURNSTILE_SITE_KEY ||
+      process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ||
+      desktopPublicEnv.VITE_TURNSTILE_SITE_KEY ||
+      "",
     VITE_STELLA_APPS_HOST:
       process.env.VITE_STELLA_APPS_HOST ||
       process.env.NEXT_PUBLIC_STELLA_APPS_HOST ||

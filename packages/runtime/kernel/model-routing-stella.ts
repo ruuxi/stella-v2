@@ -52,6 +52,7 @@ export type StellaSiteConfig = {
     | string
     | null
     | undefined;
+  getChallengeToken?: () => Promise<string | undefined>;
   hasConnectedAccount?: () => boolean;
 };
 
@@ -500,6 +501,7 @@ export const createStellaRoute = (args: {
       gatewayOrigin ?? getRememberedStellaGatewayOrigin(siteBaseUrl),
     getAuthToken: currentAuthToken,
     refreshAuthToken: args.site.refreshAuthToken ? refreshAuthToken : undefined,
+    getChallengeToken: args.site.getChallengeToken,
   });
 
   return {

@@ -506,6 +506,15 @@ export const parseOwnerSnapshot = (
   }
   if (typeof value.writable !== "boolean") return null;
   if (typeof value.isAnonymous !== "boolean") return null;
+  const identityLevel = value.identityLevel;
+  if (
+    identityLevel !== 0 &&
+    identityLevel !== 1 &&
+    identityLevel !== 2 &&
+    identityLevel !== 3
+  ) {
+    return null;
+  }
   const enforcement =
     value.enforcement === undefined
       ? undefined
@@ -572,6 +581,7 @@ export const parseOwnerSnapshot = (
     ownerGeneration: value.ownerGeneration,
     writable: value.writable,
     isAnonymous: value.isAnonymous,
+    identityLevel,
     ...(enforcement ? { enforcement } : {}),
     plan: plan as CloudPlanId,
     unlimited: value.unlimited,

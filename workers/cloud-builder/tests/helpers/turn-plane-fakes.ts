@@ -23,6 +23,7 @@ export const sampleOwnerSnapshot = (
   ownerGeneration: "generation-1",
   writable: true,
   isAnonymous: false,
+  identityLevel: 3,
   plan: "pro",
   unlimited: false,
   quotas: {

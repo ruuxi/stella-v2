@@ -37,6 +37,15 @@ const pushOwnerEnforcementRef = makeFunctionReference<
   null
 >("owner_enforcement:pushOwnerEnforcementToGateway");
 
+const postAlertRef = makeFunctionReference<
+  "action",
+  {
+    text: string;
+    fields?: Record<string, string | number>;
+  },
+  null
+>("alerts:postAlertInternal");
+
 const readOwnerEnforcementRow = async (
   ctx: Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">,
   ownerId: string,
@@ -177,6 +186,7 @@ export const setOwnerEnforcementInternal = internalMutation({
     }
     const updatedAt = Date.now();
     const existing = await readOwnerEnforcementRow(ctx, ownerId);
+    const previousStatus: OwnerEnforcementStatus = existing?.status ?? "ok";
     const fields = {
       ownerId,
       status: args.status,
@@ -191,6 +201,19 @@ export const setOwnerEnforcementInternal = internalMutation({
       await ctx.db.insert("owner_enforcement", fields);
     }
     await scheduleOwnerSnapshotChanged(ctx, ownerId, "enforcement");
+    if (previousStatus !== args.status) {
+      await ctx.scheduler.runAfter(0, postAlertRef, {
+        text: "Owner enforcement status changed",
+        fields: {
+          ownerId,
+          from: previousStatus,
+          to: args.status,
+          actor,
+          reason,
+          ...(args.until !== undefined ? { until: args.until } : {}),
+        },
+      });
+    }
     await ctx.scheduler.runAfter(0, pushOwnerEnforcementRef, {
       ownerId,
       expectedUpdatedAt: updatedAt,

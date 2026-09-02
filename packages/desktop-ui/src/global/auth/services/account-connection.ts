@@ -7,6 +7,7 @@ import { writeBrowserSessionToken } from "@/global/auth/services/auth-storage";
 import { getConvexToken } from "@/global/auth/services/auth-token";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { platformCapabilities } from "@/platform/capabilities";
+import { captchaHeaders } from "@/platform/auth/challenge-token";
 
 type BrowserCallbackLocation = Pick<Location, "origin" | "pathname">;
 
@@ -119,6 +120,7 @@ export type MagicLinkSendRequest = {
  */
 export const buildMagicLinkSendRequest = async (
   email: string,
+  turnstileToken?: string,
 ): Promise<MagicLinkSendRequest | null> => {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -128,7 +130,11 @@ export const buildMagicLinkSendRequest = async (
     return null;
   }
   return {
-    headers: { ...headers, Authorization: authorization },
+    headers: {
+      ...headers,
+      ...captchaHeaders(turnstileToken),
+      Authorization: authorization,
+    },
     body: { email, requireAnonymousOwner: true },
   };
 };

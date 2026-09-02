@@ -9,6 +9,7 @@ export default defineConfig({
       CONVEX_SITE_URL: "https://convex.test",
       BETTER_AUTH_SECRET: "test-only-better-auth-secret-test-only",
       RESEND_FROM: "test@stella.test",
+      STELLA_FREE_EMAIL_ALLOWANCE_SHARE: "1",
     },
   },
 });

@@ -464,6 +464,7 @@ export const createRunnerContext = ({
   requestBrowserExtensionConnect,
   requestConnectorConnection,
   requestRuntimeAuthRefresh,
+  requestChallengeToken,
   scheduleApi,
   fashionApi,
   runtimeStore,
@@ -1043,6 +1044,7 @@ export const createRunnerContext = ({
     stellaComputerCliPath,
     requestCredential,
     requestRuntimeAuthRefresh,
+    requestChallengeToken,
     scheduleApi,
 
     fashionApi: resolvedFashionApi,

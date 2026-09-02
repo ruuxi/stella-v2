@@ -28,6 +28,7 @@ import { waitForConnectedRunner } from "./runtime-availability.js";
 import { getGlobalShortcutsSuspended, setGlobalShortcutsSuspended, } from "./global-shortcuts.js";
 import { createRequire } from "node:module";
 import { t } from "../services/i18n-service.js";
+import { IPC_AUTH_GET_CHALLENGE_TOKEN } from "../auth-challenge-ipc.js";
 let _screenCapturePermissions;
 const getScreenCapturePermissions = () => {
     if (_screenCapturePermissions !== undefined)
@@ -567,6 +568,12 @@ export const registerSystemHandlers = (options) => {
             throw new Error("Blocked untrusted anonymous sign-in request.");
         }
         return await options.authService.signInAnonymous();
+    });
+    ipcMain.handle(IPC_AUTH_GET_CHALLENGE_TOKEN, async (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_AUTH_GET_CHALLENGE_TOKEN)) {
+            throw new Error("Blocked untrusted human-verification request.");
+        }
+        return await options.authService.getChallengeToken();
     });
     ipcMain.handle(IPC_AUTH_SIGN_OUT, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "auth:signOut")) {

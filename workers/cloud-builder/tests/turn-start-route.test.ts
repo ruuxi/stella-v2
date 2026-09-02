@@ -183,6 +183,14 @@ const post = (
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 
+const withCf = (
+  request: Request,
+  cf: { asn: number; asOrganization?: string },
+): Request => {
+  Object.defineProperty(request, "cf", { value: cf });
+  return request;
+};
+
 const errorBody = async (response: Response) =>
   (await response.json()) as {
     error: { code: string; message: string; retryable: boolean };
@@ -236,6 +244,29 @@ describe("POST /conversations/:id/turns", () => {
     expect(forwarded[0]!.request.headers.get(HEADER_TURN_AUTH_KIND)).toBe(
       "user",
     );
+  });
+
+  test("refuses an anonymous hosting network before addressing the conversation", async () => {
+    const { env, forwarded } = environment();
+    const response = await worker.fetch(
+      withCf(
+        post(validBody(), {
+          authorization: `Bearer ${await userJwt({ isAnonymous: true })}`,
+        }),
+        { asn: 16_509, asOrganization: "Amazon.com, Inc." },
+      ),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(response.status).toBe(403);
+    expect(await errorBody(response)).toEqual({
+      error: {
+        code: "sign_in_required",
+        message: "Sign in to Stella to continue from this network.",
+        retryable: false,
+      },
+    });
+    expect(forwarded).toHaveLength(0);
   });
 
   test("forwards a service caller with the owner and generation it named", async () => {
@@ -470,6 +501,32 @@ describe("POST /conversations/:id/turns", () => {
 });
 
 describe("POST /owners/me/dispatches", () => {
+  test("refuses an anonymous hosting network before addressing the owner gate", async () => {
+    const { env, submissions } = environment();
+    const response = await worker.fetch(
+      withCf(
+        new Request("https://builder.example/owners/me/dispatches", {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${await userJwt({ isAnonymous: true })}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ malformed: "body is not read" }),
+        }),
+        { asn: 13_335, asOrganization: "Cloudflare, Inc." },
+      ),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(response.status).toBe(403);
+    expect((await errorBody(response)).error).toMatchObject({
+      code: "sign_in_required",
+      message: "Sign in to Stella to continue from this network.",
+      retryable: false,
+    });
+    expect(submissions).toHaveLength(0);
+  });
+
   test("refuses an anonymous agent dispatch before addressing the owner gate", async () => {
     const { env, submissions } = environment();
     const response = await worker.fetch(

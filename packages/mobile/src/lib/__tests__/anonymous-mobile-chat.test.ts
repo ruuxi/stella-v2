@@ -13,8 +13,8 @@ describe("anonymous mobile Chat entry", () => {
     ]);
 
     expect(authClient).toContain("anonymousClient(),");
-    expect(login).toContain("await authClient.signIn.anonymous()");
-    expect(login.indexOf("await authClient.signIn.anonymous()")).toBeLessThan(
+    expect(login).toContain("await signInMobileAnonymous()");
+    expect(login.indexOf("await signInMobileAnonymous()")).toBeLessThan(
       login.indexOf("await setGuestMode(true)"),
     );
   });
@@ -38,7 +38,7 @@ describe("anonymous mobile Chat entry", () => {
   test("preserves anonymous intent after the session becomes available", async () => {
     const layout = await source("../../../app/_layout.tsx");
 
-    expect(layout).toContain("authClient.signIn\n      .anonymous()");
+    expect(layout).toContain("signInMobileAnonymous()");
     expect(layout).toContain(
       "const anonymous = session.data.user?.isAnonymous === true;",
     );

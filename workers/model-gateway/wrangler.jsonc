@@ -86,6 +86,12 @@
       "binding": "OWNER_ENFORCEMENT",
       "id": "REPLACE_ME_DEV",
     },
+    {
+      // Create one namespace per environment, then replace this id. Keys are
+      // decimal ASN numbers and values are NetworkClass strings.
+      "binding": "ASN_POLICY",
+      "id": "REPLACE_ME_ASN_POLICY_DEV",
+    },
   ],
   "queues": {
     "producers": [
@@ -177,6 +183,10 @@
         {
           "binding": "OWNER_ENFORCEMENT",
           "id": "REPLACE_ME_PROD",
+        },
+        {
+          "binding": "ASN_POLICY",
+          "id": "REPLACE_ME_ASN_POLICY_PROD",
         },
       ],
       "queues": {

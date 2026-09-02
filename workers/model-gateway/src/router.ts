@@ -1,4 +1,5 @@
 import {
+  GATEWAY_NETWORK_POLICY,
   GATEWAY_HEALTH_PATH,
   GATEWAY_OWNER_ENFORCEMENT_PATH,
   GATEWAY_RELAY_PREFIX,
@@ -19,6 +20,7 @@ import {
   toGatewayError,
 } from "./errors.js";
 import { handleManagedRelay } from "./managed-lane.js";
+import { classifyNetwork } from "./network-class.js";
 import { handleNativeRelay } from "./native-lane.js";
 import {
   handleOwnerEnforcement,
@@ -103,7 +105,32 @@ const handleSessionCapability = async (
       "The bearer token is not a valid Stella sign-in.",
     );
   }
-  await readJsonObject(request, { allowEmpty: true });
+  const networkClass = await classifyNetwork(request, env.ASN_POLICY);
+  if (
+    verified.token.isAnonymous &&
+    GATEWAY_NETWORK_POLICY.anonymousRefused.some(
+      (refused) => refused === networkClass,
+    )
+  ) {
+    throw new GatewayError(
+      403,
+      "sign_in_required",
+      "Sign in to Stella to continue from this network.",
+    );
+  }
+  const body = await readJsonObject(request, { allowEmpty: true });
+  const rawTurnstileToken = body.turnstileToken;
+  if (
+    rawTurnstileToken !== undefined &&
+    (typeof rawTurnstileToken !== "string" ||
+      rawTurnstileToken.length > 4_096)
+  ) {
+    throw new GatewayError(
+      400,
+      "bad_request",
+      "turnstileToken must be a string of at most 4096 characters.",
+    );
+  }
   const ownerId = verified.token.ownerId;
   const enforcement = await ownerEnforcementAdmission(env, ownerId, deps.now());
   if (enforcement.suspended) {
@@ -156,8 +183,26 @@ const handleSessionCapability = async (
     ownerId,
     isAnonymous: verified.token.isAnonymous,
     ipHash,
+    networkClass,
+    ...(rawTurnstileToken !== undefined
+      ? { turnstileToken: rawTurnstileToken }
+      : {}),
   });
   if (!result.ok) {
+    if (result.status === 403 && result.code === "challenge_required") {
+      throw new GatewayError(
+        403,
+        "challenge_required",
+        "Complete the verification challenge and try again.",
+      );
+    }
+    if (result.status === 403 && result.code === "sign_in_required") {
+      throw new GatewayError(
+        403,
+        "sign_in_required",
+        "Sign in to Stella to continue.",
+      );
+    }
     if (result.code) {
       throw new GatewayError(
         result.status ?? 503,

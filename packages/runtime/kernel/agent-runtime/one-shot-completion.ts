@@ -58,6 +58,7 @@ export type OneShotCompletionRuntimeContext = {
     token: string | null;
     hasConnectedAccount: boolean;
   } | null>;
+  requestChallengeToken?: () => Promise<string | undefined>;
 };
 
 const resolveModelName = (
@@ -104,6 +105,7 @@ export const runOneShotCompletion = async (args: {
       const result = await runtime.requestRuntimeAuthRefresh?.();
       return result?.authenticated ? result.token : null;
     },
+    getChallengeToken: runtime.requestChallengeToken,
   };
   const buildRoute = (modelName: string | undefined) =>
     resolveLlmRoute({

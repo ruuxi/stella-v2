@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import { ArrowRight, CheckCircle2, MailCheck } from "lucide-react";
+import { ArrowRight, MailCheck } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { clearCachedToken } from "@/lib/auth-token";
 import { useDesktopBridgeAuthUser } from "@/lib/desktop-bridge-auth";
@@ -64,18 +64,11 @@ function ConfiguredSignInView() {
 }
 
 function MagicLinkPanel() {
-  const {
-    email,
-    setEmail,
-    status,
-    error,
-    handleMagicLinkSubmit,
-    reset,
-  } = useMagicLinkAuth();
+  const { email, setEmail, status, error, handleMagicLinkSubmit, reset } =
+    useMagicLinkAuth();
 
   const sending = status === "sending";
-  const sent = status === "sent" || status === "verifying";
-  const complete = status === "complete";
+  const sent = status === "sent";
 
   return (
     <main className={styles.page}>
@@ -87,10 +80,8 @@ function MagicLinkPanel() {
           <span className={styles.brandText}>Stella</span>
         </Link>
 
-        {complete ? (
-          <CompletePanel onReset={reset} />
-        ) : sent ? (
-          <SentPanel email={email} onReset={reset} status={status} />
+        {sent ? (
+          <SentPanel email={email} onReset={reset} />
         ) : (
           <>
             <h1 className={styles.title}>Sign in to Stella</h1>
@@ -146,9 +137,8 @@ function MagicLinkPanel() {
             <div className={styles.divider} />
 
             <p className={styles.footnote}>
-              By continuing you agree to our{" "}
-              <Link href="/terms">Terms</Link> and{" "}
-              <Link href="/privacy">Privacy Policy</Link>.
+              By continuing you agree to our <Link href="/terms">Terms</Link>{" "}
+              and <Link href="/privacy">Privacy Policy</Link>.
             </p>
 
             <Link className={styles.homeLink} href="/">
@@ -161,15 +151,7 @@ function MagicLinkPanel() {
   );
 }
 
-function SentPanel({
-  email,
-  status,
-  onReset,
-}: {
-  email: string;
-  status: "sent" | "verifying";
-  onReset: () => void;
-}) {
+function SentPanel({ email, onReset }: { email: string; onReset: () => void }) {
   return (
     <>
       <h1 className={styles.title}>Check your inbox</h1>
@@ -182,9 +164,7 @@ function SentPanel({
           </p>
         </div>
         <p className={styles.statusFootnote}>
-          {status === "verifying"
-            ? "Got it — finishing up your sign-in…"
-            : "Click the link in the email to finish signing in. This page will update automatically."}
+          Click the link in the email to finish signing in.
         </p>
       </div>
 
@@ -201,31 +181,6 @@ function SentPanel({
   );
 }
 
-function CompletePanel({ onReset }: { onReset: () => void }) {
-  return (
-    <>
-      <h1 className={styles.title}>You&apos;re signed in</h1>
-      <div className={styles.statusCard}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          <CheckCircle2 size={18} aria-hidden="true" />
-          <p className={styles.statusBody}>
-            Your Stella account is now signed in on this device. You can close
-            this tab or head back to the homepage.
-          </p>
-        </div>
-      </div>
-      <div className={styles.actions}>
-        <Link className={styles.homeLink} href="/">
-          Back to stella.sh
-        </Link>
-        <button type="button" className={styles.linkButton} onClick={onReset}>
-          Sign in as someone else
-        </button>
-      </div>
-    </>
-  );
-}
-
 function SignedInPanel({ user }: { user: SessionUser }) {
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
@@ -237,7 +192,9 @@ function SignedInPanel({ user }: { user: SessionUser }) {
       await authClient.signOut();
       clearCachedToken();
     } catch (err) {
-      setSignOutError(err instanceof Error ? err.message : "Failed to sign out.");
+      setSignOutError(
+        err instanceof Error ? err.message : "Failed to sign out.",
+      );
     } finally {
       setSigningOut(false);
     }

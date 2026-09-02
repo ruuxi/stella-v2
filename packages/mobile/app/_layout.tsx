@@ -27,6 +27,7 @@ import { installTextDefaults } from "../src/lib/setup-text-defaults";
 
 installTextDefaults();
 import { loadGuestMode, isGuest, setGuestMode } from "../src/lib/guest-mode";
+import { signInMobileAnonymous } from "../src/lib/anonymous-sign-in";
 import { loadAiConsent } from "../src/lib/ai-consent";
 import { loadNotificationsMuted } from "../src/lib/notifications-prefs";
 import { hasSeenOnboarding, loadOnboardingSeen } from "../src/lib/onboarding";
@@ -184,8 +185,7 @@ function AuthenticatedLayout() {
     }
 
     anonymousBootstrapStartedRef.current = true;
-    void authClient.signIn
-      .anonymous()
+    void signInMobileAnonymous()
       .then(async (result) => {
         if (result.error) {
           throw new Error(

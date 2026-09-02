@@ -21,6 +21,7 @@ import {
 } from "@/global/auth/lib/claim-secret";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { useT, useTPlural } from "@/shared/i18n";
+import { getPlatformChallengeToken } from "@/platform/auth/challenge-token";
 
 type Status = "idle" | "sending" | "sent" | "verifying" | "error";
 
@@ -118,7 +119,11 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
 
     try {
       const convexSiteUrl = getConvexSiteUrl();
-      const sendRequest = await buildMagicLinkSendRequest(targetEmail);
+      const turnstileToken = await getPlatformChallengeToken();
+      const sendRequest = await buildMagicLinkSendRequest(
+        targetEmail,
+        turnstileToken,
+      );
       if (!sendRequest) {
         // Do not start an unbound sign-in. The backend must be able to prove
         // which anonymous owner is being upgraded before it emails a link.

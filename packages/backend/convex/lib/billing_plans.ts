@@ -85,6 +85,7 @@ const PLAN_LABELS: Record<SubscriptionPlan, string> = {
 const ROLLING_LIMIT_SHARE = 0.2;
 const WEEKLY_LIMIT_SHARE = 0.5;
 const DEFAULT_ROLLING_WINDOW_HOURS = 5;
+const DEFAULT_FREE_EMAIL_ALLOWANCE_SHARE = 0.4;
 
 const requireNumberEnv = (envName: string): number => {
   const raw = process.env[envName]?.trim();
@@ -268,6 +269,18 @@ export const getAnonymousPlanConfig = (): PlanConfig => {
     cachedAnonymousPlan = buildAnonymousPlanConfig();
   }
   return cachedAnonymousPlan;
+};
+
+export const getFreeEmailAllowanceShare = (): number => {
+  const raw = process.env.STELLA_FREE_EMAIL_ALLOWANCE_SHARE?.trim();
+  if (!raw) return DEFAULT_FREE_EMAIL_ALLOWANCE_SHARE;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(
+      `[billing] Invalid env STELLA_FREE_EMAIL_ALLOWANCE_SHARE=${raw}; expected a number in [0, 1].`,
+    );
+  }
+  return value;
 };
 
 export const getStripePriceIdForPlan = (

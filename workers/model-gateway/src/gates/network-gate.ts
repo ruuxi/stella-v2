@@ -42,6 +42,7 @@ export class NetworkGate extends DurableObject<Env> {
 
   async admitRelay(args: {
     audience: ManagedModelAudience;
+    capShare: number;
   }): Promise<NetworkAdmission> {
     const audience = limitsAudienceFor(args.audience);
     if (audience === "go" || audience === "pro") return { ok: true };
@@ -57,10 +58,14 @@ export class NetworkGate extends DurableObject<Env> {
         audience,
       )
       .one().count;
-    const dayLimit =
+    const capShare = Number.isFinite(args.capShare)
+      ? Math.min(1, Math.max(0, args.capShare))
+      : 0;
+    const baseDayLimit =
       audience === "anonymous"
         ? GATEWAY_NETWORK_LIMITS.anonymous.relayPerDay
         : GATEWAY_NETWORK_LIMITS.free.relayPerDay;
+    const dayLimit = Math.floor(baseDayLimit * capShare);
     if (dayCount >= dayLimit) {
       return this.refusal({ audience, now, windowMs: DAY_MS });
     }
@@ -73,7 +78,10 @@ export class NetworkGate extends DurableObject<Env> {
           now - HOUR_MS,
         )
         .one().count;
-      if (hourCount >= GATEWAY_NETWORK_LIMITS.anonymous.relayPerHour) {
+      const hourLimit = Math.floor(
+        GATEWAY_NETWORK_LIMITS.anonymous.relayPerHour * capShare,
+      );
+      if (hourCount >= hourLimit) {
         return this.refusal({ audience, now, windowMs: HOUR_MS });
       }
     }

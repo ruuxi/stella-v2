@@ -2,9 +2,9 @@
 
 import { convexTest } from "convex-test";
 import { register as registerRateLimiter } from "@convex-dev/rate-limiter/test";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { components } from "./_generated/api";
-import { authUserIdFromVerificationPayload } from "./auth";
+import { authUserIdFromVerificationPayload, createAuth } from "./auth";
 import betterAuthSchema from "./betterAuth/schema";
 import {
   encryptHandoffToken,
@@ -14,6 +14,11 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 const betterAuthModules = import.meta.glob("./betterAuth/**/*.ts");
+
+afterEach(() => {
+  delete process.env.TURNSTILE_SECRET_KEY;
+  vi.restoreAllMocks();
+});
 
 const createTestWithBetterAuth = () => {
   const t = convexTest(schema, modules);
@@ -48,6 +53,64 @@ const expectNoPendingLink = async (
 };
 
 describe("POST /api/auth/link/send owner proof", () => {
+  it("rejects disposable email providers before creating a link", async () => {
+    const t = convexTest(schema, modules);
+    const response = await t.fetch("/api/auth/link/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "owner@mailinator.com",
+        requireAnonymousOwner: true,
+        claimHash: CLAIM_HASH,
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "email_not_supported",
+    });
+    await expectNoPendingLink(t);
+  });
+
+  it("requires and verifies the Turnstile header when enabled", async () => {
+    process.env.TURNSTILE_SECRET_KEY = "turnstile-secret";
+    const t = convexTest(schema, modules);
+    const input = {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "owner@example.com",
+        requireAnonymousOwner: true,
+        claimHash: CLAIM_HASH,
+      }),
+    } satisfies RequestInit;
+
+    const missing = await t.fetch("/api/auth/link/send", input);
+    expect(missing.status).toBe(400);
+    await expect(missing.json()).resolves.toEqual({
+      error: "captcha_required",
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        success: false,
+        "error-codes": ["invalid-input-response"],
+      }),
+    );
+    const invalid = await t.fetch("/api/auth/link/send", {
+      ...input,
+      headers: {
+        ...input.headers,
+        "x-captcha-response": "bad-token",
+      },
+    });
+    expect(invalid.status).toBe(403);
+    await expect(invalid.json()).resolves.toEqual({
+      error: "captcha_invalid",
+    });
+    await expectNoPendingLink(t);
+  });
+
   it("rejects a missing anonymous-owner JWT before creating a link", async () => {
     const t = convexTest(schema, modules);
 
@@ -146,6 +209,37 @@ describe("POST /api/auth/link/send owner proof", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store, max-age=0");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  });
+});
+
+describe("Better Auth magic-link email hygiene", () => {
+  it("returns BAD_REQUEST for a disposable email provider", async () => {
+    const t = createTestWithBetterAuth();
+    const response = await t.action(async (ctx) => {
+      const auth = createAuth(ctx);
+      const result = await auth.handler(
+        new Request(
+          `${process.env.CONVEX_SITE_URL}/api/auth/sign-in/magic-link`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              origin: process.env.CONVEX_SITE_URL ?? "https://convex.test",
+            },
+            body: JSON.stringify({ email: "owner@mailinator.com" }),
+          },
+        ),
+      );
+      return {
+        status: result.status,
+        body: (await result.json()) as Record<string, unknown>,
+      };
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      message: "That email provider isn't supported. Use a different address.",
+    });
   });
 });
 

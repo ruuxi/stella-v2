@@ -10,6 +10,11 @@ import { hashSha256Hex } from "./lib/crypto_utils";
 
 const webhookRateLimiter = new RateLimiter(components.rateLimiter);
 
+const AUTH_IP_RATE_LIMITS = {
+  anonymous: { rate: 20, periodMs: 24 * 60 * 60_000 },
+  magic_link: { rate: 10, periodMs: 60 * 60_000 },
+} as const;
+
 // ---------------------------------------------------------------------------
 // Internal Mutations
 // ---------------------------------------------------------------------------
@@ -78,4 +83,35 @@ export const consumeWebhookRateLimit = internalMutation({
     blockMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => await runConsumeWebhookRateLimit(ctx, args),
+});
+
+export const consumeAuthIpRateLimit = internalMutation({
+  args: {
+    kind: v.union(v.literal("anonymous"), v.literal("magic_link")),
+    key: v.string(),
+  },
+  returns: v.object({ allowed: v.boolean(), retryAfterMs: v.number() }),
+  handler: async (ctx, args) => {
+    const config = AUTH_IP_RATE_LIMITS[args.kind];
+    const hashedKey = await hashSha256Hex(`auth:${args.kind}:${args.key}`);
+    const status = await webhookRateLimiter.limit(
+      ctx,
+      `auth:${args.kind}`,
+      {
+        key: hashedKey,
+        config: {
+          kind: "token bucket",
+          rate: config.rate,
+          period: config.periodMs,
+          capacity: config.rate,
+        },
+      },
+    );
+    return status.ok
+      ? { allowed: true, retryAfterMs: 0 }
+      : {
+          allowed: false,
+          retryAfterMs: Math.max(1_000, status.retryAfter),
+        };
+  },
 });

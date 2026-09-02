@@ -157,10 +157,12 @@ export class TierBudget extends DurableObject<Env> {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          source: "model-gateway",
-          audience: this.audience,
-          window,
-          resetAt,
+          text: JSON.stringify({
+            source: "model-gateway",
+            audience: this.audience,
+            window,
+            resetAt,
+          }),
         }),
       }).catch((error: unknown) => {
         console.warn(

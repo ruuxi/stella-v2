@@ -453,6 +453,27 @@ describe("managed lane: authorization matrix", () => {
     expect((await readError(response)).error.code).toBe("rate_limited");
   });
 
+  test("an anonymous hosting network is refused before relay gates", async () => {
+    const { token } = await signSession({
+      audience: "anonymous",
+      maxRequests: 5,
+    });
+    const response = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: museBody(),
+        headers: agentHeaders(),
+        cf: { asn: 16_509, asOrganization: "Amazon.com, Inc." },
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect((await readError(response)).error.code).toBe("sign_in_required");
+    expect(ctx.harness.limiter.keys).toHaveLength(0);
+    expect(ctx.harness.networkGate.objects.size).toBe(0);
+    expect(ctx.harness.ownerGate.objects.size).toBe(0);
+    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
+  });
+
   test("a model without a price -> 500 internal", async () => {
     resetConfigCacheForTests();
     ctx.fetchMock.on(
@@ -558,6 +579,7 @@ describe("managed lane: completion, metering, replay", () => {
       },
       chargedMicroCents: 260,
       outcome: "succeeded",
+      networkClass: "unknown",
       upstreamStatus: 200,
       billable: true,
     });
@@ -566,6 +588,40 @@ describe("managed lane: completion, metering, replay", () => {
       spentMicroCents: 260,
       reservedMicroCents: 0,
       requests: 1,
+    });
+  });
+
+  test("halves free hosting caps and records the network class", async () => {
+    const relayAdmissions: Array<{ audience: string; capShare: number }> = [];
+    Object.assign(ctx.harness.env, {
+      NETWORK_GATE: {
+        idFromName: (name: string) => ({ name, toString: () => name }),
+        get: () => ({
+          admitRelay: async (input: {
+            audience: string;
+            capShare: number;
+          }) => {
+            relayAdmissions.push(input);
+            return { ok: true };
+          },
+        }),
+      },
+    });
+    const { token } = await signSession({ audience: "free" });
+    const response = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: museBody(),
+        headers: agentHeaders({ "cf-connecting-ip": "203.0.113.50" }),
+        cf: { asn: 16_509, asOrganization: "Amazon.com, Inc." },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(relayAdmissions).toEqual([{ audience: "free", capShare: 0.5 }]);
+    await ctx.harness.flush();
+    expect(ctx.harness.usageEvents[0]).toMatchObject({
+      audience: "free",
+      networkClass: "hosting",
     });
   });
 

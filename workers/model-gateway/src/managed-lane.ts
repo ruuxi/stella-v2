@@ -1,5 +1,6 @@
 import {
   GATEWAY_MAX_OUTPUT_TOKENS_BY_AUDIENCE,
+  GATEWAY_NETWORK_POLICY,
   GATEWAY_TRACE_HEADER,
   GATEWAY_UPSTREAM_IDLE_TIMEOUT_MS,
   GATEWAY_UPSTREAM_MAX_DURATION_MS,
@@ -55,6 +56,7 @@ import {
   upstreamErrorBody,
 } from "./errors.js";
 import type { LedgerSettleArgs } from "./ledger.js";
+import { classifyNetwork } from "./network-class.js";
 import { ownerEnforcementAdmission } from "./owner-enforcement.js";
 import {
   agentTypeFrom,
@@ -402,6 +404,26 @@ export const handleManagedRelay = async (args: {
   }
 
   const limitsAudience = limitsAudienceFor(claims.audience);
+  const networkClass = await classifyNetwork(request, env.ASN_POLICY);
+  if (
+    limitsAudience === "anonymous" &&
+    GATEWAY_NETWORK_POLICY.anonymousRefused.some(
+      (refused) => refused === networkClass,
+    )
+  ) {
+    throw new GatewayError(
+      403,
+      "sign_in_required",
+      "Sign in to Stella to continue from this network.",
+    );
+  }
+  const networkCapShare =
+    limitsAudience === "free" &&
+    GATEWAY_NETWORK_POLICY.freeChallenged.some(
+      (challenged) => challenged === networkClass,
+    )
+      ? 0.5
+      : 1;
   let ipHash: string | undefined;
   if (limitsAudience === "anonymous" || limitsAudience === "free") {
     ipHash = await ipHashFrom(request);
@@ -428,6 +450,7 @@ export const handleManagedRelay = async (args: {
     );
     const admission = await networkGate.admitRelay({
       audience: claims.audience,
+      capShare: networkCapShare,
     });
     if (!admission.ok) {
       throw new GatewayError(
@@ -737,6 +760,7 @@ export const handleManagedRelay = async (args: {
         startedAt,
         finishedAt: deps.now(),
         billable: true,
+        networkClass,
         ...(limitsAudience === "anonymous" && ipHash
           ? { anonymous: { ipHash } }
           : {}),

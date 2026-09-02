@@ -107,7 +107,14 @@ export type GatewayModelResolution = {
  * JWT names plus the caller's network as the gateway sees it. A client-chosen
  * device string is never an allowance key.
  */
-export type GatewaySessionCapabilityRequest = Record<string, never>;
+export type GatewaySessionCapabilityRequest = {
+  /**
+   * Turnstile token for step-up: required when the owner's enforcement status
+   * is `challenged` or the caller's network class demands it (the exchange
+   * answered `challenge_required`). Ignored otherwise.
+   */
+  turnstileToken?: string;
+};
 
 export type GatewaySessionCapabilityResponse = {
   capability: string;
@@ -115,7 +122,39 @@ export type GatewaySessionCapabilityResponse = {
   audience: string;
   budgetMicroCents: number;
   maxRequests?: number;
+  /** Identity ladder rung the allowance was computed for. */
+  identityLevel?: IdentityLevel;
 };
+
+/**
+ * Identity ladder. Allowances grow with proof that is expensive to fake:
+ *   0 anonymous; 1 verified email (magic link); 2 Google or Apple account;
+ *   3 paying (Stripe subscription or purchased credits).
+ */
+export type IdentityLevel = 0 | 1 | 2 | 3;
+
+/**
+ * Network class from the edge (`request.cf.asn` / `asOrganization`).
+ * `hosting` and `vpn` are datacenter or relay origins; `unknown` is the
+ * default when the edge gives no ASN.
+ */
+export type NetworkClass =
+  | "hosting"
+  | "vpn"
+  | "residential"
+  | "mobile"
+  | "edu"
+  | "unknown";
+
+/**
+ * Step-up policy by network class. Anonymous callers from hosting or VPN
+ * origins are refused (`sign_in_required`); Free callers from hosting origins
+ * must pass a challenge at mint and run at half the network caps.
+ */
+export const GATEWAY_NETWORK_POLICY = {
+  anonymousRefused: ["hosting", "vpn"] as readonly NetworkClass[],
+  freeChallenged: ["hosting"] as readonly NetworkClass[],
+} as const;
 
 export type GatewayErrorCode =
   | "unauthorized"
@@ -139,6 +178,8 @@ export type GatewayErrorCode =
   | "tier_paused"
   /** Owner enforcement status refuses service. */
   | "owner_suspended"
+  /** The exchange needs a Turnstile token (`turnstileToken` in the body). */
+  | "challenge_required"
   | "body_too_large"
   | "bad_request"
   | "upstream_error"

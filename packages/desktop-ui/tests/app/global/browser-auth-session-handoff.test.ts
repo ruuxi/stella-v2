@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AUTH_CAPTCHA_HEADER } from "@stella/contracts/auth-challenge";
 
 const authMocks = vi.hoisted(() => ({
   verifyOneTimeToken: vi.fn(),
@@ -9,6 +10,7 @@ const authMocks = vi.hoisted(() => ({
   signInAnonymous: vi.fn(),
   signOut: vi.fn(),
   deleteUser: vi.fn(),
+  getChallengeToken: vi.fn(),
 }));
 
 vi.mock("@/platform/electron/device", () => ({
@@ -28,6 +30,12 @@ vi.mock("@/global/auth/lib/auth-client", () => ({
   },
 }));
 
+vi.mock("@/platform/auth/challenge-token", () => ({
+  captchaHeaders: (token: string | undefined) =>
+    token ? { [AUTH_CAPTCHA_HEADER]: token } : {},
+  getPlatformChallengeToken: authMocks.getChallengeToken,
+}));
+
 describe("browser auth session handoff", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -35,6 +43,7 @@ describe("browser auth session handoff", () => {
     window.localStorage.clear();
     delete (window as unknown as { electronAPI?: unknown }).electronAPI;
     window.history.replaceState(null, "", "/cloud?theme=dark");
+    authMocks.getChallengeToken.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -202,5 +211,32 @@ describe("browser auth session handoff", () => {
     expect(await mod.waitForBrowserAuthHandoff()).toBe("none");
     expect(authMocks.verifyOneTimeToken).not.toHaveBeenCalled();
     expect(window.location.hash).toBe("#section=account");
+  });
+
+  it("attaches a fresh challenge token to browser anonymous sign-in", async () => {
+    authMocks.getChallengeToken.mockResolvedValue("turnstile-token");
+    authMocks.signInAnonymous.mockImplementation(() => {
+      window.localStorage.setItem(
+        "better-auth_session_token",
+        "anonymous.bearer.token",
+      );
+      return Promise.resolve({ error: null });
+    });
+    authMocks.getSession.mockResolvedValue({
+      data: {
+        user: { id: "anonymous-owner", isAnonymous: true },
+        session: { id: "anonymous-session" },
+      },
+      error: null,
+    });
+
+    const mod = await import("@/global/auth/services/auth-session");
+    await mod.signInAnonymous();
+
+    expect(authMocks.signInAnonymous).toHaveBeenCalledWith({
+      fetchOptions: {
+        headers: { [AUTH_CAPTCHA_HEADER]: "turnstile-token" },
+      },
+    });
   });
 });

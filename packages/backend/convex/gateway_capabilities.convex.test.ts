@@ -153,6 +153,7 @@ describe("getOwnerModelAllowanceInternal", () => {
       audience: "free",
       budgetMicroCents: GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS.free,
       unlimited: false,
+      identityLevel: 1,
     });
 
     const spentMicroCents = dollarsToMicroCents(7.5);
@@ -170,6 +171,7 @@ describe("getOwnerModelAllowanceInternal", () => {
       audience: "free",
       budgetMicroCents: freeRemainingMicroCents() - spentMicroCents,
       unlimited: false,
+      identityLevel: 1,
     });
   });
 
@@ -219,6 +221,7 @@ describe("getOwnerModelAllowanceInternal", () => {
       audience: "pro",
       budgetMicroCents: GATEWAY_BUDGET_UNLIMITED,
       unlimited: true,
+      identityLevel: 3,
     });
   });
 
@@ -230,6 +233,7 @@ describe("getOwnerModelAllowanceInternal", () => {
       budgetMicroCents: dollarsToMicroCents(0.1),
       maxRequests: Math.min(ANON_MAX_REQUESTS, GATEWAY_ANONYMOUS_REQUEST_CHUNK),
       unlimited: false,
+      identityLevel: 0,
     });
 
     await t.mutation(internal.ai_proxy_data.consumeDeviceAllowance, {
@@ -404,6 +408,7 @@ describe("signSessionCapabilityInternal", () => {
     expect(response).toMatchObject({
       audience: "free",
       budgetMicroCents: GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS.free,
+      identityLevel: 1,
     });
     expect(response.maxRequests).toBeUndefined();
     expect(await verifySignature(response.capability)).toBe(true);
@@ -438,6 +443,7 @@ describe("signSessionCapabilityInternal", () => {
       audience: "anonymous",
       budgetMicroCents: dollarsToMicroCents(0.1),
       maxRequests: ANON_MAX_REQUESTS,
+      identityLevel: 0,
     });
     expect(decodeToken(response.capability).claims).toMatchObject({
       audience: "anonymous",

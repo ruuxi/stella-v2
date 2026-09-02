@@ -1,6 +1,7 @@
 import type { CloudExecutionSelection } from "../agent-engine.js";
 import type { ManagedModelAudience } from "../gateway/capability.js";
 import type { OwnerEnforcement } from "../gateway/usage.js";
+import type { IdentityLevel } from "../gateway/api.js";
 
 /**
  * The owner snapshot is the one control-plane read the owner gate Durable
@@ -39,6 +40,8 @@ export type OwnerSnapshot = {
    * spends outside the model gateway answer `sign_in_required`.
    */
   isAnonymous: boolean;
+  /** Identity ladder rung (0 anonymous … 3 paying); drives allowance shares. */
+  identityLevel: IdentityLevel;
   /** Enforcement status; absent means `ok`. Suspended also sets `writable: false`. */
   enforcement?: OwnerEnforcement;
   plan: CloudPlanId;

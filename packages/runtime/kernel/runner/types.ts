@@ -134,6 +134,7 @@ export type StellaHostRunnerOptions = {
   requestRuntimeAuthRefresh?: (payload: {
     source: RuntimeAuthRefreshSource;
   }) => Promise<HostRuntimeAuthRefreshResult>;
+  requestChallengeToken?: () => Promise<string | undefined>;
   scheduleApi?: ScheduleToolApi;
   fashionApi?: FashionToolApi;
   runtimeStore: RuntimeStore;
@@ -382,6 +383,7 @@ export type RunnerContext = {
   requestCredential?: StellaHostRunnerOptions["requestCredential"];
   requestComputerUseAppApproval?: StellaHostRunnerOptions["requestComputerUseAppApproval"];
   requestRuntimeAuthRefresh?: StellaHostRunnerOptions["requestRuntimeAuthRefresh"];
+  requestChallengeToken?: StellaHostRunnerOptions["requestChallengeToken"];
   scheduleApi?: ScheduleToolApi;
   fashionApi?: FashionToolApi;
   runtimeStore: RuntimeStore;

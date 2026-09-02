@@ -102,8 +102,12 @@ const setup = () => {
   return { harness, fetchMock, run };
 };
 
-const sessionRequest = (token: string | null, body?: unknown) =>
-  new Request("https://gateway.test/v1/capabilities/session", {
+const sessionRequest = (
+  token: string | null,
+  body?: unknown,
+  cf?: { asn: number; asOrganization?: string },
+): Request => {
+  const request = new Request("https://gateway.test/v1/capabilities/session", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -112,6 +116,9 @@ const sessionRequest = (token: string | null, body?: unknown) =>
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  if (cf) Object.defineProperty(request, "cf", { value: cf });
+  return request;
+};
 
 describe("POST /v1/capabilities/session", () => {
   let ctx: ReturnType<typeof setup>;
@@ -138,6 +145,7 @@ describe("POST /v1/capabilities/session", () => {
       ownerId: `${CONVEX_SITE}|user_ba_1`,
       isAnonymous: false,
       ipHash: "631f08140b24b7274d12df3c37a1a80c",
+      networkClass: "unknown",
     });
   });
 
@@ -154,8 +162,64 @@ describe("POST /v1/capabilities/session", () => {
       ownerId: `${CONVEX_SITE}|anon_7`,
       isAnonymous: true,
       ipHash: "631f08140b24b7274d12df3c37a1a80c",
+      networkClass: "unknown",
     });
     expect(ctx.harness.networkGate.objects.size).toBe(1);
+  });
+
+  test("refuses an anonymous hosting network before any admission gate", async () => {
+    const token = await signJwt(
+      validPayload({ isAnonymous: true, sub: "anon_hosting" }),
+    );
+    const response = await ctx.run(
+      sessionRequest(token, {}, { asn: 16_509, asOrganization: "Amazon" }),
+    );
+    expect(response.status).toBe(403);
+    expect((await readError(response)).error).toEqual({
+      code: "sign_in_required",
+      message: "Sign in to Stella to continue from this network.",
+      retryable: false,
+    });
+    expect(ctx.harness.ownerGate.objects.size).toBe(0);
+    expect(ctx.harness.networkGate.objects.size).toBe(0);
+    expect(ctx.harness.asnPolicyCalls).toEqual([
+      { key: "16509", cacheTtl: 300 },
+    ]);
+    expect(
+      ctx.fetchMock.calls.filter(
+        (call) => call.url.pathname === "/api/gateway/session-capability",
+      ),
+    ).toHaveLength(0);
+  });
+
+  test("passes the edge class and bounded Turnstile token to Convex", async () => {
+    const token = await signJwt(validPayload());
+    const response = await ctx.run(
+      sessionRequest(
+        token,
+        { turnstileToken: "turnstile-token" },
+        { asn: 16_509, asOrganization: "Amazon" },
+      ),
+    );
+    expect(response.status).toBe(200);
+    const convexCall = ctx.fetchMock.calls.find(
+      (call) => call.url.pathname === "/api/gateway/session-capability",
+    )!;
+    expect(JSON.parse(convexCall.body ?? "{}")).toEqual({
+      ownerId: `${CONVEX_SITE}|user_ba_1`,
+      isAnonymous: false,
+      ipHash: "631f08140b24b7274d12df3c37a1a80c",
+      networkClass: "hosting",
+      turnstileToken: "turnstile-token",
+    });
+
+    for (const turnstileToken of [42, "x".repeat(4_097)]) {
+      const invalid = await ctx.run(
+        sessionRequest(token, { turnstileToken }),
+      );
+      expect(invalid.status).toBe(400);
+      expect((await readError(invalid)).error.code).toBe("bad_request");
+    }
   });
 
   test("rejects a missing, expired, wrong-issuer, wrong-audience, or non-RS256 token with 401", async () => {
@@ -249,6 +313,34 @@ describe("POST /v1/capabilities/session", () => {
     );
     expect(response.status).toBe(403);
     expect((await readError(response)).error.code).toBe("owner_suspended");
+  });
+
+  test("maps Convex challenge and sign-in refusals", async () => {
+    const token = await signJwt(validPayload());
+    for (const code of ["challenge_required", "sign_in_required"] as const) {
+      ctx.fetchMock.on(
+        (call) => call.url.pathname === "/api/gateway/session-capability",
+        () => json({ error: code }, 403),
+      );
+      const response = await ctx.run(
+        sessionRequest(
+          token,
+          {},
+          code === "challenge_required"
+            ? { asn: 16_509, asOrganization: "Amazon.com, Inc." }
+            : undefined,
+        ),
+      );
+      expect(response.status).toBe(403);
+      expect((await readError(response)).error).toEqual({
+        code,
+        message:
+          code === "challenge_required"
+            ? "Complete the verification challenge and try again."
+            : "Sign in to Stella to continue.",
+        retryable: false,
+      });
+    }
   });
 
   test("passes throttled enforcement to the owner mint gate", async () => {

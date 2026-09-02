@@ -23,6 +23,10 @@ import * as CliBridge from "./cli-bridge.js";
 import * as RunnerCell from "./runner-cell.js";
 import type { RuntimeRunner } from "../types.js";
 import { HOST_CHALLENGE_TOKEN_METHOD } from "../../../host/challenge-token-method.js";
+import {
+  createRemoteDeviceSigner,
+  HOST_DEVICE_SIGNING_METHOD,
+} from "../../../host/device-signing-method.js";
 
 const resolveDesktopCliEntrypoint = (
   stellaAppDir: string,
@@ -103,6 +107,24 @@ export const layer = Layer.effect(
     const cliBridge = yield* CliBridge.Service;
     const runnerCell = yield* RunnerCell.Service;
     const init = config.get();
+    let deviceSignerPromise: ReturnType<typeof createRemoteDeviceSigner> | null =
+      null;
+    const getDeviceSigner = () => {
+      const pending =
+        deviceSignerPromise ??
+        createRemoteDeviceSigner((input) =>
+          hostBus.request(
+            HOST_DEVICE_SIGNING_METHOD,
+            { input },
+            { retryOnDisconnect: true },
+          ),
+        );
+      deviceSignerPromise = pending;
+      void pending.catch(() => {
+        if (deviceSignerPromise === pending) deviceSignerPromise = null;
+      });
+      return pending;
+    };
 
     const runnerOptions: StellaHostRunnerOptions = {
       deviceId: config.deviceId,
@@ -162,6 +184,7 @@ export const layer = Layer.effect(
           ? token.trim()
           : undefined;
       },
+      getDeviceSigner,
       scheduleApi: {
         listCronJobs: async () =>
           await hostBus.request(

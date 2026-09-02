@@ -43,6 +43,10 @@ import * as RunEventBus from "./run-events.js";
 import * as RunnerHandle from "./runner.js";
 import type { AgentEventPayload } from "../types.js";
 import { HOST_CHALLENGE_TOKEN_METHOD } from "../../../host/challenge-token-method.js";
+import {
+  createRemoteDeviceSigner,
+  HOST_DEVICE_SIGNING_METHOD,
+} from "../../../host/device-signing-method.js";
 
 const logger = createRuntimeLogger("worker.server");
 
@@ -102,6 +106,24 @@ export const layer = Layer.effect(
     const storage = yield* SessionStorage.Service;
     const runEvents = yield* RunEventBus.Service;
     const runnerHandle = yield* RunnerHandle.Service;
+    let deviceSignerPromise: ReturnType<typeof createRemoteDeviceSigner> | null =
+      null;
+    const getDeviceSigner = () => {
+      const pending =
+        deviceSignerPromise ??
+        createRemoteDeviceSigner((input) =>
+          hostBus.request(
+            HOST_DEVICE_SIGNING_METHOD,
+            { input },
+            { retryOnDisconnect: true },
+          ),
+        );
+      deviceSignerPromise = pending;
+      void pending.catch(() => {
+        if (deviceSignerPromise === pending) deviceSignerPromise = null;
+      });
+      return pending;
+    };
 
     // Lazy loaders for the runner subgraph. one-shot-completion.ts and
     // chat-prompt-context.ts share ~80 files with runner.ts and are only
@@ -1028,6 +1050,7 @@ export const layer = Layer.effect(
               ? token.trim()
               : undefined;
           },
+          getDeviceSigner,
         },
       });
     };

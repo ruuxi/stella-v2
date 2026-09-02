@@ -684,6 +684,7 @@ describe("owner purge adversarial invariants", () => {
         dnsRecordId: "dns-a",
         provisionState: "ready",
         createdAt: 1,
+        lastUsedAt: 1,
         updatedAt: 1,
       }),
       failed: await ctx.db.insert("cloudflare_tunnels", {
@@ -696,6 +697,7 @@ describe("owner purge adversarial invariants", () => {
         dnsRecordId: "dns-b",
         provisionState: "ready",
         createdAt: 2,
+        lastUsedAt: 2,
         updatedAt: 2,
       }),
     }));

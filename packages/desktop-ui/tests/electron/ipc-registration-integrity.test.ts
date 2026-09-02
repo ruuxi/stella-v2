@@ -275,6 +275,40 @@ describe("Electron IPC registration integrity", () => {
     expect(loadDeviceId).toHaveBeenCalledOnce();
   });
 
+  it("keeps device signing in the privileged Electron main process", async () => {
+    const sign = vi.fn(async () => "device-signature");
+    const loadDeviceSigner = vi.fn(async () => ({
+      alg: "ed25519" as const,
+      rawPublicKey: Uint8Array.from({ length: 32 }, (_, index) => index),
+      sign,
+    }));
+    const assertPrivilegedSender = vi.fn(() => true);
+    const options = new Proxy(
+      {
+        getStellaAppDir: () => null,
+        externalLinkService: { assertPrivilegedSender },
+        loadDeviceSigner,
+      },
+      {
+        get(target, property) {
+          if (property in target) return Reflect.get(target, property);
+          return vi.fn();
+        },
+      },
+    );
+    registerSystemHandlers(options);
+
+    const signDevice = ipc.handles.get("auth:signDevice");
+    await expect(signDevice?.({}, "canonical-input")).resolves.toEqual({
+      alg: "ed25519",
+      rawPublicKey: Array.from({ length: 32 }, (_, index) => index),
+      signature: "device-signature",
+    });
+    expect(assertPrivilegedSender).toHaveBeenCalledWith({}, "auth:signDevice");
+    expect(loadDeviceSigner).toHaveBeenCalledOnce();
+    expect(sign).toHaveBeenCalledWith("canonical-input");
+  });
+
   it("wires the connector credential service into system registration", () => {
     const bootstrap = readFileSync(
       path.join(repoRoot, "packages/desktop/electron/bootstrap/ipc.js"),

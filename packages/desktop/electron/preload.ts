@@ -1030,6 +1030,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   system: {
     getDeviceId: () => ipcRenderer.invoke("device:getId"),
+    signDevice: (input: string) =>
+      ipcRenderer.invoke("auth:signDevice", input) as Promise<{
+        alg: "ed25519";
+        rawPublicKey: number[];
+        signature: string;
+      }>,
     startPhoneAccessSession: () =>
       ipcRenderer.invoke("phoneAccess:startSession") as Promise<{
         ok: boolean;

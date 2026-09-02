@@ -28,6 +28,7 @@
 // in workers/cloud-builder/src/index.ts, because only the worker holds the
 // credentials for them. The two lists meet at `POST /owners/purge`.
 
+import { makeFunctionReference } from "convex/server";
 import {
   internalAction,
   internalMutation,
@@ -2008,6 +2009,117 @@ const purgeExternalStores = async (
     return { pending: ["builder-storage"] };
   }
 };
+
+type RetireSupersededBuildArgs = {
+  ownerId: string;
+  ownerGeneration: string;
+  appId: string;
+  buildId: string;
+  artifactPrefix: string;
+  attempt?: number;
+};
+
+const retireSupersededBuildArtifactsRef = makeFunctionReference<
+  "action",
+  RetireSupersededBuildArgs,
+  boolean
+>("cloud_purge:retireSupersededBuildArtifactsInternal");
+
+const RETIRE_BUILD_MAX_ATTEMPTS = 8;
+
+/**
+ * Delete one superseded build's artifacts through the builder's narrow
+ * retire route. This is NOT the owner purge: it takes no owner fence, runs
+ * while the owner's turns keep going, and touches exactly one prefix.
+ */
+const retireBuildArtifactsExternal = async (
+  ownerId: string,
+  artifactPrefix: string,
+): Promise<{ done: boolean }> => {
+  const builder = requireBuilderEndpoint();
+  const response = await fetch(`${builder.url}/internal/apps/builds/retire`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${builder.secret}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ ownerId, artifactPrefix }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const verdict = (await response.json().catch(() => null)) as {
+    ok?: boolean;
+    done?: boolean;
+    error?: string;
+  } | null;
+  if (!response.ok || verdict?.ok !== true) {
+    throw new Error(
+      `Build artifact retirement failed (${response.status}${verdict?.error ? `: ${verdict.error}` : ""}).`,
+    );
+  }
+  return { done: verdict.done === true };
+};
+
+export const retireSupersededBuildArtifactsInternal = internalAction({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    appId: v.string(),
+    buildId: v.string(),
+    artifactPrefix: v.string(),
+    attempt: v.optional(v.number()),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const exact = {
+      ownerId: args.ownerId,
+      appId: args.appId,
+      buildId: args.buildId,
+      artifactPrefix: args.artifactPrefix,
+    };
+    const claimed = await ctx.runMutation(
+      internal.cloud_apps.claimSupersededBuildRetirementInternal,
+      exact,
+    );
+    if (!claimed) return false;
+
+    let retry = false;
+    try {
+      const result = await retireBuildArtifactsExternal(
+        args.ownerId,
+        args.artifactPrefix,
+      );
+      retry = !result.done;
+    } catch (error) {
+      retry = true;
+      console.error(
+        `[cloud_purge] Failed to retire build ${args.buildId}:`,
+        error,
+      );
+    }
+
+    if (retry) {
+      const attempt = Math.max(0, Math.floor(args.attempt ?? 0)) + 1;
+      if (attempt >= RETIRE_BUILD_MAX_ATTEMPTS) {
+        // The row stays `retiring`; the owner-wide purge sweeps the prefix
+        // by owner hash when the account is deleted, so nothing is orphaned.
+        console.error(
+          `[cloud_purge] Giving up on build ${args.buildId} after ${attempt} attempts.`,
+        );
+        return false;
+      }
+      await ctx.scheduler.runAfter(
+        Math.min(60 * 60_000, 30_000 * 2 ** attempt),
+        retireSupersededBuildArtifactsRef,
+        { ...exact, ownerGeneration: args.ownerGeneration, attempt },
+      );
+      return false;
+    }
+    return await ctx.runMutation(
+      internal.cloud_apps.deleteSupersededBuildInternal,
+      exact,
+    );
+  },
+});
 
 // ─── Schedules ───────────────────────────────────────────────────────────────
 

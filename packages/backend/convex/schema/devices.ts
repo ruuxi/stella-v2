@@ -186,9 +186,12 @@ export const devicesSchema = {
     ),
     provisionGeneration: v.optional(v.string()),
     provisionLeaseExpiresAt: v.optional(v.number()),
+    idleCleanupStartedAt: v.optional(v.number()),
     createdAt: v.number(),
+    lastUsedAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_ownerId", ["ownerId"])
-    .index("by_ownerId_and_deviceId", ["ownerId", "deviceId"]),
+    .index("by_ownerId_and_deviceId", ["ownerId", "deviceId"])
+    .index("by_lastUsedAt", ["lastUsedAt"]),
 };

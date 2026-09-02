@@ -49,6 +49,7 @@ export const GATEWAY_USAGE_MAX_BATCH_EVENTS = 500;
 const GATEWAY_USAGE_INGEST_CHUNK = 50;
 const MAX_ID_LENGTH = 512;
 const MAX_IP_HASH_LENGTH = 64;
+const DEVICE_KEY_HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const MAX_TURNSTILE_TOKEN_LENGTH = 4_096;
 const MAX_ALERT_TEXT_LENGTH = 8_000;
 const GATEWAY_ALERTS_PATH = "/api/gateway/alerts";
@@ -160,6 +161,8 @@ const sessionCapability = httpAction(async (ctx, request) => {
     !body ||
     !isId(body.ownerId) ||
     typeof body.isAnonymous !== "boolean" ||
+    typeof body.deviceKeyHash !== "string" ||
+    !DEVICE_KEY_HASH_PATTERN.test(body.deviceKeyHash) ||
     (body.ipHash !== undefined &&
       (typeof body.ipHash !== "string" ||
         body.ipHash.length > MAX_IP_HASH_LENGTH)) ||
@@ -171,6 +174,7 @@ const sessionCapability = httpAction(async (ctx, request) => {
     return json({ error: "bad_request" }, 400);
   }
   const ownerId = body.ownerId;
+  const deviceKeyHash = body.deviceKeyHash;
   const account = await resolveOwnerAccountAction(ctx, ownerId);
   if (!account) return json({ error: "owner_unknown" }, 404);
   // The account record is authoritative. The gateway's flag is checked by
@@ -190,6 +194,7 @@ const sessionCapability = httpAction(async (ctx, request) => {
   const capabilityRequest: ConvexSessionCapabilityRequest = {
     ownerId,
     isAnonymous,
+    deviceKeyHash,
     ...(ipHash ? { ipHash } : {}),
     ...(networkClass ? { networkClass } : {}),
     ...(turnstileToken ? { turnstileToken } : {}),
@@ -294,6 +299,19 @@ const parseUsageEvent = (raw: unknown): ParsedUsageEvent => {
     record.anonymous && typeof record.anonymous === "object"
       ? (record.anonymous as Record<string, unknown>)
       : null;
+  if (
+    record.networkClass !== undefined &&
+    !isNetworkClass(record.networkClass)
+  ) {
+    return reject("malformed_network_class");
+  }
+  if (
+    record.deviceKeyHash !== undefined &&
+    (typeof record.deviceKeyHash !== "string" ||
+      !DEVICE_KEY_HASH_PATTERN.test(record.deviceKeyHash))
+  ) {
+    return reject("malformed_device_key_hash");
+  }
   return {
     ok: true,
     event: {
@@ -329,6 +347,12 @@ const parseUsageEvent = (raw: unknown): ParsedUsageEvent => {
       startedAt: record.startedAt,
       finishedAt: record.finishedAt,
       billable: record.billable,
+      ...(isNetworkClass(record.networkClass)
+        ? { networkClass: record.networkClass }
+        : {}),
+      ...(typeof record.deviceKeyHash === "string"
+        ? { deviceKeyHash: record.deviceKeyHash }
+        : {}),
       ...(anonymous
         ? {
             anonymous: {

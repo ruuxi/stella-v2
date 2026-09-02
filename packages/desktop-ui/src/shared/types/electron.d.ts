@@ -603,6 +603,11 @@ export type LockedComputerUseStatus = {
 
 export type ElectronSystemApi = {
   getDeviceId: () => Promise<string | null>;
+  signDevice: (input: string) => Promise<{
+    alg: "ed25519";
+    rawPublicKey: number[];
+    signature: string;
+  }>;
   startPhoneAccessSession: () => Promise<{ ok: boolean }>;
   stopPhoneAccessSession: () => Promise<{ ok: boolean }>;
   configurePiRuntime: (config: {

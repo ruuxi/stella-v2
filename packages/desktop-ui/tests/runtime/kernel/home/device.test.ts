@@ -7,8 +7,13 @@ import {
   clearSupersededDeviceId,
   getDeviceRecordPath,
   getOrCreateDeviceIdentity,
+  getOrCreateDeviceSigner,
   resetDeviceIdentity,
 } from "@stella/runtime/kernel/home/device";
+import {
+  importDpopPublicKey,
+  verifyDpopInput,
+} from "@stella/contracts/gateway/dpop";
 import {
   installTestSafeStorage,
   resetTestSafeStorage,
@@ -52,6 +57,26 @@ describe("device identity", () => {
     expect(second.deviceId).toBe(first.deviceId);
     expect(second.publicKey).toBe(first.publicKey);
     expect(second.privateKey).toBe(first.privateKey);
+  });
+
+  it("adapts the stored SPKI and PKCS8 identity to a raw Ed25519 signer", async () => {
+    const root = await createTempDir();
+    const signer = await getOrCreateDeviceSigner(root);
+    const input = "stella-device-signer-test";
+    const publicKey = await importDpopPublicKey(
+      signer.alg,
+      signer.rawPublicKey,
+    );
+
+    expect(signer.rawPublicKey).toHaveLength(32);
+    await expect(
+      verifyDpopInput(
+        signer.alg,
+        publicKey,
+        await signer.sign(input),
+        input,
+      ),
+    ).resolves.toBe(true);
   });
 
   it("does not reuse a device id when the persisted private key is unreadable", async () => {

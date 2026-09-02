@@ -57,9 +57,29 @@ const asOwner = async (t: ReturnType<typeof createTest>) => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  delete process.env.STELLA_TTS_DAILY_CHARS_GO;
 });
 
 describe("voice/tts server-authoritative defaults", () => {
+  it("returns the quota code and UTC-midnight retry header before provider I/O", async () => {
+    ensureEnv();
+    process.env.STELLA_TTS_DAILY_CHARS_GO = "5";
+    const t = createTest();
+    const owner = await asOwner(t);
+    const upstream = vi.spyOn(globalThis, "fetch");
+
+    const response = await owner.fetch("/api/voice/tts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "123456", voiceProvider: "inworld" }),
+    });
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({ error: "tts_quota" });
+    expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
   it("applies the Brooke voice + flash model when the client omits them", async () => {
     ensureEnv();
     const t = createTest();

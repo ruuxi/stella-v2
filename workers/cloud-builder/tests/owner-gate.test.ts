@@ -10,6 +10,7 @@ mock.module("cloudflare:workers", () => ({
 const {
   OWNER_GATE_BACKGROUND_SNAPSHOT_TIMEOUT_MS,
   OWNER_GATE_BURST_WINDOW_MS,
+  OWNER_GATE_CPU_MINUTES_PER_DAY,
   OWNER_GATE_DAILY_WINDOW_MS,
   OWNER_GATE_RUNNING_GRACE_MS,
   OWNER_GATE_SNAPSHOT_TIMEOUT_MS,
@@ -272,6 +273,94 @@ describe("OwnerGate admission", () => {
     expect((await spawn("a3", "other-workspace")).ok).toBe(true);
     await instance.release({ turnId: "a1" });
     expect((await spawn("a2", "world")).ok).toBe(true);
+  });
+
+  test("accounts released agent runtime against the snapshot CPU-minute allowance", async () => {
+    const base = sampleOwnerSnapshot({ plan: "free" });
+    const parsed = parseOwnerSnapshot(
+      {
+        ...base,
+        quotas: {
+          ...base.quotas,
+          agent: {
+            ...base.quotas.agent,
+            cpuMinutesPerDay: 1,
+          },
+        },
+      },
+      base.ownerId,
+    );
+    if (!parsed) throw new Error("CPU quota snapshot did not parse.");
+    const { instance } = open({ snapshot: parsed });
+    const agent = (turnId: string, now: number) =>
+      instance.admit({
+        lane: "agent",
+        turnId,
+        conversationId: "conversation-1",
+        workspace: turnId,
+        now,
+      });
+
+    expect((await agent("cpu-1", NOW)).ok).toBe(true);
+    await instance.release({ turnId: "cpu-1", now: NOW + 60_000 });
+    expect(await agent("cpu-2", NOW + 60_001)).toMatchObject({
+      ok: false,
+      code: "quota_daily",
+      message: "Daily cloud agent time is used up.",
+    });
+    expect(
+      (await agent("cpu-3", NOW + 60_000 + OWNER_GATE_DAILY_WINDOW_MS + 1)).ok,
+    ).toBe(true);
+  });
+
+  test("uses the plan CPU-minute default and lets unlimited owners skip it", async () => {
+    expect(OWNER_GATE_CPU_MINUTES_PER_DAY).toEqual({
+      free: 45,
+      go: 120,
+      pro: 300,
+    });
+    const admission = (
+      instance: Awaited<ReturnType<typeof open>>["instance"],
+      turnId: string,
+      now: number,
+    ) =>
+      instance.admit({
+        lane: "agent",
+        turnId,
+        conversationId: "conversation-1",
+        workspace: turnId,
+        now,
+      });
+
+    const finite = open({ snapshot: sampleOwnerSnapshot({ plan: "free" }) });
+    expect((await admission(finite.instance, "free-1", NOW)).ok).toBe(true);
+    await finite.instance.release({
+      turnId: "free-1",
+      now: NOW + 45 * 60_000,
+    });
+    expect(
+      await admission(finite.instance, "free-2", NOW + 45 * 60_000 + 1),
+    ).toMatchObject({ ok: false, code: "quota_daily" });
+
+    const unlimited = open({
+      snapshot: sampleOwnerSnapshot({ plan: "free", unlimited: true }),
+    });
+    expect((await admission(unlimited.instance, "unlimited-1", NOW)).ok).toBe(
+      true,
+    );
+    await unlimited.instance.release({
+      turnId: "unlimited-1",
+      now: NOW + 45 * 60_000,
+    });
+    expect(
+      (
+        await admission(
+          unlimited.instance,
+          "unlimited-2",
+          NOW + 45 * 60_000 + 1,
+        )
+      ).ok,
+    ).toBe(true);
   });
 
   test("a bypass admission registers the run without consulting windows or ceilings", async () => {
@@ -619,10 +708,8 @@ describe("owner snapshot parsing", () => {
     expect(parseOwnerSnapshot(sampleOwnerSnapshot(), "owner-2")).toBeNull();
     for (const identityLevel of [0, 1, 2, 3] as const) {
       expect(
-        parseOwnerSnapshot(
-          sampleOwnerSnapshot({ identityLevel }),
-          "owner-1",
-        )?.identityLevel,
+        parseOwnerSnapshot(sampleOwnerSnapshot({ identityLevel }), "owner-1")
+          ?.identityLevel,
       ).toBe(identityLevel);
     }
   });

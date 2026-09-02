@@ -1,17 +1,21 @@
-import type { HttpRouter } from "convex/server";
+import { makeFunctionReference, type HttpRouter } from "convex/server";
 import { api, internal } from "../_generated/api";
 import { httpAction } from "../_generated/server";
+import { consumeWebhookDedup } from "../http_shared/webhook_controls";
 import {
-  consumeWebhookDedup,
-  consumeWebhookRateLimit,
-} from "../http_shared/webhook_controls";
-import { isValidXUsername, parseXBotMentions } from "../lib/x_bot";
+  isValidXUsername,
+  isXAccountYoungerThanMinimum,
+  parseXBotMentions,
+} from "../lib/x_bot";
 
 const X_BOT_WEBHOOK_PATH = "/api/x/bot/webhook";
 const X_BOT_PAGE_PATH_PREFIX = "/api/x/bot/page/";
 const X_BOT_PAGE_CACHE_CONTROL = "public, max-age=60, s-maxage=60";
-const X_BOT_RATE_WINDOW_MS = 60 * 60 * 1000;
-const X_BOT_RATE_LIMIT = 30;
+const consumeXBotDailyAllowanceRef = makeFunctionReference<
+  "mutation",
+  { authorId: string; now: number },
+  { allowed: boolean; scope: "author" | "global" | null; retryAt: number }
+>("owner_daily_counters:consumeXBotDailyAllowanceInternal");
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -155,17 +159,24 @@ export const registerXBotRoutes = (http: HttpRouter): void => {
         if (!isNew) {
           continue;
         }
-        const rateLimit = await consumeWebhookRateLimit(ctx, {
-          scope: "x_bot_caller",
-          key: mention.authorId,
-          limit: X_BOT_RATE_LIMIT,
-          windowMs: X_BOT_RATE_WINDOW_MS,
-          blockMs: X_BOT_RATE_WINDOW_MS,
-        });
-        if (!rateLimit.allowed) {
-          console.warn("x_bot_caller_rate_limited", {
+        if (isXAccountYoungerThanMinimum(mention.authorCreatedAt)) {
+          console.info("x_bot_young_account_skipped", {
+            mentionId: mention.id,
             authorId: mention.authorId,
-            retryAfterMs: rateLimit.retryAfterMs,
+            createdAt: mention.authorCreatedAt,
+          });
+          continue;
+        }
+        const daily = await ctx.runMutation(consumeXBotDailyAllowanceRef, {
+          authorId: mention.authorId,
+          now: Date.now(),
+        });
+        if (!daily.allowed) {
+          console.warn("x_bot_daily_limit_reached", {
+            mentionId: mention.id,
+            authorId: mention.authorId,
+            scope: daily.scope,
+            retryAt: daily.retryAt,
           });
           continue;
         }

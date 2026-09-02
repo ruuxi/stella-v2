@@ -12,6 +12,7 @@ const modules = import.meta.glob("./**/*.ts");
 
 const OWNER_ID = "https://issuer.test|capability-owner";
 const OWNER_GENERATION = "capability-generation";
+const DEVICE_KEY_HASH = "A".repeat(43);
 
 // Session capabilities are ES256-signed; mint a throwaway key the way
 // gateway_capabilities.convex.test.ts does so signing can run in-process.
@@ -317,7 +318,11 @@ describe("orchestration is not a capability", () => {
 
     const session = await t.action(
       internal.gateway_capabilities.signSessionCapabilityInternal,
-      { ownerId: OWNER_ID, isAnonymous: false },
+      {
+        ownerId: OWNER_ID,
+        isAnonymous: false,
+        deviceKeyHash: DEVICE_KEY_HASH,
+      },
     );
     expect(session.audience).toBe("free");
     expect(session.budgetMicroCents).toBe(allowance.budgetMicroCents);

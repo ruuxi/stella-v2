@@ -9,6 +9,8 @@ import {
   json,
   readError,
   SERVICE_SECRET,
+  TEST_DEVICE_KEY_HASH,
+  testDeviceKeyProof,
 } from "./helpers/env.js";
 
 const base64Url = (bytes: Uint8Array): string =>
@@ -92,9 +94,9 @@ const setup = () => {
       (call) => call.url.pathname === "/api/gateway/session-capability",
       () => json(issued),
     );
-  const run = (request: Request) =>
+  const run = async (request: Request | Promise<Request>) =>
     handleRequest(
-      request,
+      await request,
       harness.env,
       fakeExecutionContext(),
       harness.deps(fetchMock.fetch),
@@ -102,11 +104,49 @@ const setup = () => {
   return { harness, fetchMock, run };
 };
 
-const sessionRequest = (
+const ownerIdFromJwt = (token: string | null): string => {
+  if (!token) return `${CONVEX_SITE}|user_ba_1`;
+  try {
+    const encoded = token.split(".")[1] ?? "";
+    const normalized = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const parsed: unknown = JSON.parse(atob(padded));
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      "iss" in parsed &&
+      "sub" in parsed &&
+      typeof parsed.iss === "string" &&
+      typeof parsed.sub === "string"
+    ) {
+      return `${parsed.iss}|${parsed.sub}`;
+    }
+  } catch {
+    // Authentication rejects a malformed token before the proof matters.
+  }
+  return `${CONVEX_SITE}|user_ba_1`;
+};
+
+const sessionRequest = async (
   token: string | null,
   body?: unknown,
   cf?: { asn: number; asOrganization?: string },
-): Request => {
+): Promise<Request> => {
+  const requestBody =
+    body &&
+    typeof body === "object" &&
+    !Array.isArray(body) &&
+    "deviceKey" in body
+      ? body
+      : {
+          ...(body && typeof body === "object" && !Array.isArray(body)
+            ? body
+            : {}),
+          deviceKey: await testDeviceKeyProof({
+            ownerId: ownerIdFromJwt(token),
+          }),
+        };
   const request = new Request("https://gateway.test/v1/capabilities/session", {
     method: "POST",
     headers: {
@@ -114,7 +154,7 @@ const sessionRequest = (
       "cf-connecting-ip": "203.0.113.10",
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: JSON.stringify(requestBody),
   });
   if (cf) Object.defineProperty(request, "cf", { value: cf });
   return request;
@@ -146,6 +186,7 @@ describe("POST /v1/capabilities/session", () => {
       isAnonymous: false,
       ipHash: "631f08140b24b7274d12df3c37a1a80c",
       networkClass: "unknown",
+      deviceKeyHash: TEST_DEVICE_KEY_HASH,
     });
   });
 
@@ -163,6 +204,7 @@ describe("POST /v1/capabilities/session", () => {
       isAnonymous: true,
       ipHash: "631f08140b24b7274d12df3c37a1a80c",
       networkClass: "unknown",
+      deviceKeyHash: TEST_DEVICE_KEY_HASH,
     });
     expect(ctx.harness.networkGate.objects.size).toBe(1);
   });
@@ -211,12 +253,11 @@ describe("POST /v1/capabilities/session", () => {
       ipHash: "631f08140b24b7274d12df3c37a1a80c",
       networkClass: "hosting",
       turnstileToken: "turnstile-token",
+      deviceKeyHash: TEST_DEVICE_KEY_HASH,
     });
 
     for (const turnstileToken of [42, "x".repeat(4_097)]) {
-      const invalid = await ctx.run(
-        sessionRequest(token, { turnstileToken }),
-      );
+      const invalid = await ctx.run(sessionRequest(token, { turnstileToken }));
       expect(invalid.status).toBe(400);
       expect((await readError(invalid)).error.code).toBe("bad_request");
     }
@@ -234,6 +275,51 @@ describe("POST /v1/capabilities/session", () => {
       const response = await ctx.run(sessionRequest(token, {}));
       expect(response.status).toBe(401);
       expect((await readError(response)).error.code).toBe("unauthorized");
+    }
+    expect(
+      ctx.fetchMock.calls.filter(
+        (call) => call.url.pathname === "/api/gateway/session-capability",
+      ),
+    ).toHaveLength(0);
+  });
+
+  test("requires a fresh device proof for the public gateway origin", async () => {
+    const token = await signJwt(validPayload());
+    const ownerId = `${CONVEX_SITE}|user_ba_1`;
+    const cases = [
+      { deviceKey: null },
+      {
+        deviceKey: await testDeviceKeyProof({
+          ownerId,
+          now: Date.now() - 6 * 60_000,
+        }),
+      },
+      {
+        deviceKey: await testDeviceKeyProof({
+          ownerId,
+          gatewayOrigin: "https://other-gateway.test",
+        }),
+      },
+      {
+        deviceKey: {
+          ...(await testDeviceKeyProof({ ownerId })),
+          signature: "A".repeat(256),
+        },
+      },
+      {
+        deviceKey: {
+          ...(await testDeviceKeyProof({ ownerId })),
+          publicKey: "A".repeat(129),
+        },
+      },
+    ];
+    for (const body of cases) {
+      const response = await ctx.run(sessionRequest(token, body));
+      expect(response.status).toBe(400);
+      const error = (await readError(response)).error;
+      expect(error.code).toBe("dpop_invalid");
+      expect(error.retryable).toBe(false);
+      expect(error.message).toMatch(/missing|malformed|stale|bad_signature/u);
     }
     expect(
       ctx.fetchMock.calls.filter(

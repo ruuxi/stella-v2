@@ -57,6 +57,14 @@ import {
 } from "@stella/runtime/kernel/gateway-session";
 
 const originalFetch = globalThis.fetch;
+const deviceSigner = {
+  alg: "ed25519" as const,
+  rawPublicKey: new Uint8Array(32),
+  sign: async () => "test-signature",
+};
+const authToken = `header.${Buffer.from(
+  JSON.stringify({ iss: "https://issuer.example.test", sub: "user-1" }),
+).toString("base64url")}.signature`;
 const capabilityExchange = () => {
   const exchange = vi.fn(
     async () =>
@@ -80,6 +88,7 @@ const makeRuntime = (args: { authToken: string | null; dataDir: string }) => ({
   siteBaseUrl: args.authToken ? "https://site.example.test" : null,
   getAuthToken: () => args.authToken,
   hasConnectedAccount: () => Boolean(args.authToken),
+  getDeviceSigner: () => deviceSigner,
 });
 
 const request = {
@@ -120,7 +129,7 @@ describe("runOneShotCompletion", () => {
     );
     const result = await runOneShotCompletion({
       request,
-      runtime: makeRuntime({ authToken: "token", dataDir }),
+      runtime: makeRuntime({ authToken, dataDir }),
     });
     expect(result.text).toBe("relay summary");
     expect(completeSimpleCalls).toHaveLength(1);
@@ -139,7 +148,7 @@ describe("runOneShotCompletion", () => {
     claudeCodeEngineActive = true;
     const result = await runOneShotCompletion({
       request,
-      runtime: makeRuntime({ authToken: "token", dataDir }),
+      runtime: makeRuntime({ authToken, dataDir }),
     });
     expect(result.text).toBe("summarizing agent progress now");
     expect(claudeCodeCalls).toHaveLength(1);

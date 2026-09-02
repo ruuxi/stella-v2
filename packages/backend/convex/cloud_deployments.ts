@@ -9,6 +9,8 @@ import {
 } from "./_generated/server";
 import { requireUserId } from "./auth";
 import { assertOwnerDataWriteAllowed } from "./owner_lifecycle";
+import { resolveIdentityLevel } from "./lib/identity_level";
+import { assertOwnerArtifactQuota } from "./lib/artifact_quota";
 
 const INTERIOR_KIND = "stella-interior" as const;
 const MAX_MANIFEST_BYTES = 256 * 1024;
@@ -584,11 +586,7 @@ export const recordInteriorBuild = async (
   ctx: MutationCtx,
   args: RecordInteriorBuildArgs,
 ): Promise<{ created: boolean; buildId: string; deployableId: string }> => {
-  const buildId = requireNonEmpty(
-    args.buildId,
-    "buildId",
-    MAX_BUILD_ID_LENGTH,
-  );
+  const buildId = requireNonEmpty(args.buildId, "buildId", MAX_BUILD_ID_LENGTH);
   const ownerId = requireNonEmpty(args.ownerId, "ownerId", 1024);
   await assertOwnerDataWriteAllowed(ctx, ownerId, args.ownerGeneration);
   const turnId = requireNonEmpty(args.turnId, "turnId", 160);
@@ -607,11 +605,7 @@ export const recordInteriorBuild = async (
   const baseRevision =
     args.baseRevision === undefined
       ? undefined
-      : requireNonEmpty(
-          args.baseRevision,
-          "baseRevision",
-          MAX_REVISION_LENGTH,
-        );
+      : requireNonEmpty(args.baseRevision, "baseRevision", MAX_REVISION_LENGTH);
   if (baseRevision !== undefined && !SHA256_DIGEST.test(baseRevision)) {
     throw new ConvexError("baseRevision must be a SHA-256 revision.");
   }
@@ -726,6 +720,17 @@ export const recordInteriorBuild = async (
     }
     return { created: false, buildId, deployableId };
   }
+
+  if ((await resolveIdentityLevel(ctx, ownerId)) < 1) {
+    throw new ConvexError({
+      code: "SIGN_IN_REQUIRED",
+      message: "Sign in to publish an app.",
+    });
+  }
+  await assertOwnerArtifactQuota(ctx, {
+    ownerId,
+    additionalBytes: artifactSizeBytes,
+  });
 
   const deployment = await getOwnerDeployment(ctx, ownerId);
   if (deployment && deployment.deployableId !== deployableId) {

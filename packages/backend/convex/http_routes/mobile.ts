@@ -37,10 +37,7 @@ import {
 import { readJsonBody } from "../http_shared/request";
 import { getClientAddressKey } from "../lib/http_utils";
 import { isDisposableEmail } from "../lib/disposable_email_domains";
-import {
-  isTurnstileEnabled,
-  verifyTurnstileToken,
-} from "../lib/turnstile";
+import { isTurnstileEnabled, verifyTurnstileToken } from "../lib/turnstile";
 import { MOBILE_BRIDGE_LEASE_MS } from "../mobile_bridge";
 import {
   verifyPairedMobileProof,
@@ -239,6 +236,16 @@ const readConvexErrorMessage = (error: unknown, fallback: string) => {
     return error.message;
   }
   return fallback;
+};
+
+const readConvexErrorCode = (error: unknown): string | null => {
+  if (!(error instanceof ConvexError)) return null;
+  const data = error.data as { code?: unknown } | string | undefined;
+  return typeof data === "object" &&
+    data !== null &&
+    typeof data.code === "string"
+    ? data.code
+    : null;
 };
 
 const requireMobileAccountOwner = async (
@@ -1320,6 +1327,13 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           );
           return jsonResponse(result, 200, origin);
         } catch (error) {
+          const code = readConvexErrorCode(error);
+          if (code === "SIGN_IN_REQUIRED") {
+            return jsonResponse({ error: "sign_in_required" }, 403, origin);
+          }
+          if (code === "TUNNEL_LIMIT") {
+            return jsonResponse({ error: "tunnel_limit" }, 409, origin);
+          }
           console.error("[mobile/tunnel-token] Error:", error);
           return errorResponse(
             500,

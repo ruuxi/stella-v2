@@ -15,6 +15,7 @@ const ADMIN_DELETE_PATH = "/api/admin/delete";
 const ADMIN_BILLING_PLAN_PATH = "/api/admin/billing/plan";
 const ADMIN_OWNER_ENFORCEMENT_PATH = "/api/admin/owners/enforcement";
 const ADMIN_OWNER_LOOKUP_PATH = "/api/admin/owners/lookup";
+const ADMIN_OWNER_TOP_PATH = "/api/admin/owners/top";
 const MEDIA_DELETE_MAX_STEPS = 200;
 
 type AdminDeleteBody = {
@@ -69,6 +70,7 @@ type AdminGatewayState = {
   enforcement: OwnerEnforcement;
   unreleasedGrants: unknown[];
   usageReceipts: unknown[];
+  riskSignals: unknown[];
 };
 
 const setOwnerEnforcementRef = makeFunctionReference<
@@ -94,6 +96,15 @@ const getOwnerBillingWindowSummaryRef = makeFunctionReference<
   { ownerId: string; isAnonymous: boolean },
   AdminBillingSummary
 >("billing:getOwnerBillingWindowSummaryInternal");
+
+const listTopOwnerRiskSignalsRef = makeFunctionReference<
+  "query",
+  {
+    window: "1h" | "24h";
+    by: "spend" | "requests" | "mints" | "score";
+  },
+  unknown[]
+>("risk:listTopOwnerRiskSignalsInternal");
 
 const jsonResponse = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), {
@@ -328,7 +339,38 @@ export const registerAdminRoutes = (http: HttpRouter) => {
         },
         unreleasedGrants: gateway.unreleasedGrants,
         usageReceipts: gateway.usageReceipts,
+        riskSignals: gateway.riskSignals,
       });
+    }),
+  });
+
+  http.route({
+    path: ADMIN_OWNER_TOP_PATH,
+    method: "GET",
+    handler: httpAction(async (ctx, request) => {
+      const admin = requireAdminRequest(request);
+      if (!admin.ok) return admin.response;
+      const url = new URL(request.url);
+      const window = url.searchParams.get("window");
+      const by = url.searchParams.get("by");
+      if (window !== "1h" && window !== "24h") {
+        return jsonResponse(400, { error: "window must be 1h or 24h." });
+      }
+      if (
+        by !== "spend" &&
+        by !== "requests" &&
+        by !== "mints" &&
+        by !== "score"
+      ) {
+        return jsonResponse(400, {
+          error: "by must be spend, requests, mints, or score.",
+        });
+      }
+      const owners = await ctx.runQuery(listTopOwnerRiskSignalsRef, {
+        window,
+        by,
+      });
+      return jsonResponse(200, { window, by, owners });
     }),
   });
 

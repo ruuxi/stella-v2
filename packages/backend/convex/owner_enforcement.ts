@@ -94,6 +94,7 @@ export const getOwnerGatewayAdminStateInternal = internalQuery({
       v.object({
         jti: v.string(),
         ownerGeneration: v.string(),
+        deviceKeyHash: v.string(),
         audience: managedModelAudienceValidator,
         budgetMicroCents: v.number(),
         maxRequests: v.optional(v.number()),
@@ -111,9 +112,25 @@ export const getOwnerGatewayAdminStateInternal = internalQuery({
         createdAt: v.number(),
       }),
     ),
+    riskSignals: v.array(
+      v.object({
+        ownerId: v.string(),
+        window: v.union(v.literal("1h"), v.literal("24h")),
+        requests: v.number(),
+        chargedMicroCents: v.number(),
+        mints: v.number(),
+        hostingRequests: v.number(),
+        distinctIps: v.number(),
+        distinctConversations: v.number(),
+        failedRequests: v.number(),
+        sybilFlags: v.number(),
+        score: v.number(),
+        updatedAt: v.number(),
+      }),
+    ),
   }),
   handler: async (ctx, args) => {
-    const [enforcement, grants, receipts] = await Promise.all([
+    const [enforcement, grants, receipts, riskSignals] = await Promise.all([
       readOwnerEnforcement(ctx, args.ownerId),
       ctx.db
         .query("gateway_capability_grants")
@@ -129,12 +146,17 @@ export const getOwnerGatewayAdminStateInternal = internalQuery({
         )
         .order("desc")
         .take(50),
+      ctx.db
+        .query("owner_risk_signals")
+        .withIndex("by_owner_window", (q) => q.eq("ownerId", args.ownerId))
+        .take(2),
     ]);
     return {
       enforcement,
       unreleasedGrants: grants.map((grant) => ({
         jti: grant.jti,
         ownerGeneration: grant.ownerGeneration,
+        deviceKeyHash: grant.deviceKeyHash,
         audience: grant.audience,
         budgetMicroCents: grant.budgetMicroCents,
         ...(grant.maxRequests !== undefined
@@ -150,6 +172,20 @@ export const getOwnerGatewayAdminStateInternal = internalQuery({
         ownerGeneration: receipt.ownerGeneration,
         chargedMicroCents: receipt.chargedMicroCents,
         createdAt: receipt.createdAt,
+      })),
+      riskSignals: riskSignals.map((signal) => ({
+        ownerId: signal.ownerId,
+        window: signal.window,
+        requests: signal.requests,
+        chargedMicroCents: signal.chargedMicroCents,
+        mints: signal.mints,
+        hostingRequests: signal.hostingRequests,
+        distinctIps: signal.distinctIps,
+        distinctConversations: signal.distinctConversations,
+        failedRequests: signal.failedRequests,
+        sybilFlags: signal.sybilFlags,
+        score: signal.score,
+        updatedAt: signal.updatedAt,
       })),
     };
   },

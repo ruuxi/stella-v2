@@ -117,6 +117,7 @@ import {
   managedProviderDispatchOutcomeValidator,
 } from "./schema/billing";
 import { readExactVoiceProviderAttempt } from "./voice_dispatch";
+import { recordGatewayUsageRiskSignals } from "./risk";
 import {
   identityLevelValidator,
   resolveIdentityLevel,
@@ -986,9 +987,7 @@ const buildUsageSnapshot = (args: {
     lifetimeLimitUsd === undefined
       ? null
       : (() => {
-          const limit = dollarsToMicroCents(
-            lifetimeLimitUsd * allowanceShare,
-          );
+          const limit = dollarsToMicroCents(lifetimeLimitUsd * allowanceShare);
           return {
             used: lifetimeUsed,
             limit,
@@ -6653,6 +6652,17 @@ export const gatewayUsageEventValidator = v.object({
   startedAt: v.number(),
   finishedAt: v.number(),
   billable: v.boolean(),
+  networkClass: v.optional(
+    v.union(
+      v.literal("hosting"),
+      v.literal("vpn"),
+      v.literal("residential"),
+      v.literal("mobile"),
+      v.literal("edu"),
+      v.literal("unknown"),
+    ),
+  ),
+  deviceKeyHash: v.optional(v.string()),
   anonymous: v.optional(
     v.object({
       ipHash: v.optional(v.string()),
@@ -6788,6 +6798,15 @@ export const ingestGatewayUsageBatchInternal = internalMutation({
         });
         continue;
       }
+      if (grant && grant.deviceKeyHash !== event.deviceKeyHash) {
+        rejected.push({
+          requestId: event.requestId,
+          reason: "capability_device_mismatch",
+        });
+        continue;
+      }
+
+      await recordGatewayUsageRiskSignals(ctx, event, args.now);
 
       const chargeable = event.billable && event.outcome !== "failed";
       if (chargeable) {
@@ -7209,9 +7228,7 @@ export const getSubscriptionStatus = query({
               normalizedUsage.rollingUsageMicroCents,
             ),
             rollingLimitUsd: toCurrencyAmount(
-              dollarsToMicroCents(
-                planConfig.rollingLimitUsd * allowanceShare,
-              ),
+              dollarsToMicroCents(planConfig.rollingLimitUsd * allowanceShare),
             ),
             weeklyUsedUsd: toCurrencyAmount(
               normalizedUsage.weeklyUsageMicroCents,
@@ -7223,9 +7240,7 @@ export const getSubscriptionStatus = query({
               normalizedUsage.monthlyUsageMicroCents,
             ),
             monthlyLimitUsd: toCurrencyAmount(
-              dollarsToMicroCents(
-                planConfig.monthlyLimitUsd * allowanceShare,
-              ),
+              dollarsToMicroCents(planConfig.monthlyLimitUsd * allowanceShare),
             ),
             lifetimeUsedUsd: toCurrencyAmount(
               normalizedUsage.totalUsageMicroCents,

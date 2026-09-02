@@ -46,7 +46,10 @@ import { createOpenAICompletionsAssembler } from "./assemble/openai-completions.
 import { createOpenAIResponsesAssembler } from "./assemble/openai-responses.js";
 import { createSseParser, frameJson, type SseFrame } from "./assemble/sse.js";
 import type { Assembler } from "./assemble/types.js";
-import type { AuthenticatedCapability } from "./capability.js";
+import {
+  verifySessionDpop,
+  type AuthenticatedCapability,
+} from "./capability.js";
 import { getGatewayConfig } from "./config-cache.js";
 import type { ConvexClient } from "./convex-client.js";
 import {
@@ -390,6 +393,11 @@ export const handleManagedRelay = async (args: {
   const startedAt = deps.now();
   const pathname = new URL(request.url).pathname;
   const { requestId } = requestIdFrom(request);
+  const deviceKeyHash = await verifySessionDpop({
+    request,
+    auth: args.auth,
+    now: deps.now(),
+  });
   const enforcement = await ownerEnforcementAdmission(
     env,
     claims.sub,
@@ -761,6 +769,7 @@ export const handleManagedRelay = async (args: {
         finishedAt: deps.now(),
         billable: true,
         networkClass,
+        ...(deviceKeyHash ? { deviceKeyHash } : {}),
         ...(limitsAudience === "anonymous" && ipHash
           ? { anonymous: { ipHash } }
           : {}),

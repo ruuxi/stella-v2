@@ -33,6 +33,8 @@ import { Cause, Effect, Exit, Fiber } from "effect";
 import { forkDelayed, hostRuntime, } from "./effect-runtime.js";
 import { clearPendingWorkerRestartFlag, evaluateWorkerStaleness, persistPendingWorkerRestartFlag, quiescencePollEffect, } from "./staleness.js";
 import { HOST_CHALLENGE_TOKEN_METHOD } from "./challenge-token-method.js";
+import { HOST_DEVICE_SIGNING_METHOD, MAX_DEVICE_SIGNING_INPUT_LENGTH, } from "./device-signing-method.js";
+import { isDelegatedDeviceSigningInput } from "@stella/contracts/gateway/dpop";
 /*
  * Host-side Effect boundary: the staleness/build-stamp handshake, the
  * quiescence poll, and every host timer (reload debounce and ack/flush
@@ -2346,6 +2348,19 @@ export class StellaRuntimeHost {
         });
         peer.registerRequestHandler(HOST_CHALLENGE_TOKEN_METHOD, async () => {
             return ((await this.options.hostHandlers.getChallengeToken?.()) ?? null);
+        });
+        peer.registerRequestHandler(HOST_DEVICE_SIGNING_METHOD, async (params) => {
+            const input = typeof params?.input === "string" ? params.input : "";
+            if (!input || input.length > MAX_DEVICE_SIGNING_INPUT_LENGTH) {
+                throw new Error("Invalid Stella device signing input.");
+            }
+            if (!isDelegatedDeviceSigningInput(input)) {
+                throw new Error("Blocked device signing input outside the DPoP contract.");
+            }
+            if (!this.options.hostHandlers.signDeviceInput) {
+                throw new Error("Stella device signing is not available.");
+            }
+            return await this.options.hostHandlers.signDeviceInput(input);
         });
         peer.registerRequestHandler(METHOD_NAMES.HOST_REMOTE_TURN_ADMIT, async (params) => {
             return this.admitRemoteTurnAttempt(params);

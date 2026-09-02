@@ -1,4 +1,4 @@
-import type { HttpRouter } from "convex/server";
+import { makeFunctionReference, type HttpRouter } from "convex/server";
 import { httpAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -23,6 +23,11 @@ import { acquireVoiceProviderDispatchGuard } from "../lib/voice_dispatch_guard";
 // ---------------------------------------------------------------------------
 
 const VOICE_SESSION_RATE_LIMIT = 10; // per minute
+const consumeTtsDailyCharactersRef = makeFunctionReference<
+  "mutation",
+  { ownerId: string; characters: number; now: number },
+  { allowed: boolean; count: number; limit: number; retryAt: number }
+>("owner_daily_counters:consumeTtsDailyCharactersInternal");
 const VOICE_SESSION_RATE_WINDOW_MS = 60_000;
 
 // ---------------------------------------------------------------------------
@@ -146,9 +151,7 @@ const readOpenAiRealtimeCallId = (location: string | null): string | null => {
       return null;
     }
     const callId = parts[3]?.trim();
-    return callId && /^[A-Za-z0-9._:-]{1,200}$/u.test(callId)
-      ? callId
-      : null;
+    return callId && /^[A-Za-z0-9._:-]{1,200}$/u.test(callId) ? callId : null;
   } catch {
     return null;
   }
@@ -348,9 +351,7 @@ const INWORLD_TTS_STREAM_URL = "https://api.inworld.ai/tts/v1/voice:stream";
 const DEFAULT_INWORLD_TTS_MODEL = "inworld-tts-2-flash";
 const DEFAULT_INWORLD_TTS_VOICE = "Brooke";
 const TTS_MAX_INPUT_CHARS = 8000;
-// Read-aloud fires per assistant message; give it more headroom than session
-// mints but still cap to prevent accidental loops.
-const TTS_RATE_LIMIT = 120;
+const TTS_RATE_LIMIT = 20;
 const TTS_OPERATION_ID_RE = /^[A-Za-z0-9_-]{16,128}$/;
 
 type TtsSynthesisParams = {
@@ -377,6 +378,26 @@ const consumeTtsRateLimit = (ctx: ActionCtx, key: string) =>
     windowMs: VOICE_SESSION_RATE_WINDOW_MS,
     blockMs: VOICE_SESSION_RATE_WINDOW_MS,
   });
+
+const consumeTtsDailyQuota = (
+  ctx: ActionCtx,
+  ownerId: string,
+  characters: number,
+) =>
+  ctx.runMutation(consumeTtsDailyCharactersRef, {
+    ownerId,
+    characters,
+    now: Date.now(),
+  });
+
+const ttsQuotaResponse = (origin: string | null, retryAt: number): Response => {
+  const response = jsonResponse({ error: "tts_quota" }, 429, origin);
+  response.headers.set(
+    "Retry-After",
+    String(Math.max(1, Math.ceil((retryAt - Date.now()) / 1_000))),
+  );
+  return response;
+};
 
 const normalizeTtsSpeed = (value: unknown): number | undefined =>
   typeof value === "number" &&
@@ -2004,7 +2025,11 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         if (!auth.ok) return auth.response;
         const openaiApiKey = process.env.OPENAI_API_KEY?.trim();
         if (!openaiApiKey) {
-          return errorResponse(503, "Voice sessions are not configured yet.", origin);
+          return errorResponse(
+            503,
+            "Voice sessions are not configured yet.",
+            origin,
+          );
         }
         const stellaSessionId =
           request.headers.get("x-stella-voice-session-id")?.trim() ?? "";
@@ -2020,7 +2045,11 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           !providerDispatchId ||
           !providerAttemptId
         ) {
-          return errorResponse(400, "The exact voice authority tuple is required.", origin);
+          return errorResponse(
+            400,
+            "The exact voice authority tuple is required.",
+            origin,
+          );
         }
         const sdpOffer = await request.text();
         if (sdpOffer.length < 10 || sdpOffer.length > 1_000_000) {
@@ -2194,7 +2223,11 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             "[voice/openai/sdp] Failed to create OpenAI call:",
             error instanceof Error ? error.message : String(error),
           );
-          return errorResponse(502, "Failed to create the OpenAI voice call.", origin);
+          return errorResponse(
+            502,
+            "Failed to create the OpenAI voice call.",
+            origin,
+          );
         } finally {
           await cancelUnsettledProviderResponseBody(
             providerResponse,
@@ -2437,6 +2470,12 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         if (!parsed.ok) {
           return errorResponse(parsed.status, parsed.message, origin);
         }
+        const quota = await consumeTtsDailyQuota(
+          ctx,
+          auth.ownerId,
+          parsed.params.text.length,
+        );
+        if (!quota.allowed) return ttsQuotaResponse(origin, quota.retryAt);
         return streamInworldTts(ctx, origin, parsed.params, {
           ownerId: auth.ownerId,
           ownerGeneration,
@@ -2489,6 +2528,13 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         if (!parsed.ok) {
           return errorResponse(parsed.status, parsed.message, origin);
         }
+
+        const quota = await consumeTtsDailyQuota(
+          ctx,
+          auth.ownerId,
+          parsed.params.text.length,
+        );
+        if (!quota.allowed) return ttsQuotaResponse(origin, quota.retryAt);
 
         const ticket = `${Date.now().toString(36)}_${
           typeof globalThis.crypto?.randomUUID === "function"
@@ -2786,18 +2832,9 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         const { generation: ownerGeneration } =
           await assertOwnerDataAccessActive(ctx, identity.tokenIdentifier);
 
-        const rateLimit = await ctx.runMutation(
-          internal.rate_limits.consumeWebhookRateLimit,
-          {
-            scope: "voice_tts",
-            // Read-aloud fires per assistant message; give it more
-            // headroom than session mints but still cap to prevent
-            // accidental loops.
-            key: identity.tokenIdentifier,
-            limit: 120,
-            windowMs: VOICE_SESSION_RATE_WINDOW_MS,
-            blockMs: VOICE_SESSION_RATE_WINDOW_MS,
-          },
+        const rateLimit = await consumeTtsRateLimit(
+          ctx,
+          identity.tokenIdentifier,
         );
         if (!rateLimit.allowed) {
           return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
@@ -2836,6 +2873,12 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         }
         // Cap at ~8k chars so a runaway prompt can't blow the budget.
         const truncated = text.length > 8000 ? text.slice(0, 8000) : text;
+        const quota = await consumeTtsDailyQuota(
+          ctx,
+          identity.tokenIdentifier,
+          truncated.length,
+        );
+        if (!quota.allowed) return ttsQuotaResponse(origin, quota.retryAt);
 
         const voiceProvider: "openai" | "inworld" =
           body?.voiceProvider === "inworld" ? "inworld" : "openai";

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isXAccountYoungerThanMinimum,
   normalizeXReply,
   parseXBotMentions,
   parseXBotPromoterUsernames,
@@ -34,6 +35,32 @@ describe("parseXBotMentions", () => {
         authorName: "Alex",
       },
     ]);
+  });
+
+  it("carries author creation time and recognizes accounts under seven days", () => {
+    const createdAt = "2026-08-29T12:00:00.000Z";
+    expect(
+      parseXBotMentions(
+        {
+          tweet_create_events: [
+            { ...event, user: { ...event.user, created_at: createdAt } },
+          ],
+        },
+        "stelladotsh",
+      )[0],
+    ).toMatchObject({ authorCreatedAt: createdAt });
+    expect(
+      isXAccountYoungerThanMinimum(
+        createdAt,
+        Date.parse("2026-09-02T12:00:00.000Z"),
+      ),
+    ).toBe(true);
+    expect(
+      isXAccountYoungerThanMinimum(
+        createdAt,
+        Date.parse("2026-09-06T12:00:00.000Z"),
+      ),
+    ).toBe(false);
   });
 
   it("uses the complete longform post when X includes one", () => {
@@ -197,7 +224,8 @@ describe("parseXBotReplyPlan", () => {
         exchanges: [
           {
             user: "Set up a modded Minecraft server for my friends",
-            stella: "Installing Fabric, then I will ask before opening the port.",
+            stella:
+              "Installing Fabric, then I will ask before opening the port.",
           },
           { user: "", stella: "ignored" },
           {
@@ -231,7 +259,9 @@ describe("parseXBotReplyPlan", () => {
 });
 
 describe("resolveXBotPageHandle", () => {
-  const promoters = parseXBotPromoterUsernames("@1_missthesun, Stella_Team,bad handle");
+  const promoters = parseXBotPromoterUsernames(
+    "@1_missthesun, Stella_Team,bad handle",
+  );
 
   it("parses the promoter allowlist", () => {
     expect(promoters).toEqual(["1_missthesun", "stella_team"]);

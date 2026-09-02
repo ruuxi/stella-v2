@@ -11,7 +11,10 @@ vi.mock("@stella/runtime/kernel/agent-runtime", () => ({
   shutdownSubagentRuntimes: vi.fn(),
 }));
 
-vi.mock("@stella/runtime/kernel/runner/model-selection", () => ({
+vi.mock("@stella/runtime/kernel/runner/model-selection", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@stella/runtime/kernel/runner/model-selection")
+  >()),
   createRunnerImageDescriptionService: vi.fn(() =>
     vi.fn(async () => "described image"),
   ),

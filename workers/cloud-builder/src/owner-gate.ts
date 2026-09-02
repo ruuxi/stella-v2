@@ -211,6 +211,13 @@ export type OwnerGateSnapshotWithLease =
 
 export const OWNER_GATE_BURST_WINDOW_MS = 10 * 60_000;
 export const OWNER_GATE_DAILY_WINDOW_MS = 24 * 60 * 60_000;
+export const OWNER_GATE_CPU_MINUTES_PER_DAY: Readonly<
+  Record<CloudPlanId, number>
+> = {
+  free: 45,
+  go: 120,
+  pro: 300,
+};
 /** Grace added to `TURN_TIMEOUT_MS` before a running row is presumed released. */
 export const OWNER_GATE_RUNNING_GRACE_MS = 60_000;
 /**
@@ -259,6 +266,12 @@ const DDL = [
    )`,
   `CREATE INDEX IF NOT EXISTS running_lane ON running(lane)`,
   `CREATE INDEX IF NOT EXISTS running_workspace ON running(workspace)`,
+  `CREATE TABLE IF NOT EXISTS cpu_minutes (
+     turn_id TEXT PRIMARY KEY,
+     at      INTEGER NOT NULL,
+     minutes REAL    NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS cpu_minutes_at ON cpu_minutes(at)`,
   // One row per device that has ever proven itself here. `connected` goes
   // false on close rather than deleting the row, so an offline device still
   // reports its last availability to `GET /owners/me/devices`.
@@ -379,7 +392,9 @@ const isOwnerEnforcementStatus = (
 ): value is OwnerEnforcement["status"] =>
   OWNER_ENFORCEMENT_STATUSES.some((status) => status === value);
 
-const parseLaneQuota = (value: unknown): CloudLaneQuota | null => {
+type ParsedLaneQuota = CloudLaneQuota & { cpuMinutesPerDay?: number };
+
+const parseLaneQuota = (value: unknown): ParsedLaneQuota | null => {
   if (!isRecord(value)) return null;
   if (
     !isCount(value.burstStarts) ||
@@ -392,7 +407,18 @@ const parseLaneQuota = (value: unknown): CloudLaneQuota | null => {
     burstStarts: value.burstStarts,
     dailyTurns: value.dailyTurns,
     concurrent: value.concurrent,
+    ...(isCount(value.cpuMinutesPerDay)
+      ? { cpuMinutesPerDay: value.cpuMinutesPerDay }
+      : {}),
   };
+};
+
+const agentCpuMinutesPerDay = (snapshot: OwnerSnapshot): number => {
+  const quota: unknown = snapshot.quotas.agent;
+  if (isRecord(quota) && isCount(quota.cpuMinutesPerDay)) {
+    return quota.cpuMinutesPerDay;
+  }
+  return OWNER_GATE_CPU_MINUTES_PER_DAY[snapshot.plan];
 };
 
 const parseOwnerEnforcement = (value: unknown): OwnerEnforcement | null => {
@@ -1267,6 +1293,21 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       `DELETE FROM running WHERE started_at < ?`,
       now - (this.turnTimeoutMs() + OWNER_GATE_RUNNING_GRACE_MS),
     );
+    this.ctx.storage.sql.exec(
+      `DELETE FROM cpu_minutes WHERE at < ?`,
+      now - OWNER_GATE_DAILY_WINDOW_MS,
+    );
+  }
+
+  private cpuMinutesUsed(now: number): number {
+    const row = this.ctx.storage.sql
+      .exec<{
+        minutes: number | null;
+      }>(`SELECT SUM(minutes) AS minutes FROM cpu_minutes WHERE at > ?`, now - OWNER_GATE_DAILY_WINDOW_MS)
+      .one();
+    return typeof row.minutes === "number" && Number.isFinite(row.minutes)
+      ? Math.max(0, row.minutes)
+      : 0;
   }
 
   /**
@@ -1385,6 +1426,16 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     const quota = snapshot.quotas[input.lane];
     const enforce = input.quota !== "bypass";
     if (enforce && !snapshot.unlimited) {
+      if (
+        input.lane === "agent" &&
+        this.cpuMinutesUsed(now) >= agentCpuMinutesPerDay(snapshot)
+      ) {
+        return refuse(
+          "quota_daily",
+          "Daily cloud agent time is used up.",
+          true,
+        );
+      }
       const burst = this.windowRefusal(
         input.lane,
         OWNER_GATE_BURST_WINDOW_MS,
@@ -1491,10 +1542,28 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   /** Idempotent: a release for a turn the gate no longer tracks is a no-op. */
-  async release(input: { turnId: string }): Promise<void> {
+  async release(input: { turnId: string; now?: number }): Promise<void> {
     this.ensureSchema();
     const turnId = input.turnId?.trim() ?? "";
     if (!turnId) return;
+    const running = this.ctx.storage.sql
+      .exec<{
+        lane: string;
+        started_at: number;
+      }>(`SELECT lane, started_at FROM running WHERE turn_id = ?`, turnId)
+      .toArray()[0];
+    if (running?.lane === "agent") {
+      const now = input.now ?? Date.now();
+      const minutes = Math.max(0, now - running.started_at) / 60_000;
+      if (minutes > 0) {
+        this.ctx.storage.sql.exec(
+          `INSERT OR IGNORE INTO cpu_minutes (turn_id, at, minutes) VALUES (?, ?, ?)`,
+          turnId,
+          now,
+          minutes,
+        );
+      }
+    }
     this.ctx.storage.sql.exec(`DELETE FROM running WHERE turn_id = ?`, turnId);
   }
 

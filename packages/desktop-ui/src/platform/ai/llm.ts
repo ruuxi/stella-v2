@@ -21,7 +21,13 @@ import {
   type ChatCompletionResponse,
   type ChatMessage,
 } from "@/shared/stella-api";
-import { getGatewaySessionCapability } from "./gateway-session";
+import {
+  STELLA_GATEWAY_DEVICE_VERIFICATION_MESSAGE,
+  getGatewayDeviceSigner,
+  getGatewaySessionCapability,
+  sessionCapabilityJti,
+} from "./gateway-session";
+import { dpopHeadersForSigner } from "./device-key";
 
 export { extractChatText };
 
@@ -136,7 +142,8 @@ const shouldRefreshSessionCapability = (
     detail.code !== "owner_suspended" &&
     detail.code !== "tier_paused" &&
     detail.code !== "concurrency_limit" &&
-    detail.code !== "rate_limited") ||
+    detail.code !== "rate_limited" &&
+    detail.code !== "dpop_invalid") ||
   (status === 402 && detail.code === "budget_exhausted") ||
   (status === 429 && detail.code === "request_limit");
 
@@ -153,8 +160,20 @@ const postGatewayChatCompletion = async <TResponse>(args: {
   const requestId = crypto.randomUUID();
   const payload = JSON.stringify({ ...args.body, stream: false });
 
-  const send = (capability: string): Promise<Response> =>
-    fetch(url, {
+  const send = async (capability: string): Promise<Response> => {
+    const jti = sessionCapabilityJti(capability);
+    if (!jti) {
+      throw new Error("Stella model gateway returned an invalid session capability.");
+    }
+    const proofHeaders = await dpopHeadersForSigner({
+      signer: await getGatewayDeviceSigner(),
+      method: "POST",
+      pathname: new URL(url).pathname,
+      jti,
+      requestId,
+      now: Date.now(),
+    });
+    return await fetch(url, {
       method: "POST",
       headers: {
         ...args.headers,
@@ -162,14 +181,22 @@ const postGatewayChatCompletion = async <TResponse>(args: {
         "Content-Type": "application/json",
         [GATEWAY_AGENT_TYPE_HEADER]: args.agentType,
         [GATEWAY_REQUEST_ID_HEADER]: requestId,
+        ...proofHeaders,
       },
       body: payload,
     });
+  };
 
   let response = await send(await getGatewaySessionCapability(gatewayOrigin));
   let detail = response.ok
     ? { code: "", message: "", retryable: false }
     : await readGatewayErrorDetail(response.clone());
+  if (
+    (response.status === 400 || response.status === 401) &&
+    detail.code === "dpop_invalid"
+  ) {
+    throw new Error(STELLA_GATEWAY_DEVICE_VERIFICATION_MESSAGE);
+  }
   if (shouldRefreshSessionCapability(response.status, detail)) {
     // An expired/revoked capability or a spent session ledger gets one fresh
     // capability and one replay of the same request id.
@@ -179,6 +206,12 @@ const postGatewayChatCompletion = async <TResponse>(args: {
     detail = response.ok
       ? { code: "", message: "", retryable: false }
       : await readGatewayErrorDetail(response.clone());
+    if (
+      (response.status === 400 || response.status === 401) &&
+      detail.code === "dpop_invalid"
+    ) {
+      throw new Error(STELLA_GATEWAY_DEVICE_VERIFICATION_MESSAGE);
+    }
   }
   if (!response.ok) {
     const readableMessage =

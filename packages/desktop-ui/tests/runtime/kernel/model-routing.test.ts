@@ -162,6 +162,11 @@ vi.mock("@stella/runtime/ai/models", () => ({
 }));
 
 const GATEWAY = "https://gateway.example.test";
+const deviceSigner = {
+  alg: "ed25519" as const,
+  rawPublicKey: new Uint8Array(32),
+  sign: async () => "test-signature",
+};
 
 describe("resolveLlmRoute", () => {
   beforeEach(() => {
@@ -206,7 +211,11 @@ describe("resolveLlmRoute", () => {
 
   const jwtWithExpiry = (expiresAtMs: number) => {
     const payload = Buffer.from(
-      JSON.stringify({ exp: Math.floor(expiresAtMs / 1000) }),
+      JSON.stringify({
+        iss: "https://issuer.example.test",
+        sub: "user-1",
+        exp: Math.floor(expiresAtMs / 1000),
+      }),
     ).toString("base64url");
     return `header.${payload}.signature`;
   };
@@ -754,7 +763,8 @@ describe("resolveLlmRoute", () => {
   });
 
   it("refreshes near-expiry Stella tokens before exchanging a session capability", async () => {
-    const refreshAuthToken = vi.fn(async () => "fresh-stella-token");
+    const freshToken = jwtWithExpiry(Date.now() + 60_000);
+    const refreshAuthToken = vi.fn(async () => freshToken);
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
     );
@@ -768,6 +778,7 @@ describe("resolveLlmRoute", () => {
           baseUrl: "https://stella.example.test",
           getAuthToken: () => jwtWithExpiry(Date.now() + 10_000),
           refreshAuthToken,
+          getDeviceSigner: () => deviceSigner,
         },
       });
 
@@ -779,19 +790,21 @@ describe("resolveLlmRoute", () => {
       expect(gateway.exchange.mock.calls[0]?.[0]).toBe(
         `${GATEWAY}/v1/capabilities/session`,
       );
-      expect(gateway.bearer()).toBe("Bearer fresh-stella-token");
+      expect(gateway.bearer()).toBe(`Bearer ${freshToken}`);
       expect(
         JSON.parse(
           String((gateway.exchange.mock.calls[0]?.[1] as RequestInit).body),
         ),
-      ).toEqual({});
+      ).toMatchObject({ deviceKey: expect.any(Object) });
     } finally {
       gateway.restore();
     }
   });
 
   it("uses pushed Stella tokens without refreshing before the fallback window", async () => {
-    const refreshAuthToken = vi.fn(async () => "fresh-stella-token");
+    const refreshAuthToken = vi.fn(async () =>
+      jwtWithExpiry(Date.now() + 60_000),
+    );
     const currentToken = jwtWithExpiry(Date.now() + 30_000);
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
@@ -806,6 +819,7 @@ describe("resolveLlmRoute", () => {
           baseUrl: "https://stella.example.test",
           getAuthToken: () => currentToken,
           refreshAuthToken,
+          getDeviceSigner: () => deviceSigner,
         },
       });
 

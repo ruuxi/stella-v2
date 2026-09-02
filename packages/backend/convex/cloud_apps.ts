@@ -61,6 +61,16 @@ import {
   projectCloudBrowserSuspension,
 } from "./cloud_browser";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
+import {
+  createManagedDispatchRequestFingerprint,
+  estimateManagedModelFallbackCostMicroCents,
+  MANAGED_USAGE_BILLING_KIND,
+} from "./lib/managed_dispatch";
+import { resolveIdentityLevel } from "./lib/identity_level";
+import {
+  artifactBytesFromMetricsJson,
+  assertOwnerArtifactQuota,
+} from "./lib/artifact_quota";
 
 type OwnerModelAllowance = {
   audience: ManagedModelAudience;
@@ -126,8 +136,10 @@ const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
  * user-visible model output. It is lifecycle-leased provider overhead and must
  * never silently consume user quota or write user usage logs.
  */
-export const CLOUD_APP_ROUTE_MODEL_BILLING_POLICY =
-  "stella_control_plane_overhead" as const;
+export const CLOUD_APP_ROUTE_MODEL_BILLING_POLICY = "managed_usage" as const;
+
+const CLOUD_APP_ROUTE_MODEL = "claude-haiku-4-5-20251001";
+const CLOUD_APP_ROUTE_MAX_OUTPUT_TOKENS = 300;
 
 export const resolveCloudPlan = async (
   ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
@@ -221,6 +233,11 @@ const reserveBuildLaneRef = makeFunctionReference<"mutation", any, any>(
 const expireOpInvocationRef = makeFunctionReference<"mutation", any, any>(
   "cloud_apps:expireOpInvocationInternal",
 );
+const consumeCloudAppOperationDailyRef = makeFunctionReference<
+  "mutation",
+  { ownerId: string; now: number },
+  { allowed: boolean; count: number; limit: number; retryAt: number }
+>("owner_daily_counters:consumeCloudAppOperationDailyInternal");
 const assertCloudRouteDispatchRef = makeFunctionReference<
   "mutation",
   { ownerId: string; ownerGeneration: string; turnId: string },
@@ -5425,6 +5442,16 @@ export const recordBuild = async (
   if (turn.terminalKind || turn.status !== "running") {
     throw new ConvexError("Build callback arrived after its turn closed.");
   }
+  if ((await resolveIdentityLevel(ctx, args.ownerId)) < 1) {
+    throw new ConvexError({
+      code: "SIGN_IN_REQUIRED",
+      message: "Sign in to publish an app.",
+    });
+  }
+  await assertOwnerArtifactQuota(ctx, {
+    ownerId: args.ownerId,
+    additionalBytes: artifactBytesFromMetricsJson(args.metricsJson),
+  });
   await ctx.db.insert("cloud_app_builds", {
     buildId: args.buildId,
     appId: args.appId,
@@ -5521,16 +5548,33 @@ export const activateBuildInternal = internalMutation({
       build.appId !== app.appId
     )
       throw new ConvexError("Build is not available for this app.");
-    if (app.activeBuildId) {
+    if (build.status === "retiring") {
+      throw new ConvexError("Build artifacts are being retired.");
+    }
+    if (app.activeBuildId && app.activeBuildId !== build.buildId) {
       const old = await ctx.db
         .query("cloud_app_builds")
         .withIndex("by_buildId", (q) => q.eq("buildId", app.activeBuildId!))
         .unique();
-      if (old)
+      if (old) {
         await ctx.db.patch(old._id, {
           status: "superseded",
           updatedAt: args.now,
         });
+        if (old.artifactPrefix) {
+          await ctx.scheduler.runAfter(
+            0,
+            internal.cloud_purge.retireSupersededBuildArtifactsInternal,
+            {
+              ownerId: args.ownerId,
+              ownerGeneration: args.ownerGeneration,
+              appId: args.appId,
+              buildId: old.buildId,
+              artifactPrefix: old.artifactPrefix,
+            },
+          );
+        }
+      }
     }
     await ctx.db.patch(build._id, { status: "active", updatedAt: args.now });
     await ctx.db.patch(app._id, {
@@ -5539,6 +5583,65 @@ export const activateBuildInternal = internalMutation({
       updatedAt: args.now,
     });
     return null;
+  },
+});
+
+export const deleteSupersededBuildInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    appId: v.string(),
+    buildId: v.string(),
+    artifactPrefix: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const build = await ctx.db
+      .query("cloud_app_builds")
+      .withIndex("by_buildId", (q) => q.eq("buildId", args.buildId))
+      .unique();
+    if (
+      !build ||
+      build.ownerId !== args.ownerId ||
+      build.appId !== args.appId ||
+      build.status !== "retiring" ||
+      build.artifactPrefix !== args.artifactPrefix
+    ) {
+      return false;
+    }
+    await ctx.db.delete(build._id);
+    return true;
+  },
+});
+
+export const claimSupersededBuildRetirementInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    appId: v.string(),
+    buildId: v.string(),
+    artifactPrefix: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const build = await ctx.db
+      .query("cloud_app_builds")
+      .withIndex("by_buildId", (q) => q.eq("buildId", args.buildId))
+      .unique();
+    if (
+      !build ||
+      build.ownerId !== args.ownerId ||
+      build.appId !== args.appId ||
+      build.artifactPrefix !== args.artifactPrefix ||
+      (build.status !== "superseded" && build.status !== "retiring")
+    ) {
+      return false;
+    }
+    if (build.status === "superseded") {
+      await ctx.db.patch(build._id, {
+        status: "retiring",
+        updatedAt: Date.now(),
+      });
+    }
+    return true;
   },
 });
 
@@ -6823,6 +6926,14 @@ export const routeCloudTurnInternal = internalAction({
       await failTurn("Stella couldn't find that app. Try again.");
       return null;
     }
+    const dailyAllowance = await ctx.runMutation(
+      consumeCloudAppOperationDailyRef,
+      { ownerId: args.ownerId, now: Date.now() },
+    );
+    if (!dailyAllowance.allowed) {
+      await failTurn("Stella's daily app-operation limit has been reached.");
+      return null;
+    }
     const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
     if (!apiKey) {
       await failTurn("Stella couldn't start on this. Try again in a moment.");
@@ -6847,12 +6958,46 @@ export const routeCloudTurnInternal = internalAction({
       },
     });
     let executionOutcome: "succeeded" | "failed" = "failed";
+    const routeSystemPrompt = [
+      "You are Stella's cloud app agent. The user already runs the app",
+      ` "${app.title}" and is asking for something in chat.`,
+      " Prefer operating the running app over rebuilding it: if the",
+      " request can be satisfied by one of the app's operations, return",
+      ' {"decision":"operation","name":"<operation-name>","args":{...}}',
+      " with arguments matching the declared names and types exactly.",
+      ' Return {"decision":"build"} only for structural, visual, or code',
+      " changes (new features, layout, styling, copy baked into the UI)",
+      " or when no operation fits the request. The app's operations:",
+      ` ${manifestRow.manifestJson}`,
+      " Respond with only the JSON object, no markdown.",
+    ].join("");
+    const routeInputTokens = Math.max(
+      1,
+      Math.ceil((routeSystemPrompt.length + args.prompt.length) / 3),
+    );
+    const fallbackCostMicroCents = estimateManagedModelFallbackCostMicroCents({
+      model: CLOUD_APP_ROUTE_MODEL,
+      inputTokens: routeInputTokens,
+      maxOutputTokens: CLOUD_APP_ROUTE_MAX_OUTPUT_TOKENS,
+    });
+    const requestFingerprint = await createManagedDispatchRequestFingerprint(
+      "cloud-app-operation-router",
+      `${args.ownerId}\0${args.ownerGeneration}\0${args.turnId}`,
+    );
     try {
       let decision: RouteDecision | undefined;
       try {
         decision = await runManagedDispatchAttempt({
           dispatchGuard,
-          run: async (signal) => {
+          billing: {
+            kind: MANAGED_USAGE_BILLING_KIND,
+            requestFingerprint,
+            agentType: "cloud_app_operation_router",
+            model: CLOUD_APP_ROUTE_MODEL,
+            fallbackCostMicroCents,
+          },
+          run: async (signal, receipt) => {
+            const startedAt = Date.now();
             const upstream = await fetch(
               "https://api.anthropic.com/v1/messages",
               {
@@ -6863,21 +7008,9 @@ export const routeCloudTurnInternal = internalAction({
                   "anthropic-version": "2023-06-01",
                 },
                 body: JSON.stringify({
-                  model: "claude-haiku-4-5-20251001",
-                  max_tokens: 300,
-                  system: [
-                    "You are Stella's cloud app agent. The user already runs the app",
-                    ` "${app?.title ?? "app"}" and is asking for something in chat.`,
-                    " Prefer operating the running app over rebuilding it: if the",
-                    " request can be satisfied by one of the app's operations, return",
-                    ' {"decision":"operation","name":"<operation-name>","args":{...}}',
-                    " with arguments matching the declared names and types exactly.",
-                    ' Return {"decision":"build"} only for structural, visual, or code',
-                    " changes (new features, layout, styling, copy baked into the UI)",
-                    " or when no operation fits the request. The app's operations:",
-                    ` ${manifestRow.manifestJson}`,
-                    " Respond with only the JSON object, no markdown.",
-                  ].join(""),
+                  model: CLOUD_APP_ROUTE_MODEL,
+                  max_tokens: CLOUD_APP_ROUTE_MAX_OUTPUT_TOKENS,
+                  system: routeSystemPrompt,
                   messages: [{ role: "user", content: args.prompt }],
                 }),
                 signal,
@@ -6886,7 +7019,34 @@ export const routeCloudTurnInternal = internalAction({
             const payload = (await upstream.json()) as {
               content?: Array<{ type?: string; text?: string }>;
               error?: { message?: string };
+              usage?: {
+                input_tokens?: number;
+                output_tokens?: number;
+                cache_read_input_tokens?: number;
+                cache_creation_input_tokens?: number;
+              };
             };
+            const inputTokens = payload.usage?.input_tokens ?? routeInputTokens;
+            const outputTokens = payload.usage?.output_tokens ?? 0;
+            await receipt.captureUsage({
+              durationMs: Math.max(0, Date.now() - startedAt),
+              success: upstream.ok,
+              inputTokens,
+              outputTokens,
+              totalTokens: inputTokens + outputTokens,
+              ...(payload.usage?.cache_read_input_tokens !== undefined
+                ? { cachedInputTokens: payload.usage.cache_read_input_tokens }
+                : {}),
+              ...(payload.usage?.cache_creation_input_tokens !== undefined
+                ? {
+                    cacheWriteInputTokens:
+                      payload.usage.cache_creation_input_tokens,
+                  }
+                : {}),
+              ...(!payload.usage
+                ? { costMicroCents: fallbackCostMicroCents }
+                : {}),
+            });
             if (!upstream.ok) {
               throw new Error(
                 payload.error?.message ?? "Routing model failed.",

@@ -12,6 +12,14 @@ import {
   type CapabilitySigningKey,
   type UnsignedCapabilityClaims,
 } from "@stella/contracts/gateway/jwt";
+import {
+  deviceKeyHash,
+  deviceKeyProofForExchange,
+  dpopHeaders,
+  exportRawPublicKey,
+  generateDpopKeyPair,
+  type DpopAlgorithm,
+} from "@stella/contracts/gateway/dpop";
 import type { GatewayConfigSnapshot } from "@stella/contracts/gateway/usage";
 
 // `cloudflare:workers` only exists inside workerd. The ledger DO extends its
@@ -235,17 +243,100 @@ const baseSessionClaims = (): UnsignedCapabilityClaims => ({
   kind: "session",
   audience: "pro",
   budgetMicroCents: 50_000_000,
+  dpk: TEST_DEVICE_KEY_HASH,
 });
+
+const testDevice = await (async () => {
+  const generated = await generateDpopKeyPair();
+  const rawPublicKey = await exportRawPublicKey(generated.keyPair.publicKey);
+  return {
+    alg: generated.alg,
+    privateKey: generated.keyPair.privateKey,
+    rawPublicKey,
+    hash: await deviceKeyHash(rawPublicKey),
+  };
+})();
+
+export const TEST_DEVICE_KEY_HASH = testDevice.hash;
+
+type SessionDpopIdentity = {
+  claims: GatewayCapabilityClaims;
+  alg: DpopAlgorithm;
+  privateKey: CryptoKey;
+  rawPublicKey: Uint8Array;
+};
+
+const sessionDpopIdentities = new Map<string, SessionDpopIdentity>();
 
 export const signSession = async (
   overrides: Partial<UnsignedCapabilityClaims> = {},
   options: { ttlMs?: number; now?: number; key?: CapabilitySigningKey } = {},
-): Promise<{ token: string; claims: GatewayCapabilityClaims }> =>
-  signCapability(
+): Promise<{ token: string; claims: GatewayCapabilityClaims }> => {
+  const signed = await signCapability(
     { ...baseSessionClaims(), ...overrides },
     options.key ?? issuers.convex.signing,
     { ttlMs: options.ttlMs ?? 60 * 60_000, now: options.now },
   );
+  sessionDpopIdentities.set(signed.token, {
+    claims: signed.claims,
+    alg: testDevice.alg,
+    privateKey: testDevice.privateKey,
+    rawPublicKey: testDevice.rawPublicKey,
+  });
+  return signed;
+};
+
+export const testDeviceKeyProof = async (args: {
+  ownerId: string;
+  gatewayOrigin?: string;
+  now?: number;
+}) =>
+  await deviceKeyProofForExchange({
+    alg: testDevice.alg,
+    privateKey: testDevice.privateKey,
+    rawPublicKey: testDevice.rawPublicKey,
+    ownerId: args.ownerId,
+    gatewayOrigin: args.gatewayOrigin ?? "https://gateway.test",
+    now: args.now ?? Date.now(),
+  });
+
+let testRequestSequence = 0;
+
+/** Add a valid proof for session tokens minted by `signSession`. */
+export const withTestDpop = async (
+  request: Request,
+  options: { now?: number; requestId?: string | null } = {},
+): Promise<Request> => {
+  const token = /^Bearer\s+(\S+)$/iu.exec(
+    request.headers.get("authorization") ?? "",
+  )?.[1];
+  const identity = token ? sessionDpopIdentities.get(token) : undefined;
+  if (!identity) return request;
+  const headers = new Headers(request.headers);
+  const requestId =
+    options.requestId === null
+      ? ""
+      : (options.requestId ?? headers.get("x-stella-request-id")?.trim()) ||
+        `test-dpop-${++testRequestSequence}`;
+  if (requestId) headers.set("x-stella-request-id", requestId);
+  else headers.delete("x-stella-request-id");
+  const proof = await dpopHeaders({
+    alg: identity.alg,
+    privateKey: identity.privateKey,
+    rawPublicKey: identity.rawPublicKey,
+    method: request.method,
+    pathname: new URL(request.url).pathname,
+    jti: identity.claims.jti,
+    requestId,
+    now: options.now ?? Date.now(),
+  });
+  for (const [name, value] of Object.entries(proof)) headers.set(name, value);
+  const proven = new Request(request, { headers });
+  if ("cf" in request) {
+    Object.defineProperty(proven, "cf", { value: request.cf });
+  }
+  return proven;
+};
 
 export const signTurn = async (
   overrides: Partial<UnsignedCapabilityClaims> = {},

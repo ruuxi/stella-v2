@@ -4,6 +4,7 @@ export type XBotMention = {
   authorId: string;
   authorUsername: string;
   authorName: string;
+  authorCreatedAt?: string;
   parentId: string;
 };
 
@@ -67,6 +68,7 @@ export const parseXBotMentions = (
     const authorId = readString(user?.id_str) ?? readString(user?.id);
     const authorUsername = readString(user?.screen_name);
     const authorName = readString(user?.name) ?? authorUsername;
+    const authorCreatedAt = readString(user?.created_at) ?? undefined;
     const parentId =
       readString(event?.in_reply_to_status_id_str) ??
       readString(event?.in_reply_to_status_id);
@@ -91,6 +93,7 @@ export const parseXBotMentions = (
       authorId,
       authorUsername,
       authorName,
+      ...(authorCreatedAt ? { authorCreatedAt } : {}),
       parentId,
     });
   }
@@ -121,6 +124,7 @@ const parseXActivityMention = (
     .find((candidate) => readString(candidate?.id) === authorId);
   const authorUsername = readString(author?.username);
   const authorName = readString(author?.name) ?? authorUsername;
+  const authorCreatedAt = readString(author?.created_at) ?? undefined;
   const parentId =
     readString(post?.in_reply_to_tweet_id) ??
     readRepliedToPostId(post?.referenced_tweets);
@@ -144,8 +148,22 @@ const parseXActivityMention = (
     authorId,
     authorUsername,
     authorName,
+    ...(authorCreatedAt ? { authorCreatedAt } : {}),
     parentId,
   };
+};
+
+export const X_BOT_MIN_ACCOUNT_AGE_MS = 7 * 24 * 60 * 60_000;
+
+export const isXAccountYoungerThanMinimum = (
+  createdAt: string | undefined,
+  now = Date.now(),
+): boolean => {
+  if (!createdAt) return false;
+  const timestamp = Date.parse(createdAt);
+  return (
+    Number.isFinite(timestamp) && now - timestamp < X_BOT_MIN_ACCOUNT_AGE_MS
+  );
 };
 
 const readRepliedToPostId = (value: unknown): string | null => {
@@ -284,7 +302,10 @@ const clampText = (value: string, maxCharacters: number): string => {
   if (characters.length <= maxCharacters) {
     return characters.join("");
   }
-  return `${characters.slice(0, maxCharacters - 1).join("").trimEnd()}…`;
+  return `${characters
+    .slice(0, maxCharacters - 1)
+    .join("")
+    .trimEnd()}…`;
 };
 
 export const parseXBotReplyPlan = (payload: unknown): XBotReplyPlan | null => {
@@ -316,7 +337,9 @@ export const parseXBotReplyPlan = (payload: unknown): XBotReplyPlan | null => {
 
 const X_USERNAME_PATTERN = /^[A-Za-z0-9_]{1,15}$/;
 
-export const parseXBotPromoterUsernames = (value: string | undefined): string[] =>
+export const parseXBotPromoterUsernames = (
+  value: string | undefined,
+): string[] =>
   (value ?? "")
     .split(",")
     .map((entry) => entry.trim().replace(/^@/, "").toLowerCase())

@@ -1,9 +1,24 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import {
   GATEWAY_AGENT_TYPE_HEADER,
   GATEWAY_REQUEST_ID_HEADER,
 } from "@stella/contracts/gateway/api";
+import {
+  deviceKeyHash,
+  exportRawPublicKey,
+  generateDpopKeyPair,
+  signDpopInput,
+  verifyDpopRequest,
+} from "@stella/contracts/gateway/dpop";
 import { STELLA_DEFAULT_MODEL } from "../../../src/shared/stella-api.js";
 
 const mocks = vi.hoisted(() => ({
@@ -21,7 +36,40 @@ vi.mock("@/global/auth/services/auth-token", () => ({
 const GATEWAY_ORIGIN = "https://gateway.example";
 const SESSION_URL = `${GATEWAY_ORIGIN}/v1/capabilities/session`;
 const CHAT_URL = `${GATEWAY_ORIGIN}/v1/relay/chat/completions`;
-const JWT = "better-auth-jwt";
+const jwtFor = (claims: Record<string, unknown>): string =>
+  `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
+const JWT = jwtFor({ iss: "https://issuer.example", sub: "user-1" });
+const capabilityFor = (number: number): string =>
+  jwtFor({ jti: `capability-${number}` });
+
+let deviceKey: {
+  rawPublicKey: Uint8Array;
+  signDevice(input: string): Promise<{
+    alg: "ed25519";
+    rawPublicKey: number[];
+    signature: string;
+  }>;
+};
+
+beforeAll(async () => {
+  const generated = await generateDpopKeyPair();
+  if (generated.alg !== "ed25519") {
+    throw new Error("The renderer relay test requires Ed25519 WebCrypto.");
+  }
+  const rawPublicKey = await exportRawPublicKey(generated.keyPair.publicKey);
+  deviceKey = {
+    rawPublicKey,
+    signDevice: async (input) => ({
+      alg: generated.alg,
+      rawPublicKey: Array.from(rawPublicKey),
+      signature: await signDpopInput(
+        generated.alg,
+        generated.keyPair.privateKey,
+        input,
+      ),
+    }),
+  };
+});
 
 type FetchCall = { url: string; init: RequestInit };
 
@@ -49,7 +97,7 @@ const installGateway = (
       if (url === SESSION_URL) {
         minted += 1;
         return json({
-          capability: `capability-${minted}`,
+          capability: capabilityFor(minted),
           expiresAt: Date.now() + 60 * 60 * 1000,
           audience: "free",
           budgetMicroCents: 1,
@@ -86,6 +134,14 @@ describe("Stella LLM helper", () => {
     mocks.query.mockReset().mockResolvedValue({ origin: `${GATEWAY_ORIGIN}/` });
     mocks.getConvexToken.mockReset().mockResolvedValue(JWT);
     globalThis.fetch = originalFetch;
+    vi.stubGlobal("window", {
+      electronAPI: { system: { signDevice: deviceKey.signDevice } },
+    });
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.unstubAllGlobals();
   });
 
   it("exchanges the JWT for a capability and posts a non-streaming completion to the gateway", async () => {
@@ -97,17 +153,30 @@ describe("Stella LLM helper", () => {
     const [session] = gateway.sessionCalls();
     expect(session).toBeDefined();
     expect(headersOf(session!).Authorization).toBe(`Bearer ${JWT}`);
-    expect(bodyOf(session!)).toEqual({});
+    expect(bodyOf(session!)).toMatchObject({ deviceKey: expect.any(Object) });
 
     const [chat] = gateway.chatCalls();
     expect(chat).toBeDefined();
     expect(chat!.url).toBe(CHAT_URL);
     expect(chat!.init.method).toBe("POST");
     const headers = headersOf(chat!);
-    expect(headers.Authorization).toBe("Bearer capability-1");
+    expect(headers.Authorization).toBe(`Bearer ${capabilityFor(1)}`);
     expect(headers[GATEWAY_AGENT_TYPE_HEADER]).toBe("app");
     expect(headers["Content-Type"]).toBe("application/json");
     expect(headers[GATEWAY_REQUEST_ID_HEADER]).toEqual(expect.any(String));
+    const requestId = headers[GATEWAY_REQUEST_ID_HEADER];
+    const dpopTimestamp = Number(headers["x-stella-dpop-ts"]);
+    await expect(
+      verifyDpopRequest({
+        headers: new Headers(headers),
+        method: "POST",
+        pathname: "/v1/relay/chat/completions",
+        jti: "capability-1",
+        requestId,
+        expectedDeviceKeyHash: await deviceKeyHash(deviceKey.rawPublicKey),
+        now: dpopTimestamp,
+      }),
+    ).resolves.toMatchObject({ ok: true });
     expect(bodyOf(chat!)).toEqual({
       model: STELLA_DEFAULT_MODEL,
       messages: [{ role: "user", content: "Summarize this." }],
@@ -200,7 +269,7 @@ describe("Stella LLM helper", () => {
     const headers = headersOf(chat!);
     expect(headers[GATEWAY_AGENT_TYPE_HEADER]).toBe("dictation");
     expect(headers["X-Test"]).toBe("1");
-    expect(headers.Authorization).toBe("Bearer capability-1");
+    expect(headers.Authorization).toBe(`Bearer ${capabilityFor(1)}`);
     expect(bodyOf(chat!)).toEqual({
       model: "stella/inception/mercury-2",
       max_tokens: 512,
@@ -234,9 +303,9 @@ describe("Stella LLM helper", () => {
     expect(mocks.query).toHaveBeenCalledTimes(1);
     const chats = gateway.chatCalls();
     expect(chats.map((call) => headersOf(call).Authorization)).toEqual([
-      "Bearer capability-1",
-      "Bearer capability-1",
-      "Bearer capability-2",
+      `Bearer ${capabilityFor(1)}`,
+      `Bearer ${capabilityFor(1)}`,
+      `Bearer ${capabilityFor(2)}`,
     ]);
     // The retry replays the same idempotency key with the new capability.
     expect(headersOf(chats[2]!)[GATEWAY_REQUEST_ID_HEADER]).toBe(
@@ -269,7 +338,10 @@ describe("Stella LLM helper", () => {
       expect(gateway.sessionCalls()).toHaveLength(2);
       expect(
         gateway.chatCalls().map((call) => headersOf(call).Authorization),
-      ).toEqual(["Bearer capability-1", "Bearer capability-2"]);
+      ).toEqual([
+        `Bearer ${capabilityFor(1)}`,
+        `Bearer ${capabilityFor(2)}`,
+      ]);
       expect(
         gateway
           .chatCalls()
@@ -332,6 +404,29 @@ describe("Stella LLM helper", () => {
     await expect(callStellaLlmText("x")).rejects.toThrow(
       "Stella LLM call failed with HTTP 403 (model_forbidden: not for this audience)",
     );
+  });
+
+  it("surfaces dpop_invalid without re-exchanging", async () => {
+    const gateway = installGateway([
+      () =>
+        json(
+          {
+            error: {
+              code: "dpop_invalid",
+              message: "bad device proof",
+              retryable: false,
+            },
+          },
+          401,
+        ),
+    ]);
+    const { callStellaLlmText } = await loadLlm();
+
+    await expect(callStellaLlmText("x")).rejects.toThrow(
+      "This device could not be verified. Restart Stella and try again.",
+    );
+    expect(gateway.sessionCalls()).toHaveLength(1);
+    expect(gateway.chatCalls()).toHaveLength(1);
   });
 
   it("fails readably when the deployment advertises no gateway", async () => {

@@ -28,6 +28,7 @@ const OWNER_ID = "https://convex.test|gateway-owner";
 const OWNER_GENERATION = "gateway-generation";
 const ANON_OWNER_ID = "https://convex.test|gateway-anon";
 const ANON_MAX_REQUESTS = 3;
+const DEVICE_KEY_HASH = "A".repeat(43);
 
 const toPem = (pkcs8: Uint8Array) => {
   let binary = "";
@@ -147,31 +148,40 @@ const usageEvent = (
 
 const readLedger = (t: Harness) =>
   t.run(async (ctx) => {
-    const [logs, window, anonymousLogs, anonymousWindow, receipts, anonRows] =
-      await Promise.all([
-        ctx.db
-          .query("usage_logs")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", OWNER_ID),
-          )
-          .collect(),
-        ctx.db
-          .query("billing_usage_windows")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", OWNER_ID))
-          .unique(),
-        ctx.db
-          .query("usage_logs")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ANON_OWNER_ID),
-          )
-          .collect(),
-        ctx.db
-          .query("billing_usage_windows")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ANON_OWNER_ID))
-          .unique(),
-        ctx.db.query("gateway_usage_receipts").collect(),
-        ctx.db.query("anon_device_usage").collect(),
-      ]);
+    const [
+      logs,
+      window,
+      anonymousLogs,
+      anonymousWindow,
+      receipts,
+      anonRows,
+      riskSignals,
+    ] = await Promise.all([
+      ctx.db
+        .query("usage_logs")
+        .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", OWNER_ID))
+        .collect(),
+      ctx.db
+        .query("billing_usage_windows")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", OWNER_ID))
+        .unique(),
+      ctx.db
+        .query("usage_logs")
+        .withIndex("by_ownerId_and_createdAt", (q) =>
+          q.eq("ownerId", ANON_OWNER_ID),
+        )
+        .collect(),
+      ctx.db
+        .query("billing_usage_windows")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", ANON_OWNER_ID))
+        .unique(),
+      ctx.db.query("gateway_usage_receipts").collect(),
+      ctx.db.query("anon_device_usage").collect(),
+      ctx.db
+        .query("owner_risk_signals")
+        .withIndex("by_owner_window", (q) => q.eq("ownerId", OWNER_ID))
+        .collect(),
+    ]);
     return {
       logs,
       window,
@@ -179,6 +189,7 @@ const readLedger = (t: Harness) =>
       anonymousWindow,
       receipts,
       anonRows,
+      riskSignals,
     };
   });
 
@@ -261,6 +272,7 @@ describe("POST /api/gateway/usage", () => {
           requestId: "req-native",
           billable: false,
           chargedMicroCents: 0,
+          networkClass: "hosting",
         }),
         usageEvent({
           requestId: "req-stale",
@@ -339,6 +351,17 @@ describe("POST /api/gateway/usage", () => {
     ]);
     expect(ledger.anonRows).toHaveLength(1);
     expect(ledger.anonRows[0]?.requestCount).toBe(1);
+    expect(ledger.riskSignals).toHaveLength(2);
+    expect(ledger.riskSignals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          requests: 4,
+          chargedMicroCents: 1_284,
+          hostingRequests: 1,
+          failedRequests: 1,
+        }),
+      ]),
+    );
 
     const replay = await post(t, CONVEX_GATEWAY_USAGE_PATH, batch);
     expect(await replay.json()).toEqual({
@@ -362,6 +385,7 @@ describe("POST /api/gateway/usage", () => {
     expect(after.anonymousWindow).toMatchObject({ totalUsageMicroCents: 500 });
     expect(after.receipts).toHaveLength(5);
     expect(after.anonRows.every((row) => row.requestCount === 1)).toBe(true);
+    expect(after.riskSignals.every((row) => row.requests === 4)).toBe(true);
   });
 
   it("treats a request id repeated inside one batch as a duplicate", async () => {
@@ -379,6 +403,53 @@ describe("POST /api/gateway/usage", () => {
       rejected: [],
     });
     expect((await readLedger(t)).logs).toHaveLength(1);
+  });
+
+  it("rejects usage whose proved device differs from the grant", async () => {
+    const t = await createTest();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("gateway_capability_grants", {
+        jti: "device-bound-capability",
+        ownerId: OWNER_ID,
+        ownerGeneration: OWNER_GENERATION,
+        deviceKeyHash: DEVICE_KEY_HASH,
+        audience: "free",
+        budgetMicroCents: 1_000_000,
+        issuedAt: 1,
+        expiresAt: Date.now() + 60_000,
+        settledMicroCents: 0,
+        settledRequests: 0,
+        released: false,
+      });
+    });
+    const response = await post(t, CONVEX_GATEWAY_USAGE_PATH, {
+      v: 1,
+      events: [
+        usageEvent({
+          requestId: "wrong-device",
+          capabilityId: "device-bound-capability",
+          deviceKeyHash: "B".repeat(43),
+        }),
+        usageEvent({
+          requestId: "missing-device",
+          capabilityId: "device-bound-capability",
+        }),
+      ],
+    });
+    expect(await response.json()).toEqual({
+      accepted: [],
+      duplicate: [],
+      rejected: [
+        {
+          requestId: "wrong-device",
+          reason: "capability_device_mismatch",
+        },
+        {
+          requestId: "missing-device",
+          reason: "capability_device_mismatch",
+        },
+      ],
+    });
   });
 
   it("rejects malformed batches", async () => {
@@ -561,9 +632,19 @@ describe("POST /api/gateway/session-capability", () => {
   it("mints a capability for a known owner and 404s for unknown or purging owners", async () => {
     const t = await createTest();
     const ownerId = await seedUser(t, "signed-in", false);
+    expect(
+      (
+        await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
+          ownerId,
+          isAnonymous: false,
+          deviceKeyHash: "not-base64url",
+        })
+      ).status,
+    ).toBe(400);
     const minted = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
       ownerId,
       isAnonymous: false,
+      deviceKeyHash: DEVICE_KEY_HASH,
     });
     expect(minted.status).toBe(200);
     const body = (await minted.json()) as Record<string, unknown>;
@@ -579,6 +660,7 @@ describe("POST /api/gateway/session-capability", () => {
     const unknown = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
       ownerId: "https://convex.test|nobody",
       isAnonymous: false,
+      deviceKeyHash: DEVICE_KEY_HASH,
     });
     expect(unknown.status).toBe(404);
 
@@ -592,6 +674,7 @@ describe("POST /api/gateway/session-capability", () => {
     const purging = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
       ownerId,
       isAnonymous: false,
+      deviceKeyHash: DEVICE_KEY_HASH,
     });
     expect(purging.status).toBe(404);
   });
@@ -603,6 +686,7 @@ describe("POST /api/gateway/session-capability", () => {
       ownerId,
       isAnonymous: false,
       ipHash: "network-anon",
+      deviceKeyHash: DEVICE_KEY_HASH,
     });
     expect(minted.status).toBe(200);
     expect(await minted.json()).toMatchObject({
@@ -629,12 +713,13 @@ describe("POST /api/gateway/session-capability", () => {
     const response = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
       ownerId,
       isAnonymous: false,
+      deviceKeyHash: DEVICE_KEY_HASH,
     });
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: "owner_suspended" });
   });
 
-  it("requires step-up for a challenged owner and clears it after verification", async () => {
+  it("requires step-up for a challenged owner without clearing enforcement", async () => {
     const t = await createTest();
     const ownerId = await seedUser(t, "challenged", false);
     await t.mutation(internal.owner_enforcement.setOwnerEnforcementInternal, {
@@ -647,18 +732,20 @@ describe("POST /api/gateway/session-capability", () => {
     const missing = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
       ownerId,
       isAnonymous: false,
+      deviceKeyHash: DEVICE_KEY_HASH,
     });
     expect(missing.status).toBe(403);
     expect(await missing.json()).toEqual({ error: "challenge_required" });
 
     process.env.TURNSTILE_SECRET_KEY = "turnstile-secret";
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      Response.json({ success: true }),
-    );
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(Response.json({ success: true }));
     const verified = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
       ownerId,
       isAnonymous: false,
       turnstileToken: "valid-token",
+      deviceKeyHash: DEVICE_KEY_HASH,
     });
     expect(verified.status).toBe(200);
     expect(await verified.json()).toMatchObject({ identityLevel: 1 });
@@ -671,7 +758,7 @@ describe("POST /api/gateway/session-capability", () => {
       internal.owner_enforcement.getOwnerEnforcementStateInternal,
       { ownerId },
     );
-    expect(state.enforcement).toEqual({ status: "ok" });
+    expect(state.enforcement).toMatchObject({ status: "challenged" });
     const stored = await t.run(async (ctx) =>
       ctx.db
         .query("owner_enforcement")
@@ -679,9 +766,9 @@ describe("POST /api/gateway/session-capability", () => {
         .unique(),
     );
     expect(stored).toMatchObject({
-      status: "ok",
-      actor: "challenge-passed",
-      reason: "turnstile verified",
+      status: "challenged",
+      actor: "test",
+      reason: "risk signal",
     });
   });
 
@@ -694,6 +781,7 @@ describe("POST /api/gateway/session-capability", () => {
       ownerId: freeOwner,
       isAnonymous: false,
       networkClass: "hosting",
+      deviceKeyHash: DEVICE_KEY_HASH,
     });
     expect(challenged.status).toBe(403);
     expect(await challenged.json()).toEqual({ error: "challenge_required" });
@@ -703,6 +791,7 @@ describe("POST /api/gateway/session-capability", () => {
       isAnonymous: false,
       networkClass: "hosting",
       turnstileToken: "development-token",
+      deviceKeyHash: DEVICE_KEY_HASH,
     });
     expect(verified.status).toBe(200);
 
@@ -711,6 +800,7 @@ describe("POST /api/gateway/session-capability", () => {
       isAnonymous: true,
       networkClass: "hosting",
       ipHash: "hosting-network",
+      deviceKeyHash: DEVICE_KEY_HASH,
     });
     expect(refused.status).toBe(403);
     expect(await refused.json()).toEqual({ error: "sign_in_required" });
@@ -767,6 +857,7 @@ describe("owner enforcement admin routes", () => {
     const minted = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
       ownerId,
       isAnonymous: false,
+      deviceKeyHash: DEVICE_KEY_HASH,
     });
     expect(minted.status).toBe(200);
 
@@ -797,6 +888,55 @@ describe("owner enforcement admin routes", () => {
         settledRequests: 0,
       }),
     ]);
+    expect(payload.riskSignals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ window: "1h", mints: 1 }),
+        expect.objectContaining({ window: "24h", mints: 1 }),
+      ]),
+    );
+  });
+
+  it("returns the highest-risk owners for an authenticated top query", async () => {
+    const t = await createTest();
+    await t.run(async (ctx) => {
+      for (const [ownerId, score] of [
+        ["low-risk", 10],
+        ["high-risk", 90],
+      ] as const) {
+        await ctx.db.insert("owner_risk_signals", {
+          ownerId,
+          window: "24h",
+          requests: score,
+          chargedMicroCents: score,
+          mints: score,
+          hostingRequests: 0,
+          distinctIps: 0,
+          ipHashes: [],
+          distinctConversations: 0,
+          conversationIds: [],
+          failedRequests: 0,
+          sybilFlags: 0,
+          score,
+          updatedAt: Date.now(),
+        });
+      }
+    });
+    const response = await t.fetch(
+      "/api/admin/owners/top?window=24h&by=score",
+      {
+        method: "GET",
+        headers: { authorization: "Bearer gateway-admin-secret" },
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      window: "24h",
+      by: "score",
+      owners: [
+        { ownerId: "high-risk", score: 90 },
+        { ownerId: "low-risk", score: 10 },
+      ],
+    });
   });
 });
 

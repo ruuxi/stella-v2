@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import path from "node:path";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
-import { clearSupersededDeviceId as clearStoredSupersededDeviceId, getOrCreateDeviceIdentity, } from "@stella/runtime/kernel/home/device";
+import { clearSupersededDeviceId as clearStoredSupersededDeviceId, getOrCreateDeviceIdentity, getOrCreateDeviceSigner, } from "@stella/runtime/kernel/home/device";
 import { getSoundNotificationsEnabled } from "@stella/runtime/kernel/preferences/local-preferences";
 import { deleteConnectorAccessTokens, loadConnectorTokenPayload, saveConnectorTokenPayload, } from "@stella/runtime/kernel/connectors/oauth";
 import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-home";
@@ -73,6 +73,28 @@ export const loadStellaDeviceId = async (context) => {
     }
     const identity = await loadStellaDeviceIdentity(context);
     return identity.deviceId;
+};
+
+export const loadStellaDeviceSigner = async (context) => {
+    const existingPromise = context.state.deviceSignerPromise;
+    if (existingPromise) {
+        return await existingPromise;
+    }
+    const stellaDataDirPath = context.state.stellaDataDirPath;
+    if (!stellaDataDirPath) {
+        throw new Error("Stella data directory is not initialized.");
+    }
+    const loadPromise = getOrCreateDeviceSigner(stellaDataDirPath);
+    context.state.deviceSignerPromise = loadPromise;
+    try {
+        return await loadPromise;
+    }
+    catch (error) {
+        if (context.state.deviceSignerPromise === loadPromise) {
+            context.state.deviceSignerPromise = null;
+        }
+        throw error;
+    }
 };
 
 // macOS attributes TCC (Accessibility) checks to the "responsible process",
@@ -162,6 +184,14 @@ export const createHostRunnerHandlers = (context, options) => ({
     },
     clearSupersededDeviceId: async () => {
         await options.clearSupersededDeviceId();
+    },
+    signDeviceInput: async (input) => {
+        const signer = await options.loadDeviceSigner();
+        return {
+            alg: signer.alg,
+            rawPublicKey: Array.from(signer.rawPublicKey),
+            signature: await signer.sign(input),
+        };
     },
     requestRuntimeAuthRefresh: async () => await context.services.authService.refreshRuntimeAuth(),
     getChallengeToken: async () => await context.services.authService.getChallengeToken(),
@@ -355,6 +385,7 @@ export const initializeStellaHostRunner = async (context) => {
     await ensureStellaDataDirSeededOnce(stellaAppDir, stellaDataDirPath);
     await services.securityPolicyService.loadPolicy();
     const loadDeviceIdentity = async () => await loadStellaDeviceIdentity(context);
+    const loadDeviceSigner = async () => await loadStellaDeviceSigner(context);
     const clearSupersededDeviceId = async () => await clearStoredSupersededDeviceId(stellaDataDirPath);
     clearHostRunnerSubscriptions(context);
     context.state.officePreviewBridgeStop?.();
@@ -372,6 +403,7 @@ export const initializeStellaHostRunner = async (context) => {
         },
         hostHandlers: createHostRunnerHandlers(context, {
             loadDeviceIdentity,
+            loadDeviceSigner,
             clearSupersededDeviceId,
         }),
     }));

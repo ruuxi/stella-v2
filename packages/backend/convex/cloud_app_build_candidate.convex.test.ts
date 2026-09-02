@@ -54,7 +54,7 @@ const callbackArgs = async () => ({
   turnId: TURN_ID,
   artifactPrefix: `builds/${await hashSha256Hex(OWNER_ID)}/${BUILD_ID}`,
   previewUrl: "https://apps.example.test/apps/candidate-app/",
-  metricsJson: '{"wallClockMs":42}',
+  metricsJson: '{"wallClockMs":42,"uploadedBytes":1024}',
   slug: "candidate-app",
   title: "Habit Tracker",
   now: 2,

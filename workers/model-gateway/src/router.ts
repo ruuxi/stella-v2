@@ -8,8 +8,17 @@ import {
   type GatewayProtocol,
   type GatewayResolveRequest,
 } from "@stella/contracts/gateway/api";
+import {
+  isDpopAlgorithm,
+  verifyDeviceKeyProof,
+  type GatewayDeviceKeyProof,
+} from "@stella/contracts/gateway/dpop";
 import { verifyConvexToken } from "./auth-jwt.js";
-import { authenticateCapability, bearerToken } from "./capability.js";
+import {
+  authenticateCapability,
+  bearerToken,
+  verifySessionDpop,
+} from "./capability.js";
 import { createConvexClient, type ConvexClient } from "./convex-client.js";
 import {
   errorResponse,
@@ -50,6 +59,33 @@ import {
  * Anything else is 404 `bad_request`; a wrong method is 405 `bad_request`.
  */
 const AGENT_TYPE_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/u;
+const MAX_DEVICE_PUBLIC_KEY_CHARS = 128;
+const MAX_DEVICE_SIGNATURE_CHARS = 256;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const parseDeviceKeyProof = (value: unknown): GatewayDeviceKeyProof | null => {
+  if (!isRecord(value)) return null;
+  const proof = value;
+  if (
+    !isDpopAlgorithm(proof.alg) ||
+    typeof proof.publicKey !== "string" ||
+    proof.publicKey.length > MAX_DEVICE_PUBLIC_KEY_CHARS ||
+    typeof proof.signature !== "string" ||
+    proof.signature.length > MAX_DEVICE_SIGNATURE_CHARS ||
+    typeof proof.timestamp !== "number" ||
+    !Number.isFinite(proof.timestamp)
+  ) {
+    return null;
+  }
+  return {
+    alg: proof.alg,
+    publicKey: proof.publicKey,
+    signature: proof.signature,
+    timestamp: proof.timestamp,
+  };
+};
 
 export const protocolFromRelayPath = (
   pathname: string,
@@ -119,11 +155,18 @@ const handleSessionCapability = async (
     );
   }
   const body = await readJsonObject(request, { allowEmpty: true });
+  const deviceKey = parseDeviceKeyProof(body.deviceKey);
+  if (!deviceKey) {
+    throw new GatewayError(
+      400,
+      "dpop_invalid",
+      "The device key proof is invalid: malformed.",
+    );
+  }
   const rawTurnstileToken = body.turnstileToken;
   if (
     rawTurnstileToken !== undefined &&
-    (typeof rawTurnstileToken !== "string" ||
-      rawTurnstileToken.length > 4_096)
+    (typeof rawTurnstileToken !== "string" || rawTurnstileToken.length > 4_096)
   ) {
     throw new GatewayError(
       400,
@@ -132,6 +175,21 @@ const handleSessionCapability = async (
     );
   }
   const ownerId = verified.token.ownerId;
+  const deviceProof = await verifyDeviceKeyProof({
+    proof: deviceKey,
+    ownerId,
+    // This is the public origin in the URL the client called. Clients must
+    // sign that exact origin, without the capability-exchange path.
+    gatewayOrigin: new URL(request.url).origin,
+    now: deps.now(),
+  });
+  if (!deviceProof.ok) {
+    throw new GatewayError(
+      400,
+      "dpop_invalid",
+      `The device key proof is invalid: ${deviceProof.reason}.`,
+    );
+  }
   const enforcement = await ownerEnforcementAdmission(env, ownerId, deps.now());
   if (enforcement.suspended) {
     throw new GatewayError(
@@ -184,6 +242,7 @@ const handleSessionCapability = async (
     isAnonymous: verified.token.isAnonymous,
     ipHash,
     networkClass,
+    deviceKeyHash: deviceProof.deviceKeyHash,
     ...(rawTurnstileToken !== undefined
       ? { turnstileToken: rawTurnstileToken }
       : {}),
@@ -242,6 +301,7 @@ const handleResolve = async (
     now: deps.now(),
     allowProbe: true,
   });
+  await verifySessionDpop({ request, auth, now: deps.now() });
   const body = (await readJsonObject(
     request,
   )) as Partial<GatewayResolveRequest>;

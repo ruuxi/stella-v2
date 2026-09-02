@@ -621,7 +621,7 @@ describe("build projections", () => {
       turnId,
       artifactPrefix: `builds/${ownerHash}/${buildId}`,
       previewUrl: "https://preview.stella.test/orbit-outbox",
-      metrics: { files: 3 },
+      metrics: { files: 3, uploadedBytes: 1024 },
       slug: "orbit-outbox",
       title: "Orbit",
     };

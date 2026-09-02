@@ -2,6 +2,7 @@ import type { IdentityLevel } from "@stella/contracts/gateway/api";
 import { v } from "convex/values";
 import { components } from "../_generated/api";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
 
 type IdentityReadCtx =
   | Pick<QueryCtx, "db" | "runQuery">
@@ -92,3 +93,10 @@ export const resolveIdentityLevel = async (
   if (auth.social) return 2;
   return 1;
 };
+
+export const resolveIdentityLevelInternal = internalQuery({
+  args: { ownerId: v.string() },
+  returns: identityLevelValidator,
+  handler: async (ctx, args): Promise<IdentityLevel> =>
+    await resolveIdentityLevel(ctx, args.ownerId),
+});

@@ -61,6 +61,8 @@ export type GatewayUsageEvent = {
   anonymous?: { ipHash?: string };
   /** Edge classification of the caller's network, for risk signals. */
   networkClass?: NetworkClass;
+  /** Session capabilities: the `dpk` the request proved. */
+  deviceKeyHash?: string;
 };
 
 export type GatewayUsageBatch = {
@@ -151,6 +153,8 @@ export type ConvexSessionCapabilityRequest = {
   networkClass?: NetworkClass;
   /** Turnstile token presented for step-up; Convex verifies it with the secret key. */
   turnstileToken?: string;
+  /** `dpk` the gateway verified for this exchange; recorded on the grant and origins. */
+  deviceKeyHash: string;
 };
 
 /** Convex answers the exchange with this when step-up is required and no valid token came. */

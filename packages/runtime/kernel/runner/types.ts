@@ -58,6 +58,7 @@ import type {
 } from "@stella/contracts/protocol";
 import type { LocalChatAppendEventArgs } from "../storage/shared.js";
 import type { ThreadActivityUpdatedPayload } from "@stella/contracts/local-chat";
+import type { DeviceSigner } from "../home/device.js";
 
 export type StellaHostRunnerOptions = {
   deviceId: string;
@@ -135,6 +136,7 @@ export type StellaHostRunnerOptions = {
     source: RuntimeAuthRefreshSource;
   }) => Promise<HostRuntimeAuthRefreshResult>;
   requestChallengeToken?: () => Promise<string | undefined>;
+  getDeviceSigner?: () => Promise<DeviceSigner> | DeviceSigner;
   scheduleApi?: ScheduleToolApi;
   fashionApi?: FashionToolApi;
   runtimeStore: RuntimeStore;
@@ -384,6 +386,7 @@ export type RunnerContext = {
   requestComputerUseAppApproval?: StellaHostRunnerOptions["requestComputerUseAppApproval"];
   requestRuntimeAuthRefresh?: StellaHostRunnerOptions["requestRuntimeAuthRefresh"];
   requestChallengeToken?: StellaHostRunnerOptions["requestChallengeToken"];
+  getDeviceSigner?: StellaHostRunnerOptions["getDeviceSigner"];
   scheduleApi?: ScheduleToolApi;
   fashionApi?: FashionToolApi;
   runtimeStore: RuntimeStore;

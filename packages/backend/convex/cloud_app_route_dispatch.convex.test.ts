@@ -14,6 +14,14 @@ const TURN_ID = "cloud-app-route-turn";
 
 beforeAll(() => {
   process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+  process.env.STELLA_INCLUDED_USAGE_UTILIZATION_RATE = "0.5";
+  process.env.STELLA_FREE_ROLLING_LIMIT_USD = "10";
+  process.env.STELLA_FREE_ROLLING_WINDOW_HOURS = "5";
+  process.env.STELLA_FREE_WEEKLY_LIMIT_USD = "20";
+  process.env.STELLA_FREE_MONTHLY_LIMIT_USD = "30";
+  process.env.STELLA_FREE_LIFETIME_LIMIT_USD = "10";
+  process.env.STELLA_GO_PRICE_CENTS = "1000";
+  process.env.STELLA_PRO_PRICE_CENTS = "2000";
 });
 
 afterEach(() => {
@@ -101,9 +109,7 @@ const managedLeaseState = async (t: Awaited<ReturnType<typeof createTest>>) =>
 
 describe("cloud app route model dispatch", () => {
   it("binds the physical Anthropic request to a durable exact-owner lease", async () => {
-    expect(CLOUD_APP_ROUTE_MODEL_BILLING_POLICY).toBe(
-      "stella_control_plane_overhead",
-    );
+    expect(CLOUD_APP_ROUTE_MODEL_BILLING_POLICY).toBe("managed_usage");
     const t = await createTest();
     const upstream = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({
@@ -117,6 +123,7 @@ describe("cloud app route model dispatch", () => {
             }),
           },
         ],
+        usage: { input_tokens: 120, output_tokens: 20 },
       }),
     );
 
@@ -138,6 +145,10 @@ describe("cloud app route model dispatch", () => {
         .query("usage_logs")
         .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", OWNER_ID))
         .collect(),
+      usage: await ctx.db
+        .query("billing_usage_windows")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", OWNER_ID))
+        .unique(),
     }));
     expect(state.invocation).toMatchObject({
       ownerId: OWNER_ID,
@@ -150,11 +161,26 @@ describe("cloud app route model dispatch", () => {
       ownerGeneration: OWNER_GENERATION,
       state: "terminal",
       outcome: "succeeded",
+      billing: {
+        kind: "managed_usage",
+        agentType: "cloud_app_operation_router",
+        model: "claude-haiku-4-5-20251001",
+        billingState: "billed",
+        capturedUsage: {
+          inputTokens: 120,
+          outputTokens: 20,
+          success: true,
+        },
+      },
     });
     expect(state.dispatch!.providerDeadlineAt).toBeLessThan(
       state.dispatch!.leaseExpiresAt,
     );
     expect(state.usageLogs).toEqual([]);
+    expect(state.usage).toMatchObject({
+      totalRequestCount: 1,
+      totalUsageMicroCents: expect.any(Number),
+    });
   });
 
   it("rejects incoming migration before provider I/O or route writes", async () => {

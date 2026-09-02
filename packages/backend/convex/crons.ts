@@ -27,6 +27,18 @@ const drainLateStripeCleanupRef = makeFunctionReference<"action", {}, null>(
   "stripe_operation_dispatch:drainLateStripeCleanupInternal",
 );
 
+const recomputeRiskScoresRef = makeFunctionReference<
+  "mutation",
+  { now?: number },
+  unknown
+>("risk:recomputeRiskScoresInternal");
+
+const purgeIdleTunnelsRef = makeFunctionReference<
+  "action",
+  { now?: number; limit?: number },
+  unknown
+>("cloudflare_tunnels:purgeIdleTunnelsInternal");
+
 crons.interval(
   "transient connector turn payload cleanup",
   { minutes: 5 },
@@ -136,6 +148,18 @@ crons.interval(
   "release expired gateway capability grants",
   { minutes: 10 },
   internal.gateway_capabilities.releaseExpiredGatewayCapabilityGrantsInternal,
+  {},
+);
+crons.interval(
+  "recompute owner risk scores",
+  { minutes: 15 },
+  recomputeRiskScoresRef,
+  {},
+);
+crons.interval(
+  "purge idle cloudflare tunnels",
+  { hours: 24 },
+  purgeIdleTunnelsRef,
   {},
 );
 crons.interval(

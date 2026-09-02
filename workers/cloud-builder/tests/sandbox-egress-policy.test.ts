@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  GENERAL_AGENT_EGRESS_ALLOWED_PORTS,
+  GENERAL_AGENT_EGRESS_BUDGET_BYTES,
+  GENERAL_AGENT_EGRESS_REQUESTS_PER_MINUTE,
   appBuildEgress,
+  createGeneralAgentEgress,
   egressDestinationTelemetry,
   generalAgentEgress,
 } from "../src/sandbox-egress-policy.js";
@@ -14,6 +18,12 @@ afterEach(() => {
 });
 
 describe("sandbox egress policy", () => {
+  test("uses the fixed per-turn egress limits", () => {
+    expect(GENERAL_AGENT_EGRESS_BUDGET_BYTES).toBe(500 * 1024 * 1024);
+    expect(GENERAL_AGENT_EGRESS_REQUESTS_PER_MINUTE).toBe(120);
+    expect(GENERAL_AGENT_EGRESS_ALLOWED_PORTS).toEqual([80, 443, 22]);
+  });
+
   test("telemetry contains the destination but no URL path, query, fragment, or content", () => {
     const event = egressDestinationTelemetry(
       new Request(
@@ -65,6 +75,95 @@ describe("sandbox egress policy", () => {
     expect(response.status).toBe(200);
     expect(forwarded).toBe(request);
     expect(request.bodyUsed).toBe(false);
+  });
+
+  test("general-agent egress refuses destination ports outside 80, 443, and 22", async () => {
+    let fetchCalls = 0;
+    const policy = createGeneralAgentEgress({
+      fetch: async () => {
+        fetchCalls += 1;
+        return new Response("ok");
+      },
+    });
+
+    for (const port of GENERAL_AGENT_EGRESS_ALLOWED_PORTS) {
+      const response = await policy(
+        new Request(`https://example.com:${port}/allowed`),
+        undefined,
+        { containerId: "turn-ports" },
+      );
+      expect(response.status).toBe(200);
+      await response.text();
+    }
+    const refused = await policy(
+      new Request("https://example.com:8443/refused"),
+      undefined,
+      { containerId: "turn-ports" },
+    );
+    expect(refused.status).toBe(403);
+    expect(fetchCalls).toBe(3);
+  });
+
+  test("connection rate is capped per turn and rolls after one minute", async () => {
+    let now = 10_000;
+    let fetchCalls = 0;
+    const policy = createGeneralAgentEgress({
+      fetch: async () => {
+        fetchCalls += 1;
+        return new Response(null, { status: 204 });
+      },
+      now: () => now,
+      limits: { budgetBytes: 1_000, requestsPerMinute: 2 },
+    });
+    const request = () => new Request("https://example.com/rate");
+
+    expect(
+      (await policy(request(), undefined, { containerId: "turn-a" })).status,
+    ).toBe(204);
+    expect(
+      (await policy(request(), undefined, { containerId: "turn-a" })).status,
+    ).toBe(204);
+    expect(
+      (await policy(request(), undefined, { containerId: "turn-a" })).status,
+    ).toBe(429);
+    expect(
+      (await policy(request(), undefined, { containerId: "turn-b" })).status,
+    ).toBe(204);
+
+    now += 60_001;
+    expect(
+      (await policy(request(), undefined, { containerId: "turn-a" })).status,
+    ).toBe(204);
+    expect(fetchCalls).toBe(4);
+  });
+
+  test("response bytes exhaust a per-turn budget and emit egress_budget telemetry", async () => {
+    const events: string[] = [];
+    console.log = (value?: unknown) => events.push(String(value));
+    const policy = createGeneralAgentEgress({
+      fetch: async () => new Response("abc"),
+      limits: { budgetBytes: 5, requestsPerMinute: 120 },
+    });
+    const request = () => new Request("https://example.com/download");
+
+    const first = await policy(request(), undefined, { containerId: "turn-a" });
+    expect(await first.text()).toBe("abc");
+    const second = await policy(request(), undefined, {
+      containerId: "turn-a",
+    });
+    expect(await second.text()).toBe("abc");
+    const refused = await policy(request(), undefined, {
+      containerId: "turn-a",
+    });
+    expect(refused.status).toBe(403);
+
+    const otherTurn = await policy(request(), undefined, {
+      containerId: "turn-b",
+    });
+    expect(await otherTurn.text()).toBe("abc");
+    expect(
+      events.some((event) => event.includes('"reason":"egress_budget"')),
+    ).toBe(true);
   });
 
   test("app builds fail closed without invoking upstream fetch", async () => {

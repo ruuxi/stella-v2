@@ -204,9 +204,7 @@ const createReply = async (
   return created;
 };
 
-const generateReplyPlan = async (
-  prompt: string,
-): Promise<XBotReplyPlan> => {
+const generateReplyPlan = async (prompt: string): Promise<XBotReplyPlan> => {
   const client = new OpenAI({
     apiKey: requireEnv("OPENAI_API_KEY"),
     maxRetries: 2,
@@ -323,14 +321,11 @@ export const renderXBotCard = async (input: {
     ...input,
     logoDataUri: X_BOT_LOGO_DATA_URI,
   }) as unknown as Parameters<typeof satori>[0];
-  const svg = await satori(
-    element,
-    {
-      width: X_BOT_CARD_WIDTH,
-      height: X_BOT_CARD_HEIGHT,
-      fonts,
-    },
-  );
+  const svg = await satori(element, {
+    width: X_BOT_CARD_WIDTH,
+    height: X_BOT_CARD_HEIGHT,
+    fonts,
+  });
   const rendered = new resvg.Resvg(svg, {
     fitTo: { mode: "width", value: X_BOT_CARD_WIDTH },
     background: "#ffffff",
@@ -346,6 +341,7 @@ export const processMention = internalAction({
     authorId: v.string(),
     authorUsername: v.string(),
     authorName: v.string(),
+    authorCreatedAt: v.optional(v.string()),
     parentId: v.string(),
   },
   returns: v.null(),
@@ -362,7 +358,9 @@ export const processMention = internalAction({
     );
 
     let mediaId: string | null = null;
-    let imageStorageId: Awaited<ReturnType<typeof ctx.storage.store>> | undefined;
+    let imageStorageId:
+      | Awaited<ReturnType<typeof ctx.storage.store>>
+      | undefined;
     try {
       const png = await renderXBotCard({
         headline: plan.headline,

@@ -1,4 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import {
+  deviceKeyHash,
+  exportRawPublicKey,
+  generateDpopKeyPair,
+  signDpopInput,
+  verifyDpopRequest,
+} from "@stella/contracts/gateway/dpop";
 
 import { createStellaRoute } from "@stella/runtime/kernel/model-routing-stella";
 import {
@@ -8,6 +23,7 @@ import {
 import { streamSimple } from "@stella/runtime/ai/stream";
 import { transformMessages } from "@stella/runtime/ai/providers/transform-messages";
 import type { Context, Message, Model } from "@stella/runtime/ai/types";
+import type { DeviceSigner } from "@stella/runtime/kernel/home/device";
 
 /**
  * Wire-shape integration tests for the Stella model-gateway path.
@@ -27,12 +43,31 @@ import type { Context, Message, Model } from "@stella/runtime/ai/types";
 const STELLA_SITE = "https://stella.example.test";
 const GATEWAY = "https://gateway.example.test";
 const RELAY = `${GATEWAY}/v1/relay`;
-const STELLA_TOKEN = "stella-jwt";
-const CAPABILITY = "session-capability-jwt";
+const jwtFor = (claims: Record<string, unknown>): string =>
+  `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
+const STELLA_TOKEN = jwtFor({ iss: STELLA_SITE, sub: "user-1" });
+const CAPABILITY_JTI = "session-capability-jti";
+const CAPABILITY = jwtFor({ jti: CAPABILITY_JTI });
+
+let deviceSigner: DeviceSigner;
+
+beforeAll(async () => {
+  const generated = await generateDpopKeyPair();
+  if (generated.alg !== "ed25519") {
+    throw new Error("The runtime relay test requires Ed25519 WebCrypto.");
+  }
+  deviceSigner = {
+    alg: generated.alg,
+    rawPublicKey: await exportRawPublicKey(generated.keyPair.publicKey),
+    sign: async (input) =>
+      await signDpopInput(generated.alg, generated.keyPair.privateKey, input),
+  };
+});
 
 const site = {
   baseUrl: STELLA_SITE,
   getAuthToken: () => STELLA_TOKEN,
+  getDeviceSigner: () => deviceSigner,
 };
 
 const makeRoute = (modelId: string) =>
@@ -117,6 +152,7 @@ describe("Stella gateway route shape", () => {
         authorization: string | null;
         requestId: string | null;
         body: string;
+        headers: Headers;
       }> = [];
       let capabilityNumber = 0;
       globalThis.fetch = (async (
@@ -130,11 +166,12 @@ describe("Stella gateway route shape", () => {
           authorization: request.headers.get("authorization"),
           requestId: request.headers.get("x-stella-request-id"),
           body,
+          headers: request.headers,
         });
         if (request.url.endsWith("/v1/capabilities/session")) {
           capabilityNumber += 1;
           return jsonResponse({
-            capability: `capability-${capabilityNumber}`,
+            capability: jwtFor({ jti: `capability-${capabilityNumber}` }),
             expiresAt: Date.now() + 60 * 60 * 1000,
             audience: "pro",
             budgetMicroCents: 1,
@@ -179,16 +216,70 @@ describe("Stella gateway route shape", () => {
       const relays = calls.filter((call) => call.url.includes("/v1/relay/"));
       expect(exchanges).toHaveLength(2);
       expect(relays.map((call) => call.authorization)).toEqual([
-        "Bearer capability-1",
-        "Bearer capability-2",
+        `Bearer ${jwtFor({ jti: "capability-1" })}`,
+        `Bearer ${jwtFor({ jti: "capability-2" })}`,
       ]);
       expect(relays.map((call) => call.requestId)).toEqual([
         "request-stable",
         "request-stable",
       ]);
       expect(relays[1]!.body).toBe(relays[0]!.body);
+      const expectedDeviceKeyHash = await deviceKeyHash(
+        deviceSigner.rawPublicKey,
+      );
+      for (const [index, relay] of relays.entries()) {
+        const timestamp = Number(relay.headers.get("x-stella-dpop-ts"));
+        await expect(
+          verifyDpopRequest({
+            headers: relay.headers,
+            method: "POST",
+            pathname: "/v1/relay/responses",
+            jti: `capability-${index + 1}`,
+            requestId: "request-stable",
+            expectedDeviceKeyHash,
+            now: timestamp,
+          }),
+        ).resolves.toMatchObject({ ok: true });
+      }
     });
   }
+
+  it("surfaces dpop_invalid without re-exchanging the session capability", async () => {
+    const calls = captureRequest(
+      () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "dpop_invalid",
+              message: "bad device proof",
+              retryable: false,
+            },
+          }),
+          { status: 401, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const route = makeRoute("stella/openai/gpt-5.5")!;
+    const capability = await route.getApiKey();
+
+    await expect(
+      route.model.fetch!(`${RELAY}/responses`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${capability}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ model: "stella/openai/gpt-5.5" }),
+      }),
+    ).rejects.toThrow(
+      "This device could not be verified. Restart Stella and try again.",
+    );
+    expect(
+      calls.filter((call) => call.url.endsWith("/v1/capabilities/session")),
+    ).toHaveLength(1);
+    expect(calls.filter((call) => call.url.includes("/v1/relay/"))).toHaveLength(
+      1,
+    );
+  });
 
   it("Anthropic: baseUrl, api, provider, headers", () => {
     const route = makeRoute("stella/anthropic/claude-opus-4.7");
@@ -246,6 +337,7 @@ describe("Stella gateway route shape", () => {
         getAuthToken: () => null,
         hasConnectedAccount: () => true,
         refreshAuthToken: () => STELLA_TOKEN,
+        getDeviceSigner: () => deviceSigner,
       },
       agentType: "general",
       modelId: "stella/standard",

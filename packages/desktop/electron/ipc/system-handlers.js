@@ -29,6 +29,7 @@ import { getGlobalShortcutsSuspended, setGlobalShortcutsSuspended, } from "./glo
 import { createRequire } from "node:module";
 import { t } from "../services/i18n-service.js";
 import { IPC_AUTH_GET_CHALLENGE_TOKEN } from "../auth-challenge-ipc.js";
+import { isDelegatedDeviceSigningInput } from "@stella/contracts/gateway/dpop";
 let _screenCapturePermissions;
 const getScreenCapturePermissions = () => {
     if (_screenCapturePermissions !== undefined)
@@ -479,6 +480,25 @@ export const registerSystemHandlers = (options) => {
             throw new Error("Blocked untrusted device:getId request.");
         }
         return options.getDeviceId() ?? await options.loadDeviceId();
+    });
+    ipcMain.handle("auth:signDevice", async (event, input) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, "auth:signDevice")) {
+            throw new Error("Blocked untrusted device-signing request.");
+        }
+        if (typeof input !== "string" || input.length === 0 || input.length > 64 * 1024) {
+            throw new Error("Invalid device-signing input.");
+        }
+        // The device key also signs presence-socket proofs; a renderer may
+        // only obtain DPoP-shaped signatures through this channel.
+        if (!isDelegatedDeviceSigningInput(input)) {
+            throw new Error("Blocked device-signing input outside the DPoP contract.");
+        }
+        const signer = await options.loadDeviceSigner();
+        return {
+            alg: signer.alg,
+            rawPublicKey: Array.from(signer.rawPublicKey),
+            signature: await signer.sign(input),
+        };
     });
     ipcMain.handle(IPC_APP_QUIT_FOR_RESTART, (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_APP_QUIT_FOR_RESTART)) {

@@ -465,6 +465,7 @@ export const createRunnerContext = ({
   requestConnectorConnection,
   requestRuntimeAuthRefresh,
   requestChallengeToken,
+  getDeviceSigner,
   scheduleApi,
   fashionApi,
   runtimeStore,
@@ -1045,6 +1046,7 @@ export const createRunnerContext = ({
     requestCredential,
     requestRuntimeAuthRefresh,
     requestChallengeToken,
+    getDeviceSigner,
     scheduleApi,
 
     fashionApi: resolvedFashionApi,

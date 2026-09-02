@@ -28,6 +28,11 @@ export const createRunnerSiteConfig = (context: RunnerContext) => ({
   getAuthToken: () => context.state.authToken?.trim(),
   hasConnectedAccount: () => context.state.hasConnectedAccount,
   getChallengeToken: context.requestChallengeToken,
+  getDeviceSigner:
+    context.getDeviceSigner ??
+    (() => {
+      throw new Error("Stella device signing is not configured.");
+    }),
   refreshAuthToken: async () => {
     const result = await context.requestRuntimeAuthRefresh?.({
       source: "stella_provider",

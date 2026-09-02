@@ -1,11 +1,19 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  exportRawPublicKey,
+  generateDpopKeyPair,
+  signDpopInput,
+  verifyDeviceKeyProof,
+} from "@stella/contracts/gateway/dpop";
+import type { DeviceSigner } from "@stella/runtime/kernel/home/device";
 
 import {
   GATEWAY_SESSION_CAPABILITY_REFRESH_SKEW_MS,
   GatewaySessionExchangeError,
   STELLA_GATEWAY_CHALLENGE_REQUIRED_MESSAGE,
+  STELLA_GATEWAY_DEVICE_VERIFICATION_MESSAGE,
   STELLA_GATEWAY_UNCONFIGURED_MESSAGE,
-  createGatewaySessionClient,
+  createGatewaySessionClient as createGatewaySessionClientBase,
   getRememberedStellaGatewayOrigin,
   normalizeGatewayOrigin,
   rememberStellaGatewayOrigin,
@@ -13,9 +21,38 @@ import {
 } from "@stella/runtime/kernel/gateway-session";
 
 const GATEWAY = "https://gateway.example.test";
+const ISSUER = "https://issuer.example.test";
+
+let deviceSigner: DeviceSigner;
+
+beforeAll(async () => {
+  const generated = await generateDpopKeyPair();
+  if (generated.alg !== "ed25519") {
+    throw new Error("The runtime gateway test requires Ed25519 WebCrypto.");
+  }
+  deviceSigner = {
+    alg: generated.alg,
+    rawPublicKey: await exportRawPublicKey(generated.keyPair.publicKey),
+    sign: async (input) =>
+      await signDpopInput(generated.alg, generated.keyPair.privateKey, input),
+  };
+});
+
+const createGatewaySessionClient = (
+  args: Omit<
+    Parameters<typeof createGatewaySessionClientBase>[0],
+    "getDeviceSigner"
+  >,
+) =>
+  createGatewaySessionClientBase({
+    ...args,
+    getDeviceSigner: () => deviceSigner,
+  });
 
 const jwtFor = (claims: Record<string, unknown>) => {
-  const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
+  const payload = Buffer.from(
+    JSON.stringify({ iss: ISSUER, sub: "user-1", ...claims }),
+  ).toString("base64url");
   return `header.${payload}.signature`;
 };
 
@@ -108,11 +145,20 @@ describe("session capability cache", () => {
     await expect(client.getCapability()).resolves.toBe("cap-1");
     await expect(client.getCapability()).resolves.toBe("cap-1");
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toEqual({
+    expect(calls[0]).toMatchObject({
       url: `${GATEWAY}/v1/capabilities/session`,
       authorization: `Bearer ${jwtFor({ sub: "user-1", exp: 9_999_999_999 })}`,
-      body: {},
     });
+    const body = calls[0]?.body as { deviceKey?: unknown };
+    expect(body.deviceKey).toBeDefined();
+    await expect(
+      verifyDeviceKeyProof({
+        proof: body.deviceKey as Parameters<typeof verifyDeviceKeyProof>[0]["proof"],
+        ownerId: `${ISSUER}|user-1`,
+        gatewayOrigin: GATEWAY,
+        now,
+      }),
+    ).resolves.toMatchObject({ ok: true });
 
     // Just inside the refresh skew: still cached.
     now = expiresAt - GATEWAY_SESSION_CAPABILITY_REFRESH_SKEW_MS - 1;
@@ -192,8 +238,10 @@ describe("session capability cache", () => {
   });
 
   it("retries the exchange once with a refreshed JWT when the gateway answers 401", async () => {
+    const staleJwt = jwtFor({ sub: "user-1", sessionId: "stale" });
+    const freshJwt = jwtFor({ sub: "user-1", sessionId: "fresh" });
     const { calls, fetchImpl } = exchangeFetch((call) =>
-      call.authorization === "Bearer fresh-jwt"
+      call.authorization === `Bearer ${freshJwt}`
         ? capabilityResponse("cap-fresh", Date.now() + 3_600_000)
         : new Response(
             JSON.stringify({
@@ -206,10 +254,10 @@ describe("session capability cache", () => {
             { status: 401, headers: { "content-type": "application/json" } },
           ),
     );
-    const refreshAuthToken = vi.fn(async () => "fresh-jwt");
+    const refreshAuthToken = vi.fn(async () => freshJwt);
     const client = createGatewaySessionClient({
       gatewayOrigin: () => GATEWAY,
-      getAuthToken: () => "stale-jwt",
+      getAuthToken: () => staleJwt,
       refreshAuthToken,
       fetch: fetchImpl,
     });
@@ -217,8 +265,8 @@ describe("session capability cache", () => {
     await expect(client.getCapability()).resolves.toBe("cap-fresh");
     expect(refreshAuthToken).toHaveBeenCalledTimes(1);
     expect(calls.map((call) => call.authorization)).toEqual([
-      "Bearer stale-jwt",
-      "Bearer fresh-jwt",
+      `Bearer ${staleJwt}`,
+      `Bearer ${freshJwt}`,
     ]);
   });
 
@@ -242,17 +290,18 @@ describe("session capability cache", () => {
     const getChallengeToken = vi.fn(async () => "turnstile-token");
     const client = createGatewaySessionClient({
       gatewayOrigin: () => GATEWAY,
-      getAuthToken: () => "jwt",
+      getAuthToken: () => jwtFor({}),
       getChallengeToken,
       fetch: fetchImpl,
     });
 
     await expect(client.getCapability()).resolves.toBe("cap-verified");
     expect(getChallengeToken).toHaveBeenCalledTimes(1);
-    expect(calls.map((call) => call.body)).toEqual([
-      {},
-      { turnstileToken: "turnstile-token" },
-    ]);
+    expect(calls[0]?.body).toMatchObject({ deviceKey: expect.any(Object) });
+    expect(calls[1]?.body).toMatchObject({
+      deviceKey: expect.any(Object),
+      turnstileToken: "turnstile-token",
+    });
   });
 
   it("uses the human-verification copy when no challenge token is available", async () => {
@@ -271,7 +320,7 @@ describe("session capability cache", () => {
     );
     const client = createGatewaySessionClient({
       gatewayOrigin: () => GATEWAY,
-      getAuthToken: () => "jwt",
+      getAuthToken: () => jwtFor({}),
       getChallengeToken: async () => undefined,
       fetch: fetchImpl,
     });
@@ -298,7 +347,7 @@ describe("session capability cache", () => {
     );
     const client = createGatewaySessionClient({
       gatewayOrigin: () => GATEWAY,
-      getAuthToken: () => "jwt",
+      getAuthToken: () => jwtFor({}),
       fetch: fetchImpl,
     });
 
@@ -306,6 +355,35 @@ describe("session capability cache", () => {
     expect(error).toBeInstanceOf(GatewaySessionExchangeError);
     expect(error).toMatchObject({ status: 403, code: "generation_stale" });
     expect((error as Error).message).toContain("sign in again");
+  });
+
+  it("surfaces an invalid device proof without retrying", async () => {
+    const { calls, fetchImpl } = exchangeFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "dpop_invalid",
+              message: "bad device proof",
+              retryable: false,
+            },
+          }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const refreshAuthToken = vi.fn(async () => jwtFor({ sessionId: "fresh" }));
+    const client = createGatewaySessionClient({
+      gatewayOrigin: () => GATEWAY,
+      getAuthToken: () => jwtFor({ sessionId: "stale" }),
+      refreshAuthToken,
+      fetch: fetchImpl,
+    });
+
+    await expect(client.getCapability()).rejects.toThrow(
+      STELLA_GATEWAY_DEVICE_VERIFICATION_MESSAGE,
+    );
+    expect(calls).toHaveLength(1);
+    expect(refreshAuthToken).not.toHaveBeenCalled();
   });
 
   it("rejects malformed capability payloads", async () => {
@@ -318,7 +396,7 @@ describe("session capability cache", () => {
     );
     const client = createGatewaySessionClient({
       gatewayOrigin: () => GATEWAY,
-      getAuthToken: () => "jwt",
+      getAuthToken: () => jwtFor({}),
       fetch: fetchImpl,
     });
 
@@ -340,7 +418,7 @@ describe("session capability cache", () => {
 
     const noOrigin = createGatewaySessionClient({
       gatewayOrigin: () => null,
-      getAuthToken: () => "jwt",
+      getAuthToken: () => jwtFor({}),
       fetch: fetchImpl,
     });
     await expect(noOrigin.getCapability()).rejects.toThrow(

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const device = vi.hoisted(() => ({
   getOrCreateDeviceIdentity: vi.fn(),
+  getOrCreateDeviceSigner: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
@@ -15,6 +16,7 @@ vi.mock("electron", () => ({
 vi.mock("@stella/runtime/kernel/home/device", () => ({
   clearSupersededDeviceId: vi.fn(),
   getOrCreateDeviceIdentity: device.getOrCreateDeviceIdentity,
+  getOrCreateDeviceSigner: device.getOrCreateDeviceSigner,
 }));
 
 vi.mock("../../../desktop/electron/native-helper-path.js", () => ({
@@ -57,14 +59,17 @@ vi.mock("../../../desktop/electron/observability/main-logger.js", () => ({
   getMainLogger: vi.fn(() => null),
 }));
 
-const { loadStellaDeviceId, loadStellaDeviceIdentity } = await import(
-  "../../../desktop/electron/bootstrap/host-runner.js"
-);
+const {
+  loadStellaDeviceId,
+  loadStellaDeviceIdentity,
+  loadStellaDeviceSigner,
+} = await import("../../../desktop/electron/bootstrap/host-runner.js");
 
 const createContext = () => ({
   state: {
     deviceId: null as string | null,
     deviceIdentityPromise: null as Promise<unknown> | null,
+    deviceSignerPromise: null as Promise<unknown> | null,
     stellaDataDirPath: "/tmp/stella-data",
   },
 });
@@ -107,6 +112,17 @@ describe("desktop device identity readiness", () => {
     await expect(loadStellaDeviceId(context)).resolves.toBe("device-2");
 
     expect(device.getOrCreateDeviceIdentity).toHaveBeenCalledOnce();
+  });
+
+  it("loads the protected device signer once for repeated proofs", async () => {
+    const signer = { alg: "ed25519", rawPublicKey: new Uint8Array(32) };
+    device.getOrCreateDeviceSigner.mockResolvedValue(signer);
+    const context = createContext();
+
+    await expect(loadStellaDeviceSigner(context)).resolves.toBe(signer);
+    await expect(loadStellaDeviceSigner(context)).resolves.toBe(signer);
+
+    expect(device.getOrCreateDeviceSigner).toHaveBeenCalledOnce();
   });
 
   it("keeps normal startup identity loading authoritative", async () => {

@@ -1,6 +1,9 @@
 import crypto, { generateKeyPairSync } from "node:crypto";
 import path from "node:path";
-import type { DeviceIdentity } from "../kernel/home/device.js";
+import {
+  deviceSignerForIdentity,
+  type DeviceIdentity,
+} from "../kernel/home/device.js";
 import {
   getLocalLlmCredential,
   listLocalLlmCredentials,
@@ -80,12 +83,18 @@ export const createHeadlessHostHandlers = (
   auth: HeadlessAuthInput = {},
 ) => {
   const identity = createEphemeralDeviceIdentity();
+  const signer = deviceSignerForIdentity(identity);
   const publicIdentity = () => ({
     deviceId: identity.deviceId,
     publicKey: identity.publicKey,
   });
   return {
     getDeviceIdentity: async () => publicIdentity(),
+    signDeviceInput: async (input: string) => ({
+      alg: signer.alg,
+      rawPublicKey: Array.from(signer.rawPublicKey),
+      signature: await signer.sign(input),
+    }),
     requestRuntimeAuthRefresh: async () => {
       const token = auth.authToken?.trim() || null;
       return {

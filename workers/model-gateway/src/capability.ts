@@ -1,4 +1,7 @@
-import { GATEWAY_AUTHORIZATION_HEADER } from "@stella/contracts/gateway/api";
+import {
+  GATEWAY_AUTHORIZATION_HEADER,
+  GATEWAY_REQUEST_ID_HEADER,
+} from "@stella/contracts/gateway/api";
 import {
   GATEWAY_BUDGET_UNLIMITED,
   GATEWAY_CAPABILITY_AUDIENCE,
@@ -12,6 +15,7 @@ import {
   type CapabilityVerificationFailure,
   type CapabilityVerificationKeys,
 } from "@stella/contracts/gateway/jwt";
+import { verifyDpopRequest } from "@stella/contracts/gateway/dpop";
 import { GatewayError } from "./errors.js";
 
 /**
@@ -29,6 +33,57 @@ export type AuthenticatedCapability = {
    * unlimited budget that is never metered and never emits usage events.
    */
   probe: boolean;
+};
+
+const DEVICE_KEY_HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+
+const hasValidDeviceKeyHash = (claims: GatewayCapabilityClaims): boolean =>
+  claims.dpk === undefined || DEVICE_KEY_HASH_PATTERN.test(claims.dpk);
+
+/**
+ * Session requests sign the caller-provided request id. Resolve requests use
+ * an empty component when the header is absent; clients should send the header
+ * on both resolve and relay so every proof names its request explicitly.
+ */
+export const dpopRequestIdFrom = (request: Request): string =>
+  request.headers.get(GATEWAY_REQUEST_ID_HEADER)?.trim() ?? "";
+
+/**
+ * Verify possession before any owner, network, tier, or spend gate runs.
+ * Turn capabilities stay unchanged because they are already bound to one
+ * admitted data-plane turn.
+ */
+export const verifySessionDpop = async (args: {
+  request: Request;
+  auth: AuthenticatedCapability;
+  now: number;
+}): Promise<string | undefined> => {
+  const { claims, probe } = args.auth;
+  if (claims.kind !== "session" || probe) return undefined;
+  if (!claims.dpk) {
+    throw new GatewayError(
+      401,
+      "capability_invalid",
+      "The session capability is not bound to a device key.",
+    );
+  }
+  const result = await verifyDpopRequest({
+    headers: args.request.headers,
+    method: args.request.method,
+    pathname: new URL(args.request.url).pathname,
+    jti: claims.jti,
+    requestId: dpopRequestIdFrom(args.request),
+    expectedDeviceKeyHash: claims.dpk,
+    now: args.now,
+  });
+  if (!result.ok) {
+    throw new GatewayError(
+      401,
+      "dpop_invalid",
+      `The device proof is invalid: ${result.reason}.`,
+    );
+  }
+  return result.deviceKeyHash;
 };
 
 let keyCache: {
@@ -178,5 +233,8 @@ export const authenticateCapability = async (
   const keys = await verificationKeys(env);
   const result = await verifyCapability(token, keys, { now });
   if (!result.ok) throw capabilityFailureError(result.reason);
+  if (!hasValidDeviceKeyHash(result.claims)) {
+    throw capabilityFailureError("invalid_claims");
+  }
   return { claims: result.claims, probe: false };
 };

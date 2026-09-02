@@ -29,6 +29,8 @@ import {
   signTurn,
   sseResponse,
   sseText,
+  TEST_DEVICE_KEY_HASH,
+  withTestDpop,
 } from "./helpers/env.js";
 
 const responsesFixture = () =>
@@ -148,14 +150,16 @@ const setup = () => {
         call.url.pathname === "/v1/chat/completions",
       () => sseResponse(completionsFixture()),
     );
-  const run = (request: Request) =>
+  const runRaw = (request: Request) =>
     handleRequest(
       request,
       harness.env,
       fakeExecutionContext(),
       harness.deps(fetchMock.fetch),
     );
-  return { harness, fetchMock, run };
+  const run = async (request: Request) =>
+    await runRaw(await withTestDpop(request));
+  return { harness, fetchMock, run, runRaw };
 };
 
 const museBody = (extra: Record<string, unknown> = {}) => ({
@@ -187,6 +191,63 @@ describe("managed lane: authorization matrix", () => {
     expect(response.status).toBe(401);
     expect((await readError(response)).error.code).toBe("unauthorized");
     expect(response.headers.get(GATEWAY_TRACE_HEADER)).toBeTruthy();
+  });
+
+  test("session capabilities require a valid device-key hash claim", async () => {
+    for (const dpk of [undefined, "not-a-device-key-hash"]) {
+      const { token } = await signSession({ dpk });
+      const response = await ctx.run(
+        relayRequest("/v1/relay/responses", {
+          token,
+          body: museBody(),
+          headers: agentHeaders(),
+        }),
+      );
+      expect(response.status).toBe(401);
+      expect((await readError(response)).error.code).toBe("capability_invalid");
+    }
+    expect(ctx.harness.ownerGate.objects.size).toBe(0);
+    expect(ctx.harness.networkGate.objects.size).toBe(0);
+    expect(ctx.harness.ledger.objects.size).toBe(0);
+  });
+
+  test("rejects missing, stale, mismatched-key, and bad-signature request proofs before gates", async () => {
+    const { token } = await signSession();
+    const request = () =>
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: museBody(),
+        headers: agentHeaders({ "x-stella-request-id": "dpop-refusal" }),
+      });
+
+    const missing = await ctx.runRaw(request());
+    expect(missing.status).toBe(401);
+    expect((await readError(missing)).error.code).toBe("dpop_invalid");
+
+    const staleRequest = await withTestDpop(request(), {
+      now: Date.now() - 6 * 60_000,
+    });
+    const stale = await ctx.runRaw(staleRequest);
+    expect((await readError(stale)).error).toMatchObject({
+      code: "dpop_invalid",
+      retryable: false,
+    });
+
+    const mismatchedRequest = await withTestDpop(request());
+    mismatchedRequest.headers.set("x-stella-dpop-key", "A".repeat(43));
+    const mismatched = await ctx.runRaw(mismatchedRequest);
+    expect((await readError(mismatched)).error.code).toBe("dpop_invalid");
+
+    const badSignatureRequest = await withTestDpop(request());
+    badSignatureRequest.headers.set("x-stella-dpop", "A".repeat(86));
+    const badSignature = await ctx.runRaw(badSignatureRequest);
+    expect((await readError(badSignature)).error.code).toBe("dpop_invalid");
+
+    expect(ctx.harness.enforcementCalls).toHaveLength(0);
+    expect(ctx.harness.ownerGate.objects.size).toBe(0);
+    expect(ctx.harness.networkGate.objects.size).toBe(0);
+    expect(ctx.harness.ledger.objects.size).toBe(0);
+    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
   });
 
   test("suspended owners stop at KV before any gate or provider", async () => {
@@ -564,6 +625,7 @@ describe("managed lane: completion, metering, replay", () => {
       requestId: "req-abc",
       capabilityId: claims.jti,
       kind: "session",
+      deviceKeyHash: TEST_DEVICE_KEY_HASH,
       audience: "pro",
       agentType: "orchestrator",
       provider: "openrouter",
@@ -597,10 +659,7 @@ describe("managed lane: completion, metering, replay", () => {
       NETWORK_GATE: {
         idFromName: (name: string) => ({ name, toString: () => name }),
         get: () => ({
-          admitRelay: async (input: {
-            audience: string;
-            capShare: number;
-          }) => {
+          admitRelay: async (input: { audience: string; capShare: number }) => {
             relayAdmissions.push(input);
             return { ok: true };
           },
@@ -1148,6 +1207,23 @@ describe("POST /v1/models/resolve", () => {
       reasoning: true,
       supportsImages: false,
     });
+  });
+
+  test("resolve verifies session proof over its own path and supports an empty request-id component", async () => {
+    const { token } = await signSession();
+    const request = () =>
+      relayRequest("/v1/models/resolve", {
+        token,
+        body: { model: CROF_ALIAS, agentType: "orchestrator" },
+      });
+
+    const missing = await ctx.runRaw(request());
+    expect(missing.status).toBe(401);
+    expect((await readError(missing)).error.code).toBe("dpop_invalid");
+
+    const noRequestId = await withTestDpop(request(), { requestId: null });
+    expect(noRequestId.headers.has("x-stella-request-id")).toBe(false);
+    expect((await ctx.runRaw(noRequestId)).status).toBe(200);
   });
 
   test("a restricted audience falls back to the agent default; a turn capability fails closed", async () => {

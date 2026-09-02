@@ -1,4 +1,5 @@
 import { v, ConvexError } from "convex/values";
+import { makeFunctionReference } from "convex/server";
 import {
   internalAction,
   internalMutation,
@@ -15,6 +16,37 @@ import {
 
 const CF_TUNNEL_DOMAIN = "stellatunnel.com";
 const PROVISION_LEASE_MS = 3 * 60_000;
+const TUNNEL_IDLE_RETENTION_MS = 30 * 24 * 60 * 60_000;
+const TUNNEL_OWNER_LIMIT = 3;
+
+type IdleTunnelRef = {
+  id: Id<"cloudflare_tunnels">;
+  ownerId: string;
+  tunnelId: string;
+  dnsRecordId?: string;
+  tunnelName: string;
+  hostname: string;
+  lastUsedAt: number;
+  idleCleanupStartedAt: number;
+};
+
+const claimIdleTunnelCleanupBatchRef = makeFunctionReference<
+  "mutation",
+  { now: number; limit?: number },
+  IdleTunnelRef[]
+>("cloudflare_tunnels:claimIdleTunnelCleanupBatch");
+
+const deleteConfirmedIdleTunnelRef = makeFunctionReference<
+  "mutation",
+  IdleTunnelRef,
+  boolean
+>("cloudflare_tunnels:deleteConfirmedIdleTunnel");
+
+const resolveIdentityLevelRef = makeFunctionReference<
+  "query",
+  { ownerId: string },
+  0 | 1 | 2 | 3
+>("lib/identity_level:resolveIdentityLevelInternal");
 
 const requireCfAccountId = (): string => {
   const id = process.env.CF_ACCOUNT_ID?.trim();
@@ -189,7 +221,9 @@ const tunnelDocumentValidator = v.object({
   ),
   provisionGeneration: v.optional(v.string()),
   provisionLeaseExpiresAt: v.optional(v.number()),
+  idleCleanupStartedAt: v.optional(v.number()),
   createdAt: v.number(),
+  lastUsedAt: v.number(),
   updatedAt: v.number(),
 });
 
@@ -241,6 +275,16 @@ export const reserveTunnelProvision = internalMutation({
         message: "A tunnel already exists or is being provisioned.",
       });
     }
+    const ownerRows = await ctx.db
+      .query("cloudflare_tunnels")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
+      .take(TUNNEL_OWNER_LIMIT);
+    if (ownerRows.length >= TUNNEL_OWNER_LIMIT) {
+      throw new ConvexError({
+        code: "TUNNEL_LIMIT",
+        message: "This account already has the maximum number of tunnels.",
+      });
+    }
     return await ctx.db.insert("cloudflare_tunnels", {
       ownerId: args.ownerId,
       deviceId: args.deviceId,
@@ -252,6 +296,7 @@ export const reserveTunnelProvision = internalMutation({
       provisionGeneration: args.ownerGeneration,
       provisionLeaseExpiresAt: args.leaseExpiresAt,
       createdAt: args.now,
+      lastUsedAt: args.now,
       updatedAt: args.now,
     });
   },
@@ -318,6 +363,7 @@ export const finishTunnelProvision = internalMutation({
       provisionState: "ready",
       provisionGeneration: undefined,
       provisionLeaseExpiresAt: undefined,
+      lastUsedAt: args.now,
       updatedAt: args.now,
     });
     return true;
@@ -374,6 +420,33 @@ export const attachDeviceIdToTunnel = internalMutation({
   },
 });
 
+export const touchTunnelLastUsed = internalMutation({
+  args: {
+    id: v.id("cloudflare_tunnels"),
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    now: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
+    const row = await ctx.db.get(args.id);
+    if (
+      !row ||
+      row.ownerId !== args.ownerId ||
+      row.provisionState === "provisioning" ||
+      row.idleCleanupStartedAt !== undefined
+    ) {
+      return false;
+    }
+    await ctx.db.patch(row._id, {
+      lastUsedAt: args.now,
+      updatedAt: args.now,
+    });
+    return true;
+  },
+});
+
 export const upsertTunnel = internalMutation({
   args: {
     ownerId: v.string(),
@@ -404,6 +477,7 @@ export const upsertTunnel = internalMutation({
         tunnelToken: args.tunnelToken,
         hostname: args.hostname,
         dnsRecordId: args.dnsRecordId,
+        lastUsedAt: args.updatedAt,
         updatedAt: args.updatedAt,
       });
       return null;
@@ -418,6 +492,7 @@ export const upsertTunnel = internalMutation({
       hostname: args.hostname,
       dnsRecordId: args.dnsRecordId,
       createdAt: args.createdAt,
+      lastUsedAt: args.updatedAt,
       updatedAt: args.updatedAt,
     });
     return null;
@@ -551,6 +626,113 @@ export const purgeOwnerTunnels = internalAction({
   },
 });
 
+const idleTunnelRefValidator = v.object({
+  id: v.id("cloudflare_tunnels"),
+  ownerId: v.string(),
+  tunnelId: v.string(),
+  dnsRecordId: v.optional(v.string()),
+  tunnelName: v.string(),
+  hostname: v.string(),
+  lastUsedAt: v.number(),
+  idleCleanupStartedAt: v.number(),
+});
+
+export const claimIdleTunnelCleanupBatch = internalMutation({
+  args: { now: v.number(), limit: v.optional(v.number()) },
+  returns: v.array(idleTunnelRefValidator),
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(50, Math.floor(args.limit ?? 50)));
+    const rows = await ctx.db
+      .query("cloudflare_tunnels")
+      .withIndex("by_lastUsedAt", (q) =>
+        q.lt("lastUsedAt", args.now - TUNNEL_IDLE_RETENTION_MS),
+      )
+      .take(limit);
+    const claimed = [];
+    for (const row of rows) {
+      if (
+        row.provisionState === "provisioning" &&
+        (row.provisionLeaseExpiresAt ?? 0) > args.now
+      ) {
+        continue;
+      }
+      const idleCleanupStartedAt = row.idleCleanupStartedAt ?? args.now;
+      if (row.idleCleanupStartedAt === undefined) {
+        await ctx.db.patch(row._id, { idleCleanupStartedAt });
+      }
+      claimed.push({
+        id: row._id,
+        ownerId: row.ownerId,
+        tunnelId: row.tunnelId,
+        ...(row.dnsRecordId ? { dnsRecordId: row.dnsRecordId } : {}),
+        tunnelName: row.tunnelName,
+        hostname: row.hostname,
+        lastUsedAt: row.lastUsedAt,
+        idleCleanupStartedAt,
+      });
+    }
+    return claimed;
+  },
+});
+
+export const deleteConfirmedIdleTunnel = internalMutation({
+  args: idleTunnelRefValidator.fields,
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.id);
+    if (
+      !row ||
+      row.ownerId !== args.ownerId ||
+      row.tunnelId !== args.tunnelId ||
+      row.dnsRecordId !== args.dnsRecordId ||
+      row.tunnelName !== args.tunnelName ||
+      row.hostname !== args.hostname ||
+      row.lastUsedAt !== args.lastUsedAt ||
+      row.idleCleanupStartedAt !== args.idleCleanupStartedAt
+    ) {
+      return false;
+    }
+    await ctx.db.delete(row._id);
+    return true;
+  },
+});
+
+export const purgeIdleTunnelsInternal = internalAction({
+  args: { now: v.optional(v.number()), limit: v.optional(v.number()) },
+  returns: v.object({ attempted: v.number(), deleted: v.number() }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ attempted: number; deleted: number }> => {
+    const now = args.now ?? Date.now();
+    const refs = await ctx.runMutation(claimIdleTunnelCleanupBatchRef, {
+      now,
+      ...(args.limit !== undefined ? { limit: args.limit } : {}),
+    });
+    if (refs.length === 0) return { attempted: 0, deleted: 0 };
+    const credentials = {
+      apiToken: requireCfApiToken(),
+      accountId: requireCfAccountId(),
+      zoneId: requireCfZoneId(),
+    };
+    let deleted = 0;
+    for (const ref of refs) {
+      try {
+        await deleteTunnelExternalRef(ref, credentials);
+        if (await ctx.runMutation(deleteConfirmedIdleTunnelRef, ref)) {
+          deleted += 1;
+        }
+      } catch (error) {
+        console.error(
+          `[cloudflare_tunnels] Idle cleanup failed for ${ref.tunnelName}:`,
+          error,
+        );
+      }
+    }
+    return { attempted: refs.length, deleted };
+  },
+});
+
 export const getOrProvisionTunnel = internalAction({
   args: { ownerId: v.string(), deviceId: v.string() },
   returns: v.object({ tunnelToken: v.string(), hostname: v.string() }),
@@ -562,11 +744,26 @@ export const getOrProvisionTunnel = internalAction({
       ctx,
       args.ownerId,
     );
+    const identityLevel = await ctx.runQuery(resolveIdentityLevelRef, {
+      ownerId: args.ownerId,
+    });
+    if (identityLevel < 2) {
+      throw new ConvexError({
+        code: "SIGN_IN_REQUIRED",
+        message: "A Google or Apple account is required for tunnels.",
+      });
+    }
     let existing = await ctx.runQuery(
       internal.cloudflare_tunnels.getTunnelForOwnerDevice,
       { ownerId: args.ownerId, deviceId: args.deviceId },
     );
     if (existing && existing.provisionState !== "provisioning") {
+      if (existing.idleCleanupStartedAt !== undefined) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "Tunnel cleanup is in progress.",
+        });
+      }
       if (tunnelRowMissingDeviceId(existing)) {
         await ctx.runMutation(
           internal.cloudflare_tunnels.attachDeviceIdToTunnel,
@@ -577,6 +774,21 @@ export const getOrProvisionTunnel = internalAction({
             deviceId: args.deviceId,
           },
         );
+      }
+      const touched = await ctx.runMutation(
+        internal.cloudflare_tunnels.touchTunnelLastUsed,
+        {
+          id: existing._id,
+          ownerId: args.ownerId,
+          ownerGeneration,
+          now: Date.now(),
+        },
+      );
+      if (!touched) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "Tunnel state changed; retry.",
+        });
       }
       return { tunnelToken: existing.tunnelToken, hostname: existing.hostname };
     }

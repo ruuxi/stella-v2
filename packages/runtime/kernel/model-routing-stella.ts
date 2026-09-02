@@ -15,12 +15,18 @@ import {
   isMuseSpark13ContributorModel,
   type StellaRelayProvider,
 } from "@stella/contracts/stella-api";
-import { gatewayRelayBaseUrl } from "@stella/contracts/gateway/api";
+import {
+  GATEWAY_REQUEST_ID_HEADER,
+  gatewayRelayBaseUrl,
+} from "@stella/contracts/gateway/api";
 import { readConfiguredStellaSiteUrl } from "@stella/contracts/convex-urls";
 import {
+  STELLA_GATEWAY_DEVICE_VERIFICATION_MESSAGE,
   createGatewaySessionClient,
+  dpopHeadersForSessionCapability,
   getRememberedStellaGatewayOrigin,
 } from "./gateway-session.js";
+import type { DeviceSigner } from "./home/device.js";
 import type { ResolvedLlmRoute } from "./model-routing.js";
 
 /**
@@ -53,6 +59,7 @@ export type StellaSiteConfig = {
     | null
     | undefined;
   getChallengeToken?: () => Promise<string | undefined>;
+  getDeviceSigner?: () => Promise<DeviceSigner> | DeviceSigner;
   hasConnectedAccount?: () => boolean;
 };
 
@@ -401,6 +408,31 @@ const capabilityExhausted = async (response: Response): Promise<boolean> => {
   }
 };
 
+const isDpopInvalid = async (response: Response): Promise<boolean> => {
+  if (response.status !== 400 && response.status !== 401) return false;
+  try {
+    const payload = (await response.clone().json()) as unknown;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return false;
+    }
+    const error = (payload as Record<string, unknown>).error;
+    return (
+      Boolean(error) &&
+      typeof error === "object" &&
+      !Array.isArray(error) &&
+      (error as Record<string, unknown>).code === "dpop_invalid"
+    );
+  } catch {
+    return false;
+  }
+};
+
+const bearerCapability = (headers: Headers): string | null => {
+  const authorization = headers.get("authorization")?.trim() ?? "";
+  if (!authorization.toLowerCase().startsWith("bearer ")) return null;
+  return authorization.slice("bearer ".length).trim() || null;
+};
+
 const sessionCapabilityFetch = (
   session: ReturnType<typeof createGatewaySessionClient>,
 ): typeof fetch => {
@@ -411,39 +443,60 @@ const sessionCapabilityFetch = (
     const requestInput =
       typeof input === "string" || input instanceof URL ? null : input;
     const retryRequest = requestInput?.clone();
-    const retryUrl = requestInput ? requestInput.url : input;
-    const response = await fetch(input, init);
+    const requestUrl = requestInput?.url ?? input.toString();
+    const method = (init?.method ?? requestInput?.method ?? "GET").toUpperCase();
+    const sourceHeaders = new Headers(init?.headers ?? requestInput?.headers);
+    const requestId =
+      sourceHeaders.get(GATEWAY_REQUEST_ID_HEADER)?.trim() ||
+      crypto.randomUUID();
+    const proofHeaders = async (capability: string): Promise<Headers> => {
+      const headers = new Headers(sourceHeaders);
+      headers.set("authorization", `Bearer ${capability}`);
+      headers.set(GATEWAY_REQUEST_ID_HEADER, requestId);
+      const proof = await dpopHeadersForSessionCapability({
+        signer: await session.getDeviceSigner(),
+        capability,
+        method,
+        pathname: new URL(requestUrl).pathname,
+        requestId,
+        now: Date.now(),
+      });
+      for (const [name, value] of Object.entries(proof)) {
+        headers.set(name, value);
+      }
+      return headers;
+    };
+
+    const firstCapability = bearerCapability(sourceHeaders);
+    if (!firstCapability) {
+      throw new Error("Stella relay request is missing its session capability.");
+    }
+    const response = await fetch(input, {
+      ...init,
+      headers: await proofHeaders(firstCapability),
+    });
+    if (await isDpopInvalid(response)) {
+      throw new Error(STELLA_GATEWAY_DEVICE_VERIFICATION_MESSAGE);
+    }
     if (!(await capabilityExhausted(response))) return response;
     const capability = (await session.refreshCapability())?.trim();
     if (!capability) return response;
-    const headers: Record<string, string> = {};
-    const sourceHeaders = init?.headers ?? retryRequest?.headers;
-    if (sourceHeaders instanceof Headers) {
-      sourceHeaders.forEach((value, key) => {
-        headers[key] = value;
-      });
-    } else if (Array.isArray(sourceHeaders)) {
-      for (const [key, value] of sourceHeaders) headers[key] = String(value);
-    } else if (sourceHeaders) {
-      for (const [key, value] of Object.entries(sourceHeaders)) {
-        headers[key] = String(value);
-      }
-    }
-    headers.authorization = `Bearer ${capability}`;
     const retryBody =
-      retryRequest &&
-      retryRequest.method !== "GET" &&
-      retryRequest.method !== "HEAD"
+      retryRequest && method !== "GET" && method !== "HEAD"
         ? await retryRequest.arrayBuffer()
         : undefined;
-    return await fetch(retryUrl, {
+    const retried = await fetch(retryRequest?.url ?? requestUrl, {
       ...init,
       ...(retryRequest ? { method: retryRequest.method } : {}),
       ...(init?.body === undefined && retryBody !== undefined
         ? { body: retryBody }
         : {}),
-      headers,
+      headers: await proofHeaders(capability),
     });
+    if (await isDpopInvalid(retried)) {
+      throw new Error(STELLA_GATEWAY_DEVICE_VERIFICATION_MESSAGE);
+    }
+    return retried;
   };
   return Object.assign(relayFetch, { preconnect: fetch.preconnect });
 };
@@ -502,6 +555,9 @@ export const createStellaRoute = (args: {
     getAuthToken: currentAuthToken,
     refreshAuthToken: args.site.refreshAuthToken ? refreshAuthToken : undefined,
     getChallengeToken: args.site.getChallengeToken,
+    getDeviceSigner: args.site.getDeviceSigner ?? (() => {
+      throw new Error("Stella device signing is not configured.");
+    }),
   });
 
   return {

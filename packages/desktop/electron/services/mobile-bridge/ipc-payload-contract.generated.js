@@ -26,6 +26,7 @@ export const IPC_PAYLOAD_CONTRACT = {
     "auth:deleteUser": { kind: "none" },
     "auth:getConvexToken": { kind: "none" },
     "auth:getSession": { kind: "passthrough" },
+    "auth:signDevice": { kind: "passthrough" },
     "auth:signInAnonymous": { kind: "none" },
     "auth:signOut": { kind: "none" },
     "browser:fetchJson": { kind: "object", fields: ["url", "init"] },

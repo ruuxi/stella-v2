@@ -88,6 +88,11 @@ export type GatewayCapabilityClaims = {
   budgetMicroCents: number;
   /** Request-count ceiling. Used for anonymous trials; absent means unlimited. */
   maxRequests?: number;
+  /**
+   * Session capabilities: base64url SHA-256 of the client's raw device public
+   * key. Relay requests must carry a matching proof (see gateway/dpop.ts).
+   */
+  dpk?: string;
   /** Present on `turn` capabilities. */
   turn?: GatewayTurnBinding;
   /**

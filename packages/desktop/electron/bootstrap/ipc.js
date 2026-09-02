@@ -42,7 +42,7 @@ import { STELLA_BROWSER_EXTENSION_STORE_URL } from "@stella/contracts/browser-ex
 import { scheduleGlobalInputHooksAfterAppReady } from "./global-input-hooks.js";
 import { randomUUID } from "crypto";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
-import { loadStellaDeviceId } from "./host-runner.js";
+import { loadStellaDeviceId, loadStellaDeviceSigner } from "./host-runner.js";
 const DEFAULT_STELLA_WEB_URL = "https://stella.sh";
 // Delay native-service startup ~4s past app-ready so the bridge/office-preview
 // spawns stay off the first-paint (TTI) path. Previously Windows-only; now
@@ -250,6 +250,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     registerSystemHandlers({
         getDeviceId: () => state.deviceId,
         loadDeviceId: () => loadStellaDeviceId(context),
+        loadDeviceSigner: () => loadStellaDeviceSigner(context),
         authService: services.authService,
         getStellaHostRunner: lifecycle.getRunner,
         onStellaHostRunnerChanged: lifecycle.onRunnerChanged,

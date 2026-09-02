@@ -20,6 +20,8 @@
  * credentials; whatever comes back (SSE or JSON) is returned untouched.
  */
 
+import type { GatewayDeviceKeyProof } from "./dpop.js";
+
 export const GATEWAY_API_VERSION = 1 as const;
 
 export const GATEWAY_RELAY_PREFIX = "/v1/relay" as const;
@@ -114,6 +116,11 @@ export type GatewaySessionCapabilityRequest = {
    * answered `challenge_required`). Ignored otherwise.
    */
   turnstileToken?: string;
+  /**
+   * Device key proof (gateway/dpop.ts). Required: the minted capability is
+   * bound to this key and every relay request must prove possession of it.
+   */
+  deviceKey: GatewayDeviceKeyProof;
 };
 
 export type GatewaySessionCapabilityResponse = {
@@ -180,6 +187,8 @@ export type GatewayErrorCode =
   | "owner_suspended"
   /** The exchange needs a Turnstile token (`turnstileToken` in the body). */
   | "challenge_required"
+  /** The request's device proof is missing, stale, or does not match `dpk`. */
+  | "dpop_invalid"
   | "body_too_large"
   | "bad_request"
   | "upstream_error"

@@ -52,7 +52,12 @@ import {
 } from "./lib/dev_apps_host_origin";
 import { importPKCS8, SignJWT } from "jose";
 import { enforceAuthIpRateLimit } from "./lib/auth_ip_rate_limit";
-import { isDisposableEmail } from "./lib/disposable_email_domains";
+import {
+  isDisposableEmail,
+  normalizeEmailForSybil,
+} from "./lib/disposable_email_domains";
+import { getClientAddressKey } from "./lib/http_utils";
+import { hashSha256Hex } from "./lib/crypto_utils";
 import {
   getTurnstileSecretKey,
   logTurnstileDisabledOnce,
@@ -311,6 +316,32 @@ const onBetterAuthComponentUpdateRef = makeFunctionReference<
   { model: string; oldDoc: unknown; newDoc: unknown },
   unknown
 >;
+
+const recordOwnerOriginRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    deviceKeyHash?: string;
+    ipHash?: string;
+    networkClass?:
+      | "hosting"
+      | "vpn"
+      | "residential"
+      | "mobile"
+      | "edu"
+      | "unknown";
+    emailDomain?: string;
+    identityLevel: 0 | 1 | 2 | 3;
+    now: number;
+  },
+  null
+>("owner_origins:recordOwnerOriginInternal");
+
+const resolveIdentityLevelRef = makeFunctionReference<
+  "query",
+  { ownerId: string },
+  0 | 1 | 2 | 3
+>("lib/identity_level:resolveIdentityLevelInternal");
 
 const assertAttributedAuthDocWrite = async (
   ctx: MutationCtx,
@@ -599,6 +630,37 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       skipStateCookieCheck: true,
     },
     databaseHooks: {
+      user: {
+        create: {
+          after: async (user, hookContext) => {
+            const actionCtx = requireActionCtx(ctx);
+            const ownerId = tokenIdentifierForBetterAuthUserId(user.id);
+            const clientAddress = hookContext?.request
+              ? getClientAddressKey(hookContext.request)
+              : null;
+            const ipHash = clientAddress
+              ? (await hashSha256Hex(clientAddress)).slice(0, 32)
+              : undefined;
+            const magicLink = hookContext?.path.includes("magic-link") === true;
+            const normalizedEmail = magicLink
+              ? normalizeEmailForSybil(user.email)
+              : "";
+            const separator = normalizedEmail.lastIndexOf("@");
+            const emailDomain =
+              separator >= 0 ? normalizedEmail.slice(separator + 1) : undefined;
+            const social =
+              hookContext?.path.includes("callback/google") === true ||
+              hookContext?.path.includes("callback/apple") === true;
+            await actionCtx.runMutation(recordOwnerOriginRef, {
+              ownerId,
+              ...(ipHash ? { ipHash } : {}),
+              ...(emailDomain ? { emailDomain } : {}),
+              identityLevel: user.isAnonymous ? 0 : social ? 2 : 1,
+              now: Date.now(),
+            });
+          },
+        },
+      },
       session: {
         create: {
           before: async (session) => {
@@ -609,6 +671,26 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
               ownerId,
             );
             return { data: { ...session, ownerGeneration } };
+          },
+          after: async (session, hookContext) => {
+            const actionCtx = requireActionCtx(ctx);
+            const ownerId = tokenIdentifierForBetterAuthUserId(session.userId);
+            const identityLevel = await actionCtx.runQuery(
+              resolveIdentityLevelRef,
+              { ownerId },
+            );
+            const clientAddress = hookContext?.request
+              ? getClientAddressKey(hookContext.request)
+              : null;
+            const ipHash = clientAddress
+              ? (await hashSha256Hex(clientAddress)).slice(0, 32)
+              : undefined;
+            await actionCtx.runMutation(recordOwnerOriginRef, {
+              ownerId,
+              ...(ipHash ? { ipHash } : {}),
+              identityLevel,
+              now: Date.now(),
+            });
           },
         },
       },

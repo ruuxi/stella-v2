@@ -4,8 +4,9 @@ import { appBuildEgress, generalAgentEgress } from "./sandbox-egress-policy.js";
 export { ContainerProxy };
 
 /**
- * General-agent sandboxes intentionally retain broad Internet access. HTTP(S)
- * is intercepted only to emit destination-level telemetry.
+ * General-agent sandboxes retain Internet access for model-selected tools.
+ * HTTP(S) passes through the per-turn byte, connection-rate, and destination
+ * port policy before it reaches the public network.
  */
 export class GeneralAgentSandbox<Env = unknown> extends SandboxBase<Env> {
   enableInternet = true;

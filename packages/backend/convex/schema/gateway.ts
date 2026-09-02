@@ -46,6 +46,7 @@ export const gatewaySchema = {
     ownerId: v.string(),
     ownerGeneration: v.string(),
     audience: managedModelAudienceValidator,
+    deviceKeyHash: v.string(),
     budgetMicroCents: v.number(),
     maxRequests: v.optional(v.number()),
     issuedAt: v.number(),

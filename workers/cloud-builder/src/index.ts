@@ -14934,6 +14934,41 @@ export default {
     //     reads them off the rows and sends them here BEFORE deleting those
     //     rows. New app builds are additionally swept by their owner-hash root
     //     above, which catches uploads that never acquired a Convex row.
+    // Retire ONE superseded build's artifacts. Deliberately not the owner
+    // purge: that route fences the owner, refuses while turns run, and walks
+    // every store. Activating a new app build must not touch anything else.
+    if (
+      request.method === "POST" &&
+      url.pathname === "/internal/apps/builds/retire"
+    ) {
+      const body = (await request.json().catch(() => null)) as {
+        ownerId?: unknown;
+        artifactPrefix?: unknown;
+      } | null;
+      const ownerId = typeof body?.ownerId === "string" ? body.ownerId : "";
+      const prefix =
+        typeof body?.artifactPrefix === "string" ? body.artifactPrefix : "";
+      if (!ownerId || !prefix) {
+        return json({ error: "ownerId and artifactPrefix required." }, 400);
+      }
+      const ownerHash = await sha256Hex(ownerId);
+      if (
+        !(
+          LEGACY_BUILD_PREFIX_PATTERN.test(prefix) ||
+          isOwnerAppBuildPrefix(prefix, ownerHash) ||
+          (INTERIOR_BUILD_PREFIX_PATTERN.test(prefix) &&
+            prefix.startsWith(`interiors/${ownerHash}/`))
+        )
+      ) {
+        return json({ error: "artifactPrefix does not belong to owner." }, 403);
+      }
+      try {
+        const swept = await sweepR2Prefix(env.APP_BUILDS, `${prefix}/`);
+        return json({ ok: true, deleted: swept.deleted, done: swept.done });
+      } catch (error) {
+        return json({ error: errorMessage(error) }, 503);
+      }
+    }
     if (request.method === "POST" && url.pathname === "/owners/purge/begin") {
       const body = (await request.json()) as {
         ownerId?: string;

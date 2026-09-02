@@ -22,6 +22,11 @@ import {
 import { getConvexToken } from "@/global/auth/services/auth-token";
 import { parseJwtPayload } from "@/shared/lib/jwt";
 import { getPlatformChallengeToken } from "@/platform/auth/challenge-token";
+import {
+  deviceKeyProofForSigner,
+  getRendererDeviceSigner,
+  type DeviceSigner,
+} from "./device-key";
 
 /** Re-exchange this long before the capability's own expiry. */
 export const GATEWAY_SESSION_CAPABILITY_REFRESH_SKEW_MS = 60_000;
@@ -32,6 +37,8 @@ export const STELLA_GATEWAY_SIGN_IN_REQUIRED_MESSAGE =
   "Sign in to Stella to use Stella models.";
 export const STELLA_GATEWAY_CHALLENGE_REQUIRED_MESSAGE =
   "Stella needs to verify you're human before continuing.";
+export const STELLA_GATEWAY_DEVICE_VERIFICATION_MESSAGE =
+  "This device could not be verified. Restart Stella and try again.";
 
 type CapabilityCacheEntry = {
   capability: string;
@@ -85,6 +92,34 @@ const authIdentity = (token: string): string => {
   ].join(":");
 };
 
+const ownerIdFromBetterAuthToken = (token: string): string | null => {
+  try {
+    const payload = parseJwtPayload<{ iss?: unknown; sub?: unknown }>(token);
+    if (
+      typeof payload.iss !== "string" ||
+      !payload.iss.trim() ||
+      typeof payload.sub !== "string" ||
+      !payload.sub.trim()
+    ) {
+      return null;
+    }
+    return `${payload.iss.trim().replace(/\/+$/, "")}|${payload.sub.trim()}`;
+  } catch {
+    return null;
+  }
+};
+
+export const sessionCapabilityJti = (capability: string): string | null => {
+  try {
+    const payload = parseJwtPayload<{ jti?: unknown }>(capability);
+    return typeof payload.jti === "string" && payload.jti.trim()
+      ? payload.jti.trim()
+      : null;
+  } catch {
+    return null;
+  }
+};
+
 const cacheKey = (args: { gatewayOrigin: string; authToken: string }): string =>
   [args.gatewayOrigin, authIdentity(args.authToken)].join("|");
 
@@ -119,11 +154,25 @@ const isSessionCapabilityResponse = (
 const exchangeOnce = async (args: {
   gatewayOrigin: string;
   authToken: string;
+  signer: DeviceSigner;
   turnstileToken?: string;
 }): Promise<CapabilityCacheEntry> => {
-  const body: GatewaySessionCapabilityRequest = args.turnstileToken
-    ? { turnstileToken: args.turnstileToken }
-    : {};
+  const ownerId = ownerIdFromBetterAuthToken(args.authToken);
+  if (!ownerId) {
+    throw new Error("Stella sign-in token is missing its owner identity.");
+  }
+  const deviceKey = await deviceKeyProofForSigner({
+    signer: args.signer,
+    ownerId,
+    gatewayOrigin: new URL(args.gatewayOrigin).origin,
+    now: Date.now(),
+  });
+  const body: GatewaySessionCapabilityRequest = {
+    deviceKey,
+    ...(args.turnstileToken
+      ? { turnstileToken: args.turnstileToken }
+      : {}),
+  };
   const response = await fetch(
     `${args.gatewayOrigin}${GATEWAY_SESSION_CAPABILITY_PATH}`,
     {
@@ -138,6 +187,12 @@ const exchangeOnce = async (args: {
   );
   if (!response.ok) {
     const { code, message } = await readGatewayError(response);
+    if (
+      (response.status === 400 || response.status === 401) &&
+      code === "dpop_invalid"
+    ) {
+      throw new Error(STELLA_GATEWAY_DEVICE_VERIFICATION_MESSAGE);
+    }
     throw new GatewaySessionExchangeError(response.status, code, message);
   }
   const payload = (await response.json()) as unknown;
@@ -153,6 +208,7 @@ const exchange = async (args: {
   key: string;
   gatewayOrigin: string;
   authToken: string;
+  signer: DeviceSigner;
 }): Promise<CapabilityCacheEntry> => {
   const inFlight = inFlightExchanges.get(args.key);
   if (inFlight) return inFlight;
@@ -228,7 +284,10 @@ export const getGatewaySessionCapability = async (
 ): Promise<string> => {
   const authToken = (await getConvexToken())?.trim();
   if (!authToken) throw new Error(STELLA_GATEWAY_SIGN_IN_REQUIRED_MESSAGE);
-  const key = cacheKey({ gatewayOrigin, authToken });
+  const signer = await getRendererDeviceSigner();
+  const key = `${cacheKey({ gatewayOrigin, authToken })}|${Array.from(
+    signer.rawPublicKey,
+  ).join(",")}`;
   if (options.forceRefresh) {
     capabilityCache.delete(key);
   } else {
@@ -241,8 +300,10 @@ export const getGatewaySessionCapability = async (
     }
     capabilityCache.delete(key);
   }
-  return (await exchange({ key, gatewayOrigin, authToken })).capability;
+  return (await exchange({ key, gatewayOrigin, authToken, signer })).capability;
 };
+
+export const getGatewayDeviceSigner = getRendererDeviceSigner;
 
 /** Test seam: forget every cached capability. */
 export const resetGatewaySessionState = (): void => {

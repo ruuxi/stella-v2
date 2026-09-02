@@ -28,6 +28,7 @@ const modules = import.meta.glob("./**/*.ts");
 
 const OWNER_GENERATION = "gateway-generation";
 const ANON_MAX_REQUESTS = 3;
+const DEVICE_KEY_HASH = "A".repeat(43);
 
 let publicKey: CryptoKey;
 
@@ -402,7 +403,7 @@ describe("signSessionCapabilityInternal", () => {
     const before = Date.now();
     const response = await t.action(
       internal.gateway_capabilities.signSessionCapabilityInternal,
-      { ownerId, isAnonymous: false },
+      { ownerId, isAnonymous: false, deviceKeyHash: DEVICE_KEY_HASH },
     );
 
     expect(response).toMatchObject({
@@ -420,6 +421,7 @@ describe("signSessionCapabilityInternal", () => {
       aud: GATEWAY_CAPABILITY_AUDIENCE,
       sub: ownerId,
       gen: OWNER_GENERATION,
+      dpk: DEVICE_KEY_HASH,
       kind: "session",
       audience: "free",
       budgetMicroCents: GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS.free,
@@ -437,7 +439,12 @@ describe("signSessionCapabilityInternal", () => {
     const t = await createTest([ownerId]);
     const response = await t.action(
       internal.gateway_capabilities.signSessionCapabilityInternal,
-      { ownerId, isAnonymous: true, ipHash: "network-a" },
+      {
+        ownerId,
+        isAnonymous: true,
+        ipHash: "network-a",
+        deviceKeyHash: DEVICE_KEY_HASH,
+      },
     );
     expect(response).toMatchObject({
       audience: "anonymous",
@@ -446,6 +453,7 @@ describe("signSessionCapabilityInternal", () => {
       identityLevel: 0,
     });
     expect(decodeToken(response.capability).claims).toMatchObject({
+      dpk: DEVICE_KEY_HASH,
       audience: "anonymous",
       budgetMicroCents: dollarsToMicroCents(0.1),
       maxRequests: ANON_MAX_REQUESTS,
@@ -460,6 +468,7 @@ describe("signSessionCapabilityInternal", () => {
     }));
     expect(reserved.grant).toMatchObject({
       ownerId,
+      deviceKeyHash: DEVICE_KEY_HASH,
       audience: "anonymous",
       budgetMicroCents: dollarsToMicroCents(0.1),
       maxRequests: ANON_MAX_REQUESTS,
@@ -472,7 +481,12 @@ describe("signSessionCapabilityInternal", () => {
 
     const second = await t.action(
       internal.gateway_capabilities.signSessionCapabilityInternal,
-      { ownerId, isAnonymous: true, ipHash: "network-a" },
+      {
+        ownerId,
+        isAnonymous: true,
+        ipHash: "network-a",
+        deviceKeyHash: DEVICE_KEY_HASH,
+      },
     );
     expect(second).toMatchObject({ maxRequests: 0, budgetMicroCents: 0 });
 
@@ -498,6 +512,7 @@ describe("signSessionCapabilityInternal", () => {
           startedAt: 1,
           finishedAt: 2,
           billable: true,
+          deviceKeyHash: DEVICE_KEY_HASH,
           anonymous: { ipHash: "network-a" },
         },
       ],
@@ -546,7 +561,12 @@ describe("signSessionCapabilityInternal", () => {
 
     const reminted = await t.action(
       internal.gateway_capabilities.signSessionCapabilityInternal,
-      { ownerId, isAnonymous: true, ipHash: "network-a" },
+      {
+        ownerId,
+        isAnonymous: true,
+        ipHash: "network-a",
+        deviceKeyHash: DEVICE_KEY_HASH,
+      },
     );
     expect(reminted).toMatchObject({
       budgetMicroCents: dollarsToMicroCents(0.09),
@@ -570,6 +590,7 @@ describe("signSessionCapabilityInternal", () => {
       t.action(internal.gateway_capabilities.signSessionCapabilityInternal, {
         ownerId,
         isAnonymous: false,
+        deviceKeyHash: DEVICE_KEY_HASH,
       }),
     ).rejects.toThrow(/being deleted/u);
   });
@@ -582,6 +603,7 @@ describe("signSessionCapabilityInternal", () => {
       t.action(internal.gateway_capabilities.signSessionCapabilityInternal, {
         ownerId,
         isAnonymous: false,
+        deviceKeyHash: DEVICE_KEY_HASH,
       }),
     ).rejects.toSatisfy(
       (error: unknown) =>

@@ -18,6 +18,7 @@ import {
   signSession,
   signTurn,
   sseText,
+  withTestDpop,
 } from "./helpers/env.js";
 
 const anthropicTurn = (
@@ -120,14 +121,16 @@ const setup = () => {
           200,
         ),
     );
-  const run = (request: Request) =>
+  const runRaw = (request: Request) =>
     handleRequest(
       request,
       harness.env,
       fakeExecutionContext(),
       harness.deps(fetchMock.fetch),
     );
-  return { harness, fetchMock, run };
+  const run = async (request: Request) =>
+    await runRaw(await withTestDpop(request));
+  return { harness, fetchMock, run, runRaw };
 };
 
 describe("native lane", () => {
@@ -311,6 +314,20 @@ describe("native lane", () => {
 
   test("refusals: session capability, engine mismatch, model mismatch, wrong path, stale generation", async () => {
     const session = await signSession({ credential: "anthropic" });
+    const missingProof = await ctx.runRaw(
+      relayRequest("/v1/relay/v1/messages", {
+        token: session.token,
+        body: { model: "claude-sonnet-4-6", messages: [] },
+      }),
+    );
+    expect(missingProof.status).toBe(401);
+    expect((await readError(missingProof)).error.code).toBe("dpop_invalid");
+    expect(
+      ctx.fetchMock.calls.filter(
+        (call) => call.url.pathname === "/api/gateway/engine-access",
+      ),
+    ).toHaveLength(0);
+
     const sessionResponse = await ctx.run(
       relayRequest("/v1/relay/v1/messages", {
         token: session.token,

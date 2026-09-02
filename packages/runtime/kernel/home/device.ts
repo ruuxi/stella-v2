@@ -1,6 +1,11 @@
 import { promises as fs } from "fs";
 import path from "path";
-import { createPrivateKey, generateKeyPairSync, sign } from "crypto";
+import {
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  sign as signBytes,
+} from "crypto";
 
 import { Effect } from "effect";
 
@@ -34,8 +39,19 @@ export type DeviceIdentity = {
   supersededDeviceId?: string;
 };
 
+/**
+ * The existing desktop identity adapted to the raw-key DPoP wire format.
+ * Signatures are base64url so callers never need access to the private key.
+ */
+export type DeviceSigner = {
+  alg: "ed25519";
+  rawPublicKey: Uint8Array;
+  sign(input: string): Promise<string>;
+};
+
 const DEVICE_FILE = "device.json";
 const DEVICE_PRIVATE_KEY_SCOPE = "device-private-key";
+const deviceSignerCache = new Map<string, DeviceSigner>();
 
 /**
  * Why a stored identity could not be reused.
@@ -88,6 +104,53 @@ export const getOrCreateDeviceId = async (statePath: string) => {
   const identity = await getOrCreateDeviceIdentity(statePath);
   return identity.deviceId;
 };
+
+export const deviceSignerForIdentity = (
+  identity: DeviceIdentity,
+): DeviceSigner => {
+  const cached = deviceSignerCache.get(identity.deviceId);
+  if (cached) return cached;
+
+  const publicKey = createPublicKey({
+    key: Buffer.from(identity.publicKey, "base64"),
+    format: "der",
+    type: "spki",
+  });
+  const publicJwk = publicKey.export({ format: "jwk" });
+  if (
+    publicJwk.kty !== "OKP" ||
+    publicJwk.crv !== "Ed25519" ||
+    typeof publicJwk.x !== "string"
+  ) {
+    throw new Error("Stored Stella device key is not Ed25519.");
+  }
+  const rawPublicKey = new Uint8Array(
+    Buffer.from(publicJwk.x, "base64url"),
+  );
+  if (rawPublicKey.byteLength !== 32) {
+    throw new Error("Stored Stella device public key is malformed.");
+  }
+  const privateKey = createPrivateKey({
+    key: Buffer.from(identity.privateKey, "base64"),
+    format: "der",
+    type: "pkcs8",
+  });
+  const signer: DeviceSigner = {
+    alg: "ed25519",
+    rawPublicKey,
+    sign: async (input) =>
+      signBytes(null, Buffer.from(input, "utf8"), privateKey).toString(
+        "base64url",
+      ),
+  };
+  deviceSignerCache.set(identity.deviceId, signer);
+  return signer;
+};
+
+export const getOrCreateDeviceSigner = async (
+  statePath: string,
+): Promise<DeviceSigner> =>
+  deviceSignerForIdentity(await getOrCreateDeviceIdentity(statePath));
 
 const generateDeviceKeyPair = (): Pick<
   DeviceIdentity,
@@ -272,11 +335,13 @@ export const resetDeviceIdentityEffect = (
     // must not drag the previous machine's pairings onto the new id.
     const supersededDeviceId =
       options.preservePairings && parsed?.deviceId ? parsed.deviceId : undefined;
-    return yield* createAndStoreDeviceIdentityEffect(
+    const identity = yield* createAndStoreDeviceIdentityEffect(
       recordPath,
       parsed?.privateKeyProtected,
       supersededDeviceId,
     );
+    if (parsed?.deviceId) deviceSignerCache.delete(parsed.deviceId);
+    return identity;
   });
 
 export const resetDeviceIdentity = (

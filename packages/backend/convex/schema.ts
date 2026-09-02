@@ -28,6 +28,7 @@ import { accountExternalMediaSchema } from "./schema/account_external_media";
 import { cloudBrowserSchema } from "./schema/cloud_browser";
 import { cloudOutboxSchema } from "./schema/cloud_outbox";
 import { xBotSchema } from "./schema/x_bot";
+import { abuseSchema } from "./schema/abuse";
 
 export default defineSchema({
   ...conversationsSchema,
@@ -59,4 +60,5 @@ export default defineSchema({
   ...cloudBrowserSchema,
   ...cloudOutboxSchema,
   ...xBotSchema,
+  ...abuseSchema,
 });

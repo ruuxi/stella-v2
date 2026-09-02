@@ -44,6 +44,7 @@ import type {
   RuntimeOneShotCompletionRequest,
   RuntimeOneShotCompletionResult,
 } from "@stella/contracts/protocol";
+import type { DeviceSigner } from "../home/device.js";
 
 const logger = createRuntimeLogger("agent-runtime.one-shot-completion");
 
@@ -59,6 +60,7 @@ export type OneShotCompletionRuntimeContext = {
     hasConnectedAccount: boolean;
   } | null>;
   requestChallengeToken?: () => Promise<string | undefined>;
+  getDeviceSigner?: () => Promise<DeviceSigner> | DeviceSigner;
 };
 
 const resolveModelName = (
@@ -106,6 +108,11 @@ export const runOneShotCompletion = async (args: {
       return result?.authenticated ? result.token : null;
     },
     getChallengeToken: runtime.requestChallengeToken,
+    getDeviceSigner:
+      runtime.getDeviceSigner ??
+      (() => {
+        throw new Error("Stella device signing is not configured.");
+      }),
   };
   const buildRoute = (modelName: string | undefined) =>
     resolveLlmRoute({

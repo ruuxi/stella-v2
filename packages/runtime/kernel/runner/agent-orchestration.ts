@@ -30,7 +30,10 @@ import type { RunnerContext } from "./types.js";
 import { buildAgentEventPrompt } from "./shared.js";
 import type { LocalChatEventRecord } from "../storage/shared.js";
 import type { ThreadActivityRecord } from "@stella/contracts/local-chat";
-import { createRunnerImageDescriptionService } from "./model-selection.js";
+import {
+  createRunnerImageDescriptionService,
+  createRunnerSiteConfig,
+} from "./model-selection.js";
 import { RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE } from "../storage/shared.js";
 import type { ComputerAgentCloudRecords } from "./computer-agent-cloud-records.js";
 import {
@@ -594,18 +597,7 @@ export const createAgentOrchestration = (
       toolExecutor,
     }: Record<string, any>) => {
       const runId = `local:sub:${crypto.randomUUID()}`;
-      const site = {
-        baseUrl: context.state.convexSiteUrl,
-        getAuthToken: () => context.state.authToken?.trim(),
-        hasConnectedAccount: () => context.state.hasConnectedAccount,
-        getChallengeToken: context.requestChallengeToken,
-        refreshAuthToken: async () => {
-          const result = await context.requestRuntimeAuthRefresh?.({
-            source: "stella_provider",
-          });
-          return result?.authenticated ? result.token : null;
-        },
-      };
+      const site = createRunnerSiteConfig(context);
       const resolvedLlm =
         agentContext.resolvedLlm ??
         (await withStellaModelCatalogMetadata({
@@ -712,18 +704,7 @@ export const createAgentOrchestration = (
               subsidiaryAgentType,
             ),
             agentType: subsidiaryAgentType,
-            site: {
-              baseUrl: context.state.convexSiteUrl,
-              getAuthToken: () => context.state.authToken?.trim(),
-              hasConnectedAccount: () => context.state.hasConnectedAccount,
-              getChallengeToken: context.requestChallengeToken,
-              refreshAuthToken: async () => {
-                const result = await context.requestRuntimeAuthRefresh?.({
-                  source: "stella_provider",
-                });
-                return result?.authenticated ? result.token : null;
-              },
-            },
+            site: createRunnerSiteConfig(context),
           }),
         callbacks: {
           ...(runnerCallbacks

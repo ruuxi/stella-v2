@@ -65,6 +65,9 @@ import {
   resolveIdentityLevel,
 } from "./lib/identity_level";
 import { verifyTurnstileToken } from "./lib/turnstile";
+import { evaluateSybilPressure, type SybilPressure } from "./lib/sybil";
+import { recordOwnerOrigin } from "./owner_origins";
+import { recordOwnerRiskSignals } from "./risk";
 
 export const CAPABILITY_SIGNING_KEY_ENV = "CAPABILITY_SIGNING_KEY";
 export const CAPABILITY_SIGNING_KID_ENV = "CAPABILITY_SIGNING_KID";
@@ -120,17 +123,29 @@ const networkClassValidator = v.union(
   v.literal("unknown"),
 );
 
-const challengeRequiredError = () =>
+const challengeRequiredError = (sybil?: SybilPressure) =>
   new ConvexError({
     code: "CHALLENGE_REQUIRED",
     message: "A human-presence challenge is required.",
+    ...(sybil && sybil.action !== "ok"
+      ? { sybilFlag: true, sybilReason: sybil.reason }
+      : {}),
   });
 
-const signInRequiredError = () =>
+const signInRequiredError = (sybil?: SybilPressure) =>
   new ConvexError({
     code: "SIGN_IN_REQUIRED",
     message: "Sign in with an account to continue from this network.",
+    ...(sybil && sybil.action !== "ok"
+      ? { sybilFlag: true, sybilReason: sybil.reason }
+      : {}),
   });
+
+const isSybilPressureError = (error: unknown): boolean => {
+  if (!(error instanceof ConvexError)) return false;
+  const data = error.data as { sybilFlag?: unknown } | string | undefined;
+  return typeof data === "object" && data?.sybilFlag === true;
+};
 
 type OwnerSessionChallengeState = {
   identityLevel: IdentityLevel;
@@ -409,7 +424,8 @@ export const reserveOwnerSessionModelAllowanceInternal = internalMutation({
     isAnonymous: v.optional(v.boolean()),
     ipHash: v.optional(v.string()),
     networkClass: v.optional(networkClassValidator),
-    turnstileToken: v.optional(v.string()),
+    deviceKeyHash: v.string(),
+    challengeVerified: v.boolean(),
     jti: v.string(),
     issuedAt: v.number(),
     expiresAt: v.number(),
@@ -432,11 +448,40 @@ export const reserveOwnerSessionModelAllowanceInternal = internalMutation({
         message: "This owner is suspended.",
       });
     }
+    const sybil = await evaluateSybilPressure(ctx, {
+      ownerId: args.ownerId,
+      deviceKeyHash: args.deviceKeyHash,
+      ...(args.ipHash ? { ipHash: args.ipHash } : {}),
+      ...(args.networkClass ? { networkClass: args.networkClass } : {}),
+      identityLevel: challengeState.identityLevel,
+      now: args.issuedAt,
+    });
+    if (sybil.action === "sign_in_required") {
+      throw signInRequiredError(sybil);
+    }
     if (
-      challengeState.challengeRequired &&
-      !args.turnstileToken?.trim()
+      (challengeState.challengeRequired || sybil.action === "challenge") &&
+      !args.challengeVerified
     ) {
+      if (sybil.action === "challenge") throw challengeRequiredError(sybil);
       throw challengeRequiredError();
+    }
+
+    await recordOwnerOrigin(ctx, {
+      ownerId: args.ownerId,
+      deviceKeyHash: args.deviceKeyHash,
+      ...(args.ipHash ? { ipHash: args.ipHash } : {}),
+      ...(args.networkClass ? { networkClass: args.networkClass } : {}),
+      identityLevel: challengeState.identityLevel,
+      now: args.issuedAt,
+    });
+    if (sybil.action !== "ok") {
+      await recordOwnerRiskSignals(
+        ctx,
+        args.ownerId,
+        { sybilFlags: 1 },
+        args.issuedAt,
+      );
     }
 
     await releaseExpiredOwnerGrants(ctx, args.ownerId, args.issuedAt);
@@ -445,23 +490,15 @@ export const reserveOwnerSessionModelAllowanceInternal = internalMutation({
       ownerGeneration: args.ownerGeneration,
       isAnonymous: args.isAnonymous,
     });
-    if (resolved.access.unlimited || resolved.remainingMicroCents === null) {
-      return toOwnerModelAllowance(
-        resolved,
-        0,
-        undefined,
-        challengeState.identityLevel,
-      );
-    }
-
-    const maxRequests = args.isAnonymous
-      ? await readAnonymousRequestAllowance(ctx, args)
-      : undefined;
-    const reservedMicroCents = await reservedGrantMicroCents(
-      ctx,
-      args.ownerId,
-      args.issuedAt,
-    );
+    const unlimited =
+      resolved.access.unlimited || resolved.remainingMicroCents === null;
+    const maxRequests =
+      !unlimited && args.isAnonymous
+        ? await readAnonymousRequestAllowance(ctx, args)
+        : undefined;
+    const reservedMicroCents = unlimited
+      ? 0
+      : await reservedGrantMicroCents(ctx, args.ownerId, args.issuedAt);
     const allowance = toOwnerModelAllowance(
       resolved,
       reservedMicroCents,
@@ -490,6 +527,7 @@ export const reserveOwnerSessionModelAllowanceInternal = internalMutation({
       jti: args.jti,
       ownerId: args.ownerId,
       ownerGeneration: args.ownerGeneration,
+      deviceKeyHash: args.deviceKeyHash,
       audience: allowance.audience,
       budgetMicroCents: allowance.budgetMicroCents,
       ...(allowance.maxRequests !== undefined
@@ -588,7 +626,8 @@ const getOwnerModelAllowanceRef = makeFunctionReference<
     isAnonymous?: boolean;
     ipHash?: string;
     networkClass?: NetworkClass;
-    turnstileToken?: string;
+    deviceKeyHash: string;
+    challengeVerified: boolean;
     jti: string;
     issuedAt: number;
     expiresAt: number;
@@ -606,6 +645,12 @@ const getOwnerSessionChallengeStateRef = makeFunctionReference<
   OwnerSessionChallengeState
 >("gateway_capabilities:getOwnerSessionChallengeStateInternal");
 
+const recordGatewayMintRiskSignalRef = makeFunctionReference<
+  "mutation",
+  { ownerId: string; mints: number; sybilFlags: number; now: number },
+  null
+>("risk:recordGatewayMintRiskSignalInternal");
+
 export const signSessionCapabilityInternal = internalAction({
   args: {
     ownerId: v.string(),
@@ -613,6 +658,7 @@ export const signSessionCapabilityInternal = internalAction({
     ipHash: v.optional(v.string()),
     networkClass: v.optional(networkClassValidator),
     turnstileToken: v.optional(v.string()),
+    deviceKeyHash: v.string(),
   },
   returns: v.object({
     capability: v.string(),
@@ -638,10 +684,14 @@ export const signSessionCapabilityInternal = internalAction({
       },
     );
     const turnstileToken = args.turnstileToken?.trim();
+    let challengeVerified = false;
+    if (turnstileToken) {
+      const verification = await verifyTurnstileToken(turnstileToken);
+      challengeVerified = verification.ok;
+    }
     if (challengeState.challengeRequired) {
       if (!turnstileToken) throw challengeRequiredError();
-      const verification = await verifyTurnstileToken(turnstileToken);
-      if (!verification.ok) throw challengeRequiredError();
+      if (!challengeVerified) throw challengeRequiredError();
     }
     const signingKey = await loadCapabilitySigningKey();
     const now = Date.now();
@@ -650,26 +700,38 @@ export const signSessionCapabilityInternal = internalAction({
       (Math.floor(now / 1_000) +
         Math.ceil(GATEWAY_SESSION_CAPABILITY_TTL_MS / 1_000)) *
       1_000;
-    const allowance: OwnerModelAllowance = await ctx.runMutation(
-      getOwnerModelAllowanceRef,
-      {
+    let allowance: OwnerModelAllowance;
+    try {
+      allowance = await ctx.runMutation(getOwnerModelAllowanceRef, {
         ownerId: args.ownerId,
         ownerGeneration: generation,
         isAnonymous: args.isAnonymous,
         ...(args.ipHash ? { ipHash: args.ipHash } : {}),
         ...(args.networkClass ? { networkClass: args.networkClass } : {}),
-        ...(turnstileToken ? { turnstileToken } : {}),
+        deviceKeyHash: args.deviceKeyHash,
+        challengeVerified,
         jti,
         issuedAt: now,
         expiresAt,
-      },
-    );
+      });
+    } catch (error) {
+      if (isSybilPressureError(error)) {
+        await ctx.runMutation(recordGatewayMintRiskSignalRef, {
+          ownerId: args.ownerId,
+          mints: 0,
+          sybilFlags: 1,
+          now,
+        });
+      }
+      throw error;
+    }
     const { token, claims } = await signCapability(
       {
         iss: GATEWAY_CAPABILITY_ISSUERS.convex,
         sub: args.ownerId,
         jti,
         gen: generation,
+        dpk: args.deviceKeyHash,
         kind: "session",
         audience: allowance.audience,
         budgetMicroCents: allowance.budgetMicroCents,
@@ -680,17 +742,12 @@ export const signSessionCapabilityInternal = internalAction({
       signingKey,
       { ttlMs: GATEWAY_SESSION_CAPABILITY_TTL_MS, now },
     );
-    if (challengeState.enforcementStatus === "challenged") {
-      await ctx.runMutation(
-        internal.owner_enforcement.setOwnerEnforcementInternal,
-        {
-          ownerId: args.ownerId,
-          status: "ok",
-          reason: "turnstile verified",
-          actor: "challenge-passed",
-        },
-      );
-    }
+    await ctx.runMutation(recordGatewayMintRiskSignalRef, {
+      ownerId: args.ownerId,
+      mints: 1,
+      sybilFlags: 0,
+      now,
+    });
     return {
       capability: token,
       expiresAt: claims.exp * 1_000,

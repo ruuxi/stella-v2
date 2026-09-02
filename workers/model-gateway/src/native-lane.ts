@@ -23,7 +23,10 @@ import {
   type NativeRelayCredential,
 } from "@stella/model-catalog/native-relay";
 import { createRelayUsageParser } from "@stella/model-catalog/usage";
-import type { AuthenticatedCapability } from "./capability.js";
+import {
+  verifySessionDpop,
+  type AuthenticatedCapability,
+} from "./capability.js";
 import type { ConvexClient } from "./convex-client.js";
 import { GatewayError } from "./errors.js";
 import {
@@ -152,6 +155,11 @@ export const handleNativeRelay = async (args: {
     );
   const startedAt = deps.now();
   const pathname = new URL(request.url).pathname;
+  const deviceKeyHash = await verifySessionDpop({
+    request,
+    auth: args.auth,
+    now: deps.now(),
+  });
 
   const turn = claims.turn;
   if (!turn) {
@@ -272,6 +280,7 @@ export const handleNativeRelay = async (args: {
       startedAt,
       finishedAt: deps.now(),
       billable: false,
+      ...(deviceKeyHash ? { deviceKeyHash } : {}),
     };
     deps.waitUntil(
       env.USAGE_QUEUE.send(event).catch((error: unknown) => {

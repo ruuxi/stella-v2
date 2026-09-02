@@ -1,4 +1,6 @@
 import { Effect } from "effect";
+import "@stella/runtime/ai/utils/http-proxy.js";
+import { registerBuiltInApiProviders } from "@stella/runtime/ai/providers/register-builtins.js";
 import { forkAbortTimer } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { runStubTurn } from "./stub-turn.js";
@@ -14,6 +16,8 @@ import {
   attachedToolClientPaths,
   runAttachedToolClient,
 } from "./attached-tool-client.js";
+
+registerBuiltInApiProviders();
 
 // The daemon and the one-call client never produce a turn result, so they exit
 // before the turn-result plumbing below.

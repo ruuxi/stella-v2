@@ -1,8 +1,4 @@
-import { z } from "zod";
-
 import { sleepWithAbort } from "../effect-runtime.js";
-
-const headerRecordSchema = z.record(z.string(), z.unknown());
 
 export interface RetryOptions {
   /** Total attempts including the first try. Default: 10. */
@@ -109,16 +105,30 @@ function isAbortError(error: unknown): boolean {
   return error.name === "AbortError" || error.message === "Request was aborted";
 }
 
+function hasHeaderGetter(
+  value: unknown,
+): value is { get: (key: string) => unknown } {
+  return (
+    (typeof value === "object" || typeof value === "function") &&
+    value !== null &&
+    "get" in value &&
+    typeof value.get === "function"
+  );
+}
+
+function isStringKeyedRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function readHeader(headers: unknown, name: string): string | undefined {
   if (!headers) return undefined;
   if (headers instanceof Headers) return headers.get(name) ?? undefined;
-  if (typeof (headers as { get?: unknown }).get === "function") {
-    const value = (headers as { get: (key: string) => unknown }).get(name);
+  if (hasHeaderGetter(headers)) {
+    const value = headers.get(name);
     return typeof value === "string" ? value : undefined;
   }
-  const record = headerRecordSchema.safeParse(headers);
-  if (!record.success) return undefined;
-  const value = record.data[name] ?? record.data[name.toLowerCase()];
+  if (!isStringKeyedRecord(headers)) return undefined;
+  const value = headers[name] ?? headers[name.toLowerCase()];
   return typeof value === "string" ? value : undefined;
 }
 

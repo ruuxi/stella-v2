@@ -40,6 +40,7 @@
  */
 
 import { DurableObject } from "cloudflare:workers";
+import "./cloud-api-providers.js";
 import { Agent } from "@stella/runtime/kernel/agent-core/agent.js";
 import type {
   AgentEvent,

@@ -15,6 +15,11 @@
 // the only effect of the leaked host values is spurious, environment-dependent
 // failures. Strip every `STELLA_*` var up front so the suite behaves the same
 // whether or not it was launched from inside the app (i.e. matches CI).
+import "@stella/runtime/ai/utils/http-proxy.js";
+import { registerBuiltInApiProviders } from "@stella/runtime/ai/providers/register-builtins.js";
+
+registerBuiltInApiProviders();
+
 for (const key of Object.keys(process.env)) {
   if (key.startsWith("STELLA_")) {
     delete process.env[key];

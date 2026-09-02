@@ -1,4 +1,6 @@
 import { Cause, Effect, Exit, Scope } from "effect";
+import "../ai/utils/http-proxy.js";
+import { registerBuiltInApiProviders } from "../ai/providers/register-builtins.js";
 import {
   getFileLogger,
   initFileLogger,
@@ -22,6 +24,8 @@ import {
   startWorkerTransport,
   type WorkerTransport,
 } from "./transport.js";
+
+registerBuiltInApiProviders();
 
 /**
  * Worker entrypoint. Two execution modes:

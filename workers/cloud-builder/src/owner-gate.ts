@@ -237,14 +237,6 @@ export const DISPATCH_CLOUD_MAX_ATTEMPTS = 2;
  * fails closed if Convex is unavailable.
  */
 export const OWNER_GATE_STALE_SNAPSHOT_TTLS = 3;
-/**
- * While a proven presence socket is attached, the alarm re-arms this often so
- * the object stays resident and the next turn's snapshot read is a warm
- * storage read rather than a wake from hibernation. Cheap, but its effect on
- * the second send was not measured when it landed; see
- * docs/perf/cloud-turn-latency-handoff.md before tuning or removing it.
- */
-export const OWNER_GATE_PRESENCE_KEEPALIVE_MS = 30_000;
 const DEFAULT_TURN_TIMEOUT_MS = 900_000;
 const SNAPSHOT_KEY = "ownerSnapshot";
 const CONCURRENCY_RETRY_MIN_MS = 1_000;
@@ -1303,7 +1295,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     const row = this.ctx.storage.sql
       .exec<{
         minutes: number | null;
-      }>(`SELECT SUM(minutes) AS minutes FROM cpu_minutes WHERE at > ?`, now - OWNER_GATE_DAILY_WINDOW_MS)
+      }>(
+        `SELECT SUM(minutes) AS minutes FROM cpu_minutes WHERE at > ?`,
+        now - OWNER_GATE_DAILY_WINDOW_MS,
+      )
       .one();
     return typeof row.minutes === "number" && Number.isFinite(row.minutes)
       ? Math.max(0, row.minutes)
@@ -3480,10 +3475,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         attachment.lastSeenAtMs + DEVICE_PRESENCE_STALE_AFTER_MS,
         attachment.authExpiresAtMs,
       );
-      // A proven socket keeps the object resident between turns.
-      if (attachment.phase === "connected") {
-        next = Math.min(next, now + OWNER_GATE_PRESENCE_KEEPALIVE_MS);
-      }
     }
     const deadline = this.ctx.storage.sql
       .exec<{ at: number | null }>(

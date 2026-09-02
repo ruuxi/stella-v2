@@ -17,9 +17,7 @@ mock.module("cloudflare:workers", () => ({
   RpcTarget: class {},
   WorkerEntrypoint: class {},
 }));
-const { OwnerGate, OWNER_GATE_PRESENCE_KEEPALIVE_MS } = await import(
-  "../src/owner-gate.js"
-);
+const { OwnerGate } = await import("../src/owner-gate.js");
 mock.restore();
 
 /**
@@ -107,7 +105,10 @@ describe("device presence socket", () => {
       signWith: impostor,
     });
     expect(forgedSocket.closes).toEqual([
-      { code: DEVICE_PRESENCE_CLOSE.proofRejected, reason: "device_proof_rejected" },
+      {
+        code: DEVICE_PRESENCE_CLOSE.proofRejected,
+        reason: "device_proof_rejected",
+      },
     ]);
     expect((await forged.instance.devices()).devices[0].online).toBe(false);
 
@@ -115,7 +116,10 @@ describe("device presence socket", () => {
     const stranger = await generateDeviceKey("desk-9");
     const { socket: strangerSocket } = await unknown.connect(stranger);
     expect(strangerSocket.closes).toEqual([
-      { code: DEVICE_PRESENCE_CLOSE.proofRejected, reason: "device_proof_rejected" },
+      {
+        code: DEVICE_PRESENCE_CLOSE.proofRejected,
+        reason: "device_proof_rejected",
+      },
     ]);
   });
 
@@ -238,7 +242,9 @@ describe("device presence socket", () => {
       presenceSessionId: "session-b",
       signWith: impostor,
     });
-    expect(bad.socket.closes[0]!.code).toBe(DEVICE_PRESENCE_CLOSE.proofRejected);
+    expect(bad.socket.closes[0]!.code).toBe(
+      DEVICE_PRESENCE_CLOSE.proofRejected,
+    );
     expect(good.socket.closed).toBe(false);
     expect((await harness.instance.devices()).devices[0]).toMatchObject({
       online: true,
@@ -270,60 +276,9 @@ describe("device presence socket", () => {
     const devices = await harness.instance.devices(
       NOW + DEVICE_PRESENCE_STALE_AFTER_MS + 1,
     );
-    expect(devices.devices.map((device: { online: boolean }) => device.online)).toEqual([
-      false,
-      false,
-    ]);
-  });
-
-  test("a proven socket keeps the gate alarm armed within the keepalive interval", async () => {
-    const { keys, snapshot } = await withDevices(["desk-1"]);
-    const harness = open(OwnerGate, { snapshot });
-    const { socket } = await withNow(NOW, () => harness.connect(keys[0]!));
-    // Proven: the next alarm is the keepalive, well before the stale deadline.
-    expect(harness.alarms.at(-1)).toBeGreaterThan(NOW);
-    expect(harness.alarms.at(-1)).toBeLessThanOrEqual(
-      NOW + OWNER_GATE_PRESENCE_KEEPALIVE_MS,
-    );
-    expect(OWNER_GATE_PRESENCE_KEEPALIVE_MS).toBeLessThan(
-      DEVICE_PRESENCE_STALE_AFTER_MS,
-    );
-
-    // Each firing re-arms the next one while the socket is still attached,
-    // and a fresh ping keeps the socket itself from going stale.
-    await withNow(NOW + 20_000, () =>
-      harness.sendFrame(socket, { type: "ping" }),
-    );
-    await withNow(NOW + OWNER_GATE_PRESENCE_KEEPALIVE_MS, () =>
-      harness.instance.alarm(),
-    );
-    expect(socket.closed).toBe(false);
-    expect(harness.alarms.at(-1)).toBeGreaterThan(
-      NOW + OWNER_GATE_PRESENCE_KEEPALIVE_MS,
-    );
-    expect(harness.alarms.at(-1)).toBeLessThanOrEqual(
-      NOW + 2 * OWNER_GATE_PRESENCE_KEEPALIVE_MS,
-    );
-
-    // Once the socket is gone there is nothing to keep resident: the close
-    // only nudges the already-due alarm by the 250 ms floor, and that firing
-    // does not re-arm.
-    const closedAt = NOW + 2 * OWNER_GATE_PRESENCE_KEEPALIVE_MS;
-    await withNow(closedAt, () =>
-      harness.instance.webSocketClose(socket, 1000),
-    );
-    expect(harness.alarms.at(-1)).toBeLessThanOrEqual(closedAt + 250);
-    await withNow(closedAt + 250, () => harness.instance.alarm());
-    expect(harness.alarms.at(-1)).toBeLessThanOrEqual(closedAt + 250);
-  });
-
-  test("an unproven socket does not keep the gate resident", async () => {
-    const { keys, snapshot } = await withDevices(["desk-1"]);
-    const harness = open(OwnerGate, { snapshot });
-    await withNow(NOW, () => harness.connect(keys[0]!, { skipProof: true }));
-    expect(harness.alarms.at(-1)).toBeGreaterThan(
-      NOW + OWNER_GATE_PRESENCE_KEEPALIVE_MS,
-    );
+    expect(
+      devices.devices.map((device: { online: boolean }) => device.online),
+    ).toEqual([false, false]);
   });
 
   test("a socket whose sign-in has already lapsed is dropped on its next frame", async () => {

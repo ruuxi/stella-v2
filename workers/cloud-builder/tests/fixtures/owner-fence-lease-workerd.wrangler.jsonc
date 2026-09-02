@@ -13,12 +13,16 @@
         "name": "BUILD_SESSIONS",
         "class_name": "LeaseTestBuildSession",
       },
+      {
+        "name": "OWNER_GATES",
+        "class_name": "LeaseTestOwnerGate",
+      },
     ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["LeaseTestBuildSession"],
+      "new_sqlite_classes": ["LeaseTestBuildSession", "LeaseTestOwnerGate"],
     },
   ],
 }

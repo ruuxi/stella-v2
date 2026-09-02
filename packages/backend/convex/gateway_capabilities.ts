@@ -6,11 +6,22 @@ import {
   type ManagedModelAudience,
 } from "@stella/contracts/gateway/capability";
 import type { GatewaySessionCapabilityResponse } from "@stella/contracts/gateway/api";
-import { internalAction, internalMutation, query } from "./_generated/server";
+import {
+  internalAction,
+  internalMutation,
+  internalQuery,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
 import { anonymousTrialDeviceId, readDeviceAllowance } from "./ai_proxy_data";
 import { assertOwnerMigrationWriteAllowed, requireUserId } from "./auth";
-import { runResolveManagedModelAllowance } from "./billing";
+import {
+  runPeekManagedModelAllowance,
+  runResolveManagedModelAllowance,
+  type ManagedModelAllowanceResult,
+} from "./billing";
 import {
   isAnonDeviceHashSaltMissingError,
   logMissingSaltOnce,
@@ -79,6 +90,99 @@ const ownerModelAllowanceValidator = v.object({
   unlimited: v.boolean(),
 });
 
+type OwnerModelAllowanceArgs = {
+  ownerId: string;
+  ownerGeneration: string;
+  isAnonymous?: boolean;
+  deviceId?: string;
+};
+
+const readAnonymousOwnerModelAllowance = async (
+  ctx: QueryCtx | MutationCtx,
+  args: OwnerModelAllowanceArgs,
+): Promise<OwnerModelAllowance> => {
+  await assertOwnerMigrationWriteAllowed(
+    ctx,
+    args.ownerId,
+    args.ownerGeneration,
+  );
+  const deviceId =
+    args.deviceId?.trim() || anonymousTrialDeviceId(args.ownerId);
+  // Fail closed: without the salt the counter cannot be read, and an
+  // uncounted trial would be unbounded.
+  let remaining = 0;
+  try {
+    remaining = (
+      await readDeviceAllowance(ctx, {
+        deviceId,
+        maxRequests: getMaxAnonRequests(),
+      })
+    ).remaining;
+  } catch (error) {
+    if (!isAnonDeviceHashSaltMissingError(error)) throw error;
+    logMissingSaltOnce("gateway-capabilities");
+  }
+  // Money is not the anonymous ceiling; the request count is. A zero budget
+  // would read as exhausted at the gateway's ledger.
+  return {
+    audience: "anonymous",
+    budgetMicroCents: GATEWAY_BUDGET_UNLIMITED,
+    maxRequests: remaining,
+    unlimited: false,
+  };
+};
+
+const toOwnerModelAllowance = (
+  resolved: ManagedModelAllowanceResult,
+): OwnerModelAllowance => {
+  if (resolved.access.unlimited || resolved.remainingMicroCents === null) {
+    return {
+      audience: resolved.access.modelAudience,
+      budgetMicroCents: GATEWAY_BUDGET_UNLIMITED,
+      unlimited: true,
+    };
+  }
+  return {
+    audience: resolved.access.modelAudience,
+    budgetMicroCents: Math.max(
+      0,
+      Math.min(
+        Math.floor(resolved.remainingMicroCents),
+        GATEWAY_ALLOWANCE_CAP_MICRO_CENTS,
+      ),
+    ),
+    unlimited: false,
+  };
+};
+
+export const runPeekOwnerModelAllowance = async (
+  ctx: QueryCtx | MutationCtx,
+  args: OwnerModelAllowanceArgs,
+): Promise<OwnerModelAllowance> => {
+  if (args.isAnonymous) {
+    return await readAnonymousOwnerModelAllowance(ctx, args);
+  }
+  return toOwnerModelAllowance(
+    await runPeekManagedModelAllowance(ctx, {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+    }),
+  );
+};
+
+/** Read-only allowance for owner snapshots and other control-plane reads. */
+export const peekOwnerModelAllowanceInternal = internalQuery({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    isAnonymous: v.optional(v.boolean()),
+    deviceId: v.optional(v.string()),
+  },
+  returns: ownerModelAllowanceValidator,
+  handler: async (ctx, args): Promise<OwnerModelAllowance> =>
+    await runPeekOwnerModelAllowance(ctx, args),
+});
+
 /**
  * Single source of truth for capability budgets. Signed-in owners get the
  * audience from `resolveManagedModelAccess` and `min(remaining allowance,
@@ -95,60 +199,15 @@ export const getOwnerModelAllowanceInternal = internalMutation({
   returns: ownerModelAllowanceValidator,
   handler: async (ctx, args): Promise<OwnerModelAllowance> => {
     if (args.isAnonymous) {
-      await assertOwnerMigrationWriteAllowed(
-        ctx,
-        args.ownerId,
-        args.ownerGeneration,
-      );
-      const deviceId =
-        args.deviceId?.trim() || anonymousTrialDeviceId(args.ownerId);
-      // Fail closed: without the salt the counter cannot be read, and an
-      // uncounted trial would be unbounded.
-      let remaining = 0;
-      try {
-        remaining = (
-          await readDeviceAllowance(ctx, {
-            deviceId,
-            maxRequests: getMaxAnonRequests(),
-          })
-        ).remaining;
-      } catch (error) {
-        if (!isAnonDeviceHashSaltMissingError(error)) throw error;
-        logMissingSaltOnce("gateway-capabilities");
-      }
-      // Money is not the anonymous ceiling; the request count is. A zero
-      // budget would read as exhausted at the gateway's ledger.
-      return {
-        audience: "anonymous",
-        budgetMicroCents: GATEWAY_BUDGET_UNLIMITED,
-        maxRequests: remaining,
-        unlimited: false,
-      };
+      return await readAnonymousOwnerModelAllowance(ctx, args);
     }
 
-    const { access, remainingMicroCents } =
+    return toOwnerModelAllowance(
       await runResolveManagedModelAllowance(ctx, {
         ownerId: args.ownerId,
         ownerGeneration: args.ownerGeneration,
-      });
-    if (access.unlimited || remainingMicroCents === null) {
-      return {
-        audience: access.modelAudience,
-        budgetMicroCents: GATEWAY_BUDGET_UNLIMITED,
-        unlimited: true,
-      };
-    }
-    return {
-      audience: access.modelAudience,
-      budgetMicroCents: Math.max(
-        0,
-        Math.min(
-          Math.floor(remainingMicroCents),
-          GATEWAY_ALLOWANCE_CAP_MICRO_CENTS,
-        ),
-      ),
-      unlimited: false,
-    };
+      }),
+    );
   },
 });
 

@@ -8,9 +8,11 @@ mock.module("cloudflare:workers", () => ({
   WorkerEntrypoint: class {},
 }));
 const {
+  OWNER_GATE_BACKGROUND_SNAPSHOT_TIMEOUT_MS,
   OWNER_GATE_BURST_WINDOW_MS,
   OWNER_GATE_DAILY_WINDOW_MS,
   OWNER_GATE_RUNNING_GRACE_MS,
+  OWNER_GATE_SNAPSHOT_TIMEOUT_MS,
   OwnerGate,
   OwnerGateSnapshotError,
   parseOwnerSnapshot,
@@ -56,7 +58,9 @@ const readImmediately = async <T>(read: Promise<T>): Promise<T> => {
 const gateHarness = (
   options: {
     snapshot?: ReturnType<typeof sampleOwnerSnapshot>;
-    fetch?: () => Promise<ReturnType<typeof sampleOwnerSnapshot>>;
+    fetch?: (
+      timeoutMs: number,
+    ) => Promise<ReturnType<typeof sampleOwnerSnapshot>>;
     values?: Map<string, unknown>;
   } = {},
 ) => {
@@ -75,6 +79,7 @@ const gateHarness = (
   > &
     Record<string, unknown>;
   let fetches = 0;
+  const fetchTimeouts: number[] = [];
   const snapshot = options.snapshot ?? sampleOwnerSnapshot();
   Object.assign(instance, {
     ctx: { storage, id: { name: "owner-1", toString: () => "owner-1" } },
@@ -83,9 +88,10 @@ const gateHarness = (
       BUILDER_SERVICE_SECRET: "secret",
       TURN_TIMEOUT_MS: String(TURN_TIMEOUT_MS),
     },
-    fetchSnapshot: async () => {
+    fetchSnapshot: async (_ownerId: string, timeoutMs: number) => {
       fetches += 1;
-      if (options.fetch) return await options.fetch();
+      fetchTimeouts.push(timeoutMs);
+      if (options.fetch) return await options.fetch(timeoutMs);
       return snapshot;
     },
   });
@@ -93,6 +99,7 @@ const gateHarness = (
     instance,
     values,
     fetches: () => fetches,
+    fetchTimeouts: () => [...fetchTimeouts],
     close: () => sqlFake.close(),
   };
 };
@@ -338,6 +345,18 @@ describe("OwnerGate admission", () => {
 });
 
 describe("OwnerGate snapshot cache", () => {
+  test("uses separate synchronous and background snapshot deadlines", async () => {
+    const initial = sampleOwnerSnapshot();
+    const { instance, fetchTimeouts } = open({ snapshot: initial });
+    await instance.snapshot({ now: NOW });
+    await instance.snapshot({ now: NOW + initial.ttlMs + 1 });
+    await Promise.resolve();
+    expect(fetchTimeouts()).toEqual([
+      OWNER_GATE_SNAPSHOT_TIMEOUT_MS,
+      OWNER_GATE_BACKGROUND_SNAPSHOT_TIMEOUT_MS,
+    ]);
+  });
+
   test("serves a stale copy immediately while one background refresh runs", async () => {
     const refresh = deferred<ReturnType<typeof sampleOwnerSnapshot>>();
     let refreshing = false;

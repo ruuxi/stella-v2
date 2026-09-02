@@ -601,7 +601,7 @@ const prepareBody = (
 });
 
 const request = (body: unknown, headers?: HeadersInit): Request =>
-  new Request("https://build-session/owner-fence/turn-state", {
+  new Request("https://owner-gate/owner-fence/turn-state", {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
@@ -2156,7 +2156,7 @@ describe("turn-state owner routes", () => {
 
     const missingType = await handleTurnStateOwnerRoute({
       path: "turn-state/prepare",
-      request: new Request("https://build-session/owner-fence/turn-state", {
+      request: new Request("https://owner-gate/owner-fence/turn-state", {
         method: "POST",
         body: JSON.stringify(prepareBody(1)),
       }),

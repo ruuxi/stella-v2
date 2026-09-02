@@ -33,6 +33,7 @@ beforeAll(() => {
     STELLA_PRO_PRICE_CENTS: "2000",
     STELLA_ANON_MAX_REQUESTS: "3",
     ANON_DEVICE_ID_HASH_SALT: "snapshot-test-salt",
+    CONVEX_SITE_URL: "https://snapshot.test",
   };
   for (const [key, value] of Object.entries(values)) process.env[key] = value;
 });
@@ -198,6 +199,20 @@ describe("GET /api/gateway/owner-snapshot", () => {
     expect(snapshot.devices?.[1]?.label).toBeUndefined();
     expect(snapshot.fetchedAt).toBeGreaterThan(0);
     expect(snapshot.allowance.maxRequests).toBeUndefined();
+    const billingRows = await t.run(
+      async (ctx) =>
+        await Promise.all([
+          ctx.db
+            .query("billing_profiles")
+            .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+            .unique(),
+          ctx.db
+            .query("billing_usage_windows")
+            .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+            .unique(),
+        ]),
+    );
+    expect(billingRows).toEqual([null, null]);
   });
 
   it("marks purged or fenced owners unwritable and 404s unknown owners", async () => {

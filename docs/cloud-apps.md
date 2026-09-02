@@ -36,7 +36,8 @@ path:
   the thread transcript, and the checkpoint lifecycle.
 - **`OwnerGate`** — one per owner. Holds the cached owner snapshot, quota
   windows, the running-turn registry, device presence sockets, and dispatch
-  placement.
+  placement. It also hosts the owner's purge fence and owner turn-state
+  authority.
 - **`CapabilityLedger`** — in the gateway Worker, one per capability `jti`;
   budget and request accounting plus the replayable result cache.
 
@@ -345,11 +346,13 @@ One `OwnerGate` per owner (binding `OWNER_GATES`, object name = `ownerId`).
   each) immediately; a copy past one ttl, or one marked stale by a push, starts a
   single shared background refresh while the turn proceeds. Only a gate with no
   copy at all, or one beyond the three-ttl ceiling, fetches synchronously, with a
-  3 s timeout, and then fails closed as `internal`, retryable. A definite "owner
-  gone" is never papered over by the cache: a background refresh that learns it
-  removes the copy it started from. This is what keeps Convex off the turn path;
-  the earlier design blocked admission on a 10 s fetch whenever the ttl expired
-  or a push landed, which showed up as 8–18 s stalls in production logs.
+  3 s timeout, and then fails closed as `internal`, retryable. Background
+  refreshes have a 10 s timeout because admission does not wait for them. A
+  definite "owner gone" is never papered over by the cache: a background
+  refresh that learns it removes the copy it started from. This is what keeps
+  Convex off the turn path; the earlier design blocked admission on a 10 s fetch
+  whenever the ttl expired or a push landed, which showed up as 8–18 s stalls in
+  production logs.
 - **Push.** Convex posts
   `POST {builder}/internal/owners/snapshot-changed` (service secret) with a
   reason of `billing`, `generation`, `engine`, `pairing`, `device`, or `manual`
@@ -370,6 +373,11 @@ One `OwnerGate` per owner (binding `OWNER_GATES`, object name = `ownerId`).
   straight onto the turn-start contract.
 - **Release** is idempotent; every terminal path and every failed dispatch
   releases.
+- **Owner fence.** `POST /owner-fence/*` reaches the fence in this same
+  owner-named object. The fence keeps `ownerPurgeFence`, `owner_fence_*`, and
+  `turn-state:v1:*` beside the gate instead of waking an `owner-purge-*`
+  `BuildSession`. The single object alarm expires both gate dispatch/presence
+  deadlines and fence leases, then re-arms at the earlier remaining deadline.
 
 ### Agent turns
 

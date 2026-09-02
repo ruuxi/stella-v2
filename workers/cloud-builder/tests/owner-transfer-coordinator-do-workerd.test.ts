@@ -90,12 +90,12 @@ const requestJson = async (
 
 const coordinatorPath = (attempt: Attempt, path: string): string =>
   `/coordinator/${attempt.operationId}${path}`;
-const fencePath = (ownerHash: string, path: string): string =>
-  `/fence/${ownerHash}${path}`;
+const fencePath = (ownerId: string, path: string): string =>
+  `/fence/${encodeURIComponent(ownerId)}${path}`;
 const realCoordinatorPath = (attempt: Attempt, path: string): string =>
   `/real-coordinator/${attempt.operationId}${path}`;
-const realFencePath = (ownerHash: string, path: string): string =>
-  `/real-fence/${ownerHash}${path}`;
+const realFencePath = (ownerId: string, path: string): string =>
+  `/real-fence/${encodeURIComponent(ownerId)}${path}`;
 
 const eventually = async <T>(
   read: () => Promise<T>,
@@ -203,7 +203,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     }
   }, 30_000);
 
-  test("reserves production BuildSession owner fences with exact bound owner identities", async () => {
+  test("reserves production OwnerGate fences with exact bound owner identities", async () => {
     const attempt = await coordinatorAttempt({
       operation: "d",
       from: "real-source-owner",
@@ -241,7 +241,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     expect(snapshot.body.state.toOwnerId).toBe(attempt.toOwnerId);
 
     const sourceAssertion = await requestJson(
-      realFencePath(attempt.fromOwnerHash, "/owner-fence/assert-transfer"),
+      realFencePath(attempt.fromOwnerId, "/owner-fence/assert-transfer"),
       {
         ownerId: attempt.fromOwnerId,
         leaseId: snapshot.body.state.sourceReservation.leaseId,
@@ -257,7 +257,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     );
 
     const destinationAssertion = await requestJson(
-      realFencePath(attempt.toOwnerHash, "/owner-fence/assert-transfer"),
+      realFencePath(attempt.toOwnerId, "/owner-fence/assert-transfer"),
       {
         ownerId: attempt.toOwnerId,
         leaseId: snapshot.body.state.destinationReservation.leaseId,
@@ -407,7 +407,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
       body: { aborted: true, permanent: false },
     });
     const sourceAfterAbort = await requestJson(
-      realFencePath(attempt.fromOwnerHash, "/owner-fence/assert-transfer"),
+      realFencePath(attempt.fromOwnerId, "/owner-fence/assert-transfer"),
       {
         ownerId: attempt.fromOwnerId,
         leaseId: snapshot.body.state.sourceReservation.leaseId,
@@ -418,7 +418,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     );
     expect(sourceAfterAbort.status).toBe(409);
     const destinationAfterAbort = await requestJson(
-      realFencePath(attempt.toOwnerHash, "/owner-fence/assert-transfer"),
+      realFencePath(attempt.toOwnerId, "/owner-fence/assert-transfer"),
       {
         ownerId: attempt.toOwnerId,
         leaseId: snapshot.body.state.destinationReservation.leaseId,
@@ -439,7 +439,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     });
     const competing = { ...attempt, passIdHash: hash("b") };
     expect(
-      await requestJson(fencePath(attempt.fromOwnerHash, "/__test/configure"), {
+      await requestJson(fencePath(attempt.fromOwnerId, "/__test/configure"), {
         registerDelayMs: 1_500,
       }),
     ).toEqual({ status: 200, body: { configured: true } });
@@ -450,7 +450,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     });
     await eventually(
       async () =>
-        await requestJson(fencePath(attempt.fromOwnerHash, "/__test/snapshot")),
+        await requestJson(fencePath(attempt.fromOwnerId, "/__test/snapshot")),
       (result) => result.body.calls?.register === 1,
     );
     const claimed = await requestJson(
@@ -484,7 +484,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     expect(afterTimeout.body.alarmAt).toBeGreaterThan(Date.now());
 
     await pause(600);
-    await requestJson(fencePath(attempt.fromOwnerHash, "/__test/configure"), {
+    await requestJson(fencePath(attempt.fromOwnerId, "/__test/configure"), {
       registerDelayMs: 0,
     });
     const retry = { ...attempt, passIdHash: hash("c") };
@@ -509,7 +509,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
       to: "restart-destination-owner",
       pass: "d",
     });
-    await requestJson(fencePath(attempt.fromOwnerHash, "/__test/configure"), {
+    await requestJson(fencePath(attempt.fromOwnerId, "/__test/configure"), {
       registerDelayMs: 5_000,
     });
     const interruptedReserve = requestJson(
@@ -518,7 +518,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     ).catch(() => null);
     await eventually(
       async () =>
-        await requestJson(fencePath(attempt.fromOwnerHash, "/__test/snapshot")),
+        await requestJson(fencePath(attempt.fromOwnerId, "/__test/snapshot")),
       (result) => result.body.calls?.register === 1,
     );
     const beforeRestart = await requestJson(
@@ -528,7 +528,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
       kind: "reserve",
       operationId: attempt.operationId,
     });
-    await requestJson(fencePath(attempt.fromOwnerHash, "/__test/configure"), {
+    await requestJson(fencePath(attempt.fromOwnerId, "/__test/configure"), {
       registerDelayMs: 0,
     });
     expect(
@@ -573,7 +573,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     expect(
       await requestJson(coordinatorPath(attempt, "/reserve"), { attempt }),
     ).toMatchObject({ status: 200, body: { status: "reserved" } });
-    await requestJson(fencePath(attempt.fromOwnerHash, "/__test/configure"), {
+    await requestJson(fencePath(attempt.fromOwnerId, "/__test/configure"), {
       registerDelayMs: 1_500,
     });
     await requestJson(coordinatorPath(attempt, "/__test/expire-reservations"), {
@@ -593,7 +593,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     });
     expect(pendingRelease.body.alarmAt).toBeGreaterThan(Date.now());
 
-    await requestJson(fencePath(attempt.fromOwnerHash, "/__test/configure"), {
+    await requestJson(fencePath(attempt.fromOwnerId, "/__test/configure"), {
       registerDelayMs: 0,
     });
     await requestJson(coordinatorPath(attempt, "/__test/schedule-alarm"), {
@@ -612,12 +612,12 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     );
     expect(released.body.alarmAt).toBeNull();
     expect(
-      (await requestJson(fencePath(attempt.fromOwnerHash, "/__test/snapshot")))
+      (await requestJson(fencePath(attempt.fromOwnerId, "/__test/snapshot")))
         .body.active,
     ).toBe(undefined);
     expect(
-      (await requestJson(fencePath(attempt.toOwnerHash, "/__test/snapshot")))
-        .body.active,
+      (await requestJson(fencePath(attempt.toOwnerId, "/__test/snapshot"))).body
+        .active,
     ).toBe(undefined);
   }, 30_000);
 
@@ -642,7 +642,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     });
 
     expect(
-      await requestJson(fencePath(first.fromOwnerHash, "/__test/configure"), {
+      await requestJson(fencePath(first.fromOwnerId, "/__test/configure"), {
         registerDelayMs: 650,
       }),
     ).toEqual({ status: 200, body: { configured: true } });
@@ -656,7 +656,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     });
     await eventually(
       async () =>
-        await requestJson(fencePath(first.fromOwnerHash, "/__test/snapshot")),
+        await requestJson(fencePath(first.fromOwnerId, "/__test/snapshot")),
       (result) => result.body.calls?.register === 1,
     );
 
@@ -704,7 +704,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     expect(reboundIdentity.status).toBe(409);
     expect(reboundIdentity.body.code).toBe("owner_transfer_conflict");
 
-    await requestJson(fencePath(first.fromOwnerHash, "/__test/configure"), {
+    await requestJson(fencePath(first.fromOwnerId, "/__test/configure"), {
       registerDelayMs: 0,
     });
     const beforeRestart = await requestJson(
@@ -739,16 +739,16 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     );
 
     const sourceBeforeAlarm = await requestJson(
-      fencePath(first.fromOwnerHash, "/__test/snapshot"),
+      fencePath(first.fromOwnerId, "/__test/snapshot"),
     );
     const destinationBeforeAlarm = await requestJson(
-      fencePath(first.toOwnerHash, "/__test/snapshot"),
+      fencePath(first.toOwnerId, "/__test/snapshot"),
     );
     expect(sourceBeforeAlarm.body.calls.register).toBe(1);
     expect(destinationBeforeAlarm.body.calls.register).toBe(1);
 
     expect(
-      await requestJson(fencePath(first.fromOwnerHash, "/__test/configure"), {
+      await requestJson(fencePath(first.fromOwnerId, "/__test/configure"), {
         failNextRegister: 1,
       }),
     ).toEqual({ status: 200, body: { configured: true } });
@@ -773,10 +773,10 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     expect(renewed.body.remoteClaim).toBeNull();
 
     const sourceAfterFailedAlarm = await requestJson(
-      fencePath(first.fromOwnerHash, "/__test/snapshot"),
+      fencePath(first.fromOwnerId, "/__test/snapshot"),
     );
     const destinationAfterFailedAlarm = await requestJson(
-      fencePath(first.toOwnerHash, "/__test/snapshot"),
+      fencePath(first.toOwnerId, "/__test/snapshot"),
     );
     expect(sourceAfterFailedAlarm.body.calls.register).toBe(2);
     expect(destinationAfterFailedAlarm.body.calls.register).toBe(1);
@@ -796,10 +796,10 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     expect(recoveredRenewal.body.state.phase).toBe("reserved");
     expect(recoveredRenewal.body.remoteClaim).toBeNull();
     const sourceAfterAlarm = await requestJson(
-      fencePath(first.fromOwnerHash, "/__test/snapshot"),
+      fencePath(first.fromOwnerId, "/__test/snapshot"),
     );
     const destinationAfterAlarm = await requestJson(
-      fencePath(first.toOwnerHash, "/__test/snapshot"),
+      fencePath(first.toOwnerId, "/__test/snapshot"),
     );
     expect(sourceAfterAlarm.body.calls.register).toBe(3);
     expect(destinationAfterAlarm.body.calls.register).toBe(2);
@@ -818,7 +818,7 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
       },
     });
     expect(
-      await requestJson(fencePath(first.fromOwnerHash, "/__test/configure"), {
+      await requestJson(fencePath(first.fromOwnerId, "/__test/configure"), {
         failNextUnregister: 1,
       }),
     ).toEqual({ status: 200, body: { configured: true } });
@@ -869,10 +869,10 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     );
     expect(releasedByAlarm.body.alarmAt).toBeNull();
     const sourceAfterAck = await requestJson(
-      fencePath(first.fromOwnerHash, "/__test/snapshot"),
+      fencePath(first.fromOwnerId, "/__test/snapshot"),
     );
     const destinationAfterAck = await requestJson(
-      fencePath(first.toOwnerHash, "/__test/snapshot"),
+      fencePath(first.toOwnerId, "/__test/snapshot"),
     );
     expect(sourceAfterAck.body.active).toBe(undefined);
     expect(destinationAfterAck.body.active).toBe(undefined);
@@ -933,10 +933,10 @@ describe("OwnerTransferCoordinator real Durable Object", () => {
     expect(retryableState.body.state.activePass).toBe(undefined);
     expect(retryableState.body.alarmAt).toBeNull();
     const abortSourceFence = await requestJson(
-      fencePath(abortable.fromOwnerHash, "/__test/snapshot"),
+      fencePath(abortable.fromOwnerId, "/__test/snapshot"),
     );
     const abortDestinationFence = await requestJson(
-      fencePath(abortable.toOwnerHash, "/__test/snapshot"),
+      fencePath(abortable.toOwnerId, "/__test/snapshot"),
     );
     expect(abortSourceFence.body.active).toBe(undefined);
     expect(abortDestinationFence.body.active).toBe(undefined);

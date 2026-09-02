@@ -87,6 +87,15 @@ const allowance = (
     ...args,
   });
 
+const peekAllowance = (
+  t: Awaited<ReturnType<typeof createTest>>,
+  args: { ownerId: string; isAnonymous?: boolean; deviceId?: string },
+) =>
+  t.query(internal.gateway_capabilities.peekOwnerModelAllowanceInternal, {
+    ownerGeneration: OWNER_GENERATION,
+    ...args,
+  });
+
 const freeRemainingMicroCents = () => {
   const plan = getPlanConfig("free");
   return dollarsToMicroCents(
@@ -247,6 +256,123 @@ describe("getOwnerModelAllowanceInternal", () => {
         ownerGeneration: "generation-before-reset",
       }),
     ).rejects.toThrow(/started before the account data was reset/u);
+  });
+});
+
+describe("peekOwnerModelAllowanceInternal", () => {
+  it("matches the mutation for an anonymous owner", async () => {
+    const ownerId = "https://convex.test|peek-anonymous-owner";
+    const t = await createTest([ownerId]);
+    await t.mutation(internal.ai_proxy_data.consumeDeviceAllowance, {
+      deviceId: anonymousTrialDeviceId(ownerId),
+      maxRequests: ANON_MAX_REQUESTS,
+    });
+
+    const peeked = await peekAllowance(t, { ownerId, isAnonymous: true });
+    expect(await allowance(t, { ownerId, isAnonymous: true })).toEqual(peeked);
+  });
+
+  it("matches the mutation without normalizing stored billing windows", async () => {
+    const ownerId = "https://convex.test|peek-profile-owner";
+    const t = await createTest([ownerId]);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("billing_profiles", {
+        ownerId,
+        activePlan: "free",
+        subscriptionStatus: "none",
+        stripeCustomerId: "",
+        stripeSubscriptionId: "",
+        stripePriceId: "",
+        defaultPaymentMethodId: "",
+        paymentMethodBrand: "",
+        paymentMethodLast4: "",
+        currentPeriodStart: 0,
+        currentPeriodEnd: 0,
+        cancelAtPeriodEnd: false,
+        monthlyAnchorAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("billing_usage_windows", {
+        ownerId,
+        rollingUsageMicroCents: dollarsToMicroCents(20),
+        rollingWindowStartedAt: 1,
+        weeklyUsageMicroCents: dollarsToMicroCents(20),
+        weeklyWindowStartedAt: 1,
+        monthlyUsageMicroCents: dollarsToMicroCents(20),
+        monthlyWindowStartedAt: 1,
+        totalUsageMicroCents: dollarsToMicroCents(4),
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("billing_usage_credits", {
+        ownerId,
+        balanceMicroCents: dollarsToMicroCents(0.5),
+        totalPurchasedMicroCents: dollarsToMicroCents(0.5),
+        totalConsumedMicroCents: 0,
+        currency: "usd",
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const peeked = await peekAllowance(t, { ownerId });
+    const usageBeforeMutation = await t.run(
+      async (ctx) =>
+        await ctx.db
+          .query("billing_usage_windows")
+          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+          .unique(),
+    );
+    expect(usageBeforeMutation?.rollingWindowStartedAt).toBe(1);
+
+    expect(await allowance(t, { ownerId })).toEqual(peeked);
+    const usageAfterMutation = await t.run(
+      async (ctx) =>
+        await ctx.db
+          .query("billing_usage_windows")
+          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+          .unique(),
+    );
+    expect(usageAfterMutation?.rollingWindowStartedAt).toBeGreaterThan(1);
+  });
+
+  it("matches the mutation without creating missing billing rows", async () => {
+    const ownerId = "https://convex.test|peek-new-owner";
+    const t = await createTest([ownerId]);
+
+    const peeked = await peekAllowance(t, { ownerId });
+    const rowsAfterPeek = await t.run(
+      async (ctx) =>
+        await Promise.all([
+          ctx.db
+            .query("billing_profiles")
+            .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+            .unique(),
+          ctx.db
+            .query("billing_usage_windows")
+            .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+            .unique(),
+        ]),
+    );
+    expect(rowsAfterPeek).toEqual([null, null]);
+
+    expect(await allowance(t, { ownerId })).toEqual(peeked);
+    const rowsAfterMutation = await t.run(
+      async (ctx) =>
+        await Promise.all([
+          ctx.db
+            .query("billing_profiles")
+            .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+            .unique(),
+          ctx.db
+            .query("billing_usage_windows")
+            .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+            .unique(),
+        ]),
+    );
+    expect(rowsAfterMutation.every((row) => row !== null)).toBe(true);
   });
 });
 

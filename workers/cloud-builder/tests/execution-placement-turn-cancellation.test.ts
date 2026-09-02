@@ -711,7 +711,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     let observedUrl = "";
     let observedInit: RequestInit | undefined;
     instance["env"] = {
-      BUILD_SESSIONS: {
+      OWNER_GATES: {
         getByName: (name: string) => {
           observedName = name;
           return {
@@ -739,8 +739,8 @@ describe("execution-placement exact cloud turn cancellation", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(observedName).toBe(`owner-purge-${await sha256Hex("owner-1")}`);
-    expect(observedUrl).toBe("https://build-session/owner-fence/register");
+    expect(observedName).toBe("owner-1");
+    expect(observedUrl).toBe("https://owner-gate/owner-fence/register");
     expect(
       new Headers(observedInit?.headers).get("x-stella-owner-fence-id"),
     ).toBe("owner-1");

@@ -4,11 +4,12 @@ import {
   turnComputePlan,
   turnComputePlanKey,
 } from "../../src/general-agent-turn.js";
-import { sha256Hex } from "../../src/hash.js";
 import { OwnerFenceStore } from "../../src/owner-fence-store.js";
+import { OwnerGate } from "../../src/owner-gate.js";
 
 type FixtureEnv = {
   BUILD_SESSIONS: DurableObjectNamespace<LeaseTestBuildSession>;
+  OWNER_GATES: DurableObjectNamespace<LeaseTestOwnerGate>;
   BUILDER_SERVICE_SECRET: string;
   TURN_TIMEOUT_MS: string;
 };
@@ -104,6 +105,94 @@ type BuildSessionInternals = {
   ): Promise<Response>;
 };
 
+type OwnerGateInternals = {
+  scheduleAlarm(now: number): Promise<void>;
+};
+
+/** Production OwnerGate plus observation routes for its colocated fence. */
+export class LeaseTestOwnerGate extends OwnerGate {
+  constructor(ctx: DurableObjectState, env: FixtureEnv) {
+    super(ctx, env as never);
+  }
+
+  override async fetch(request: Request): Promise<Response> {
+    const path = new URL(request.url).pathname;
+    if (path === "/__test/fence-snapshot") {
+      await this.status();
+      const fence =
+        await this.ctx.storage.get<Record<string, unknown>>("ownerPurgeFence");
+      const store = new OwnerFenceStore(this.ctx.storage.sql);
+      store.initialize();
+      const gateDeadlines = this.ctx.storage.sql
+        .exec<{
+          dispatch_id: string;
+          payload_json: string | null;
+          payload_expires_at: number | null;
+        }>(
+          `SELECT dispatch_id, payload_json, payload_expires_at
+             FROM dispatches
+            ORDER BY dispatch_id`,
+        )
+        .toArray();
+      return json({
+        fence: fence ?? null,
+        active: store.activeLeases(),
+        nextExpiry: store.nextExpiry(),
+        gateDeadlines,
+        alarmAt: await this.ctx.storage.getAlarm(),
+      });
+    }
+    if (path === "/__test/seed-gate-alarm") {
+      const body = await parse(request);
+      const dispatchId = text(body, "dispatchId");
+      const delayMs = body.delayMs;
+      if (
+        !dispatchId ||
+        typeof delayMs !== "number" ||
+        !Number.isSafeInteger(delayMs) ||
+        delayMs < 250 ||
+        delayMs > 10_000
+      ) {
+        return json({ error: "Invalid gate alarm." }, 400);
+      }
+      await this.status();
+      const now = Date.now();
+      const deadline = now + delayMs;
+      this.ctx.storage.sql.exec(
+        `INSERT INTO dispatches (
+           dispatch_id, idempotency_key, owner_generation, kind, ingress,
+           subject, conversation_id, required_capabilities,
+           routing_fingerprint, state, on_no_eligible_computer, revision,
+           payload_json, payload_hash, payload_expires_at, cloud_attempts,
+           gate_held, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        dispatchId,
+        `idempotency:${dispatchId}`,
+        "generation:test",
+        "chat",
+        "fixture",
+        "fixture",
+        `conversation:${dispatchId}`,
+        "[]",
+        `routing:${dispatchId}`,
+        "failed",
+        "fail",
+        1,
+        "{}",
+        `payload:${dispatchId}`,
+        deadline,
+        0,
+        0,
+        now,
+        now,
+      );
+      await (this as unknown as OwnerGateInternals).scheduleAlarm(now);
+      return json({ seeded: true, deadline });
+    }
+    return await super.fetch(request);
+  }
+}
+
 /** Production BuildSession plus observation/fault-injection fixture routes. */
 export class LeaseTestBuildSession extends BuildSession {
   constructor(ctx: DurableObjectState, env: FixtureEnv) {
@@ -159,19 +248,6 @@ export class LeaseTestBuildSession extends BuildSession {
 
   override async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
-    if (path.startsWith("/owner-fence/")) return await super.fetch(request);
-    if (path === "/__test/fence-snapshot") {
-      const fence =
-        await this.ctx.storage.get<Record<string, unknown>>("ownerPurgeFence");
-      const store = new OwnerFenceStore(this.ctx.storage.sql);
-      store.initialize();
-      return json({
-        fence: fence ?? null,
-        active: store.activeLeases(),
-        nextExpiry: store.nextExpiry(),
-        alarmAt: await this.ctx.storage.getAlarm(),
-      });
-    }
     if (path === "/__test/client-snapshot") {
       const receipts = await this.ctx.storage.list<LeaseReceipt>({
         prefix: RECEIPT_PREFIX,
@@ -525,11 +601,10 @@ export default {
     const owner = url.pathname.match(/^\/owner\/([^/]+)(\/.*)$/u);
     if (owner) {
       const ownerId = decodeURIComponent(owner[1]);
-      const ownerHash = await sha256Hex(ownerId);
       const headers = new Headers(request.headers);
       headers.set("x-stella-owner-fence-id", ownerId);
       return await forward(
-        env.BUILD_SESSIONS.getByName(`owner-purge-${ownerHash}`),
+        env.OWNER_GATES.getByName(ownerId),
         new Request(request, { headers }),
         owner[2],
       );

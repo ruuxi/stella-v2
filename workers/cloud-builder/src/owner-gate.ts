@@ -97,10 +97,11 @@ import {
   type DeviceRegistration,
 } from "./dispatch-policy.js";
 import { enqueueOutbox } from "./outbox.js";
+import { createOwnerFenceHost } from "./owner-fence-do.js";
 
 export type OwnerGateEnv = Pick<
   Cloudflare.Env,
-  "STELLA_CONVEX_SITE_URL" | "BUILDER_SERVICE_SECRET"
+  "STELLA_CONVEX_SITE_URL" | "BUILDER_SERVICE_SECRET" | "BACKUP_BUCKET"
 > &
   Partial<
     Pick<
@@ -173,6 +174,8 @@ export const OWNER_GATE_RUNNING_GRACE_MS = 60_000;
  * not hold the turn path when the gate already has a usable snapshot.
  */
 export const OWNER_GATE_SNAPSHOT_TIMEOUT_MS = 3_000;
+/** Background refreshes stay off the turn path and may wait longer for Convex. */
+export const OWNER_GATE_BACKGROUND_SNAPSHOT_TIMEOUT_MS = 10_000;
 /** A cloud start refused as unavailable (503) is retried once, after this. */
 export const DISPATCH_CLOUD_RETRY_DELAY_MS = 1_000;
 export const DISPATCH_CLOUD_MAX_ATTEMPTS = 2;
@@ -808,8 +811,14 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
 
   private ensureSchema(): void {
     if (this.schemaReady) return;
+    const startedAt = performance.now();
     for (const statement of DDL) this.ctx.storage.sql.exec(statement);
     this.schemaReady = true;
+    const schemaMs = Math.round(performance.now() - startedAt);
+    log("info", "owner_gate_wake_timing", {
+      schemaMs,
+      totalMs: schemaMs,
+    });
   }
 
   private turnTimeoutMs(): number {
@@ -823,7 +832,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
    * One GET to Convex. Split out so tests replace the transport without
    * touching the caching and failure policy around it.
    */
-  protected async fetchSnapshot(ownerId: string): Promise<OwnerSnapshot> {
+  protected async fetchSnapshot(
+    ownerId: string,
+    timeoutMs: number,
+  ): Promise<OwnerSnapshot> {
     const base = (this.env.STELLA_CONVEX_SITE_URL ?? "")
       .trim()
       .replace(/\/+$/, "");
@@ -844,7 +856,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
             authorization: `Bearer ${secret}`,
             accept: "application/json",
           },
-          signal: AbortSignal.timeout(OWNER_GATE_SNAPSHOT_TIMEOUT_MS),
+          signal: AbortSignal.timeout(timeoutMs),
         },
       );
     } catch (error) {
@@ -888,9 +900,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
    * start one shared background refresh. This stale-while-revalidate rule
    * keeps the synchronous control plane off the turn path after production
    * showed ten-second fetches stalling admissions. With no usable copy, or
-   * with `refresh: true`, the bounded refresh stays synchronous. When a
-   * background refresh reports a definite "owner gone", it removes the exact
-   * cached record that started the refresh so later reads fail closed.
+   * with `refresh: true`, the refresh stays synchronous and uses the three
+   * second bound. Background refreshes use a ten-second bound because they do
+   * not hold admission. When one reports a definite "owner gone", it removes
+   * the exact cached record that started the refresh so later reads fail
+   * closed.
    */
   async snapshot(
     options: { refresh?: boolean; now?: number } = {},
@@ -913,7 +927,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       return cached.snapshot;
     }
     try {
-      return await this.refreshSnapshot(now);
+      return await this.refreshSnapshot(now, OWNER_GATE_SNAPSHOT_TIMEOUT_MS);
     } catch (error) {
       if (error instanceof OwnerGateSnapshotError && !error.retryable) {
         throw error;
@@ -944,7 +958,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
 
   private refreshSnapshotInBackground(now: number): void {
     if (this.snapshotInflight) return;
-    void this.refreshSnapshot(now).catch((error) => {
+    void this.refreshSnapshot(
+      now,
+      OWNER_GATE_BACKGROUND_SNAPSHOT_TIMEOUT_MS,
+    ).catch((error) => {
       log("error", "owner_snapshot_refresh_failed", {
         ownerId: this.ownerId(),
         message: error instanceof Error ? error.message : String(error),
@@ -952,13 +969,16 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     });
   }
 
-  private refreshSnapshot(now: number): Promise<OwnerSnapshot> {
+  private refreshSnapshot(
+    now: number,
+    timeoutMs: number,
+  ): Promise<OwnerSnapshot> {
     if (this.snapshotInflight) return this.snapshotInflight;
     const work = (async () => {
       const cachedBeforeRefresh =
         await this.ctx.storage.get<CachedSnapshot>(SNAPSHOT_KEY);
       try {
-        const snapshot = await this.fetchSnapshot(this.ownerId());
+        const snapshot = await this.fetchSnapshot(this.ownerId(), timeoutMs);
         return (await this.storeSnapshot(snapshot, now)).snapshot;
       } catch (error) {
         if (
@@ -1379,6 +1399,15 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
    */
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/owner-fence/")) {
+      if (request.method !== "POST") {
+        return Response.json({ error: "Method not allowed." }, { status: 405 });
+      }
+      return await createOwnerFenceHost({
+        ctx: this.ctx,
+        env: this.env,
+      }).fetch(url.pathname.slice("/owner-fence/".length), request);
+    }
     if (url.pathname !== "/presence") {
       return Response.json({ error: "Not found." }, { status: 404 });
     }
@@ -3158,8 +3187,14 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
 
   // ── Alarms ────────────────────────────────────────────────────────────
 
-  private async scheduleAlarm(now: number): Promise<void> {
-    let next = Number.POSITIVE_INFINITY;
+  private async scheduleAlarm(
+    now: number,
+    options: {
+      fenceDeadline?: number | null;
+      preserveExisting?: boolean;
+    } = {},
+  ): Promise<void> {
+    let next = options.fenceDeadline ?? Number.POSITIVE_INFINITY;
     for (const socket of this.sockets()) {
       const attachment = this.attachment(socket);
       if (!attachment) continue;
@@ -3190,6 +3225,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       )
       .toArray()[0]?.at;
     if (typeof deadline === "number") next = Math.min(next, deadline);
+    if (options.preserveExisting !== false) {
+      const existingAlarm = await this.ctx.storage.getAlarm();
+      if (existingAlarm !== null) next = Math.min(next, existingAlarm);
+    }
     if (!Number.isFinite(next)) return;
     try {
       await this.ctx.storage.setAlarm(Math.max(now + 250, next));
@@ -3202,9 +3241,26 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   async alarm(): Promise<void> {
     this.ensureSchema();
     const now = Date.now();
-    await this.expirePresence(now);
-    await this.expireDispatches(now);
-    await this.scheduleAlarm(now);
+    const ownerFenceHost = createOwnerFenceHost({
+      ctx: this.ctx,
+      env: this.env,
+    });
+    let fenceDeadline: number | null = null;
+    let fenceAlarmCompleted = false;
+    try {
+      fenceDeadline = await ownerFenceHost.alarm(now);
+      fenceAlarmCompleted = true;
+      await this.expirePresence(now);
+      await this.expireDispatches(now);
+    } finally {
+      if (!fenceAlarmCompleted) {
+        fenceDeadline = await ownerFenceHost.nextDeadline();
+      }
+      await this.scheduleAlarm(now, {
+        fenceDeadline,
+        preserveExisting: false,
+      });
+    }
   }
 
   private async expirePresence(now: number): Promise<void> {

@@ -250,7 +250,7 @@ import {
  */
 type Env = Pick<
   Cloudflare.Env,
-  "BUILD_SESSIONS" | "LOADER" | "BUILDER_SERVICE_SECRET"
+  "BUILD_SESSIONS" | "OWNER_GATES" | "LOADER" | "BUILDER_SERVICE_SECRET"
 > &
   Partial<
     Pick<
@@ -265,7 +265,6 @@ type Env = Pick<
       | "CLOUD_BUILDER_PUBLIC_URL"
       | "CAPABILITY_SIGNING_KEY"
       | "CAPABILITY_SIGNING_KID"
-      | "OWNER_GATES"
       | "TURN_OUTBOX"
     >
   >;
@@ -996,8 +995,11 @@ export class OrchestratorSession extends DurableObject<Env> {
     // survived — otherwise an accepted turn (and its Convex "running" row)
     // would be silently lost forever.
     void this.ctx.blockConcurrencyWhile(async () => {
+      const wakeStartedAt = performance.now();
       // The schema has to exist before anything can read or write a turn.
       await this.journal.bootstrap();
+      const bootstrapMs = Math.round(performance.now() - wakeStartedAt);
+      const restoreStartedAt = performance.now();
       this.ownerGeneration = await this.ctx.storage.get<string>(
         "ownerDataGeneration",
       );
@@ -1011,6 +1013,11 @@ export class OrchestratorSession extends DurableObject<Env> {
       } else {
         for (const turn of await this.queuedTurns()) this.enqueue(turn);
       }
+      log("info", "conversation_wake_timing", {
+        bootstrapMs,
+        restoreMs: Math.round(performance.now() - restoreStartedAt),
+        totalMs: Math.round(performance.now() - wakeStartedAt),
+      });
     });
   }
 
@@ -1027,9 +1034,8 @@ export class OrchestratorSession extends DurableObject<Env> {
     path: string,
     body: Record<string, unknown>,
   ): Promise<Response> {
-    const ownerHash = await sha256Hex(ownerId);
-    return this.env.BUILD_SESSIONS.getByName(`owner-purge-${ownerHash}`).fetch(
-      `https://build-session/owner-fence/${path}`,
+    return this.env.OWNER_GATES.getByName(ownerId).fetch(
+      `https://owner-gate/owner-fence/${path}`,
       {
         method: "POST",
         headers: {

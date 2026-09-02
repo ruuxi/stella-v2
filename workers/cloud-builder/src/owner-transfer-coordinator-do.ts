@@ -34,7 +34,7 @@ const REMOTE_CLAIM_MIN_MS = 60_000;
 const HEADER_OWNER_FENCE_ID = "x-stella-owner-fence-id";
 
 type CoordinatorEnv = {
-  BUILD_SESSIONS: DurableObjectNamespace;
+  OWNER_GATES: DurableObjectNamespace;
   /** Test-only override also permits a future deploy-time tightening. */
   OWNER_TRANSFER_FENCE_TIMEOUT_MS?: string;
 };
@@ -274,13 +274,13 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
   private isLiveClaim(claim: RemoteClaim | undefined, now: number): boolean {
     return Boolean(
       claim &&
-      claim.schemaVersion === 1 &&
-      claim.claimId &&
-      claim.operationId &&
-      Number.isSafeInteger(claim.expectedRevision) &&
-      claim.expectedRevision >= 1 &&
-      Number.isSafeInteger(claim.expiresAt) &&
-      claim.expiresAt > now,
+        claim.schemaVersion === 1 &&
+        claim.claimId &&
+        claim.operationId &&
+        Number.isSafeInteger(claim.expectedRevision) &&
+        claim.expectedRevision >= 1 &&
+        Number.isSafeInteger(claim.expiresAt) &&
+        claim.expiresAt > now,
     );
   }
 
@@ -401,28 +401,28 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     };
   }
 
-  private async ownerFence(ownerHash: string) {
-    return this.env.BUILD_SESSIONS.getByName(`owner-purge-${ownerHash}`);
+  private ownerFence(ownerId: string) {
+    return this.env.OWNER_GATES.getByName(ownerId);
   }
 
   private async callFence(
     ownerId: string,
-    ownerHash: string,
     path: string,
     body: Record<string, unknown>,
   ): Promise<FenceResponse> {
     const signal = AbortSignal.timeout(this.fenceTimeoutMs());
-    const response = await (
-      await this.ownerFence(ownerHash)
-    ).fetch(`https://build-session/owner-fence/${path}`, {
-      method: "POST",
-      signal,
-      headers: {
-        "content-type": "application/json",
-        [HEADER_OWNER_FENCE_ID]: ownerId,
+    const response = await this.ownerFence(ownerId).fetch(
+      `https://owner-gate/owner-fence/${path}`,
+      {
+        method: "POST",
+        signal,
+        headers: {
+          "content-type": "application/json",
+          [HEADER_OWNER_FENCE_ID]: ownerId,
+        },
+        body: JSON.stringify({ ...body, ownerId }),
       },
-      body: JSON.stringify({ ...body, ownerId }),
-    });
+    );
     const result = (await response.json().catch(() => null)) as {
       generation?: unknown;
       code?: unknown;
@@ -463,14 +463,12 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
       {
         side: "source" as const,
         ownerId: state.fromOwnerId,
-        ownerHash: state.fromOwnerHash,
         ownerGeneration: state.fromOwnerGeneration,
         reservation: state.sourceReservation,
       },
       {
         side: "destination" as const,
         ownerId: state.toOwnerId,
-        ownerHash: state.toOwnerHash,
         ownerGeneration: state.toOwnerGeneration,
         reservation: state.destinationReservation,
       },
@@ -478,20 +476,15 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     const outcomes = await Promise.all(
       targets.map(async (target) => {
         if (!debt[target.side]) return { side: target.side, released: true };
-        const result = await this.callFence(
-          target.ownerId,
-          target.ownerHash,
-          "unregister",
-          {
-            leaseId: target.reservation.leaseId,
-            sessionId: this.ctx.id.toString(),
-            turnId: `owner-transfer:${state.operationId}`,
-            ...(target.reservation.generation
-              ? { generation: target.reservation.generation }
-              : {}),
-            ownerGeneration: target.ownerGeneration,
-          },
-        ).catch(() => null);
+        const result = await this.callFence(target.ownerId, "unregister", {
+          leaseId: target.reservation.leaseId,
+          sessionId: this.ctx.id.toString(),
+          turnId: `owner-transfer:${state.operationId}`,
+          ...(target.reservation.generation
+            ? { generation: target.reservation.generation }
+            : {}),
+          ownerGeneration: target.ownerGeneration,
+        }).catch(() => null);
         return { side: target.side, released: result?.ok === true };
       }),
     );
@@ -522,18 +515,13 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     const turnId = `owner-transfer:${state.operationId}`;
     const sessionId = this.ctx.id.toString();
     const [source, destination] = await Promise.all([
-      this.callFence(
-        state.fromOwnerId,
-        state.fromOwnerHash,
-        "assert-transfer",
-        {
-          leaseId: state.sourceReservation.leaseId,
-          sessionId,
-          turnId,
-          ownerGeneration: state.fromOwnerGeneration,
-        },
-      ),
-      this.callFence(state.toOwnerId, state.toOwnerHash, "assert-transfer", {
+      this.callFence(state.fromOwnerId, "assert-transfer", {
+        leaseId: state.sourceReservation.leaseId,
+        sessionId,
+        turnId,
+        ownerGeneration: state.fromOwnerGeneration,
+      }),
+      this.callFence(state.toOwnerId, "assert-transfer", {
         leaseId: state.destinationReservation.leaseId,
         sessionId,
         turnId,
@@ -574,7 +562,6 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
     const expiresAt = now + RESERVATION_MS;
     const source = await this.callFence(
       state.fromOwnerId,
-      state.fromOwnerHash,
       "register",
       this.reservationBody(
         state,
@@ -599,7 +586,6 @@ export class OwnerTransferCoordinator extends DurableObject<CoordinatorEnv> {
 
     const destination = await this.callFence(
       state.toOwnerId,
-      state.toOwnerHash,
       "register",
       this.reservationBody(
         state,

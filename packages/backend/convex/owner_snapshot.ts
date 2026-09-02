@@ -13,7 +13,7 @@ import {
   resolveOwnerExecutionInMutation,
 } from "./cloud_apps";
 import { CLOUD_ENGINE_PROVIDERS } from "./cloud_engines";
-import type { OwnerModelAllowance } from "./gateway_capabilities";
+import { runPeekOwnerModelAllowance } from "./gateway_capabilities";
 import { resolveBuilderEndpoint } from "./lib/builder_turns";
 import {
   cloudExecutionSelectionValidator,
@@ -96,6 +96,7 @@ type OwnerSnapshotFields = {
   plan: OwnerSnapshot["plan"];
   unlimited: boolean;
   quotas: OwnerSnapshot["quotas"];
+  allowance: OwnerSnapshot["allowance"];
   execution: CloudExecutionSelection;
   pairedDevices: NonNullable<OwnerSnapshot["pairedDevices"]>;
   devices: NonNullable<OwnerSnapshot["devices"]>;
@@ -109,15 +110,24 @@ const ownerSnapshotFieldsValidator = v.object({
   plan: v.union(v.literal("free"), v.literal("go"), v.literal("pro")),
   unlimited: v.boolean(),
   quotas: v.object({ chat: laneQuotaValidator, agent: laneQuotaValidator }),
+  allowance: v.object({
+    audience: managedModelAudienceValidator,
+    budgetMicroCents: v.number(),
+    maxRequests: v.optional(v.number()),
+  }),
   execution: cloudExecutionSelectionValidator,
   pairedDevices: v.array(pairedDeviceValidator),
   devices: v.array(executionDeviceValidator),
   connectedEngines: v.array(connectedEngineValidator),
 });
 
-/** Everything except the allowance, which needs a mutation (usage windows). */
+/** Reads every owner-gate field in one consistent query transaction. */
 export const getOwnerSnapshotFieldsInternal = internalQuery({
-  args: { ownerId: v.string() },
+  args: {
+    ownerId: v.string(),
+    isAnonymous: v.boolean(),
+    deviceId: v.optional(v.string()),
+  },
   returns: ownerSnapshotFieldsValidator,
   handler: async (ctx, args): Promise<OwnerSnapshotFields> => {
     const ownerId = args.ownerId;
@@ -130,6 +140,29 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
       dailyTurns: quota.dailyTurns,
       concurrent: quota.concurrentTurns,
     };
+    const resolvedAllowance = writable
+      ? await runPeekOwnerModelAllowance(ctx, {
+          ownerId,
+          ownerGeneration: access.generation,
+          isAnonymous: args.isAnonymous,
+          ...(args.deviceId ? { deviceId: args.deviceId } : {}),
+        })
+      : null;
+    const allowance: OwnerSnapshot["allowance"] = resolvedAllowance
+      ? {
+          audience: resolvedAllowance.audience,
+          budgetMicroCents: resolvedAllowance.budgetMicroCents,
+          ...(resolvedAllowance.maxRequests !== undefined
+            ? { maxRequests: resolvedAllowance.maxRequests }
+            : {}),
+        }
+      : {
+          // A fenced owner admits nothing. Keep the shape total so the gate
+          // does not need a separate allowance state.
+          audience: args.isAnonymous ? "anonymous" : "free",
+          budgetMicroCents: 0,
+          maxRequests: 0,
+        };
     let execution: CloudExecutionSelection;
     try {
       execution = await resolveOwnerExecutionInMutation(ctx, ownerId);
@@ -170,6 +203,7 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
       plan,
       unlimited,
       quotas: { chat: lane, agent: lane },
+      allowance,
       execution,
       pairedDevices: paired
         .filter((device) => device.revokedAt === undefined)
@@ -205,10 +239,8 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
 });
 
 /**
- * Assembles the snapshot. Not one transaction by design: the allowance read
- * normalizes usage windows (a mutation) while the rest is a query, and a
- * snapshot that is a few milliseconds internally skewed is exactly what a
- * five-minute cache tolerates.
+ * The query reads the complete snapshot in one transaction. This action is
+ * only the action-to-query bridge used by HTTP routes and change pushes.
  */
 export const getOwnerSnapshotInternal = internalAction({
   args: {
@@ -220,42 +252,18 @@ export const getOwnerSnapshotInternal = internalAction({
   handler: async (ctx, args): Promise<OwnerSnapshot> => {
     const fields: OwnerSnapshotFields = await ctx.runQuery(
       internal.owner_snapshot.getOwnerSnapshotFieldsInternal,
-      { ownerId: args.ownerId },
+      {
+        ownerId: args.ownerId,
+        isAnonymous: args.isAnonymous,
+        ...(args.deviceId ? { deviceId: args.deviceId } : {}),
+      },
     );
-    let allowance: OwnerSnapshot["allowance"];
-    if (fields.writable) {
-      const resolved: OwnerModelAllowance = await ctx.runMutation(
-        internal.gateway_capabilities.getOwnerModelAllowanceInternal,
-        {
-          ownerId: args.ownerId,
-          ownerGeneration: fields.ownerGeneration,
-          isAnonymous: args.isAnonymous,
-          ...(args.deviceId ? { deviceId: args.deviceId } : {}),
-        },
-      );
-      allowance = {
-        audience: resolved.audience,
-        budgetMicroCents: resolved.budgetMicroCents,
-        ...(resolved.maxRequests !== undefined
-          ? { maxRequests: resolved.maxRequests }
-          : {}),
-      };
-    } else {
-      // A fenced owner admits nothing; the allowance is moot but the shape
-      // must stay total so the gate never has to special-case it.
-      allowance = {
-        audience: args.isAnonymous ? "anonymous" : "free",
-        budgetMicroCents: 0,
-        maxRequests: 0,
-      };
-    }
     return {
       v: OWNER_SNAPSHOT_VERSION,
       ...fields,
       // Convex validates engine === provider at runtime; the wire shape is the
       // contract's discriminated union.
       execution: fields.execution as OwnerSnapshot["execution"],
-      allowance,
       fetchedAt: Date.now(),
       ttlMs: OWNER_SNAPSHOT_TTL_MS,
     };

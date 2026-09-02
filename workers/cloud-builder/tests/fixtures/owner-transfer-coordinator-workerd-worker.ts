@@ -1,16 +1,16 @@
 import { DurableObject } from "cloudflare:workers";
-import { BuildSession } from "../../src/index.js";
+import { OwnerGate } from "../../src/owner-gate.js";
 import { OwnerTransferCoordinator } from "../../src/owner-transfer-coordinator-do.js";
 import type { OwnerTransferCoordinatorState } from "../../src/owner-transfer-coordinator.js";
 
 type FixtureEnv = {
-  BUILD_SESSIONS: DurableObjectNamespace<FakeOwnerFence>;
+  OWNER_GATES: DurableObjectNamespace<FakeOwnerFence>;
   OWNER_TRANSFER_COORDINATORS: DurableObjectNamespace<TestOwnerTransferCoordinator>;
-  REAL_BUILD_SESSIONS: DurableObjectNamespace<BuildSession>;
+  REAL_OWNER_GATES: DurableObjectNamespace<OwnerGate>;
   REAL_OWNER_TRANSFER_COORDINATORS: DurableObjectNamespace<RealFenceOwnerTransferCoordinator>;
 };
 
-export { BuildSession };
+export { OwnerGate };
 
 type FenceRegistration = {
   ownerId: string;
@@ -72,7 +72,7 @@ const emptyFenceState = (): FenceState => ({
 
 /**
  * A deliberately small, durable owner-fence peer. The coordinator itself is
- * the production class; this fake replaces only its remote BUILD_SESSIONS
+ * the production class; this fake replaces only its remote OWNER_GATES
  * dependency so Workerd can exercise the coordinator's real storage, input
  * gate, alarm, and isolate-restart behavior deterministically.
  */
@@ -316,10 +316,10 @@ export class TestOwnerTransferCoordinator extends OwnerTransferCoordinator {
   }
 }
 
-/** Production coordinator wired to the production BuildSession owner fence. */
+/** Production coordinator wired to the production OwnerGate owner fence. */
 export class RealFenceOwnerTransferCoordinator extends OwnerTransferCoordinator {
   constructor(ctx: DurableObjectState, env: FixtureEnv) {
-    super(ctx, { BUILD_SESSIONS: env.REAL_BUILD_SESSIONS });
+    super(ctx, { OWNER_GATES: env.REAL_OWNER_GATES });
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -380,20 +380,18 @@ export default {
       );
     }
 
-    const fence = url.pathname.match(/^\/fence\/([a-f0-9]{64})(\/.*)$/u);
+    const fence = url.pathname.match(/^\/fence\/([^/]+)(\/.*)$/u);
     if (fence) {
       return await forward(
-        env.BUILD_SESSIONS.getByName(`owner-purge-${fence[1]}`),
+        env.OWNER_GATES.getByName(decodeURIComponent(fence[1])),
         request,
         fence[2],
       );
     }
-    const realFence = url.pathname.match(
-      /^\/real-fence\/([a-f0-9]{64})(\/.*)$/u,
-    );
+    const realFence = url.pathname.match(/^\/real-fence\/([^/]+)(\/.*)$/u);
     if (realFence) {
       return await forward(
-        env.REAL_BUILD_SESSIONS.getByName(`owner-purge-${realFence[1]}`),
+        env.REAL_OWNER_GATES.getByName(decodeURIComponent(realFence[1])),
         request,
         realFence[2],
       );

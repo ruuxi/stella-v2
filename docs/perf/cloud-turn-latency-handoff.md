@@ -74,7 +74,58 @@ Rule: a per-user or per-conversation Durable Object must be first touched by
 a request from the user's edge. Convex pushes may target objects that already
 exist; never use them to create one.
 
-## Next steps, in order of value
+## Steps 1 to 3 landed (2026-09-02, branch `claude/cloudflare-durable-objects-doc-jwg5x0`)
+
+Not yet measured on the dev deployment: the session that landed these could
+not deploy. Measure with the recipe at the bottom before trusting the numbers
+in "Next steps"; the phase labels below say what each timing now covers.
+
+- **Step 1, fence register folded into the snapshot call.**
+  `OwnerGate.snapshotWithFenceLease` (an RPC method, `owner-gate.ts`) serves
+  the cached snapshot and, only when that snapshot is writable at the
+  caller's generation, runs the colocated fence's `register` in-process
+  through the same `OwnerFenceHost` that `POST /owner-fence/register` uses.
+  A stale or fenced-off caller never leaves a lease behind. A snapshot the
+  gate cannot obtain comes back as a value, so the caller can tell "nothing
+  registered" from a lost response. On the conversation side,
+  `registerOwnerTurn` takes a register transport; the receipt protocol
+  (`ownerFenceLeaseReceipt:*`, run slots, replay, uncertain-response
+  handling) is untouched. `handleLocalTurnBegin` now does only the local
+  half of the owner check (`localTurnCaller`) before validating the request,
+  then `registerOwnerTurnWithSnapshot`, then applies the snapshot with
+  `adoptOwnerSnapshot` (the write fence, adoption, generation persist that
+  `resolveOwnerForCaller` still does for every other route). Consequence for
+  the phase log: `ownerLookupMs` is now local work only and
+  `ownerFenceRegisterMs` is the one gate round trip. The replay branch (an
+  existing local lease for the same turn) keeps the separate snapshot read
+  and its two fence asserts; it is rare.
+- **Step 2, remote asserts dropped from the begin path.** Both the assert
+  before the response and the one inside `initializeLocalTurn` after the
+  prompt spill (the doc above did not list that second one; it was the bulk
+  of the 120 ms "journal init") are gone. Verified against
+  `beginOwnerPurge` in `index.ts` and the `/owner-purge-cancel` handler: a
+  purge that begins after register finds the lease in the fence's `active`
+  map and calls this object, which cancels the exact local lease (or retires
+  an orphaned receipt) before the purge can report quiescence; the local
+  lease re-read after `initializeLocalTurn` catches it. The remote assert only
+  moved that failure earlier. `finalFenceMs` keeps its name and now times the
+  local re-read only. Cloud turns (`/turn`) and voice appends are unchanged.
+- **Step 3, gate keepalive.** `OWNER_GATE_PRESENCE_KEEPALIVE_MS = 30_000`:
+  `scheduleAlarm` arms an alarm at most that far out while a proven presence
+  socket is attached, and every `alarm()` re-arms it. Unproven sockets do not
+  count. This is the one change the doc said to measure first; it was not.
+  If the second-send bump is gone after steps 1 and 2, delete the constant
+  and the three lines in `scheduleAlarm` that use it.
+- **Step 4 not done**: no Docker in that session. The dev container image
+  still needs rebuilding from a shell with Docker.
+
+Tests: `tests/owner-gate-fence-lease.test.ts` (the combined call against the
+real fence store), the local-turn begin cases in
+`tests/execution-placement-turn-cancellation.test.ts` (one gate call, replay
+without a second register, stale generation and fenced-off owner register
+nothing), and the keepalive cases in `tests/device-presence-socket.test.ts`.
+
+## Next steps, in order of value (as written before steps 1 to 3 landed)
 
 1. **Fold fence register into the snapshot call.** The gate already has the
    owner in hand when it serves the snapshot. Returning the fence generation

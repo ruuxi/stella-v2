@@ -107,6 +107,7 @@ import {
   type MintedTurnCapability,
 } from "./capability-signer.js";
 import {
+  OwnerGateSnapshotError,
   snapshotAllowsExecutionEngine,
   type OwnerGateAdmission,
   type OwnerGateAdmitInput,
@@ -419,6 +420,26 @@ type OwnerFenceRunSlot = {
   turnId: string;
   leaseId: string;
 };
+
+type OwnerFenceRegisterRequest = {
+  ownerGeneration: string;
+  leaseId: string;
+  sessionId: string;
+  turnId: string;
+  namespace: "orchestrator";
+  role: "orchestrator";
+  generation?: string;
+};
+
+/**
+ * Carries one exact `register` to the owner fence. `{ generation }` is a
+ * committed lease and `null` a definite refusal; a throw means the response
+ * was lost and the remote may have committed, so the receipt stays replayable.
+ */
+type OwnerFenceRegisterTransport = (
+  ownerId: string,
+  body: OwnerFenceRegisterRequest,
+) => Promise<{ generation: string } | null>;
 
 type LocalTurnLease = OwnerFencedTurn & {
   deviceId: string;
@@ -1186,6 +1207,8 @@ export class OrchestratorSession extends DurableObject<Env> {
     turn: OwnerFencedTurn,
     freshLease = false,
     operationFingerprint?: string,
+    transport: OwnerFenceRegisterTransport = (ownerId, body) =>
+      this.registerOwnerFenceLease(ownerId, body),
   ): Promise<string> {
     const runSlotKey = freshLease
       ? undefined
@@ -1272,6 +1295,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         turn,
         freshLease,
         operationFingerprint,
+        transport,
       );
     }
     if (receipt.phase === "registered" && receipt.registrationGeneration) {
@@ -1280,9 +1304,9 @@ export class OrchestratorSession extends DurableObject<Env> {
       return receipt.registrationGeneration;
     }
 
-    let response: Response;
+    let body: { generation: string } | null;
     try {
-      response = await this.callOwnerFence(turn.ownerId, "register", {
+      body = await transport(turn.ownerId, {
         ownerGeneration: receipt.ownerGeneration,
         leaseId: receipt.leaseId,
         sessionId: this.ctx.id.toString(),
@@ -1298,10 +1322,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       // lost. Preserve the exact intent so replay uses the same lease id.
       throw new OwnerFenceRegistrationUncertainError();
     }
-    const body = (await response.json().catch(() => null)) as {
-      generation?: string;
-    } | null;
-    if (!response.ok || !body?.generation) throw new OwnerPurgeFenceError();
+    if (!body) throw new OwnerPurgeFenceError();
 
     let committed = false;
     await this.ctx.blockConcurrencyWhile(async () => {
@@ -1339,6 +1360,93 @@ export class OrchestratorSession extends DurableObject<Env> {
     turn.ownerPurgeLeaseId = receipt.leaseId;
     turn.ownerPurgeGeneration = body.generation;
     return body.generation;
+  }
+
+  /** The default register transport: one `POST /owner-fence/register`. */
+  private async registerOwnerFenceLease(
+    ownerId: string,
+    body: OwnerFenceRegisterRequest,
+  ): Promise<{ generation: string } | null> {
+    const response = await this.callOwnerFence(ownerId, "register", body);
+    const parsed = (await response.json().catch(() => null)) as {
+      generation?: string;
+    } | null;
+    return response.ok && parsed?.generation
+      ? { generation: parsed.generation }
+      : null;
+  }
+
+  /**
+   * A new local turn's owner lookup and fence registration in one gate round
+   * trip. The gate registers the lease only while its snapshot still says
+   * the owner is writable at `turn.ownerGeneration`, so a stale caller never
+   * leaves a lease behind. The durable receipt protocol is registerOwnerTurn's,
+   * unchanged; only the transport differs. A replayed registration (receipt
+   * already `registered`) makes no register call and reads the snapshot on
+   * its own.
+   */
+  private async registerOwnerTurnWithSnapshot(
+    turn: OwnerFencedTurn,
+    operationFingerprint: string,
+  ): Promise<
+    | { registered: true; generation: string; snapshot: OwnerSnapshot }
+    | {
+        registered: false;
+        reason: "not_writable" | "generation_stale";
+        snapshot: OwnerSnapshot;
+      }
+  > {
+    const observed: {
+      snapshot?: OwnerSnapshot;
+      skipped?: "not_writable" | "generation_stale";
+      snapshotError?: OwnerGateSnapshotError;
+    } = {};
+    let generation: string;
+    try {
+      generation = await this.registerOwnerTurn(
+        turn,
+        false,
+        operationFingerprint,
+        async (ownerId, body) => {
+          const outcome = await this.ownerGate(ownerId).snapshotWithFenceLease({
+            lease: body,
+          });
+          if (!outcome.snapshot) {
+            observed.snapshotError = new OwnerGateSnapshotError(
+              outcome.snapshotError.code,
+              outcome.snapshotError.message,
+              outcome.snapshotError.retryable,
+            );
+            return null;
+          }
+          observed.snapshot = outcome.snapshot;
+          if (outcome.lease.status === "registered") {
+            return { generation: outcome.lease.generation };
+          }
+          if (outcome.lease.status === "skipped") {
+            observed.skipped = outcome.lease.reason;
+          }
+          return null;
+        },
+      );
+    } catch (error) {
+      if (error instanceof OwnerPurgeFenceError) {
+        // A snapshot the gate could not obtain fails the way the separate
+        // snapshot read used to: nothing was registered.
+        if (observed.snapshotError) throw observed.snapshotError;
+        if (observed.skipped && observed.snapshot) {
+          return {
+            registered: false,
+            reason: observed.skipped,
+            snapshot: observed.snapshot,
+          };
+        }
+      }
+      throw error;
+    }
+    const snapshot =
+      observed.snapshot ?? (await this.ownerGateSnapshot(turn.ownerId));
+    return { registered: true, generation, snapshot };
   }
 
   private async assertOwnerTurn(turn: OwnerFencedTurn): Promise<void> {
@@ -1594,6 +1702,19 @@ export class OrchestratorSession extends DurableObject<Env> {
       };
     }
     const snapshot = await this.ownerGateSnapshot(callerId);
+    return await this.adoptOwnerSnapshot(callerId, snapshot);
+  }
+
+  /**
+   * The half of resolveOwnerForCaller that runs once a snapshot is in hand:
+   * the write fence, adoption of an unbound conversation, and the persisted
+   * owner generation. Shared with the local-turn begin path, whose snapshot
+   * arrives together with its fence registration.
+   */
+  private async adoptOwnerSnapshot(
+    callerId: string,
+    snapshot: OwnerSnapshot,
+  ): Promise<ConversationOwnerRecord | null> {
     if (!snapshot.writable) return null;
     if (this.purged()) return null;
     if (!this.journal.meta().owner_id) {
@@ -6109,6 +6230,33 @@ export class OrchestratorSession extends DurableObject<Env> {
     });
   }
 
+  /**
+   * The local half of localTurnOwner for a new admission: who is calling and
+   * which owner this conversation is bound to, with no gate round trip. The
+   * gate snapshot (write fence, current generation) is applied by the caller
+   * once it arrives together with the fence registration.
+   */
+  private localTurnCaller(request: Request): { ownerId: string } | Response {
+    const identity = parseSocketIdentity(request);
+    if (!identity) return json({ error: "Unauthorized." }, 401);
+    if (this.purged()) {
+      return json(
+        { code: "deleted", message: "This conversation was deleted." },
+        410,
+      );
+    }
+    const bound = this.journal.ownerId() || identity.ownerId;
+    if (
+      !localTurnLeaseAllowsIdentityTransition({
+        boundOwnerId: bound,
+        callerOwnerId: identity.ownerId,
+      })
+    ) {
+      return json({ error: "Conversation not found." }, 404);
+    }
+    return { ownerId: bound };
+  }
+
   private async localTurnOwner(
     request: Request,
     suppliedLeaseToken?: string,
@@ -6242,7 +6390,8 @@ export class OrchestratorSession extends DurableObject<Env> {
       userMessageJson,
       `turn:${lease.turnId}:prompt`,
     );
-    await this.assertOwnerTurn(lease);
+    // The prompt spill above may have yielded to an owner-purge cancel; the
+    // durable lease records it, so no remote fence assert is needed.
     const admitted =
       await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
     if (
@@ -6494,12 +6643,11 @@ export class OrchestratorSession extends DurableObject<Env> {
     ) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
-    const owner = await this.localTurnOwner(
-      request,
-      undefined,
-      expectedOwnerGeneration,
-    );
-    if (owner instanceof Response) return owner;
+    // The gate snapshot that used to be read here now arrives with the fence
+    // registration below, in one gate round trip. Only the local half of the
+    // owner check runs before the request is validated.
+    const caller = this.localTurnCaller(request);
+    if (caller instanceof Response) return caller;
     markTiming("ownerLookupMs");
     const userMessageJson = body.userMessageJson ?? "";
     if (
@@ -6587,6 +6735,14 @@ export class OrchestratorSession extends DurableObject<Env> {
       await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
     markTiming("preflightMs");
     if (existing) {
+      // A replay is rare and renews a lease an earlier register fenced, so it
+      // keeps the separate snapshot refresh.
+      const replayOwner = await this.localTurnOwner(
+        request,
+        undefined,
+        expectedOwnerGeneration,
+      );
+      if (replayOwner instanceof Response) return replayOwner;
       if (existing.ownerGeneration !== expectedOwnerGeneration) {
         return staleOwnerGenerationResponse();
       }
@@ -6735,8 +6891,8 @@ export class OrchestratorSession extends DurableObject<Env> {
     }
 
     const lease: LocalTurnLease = {
-      ownerId: owner.ownerId,
-      ownerGeneration: owner.ownerGeneration,
+      ownerId: caller.ownerId,
+      ownerGeneration: expectedOwnerGeneration,
       turnId,
       deviceId,
       localTurnId,
@@ -6748,13 +6904,35 @@ export class OrchestratorSession extends DurableObject<Env> {
       ...(clientMsgId ? { clientMsgId } : {}),
     };
     try {
-      lease.ownerPurgeGeneration = await this.registerOwnerTurn(
+      const registration = await this.registerOwnerTurnWithSnapshot(
         lease,
-        false,
         beginFingerprint,
       );
+      // The checks localTurnOwner made before the gate read moved here: the
+      // write fence and adoption first, then the generation the desktop
+      // expects. The gate registers nothing for a snapshot that refuses the
+      // caller; a replayed registration that no longer qualifies is released.
+      const owner = await this.adoptOwnerSnapshot(
+        caller.ownerId,
+        registration.snapshot,
+      );
+      if (!owner) {
+        if (registration.registered) await this.unregisterOwnerTurn(lease);
+        return json({ error: "Conversation not found." }, 404);
+      }
+      if (
+        owner.ownerGeneration !== expectedOwnerGeneration ||
+        !registration.registered
+      ) {
+        if (registration.registered) await this.unregisterOwnerTurn(lease);
+        return staleOwnerGenerationResponse();
+      }
+      lease.ownerPurgeGeneration = registration.generation;
       markTiming("ownerFenceRegisterMs");
     } catch (error) {
+      // A snapshot the gate could not obtain propagates as the separate
+      // snapshot read used to.
+      if (error instanceof OwnerGateSnapshotError) throw error;
       if (error instanceof OwnerFenceLeaseConflictError) {
         return json(
           {
@@ -6889,7 +7067,11 @@ export class OrchestratorSession extends DurableObject<Env> {
         userMessageJson,
       );
       markTiming("initializeMs");
-      await this.assertOwnerTurn(lease);
+      // No remote fence assert here. An owner purge that began after the
+      // register above reaches this object through `/owner-purge-cancel`,
+      // which cancels the exact local lease before the purge can report
+      // quiescence, so the durable lease below is the fence. The phase keeps
+      // its `finalFenceMs` name so existing dashboards still line up.
       const finalLease =
         await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
       if (

@@ -5,7 +5,11 @@ import {
   turnComputePlanKey,
 } from "../../src/general-agent-turn.js";
 import { OwnerFenceStore } from "../../src/owner-fence-store.js";
-import { OwnerGate } from "../../src/owner-gate.js";
+import {
+  OwnerGate,
+  type OwnerGateFenceLeaseRequest,
+} from "../../src/owner-gate.js";
+import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 
 type FixtureEnv = {
   BUILD_SESSIONS: DurableObjectNamespace<LeaseTestBuildSession>;
@@ -115,8 +119,44 @@ export class LeaseTestOwnerGate extends OwnerGate {
     super(ctx, env as never);
   }
 
+  /** No Convex here: every owner is writable at `generation:<ownerId>`. */
+  protected override async fetchSnapshot(
+    ownerId: string,
+  ): Promise<OwnerSnapshot> {
+    return {
+      v: 1,
+      ownerId,
+      ownerGeneration: `generation:${ownerId}`,
+      writable: true,
+      plan: "pro",
+      unlimited: false,
+      quotas: {
+        chat: { burstStarts: 20, dailyTurns: 500, concurrent: 2 },
+        agent: { burstStarts: 10, dailyTurns: 100, concurrent: 2 },
+      },
+      allowance: { audience: "pro", budgetMicroCents: 250_000_000 },
+      execution: {
+        engine: "stella",
+        provider: "stella",
+        model: "stella/default",
+        reasoningEffort: "default",
+      },
+      connectedEngines: [],
+      fetchedAt: Date.now(),
+      ttlMs: 300_000,
+    };
+  }
+
   override async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
+    if (path === "/__test/snapshot-with-lease") {
+      const body = await parse(request);
+      return json(
+        await this.snapshotWithFenceLease({
+          lease: body as unknown as OwnerGateFenceLeaseRequest,
+        }),
+      );
+    }
     if (path === "/__test/fence-snapshot") {
       await this.status();
       const fence =

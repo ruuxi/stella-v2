@@ -97,7 +97,14 @@ import {
   type DeviceRegistration,
 } from "./dispatch-policy.js";
 import { enqueueOutbox } from "./outbox.js";
-import { createOwnerFenceHost } from "./owner-fence-do.js";
+import {
+  HEADER_OWNER_FENCE_ID,
+  createOwnerFenceHost,
+} from "./owner-fence-do.js";
+import type {
+  OwnerFenceLeaseNamespace,
+  OwnerFenceLeaseRole,
+} from "./owner-fence-store.js";
 
 export type OwnerGateEnv = Pick<
   Cloudflare.Env,
@@ -164,6 +171,38 @@ export type OwnerGateAdmission =
   | { ok: true; snapshot: OwnerSnapshot; replayed: boolean }
   | OwnerGateRefusal;
 
+/** One exact owner-fence lease carried along with a snapshot read. */
+export type OwnerGateFenceLeaseRequest = {
+  leaseId: string;
+  sessionId: string;
+  turnId: string;
+  ownerGeneration: string;
+  namespace: OwnerFenceLeaseNamespace;
+  role: OwnerFenceLeaseRole;
+  /** The open-fence generation an exact replay expects to still hold. */
+  generation?: string;
+  expiresAt?: number;
+};
+
+export type OwnerGateFenceLeaseOutcome =
+  | { status: "registered"; generation: string; expiresAt: number }
+  /** The fence host refused, exactly as `POST /owner-fence/register` would. */
+  | { status: "refused"; httpStatus: number; code?: string; error?: string }
+  /** The snapshot did not authorize the caller, so no register was tried. */
+  | { status: "skipped"; reason: "not_writable" | "generation_stale" };
+
+export type OwnerGateSnapshotWithLease =
+  | { snapshot: OwnerSnapshot; lease: OwnerGateFenceLeaseOutcome }
+  | {
+      snapshot: null;
+      snapshotError: {
+        code: "owner_purged" | "internal";
+        message: string;
+        retryable: boolean;
+      };
+      lease: { status: "skipped"; reason: "snapshot_unavailable" };
+    };
+
 export const OWNER_GATE_BURST_WINDOW_MS = 10 * 60_000;
 export const OWNER_GATE_DAILY_WINDOW_MS = 24 * 60 * 60_000;
 /** Grace added to `TURN_TIMEOUT_MS` before a running row is presumed released. */
@@ -185,6 +224,14 @@ export const DISPATCH_CLOUD_MAX_ATTEMPTS = 2;
  * fails closed if Convex is unavailable.
  */
 export const OWNER_GATE_STALE_SNAPSHOT_TTLS = 3;
+/**
+ * While a proven presence socket is attached, the alarm re-arms this often so
+ * the object stays resident and the next turn's snapshot read is a warm
+ * storage read rather than a wake from hibernation. Cheap, but its effect on
+ * the second send was not measured when it landed; see
+ * docs/perf/cloud-turn-latency-handoff.md before tuning or removing it.
+ */
+export const OWNER_GATE_PRESENCE_KEEPALIVE_MS = 30_000;
 const DEFAULT_TURN_TIMEOUT_MS = 900_000;
 const SNAPSHOT_KEY = "ownerSnapshot";
 const CONCURRENCY_RETRY_MIN_MS = 1_000;
@@ -954,6 +1001,98 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
             true,
           );
     }
+  }
+
+  /**
+   * The snapshot read and one exact owner-fence `register` in a single round
+   * trip, for a caller that would otherwise make them back to back. The
+   * register runs only when the snapshot still authorizes the caller's
+   * generation, so a stale or fenced-off caller never leaves a lease behind,
+   * and it runs through the same fence host `POST /owner-fence/register`
+   * uses: the lease protocol is unchanged, only the transport is. A snapshot
+   * that cannot be obtained is returned as a value rather than thrown, so the
+   * caller can tell "nothing was registered" from a lost response.
+   */
+  async snapshotWithFenceLease(input: {
+    lease: OwnerGateFenceLeaseRequest;
+    now?: number;
+  }): Promise<OwnerGateSnapshotWithLease> {
+    const now = input.now ?? Date.now();
+    let snapshot: OwnerSnapshot;
+    try {
+      snapshot = await this.snapshot({ now });
+    } catch (error) {
+      const failure =
+        error instanceof OwnerGateSnapshotError
+          ? error
+          : new OwnerGateSnapshotError(
+              "internal",
+              error instanceof Error ? error.message : String(error),
+              true,
+            );
+      return {
+        snapshot: null,
+        snapshotError: {
+          code: failure.code,
+          message: failure.message,
+          retryable: failure.retryable,
+        },
+        lease: { status: "skipped", reason: "snapshot_unavailable" },
+      };
+    }
+    if (!snapshot.writable) {
+      return { snapshot, lease: { status: "skipped", reason: "not_writable" } };
+    }
+    if (snapshot.ownerGeneration !== input.lease.ownerGeneration) {
+      return {
+        snapshot,
+        lease: { status: "skipped", reason: "generation_stale" },
+      };
+    }
+    const ownerId = this.ownerId();
+    const response = await createOwnerFenceHost({
+      ctx: this.ctx,
+      env: this.env,
+    }).fetch(
+      "register",
+      new Request("https://owner-gate/owner-fence/register", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          [HEADER_OWNER_FENCE_ID]: ownerId,
+        },
+        body: JSON.stringify({ ...input.lease, ownerId }),
+      }),
+    );
+    const body = (await response.json().catch(() => null)) as {
+      generation?: unknown;
+      expiresAt?: unknown;
+      code?: unknown;
+      error?: unknown;
+    } | null;
+    if (
+      response.ok &&
+      typeof body?.generation === "string" &&
+      typeof body.expiresAt === "number"
+    ) {
+      return {
+        snapshot,
+        lease: {
+          status: "registered",
+          generation: body.generation,
+          expiresAt: body.expiresAt,
+        },
+      };
+    }
+    return {
+      snapshot,
+      lease: {
+        status: "refused",
+        httpStatus: response.status,
+        ...(typeof body?.code === "string" ? { code: body.code } : {}),
+        ...(typeof body?.error === "string" ? { error: body.error } : {}),
+      },
+    };
   }
 
   private refreshSnapshotInBackground(now: number): void {
@@ -3203,6 +3342,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         attachment.lastSeenAtMs + DEVICE_PRESENCE_STALE_AFTER_MS,
         attachment.authExpiresAtMs,
       );
+      // A proven socket keeps the object resident between turns.
+      if (attachment.phase === "connected") {
+        next = Math.min(next, now + OWNER_GATE_PRESENCE_KEEPALIVE_MS);
+      }
     }
     const deadline = this.ctx.storage.sql
       .exec<{ at: number | null }>(

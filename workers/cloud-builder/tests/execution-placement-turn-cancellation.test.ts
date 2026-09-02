@@ -656,6 +656,66 @@ const ownerPurgeRequest = (body: unknown) =>
     body: JSON.stringify(body),
   });
 
+const localTurnBeginRequest = (
+  overrides: Record<string, unknown> = {},
+  ownerId = "owner-1",
+) =>
+  new Request("https://orchestrator-session/local-turns/begin", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-stella-owner": ownerId,
+      "x-stella-subject": "subject-1",
+      "x-stella-token-exp": String(Date.now() + 60_000),
+    },
+    body: JSON.stringify({
+      deviceId: "device-1",
+      expectedOwnerGeneration: "generation-1",
+      localTurnId: "turn-1",
+      userMessageJson: JSON.stringify({
+        role: "user",
+        content: [{ type: "text", text: "hello from the desktop" }],
+        timestamp: 1,
+      }),
+      ...overrides,
+    }),
+  });
+
+/**
+ * A begin that reaches the real owner-fence receipt protocol: the harness
+ * stubs are removed so `registerOwnerTurn` runs against the fake gate, and
+ * the durable half of begin is stubbed because the harness journal has no
+ * SQLite behind it.
+ */
+const durableLocalTurnBegin = (
+  harness: ReturnType<typeof sessionHarness>,
+  journal: Record<string, unknown> = {},
+) => {
+  enableDurableOwnerFenceLifecycle(harness.instance);
+  let fenceCalls = 0;
+  harness.instance["callOwnerFence"] = async () => {
+    fenceCalls += 1;
+    return Response.json({ ok: true });
+  };
+  harness.instance["journal"] = {
+    ...(harness.instance["journal"] as Record<string, unknown>),
+    storedBytes: () => 0,
+    ...journal,
+  };
+  harness.instance["initializeLocalTurn"] = async () => ({
+    history: [],
+    contextStartSeq: 0,
+    contextEndSeq: 0,
+  });
+  const begin = (overrides: Record<string, unknown> = {}) =>
+    (
+      harness.instance["handleLocalTurnBegin"] as (
+        request: Request,
+      ) => Promise<Response>
+    )(localTurnBeginRequest(overrides));
+  return { begin, fenceCalls: () => fenceCalls };
+};
+
 const enableDurableOwnerFenceLifecycle = (
   instance: OrchestratorSession & Record<string, unknown>,
 ): void => {
@@ -2688,28 +2748,84 @@ describe("execution-placement exact cloud turn cancellation", () => {
     expect(await harness.ledger.entriesForTest()).toEqual([]);
   });
 
-  test("a stale local-turn generation is rejected before lease or journal admission", async () => {
-    const harness = sessionHarness();
-    const forcedLookups: boolean[] = [];
-    let ownerRegistrations = 0;
-    let journalWrites = 0;
-    harness.instance["resolveOwnerForCaller"] = async (
-      _caller: unknown,
-      options: { refreshGeneration?: boolean } = {},
-    ) => {
-      forcedLookups.push(options.refreshGeneration === true);
-      return {
-        ownerId: "owner-1",
-        ownerGeneration: "generation-2",
-        createdAt: 1,
-        title: "",
-      };
+  test("a new local turn registers its owner lease in the gate snapshot round trip", async () => {
+    const gates = fakeOwnerGates();
+    const harness = sessionHarness(new Map(), { gates });
+    const { begin, fenceCalls } = durableLocalTurnBegin(harness);
+
+    const response = await begin();
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      turnId: string;
+      leaseToken: string;
+      replayed: boolean;
     };
-    harness.instance["ownerGeneration"] = "generation-2";
-    harness.instance["journal"] = {
-      ownerId: () => "owner-1",
-      turnState: () => null,
-      storedBytes: () => 0,
+    expect(body).toMatchObject({
+      turnId: "desktop:device-1:turn-1",
+      replayed: false,
+    });
+    // One gate call carried both the snapshot and the register; the fence
+    // route itself was never used, and no separate snapshot read happened.
+    expect(gates.snapshots).toEqual([]);
+    expect(fenceCalls()).toBe(0);
+    expect(gates.fenceLeases).toHaveLength(1);
+    const [call] = gates.fenceLeases;
+    expect(call).toMatchObject({
+      ownerId: "owner-1",
+      lease: {
+        ownerGeneration: "generation-1",
+        sessionId: "conversation-1",
+        turnId: "desktop:device-1:turn-1",
+        namespace: "orchestrator",
+        role: "orchestrator",
+      },
+      outcome: { status: "registered", generation: "fence-generation-1" },
+    });
+    expect(harness.values.get("localTurnLease")).toMatchObject({
+      turnId: "desktop:device-1:turn-1",
+      leaseToken: body.leaseToken,
+      ownerGeneration: "generation-1",
+      ownerPurgeLeaseId: call!.lease.leaseId,
+      ownerPurgeGeneration: "fence-generation-1",
+    });
+    expect(ownerFenceLeaseReceipts(harness.values)).toEqual([
+      expect.objectContaining({
+        leaseId: call!.lease.leaseId,
+        phase: "registered",
+        registrationGeneration: "fence-generation-1",
+      }),
+    ]);
+    expect(harness.values.get("ownerDataGeneration")).toBe("generation-1");
+
+    // A begin whose response was lost before the lease was persisted replays
+    // the registered receipt without a second register, reading only the
+    // snapshot from the gate.
+    harness.values.delete("localTurnLease");
+    const replay = await begin();
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({
+      turnId: "desktop:device-1:turn-1",
+      replayed: false,
+    });
+    expect(gates.fenceLeases).toHaveLength(1);
+    expect(gates.snapshots).toEqual(["owner-1"]);
+    expect(fenceCalls()).toBe(0);
+    expect(harness.values.get("localTurnLease")).toMatchObject({
+      ownerPurgeLeaseId: call!.lease.leaseId,
+      ownerPurgeGeneration: "fence-generation-1",
+    });
+  });
+
+  test("a stale local-turn generation is rejected before lease or journal admission", async () => {
+    const gates = fakeOwnerGates({
+      snapshot: sampleOwnerSnapshot({ ownerGeneration: "generation-2" }),
+    });
+    const harness = sessionHarness(new Map(), { gates });
+    let journalWrites = 0;
+    const { begin, fenceCalls } = durableLocalTurnBegin(harness, {
+      bindOwner: () => {
+        journalWrites += 1;
+      },
       upsertTurn: () => {
         journalWrites += 1;
       },
@@ -2720,46 +2836,37 @@ describe("execution-placement exact cloud turn cancellation", () => {
       setTurnSpan: () => {
         journalWrites += 1;
       },
-    };
-    harness.instance["registerOwnerTurn"] = async () => {
-      ownerRegistrations += 1;
-      return "purge-generation-1";
-    };
+    });
 
-    const response = await (
-      harness.instance["handleLocalTurnBegin"] as (
-        request: Request,
-      ) => Promise<Response>
-    )(
-      new Request("https://orchestrator-session/local-turns/begin", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-stella-owner": "owner-1",
-          "x-stella-subject": "subject-1",
-          "x-stella-token-exp": String(Date.now() + 60_000),
-        },
-        body: JSON.stringify({
-          deviceId: "device-1",
-          expectedOwnerGeneration: "generation-1",
-          localTurnId: "turn-1",
-          userMessageJson: JSON.stringify({
-            role: "user",
-            content: [{ type: "text", text: "must not be admitted" }],
-            timestamp: Date.now(),
-          }),
-        }),
+    const response = await begin({
+      userMessageJson: JSON.stringify({
+        role: "user",
+        content: [{ type: "text", text: "must not be admitted" }],
+        timestamp: Date.now(),
       }),
-    );
+    });
 
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({
       code: "OWNER_DATA_GENERATION_STALE",
     });
-    expect(forcedLookups).toEqual([true]);
-    expect(ownerRegistrations).toBe(0);
+    // The gate saw the stale generation and registered nothing.
+    expect(gates.fenceLeases).toEqual([
+      expect.objectContaining({
+        lease: expect.objectContaining({ ownerGeneration: "generation-1" }),
+        outcome: { status: "skipped", reason: "generation_stale" },
+      }),
+    ]);
+    expect(fenceCalls()).toBe(0);
     expect(journalWrites).toBe(0);
     expect(harness.values.has("localTurnLease")).toBe(false);
+    expect(
+      ownerFenceLeaseReceipts(harness.values).filter(
+        (receipt) => receipt.phase === "registered",
+      ),
+    ).toEqual([]);
+    // The refreshed generation is still persisted, as the separate lookup did.
+    expect(harness.values.get("ownerDataGeneration")).toBe("generation-2");
   });
 
   test("a stale voice generation is rejected before receipt replay or append work", async () => {
@@ -2826,41 +2933,23 @@ describe("execution-placement exact cloud turn cancellation", () => {
     expect(appendWork).toBe(0);
   });
 
-  test("a null forced owner refresh cannot fall back to cached local or voice authority", async () => {
-    const localHarness = sessionHarness();
-    let localRegistrations = 0;
-    localHarness.instance["resolveOwnerForCaller"] = async () => null;
+  test("a refused owner snapshot cannot fall back to cached local or voice authority", async () => {
+    const gates = fakeOwnerGates({
+      snapshot: sampleOwnerSnapshot({ writable: false }),
+    });
+    const localHarness = sessionHarness(new Map(), { gates });
     localHarness.instance["ownerGeneration"] = "generation-1";
-    localHarness.instance["journal"] = {
-      ownerId: () => "owner-1",
-    };
-    localHarness.instance["registerOwnerTurn"] = async () => {
-      localRegistrations += 1;
-      return "purge-generation-1";
-    };
-    const localResponse = await (
-      localHarness.instance["handleLocalTurnBegin"] as (
-        request: Request,
-      ) => Promise<Response>
-    )(
-      new Request("https://orchestrator-session/local-turns/begin", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-stella-owner": "owner-1",
-          "x-stella-subject": "subject-1",
-          "x-stella-token-exp": String(Date.now() + 60_000),
-        },
-        body: JSON.stringify({
-          deviceId: "device-1",
-          expectedOwnerGeneration: "generation-1",
-          localTurnId: "turn-1",
-          userMessageJson: JSON.stringify({ role: "user", content: [] }),
-        }),
-      }),
-    );
+    const { begin, fenceCalls } = durableLocalTurnBegin(localHarness);
+    const localResponse = await begin({
+      userMessageJson: JSON.stringify({ role: "user", content: [] }),
+    });
     expect(localResponse.status).toBe(404);
-    expect(localRegistrations).toBe(0);
+    expect(gates.fenceLeases).toEqual([
+      expect.objectContaining({
+        outcome: { status: "skipped", reason: "not_writable" },
+      }),
+    ]);
+    expect(fenceCalls()).toBe(0);
     expect(localHarness.values.has("localTurnLease")).toBe(false);
 
     const voiceHarness = sessionHarness();

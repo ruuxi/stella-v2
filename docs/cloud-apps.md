@@ -128,6 +128,74 @@ redacted body. A client abort settles as `aborted`. A failure or abort before
 the first provider byte refunds the capability request count. Failures after the
 first byte keep that count.
 
+### Edge placement and zone rules (ops)
+
+Put the model-gateway and cloud-builder public HTTP endpoints on custom domains
+in the Stella Cloudflare zone. This makes the zone's WAF, bot rules, and rate
+limits apply before either Worker runs. Keep `workers.dev` enabled for probes,
+but configure clients and Convex with the custom origins. Add routes like these
+to the matching development and production environment blocks only after ops
+has created the DNS names:
+
+```jsonc
+// workers/model-gateway/wrangler.jsonc
+// "routes": [
+//   { "pattern": "gateway.REPLACE_ME_STELLA_ZONE", "custom_domain": true },
+// ],
+
+// workers/cloud-builder/wrangler.jsonc
+// "routes": [
+//   { "pattern": "cloud.REPLACE_ME_STELLA_ZONE", "custom_domain": true },
+// ],
+```
+
+Give the Convex `.convex.site` HTTP router a Convex custom domain in the same
+Stella zone, and keep that DNS record proxied through Cloudflare. Point
+`STELLA_CONVEX_SITE_URL` at this custom HTTPS origin after Convex verifies it.
+The sync client's WebSocket URL stays on `.convex.cloud`; do not proxy or
+rewrite that WebSocket through the HTTP-router domain.
+
+Enable these controls in the Cloudflare dashboard for the Stella zone:
+
+- Bot Fight Mode.
+- A rate-limiting rule whose path is exactly
+  `/api/auth/sign-in/anonymous`. Pick the request window and threshold from
+  observed sign-in traffic, and block excess requests at the edge.
+- When the zone has Bot Management, a managed-challenge rule for the HTTP auth
+  paths. Exclude provider callbacks that cannot complete an interactive
+  challenge.
+
+Both Workers bind the same `ASN_POLICY` KV namespace for an environment. Create
+one namespace for development and one for production, copy each returned id
+into both `wrangler.jsonc` files, and use a separate namespace for an isolated
+preview when needed:
+
+```sh
+cd workers/model-gateway
+bunx wrangler kv namespace create ASN_POLICY --env=""
+bunx wrangler kv namespace create ASN_POLICY --env=production
+```
+
+An override key is the decimal ASN number, such as `16509`. Its value must be
+one of `hosting`, `vpn`, `residential`, `mobile`, `edu`, or `unknown`. Workers
+read overrides with a 300-second KV cache. Missing, invalid, or unavailable
+overrides fall back to the built-in policy.
+
+Classification checks the KV override first, then exact ASN tables, then the
+lowercased Cloudflare `asOrganization` value. A request without a Cloudflare
+ASN is `unknown`, even if it has an organization string.
+
+| Class | Built-in signals | Edge policy |
+| ----- | ---------------- | ----------- |
+| `hosting` | AWS `16509`, `14618`, `8987`; Google `15169`, `396982`; Azure `8075`; DigitalOcean `14061`; Hetzner `24940`; OVH `16276`; Linode/Akamai `63949`; Vultr/Choopa `20473`; Oracle `31898`; Alibaba `45102`, `45090`; Tencent `132203`; Leaseweb `60781`; M247 `9009`; Datacamp `212238`; Contabo `51167`; Scaleway `12876`; IONOS `8560`; Fly.io `40509`. Organization strings also match `hosting`, `datacenter`, `data center`, `cloud`, `server`, `colocation`, `vps`, and `dedicated`. | Anonymous mint, relay, turn start, and dispatch return `403 sign_in_required`. Free mint passes the class to Convex for a Turnstile step-up, and Free relay uses half the normal `NetworkGate` caps. |
+| `vpn` | Cloudflare `13335` for WARP and iCloud Private Relay egress. Organization strings match Mullvad, NordVPN, ExpressVPN, Private Internet Access, Proton, Surfshark, TunnelBear, Windscribe, IPVanish, CyberGhost, hide.me, and ZenMate. | Anonymous traffic returns `403 sign_in_required`. |
+| `mobile` | Organization strings match `mobile`, `wireless`, `cellular`, T-Mobile, Verizon Wireless, Vodafone, Orange, Telefonica, and AT&T Mobility. | Normal tier policy. |
+| `edu` | Organization strings match `university`, `college`, `school`, or `edu`. | Normal tier policy. |
+| `residential` | A known ASN with no table or organization match. | Normal tier policy. |
+| `unknown` | No valid ASN. | Normal tier policy. |
+
+Go, Pro, and other paid audiences are not restricted by the network class.
+
 ### Native lane
 
 Selected when the capability carries `credential` (`anthropic` or
@@ -619,7 +687,7 @@ sandbox/app bundle.
 | Variable                 | Purpose                                                                                                                     |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
 | `MODEL_GATEWAY_URL`      | Public origin of the gateway Worker; `/api/stella/models` advertises it as `gateway.origin`. Required on a `prod:*` deployment; a dev deployment without it advertises an empty origin with one warning. Must be `https`, or `http` on a loopback host. |
-| `GATEWAY_SERVICE_SECRET` | Bearer the gateway presents on `/api/gateway/session-capability`, `/usage`, `/config`, `/engine-access`. Same value as the Worker secret. |
+| `GATEWAY_SERVICE_SECRET` | Bearer the gateway presents on `/api/gateway/session-capability`, `/usage`, `/config`, `/engine-access`, and `/alerts`. Same value as the Worker secret. |
 | `BUILDER_SERVICE_SECRET` | Shared with cloud-builder in both directions: the builder presents it on `/api/cloud/outbox`, `/api/gateway/owner-snapshot`, and the service-secret cloud routes; Convex presents it to the builder on turn starts and snapshot pushes. |
 | `CLOUD_BUILDER_URL`      | Builder origin Convex posts turn starts and snapshot pushes to. Without it (or the secret) Convex cannot start a cloud turn. |
 | `CAPABILITY_SIGNING_KEY` | PKCS8 PEM private key Convex signs session capabilities with.                                                                |
@@ -634,10 +702,31 @@ sandbox/app bundle.
 | `STELLA_ANON_ROLLING_WINDOW_HOURS` | Optional anonymous rolling-window length; defaults to 5 hours. |
 | `STELLA_ANON_WEEKLY_LIMIT_USD` | Optional anonymous weekly allowance; defaults to the anonymous lifetime value. |
 | `STELLA_ANON_MONTHLY_LIMIT_USD` | Optional anonymous monthly allowance; defaults to the anonymous lifetime value. |
+| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile server secret for anonymous and magic-link account creation plus challenged capability mints. When unset, Turnstile is explicitly off. |
+| `STELLA_FREE_EMAIL_ALLOWANCE_SHARE` | Fraction of every Free usage window granted to email-only identities; defaults to `0.4`. |
+| `STELLA_EMAIL_DOMAIN_BLOCKLIST` | Optional comma-separated addition to the embedded disposable-email domain blocklist. Subdomains are blocked too. |
+| `STELLA_ALERT_WEBHOOK_URL` | Optional Slack-compatible webhook for owner-enforcement status changes and gateway alerts forwarded through `/api/gateway/alerts`. |
 | `STELLA_TIER_CEILING_ANON_HOURLY_USD` | Gateway-wide anonymous hourly breaker sent in the config snapshot; defaults to $20, and `-1` disables it. |
 | `STELLA_TIER_CEILING_ANON_DAILY_USD` | Gateway-wide anonymous daily breaker; defaults to $200, and `-1` disables it. |
 | `STELLA_TIER_CEILING_FREE_HOURLY_USD` | Gateway-wide Free hourly breaker; defaults to $100, and `-1` disables it. |
 | `STELLA_TIER_CEILING_FREE_DAILY_USD` | Gateway-wide Free daily breaker; defaults to $1,000, and `-1` disables it. |
+
+### Challenge and identity ladder
+
+Convex assigns each owner an uncached identity level: anonymous `0`, email-only
+`1`, Google or Apple `2`, and paid or purchased-credit `3`. Email-only Free
+owners receive the configured share of the Free usage windows and one agent
+turn per day; anonymous owners keep the separate anonymous allowance and no
+agent lane. The level is returned in owner snapshots, subscription status, and
+session-capability responses.
+
+Turnstile protects Better Auth's anonymous and magic-link sign-in endpoints and
+the custom mobile magic-link sender whenever `TURNSTILE_SECRET_KEY` is set. A
+capability mint also requires a valid token when owner enforcement is
+`challenged`, or when an unpaid connected owner arrives from a network class in
+the gateway's Free challenge policy. Passing the challenge clears challenged
+enforcement and pushes the new state to the gateway. Anonymous traffic from a
+refused network class remains sign-in-only.
 
 ### `stella-v2-model-gateway-dev`
 

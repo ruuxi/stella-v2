@@ -16,8 +16,10 @@
 // failures. Strip every `STELLA_*` var up front so the suite behaves the same
 // whether or not it was launched from inside the app (i.e. matches CI).
 import "@stella/runtime/ai/utils/http-proxy.js";
+import { loadModelRegistry } from "@stella/contracts/model-registry";
 import { registerBuiltInApiProviders } from "@stella/runtime/ai/providers/register-builtins.js";
 
+await loadModelRegistry();
 registerBuiltInApiProviders();
 
 for (const key of Object.keys(process.env)) {

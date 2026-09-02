@@ -1,11 +1,17 @@
-import {
+import type {
+  ExecuteResult,
+  Executor,
+  ResolvedProvider,
   ToolDispatcher,
-  normalizeCode,
-  sanitizeToolName,
-  type ExecuteResult,
-  type Executor,
-  type ResolvedProvider,
 } from "@cloudflare/codemode";
+
+type CloudflareCodeModeModule = typeof import("@cloudflare/codemode");
+
+let cloudflareCodeModePromise: Promise<CloudflareCodeModeModule> | undefined;
+
+/** Load the Code Mode SDK once, only after a turn needs the Code tool. */
+export const loadCloudflareCodeMode = (): Promise<CloudflareCodeModeModule> =>
+  (cloudflareCodeModePromise ??= import("@cloudflare/codemode"));
 
 export const CLOUD_CODE_WORKER_VALUE_MAX_BYTES = 128 * 1024;
 export const CLOUD_CODE_WORKER_MAX_VALUE_DEPTH = 16;
@@ -265,7 +271,7 @@ const buildWorkerModule = (normalizedCode: string, timeoutMs: number): string =>
     '            __resourceLimit("tool result envelope");',
     "          }",
     "          const data = JSON.parse(responseJson);",
-    "          if (data && typeof data.error === \"string\") throw new Error(__utf8Prefix(data.error, __MAX_LOG_LINE_BYTES));",
+    '          if (data && typeof data.error === "string") throw new Error(__utf8Prefix(data.error, __MAX_LOG_LINE_BYTES));',
     '          return __cloneBoundedJson(data ? data.result : undefined, "tool result");',
     "        };",
     "      },",
@@ -357,6 +363,8 @@ export class StellaDynamicWorkerExecutor implements StellaDisposableExecutor {
       };
     }
 
+    const { normalizeCode, sanitizeToolName, ToolDispatcher } =
+      await loadCloudflareCodeMode();
     let normalized: string;
     try {
       normalized = normalizeCode(code);
@@ -397,7 +405,8 @@ export class StellaDynamicWorkerExecutor implements StellaDisposableExecutor {
         },
         globalOutbound: null,
       });
-      this.#entrypoint = this.#worker.getEntrypoint() as unknown as CodeEntrypoint;
+      this.#entrypoint =
+        this.#worker.getEntrypoint() as unknown as CodeEntrypoint;
       return await this.#entrypoint.evaluate(dispatchers);
     } catch {
       return { result: undefined, error: "Cloud code executor failed." };

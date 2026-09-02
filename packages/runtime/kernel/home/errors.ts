@@ -1,4 +1,5 @@
-import { Cause, Schema } from "effect";
+import * as Cause from "effect/Cause";
+import * as Data from "effect/Data";
 
 /**
  * Tagged failures for the Stella-home subsystem. The plain-Promise facades
@@ -8,11 +9,11 @@ import { Cause, Schema } from "effect";
  * Do not reword them.
  */
 
-const AppliedPromptStateSchema = Schema.Struct({
-  endpoint: Schema.String,
-  publishedAt: Schema.Number,
-  revision: Schema.String,
-});
+type AppliedPromptState = {
+  readonly endpoint: string;
+  readonly publishedAt: number;
+  readonly revision: string;
+};
 
 /**
  * A concurrent writer durably applied a newer prompt publication while this
@@ -21,10 +22,12 @@ const AppliedPromptStateSchema = Schema.Struct({
  * empty personality report. Keeps the pre-Effect `name`, `message`, and
  * `candidate`/`winner` fields.
  */
-export class StalePromptManifestError extends Schema.TaggedErrorClass<StalePromptManifestError>()(
+export class StalePromptManifestError extends Data.TaggedError(
   "@stella/runtime/home/StalePromptManifestError",
-  { candidate: AppliedPromptStateSchema, winner: AppliedPromptStateSchema },
-) {
+)<{
+  readonly candidate: AppliedPromptState;
+  readonly winner: AppliedPromptState;
+}> {
   override get name(): string {
     return "StalePromptManifestError";
   }
@@ -34,9 +37,8 @@ export class StalePromptManifestError extends Schema.TaggedErrorClass<StalePromp
 }
 
 /** A resolved prompt manifest arrived without the endpoint it came from. */
-export class PromptEndpointMissingError extends Schema.TaggedErrorClass<PromptEndpointMissingError>()(
+export class PromptEndpointMissingError extends Data.TaggedError(
   "@stella/runtime/home/PromptEndpointMissingError",
-  {},
 ) {
   override get message() {
     return "Resolved prompt manifest is missing its endpoint";
@@ -44,9 +46,8 @@ export class PromptEndpointMissingError extends Schema.TaggedErrorClass<PromptEn
 }
 
 /** Applied-state record serialization exceeded its durability size budget. */
-export class AppliedStateRecordTooLargeError extends Schema.TaggedErrorClass<AppliedStateRecordTooLargeError>()(
+export class AppliedStateRecordTooLargeError extends Data.TaggedError(
   "@stella/runtime/home/AppliedStateRecordTooLargeError",
-  {},
 ) {
   override get message() {
     return "Prompt applied-state record exceeds the size limit";
@@ -54,9 +55,8 @@ export class AppliedStateRecordTooLargeError extends Schema.TaggedErrorClass<App
 }
 
 /** An existing applied-state record disagrees with the one being written. */
-export class AppliedStateRecordCollisionError extends Schema.TaggedErrorClass<AppliedStateRecordCollisionError>()(
+export class AppliedStateRecordCollisionError extends Data.TaggedError(
   "@stella/runtime/home/AppliedStateRecordCollisionError",
-  {},
 ) {
   override get message() {
     return "Prompt applied-state record collision";
@@ -64,9 +64,8 @@ export class AppliedStateRecordCollisionError extends Schema.TaggedErrorClass<Ap
 }
 
 /** The durable read-back after an applied-state write found nothing. */
-export class AppliedStateVanishedError extends Schema.TaggedErrorClass<AppliedStateVanishedError>()(
+export class AppliedStateVanishedError extends Data.TaggedError(
   "@stella/runtime/home/AppliedStateVanishedError",
-  {},
 ) {
   override get message() {
     return "Applied prompt state vanished after write";
@@ -74,9 +73,8 @@ export class AppliedStateVanishedError extends Schema.TaggedErrorClass<AppliedSt
 }
 
 /** Neither node:sqlite nor bun:sqlite could be resolved at runtime. */
-export class SqliteRuntimeUnavailableError extends Schema.TaggedErrorClass<SqliteRuntimeUnavailableError>()(
+export class SqliteRuntimeUnavailableError extends Data.TaggedError(
   "@stella/runtime/home/SqliteRuntimeUnavailableError",
-  {},
 ) {
   override get message() {
     return "No compatible SQLite runtime is available.";
@@ -84,10 +82,9 @@ export class SqliteRuntimeUnavailableError extends Schema.TaggedErrorClass<Sqlit
 }
 
 /** Bundled agent metadata lacked the frontmatter block remote sync joins on. */
-export class AgentMetadataFrontmatterError extends Schema.TaggedErrorClass<AgentMetadataFrontmatterError>()(
+export class AgentMetadataFrontmatterError extends Data.TaggedError(
   "@stella/runtime/home/AgentMetadataFrontmatterError",
-  { id: Schema.String },
-) {
+)<{ readonly id: string }> {
   override get message() {
     return `Agent metadata ${this.id} is missing valid frontmatter`;
   }

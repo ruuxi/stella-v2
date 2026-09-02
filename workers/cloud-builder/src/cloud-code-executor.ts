@@ -16,13 +16,11 @@
  * does not report cancellation until their disposal has produced an outcome.
  */
 
-import {
-  generateTypesFromJsonSchema,
-  sanitizeToolName,
-  type ExecuteResult,
-  type JsonSchemaToolDescriptor,
-  type JsonSchemaToolDescriptors,
-  type ResolvedProvider,
+import type {
+  ExecuteResult,
+  JsonSchemaToolDescriptor,
+  JsonSchemaToolDescriptors,
+  ResolvedProvider,
 } from "@cloudflare/codemode";
 import { Deferred, Effect } from "effect";
 import { acquireAbortLatch } from "@stella/runtime/kernel/agent-core/abort-bridge.js";
@@ -41,6 +39,7 @@ import {
   CLOUD_CODE_WORKER_VALUE_MAX_BYTES,
   StellaDynamicWorkerExecutor,
   isCloudCodeResourceLimitError,
+  loadCloudflareCodeMode,
   type StellaDisposableExecutor,
   type StellaWorkerCleanupStatus,
 } from "./cloud-code-worker-executor.js";
@@ -244,9 +243,11 @@ const assertToolName = (rawName: string): void => {
  * model. Both the declarations and runtime dispatch use Cloudflare's own
  * `sanitizeToolName`, and ambiguous sanitized names are rejected.
  */
-export const prepareCloudCodeTools = (
+export const prepareCloudCodeTools = async (
   tools: readonly CloudCodeToolDefinition[],
-): PreparedCloudCodeTools => {
+): Promise<PreparedCloudCodeTools> => {
+  const { generateTypesFromJsonSchema, sanitizeToolName } =
+    await loadCloudflareCodeMode();
   if (tools.length > CLOUD_CODE_MAX_CATALOG_TOOLS) {
     throw new CloudCodeConfigurationError(
       `Cloud code catalog exceeds ${CLOUD_CODE_MAX_CATALOG_TOOLS} tools.`,
@@ -524,7 +525,10 @@ const mapExecutorResult = (
       ...(logs ? { logs } : {}),
     };
   }
-  const boundedResult = cloneBoundedJsonValue(result.result, NESTED_VALUE_LIMITS);
+  const boundedResult = cloneBoundedJsonValue(
+    result.result,
+    NESTED_VALUE_LIMITS,
+  );
   if (!boundedResult.ok) {
     return {
       ok: false,
@@ -832,14 +836,15 @@ export const executeCloudCodeWithExecutorFactory = async (
         try: () => resource.executor.execute(request.code, [provider]),
         catch: () => undefined,
       }).pipe(
-        Effect.map((result): CloudCodeExecutionResult =>
-          result
-            ? mapExecutorResult(result, dispatchFailure)
-            : {
-                ok: false,
-                code: "executor_error",
-                error: "Cloud code executor failed.",
-              },
+        Effect.map(
+          (result): CloudCodeExecutionResult =>
+            result
+              ? mapExecutorResult(result, dispatchFailure)
+              : {
+                  ok: false,
+                  code: "executor_error",
+                  error: "Cloud code executor failed.",
+                },
         ),
       );
 

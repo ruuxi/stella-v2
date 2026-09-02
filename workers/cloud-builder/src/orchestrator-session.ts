@@ -3972,7 +3972,7 @@ export class OrchestratorSession extends DurableObject<Env> {
             model,
             executionSelection.reasoningEffort,
           ),
-          tools: this.createTools(
+          tools: await this.createTools(
             turn,
             agentHome,
             skillCatalog,
@@ -8182,13 +8182,13 @@ export class OrchestratorSession extends DurableObject<Env> {
    * - `spawn_manager`: the manager runtime coordinates local threads; cloud
    *   equivalents need a manager loop over BuildSessions first.
    */
-  private createTools(
+  private async createTools(
     turn: ChatTurnRequest,
     agentHome: AgentHome,
     skillCatalog: CloudSkillCatalogSnapshot,
     memoryEnabled: boolean,
     controlPlane: Pick<MintedTurnCapability, "token">,
-  ): AgentTool[] {
+  ): Promise<AgentTool[]> {
     const toolContext = {
       ownerId: turn.ownerId,
       ownerGeneration: turn.ownerGeneration,
@@ -8781,13 +8781,11 @@ export class OrchestratorSession extends DurableObject<Env> {
         ? createCloudSkillTools(agentHome.cloudStore(), skillCatalog)
         : []),
     ];
-    return [
-      createCloudCodeAgentTool({
-        loader: this.env.LOADER,
-        tools,
-        executionScope: `${turn.ownerGeneration}:${turn.conversationId}:${turn.turnId}`,
-      }),
-      ...tools,
-    ];
+    const codeTool = await createCloudCodeAgentTool({
+      loader: this.env.LOADER,
+      tools,
+      executionScope: `${turn.ownerGeneration}:${turn.conversationId}:${turn.turnId}`,
+    });
+    return [codeTool, ...tools];
   }
 }

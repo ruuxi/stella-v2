@@ -23,10 +23,9 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { loadModelRegistry } from "@stella/contracts/model-registry";
 import "../ai/utils/http-proxy.js";
 import { registerBuiltInApiProviders } from "../ai/providers/register-builtins.js";
-
-registerBuiltInApiProviders();
 
 type CliMode = "chat" | "completion" | "list-models";
 
@@ -202,6 +201,8 @@ const readDesktopUiEnvDefaults = (
 };
 
 const main = async (): Promise<void> => {
+  await loadModelRegistry();
+  registerBuiltInApiProviders();
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
     process.stderr.write(`${USAGE}\n`);

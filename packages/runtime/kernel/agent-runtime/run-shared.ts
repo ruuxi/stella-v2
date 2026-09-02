@@ -10,7 +10,7 @@
 import type { Agent } from "../agent-core/agent.js";
 import type { AgentMessage, ThinkingLevel } from "../agent-core/types.js";
 import { isDeepSeekV4FlashModel } from "@stella/contracts/stella-api";
-import { selectRecentByTokenBudget } from "../storage/shared.js";
+import { selectRecentByTokenBudget } from "../storage/history-selection.js";
 import { estimateRuntimeTokens } from "../runtime-threads.js";
 import { normalizeLegacyCodeHistory } from "../tools/code-tool.js";
 

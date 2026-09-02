@@ -1,9 +1,9 @@
-import { Value } from "@sinclair/typebox/value";
-import { Type, type Static, type TSchema } from "@sinclair/typebox";
+import type { TSchema } from "@sinclair/typebox";
 import type {
   AgentTool,
   AgentToolResult,
 } from "@stella/runtime/kernel/agent-core/types.js";
+import type { Value as TypeBoxValue } from "@sinclair/typebox/value";
 import {
   CODE_TOOL_NAME,
   LEGACY_NODE_REPL_TOOL_NAME,
@@ -32,24 +32,31 @@ import { sha256Hex } from "./hash.js";
 const CLOUD_CODE_MODEL_OUTPUT_MAX_BYTES = 50_000;
 const CLOUD_CODE_NESTED_RESULT_MAX_BYTES = 128 * 1024;
 
-const CLOUD_CODE_PARAMETERS = Type.Object(
-  {
-    code: Type.String({
+const CLOUD_CODE_PARAMETERS = {
+  type: "object",
+  properties: {
+    code: {
+      type: "string",
       minLength: 1,
       maxLength: CLOUD_CODE_MAX_SOURCE_BYTES,
       description:
         'An async JavaScript function expression, for example `async () => { return await codemode.web({ query: "..." }); }`.',
-    }),
-    timeout_ms: Type.Optional(
-      Type.Integer({
-        minimum: 1,
-        maximum: CLOUD_CODE_MAX_TIMEOUT_MS,
-        description: "Optional execution deadline in milliseconds.",
-      }),
-    ),
+    },
+    timeout_ms: {
+      type: "integer",
+      minimum: 1,
+      maximum: CLOUD_CODE_MAX_TIMEOUT_MS,
+      description: "Optional execution deadline in milliseconds.",
+    },
   },
-  { additionalProperties: false },
-);
+  required: ["code"],
+  additionalProperties: false,
+} as const;
+
+type CloudCodeParameters = Readonly<{
+  code: string;
+  timeout_ms?: number;
+}>;
 
 /** Agent tools may carry source metadata not represented by the core Tool type. */
 export type CloudCodeSourceAgentTool = AgentTool & {
@@ -83,7 +90,9 @@ const NESTED_RESULT_LIMITS: BoundedJsonLimits = Object.freeze({
 const modelTextForResult = (result: CloudCodeExecutionResult): string => {
   const sections: string[] = [];
   if (result.ok) {
-    sections.push(boundedJsonPreview(result.result, CLOUD_CODE_MODEL_OUTPUT_MAX_BYTES));
+    sections.push(
+      boundedJsonPreview(result.result, CLOUD_CODE_MODEL_OUTPUT_MAX_BYTES),
+    );
   } else {
     sections.push(`Error (${result.code}): ${result.error}`);
   }
@@ -110,11 +119,30 @@ const nestedResultForCode = (
   if (!value.ok) {
     throw new Error(`Nested tool "${rawName}" returned too much data.`);
   }
-  return value.value as Readonly<{ content: AgentToolResult<unknown>["content"] }>;
+  return value.value as Readonly<{
+    content: AgentToolResult<unknown>["content"];
+  }>;
 };
+
+/**
+ * TypeBox's `Value.Check` validates without code generation, which is what
+ * makes it usable inside workerd: Workers forbid `new Function`, so an
+ * Ajv-compiled validator can never run here. The module is loaded lazily,
+ * only once a turn actually builds the Code tool, so it stays off the
+ * Durable Object's startup path.
+ */
+type TypeBoxValueModule = typeof TypeBoxValue;
+
+let typeBoxValuePromise: Promise<TypeBoxValueModule> | undefined;
+
+const loadTypeBoxValue = (): Promise<TypeBoxValueModule> =>
+  (typeBoxValuePromise ??= import("@sinclair/typebox/value").then(
+    (module) => module.Value,
+  ));
 
 const definitionForAgentTool = (
   tool: CloudCodeSourceAgentTool,
+  value: TypeBoxValueModule,
 ): CloudCodeToolDefinition => ({
   rawName: tool.name,
   description: tool.description,
@@ -132,7 +160,7 @@ const definitionForAgentTool = (
       Object.getOwnPropertySymbols(tool.parameters).includes(
         Symbol.for("TypeBox.Kind"),
       ) &&
-      !Value.Check(tool.parameters, input)
+      !value.Check(tool.parameters, input)
     ) {
       throw new Error(`Nested tool "${tool.name}" received invalid arguments.`);
     }
@@ -160,9 +188,9 @@ const buildDescription = (
  * into Cloudflare Code Mode without putting host bindings or credentials in
  * generated code.
  */
-export const createCloudCodeAgentTool = (
+export const createCloudCodeAgentTool = async (
   options: CreateCloudCodeAgentToolOptions,
-): AgentTool => {
+): Promise<AgentTool> => {
   const sourceTools = options.tools.filter(
     (tool) =>
       tool.name !== CODE_TOOL_NAME &&
@@ -170,8 +198,9 @@ export const createCloudCodeAgentTool = (
       tool.codeEligibility === "read_only" &&
       !toolRequiresExplicitApproval(tool.approval),
   );
-  const prepared = prepareCloudCodeTools(
-    sourceTools.map(definitionForAgentTool),
+  const value = await loadTypeBoxValue();
+  const prepared = await prepareCloudCodeTools(
+    sourceTools.map((tool) => definitionForAgentTool(tool, value)),
   );
   const executeCode = options.executeCode ?? executeCloudCode;
 
@@ -183,9 +212,9 @@ export const createCloudCodeAgentTool = (
       prepared.typeDeclarations,
       prepared.nameMappings,
     ),
-    parameters: CLOUD_CODE_PARAMETERS as TSchema,
+    parameters: CLOUD_CODE_PARAMETERS as unknown as TSchema,
     execute: async (toolCallId, params, signal) => {
-      const args = params as Static<typeof CLOUD_CODE_PARAMETERS>;
+      const args = params as CloudCodeParameters;
       const executionId = `code:${await sha256Hex(
         `${options.executionScope}\0${toolCallId}`,
       )}`;

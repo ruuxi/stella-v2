@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Schema } from "effect";
+import * as Data from "effect/Data";
 
 /**
  * Tagged failures for the Google Workspace auth adapter. The plain-Promise
@@ -13,27 +13,24 @@ import { Schema } from "effect";
  * code threw. Do not reword them.
  */
 
-export class GoogleWorkspaceProjectRootError extends Schema.TaggedErrorClass<GoogleWorkspaceProjectRootError>()(
+export class GoogleWorkspaceProjectRootError extends Data.TaggedError(
   "@stella/runtime/google-workspace/GoogleWorkspaceProjectRootError",
-  {},
 ) {
   override get message() {
     return "Google Workspace project root is not under Stella state.";
   }
 }
 
-export class GoogleWorkspaceNotConnectedError extends Schema.TaggedErrorClass<GoogleWorkspaceNotConnectedError>()(
+export class GoogleWorkspaceNotConnectedError extends Data.TaggedError(
   "@stella/runtime/google-workspace/GoogleWorkspaceNotConnectedError",
-  {},
 ) {
   override get message() {
     return "Google Workspace is not connected.";
   }
 }
 
-export class GoogleWorkspaceReconnectRequiredError extends Schema.TaggedErrorClass<GoogleWorkspaceReconnectRequiredError>()(
+export class GoogleWorkspaceReconnectRequiredError extends Data.TaggedError(
   "@stella/runtime/google-workspace/GoogleWorkspaceReconnectRequiredError",
-  {},
 ) {
   override get message() {
     return "Google Workspace needs to be reconnected.";

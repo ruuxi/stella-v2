@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { MODELS } from "@stella/contracts/models.generated";
+import { getLoadedModelRegistry } from "@stella/contracts/model-registry";
 import { STELLA_RELAY_PROVIDERS } from "@stella/contracts/stella-api";
 import { isRetiredAssistantProvider } from "@stella/contracts/provider-display";
 import {
@@ -118,7 +118,8 @@ const hasStaticAuthHeader = (
   headers: Record<string, string> | undefined,
 ): boolean =>
   Object.entries(headers ?? {}).some(
-    ([name, value]) => AUTH_HEADER_NAMES.has(name.toLowerCase()) && Boolean(value),
+    ([name, value]) =>
+      AUTH_HEADER_NAMES.has(name.toLowerCase()) && Boolean(value),
   );
 
 const cloneModel = (model: Model<Api>): Model<Api> => structuredClone(model);
@@ -184,9 +185,7 @@ const mergeModelCompat = (
   override: Model<Api>["compat"] | ModelsJsonModelOverride["compat"],
 ): Model<Api>["compat"] => {
   if (!override) return base;
-  const merged = { ...base, ...override } as NonNullable<
-    Model<Api>["compat"]
-  >;
+  const merged = { ...base, ...override } as NonNullable<Model<Api>["compat"]>;
   const baseNested = base as Record<string, unknown> | undefined;
   const overrideNested = override as Record<string, unknown>;
   const mergedNested = merged as Record<string, unknown>;
@@ -257,14 +256,19 @@ const createConfiguredModel = (
     baseUrl,
     reasoning: definition.reasoning ?? metadataDefaults?.reasoning ?? false,
     thinkingLevelMap: definition.thinkingLevelMap
-      ? { ...metadataDefaults?.thinkingLevelMap, ...definition.thinkingLevelMap }
+      ? {
+          ...metadataDefaults?.thinkingLevelMap,
+          ...definition.thinkingLevelMap,
+        }
       : metadataDefaults?.thinkingLevelMap,
     input: definition.input ?? metadataDefaults?.input ?? ["text"],
     cost: {
       input: definition.cost?.input ?? metadataDefaults?.cost.input ?? 0,
       output: definition.cost?.output ?? metadataDefaults?.cost.output ?? 0,
-      cacheRead: definition.cost?.cacheRead ?? metadataDefaults?.cost.cacheRead ?? 0,
-      cacheWrite: definition.cost?.cacheWrite ?? metadataDefaults?.cost.cacheWrite ?? 0,
+      cacheRead:
+        definition.cost?.cacheRead ?? metadataDefaults?.cost.cacheRead ?? 0,
+      cacheWrite:
+        definition.cost?.cacheWrite ?? metadataDefaults?.cost.cacheWrite ?? 0,
     },
     contextWindow:
       definition.contextWindow ?? metadataDefaults?.contextWindow ?? 128_000,
@@ -308,6 +312,7 @@ const extensionModels = (provider: RuntimeProviderDefinition): Model<Api>[] =>
 
 export class ModelRuntime {
   private readonly builtins = new Map<string, Model<Api>[]>();
+  private builtinsLoaded = false;
   private readonly dynamicCatalogs = new Map<string, RuntimeCatalogEntry>();
   // Preserve the raw per-provider last-good payload separately from the
   // validated composition view. If one cached provider needs online repair
@@ -347,8 +352,11 @@ export class ModelRuntime {
     (snapshot: ModelRuntimeSnapshot) => void
   >();
 
-  constructor() {
-    for (const [providerId, models] of Object.entries(MODELS)) {
+  private ensureBuiltinsLoaded(): void {
+    if (this.builtinsLoaded) return;
+    for (const [providerId, models] of Object.entries(
+      getLoadedModelRegistry(),
+    )) {
       if (providerId === "grok" || isRetiredAssistantProvider(providerId)) {
         continue;
       }
@@ -357,6 +365,7 @@ export class ModelRuntime {
         Object.values(models).map((model) => cloneModel(model as Model<Api>)),
       );
     }
+    this.builtinsLoaded = true;
     this.recompose();
   }
 
@@ -366,6 +375,7 @@ export class ModelRuntime {
     catalogBaseUrl?: string;
     catalogRequestTimeoutMs?: number;
   }): Promise<void> {
+    this.ensureBuiltinsLoaded();
     const revisionBeforeInitialization = this.revision;
     this.modelsPath = path.join(options.stellaDataDir, "models.json");
     this.storePath = path.join(options.stellaDataDir, "models-store.json");
@@ -396,8 +406,7 @@ export class ModelRuntime {
         );
         this.dynamicCatalogs.set(providerId, {
           models: validation.models,
-          checkedAt:
-            validation.invalidCount > 0 ? undefined : entry.checkedAt,
+          checkedAt: validation.invalidCount > 0 ? undefined : entry.checkedAt,
         });
       }
     } catch {
@@ -549,16 +558,19 @@ export class ModelRuntime {
   onCatalogChanged(
     listener: (snapshot: ModelRuntimeSnapshot) => void,
   ): () => void {
+    this.ensureBuiltinsLoaded();
     this.catalogChangeListeners.add(listener);
     return () => this.catalogChangeListeners.delete(listener);
   }
 
   async reloadConfig(): Promise<void> {
+    this.ensureBuiltinsLoaded();
     this.config = await ModelConfig.load(this.modelsPath);
     this.recompose();
   }
 
   setExtensionProviders(providers: readonly RuntimeProviderDefinition[]): void {
+    this.ensureBuiltinsLoaded();
     this.extensionProviders.clear();
     for (const provider of providers) {
       if (isRetiredAssistantProvider(provider.name)) continue;
@@ -571,6 +583,7 @@ export class ModelRuntime {
     providerId: string,
     models: readonly Model<Api>[],
   ): void {
+    this.ensureBuiltinsLoaded();
     if (isRetiredAssistantProvider(providerId)) return;
     this.managedProviderModels.set(
       providerId,
@@ -580,6 +593,7 @@ export class ModelRuntime {
   }
 
   registerModel(providerId: string, model: Model<Api>): void {
+    this.ensureBuiltinsLoaded();
     if (isRetiredAssistantProvider(providerId)) return;
     const models = this.registeredModels.get(providerId) ?? new Map();
     models.set(model.id, cloneModel(model));
@@ -588,6 +602,7 @@ export class ModelRuntime {
   }
 
   unregisterModel(providerId: string, modelId: string): void {
+    this.ensureBuiltinsLoaded();
     const models = this.registeredModels.get(providerId);
     if (!models) return;
     models.delete(modelId);
@@ -708,6 +723,7 @@ export class ModelRuntime {
     providerId: string,
     modelIds: readonly string[],
   ): Promise<Model<Api> | undefined> {
+    this.ensureBuiltinsLoaded();
     const candidates = Array.from(
       new Set(modelIds.map((id) => id.trim()).filter(Boolean)),
     );
@@ -779,6 +795,7 @@ export class ModelRuntime {
       signal?: AbortSignal;
     } = {},
   ): Promise<void> {
+    this.ensureBuiltinsLoaded();
     if (this.refreshPromise) {
       const activeRefresh = this.refreshPromise;
       if (options.force && !this.refreshIsForce) {
@@ -822,9 +839,11 @@ export class ModelRuntime {
     return this.refreshPromise;
   }
 
-  async getSnapshotForListing(options: {
-    forceRefresh?: boolean;
-  } = {}): Promise<ModelRuntimeSnapshot> {
+  async getSnapshotForListing(
+    options: {
+      forceRefresh?: boolean;
+    } = {},
+  ): Promise<ModelRuntimeSnapshot> {
     await this.reloadConfig();
     if (options.forceRefresh) {
       await this.refresh({ allowNetwork: true, force: true });
@@ -835,25 +854,30 @@ export class ModelRuntime {
   }
 
   getModels(providerId: string): Model<Api>[] {
+    this.ensureBuiltinsLoaded();
     return [...(this.composed.get(providerId)?.values() ?? [])].map(cloneModel);
   }
 
   getModel(providerId: string, modelId: string): Model<Api> | undefined {
+    this.ensureBuiltinsLoaded();
     const model = this.composed.get(providerId)?.get(modelId);
     return model ? cloneModel(model) : undefined;
   }
 
   getAllModels(): Model<Api>[] {
+    this.ensureBuiltinsLoaded();
     return [...this.composed.values()].flatMap((models) =>
       [...models.values()].map(cloneModel),
     );
   }
 
   getProviderIds(): string[] {
+    this.ensureBuiltinsLoaded();
     return [...this.composed.keys()].sort();
   }
 
   isRegisteredReference(reference: string): boolean {
+    this.ensureBuiltinsLoaded();
     const normalized = reference.trim();
     if (!normalized) return false;
     for (const [providerId, models] of this.composed) {
@@ -871,6 +895,7 @@ export class ModelRuntime {
   }
 
   getConfiguredApiKey(providerId: string): string | undefined {
+    this.ensureBuiltinsLoaded();
     return resolveModelConfigValue(
       this.compositionFailedProviders.has(providerId)
         ? undefined
@@ -879,6 +904,7 @@ export class ModelRuntime {
   }
 
   hasConfiguredApiKey(providerId: string): boolean {
+    this.ensureBuiltinsLoaded();
     return isModelConfigValueConfigured(
       this.compositionFailedProviders.has(providerId)
         ? undefined
@@ -887,6 +913,7 @@ export class ModelRuntime {
   }
 
   hasRuntimeManagedAuth(providerId: string): boolean {
+    this.ensureBuiltinsLoaded();
     const extension = this.extensionProviders.get(providerId);
     const provider = this.compositionFailedProviders.has(providerId)
       ? undefined
@@ -904,6 +931,7 @@ export class ModelRuntime {
   }
 
   hasRuntimeProviderOrigin(providerId: string): boolean {
+    this.ensureBuiltinsLoaded();
     return (
       !this.compositionFailedProviders.has(providerId) &&
       (this.config.getProvider(providerId) !== undefined ||
@@ -912,6 +940,7 @@ export class ModelRuntime {
   }
 
   allowsCredentiallessRouting(providerId: string): boolean {
+    this.ensureBuiltinsLoaded();
     const provider = this.compositionFailedProviders.has(providerId)
       ? undefined
       : this.config.getProvider(providerId);
@@ -927,6 +956,7 @@ export class ModelRuntime {
   }
 
   getRuntimeManagedApiKey(providerId: string): string | undefined {
+    this.ensureBuiltinsLoaded();
     const configured = this.compositionFailedProviders.has(providerId)
       ? undefined
       : this.config.getProvider(providerId)?.apiKey;
@@ -951,6 +981,7 @@ export class ModelRuntime {
   }
 
   usesConfiguredAuthHeader(providerId: string): boolean {
+    this.ensureBuiltinsLoaded();
     return (
       !this.compositionFailedProviders.has(providerId) &&
       this.config.getProvider(providerId)?.authHeader === true
@@ -961,6 +992,7 @@ export class ModelRuntime {
     providerId: string,
     modelId: string,
   ): Record<string, string> | undefined {
+    this.ensureBuiltinsLoaded();
     const provider = this.compositionFailedProviders.has(providerId)
       ? undefined
       : this.config.getProvider(providerId);
@@ -984,6 +1016,7 @@ export class ModelRuntime {
   }
 
   getSnapshot(): ModelRuntimeSnapshot {
+    this.ensureBuiltinsLoaded();
     return {
       revision: this.revision,
       models: this.getAllModels().map((model) => {
@@ -1006,14 +1039,14 @@ export class ModelRuntime {
         .sort()
         .map((id) => ({
           id,
-          authManaged:
-            this.hasRuntimeManagedAuth(id),
+          authManaged: this.hasRuntimeManagedAuth(id),
           credentialless: this.allowsCredentiallessRouting(id),
         })),
       refreshedAt: this.refreshedAt,
-      configError: [this.config.getError(), ...this.compositionErrors]
-        .filter((error): error is string => Boolean(error))
-        .join("\n") || undefined,
+      configError:
+        [this.config.getError(), ...this.compositionErrors]
+          .filter((error): error is string => Boolean(error))
+          .join("\n") || undefined,
       catalogError: this.catalogError,
     };
   }

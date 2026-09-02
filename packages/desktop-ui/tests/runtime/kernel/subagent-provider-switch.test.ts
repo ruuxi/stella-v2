@@ -86,6 +86,12 @@ beforeEach(() => {
 });
 
 const loadModules = async () => {
+  // `vi.resetModules()` gives the lazy model registry a fresh, unloaded
+  // instance; the synchronous model APIs under test need it settled first.
+  const { loadModelRegistry } = await import(
+    "@stella/contracts/model-registry"
+  );
+  await loadModelRegistry();
   const { resolveLlmRoute } = await import(
     "@stella/runtime/kernel/model-routing"
   );

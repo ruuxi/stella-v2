@@ -300,19 +300,19 @@ type ExecutableCloudTool = {
   }>;
 };
 
-const cloudAgentTool = (
+const cloudAgentTool = async (
   instance: OrchestratorSession & Record<string, unknown>,
   targetTurn: ReturnType<typeof turn>,
   name: "spawn_agent" | "send_input" | "pause_agent",
-): ExecutableCloudTool => {
-  const tools = (
+): Promise<ExecutableCloudTool> => {
+  const tools = await (
     instance["createTools"] as (
       turn: ReturnType<typeof turn>,
       agentHome: { available: boolean },
       skillCatalog: Record<string, never>,
       memoryEnabled: boolean,
       controlPlane: { token: string },
-    ) => ExecutableCloudTool[]
+    ) => Promise<ExecutableCloudTool[]>
   )(targetTurn, { available: false }, {}, false, {
     token: "control-plane-capability",
   });
@@ -3637,7 +3637,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     const restarted = sessionHarness(values, { gates, outbox });
     const calls = installBuildSessions(restarted, acceptedAgentTurn);
     const parentTurn = turn("turn-send-input-control");
-    const sendInput = cloudAgentTool(
+    const sendInput = await cloudAgentTool(
       restarted.instance,
       parentTurn,
       "send_input",
@@ -3721,7 +3721,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     installBuildSessions(responseLostRestart, () => {
       throw new Error("an acknowledged tool outcome must not hit the network");
     });
-    const replayedSendInput = cloudAgentTool(
+    const replayedSendInput = await cloudAgentTool(
       responseLostRestart.instance,
       parentTurn,
       "send_input",
@@ -3805,7 +3805,11 @@ describe("execution-placement exact cloud turn cancellation", () => {
     const outbox = fakeOutbox();
     const first = sessionHarness(values, { gates, outbox });
     const calls = installBuildSessions(first, acceptedAgentTurn);
-    const spawn = cloudAgentTool(first.instance, parentTurn, "spawn_agent");
+    const spawn = await cloudAgentTool(
+      first.instance,
+      parentTurn,
+      "spawn_agent",
+    );
     const params = {
       description: "Audit the boundary",
       prompt: "Inspect it carefully.",
@@ -3840,10 +3844,12 @@ describe("execution-placement exact cloud turn cancellation", () => {
       outbox: fakeOutbox(),
     });
     const twinCalls = installBuildSessions(twin, acceptedAgentTurn);
-    await cloudAgentTool(twin.instance, parentTurn, "spawn_agent").execute(
-      "tool-spawn-outcome",
-      params,
+    const twinSpawn = await cloudAgentTool(
+      twin.instance,
+      parentTurn,
+      "spawn_agent",
     );
+    await twinSpawn.execute("tool-spawn-outcome", params);
     expect(twinCalls[0]?.threadId).toBe(calls[0]?.threadId);
     expect(twinCalls[0]?.body.turnId).toBe(calls[0]?.body.turnId);
 
@@ -3851,7 +3857,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     installBuildSessions(restarted, () => {
       throw new Error("durable spawn replay must not hit the network");
     });
-    const replay = cloudAgentTool(
+    const replay = await cloudAgentTool(
       restarted.instance,
       parentTurn,
       "spawn_agent",
@@ -3907,7 +3913,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     });
     const harness = sessionHarness(new Map(), { gates });
     const calls = installBuildSessions(harness, acceptedAgentTurn);
-    const spawn = cloudAgentTool(
+    const spawn = await cloudAgentTool(
       harness.instance,
       turn("turn-spawn-refused"),
       "spawn_agent",
@@ -3951,7 +3957,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
       status: "running",
     });
     const calls = installBuildSessions(harness, acceptedAgentTurn);
-    const sendInput = cloudAgentTool(
+    const sendInput = await cloudAgentTool(
       harness.instance,
       turn("turn-equal-clock"),
       "send_input",
@@ -3990,7 +3996,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
         joined: true,
       });
     });
-    const pause = cloudAgentTool(
+    const pause = await cloudAgentTool(
       harness.instance,
       turn("turn-pause-control"),
       "pause_agent",

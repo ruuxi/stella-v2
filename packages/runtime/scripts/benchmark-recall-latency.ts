@@ -31,6 +31,7 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { DatabaseSync } from "node:sqlite";
 
+import { loadModelRegistry } from "@stella/contracts/model-registry";
 import "../ai/utils/http-proxy.js";
 import { registerBuiltInApiProviders } from "../ai/providers/register-builtins.js";
 
@@ -54,6 +55,7 @@ import {
 } from "../kernel/storage/recall-read-queries.js";
 import { redactBenchmarkBrief } from "./recall-benchmark-redaction.js";
 
+await loadModelRegistry();
 registerBuiltInApiProviders();
 
 const REPO_ROOT = process.cwd();

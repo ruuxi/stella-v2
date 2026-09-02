@@ -47,10 +47,14 @@ import {
 import { type DesktopConnection } from "../../src/lib/top-bar-status";
 import { attachmentsSettled } from "../../src/lib/chat-attachments";
 import { useIsOffline } from "../../src/lib/use-network-status";
+import {
+  publishActivityHub,
+  publishComputerControl,
+  requestOpenSidebar,
+} from "../../src/lib/main-shell-store";
 import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
 import { ChatPane } from "../../src/components/ChatPane";
-import { ActivityHubSheet } from "../../src/components/ActivityHubSheet";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { CloudBrowserInterventionCard } from "../../src/components/CloudBrowserInterventionCard";
 import { ComposerNotice } from "../../src/components/ComposerNotice";
@@ -284,7 +288,6 @@ function ChatSurface(props: {
   );
   const [pairSheetOpen, setPairSheetOpen] = useState(false);
   const [deviceSheetOpen, setDeviceSheetOpen] = useState(false);
-  const [activityHubOpen, setActivityHubOpen] = useState(false);
   const [appActive, setAppActive] = useState(
     () =>
       AppState.currentState !== "background" &&
@@ -448,6 +451,63 @@ function ChatSurface(props: {
         ? "connected"
         : "disconnected";
 
+  // The top bar's computer button is chrome owned by the layout above this
+  // route, so its state and tap handler travel through the shell store.
+  const openComputer = useCallback(() => {
+    if (access) setDeviceSheetOpen(true);
+    else if (pairingResolved) setPairSheetOpen(true);
+  }, [access, pairingResolved]);
+  const computerLabel = !access
+    ? t("mobile.computer.pairLabel")
+    : connection === "connecting"
+      ? t("mobile.computer.connectingLabel")
+      : connection === "connected"
+        ? t("mobile.computer.connectedLabel")
+        : t("mobile.computer.disconnectedLabel");
+  useEffect(() => {
+    if (!access && !pairingResolved) {
+      publishComputerControl(null);
+      return;
+    }
+    publishComputerControl({
+      connection: access ? connection : null,
+      label: computerLabel,
+      onPress: openComputer,
+    });
+  }, [access, pairingResolved, connection, computerLabel, openComputer]);
+
+  // The sidebar shows this conversation's background work, so it reads the
+  // same rows the retired activity sheet did, published as they change.
+  const {
+    conversationTasks,
+    conversationArtifacts,
+    activityArtifactsByTaskId,
+    conversationOwnedArtifacts,
+  } = thread;
+  useEffect(() => {
+    publishActivityHub({
+      tasks: conversationTasks,
+      artifacts: conversationArtifacts,
+      artifactsByTaskId: activityArtifactsByTaskId,
+      conversationArtifacts: conversationOwnedArtifacts,
+      access,
+    });
+  }, [
+    conversationTasks,
+    conversationArtifacts,
+    activityArtifactsByTaskId,
+    conversationOwnedArtifacts,
+    access,
+  ]);
+  // Leaving the chat (sign-out, authority swap) clears what the chrome shows.
+  useEffect(
+    () => () => {
+      publishActivityHub(null);
+      publishComputerControl(null);
+    },
+    [],
+  );
+
   const platformLabel =
     status.platform?.trim() || t("mobile.computer.defaultDeviceLabel");
   const statusLabel = status.checking
@@ -568,35 +628,8 @@ function ChatSurface(props: {
         onOpenArtifact={setSelectedArtifact}
         conversationId={thread.conversationId}
         activityTasks={thread.conversationTasks}
-        onOpenActivityHub={() => setActivityHubOpen(true)}
-        onOpenDeviceSheet={
-          access
-            ? () => setDeviceSheetOpen(true)
-            : pairingResolved
-              ? () => setPairSheetOpen(true)
-              : undefined
-        }
-        {...(access
-          ? {
-              computerConnection: connection,
-              computerConnectionLabel:
-                connection === "connecting"
-                  ? t("mobile.computer.connectingLabel")
-                  : connection === "connected"
-                    ? t("mobile.computer.connectedLabel")
-                    : t("mobile.computer.disconnectedLabel"),
-            }
-          : {})}
+        onOpenActivity={requestOpenSidebar}
         catchingUp={thread.catchingUp}
-      />
-      <ActivityHubSheet
-        visible={activityHubOpen}
-        onClose={() => setActivityHubOpen(false)}
-        tasks={thread.conversationTasks}
-        artifacts={thread.conversationArtifacts}
-        artifactsByTaskId={thread.activityArtifactsByTaskId}
-        conversationArtifacts={thread.conversationOwnedArtifacts}
-        access={access}
       />
       <PairPhoneSheet
         visible={pairSheetOpen}

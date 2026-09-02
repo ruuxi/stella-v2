@@ -198,7 +198,9 @@ function AuthenticatedLayout() {
     const onIndex = pathname === "/" || pathname === "";
     const onOnboarding = pathname === "/onboarding";
     const onMain =
-      pathname.startsWith("/chat") || pathname.startsWith("/account");
+      pathname.startsWith("/chat") ||
+      pathname.startsWith("/settings") ||
+      pathname.startsWith("/account");
 
     if (onOnboarding) {
       return;

@@ -3,15 +3,14 @@ import {
   Animated,
   Pressable,
   StyleSheet,
-  Text,
   View,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
 import { GlassSurface } from "./glass";
-import { Icon } from "./Icon";
 import { ShimmerText } from "./ShimmerText";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
+import { useT, useTPlural } from "../i18n";
 import type { Colors } from "../theme/colors";
 import { fonts } from "../theme/fonts";
 import { fadeHex } from "../theme/oklch";
@@ -24,26 +23,23 @@ const SHIMMER_MS = 1900;
 // any motion that would distract.
 const ACTIVITY_BAR_HEIGHTS = [6, 11, 8];
 
-const runningCountOf = (tasks: readonly MobileTask[]) =>
+export const runningTaskCount = (tasks: readonly MobileTask[]) =>
   tasks.reduce((n, task) => (task.status === "running" ? n + 1 : n), 0);
 
 /**
- * Floating activity pill — sits to the left of the floating settings button
- * with the same glass language and visibility rules (mobile take on the
- * desktop `ComposerActivityPill`). Always present while the floating controls
- * are: idle it reads "Search" (the entry point to the activity hub's search),
- * and while background work runs it shimmers the running count. Tapping it in
- * any state opens the activity hub sheet.
+ * Floating "N in progress" pill — the chat's only trace of background work.
+ * It appears while something runs and is gone otherwise; the activity itself
+ * lives in the sidebar, which tapping the pill reveals.
  */
-export function ActivityPill({
-  tasks,
+export function RunningTasksPill({
+  running,
   colors,
   onPress,
   present,
   contentOpacity,
   style,
 }: {
-  tasks: readonly MobileTask[];
+  running: number;
   colors: Colors;
   onPress: () => void;
   /** Materialize/dissolve the glass with the sibling floating controls. */
@@ -57,21 +53,15 @@ export function ActivityPill({
   style?: StyleProp<ViewStyle>;
 }) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const running = runningCountOf(tasks);
-  const label =
-    running === 0
-      ? "Search"
-      : running === 1
-        ? "1 in progress"
-        : `${running} in progress`;
+  const t = useT();
+  const tPlural = useTPlural();
+  const label = tPlural("mobile.activity.inProgress", running);
 
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={
-        running === 0 ? "Search activity and files" : "Open activity"
-      }
+      accessibilityLabel={t("mobile.activity.openLabel")}
       hitSlop={6}
       style={({ pressed }) => [
         styles.pressable,
@@ -98,38 +88,19 @@ export function ActivityPill({
           ]}
         />
         <Animated.View style={[styles.content, { opacity: contentOpacity }]}>
-          {running === 0 ? (
-            <>
-              <Icon
-                name="search"
-                size={14}
-                color={colors.textMuted}
-                weight="semibold"
-              />
-              <Text
-                style={styles.idleLabel}
-                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-              >
-                Search
-              </Text>
-            </>
-          ) : (
-            <>
-              <View style={styles.glyph}>
-                {ACTIVITY_BAR_HEIGHTS.map((height, index) => (
-                  <View key={index} style={[styles.glyphBar, { height }]} />
-                ))}
-              </View>
-              <ShimmerText
-                text={label}
-                active
-                color={colors.text}
-                textStyle={styles.label}
-                durationMs={SHIMMER_MS}
-                dimAlpha={0.3}
-              />
-            </>
-          )}
+          <View style={styles.glyph}>
+            {ACTIVITY_BAR_HEIGHTS.map((height, index) => (
+              <View key={index} style={[styles.glyphBar, { height }]} />
+            ))}
+          </View>
+          <ShimmerText
+            text={label}
+            active
+            color={colors.text}
+            textStyle={styles.label}
+            durationMs={SHIMMER_MS}
+            dimAlpha={0.3}
+          />
         </Animated.View>
       </GlassSurface>
     </Pressable>
@@ -162,18 +133,13 @@ const makeStyles = (colors: Colors) =>
       flexDirection: "row",
       gap: 6,
     },
-    idleLabel: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 13,
-      letterSpacing: -0.1,
-    },
     label: {
       color: colors.text,
       fontFamily: fonts.sans.medium,
       fontSize: 13,
       letterSpacing: -0.1,
-    },
+      maxFontSizeMultiplier: CONTENT_MAX_FONT_SCALE,
+    } as never,
     glyph: {
       alignItems: "flex-end",
       flexDirection: "row",

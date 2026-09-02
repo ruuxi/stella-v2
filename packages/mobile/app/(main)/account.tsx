@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Linking,
@@ -11,7 +11,6 @@ import {
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "../../src/components/Icon";
-import { GlassToggle } from "../../src/components/glass";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { SubscriptionSection } from "../../src/components/SubscriptionSection";
 import { authClient } from "../../src/lib/auth-client";
@@ -20,7 +19,6 @@ import { clearCachedToken } from "../../src/lib/auth-token";
 import { clearCachedDesktopBridge } from "../../src/lib/desktop-bridge-chat";
 import { isGuest } from "../../src/lib/guest-mode";
 import { clearAccountChatData } from "../../src/lib/chat-account-cleanup";
-import { useCloudBrowserActions } from "../../src/lib/cloud-browser";
 import { userFacingError } from "../../src/lib/user-facing-error";
 import { tapLight } from "../../src/lib/haptics";
 import {
@@ -28,33 +26,11 @@ import {
   listStoredPairedPhoneAccess,
   type StoredPhoneAccess,
 } from "../../src/lib/phone-access";
-import { useDesktopPlatforms } from "../../src/lib/use-desktop-platforms";
-import {
-  getNotificationsMuted,
-  setNotificationsMuted,
-  subscribeNotificationsMuted,
-} from "../../src/lib/notifications-prefs";
 import { unregisterForPushNotifications } from "../../src/lib/notifications";
 import { type Colors } from "../../src/theme/colors";
-import {
-  useColors,
-  useTheme,
-  type GradientMode,
-  type ThemePreference,
-} from "../../src/theme/theme-context";
+import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
 import { useT } from "../../src/i18n";
-
-const APPEARANCE_OPTIONS: { value: ThemePreference; labelKey: string }[] = [
-  { value: "system", labelKey: "mobile.settings.appearance.system" },
-  { value: "light", labelKey: "mobile.settings.appearance.light" },
-  { value: "dark", labelKey: "mobile.settings.appearance.dark" },
-];
-
-const GRADIENT_OPTIONS: { value: GradientMode; labelKey: string }[] = [
-  { value: "soft", labelKey: "mobile.settings.background.soft" },
-  { value: "flat", labelKey: "mobile.settings.background.flat" },
-];
 
 function maskEmail(email: string): string {
   const at = email.indexOf("@");
@@ -66,34 +42,14 @@ function maskEmail(email: string): string {
   return `${head}${asterisks}${domain}`;
 }
 
-function platformLabelFor(
-  t: (key: string, params?: Record<string, string | number>) => string,
-  access: StoredPhoneAccess,
-  platform: string | null | undefined,
-): string {
-  const base = platform?.trim();
-  if (base) return base;
-  return t("mobile.settings.paired.unnamedComputer", {
-    id: access.desktopDeviceId.slice(0, 4).toUpperCase(),
-  });
-}
-
+/**
+ * Who you are, what you pay for, and the legal text — everything about the
+ * account rather than the app. Reached from the sidebar's Account button;
+ * Settings keeps appearance, notifications, and paired computers.
+ */
 export default function AccountScreen() {
   const colors = useColors();
   const t = useT();
-  const {
-    preference,
-    setPreference,
-    theme: activeTheme,
-    setThemeId,
-    themes,
-    isDark,
-    gradientPreference,
-    setGradientPreference,
-  } = useTheme();
-  // Pearl/Noir force flat — disable the Soft option so the toggle reflects
-  // the actual rendered surface instead of misleading the user.
-  const gradientLocked = Boolean(activeTheme.forcedMode);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -101,19 +57,7 @@ export default function AccountScreen() {
   const guest = isGuest();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
-  const [isResettingCloudBrowser, setIsResettingCloudBrowser] = useState(false);
-  const { resetProfile: resetCloudBrowserProfile } = useCloudBrowserActions();
-  const [pairedDesktops, setPairedDesktops] = useState<StoredPhoneAccess[]>([]);
-  const desktopPlatforms = useDesktopPlatforms(pairedDesktops);
-  const [removingDesktopId, setRemovingDesktopId] = useState<string | null>(
-    null,
-  );
-  const [notificationsMuted, setMutedLocal] = useState(() =>
-    getNotificationsMuted(),
-  );
   const [emailRevealed, setEmailRevealed] = useState(false);
-
-  useEffect(() => subscribeNotificationsMuted(setMutedLocal), []);
 
   const user = session.data?.user;
   const email = user?.email ?? "";
@@ -122,22 +66,9 @@ export default function AccountScreen() {
   useEffect(() => {
     setEmailRevealed(false);
   }, [email]);
-  // The whole "you have an account" surface — name/email header, upgrade card,
-  // paired computers, sign-out, delete — only makes sense when the user has a
-  // real session. Settings, appearance, notifications, and legal all work
-  // without one, so we render the page either way and just hide the bits
-  // that need an identity.
+
   const isSignedIn = Boolean(user) && !guest;
   const showLoadingHeader = !guest && session.isPending && !user;
-
-  const refreshPaired = useCallback(async () => {
-    const next = await listStoredPairedPhoneAccess();
-    setPairedDesktops(next);
-  }, []);
-
-  useEffect(() => {
-    void refreshPaired();
-  }, [refreshPaired]);
 
   // Local state carries the departing account's data — chat transcripts in
   // AsyncStorage and desktop pairing secrets in SecureStore. Wipe it so the
@@ -153,7 +84,6 @@ export default function AccountScreen() {
       ),
     );
     await clearAccountChatData();
-    await refreshPaired();
   };
 
   const signOut = async () => {
@@ -209,71 +139,6 @@ export default function AccountScreen() {
     );
   };
 
-  const confirmForgetDesktop = (access: StoredPhoneAccess) => {
-    const label = platformLabelFor(
-      t,
-      access,
-      desktopPlatforms[access.desktopDeviceId],
-    );
-    Alert.alert(
-      t("mobile.settings.forgetConfirmTitle", { name: label }),
-      t("mobile.settings.forgetConfirmBody"),
-      [
-        { text: t("mobile.common.cancel"), style: "cancel" },
-        {
-          text: t("mobile.settings.forget"),
-          style: "destructive",
-          onPress: () => {
-            setRemovingDesktopId(access.desktopDeviceId);
-            clearCachedDesktopBridge(access.desktopDeviceId);
-            void clearStoredPhoneAccess(access.desktopDeviceId)
-              .then(() => refreshPaired())
-              .finally(() => setRemovingDesktopId(null));
-          },
-        },
-      ],
-    );
-  };
-
-  const runResetCloudBrowser = async () => {
-    if (isResettingCloudBrowser) return;
-    setIsResettingCloudBrowser(true);
-    try {
-      await resetCloudBrowserProfile();
-      Alert.alert(
-        t("cloudBrowser.settings.title"),
-        t("cloudBrowser.settings.resetComplete"),
-      );
-    } catch {
-      Alert.alert(
-        t("cloudBrowser.settings.title"),
-        t("cloudBrowser.settings.resetFailed"),
-      );
-    } finally {
-      setIsResettingCloudBrowser(false);
-    }
-  };
-
-  const confirmResetCloudBrowser = () => {
-    Alert.alert(
-      t("cloudBrowser.settings.confirmTitle"),
-      t("cloudBrowser.settings.confirmBody"),
-      [
-        { text: t("mobile.common.cancel"), style: "cancel" },
-        {
-          text: t("cloudBrowser.settings.reset"),
-          style: "destructive",
-          onPress: () => void runResetCloudBrowser(),
-        },
-      ],
-    );
-  };
-
-  const toggleNotifications = (next: boolean) => {
-    setMutedLocal(!next);
-    void setNotificationsMuted(!next);
-  };
-
   return (
     <ScrollView
       style={styles.screen}
@@ -283,55 +148,53 @@ export default function AccountScreen() {
       ]}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.title}>{t("mobile.settings.title")}</Text>
+      <Text style={styles.title}>{t("mobile.account.title")}</Text>
 
       {isSignedIn ? (
-        <>
-          <View style={styles.identityBlock}>
-            {userName ? (
-              <Text style={styles.identityName} numberOfLines={1}>
-                {userName}
-              </Text>
-            ) : null}
-            {email ? (
-              <View
+        <View style={styles.identityBlock}>
+          {userName ? (
+            <Text style={styles.identityName} numberOfLines={1}>
+              {userName}
+            </Text>
+          ) : null}
+          {email ? (
+            <View
+              style={[
+                styles.identityEmailRow,
+                !userName && styles.identityEmailRowPrimary,
+              ]}
+            >
+              <Text
                 style={[
-                  styles.identityEmailRow,
-                  !userName && styles.identityEmailRowPrimary,
+                  styles.identityEmail,
+                  !userName && styles.identityEmailPrimary,
                 ]}
+                numberOfLines={1}
               >
-                <Text
-                  style={[
-                    styles.identityEmail,
-                    !userName && styles.identityEmailPrimary,
-                  ]}
-                  numberOfLines={1}
-                >
-                  {emailRevealed ? email : maskEmail(email)}
-                </Text>
-                <Pressable
-                  onPress={() => {
-                    tapLight();
-                    setEmailRevealed((revealed) => !revealed);
-                  }}
-                  hitSlop={10}
-                  accessibilityLabel={
-                    emailRevealed
-                      ? t("mobile.settings.hideEmailLabel")
-                      : t("mobile.settings.showEmailLabel")
-                  }
-                  style={styles.identityEmailToggle}
-                >
-                  <Icon
-                    name={emailRevealed ? "eye-off" : "eye"}
-                    size={18}
-                    color={colors.textMuted}
-                  />
-                </Pressable>
-              </View>
-            ) : null}
-          </View>
-        </>
+                {emailRevealed ? email : maskEmail(email)}
+              </Text>
+              <Pressable
+                onPress={() => {
+                  tapLight();
+                  setEmailRevealed((revealed) => !revealed);
+                }}
+                hitSlop={10}
+                accessibilityLabel={
+                  emailRevealed
+                    ? t("mobile.settings.hideEmailLabel")
+                    : t("mobile.settings.showEmailLabel")
+                }
+                style={styles.identityEmailToggle}
+              >
+                <Icon
+                  name={emailRevealed ? "eye-off" : "eye"}
+                  size={18}
+                  color={colors.textMuted}
+                />
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
       ) : showLoadingHeader ? (
         <Text style={styles.body}>{t("mobile.settings.loadingSession")}</Text>
       ) : (
@@ -350,277 +213,9 @@ export default function AccountScreen() {
 
       <SubscriptionSection />
 
-      {isSignedIn ? (
-        <>
-          <View style={styles.separator} />
-          <Text style={styles.sectionLabel}>
-            {t("mobile.cloudHome.settingsSection")}
-          </Text>
-          <Pressable
-            onPress={() => router.push("/cloud-home")}
-            accessibilityLabel={t("mobile.cloudHome.openSettingsLabel")}
-            style={({ pressed }) => [
-              styles.legalRow,
-              pressed && styles.legalRowPressed,
-            ]}
-          >
-            <View style={styles.toggleCopy}>
-              <Text style={styles.legalLabel}>
-                {t("mobile.cloudHome.settingsRowTitle")}
-              </Text>
-              <Text style={styles.toggleSub}>
-                {t("mobile.cloudHome.settingsRowBody")}
-              </Text>
-            </View>
-            <Text style={styles.legalChevron}>›</Text>
-          </Pressable>
-
-          <View style={styles.separator} />
-          <Text style={styles.sectionLabel}>
-            {t("cloudBrowser.settings.title")}
-          </Text>
-          <View style={styles.toggleRow}>
-            <View style={styles.toggleCopy}>
-              <Text style={styles.toggleLabel}>
-                {t("cloudBrowser.settings.defaultProfile")}
-              </Text>
-              <Text style={styles.toggleSub}>
-                {t("cloudBrowser.settings.description")}
-              </Text>
-            </View>
-            <Pressable
-              onPress={confirmResetCloudBrowser}
-              disabled={isResettingCloudBrowser}
-              accessibilityRole="button"
-              accessibilityLabel={t("cloudBrowser.settings.reset")}
-              style={({ pressed }) => [
-                styles.forgetButton,
-                pressed && styles.forgetButtonPressed,
-                isResettingCloudBrowser && styles.forgetButtonDisabled,
-              ]}
-            >
-              <Text style={styles.resetBrowserText}>
-                {isResettingCloudBrowser
-                  ? t("cloudBrowser.settings.resetting")
-                  : t("cloudBrowser.settings.reset")}
-              </Text>
-            </Pressable>
-          </View>
-        </>
-      ) : null}
-
-      <View style={styles.separator} />
-
-      <Text style={styles.sectionLabel}>
-        {t("mobile.settings.appearanceSection")}
-      </Text>
-      <View style={styles.themeRow}>
-        {APPEARANCE_OPTIONS.map((opt) => (
-          <Pressable
-            key={opt.value}
-            onPress={() => {
-              tapLight();
-              setPreference(opt.value);
-            }}
-            accessibilityLabel={t("mobile.settings.useAppearanceLabel", {
-              name: t(opt.labelKey),
-            })}
-            style={[
-              styles.themeOption,
-              preference === opt.value && styles.themeOptionActive,
-            ]}
-          >
-            <Text
-              style={[
-                styles.themeOptionText,
-                preference === opt.value && styles.themeOptionTextActive,
-              ]}
-            >
-              {t(opt.labelKey)}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      <View style={styles.themeRow}>
-        {GRADIENT_OPTIONS.map((opt) => {
-          const isSelected = gradientLocked
-            ? opt.value === "flat"
-            : gradientPreference === opt.value;
-          const disabled = gradientLocked && opt.value !== "flat";
-          return (
-            <Pressable
-              key={opt.value}
-              onPress={() => {
-                if (disabled) return;
-                tapLight();
-                setGradientPreference(opt.value);
-              }}
-              disabled={disabled}
-              accessibilityLabel={t("mobile.settings.useBackgroundLabel", {
-                name: t(opt.labelKey),
-              })}
-              accessibilityState={{ selected: isSelected, disabled }}
-              style={[
-                styles.themeOption,
-                isSelected && styles.themeOptionActive,
-                disabled && styles.themeOptionDisabled,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.themeOptionText,
-                  isSelected && styles.themeOptionTextActive,
-                ]}
-              >
-                {t(opt.labelKey)}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <View style={styles.themeDots}>
-        {themes.map((th) => {
-          // Honor pinned-mode themes (Pearl/Noir) when previewing — otherwise
-          // the swatch shows a palette the user can never actually land on.
-          const previewDark = th.forcedMode ? th.forcedMode === "dark" : isDark;
-          const preview = previewDark ? th.dark : th.light;
-          const isActive = th.id === activeTheme.id;
-          return (
-            <Pressable
-              key={th.id}
-              onPress={() => {
-                tapLight();
-                setThemeId(th.id);
-              }}
-              accessibilityLabel={t("mobile.settings.useThemeLabel", {
-                name: th.name,
-              })}
-              accessibilityState={{ selected: isActive }}
-              style={[
-                styles.themeDotOuter,
-                isActive && { borderColor: colors.accent },
-              ]}
-            >
-              <View
-                style={[
-                  styles.themeDotSwatch,
-                  {
-                    backgroundColor: preview.background,
-                    borderColor: preview.border,
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.themeDotAccent,
-                    { backgroundColor: preview.accent },
-                  ]}
-                />
-              </View>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <View style={styles.separator} />
-
-      <Text style={styles.sectionLabel}>
-        {t("mobile.settings.notificationsSection")}
-      </Text>
-      <View style={styles.toggleRow}>
-        <View style={styles.toggleCopy}>
-          <Text style={styles.toggleLabel}>
-            {t("mobile.settings.pushToggleLabel")}
-          </Text>
-          <Text style={styles.toggleSub}>
-            {t("mobile.settings.pushToggleSub")}
-          </Text>
-        </View>
-        <GlassToggle
-          value={!notificationsMuted}
-          onValueChange={toggleNotifications}
-          accessibilityLabel={t("mobile.settings.pushToggleA11y")}
-        />
-      </View>
-
-      {isSignedIn ? (
-        <>
-          <View style={styles.separator} />
-
-          <Text style={styles.sectionLabel}>
-            {t("mobile.settings.pairedSection")}
-          </Text>
-          {pairedDesktops.length === 0 ? (
-            <Text style={styles.emptyHint}>
-              {t("mobile.settings.pairedEmpty")}
-            </Text>
-          ) : (
-            <View style={styles.pairedList}>
-              {pairedDesktops.map((access) => {
-                const label = platformLabelFor(
-                  t,
-                  access,
-                  desktopPlatforms[access.desktopDeviceId],
-                );
-                const removing = removingDesktopId === access.desktopDeviceId;
-                return (
-                  <View key={access.desktopDeviceId} style={styles.pairedRow}>
-                    <View style={styles.pairedCopy}>
-                      <Text style={styles.pairedName}>{label}</Text>
-                      <Text style={styles.pairedSub}>
-                        {t("mobile.settings.pairedOn", {
-                          date: new Date(access.approvedAt).toLocaleDateString(
-                            undefined,
-                            {
-                              month: "short",
-                              day: "numeric",
-                            },
-                          ),
-                        })}
-                      </Text>
-                    </View>
-                    <Pressable
-                      onPress={() => confirmForgetDesktop(access)}
-                      disabled={removing}
-                      accessibilityLabel={t("mobile.settings.forgetLabel", {
-                        name: label,
-                      })}
-                      style={({ pressed }) => [
-                        styles.forgetButton,
-                        pressed && styles.forgetButtonPressed,
-                        removing && styles.forgetButtonDisabled,
-                      ]}
-                    >
-                      <Text style={styles.forgetText}>
-                        {removing ? "\u2026" : t("mobile.settings.forget")}
-                      </Text>
-                    </Pressable>
-                  </View>
-                );
-              })}
-            </View>
-          )}
-        </>
-      ) : null}
-
       <View style={styles.separator} />
 
       <View style={styles.legalBlock}>
-        <Pressable
-          onPress={() => router.push("/carplay-diagnostics")}
-          accessibilityLabel={t("mobile.settings.openCarPlayDiagnosticsLabel")}
-          style={({ pressed }) => [
-            styles.legalRow,
-            pressed && styles.legalRowPressed,
-          ]}
-        >
-          <Text style={styles.legalLabel}>
-            {t("mobile.settings.carPlayDiagnostics")}
-          </Text>
-          <Text style={styles.legalChevron}>›</Text>
-        </Pressable>
         <Pressable
           onPress={() => void Linking.openURL("https://stella.sh/terms")}
           accessibilityLabel={t("mobile.settings.openTermsLabel")}
@@ -716,14 +311,6 @@ const makeStyles = (colors: Colors) =>
       height: StyleSheet.hairlineWidth,
       marginVertical: 20,
     },
-    sectionLabel: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 13,
-      letterSpacing: 0.3,
-      marginBottom: 10,
-      textTransform: "uppercase",
-    },
     identityBlock: {
       gap: 2,
       marginTop: 10,
@@ -776,134 +363,6 @@ const makeStyles = (colors: Colors) =>
     signInButton: {
       alignSelf: "flex-start",
       marginTop: 10,
-    },
-    themeRow: {
-      flexDirection: "row",
-      gap: 8,
-      marginBottom: 16,
-    },
-    themeOption: {
-      borderColor: colors.border,
-      borderRadius: 10,
-      borderWidth: StyleSheet.hairlineWidth,
-      paddingHorizontal: 16,
-      paddingVertical: 9,
-    },
-    themeOptionActive: {
-      backgroundColor: colors.accent,
-      borderColor: colors.accent,
-    },
-    themeOptionDisabled: {
-      opacity: 0.4,
-    },
-    themeOptionText: {
-      color: colors.text,
-      fontFamily: fonts.sans.medium,
-      fontSize: 14,
-      letterSpacing: -0.2,
-    },
-    themeOptionTextActive: {
-      color: colors.accentForeground,
-    },
-    themeDots: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 12,
-    },
-    themeDotOuter: {
-      alignItems: "center",
-      borderColor: "transparent",
-      borderRadius: 20,
-      borderWidth: 2,
-      justifyContent: "center",
-      padding: 2,
-    },
-    themeDotSwatch: {
-      alignItems: "center",
-      borderRadius: 14,
-      borderWidth: StyleSheet.hairlineWidth,
-      height: 28,
-      justifyContent: "center",
-      overflow: "hidden",
-      width: 28,
-    },
-    themeDotAccent: {
-      borderRadius: 7,
-      height: 14,
-      width: 14,
-    },
-    toggleRow: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: 16,
-    },
-    toggleCopy: {
-      flex: 1,
-      gap: 2,
-    },
-    toggleLabel: {
-      color: colors.text,
-      fontFamily: fonts.sans.medium,
-      fontSize: 15,
-      letterSpacing: -0.2,
-    },
-    toggleSub: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 13,
-      lineHeight: 18,
-    },
-    emptyHint: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 14,
-      lineHeight: 20,
-    },
-    pairedList: {
-      gap: 6,
-    },
-    pairedRow: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: 12,
-      paddingVertical: 10,
-    },
-    pairedCopy: {
-      flex: 1,
-      gap: 2,
-    },
-    pairedName: {
-      color: colors.text,
-      fontFamily: fonts.sans.medium,
-      fontSize: 15,
-      letterSpacing: -0.2,
-    },
-    pairedSub: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 12,
-    },
-    forgetButton: {
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-    },
-    forgetButtonPressed: {
-      opacity: 0.6,
-    },
-    forgetButtonDisabled: {
-      opacity: 0.4,
-    },
-    forgetText: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 13,
-      letterSpacing: -0.1,
-    },
-    resetBrowserText: {
-      color: colors.danger,
-      fontFamily: fonts.sans.medium,
-      fontSize: 13,
-      letterSpacing: -0.1,
     },
     legalBlock: {
       gap: 2,

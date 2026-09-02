@@ -1721,7 +1721,10 @@
       "chat": "Chat",
       "settings": "Settings",
       "openLabel": "Open navigation",
-      "closeLabel": "Close navigation"
+      "closeLabel": "Close navigation",
+      "account": "Account",
+      "signIn": "Sign in",
+      "backToChat": "Back to chat"
     },
     "search": {
       "placeholder": "Search messages",
@@ -1840,7 +1843,8 @@
       "statusAsleep": "Asleep",
       "connectingLabel": "Connecting to your computer",
       "connectedLabel": "Computer connected",
-      "disconnectedLabel": "Computer disconnected"
+      "disconnectedLabel": "Computer disconnected",
+      "pairLabel": "Pair a computer"
     },
     "desktop": {
       "pairTitle": "Pair your phone",
@@ -1995,6 +1999,20 @@
       "clearLabel": "Clear diagnostics",
       "empty": "No CarPlay diagnostics recorded yet. Connect to CarPlay once, then come back here.",
       "clipboardEmpty": "(no CarPlay diagnostics recorded)"
+    },
+    "activity": {
+      "inProgress": {
+        "one": "{count} in progress",
+        "other": "{count} in progress"
+      },
+      "openLabel": "Show activity"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Search activity and files",
+      "signedOutHint": "Sign in to see what Stella is working on in the background."
+    },
+    "account": {
+      "title": "Account"
     }
   }
 }

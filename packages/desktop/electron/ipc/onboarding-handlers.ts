@@ -145,6 +145,7 @@ export const registerOnboardingHandlers = (
         {
           formattedSections: payload?.formattedSections ?? {},
           includeWelcomeHtml: payload?.includeWelcomeHtml,
+          ...(payload?.includeStarters === true ? { includeStarters: true } : {}),
           ...(payload?.promptConfig ?? {}),
         },
         {

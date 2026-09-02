@@ -19,6 +19,10 @@ import {
   readLocalOnboardingCompleted,
   useOnboardingState,
 } from "@/global/onboarding/use-onboarding-state";
+import { readOnboardingVariant } from "@/global/onboarding/chat/onboarding-chat-flow";
+import { setPendingComposerDraft } from "@/global/onboarding/chat/pending-handoff";
+import type { OnboardingChatHandoff } from "@/global/onboarding/chat/use-onboarding-chat";
+import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { router } from "@/router";
 import { ShiftingGradient } from "./background/ShiftingGradient";
 import { AskStellaSelectionChip } from "./selection/AskStellaSelectionChip";
@@ -55,6 +59,77 @@ const OnboardingView = lazy(() =>
     default: module.OnboardingView,
   })),
 );
+
+/* The chat-style onboarding is its own lazy chunk for the same reason: a
+ * returning user never pays for it. It shares nothing with the legacy
+ * overlay chunk except the discovery pipeline services. */
+const chatOnboardingChunkPromise: { current: Promise<unknown> | null } = {
+  current: null,
+};
+const loadChatOnboardingChunk = () => {
+  if (!chatOnboardingChunkPromise.current) {
+    chatOnboardingChunkPromise.current = import(
+      "@/global/onboarding/chat/OnboardingChat"
+    );
+  }
+  return chatOnboardingChunkPromise.current;
+};
+
+const OnboardingChatView = lazy(() =>
+  import("@/global/onboarding/chat/OnboardingChat").then((module) => ({
+    default: module.OnboardingChat,
+  })),
+);
+
+type ChatOnboardingExperienceProps = {
+  onEnteredApp: () => void;
+};
+
+/**
+ * First run as a conversation. Mounts inside the normal window chrome (no
+ * fullscreen presentation, no split layout) and completes through the same
+ * shared onboarding state the legacy flow uses, so the shell's hand-off to
+ * the real chat is identical for both variants.
+ */
+function ChatOnboardingExperience({
+  onEnteredApp,
+}: ChatOnboardingExperienceProps) {
+  const { completed: onboardingDone, complete: completeOnboarding } =
+    useOnboardingState();
+  const { hasConnectedAccount } = useAuthSessionState();
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadChatOnboardingChunk().finally(() => {
+      if (!cancelled) dismissLaunchSplash();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!onboardingDone) return;
+    onEnteredApp();
+  }, [onEnteredApp, onboardingDone]);
+
+  const handleComplete = useCallback(
+    (handoff: OnboardingChatHandoff) => {
+      if (handoff.composerDraft) setPendingComposerDraft(handoff.composerDraft);
+      completeOnboarding();
+    },
+    [completeOnboarding],
+  );
+
+  return (
+    <Suspense fallback={null}>
+      <OnboardingChatView
+        isAuthenticated={hasConnectedAccount}
+        onComplete={handleComplete}
+      />
+    </Suspense>
+  );
+}
 
 type OnboardingExperienceProps = {
   activeConversationId: string | null;
@@ -232,10 +307,16 @@ const DesktopFullShell = () => {
       {appReady ? (
         <HostedChatSurface />
       ) : needsOnboarding ? (
-        <OnboardingExperience
-          activeConversationId={activeConversationId}
-          onEnteredApp={() => setHasEnteredApp(true)}
-        />
+        readOnboardingVariant() === "legacy" ? (
+          <OnboardingExperience
+            activeConversationId={activeConversationId}
+            onEnteredApp={() => setHasEnteredApp(true)}
+          />
+        ) : (
+          <ChatOnboardingExperience
+            onEnteredApp={() => setHasEnteredApp(true)}
+          />
+        )
       ) : null}
     </ShellChrome>
   );

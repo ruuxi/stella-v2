@@ -123,6 +123,7 @@ import {
 import "@/shell/error-boundary.css";
 import { platformCapabilities } from "@/platform/capabilities";
 import { dismissLaunchSplash } from "@/shell/launch-splash";
+import { usePendingDiscoveryWelcome } from "@/global/onboarding/chat/pending-handoff";
 
 const CLOUD_CONVERSATION_CREATE_MAX_ATTEMPTS = 4;
 const CLOUD_CONVERSATION_CREATE_RETRY_BASE_MS = 1_000;
@@ -345,6 +346,9 @@ function RootLayout() {
           ownerSubject,
         })
       : null;
+  // A greeting written by first-run discovery waits here for the first
+  // selected conversation, then lands as Stella's opening message.
+  usePendingDiscoveryWelcome(conversationId);
 
   const clearCloudCreateRetryTimer = useCallback(() => {
     if (cloudCreateRetryTimerRef.current === null) return;

@@ -17,6 +17,8 @@ type SynthesisResult = OnboardingSynthesisResponse;
 type SynthesisRequestOptions = {
   includeAuth?: boolean;
   includeWelcomeHtml?: boolean;
+  /** Chat onboarding only: also ask for profile highlights + starters. */
+  includeStarters?: boolean;
 };
 
 export async function synthesizeCoreMemory(
@@ -35,6 +37,7 @@ export async function synthesizeCoreMemory(
     promptConfig: getSynthesisPromptConfig() as Record<string, unknown>,
     includeAuth: options.includeAuth ?? true,
     includeWelcomeHtml: options.includeWelcomeHtml ?? true,
+    ...(options.includeStarters ? { includeStarters: true } : {}),
   });
 }
 

@@ -6,6 +6,7 @@ import { resolveModelConfig } from "../agent/model_resolver";
 import {
   buildCategoryAnalysisUserMessage,
   buildCoreSynthesisUserMessage,
+  buildOnboardingStartersPrompt,
   buildWelcomeHtmlPrompt,
   buildWelcomeMessagePrompt,
 } from "../prompts/index";
@@ -49,14 +50,24 @@ type SynthesizeRequest = {
   coreMemoryUserPromptTemplate?: string;
   welcomeMessagePromptTemplate?: string;
   includeWelcomeHtml?: boolean;
+  /**
+   * Also produce the chat-onboarding finale payload: a few short profile
+   * highlights plus personalized starter prompts. Opt-in so the legacy
+   * onboarding flow keeps its request shape and model spend unchanged.
+   */
+  includeStarters?: boolean;
   coreMemory?: string;
 };
+
+type OnboardingStarter = { title: string; prompt: string };
 
 type SynthesizeResponse = {
   coreMemory: string;
   welcomeMessage: string;
   welcomeHtml?: string;
   categoryAnalyses?: Record<string, string>;
+  profileHighlights?: string[];
+  starters?: OnboardingStarter[];
 };
 
 type WelcomeHtmlResponse = {
@@ -103,6 +114,61 @@ const isUsableWelcomeHtml = (value: string): boolean => {
     lower.includes("</html>") &&
     lower.includes("data-stella-compose")
   );
+};
+
+const MAX_PROFILE_HIGHLIGHTS = 5;
+const MAX_STARTERS = 4;
+
+const trimToLength = (value: unknown, max: number): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  if (!trimmed) return null;
+  return trimmed.length > max ? trimmed.slice(0, max).trim() : trimmed;
+};
+
+/**
+ * Parses the finale JSON the starters prompt asks for. The model is told to
+ * return only JSON, but a code fence or a sentence of preamble still slips
+ * through now and then; the parser tolerates both and never throws — a bad
+ * output simply means the finale falls back to its generic starters.
+ */
+const parseOnboardingStartersOutput = (
+  raw: string,
+): { profileHighlights: string[]; starters: OnboardingStarter[] } | null => {
+  const stripped = stripMarkdownHtmlFence(raw)
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "");
+  const start = stripped.indexOf("{");
+  const end = stripped.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripped.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const record = parsed as Record<string, unknown>;
+  const profileHighlights = Array.isArray(record.highlights)
+    ? record.highlights
+        .map((entry) => trimToLength(entry, 48))
+        .filter((entry): entry is string => Boolean(entry))
+        .slice(0, MAX_PROFILE_HIGHLIGHTS)
+    : [];
+  const starters = Array.isArray(record.starters)
+    ? record.starters
+        .map((entry) => {
+          if (!entry || typeof entry !== "object") return null;
+          const item = entry as Record<string, unknown>;
+          const title = trimToLength(item.title, 60);
+          const prompt = trimToLength(item.prompt, 280);
+          return title && prompt ? { title, prompt } : null;
+        })
+        .filter((entry): entry is OnboardingStarter => Boolean(entry))
+        .slice(0, MAX_STARTERS)
+    : [];
+  if (profileHighlights.length === 0 && starters.length === 0) return null;
+  return { profileHighlights, starters };
 };
 
 const createSynthesisDispatchGuard = (
@@ -554,20 +620,68 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
               durationMs: Date.now() - welcomeStartedAt,
             };
           })();
-          const [welcomeResult, welcomeHtmlResult] = await Promise.all([
-            welcomePromise,
-            includeWelcomeHtml
-              ? generateWelcomeHtml(ctx, coreMemory, dispatchFence).catch(
-                  (error) => {
-                    console.error(
-                      "[synthesize] Welcome HTML output was not usable.",
-                      error,
-                    );
-                    throw error;
-                  },
-                )
-              : Promise.resolve(null),
-          ]);
+          // The finale payload is best-effort: a failed or malformed starters
+          // call never fails synthesis, because core memory and the welcome
+          // greeting are the part the rest of the app depends on.
+          const includeStarters = body.includeStarters === true;
+          const startersPromise = includeStarters
+            ? (async () => {
+                const startersStartedAt = Date.now();
+                try {
+                  await assertDispatch();
+                  const startersPrompt = buildOnboardingStartersPrompt(coreMemory);
+                  const result = await completeManagedChat({
+                    config: welcomeConfig,
+                    dispatchGuard: createSynthesisDispatchGuard(
+                      ctx,
+                      dispatchFence,
+                    ),
+                    billing: await createSynthesisModelBilling({
+                      namespace: "synthesis-onboarding-starters",
+                      stableRequestKey: `${ownerId}\0${modelAccess.ownerGeneration}\0${startersPrompt}`,
+                      agentType: "service:synthesis:onboarding_starters",
+                      config: welcomeConfig,
+                      inputParts: [startersPrompt],
+                    }),
+                    context: {
+                      messages: [
+                        {
+                          role: "user",
+                          content: [{ type: "text", text: startersPrompt }],
+                          timestamp: Date.now(),
+                        },
+                      ],
+                    },
+                  });
+                  const parsed = parseOnboardingStartersOutput(
+                    assistantText(result),
+                  );
+                  console.log(
+                    `[synthesize] Onboarding starters ${parsed ? "complete" : "unusable"} in ${Date.now() - startersStartedAt}ms`,
+                  );
+                  return parsed;
+                } catch (error) {
+                  console.error("[synthesize] Onboarding starters failed.", error);
+                  return null;
+                }
+              })()
+            : Promise.resolve(null);
+          const [welcomeResult, welcomeHtmlResult, startersResult] =
+            await Promise.all([
+              welcomePromise,
+              includeWelcomeHtml
+                ? generateWelcomeHtml(ctx, coreMemory, dispatchFence).catch(
+                    (error) => {
+                      console.error(
+                        "[synthesize] Welcome HTML output was not usable.",
+                        error,
+                      );
+                      throw error;
+                    },
+                  )
+                : Promise.resolve(null),
+              startersPromise,
+            ]);
           console.log(
             includeWelcomeHtml && welcomeHtmlResult
               ? `[synthesize] Welcome message / HTML complete. welcome: ${welcomeResult.durationMs}ms, html: ${welcomeHtmlResult.durationMs}ms`
@@ -583,6 +697,12 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
               : {}),
             ...(Object.keys(categoryAnalysesMap).length > 0
               ? { categoryAnalyses: categoryAnalysesMap }
+              : {}),
+            ...(startersResult
+              ? {
+                  profileHighlights: startersResult.profileHighlights,
+                  starters: startersResult.starters,
+                }
               : {}),
           };
 

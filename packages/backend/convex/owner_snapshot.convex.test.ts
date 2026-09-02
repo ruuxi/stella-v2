@@ -79,10 +79,13 @@ const seedUser = async (t: Harness, key: string, isAnonymous: boolean) => {
 };
 
 const fetchSnapshot = (t: Harness, ownerId: string, secret = SECRET) =>
-  t.fetch(`${CONVEX_OWNER_SNAPSHOT_PATH}?ownerId=${encodeURIComponent(ownerId)}`, {
-    method: "GET",
-    headers: { authorization: `Bearer ${secret}` },
-  });
+  t.fetch(
+    `${CONVEX_OWNER_SNAPSHOT_PATH}?ownerId=${encodeURIComponent(ownerId)}`,
+    {
+      method: "GET",
+      headers: { authorization: `Bearer ${secret}` },
+    },
+  );
 
 describe("GET /api/gateway/owner-snapshot", () => {
   it("requires the builder service secret", async () => {
@@ -213,9 +216,9 @@ describe("GET /api/gateway/owner-snapshot", () => {
       writable: false,
       allowance: { audience: "free", budgetMicroCents: 0, maxRequests: 0 },
     });
-    expect(
-      (await fetchSnapshot(t, "https://convex.test|nobody")).status,
-    ).toBe(404);
+    expect((await fetchSnapshot(t, "https://convex.test|nobody")).status).toBe(
+      404,
+    );
   });
 
   it("gives anonymous owners the request-count trial allowance", async () => {
@@ -234,9 +237,10 @@ describe("GET /api/gateway/owner-snapshot", () => {
   });
 });
 
-describe("owner snapshot invalidation push", () => {
-  it("posts the change to the builder and swallows failures", async () => {
+describe("owner snapshot change push", () => {
+  it("posts a fresh snapshot, falls back to a stale marker, and swallows failures", async () => {
     const t = createTest();
+    const ownerId = await seedUser(t, "snapshot-push", false);
     const calls: Array<{ url: string; init: RequestInit }> = [];
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
@@ -245,22 +249,41 @@ describe("owner snapshot invalidation push", () => {
         return new Response("nope", { status: 500 });
       });
     await t.action(internal.owner_snapshot.notifyOwnerSnapshotChanged, {
-      ownerId: "https://issuer.test|owner",
+      ownerId,
       reason: "billing",
     });
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.url).toBe("https://builder.test/internal/owners/snapshot-changed");
-    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
-      ownerId: "https://issuer.test|owner",
-      reason: "billing",
-    });
-    expect((calls[0]?.init.headers as Record<string, string>).authorization).toBe(
-      `Bearer ${SECRET}`,
+    expect(calls[0]?.url).toBe(
+      "https://builder.test/internal/owners/snapshot-changed",
     );
+    expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
+      ownerId,
+      reason: "billing",
+      snapshot: {
+        ownerId,
+        ownerGeneration: GENERATION,
+        writable: true,
+        ttlMs: 300_000,
+      },
+    });
+    expect(
+      (calls[0]?.init.headers as Record<string, string>).authorization,
+    ).toBe(`Bearer ${SECRET}`);
+
+    const unknownOwnerId = "https://issuer.test|unknown-owner";
+    await t.action(internal.owner_snapshot.notifyOwnerSnapshotChanged, {
+      ownerId: unknownOwnerId,
+      reason: "manual",
+    });
+    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({
+      ownerId: unknownOwnerId,
+      reason: "manual",
+    });
+
     fetchMock.mockRejectedValue(new Error("offline"));
     await expect(
       t.action(internal.owner_snapshot.notifyOwnerSnapshotChanged, {
-        ownerId: "https://issuer.test|owner",
+        ownerId: unknownOwnerId,
         reason: "engine",
       }),
     ).resolves.toBeNull();
@@ -278,7 +301,10 @@ describe("owner snapshot invalidation push", () => {
         updatedAt: 1,
       });
     });
-    await t.mutation(internal.billing.setAdminBillingPlan, { ownerId, plan: "go" });
+    await t.mutation(internal.billing.setAdminBillingPlan, {
+      ownerId,
+      plan: "go",
+    });
     await t.mutation(internal.cloud_engines.storeCredentialInternal, {
       ownerId,
       ownerGeneration: GENERATION,

@@ -5,6 +5,7 @@ import {
   TURN_PLANE_PROTOCOL,
 } from "@stella/contracts/turn-plane/turn-start";
 import { HEADER_TURN_AUTH_KIND } from "../src/turn-start-request.js";
+import { sampleOwnerSnapshot } from "./helpers/turn-plane-fakes.js";
 
 mock.module("cloudflare:workers", () => ({
   DurableObject: class {},
@@ -102,9 +103,14 @@ const environment = (
 ) => {
   const forwarded: Forwarded[] = [];
   const invalidated: string[] = [];
+  const replaced: Array<{
+    ownerId: string;
+    snapshot: ReturnType<typeof sampleOwnerSnapshot>;
+  }> = [];
   return {
     forwarded,
     invalidated,
+    replaced,
     env: {
       BUILDER_SERVICE_SECRET: SERVICE_SECRET,
       STELLA_CONVEX_SITE_URL: ISSUER,
@@ -123,6 +129,11 @@ const environment = (
         getByName: (ownerId: string) => ({
           invalidate: async () => {
             invalidated.push(ownerId);
+          },
+          replaceSnapshot: async (
+            snapshot: ReturnType<typeof sampleOwnerSnapshot>,
+          ) => {
+            replaced.push({ ownerId, snapshot });
           },
         }),
       },
@@ -226,7 +237,11 @@ describe("POST /conversations/:id/turns", () => {
 
   test("refuses missing, malformed, and unverifiable credentials before addressing the object", async () => {
     const { env, forwarded } = environment();
-    const none = await worker.fetch(post(validBody(), {}), env, {} as ExecutionContext);
+    const none = await worker.fetch(
+      post(validBody(), {}),
+      env,
+      {} as ExecutionContext,
+    );
     expect(none.status).toBe(401);
     expect(await errorBody(none)).toEqual({
       error: {
@@ -257,10 +272,14 @@ describe("POST /conversations/:id/turns", () => {
     jwksAvailable = false;
     try {
       const response = await worker.fetch(
-        post(validBody(), {
-          authorization: `Bearer ${await userJwt()}`,
-          // An unknown kid forces a JWKS refetch past the cache.
-        }, "22222222-2222-4333-8444-555555555555"),
+        post(
+          validBody(),
+          {
+            authorization: `Bearer ${await userJwt()}`,
+            // An unknown kid forces a JWKS refetch past the cache.
+          },
+          "22222222-2222-4333-8444-555555555555",
+        ),
         env,
         {} as ExecutionContext,
       );
@@ -290,14 +309,27 @@ describe("POST /conversations/:id/turns", () => {
     } finally {
       jwksAvailable = true;
     }
-    expect(forwarded.filter((entry) => entry.request.url.endsWith("/turn")).length).toBeLessThanOrEqual(1);
+    expect(
+      forwarded.filter((entry) => entry.request.url.endsWith("/turn")).length,
+    ).toBeLessThanOrEqual(1);
   });
 
   test("a user may not set service-only fields", async () => {
     const { env, forwarded } = environment();
     const token = await userJwt();
     for (const [overrides, field] of [
-      [{ lane: "wake", agentThreadControl: { threadId: "t", attemptGeneration: 1, threadUpdatedAt: 1, status: "completed" } }, "lane"],
+      [
+        {
+          lane: "wake",
+          agentThreadControl: {
+            threadId: "t",
+            attemptGeneration: 1,
+            threadUpdatedAt: 1,
+            status: "completed",
+          },
+        },
+        "lane",
+      ],
       [{ lane: "schedule" }, "lane"],
       [{ hiddenMessage: true }, "hiddenMessage"],
       [{ source: "schedule" }, "source"],
@@ -343,7 +375,14 @@ describe("POST /conversations/:id/turns", () => {
       validBody({ attachments: ["a", "b", "c", "d", "e"] }),
       validBody({ attachments: [""] }),
       validBody({ locale: "not a locale!" }),
-      validBody({ execution: { engine: "stella", provider: "anthropic", model: "m", reasoningEffort: "default" } }),
+      validBody({
+        execution: {
+          engine: "stella",
+          provider: "anthropic",
+          model: "m",
+          reasoningEffort: "default",
+        },
+      }),
       validBody({ title: "t".repeat(121) }),
       validBody({ lane: "build" }),
       validBody({ source: "user" }),
@@ -391,8 +430,8 @@ describe("POST /conversations/:id/turns", () => {
 });
 
 describe("POST /internal/owners/snapshot-changed", () => {
-  test("invalidates the named owner's gate for a service caller only", async () => {
-    const { env, invalidated } = environment();
+  test("replaces a gate from a snapshot push and invalidates without one", async () => {
+    const { env, invalidated, replaced } = environment();
     const request = (headers: Record<string, string>, body: unknown) =>
       new Request("https://builder.example/internal/owners/snapshot-changed", {
         method: "POST",
@@ -415,12 +454,39 @@ describe("POST /internal/owners/snapshot-changed", () => {
     );
     expect(ok.status).toBe(200);
     expect(invalidated).toEqual(["owner-1"]);
+
+    const snapshot = sampleOwnerSnapshot({
+      ownerId: "owner-2",
+      ownerGeneration: "generation-2",
+      fetchedAt: Date.now(),
+    });
+    const replacedResponse = await worker.fetch(
+      request(
+        { authorization: `Bearer ${SERVICE_SECRET}` },
+        { ownerId: "owner-2", reason: "generation", snapshot },
+      ),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(replacedResponse.status).toBe(200);
+    expect(replaced).toEqual([{ ownerId: "owner-2", snapshot }]);
+
     const malformed = await worker.fetch(
       request({ authorization: `Bearer ${SERVICE_SECRET}` }, { reason: "x" }),
       env,
       {} as ExecutionContext,
     );
     expect(malformed.status).toBe(400);
+    const mismatchedSnapshot = await worker.fetch(
+      request(
+        { authorization: `Bearer ${SERVICE_SECRET}` },
+        { ownerId: "owner-3", reason: "manual", snapshot },
+      ),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(mismatchedSnapshot.status).toBe(400);
+    expect(replaced).toHaveLength(1);
   });
 });
 
@@ -435,7 +501,11 @@ describe("queue consumer export", () => {
     ) => {
       expect(String(input)).toBe(`${ISSUER}/api/cloud/outbox`);
       posted = JSON.parse(String(init?.body));
-      return Response.json({ applied: ["turn.event:k"], duplicate: [], rejected: [] });
+      return Response.json({
+        applied: ["turn.event:k"],
+        duplicate: [],
+        rejected: [],
+      });
     }) as typeof fetch;
     try {
       await worker.queue(

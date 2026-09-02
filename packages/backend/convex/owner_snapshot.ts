@@ -7,8 +7,11 @@ import {
 } from "@stella/contracts/turn-plane/owner-snapshot";
 import { internalAction, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { hasOwnerMigrationWriteFence } from "./auth";
-import { resolveCloudPlan, resolveOwnerExecutionInMutation } from "./cloud_apps";
+import { hasOwnerMigrationWriteFence, resolveOwnerAccountAction } from "./auth";
+import {
+  resolveCloudPlan,
+  resolveOwnerExecutionInMutation,
+} from "./cloud_apps";
 import { CLOUD_ENGINE_PROVIDERS } from "./cloud_engines";
 import type { OwnerModelAllowance } from "./gateway_capabilities";
 import { resolveBuilderEndpoint } from "./lib/builder_turns";
@@ -27,7 +30,7 @@ import { managedModelAudienceValidator } from "./schema/gateway";
  * turn admission needs to know about an owner — write fence and generation,
  * plan quotas, model allowance, default execution, execution devices and
  * their public keys, paired phones — in one document the gate caches for
- * `ttlMs` and Convex invalidates on change.
+ * `ttlMs`; Convex pushes a fresh replacement on change.
  */
 
 export const OWNER_SNAPSHOT_TTL_MS = 300_000;
@@ -269,20 +272,45 @@ const changeReasonValidator = v.union(
 );
 
 /**
- * Best-effort push invalidation: `POST {builder}/internal/owners/snapshot-changed`.
- * Failures are logged, never thrown — the gate re-pulls on its TTL anyway.
- * Schedule it with `scheduleOwnerSnapshotChanged` from the mutation that made
- * the change, so the push cannot outrun the write it announces.
+ * Best-effort snapshot push to the cloud-builder owner gate. Computing the
+ * snapshot and posting it are both allowed to fail: the action logs the
+ * reason, sends a snapshot-less stale marker when it can, and never throws.
+ * Schedule it from the mutation that made the change so the push cannot
+ * outrun the write it announces.
  */
 export const notifyOwnerSnapshotChanged = internalAction({
   args: { ownerId: v.string(), reason: changeReasonValidator },
   returns: v.null(),
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
     const endpoint = resolveBuilderEndpoint();
     if (!endpoint) return null;
+    let snapshot: OwnerSnapshot | undefined;
+    try {
+      const account = await resolveOwnerAccountAction(ctx, args.ownerId);
+      if (!account) {
+        throw new Error("Owner account is unknown.");
+      }
+      snapshot = await ctx.runAction(
+        internal.owner_snapshot.getOwnerSnapshotInternal,
+        {
+          ownerId: args.ownerId,
+          isAnonymous: account.isAnonymous,
+        },
+      );
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          service: "convex-owner-snapshot",
+          event: "snapshot_changed_snapshot_failed",
+          reason: args.reason,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
     const body: OwnerSnapshotChangedRequest = {
       ownerId: args.ownerId,
       reason: args.reason,
+      ...(snapshot ? { snapshot } : {}),
     };
     try {
       const response = await fetch(

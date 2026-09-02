@@ -44,8 +44,9 @@ path:
 
 No synchronous Convex call sits on a turn's admission path or on a model
 request: the one control-plane read a turn depends on is the owner snapshot,
-which the `OwnerGate` caches for the snapshot's own `ttlMs` (300 s) and Convex
-push-invalidates on change. Authorization travels as signed ES256 capability
+which the `OwnerGate` caches and Convex pushes a fresh copy of on change; the
+gate serves its copy without waiting on Convex and refreshes in the background
+(stale-while-revalidate). Authorization travels as signed ES256 capability
 JWTs rather than per-request lookups — Convex mints `session` capabilities
 (issuer `stella-convex`), and a Durable Object mints two `turn` capabilities per
 admitted turn (issuer `stella-cloud-builder`), one for the model gateway
@@ -340,14 +341,23 @@ One `OwnerGate` per owner (binding `OWNER_GATES`, object name = `ownerId`).
   (`writable`), the plan and `unlimited` flag, per-lane quotas, the model
   allowance (audience, budget, request ceiling), the owner's default execution,
   connected engines, execution devices with their public keys, and paired mobile
-  devices. Cached for the snapshot's own `ttlMs` (300 s). A failed refetch serves
-  a cached copy up to three ttls old and then fails closed as `internal`,
-  retryable; a definite "owner gone" is never papered over by the cache.
-- **Invalidation.** Convex posts
+  devices. The gate serves any cached copy younger than three `ttlMs` (300 s
+  each) immediately; a copy past one ttl, or one marked stale by a push, starts a
+  single shared background refresh while the turn proceeds. Only a gate with no
+  copy at all, or one beyond the three-ttl ceiling, fetches synchronously, with a
+  3 s timeout, and then fails closed as `internal`, retryable. A definite "owner
+  gone" is never papered over by the cache: a background refresh that learns it
+  removes the copy it started from. This is what keeps Convex off the turn path;
+  the earlier design blocked admission on a 10 s fetch whenever the ttl expired
+  or a push landed, which showed up as 8–18 s stalls in production logs.
+- **Push.** Convex posts
   `POST {builder}/internal/owners/snapshot-changed` (service secret) with a
-  reason of `billing`, `generation`, `engine`, `pairing`, `device`, or `manual`;
-  the gate drops its cached snapshot and refetches on next use. The TTL is the
-  backstop when a push is lost.
+  reason of `billing`, `generation`, `engine`, `pairing`, `device`, or `manual`
+  and, normally, the freshly computed `snapshot` itself, which replaces the
+  gate's copy (an older `fetchedAt` never overwrites a newer one). A push that
+  could not compute the snapshot carries no `snapshot` and only marks the copy
+  stale. The generation push at owner creation pre-warms the gate before an
+  owner's first turn. The TTL is the backstop when a push is lost.
 - **Windows.** Rolling starts per lane: burst over 10 minutes, daily over
   24 hours, both from `snapshot.quotas[lane]`. An `unlimited` owner skips them.
   A refusal computes exactly when a slot frees and returns it as `retryAfterMs`.
@@ -563,7 +573,7 @@ sandbox/app bundle.
 | `MODEL_GATEWAY_URL`      | Public origin of the gateway Worker; `/api/stella/models` advertises it as `gateway.origin`. Required on a `prod:*` deployment; a dev deployment without it advertises an empty origin with one warning. Must be `https`, or `http` on a loopback host. |
 | `GATEWAY_SERVICE_SECRET` | Bearer the gateway presents on `/api/gateway/session-capability`, `/usage`, `/config`, `/engine-access`. Same value as the Worker secret. |
 | `BUILDER_SERVICE_SECRET` | Shared with cloud-builder in both directions: the builder presents it on `/api/cloud/outbox`, `/api/gateway/owner-snapshot`, and the service-secret cloud routes; Convex presents it to the builder on turn starts and snapshot pushes. |
-| `CLOUD_BUILDER_URL`      | Builder origin Convex posts turn starts and snapshot invalidations to. Without it (or the secret) Convex cannot start a cloud turn. |
+| `CLOUD_BUILDER_URL`      | Builder origin Convex posts turn starts and snapshot pushes to. Without it (or the secret) Convex cannot start a cloud turn. |
 | `CAPABILITY_SIGNING_KEY` | PKCS8 PEM private key Convex signs session capabilities with.                                                                |
 | `CAPABILITY_SIGNING_KID` | Key id written into the capability header; must match an entry in every `CAPABILITY_JWKS`.                                    |
 | `CAPABILITY_JWKS`        | Public `GatewayJwks` document Convex verifies control-plane capabilities against on callback routes. Unset means those routes answer `503`. |

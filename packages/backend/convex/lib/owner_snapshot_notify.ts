@@ -10,11 +10,10 @@ const notifyOwnerSnapshotChangedRef = makeFunctionReference<
 >("owner_snapshot:notifyOwnerSnapshotChanged");
 
 /**
- * Best-effort push invalidation of the cloud-builder's owner-gate snapshot.
- * Scheduled from the mutation that changed the fact (plan, engine, owner
- * generation, pairing) so the push only fires once the change is durable. The
- * gate re-pulls on its own TTL regardless; losing a push costs staleness, not
- * correctness.
+ * Schedules a best-effort push of the cloud-builder owner-gate snapshot from
+ * the mutation that changed it. The action computes the replacement after the
+ * write is durable; if that fails, it sends a stale marker instead. The gate
+ * still refreshes on its own TTL, so losing a push only costs staleness.
  */
 export const scheduleOwnerSnapshotChanged = async (
   ctx: {

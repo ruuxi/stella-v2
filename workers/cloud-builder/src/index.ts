@@ -53,6 +53,7 @@ import {
 import {
   HEADER_PRESENCE_DEVICE_ID,
   OwnerGate,
+  parseOwnerSnapshot,
   snapshotAllowsExecutionEngine,
   type OwnerGateRefusalCode,
 } from "./owner-gate.js";
@@ -15300,8 +15301,8 @@ export default {
         },
       );
     }
-    // Convex learned an owner's plan, generation, engines or pairing changed:
-    // the owner gate drops its cached snapshot and refetches on next use.
+    // Convex learned an owner's plan, generation, engines or pairing changed.
+    // A complete push pre-warms the gate; a snapshot-less push marks it stale.
     if (
       request.method === "POST" &&
       url.pathname === BUILDER_OWNER_SNAPSHOT_CHANGED_PATH
@@ -15314,10 +15315,20 @@ export default {
       if (!ownerId || ownerId.length > 512) {
         return json({ error: "ownerId is required." }, 400);
       }
-      await env.OWNER_GATES.getByName(ownerId).invalidate();
+      const gate = env.OWNER_GATES.getByName(ownerId);
+      if (body?.snapshot !== undefined) {
+        const snapshot = parseOwnerSnapshot(body.snapshot, ownerId);
+        if (!snapshot) {
+          return json({ error: "snapshot is malformed." }, 400);
+        }
+        await gate.replaceSnapshot(snapshot);
+      } else {
+        await gate.invalidate();
+      }
       log("info", "owner_snapshot_changed", {
         requestId,
         reason: typeof body?.reason === "string" ? body.reason : "unknown",
+        pushedSnapshot: body?.snapshot !== undefined,
       });
       return json({ ok: true });
     }

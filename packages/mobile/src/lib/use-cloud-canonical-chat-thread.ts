@@ -83,14 +83,19 @@ const memoryPreferenceFenceRef = makeFunctionReference<
   }
 >("cloud_memory:getMyMemoryPreference");
 
-const safeAuthorityIssue = (error: unknown): CloudAuthorityIssue => {
+const safeAuthorityIssue = (
+  error: unknown,
+  anonymous: boolean,
+): CloudAuthorityIssue => {
   if (error instanceof CloudAuthorityError) {
     return { message: error.message, retryable: error.retryable };
   }
   const message = error instanceof Error ? error.message : String(error);
   if (/sign in|session|authentication|unauthorized/i.test(message)) {
     return {
-      message: "Stella could not verify this account. Sign in again.",
+      message: anonymous
+        ? "Stella could not verify this anonymous session. Try again."
+        : "Stella could not verify this account. Sign in again.",
       retryable: true,
     };
   }
@@ -125,6 +130,7 @@ export type CloudAuthorityHookState =
 /** Resolves and account-fences the one signed-in mobile Chat conversation. */
 export const useCloudConversationAuthority = (): CloudAuthorityHookState => {
   const session = authClient.useSession();
+  const anonymous = session.data?.user?.isAnonymous === true;
   const identity = useMemo(
     () => observeCloudConversationIdentity(session.data),
     [session.data],
@@ -192,14 +198,14 @@ export const useCloudConversationAuthority = (): CloudAuthorityHookState => {
           if (generation !== requestGenerationRef.current) return;
           setResolved({
             identityKey: identity.identityKey,
-            issue: safeAuthorityIssue(error),
+            issue: safeAuthorityIssue(error, anonymous),
           });
         },
       );
     return () => {
       requestGenerationRef.current += 1;
     };
-  }, [identity, retryGeneration, session.isPending]);
+  }, [anonymous, identity, retryGeneration, session.isPending]);
 
   if (session.isPending || !identity) {
     return { status: "loading", authority: null, issue: null, retry };

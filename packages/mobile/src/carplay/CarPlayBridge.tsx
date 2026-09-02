@@ -15,25 +15,34 @@
  *   • text-to-speech   → {@link speakReply} from read-aloud (the same Inworld
  *     TTS the chat "read aloud" button uses), so replies sound identical.
  *
- * The chat is the signed-in cloud conversation, so a guest gets a sign-in row
- * rather than a voice loop with nothing to talk to.
+ * Account-free use has a Better Auth anonymous owner, so both anonymous and
+ * connected sessions resolve the same cloud-canonical conversation pipeline.
  *
  * The hands-free loop: tap → record → stop → transcribe → send → await reply →
  * auto-speak it → offer one-tap replay. {@link carPlaySession} owns the actual
  * CarPlay templates; this component just drives its phases.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
-import { isGuest } from "../lib/guest-mode";
+import { authClient } from "../lib/auth-client";
 import {
   useCloudCanonicalChatThread,
   useCloudConversationAuthority,
 } from "../lib/use-cloud-canonical-chat-thread";
 import type { CloudConversationAuthority } from "../lib/cloud-conversation-authority";
 import { useDictation } from "../lib/dictation";
-import { speakReply, startAfterStoppingReadAloud, stopReadAloud, useReadAloudState } from "../lib/read-aloud";
-import { carPlayLog, carPlaySession, type CarPlayPhase } from "./carplay-session";
+import {
+  speakReply,
+  startAfterStoppingReadAloud,
+  stopReadAloud,
+  useReadAloudState,
+} from "../lib/read-aloud";
+import {
+  carPlayLog,
+  carPlaySession,
+  type CarPlayPhase,
+} from "./carplay-session";
 import { RECENT_REPLY_COUNT, type RecentReply } from "./carplay-home";
 import { pickTurnReply } from "./turn-reply";
 
@@ -65,7 +74,9 @@ export function CarPlayBridge() {
  * conversation's journal socket open for the app's whole lifetime.
  */
 function CarPlayBridgeIOS() {
-  const guest = isGuest();
+  const session = authClient.useSession();
+  const hasSession = Boolean(session.data);
+  const anonymous = session.data?.user?.isAnonymous === true;
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
@@ -82,11 +93,11 @@ function CarPlayBridgeIOS() {
   }, []);
 
   useEffect(() => {
-    carPlaySession.setSignedIn(!guest);
-  }, [guest]);
+    carPlaySession.setSignedIn(hasSession);
+  }, [hasSession]);
 
-  if (guest || !connected) return null;
-  return <CarPlayCloudChatGate />;
+  if (!hasSession || !connected) return null;
+  return <CarPlayCloudChatGate anonymous={anonymous} />;
 }
 
 /**
@@ -94,7 +105,7 @@ function CarPlayBridgeIOS() {
  * it verifies, the home keeps its idle rows: a dictated turn has nowhere to go
  * yet, and the loop's own send guard would reject it anyway.
  */
-function CarPlayCloudChatGate() {
+function CarPlayCloudChatGate({ anonymous }: { anonymous: boolean }) {
   const authority = useCloudConversationAuthority();
   if (authority.status !== "ready") return null;
   return (
@@ -102,6 +113,7 @@ function CarPlayCloudChatGate() {
       key={`${authority.authority.accountScope}:${authority.authority.ownerGeneration}:${authority.authority.conversationId}`}
       authority={authority.authority}
       reloadAuthority={authority.retry}
+      anonymous={anonymous}
     />
   );
 }
@@ -109,9 +121,11 @@ function CarPlayCloudChatGate() {
 function CarPlayVoiceLoop({
   authority,
   reloadAuthority,
+  anonymous,
 }: {
   authority: CloudConversationAuthority;
   reloadAuthority: () => void;
+  anonymous: boolean;
 }) {
   // The head unit's own optimistic outbox, so a queued dictated turn is never
   // drained twice by the Chat tab's copy of the same conversation.
@@ -242,7 +256,7 @@ function CarPlayVoiceLoop({
   );
 
   const dictation = useDictation({
-    anonymous: false,
+    anonymous,
     onTranscript,
   });
 
@@ -258,10 +272,12 @@ function CarPlayVoiceLoop({
       // status stays "idle" — so the status-driven safety net below never
       // re-fires and would strand the listening overlay on the head unit.
       // Reconcile straight off the start() result instead.
-      void startAfterStoppingReadAloud(() => dictation.start()).then((started) => {
-        carPlayLog(`dictation started=${started}`);
-        if (!started && phaseRef.current === "listening") goPhase("idle");
-      });
+      void startAfterStoppingReadAloud(() => dictation.start()).then(
+        (started) => {
+          carPlayLog(`dictation started=${started}`);
+          if (!started && phaseRef.current === "listening") goPhase("idle");
+        },
+      );
     } else if (dictation.status === "recording") {
       carPlayLog("dictation stop requested (send)");
       goPhase("thinking");
@@ -343,10 +359,7 @@ function CarPlayVoiceLoop({
       sendStartTimerRef.current = null;
       if (!awaitingReplyRef.current || sendingRef.current) return;
       awaitingReplyRef.current = false;
-      if (
-        phaseRef.current === "thinking" ||
-        phaseRef.current === "listening"
-      ) {
+      if (phaseRef.current === "thinking" || phaseRef.current === "listening") {
         goPhase("idle");
       }
     }, SEND_START_TIMEOUT_MS);

@@ -1,10 +1,11 @@
 # Mobile chat
 
-Mobile chat lets a signed-in user select a thread, compose and send messages, inspect artifacts, and respond to cloud-browser intervention cards.
+Mobile chat lets connected and anonymous users open the canonical thread, compose and send messages, inspect artifacts, and respond to cloud-browser intervention cards when their plan permits them.
 
 ## Sub-features
 
 - `mobile-thread-list` searches and selects conversations.
+- `mobile-anonymous-chat` proves that account-free entry reaches the real composer and canonical anonymous conversation.
 - `mobile-compose` drafts, attaches, and sends from the mobile composer.
 - `mobile-timeline` renders user, assistant, tool, error, and working states. The
   working mark uses the bouncing ellipsis while thinking and animated character
@@ -22,10 +23,11 @@ Mobile chat lets a signed-in user select a thread, compose and send messages, in
 
 Preconditions:
 
-- The main shell is authenticated and the iOS helper has a booted installed build.
+- The main shell has either a connected or anonymous session and the iOS helper has a booted installed build.
 - Sending or intervention behavior needs reachable cloud state.
 
 - **Thread.** Capture `frame`, select a visible thread from fresh `screen` coordinates, and require its title/timeline.
+- **Anonymous Chat.** Enter through **Continue without signing in**, open Chat, and capture both an accessibility snapshot and framebuffer. Require the composer and absence of `sign-in-prompt-button`. Submit one harmless prompt and accept a visible anonymous-limit or provider error as bounded transport proof.
 - **Compose.** Tap the composer, type a unique harmless prompt, and capture the draft before sending.
 - **Send.** Submit once and require the user turn, working state, or explicit error. When the working state is reachable, capture frames during thinking and labelled tool work; require the ellipsis to move during thinking and the character body or orbit to change during tool work. Bound the wait and collect logs on failure.
 - **Artifact.** Open a visible artifact and require the preview or native share/open action appropriate to its type.

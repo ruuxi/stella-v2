@@ -25,28 +25,31 @@ const WAFER_FAST_SELECTION = `stella/${WAFER_FAST_MODEL}`;
 const LEGACY_FIREWORKS_MODEL =
   "accounts/fireworks/models/deepseek-v4-flash-0731";
 const LEGACY_FIREWORKS_SELECTION = `stella/${LEGACY_FIREWORKS_MODEL}`;
-/** Current default: OpenRouter-hosted Muse Spark 1.2 Contributor. */
+/** Default OpenRouter-hosted Muse Spark 1.2 Contributor. */
 const MUSE_MODEL = "meta/muse-spark-1.2-contributor";
 const MUSE_SELECTION = `stella/${MUSE_MODEL}`;
-/** Catalog routing spelling: OpenRouter gateway ids are namespace-prefixed. */
 const MUSE_ROUTING_MODEL = `openrouter/${MUSE_MODEL}`;
 const SYNTHESIS_MODEL = "moonshotai/kimi-k2.6";
 const SYNTHESIS_SELECTION = `openrouter/${SYNTHESIS_MODEL}`;
 const IMAGE_DESCRIPTION_MODEL = "google/gemini-3.1-flash-lite";
 
 describe("managed model config", () => {
-  it("routes every mode and agent default to Muse Spark 1.2 Contributor on OpenRouter", () => {
+  it("routes every mode through Muse with DeepSeek as its fallback", () => {
     for (const audience of MANAGED_MODEL_AUDIENCES) {
       for (const mode of MODEL_MODES) {
         expect(getModeConfig(mode, audience)).toMatchObject({
           model: MUSE_MODEL,
+          fallback: FLASH_MODEL,
           managedGatewayProvider: "openrouter",
+          fallbackManagedGatewayProvider: "crof",
           api: "openai-responses",
           providerOptions: {
             openai: { reasoningEffort: "xhigh" },
           },
+          fallbackProviderOptions: {
+            openai: { reasoningEffort: "xhigh" },
+          },
         });
-        expect(getModeConfig(mode, audience).fallback).toBeUndefined();
       }
 
       for (const entry of listStellaDefaultSelections(audience)) {
@@ -105,7 +108,7 @@ describe("managed model config", () => {
     }
   });
 
-  it("publishes the Muse default and the selectable DeepSeek V4 Flash row", () => {
+  it("publishes the Muse default and its selectable DeepSeek fallback", () => {
     for (const audience of MANAGED_MODEL_AUDIENCES) {
       expect(listStellaCatalogModels(audience)).toEqual([
         {
@@ -141,9 +144,8 @@ describe("managed model config", () => {
       kind: "mode",
       mode: "light",
     });
-    // The Light alias now resolves to the current default (Muse).
     expect(resolveStellaModelSelection("stella/light", "pro")).toBe(MUSE_MODEL);
-    // The previous default stays explicitly selectable and routable.
+    // DeepSeek remains explicitly selectable and routable.
     expect(resolveStellaModelSelection(FLASH_SELECTION, "pro")).toBe(
       FLASH_MODEL,
     );
@@ -197,14 +199,12 @@ describe("managed model config", () => {
     });
   });
 
-  it("pins the Muse Spark contributor slug onto the OpenRouter gateway", () => {
-    // The slug starts with `meta/`, so naive prefix inference would land this
-    // OpenRouter-hosted default on Meta's first-party gateway. The explicit
-    // override must win for both the mode-config path and a raw
-    // `stella/<model>` pin (which infers its gateway from the id alone).
+  it("pins Muse onto OpenRouter Responses with DeepSeek configured as fallback", () => {
     expect(getModeConfig("light", "pro")).toMatchObject({
       model: MUSE_MODEL,
+      fallback: FLASH_MODEL,
       managedGatewayProvider: "openrouter",
+      fallbackManagedGatewayProvider: "crof",
       api: "openai-responses",
     });
     expect(
@@ -219,15 +219,11 @@ describe("managed model config", () => {
     });
   });
 
-  it("keeps the Responses transport pinned to the Muse id only", () => {
-    // A pin of any other selectable model must not inherit the Muse
-    // default's Responses transport.
+  it("keeps the Muse Responses transport override pinned to the Muse id only", () => {
+    // A pin of any other selectable model must not inherit Muse's transport.
     expect(
-      resolveStellaModelConfigForSelection(
-        FLASH_SELECTION,
-        "general",
-        "pro",
-      ).config.api,
+      resolveStellaModelConfigForSelection(FLASH_SELECTION, "general", "pro")
+        .config.api,
     ).toBeUndefined();
     expect(
       resolveStellaModelConfigForSelection(

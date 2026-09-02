@@ -8,7 +8,7 @@ import {
   View,
 } from "react-native";
 import { useIsFocused } from "expo-router";
-import { isGuest } from "../../src/lib/guest-mode";
+import { authClient } from "../../src/lib/auth-client";
 import {
   getDesktopBridgeStatus,
   getPreferredPhoneAccess,
@@ -59,9 +59,7 @@ import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { CloudBrowserInterventionCard } from "../../src/components/CloudBrowserInterventionCard";
 import { ComposerNotice } from "../../src/components/ComposerNotice";
 import { ComputerDeviceSheet } from "../../src/components/ComputerDeviceSheet";
-import { StellaMarkHero } from "../../src/components/stella-mark/StellaMarkHero";
 import { PairPhoneSheet } from "../../src/components/PairPhoneSheet";
-import { SignInPrompt } from "../../src/components/SignInPrompt";
 import type { ChatArtifact } from "../../src/types";
 import { useT } from "../../src/i18n";
 
@@ -83,41 +81,15 @@ type DeviceStatus = {
 };
 
 /**
- * The one chat. Its transcript is the signed-in cloud conversation, and each
- * turn's execution placement is decided server-side: the paired computer is
- * offered first and cloud takes the turn when no computer is reachable. Pairing
+ * The one chat. Its transcript belongs to the current connected or anonymous
+ * session, and each turn's execution placement is decided server-side: the
+ * paired computer is offered first and cloud takes the turn when no computer
+ * is reachable. Pairing
  * therefore only changes what Stella can reach, never where the conversation
  * lives, so the surface is the same with or without a computer.
  */
-/** The character above the guest hero copy, sized like the device sheet's. */
-const HERO_MARK_SIZE = 96;
-
 export default function ChatScreen() {
-  return isGuest() ? <GuestChatSurface /> : <SignedInChatScreen />;
-}
-
-function GuestChatSurface() {
-  const colors = useColors();
-  const t = useT();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  return (
-    <View style={styles.centerSurface}>
-      <View style={styles.heroBlock}>
-        <View style={styles.heroMark}>
-          <StellaMarkHero size={HERO_MARK_SIZE} faceColor={colors.background} />
-        </View>
-        <Text style={styles.heroTitle}>
-          {t("mobile.computer.guestHeroTitle")}
-        </Text>
-        <Text style={styles.heroBody}>
-          {t("mobile.computer.guestHeroBody")}
-        </Text>
-      </View>
-      <View style={styles.signInSection}>
-        <SignInPrompt />
-      </View>
-    </View>
-  );
+  return <SignedInChatScreen />;
 }
 
 function SignedInChatScreen() {
@@ -278,6 +250,8 @@ function ChatSurface(props: {
   } = props;
   const colors = useColors();
   const t = useT();
+  const session = authClient.useSession();
+  const anonymous = session.data?.user?.isAnonymous === true;
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const offline = useIsOffline();
   const isFocused = useIsFocused();
@@ -624,7 +598,7 @@ function ChatSurface(props: {
         onAddQuote={thread.addQuote}
         onRemoveQuote={thread.removeQuote}
         maxAttachments={thread.maxAttachments}
-        dictationAnonymous={false}
+        dictationAnonymous={anonymous}
         onOpenArtifact={setSelectedArtifact}
         conversationId={thread.conversationId}
         activityTasks={thread.conversationTasks}
@@ -713,35 +687,6 @@ const makeStyles = (colors: {
       color: colors.text,
       fontFamily: fonts.sans.medium,
       fontSize: 14,
-    },
-    heroMark: {
-      marginBottom: 12,
-    },
-    heroBlock: {
-      alignItems: "center",
-      gap: 8,
-    },
-    heroTitle: {
-      color: colors.textMuted,
-      fontFamily: fonts.display.regularItalic,
-      fontSize: 22,
-      letterSpacing: -0.5,
-      opacity: 0.7,
-      textAlign: "center",
-    },
-    heroBody: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 15,
-      letterSpacing: -0.2,
-      lineHeight: 22,
-      marginTop: 8,
-      maxWidth: 280,
-      textAlign: "center",
-    },
-    signInSection: {
-      alignItems: "center",
-      marginTop: 28,
     },
     authorityIssue: {
       alignItems: "center",

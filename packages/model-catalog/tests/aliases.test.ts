@@ -141,9 +141,7 @@ describe("resolveStellaModelConfigForSelection", () => {
     });
   });
 
-  it("pins the Muse contributor slug onto OpenRouter over the Responses API", () => {
-    // The slug starts with `meta/`, so naive prefix inference would land this
-    // OpenRouter-hosted default on Meta's first-party gateway.
+  it("pins the Muse contributor slug onto OpenRouter Responses", () => {
     expect(
       resolveStellaModelConfigForSelection(MUSE_SELECTION, "general", "pro"),
     ).toMatchObject({
@@ -156,7 +154,7 @@ describe("resolveStellaModelConfigForSelection", () => {
     });
   });
 
-  it("does not let other pins inherit the Muse Responses transport", () => {
+  it("does not let other pins inherit the Muse transport override", () => {
     expect(
       resolveStellaModelConfigForSelection(FLASH_SELECTION, "general", "pro")
         .config.api,
@@ -195,7 +193,10 @@ describe("resolveStellaModelConfigForSelection", () => {
       ),
     ).toMatchObject({
       applied: false,
-      config: { model: MUSE_SPARK_1_2_CONTRIBUTOR_MODEL },
+      config: {
+        model: MUSE_SPARK_1_2_CONTRIBUTOR_MODEL,
+        fallback: DEEPSEEK_V4_FLASH_CROF_MODEL,
+      },
     });
     // Retired ids are rejected product-wide, even for Pro.
     expect(
@@ -206,7 +207,10 @@ describe("resolveStellaModelConfigForSelection", () => {
       ),
     ).toMatchObject({
       applied: false,
-      config: { model: MUSE_SPARK_1_2_CONTRIBUTOR_MODEL },
+      config: {
+        model: MUSE_SPARK_1_2_CONTRIBUTOR_MODEL,
+        fallback: DEEPSEEK_V4_FLASH_CROF_MODEL,
+      },
     });
     // Restricted audiences may still pick allowlisted catalog rows.
     expect(
@@ -259,7 +263,7 @@ describe("audience allowlist", () => {
     }
   });
 
-  it("publishes the same three rows to every audience with allowedForAudience set", () => {
+  it("publishes the same three rows to every audience", () => {
     for (const audience of MANAGED_MODEL_AUDIENCES) {
       expect(listStellaCatalogModels(audience)).toEqual([
         {

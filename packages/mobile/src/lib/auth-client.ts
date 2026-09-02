@@ -1,6 +1,10 @@
 import { convexClient } from "@convex-dev/better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
-import { jwtClient, magicLinkClient } from "better-auth/client/plugins";
+import {
+  anonymousClient,
+  jwtClient,
+  magicLinkClient,
+} from "better-auth/client/plugins";
 import { env } from "../config/env";
 import { assert } from "./assert";
 import { nativeBearerClient } from "./native-auth-client";
@@ -21,6 +25,7 @@ const plugins = [
     scheme: env.mobileScheme,
   }),
   convexClient(),
+  anonymousClient(),
   magicLinkClient(),
   jwtClient(),
 ];

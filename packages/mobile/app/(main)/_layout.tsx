@@ -464,7 +464,9 @@ export default function MainLayout() {
                 <Pressable
                   onPress={() => closeSidebar()}
                   style={StyleSheet.absoluteFill}
+                  accessibilityRole="button"
                   accessibilityLabel={t("mobile.nav.closeLabel")}
+                  testID="mobile-nav-close"
                 />
               </Animated.View>
             </Animated.View>

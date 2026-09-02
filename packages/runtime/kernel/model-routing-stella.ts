@@ -225,10 +225,8 @@ const apiForRelay = (
       // Wafer is OpenAI-compatible chat completions only.
       return "openai-completions";
     case "openrouter":
-      // OpenRouter hosts a mix of protocols: Muse Spark 1.2 Contributor
-      // (the Stella default) requires the Responses API; every other
-      // OpenRouter-hosted model (kimi synthesis, custom picks) stays on
-      // chat completions.
+      // OpenRouter hosts a mix of protocols. Muse Spark 1.2 Contributor uses
+      // Responses; every other OpenRouter model stays on Chat Completions.
       return resolvedModelId && isMuseSpark12ContributorModel(resolvedModelId)
         ? "openai-responses"
         : "openai-completions";
@@ -325,9 +323,8 @@ const createRelayModel = (args: {
       : {}),
     ...(isMuseSpark12ContributorModel(args.resolvedModelId)
       ? {
-          // Muse Spark 1.2 Contributor accepts xhigh on the Responses API
-          // and reasoning is mandatory for it. Without this map the runtime
-          // clamps Stella's default `xhigh` effort down to `high`.
+          // Muse accepts xhigh on the Responses API and reasoning is
+          // mandatory. Without this map the runtime clamps xhigh to high.
           thinkingLevelMap: {
             ...registryModel?.thinkingLevelMap,
             xhigh: "xhigh",

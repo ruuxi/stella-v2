@@ -37,7 +37,11 @@ import { type Colors } from "../../src/theme/colors";
 import { useColors, useTheme } from "../../src/theme/theme-context";
 import { fadeHex } from "../../src/theme/oklch";
 import { fonts } from "../../src/theme/fonts";
-import { LEGAL_TITLES, TERMS_OF_SERVICE, PRIVACY_POLICY } from "../../src/lib/legal-text";
+import {
+  LEGAL_TITLES,
+  TERMS_OF_SERVICE,
+  PRIVACY_POLICY,
+} from "../../src/lib/legal-text";
 import { loadLastMainTabHref } from "../../src/lib/last-main-tab";
 import { useT } from "../../src/i18n";
 
@@ -77,15 +81,25 @@ export default function LoginScreen() {
   const [canResend, setCanResend] = useState(false);
 
   const continueAsGuest = async () => {
-    await clearMobileAuthStorage();
-    clearCachedToken();
-    clearCachedDesktopBridge();
-    const store = (authClient as unknown as {
-      $store?: { notify: (signal: string) => void };
-    }).$store;
-    store?.notify("$sessionSignal");
-    await setGuestMode(true);
-    router.replace(await loadLastMainTabHref());
+    setSubmitState({ type: "verifying" });
+    try {
+      await clearMobileAuthStorage();
+      clearCachedToken();
+      clearCachedDesktopBridge();
+      await setGuestMode(false);
+
+      const result = await authClient.signIn.anonymous();
+      if (result.error) {
+        throw new Error(
+          result.error.message ?? "Could not start an anonymous session.",
+        );
+      }
+
+      await setGuestMode(true);
+      router.replace(await loadLastMainTabHref());
+    } catch (error) {
+      setSubmitState({ type: "error", message: userFacingError(error) });
+    }
   };
 
   const sendMagicLink = async () => {
@@ -104,17 +118,14 @@ export default function LoginScreen() {
       // In memory for this attempt only; the server stores just the hash.
       const claimSecret = generateClaimSecret();
       claimSecretRef.current = claimSecret;
-      const response = await fetch(
-        `${env.convexSiteUrl}/api/auth/link/send`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: trimmed,
-            claimHash: await hashClaimSecret(claimSecret),
-          }),
-        },
-      );
+      const response = await fetch(`${env.convexSiteUrl}/api/auth/link/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: trimmed,
+          claimHash: await hashClaimSecret(claimSecret),
+        }),
+      });
       const data = (await response.json()) as {
         requestId?: string;
         error?: string;
@@ -284,11 +295,7 @@ export default function LoginScreen() {
               // device generated, which is the only thing that can claim it.
               const secret = claimSecretRef.current;
               const token = secret
-                ? await claimSessionToken(
-                    env.convexSiteUrl,
-                    requestId,
-                    secret,
-                  )
+                ? await claimSessionToken(env.convexSiteUrl, requestId, secret)
                 : null;
               if (!token) {
                 throw new Error("Handoff could not be claimed.");
@@ -299,7 +306,11 @@ export default function LoginScreen() {
               // Nudge useSession() to re-fetch now that a credential exists.
               // The native bearer client's init hook attaches it to the
               // request, and the server returns valid session data.
-              const store = (authClient as unknown as { $store?: { notify: (s: string) => void } }).$store;
+              const store = (
+                authClient as unknown as {
+                  $store?: { notify: (s: string) => void };
+                }
+              ).$store;
               store?.notify("$sessionSignal");
             } catch {
               setSubmitState({
@@ -507,10 +518,17 @@ export default function LoginScreen() {
 
           <Pressable
             onPress={() => void continueAsGuest()}
+            accessibilityLabel={t("mobile.login.continueAsGuest")}
+            accessibilityRole="button"
+            disabled={submitState.type === "verifying"}
             style={({ pressed }) => [
               styles.guestButton,
               pressed && styles.guestButtonPressed,
+              submitState.type === "verifying"
+                ? styles.primaryButtonDisabled
+                : null,
             ]}
+            testID="continue-without-signing-in-button"
           >
             <Text style={styles.guestButtonText}>
               {t("mobile.login.continueAsGuest")}
@@ -591,221 +609,222 @@ function GoogleIcon() {
   );
 }
 
-const makeStyles = (colors: Colors) => StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.background,
-    paddingHorizontal: 28,
-  },
-  keyboardAvoid: {
-    flex: 1,
-    justifyContent: "space-between",
-  },
-  hero: {
-    flex: 1,
-    justifyContent: "center",
-    gap: 14,
-  },
-  title: {
-    color: colors.text,
-    fontFamily: fonts.display.light,
-    fontStyle: "italic",
-    fontSize: 42,
-    letterSpacing: -2,
-    lineHeight: 42,
-  },
-  body: {
-    color: colors.textMuted,
-    fontFamily: fonts.sans.regular,
-    fontSize: 17,
-    letterSpacing: -0.3,
-    lineHeight: 24,
-    marginTop: 2,
-  },
-  formArea: {
-    gap: 12,
-    paddingBottom: 16,
-  },
-  socialButton: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 14,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "center",
-    paddingVertical: 16,
-  },
-  socialButtonPressed: {
-    backgroundColor: fadeHex(colors.textMuted, 0.08),
-  },
-  appleButton: {
-    backgroundColor: "#000000",
-    borderColor: "#000000",
-  },
-  appleButtonText: {
-    color: "#FFFFFF",
-    fontFamily: fonts.sans.semiBold,
-    fontSize: 17,
-    letterSpacing: -0.3,
-  },
-  googleButtonText: {
-    color: colors.text,
-    fontFamily: fonts.sans.semiBold,
-    fontSize: 17,
-    letterSpacing: -0.3,
-  },
-  methodDivider: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-    paddingVertical: 2,
-  },
-  methodDividerLine: {
-    backgroundColor: colors.border,
-    flex: 1,
-    height: 1,
-  },
-  methodDividerText: {
-    color: colors.textMuted,
-    fontFamily: fonts.mono.regular,
-    fontSize: 11,
-    letterSpacing: 0,
-    textTransform: "uppercase",
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 14,
-    borderWidth: 1,
-    color: colors.text,
-    fontFamily: fonts.sans.regular,
-    fontSize: 17,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-  },
-  primaryButton: {
-    alignItems: "center",
-    backgroundColor: colors.accent,
-    borderRadius: 14,
-    paddingVertical: 17,
-  },
-  primaryButtonPressed: {
-    backgroundColor: colors.accentHover,
-  },
-  primaryButtonDisabled: {
-    opacity: 0.6,
-  },
-  primaryButtonText: {
-    color: colors.accentForeground,
-    fontFamily: fonts.sans.semiBold,
-    fontSize: 17,
-    letterSpacing: -0.3,
-  },
-  sentBlock: {
-    gap: 10,
-  },
-  sentActions: {
-    flexDirection: "row",
-    gap: 18,
-    justifyContent: "center",
-  },
-  inlineLink: {
-    paddingVertical: 4,
-  },
-  inlineLinkPressed: {
-    opacity: 0.6,
-  },
-  inlineLinkText: {
-    color: colors.accent,
-    fontFamily: fonts.sans.medium,
-    fontSize: 14,
-    letterSpacing: -0.1,
-  },
-  successText: {
-    color: colors.ok,
-    fontFamily: fonts.sans.regular,
-    fontSize: 15,
-    lineHeight: 21,
-    textAlign: "center",
-  },
-  errorText: {
-    color: colors.danger,
-    fontFamily: fonts.sans.regular,
-    fontSize: 15,
-    lineHeight: 21,
-    textAlign: "center",
-  },
-  legalFooter: {
-    color: colors.textMuted,
-    fontFamily: fonts.sans.regular,
-    fontSize: 12,
-    lineHeight: 17,
-    textAlign: "center",
-    marginTop: 4,
-  },
-  legalLink: {
-    textDecorationLine: "underline",
-  },
-  guestButton: {
-    alignItems: "center",
-    marginTop: 8,
-    paddingVertical: 16,
-  },
-  guestButtonPressed: {
-    opacity: 0.6,
-  },
-  guestButtonText: {
-    color: colors.textMuted,
-    fontFamily: fonts.sans.medium,
-    fontSize: 15,
-    letterSpacing: -0.2,
-  },
-  legalModal: {
-    flex: 1,
-    backgroundColor: colors.background,
-    // Soft hairline on the leading (top) edge so the sheet reads against the
-    // page beneath, matching the TopSheet primitive's edge treatment.
-    borderTopColor: colors.border,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  legalModalHeader: {
-    alignItems: "center",
-    borderBottomColor: colors.border,
-    borderBottomWidth: 1,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-  },
-  legalModalTitle: {
-    color: colors.text,
-    fontFamily: fonts.sans.semiBold,
-    fontSize: 18,
-    letterSpacing: -0.4,
-  },
-  legalModalClose: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  legalModalCloseText: {
-    color: colors.accent,
-    fontFamily: fonts.sans.semiBold,
-    fontSize: 16,
-  },
-  legalModalScroll: {
-    flex: 1,
-  },
-  legalModalContent: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-  legalModalBody: {
-    color: colors.text,
-    fontFamily: fonts.sans.regular,
-    fontSize: 13,
-    lineHeight: 20,
-    opacity: 0.8,
-  },
-} as const);
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: colors.background,
+      paddingHorizontal: 28,
+    },
+    keyboardAvoid: {
+      flex: 1,
+      justifyContent: "space-between",
+    },
+    hero: {
+      flex: 1,
+      justifyContent: "center",
+      gap: 14,
+    },
+    title: {
+      color: colors.text,
+      fontFamily: fonts.display.light,
+      fontStyle: "italic",
+      fontSize: 42,
+      letterSpacing: -2,
+      lineHeight: 42,
+    },
+    body: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.regular,
+      fontSize: 17,
+      letterSpacing: -0.3,
+      lineHeight: 24,
+      marginTop: 2,
+    },
+    formArea: {
+      gap: 12,
+      paddingBottom: 16,
+    },
+    socialButton: {
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 14,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 10,
+      justifyContent: "center",
+      paddingVertical: 16,
+    },
+    socialButtonPressed: {
+      backgroundColor: fadeHex(colors.textMuted, 0.08),
+    },
+    appleButton: {
+      backgroundColor: "#000000",
+      borderColor: "#000000",
+    },
+    appleButtonText: {
+      color: "#FFFFFF",
+      fontFamily: fonts.sans.semiBold,
+      fontSize: 17,
+      letterSpacing: -0.3,
+    },
+    googleButtonText: {
+      color: colors.text,
+      fontFamily: fonts.sans.semiBold,
+      fontSize: 17,
+      letterSpacing: -0.3,
+    },
+    methodDivider: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 10,
+      paddingVertical: 2,
+    },
+    methodDividerLine: {
+      backgroundColor: colors.border,
+      flex: 1,
+      height: 1,
+    },
+    methodDividerText: {
+      color: colors.textMuted,
+      fontFamily: fonts.mono.regular,
+      fontSize: 11,
+      letterSpacing: 0,
+      textTransform: "uppercase",
+    },
+    input: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 14,
+      borderWidth: 1,
+      color: colors.text,
+      fontFamily: fonts.sans.regular,
+      fontSize: 17,
+      paddingHorizontal: 18,
+      paddingVertical: 16,
+    },
+    primaryButton: {
+      alignItems: "center",
+      backgroundColor: colors.accent,
+      borderRadius: 14,
+      paddingVertical: 17,
+    },
+    primaryButtonPressed: {
+      backgroundColor: colors.accentHover,
+    },
+    primaryButtonDisabled: {
+      opacity: 0.6,
+    },
+    primaryButtonText: {
+      color: colors.accentForeground,
+      fontFamily: fonts.sans.semiBold,
+      fontSize: 17,
+      letterSpacing: -0.3,
+    },
+    sentBlock: {
+      gap: 10,
+    },
+    sentActions: {
+      flexDirection: "row",
+      gap: 18,
+      justifyContent: "center",
+    },
+    inlineLink: {
+      paddingVertical: 4,
+    },
+    inlineLinkPressed: {
+      opacity: 0.6,
+    },
+    inlineLinkText: {
+      color: colors.accent,
+      fontFamily: fonts.sans.medium,
+      fontSize: 14,
+      letterSpacing: -0.1,
+    },
+    successText: {
+      color: colors.ok,
+      fontFamily: fonts.sans.regular,
+      fontSize: 15,
+      lineHeight: 21,
+      textAlign: "center",
+    },
+    errorText: {
+      color: colors.danger,
+      fontFamily: fonts.sans.regular,
+      fontSize: 15,
+      lineHeight: 21,
+      textAlign: "center",
+    },
+    legalFooter: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.regular,
+      fontSize: 12,
+      lineHeight: 17,
+      textAlign: "center",
+      marginTop: 4,
+    },
+    legalLink: {
+      textDecorationLine: "underline",
+    },
+    guestButton: {
+      alignItems: "center",
+      marginTop: 8,
+      paddingVertical: 16,
+    },
+    guestButtonPressed: {
+      opacity: 0.6,
+    },
+    guestButtonText: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 15,
+      letterSpacing: -0.2,
+    },
+    legalModal: {
+      flex: 1,
+      backgroundColor: colors.background,
+      // Soft hairline on the leading (top) edge so the sheet reads against the
+      // page beneath, matching the TopSheet primitive's edge treatment.
+      borderTopColor: colors.border,
+      borderTopWidth: StyleSheet.hairlineWidth,
+    },
+    legalModalHeader: {
+      alignItems: "center",
+      borderBottomColor: colors.border,
+      borderBottomWidth: 1,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      paddingHorizontal: 20,
+      paddingVertical: 14,
+    },
+    legalModalTitle: {
+      color: colors.text,
+      fontFamily: fonts.sans.semiBold,
+      fontSize: 18,
+      letterSpacing: -0.4,
+    },
+    legalModalClose: {
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    legalModalCloseText: {
+      color: colors.accent,
+      fontFamily: fonts.sans.semiBold,
+      fontSize: 16,
+    },
+    legalModalScroll: {
+      flex: 1,
+    },
+    legalModalContent: {
+      padding: 20,
+      paddingBottom: 40,
+    },
+    legalModalBody: {
+      color: colors.text,
+      fontFamily: fonts.sans.regular,
+      fontSize: 13,
+      lineHeight: 20,
+      opacity: 0.8,
+    },
+  } as const);

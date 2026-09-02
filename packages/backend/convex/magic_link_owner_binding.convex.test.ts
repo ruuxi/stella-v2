@@ -17,6 +17,9 @@ const betterAuthModules = import.meta.glob("./betterAuth/**/*.ts");
 
 afterEach(() => {
   delete process.env.TURNSTILE_SECRET_KEY;
+  delete process.env.STELLA_APP_INTEGRITY_MODE;
+  delete process.env.APPLE_APP_ATTEST_TEAM_ID;
+  delete process.env.GOOGLE_PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON;
   vi.restoreAllMocks();
 });
 
@@ -88,7 +91,8 @@ describe("POST /api/auth/link/send owner proof", () => {
     const missing = await t.fetch("/api/auth/link/send", input);
     expect(missing.status).toBe(400);
     await expect(missing.json()).resolves.toEqual({
-      error: "captcha_required",
+      error: "integrity_required",
+      message: "This request needs a verification proof.",
     });
 
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -106,7 +110,24 @@ describe("POST /api/auth/link/send owner proof", () => {
     });
     expect(invalid.status).toBe(403);
     await expect(invalid.json()).resolves.toEqual({
-      error: "captcha_invalid",
+      error: "integrity_invalid",
+      message: "The verification proof is invalid.",
+    });
+
+    vi.mocked(globalThis.fetch).mockResolvedValue(
+      Response.json({ success: true }),
+    );
+    const accepted = await t.fetch("/api/auth/link/send", {
+      ...input,
+      headers: {
+        ...input.headers,
+        "x-captcha-response": "valid-token",
+      },
+    });
+    expect(accepted.status).toBe(401);
+    await expect(accepted.json()).resolves.toEqual({
+      error:
+        "An authenticated anonymous session is required to preserve this conversation.",
     });
     await expectNoPendingLink(t);
   });

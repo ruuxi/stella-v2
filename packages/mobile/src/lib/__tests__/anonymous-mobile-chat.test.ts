@@ -7,16 +7,27 @@ const source = async (relativeUrl: string): Promise<string> =>
 
 describe("anonymous mobile Chat entry", () => {
   test("creates a Better Auth anonymous owner from the account-free action", async () => {
-    const [authClient, login] = await Promise.all([
+    const [authClient, anonymousSignIn, login] = await Promise.all([
       source("../auth-client.ts"),
+      source("../anonymous-sign-in.ts"),
       source("../../../app/(auth)/login.tsx"),
     ]);
 
     expect(authClient).toContain("anonymousClient(),");
+    expect(anonymousSignIn).toContain('purpose: "anonymous-sign-in"');
+    expect(anonymousSignIn).toContain("requestWithAppIntegrity");
     expect(login).toContain("await signInMobileAnonymous()");
     expect(login.indexOf("await signInMobileAnonymous()")).toBeLessThan(
       login.indexOf("await setGuestMode(true)"),
     );
+  });
+
+  test("sends magic links with a native app-integrity proof", async () => {
+    const login = await source("../../../app/(auth)/login.tsx");
+
+    expect(login).toContain('purpose: "magic-link"');
+    expect(login).toContain("buildMagicLinkHeaders(proof)");
+    expect(login).not.toContain("getMobileChallengeToken");
   });
 
   test("routes anonymous owners through the canonical Chat surface", async () => {

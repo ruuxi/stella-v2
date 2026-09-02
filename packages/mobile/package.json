@@ -21,6 +21,7 @@
     "@expo-google-fonts/cormorant-garamond": "^0.4.1",
     "@expo-google-fonts/ibm-plex-mono": "^0.4.1",
     "@expo-google-fonts/manrope": "^0.4.2",
+    "@expo/app-integrity": "57.0.1",
     "@expo/config-plugins": "57.0.9",
     "@expo/ui": "~57.0.15",
     "@expo/vector-icons": "15.1.1",

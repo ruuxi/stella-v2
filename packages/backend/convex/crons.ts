@@ -33,6 +33,12 @@ const recomputeRiskScoresRef = makeFunctionReference<
   unknown
 >("risk:recomputeRiskScoresInternal");
 
+const purgeExpiredAppIntegrityNoncesRef = makeFunctionReference<
+  "mutation",
+  { now?: number; limit?: number },
+  { deleted: number; hasMore: boolean }
+>("app_integrity:purgeExpiredNoncesInternal");
+
 const purgeIdleTunnelsRef = makeFunctionReference<
   "action",
   { now?: number; limit?: number },
@@ -167,6 +173,12 @@ crons.interval(
   { hours: 1 },
   internal.data.integrations.purgeExpiredXOAuthStates,
   { batchSize: 200 },
+);
+crons.interval(
+  "purge expired app integrity nonces",
+  { hours: 1 },
+  purgeExpiredAppIntegrityNoncesRef,
+  {},
 );
 crons.interval(
   "purge expired canvas shares",

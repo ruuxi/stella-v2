@@ -7,12 +7,10 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import {
   anonymous,
   bearer,
-  captcha,
   generateExportedKeyPair,
   magicLink,
   oneTimeToken,
 } from "better-auth/plugins";
-import { AUTH_CAPTCHA_ENDPOINTS } from "@stella/contracts/auth-challenge";
 import { symmetricEncrypt } from "better-auth/crypto";
 import {
   action,
@@ -62,6 +60,13 @@ import {
   getTurnstileSecretKey,
   logTurnstileDisabledOnce,
 } from "./lib/turnstile";
+import {
+  appIntegrityErrorMessage,
+  appIntegrityPurposeForAuthPath,
+  readVerifiedProofPlatform,
+  verifyAuthRequestProof,
+  type IntegrityProofVerifier,
+} from "./lib/app_integrity";
 
 const getRequiredEnv = (name: string) => {
   const value = process.env[name];
@@ -331,6 +336,7 @@ const recordOwnerOriginRef = makeFunctionReference<
       | "edu"
       | "unknown";
     emailDomain?: string;
+    platform?: "ios" | "android" | "web";
     identityLevel: 0 | 1 | 2 | 3;
     now: number;
   },
@@ -557,7 +563,14 @@ export const authUserIdFromVerificationPayload = async (
   return null;
 };
 
-export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
+export type AuthRuntimeDependencies = {
+  verifyIntegrityProof?: IntegrityProofVerifier;
+};
+
+export const createAuthOptions = (
+  ctx: GenericCtx<DataModel>,
+  dependencies: AuthRuntimeDependencies = {},
+) => {
   const siteUrl = getRequiredEnv("SITE_URL");
   const authBaseUrl = getAuthBaseUrl();
   const trustedAppsHostOrigin = getTrustedAppsAuthOrigin(process.env);
@@ -614,11 +627,30 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
     rateLimit: { enabled: false },
     hooks: {
       before: createAuthMiddleware(async (hookCtx) => {
-        await enforceAuthIpRateLimit(
-          requireActionCtx(ctx),
-          hookCtx.request,
-          hookCtx.path,
-        );
+        const actionCtx = requireActionCtx(ctx);
+        await enforceAuthIpRateLimit(actionCtx, hookCtx.request, hookCtx.path);
+        const purpose = appIntegrityPurposeForAuthPath(hookCtx.path);
+        if (!purpose || !hookCtx.request) return;
+        const result = await verifyAuthRequestProof({
+          ctx: actionCtx,
+          request: hookCtx.request,
+          purpose,
+          ...(dependencies.verifyIntegrityProof
+            ? { verifyIntegrityProof: dependencies.verifyIntegrityProof }
+            : {}),
+        });
+        if (!result.ok) {
+          throw new APIError(
+            result.code === "integrity_required" ? "BAD_REQUEST" : "FORBIDDEN",
+            {
+              code: result.code,
+              message: appIntegrityErrorMessage(result.code),
+            },
+          );
+        }
+        return result.platform
+          ? { context: { appIntegrityPlatform: result.platform } }
+          : undefined;
       }),
     },
     // The desktop Google flow starts in the app and completes in the system
@@ -635,6 +667,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
           after: async (user, hookContext) => {
             const actionCtx = requireActionCtx(ctx);
             const ownerId = tokenIdentifierForBetterAuthUserId(user.id);
+            const platform = readVerifiedProofPlatform(hookContext);
             const clientAddress = hookContext?.request
               ? getClientAddressKey(hookContext.request)
               : null;
@@ -655,6 +688,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
               ownerId,
               ...(ipHash ? { ipHash } : {}),
               ...(emailDomain ? { emailDomain } : {}),
+              ...(platform ? { platform } : {}),
               identityLevel: user.isAnonymous ? 0 : social ? 2 : 1,
               now: Date.now(),
             });
@@ -675,6 +709,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
           after: async (session, hookContext) => {
             const actionCtx = requireActionCtx(ctx);
             const ownerId = tokenIdentifierForBetterAuthUserId(session.userId);
+            const platform = readVerifiedProofPlatform(hookContext);
             const identityLevel = await actionCtx.runQuery(
               resolveIdentityLevelRef,
               { ownerId },
@@ -688,6 +723,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
             await actionCtx.runMutation(recordOwnerOriginRef, {
               ownerId,
               ...(ipHash ? { ipHash } : {}),
+              ...(platform ? { platform } : {}),
               identityLevel,
               now: Date.now(),
             });
@@ -724,6 +760,27 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
             return {
               data: { ...verification, ownerId, ownerGeneration },
             };
+          },
+          after: async (verification, hookContext) => {
+            const platform = readVerifiedProofPlatform(hookContext);
+            if (!platform) return;
+            const actionCtx = requireActionCtx(ctx);
+            const authUserId = await authUserIdFromVerificationPayload(
+              actionCtx,
+              verification,
+            );
+            if (!authUserId) return;
+            const ownerId = tokenIdentifierForBetterAuthUserId(authUserId);
+            const identityLevel = await actionCtx.runQuery(
+              resolveIdentityLevelRef,
+              { ownerId },
+            );
+            await actionCtx.runMutation(recordOwnerOriginRef, {
+              ownerId,
+              platform,
+              identityLevel,
+              now: Date.now(),
+            });
           },
         },
       },
@@ -794,15 +851,6 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       apple: createAppleProviderOptions,
     },
     plugins: [
-      ...(turnstileSecretKey
-        ? [
-            captcha({
-              provider: "cloudflare-turnstile",
-              secretKey: turnstileSecretKey,
-              endpoints: [...AUTH_CAPTCHA_ENDPOINTS],
-            }),
-          ]
-        : []),
       // Keep Expo's browser-driving authorization proxy, but not its native
       // redirect hook: that hook puts the full session cookie in `?cookie=`.
       // The one-time-token plugin below carries only a short-lived exchange
@@ -895,8 +943,10 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
   return options;
 };
 
-export const createAuth = (ctx: GenericCtx<DataModel>) =>
-  betterAuth(createAuthOptions(ctx));
+export const createAuth = (
+  ctx: GenericCtx<DataModel>,
+  dependencies: AuthRuntimeDependencies = {},
+) => betterAuth(createAuthOptions(ctx, dependencies));
 
 /**
  * Remove exact user-linked rows from optional Better Auth component tables.

@@ -1,6 +1,9 @@
-import type { HttpRouter } from "convex/server";
+import {
+  makeFunctionReference,
+  type FunctionReference,
+  type HttpRouter,
+} from "convex/server";
 import { ConvexError } from "convex/values";
-import { AUTH_CAPTCHA_HEADER } from "@stella/contracts/auth-challenge";
 import { httpAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
@@ -37,7 +40,11 @@ import {
 import { readJsonBody } from "../http_shared/request";
 import { getClientAddressKey } from "../lib/http_utils";
 import { isDisposableEmail } from "../lib/disposable_email_domains";
-import { isTurnstileEnabled, verifyTurnstileToken } from "../lib/turnstile";
+import {
+  appIntegrityErrorMessage,
+  appIntegrityErrorStatus,
+  verifyAuthRequestProof,
+} from "../lib/app_integrity";
 import { MOBILE_BRIDGE_LEASE_MS } from "../mobile_bridge";
 import {
   verifyPairedMobileProof,
@@ -80,6 +87,27 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  */
 const CLAIM_HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const CLAIM_SECRET_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
+const recordOwnerPlatformRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    platform: "ios" | "android" | "web";
+    identityLevel: 0;
+    now: number;
+  },
+  null
+>("owner_origins:recordOwnerOriginInternal") as unknown as FunctionReference<
+  "mutation",
+  "internal",
+  {
+    ownerId: string;
+    platform: "ios" | "android" | "web";
+    identityLevel: 0;
+    now: number;
+  },
+  null
+>;
 
 type AuthenticatedAccountOwnerResult =
   | {
@@ -1592,18 +1620,21 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         if (isDisposableEmail(email)) {
           return jsonResponse({ error: "email_not_supported" }, 400, origin);
         }
-        const captchaToken =
-          request.headers.get(AUTH_CAPTCHA_HEADER)?.trim() ?? "";
-        if (isTurnstileEnabled() && !captchaToken) {
-          return jsonResponse({ error: "captcha_required" }, 400, origin);
-        }
         const ipKey = getClientAddressKey(request);
-        const captchaResult = await verifyTurnstileToken(
-          captchaToken,
-          ipKey ?? undefined,
-        );
-        if (!captchaResult.ok) {
-          return jsonResponse({ error: "captcha_invalid" }, 403, origin);
+        const proofResult = await verifyAuthRequestProof({
+          ctx,
+          request,
+          purpose: "magic-link",
+        });
+        if (!proofResult.ok) {
+          return jsonResponse(
+            {
+              error: proofResult.code,
+              message: appIntegrityErrorMessage(proofResult.code),
+            },
+            appIntegrityErrorStatus(proofResult.code),
+            origin,
+          );
         }
         const claimHash =
           typeof body?.claimHash === "string" ? body.claimHash.trim() : "";
@@ -1629,6 +1660,14 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         );
         if ("response" in ownerBinding) {
           return ownerBinding.response;
+        }
+        if (proofResult.platform && ownerBinding.fromOwnerId) {
+          await ctx.runMutation(recordOwnerPlatformRef, {
+            ownerId: ownerBinding.fromOwnerId,
+            platform: proofResult.platform,
+            identityLevel: 0,
+            now: Date.now(),
+          });
         }
 
         const rateLimit = await ctx.runMutation(

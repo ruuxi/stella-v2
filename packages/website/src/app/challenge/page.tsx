@@ -13,7 +13,6 @@ const TURNSTILE_SCRIPT_URL =
   "https://challenges.cloudflare.com/turnstile/v0/api.js";
 const TURNSTILE_SCRIPT_ID = "stella-turnstile-script";
 const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ?? "";
-const MOBILE_SCHEME = "stella-mobile";
 const PROTOCOL_PATTERN = /^[a-z][a-z0-9+.-]{2,32}$/;
 
 type TurnstileApi = {
@@ -76,7 +75,7 @@ const loadTurnstile = async (): Promise<TurnstileApi> => {
 };
 
 const readClient = (value: string | null): AuthChallengeClient | null => {
-  if (value === "desktop" || value === "mobile" || value === "web") {
+  if (value === "desktop" || value === "web") {
     return value;
   }
   return null;
@@ -99,15 +98,14 @@ const handTokenBack = (args: {
     return;
   }
 
-  const protocol = args.client === "mobile" ? MOBILE_SCHEME : args.protocol;
-  if (!protocol || !PROTOCOL_PATTERN.test(protocol)) {
+  if (!args.protocol || !PROTOCOL_PATTERN.test(args.protocol)) {
     throw new Error("The desktop callback protocol is invalid.");
   }
   const query = new URLSearchParams({
     [AUTH_CHALLENGE_TOKEN_PARAM]: args.token,
     [AUTH_CHALLENGE_STATE_PARAM]: args.state,
   });
-  window.location.href = `${protocol}://${AUTH_CHALLENGE_DEEP_LINK_HOST}?${query.toString()}`;
+  window.location.href = `${args.protocol}://${AUTH_CHALLENGE_DEEP_LINK_HOST}?${query.toString()}`;
 };
 
 export default function ChallengePage() {

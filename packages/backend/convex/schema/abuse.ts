@@ -4,6 +4,17 @@ import { identityLevelValidator } from "../lib/identity_level";
 
 export const riskWindowValidator = v.union(v.literal("1h"), v.literal("24h"));
 
+const appIntegrityPurposeValidator = v.union(
+  v.literal("anonymous-sign-in"),
+  v.literal("magic-link"),
+);
+
+const appIntegrityPlatformValidator = v.union(
+  v.literal("ios"),
+  v.literal("android"),
+  v.literal("web"),
+);
+
 export const abuseSchema = {
   owner_origins: defineTable({
     ownerId: v.string(),
@@ -11,6 +22,7 @@ export const abuseSchema = {
     ipHash: v.optional(v.string()),
     networkClass: v.optional(v.string()),
     emailDomain: v.optional(v.string()),
+    platform: v.optional(appIntegrityPlatformValidator),
     identityLevel: identityLevelValidator,
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -29,6 +41,24 @@ export const abuseSchema = {
       "createdAt",
     ])
     .index("by_networkClass_createdAt", ["networkClass", "createdAt"]),
+
+  app_integrity_nonces: defineTable({
+    nonce: v.string(),
+    purpose: appIntegrityPurposeValidator,
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    consumedAt: v.optional(v.number()),
+  })
+    .index("by_nonce", ["nonce"])
+    .index("by_expiresAt", ["expiresAt"]),
+
+  app_attest_keys: defineTable({
+    keyId: v.string(),
+    publicKey: v.string(),
+    signCount: v.number(),
+    createdAt: v.number(),
+    lastUsedAt: v.number(),
+  }).index("by_keyId", ["keyId"]),
 
   owner_daily_counters: defineTable({
     ownerId: v.string(),

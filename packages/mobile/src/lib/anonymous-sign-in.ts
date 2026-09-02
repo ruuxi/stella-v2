@@ -1,10 +1,15 @@
 import { authClient } from "./auth-client";
-import { buildAnonymousSignInOptions } from "./auth-captcha-headers";
-import { getMobileChallengeToken } from "./auth-challenge";
+import { buildAnonymousSignInOptions } from "./auth-integrity-headers";
+import {
+  isIntegrityKeyUnknown,
+  requestWithAppIntegrity,
+} from "./app-integrity";
 
-export const signInMobileAnonymous = async () => {
-  const turnstileToken = await getMobileChallengeToken();
-  return await authClient.signIn.anonymous(
-    buildAnonymousSignInOptions(turnstileToken),
-  );
-};
+export const signInMobileAnonymous = async () =>
+  await requestWithAppIntegrity({
+    purpose: "anonymous-sign-in",
+    request: async (proof) =>
+      await authClient.signIn.anonymous(buildAnonymousSignInOptions(proof)),
+    isIntegrityKeyUnknown: (result) =>
+      isIntegrityKeyUnknown(result.error),
+  });

@@ -7,9 +7,9 @@
  * the same token in its JSON body (`turnstileToken`) when Convex has marked
  * the owner `challenged` or the caller's network class requires step-up.
  *
- * Clients obtain a token from the Turnstile widget (website, Electron hidden
- * window, mobile WebView) using the public site key; the secret key lives in
- * Convex env only.
+ * Web and desktop clients obtain a token from the Turnstile widget (website,
+ * Electron hidden window) using the public site key; the secret key lives in
+ * Convex env only. Mobile presents an app-integrity proof instead.
  */
 
 export const AUTH_CAPTCHA_HEADER = "x-captcha-response" as const;
@@ -25,11 +25,12 @@ export const AUTH_CHALLENGE_PAGE_PATH = "/challenge" as const;
 
 /**
  * Query the challenge page accepts: `client` selects how the token is handed
- * back (`desktop` = deep link `${authProtocol}://turnstile?token=…`, `mobile`
- * = `stella-mobile://turnstile?token=…`, `web` = `postMessage` to the
- * opener). `state` is echoed back untouched so the receiver can match it.
+ * back (`desktop` = deep link `${authProtocol}://turnstile?token=…`, `web` =
+ * `postMessage` to the same-origin opener). `state` is echoed back untouched
+ * so the receiver can match it. Mobile never uses this page: native apps
+ * prove integrity with App Attest / Play Integrity (see app-integrity.ts).
  */
-export type AuthChallengeClient = "desktop" | "mobile" | "web";
+export type AuthChallengeClient = "desktop" | "web";
 export const AUTH_CHALLENGE_DEEP_LINK_HOST = "turnstile" as const;
 export const AUTH_CHALLENGE_TOKEN_PARAM = "token" as const;
 export const AUTH_CHALLENGE_STATE_PARAM = "state" as const;

@@ -25,6 +25,7 @@ import { registerCloudDriveRoutes } from "./http_routes/cloud_drive";
 import { registerCloudProjectRoutes } from "./http_routes/cloud_projects";
 import { registerCloudIntegrationRoutes } from "./http_routes/cloud_integrations";
 import { registerAppsSdkRoutes } from "./http_routes/apps_sdk";
+import { registerAppIntegrityRoutes } from "./http_routes/app_integrity";
 import { STELLA_PROMPTS_PATH, stellaPrompts } from "./stella_prompts_http";
 
 import { registerGatewayRoutes } from "./http_routes/gateway";
@@ -67,6 +68,7 @@ registerCloudDriveRoutes(http);
 registerCloudProjectRoutes(http);
 registerCloudIntegrationRoutes(http);
 registerAppsSdkRoutes(http);
+registerAppIntegrityRoutes(http);
 
 registerStripeRoutes(http);
 

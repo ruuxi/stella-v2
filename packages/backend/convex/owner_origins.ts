@@ -4,6 +4,7 @@ import { internalMutation, type MutationCtx } from "./_generated/server";
 import { identityLevelValidator } from "./lib/identity_level";
 
 type IdentityLevel = 0 | 1 | 2 | 3;
+type OwnerOriginPlatform = "ios" | "android" | "web";
 
 const higherIdentityLevel = (
   left: IdentityLevel,
@@ -19,6 +20,12 @@ const networkClassValidator = v.union(
   v.literal("unknown"),
 );
 
+const ownerOriginPlatformValidator = v.union(
+  v.literal("ios"),
+  v.literal("android"),
+  v.literal("web"),
+);
+
 export const recordOwnerOrigin = async (
   ctx: MutationCtx,
   args: {
@@ -27,6 +34,7 @@ export const recordOwnerOrigin = async (
     ipHash?: string;
     networkClass?: NetworkClass;
     emailDomain?: string;
+    platform?: OwnerOriginPlatform;
     identityLevel: IdentityLevel;
     now: number;
   },
@@ -42,6 +50,7 @@ export const recordOwnerOrigin = async (
       ...(args.ipHash ? { ipHash: args.ipHash } : {}),
       ...(args.networkClass ? { networkClass: args.networkClass } : {}),
       ...(args.emailDomain ? { emailDomain: args.emailDomain } : {}),
+      ...(args.platform ? { platform: args.platform } : {}),
       identityLevel: args.identityLevel,
       createdAt: args.now,
       updatedAt: args.now,
@@ -63,6 +72,7 @@ export const recordOwnerOrigin = async (
     ...(!existing.emailDomain && args.emailDomain
       ? { emailDomain: args.emailDomain }
       : {}),
+    ...(!existing.platform && args.platform ? { platform: args.platform } : {}),
     identityLevel: higherIdentityLevel(
       existing.identityLevel,
       args.identityLevel,
@@ -78,6 +88,7 @@ export const recordOwnerOriginInternal = internalMutation({
     ipHash: v.optional(v.string()),
     networkClass: v.optional(networkClassValidator),
     emailDomain: v.optional(v.string()),
+    platform: v.optional(ownerOriginPlatformValidator),
     identityLevel: identityLevelValidator,
     now: v.number(),
   },

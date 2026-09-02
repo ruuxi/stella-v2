@@ -26,6 +26,7 @@
       "supportsTablet": true,
       "usesAppleSignIn": true,
       "entitlements": {
+        "com.apple.developer.devicecheck.appattest-environment": "production",
         "com.apple.security.application-groups": [
           "group.com.stella.mobile"
         ],

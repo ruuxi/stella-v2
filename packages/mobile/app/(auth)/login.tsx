@@ -45,8 +45,11 @@ import {
 import { loadLastMainTabHref } from "../../src/lib/last-main-tab";
 import { useT } from "../../src/i18n";
 import { signInMobileAnonymous } from "../../src/lib/anonymous-sign-in";
-import { getMobileChallengeToken } from "../../src/lib/auth-challenge";
-import { buildMagicLinkHeaders } from "../../src/lib/auth-captcha-headers";
+import { buildMagicLinkHeaders } from "../../src/lib/auth-integrity-headers";
+import {
+  isIntegrityKeyUnknown,
+  requestWithAppIntegrity,
+} from "../../src/lib/app-integrity";
 
 type LegalDoc = "terms" | "privacy" | null;
 
@@ -67,6 +70,30 @@ type SocialSignInResult = {
     message?: string;
     statusText?: string;
   } | null;
+};
+
+type MagicLinkSendResult = {
+  response: Response;
+  body: unknown;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const readMagicLinkSendBody = (value: unknown) => {
+  if (!isRecord(value)) {
+    return { requestId: null, error: null };
+  }
+  return {
+    requestId:
+      typeof value.requestId === "string" && value.requestId.trim()
+        ? value.requestId.trim()
+        : null,
+    error:
+      typeof value.error === "string" && value.error.trim()
+        ? value.error.trim()
+        : null,
+  };
 };
 
 export default function LoginScreen() {
@@ -119,25 +146,34 @@ export default function LoginScreen() {
 
     try {
       // In memory for this attempt only; the server stores just the hash.
-      const turnstileToken = await getMobileChallengeToken();
       const claimSecret = generateClaimSecret();
       claimSecretRef.current = claimSecret;
-      const response = await fetch(`${env.convexSiteUrl}/api/auth/link/send`, {
-        method: "POST",
-        headers: buildMagicLinkHeaders(turnstileToken),
-        body: JSON.stringify({
-          email: trimmed,
-          claimHash: await hashClaimSecret(claimSecret),
-        }),
-      });
-      const data = (await response.json()) as {
-        requestId?: string;
-        error?: string;
-      };
-      if (!response.ok || !data.requestId) {
-        throw new Error(data.error || t("mobile.login.sendFailed"));
+      const claimHash = await hashClaimSecret(claimSecret);
+      const { response, body } =
+        await requestWithAppIntegrity<MagicLinkSendResult>({
+          purpose: "magic-link",
+          request: async (proof) => {
+            const response = await fetch(
+              `${env.convexSiteUrl}/api/auth/link/send`,
+              {
+                method: "POST",
+                headers: buildMagicLinkHeaders(proof),
+                body: JSON.stringify({ email: trimmed, claimHash }),
+              },
+            );
+            return {
+              response,
+              body: await response.json().catch(() => null),
+            };
+          },
+          isIntegrityKeyUnknown: (result) =>
+            isIntegrityKeyUnknown(result.body),
+        });
+      const result = readMagicLinkSendBody(body);
+      if (!response.ok || !result.requestId) {
+        throw new Error(result.error || t("mobile.login.sendFailed"));
       }
-      setSubmitState({ type: "sent", requestId: data.requestId });
+      setSubmitState({ type: "sent", requestId: result.requestId });
     } catch (error) {
       setSubmitState({ type: "error", message: userFacingError(error) });
     }

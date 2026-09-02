@@ -36,6 +36,7 @@
     "better-auth": "1.6.11",
     "convex": "1.45.0",
     "jose": "^6.2.3",
+    "node-app-attest": "^1.0.1",
     "openai": "6.39.0",
     "partial-json": "^0.1.7",
     "parse5": "^8.0.0",

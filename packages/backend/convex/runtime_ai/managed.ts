@@ -52,7 +52,7 @@ export type ManagedModelConfig = {
   /**
    * Explicit wire-protocol override. When omitted, the protocol is inferred
    * from the gateway provider; set it for gateways that serve different
-   * models over different APIs (OpenRouter: Muse Spark 1.2 Contributor on
+   * models over different APIs (OpenRouter: Muse Spark 1.3 Contributor on
    * the Responses API, everything else Chat Completions).
    */
   api?: ManagedProtocol;

@@ -9,11 +9,11 @@ export const STELLA_PROMPTS_PATH = `${STELLA_API_BASE_PATH}/prompts`;
 export const STELLA_DEFAULT_MODEL = "stella/default";
 export const STELLA_STANDARD_MODEL = "stella/standard";
 /**
- * Muse Spark 1.2 Contributor on OpenRouter. Released today, so it is not yet in
+ * Muse Spark 1.3 Contributor on OpenRouter. Released today, so it is not yet in
  * models.dev — the backend carries a static price override until catalogs
  * catch up (see `STATIC_MANAGED_MODEL_PRICE_OVERRIDES`).
  */
-export const STELLA_DEFAULT_UPSTREAM_MODEL = "meta/muse-spark-1.2-contributor";
+export const STELLA_DEFAULT_UPSTREAM_MODEL = "meta/muse-spark-1.3-contributor";
 /**
  * Fallback: V4 Flash 0731 on CrofAI. Fully supported and still selectable;
  * the older DeepSeek and Fireworks spellings
@@ -37,12 +37,12 @@ export const isDeepSeekV4FlashModel = (
   typeof modelId === "string" &&
   modelId.toLowerCase().includes("deepseek-v4-flash");
 
-/** True for the OpenRouter-hosted Muse Spark 1.2 Contributor default. */
-export const isMuseSpark12ContributorModel = (
+/** True for the OpenRouter-hosted Muse Spark 1.3 Contributor default. */
+export const isMuseSpark13ContributorModel = (
   modelId: string | null | undefined,
 ): boolean =>
   typeof modelId === "string" &&
-  modelId.toLowerCase().includes("muse-spark-1.2-contributor");
+  modelId.toLowerCase().includes("muse-spark-1.3-contributor");
 export const STELLA_RELAY_PROVIDERS = [
   "anthropic",
   "openai",

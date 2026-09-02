@@ -178,16 +178,16 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
   string,
   StaticManagedModelPrice
 > = {
-  // OpenRouter's Muse Spark 1.2 Contributor (not yet on models.dev). Rates
+  // OpenRouter's Muse Spark 1.3 Contributor (not yet on models.dev). Rates
   // verified against OpenRouter's live /api/v1/models catalog: the
-  // contributor tier is far cheaper than the first-party muse-spark-1.2
-  // family row below — $0.10 input / $0.20 output / $0.002 cache-read per 1M
+  // contributor tier is far cheaper than the first-party Muse Spark tier:
+  // $0.10 input / $0.20 output / $0.002 cache-read per 1M
   // tokens, reasoning billed at the output rate. OpenRouter also documents
   // full multimodal input (text, image, video, file, audio). models.dev wins
   // once it lists the model.
-  "meta/muse-spark-1.2-contributor": {
+  "meta/muse-spark-1.3-contributor": {
     sourceProvider: "openrouter",
-    sourceModelId: "muse-spark-1.2-contributor",
+    sourceModelId: "muse-spark-1.3-contributor",
     inputPerMillionUsd: 0.1,
     outputPerMillionUsd: 0.2,
     cacheReadPerMillionUsd: 0.002,

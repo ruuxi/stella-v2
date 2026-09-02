@@ -20,17 +20,17 @@ import {
 describe("settings model catalog", () => {
   it("scaffolds only the Muse default while the backend catalog loads", () => {
     expect(STELLA_PRESET_FALLBACK_MODELS.map((model) => model.id)).toEqual([
-      "stella/meta/muse-spark-1.2-contributor",
+      "stella/meta/muse-spark-1.3-contributor",
     ]);
   });
 
   it("replaces the offline fallback instead of listing it beside the fetched model", () => {
     const fetched = normalizeStellaCatalogModels([
       {
-        id: "stella/meta/muse-spark-1.2-contributor",
-        name: "Muse Spark 1.2 Contributor",
+        id: "stella/meta/muse-spark-1.3-contributor",
+        name: "Muse Spark 1.3 Contributor",
         provider: "stella",
-        upstreamModel: "meta/muse-spark-1.2-contributor",
+        upstreamModel: "meta/muse-spark-1.3-contributor",
       },
       {
         id: "stella/crof/deepseek-v4-flash-0731",
@@ -41,7 +41,7 @@ describe("settings model catalog", () => {
     ]);
 
     expect(withStellaPresetFallbacks([]).map((model) => model.id)).toEqual([
-      "stella/meta/muse-spark-1.2-contributor",
+      "stella/meta/muse-spark-1.3-contributor",
     ]);
     const pickerGroups = groupCatalogModelsByProvider(
       mergeCatalogModels(withStellaPresetFallbacks(fetched), []),
@@ -53,11 +53,11 @@ describe("settings model catalog", () => {
     expect(withStellaPresetFallbacks(fetched)).toEqual(fetched);
     expect(stellaRows?.map((model) => model.id)).toEqual([
       "stella/crof/deepseek-v4-flash-0731",
-      "stella/meta/muse-spark-1.2-contributor",
+      "stella/meta/muse-spark-1.3-contributor",
     ]);
     expect(stellaRows?.map(getStellaResolvedModelName)).toEqual([
       "DeepSeek V4 Flash 0731",
-      "Muse Spark 1.2 Contributor",
+      "Muse Spark 1.3 Contributor",
     ]);
   });
 

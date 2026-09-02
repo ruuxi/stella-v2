@@ -25,8 +25,8 @@ const WAFER_FAST_SELECTION = `stella/${WAFER_FAST_MODEL}`;
 const LEGACY_FIREWORKS_MODEL =
   "accounts/fireworks/models/deepseek-v4-flash-0731";
 const LEGACY_FIREWORKS_SELECTION = `stella/${LEGACY_FIREWORKS_MODEL}`;
-/** Default OpenRouter-hosted Muse Spark 1.2 Contributor. */
-const MUSE_MODEL = "meta/muse-spark-1.2-contributor";
+/** Default OpenRouter-hosted Muse Spark 1.3 Contributor. */
+const MUSE_MODEL = "meta/muse-spark-1.3-contributor";
 const MUSE_SELECTION = `stella/${MUSE_MODEL}`;
 const MUSE_ROUTING_MODEL = `openrouter/${MUSE_MODEL}`;
 const SYNTHESIS_MODEL = "moonshotai/kimi-k2.6";
@@ -130,7 +130,7 @@ describe("managed model config", () => {
         },
         {
           id: MUSE_SELECTION,
-          name: "Muse Spark 1.2 Contributor",
+          name: "Muse Spark 1.3 Contributor",
           provider: "stella",
           upstreamModel: MUSE_MODEL,
           type: "language",

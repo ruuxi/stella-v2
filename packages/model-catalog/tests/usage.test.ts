@@ -198,7 +198,7 @@ describe("createRelayUsageParser: openai-compatible", () => {
         type: "response.completed",
         response: {
           id: "resp_1",
-          model: "meta/muse-spark-1.2-contributor",
+          model: "meta/muse-spark-1.3-contributor",
           usage: {
             input_tokens: 11,
             output_tokens: 22,
@@ -211,7 +211,7 @@ describe("createRelayUsageParser: openai-compatible", () => {
     ]);
 
     expect(usage).toEqual({
-      model: "meta/muse-spark-1.2-contributor",
+      model: "meta/muse-spark-1.3-contributor",
       inputTokens: 11,
       outputTokens: 22,
       totalTokens: 33,

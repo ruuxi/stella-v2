@@ -41,12 +41,12 @@ describe("managed gateway", () => {
   });
 
   it("lets an explicit gateway win over prefix inference", () => {
-    // `meta/muse-spark-1.2-contributor` is an OpenRouter-hosted slug.
+    // `meta/muse-spark-1.3-contributor` is an OpenRouter-hosted slug.
     expect(
-      inferManagedGatewayProviderFromModel("meta/muse-spark-1.2-contributor"),
+      inferManagedGatewayProviderFromModel("meta/muse-spark-1.3-contributor"),
     ).toBe("meta");
     const config = resolveManagedGatewayConfig({
-      model: "meta/muse-spark-1.2-contributor",
+      model: "meta/muse-spark-1.3-contributor",
       configuredProvider: "openrouter",
     });
     expect(config.provider).toBe("openrouter");

@@ -1,9 +1,9 @@
-/** Live smoke test: Muse Spark 1.2 Contributor via OpenRouter Responses API. */
+/** Live smoke test: Muse Spark 1.3 Contributor via OpenRouter Responses API. */
 import { streamOpenAIResponses } from "../convex/runtime_ai/openai_responses";
 
 const model = {
-  id: "meta/muse-spark-1.2-contributor",
-  name: "Muse Spark 1.2 Contributor",
+  id: "meta/muse-spark-1.3-contributor",
+  name: "Muse Spark 1.3 Contributor",
   api: "openai-responses" as const,
   provider: "openrouter",
   baseUrl: "https://openrouter.ai/api/v1",

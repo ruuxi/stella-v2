@@ -80,22 +80,22 @@ describe("managed gateway", () => {
   });
 
   it("routes the Muse Spark contributor slug through OpenRouter despite the meta/ prefix", () => {
-    // `meta/muse-spark-1.2-contributor` is an OpenRouter-hosted slug in
+    // `meta/muse-spark-1.3-contributor` is an OpenRouter-hosted slug in
     // vendor/model form. Prefix inference alone would send it to Meta's
     // first-party gateway; the mode config's explicit
     // `managedGatewayProvider: "openrouter"` must win wherever a config is
     // present (mode/task resolution, relay authorization, runtime_ai).
     expect(
-      inferManagedGatewayProviderFromModel("meta/muse-spark-1.2-contributor"),
+      inferManagedGatewayProviderFromModel("meta/muse-spark-1.3-contributor"),
     ).toBe("meta");
     expect(
       resolveManagedGatewayProvider({
-        model: "meta/muse-spark-1.2-contributor",
+        model: "meta/muse-spark-1.3-contributor",
         configuredProvider: "openrouter",
       }),
     ).toBe("openrouter");
     const config = resolveManagedGatewayConfig({
-      model: "meta/muse-spark-1.2-contributor",
+      model: "meta/muse-spark-1.3-contributor",
       configuredProvider: "openrouter",
     });
     expect(config.provider).toBe("openrouter");

@@ -135,7 +135,7 @@ const managedReasoningFloorRank = (args: {
   // thinkingLevelMap; mirror those exact current floors here so the relay does
   // not mistake a required clamp for an escalation.
   if (/(?:^|\/)grok-4\.5(?:[-.]|$)/u.test(model)) return 2;
-  if (/(?:^|\/)muse-spark-1\.2-contributor(?:[-.]|$)/u.test(model)) return 2;
+  if (/(?:^|\/)muse-spark-1\.3-contributor(?:[-.]|$)/u.test(model)) return 2;
   return 0;
 };
 

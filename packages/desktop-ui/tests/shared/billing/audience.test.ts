@@ -22,7 +22,7 @@ describe("billing audience model restrictions", () => {
     expect(isRestrictedAudienceAllowedStellaModelId("stella/light")).toBe(true);
     expect(
       isRestrictedAudienceAllowedStellaModelId(
-        "stella/meta/muse-spark-1.2-contributor",
+        "stella/meta/muse-spark-1.3-contributor",
       ),
     ).toBe(true);
     expect(

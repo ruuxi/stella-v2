@@ -65,7 +65,7 @@ describe("Meta direct provider", () => {
         cacheRead: 0.15,
       },
       {
-        id: "muse-spark-1.2-contributor",
+        id: "muse-spark-1.3-contributor",
         api: "openai-responses",
         baseUrl: "https://api.meta.ai/v1",
         contextWindow: 1_048_576,

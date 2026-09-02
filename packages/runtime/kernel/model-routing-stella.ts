@@ -12,7 +12,7 @@ import {
   STELLA_RELAY_PROVIDERS,
   STELLA_STANDARD_MODEL,
   isDeepSeekV4FlashModel,
-  isMuseSpark12ContributorModel,
+  isMuseSpark13ContributorModel,
   type StellaRelayProvider,
 } from "@stella/contracts/stella-api";
 import { gatewayRelayBaseUrl } from "@stella/contracts/gateway/api";
@@ -224,9 +224,9 @@ const apiForRelay = (
       // Wafer is OpenAI-compatible chat completions only.
       return "openai-completions";
     case "openrouter":
-      // OpenRouter hosts a mix of protocols. Muse Spark 1.2 Contributor uses
+      // OpenRouter hosts a mix of protocols. Muse Spark 1.3 Contributor uses
       // Responses; every other OpenRouter model stays on Chat Completions.
-      return resolvedModelId && isMuseSpark12ContributorModel(resolvedModelId)
+      return resolvedModelId && isMuseSpark13ContributorModel(resolvedModelId)
         ? "openai-responses"
         : "openai-completions";
     case "openai":
@@ -321,7 +321,7 @@ const createRelayModel = (args: {
           },
         }
       : {}),
-    ...(isMuseSpark12ContributorModel(args.resolvedModelId)
+    ...(isMuseSpark13ContributorModel(args.resolvedModelId)
       ? {
           // Muse accepts xhigh on the Responses API and reasoning is
           // mandatory. Without this map the runtime clamps xhigh to high.

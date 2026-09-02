@@ -191,7 +191,7 @@ export const isResponsesRequest = (
     provider !== "deepseek" &&
     provider !== "xai" &&
     provider !== "meta" &&
-    // OpenRouter hosts the Responses API for Muse Spark 1.2 Contributor;
+    // OpenRouter hosts the Responses API for Muse Spark 1.3 Contributor;
     // the request path (not the model) decides, so any OpenRouter client
     // that asks for /responses gets Responses end to end.
     provider !== "openrouter"
@@ -651,7 +651,7 @@ export const bodyForUpstream = (
     normalizeChatCompletionsBody(body, authorized.resolvedModel);
     normalizeCrofBody(body);
   } else if (provider === "openrouter" && !pathIsChatCompletions) {
-    // OpenRouter Responses (Muse Spark 1.2 Contributor): nested `reasoning`
+    // OpenRouter Responses (Muse Spark 1.3 Contributor): nested `reasoning`
     // only, same as Meta/xAI Responses. `normalizeChatReasoning` keeps the
     // model's mandatory reasoning present (mapping none/off to a safe low)
     // and materializes both wire forms; drop the chat-only one.

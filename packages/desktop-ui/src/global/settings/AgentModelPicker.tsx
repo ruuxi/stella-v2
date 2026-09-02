@@ -8,7 +8,7 @@ import { VoiceCatalogPicker } from "@/global/settings/VoiceCatalogPicker";
 import { coerceRealtimeVoiceProvider, type ReadAloudVoiceProvider, type RealtimeVoicePreferences, type RealtimeVoiceUnderlyingProvider, } from "@stella/contracts/local-preferences";
 import {
   isDeepSeekV4FlashModel,
-  isMuseSpark12ContributorModel,
+  isMuseSpark13ContributorModel,
 } from "@stella/contracts/stella-api";
 import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
 import { useClaudeCodeModelCatalog } from "@/global/settings/hooks/use-claude-code-model-catalog";
@@ -901,8 +901,8 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const selectedModelDefaultsToXhigh = committedEngine === "default" &&
         ((isDeepSeekV4FlashModel(selectedStellaModelId) ||
             isDeepSeekV4FlashModel(selectedStellaCatalogModel?.upstreamModel)) ||
-            (isMuseSpark12ContributorModel(selectedStellaModelId) ||
-                isMuseSpark12ContributorModel(selectedStellaCatalogModel?.upstreamModel)));
+            (isMuseSpark13ContributorModel(selectedStellaModelId) ||
+                isMuseSpark13ContributorModel(selectedStellaCatalogModel?.upstreamModel)));
     const effectiveDefaultReasoningEffort = REASONING_EFFORT_OPTIONS.some((option) => option.id === reportedDefaultReasoningEffort)
         ? reportedDefaultReasoningEffort
         : selectedModelDefaultsToXhigh

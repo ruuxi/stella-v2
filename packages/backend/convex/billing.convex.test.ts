@@ -635,12 +635,12 @@ describe("managed model billing", () => {
       ctx.db
         .query("billing_model_prices")
         .withIndex("by_model", (q) =>
-          q.eq("model", "meta/muse-spark-1.2-contributor"),
+          q.eq("model", "meta/muse-spark-1.3-contributor"),
         )
         .unique(),
     );
     expect(museRow).toMatchObject({
-      model: "meta/muse-spark-1.2-contributor",
+      model: "meta/muse-spark-1.3-contributor",
       source: "static",
       sourceProvider: "openrouter",
       inputPerMillionUsd: 0.1,

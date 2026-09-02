@@ -81,8 +81,8 @@ const MODELS_DEV_PREFERRED_ALIASES: Record<string, string[]> = {
   // models.dev row (once published) will live under the openrouter provider
   // namespace keyed by the full vendor/model slug — not Meta's first-party
   // namespace. Prefer it so billing matches what Stella actually pays.
-  "meta/muse-spark-1.2-contributor": [
-    "openrouter/meta/muse-spark-1.2-contributor",
+  "meta/muse-spark-1.3-contributor": [
+    "openrouter/meta/muse-spark-1.3-contributor",
   ],
 };
 

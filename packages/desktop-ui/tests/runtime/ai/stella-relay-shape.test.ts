@@ -317,7 +317,7 @@ describe("Stella gateway route shape", () => {
     expect(model.provider).toBe("openrouter");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("meta/muse-spark-1.2-contributor");
+    ).toBe("meta/muse-spark-1.3-contributor");
     expect(model.baseUrl).toBe(RELAY);
   });
 
@@ -328,18 +328,18 @@ describe("Stella gateway route shape", () => {
     expect(model.provider).toBe("openrouter");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("meta/muse-spark-1.2-contributor");
+    ).toBe("meta/muse-spark-1.3-contributor");
     expect(model.baseUrl).toBe(RELAY);
   });
 
-  it("Stella default resolves to Muse Spark 1.2 Contributor on OpenRouter", () => {
+  it("Stella default resolves to Muse Spark 1.3 Contributor on OpenRouter", () => {
     const route = makeRoute("stella/default");
     const model = route!.model;
     expect(model.provider).toBe("openrouter");
     expect(model.api).toBe("openai-responses");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("meta/muse-spark-1.2-contributor");
+    ).toBe("meta/muse-spark-1.3-contributor");
     expect(model.baseUrl).toBe(RELAY);
   });
 
@@ -398,7 +398,7 @@ describe("Stella gateway route shape", () => {
     expect(model.provider).toBe("openrouter");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("meta/muse-spark-1.2-contributor");
+    ).toBe("meta/muse-spark-1.3-contributor");
     expect(model.baseUrl).toBe(RELAY);
   });
 
@@ -518,7 +518,7 @@ describe("Stella Muse Responses transport", () => {
         object: "response",
         created_at: 1,
         status: "completed",
-        model: "meta/muse-spark-1.2-contributor",
+        model: "meta/muse-spark-1.3-contributor",
         error: null,
         incomplete_details: null,
         output: [

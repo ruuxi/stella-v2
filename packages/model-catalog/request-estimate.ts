@@ -198,7 +198,7 @@ export function estimateRequestTokens(
  * modalities in `STATIC_MANAGED_MODEL_PRICE_OVERRIDES`.
  */
 const TEXT_ONLY_MANAGED_MODEL_EXACT_IDS = [
-  "meta/muse-spark-1.2-contributor",
+  "meta/muse-spark-1.3-contributor",
 ] as const;
 
 /** Whether a resolved managed model accepts image input parts. */

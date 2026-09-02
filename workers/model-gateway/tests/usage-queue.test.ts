@@ -21,7 +21,7 @@ const event = (requestId: string): GatewayUsageEvent => ({
   provider: "openrouter",
   protocol: "openai-responses",
   requestedModel: "stella/default",
-  resolvedModel: "meta/muse-spark-1.2-contributor",
+  resolvedModel: "meta/muse-spark-1.3-contributor",
   usage: { inputTokens: 1, outputTokens: 2, reported: true },
   chargedMicroCents: 3,
   outcome: "succeeded",

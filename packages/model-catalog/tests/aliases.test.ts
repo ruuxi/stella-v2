@@ -18,7 +18,7 @@ import {
   isPaidManagedAudience,
   isStellaModelAllowedForAudience,
   MANAGED_MODEL_AUDIENCES,
-  MUSE_SPARK_1_2_CONTRIBUTOR_MODEL,
+  MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
   resolveManagedModelRouteAlias,
 } from "@stella/model-catalog/model";
 
@@ -27,8 +27,8 @@ const WAFER_FAST_SELECTION = `stella/${DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL}`;
 /** Pre-DeepSeek-direct spellings; still accepted, always coerced to Crof. */
 const LEGACY_FIREWORKS_SELECTION = `stella/${DEEPSEEK_V4_FLASH_FIREWORKS_MODEL}`;
 const LEGACY_DIRECT_SELECTION = `stella/${DEEPSEEK_V4_FLASH_DIRECT_MODEL}`;
-const MUSE_SELECTION = `stella/${MUSE_SPARK_1_2_CONTRIBUTOR_MODEL}`;
-const MUSE_ROUTING_MODEL = `openrouter/${MUSE_SPARK_1_2_CONTRIBUTOR_MODEL}`;
+const MUSE_SELECTION = `stella/${MUSE_SPARK_1_3_CONTRIBUTOR_MODEL}`;
+const MUSE_ROUTING_MODEL = `openrouter/${MUSE_SPARK_1_3_CONTRIBUTOR_MODEL}`;
 
 const RETIRED_SELECTIONS = [
   "stella/standard",
@@ -81,7 +81,7 @@ describe("parseStellaModelSelection", () => {
 describe("resolveStellaModelSelection", () => {
   it("resolves the Light alias to the current default", () => {
     expect(resolveStellaModelSelection("stella/light", "pro")).toBe(
-      MUSE_SPARK_1_2_CONTRIBUTOR_MODEL,
+      MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
     );
   });
 
@@ -145,7 +145,7 @@ describe("resolveStellaModelConfigForSelection", () => {
     ).toMatchObject({
       applied: true,
       config: {
-        model: MUSE_SPARK_1_2_CONTRIBUTOR_MODEL,
+        model: MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
         managedGatewayProvider: "openrouter",
         api: "openai-responses",
       },
@@ -192,7 +192,7 @@ describe("resolveStellaModelConfigForSelection", () => {
     ).toMatchObject({
       applied: false,
       config: {
-        model: MUSE_SPARK_1_2_CONTRIBUTOR_MODEL,
+        model: MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
         fallback: DEEPSEEK_V4_FLASH_CROF_MODEL,
       },
     });
@@ -206,7 +206,7 @@ describe("resolveStellaModelConfigForSelection", () => {
     ).toMatchObject({
       applied: false,
       config: {
-        model: MUSE_SPARK_1_2_CONTRIBUTOR_MODEL,
+        model: MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
         fallback: DEEPSEEK_V4_FLASH_CROF_MODEL,
       },
     });
@@ -215,7 +215,7 @@ describe("resolveStellaModelConfigForSelection", () => {
       resolveStellaModelConfigForSelection(FLASH_SELECTION, "general", "free"),
     ).toMatchObject({
       applied: false,
-      config: { model: MUSE_SPARK_1_2_CONTRIBUTOR_MODEL },
+      config: { model: MUSE_SPARK_1_3_CONTRIBUTOR_MODEL },
     });
   });
 });
@@ -289,9 +289,9 @@ describe("audience allowlist", () => {
         },
         {
           id: MUSE_SELECTION,
-          name: "Muse Spark 1.2 Contributor",
+          name: "Muse Spark 1.3 Contributor",
           provider: "stella",
-          upstreamModel: MUSE_SPARK_1_2_CONTRIBUTOR_MODEL,
+          upstreamModel: MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
           type: "language",
           allowedForAudience: audience === "pro",
         },

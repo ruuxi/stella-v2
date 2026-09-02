@@ -223,9 +223,9 @@ export const jwks: GatewayJwks = {
   ],
 };
 
-export const MUSE_ALIAS = "stella/meta/muse-spark-1.2-contributor";
+export const MUSE_ALIAS = "stella/meta/muse-spark-1.3-contributor";
 export const CROF_ALIAS = "stella/crof/deepseek-v4-flash-0731";
-export const MUSE_RESOLVED = "meta/muse-spark-1.2-contributor";
+export const MUSE_RESOLVED = "meta/muse-spark-1.3-contributor";
 export const CROF_RESOLVED = "crof/deepseek-v4-flash-0731";
 
 const baseSessionClaims = (): UnsignedCapabilityClaims => ({

@@ -52,7 +52,7 @@ export const isRestrictedModelOverrideAudience = (
  */
 const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS = new Set<string>([
   "stella/light",
-  "stella/meta/muse-spark-1.2-contributor",
+  "stella/meta/muse-spark-1.3-contributor",
   "stella/crof/deepseek-v4-flash-0731",
   "stella/wafer/deepseek-v4-flash-0731-fast",
   "stella/deepseek/deepseek-v4-flash",

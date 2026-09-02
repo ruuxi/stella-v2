@@ -145,7 +145,7 @@ describe("money helpers", () => {
 describe("static price overrides", () => {
   it("carries the Muse contributor and Crof V4 Flash rates", () => {
     expect(
-      STATIC_MANAGED_MODEL_PRICE_OVERRIDES["meta/muse-spark-1.2-contributor"],
+      STATIC_MANAGED_MODEL_PRICE_OVERRIDES["meta/muse-spark-1.3-contributor"],
     ).toMatchObject({
       sourceProvider: "openrouter",
       inputPerMillionUsd: 0.1,

@@ -30,7 +30,7 @@ const resolution = (
   overrides: Partial<GatewayModelResolution> = {},
 ): GatewayModelResolution => ({
   requestedModel: "stella/default",
-  resolvedModel: "meta/muse-spark-1.2-contributor",
+  resolvedModel: "meta/muse-spark-1.3-contributor",
   provider: "openrouter",
   protocol: "openai-responses",
   reasoning: true,
@@ -95,7 +95,7 @@ describe("cloud relay model selection", () => {
     expect(model.fetch).toBe(gateway.fetch);
     expect(
       (model as Model<Api> & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("meta/muse-spark-1.2-contributor");
+    ).toBe("meta/muse-spark-1.3-contributor");
     expect(model.thinkingLevelMap).toMatchObject({ xhigh: "xhigh" });
   });
 

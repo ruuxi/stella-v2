@@ -4385,9 +4385,9 @@ export const MODELS = {
 			contextWindow: 1048576,
 			maxTokens: 128000,
 		} satisfies Model<"openai-responses">,
-		"muse-spark-1.2-contributor": {
-			id: "muse-spark-1.2-contributor",
-			name: "Muse Spark 1.2 Contributor",
+		"muse-spark-1.3-contributor": {
+			id: "muse-spark-1.3-contributor",
+			name: "Muse Spark 1.3 Contributor",
 			api: "openai-responses",
 			provider: "meta",
 			baseUrl: "https://api.meta.ai/v1",

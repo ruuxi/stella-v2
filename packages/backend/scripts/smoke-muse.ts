@@ -1,12 +1,12 @@
 /**
- * Live smoke test: hit OpenRouter's meta/muse-spark-1.2-contributor through
+ * Live smoke test: hit OpenRouter's meta/muse-spark-1.3-contributor through
  * the real runtime parser (streamOpenAICompletions). Needs OPENROUTER_API_KEY.
  */
 import { streamOpenAICompletions } from "../convex/runtime_ai/openai_completions";
 
 const model = {
-  id: "meta/muse-spark-1.2-contributor",
-  name: "Muse Spark 1.2 Contributor",
+  id: "meta/muse-spark-1.3-contributor",
+  name: "Muse Spark 1.3 Contributor",
   api: "openai-completions" as const,
   provider: "openrouter",
   baseUrl: "https://openrouter.ai/api/v1",

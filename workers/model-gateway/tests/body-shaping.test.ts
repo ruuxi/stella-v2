@@ -125,7 +125,7 @@ describe("managed output caps", () => {
   test("the upstream body receives the audience cap when callers omit it", () => {
     const { json } = shape(
       "openrouter",
-      "meta/muse-spark-1.2-contributor",
+      "meta/muse-spark-1.3-contributor",
       "openai-responses",
       "/v1/relay/responses",
       { input: "hello" },
@@ -265,11 +265,11 @@ describe("body shaping parity: openrouter", () => {
   test("Responses path: chat-shaped input is normalized, reasoning stays nested, no store flag", () => {
     const { url, headers, json } = shape(
       "openrouter",
-      "meta/muse-spark-1.2-contributor",
+      "meta/muse-spark-1.3-contributor",
       "openai-responses",
       "/v1/relay/responses",
       {
-        model: "stella/meta/muse-spark-1.2-contributor",
+        model: "stella/meta/muse-spark-1.3-contributor",
         messages: [
           { role: "developer", content: "Follow the policy." },
           {
@@ -291,7 +291,7 @@ describe("body shaping parity: openrouter", () => {
     expect(url).toBe("https://openrouter.ai/api/v1/responses");
     expect(headers.get("HTTP-Referer")).toBe("https://stella.sh");
     expect(headers.get("X-OpenRouter-Title")).toBe("Stella");
-    expect(json.model).toBe("meta/muse-spark-1.2-contributor");
+    expect(json.model).toBe("meta/muse-spark-1.3-contributor");
     expect(json.messages).toBeUndefined();
     expect(json.input).toEqual([
       { role: "developer", content: "Follow the policy." },

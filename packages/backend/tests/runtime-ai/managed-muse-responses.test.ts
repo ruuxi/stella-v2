@@ -13,7 +13,7 @@ import type { Context } from "../../convex/runtime_ai/types";
  * reasoning usage.
  */
 
-const MUSE_MODEL = "meta/muse-spark-1.2-contributor";
+const MUSE_MODEL = "meta/muse-spark-1.3-contributor";
 
 const context = (text: string): Context => ({
   messages: [
@@ -66,7 +66,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-describe("managed Muse Spark 1.2 Contributor transport", () => {
+describe("managed Muse Spark 1.3 Contributor transport", () => {
   it("all modes pin Responses on the OpenRouter gateway", () => {
     for (const mode of [
       "standard",

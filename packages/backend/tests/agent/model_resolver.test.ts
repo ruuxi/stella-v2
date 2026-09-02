@@ -25,7 +25,7 @@ describe("resolveModelConfig single-model enforcement", () => {
         undefined,
         { audience },
       );
-      expect(resolved.model).toBe("meta/muse-spark-1.2-contributor");
+      expect(resolved.model).toBe("meta/muse-spark-1.3-contributor");
       expect(resolved.managedGatewayProvider).toBe("openrouter");
       expect(resolved.api).toBe("openai-responses");
 
@@ -52,7 +52,7 @@ describe("resolveModelConfig single-model enforcement", () => {
         audience: "pro",
       },
     );
-    expect(resolved.model).toBe("meta/muse-spark-1.2-contributor");
+    expect(resolved.model).toBe("meta/muse-spark-1.3-contributor");
     expect(resolved.managedGatewayProvider).toBe("openrouter");
   });
 
@@ -66,7 +66,7 @@ describe("resolveModelConfig single-model enforcement", () => {
         audience: "pro",
       },
     );
-    expect(resolved.model).toBe("meta/muse-spark-1.2-contributor");
+    expect(resolved.model).toBe("meta/muse-spark-1.3-contributor");
     expect(resolved.managedGatewayProvider).toBe("openrouter");
   });
 
@@ -82,7 +82,7 @@ describe("resolveModelConfig single-model enforcement", () => {
         audience: "free",
       },
     );
-    expect(resolved.model).toBe("meta/muse-spark-1.2-contributor");
+    expect(resolved.model).toBe("meta/muse-spark-1.3-contributor");
     expect(resolved.managedGatewayProvider).toBe("openrouter");
   });
 });

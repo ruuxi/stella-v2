@@ -184,12 +184,12 @@ const DEEPSEEK_V4_FLASH_CONFIGS = {
 const DEEPSEEK_V4_FLASH_MODEL_CONFIG: ModeConfig =
   DEEPSEEK_V4_FLASH_CONFIGS[DEEPSEEK_V4_FLASH_ROUTE];
 
-/** OpenRouter-hosted Muse Spark 1.2 Contributor. The current default. */
-export const MUSE_SPARK_1_2_CONTRIBUTOR_MODEL =
-  "meta/muse-spark-1.2-contributor";
+/** OpenRouter-hosted Muse Spark 1.3 Contributor. The current default. */
+export const MUSE_SPARK_1_3_CONTRIBUTOR_MODEL =
+  "meta/muse-spark-1.3-contributor";
 
 /**
- * Muse Spark 1.2 Contributor launched today on OpenRouter. Sampling defaults are
+ * Muse Spark 1.3 Contributor launched today on OpenRouter. Sampling defaults are
  * unannounced, so we carry over the previous default's temperature and keep
  * Stella's top reasoning rung until the model card documents otherwise.
  *
@@ -200,8 +200,8 @@ export const MUSE_SPARK_1_2_CONTRIBUTOR_MODEL =
  * `resolveManagedGatewayProvider`; `MANAGED_MODEL_GATEWAY_OVERRIDES` below
  * covers the raw-pin path that has no mode config behind it.
  */
-const MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG: ModeConfig = {
-  model: MUSE_SPARK_1_2_CONTRIBUTOR_MODEL,
+const MUSE_SPARK_1_3_CONTRIBUTOR_CONFIG: ModeConfig = {
+  model: MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
   managedGatewayProvider: "openrouter",
   // OpenRouter serves this model through its Responses API. Reasoning is
   // mandatory. Every other OpenRouter-hosted model keeps Chat Completions.
@@ -227,7 +227,7 @@ const MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG: ModeConfig = {
 export const MANAGED_MODEL_GATEWAY_OVERRIDES: Readonly<
   Record<string, ManagedGatewayProvider>
 > = {
-  [MUSE_SPARK_1_2_CONTRIBUTOR_MODEL]: "openrouter",
+  [MUSE_SPARK_1_3_CONTRIBUTOR_MODEL]: "openrouter",
 };
 
 /**
@@ -240,7 +240,7 @@ export const MANAGED_MODEL_GATEWAY_OVERRIDES: Readonly<
 export const MANAGED_MODEL_API_OVERRIDES: Readonly<
   Record<string, ManagedProtocol>
 > = {
-  [MUSE_SPARK_1_2_CONTRIBUTOR_MODEL]: "openai-responses",
+  [MUSE_SPARK_1_3_CONTRIBUTOR_MODEL]: "openai-responses",
 };
 
 const KIMI_K2_6_SYNTHESIS_CONFIG: ModelConfig = {
@@ -293,13 +293,13 @@ type TaskModelSelection = ModelMode | InternalModelConfigKey;
 // Legacy mode names remain parseable so old clients fail over cleanly. All
 // modes use Muse as the primary and DeepSeek V4 Flash as the runtime fallback.
 const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
-  standard: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
-  priority: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
-  light: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
-  builder: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
-  designer: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
-  vision: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
-  max: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
+  standard: MUSE_SPARK_1_3_CONTRIBUTOR_CONFIG,
+  priority: MUSE_SPARK_1_3_CONTRIBUTOR_CONFIG,
+  light: MUSE_SPARK_1_3_CONTRIBUTOR_CONFIG,
+  builder: MUSE_SPARK_1_3_CONTRIBUTOR_CONFIG,
+  designer: MUSE_SPARK_1_3_CONTRIBUTOR_CONFIG,
+  vision: MUSE_SPARK_1_3_CONTRIBUTOR_CONFIG,
+  max: MUSE_SPARK_1_3_CONTRIBUTOR_CONFIG,
 };
 
 const AUDIENCE_MODE_OVERRIDES: Record<
@@ -320,7 +320,7 @@ const AUDIENCE_MODE_OVERRIDES: Record<
 //
 // The primary Stella agent now works directly for the user, with optional
 // General agents for delegated background work. Both default to Light
-// (Muse Spark 1.2 Contributor) for every audience.
+// (Muse Spark 1.3 Contributor) for every audience.
 const DEFAULT_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
   [AGENT_IDS.ORCHESTRATOR]: "light",
   [AGENT_IDS.GENERAL]: "light",
@@ -381,7 +381,7 @@ const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
  */
 const PRO_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> = new Set<string>([
   "stella/light",
-  `stella/${MUSE_SPARK_1_2_CONTRIBUTOR_MODEL}`,
+  `stella/${MUSE_SPARK_1_3_CONTRIBUTOR_MODEL}`,
   `stella/${DEEPSEEK_V4_FLASH_CROF_MODEL}`,
   `stella/${DEEPSEEK_V4_FLASH_FIREWORKS_MODEL}`,
   `stella/${DEEPSEEK_V4_FLASH_DIRECT_MODEL}`,

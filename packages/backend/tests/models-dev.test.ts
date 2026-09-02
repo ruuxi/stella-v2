@@ -101,22 +101,22 @@ describe("managed model price entries", () => {
     });
   });
 
-  it("fills in Muse Spark 1.2 Contributor statically until catalogs list it", () => {
+  it("fills in Muse Spark 1.3 Contributor statically until catalogs list it", () => {
     // Released today: absent from models.dev entirely.
     const {
       entries: [entry],
       missingModels,
     } = buildManagedModelPriceEntries({
-      modelIds: ["meta/muse-spark-1.2-contributor"],
+      modelIds: ["meta/muse-spark-1.3-contributor"],
       data: {},
       syncedAt: 123,
     });
     expect(missingModels).toEqual([]);
     expect(entry).toMatchObject({
-      model: "meta/muse-spark-1.2-contributor",
+      model: "meta/muse-spark-1.3-contributor",
       source: "static",
       sourceProvider: "openrouter",
-      sourceModelId: "muse-spark-1.2-contributor",
+      sourceModelId: "muse-spark-1.3-contributor",
       inputPerMillionUsd: 0.1,
       outputPerMillionUsd: 0.2,
       cacheReadPerMillionUsd: 0.002,
@@ -126,15 +126,15 @@ describe("managed model price entries", () => {
     });
   });
 
-  it("prefers models.dev pricing for Muse Spark 1.2 Contributor once listed", () => {
-    const model = "meta/muse-spark-1.2-contributor";
+  it("prefers models.dev pricing for Muse Spark 1.3 Contributor once listed", () => {
+    const model = "meta/muse-spark-1.3-contributor";
     const { entries, missingModels } = buildManagedModelPriceEntries({
       data: {
         openrouter: {
           models: {
             // models.dev keys OpenRouter rows by the full vendor/model slug.
-            "meta/muse-spark-1.2-contributor": {
-              id: "meta/muse-spark-1.2-contributor",
+            "meta/muse-spark-1.3-contributor": {
+              id: "meta/muse-spark-1.3-contributor",
               cost: { input: 2, output: 8, cache_read: 0.2 },
               modalities: { input: ["text", "image"], output: ["text"] },
               last_updated: "2026-08-10",
@@ -150,7 +150,7 @@ describe("managed model price entries", () => {
       model,
       source: "models.dev",
       sourceProvider: "openrouter",
-      sourceModelId: "meta/muse-spark-1.2-contributor",
+      sourceModelId: "meta/muse-spark-1.3-contributor",
       inputPerMillionUsd: 2,
       outputPerMillionUsd: 8,
       cacheReadPerMillionUsd: 0.2,

@@ -52,7 +52,7 @@ export type StellaDefaultEntry = {
 };
 
 const DISPLAY_NAMES: Record<string, string> = {
-  "meta/muse-spark-1.2-contributor": "Muse Spark 1.2 Contributor",
+  "meta/muse-spark-1.3-contributor": "Muse Spark 1.3 Contributor",
   "crof/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
   "wafer/deepseek-v4-flash-0731-fast": "DeepSeek V4 Flash 0731 Fast",
   "accounts/fireworks/models/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
@@ -214,7 +214,7 @@ export const resolveStellaModelConfigForSelection = (
       config: {
         ...getModelConfig(agentType, audience),
         model,
-        // Prefix inference alone would send `meta/muse-spark-1.2-contributor`
+        // Prefix inference alone would send `meta/muse-spark-1.3-contributor`
         // to the Meta first-party gateway; it is an OpenRouter-hosted slug
         // (see MANAGED_MODEL_GATEWAY_OVERRIDES in agent/model.ts).
         managedGatewayProvider:

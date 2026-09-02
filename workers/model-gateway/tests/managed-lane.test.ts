@@ -57,7 +57,7 @@ const responsesFixture = () =>
           id: "resp_1",
           object: "response",
           status: "completed",
-          model: "meta/muse-spark-1.2-contributor",
+          model: "meta/muse-spark-1.3-contributor",
           output: [
             {
               type: "message",

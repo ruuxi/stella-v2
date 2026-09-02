@@ -4,7 +4,7 @@ import type {
 } from "@stella/contracts/agent-engine";
 import {
   isDeepSeekV4FlashModel,
-  isMuseSpark12ContributorModel,
+  isMuseSpark13ContributorModel,
 } from "@stella/contracts/stella-api";
 import { loadModelRegistry } from "@stella/contracts/model-registry";
 import {
@@ -333,7 +333,7 @@ export const createResolvedManagedRelayModel = (args: {
             },
           }
         : {}),
-      ...(isMuseSpark12ContributorModel(resolution.resolvedModel)
+      ...(isMuseSpark13ContributorModel(resolution.resolvedModel)
         ? {
             thinkingLevelMap: {
               ...registryModel?.thinkingLevelMap,

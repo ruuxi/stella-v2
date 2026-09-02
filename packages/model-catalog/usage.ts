@@ -308,7 +308,7 @@ export function createRelayUsageParser(
 
   if (provider === "openrouter") {
     // OpenRouter serves both APIs: chat completions for most models and the
-    // Responses API for Muse Spark 1.2 Contributor (the Stella default).
+    // Responses API for Muse Spark 1.3 Contributor (the Stella default).
     // Streaming Responses events nest usage under `response` with
     // input_tokens/output_tokens (+ reasoning in output_tokens_details);
     // chat completions use prompt_tokens/completion_tokens at the top

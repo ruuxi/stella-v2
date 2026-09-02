@@ -61,6 +61,8 @@ const FALLBACK_MESSAGES: Record<CloudTurnStartErrorCode, string> = {
   generation_stale: "This request started before the account data was reset.",
   execution_unavailable:
     "That model isn't available for cloud turns right now. Choose another and try again.",
+  sign_in_required: "Sign in to Stella to use cloud agents.",
+  owner_suspended: "This account can't use Stella's cloud right now.",
   internal: "That didn't send. Try again.",
 };
 
@@ -113,7 +115,11 @@ export class CloudTurnStartClientError extends Error {
   }
 
   get isAuth(): boolean {
-    return this.code === "unauthorized" || this.code === "forbidden";
+    return (
+      this.code === "unauthorized" ||
+      this.code === "forbidden" ||
+      this.code === "sign_in_required"
+    );
   }
 
   get isConflict(): boolean {

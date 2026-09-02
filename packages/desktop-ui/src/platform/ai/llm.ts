@@ -74,7 +74,8 @@ export interface StellaLlmTextOptions {
 let gatewayOriginPromise: Promise<string> | null = null;
 
 const normalizeGatewayOrigin = (value: unknown): string => {
-  const trimmed = typeof value === "string" ? value.trim().replace(/\/+$/, "") : "";
+  const trimmed =
+    typeof value === "string" ? value.trim().replace(/\/+$/, "") : "";
   if (!trimmed) {
     throw new Error(
       "Stella model gateway is not configured (MODEL_GATEWAY_URL on the backend).",
@@ -104,18 +105,40 @@ const resolveGatewayOrigin = (): Promise<string> => {
 // Request plumbing
 // ---------------------------------------------------------------------------
 
-const readGatewayErrorDetail = async (response: Response): Promise<string> => {
+type GatewayErrorDetail = {
+  code: string;
+  message: string;
+  retryable: boolean;
+};
+
+const readGatewayErrorDetail = async (
+  response: Response,
+): Promise<GatewayErrorDetail> => {
   try {
     const body = (await response.json()) as Partial<GatewayErrorBody>;
     const error = body?.error;
-    if (!error) return "";
-    const code = typeof error.code === "string" ? error.code : "";
-    const message = typeof error.message === "string" ? error.message : "";
-    return [code, message].filter(Boolean).join(": ");
+    return {
+      code: typeof error?.code === "string" ? error.code : "",
+      message: typeof error?.message === "string" ? error.message : "",
+      retryable: error?.retryable === true,
+    };
   } catch {
-    return "";
+    return { code: "", message: "", retryable: false };
   }
 };
+
+const shouldRefreshSessionCapability = (
+  status: number,
+  detail: GatewayErrorDetail,
+): boolean =>
+  (status === 401 &&
+    detail.code !== "sign_in_required" &&
+    detail.code !== "owner_suspended" &&
+    detail.code !== "tier_paused" &&
+    detail.code !== "concurrency_limit" &&
+    detail.code !== "rate_limited") ||
+  (status === 402 && detail.code === "budget_exhausted") ||
+  (status === 429 && detail.code === "request_limit");
 
 const postGatewayChatCompletion = async <TResponse>(args: {
   agentType: string;
@@ -144,17 +167,30 @@ const postGatewayChatCompletion = async <TResponse>(args: {
     });
 
   let response = await send(await getGatewaySessionCapability(gatewayOrigin));
-  if (response.status === 401 || response.status === 402) {
-    // The capability is no longer good (expired, revoked by a data-generation
-    // bump, or its budget is spent): exchange a fresh one and retry once.
+  let detail = response.ok
+    ? { code: "", message: "", retryable: false }
+    : await readGatewayErrorDetail(response.clone());
+  if (shouldRefreshSessionCapability(response.status, detail)) {
+    // An expired/revoked capability or a spent session ledger gets one fresh
+    // capability and one replay of the same request id.
     response = await send(
       await getGatewaySessionCapability(gatewayOrigin, { forceRefresh: true }),
     );
+    detail = response.ok
+      ? { code: "", message: "", retryable: false }
+      : await readGatewayErrorDetail(response.clone());
   }
   if (!response.ok) {
-    const detail = await readGatewayErrorDetail(response);
+    const readableMessage =
+      detail.message ||
+      (detail.code === "sign_in_required"
+        ? "Sign in to Stella to use Stella models."
+        : "");
+    const errorDetail = [detail.code, readableMessage]
+      .filter(Boolean)
+      .join(": ");
     throw new Error(
-      `${args.errorPrefix} failed with HTTP ${response.status}${detail ? ` (${detail})` : ""}`,
+      `${args.errorPrefix} failed with HTTP ${response.status}${errorDetail ? ` (${errorDetail})` : ""}`,
     );
   }
   return (await response.json()) as TResponse;
@@ -181,7 +217,9 @@ const messagesForRequest = (options: StellaLlmRequest): ChatMessage[] =>
       ? options.messages
       : [];
 
-const bodyForStellaLlm = (options: StellaLlmRequest): Record<string, unknown> => ({
+const bodyForStellaLlm = (
+  options: StellaLlmRequest,
+): Record<string, unknown> => ({
   ...options.body,
   model: options.model ?? STELLA_DEFAULT_MODEL,
   messages: messagesForRequest(options),

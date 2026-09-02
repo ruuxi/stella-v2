@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import type { GatewayProtocol } from "@stella/contracts/gateway/api";
 import type { ManagedGatewayProvider } from "@stella/model-catalog/managed-gateway";
 import { toProviderNativeModel } from "@stella/model-catalog/request-shaping";
-import { shapeUpstreamRequest } from "../src/managed-lane.js";
+import {
+  clampOutputTokens,
+  shapeUpstreamRequest,
+} from "../src/managed-lane.js";
 import type { ManagedRoute } from "../src/resolve.js";
 
 /**
@@ -50,7 +53,11 @@ const shape = (
   protocol: GatewayProtocol,
   path: string,
   requestJson: Record<string, unknown>,
-  options: { serviceTier?: string; headers?: Record<string, string> } = {},
+  options: {
+    serviceTier?: string;
+    headers?: Record<string, string>;
+    audience?: "anonymous" | "free" | "go" | "pro";
+  } = {},
 ) => {
   const shaped = shapeUpstreamRequest({
     request: request(path, options.headers),
@@ -58,12 +65,75 @@ const shape = (
     route: route(provider, resolvedModel, protocol, options.serviceTier),
     requestJson,
     apiKey: "upstream-key",
+    audience: options.audience ?? "pro",
   });
   return {
     ...shaped,
     json: JSON.parse(shaped.body) as Record<string, unknown>,
   };
 };
+
+describe("managed output caps", () => {
+  test("clamps every accepted spelling and does not raise smaller values", () => {
+    expect(
+      clampOutputTokens({
+        requestJson: {
+          max_tokens: 99_999,
+          max_output_tokens: 1_000,
+          max_completion_tokens: 99_999,
+          generationConfig: { maxOutputTokens: 99_999 },
+        },
+        protocol: "openai-responses",
+        audience: "free",
+        modelCeiling: undefined,
+      }),
+    ).toMatchObject({
+      max_tokens: 4_096,
+      max_output_tokens: 1_000,
+      max_completion_tokens: 4_096,
+      generationConfig: { maxOutputTokens: 4_096 },
+    });
+  });
+
+  test("sets the protocol field when absent and keeps model ceilings", () => {
+    expect(
+      clampOutputTokens({
+        requestJson: {},
+        protocol: "openai-completions",
+        audience: "pro",
+        modelCeiling: 3_000,
+      }).max_completion_tokens,
+    ).toBe(3_000);
+    expect(
+      clampOutputTokens({
+        requestJson: {},
+        protocol: "google-generative-ai",
+        audience: "anonymous",
+        modelCeiling: 8_000,
+      }).generationConfig,
+    ).toEqual({ maxOutputTokens: 2_048 });
+    expect(
+      clampOutputTokens({
+        requestJson: { max_tokens: 100 },
+        protocol: "openai-responses",
+        audience: "free",
+        modelCeiling: undefined,
+      }).max_output_tokens,
+    ).toBe(100);
+  });
+
+  test("the upstream body receives the audience cap when callers omit it", () => {
+    const { json } = shape(
+      "openrouter",
+      "meta/muse-spark-1.2-contributor",
+      "openai-responses",
+      "/v1/relay/responses",
+      { input: "hello" },
+      { audience: "go" },
+    );
+    expect(json.max_output_tokens).toBe(8_192);
+  });
+});
 
 describe("body shaping parity: deepseek", () => {
   test("Responses path: strips the prefix, drops ignored params, nests clamped reasoning, streams", () => {

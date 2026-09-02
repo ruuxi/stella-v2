@@ -35,6 +35,7 @@ describe("CapabilityLedger", () => {
     const settled = await ledger.settle({
       requestId: "req-1",
       chargedMicroCents: 250,
+      refundRequest: false,
       result: { status: 200, body: '{"ok":true}' },
     });
     expect(settled).toEqual({
@@ -70,7 +71,11 @@ describe("CapabilityLedger", () => {
       remainingMicroCents: 300,
     });
     // Settling below the estimate frees room for the next request.
-    await ledger.settle({ requestId: "a", chargedMicroCents: 100 });
+    await ledger.settle({
+      requestId: "a",
+      chargedMicroCents: 100,
+      refundRequest: false,
+    });
     const retried = await ledger.reserve({
       jti: "jti-1",
       budgetMicroCents: 1_000,
@@ -95,7 +100,7 @@ describe("CapabilityLedger", () => {
     }
   });
 
-  test("enforces maxRequests and never refunds the count", async () => {
+  test("enforces maxRequests after completed requests", async () => {
     const { ledger } = newLedger();
     const args = {
       jti: "jti-1",
@@ -107,7 +112,11 @@ describe("CapabilityLedger", () => {
     expect((await ledger.reserve({ ...args, requestId: "1" })).kind).toBe(
       "reserved",
     );
-    await ledger.settle({ requestId: "1", chargedMicroCents: 0 });
+    await ledger.settle({
+      requestId: "1",
+      chargedMicroCents: 0,
+      refundRequest: false,
+    });
     expect((await ledger.reserve({ ...args, requestId: "2" })).kind).toBe(
       "reserved",
     );
@@ -115,6 +124,29 @@ describe("CapabilityLedger", () => {
       kind: "request_limit",
       maxRequests: 2,
     });
+  });
+
+  test("refunds the request count when settlement says no upstream byte arrived", async () => {
+    const { ledger } = newLedger();
+    const args = {
+      jti: "jti-1",
+      budgetMicroCents: GATEWAY_BUDGET_UNLIMITED,
+      maxRequests: 1,
+      expiresAt,
+      estimatedMicroCents: 1,
+    };
+    expect((await ledger.reserve({ ...args, requestId: "failed" })).kind).toBe(
+      "reserved",
+    );
+    await ledger.settle({
+      requestId: "failed",
+      chargedMicroCents: 0,
+      refundRequest: true,
+    });
+    expect(await ledger.snapshot()).toMatchObject({ requests: 0 });
+    expect((await ledger.reserve({ ...args, requestId: "retry" })).kind).toBe(
+      "reserved",
+    );
   });
 
   test("a known settled request id replays; a known in-flight id reports in_flight", async () => {
@@ -131,6 +163,7 @@ describe("CapabilityLedger", () => {
     await ledger.settle({
       requestId: "same",
       chargedMicroCents: 50,
+      refundRequest: false,
       result: { status: 200, body: "{}" },
     });
     expect(await ledger.reserve(args)).toEqual({
@@ -160,7 +193,13 @@ describe("CapabilityLedger", () => {
     expect(await ledger.reserve(args)).toEqual({ kind: "in_flight" });
     // Simulate the reserving isolate dying: age the pending row past the
     // abandonment window without settling it.
-    const state = (ledger as unknown as { ctx: { storage: { sql: { exec: (q: string, ...b: unknown[]) => unknown } } } }).ctx;
+    const state = (
+      ledger as unknown as {
+        ctx: {
+          storage: { sql: { exec: (q: string, ...b: unknown[]) => unknown } };
+        };
+      }
+    ).ctx;
     state.storage.sql.exec(
       "UPDATE results SET created_at = ? WHERE request_id = ?",
       // Mirrors IN_FLIGHT_ABANDON_AFTER_MS in src/ledger.ts (the module is
@@ -179,6 +218,7 @@ describe("CapabilityLedger", () => {
     await ledger.settle({
       requestId: "orphan",
       chargedMicroCents: 100,
+      refundRequest: false,
       result: { status: 200, body: "{}" },
     });
     expect(await ledger.snapshot()).toMatchObject({
@@ -198,7 +238,11 @@ describe("CapabilityLedger", () => {
       estimatedMicroCents: 100,
     };
     await ledger.reserve(args);
-    await ledger.settle({ requestId: "retry", chargedMicroCents: 0 });
+    await ledger.settle({
+      requestId: "retry",
+      chargedMicroCents: 0,
+      refundRequest: false,
+    });
     expect(await ledger.replay({ requestId: "retry" })).toBeNull();
     expect((await ledger.reserve(args)).kind).toBe("reserved");
   });
@@ -215,13 +259,26 @@ describe("CapabilityLedger", () => {
     await ledger.settle({
       requestId: "x",
       chargedMicroCents: 40,
+      refundRequest: false,
       result: { status: 200, body: "{}" },
     });
     expect(
-      (await ledger.settle({ requestId: "x", chargedMicroCents: 40 })).ok,
+      (
+        await ledger.settle({
+          requestId: "x",
+          chargedMicroCents: 40,
+          refundRequest: false,
+        })
+      ).ok,
     ).toBe(false);
     expect(
-      (await ledger.settle({ requestId: "nope", chargedMicroCents: 40 })).ok,
+      (
+        await ledger.settle({
+          requestId: "nope",
+          chargedMicroCents: 40,
+          refundRequest: false,
+        })
+      ).ok,
     ).toBe(false);
     expect(await ledger.snapshot()).toMatchObject({ spentMicroCents: 40 });
   });
@@ -238,6 +295,7 @@ describe("CapabilityLedger", () => {
     await ledger.settle({
       requestId: "x",
       chargedMicroCents: 40,
+      refundRequest: false,
       result: { status: 200, body: "{}" },
     });
     await ledger.alarm();

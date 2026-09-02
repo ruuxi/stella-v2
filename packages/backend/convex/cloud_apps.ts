@@ -34,7 +34,9 @@ import {
   assertOwnerMigrationWriteAllowed,
   getUserIdentityOrNull,
   hasOwnerMigrationSourceFence,
+  isAnonymousIdentity,
   requireUserId,
+  requireUserIdentity,
 } from "./auth";
 import { appSdkSessionOwnsCurrentApp } from "./lib/app_sdk_session";
 import { sessionIdentityMatchesExpectedSubject } from "./lib/session_identity";
@@ -1528,9 +1530,17 @@ export const startAppBuildTurn = mutation({
   }),
   handler: async (ctx, args) => {
     const { expectedOwnerGeneration, ...buildArgs } = args;
+    // App builds run in a sandbox; anonymous owners keep the chat lane only.
+    const identity = await requireUserIdentity(ctx);
+    if (isAnonymousIdentity(identity)) {
+      throw new ConvexError({
+        code: "SIGN_IN_REQUIRED",
+        message: "Sign in with an account to build apps.",
+      });
+    }
     return await startAppBuildTurnCore(ctx, {
       ...buildArgs,
-      ownerId: await requireOwnerId(ctx),
+      ownerId: identity.tokenIdentifier,
       ownerGeneration: expectedOwnerGeneration,
       now: Date.now(),
     });

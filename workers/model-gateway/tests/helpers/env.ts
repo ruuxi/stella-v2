@@ -34,6 +34,11 @@ mock.module("cloudflare:workers", () => ({
 const ledgerModule = await import("../../src/ledger.js");
 export const { CapabilityLedger } = ledgerModule;
 export type CapabilityLedgerInstance = InstanceType<typeof CapabilityLedger>;
+const gateModule = await import("../../src/gates/index.js");
+export const { NetworkGate, OwnerRelayGate, TierBudget } = gateModule;
+export type NetworkGateInstance = InstanceType<typeof NetworkGate>;
+export type OwnerRelayGateInstance = InstanceType<typeof OwnerRelayGate>;
+export type TierBudgetInstance = InstanceType<typeof TierBudget>;
 
 export const CONVEX_SITE = "https://outgoing-bulldog-865.convex.site";
 export const OWNER_ID = `${CONVEX_SITE}|user_test_1`;
@@ -100,6 +105,7 @@ export const createDurableObjectState = (name: string) => {
     id: { name, toString: () => name },
     storage,
     blockConcurrencyWhile: <T>(fn: () => Promise<T>) => fn(),
+    waitUntil: (_promise: Promise<unknown>) => undefined,
     alarmAt: () => alarm,
   };
 };
@@ -121,6 +127,63 @@ export const createLedgerNamespace = (envRef: () => unknown) => {
     },
   };
   return { namespace, objects, states };
+};
+
+export const createOwnerRelayGateNamespace = (envRef: () => unknown) => {
+  const objects = new Map<string, OwnerRelayGateInstance>();
+  const namespace = {
+    idFromName: (name: string) => ({ name, toString: () => name }),
+    get: (id: { name: string }) => {
+      let object = objects.get(id.name);
+      if (!object) {
+        object = new OwnerRelayGate(
+          createDurableObjectState(id.name) as never,
+          envRef() as never,
+        );
+        objects.set(id.name, object);
+      }
+      return object;
+    },
+  };
+  return { namespace, objects };
+};
+
+export const createNetworkGateNamespace = (envRef: () => unknown) => {
+  const objects = new Map<string, NetworkGateInstance>();
+  const namespace = {
+    idFromName: (name: string) => ({ name, toString: () => name }),
+    get: (id: { name: string }) => {
+      let object = objects.get(id.name);
+      if (!object) {
+        object = new NetworkGate(
+          createDurableObjectState(id.name) as never,
+          envRef() as never,
+        );
+        objects.set(id.name, object);
+      }
+      return object;
+    },
+  };
+  return { namespace, objects };
+};
+
+export const createTierBudgetNamespace = (envRef: () => unknown) => {
+  const objects = new Map<string, TierBudgetInstance>();
+  const namespace = {
+    idFromName: (name: string) => ({ name, toString: () => name }),
+    get: (id: { name: string }) => {
+      let object = objects.get(id.name);
+      if (!object) {
+        object = new TierBudget(
+          createDurableObjectState(id.name) as never,
+          envRef() as never,
+        );
+        objects.set(id.name, object);
+      }
+      return object;
+    },
+  };
+  return { namespace, objects };
 };
 
 // ---------------------------------------------------------------------------
@@ -290,7 +353,8 @@ export const configSnapshot = (
       reasoningPerMillionUsd: 0.21,
     },
   ],
-  anonymous: { maxRequestsPerDevice: 20, maxRequestsPerIp: 60 },
+  anonymous: { maxRequestsPerOwner: 20, maxRequestsPerIp: 60 },
+  tierCeilings: [],
   updatedAt: 1_756_000_000_000,
   ...overrides,
 });
@@ -381,6 +445,20 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
   const limiter = { success: true, keys: [] as string[] };
   let env: Record<string, unknown> = {};
   const ledger = createLedgerNamespace(() => env);
+  const ownerGate = createOwnerRelayGateNamespace(() => env);
+  const networkGate = createNetworkGateNamespace(() => env);
+  const tierBudget = createTierBudgetNamespace(() => env);
+  const enforcementValues = new Map<string, string>();
+  const enforcementCalls: Array<
+    | { kind: "get"; key: string; cacheTtl: number | undefined }
+    | {
+        kind: "put";
+        key: string;
+        value: string;
+        expirationTtl: number | undefined;
+      }
+    | { kind: "delete"; key: string }
+  > = [];
   env = {
     ENVIRONMENT: "development",
     STELLA_CONVEX_SITE_URL: CONVEX_SITE,
@@ -398,6 +476,36 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
     GATEWAY_SERVICE_SECRET: SERVICE_SECRET,
     STELLA_RELAY_PROBE_SECRET: PROBE_SECRET,
     CAPABILITY_LEDGER: ledger.namespace,
+    OWNER_RELAY_GATE: ownerGate.namespace,
+    NETWORK_GATE: networkGate.namespace,
+    TIER_BUDGET: tierBudget.namespace,
+    OWNER_ENFORCEMENT: {
+      get: async (key: string, options?: { cacheTtl?: number }) => {
+        enforcementCalls.push({
+          kind: "get",
+          key,
+          cacheTtl: options?.cacheTtl,
+        });
+        return enforcementValues.get(key) ?? null;
+      },
+      put: async (
+        key: string,
+        value: string,
+        options?: { expirationTtl?: number },
+      ) => {
+        enforcementCalls.push({
+          kind: "put",
+          key,
+          value,
+          expirationTtl: options?.expirationTtl,
+        });
+        enforcementValues.set(key, value);
+      },
+      delete: async (key: string) => {
+        enforcementCalls.push({ kind: "delete", key });
+        enforcementValues.delete(key);
+      },
+    },
     USAGE_QUEUE: {
       send: async (message: unknown) => {
         usageEvents.push(message);
@@ -420,6 +528,11 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
     pending,
     limiter,
     ledger,
+    ownerGate,
+    networkGate,
+    tierBudget,
+    enforcementValues,
+    enforcementCalls,
     deps(fetchImpl: typeof fetch, now: () => number = Date.now) {
       return {
         fetch: fetchImpl,
@@ -469,5 +582,10 @@ export const readError = async (response: Response) =>
       message: string;
       retryable: boolean;
       upstreamStatus?: number;
+      quota?: {
+        scope: "capability" | "owner" | "network" | "tier";
+        resetAt?: number;
+        retryAfterMs?: number;
+      };
     };
   };

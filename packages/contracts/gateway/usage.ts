@@ -52,8 +52,8 @@ export type GatewayUsageEvent = {
   finishedAt: number;
   /** False for native-lane (owner subscription) traffic; those are never billed. */
   billable: boolean;
-  /** Anonymous trial accounting. */
-  anonymous?: { deviceId?: string; ipHash?: string };
+  /** Anonymous trial accounting: the caller's network as the gateway hashed it. */
+  anonymous?: { ipHash?: string };
 };
 
 export type GatewayUsageBatch = {
@@ -75,6 +75,41 @@ export const CONVEX_GATEWAY_SESSION_CAPABILITY_PATH =
 export const CONVEX_GATEWAY_ENGINE_ACCESS_PATH =
   "/api/gateway/engine-access" as const;
 
+// ---------------------------------------------------------------------------
+// Owner enforcement (suspension / throttling), pushed Convex -> gateway.
+// ---------------------------------------------------------------------------
+
+export const OWNER_ENFORCEMENT_STATUSES = [
+  "ok",
+  "challenged",
+  "throttled",
+  "suspended",
+] as const;
+
+export type OwnerEnforcementStatus = (typeof OWNER_ENFORCEMENT_STATUSES)[number];
+
+export type OwnerEnforcement = {
+  status: OwnerEnforcementStatus;
+  /** Absolute ms timestamp the status expires back to `ok`; absent means until cleared. */
+  until?: number;
+  reason?: string;
+};
+
+/** `POST {gateway}/internal/owners/enforcement` body (GATEWAY_SERVICE_SECRET). */
+export type GatewayOwnerEnforcementRequest = {
+  ownerId: string;
+  enforcement: OwnerEnforcement;
+  updatedAt: number;
+};
+
+export type GatewayTierCeiling = {
+  audience: ManagedModelAudience;
+  /** Spend admitted per rolling hour across every owner in the audience; -1 = none. */
+  hourlyMicroCents: number;
+  /** Spend admitted per rolling 24 hours across every owner in the audience; -1 = none. */
+  dailyMicroCents: number;
+};
+
 export type GatewayModelPrice = {
   model: string;
   inputPerMillionUsd: number;
@@ -88,8 +123,14 @@ export type GatewayModelPrice = {
 export type GatewayConfigSnapshot = {
   v: 1;
   prices: GatewayModelPrice[];
-  /** Anonymous trial ceilings. */
-  anonymous: { maxRequestsPerDevice: number; maxRequestsPerIp: number };
+  /** Anonymous trial ceilings (per anonymous owner, per network). */
+  anonymous: { maxRequestsPerOwner: number; maxRequestsPerIp: number };
+  /**
+   * Global spend breakers by audience. An audience absent here has no
+   * breaker. When one trips the gateway answers `tier_paused` (anonymous:
+   * `sign_in_required`) until the window rolls.
+   */
+  tierCeilings: GatewayTierCeiling[];
   updatedAt: number;
 };
 
@@ -97,7 +138,8 @@ export type GatewayConfigSnapshot = {
 export type ConvexSessionCapabilityRequest = {
   ownerId: string;
   isAnonymous: boolean;
-  deviceId?: string;
+  /** sha256hex(client ip).slice(0, 32) as the gateway computes it for usage events. */
+  ipHash?: string;
 };
 
 /** `POST /api/gateway/engine-access` request/response for the native lane. */

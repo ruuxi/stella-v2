@@ -30,13 +30,21 @@ export type ControlPlaneSigner = {
     turnId: string;
     conversationId: string;
     audience?: CapabilityAudience;
+    modelAudience?: "anonymous" | "free" | "go" | "pro";
     issuer?: GatewayCapabilityIssuer;
     agentTypes?: string[];
     execution?: {
       engine: "stella" | "anthropic" | "openai-codex";
       provider: "stella" | "anthropic" | "openai-codex";
       model: string;
-      reasoningEffort: "default" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+      reasoningEffort:
+        | "default"
+        | "none"
+        | "minimal"
+        | "low"
+        | "medium"
+        | "high"
+        | "xhigh";
     };
     ttlMs?: number;
     now?: number;
@@ -50,7 +58,11 @@ export const createControlPlaneSigner = async (
   const signingKey = await importCapabilitySigningKey(pair.privateKeyPem, kid);
   const jwks: GatewayJwks = {
     keys: [
-      { kid, issuer: GATEWAY_CAPABILITY_ISSUERS.cloudBuilder, jwk: pair.publicJwk },
+      {
+        kid,
+        issuer: GATEWAY_CAPABILITY_ISSUERS.cloudBuilder,
+        jwk: pair.publicJwk,
+      },
     ],
   };
   return {
@@ -66,7 +78,7 @@ export const createControlPlaneSigner = async (
           sub: args.ownerId,
           gen: args.ownerGeneration,
           kind: "turn",
-          audience: "free",
+          audience: args.modelAudience ?? "free",
           budgetMicroCents: 0,
           ...(args.agentTypes ? { agentTypes: args.agentTypes } : {}),
           turn: {

@@ -255,6 +255,24 @@ describe("cloud turn start client", () => {
     expect(calls).toHaveLength(0);
   });
 
+  test("maps anonymous and suspended cloud-agent refusals", () => {
+    expect(
+      new CloudTurnStartClientError({
+        code: "sign_in_required",
+        status: 403,
+      }),
+    ).toMatchObject({
+      message: "Sign in to Stella to use cloud agents.",
+      isAuth: true,
+    });
+    expect(
+      new CloudTurnStartClientError({
+        code: "owner_suspended",
+        status: 403,
+      }).message,
+    ).toBe("This account can't use Stella's cloud right now.");
+  });
+
   test("maps 409 bodies to the conflict codes with the server message", async () => {
     const { fetch } = fetchMock(
       jsonResponse(

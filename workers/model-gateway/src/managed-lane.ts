@@ -1,7 +1,9 @@
 import {
+  GATEWAY_MAX_OUTPUT_TOKENS_BY_AUDIENCE,
   GATEWAY_TRACE_HEADER,
   GATEWAY_UPSTREAM_IDLE_TIMEOUT_MS,
   GATEWAY_UPSTREAM_MAX_DURATION_MS,
+  limitsAudienceFor,
   type GatewayProtocol,
 } from "@stella/contracts/gateway/api";
 import {
@@ -10,6 +12,10 @@ import {
   type GatewayUsageOutcome,
   type GatewayUsageTokens,
 } from "@stella/contracts/gateway/usage";
+import {
+  GATEWAY_BUDGET_UNLIMITED,
+  type ManagedModelAudience,
+} from "@stella/contracts/gateway/capability";
 import {
   validateManagedCloudBinding,
   validateManagedReasoningBinding,
@@ -37,20 +43,26 @@ import { createAnthropicAssembler } from "./assemble/anthropic.js";
 import { createGoogleAssembler } from "./assemble/google.js";
 import { createOpenAICompletionsAssembler } from "./assemble/openai-completions.js";
 import { createOpenAIResponsesAssembler } from "./assemble/openai-responses.js";
-import { createSseParser } from "./assemble/sse.js";
+import { createSseParser, frameJson, type SseFrame } from "./assemble/sse.js";
 import type { Assembler } from "./assemble/types.js";
 import type { AuthenticatedCapability } from "./capability.js";
 import { getGatewayConfig } from "./config-cache.js";
 import type { ConvexClient } from "./convex-client.js";
-import { GatewayError, jsonResponse, upstreamErrorBody } from "./errors.js";
+import {
+  GatewayError,
+  jsonResponse,
+  quotaErrorOptions,
+  upstreamErrorBody,
+} from "./errors.js";
 import type { LedgerSettleArgs } from "./ledger.js";
+import { ownerEnforcementAdmission } from "./owner-enforcement.js";
 import {
   agentTypeFrom,
   clientIp,
   createUpstreamController,
+  ipHashFrom,
   readJsonObject,
   requestIdFrom,
-  sha256Hex,
   type GatewayDeps,
 } from "./request-util.js";
 import {
@@ -119,6 +131,97 @@ export type ShapedUpstreamRequest = {
   body: string;
 };
 
+const outputTokenCap = (args: {
+  audience: ManagedModelAudience;
+  modelCeiling: number | undefined;
+}): number | null => {
+  const audienceCeiling =
+    GATEWAY_MAX_OUTPUT_TOKENS_BY_AUDIENCE[limitsAudienceFor(args.audience)];
+  const ceilings = [audienceCeiling, args.modelCeiling].filter(
+    (value): value is number =>
+      typeof value === "number" && Number.isFinite(value) && value >= 0,
+  );
+  return ceilings.length > 0 ? Math.floor(Math.min(...ceilings)) : null;
+};
+
+export const clampOutputTokens = (args: {
+  requestJson: Record<string, unknown>;
+  protocol: GatewayProtocol;
+  audience: ManagedModelAudience;
+  modelCeiling: number | undefined;
+}): Record<string, unknown> => {
+  const cap = outputTokenCap(args);
+  if (cap === null) return { ...args.requestJson };
+  const body = { ...args.requestJson };
+  for (const field of [
+    "max_tokens",
+    "max_output_tokens",
+    "max_completion_tokens",
+  ] as const) {
+    const value = body[field];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      body[field] = Math.min(cap, Math.max(0, Math.floor(value)));
+    }
+  }
+  if (
+    body.generationConfig &&
+    typeof body.generationConfig === "object" &&
+    !Array.isArray(body.generationConfig)
+  ) {
+    const generationConfig = {
+      ...(body.generationConfig as Record<string, unknown>),
+    };
+    const requested = generationConfig.maxOutputTokens;
+    if (typeof requested === "number" && Number.isFinite(requested)) {
+      generationConfig.maxOutputTokens = Math.min(
+        cap,
+        Math.max(0, Math.floor(requested)),
+      );
+    }
+    body.generationConfig = generationConfig;
+  }
+  const requestedCeiling = Math.min(
+    cap,
+    ...[
+      body.max_tokens,
+      body.max_output_tokens,
+      body.max_completion_tokens,
+    ].filter(
+      (value): value is number =>
+        typeof value === "number" && Number.isFinite(value),
+    ),
+  );
+  switch (args.protocol) {
+    case "anthropic-messages":
+      if (body.max_tokens === undefined) body.max_tokens = requestedCeiling;
+      break;
+    case "openai-responses":
+      if (body.max_output_tokens === undefined) {
+        body.max_output_tokens = requestedCeiling;
+      }
+      break;
+    case "openai-completions":
+      if (body.max_completion_tokens === undefined) {
+        body.max_completion_tokens = requestedCeiling;
+      }
+      break;
+    case "google-generative-ai": {
+      const generationConfig =
+        body.generationConfig &&
+        typeof body.generationConfig === "object" &&
+        !Array.isArray(body.generationConfig)
+          ? { ...(body.generationConfig as Record<string, unknown>) }
+          : {};
+      if (generationConfig.maxOutputTokens === undefined) {
+        generationConfig.maxOutputTokens = requestedCeiling;
+      }
+      body.generationConfig = generationConfig;
+      break;
+    }
+  }
+  return body;
+};
+
 /**
  * The exact upstream call for a managed request: URL, headers, and body as
  * `@stella/model-catalog` shapes them, with streaming forced on (Google via
@@ -131,6 +234,7 @@ export const shapeUpstreamRequest = (args: {
   route: ManagedRoute;
   requestJson: Record<string, unknown>;
   apiKey: string;
+  audience: ManagedModelAudience;
 }): ShapedUpstreamRequest => {
   const shapingRequest = new Request(
     shapingUrlFor(args.request, args.protocol),
@@ -141,7 +245,15 @@ export const shapeUpstreamRequest = (args: {
   );
   const body = bodyForUpstream(
     {
-      requestJson: streamingRequestJson(args.requestJson, args.protocol),
+      requestJson: streamingRequestJson(
+        clampOutputTokens({
+          requestJson: args.requestJson,
+          protocol: args.protocol,
+          audience: args.audience,
+          modelCeiling: args.route.config.maxOutputTokens,
+        }),
+        args.protocol,
+      ),
       resolvedModel: args.route.resolvedModel,
       upstreamModel: args.route.upstreamModel,
       serviceTier: args.route.config.serviceTier,
@@ -191,6 +303,77 @@ const usageTokens = (
         reported: false,
       };
 
+const recordOf = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+const outputTextLengthInFrame = (
+  protocol: GatewayProtocol,
+  frame: SseFrame,
+): number => {
+  const event = frameJson(frame);
+  if (!event) return 0;
+  if (protocol === "anthropic-messages") {
+    const delta = recordOf(event.delta);
+    return [delta?.text, delta?.thinking, delta?.partial_json].reduce<number>(
+      (total, value) => total + (typeof value === "string" ? value.length : 0),
+      0,
+    );
+  }
+  if (protocol === "openai-responses") {
+    const type = typeof event.type === "string" ? event.type : frame.event;
+    if (!type?.endsWith(".delta")) return 0;
+    const delta = event.delta;
+    if (typeof delta === "string") return delta.length;
+    const record = recordOf(delta);
+    return [
+      record?.text,
+      record?.arguments,
+      record?.partial_json,
+    ].reduce<number>(
+      (total, value) => total + (typeof value === "string" ? value.length : 0),
+      0,
+    );
+  }
+  if (protocol === "openai-completions") {
+    const choices = Array.isArray(event.choices) ? event.choices : [];
+    let length = 0;
+    for (const rawChoice of choices) {
+      const delta = recordOf(recordOf(rawChoice)?.delta);
+      if (!delta) continue;
+      for (const field of [
+        "content",
+        "reasoning_content",
+        "reasoning",
+        "reasoning_text",
+        "refusal",
+      ] as const) {
+        const value = delta[field];
+        if (typeof value === "string") length += value.length;
+      }
+      const toolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
+      for (const rawCall of toolCalls) {
+        const fn = recordOf(recordOf(rawCall)?.function);
+        if (typeof fn?.arguments === "string") length += fn.arguments.length;
+      }
+    }
+    return length;
+  }
+
+  const candidates = Array.isArray(event.candidates) ? event.candidates : [];
+  let length = 0;
+  for (const rawCandidate of candidates) {
+    const content = recordOf(recordOf(rawCandidate)?.content);
+    const parts = Array.isArray(content?.parts) ? content.parts : [];
+    for (const rawPart of parts) {
+      const text = recordOf(rawPart)?.text;
+      if (typeof text === "string") length += text.length;
+    }
+  }
+  return length;
+};
+
 export const handleManagedRelay = async (args: {
   request: Request;
   env: Env;
@@ -204,475 +387,739 @@ export const handleManagedRelay = async (args: {
   const { claims, probe } = args.auth;
   const startedAt = deps.now();
   const pathname = new URL(request.url).pathname;
-
-  const agentType = agentTypeFrom(request);
-  if (!agentType) {
+  const { requestId } = requestIdFrom(request);
+  const enforcement = await ownerEnforcementAdmission(
+    env,
+    claims.sub,
+    deps.now(),
+  );
+  if (enforcement.suspended) {
     throw new GatewayError(
-      400,
-      "bad_request",
-      "The x-stella-agent-type header is required.",
-    );
-  }
-  assertAgentTypeAllowed(claims, agentType);
-
-  const requestJson = await readJsonObject(request);
-  if (requestJson.stream === true) {
-    throw new GatewayError(
-      400,
-      "stream_unsupported",
-      "The managed lane is request/response; send stream: false and receive the complete object.",
+      403,
+      "owner_suspended",
+      "This account is suspended from model access.",
     );
   }
 
-  let requestedModel =
-    typeof requestJson.model === "string" ? requestJson.model : undefined;
-  if (protocol === "google-generative-ai") {
-    const pathModel = requestedModelFromGooglePath(pathname);
-    if (pathModel) requestedModel = pathModel;
-  }
-
-  const bindingError = validateManagedCloudBinding({
-    execution: claims.turn?.execution,
-    viaTurnToken: claims.kind === "turn",
-    requestedModel,
-  });
-  if (bindingError) {
-    throw new GatewayError(
-      bindingError.status,
-      bindingError.status === 403 ? "execution_mismatch" : "bad_request",
-      bindingError.message,
-    );
-  }
-
-  const route = resolveManagedRoute({ claims, agentType, requestedModel });
-  if (!PROTOCOLS_BY_PROVIDER[route.provider].includes(protocol)) {
-    throw new GatewayError(
-      400,
-      "bad_request",
-      `Model "${route.requestedModel}" speaks ${route.protocol}; this relay path carries ${protocol}.`,
-    );
-  }
-  if (claims.turn && claims.turn.execution.engine === "stella") {
-    const reasoningError = validateManagedReasoningBinding({
-      execution: claims.turn.execution,
-      relayProvider: route.provider,
-      resolvedModel: route.resolvedModel,
-      reasoningCapable: true,
-      requestJson,
-    });
-    if (reasoningError) {
-      throw new GatewayError(
-        reasoningError.status,
-        reasoningError.status === 403 ? "execution_mismatch" : "bad_request",
-        reasoningError.message,
-      );
-    }
-  }
-
+  const limitsAudience = limitsAudienceFor(claims.audience);
   let ipHash: string | undefined;
-  if (claims.audience === "anonymous" && !probe) {
-    const ip = clientIp(request);
-    const outcome = await env.ANON_IP_LIMITER.limit({ key: ip });
+  if (limitsAudience === "anonymous" || limitsAudience === "free") {
+    ipHash = await ipHashFrom(request);
+  }
+  if (limitsAudience === "anonymous" && !probe) {
+    const edgeResetAt = deps.now() + 60_000;
+    const outcome = await env.ANON_IP_LIMITER.limit({ key: clientIp(request) });
     if (!outcome.success) {
       throw new GatewayError(
         429,
         "rate_limited",
         "Too many anonymous requests from this network.",
-        {
-          retryable: true,
-          headers: { "retry-after": "60" },
-        },
+        quotaErrorOptions({
+          scope: "network",
+          now: deps.now(),
+          resetAt: edgeResetAt,
+        }),
       );
     }
-    ipHash = (await sha256Hex(ip)).slice(0, 32);
   }
-
-  const config = await getGatewayConfig(convex, deps.waitUntil, deps.now);
-  const price = config.priceFor(route.resolvedModel);
-  if (!price) {
-    throw new GatewayError(
-      500,
-      "internal",
-      `Model "${route.resolvedModel}" has no price.`,
+  if (ipHash && (limitsAudience === "anonymous" || limitsAudience === "free")) {
+    const networkGate = env.NETWORK_GATE.get(
+      env.NETWORK_GATE.idFromName(ipHash),
     );
-  }
-  const estimate = estimateRequestTokens(requestJson);
-  const estimatedMicroCents = computeUsageCostMicroCents({
-    model: route.resolvedModel,
-    inputTokens: estimate.inputTokens,
-    outputTokens: estimate.outputTokens,
-    price,
-  });
-  if (!(estimatedMicroCents > 0)) {
-    throw new GatewayError(
-      500,
-      "internal",
-      `Model "${route.resolvedModel}" has a non-positive price.`,
-    );
-  }
-
-  const { requestId } = requestIdFrom(request);
-  const ledger = probe
-    ? null
-    : env.CAPABILITY_LEDGER.get(env.CAPABILITY_LEDGER.idFromName(claims.jti));
-  if (ledger) {
-    const reservation = await ledger.reserve({
-      jti: claims.jti,
-      budgetMicroCents: claims.budgetMicroCents,
-      maxRequests: claims.maxRequests,
-      expiresAt: claims.exp * 1000,
-      requestId,
-      estimatedMicroCents,
-    });
-    switch (reservation.kind) {
-      case "replay":
-        return new Response(reservation.body, {
-          status: reservation.status,
-          headers: {
-            "cache-control": "no-store",
-            "content-type": "application/json; charset=utf-8",
-            [GATEWAY_TRACE_HEADER]: traceId,
-            [GATEWAY_REPLAY_HEADER]: "1",
-          },
-        });
-      case "in_flight":
-        throw new GatewayError(
-          409,
-          "bad_request",
-          `Request "${requestId}" is still in flight; retry after it completes.`,
-          { retryable: true },
-        );
-      case "budget_exhausted":
-        throw new GatewayError(
-          402,
-          "budget_exhausted",
-          "This capability's spending budget is exhausted.",
-        );
-      case "request_limit":
-        throw new GatewayError(
-          429,
-          "request_limit",
-          `This capability's request limit (${reservation.maxRequests}) has been reached.`,
-        );
-      case "reserved":
-        break;
-    }
-  }
-
-  const finish = async (
-    outcome: GatewayUsageOutcome,
-    tokens: GatewayUsageTokens,
-    chargedMicroCents: number,
-    upstreamStatus: number | undefined,
-    result?: LedgerSettleArgs["result"],
-  ): Promise<void> => {
-    if (ledger) {
-      await ledger.settle({ requestId, chargedMicroCents, result });
-    }
-    if (probe) return;
-    const event: GatewayUsageEvent = {
-      v: GATEWAY_USAGE_EVENT_VERSION,
-      requestId,
-      capabilityId: claims.jti,
-      kind: claims.kind,
-      ownerId: claims.sub,
-      ownerGeneration: claims.gen,
+    const admission = await networkGate.admitRelay({
       audience: claims.audience,
-      agentType,
-      ...(claims.turn
-        ? {
-            turnId: claims.turn.turnId,
-            conversationId: claims.turn.conversationId,
-          }
-        : {}),
-      provider: route.provider,
-      protocol,
-      requestedModel: route.requestedModel,
-      resolvedModel: route.resolvedModel,
-      usage: tokens,
-      chargedMicroCents,
-      outcome,
-      ...(upstreamStatus !== undefined ? { upstreamStatus } : {}),
-      startedAt,
-      finishedAt: deps.now(),
-      billable: true,
-      ...(ipHash ? { anonymous: { ipHash } } : {}),
-    };
-    deps.waitUntil(
-      env.USAGE_QUEUE.send(event).catch((error: unknown) => {
-        console.error(
-          `[model-gateway] trace=${traceId} usage enqueue failed: ${error instanceof Error ? error.message : "unknown"}`,
-        );
+    });
+    if (!admission.ok) {
+      throw new GatewayError(
+        429,
+        "rate_limited",
+        "Too many model requests from this network.",
+        quotaErrorOptions({
+          scope: "network",
+          now: deps.now(),
+          resetAt: admission.resetAt,
+        }),
+      );
+    }
+  }
+
+  const ownerGate = env.OWNER_RELAY_GATE.get(
+    env.OWNER_RELAY_GATE.idFromName(claims.sub),
+  );
+  const ownerAdmission = await ownerGate.admitRelay({
+    audience: claims.audience,
+    requestId,
+    throttled: enforcement.throttled,
+  });
+  const ownerAdmitted = ownerAdmission.ok && !ownerAdmission.duplicate;
+  if (!ownerAdmission.ok) {
+    throw new GatewayError(
+      429,
+      ownerAdmission.refused,
+      ownerAdmission.refused === "concurrency_limit"
+        ? "This account has too many model requests in flight."
+        : "This account is sending model requests too quickly.",
+      quotaErrorOptions({
+        scope: "owner",
+        now: deps.now(),
+        resetAt: ownerAdmission.resetAt,
       }),
     );
-  };
-
-  const gatewayConfig = getManagedGatewayConfig(route.provider);
-  const apiKey = resolveManagedGatewayApiKeyFromEnv(
-    gatewayConfig,
-    env as unknown as Readonly<Record<string, string | undefined>>,
-  );
-  if (!apiKey) {
-    await finish("failed", usageTokens(null, estimate), 0, undefined);
-    throw new GatewayError(
-      503,
-      "internal",
-      "The model provider is not configured.",
-      {
-        retryable: true,
-      },
-    );
   }
 
-  const {
-    url: target,
-    headers,
-    body: upstreamBody,
-  } = shapeUpstreamRequest({ request, protocol, route, requestJson, apiKey });
+  let tierGate: ReturnType<Env["TIER_BUDGET"]["get"]> | null = null;
+  let tierReservation: {
+    estimateMicroCents: number;
+    minute: number;
+  } | null = null;
+  let tierActualMicroCents = 0;
+  let ledger: ReturnType<Env["CAPABILITY_LEDGER"]["get"]> | null = null;
+  let ledgerReserved = false;
+  let ledgerSettled = false;
+  let firstUpstreamByte = false;
 
-  const controller = createUpstreamController({
-    clientSignal: request.signal,
-    idleTimeoutMs: GATEWAY_UPSTREAM_IDLE_TIMEOUT_MS,
-    maxDurationMs: GATEWAY_UPSTREAM_MAX_DURATION_MS,
-  });
-  const usageParser = createRelayUsageParser(route.provider);
-  const chargeFor = (usage: RelayUsage | null): number => {
-    if (
-      !usage ||
-      (usage.inputTokens === undefined && usage.outputTokens === undefined)
-    ) {
-      return estimatedMicroCents;
+  try {
+    const agentType = agentTypeFrom(request);
+    if (!agentType) {
+      throw new GatewayError(
+        400,
+        "bad_request",
+        "The x-stella-agent-type header is required.",
+      );
     }
-    if (usage.costMicroCents !== undefined) return usage.costMicroCents;
-    return computeUsageCostMicroCents({
+    assertAgentTypeAllowed(claims, agentType);
+
+    const requestJson = await readJsonObject(request);
+    if (requestJson.stream === true) {
+      throw new GatewayError(
+        400,
+        "stream_unsupported",
+        "The managed lane is request/response; send stream: false and receive the complete object.",
+      );
+    }
+
+    let requestedModel =
+      typeof requestJson.model === "string" ? requestJson.model : undefined;
+    if (protocol === "google-generative-ai") {
+      const pathModel = requestedModelFromGooglePath(pathname);
+      if (pathModel) requestedModel = pathModel;
+    }
+
+    const bindingError = validateManagedCloudBinding({
+      execution: claims.turn?.execution,
+      viaTurnToken: claims.kind === "turn",
+      requestedModel,
+    });
+    if (bindingError) {
+      throw new GatewayError(
+        bindingError.status,
+        bindingError.status === 403 ? "execution_mismatch" : "bad_request",
+        bindingError.message,
+      );
+    }
+
+    const route = resolveManagedRoute({ claims, agentType, requestedModel });
+    if (!PROTOCOLS_BY_PROVIDER[route.provider].includes(protocol)) {
+      throw new GatewayError(
+        400,
+        "bad_request",
+        `Model "${route.requestedModel}" speaks ${route.protocol}; this relay path carries ${protocol}.`,
+      );
+    }
+    if (claims.turn && claims.turn.execution.engine === "stella") {
+      const reasoningError = validateManagedReasoningBinding({
+        execution: claims.turn.execution,
+        relayProvider: route.provider,
+        resolvedModel: route.resolvedModel,
+        reasoningCapable: true,
+        requestJson,
+      });
+      if (reasoningError) {
+        throw new GatewayError(
+          reasoningError.status,
+          reasoningError.status === 403 ? "execution_mismatch" : "bad_request",
+          reasoningError.message,
+        );
+      }
+    }
+
+    const config = await getGatewayConfig(convex, deps.waitUntil, deps.now);
+    const price = config.priceFor(route.resolvedModel);
+    if (!price) {
+      throw new GatewayError(
+        500,
+        "internal",
+        `Model "${route.resolvedModel}" has no price.`,
+      );
+    }
+    const cappedRequestJson = clampOutputTokens({
+      requestJson,
+      protocol,
+      audience: claims.audience,
+      modelCeiling: route.config.maxOutputTokens,
+    });
+    const estimate = estimateRequestTokens(cappedRequestJson);
+    const estimatedMicroCents = computeUsageCostMicroCents({
       model: route.resolvedModel,
-      inputTokens: usage.inputTokens ?? 0,
-      outputTokens: usage.outputTokens ?? 0,
-      cachedInputTokens: usage.cachedInputTokens,
-      cacheWriteInputTokens: usage.cacheWriteInputTokens,
-      reasoningTokens: usage.reasoningTokens,
+      inputTokens: estimate.inputTokens,
+      outputTokens: estimate.outputTokens,
       price,
     });
-  };
-
-  const abortedError = (): GatewayError => {
-    switch (controller.cause()) {
-      case "client":
-        return new GatewayError(
-          499,
-          "canceled",
-          "The caller canceled the request.",
-        );
-      case "idle":
-        return new GatewayError(
-          504,
-          "upstream_timeout",
-          "The model provider stopped sending data.",
-          {
-            retryable: true,
-          },
-        );
-      case "duration":
-        return new GatewayError(
-          504,
-          "upstream_timeout",
-          "The model completion exceeded the maximum duration.",
-          {
-            retryable: true,
-          },
-        );
-      default:
-        return new GatewayError(
-          502,
-          "upstream_error",
-          "The model provider connection failed.",
-          {
-            retryable: true,
-          },
-        );
+    if (!(estimatedMicroCents > 0)) {
+      throw new GatewayError(
+        500,
+        "internal",
+        `Model "${route.resolvedModel}" has a non-positive price.`,
+      );
     }
-  };
 
-  let upstream: Response;
-  try {
-    upstream = await deps.fetch(target, {
-      method: "POST",
+    const gatewayConfig = getManagedGatewayConfig(route.provider);
+    const apiKey = resolveManagedGatewayApiKeyFromEnv(
+      gatewayConfig,
+      env as unknown as Readonly<Record<string, string | undefined>>,
+    );
+    if (!apiKey) {
+      throw new GatewayError(
+        503,
+        "internal",
+        "The model provider is not configured.",
+        { retryable: true },
+      );
+    }
+    const {
+      url: target,
       headers,
       body: upstreamBody,
-      signal: controller.signal,
+    } = shapeUpstreamRequest({
+      request,
+      protocol,
+      route,
+      requestJson: cappedRequestJson,
+      apiKey,
+      audience: claims.audience,
     });
-  } catch (error) {
-    controller.dispose();
-    const failure = abortedError();
-    console.warn(
-      `[model-gateway] trace=${traceId} provider=${route.provider} upstream fetch failed cause=${controller.cause() ?? (error instanceof Error ? error.message : "unknown")}`,
-    );
-    await finish(
-      failure.code === "canceled" ? "aborted" : "failed",
-      usageTokens(null, estimate),
-      failure.code === "canceled" || failure.code === "upstream_timeout"
-        ? estimatedMicroCents
-        : 0,
-      undefined,
-    );
-    throw failure;
-  }
-  controller.touch();
 
-  if (!upstream.ok) {
-    let text = "";
+    const tierCeiling = config.tierCeilings.get(limitsAudience);
+    if (
+      !probe &&
+      claims.budgetMicroCents !== GATEWAY_BUDGET_UNLIMITED &&
+      tierCeiling &&
+      (tierCeiling.hourlyMicroCents >= 0 || tierCeiling.dailyMicroCents >= 0)
+    ) {
+      tierGate = env.TIER_BUDGET.get(
+        env.TIER_BUDGET.idFromName(limitsAudience),
+      );
+      const reservation = await tierGate.reserve({
+        estimateMicroCents: estimatedMicroCents,
+        hourlyCeiling: tierCeiling.hourlyMicroCents,
+        dailyCeiling: tierCeiling.dailyMicroCents,
+        now: deps.now(),
+      });
+      if (!reservation.ok) {
+        const anonymous = limitsAudience === "anonymous";
+        throw new GatewayError(
+          anonymous ? 403 : 429,
+          anonymous ? "sign_in_required" : "tier_paused",
+          anonymous
+            ? "Sign in to continue using managed models."
+            : "Managed model access is paused for this plan.",
+          quotaErrorOptions({
+            scope: "tier",
+            now: deps.now(),
+            resetAt: reservation.resetAt,
+            retryable: !anonymous,
+          }),
+        );
+      }
+      tierReservation = {
+        estimateMicroCents: estimatedMicroCents,
+        minute: reservation.minute,
+      };
+    }
+
+    ledger = probe
+      ? null
+      : env.CAPABILITY_LEDGER.get(env.CAPABILITY_LEDGER.idFromName(claims.jti));
+    let capabilityHardLimitMicroCents: number | null = null;
+    if (ledger) {
+      const reservation = await ledger.reserve({
+        jti: claims.jti,
+        budgetMicroCents: claims.budgetMicroCents,
+        maxRequests: claims.maxRequests,
+        expiresAt: claims.exp * 1000,
+        requestId,
+        estimatedMicroCents,
+      });
+      switch (reservation.kind) {
+        case "replay":
+          return new Response(reservation.body, {
+            status: reservation.status,
+            headers: {
+              "cache-control": "no-store",
+              "content-type": "application/json; charset=utf-8",
+              [GATEWAY_TRACE_HEADER]: traceId,
+              [GATEWAY_REPLAY_HEADER]: "1",
+            },
+          });
+        case "in_flight":
+          throw new GatewayError(
+            409,
+            "bad_request",
+            `Request "${requestId}" is still in flight; retry after it completes.`,
+            { retryable: true },
+          );
+        case "budget_exhausted":
+          throw new GatewayError(
+            402,
+            "budget_exhausted",
+            "This capability's spending budget is exhausted.",
+            quotaErrorOptions({ scope: "capability", now: deps.now() }),
+          );
+        case "request_limit":
+          throw new GatewayError(
+            429,
+            "request_limit",
+            `This capability's request limit (${reservation.maxRequests}) has been reached.`,
+            quotaErrorOptions({ scope: "capability", now: deps.now() }),
+          );
+        case "reserved":
+          ledgerReserved = true;
+          capabilityHardLimitMicroCents =
+            reservation.remainingMicroCents === null
+              ? null
+              : estimatedMicroCents + reservation.remainingMicroCents;
+          break;
+      }
+    }
+
+    const finish = async (
+      outcome: GatewayUsageOutcome,
+      tokens: GatewayUsageTokens,
+      chargedMicroCents: number,
+      upstreamStatus: number | undefined,
+      refundRequest: boolean,
+      result?: LedgerSettleArgs["result"],
+    ): Promise<void> => {
+      tierActualMicroCents = chargedMicroCents;
+      if (ledger && ledgerReserved) {
+        await ledger.settle({
+          requestId,
+          chargedMicroCents,
+          refundRequest,
+          result,
+        });
+        ledgerSettled = true;
+      }
+      if (probe) return;
+      const event: GatewayUsageEvent = {
+        v: GATEWAY_USAGE_EVENT_VERSION,
+        requestId,
+        capabilityId: claims.jti,
+        kind: claims.kind,
+        ownerId: claims.sub,
+        ownerGeneration: claims.gen,
+        audience: claims.audience,
+        agentType,
+        ...(claims.turn
+          ? {
+              turnId: claims.turn.turnId,
+              conversationId: claims.turn.conversationId,
+            }
+          : {}),
+        provider: route.provider,
+        protocol,
+        requestedModel: route.requestedModel,
+        resolvedModel: route.resolvedModel,
+        usage: tokens,
+        chargedMicroCents,
+        outcome,
+        ...(upstreamStatus !== undefined ? { upstreamStatus } : {}),
+        startedAt,
+        finishedAt: deps.now(),
+        billable: true,
+        ...(limitsAudience === "anonymous" && ipHash
+          ? { anonymous: { ipHash } }
+          : {}),
+      };
+      deps.waitUntil(
+        env.USAGE_QUEUE.send(event).catch((error: unknown) => {
+          console.error(
+            `[model-gateway] trace=${traceId} usage enqueue failed: ${error instanceof Error ? error.message : "unknown"}`,
+          );
+        }),
+      );
+    };
+
+    const controller = createUpstreamController({
+      clientSignal: request.signal,
+      idleTimeoutMs: GATEWAY_UPSTREAM_IDLE_TIMEOUT_MS,
+      maxDurationMs: GATEWAY_UPSTREAM_MAX_DURATION_MS,
+    });
+    const usageParser = createRelayUsageParser(route.provider);
+    const chargeFor = (usage: RelayUsage | null): number => {
+      if (
+        !usage ||
+        (usage.inputTokens === undefined && usage.outputTokens === undefined)
+      ) {
+        return estimatedMicroCents;
+      }
+      if (usage.costMicroCents !== undefined) return usage.costMicroCents;
+      return computeUsageCostMicroCents({
+        model: route.resolvedModel,
+        inputTokens: usage.inputTokens ?? 0,
+        outputTokens: usage.outputTokens ?? 0,
+        cachedInputTokens: usage.cachedInputTokens,
+        cacheWriteInputTokens: usage.cacheWriteInputTokens,
+        reasoningTokens: usage.reasoningTokens,
+        price,
+      });
+    };
+    const inputEstimateMicroCents = computeUsageCostMicroCents({
+      model: route.resolvedModel,
+      inputTokens: estimate.inputTokens,
+      outputTokens: 0,
+      price,
+    });
+    const runningCostFor = (outputTokens: number): number =>
+      inputEstimateMicroCents +
+      computeUsageCostMicroCents({
+        model: route.resolvedModel,
+        inputTokens: 0,
+        outputTokens,
+        price,
+      });
+
+    const abortedError = (): GatewayError => {
+      switch (controller.cause()) {
+        case "client":
+          return new GatewayError(
+            499,
+            "canceled",
+            "The caller canceled the request.",
+          );
+        case "idle":
+          return new GatewayError(
+            504,
+            "upstream_timeout",
+            "The model provider stopped sending data.",
+            { retryable: true },
+          );
+        case "duration":
+          return new GatewayError(
+            504,
+            "upstream_timeout",
+            "The model completion exceeded the maximum duration.",
+            { retryable: true },
+          );
+        case "budget":
+          return new GatewayError(
+            402,
+            "budget_exhausted",
+            "This capability's spending budget is exhausted.",
+            quotaErrorOptions({ scope: "capability", now: deps.now() }),
+          );
+        default:
+          return new GatewayError(
+            502,
+            "upstream_error",
+            "The model provider connection failed.",
+            { retryable: true },
+          );
+      }
+    };
+
+    let upstream: Response;
     try {
-      text = await upstream.text();
-    } catch {
-      text = "";
+      upstream = await deps.fetch(target, {
+        method: "POST",
+        headers,
+        body: upstreamBody,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      controller.dispose();
+      const failure = abortedError();
+      console.warn(
+        `[model-gateway] trace=${traceId} provider=${route.provider} upstream fetch failed cause=${controller.cause() ?? (error instanceof Error ? error.message : "unknown")}`,
+      );
+      const charged =
+        firstUpstreamByte &&
+        (failure.code === "canceled" || failure.code === "upstream_timeout")
+          ? estimatedMicroCents
+          : 0;
+      await finish(
+        failure.code === "canceled" ? "aborted" : "failed",
+        usageTokens(null, estimate),
+        charged,
+        undefined,
+        !firstUpstreamByte,
+      );
+      throw failure;
+    }
+    controller.touch();
+
+    if (!upstream.ok) {
+      let text = "";
+      try {
+        text = await upstream.text();
+      } catch {
+        text = "";
+      }
+      controller.dispose();
+      const body = upstreamErrorBody(upstream.status, text, [apiKey]);
+      console.warn(
+        `[model-gateway] trace=${traceId} provider=${route.provider} model=${route.resolvedModel} upstream status=${upstream.status}`,
+      );
+      await finish(
+        "failed",
+        usageTokens(null, estimate),
+        0,
+        upstream.status,
+        true,
+      );
+      if (upstream.status === 401 || upstream.status === 403) {
+        throw new GatewayError(
+          502,
+          "upstream_error",
+          "The model provider refused the gateway's credentials.",
+          {
+            retryable: false,
+            upstreamStatus: upstream.status,
+          },
+        );
+      }
+      return jsonResponse(upstream.status, body, traceId);
+    }
+
+    const assembler = assemblerFor(protocol);
+    const contentType = upstream.headers.get("content-type") ?? "";
+    const isJson =
+      /application\/json/iu.test(contentType) &&
+      !/text\/event-stream/iu.test(contentType);
+    let assembled: Record<string, unknown> | null = null;
+    let assemblyFailure: { message: string; detail?: unknown } | null = null;
+    let budgetStop: {
+      chargedMicroCents: number;
+      tokens: GatewayUsageTokens;
+    } | null = null;
+
+    try {
+      if (isJson) {
+        const text = await upstream.text();
+        firstUpstreamByte = text.length > 0;
+        usageParser.pushText(text);
+        const parsed = JSON.parse(text) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          assembled = parsed as Record<string, unknown>;
+        } else {
+          assemblyFailure = {
+            message: "The model provider returned a non-object JSON body.",
+          };
+        }
+      } else if (!upstream.body) {
+        assemblyFailure = {
+          message: "The model provider returned an empty stream.",
+        };
+      } else {
+        const reader = upstream.body.getReader();
+        const decoder = new TextDecoder();
+        const sse = createSseParser();
+        let received = 0;
+        let outputTextLength = 0;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value.byteLength > 0) firstUpstreamByte = true;
+            controller.touch();
+            received += value.byteLength;
+            if (received > MAX_UPSTREAM_STREAM_BYTES) {
+              await reader.cancel("stream_too_large");
+              assemblyFailure = {
+                message: "The model provider stream exceeded the size limit.",
+              };
+              break;
+            }
+            const text = decoder.decode(value, { stream: true });
+            usageParser.pushText(text);
+            for (const frame of sse.push(text)) {
+              outputTextLength += outputTextLengthInFrame(protocol, frame);
+              assembler.push(frame);
+            }
+            const partialUsage = usageParser.current();
+            const outputTokens =
+              partialUsage?.outputTokens ?? Math.ceil(outputTextLength / 4);
+            const runningCost = runningCostFor(outputTokens);
+            if (
+              capabilityHardLimitMicroCents !== null &&
+              runningCost > capabilityHardLimitMicroCents
+            ) {
+              await reader.cancel("budget_exhausted");
+              controller.abort("budget");
+              budgetStop = {
+                chargedMicroCents: runningCost,
+                tokens: partialUsage
+                  ? usageTokens(
+                      {
+                        ...partialUsage,
+                        inputTokens:
+                          partialUsage.inputTokens ?? estimate.inputTokens,
+                        outputTokens,
+                      },
+                      estimate,
+                    )
+                  : {
+                      inputTokens: estimate.inputTokens,
+                      outputTokens,
+                      reported: false,
+                    },
+              };
+              break;
+            }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+        if (!budgetStop) {
+          const tail = decoder.decode();
+          if (tail) {
+            usageParser.pushText(tail);
+            for (const frame of sse.push(tail)) assembler.push(frame);
+          }
+          for (const frame of sse.finish()) assembler.push(frame);
+          if (!assemblyFailure) {
+            const outcome = assembler.finish();
+            if (outcome.ok) assembled = outcome.body;
+            else {
+              assemblyFailure = {
+                message: outcome.message,
+                detail: outcome.detail,
+              };
+            }
+          }
+        }
+      }
+    } catch (error) {
+      controller.dispose();
+      const failure = abortedError();
+      const usage = usageParser.finish();
+      console.warn(
+        `[model-gateway] trace=${traceId} provider=${route.provider} stream read failed cause=${controller.cause() ?? (error instanceof Error ? error.message : "unknown")}`,
+      );
+      const charged = !firstUpstreamByte
+        ? 0
+        : failure.code === "canceled" || failure.code === "upstream_timeout"
+          ? usage
+            ? chargeFor(usage)
+            : estimatedMicroCents
+          : usage
+            ? chargeFor(usage)
+            : 0;
+      await finish(
+        failure.code === "canceled" ? "aborted" : "failed",
+        usageTokens(usage, estimate),
+        charged,
+        upstream.status,
+        !firstUpstreamByte,
+      );
+      throw failure;
     }
     controller.dispose();
-    const body = upstreamErrorBody(upstream.status, text, [apiKey]);
-    console.warn(
-      `[model-gateway] trace=${traceId} provider=${route.provider} model=${route.resolvedModel} upstream status=${upstream.status}`,
-    );
-    await finish("failed", usageTokens(null, estimate), 0, upstream.status);
-    // A provider 401/403 is OUR credential problem, never the caller's; on this
-    // surface those statuses mean "your capability is bad", so translate.
-    if (upstream.status === 401 || upstream.status === 403) {
+
+    if (budgetStop) {
+      await finish(
+        "failed",
+        budgetStop.tokens,
+        budgetStop.chargedMicroCents,
+        upstream.status,
+        false,
+      );
+      throw new GatewayError(
+        402,
+        "budget_exhausted",
+        "This capability's spending budget is exhausted.",
+        quotaErrorOptions({ scope: "capability", now: deps.now() }),
+      );
+    }
+
+    const usage = usageParser.finish();
+    if (assemblyFailure || !assembled) {
+      console.warn(
+        `[model-gateway] trace=${traceId} provider=${route.provider} model=${route.resolvedModel} assembly failed: ${assemblyFailure?.message ?? "unknown"} detail=${JSON.stringify(assemblyFailure?.detail ?? null).slice(0, 2_000)}`,
+      );
+      await finish(
+        "failed",
+        usageTokens(usage, estimate),
+        usage ? chargeFor(usage) : 0,
+        upstream.status,
+        !firstUpstreamByte,
+      );
       throw new GatewayError(
         502,
         "upstream_error",
-        "The model provider refused the gateway's credentials.",
-        {
-          retryable: false,
-          upstreamStatus: upstream.status,
-        },
+        assemblyFailure?.message ??
+          "The model provider stream could not be assembled.",
+        { retryable: true, upstreamStatus: upstream.status },
       );
     }
-    return jsonResponse(upstream.status, body, traceId);
-  }
 
-  const assembler = assemblerFor(protocol);
-  const contentType = upstream.headers.get("content-type") ?? "";
-  const isJson =
-    /application\/json/iu.test(contentType) &&
-    !/text\/event-stream/iu.test(contentType);
-  let assembled: Record<string, unknown> | null = null;
-  let assemblyFailure: { message: string; detail?: unknown } | null = null;
-
-  try {
-    if (isJson) {
-      const text = await upstream.text();
-      usageParser.pushText(text);
-      const parsed = JSON.parse(text) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        assembled = parsed as Record<string, unknown>;
-      } else {
-        assemblyFailure = {
-          message: "The model provider returned a non-object JSON body.",
-        };
-      }
-    } else if (!upstream.body) {
-      assemblyFailure = {
-        message: "The model provider returned an empty stream.",
-      };
-    } else {
-      const reader = upstream.body.getReader();
-      const decoder = new TextDecoder();
-      const sse = createSseParser();
-      let received = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        controller.touch();
-        received += value.byteLength;
-        if (received > MAX_UPSTREAM_STREAM_BYTES) {
-          await reader.cancel("stream_too_large");
-          assemblyFailure = {
-            message: "The model provider stream exceeded the size limit.",
-          };
-          break;
-        }
-        const text = decoder.decode(value, { stream: true });
-        usageParser.pushText(text);
-        for (const frame of sse.push(text)) assembler.push(frame);
-      }
-      const tail = decoder.decode();
-      if (tail) {
-        usageParser.pushText(tail);
-        for (const frame of sse.push(tail)) assembler.push(frame);
-      }
-      for (const frame of sse.finish()) assembler.push(frame);
-      if (!assemblyFailure) {
-        const outcome = assembler.finish();
-        if (outcome.ok) assembled = outcome.body;
-        else
-          assemblyFailure = {
-            message: outcome.message,
-            detail: outcome.detail,
-          };
+    const bodyText = JSON.stringify(assembled);
+    const chargedMicroCents = chargeFor(usage);
+    await finish(
+      "succeeded",
+      usageTokens(usage, estimate),
+      chargedMicroCents,
+      upstream.status,
+      false,
+      {
+        status: upstream.status,
+        body: bodyText,
+      },
+    );
+    console.log(
+      `[model-gateway] trace=${traceId} agent=${agentType} requested=${route.requestedModel} resolved=${route.resolvedModel} provider=${route.provider} protocol=${protocol} status=${upstream.status} charged=${chargedMicroCents} reported=${usage ? 1 : 0} ms=${deps.now() - startedAt}`,
+    );
+    return new Response(bodyText, {
+      status: upstream.status,
+      headers: {
+        "cache-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        [GATEWAY_TRACE_HEADER]: traceId,
+      },
+    });
+  } finally {
+    if (ledger && ledgerReserved && !ledgerSettled) {
+      try {
+        await ledger.settle({
+          requestId,
+          chargedMicroCents: 0,
+          refundRequest: !firstUpstreamByte,
+        });
+      } catch (error) {
+        console.error(
+          `[model-gateway] trace=${traceId} ledger release failed: ${error instanceof Error ? error.message : "unknown"}`,
+        );
       }
     }
-  } catch (error) {
-    controller.dispose();
-    const failure = abortedError();
-    const usage = usageParser.finish();
-    console.warn(
-      `[model-gateway] trace=${traceId} provider=${route.provider} stream read failed cause=${controller.cause() ?? (error instanceof Error ? error.message : "unknown")}`,
-    );
-    const charged =
-      failure.code === "canceled" || failure.code === "upstream_timeout"
-        ? estimatedMicroCents
-        : usage
-          ? chargeFor(usage)
-          : 0;
-    await finish(
-      failure.code === "canceled" ? "aborted" : "failed",
-      usageTokens(usage, estimate),
-      charged,
-      upstream.status,
-    );
-    throw failure;
+    if (tierGate && tierReservation) {
+      try {
+        await tierGate.settle({
+          estimateMicroCents: tierReservation.estimateMicroCents,
+          actualMicroCents: tierActualMicroCents,
+          minute: tierReservation.minute,
+        });
+      } catch (error) {
+        console.error(
+          `[model-gateway] trace=${traceId} tier settlement failed: ${error instanceof Error ? error.message : "unknown"}`,
+        );
+      }
+    }
+    try {
+      if (ownerAdmitted) await ownerGate.releaseRelay(requestId);
+    } catch (error) {
+      console.error(
+        `[model-gateway] trace=${traceId} owner gate release failed: ${error instanceof Error ? error.message : "unknown"}`,
+      );
+    }
   }
-  controller.dispose();
-
-  const usage = usageParser.finish();
-  if (assemblyFailure || !assembled) {
-    console.warn(
-      `[model-gateway] trace=${traceId} provider=${route.provider} model=${route.resolvedModel} assembly failed: ${assemblyFailure?.message ?? "unknown"} detail=${JSON.stringify(assemblyFailure?.detail ?? null).slice(0, 2_000)}`,
-    );
-    await finish(
-      "failed",
-      usageTokens(usage, estimate),
-      usage ? chargeFor(usage) : 0,
-      upstream.status,
-    );
-    throw new GatewayError(
-      502,
-      "upstream_error",
-      assemblyFailure?.message ??
-        "The model provider stream could not be assembled.",
-      { retryable: true, upstreamStatus: upstream.status },
-    );
-  }
-
-  const bodyText = JSON.stringify(assembled);
-  const chargedMicroCents = chargeFor(usage);
-  await finish(
-    "succeeded",
-    usageTokens(usage, estimate),
-    chargedMicroCents,
-    upstream.status,
-    {
-      status: upstream.status,
-      body: bodyText,
-    },
-  );
-  console.log(
-    `[model-gateway] trace=${traceId} agent=${agentType} requested=${route.requestedModel} resolved=${route.resolvedModel} provider=${route.provider} protocol=${protocol} status=${upstream.status} charged=${chargedMicroCents} reported=${usage ? 1 : 0} ms=${deps.now() - startedAt}`,
-  );
-  return new Response(bodyText, {
-    status: upstream.status,
-    headers: {
-      "cache-control": "no-store",
-      "content-type": "application/json; charset=utf-8",
-      [GATEWAY_TRACE_HEADER]: traceId,
-    },
-  });
 };

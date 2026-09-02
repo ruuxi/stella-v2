@@ -2,6 +2,7 @@ import {
   GATEWAY_TRACE_HEADER,
   type GatewayErrorBody,
   type GatewayErrorCode,
+  type GatewayQuotaScope,
 } from "@stella/contracts/gateway/api";
 
 /**
@@ -22,6 +23,7 @@ export class GatewayError extends Error {
   readonly code: GatewayErrorCode;
   readonly retryable: boolean;
   readonly upstreamStatus: number | undefined;
+  readonly quota: GatewayErrorBody["error"]["quota"];
   readonly extraHeaders: Record<string, string>;
 
   constructor(
@@ -31,6 +33,7 @@ export class GatewayError extends Error {
     options: {
       retryable?: boolean;
       upstreamStatus?: number;
+      quota?: GatewayErrorBody["error"]["quota"];
       headers?: Record<string, string>;
     } = {},
   ) {
@@ -40,6 +43,7 @@ export class GatewayError extends Error {
     this.code = code;
     this.retryable = options.retryable ?? false;
     this.upstreamStatus = options.upstreamStatus;
+    this.quota = options.quota;
     this.extraHeaders = options.headers ?? {};
   }
 
@@ -52,10 +56,36 @@ export class GatewayError extends Error {
         ...(this.upstreamStatus !== undefined
           ? { upstreamStatus: this.upstreamStatus }
           : {}),
+        ...(this.quota ? { quota: this.quota } : {}),
       },
     };
   }
 }
+
+export const quotaErrorOptions = (args: {
+  scope: GatewayQuotaScope;
+  now: number;
+  resetAt?: number;
+  retryable?: boolean;
+}): {
+  retryable: boolean;
+  quota: NonNullable<GatewayErrorBody["error"]["quota"]>;
+  headers: Record<string, string>;
+} => {
+  if (args.resetAt === undefined) {
+    return {
+      retryable: args.retryable ?? false,
+      quota: { scope: args.scope },
+      headers: {},
+    };
+  }
+  const retryAfterMs = Math.max(0, args.resetAt - args.now);
+  return {
+    retryable: args.retryable ?? true,
+    quota: { scope: args.scope, resetAt: args.resetAt, retryAfterMs },
+    headers: { "retry-after": String(Math.ceil(retryAfterMs / 1_000)) },
+  };
+};
 
 export const isGatewayError = (value: unknown): value is GatewayError =>
   value instanceof GatewayError;

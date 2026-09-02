@@ -1,5 +1,6 @@
 import {
   GATEWAY_HEALTH_PATH,
+  GATEWAY_OWNER_ENFORCEMENT_PATH,
   GATEWAY_RELAY_PREFIX,
   GATEWAY_RESOLVE_PATH,
   GATEWAY_SESSION_CAPABILITY_PATH,
@@ -14,12 +15,18 @@ import {
   GatewayError,
   isGatewayError,
   jsonResponse,
+  quotaErrorOptions,
   toGatewayError,
 } from "./errors.js";
 import { handleManagedRelay } from "./managed-lane.js";
 import { handleNativeRelay } from "./native-lane.js";
 import {
+  handleOwnerEnforcement,
+  ownerEnforcementAdmission,
+} from "./owner-enforcement.js";
+import {
   defaultDeps,
+  ipHashFrom,
   readJsonObject,
   type GatewayDeps,
 } from "./request-util.js";
@@ -36,6 +43,7 @@ import {
  *   POST /v1/capabilities/session    Better Auth JWT -> session capability
  *   POST /v1/models/resolve          capability -> GatewayModelResolution
  *   POST /v1/relay/*                 capability -> managed lane or native lane
+ *   POST /internal/owners/enforcement service bearer -> owner status KV
  *
  * Anything else is 404 `bad_request`; a wrong method is 405 `bad_request`.
  */
@@ -95,15 +103,59 @@ const handleSessionCapability = async (
       "The bearer token is not a valid Stella sign-in.",
     );
   }
-  const body = await readJsonObject(request, { allowEmpty: true });
-  const rawDeviceId =
-    typeof body.deviceId === "string" ? body.deviceId.trim() : "";
-  const deviceId =
-    rawDeviceId && rawDeviceId.length <= 128 ? rawDeviceId : undefined;
+  await readJsonObject(request, { allowEmpty: true });
+  const ownerId = verified.token.ownerId;
+  const enforcement = await ownerEnforcementAdmission(env, ownerId, deps.now());
+  if (enforcement.suspended) {
+    throw new GatewayError(
+      403,
+      "owner_suspended",
+      "This account is suspended from model access.",
+    );
+  }
+  const audience = verified.token.isAnonymous ? "anonymous" : "free";
+  const ownerGate = env.OWNER_RELAY_GATE.get(
+    env.OWNER_RELAY_GATE.idFromName(ownerId),
+  );
+  const ownerAdmission = await ownerGate.admitMint({
+    audience,
+    throttled: enforcement.throttled,
+  });
+  if (!ownerAdmission.ok) {
+    throw new GatewayError(
+      429,
+      "rate_limited",
+      "Too many capability exchanges for this account.",
+      quotaErrorOptions({
+        scope: "owner",
+        now: deps.now(),
+        resetAt: ownerAdmission.resetAt,
+      }),
+    );
+  }
+  const ipHash = await ipHashFrom(request);
+  if (verified.token.isAnonymous) {
+    const networkGate = env.NETWORK_GATE.get(
+      env.NETWORK_GATE.idFromName(ipHash),
+    );
+    const networkAdmission = await networkGate.admitMint();
+    if (!networkAdmission.ok) {
+      throw new GatewayError(
+        429,
+        "rate_limited",
+        "Too many capability exchanges from this network.",
+        quotaErrorOptions({
+          scope: "network",
+          now: deps.now(),
+          resetAt: networkAdmission.resetAt,
+        }),
+      );
+    }
+  }
   const result = await convex.sessionCapability({
-    ownerId: verified.token.ownerId,
+    ownerId,
     isAnonymous: verified.token.isAnonymous,
-    ...(deviceId ? { deviceId } : {}),
+    ipHash,
   });
   if (!result.ok) {
     if (result.code) {
@@ -220,6 +272,11 @@ export const handleRequest = async (
       if (request.method !== "POST")
         throw new GatewayError(405, "bad_request", "Method not allowed.");
       return await handleSessionCapability(request, env, deps, convex, traceId);
+    }
+    if (url.pathname === GATEWAY_OWNER_ENFORCEMENT_PATH) {
+      if (request.method !== "POST")
+        throw new GatewayError(405, "bad_request", "Method not allowed.");
+      return await handleOwnerEnforcement({ request, env, deps, traceId });
     }
     if (url.pathname === GATEWAY_RESOLVE_PATH) {
       if (request.method !== "POST")

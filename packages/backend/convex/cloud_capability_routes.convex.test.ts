@@ -87,6 +87,18 @@ describe("control-plane capability verification on callback routes", () => {
     });
   });
 
+  it("refuses web search for an anonymous capability", async () => {
+    const t = await createTest();
+    const response = await post(
+      t,
+      "/api/cloud/web-search",
+      await mint({ modelAudience: "anonymous" }),
+      { query: "stella" },
+    );
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "sign_in_required" });
+  });
+
   it("refuses missing, model-gateway, foreign-issuer, expired, and mis-bound capabilities", async () => {
     const t = await createTest();
     expect((await post(t, "/api/cloud/schedule", null, {})).status).toBe(401);

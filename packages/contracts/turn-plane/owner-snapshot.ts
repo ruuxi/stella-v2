@@ -1,5 +1,6 @@
 import type { CloudExecutionSelection } from "../agent-engine.js";
 import type { ManagedModelAudience } from "../gateway/capability.js";
+import type { OwnerEnforcement } from "../gateway/usage.js";
 
 /**
  * The owner snapshot is the one control-plane read the owner gate Durable
@@ -30,8 +31,16 @@ export type OwnerSnapshot = {
   v: typeof OWNER_SNAPSHOT_VERSION;
   ownerId: string;
   ownerGeneration: string;
-  /** Owner purged or write-fenced: the gate refuses every admission. */
+  /** Owner purged, write-fenced, or suspended: the gate refuses every admission. */
   writable: boolean;
+  /**
+   * Anonymous (signed-out) owner. The chat lane is admitted under the
+   * anonymous allowance; the agent lane, app builds, and every helper that
+   * spends outside the model gateway answer `sign_in_required`.
+   */
+  isAnonymous: boolean;
+  /** Enforcement status; absent means `ok`. Suspended also sets `writable: false`. */
+  enforcement?: OwnerEnforcement;
   plan: CloudPlanId;
   unlimited: boolean;
   quotas: {
@@ -103,5 +112,7 @@ export type OwnerSnapshotChangedRequest = {
     | "pairing"
     /** A device was registered, removed, or had remote execution toggled. */
     | "device"
+    /** Enforcement status changed (suspend, throttle, clear). */
+    | "enforcement"
     | "manual";
 };

@@ -158,7 +158,9 @@ export const parseCloudTurnStartRequest = (
       return fail("attachments must be an array of drive paths.");
     }
     if (value.attachments.length > TURN_ATTACHMENTS_MAX) {
-      return fail(`attachments must have at most ${TURN_ATTACHMENTS_MAX} entries.`);
+      return fail(
+        `attachments must have at most ${TURN_ATTACHMENTS_MAX} entries.`,
+      );
     }
     const attachments: string[] = [];
     for (const entry of value.attachments) {
@@ -185,7 +187,9 @@ export const parseCloudTurnStartRequest = (
   if (value.title !== undefined) {
     const title = typeof value.title === "string" ? value.title.trim() : null;
     if (title === null || title.length > TURN_TITLE_MAX_CHARS) {
-      return fail(`title must be a string of at most ${TURN_TITLE_MAX_CHARS} characters.`);
+      return fail(
+        `title must be a string of at most ${TURN_TITLE_MAX_CHARS} characters.`,
+      );
     }
     if (title) request.title = title;
   }
@@ -214,7 +218,10 @@ export const serviceOnlyTurnFields = (
   if (request.lane !== undefined && request.lane !== "chat") {
     fields.push("lane");
   }
-  if (request.source !== undefined && !CLIENT_SOURCES.includes(request.source)) {
+  if (
+    request.source !== undefined &&
+    !CLIENT_SOURCES.includes(request.source)
+  ) {
     fields.push("source");
   }
   if (request.hiddenMessage !== undefined) fields.push("hiddenMessage");
@@ -235,21 +242,24 @@ export const conversationTitleFor = (
 };
 
 /** HTTP status for each turn-start refusal, shared by the Worker and the DO. */
-export const TURN_START_ERROR_STATUS: Record<CloudTurnStartErrorCode, number> = {
-  unauthorized: 401,
-  forbidden: 403,
-  owner_mismatch: 403,
-  generation_stale: 403,
-  bad_request: 400,
-  conversation_locked: 423,
-  idempotency_conflict: 409,
-  quota_burst: 429,
-  quota_daily: 429,
-  quota_concurrency: 429,
-  owner_purged: 410,
-  execution_unavailable: 409,
-  internal: 503,
-};
+export const TURN_START_ERROR_STATUS: Record<CloudTurnStartErrorCode, number> =
+  {
+    unauthorized: 401,
+    forbidden: 403,
+    owner_mismatch: 403,
+    generation_stale: 403,
+    bad_request: 400,
+    conversation_locked: 423,
+    idempotency_conflict: 409,
+    quota_burst: 429,
+    quota_daily: 429,
+    quota_concurrency: 429,
+    owner_purged: 410,
+    sign_in_required: 403,
+    owner_suspended: 403,
+    execution_unavailable: 409,
+    internal: 503,
+  };
 
 export const turnStartErrorResponse = (
   code: CloudTurnStartErrorCode,
@@ -323,9 +333,10 @@ export const parseCloudAgentTurnStartRequest = (
   if (value.protocol !== TURN_PLANE_PROTOCOL) {
     return fail(`protocol must be ${TURN_PLANE_PROTOCOL}.`);
   }
-  if (value.kind !== "agent") return fail("kind must be \"agent\".");
+  if (value.kind !== "agent") return fail('kind must be "agent".');
   const bounded = (candidate: unknown, max = 512): string =>
-    typeof candidate === "string" && candidate.trim().length > 0 &&
+    typeof candidate === "string" &&
+    candidate.trim().length > 0 &&
     candidate.length <= max
       ? candidate.trim()
       : "";
@@ -406,7 +417,8 @@ export const parseCloudAgentTurnStartRequest = (
   }
   if (value.originConversationId !== undefined) {
     const originConversationId = bounded(value.originConversationId);
-    if (!originConversationId) return fail("originConversationId is malformed.");
+    if (!originConversationId)
+      return fail("originConversationId is malformed.");
     request.originConversationId = originConversationId;
   }
   if (value.browserResume !== undefined) {

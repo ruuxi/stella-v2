@@ -110,6 +110,7 @@ describe("managed model config", () => {
 
   it("publishes the Muse default and its selectable DeepSeek fallback", () => {
     for (const audience of MANAGED_MODEL_AUDIENCES) {
+      const selectable = audience === "pro";
       expect(listStellaCatalogModels(audience)).toEqual([
         {
           id: FLASH_SELECTION,
@@ -117,7 +118,7 @@ describe("managed model config", () => {
           provider: "stella",
           upstreamModel: FLASH_MODEL,
           type: "language",
-          allowedForAudience: true,
+          allowedForAudience: selectable,
         },
         {
           id: WAFER_FAST_SELECTION,
@@ -125,7 +126,7 @@ describe("managed model config", () => {
           provider: "stella",
           upstreamModel: WAFER_FAST_MODEL,
           type: "language",
-          allowedForAudience: true,
+          allowedForAudience: selectable,
         },
         {
           id: MUSE_SELECTION,
@@ -133,33 +134,35 @@ describe("managed model config", () => {
           provider: "stella",
           upstreamModel: MUSE_MODEL,
           type: "language",
-          allowedForAudience: true,
+          allowedForAudience: selectable,
         },
       ]);
     }
   });
 
-  it("keeps the Light alias compatible and DeepSeek routable but rejects retired aliases", () => {
+  it("keeps Light compatible, limits model selection to Pro, and rejects retired aliases", () => {
     expect(parseStellaModelSelection("stella/light")).toEqual({
       kind: "mode",
       mode: "light",
     });
     expect(resolveStellaModelSelection("stella/light", "pro")).toBe(MUSE_MODEL);
-    // DeepSeek remains explicitly selectable and routable.
+    // DeepSeek remains explicitly selectable and routable for Pro.
     expect(resolveStellaModelSelection(FLASH_SELECTION, "pro")).toBe(
       FLASH_MODEL,
     );
-    expect(resolveStellaModelSelection(FLASH_SELECTION, "free")).toBe(
-      FLASH_MODEL,
+    expect(() => resolveStellaModelSelection(FLASH_SELECTION, "free")).toThrow(
+      `Unsupported Stella model selection: ${FLASH_SELECTION}`,
     );
     // A preference saved while V4 Flash was on Fireworks stays valid, but
     // resolves onto the active CrofAI route rather than reviving Fireworks.
     expect(resolveStellaModelSelection(LEGACY_FIREWORKS_SELECTION, "pro")).toBe(
       FLASH_MODEL,
     );
-    expect(
+    expect(() =>
       resolveStellaModelSelection(LEGACY_FIREWORKS_SELECTION, "free"),
-    ).toBe(FLASH_MODEL);
+    ).toThrow(
+      `Unsupported Stella model selection: ${LEGACY_FIREWORKS_SELECTION}`,
+    );
     for (const retiredSelection of [
       "stella/standard",
       "stella/designer",

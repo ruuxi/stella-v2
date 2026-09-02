@@ -337,19 +337,12 @@ const AUDIENCE_AGENT_MODE_OVERRIDES: Partial<
   pro_fallback: DEFAULT_AGENT_OVERRIDES,
 };
 
-// Audiences that may NOT override the per-agent default model from the
-// client. Anonymous/free/go (incl. go's downgraded fallback) are pinned to
-// the backend-chosen model; Pro users keep the model picker.
-const RESTRICTED_MODEL_OVERRIDE_AUDIENCES = new Set<ManagedModelAudience>([
-  "anonymous",
-  "free",
-  "go",
-  "go_fallback",
-]);
-
+// Only the active Pro audience gets the model picker. Anonymous, Free, Go,
+// and every fallback audience stay on their backend default, with
+// `stella/light` retained as the one explicit compatibility alias.
 export const canOverrideStellaModel = (
   audience: ManagedModelAudience,
-): boolean => !RESTRICTED_MODEL_OVERRIDE_AUDIENCES.has(audience);
+): boolean => audience === "pro";
 
 // Audiences without a paid subscription. Used to gate paid-only branded modes
 // (e.g. Stella Max) independently of the model-override restriction above:
@@ -372,7 +365,7 @@ const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
 ]);
 
 /**
- * Stella model ids accepted from clients. The OpenRouter Muse default and
+ * Stella model ids the Pro picker may send. The OpenRouter Muse default and
  * every routed DeepSeek V4 Flash spelling are public catalog rows.
  * `stella/light` remains as a compatibility alias for existing preferences
  * and older clients.
@@ -386,15 +379,14 @@ const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
  * `stella_provider/request.ts` and the `allowedForAudience` flag the
  * `/api/models` endpoint exposes to the desktop picker.
  */
-const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> =
-  new Set<string>([
-    "stella/light",
-    `stella/${MUSE_SPARK_1_2_CONTRIBUTOR_MODEL}`,
-    `stella/${DEEPSEEK_V4_FLASH_CROF_MODEL}`,
-    `stella/${DEEPSEEK_V4_FLASH_FIREWORKS_MODEL}`,
-    `stella/${DEEPSEEK_V4_FLASH_DIRECT_MODEL}`,
-    `stella/${DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL}`,
-  ]);
+const PRO_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> = new Set<string>([
+  "stella/light",
+  `stella/${MUSE_SPARK_1_2_CONTRIBUTOR_MODEL}`,
+  `stella/${DEEPSEEK_V4_FLASH_CROF_MODEL}`,
+  `stella/${DEEPSEEK_V4_FLASH_FIREWORKS_MODEL}`,
+  `stella/${DEEPSEEK_V4_FLASH_DIRECT_MODEL}`,
+  `stella/${DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL}`,
+]);
 
 /**
  * Collapse the two V4 Flash spellings onto the active route. Keeping both ids
@@ -415,11 +407,11 @@ export const isStellaModelAllowedForAudience = (
   // This is a product-wide allowlist, not merely a plan restriction. Pro and
   // fallback audiences must not be able to revive retired managed models by
   // submitting a stale or hand-written Stella id.
-  if (!RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS.has(modelId)) {
-    return false;
-  }
   if (!canOverrideStellaModel(audience)) {
-    return RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS.has(modelId);
+    return modelId === "stella/default" || modelId === "stella/light";
+  }
+  if (!PRO_ALLOWED_STELLA_MODEL_IDS.has(modelId)) {
+    return false;
   }
   if (PAID_ONLY_STELLA_MODE_IDS.has(modelId)) {
     return isPaidManagedAudience(audience);

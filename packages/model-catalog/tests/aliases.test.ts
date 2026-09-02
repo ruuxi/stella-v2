@@ -86,16 +86,14 @@ describe("resolveStellaModelSelection", () => {
   });
 
   it("keeps DeepSeek V4 Flash routable and collapses legacy spellings onto the active route", () => {
-    for (const audience of ["pro", "free"] as const) {
-      expect(resolveStellaModelSelection(FLASH_SELECTION, audience)).toBe(
+    for (const selection of [
+      FLASH_SELECTION,
+      LEGACY_FIREWORKS_SELECTION,
+      LEGACY_DIRECT_SELECTION,
+    ]) {
+      expect(resolveStellaModelSelection(selection, "pro")).toBe(
         DEEPSEEK_V4_FLASH_CROF_MODEL,
       );
-      expect(
-        resolveStellaModelSelection(LEGACY_FIREWORKS_SELECTION, audience),
-      ).toBe(DEEPSEEK_V4_FLASH_CROF_MODEL);
-      expect(
-        resolveStellaModelSelection(LEGACY_DIRECT_SELECTION, audience),
-      ).toBe(DEEPSEEK_V4_FLASH_CROF_MODEL);
     }
     expect(
       resolveManagedModelRouteAlias(DEEPSEEK_V4_FLASH_FIREWORKS_MODEL),
@@ -212,12 +210,12 @@ describe("resolveStellaModelConfigForSelection", () => {
         fallback: DEEPSEEK_V4_FLASH_CROF_MODEL,
       },
     });
-    // Restricted audiences may still pick allowlisted catalog rows.
+    // Restricted audiences ignore raw picker rows and keep their default.
     expect(
       resolveStellaModelConfigForSelection(FLASH_SELECTION, "general", "free"),
     ).toMatchObject({
-      applied: true,
-      config: { model: DEEPSEEK_V4_FLASH_CROF_MODEL },
+      applied: false,
+      config: { model: MUSE_SPARK_1_2_CONTRIBUTOR_MODEL },
     });
   });
 });
@@ -229,7 +227,7 @@ describe("audience allowlist", () => {
     expect(canOverrideStellaModel("go")).toBe(false);
     expect(canOverrideStellaModel("go_fallback")).toBe(false);
     expect(canOverrideStellaModel("pro")).toBe(true);
-    expect(canOverrideStellaModel("pro_fallback")).toBe(true);
+    expect(canOverrideStellaModel("pro_fallback")).toBe(false);
   });
 
   it("marks every subscribed audience as paid", () => {
@@ -245,17 +243,24 @@ describe("audience allowlist", () => {
     }
   });
 
-  it("allows the public catalog ids for every audience and rejects retired ids product-wide", () => {
+  it("allows only default/light outside Pro and rejects retired ids product-wide", () => {
     for (const audience of MANAGED_MODEL_AUDIENCES) {
-      for (const allowed of [
-        "stella/light",
+      expect(isStellaModelAllowedForAudience("stella/default", audience)).toBe(
+        audience !== "pro",
+      );
+      expect(isStellaModelAllowedForAudience("stella/light", audience)).toBe(
+        true,
+      );
+      for (const pickerModel of [
         MUSE_SELECTION,
         FLASH_SELECTION,
         LEGACY_FIREWORKS_SELECTION,
         LEGACY_DIRECT_SELECTION,
         WAFER_FAST_SELECTION,
       ]) {
-        expect(isStellaModelAllowedForAudience(allowed, audience)).toBe(true);
+        expect(isStellaModelAllowedForAudience(pickerModel, audience)).toBe(
+          audience === "pro",
+        );
       }
       for (const retired of [...RETIRED_SELECTIONS, "stella/max"]) {
         expect(isStellaModelAllowedForAudience(retired, audience)).toBe(false);
@@ -263,7 +268,7 @@ describe("audience allowlist", () => {
     }
   });
 
-  it("publishes the same three rows to every audience", () => {
+  it("publishes the same rows but enables them only for Pro", () => {
     for (const audience of MANAGED_MODEL_AUDIENCES) {
       expect(listStellaCatalogModels(audience)).toEqual([
         {
@@ -272,7 +277,7 @@ describe("audience allowlist", () => {
           provider: "stella",
           upstreamModel: DEEPSEEK_V4_FLASH_CROF_MODEL,
           type: "language",
-          allowedForAudience: true,
+          allowedForAudience: audience === "pro",
         },
         {
           id: WAFER_FAST_SELECTION,
@@ -280,7 +285,7 @@ describe("audience allowlist", () => {
           provider: "stella",
           upstreamModel: DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL,
           type: "language",
-          allowedForAudience: true,
+          allowedForAudience: audience === "pro",
         },
         {
           id: MUSE_SELECTION,
@@ -288,7 +293,7 @@ describe("audience allowlist", () => {
           provider: "stella",
           upstreamModel: MUSE_SPARK_1_2_CONTRIBUTOR_MODEL,
           type: "language",
-          allowedForAudience: true,
+          allowedForAudience: audience === "pro",
         },
       ]);
     }

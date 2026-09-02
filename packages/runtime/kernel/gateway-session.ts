@@ -11,7 +11,7 @@
  *   - the gateway origin advertised by the `/api/stella/models` catalog, per
  *     Stella site, so routes built before the catalog resolves can still
  *     find the origin once it is known; and
- *   - the session capability, per (gateway, device, owner identity), cached
+ *   - the session capability, per (gateway, owner identity), cached
  *     until 60 s before its `expiresAt` and re-exchanged on demand when the
  *     gateway rejects it.
  *
@@ -130,9 +130,7 @@ const authIdentity = (token: string): string => {
     ? payload.aud.join(",")
     : pick("aud");
   const anonymous =
-    typeof payload.isAnonymous === "boolean"
-      ? String(payload.isAnonymous)
-      : "";
+    typeof payload.isAnonymous === "boolean" ? String(payload.isAnonymous) : "";
   return [
     "jwt",
     pick("iss"),
@@ -143,16 +141,8 @@ const authIdentity = (token: string): string => {
   ].join(":");
 };
 
-const cacheKey = (args: {
-  gatewayOrigin: string;
-  deviceId?: string;
-  authToken: string;
-}): string =>
-  [
-    args.gatewayOrigin,
-    args.deviceId?.trim() || "device:none",
-    authIdentity(args.authToken),
-  ].join("|");
+const cacheKey = (args: { gatewayOrigin: string; authToken: string }): string =>
+  [args.gatewayOrigin, authIdentity(args.authToken)].join("|");
 
 const readGatewayError = async (
   response: Response,
@@ -199,12 +189,9 @@ const isSessionCapabilityResponse = (
 const exchangeOnce = async (args: {
   gatewayOrigin: string;
   authToken: string;
-  deviceId?: string;
   fetchImpl: typeof fetch;
 }): Promise<CapabilityCacheEntry> => {
-  const body: GatewaySessionCapabilityRequest = {
-    ...(args.deviceId?.trim() ? { deviceId: args.deviceId.trim() } : {}),
-  };
+  const body: GatewaySessionCapabilityRequest = {};
   const response = await args.fetchImpl(
     `${args.gatewayOrigin}${GATEWAY_SESSION_CAPABILITY_PATH}`,
     {
@@ -237,7 +224,6 @@ export type GatewaySessionClientArgs = {
   getAuthToken: () => Promise<string | undefined> | string | undefined;
   /** Mint a fresh Better Auth JWT after the gateway rejects the current one. */
   refreshAuthToken?: () => Promise<string | undefined> | string | undefined;
-  deviceId?: string;
   fetch?: typeof fetch;
   now?: () => number;
 };
@@ -269,7 +255,6 @@ export const createGatewaySessionClient = (
   ): Promise<CapabilityCacheEntry> => {
     const key = cacheKey({
       gatewayOrigin,
-      deviceId: args.deviceId,
       authToken,
     });
     const inFlight = inFlightExchanges.get(key);
@@ -279,7 +264,6 @@ export const createGatewaySessionClient = (
         return await exchangeOnce({
           gatewayOrigin,
           authToken,
-          deviceId: args.deviceId,
           fetchImpl,
         });
       } catch (error) {
@@ -295,7 +279,6 @@ export const createGatewaySessionClient = (
             return await exchangeOnce({
               gatewayOrigin,
               authToken: refreshed,
-              deviceId: args.deviceId,
               fetchImpl,
             });
           }
@@ -321,7 +304,6 @@ export const createGatewaySessionClient = (
     if (!authToken) return undefined;
     const key = cacheKey({
       gatewayOrigin,
-      deviceId: args.deviceId,
       authToken,
     });
     if (forceRefresh) {
@@ -346,9 +328,7 @@ export const createGatewaySessionClient = (
       const gatewayOrigin = args.gatewayOrigin();
       const authToken = (await args.getAuthToken())?.trim();
       if (!gatewayOrigin || !authToken) return;
-      capabilityCache.delete(
-        cacheKey({ gatewayOrigin, deviceId: args.deviceId, authToken }),
-      );
+      capabilityCache.delete(cacheKey({ gatewayOrigin, authToken }));
     },
   };
 };

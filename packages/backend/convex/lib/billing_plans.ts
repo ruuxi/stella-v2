@@ -38,9 +38,14 @@
  *     account is done until it upgrades (or buys usage credits). Leave
  *     unset to keep Free purely windowed. Recommended: 0.5.
  *
- * Anonymous (signed-out) access is capped by request count, not dollars —
- * see `lib/anonymous_usage.ts` for STELLA_ANON_MAX_REQUESTS and
- * STELLA_ANON_MAX_REQUESTS_PER_IP.
+ * Anonymous access uses the Free profile row but has its own monetary limits:
+ *   STELLA_ANON_LIFETIME_LIMIT_USD (required)
+ *   STELLA_ANON_ROLLING_LIMIT_USD
+ *   STELLA_ANON_ROLLING_WINDOW_HOURS
+ *   STELLA_ANON_WEEKLY_LIMIT_USD
+ *   STELLA_ANON_MONTHLY_LIMIT_USD
+ * Optional anonymous limits default to the lifetime value and a five-hour
+ * rolling window. Request-count limits remain in `lib/anonymous_usage.ts`.
  *
  * `<PLAN>` ∈ { FREE, GO, PRO }.
  */
@@ -150,6 +155,24 @@ const buildFreePlanConfig = (): PlanConfig => {
   };
 };
 
+const buildAnonymousPlanConfig = (): PlanConfig => {
+  const lifetimeLimitUsd = requireNumberEnv("STELLA_ANON_LIFETIME_LIMIT_USD");
+  return {
+    label: "Anonymous",
+    monthlyPriceCents: 0,
+    rollingLimitUsd:
+      optionalNumberEnv("STELLA_ANON_ROLLING_LIMIT_USD") ?? lifetimeLimitUsd,
+    rollingWindowHours:
+      optionalNumberEnv("STELLA_ANON_ROLLING_WINDOW_HOURS") ??
+      DEFAULT_ROLLING_WINDOW_HOURS,
+    weeklyLimitUsd:
+      optionalNumberEnv("STELLA_ANON_WEEKLY_LIMIT_USD") ?? lifetimeLimitUsd,
+    monthlyLimitUsd:
+      optionalNumberEnv("STELLA_ANON_MONTHLY_LIMIT_USD") ?? lifetimeLimitUsd,
+    lifetimeLimitUsd,
+  };
+};
+
 const buildPaidPlanConfig = (
   plan: Exclude<SubscriptionPlan, "free">,
   utilizationRate: number,
@@ -160,7 +183,8 @@ const buildPaidPlanConfig = (
     toMonthlyPriceUsd(monthlyPriceCents) / utilizationRate,
   );
   const monthlyLimitUsd =
-    optionalNumberEnv(`${envPrefix}_MONTHLY_LIMIT_USD`) ?? derivedMonthlyLimitUsd;
+    optionalNumberEnv(`${envPrefix}_MONTHLY_LIMIT_USD`) ??
+    derivedMonthlyLimitUsd;
   return {
     label: PLAN_LABELS[plan],
     monthlyPriceCents,
@@ -183,9 +207,9 @@ const enrichGoIntroPricing = (base: PlanConfig): PlanConfig => {
 
   const introCents = Number(introRaw);
   if (
-    !Number.isFinite(introCents)
-    || !Number.isInteger(introCents)
-    || introCents < 0
+    !Number.isFinite(introCents) ||
+    !Number.isInteger(introCents) ||
+    introCents < 0
   ) {
     throw new Error(
       `[billing] Invalid env STELLA_GO_INTRO_FIRST_MONTH_PRICE_CENTS=${introRaw}; expected a non-negative integer (cents).`,
@@ -203,6 +227,7 @@ const enrichGoIntroPricing = (base: PlanConfig): PlanConfig => {
 };
 
 let cachedCatalog: PlanCatalog | null = null;
+let cachedAnonymousPlan: PlanConfig | null = null;
 
 const loadPlanCatalog = (): PlanCatalog => {
   if (cachedCatalog) return cachedCatalog;
@@ -238,11 +263,22 @@ export const getPlanCatalog = (): PlanCatalog => loadPlanCatalog();
 export const getPlanConfig = (plan: SubscriptionPlan): PlanConfig =>
   loadPlanCatalog()[plan];
 
-export const getStripePriceIdForPlan = (plan: Exclude<SubscriptionPlan, "free">) => {
+export const getAnonymousPlanConfig = (): PlanConfig => {
+  if (!cachedAnonymousPlan) {
+    cachedAnonymousPlan = buildAnonymousPlanConfig();
+  }
+  return cachedAnonymousPlan;
+};
+
+export const getStripePriceIdForPlan = (
+  plan: Exclude<SubscriptionPlan, "free">,
+) => {
   const key = STRIPE_PRICE_ID_ENV[plan];
   const value = process.env[key]?.trim();
   if (!value) {
-    throw new Error(`Missing ${key} environment variable for ${plan} checkout.`);
+    throw new Error(
+      `Missing ${key} environment variable for ${plan} checkout.`,
+    );
   }
   return value;
 };

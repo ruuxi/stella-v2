@@ -63,6 +63,10 @@ const KNOWN_CODES = new Set<GatewayErrorCode>([
   "budget_exhausted",
   "request_limit",
   "rate_limited",
+  "concurrency_limit",
+  "sign_in_required",
+  "tier_paused",
+  "owner_suspended",
   "body_too_large",
   "bad_request",
   "upstream_error",
@@ -74,6 +78,9 @@ const KNOWN_CODES = new Set<GatewayErrorCode>([
 const errorCodeOf = (body: unknown): GatewayErrorCode | null => {
   if (!body || typeof body !== "object") return null;
   const error = (body as { error?: unknown }).error;
+  if (typeof error === "string" && KNOWN_CODES.has(error as GatewayErrorCode)) {
+    return error as GatewayErrorCode;
+  }
   if (!error || typeof error !== "object") return null;
   const code = (error as { code?: unknown }).code;
   return typeof code === "string" && KNOWN_CODES.has(code as GatewayErrorCode)

@@ -131,6 +131,14 @@ export function registerCloudAgentRoutes(http: HttpRouter) {
         schedule?: unknown;
       };
       const action = body.action ?? "list";
+      const isAnonymous = auth.authority.claims.audience === "anonymous";
+      if (
+        isAnonymous &&
+        (action === "create" ||
+          (action === "update" && body.status === "active"))
+      ) {
+        return json({ error: "sign_in_required" }, 403);
+      }
       const now = Date.now();
       const requestId = body.requestId?.trim();
       if (
@@ -153,6 +161,7 @@ export function registerCloudAgentRoutes(http: HttpRouter) {
             internal.cloud_schedule.createScheduleInternal,
             {
               ownerId,
+              isAnonymous,
               ownerGeneration,
               requestId: requestId!,
               prompt: body.prompt,
@@ -179,6 +188,7 @@ export function registerCloudAgentRoutes(http: HttpRouter) {
             internal.cloud_schedule.updateScheduleInternal,
             {
               ownerId,
+              isAnonymous,
               ownerGeneration,
               requestId: requestId!,
               scheduleId: body.scheduleId,
@@ -236,8 +246,17 @@ export function registerCloudAgentRoutes(http: HttpRouter) {
         // The Schedule tool relays this text to the model verbatim, so the
         // readable ConvexError message has to survive the HTTP hop.
         return json(
-          { error: errorMessage(error) },
-          errorCode(error) === "IDEMPOTENCY_CONFLICT" ? 409 : 400,
+          {
+            error:
+              errorCode(error) === "SIGN_IN_REQUIRED"
+                ? "sign_in_required"
+                : errorMessage(error),
+          },
+          errorCode(error) === "SIGN_IN_REQUIRED"
+            ? 403
+            : errorCode(error) === "IDEMPOTENCY_CONFLICT"
+              ? 409
+              : 400,
         );
       }
     }),

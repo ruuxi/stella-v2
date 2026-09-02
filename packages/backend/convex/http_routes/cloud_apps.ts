@@ -87,6 +87,9 @@ export function registerCloudAppRoutes(http: HttpRouter) {
     handler: httpAction(async (ctx, request) => {
       const auth = await authorizeControlPlaneRequest(ctx, request);
       if (!auth.ok) return auth.response;
+      if (auth.authority.claims.audience === "anonymous") {
+        return json({ error: "sign_in_required" }, 403);
+      }
       const { ownerId, ownerGeneration, turnId } = auth.authority;
       const body = (await request.json().catch(() => ({}))) as {
         query?: string;

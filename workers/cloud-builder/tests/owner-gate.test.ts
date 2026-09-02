@@ -300,6 +300,68 @@ describe("OwnerGate admission", () => {
     ).toBe(true);
   });
 
+  test("anonymous owners may chat but cannot enter the agent lane, even with quota bypass", async () => {
+    const { instance } = open({
+      snapshot: sampleOwnerSnapshot({ isAnonymous: true }),
+    });
+    expect((await instance.admit(chat("anonymous-chat"))).ok).toBe(true);
+    await instance.release({ turnId: "anonymous-chat" });
+    for (const quota of ["enforce", "bypass"] as const) {
+      await expect(
+        instance.admit({
+          lane: "agent",
+          turnId: `anonymous-agent-${quota}`,
+          conversationId: "conversation-1",
+          workspace: "world",
+          quota,
+          now: NOW,
+        }),
+      ).resolves.toMatchObject({
+        ok: false,
+        code: "sign_in_required",
+        retryable: false,
+      });
+    }
+  });
+
+  test("maps a suspended owner to owner_suspended for turns and dispatches", async () => {
+    const snapshot = sampleOwnerSnapshot({
+      writable: false,
+      enforcement: { status: "suspended", reason: "manual review" },
+    });
+    const { instance } = open({ snapshot });
+    await expect(instance.admit(chat("suspended-chat"))).resolves.toMatchObject(
+      {
+        ok: false,
+        code: "owner_suspended",
+        retryable: false,
+      },
+    );
+    await expect(
+      instance.submit({
+        request: {
+          protocol: 1,
+          idempotencyKey: "suspended-dispatch",
+          kind: "chat",
+          ingress: "browser",
+          subject: "cloud",
+          conversationId: "conversation-1",
+          requiredCapabilities: ["chat"],
+          payload: {
+            schemaVersion: 1,
+            prompt: "hello",
+            conversationId: "conversation-1",
+            clientMsgId: "suspended-dispatch",
+          },
+        },
+        now: NOW,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "owner_suspended", retryable: false },
+    });
+  });
+
   test("refuses a non-writable owner and a definitely purged owner", async () => {
     const fenced = open({ snapshot: sampleOwnerSnapshot({ writable: false }) });
     expect(await fenced.instance.admit(chat("f1"))).toMatchObject({
@@ -563,6 +625,9 @@ describe("owner snapshot parsing", () => {
       { ...base, v: 2 },
       { ...base, ownerGeneration: "" },
       { ...base, writable: "yes" },
+      { ...base, isAnonymous: "yes" },
+      { ...base, enforcement: { status: "blocked" } },
+      { ...base, enforcement: { status: "suspended", until: "later" } },
       { ...base, plan: "enterprise" },
       { ...base, quotas: { chat: base.quotas.chat } },
       {

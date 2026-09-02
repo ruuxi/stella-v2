@@ -36,6 +36,10 @@ import {
   type OwnerSnapshot,
 } from "@stella/contracts/turn-plane/owner-snapshot";
 import {
+  OWNER_ENFORCEMENT_STATUSES,
+  type OwnerEnforcement,
+} from "@stella/contracts/gateway/usage";
+import {
   CLOUD_CAPABILITIES,
   DEVICE_PRESENCE_CLOSE,
   DEVICE_PRESENCE_MAX_FRAME_BYTES,
@@ -156,6 +160,8 @@ export type OwnerGateRefusalCode =
   | "quota_daily"
   | "quota_concurrency"
   | "owner_purged"
+  | "sign_in_required"
+  | "owner_suspended"
   | "generation_stale"
   | "internal";
 
@@ -368,6 +374,11 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
+const isOwnerEnforcementStatus = (
+  value: unknown,
+): value is OwnerEnforcement["status"] =>
+  OWNER_ENFORCEMENT_STATUSES.some((status) => status === value);
+
 const parseLaneQuota = (value: unknown): CloudLaneQuota | null => {
   if (!isRecord(value)) return null;
   if (
@@ -381,6 +392,25 @@ const parseLaneQuota = (value: unknown): CloudLaneQuota | null => {
     burstStarts: value.burstStarts,
     dailyTurns: value.dailyTurns,
     concurrent: value.concurrent,
+  };
+};
+
+const parseOwnerEnforcement = (value: unknown): OwnerEnforcement | null => {
+  if (!isRecord(value)) return null;
+  if (!isOwnerEnforcementStatus(value.status)) return null;
+  if (
+    value.until !== undefined &&
+    (typeof value.until !== "number" || !Number.isFinite(value.until))
+  ) {
+    return null;
+  }
+  if (value.reason !== undefined && typeof value.reason !== "string") {
+    return null;
+  }
+  return {
+    status: value.status,
+    ...(value.until !== undefined ? { until: value.until } : {}),
+    ...(value.reason !== undefined ? { reason: value.reason } : {}),
   };
 };
 
@@ -475,6 +505,12 @@ export const parseOwnerSnapshot = (
     return null;
   }
   if (typeof value.writable !== "boolean") return null;
+  if (typeof value.isAnonymous !== "boolean") return null;
+  const enforcement =
+    value.enforcement === undefined
+      ? undefined
+      : parseOwnerEnforcement(value.enforcement);
+  if (value.enforcement !== undefined && !enforcement) return null;
   const plan = value.plan;
   if (plan !== "free" && plan !== "go" && plan !== "pro") return null;
   if (typeof value.unlimited !== "boolean") return null;
@@ -535,6 +571,8 @@ export const parseOwnerSnapshot = (
     ownerId,
     ownerGeneration: value.ownerGeneration,
     writable: value.writable,
+    isAnonymous: value.isAnonymous,
+    ...(enforcement ? { enforcement } : {}),
     plan: plan as CloudPlanId,
     unlimited: value.unlimited,
     quotas: { chat, agent },
@@ -1304,10 +1342,24 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         false,
       );
     }
+    if (snapshot.enforcement?.status === "suspended") {
+      return refuse(
+        "owner_suspended",
+        "This account can't use Stella's cloud right now.",
+        false,
+      );
+    }
     if (!snapshot.writable) {
       return refuse(
         "owner_purged",
         "This account's cloud data is being reset or deleted.",
+        false,
+      );
+    }
+    if (input.lane === "agent" && snapshot.isAnonymous) {
+      return refuse(
+        "sign_in_required",
+        "Sign in to Stella to use cloud agents.",
         false,
       );
     }
@@ -2557,6 +2609,13 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       return fail(
         "generation_stale",
         "This cloud owner generation is no longer current.",
+        false,
+      );
+    }
+    if (snapshot.enforcement?.status === "suspended") {
+      return fail(
+        "owner_suspended",
+        "This account can't use Stella's cloud right now.",
         false,
       );
     }

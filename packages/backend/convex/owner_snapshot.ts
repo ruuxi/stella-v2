@@ -21,8 +21,12 @@ import {
   type CloudExecutionSelection,
 } from "./lib/cloud_execution";
 import { readOwnerDataAccessState } from "./owner_lifecycle";
+import { readOwnerEnforcement } from "./owner_enforcement";
 import { executionCapabilityValidator } from "./schema/execution_placement";
-import { managedModelAudienceValidator } from "./schema/gateway";
+import {
+  managedModelAudienceValidator,
+  ownerEnforcementValidator,
+} from "./schema/gateway";
 
 /**
  * The owner snapshot: the one control-plane read the cloud-builder's owner
@@ -72,7 +76,9 @@ export const ownerSnapshotValidator = v.object({
   v: v.literal(1),
   ownerId: v.string(),
   ownerGeneration: v.string(),
+  isAnonymous: v.boolean(),
   writable: v.boolean(),
+  enforcement: v.optional(ownerEnforcementValidator),
   plan: v.union(v.literal("free"), v.literal("go"), v.literal("pro")),
   unlimited: v.boolean(),
   quotas: v.object({ chat: laneQuotaValidator, agent: laneQuotaValidator }),
@@ -92,7 +98,9 @@ export const ownerSnapshotValidator = v.object({
 type OwnerSnapshotFields = {
   ownerId: string;
   ownerGeneration: string;
+  isAnonymous: boolean;
   writable: boolean;
+  enforcement?: OwnerSnapshot["enforcement"];
   plan: OwnerSnapshot["plan"];
   unlimited: boolean;
   quotas: OwnerSnapshot["quotas"];
@@ -106,7 +114,9 @@ type OwnerSnapshotFields = {
 const ownerSnapshotFieldsValidator = v.object({
   ownerId: v.string(),
   ownerGeneration: v.string(),
+  isAnonymous: v.boolean(),
   writable: v.boolean(),
+  enforcement: v.optional(ownerEnforcementValidator),
   plan: v.union(v.literal("free"), v.literal("go"), v.literal("pro")),
   unlimited: v.boolean(),
   quotas: v.object({ chat: laneQuotaValidator, agent: laneQuotaValidator }),
@@ -126,14 +136,15 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
   args: {
     ownerId: v.string(),
     isAnonymous: v.boolean(),
-    deviceId: v.optional(v.string()),
   },
   returns: ownerSnapshotFieldsValidator,
   handler: async (ctx, args): Promise<OwnerSnapshotFields> => {
     const ownerId = args.ownerId;
     const access = await readOwnerDataAccessState(ctx, ownerId);
     const migrationFenced = await hasOwnerMigrationWriteFence(ctx, ownerId);
-    const writable = access.allowed && !migrationFenced;
+    const enforcement = await readOwnerEnforcement(ctx, ownerId);
+    const writable =
+      access.allowed && !migrationFenced && enforcement.status !== "suspended";
     const { plan, quota, unlimited } = await resolveCloudPlan(ctx, ownerId);
     const lane = {
       burstStarts: quota.burstStarts,
@@ -145,7 +156,6 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
           ownerId,
           ownerGeneration: access.generation,
           isAnonymous: args.isAnonymous,
-          ...(args.deviceId ? { deviceId: args.deviceId } : {}),
         })
       : null;
     const allowance: OwnerSnapshot["allowance"] = resolvedAllowance
@@ -199,10 +209,17 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
     return {
       ownerId,
       ownerGeneration: access.generation,
+      isAnonymous: args.isAnonymous,
       writable,
+      ...(enforcement.status !== "ok" ? { enforcement } : {}),
       plan,
       unlimited,
-      quotas: { chat: lane, agent: lane },
+      quotas: {
+        chat: lane,
+        agent: args.isAnonymous
+          ? { burstStarts: 0, dailyTurns: 0, concurrent: 0 }
+          : lane,
+      },
       allowance,
       execution,
       pairedDevices: paired
@@ -243,19 +260,18 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
  * only the action-to-query bridge used by HTTP routes and change pushes.
  */
 export const getOwnerSnapshotInternal = internalAction({
-  args: {
-    ownerId: v.string(),
-    isAnonymous: v.boolean(),
-    deviceId: v.optional(v.string()),
-  },
+  args: { ownerId: v.string() },
   returns: ownerSnapshotValidator,
   handler: async (ctx, args): Promise<OwnerSnapshot> => {
+    const account = await resolveOwnerAccountAction(ctx, args.ownerId);
+    if (!account) {
+      throw new ConvexError("Owner account is unknown.");
+    }
     const fields: OwnerSnapshotFields = await ctx.runQuery(
       internal.owner_snapshot.getOwnerSnapshotFieldsInternal,
       {
         ownerId: args.ownerId,
-        isAnonymous: args.isAnonymous,
-        ...(args.deviceId ? { deviceId: args.deviceId } : {}),
+        isAnonymous: account.isAnonymous,
       },
     );
     return {
@@ -276,6 +292,7 @@ const changeReasonValidator = v.union(
   v.literal("engine"),
   v.literal("pairing"),
   v.literal("device"),
+  v.literal("enforcement"),
   v.literal("manual"),
 );
 
@@ -294,16 +311,9 @@ export const notifyOwnerSnapshotChanged = internalAction({
     if (!endpoint) return null;
     let snapshot: OwnerSnapshot | undefined;
     try {
-      const account = await resolveOwnerAccountAction(ctx, args.ownerId);
-      if (!account) {
-        throw new Error("Owner account is unknown.");
-      }
       snapshot = await ctx.runAction(
         internal.owner_snapshot.getOwnerSnapshotInternal,
-        {
-          ownerId: args.ownerId,
-          isAnonymous: account.isAnonymous,
-        },
+        { ownerId: args.ownerId },
       );
     } catch (error) {
       console.warn(

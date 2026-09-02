@@ -32,7 +32,6 @@ const CAPABILITY = "session-capability-jwt";
 
 const site = {
   baseUrl: STELLA_SITE,
-  deviceId: "device-shape",
   getAuthToken: () => STELLA_TOKEN,
 };
 
@@ -108,6 +107,89 @@ afterEach(() => {
 });
 
 describe("Stella gateway route shape", () => {
+  for (const exhaustion of [
+    { status: 402, code: "budget_exhausted" },
+    { status: 429, code: "request_limit" },
+  ]) {
+    it(`re-exchanges and retries once after ${exhaustion.code}`, async () => {
+      const calls: Array<{
+        url: string;
+        authorization: string | null;
+        requestId: string | null;
+        body: string;
+      }> = [];
+      let capabilityNumber = 0;
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        const request = new Request(input, init);
+        const body = await request.clone().text();
+        calls.push({
+          url: request.url,
+          authorization: request.headers.get("authorization"),
+          requestId: request.headers.get("x-stella-request-id"),
+          body,
+        });
+        if (request.url.endsWith("/v1/capabilities/session")) {
+          capabilityNumber += 1;
+          return jsonResponse({
+            capability: `capability-${capabilityNumber}`,
+            expiresAt: Date.now() + 60 * 60 * 1000,
+            audience: "pro",
+            budgetMicroCents: 1,
+          });
+        }
+        const relayCalls = calls.filter((call) =>
+          call.url.includes("/v1/relay/"),
+        );
+        return relayCalls.length === 1
+          ? new Response(
+              JSON.stringify({
+                error: {
+                  code: exhaustion.code,
+                  message: "capability spent",
+                  retryable: false,
+                },
+              }),
+              {
+                status: exhaustion.status,
+                headers: { "content-type": "application/json" },
+              },
+            )
+          : jsonResponse({ ok: true });
+      }) as typeof fetch;
+
+      const route = makeRoute("stella/openai/gpt-5.5")!;
+      const firstCapability = await route.getApiKey();
+      const response = await route.model.fetch!(`${RELAY}/responses`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${firstCapability}`,
+          "content-type": "application/json",
+          "x-stella-request-id": "request-stable",
+        },
+        body: JSON.stringify({ model: "stella/openai/gpt-5.5" }),
+      });
+
+      expect(response.ok).toBe(true);
+      const exchanges = calls.filter((call) =>
+        call.url.endsWith("/v1/capabilities/session"),
+      );
+      const relays = calls.filter((call) => call.url.includes("/v1/relay/"));
+      expect(exchanges).toHaveLength(2);
+      expect(relays.map((call) => call.authorization)).toEqual([
+        "Bearer capability-1",
+        "Bearer capability-2",
+      ]);
+      expect(relays.map((call) => call.requestId)).toEqual([
+        "request-stable",
+        "request-stable",
+      ]);
+      expect(relays[1]!.body).toBe(relays[0]!.body);
+    });
+  }
+
   it("Anthropic: baseUrl, api, provider, headers", () => {
     const route = makeRoute("stella/anthropic/claude-opus-4.7");
     expect(route).not.toBeNull();

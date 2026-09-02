@@ -22,6 +22,7 @@ export const sampleOwnerSnapshot = (
   ownerId: "owner-1",
   ownerGeneration: "generation-1",
   writable: true,
+  isAnonymous: false,
   plan: "pro",
   unlimited: false,
   quotas: {
@@ -166,9 +167,7 @@ export const fakeOwnerGates = (
 export type FakeOutbox = {
   queue: {
     send: (body: OutboxEvent) => Promise<void>;
-    sendBatch: (
-      messages: Iterable<{ body: OutboxEvent }>,
-    ) => Promise<void>;
+    sendBatch: (messages: Iterable<{ body: OutboxEvent }>) => Promise<void>;
   };
   events: OutboxEvent[];
   /** Number of `sendBatch` calls, to assert batching. */
@@ -216,7 +215,9 @@ export const fakeOutbox = (): FakeOutbox => {
  * admission. Generated once per test process: signing is exercised for real
  * (a malformed claim still fails) without paying for a key per test.
  */
-let signingEnv: { CAPABILITY_SIGNING_KEY: string; CAPABILITY_SIGNING_KID: string } | undefined;
+let signingEnv:
+  | { CAPABILITY_SIGNING_KEY: string; CAPABILITY_SIGNING_KID: string }
+  | undefined;
 
 export const capabilitySignerEnv = async (): Promise<{
   CAPABILITY_SIGNING_KEY: string;

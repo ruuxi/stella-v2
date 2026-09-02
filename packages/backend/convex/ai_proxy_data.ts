@@ -19,13 +19,13 @@ const CLIENT_ADDRESS_KEY_PATTERN = /^[0-9a-fA-F:.]+$/
 /**
  * Constant `deviceId` prefix for the per-network counter. Keyed on the
  * gateway's IP hash, it has no resettable per-install component, so it is the
- * durable ceiling that survives a local-data wipe (which mints a fresh
- * anonymous identity and therefore a fresh per-device counter).
+ * durable ceiling that spans the fresh anonymous owner identities created by
+ * local-data wipes.
  */
 export const ANON_IP_BUCKET_DEVICE_ID = 'anon-ip'
 
-/** An anonymous owner is its own trial device unless the caller names one. */
-export const anonymousTrialDeviceId = (ownerId: string): string =>
+/** Stable allowance key for one anonymous owner. */
+export const anonymousTrialOwnerKey = (ownerId: string): string =>
   `anon-jwt:${ownerId}`
 
 export const anonymousIpBucketDeviceId = (ipHash: string): string =>
@@ -137,6 +137,13 @@ export const readDeviceAllowance = async (
 export const consumeDeviceAllowanceAuthorized = async (
   ctx: MutationCtx,
   args: DeviceAllowanceArgs,
+): Promise<DeviceAllowanceResult> =>
+  await consumeDeviceAllowanceBulkAuthorized(ctx, { ...args, count: 1 })
+
+/** Atomically reserves several anonymous requests from one allowance bucket. */
+export const consumeDeviceAllowanceBulkAuthorized = async (
+  ctx: MutationCtx,
+  args: DeviceAllowanceArgs & { count: number },
 ): Promise<DeviceAllowanceResult> => {
   const maxRequests = clampIntToRange(
     args.maxRequests,
@@ -150,12 +157,13 @@ export const consumeDeviceAllowanceAuthorized = async (
     .unique()
 
   const now = Date.now()
-  let requestCount = 1
+  const count = clampIntToRange(args.count, 0, Number.MAX_SAFE_INTEGER)
+  let requestCount = count
   let firstRequestAt = now
 
   if (existing) {
     const stale = now - existing.lastRequestAt > ANON_DEVICE_USAGE_RETENTION_MS
-    requestCount = stale ? 1 : existing.requestCount + 1
+    requestCount = stale ? count : existing.requestCount + count
     firstRequestAt = stale ? now : existing.firstRequestAt
     await ctx.db.patch(existing._id, {
       requestCount,
@@ -178,6 +186,31 @@ export const consumeDeviceAllowanceAuthorized = async (
     firstRequestAt,
     lastRequestAt: now,
   }
+}
+
+/** Returns an unused anonymous reservation to its allowance bucket. */
+export const refundDeviceAllowanceAuthorized = async (
+  ctx: MutationCtx,
+  args: { deviceId: string; count: number; clientAddressKey?: string },
+): Promise<number> => {
+  const count = clampIntToRange(args.count, 0, Number.MAX_SAFE_INTEGER)
+  if (count === 0) return 0
+  const deviceHash = await hashDeviceId(args.deviceId, args.clientAddressKey)
+  const existing = await ctx.db
+    .query('anon_device_usage')
+    .withIndex('by_deviceId', (q) => q.eq('deviceId', deviceHash))
+    .unique()
+  if (!existing) return 0
+  const now = Date.now()
+  if (now - existing.lastRequestAt > ANON_DEVICE_USAGE_RETENTION_MS) {
+    return 0
+  }
+  const refunded = Math.min(existing.requestCount, count)
+  await ctx.db.patch(existing._id, {
+    requestCount: existing.requestCount - refunded,
+    lastRequestAt: now,
+  })
+  return refunded
 }
 
 export const consumeDeviceAllowance = internalMutation({

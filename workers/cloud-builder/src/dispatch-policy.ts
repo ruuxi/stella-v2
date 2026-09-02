@@ -148,8 +148,7 @@ export type DeviceRegistration = {
 export const hasCapabilities = (
   advertised: readonly ExecutionCapability[],
   required: readonly ExecutionCapability[],
-): boolean =>
-  required.every((capability) => advertised.includes(capability));
+): boolean => required.every((capability) => advertised.includes(capability));
 
 /**
  * Online, ready, protocol-current, capable, and holding a free slot of the
@@ -175,8 +174,7 @@ export const isEligibleDevice = (args: {
   if (!hasCapabilities(presence.capabilities, args.requiredCapabilities)) {
     return false;
   }
-  const slots =
-    args.kind === "chat" ? presence.chatSlots : presence.agentSlots;
+  const slots = args.kind === "chat" ? presence.chatSlots : presence.agentSlots;
   return slots > 0;
 };
 
@@ -239,7 +237,8 @@ export const parseDispatchPayload = (
     message,
   });
   if (!isRecord(value)) return fail("payload must be an object.");
-  if (value.schemaVersion !== 1) return fail("payload.schemaVersion must be 1.");
+  if (value.schemaVersion !== 1)
+    return fail("payload.schemaVersion must be 1.");
   const prompt = typeof value.prompt === "string" ? value.prompt.trim() : "";
   if (!prompt || prompt.length > MAX_DISPATCH_PROMPT_CHARS) {
     return fail(
@@ -449,6 +448,8 @@ export const DISPATCH_ERROR_STATUS: Record<DispatchErrorCode, number> = {
   quota_burst: 429,
   quota_daily: 429,
   quota_concurrency: 429,
+  sign_in_required: 403,
+  owner_suspended: 403,
   internal: 503,
 };
 

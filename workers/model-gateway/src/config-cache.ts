@@ -1,4 +1,9 @@
+import {
+  limitsAudienceFor,
+  type ManagedModelAudienceForLimits,
+} from "@stella/contracts/gateway/api";
 import type { GatewayConfigSnapshot } from "@stella/contracts/gateway/usage";
+import { isManagedModelAudience } from "@stella/contracts/gateway/capability";
 import type { TokenPriceConfig } from "@stella/model-catalog/pricing";
 import type { ConvexClient } from "./convex-client.js";
 import { GatewayError } from "./errors.js";
@@ -14,6 +19,11 @@ export const CONFIG_TTL_MS = 5 * 60_000;
 export type GatewayConfig = {
   snapshot: GatewayConfigSnapshot;
   fetchedAt: number;
+  anonymous: { maxRequestsPerOwner: number | null };
+  tierCeilings: ReadonlyMap<
+    ManagedModelAudienceForLimits,
+    { hourlyMicroCents: number; dailyMicroCents: number }
+  >;
   priceFor(model: string): TokenPriceConfig | null;
 };
 
@@ -46,9 +56,40 @@ const indexPrices = (
       reasoningPerMillionUsd: price.reasoningPerMillionUsd,
     });
   }
+  const tierCeilings = new Map<
+    ManagedModelAudienceForLimits,
+    { hourlyMicroCents: number; dailyMicroCents: number }
+  >();
+  if (Array.isArray(snapshot.tierCeilings)) {
+    for (const ceiling of snapshot.tierCeilings) {
+      if (
+        !ceiling ||
+        !isManagedModelAudience(ceiling.audience) ||
+        typeof ceiling.hourlyMicroCents !== "number" ||
+        !Number.isFinite(ceiling.hourlyMicroCents) ||
+        typeof ceiling.dailyMicroCents !== "number" ||
+        !Number.isFinite(ceiling.dailyMicroCents)
+      ) {
+        continue;
+      }
+      tierCeilings.set(limitsAudienceFor(ceiling.audience), {
+        hourlyMicroCents: Math.round(ceiling.hourlyMicroCents),
+        dailyMicroCents: Math.round(ceiling.dailyMicroCents),
+      });
+    }
+  }
+  const maxRequestsPerOwner = snapshot.anonymous?.maxRequestsPerOwner;
   return {
     snapshot,
     fetchedAt: now,
+    anonymous: {
+      maxRequestsPerOwner:
+        typeof maxRequestsPerOwner === "number" &&
+        Number.isFinite(maxRequestsPerOwner)
+          ? Math.max(0, Math.floor(maxRequestsPerOwner))
+          : null,
+    },
+    tierCeilings,
     priceFor: (model) => prices.get(model) ?? null,
   };
 };

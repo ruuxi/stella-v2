@@ -62,6 +62,8 @@ const FALLBACK_MESSAGES: Record<DispatchErrorCode, string> = {
   quota_daily: "You've reached today's cloud chat limit. Try again tomorrow.",
   quota_concurrency:
     "Stella is still working on an earlier turn. Wait for it to finish, then try again.",
+  sign_in_required: "Sign in to Stella to use cloud agents.",
+  owner_suspended: "This account can't use Stella's cloud right now.",
   internal: "That didn't send. Try again.",
 };
 
@@ -112,7 +114,11 @@ export class PlacementClientError extends Error {
   }
 
   get isAuth(): boolean {
-    return this.code === "unauthorized" || this.code === "forbidden";
+    return (
+      this.code === "unauthorized" ||
+      this.code === "forbidden" ||
+      this.code === "sign_in_required"
+    );
   }
 }
 
@@ -185,7 +191,8 @@ const toClientError = async (
   const status = response.status;
   const code = body?.code ?? codeForStatus(status);
   const retryAfterMs =
-    body?.retryAfterMs ?? (status === 429 ? retryAfterHeaderMs(response) : null);
+    body?.retryAfterMs ??
+    (status === 429 ? retryAfterHeaderMs(response) : null);
   return new PlacementClientError({
     code,
     status,
@@ -237,9 +244,7 @@ const requestOnce = async (
             ? {}
             : { "content-type": "application/json" }),
         },
-        ...(args.body === undefined
-          ? {}
-          : { body: JSON.stringify(args.body) }),
+        ...(args.body === undefined ? {} : { body: JSON.stringify(args.body) }),
         signal: AbortSignal.timeout(PLACEMENT_REQUEST_TIMEOUT_MS),
       },
     );
@@ -280,9 +285,7 @@ const placementRequest = async (
   return response;
 };
 
-const readDispatch = async (
-  response: Response,
-): Promise<DispatchSummary> => {
+const readDispatch = async (response: Response): Promise<DispatchSummary> => {
   let payload: unknown;
   try {
     payload = await response.json();

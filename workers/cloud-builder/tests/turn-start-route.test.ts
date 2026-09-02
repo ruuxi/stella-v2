@@ -107,10 +107,12 @@ const environment = (
     ownerId: string;
     snapshot: ReturnType<typeof sampleOwnerSnapshot>;
   }> = [];
+  const submissions: unknown[] = [];
   return {
     forwarded,
     invalidated,
     replaced,
+    submissions,
     env: {
       BUILDER_SERVICE_SECRET: SERVICE_SECRET,
       STELLA_CONVEX_SITE_URL: ISSUER,
@@ -127,6 +129,28 @@ const environment = (
       },
       OWNER_GATES: {
         getByName: (ownerId: string) => ({
+          submit: async (input: unknown) => {
+            submissions.push({ ownerId, input });
+            return {
+              ok: true,
+              response: {
+                protocol: 1,
+                dispatch: {
+                  dispatchId: "dispatch-1",
+                  idempotencyKey: "agent-dispatch-1",
+                  kind: "agent",
+                  ingress: "browser",
+                  subject: "cloud",
+                  conversationId: "conversation-1",
+                  state: "cloud_committed",
+                  revision: 1,
+                  createdAt: Date.now(),
+                  updatedAt: Date.now(),
+                },
+                replayed: false,
+              },
+            };
+          },
           invalidate: async () => {
             invalidated.push(ownerId);
           },
@@ -195,6 +219,22 @@ describe("POST /conversations/:id/turns", () => {
     expect(request.headers.get("authorization")).toBeNull();
     expect(JSON.parse(body)).toEqual(
       validBody({ locale: "es", attachments: ["Photos/a.png"] }),
+    );
+  });
+
+  test("allows an anonymous JWT to start a chat-lane turn", async () => {
+    const { env, forwarded } = environment();
+    const response = await worker.fetch(
+      post(validBody(), {
+        authorization: `Bearer ${await userJwt({ isAnonymous: true })}`,
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(response.status).toBe(202);
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0]!.request.headers.get(HEADER_TURN_AUTH_KIND)).toBe(
+      "user",
     );
   });
 
@@ -426,6 +466,50 @@ describe("POST /conversations/:id/turns", () => {
     expect(response.status).toBe(429);
     expect(response.headers.get("retry-after")).toBe("4");
     expect((await errorBody(response)).error.code).toBe("quota_burst");
+  });
+});
+
+describe("POST /owners/me/dispatches", () => {
+  test("refuses an anonymous agent dispatch before addressing the owner gate", async () => {
+    const { env, submissions } = environment();
+    const response = await worker.fetch(
+      new Request("https://builder.example/owners/me/dispatches", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${await userJwt({ isAnonymous: true })}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          protocol: 1,
+          idempotencyKey: "agent-dispatch-1",
+          kind: "agent",
+          ingress: "browser",
+          subject: "cloud",
+          targetMode: "cloud",
+          conversationId: "conversation-1",
+          threadId: "thread-1",
+          requiredCapabilities: ["agent"],
+          payload: {
+            schemaVersion: 1,
+            prompt: "Research this",
+            conversationId: "conversation-1",
+            clientMsgId: "agent-dispatch-1",
+            description: "Research this",
+          },
+        }),
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(response.status).toBe(403);
+    expect(await errorBody(response)).toEqual({
+      error: {
+        code: "sign_in_required",
+        message: "Sign in to Stella to use cloud agents.",
+        retryable: false,
+      },
+    });
+    expect(submissions).toHaveLength(0);
   });
 });
 

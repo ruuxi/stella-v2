@@ -115,6 +115,9 @@ const waitForAutomaticRetry = (signal?: AbortSignal) =>
   });
 
 const isPermanentAutomaticAdmissionError = (error: unknown) => {
+  const code =
+    error && typeof error === "object" ? Reflect.get(error, "code") : null;
+  if (code === "sign_in_required" || code === "owner_suspended") return true;
   const message = error instanceof Error ? error.message : String(error);
   return /authentication required|sign in|signed-in account|ownership_migrated|linked to (?:an|another) account|being linked|owner generation|account data is currently|invalid|unsupported|not found|not paired|conflict|payload|conversation|malformed|different (?:dispatch|message) identity/i.test(
     message,

@@ -25,6 +25,7 @@ const schedule = (
         "mutation",
         "internal",
         ScheduleArgs & {
+          isAnonymous: boolean;
           prompt: string;
           schedule:
             | { kind: "at"; atMs: number }
@@ -39,6 +40,7 @@ const schedule = (
         "mutation",
         "internal",
         ScheduleArgs & {
+          isAnonymous: boolean;
           scheduleId: string;
           prompt?: string;
           schedule?:
@@ -78,6 +80,7 @@ const seedLifecycle = async (t: ReturnType<typeof createTest>) => {
 const createArgs = {
   ownerId: OWNER,
   ownerGeneration: GENERATION,
+  isAnonymous: false,
   requestId: "schedule-request-create",
   prompt: "Check the weekly report.",
   description: "Check weekly report",
@@ -160,7 +163,8 @@ describe("cloud schedule mutation receipts", () => {
       );
       expect(conflict.status).toBe(409);
       await expect(conflict.json()).resolves.toEqual({
-        error: "Schedule request id was already used for a different operation.",
+        error:
+          "Schedule request id was already used for a different operation.",
       });
     } finally {
       if (previousJwks === undefined) {
@@ -174,19 +178,26 @@ describe("cloud schedule mutation receipts", () => {
   it("replays update and remove outcomes exactly", async () => {
     const t = createTest();
     await seedLifecycle(t);
-    const created = await t.mutation(schedule.createScheduleInternal, createArgs);
+    const created = await t.mutation(
+      schedule.createScheduleInternal,
+      createArgs,
+    );
     const scheduleId = (
       JSON.parse(created.resultJson) as { schedule: { scheduleId: string } }
     ).schedule.scheduleId;
     const updateArgs = {
       ownerId: OWNER,
       ownerGeneration: GENERATION,
+      isAnonymous: false,
       requestId: "schedule-request-update",
       scheduleId,
       status: "active",
       now: 5_000,
     };
-    const updated = await t.mutation(schedule.updateScheduleInternal, updateArgs);
+    const updated = await t.mutation(
+      schedule.updateScheduleInternal,
+      updateArgs,
+    );
     const updateReplay = await t.mutation(schedule.updateScheduleInternal, {
       ...updateArgs,
       now: 995_000,
@@ -203,7 +214,10 @@ describe("cloud schedule mutation receipts", () => {
       scheduleId,
       now: 6_000,
     };
-    const removed = await t.mutation(schedule.removeScheduleInternal, removeArgs);
+    const removed = await t.mutation(
+      schedule.removeScheduleInternal,
+      removeArgs,
+    );
     const removeReplay = await t.mutation(schedule.removeScheduleInternal, {
       ...removeArgs,
       now: 7_000,
@@ -242,5 +256,71 @@ describe("cloud schedule mutation receipts", () => {
         .collect(),
     );
     expect(receipts).toHaveLength(1);
+  });
+
+  it("requires sign-in to create or activate a schedule", async () => {
+    const t = createTest();
+    await seedLifecycle(t);
+    await expect(
+      t.mutation(schedule.createScheduleInternal, {
+        ...createArgs,
+        isAnonymous: true,
+      }),
+    ).rejects.toMatchObject({ data: { code: "SIGN_IN_REQUIRED" } });
+    const created = await t.mutation(
+      schedule.createScheduleInternal,
+      createArgs,
+    );
+    const scheduleId = (
+      JSON.parse(created.resultJson) as { schedule: { scheduleId: string } }
+    ).schedule.scheduleId;
+    await expect(
+      t.mutation(schedule.updateScheduleInternal, {
+        ownerId: OWNER,
+        ownerGeneration: GENERATION,
+        isAnonymous: true,
+        requestId: "anonymous-schedule-activate",
+        scheduleId,
+        status: "active",
+        now: 2_000,
+      }),
+    ).rejects.toMatchObject({ data: { code: "SIGN_IN_REQUIRED" } });
+
+    const previousJwks = process.env.CAPABILITY_JWKS;
+    const signer = await createControlPlaneSigner("anonymous-schedule-kid");
+    process.env.CAPABILITY_JWKS = signer.jwksJson;
+    const capability = await signer.mint({
+      ownerId: OWNER,
+      ownerGeneration: GENERATION,
+      turnId: "turn:anonymous-schedule",
+      conversationId: "conversation:anonymous-schedule",
+      agentTypes: ["orchestrator"],
+      modelAudience: "anonymous",
+    });
+    try {
+      const response = await t.fetch("/api/cloud/schedule", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${capability}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          requestId: "anonymous-schedule-create",
+          action: "create",
+          prompt: "Run later",
+          schedule: { kind: "every", everyMs: 900_000 },
+        }),
+      });
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({
+        error: "sign_in_required",
+      });
+    } finally {
+      if (previousJwks === undefined) {
+        delete process.env.CAPABILITY_JWKS;
+      } else {
+        process.env.CAPABILITY_JWKS = previousJwks;
+      }
+    }
   });
 });

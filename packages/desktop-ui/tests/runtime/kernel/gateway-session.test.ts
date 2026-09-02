@@ -18,23 +18,30 @@ const jwtFor = (claims: Record<string, unknown>) => {
   return `header.${payload}.signature`;
 };
 
-type ExchangeCall = { url: string; authorization: string | null; body: unknown };
+type ExchangeCall = {
+  url: string;
+  authorization: string | null;
+  body: unknown;
+};
 
 const exchangeFetch = (
   respond: (call: ExchangeCall, index: number) => Response | Promise<Response>,
 ) => {
   const calls: ExchangeCall[] = [];
-  const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input.toString();
-    const headers = new Headers(init?.headers as HeadersInit | undefined);
-    const call = {
-      url,
-      authorization: headers.get("authorization"),
-      body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
-    };
-    calls.push(call);
-    return respond(call, calls.length - 1);
-  }) as unknown as typeof fetch;
+  const fetchImpl = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const headers = new Headers(init?.headers as HeadersInit | undefined);
+      const call = {
+        url,
+        authorization: headers.get("authorization"),
+        body:
+          typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+      };
+      calls.push(call);
+      return respond(call, calls.length - 1);
+    },
+  ) as unknown as typeof fetch;
   return { calls, fetchImpl };
 };
 
@@ -55,9 +62,16 @@ afterEach(() => {
 
 describe("gateway origin memory", () => {
   it("normalizes and remembers the catalog-advertised origin per site", () => {
-    rememberStellaGatewayOrigin("https://stella.example.test/api/stella/models", `${GATEWAY}/`);
-    expect(getRememberedStellaGatewayOrigin("https://stella.example.test")).toBe(GATEWAY);
-    expect(getRememberedStellaGatewayOrigin("https://other.example.test")).toBeNull();
+    rememberStellaGatewayOrigin(
+      "https://stella.example.test/api/stella/models",
+      `${GATEWAY}/`,
+    );
+    expect(
+      getRememberedStellaGatewayOrigin("https://stella.example.test"),
+    ).toBe(GATEWAY);
+    expect(
+      getRememberedStellaGatewayOrigin("https://other.example.test"),
+    ).toBeNull();
     expect(getRememberedStellaGatewayOrigin(null)).toBeNull();
   });
 
@@ -67,10 +81,12 @@ describe("gateway origin memory", () => {
     expect(normalizeGatewayOrigin(`${GATEWAY}?x=1`)).toBeNull();
     expect(normalizeGatewayOrigin("")).toBeNull();
     expect(normalizeGatewayOrigin(42)).toBeNull();
-    expect(normalizeGatewayOrigin(`${GATEWAY}/prefix/`)).toBe(`${GATEWAY}/prefix`);
-    expect(() => rememberStellaGatewayOrigin("https://stella.example.test", "nope")).toThrow(
-      /invalid stella model gateway origin/i,
+    expect(normalizeGatewayOrigin(`${GATEWAY}/prefix/`)).toBe(
+      `${GATEWAY}/prefix`,
     );
+    expect(() =>
+      rememberStellaGatewayOrigin("https://stella.example.test", "nope"),
+    ).toThrow(/invalid stella model gateway origin/i);
   });
 });
 
@@ -78,11 +94,12 @@ describe("session capability cache", () => {
   it("exchanges the Better Auth JWT once and caches until 60 s before expiry", async () => {
     let now = 1_000_000;
     const expiresAt = now + 10 * 60_000;
-    const { calls, fetchImpl } = exchangeFetch(() => capabilityResponse("cap-1", expiresAt));
+    const { calls, fetchImpl } = exchangeFetch(() =>
+      capabilityResponse("cap-1", expiresAt),
+    );
     const client = createGatewaySessionClient({
       gatewayOrigin: () => GATEWAY,
       getAuthToken: () => jwtFor({ sub: "user-1", exp: 9_999_999_999 }),
-      deviceId: "device-1",
       fetch: fetchImpl,
       now: () => now,
     });
@@ -93,7 +110,7 @@ describe("session capability cache", () => {
     expect(calls[0]).toEqual({
       url: `${GATEWAY}/v1/capabilities/session`,
       authorization: `Bearer ${jwtFor({ sub: "user-1", exp: 9_999_999_999 })}`,
-      body: { deviceId: "device-1" },
+      body: {},
     });
 
     // Just inside the refresh skew: still cached.
@@ -111,7 +128,11 @@ describe("session capability cache", () => {
     const { calls, fetchImpl } = exchangeFetch(
       () =>
         new Promise((resolve) =>
-          setTimeout(() => resolve(capabilityResponse("cap-shared", Date.now() + 3_600_000)), 5),
+          setTimeout(
+            () =>
+              resolve(capabilityResponse("cap-shared", Date.now() + 3_600_000)),
+            5,
+          ),
         ),
     );
     const make = () =>
@@ -175,7 +196,11 @@ describe("session capability cache", () => {
         ? capabilityResponse("cap-fresh", Date.now() + 3_600_000)
         : new Response(
             JSON.stringify({
-              error: { code: "unauthorized", message: "bad jwt", retryable: false },
+              error: {
+                code: "unauthorized",
+                message: "bad jwt",
+                retryable: false,
+              },
             }),
             { status: 401, headers: { "content-type": "application/json" } },
           ),
@@ -201,7 +226,11 @@ describe("session capability cache", () => {
       () =>
         new Response(
           JSON.stringify({
-            error: { code: "generation_stale", message: "sign in again", retryable: false },
+            error: {
+              code: "generation_stale",
+              message: "sign in again",
+              retryable: false,
+            },
           }),
           { status: 403, headers: { "content-type": "application/json" } },
         ),
@@ -232,7 +261,9 @@ describe("session capability cache", () => {
       fetch: fetchImpl,
     });
 
-    await expect(client.getCapability()).rejects.toThrow(/malformed session capability/i);
+    await expect(client.getCapability()).rejects.toThrow(
+      /malformed session capability/i,
+    );
   });
 
   it("returns undefined without a JWT and fails closed without a gateway origin", async () => {

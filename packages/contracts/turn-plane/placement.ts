@@ -189,6 +189,9 @@ export type DispatchErrorCode =
   | "quota_burst"
   | "quota_daily"
   | "quota_concurrency"
+  /** Anonymous owners may not dispatch agent work; sign in to continue. */
+  | "sign_in_required"
+  | "owner_suspended"
   | "internal";
 
 export type DispatchError = {

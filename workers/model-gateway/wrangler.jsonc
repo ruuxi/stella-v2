@@ -57,12 +57,34 @@
         "name": "CAPABILITY_LEDGER",
         "class_name": "CapabilityLedger",
       },
+      {
+        "name": "OWNER_RELAY_GATE",
+        "class_name": "OwnerRelayGate",
+      },
+      {
+        "name": "NETWORK_GATE",
+        "class_name": "NetworkGate",
+      },
+      {
+        "name": "TIER_BUDGET",
+        "class_name": "TierBudget",
+      },
     ],
   },
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["CapabilityLedger"],
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["OwnerRelayGate", "NetworkGate", "TierBudget"],
+    },
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "OWNER_ENFORCEMENT",
+      "id": "REPLACE_ME_DEV",
     },
   ],
   "queues": {
@@ -127,12 +149,34 @@
             "name": "CAPABILITY_LEDGER",
             "class_name": "CapabilityLedger",
           },
+          {
+            "name": "OWNER_RELAY_GATE",
+            "class_name": "OwnerRelayGate",
+          },
+          {
+            "name": "NETWORK_GATE",
+            "class_name": "NetworkGate",
+          },
+          {
+            "name": "TIER_BUDGET",
+            "class_name": "TierBudget",
+          },
         ],
       },
       "migrations": [
         {
           "tag": "v1",
           "new_sqlite_classes": ["CapabilityLedger"],
+        },
+        {
+          "tag": "v2",
+          "new_sqlite_classes": ["OwnerRelayGate", "NetworkGate", "TierBudget"],
+        },
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "OWNER_ENFORCEMENT",
+          "id": "REPLACE_ME_PROD",
         },
       ],
       "queues": {

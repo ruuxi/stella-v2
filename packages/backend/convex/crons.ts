@@ -133,6 +133,12 @@ crons.interval(
   { batchSize: 1000 },
 );
 crons.interval(
+  "release expired gateway capability grants",
+  { minutes: 10 },
+  internal.gateway_capabilities.releaseExpiredGatewayCapabilityGrantsInternal,
+  {},
+);
+crons.interval(
   "purge expired x oauth states",
   { hours: 1 },
   internal.data.integrations.purgeExpiredXOAuthStates,

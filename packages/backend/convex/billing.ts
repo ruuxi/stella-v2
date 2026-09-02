@@ -22,6 +22,7 @@ import {
 import { getMonthlyBounds, getWeekBounds } from "./lib/billing_date";
 import {
   findPlanForStripePriceId,
+  getAnonymousPlanConfig,
   getPlanCatalog,
   getPlanConfig,
   getStripeGoFirstMonthCouponId,
@@ -101,7 +102,6 @@ import {
 } from "./stripe_operation_dispatch";
 import {
   anonymousIpBucketDeviceId,
-  anonymousTrialDeviceId,
   consumeDeviceAllowanceAuthorized,
 } from "./ai_proxy_data";
 import {
@@ -702,6 +702,7 @@ const createDefaultUsage = (ownerId: string, now: number) => {
     monthlyUsageMicroCents: 0,
     monthlyWindowStartedAt: month.start.getTime(),
     totalUsageMicroCents: 0,
+    totalRequestCount: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -909,9 +910,12 @@ const buildUsageSnapshot = (args: {
     totalUsageMicroCents: number;
   };
   plan: SubscriptionPlan;
+  isAnonymous?: boolean;
   now: number;
 }): UsageSnapshot => {
-  const planConfig = getPlanConfig(args.plan);
+  const planConfig = args.isAnonymous
+    ? getAnonymousPlanConfig()
+    : getPlanConfig(args.plan);
   const nowDate = new Date(args.now);
 
   const rollingWindowMs = Math.max(
@@ -6274,6 +6278,7 @@ const resolveManagedModelAllowanceFromBillingState = (args: {
     profile: args.profile,
     usage: args.usage,
     plan,
+    isAnonymous: args.isAnonymous,
     now: args.now,
   });
   const reservedMicroCents = unlimited
@@ -6594,6 +6599,7 @@ const gatewayUsageOutcomeValidator = v.union(
 /** The subset of `GatewayUsageEvent` the ledger needs; the route projects onto it. */
 export const gatewayUsageEventValidator = v.object({
   requestId: v.string(),
+  capabilityId: v.string(),
   ownerId: v.string(),
   ownerGeneration: v.string(),
   audience: managedModelAudienceValidator,
@@ -6616,7 +6622,6 @@ export const gatewayUsageEventValidator = v.object({
   billable: v.boolean(),
   anonymous: v.optional(
     v.object({
-      deviceId: v.optional(v.string()),
       ipHash: v.optional(v.string()),
     }),
   ),
@@ -6670,28 +6675,21 @@ const resolveGatewayUsageConversationId = async (
 };
 
 /**
- * Anonymous trials are metered by request, not money: bump the per-device
- * counter (the anonymous identity itself when the gateway named no device)
- * and the per-network bucket. Missing salt disables counting, never billing.
+ * Anonymous owner requests were reserved when the capability was minted.
+ * Settlement only consumes the network bucket. Missing salt disables that
+ * network count, never monetary billing.
  */
 const consumeGatewayAnonymousAllowance = async (
   ctx: MutationCtx,
   event: GatewayUsageEventInput,
 ) => {
-  const deviceId =
-    event.anonymous?.deviceId?.trim() || anonymousTrialDeviceId(event.ownerId);
   const ipHash = event.anonymous?.ipHash?.trim();
+  if (!ipHash) return;
   try {
     await consumeDeviceAllowanceAuthorized(ctx, {
-      deviceId,
-      maxRequests: getMaxAnonRequests(),
+      deviceId: anonymousIpBucketDeviceId(ipHash),
+      maxRequests: getMaxAnonRequestsPerIp(),
     });
-    if (ipHash) {
-      await consumeDeviceAllowanceAuthorized(ctx, {
-        deviceId: anonymousIpBucketDeviceId(ipHash),
-        maxRequests: getMaxAnonRequestsPerIp(),
-      });
-    }
   } catch (error) {
     if (!isAnonDeviceHashSaltMissingError(error)) throw error;
     logMissingSaltOnce("gateway-usage");
@@ -6702,8 +6700,8 @@ const consumeGatewayAnonymousAllowance = async (
  * Ledger write for model-gateway usage events. Idempotent on `requestId`
  * through `gateway_usage_receipts`: the receipt and the charge share one
  * transaction, so a retried batch can never bill twice. Failed and
- * non-billable events only leave a receipt; anonymous events consume the
- * trial counters; everything else charges exactly what the gateway settled.
+ * non-billable events only leave a receipt. Billable anonymous events charge
+ * the same monetary windows as every other owner and consume the IP bucket.
  */
 export const ingestGatewayUsageBatchInternal = internalMutation({
   args: {
@@ -6742,10 +6740,27 @@ export const ingestGatewayUsageBatchInternal = internalMutation({
         continue;
       }
 
+      const grant = await ctx.db
+        .query("gateway_capability_grants")
+        .withIndex("by_jti", (q) => q.eq("jti", event.capabilityId))
+        .unique();
+      if (
+        grant &&
+        (grant.ownerId !== event.ownerId ||
+          grant.ownerGeneration !== event.ownerGeneration)
+      ) {
+        rejected.push({
+          requestId: event.requestId,
+          reason: "capability_owner_mismatch",
+        });
+        continue;
+      }
+
       const chargeable = event.billable && event.outcome !== "failed";
-      if (chargeable && event.audience === "anonymous") {
-        await consumeGatewayAnonymousAllowance(ctx, event);
-      } else if (chargeable) {
+      if (chargeable) {
+        if (event.audience === "anonymous") {
+          await consumeGatewayAnonymousAllowance(ctx, event);
+        }
         const inputTokens = toNonNegativeInt(event.usage.inputTokens);
         const outputTokens = toNonNegativeInt(event.usage.outputTokens);
         await persistManagedUsage(ctx, {
@@ -6767,6 +6782,14 @@ export const ingestGatewayUsageBatchInternal = internalMutation({
           cacheWriteInputTokens: event.usage.cacheWriteTokens,
           reasoningTokens: event.usage.reasoningTokens,
           costMicroCents: event.chargedMicroCents,
+        });
+      }
+
+      if (grant) {
+        await ctx.db.patch(grant._id, {
+          settledMicroCents:
+            grant.settledMicroCents + toNonNegativeInt(event.chargedMicroCents),
+          settledRequests: grant.settledRequests + 1,
         });
       }
 
@@ -6968,6 +6991,77 @@ export const syncManagedModelPricesFromModelsDev = internalAction({
   },
 });
 
+const adminBillingWindowValidator = v.object({
+  usedMicroCents: v.number(),
+  limitMicroCents: v.number(),
+  remainingMicroCents: v.union(v.number(), v.null()),
+  resetAt: v.number(),
+});
+
+export const getOwnerBillingWindowSummaryInternal = internalQuery({
+  args: { ownerId: v.string(), isAnonymous: v.boolean() },
+  returns: v.object({
+    plan: planValidator,
+    unlimited: v.boolean(),
+    creditMicroCents: v.number(),
+    reservedMicroCents: v.number(),
+    totalUsageMicroCents: v.number(),
+    totalRequestCount: v.number(),
+    rolling: adminBillingWindowValidator,
+    weekly: adminBillingWindowValidator,
+    monthly: adminBillingWindowValidator,
+    lifetime: v.union(adminBillingWindowValidator, v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const { profile, usage } = await readBillingRecordsForOwner(
+      ctx,
+      args.ownerId,
+      now,
+    );
+    const plan = profile.activePlan as SubscriptionPlan;
+    const unlimited = hasUnlimitedUsage(profile);
+    const snapshot = buildUsageSnapshot({
+      profile,
+      usage,
+      plan,
+      isAnonymous: args.isAnonymous,
+      now,
+    });
+    const credit = unlimited
+      ? 0
+      : getUsageCreditBalanceMicroCents(
+          await getOwnerUsageCreditRow(ctx, args.ownerId),
+        );
+    const reserved = unlimited
+      ? 0
+      : activeManagedUsageReservationMicroCents(usage);
+    const project = (window: UsageSnapshot["rolling"]) => ({
+      usedMicroCents: window.used,
+      limitMicroCents: window.limit,
+      remainingMicroCents: unlimited
+        ? null
+        : Math.max(
+            0,
+            Math.max(0, window.limit - window.used) + credit - reserved,
+          ),
+      resetAt: window.resetAt,
+    });
+    return {
+      plan,
+      unlimited,
+      creditMicroCents: credit,
+      reservedMicroCents: reserved,
+      totalUsageMicroCents: Math.max(0, usage.totalUsageMicroCents),
+      totalRequestCount: toNonNegativeInt(usage.totalRequestCount),
+      rolling: project(snapshot.rolling),
+      weekly: project(snapshot.weekly),
+      monthly: project(snapshot.monthly),
+      lifetime: snapshot.lifetime ? project(snapshot.lifetime) : null,
+    };
+  },
+});
+
 /**
  * Public subscription/usage snapshot.
  *
@@ -6995,9 +7089,9 @@ export const getSubscriptionStatus = query({
       pro: planCatalog.pro,
     };
 
-    if (!identity || isAnonymousIdentity(identity)) {
+    if (!identity) {
       return {
-        authenticated: Boolean(identity),
+        authenticated: false,
         isAnonymous: true,
         plan: "free" as SubscriptionPlan,
         subscriptionStatus: "none",
@@ -7015,6 +7109,7 @@ export const getSubscriptionStatus = query({
     }
 
     const ownerId = identity.tokenIdentifier;
+    const isAnonymous = isAnonymousIdentity(identity);
     const [profile, usage] = await Promise.all([
       ctx.db
         .query("billing_profiles")
@@ -7034,7 +7129,9 @@ export const getSubscriptionStatus = query({
       profile ?? createDefaultProfile(ownerId, fallbackNow);
     const normalizedUsage = usage ?? createDefaultUsage(ownerId, fallbackNow);
     const plan = normalizedProfile.activePlan as SubscriptionPlan;
-    const planConfig = getPlanConfig(plan);
+    const planConfig = isAnonymous
+      ? getAnonymousPlanConfig()
+      : getPlanConfig(plan);
 
     const usageSection =
       args.now !== undefined
@@ -7043,6 +7140,7 @@ export const getSubscriptionStatus = query({
               profile: normalizedProfile,
               usage: normalizedUsage,
               plan,
+              isAnonymous,
               now: args.now!,
             });
             return {
@@ -7092,7 +7190,7 @@ export const getSubscriptionStatus = query({
 
     return {
       authenticated: true,
-      isAnonymous: isAnonymousIdentity(identity),
+      isAnonymous,
       plan,
       subscriptionStatus: normalizedProfile.subscriptionStatus,
       cancelAtPeriodEnd: normalizedProfile.cancelAtPeriodEnd,
@@ -7101,7 +7199,14 @@ export const getSubscriptionStatus = query({
           ? normalizedProfile.currentPeriodEnd
           : null,
       usage: usageSection,
-      usagePolicy: { kind: "managed_cost" as const },
+      usagePolicy: isAnonymous
+        ? {
+            kind: "anonymous_requests" as const,
+            requestLimit: getMaxAnonRequests(),
+            perIpRequestLimit: getMaxAnonRequestsPerIp(),
+            resetAfterInactivityDays: ANON_DEVICE_USAGE_RETENTION_DAYS,
+          }
+        : { kind: "managed_cost" as const },
       plans,
     };
   },

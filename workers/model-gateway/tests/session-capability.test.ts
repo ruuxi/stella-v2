@@ -107,6 +107,7 @@ const sessionRequest = (token: string | null, body?: unknown) =>
     method: "POST",
     headers: {
       "content-type": "application/json",
+      "cf-connecting-ip": "203.0.113.10",
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -120,9 +121,7 @@ describe("POST /v1/capabilities/session", () => {
 
   test("exchanges a Better Auth JWT for a session capability, verbatim from Convex", async () => {
     const token = await signJwt(validPayload());
-    const response = await ctx.run(
-      sessionRequest(token, { deviceId: "device-42" }),
-    );
+    const response = await ctx.run(sessionRequest(token, {}));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(issued);
     const jwksCall = ctx.fetchMock.calls.find(
@@ -138,7 +137,7 @@ describe("POST /v1/capabilities/session", () => {
     expect(JSON.parse(convexCall.body ?? "{}")).toEqual({
       ownerId: `${CONVEX_SITE}|user_ba_1`,
       isAnonymous: false,
-      deviceId: "device-42",
+      ipHash: "631f08140b24b7274d12df3c37a1a80c",
     });
   });
 
@@ -154,7 +153,9 @@ describe("POST /v1/capabilities/session", () => {
     expect(JSON.parse(convexCall.body ?? "{}")).toEqual({
       ownerId: `${CONVEX_SITE}|anon_7`,
       isAnonymous: true,
+      ipHash: "631f08140b24b7274d12df3c37a1a80c",
     });
+    expect(ctx.harness.networkGate.objects.size).toBe(1);
   });
 
   test("rejects a missing, expired, wrong-issuer, wrong-audience, or non-RS256 token with 401", async () => {
@@ -218,5 +219,53 @@ describe("POST /v1/capabilities/session", () => {
       code: "internal",
       retryable: true,
     });
+  });
+
+  test("refuses a suspended owner from KV before mint admission or Convex", async () => {
+    ctx.harness.enforcementValues.set(
+      `${CONVEX_SITE}|user_ba_1`,
+      JSON.stringify({ status: "suspended", updatedAt: Date.now() }),
+    );
+    const response = await ctx.run(
+      sessionRequest(await signJwt(validPayload()), {}),
+    );
+    expect(response.status).toBe(403);
+    expect((await readError(response)).error.code).toBe("owner_suspended");
+    expect(ctx.harness.ownerGate.objects.size).toBe(0);
+    expect(
+      ctx.fetchMock.calls.filter(
+        (call) => call.url.pathname === "/api/gateway/session-capability",
+      ),
+    ).toHaveLength(0);
+  });
+
+  test("maps Convex's flat owner_suspended refusal", async () => {
+    ctx.fetchMock.on(
+      (call) => call.url.pathname === "/api/gateway/session-capability",
+      () => json({ error: "owner_suspended" }, 403),
+    );
+    const response = await ctx.run(
+      sessionRequest(await signJwt(validPayload()), {}),
+    );
+    expect(response.status).toBe(403);
+    expect((await readError(response)).error.code).toBe("owner_suspended");
+  });
+
+  test("passes throttled enforcement to the owner mint gate", async () => {
+    ctx.harness.enforcementValues.set(
+      `${CONVEX_SITE}|user_ba_1`,
+      JSON.stringify({ status: "throttled", updatedAt: Date.now() }),
+    );
+    const token = await signJwt(validPayload());
+    for (let index = 0; index < 6; index += 1) {
+      expect((await ctx.run(sessionRequest(token, {}))).status).toBe(200);
+    }
+    const refused = await ctx.run(sessionRequest(token, {}));
+    expect(refused.status).toBe(429);
+    expect((await readError(refused)).error).toMatchObject({
+      code: "rate_limited",
+      quota: { scope: "owner" },
+    });
+    expect(refused.headers.get("retry-after")).toBeTruthy();
   });
 });

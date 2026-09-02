@@ -9,7 +9,6 @@ import { STELLA_DEFAULT_MODEL } from "../../../src/shared/stella-api.js";
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   getConvexToken: vi.fn(),
-  getDeviceIdOrNull: vi.fn(),
 }));
 
 vi.mock("@/platform/convex/convex-client", () => ({
@@ -17,9 +16,6 @@ vi.mock("@/platform/convex/convex-client", () => ({
 }));
 vi.mock("@/global/auth/services/auth-token", () => ({
   getConvexToken: mocks.getConvexToken,
-}));
-vi.mock("@/platform/electron/device", () => ({
-  getDeviceIdOrNull: mocks.getDeviceIdOrNull,
 }));
 
 const GATEWAY_ORIGIN = "https://gateway.example";
@@ -46,25 +42,27 @@ const installGateway = (
 ) => {
   const calls: FetchCall[] = [];
   let minted = 0;
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    calls.push({ url, init: init ?? {} });
-    if (url === SESSION_URL) {
-      minted += 1;
-      return json({
-        capability: `capability-${minted}`,
-        expiresAt: Date.now() + 60 * 60 * 1000,
-        audience: "free",
-        budgetMicroCents: 1,
-      });
-    }
-    if (url === CHAT_URL) {
-      const next = chatResponses.shift();
-      if (!next) throw new Error("unexpected chat completion call");
-      return next();
-    }
-    throw new Error(`unexpected fetch ${url}`);
-  });
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, init: init ?? {} });
+      if (url === SESSION_URL) {
+        minted += 1;
+        return json({
+          capability: `capability-${minted}`,
+          expiresAt: Date.now() + 60 * 60 * 1000,
+          audience: "free",
+          budgetMicroCents: 1,
+        });
+      }
+      if (url === CHAT_URL) {
+        const next = chatResponses.shift();
+        if (!next) throw new Error("unexpected chat completion call");
+        return next();
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    },
+  );
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   return {
     calls,
@@ -87,7 +85,6 @@ describe("Stella LLM helper", () => {
     vi.resetModules();
     mocks.query.mockReset().mockResolvedValue({ origin: `${GATEWAY_ORIGIN}/` });
     mocks.getConvexToken.mockReset().mockResolvedValue(JWT);
-    mocks.getDeviceIdOrNull.mockReset().mockResolvedValue("device-id");
     globalThis.fetch = originalFetch;
   });
 
@@ -100,7 +97,7 @@ describe("Stella LLM helper", () => {
     const [session] = gateway.sessionCalls();
     expect(session).toBeDefined();
     expect(headersOf(session!).Authorization).toBe(`Bearer ${JWT}`);
-    expect(bodyOf(session!)).toEqual({ deviceId: "device-id" });
+    expect(bodyOf(session!)).toEqual({});
 
     const [chat] = gateway.chatCalls();
     expect(chat).toBeDefined();
@@ -192,7 +189,11 @@ describe("Stella LLM helper", () => {
       agentType: "dictation",
       messages: [{ role: "user", content: "um hello" }],
       headers: { "X-Test": "1" },
-      body: { model: "stella/inception/mercury-2", max_tokens: 512, stream: true },
+      body: {
+        model: "stella/inception/mercury-2",
+        max_tokens: 512,
+        stream: true,
+      },
     });
 
     const [chat] = gateway.chatCalls();
@@ -242,6 +243,75 @@ describe("Stella LLM helper", () => {
       headersOf(chats[1]!)[GATEWAY_REQUEST_ID_HEADER],
     );
   });
+
+  for (const exhaustion of [
+    { status: 402, code: "budget_exhausted" },
+    { status: 429, code: "request_limit" },
+  ]) {
+    it(`re-exchanges once after ${exhaustion.code}`, async () => {
+      const gateway = installGateway([
+        () =>
+          json(
+            {
+              error: {
+                code: exhaustion.code,
+                message: "capability spent",
+                retryable: false,
+              },
+            },
+            exhaustion.status,
+          ),
+        () => json({ choices: [{ message: { content: "retried" } }] }),
+      ]);
+      const { callStellaLlmText } = await loadLlm();
+
+      await expect(callStellaLlmText("retry this")).resolves.toBe("retried");
+      expect(gateway.sessionCalls()).toHaveLength(2);
+      expect(
+        gateway.chatCalls().map((call) => headersOf(call).Authorization),
+      ).toEqual(["Bearer capability-1", "Bearer capability-2"]);
+      expect(
+        gateway
+          .chatCalls()
+          .map((call) => headersOf(call)[GATEWAY_REQUEST_ID_HEADER]),
+      ).toEqual([expect.any(String), expect.any(String)]);
+      expect(
+        headersOf(gateway.chatCalls()[0]!)[GATEWAY_REQUEST_ID_HEADER],
+      ).toBe(headersOf(gateway.chatCalls()[1]!)[GATEWAY_REQUEST_ID_HEADER]);
+    });
+  }
+
+  for (const refusal of [
+    { status: 403, code: "sign_in_required", retryable: false },
+    { status: 403, code: "owner_suspended", retryable: false },
+    { status: 429, code: "tier_paused", retryable: true },
+    { status: 429, code: "concurrency_limit", retryable: true },
+    { status: 429, code: "rate_limited", retryable: true },
+  ]) {
+    it(`surfaces ${refusal.code} without re-exchanging`, async () => {
+      const message = `gateway says ${refusal.code}`;
+      const gateway = installGateway([
+        () =>
+          json(
+            {
+              error: {
+                code: refusal.code,
+                message,
+                retryable: refusal.retryable,
+              },
+            },
+            refusal.status,
+          ),
+      ]);
+      const { callStellaLlmText } = await loadLlm();
+
+      await expect(callStellaLlmText("x")).rejects.toThrow(
+        `${refusal.code}: ${message}`,
+      );
+      expect(gateway.sessionCalls()).toHaveLength(1);
+      expect(gateway.chatCalls()).toHaveLength(1);
+    });
+  }
 
   it("surfaces gateway errors with their code", async () => {
     installGateway([

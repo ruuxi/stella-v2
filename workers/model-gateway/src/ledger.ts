@@ -30,8 +30,8 @@ export const IN_FLIGHT_ABANDON_AFTER_MS =
  *             money. A known settled request id returns its stored result
  *             (replay) instead of reserving; a known in-flight id returns
  *             in_flight. Otherwise the estimate is reserved and the request
- *             counted — the count is never refunded, so an abort or failure
- *             still consumes an anonymous trial request.
+ *             counted. Settlement refunds the count only when the request
+ *             failed before the first upstream byte.
  *   settle    Releases the request's reservation, adds the charged amount to
  *             `spent`, and stores the result for replay when it fits
  *             GATEWAY_MAX_RESULT_CACHE_BYTES; a failed or oversized result
@@ -64,6 +64,8 @@ export type LedgerReserveResult =
 export type LedgerSettleArgs = {
   requestId: string;
   chargedMicroCents: number;
+  /** Refund the request count when no provider output byte was received. */
+  refundRequest: boolean;
   /** Present for a completed result that should be replayable. */
   result?: { status: number; body: string };
 };
@@ -258,9 +260,10 @@ export class CapabilityLedger extends DurableObject<Env> {
     }
     const charged = clampMicroCents(args.chargedMicroCents);
     this.ctx.storage.sql.exec(
-      "UPDATE ledger SET reserved = MAX(0, reserved - ?), spent = spent + ?",
+      "UPDATE ledger SET reserved = MAX(0, reserved - ?), spent = spent + ?, requests = MAX(0, requests - ?)",
       pending.reserved,
       charged,
+      args.refundRequest ? 1 : 0,
     );
     let cached = false;
     const result = args.result;

@@ -83,6 +83,13 @@ const FIRE_RETRY_DELAY_MS = 5 * 60_000;
 /** …at most this many times, then the schedule waits for its next slot. */
 const MAX_FIRE_RETRIES = 3;
 
+const signInRequired = (): never => {
+  throw new ConvexError({
+    code: "SIGN_IN_REQUIRED",
+    message: "Sign in with an account to use schedules.",
+  });
+};
+
 /**
  * Scheduled fires per owner per day. Deliberately its own budget: schedules
  * run while nobody is watching, so spending them out of the interactive chat
@@ -233,10 +240,14 @@ const replayScheduleReceipt = async (
     )
     .unique();
   if (!existing) return null;
-  if (existing.action !== args.action || existing.intentJson !== args.intentJson) {
+  if (
+    existing.action !== args.action ||
+    existing.intentJson !== args.intentJson
+  ) {
     throw new ConvexError({
       code: "IDEMPOTENCY_CONFLICT",
-      message: "Schedule request id was already used for a different operation.",
+      message:
+        "Schedule request id was already used for a different operation.",
     });
   }
   return existing.resultJson;
@@ -493,6 +504,7 @@ export const hasOwnerSchedulesInternal = internalQuery({
 export const createScheduleInternal = internalMutation({
   args: {
     ownerId: v.string(),
+    isAnonymous: v.boolean(),
     requestId: v.string(),
     prompt: v.string(),
     schedule: cronScheduleValidator,
@@ -503,6 +515,7 @@ export const createScheduleInternal = internalMutation({
   },
   returns: scheduleMutationReceiptValidator,
   handler: async (ctx, args) => {
+    if (args.isAnonymous) signInRequired();
     await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
     const requestId = normalizeScheduleRequestId(args.requestId);
     const prompt = cleanPrompt(args.prompt);
@@ -593,6 +606,7 @@ export const createScheduleInternal = internalMutation({
 export const updateScheduleInternal = internalMutation({
   args: {
     ownerId: v.string(),
+    isAnonymous: v.boolean(),
     requestId: v.string(),
     scheduleId: v.string(),
     prompt: v.optional(v.string()),
@@ -604,6 +618,7 @@ export const updateScheduleInternal = internalMutation({
   },
   returns: scheduleMutationReceiptValidator,
   handler: async (ctx, args) => {
+    if (args.isAnonymous && args.status === "active") signInRequired();
     await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
     const requestId = normalizeScheduleRequestId(args.requestId);
     const requestedPrompt =
@@ -645,8 +660,7 @@ export const updateScheduleInternal = internalMutation({
     ) {
       throw new ConvexError(`No schedule with id ${args.scheduleId}.`);
     }
-    const prompt =
-      requestedPrompt === undefined ? row.prompt : requestedPrompt;
+    const prompt = requestedPrompt === undefined ? row.prompt : requestedPrompt;
     let serialized = row.schedule;
     let nextRunAt = row.nextRunAt;
     if (requestedSchedule !== undefined) {

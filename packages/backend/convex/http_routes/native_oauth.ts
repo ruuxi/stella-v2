@@ -1,7 +1,7 @@
 import { makeFunctionReference, type HttpRouter } from "convex/server";
 import { httpAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { requireUserIdentity } from "../auth";
+import { isAnonymousIdentity, requireUserIdentity } from "../auth";
 import { assertOwnerDataAccessActive } from "../owner_lifecycle";
 import {
   errorResponse,
@@ -27,6 +27,7 @@ import {
   effectiveGoogleAdsActionSchema,
   normalizeGoogleAdsProxyResponse,
 } from "../lib/google_ads_mutations";
+import { enforceActionRateLimit, RATE_STANDARD } from "../lib/rate_limits";
 
 type StoreIntegrationRecord = {
   id?: unknown;
@@ -314,6 +315,7 @@ const parseUnknownBody = async (request: Request) => {
 const requireActiveIntegrationIdentity = async (ctx: ActionCtx) => {
   try {
     const identity = await requireUserIdentity(ctx);
+    if (isAnonymousIdentity(identity)) return "sign_in_required" as const;
     const { generation } = await assertOwnerDataAccessActive(
       ctx,
       identity.tokenIdentifier,
@@ -1269,6 +1271,9 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
         const admission = await requireActiveIntegrationIdentity(ctx);
+        if (admission === "sign_in_required") {
+          return errorResponse(403, "sign_in_required", origin);
+        }
         if (!admission) return errorResponse(401, "Unauthorized", origin);
         const searchParams = new URL(request.url).searchParams;
         const id = readString(searchParams.get("id"))?.toLowerCase();
@@ -1434,6 +1439,9 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
         const admission = await requireActiveIntegrationIdentity(ctx);
+        if (admission === "sign_in_required") {
+          return errorResponse(403, "sign_in_required", origin);
+        }
         if (!admission) return errorResponse(401, "Unauthorized", origin);
         const { identity, ownerGeneration } = admission;
         const body = (await parseUnknownBody(
@@ -1505,6 +1513,9 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
         const admission = await requireActiveIntegrationIdentity(ctx);
+        if (admission === "sign_in_required") {
+          return errorResponse(403, "sign_in_required", origin);
+        }
         if (!admission) return errorResponse(401, "Unauthorized", origin);
         const { identity, ownerGeneration } = admission;
         const id = readString(
@@ -1576,8 +1587,22 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
         const admission = await requireActiveIntegrationIdentity(ctx);
+        if (admission === "sign_in_required") {
+          return errorResponse(403, "sign_in_required", origin);
+        }
         if (!admission) return errorResponse(401, "Unauthorized", origin);
         const { identity, ownerGeneration } = admission;
+        try {
+          await enforceActionRateLimit(
+            ctx,
+            "native_integrations_run",
+            identity.tokenIdentifier,
+            RATE_STANDARD,
+            "Too many integration requests. Wait a moment and try again.",
+          );
+        } catch {
+          return errorResponse(429, "rate_limited", origin);
+        }
         const body = (await parseUnknownBody(
           request,
         )) as NativeIntegrationRequestBody | null;
@@ -1620,7 +1645,8 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
           const storedInputSchema = JSON.parse(
             resolved.action.inputSchemaJson,
           ) as unknown;
-          if (!isJsonObject(storedInputSchema)) throw new Error("invalid schema");
+          if (!isJsonObject(storedInputSchema))
+            throw new Error("invalid schema");
           inputValidation = await ctx.runAction(
             internal.node.native_integration_schemas.validateActionInput,
             {
@@ -1668,7 +1694,11 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             body.input,
           );
         } catch {
-          return errorResponse(400, "Invalid Google Ads mutation input.", origin);
+          return errorResponse(
+            400,
+            "Invalid Google Ads mutation input.",
+            origin,
+          );
         }
         const sessionId = await loadComposioSessionId(
           ctx,

@@ -22,10 +22,21 @@ mock.module("../auth-token", () => ({
   getConvexToken: async () => "jwt-account",
   clearCachedToken: () => {},
 }));
+class MockHttpRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string | null,
+  ) {
+    super(message);
+    this.name = "HttpRequestError";
+  }
+}
 // bun's module mock registry is process-global and a sibling suite replaces
 // `../http`. Own it here: the transport under test is the request shaping
 // (route, origin, body, proof headers), which is what this stub records.
 mock.module("../http", () => ({
+  HttpRequestError: MockHttpRequestError,
   getJson: (path: string, options?: Record<string, unknown>) =>
     transport({ method: "GET", path, body: undefined, options: options ?? {} }),
   postJson: (path: string, body: unknown, options?: Record<string, unknown>) =>
@@ -277,5 +288,28 @@ describe("mobile execution placement client", () => {
         cancelRequestId: "cancel:mobile:one",
       }),
     ).rejects.toThrow("No computer with what this needs is online.");
+  });
+
+  test("maps anonymous and suspended placement refusals to client copy", async () => {
+    for (const [code, message] of [
+      ["sign_in_required", "Sign in to Stella to use cloud agents."],
+      ["owner_suspended", "This account can't use Stella's cloud right now."],
+    ] as const) {
+      respond = () =>
+        new MockHttpRequestError("server omitted copy", 403, code);
+      let refusal: unknown;
+      try {
+        await submitAutomaticExecution({
+          idempotencyKey: `mobile:${code}`,
+          conversationId: "conv:mobile",
+          kind: "agent",
+          prompt: "research this",
+          target: { mode: "cloud" },
+        });
+      } catch (error) {
+        refusal = error;
+      }
+      expect(refusal).toMatchObject({ code, message });
+    }
   });
 });

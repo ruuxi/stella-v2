@@ -1,10 +1,20 @@
-import type { HttpRouter } from "convex/server";
+import { makeFunctionReference, type HttpRouter } from "convex/server";
+import {
+  type OwnerEnforcement,
+  type OwnerEnforcementStatus,
+} from "@stella/contracts/gateway/usage";
 import { httpAction } from "../_generated/server";
-import { internal } from "../_generated/api";
+import { components, internal } from "../_generated/api";
 import { requireAdminRequest } from "../http_shared/admin";
+import {
+  resolveOwnerAccountAction,
+  tokenIdentifierForBetterAuthUserId,
+} from "../auth";
 
 const ADMIN_DELETE_PATH = "/api/admin/delete";
 const ADMIN_BILLING_PLAN_PATH = "/api/admin/billing/plan";
+const ADMIN_OWNER_ENFORCEMENT_PATH = "/api/admin/owners/enforcement";
+const ADMIN_OWNER_LOOKUP_PATH = "/api/admin/owners/lookup";
 const MEDIA_DELETE_MAX_STEPS = 200;
 
 type AdminDeleteBody = {
@@ -20,6 +30,70 @@ type AdminBillingPlanBody = {
   subscriptionStatus?: string;
   resetUsage?: boolean;
 };
+
+type AdminOwnerEnforcementBody = {
+  ownerId?: unknown;
+  email?: unknown;
+  status?: unknown;
+  until?: unknown;
+  reason?: unknown;
+};
+
+type AdminAuthUser = {
+  _id?: string;
+  email?: string;
+  isAnonymous?: boolean | null;
+};
+
+type AdminBillingWindow = {
+  usedMicroCents: number;
+  limitMicroCents: number;
+  remainingMicroCents: number | null;
+  resetAt: number;
+};
+
+type AdminBillingSummary = {
+  plan: "free" | "go" | "pro";
+  unlimited: boolean;
+  creditMicroCents: number;
+  reservedMicroCents: number;
+  totalUsageMicroCents: number;
+  totalRequestCount: number;
+  rolling: AdminBillingWindow;
+  weekly: AdminBillingWindow;
+  monthly: AdminBillingWindow;
+  lifetime: AdminBillingWindow | null;
+};
+
+type AdminGatewayState = {
+  enforcement: OwnerEnforcement;
+  unreleasedGrants: unknown[];
+  usageReceipts: unknown[];
+};
+
+const setOwnerEnforcementRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    status: OwnerEnforcementStatus;
+    until?: number;
+    reason: string;
+    actor: string;
+  },
+  unknown
+>("owner_enforcement:setOwnerEnforcementInternal");
+
+const getOwnerGatewayAdminStateRef = makeFunctionReference<
+  "query",
+  { ownerId: string },
+  AdminGatewayState
+>("owner_enforcement:getOwnerGatewayAdminStateInternal");
+
+const getOwnerBillingWindowSummaryRef = makeFunctionReference<
+  "query",
+  { ownerId: string; isAnonymous: boolean },
+  AdminBillingSummary
+>("billing:getOwnerBillingWindowSummaryInternal");
 
 const jsonResponse = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), {
@@ -47,12 +121,8 @@ const readDeleteBody = async (
   return { kind, id };
 };
 
-const isBillingPlan = (
-  value: string,
-): value is "free" | "go" | "pro" =>
-  value === "free" ||
-  value === "go" ||
-  value === "pro";
+const isBillingPlan = (value: string): value is "free" | "go" | "pro" =>
+  value === "free" || value === "go" || value === "pro";
 
 const readBillingPlanBody = async (
   request: Request,
@@ -112,7 +182,156 @@ const readBillingPlanBody = async (
   };
 };
 
+const readOptionalLocator = (value: unknown): string | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized || undefined;
+};
+
+const findAdminAuthUser = async (
+  ctx: Parameters<typeof resolveOwnerAccountAction>[0],
+  locator: { ownerId?: string; email?: string },
+): Promise<{ ownerId: string; user: AdminAuthUser } | null> => {
+  if (locator.ownerId) {
+    const account = await resolveOwnerAccountAction(ctx, locator.ownerId);
+    if (!account) return null;
+    const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: "user",
+      where: [{ field: "_id", value: account.userId }],
+    })) as AdminAuthUser | null;
+    return user ? { ownerId: locator.ownerId, user } : null;
+  }
+  if (!locator.email) return null;
+  const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+    model: "user",
+    where: [{ field: "email", value: locator.email }],
+  })) as AdminAuthUser | null;
+  return user?._id
+    ? { ownerId: tokenIdentifierForBetterAuthUserId(user._id), user }
+    : null;
+};
+
+const readOwnerLocator = (
+  ownerIdValue: unknown,
+  emailValue: unknown,
+): { ownerId?: string; email?: string } | Response => {
+  const ownerId = readOptionalLocator(ownerIdValue);
+  const email = readOptionalLocator(emailValue)?.toLowerCase();
+  if (Boolean(ownerId) === Boolean(email)) {
+    return jsonResponse(400, {
+      error: "Provide exactly one of ownerId or email.",
+    });
+  }
+  return { ...(ownerId ? { ownerId } : {}), ...(email ? { email } : {}) };
+};
+
+const isOwnerEnforcementStatus = (
+  value: string,
+): value is OwnerEnforcementStatus => {
+  switch (value) {
+    case "ok":
+    case "challenged":
+    case "throttled":
+    case "suspended":
+      return true;
+    default:
+      return false;
+  }
+};
+
 export const registerAdminRoutes = (http: HttpRouter) => {
+  http.route({
+    path: ADMIN_OWNER_ENFORCEMENT_PATH,
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      const admin = requireAdminRequest(request);
+      if (!admin.ok) return admin.response;
+      const body = (await parseRequestJson(
+        request,
+      )) as AdminOwnerEnforcementBody | null;
+      const locator = readOwnerLocator(body?.ownerId, body?.email);
+      if (locator instanceof Response) return locator;
+      const status =
+        typeof body?.status === "string"
+          ? body.status.trim().toLowerCase()
+          : "";
+      if (!isOwnerEnforcementStatus(status)) {
+        return jsonResponse(400, { error: "Invalid enforcement status." });
+      }
+      const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+      if (!reason || reason.length > 1_000) {
+        return jsonResponse(400, {
+          error: "reason must be 1 to 1,000 characters.",
+        });
+      }
+      const until = body?.until;
+      if (
+        until !== undefined &&
+        (typeof until !== "number" || !Number.isFinite(until))
+      ) {
+        return jsonResponse(400, { error: "until must be a timestamp." });
+      }
+      const resolved = await findAdminAuthUser(ctx, locator);
+      if (!resolved) return jsonResponse(404, { error: "Owner not found." });
+      const result = await ctx.runMutation(setOwnerEnforcementRef, {
+        ownerId: resolved.ownerId,
+        status,
+        ...(typeof until === "number" ? { until } : {}),
+        reason,
+        actor: "admin-api",
+      });
+      return jsonResponse(200, result);
+    }),
+  });
+
+  http.route({
+    path: ADMIN_OWNER_LOOKUP_PATH,
+    method: "GET",
+    handler: httpAction(async (ctx, request) => {
+      const admin = requireAdminRequest(request);
+      if (!admin.ok) return admin.response;
+      const url = new URL(request.url);
+      const locator = readOwnerLocator(
+        url.searchParams.get("ownerId") ?? undefined,
+        url.searchParams.get("email") ?? undefined,
+      );
+      if (locator instanceof Response) return locator;
+      const resolved = await findAdminAuthUser(ctx, locator);
+      if (!resolved) return jsonResponse(404, { error: "Owner not found." });
+      const isAnonymous = resolved.user.isAnonymous === true;
+      const [billing, gateway] = await Promise.all([
+        ctx.runQuery(getOwnerBillingWindowSummaryRef, {
+          ownerId: resolved.ownerId,
+          isAnonymous,
+        }),
+        ctx.runQuery(getOwnerGatewayAdminStateRef, {
+          ownerId: resolved.ownerId,
+        }),
+      ]);
+      return jsonResponse(200, {
+        ownerId: resolved.ownerId,
+        isAnonymous,
+        ...(resolved.user.email ? { email: resolved.user.email } : {}),
+        plan: billing.plan,
+        enforcement: gateway.enforcement,
+        billingWindows: {
+          unlimited: billing.unlimited,
+          creditMicroCents: billing.creditMicroCents,
+          reservedMicroCents: billing.reservedMicroCents,
+          totalUsageMicroCents: billing.totalUsageMicroCents,
+          totalRequestCount: billing.totalRequestCount,
+          rolling: billing.rolling,
+          weekly: billing.weekly,
+          monthly: billing.monthly,
+          lifetime: billing.lifetime,
+        },
+        unreleasedGrants: gateway.unreleasedGrants,
+        usageReceipts: gateway.usageReceipts,
+      });
+    }),
+  });
+
   http.route({
     path: ADMIN_BILLING_PLAN_PATH,
     method: "POST",

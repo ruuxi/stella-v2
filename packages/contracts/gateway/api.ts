@@ -26,6 +26,13 @@ export const GATEWAY_RELAY_PREFIX = "/v1/relay" as const;
 export const GATEWAY_RESOLVE_PATH = "/v1/models/resolve" as const;
 export const GATEWAY_SESSION_CAPABILITY_PATH = "/v1/capabilities/session" as const;
 export const GATEWAY_HEALTH_PATH = "/healthz" as const;
+/**
+ * Service route (GATEWAY_SERVICE_SECRET) Convex calls when an owner's
+ * enforcement status changes. The gateway stores the status in KV so every
+ * colo refuses that owner's outstanding capabilities within a minute, with no
+ * Convex call and no Durable Object creation on the push.
+ */
+export const GATEWAY_OWNER_ENFORCEMENT_PATH = "/internal/owners/enforcement" as const;
 
 /** Caller-minted idempotency key. Same id + same body => cached result. */
 export const GATEWAY_REQUEST_ID_HEADER = "x-stella-request-id" as const;
@@ -94,11 +101,13 @@ export type GatewayModelResolution = {
   maxOutputTokens?: number;
 };
 
-/** `POST /v1/capabilities/session` request (Better Auth JWT in Authorization). */
-export type GatewaySessionCapabilityRequest = {
-  /** Anonymous callers identify their device so trial counters stay per device. */
-  deviceId?: string;
-};
+/**
+ * `POST /v1/capabilities/session` request (Better Auth JWT in Authorization).
+ * Deliberately empty: the anonymous trial is keyed on the anonymous owner the
+ * JWT names plus the caller's network as the gateway sees it. A client-chosen
+ * device string is never an allowance key.
+ */
+export type GatewaySessionCapabilityRequest = Record<string, never>;
 
 export type GatewaySessionCapabilityResponse = {
   capability: string;
@@ -117,15 +126,32 @@ export type GatewayErrorCode =
   | "model_forbidden"
   | "execution_mismatch"
   | "stream_unsupported"
+  /** This capability's budget is spent. Clients exchange a fresh one once. */
   | "budget_exhausted"
+  /** This capability's request count is spent. Clients exchange a fresh one once. */
   | "request_limit"
   | "rate_limited"
+  /** Owner-level in-flight ceiling for the audience (see GATEWAY_OWNER_RELAY_LIMITS). */
+  | "concurrency_limit"
+  /** The anonymous tier is not allowed here (network policy or tier breaker). */
+  | "sign_in_required"
+  /** The audience's global spend breaker tripped; retry after `resetAt`. */
+  | "tier_paused"
+  /** Owner enforcement status refuses service. */
+  | "owner_suspended"
   | "body_too_large"
   | "bad_request"
   | "upstream_error"
   | "upstream_timeout"
   | "canceled"
   | "internal";
+
+/** Which counter refused a request, so clients can explain without knowing policy. */
+export type GatewayQuotaScope =
+  | "capability"
+  | "owner"
+  | "network"
+  | "tier";
 
 export type GatewayErrorBody = {
   error: {
@@ -134,7 +160,102 @@ export type GatewayErrorBody = {
     retryable: boolean;
     /** Upstream HTTP status when the failure came from the provider. */
     upstreamStatus?: number;
+    /** Present on quota refusals: what refused and when it clears. */
+    quota?: {
+      scope: GatewayQuotaScope;
+      /** Absolute ms timestamp when the counter next admits a request, when known. */
+      resetAt?: number;
+      retryAfterMs?: number;
+    };
   };
+};
+
+// ---------------------------------------------------------------------------
+// Tier policy the gateway enforces locally. Values are starting points; the
+// monetary ceilings live in Convex env and arrive through the config snapshot.
+// ---------------------------------------------------------------------------
+
+export type GatewayOwnerRelayLimit = {
+  /** Requests in flight at once for one owner. */
+  inFlight: number;
+  /** Requests admitted per rolling minute for one owner. */
+  perMinute: number;
+  /** Session capability exchanges per rolling hour for one owner. */
+  mintsPerHour: number;
+};
+
+/** Keyed by managed model audience. Fallback audiences share their base tier. */
+export const GATEWAY_OWNER_RELAY_LIMITS: Readonly<
+  Record<ManagedModelAudienceForLimits, GatewayOwnerRelayLimit>
+> = {
+  anonymous: { inFlight: 1, perMinute: 20, mintsPerHour: 12 },
+  free: { inFlight: 2, perMinute: 40, mintsPerHour: 12 },
+  go: { inFlight: 4, perMinute: 80, mintsPerHour: 24 },
+  pro: { inFlight: 8, perMinute: 120, mintsPerHour: 24 },
+};
+
+/** A throttled owner (enforcement status) gets this share of its tier limits. */
+export const GATEWAY_THROTTLED_LIMIT_SHARE = 0.5;
+
+/**
+ * Output-token ceiling shaped into every managed request by audience
+ * (`max_tokens` / `max_output_tokens` / `maxOutputTokens`). Absent means the
+ * model's own ceiling.
+ */
+export const GATEWAY_MAX_OUTPUT_TOKENS_BY_AUDIENCE: Readonly<
+  Partial<Record<ManagedModelAudienceForLimits, number>>
+> = {
+  anonymous: 2_048,
+  free: 4_096,
+  go: 8_192,
+};
+
+/** Per-network (client IP) ceilings enforced before any provider spend. */
+export const GATEWAY_NETWORK_LIMITS = {
+  anonymous: {
+    /** Relay requests per rolling hour from one IP. (The 60/min edge limiter stays.) */
+    relayPerHour: 300,
+    /** Relay requests per rolling 24 hours from one IP. */
+    relayPerDay: 1_000,
+    /** Session capability exchanges per rolling 24 hours from one IP. */
+    mintsPerDay: 20,
+  },
+  free: {
+    relayPerDay: 3_000,
+  },
+} as const;
+
+/** Budget chunk one session capability carries, by audience; owners re-mint as they spend. */
+export const GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS: Readonly<
+  Record<ManagedModelAudienceForLimits, number>
+> = {
+  anonymous: 10_000_000, // $0.10
+  free: 100_000_000, // $1
+  go: 200_000_000, // $2
+  pro: 500_000_000, // $5
+};
+
+/** Request-count chunk one anonymous session capability carries. */
+export const GATEWAY_ANONYMOUS_REQUEST_CHUNK = 10;
+
+/** Base tier for limit lookups (fallback audiences inherit their paid tier). */
+export type ManagedModelAudienceForLimits = "anonymous" | "free" | "go" | "pro";
+
+export const limitsAudienceFor = (
+  audience: string,
+): ManagedModelAudienceForLimits => {
+  switch (audience) {
+    case "anonymous":
+      return "anonymous";
+    case "go":
+    case "go_fallback":
+      return "go";
+    case "pro":
+    case "pro_fallback":
+      return "pro";
+    default:
+      return "free";
+  }
 };
 
 export const GATEWAY_MAX_REQUEST_BODY_BYTES = 24 * 1024 * 1024;

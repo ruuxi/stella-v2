@@ -22,6 +22,7 @@ beforeAll(() => {
     STELLA_GO_PRICE_CENTS: "1000",
     STELLA_PRO_PRICE_CENTS: "2000",
     STELLA_ANON_MAX_REQUESTS: String(ANON_MAX_REQUESTS),
+    STELLA_ANON_LIFETIME_LIMIT_USD: "0.10",
     ANON_DEVICE_ID_HASH_SALT: "test-only-anon-device-salt",
   };
   for (const [key, value] of Object.entries(values)) process.env[key] = value;
@@ -35,7 +36,12 @@ beforeAll(() => {
  */
 const seedLifetimeSpend = async (
   t: ReturnType<typeof convexTest>,
-  args: { ownerId: string; plan?: "free" | "go"; spentUsd: number; requests?: number },
+  args: {
+    ownerId: string;
+    plan?: "free" | "go";
+    spentUsd: number;
+    requests?: number;
+  },
 ) => {
   await t.run(async (ctx) => {
     const now = Date.now();
@@ -73,7 +79,7 @@ const seedLifetimeSpend = async (
 };
 
 describe("billing subscription status", () => {
-  it("reports the anonymous request policy without dollar usage windows", async () => {
+  it("reports anonymous request policy and connected-owner money windows", async () => {
     const t = convexTest(schema, modules);
 
     const signedOut = await t.query(api.billing.getSubscriptionStatus, {});
@@ -86,7 +92,7 @@ describe("billing subscription status", () => {
         requestLimit: ANON_MAX_REQUESTS,
         // Defaults to 10x the device cap when the IP env is unset.
         perIpRequestLimit: ANON_MAX_REQUESTS * 10,
-        resetAfterInactivityDays: 7,
+        resetAfterInactivityDays: 30,
       },
     });
 
@@ -96,9 +102,19 @@ describe("billing subscription status", () => {
       tokenIdentifier: "https://issuer.test|anonymous-user",
       isAnonymous: true,
     });
-    expect(await anonymous.query(api.billing.getSubscriptionStatus, {})).toMatchObject({
+    expect(
+      await anonymous.query(api.billing.getSubscriptionStatus, {}),
+    ).toMatchObject({
       authenticated: true,
       isAnonymous: true,
+      plan: "free",
+      usage: {
+        rollingUsedUsd: 0,
+        rollingLimitUsd: 0.1,
+        weeklyLimitUsd: 0.1,
+        monthlyLimitUsd: 0.1,
+        lifetimeLimitUsd: 0.1,
+      },
       usagePolicy: {
         kind: "anonymous_requests",
         requestLimit: ANON_MAX_REQUESTS,
@@ -119,7 +135,9 @@ describe("billing subscription status", () => {
       tokenIdentifier: "https://issuer.test|free-user",
     });
 
-    expect(await signedIn.query(api.billing.getSubscriptionStatus, {})).toMatchObject({
+    expect(
+      await signedIn.query(api.billing.getSubscriptionStatus, {}),
+    ).toMatchObject({
       authenticated: true,
       isAnonymous: false,
       plan: "free",
@@ -136,9 +154,14 @@ describe("billing subscription status", () => {
     // The windowed snapshot path (`now` supplied) must agree with the
     // stored-value path above.
     expect(
-      await signedIn.query(api.billing.getSubscriptionStatus, { now: Date.now() }),
+      await signedIn.query(api.billing.getSubscriptionStatus, {
+        now: Date.now(),
+      }),
     ).toMatchObject({
-      usage: { lifetimeUsedUsd: 0.2, lifetimeLimitUsd: FREE_LIFETIME_LIMIT_USD },
+      usage: {
+        lifetimeUsedUsd: 0.2,
+        lifetimeLimitUsd: FREE_LIFETIME_LIMIT_USD,
+      },
     });
   });
 
@@ -155,7 +178,9 @@ describe("billing subscription status", () => {
       tokenIdentifier: "https://issuer.test|go-user",
     });
 
-    expect(await signedIn.query(api.billing.getSubscriptionStatus, {})).toMatchObject({
+    expect(
+      await signedIn.query(api.billing.getSubscriptionStatus, {}),
+    ).toMatchObject({
       plan: "go",
       usage: { lifetimeUsedUsd: 40, lifetimeLimitUsd: null },
     });
@@ -180,17 +205,27 @@ describe("free lifetime allowance", () => {
     // Nothing resets, so the advertised retry is a back-off hint, not a reset.
     expect(limit.retryAfterMs).toBeGreaterThan(60 * 60 * 1000);
 
-    const access = await t.mutation(internal.billing.resolveManagedModelAccess, {
-      ownerId,
-      ownerGeneration: "legacy",
+    const access = await t.mutation(
+      internal.billing.resolveManagedModelAccess,
+      {
+        ownerId,
+        ownerGeneration: "legacy",
+      },
+    );
+    expect(access).toMatchObject({
+      allowed: false,
+      plan: "free",
+      downgraded: false,
     });
-    expect(access).toMatchObject({ allowed: false, plan: "free", downgraded: false });
   });
 
   it("keeps serving a Free account below the allowance", async () => {
     const t = convexTest(schema, modules);
     const ownerId = "lifetime-remaining-owner";
-    await seedLifetimeSpend(t, { ownerId, spentUsd: FREE_LIFETIME_LIMIT_USD / 2 });
+    await seedLifetimeSpend(t, {
+      ownerId,
+      spentUsd: FREE_LIFETIME_LIMIT_USD / 2,
+    });
 
     expect(
       await t.mutation(internal.billing.enforceManagedUsageLimit, {
@@ -372,7 +407,11 @@ describe("anonymous request allowance", () => {
       });
 
     const first = await consume();
-    expect(first).toMatchObject({ allowed: true, requestCount: 1, remaining: 0 });
+    expect(first).toMatchObject({
+      allowed: true,
+      requestCount: 1,
+      remaining: 0,
+    });
 
     const second = await consume();
     expect(second).toMatchObject({ allowed: false, requestCount: 2 });
@@ -410,11 +449,11 @@ describe("anonymous request allowance", () => {
       }),
     ).toMatchObject({ allowed: false });
 
-    // Backdate past the 7-day retention window.
+    // Backdate past the 30-day retention window.
     await t.run(async (ctx) => {
       const row = await ctx.db.query("anon_device_usage").first();
       await ctx.db.patch(row!._id, {
-        lastRequestAt: Date.now() - 8 * 24 * 60 * 60 * 1000,
+        lastRequestAt: Date.now() - 31 * 24 * 60 * 60 * 1000,
       });
     });
 
@@ -426,7 +465,7 @@ describe("anonymous request allowance", () => {
     ).toMatchObject({ allowed: true, requestCount: 1 });
   });
 
-  it("records no cost against anonymous rows", async () => {
+  it("records anonymous money without consuming another request", async () => {
     const t = convexTest(schema, modules);
     const deviceId = "anon-jwt:https://issuer.test|anon-user";
 
@@ -444,11 +483,21 @@ describe("anonymous request allowance", () => {
       costMicroCents: dollarsToMicroCents(0.04),
     });
 
-    const rows = await t.run(async (ctx) =>
-      ctx.db.query("anon_device_usage").collect(),
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ requestCount: 1 });
+    const state = await t.run(async (ctx) => ({
+      rows: await ctx.db.query("anon_device_usage").collect(),
+      usage: await ctx.db
+        .query("billing_usage_windows")
+        .withIndex("by_ownerId", (q) =>
+          q.eq("ownerId", "https://issuer.test|anon-user"),
+        )
+        .unique(),
+    }));
+    expect(state.rows).toHaveLength(1);
+    expect(state.rows[0]).toMatchObject({ requestCount: 1 });
+    expect(state.usage).toMatchObject({
+      totalUsageMicroCents: dollarsToMicroCents(0.04),
+      totalRequestCount: 1,
+    });
   });
 });
 
@@ -527,14 +576,12 @@ describe("managed model billing", () => {
   });
 
   it("persists resolved prices before reporting an incomplete sync", async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(
-        new Response(JSON.stringify({}), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      );
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
     const t = convexTest(schema, modules);
 
     try {

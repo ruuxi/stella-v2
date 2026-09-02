@@ -736,7 +736,6 @@ describe("resolveLlmRoute", () => {
         route,
         agentType: "general",
         site,
-        deviceId: "device-managed-collision",
       });
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -767,7 +766,6 @@ describe("resolveLlmRoute", () => {
         agentType: "general",
         site: {
           baseUrl: "https://stella.example.test",
-          deviceId: "device-refresh",
           getAuthToken: () => jwtWithExpiry(Date.now() + 10_000),
           refreshAuthToken,
         },
@@ -786,7 +784,7 @@ describe("resolveLlmRoute", () => {
         JSON.parse(
           String((gateway.exchange.mock.calls[0]?.[1] as RequestInit).body),
         ),
-      ).toEqual({ deviceId: "device-refresh" });
+      ).toEqual({});
     } finally {
       gateway.restore();
     }

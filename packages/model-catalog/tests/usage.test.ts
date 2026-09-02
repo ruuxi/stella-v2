@@ -178,6 +178,19 @@ describe("createRelayUsageParser: google", () => {
 });
 
 describe("createRelayUsageParser: openai-compatible", () => {
+  it("exposes usage from complete events before the stream finishes", () => {
+    const parser = createRelayUsageParser("crof");
+    parser.pushText(
+      `data: ${JSON.stringify({
+        usage: { prompt_tokens: 3, completion_tokens: 5 },
+      })}\n\n`,
+    );
+    expect(parser.current()).toMatchObject({
+      inputTokens: 3,
+      outputTokens: 5,
+    });
+  });
+
   it("reads Responses usage off response.completed for the Muse default", () => {
     const usage = feed(createRelayUsageParser("openrouter"), [
       `data: ${JSON.stringify({ type: "response.created", response: { id: "resp_1" } })}\n\n`,

@@ -8,7 +8,7 @@
  * `Authorization: Bearer <capability>` on every relay call.
  *
  * Same rules as the Electron runtime's `kernel/gateway-session.ts`:
- *   - cached per (gateway, device, owner identity) until 60 s before
+ *   - cached per (gateway, owner identity) until 60 s before
  *     `expiresAt`;
  *   - one exchange in flight per cache key, shared by concurrent callers;
  *   - a 401 on the exchange retries exactly once with a freshly minted JWT.
@@ -20,7 +20,6 @@ import {
   type GatewaySessionCapabilityResponse,
 } from "@stella/contracts/gateway/api";
 import { getConvexToken } from "@/global/auth/services/auth-token";
-import { getDeviceIdOrNull } from "@/platform/electron/device";
 import { parseJwtPayload } from "@/shared/lib/jwt";
 
 /** Re-exchange this long before the capability's own expiry. */
@@ -83,16 +82,8 @@ const authIdentity = (token: string): string => {
   ].join(":");
 };
 
-const cacheKey = (args: {
-  gatewayOrigin: string;
-  deviceId: string | null;
-  authToken: string;
-}): string =>
-  [
-    args.gatewayOrigin,
-    args.deviceId?.trim() || "device:none",
-    authIdentity(args.authToken),
-  ].join("|");
+const cacheKey = (args: { gatewayOrigin: string; authToken: string }): string =>
+  [args.gatewayOrigin, authIdentity(args.authToken)].join("|");
 
 const readGatewayError = async (
   response: Response,
@@ -125,11 +116,8 @@ const isSessionCapabilityResponse = (
 const exchangeOnce = async (args: {
   gatewayOrigin: string;
   authToken: string;
-  deviceId: string | null;
 }): Promise<CapabilityCacheEntry> => {
-  const body: GatewaySessionCapabilityRequest = {
-    ...(args.deviceId?.trim() ? { deviceId: args.deviceId.trim() } : {}),
-  };
+  const body: GatewaySessionCapabilityRequest = {};
   const response = await fetch(
     `${args.gatewayOrigin}${GATEWAY_SESSION_CAPABILITY_PATH}`,
     {
@@ -159,7 +147,6 @@ const exchange = async (args: {
   key: string;
   gatewayOrigin: string;
   authToken: string;
-  deviceId: string | null;
 }): Promise<CapabilityCacheEntry> => {
   const inFlight = inFlightExchanges.get(args.key);
   if (inFlight) return inFlight;
@@ -173,7 +160,9 @@ const exchange = async (args: {
         error instanceof GatewaySessionExchangeError &&
         error.status === 401
       ) {
-        const refreshed = (await getConvexToken({ forceRefresh: true }))?.trim();
+        const refreshed = (
+          await getConvexToken({ forceRefresh: true })
+        )?.trim();
         if (refreshed && refreshed !== args.authToken) {
           return await exchangeOnce({ ...args, authToken: refreshed });
         }
@@ -204,8 +193,7 @@ export const getGatewaySessionCapability = async (
 ): Promise<string> => {
   const authToken = (await getConvexToken())?.trim();
   if (!authToken) throw new Error(STELLA_GATEWAY_SIGN_IN_REQUIRED_MESSAGE);
-  const deviceId = await getDeviceIdOrNull();
-  const key = cacheKey({ gatewayOrigin, deviceId, authToken });
+  const key = cacheKey({ gatewayOrigin, authToken });
   if (options.forceRefresh) {
     capabilityCache.delete(key);
   } else {
@@ -218,7 +206,7 @@ export const getGatewaySessionCapability = async (
     }
     capabilityCache.delete(key);
   }
-  return (await exchange({ key, gatewayOrigin, authToken, deviceId })).capability;
+  return (await exchange({ key, gatewayOrigin, authToken })).capability;
 };
 
 /** Test seam: forget every cached capability. */

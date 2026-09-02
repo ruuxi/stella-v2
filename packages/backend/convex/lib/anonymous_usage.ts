@@ -4,7 +4,7 @@
  * the public status contract from drifting away from the actual counters.
  */
 
-export const ANON_DEVICE_USAGE_RETENTION_DAYS = 7;
+export const ANON_DEVICE_USAGE_RETENTION_DAYS = 30;
 export const ANON_DEVICE_USAGE_RETENTION_MS =
   ANON_DEVICE_USAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 

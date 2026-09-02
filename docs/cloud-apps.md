@@ -71,12 +71,13 @@ committed journal records, never token deltas.
 
 ### Routes
 
-| Method | Path                       | Auth                        | Result                                                        |
-| ------ | -------------------------- | --------------------------- | ------------------------------------------------------------- |
-| GET    | `/healthz`                 | none                        | `{ok:true}`                                                    |
-| POST   | `/v1/capabilities/session` | Better Auth JWT             | `GatewaySessionCapabilityResponse` from Convex                 |
-| POST   | `/v1/models/resolve`       | capability (or probe)       | `GatewayModelResolution` for the capability's audience         |
-| POST   | `/v1/relay/*`              | capability (or probe)       | managed lane, or native lane when the capability has `credential` |
+| Method | Path                           | Auth                     | Result                                                     |
+| ------ | ------------------------------ | ------------------------ | ---------------------------------------------------------- |
+| GET    | `/healthz`                     | none                     | `{ok:true}`                                                |
+| POST   | `/v1/capabilities/session`     | Better Auth JWT          | `GatewaySessionCapabilityResponse` from Convex             |
+| POST   | `/v1/models/resolve`           | capability or probe      | resolution for the capability's audience                  |
+| POST   | `/v1/relay/*`                  | capability or probe      | managed lane, or native lane with `credential`            |
+| POST   | `/internal/owners/enforcement` | `GATEWAY_SERVICE_SECRET` | store or clear an owner's enforcement status in gateway KV |
 
 Anything else is `404 bad_request`; a wrong method is `405 bad_request`. The
 relay suffix selects the protocol:
@@ -101,28 +102,31 @@ Headers:
 
 ### Managed lane
 
-Stella-billed, request/response. In order: agent-type check; parse the body and
-refuse `stream: true` with `400 stream_unsupported`; take the requested model
-from the body (or the Google path); validate the managed cloud binding; resolve
-the route for the capability's audience — a `turn` capability must have
-`execution.engine === "stella"` and its resolved `requestedModel` must equal
-`turn.execution.model` exactly, else `403 execution_mismatch`; check the
-provider actually speaks the path's protocol; validate the reasoning binding for
-`stella` turns; rate-limit anonymous callers by IP (`ANON_IP_LIMITER`, 60 per
-60 s) and hash the IP for the usage event; look up the model's price in the
-`GET /api/gateway/config` snapshot (cached 5 min; only `prices` is consumed —
-the anonymous ceilings in that snapshot are applied by Convex when it mints a
-capability's `maxRequests`); estimate the request cost; reserve on
-the `CapabilityLedger`; open the upstream with streaming forced (Google via
-`:streamGenerateContent?alt=sse`, `accept: text/event-stream`); assemble one
-provider-native object; parse usage; settle the ledger; enqueue the usage event;
-return the provider's status with the assembled JSON.
+Stella-billed, request/response. Admission runs in this order before the gateway
+reads a provider byte: verify the capability; read `OWNER_ENFORCEMENT`; apply
+`ANON_IP_LIMITER` and `NetworkGate` for anonymous callers, or `NetworkGate` for
+Free; call `OwnerRelayGate.admitRelay`; reserve the audience's `TierBudget`
+when the config snapshot defines a finite ceiling; reserve the
+`CapabilityLedger`; call the provider. Probes and unlimited capabilities skip
+the tier budget. A `finally` block settles every acquired budget reservation and
+releases owner concurrency on validation errors, provider failures, client
+aborts, and successful responses.
+
+After owner admission, the gateway validates agent type, body, cloud binding,
+route, protocol, and reasoning binding. It clamps the provider's output-token
+field to the audience and model ceilings, prices the capped request, and forces
+upstream streaming. While consuming SSE it tracks the input estimate plus output
+cost. If a finite capability crosses its remaining budget, the gateway cancels
+the provider stream, settles the partial charge, and returns
+`402 budget_exhausted` with capability quota metadata.
 
 Limits: request body ≤ 24 MB, upstream stream ≤ 64 MB, upstream idle timeout
 5 min, absolute duration ceiling 45 min, result cache ≤ 8 MB kept for 10 min.
 A provider `401`/`403` is the gateway's own credential problem and is translated
 to `502 upstream_error`; other non-2xx statuses are returned as-is with a
-redacted body. A client abort settles as `aborted` and charges the estimate.
+redacted body. A client abort settles as `aborted`. A failure or abort before
+the first provider byte refunds the capability request count. Failures after the
+first byte keep that count.
 
 ### Native lane
 
@@ -156,11 +160,10 @@ usage is parsed best-effort off the response path from a JSON body ≤ 4 MB.
 | `credential`       | Native lane engine, when the turn runs on the owner's subscription.         |
 
 TTLs: session capability 1 h, turn capability 30 min, 60 s of clock skew
-tolerated. A session capability's budget is
-`min(remaining managed allowance, GATEWAY_ALLOWANCE_CAP_MICRO_CENTS)` — a $5
-ceiling per capability, so a leak is bounded and an owner with more headroom
-mints another. An anonymous owner gets no money budget at all; its ceiling is
-`maxRequests` left on the device trial counter.
+tolerated. Convex reserves a small owner allowance chunk at mint and places it
+in the capability: $0.10 anonymous, $1 Free, $2 Go, or $5 Pro. Anonymous
+capabilities also carry a 10-request chunk. Anonymous minting is keyed by owner
+and the gateway's IP hash. Client-provided device identifiers are not accepted.
 
 ### Ledger and budgets
 
@@ -168,13 +171,31 @@ mints another. An anonymous owner gets no money budget at all; its ceiling is
 with `request_limit` when `requests >= max_requests` and with `budget_exhausted`
 when `spent + reserved + estimate > budget` (an unlimited budget never refuses
 on money); a settled request id replays its stored result instead of reserving;
-an in-flight id returns `in_flight` (surfaced as `409`, retryable). The request
-count is never refunded, so an abort or a failure still consumes an anonymous
-trial request. `settle` releases the reservation, adds the charge to `spent`, and
-stores the body for replay when it fits the cache ceiling. A reservation with no
+an in-flight id returns `in_flight` (surfaced as `409`, retryable). `settle`
+releases the reservation, adds the charge to `spent`, optionally refunds the
+request count when no provider byte arrived, and stores the body for replay when
+it fits the cache ceiling. A reservation with no
 settlement after 45 min + 60 s belonged to a dead isolate and is released on the
 next reserve for the same request id. An alarm at `exp + 10 min` deletes
 everything. No Convex call is ever on this path.
+
+`OWNER_RELAY_GATE` is one SQLite `OwnerRelayGate` per owner. It enforces rolling
+per-minute relay velocity, per-hour mint velocity, and in-flight relay limits.
+Enforcement status `throttled` halves these limits, rounded down with a minimum
+of one. `NETWORK_GATE` is one SQLite `NetworkGate` per IP hash. Anonymous
+traffic has hourly and daily relay counters plus a daily mint counter. Free has
+a daily relay counter. Go and Pro do not use network counters.
+
+`TIER_BUDGET` is one SQLite `TierBudget` per base audience. Each call receives
+the current hourly and daily ceilings from the cached Convex config snapshot.
+The object stores per-minute reserved or settled micro-cents, not config. A
+breaker trip logs at error level and may post to `ALERT_WEBHOOK_URL`. Webhook
+posts are limited to one per audience and window every five minutes.
+
+`OWNER_ENFORCEMENT` stores `{status, until?, updatedAt}` by owner id. Mint and
+managed relay reads use a 60-second KV cache. `suspended` returns
+`403 owner_suspended`; `throttled` reduces owner gate limits. Convex pushes this
+route directly to KV, so an enforcement push never creates a Durable Object.
 
 ### Error codes
 
@@ -190,11 +211,19 @@ everything. No Convex call is ever on this path.
 | `bad_request`         | 400/404/405/409 | Shape, unknown path, wrong method, request in flight. |
 | `budget_exhausted`    | 402     | Capability budget spent.                                    |
 | `request_limit`       | 429     | Anonymous request ceiling reached.                          |
-| `rate_limited`        | 429     | Anonymous per-IP limiter.                                   |
+| `rate_limited`        | 429     | Owner or network velocity limit reached.                    |
+| `concurrency_limit`   | 429     | Owner in-flight relay limit reached.                        |
+| `sign_in_required`    | 403     | Anonymous tier breaker requires a signed-in account.        |
+| `tier_paused`         | 429     | The audience hourly or daily spend breaker tripped.         |
+| `owner_suspended`     | 403     | Owner enforcement status is suspended.                      |
 | `upstream_error`      | 502     | Provider refused, or the stream could not be assembled.     |
 | `upstream_timeout`    | 504     | Idle or duration ceiling hit.                               |
 | `canceled`            | 499     | Caller aborted.                                             |
 | `internal`            | 500/503 | Unconfigured provider, key, or Convex unavailable.          |
+
+Admission refusals include `error.quota.scope`. When the gate knows when its
+rolling window clears, the body also includes `resetAt` and `retryAfterMs`, and
+the response carries the matching `retry-after` header.
 
 ### Usage queue
 
@@ -267,6 +296,9 @@ characters), `prompt` (≤ 8000 characters), and optionally `execution`, `locale
 `lane` other than `chat`, a `source` outside `desktop`/`web`/`mobile`,
 `hiddenMessage`, and `agentThreadControl` are service-only; a user-authenticated
 request that sets one is refused with `403 forbidden` naming the field.
+Anonymous Better Auth owners may use the `chat` lane. They cannot start or
+dispatch agent-lane work or app builds; those requests answer
+`403 sign_in_required` until the owner signs in.
 Conversation ids are client-minted and must match 8–128 URL-safe characters.
 
 Success is `202` with
@@ -286,6 +318,8 @@ Success is `202` with
 | `quota_concurrency`    | 429    |
 | `owner_purged`         | 410    |
 | `execution_unavailable`| 409    |
+| `sign_in_required`     | 403    |
+| `owner_suspended`      | 403    |
 | `internal`             | 503    |
 
 Refusals carry `{error: {code, message, retryable, retryAfterMs?}}` and a
@@ -339,7 +373,8 @@ One `OwnerGate` per owner (binding `OWNER_GATES`, object name = `ownerId`).
 
 - **Snapshot.** `GET {convex}/api/gateway/owner-snapshot?ownerId=` with
   `BUILDER_SERVICE_SECRET`. It carries the owner generation, a write fence
-  (`writable`), the plan and `unlimited` flag, per-lane quotas, the model
+  (`writable`), anonymous-owner and enforcement status, the plan and
+  `unlimited` flag, per-lane quotas, the model
   allowance (audience, budget, request ceiling), the owner's default execution,
   connected engines, execution devices with their public keys, and paired mobile
   devices. The gate serves any cached copy younger than three `ttlMs` (300 s
@@ -364,12 +399,17 @@ One `OwnerGate` per owner (binding `OWNER_GATES`, object name = `ownerId`).
 - **Windows.** Rolling starts per lane: burst over 10 minutes, daily over
   24 hours, both from `snapshot.quotas[lane]`. An `unlimited` owner skips them.
   A refusal computes exactly when a slot frees and returns it as `retryAfterMs`.
+- **Anonymous and suspended owners.** Anonymous snapshots can enter only the
+  chat lane. Agent admission returns `sign_in_required`, including quota-bypass
+  work. A suspended enforcement snapshot refuses every lane and dispatch with
+  `owner_suspended`; other non-writable snapshots remain `owner_purged`.
 - **Concurrency.** A `running` registry per lane, plus one running agent per
   workspace on the agent lane. A row whose release never arrives is presumed
   released after `TURN_TIMEOUT_MS` (900 s) plus a 60 s grace, so a lost isolate
   cannot wedge an owner. Concurrency retry hints are clamped to 1–30 s.
 - **Refusals are values, not exceptions**: `quota_burst`, `quota_daily`,
-  `quota_concurrency`, `owner_purged`, `generation_stale`, `internal` map
+  `quota_concurrency`, `sign_in_required`, `owner_suspended`, `owner_purged`,
+  `generation_stale`, `internal` map
   straight onto the turn-start contract.
 - **Release** is idempotent; every terminal path and every failed dispatch
   releases.
@@ -585,6 +625,19 @@ sandbox/app bundle.
 | `CAPABILITY_SIGNING_KEY` | PKCS8 PEM private key Convex signs session capabilities with.                                                                |
 | `CAPABILITY_SIGNING_KID` | Key id written into the capability header; must match an entry in every `CAPABILITY_JWKS`.                                    |
 | `CAPABILITY_JWKS`        | Public `GatewayJwks` document Convex verifies control-plane capabilities against on callback routes. Unset means those routes answer `503`. |
+| `STELLA_ADMIN_API_SECRET` | Bearer for the existing Convex admin surface, including owner enforcement and lookup. |
+| `ANON_DEVICE_ID_HASH_SALT` | Secret salt for anonymous owner and network request-counter keys. |
+| `STELLA_ANON_MAX_REQUESTS` | Anonymous lifetime request allowance per owner. |
+| `STELLA_ANON_MAX_REQUESTS_PER_IP` | Anonymous lifetime request allowance per IP bucket; defaults to ten times the owner allowance. |
+| `STELLA_ANON_LIFETIME_LIMIT_USD` | Required anonymous monetary allowance. Anonymous account profiles remain on `free`; this value overrides their quota calculation. |
+| `STELLA_ANON_ROLLING_LIMIT_USD` | Optional anonymous rolling allowance; defaults to the anonymous lifetime value. |
+| `STELLA_ANON_ROLLING_WINDOW_HOURS` | Optional anonymous rolling-window length; defaults to 5 hours. |
+| `STELLA_ANON_WEEKLY_LIMIT_USD` | Optional anonymous weekly allowance; defaults to the anonymous lifetime value. |
+| `STELLA_ANON_MONTHLY_LIMIT_USD` | Optional anonymous monthly allowance; defaults to the anonymous lifetime value. |
+| `STELLA_TIER_CEILING_ANON_HOURLY_USD` | Gateway-wide anonymous hourly breaker sent in the config snapshot; defaults to $20, and `-1` disables it. |
+| `STELLA_TIER_CEILING_ANON_DAILY_USD` | Gateway-wide anonymous daily breaker; defaults to $200, and `-1` disables it. |
+| `STELLA_TIER_CEILING_FREE_HOURLY_USD` | Gateway-wide Free hourly breaker; defaults to $100, and `-1` disables it. |
+| `STELLA_TIER_CEILING_FREE_DAILY_USD` | Gateway-wide Free daily breaker; defaults to $1,000, and `-1` disables it. |
 
 ### `stella-v2-model-gateway-dev`
 
@@ -592,13 +645,18 @@ Secrets (all required): `OPENROUTER_API_KEY`, `FIREWORKS_API_KEY`,
 `DEEPSEEK_API_KEY`, `CROF_API_KEY`, `WAFER_API_KEY`, `XAI_API_KEY`,
 `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_AI_API_KEY`,
 `META_MODEL_API_KEY`, `GATEWAY_SERVICE_SECRET`, `STELLA_RELAY_PROBE_SECRET`.
+`ALERT_WEBHOOK_URL` is an optional secret. When set, tier breaker trips post a
+small JSON alert to it.
 
 Vars: `ENVIRONMENT`, `STELLA_CONVEX_SITE_URL`, `CAPABILITY_JWKS` (the public key
 set — the placeholder `{"keys":[]}` rejects every capability, which is the
 intended fail-closed default until ops replaces it).
 
 Bindings: Durable Object `CAPABILITY_LEDGER` → class `CapabilityLedger`
-(migration `v1`, `new_sqlite_classes`); queue producer `USAGE_QUEUE` →
+(migration `v1`, `new_sqlite_classes`); `OWNER_RELAY_GATE` →
+`OwnerRelayGate`, `NETWORK_GATE` → `NetworkGate`, and `TIER_BUDGET` →
+`TierBudget` (migration `v2`, all three in `new_sqlite_classes`); KV
+`OWNER_ENFORCEMENT`; queue producer `USAGE_QUEUE` →
 `stella-v2-gateway-usage-dev`; queue consumer on the same queue with
 dead-letter `stella-v2-gateway-usage-dlq-dev`; ratelimit `ANON_IP_LIMITER`
 (namespace `41011` in development, `41012` in production — the namespace ids must
@@ -668,12 +726,23 @@ bunx wrangler queues create stella-v2-turn-outbox-dlq-dev
 `CAPABILITY_JWKS` var to the public document, then the secrets, then deploy. The
 gateway must exist before the builder, which binds to it as a service.
 
+Create separate owner-enforcement namespaces and replace `REPLACE_ME_DEV` and
+`REPLACE_ME_PROD` in `workers/model-gateway/wrangler.jsonc` with the returned
+ids before deployment:
+
+```sh
+cd workers/model-gateway
+bunx wrangler kv namespace create OWNER_ENFORCEMENT --env=""
+bunx wrangler kv namespace create OWNER_ENFORCEMENT --env=production
+```
+
 ```sh
 bun scripts/generate-capability-keys.mjs convex-1
 bun scripts/generate-capability-keys.mjs builder-1
 cd workers/model-gateway
 # put each provider key, GATEWAY_SERVICE_SECRET, STELLA_RELAY_PROBE_SECRET
 bunx wrangler secret put OPENAI_API_KEY --env=""
+# optional: bunx wrangler secret put ALERT_WEBHOOK_URL --env=""
 bun run deploy:dev            # or, from the repo root: bun run model-gateway:deploy:dev
 ```
 
@@ -728,6 +797,15 @@ render as a blocked frame.
 
 Rotate a secret by updating both stores, deploying both sides, exercising health
 plus a real turn, then revoking the previous value.
+
+For owner enforcement, verify the existing admin bearer on both new Convex
+routes. `POST /api/admin/owners/enforcement` accepts exactly one of `ownerId` or
+`email` plus `status`, optional `until`, and `reason`. Then call
+`GET /api/admin/owners/lookup?ownerId=…` (or `?email=…`) and confirm the response
+contains the resolved owner, anonymous flag, plan, effective enforcement,
+billing-window remainder, unreleased grants, and up to 50 recent gateway usage
+receipts. A suspended owner must produce a snapshot with `writable: false`, and
+`POST /api/gateway/session-capability` must answer `403 owner_suspended`.
 
 ## Verification
 

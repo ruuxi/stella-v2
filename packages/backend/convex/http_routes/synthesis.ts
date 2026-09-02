@@ -2,6 +2,7 @@ import type { HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
 import { MANAGED_GATEWAY } from "../agent/model";
 import type { ActionCtx } from "../_generated/server";
+import { isAnonymousIdentity as isAnonymousUserIdentity } from "../auth";
 import { resolveModelConfig } from "../agent/model_resolver";
 import {
   buildCategoryAnalysisUserMessage,
@@ -300,7 +301,6 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
         if (!identity) {
           return errorResponse(401, "Unauthorized", origin);
         }
-
         let body: SynthesizeRequest | null = null;
         try {
           body = (await request.json()) as SynthesizeRequest;
@@ -629,7 +629,8 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
                 const startersStartedAt = Date.now();
                 try {
                   await assertDispatch();
-                  const startersPrompt = buildOnboardingStartersPrompt(coreMemory);
+                  const startersPrompt =
+                    buildOnboardingStartersPrompt(coreMemory);
                   const result = await completeManagedChat({
                     config: welcomeConfig,
                     dispatchGuard: createSynthesisDispatchGuard(
@@ -661,7 +662,10 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
                   );
                   return parsed;
                 } catch (error) {
-                  console.error("[synthesize] Onboarding starters failed.", error);
+                  console.error(
+                    "[synthesize] Onboarding starters failed.",
+                    error,
+                  );
                   return null;
                 }
               })()
@@ -726,6 +730,9 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
         // no managed provider request.
         if (!identity) {
           return errorResponse(401, "Unauthorized", origin);
+        }
+        if (isAnonymousUserIdentity(identity)) {
+          return errorResponse(403, "sign_in_required", origin);
         }
 
         let body: SynthesizeRequest | null = null;

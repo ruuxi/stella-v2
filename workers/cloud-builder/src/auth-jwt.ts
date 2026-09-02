@@ -20,7 +20,11 @@
  * signed-in user at once.
  */
 
-import { CLOCK_SKEW_S, JWKS_MIN_REFETCH_MS, JWKS_TTL_MS } from "./conversation-types.js";
+import {
+  CLOCK_SKEW_S,
+  JWKS_MIN_REFETCH_MS,
+  JWKS_TTL_MS,
+} from "./conversation-types.js";
 
 export type VerifiedToken = {
   /** `${issuer}|${sub}` — matches Convex's `identity.tokenIdentifier`. */
@@ -28,6 +32,7 @@ export type VerifiedToken = {
   subject: string;
   sessionId: string;
   expiresAtMs: number;
+  isAnonymous: boolean;
 };
 
 export type VerifyResult =
@@ -157,7 +162,9 @@ const base64UrlToBytes = (value: string): Uint8Array => {
 
 const decodeSegment = (segment: string): Record<string, unknown> | null => {
   try {
-    const parsed = JSON.parse(new TextDecoder().decode(base64UrlToBytes(segment)));
+    const parsed = JSON.parse(
+      new TextDecoder().decode(base64UrlToBytes(segment)),
+    );
     return typeof parsed === "object" && parsed !== null
       ? (parsed as Record<string, unknown>)
       : null;
@@ -206,10 +213,16 @@ export const verifyConvexToken = async (
   const exp = typeof payload.exp === "number" ? payload.exp : null;
   if (exp === null) return fail("no_exp");
   if (nowSeconds > exp + CLOCK_SKEW_S) return fail("expired");
-  if (typeof payload.nbf === "number" && nowSeconds < payload.nbf - CLOCK_SKEW_S) {
+  if (
+    typeof payload.nbf === "number" &&
+    nowSeconds < payload.nbf - CLOCK_SKEW_S
+  ) {
     return fail("not_yet_valid");
   }
-  if (typeof payload.iat === "number" && nowSeconds < payload.iat - CLOCK_SKEW_S) {
+  if (
+    typeof payload.iat === "number" &&
+    nowSeconds < payload.iat - CLOCK_SKEW_S
+  ) {
     return fail("issued_in_future");
   }
   if (payload.iss !== pinnedIssuer) return fail("wrong_issuer");
@@ -255,9 +268,9 @@ export const verifyConvexToken = async (
     token: {
       ownerId: `${pinnedIssuer}|${subject}`,
       subject,
-      sessionId:
-        typeof payload.sessionId === "string" ? payload.sessionId : "",
+      sessionId: typeof payload.sessionId === "string" ? payload.sessionId : "",
       expiresAtMs: exp * 1000,
+      isAnonymous: payload.isAnonymous === true,
     },
   };
 };

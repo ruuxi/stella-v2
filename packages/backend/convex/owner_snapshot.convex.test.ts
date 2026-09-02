@@ -1,8 +1,9 @@
 /// <reference types="vite/client" />
 
-import { GATEWAY_BUDGET_UNLIMITED } from "@stella/contracts/gateway/capability";
+import { GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS } from "@stella/contracts/gateway/api";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
+import { ConvexError } from "convex/values";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   CONVEX_OWNER_SNAPSHOT_PATH,
@@ -11,6 +12,7 @@ import {
 import { components, internal } from "./_generated/api";
 import { tokenIdentifierForBetterAuthUserId } from "./auth";
 import betterAuthSchema from "./betterAuth/schema";
+import { dollarsToMicroCents } from "./lib/billing_money";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -32,6 +34,7 @@ beforeAll(() => {
     STELLA_GO_PRICE_CENTS: "1000",
     STELLA_PRO_PRICE_CENTS: "2000",
     STELLA_ANON_MAX_REQUESTS: "3",
+    STELLA_ANON_LIFETIME_LIMIT_USD: "0.10",
     ANON_DEVICE_ID_HASH_SALT: "snapshot-test-salt",
     CONVEX_SITE_URL: "https://snapshot.test",
   };
@@ -155,6 +158,7 @@ describe("GET /api/gateway/owner-snapshot", () => {
       v: 1,
       ownerId,
       ownerGeneration: GENERATION,
+      isAnonymous: false,
       writable: true,
       plan: "free",
       unlimited: false,
@@ -162,7 +166,10 @@ describe("GET /api/gateway/owner-snapshot", () => {
         chat: { burstStarts: 4, dailyTurns: 3, concurrent: 1 },
         agent: { burstStarts: 4, dailyTurns: 3, concurrent: 1 },
       },
-      allowance: { audience: "free", budgetMicroCents: 500_000_000 },
+      allowance: {
+        audience: "free",
+        budgetMicroCents: GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS.free,
+      },
       execution: {
         engine: "stella",
         provider: "stella",
@@ -228,6 +235,7 @@ describe("GET /api/gateway/owner-snapshot", () => {
     const response = await fetchSnapshot(t, ownerId);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
+      isAnonymous: false,
       writable: false,
       allowance: { audience: "free", budgetMicroCents: 0, maxRequests: 0 },
     });
@@ -242,13 +250,64 @@ describe("GET /api/gateway/owner-snapshot", () => {
     const response = await fetchSnapshot(t, ownerId);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
+      isAnonymous: true,
       writable: true,
+      quotas: {
+        chat: { burstStarts: 4, dailyTurns: 3, concurrent: 1 },
+        agent: { burstStarts: 0, dailyTurns: 0, concurrent: 0 },
+      },
       allowance: {
         audience: "anonymous",
-        budgetMicroCents: GATEWAY_BUDGET_UNLIMITED,
+        budgetMicroCents: dollarsToMicroCents(0.1),
         maxRequests: 3,
       },
     });
+  });
+
+  it("makes suspended owners unwritable, refuses minting, and schedules gateway push", async () => {
+    const t = createTest();
+    const ownerId = await seedUser(t, "snapshot-suspended", false);
+    await t.mutation(internal.owner_enforcement.setOwnerEnforcementInternal, {
+      ownerId,
+      status: "suspended",
+      reason: "abuse review",
+      actor: "test-admin",
+    });
+
+    const response = await fetchSnapshot(t, ownerId);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      isAnonymous: false,
+      writable: false,
+      enforcement: { status: "suspended", reason: "abuse review" },
+      allowance: { budgetMicroCents: 0, maxRequests: 0 },
+    });
+    await expect(
+      t.mutation(internal.gateway_capabilities.getOwnerModelAllowanceInternal, {
+        ownerId,
+        ownerGeneration: GENERATION,
+      }),
+    ).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof ConvexError &&
+        (error.data as { code?: string }).code === "OWNER_SUSPENDED",
+    );
+
+    const scheduledNames = await t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).map(
+        (entry) => entry.name,
+      ),
+    );
+    expect(
+      scheduledNames.some((name) =>
+        name.includes("notifyOwnerSnapshotChanged"),
+      ),
+    ).toBe(true);
+    expect(
+      scheduledNames.some((name) =>
+        name.includes("pushOwnerEnforcementToGateway"),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -267,11 +326,15 @@ describe("owner snapshot change push", () => {
       ownerId,
       reason: "billing",
     });
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.url).toBe(
+    const billingCall = calls.find(
+      (call) =>
+        (JSON.parse(String(call.init.body)) as { reason?: string }).reason ===
+        "billing",
+    );
+    expect(billingCall?.url).toBe(
       "https://builder.test/internal/owners/snapshot-changed",
     );
-    expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
+    expect(JSON.parse(String(billingCall?.init.body))).toMatchObject({
       ownerId,
       reason: "billing",
       snapshot: {
@@ -282,7 +345,7 @@ describe("owner snapshot change push", () => {
       },
     });
     expect(
-      (calls[0]?.init.headers as Record<string, string>).authorization,
+      (billingCall?.init.headers as Record<string, string>).authorization,
     ).toBe(`Bearer ${SECRET}`);
 
     const unknownOwnerId = "https://issuer.test|unknown-owner";
@@ -290,7 +353,12 @@ describe("owner snapshot change push", () => {
       ownerId: unknownOwnerId,
       reason: "manual",
     });
-    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({
+    const manualCall = calls.find(
+      (call) =>
+        (JSON.parse(String(call.init.body)) as { reason?: string }).reason ===
+        "manual",
+    );
+    expect(JSON.parse(String(manualCall?.init.body))).toEqual({
       ownerId: unknownOwnerId,
       reason: "manual",
     });

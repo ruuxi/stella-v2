@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { makeFunctionReference } from "convex/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { internal } from "./_generated/api";
@@ -9,7 +10,11 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 const ownerId = "https://issuer.test|connector-owner";
 
-const createTest = () => convexTest(schema, modules);
+const createTest = () => {
+  const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
+  return t;
+};
 const beginNativeRun = makeFunctionReference<"mutation", any, any>(
   "composio_native_dispatch:beginComposioNativeRunInternal",
 );
@@ -172,6 +177,33 @@ afterEach(() => {
 });
 
 describe("Composio integration catalog and execution", () => {
+  it("requires a connected identity for Composio connection and execution", async () => {
+    const t = createTest();
+    const anonymous = t.withIdentity({
+      issuer: "https://issuer.test",
+      subject: "anonymous-connector-owner",
+      tokenIdentifier: "https://issuer.test|anonymous-connector-owner",
+      isAnonymous: true,
+    });
+    for (const [path, init] of [
+      [
+        "/api/native-integrations/connect-link",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: "outlook" }),
+        },
+      ],
+      ["/api/native-integrations/run", runRequest("OUTLOOK_QUERY_EMAILS", {})],
+    ] as const) {
+      const response = await anonymous.fetch(path, init);
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({
+        error: "sign_in_required",
+      });
+    }
+  });
+
   it("ingests the publisher shape atomically and preserves old actions after rejection", async () => {
     const t = createTest();
     const publish = (actions: unknown[]) =>

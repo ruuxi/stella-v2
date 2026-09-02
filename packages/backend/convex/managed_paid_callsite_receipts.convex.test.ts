@@ -9,9 +9,9 @@ const read = (path: string) =>
 describe("paid managed callsite receipt inventory", () => {
   it("keeps every synthesis stage receipt-authoritative, including authenticated anonymous owners", () => {
     const source = read("./http_routes/synthesis.ts");
-    expect(source.match(/billing:\s+await createSynthesisModelBilling/g)).toHaveLength(
-      4,
-    );
+    expect(
+      source.match(/billing:\s+await createSynthesisModelBilling/g),
+    ).toHaveLength(5);
     expect(source).toContain(
       "every authenticated principal\n          // receives an exact-attempt usage receipt",
     );

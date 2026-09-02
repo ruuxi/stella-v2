@@ -112,6 +112,36 @@ const realtimeConfigRef = makeFunctionReference<
  */
 let cachedBuilderOrigin: string | null = null;
 
+const EXECUTION_PLACEMENT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  sign_in_required: "Sign in to Stella to use cloud agents.",
+  owner_suspended: "This account can't use Stella's cloud right now.",
+};
+
+/**
+ * Replace the server's terse message for the codes above. The error is the
+ * `HttpRequestError` the http helper just built for this request, so its
+ * message is rewritten in place (status and code stay) rather than re-created,
+ * which keeps this module free of the class import test harnesses mock out.
+ */
+const mapExecutionPlacementError = (error: unknown): unknown => {
+  if (!(error instanceof Error)) return error;
+  const code = Reflect.get(error, "code");
+  if (typeof code !== "string") return error;
+  const message = EXECUTION_PLACEMENT_ERROR_MESSAGES[code];
+  if (message) error.message = message;
+  return error;
+};
+
+const executionPlacementRequest = async <T>(
+  request: Promise<T>,
+): Promise<T> => {
+  try {
+    return await request;
+  } catch (error) {
+    throw mapExecutionPlacementError(error);
+  }
+};
+
 export const resolveExecutionBuilderOrigin = async (
   override?: string | null,
 ): Promise<string> => {
@@ -233,11 +263,13 @@ export const listExecutionDevices = async (options?: {
   builderOrigin?: string | null;
 }): Promise<ExecutionDeviceDestination[]> => {
   const origin = await resolveExecutionBuilderOrigin(options?.builderOrigin);
-  const value = await getJson(DEVICES_PATH, {
-    origin,
-    signal: options?.signal,
-    timeoutMs: 10_000,
-  });
+  const value = await executionPlacementRequest(
+    getJson(DEVICES_PATH, {
+      origin,
+      signal: options?.signal,
+      timeoutMs: 10_000,
+    }),
+  );
   const devices =
     value && typeof value === "object"
       ? (value as { devices?: unknown }).devices
@@ -265,20 +297,24 @@ export const getAutomaticExecutionStatus = async (
   const origin = await resolveExecutionBuilderOrigin(options?.builderOrigin);
   let value: unknown;
   try {
-    value = await getJson(dispatchPath(normalized), {
-      origin,
-      signal: options?.signal,
-      timeoutMs: options?.timeoutMs ?? 10_000,
-    });
+    value = await executionPlacementRequest(
+      getJson(dispatchPath(normalized), {
+        origin,
+        signal: options?.signal,
+        timeoutMs: options?.timeoutMs ?? 10_000,
+      }),
+    );
   } catch (error) {
     // A dispatch the gate no longer owns is a definitive answer, not an
     // outage: the observer must stop rather than poll a missing row forever.
     if (isMissingDispatch(error)) return null;
     throw error;
   }
-  return value === null ? null : readDispatchEnvelope(value, {
-    dispatchId: normalized,
-  });
+  return value === null
+    ? null
+    : readDispatchEnvelope(value, {
+        dispatchId: normalized,
+      });
 };
 
 export const cancelAutomaticExecution = async (args: {
@@ -290,14 +326,16 @@ export const cancelAutomaticExecution = async (args: {
 }): Promise<AutomaticExecutionDispatch> => {
   const dispatchId = args.dispatchId.trim();
   const origin = await resolveExecutionBuilderOrigin(args.builderOrigin);
-  const value = await postJson(
-    dispatchCancelPath(dispatchId),
-    {
-      protocol: PLACEMENT_PROTOCOL,
-      cancelRequestId: args.cancelRequestId.trim(),
-      ...(args.reason?.trim() ? { reason: args.reason.trim() } : {}),
-    },
-    { origin, signal: args.signal, timeoutMs: 10_000 },
+  const value = await executionPlacementRequest(
+    postJson(
+      dispatchCancelPath(dispatchId),
+      {
+        protocol: PLACEMENT_PROTOCOL,
+        cancelRequestId: args.cancelRequestId.trim(),
+        ...(args.reason?.trim() ? { reason: args.reason.trim() } : {}),
+      },
+      { origin, signal: args.signal, timeoutMs: 10_000 },
+    ),
   );
   return readDispatchEnvelope(value, { dispatchId });
 };
@@ -357,18 +395,20 @@ export const submitAutomaticExecution = async (
       })
     : undefined;
   const origin = await resolveExecutionBuilderOrigin(builderOrigin);
-  const result = await postJson(
-    DISPATCH_SUBMIT_PATH,
-    {
-      ...admission.body,
-      ...(pairedAccess
-        ? { requestingDeviceId: pairedAccess.mobileDeviceId }
-        : {}),
-    },
-    {
-      origin,
-      ...(pairHeaders ? { headers: pairHeaders } : {}),
-    },
+  const result = await executionPlacementRequest(
+    postJson(
+      DISPATCH_SUBMIT_PATH,
+      {
+        ...admission.body,
+        ...(pairedAccess
+          ? { requestingDeviceId: pairedAccess.mobileDeviceId }
+          : {}),
+      },
+      {
+        origin,
+        ...(pairHeaders ? { headers: pairHeaders } : {}),
+      },
+    ),
   );
   return readDispatchEnvelope(result, {
     idempotencyKey: admission.body.idempotencyKey,

@@ -1,11 +1,17 @@
+import { makeFunctionReference } from "convex/server";
 import { ConvexError, v } from "convex/values";
+import {
+  GATEWAY_ANONYMOUS_REQUEST_CHUNK,
+  GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS,
+  limitsAudienceFor,
+  type GatewaySessionCapabilityResponse,
+} from "@stella/contracts/gateway/api";
 import {
   GATEWAY_BUDGET_UNLIMITED,
   GATEWAY_CAPABILITY_ISSUERS,
   GATEWAY_SESSION_CAPABILITY_TTL_MS,
   type ManagedModelAudience,
 } from "@stella/contracts/gateway/capability";
-import type { GatewaySessionCapabilityResponse } from "@stella/contracts/gateway/api";
 import {
   internalAction,
   internalMutation,
@@ -14,8 +20,13 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { internal } from "./_generated/api";
-import { anonymousTrialDeviceId, readDeviceAllowance } from "./ai_proxy_data";
+import {
+  anonymousIpBucketDeviceId,
+  anonymousTrialOwnerKey,
+  consumeDeviceAllowanceBulkAuthorized,
+  readDeviceAllowance,
+  refundDeviceAllowanceAuthorized,
+} from "./ai_proxy_data";
 import { assertOwnerMigrationWriteAllowed, requireUserId } from "./auth";
 import {
   runPeekManagedModelAllowance,
@@ -30,36 +41,32 @@ import {
   MODEL_GATEWAY_URL_ENV,
   resolveModelGatewayOrigin,
 } from "./http_routes/stella_models";
-import { getMaxAnonRequests } from "./lib/anonymous_usage";
+import {
+  getMaxAnonRequests,
+  getMaxAnonRequestsPerIp,
+} from "./lib/anonymous_usage";
 import {
   importCapabilitySigningKey,
   signCapability,
   type CapabilitySigningKey,
 } from "./lib/capability_signing";
+import { readOwnerEnforcement } from "./owner_enforcement";
 import { assertOwnerDataAccessActive } from "./owner_lifecycle";
 import { managedModelAudienceValidator } from "./schema/gateway";
 
-/**
- * Model-gateway capabilities minted by Convex.
- *
- * A capability carries a fixed budget the gateway meters locally, so the
- * gateway never consults billing on a request. The budget is a ceiling on one
- * capability's lifetime spend: the owner's remaining allowance, capped so a
- * leaked capability bounds exposure to `GATEWAY_ALLOWANCE_CAP_MICRO_CENTS`.
- */
-
-/** $5 ceiling per capability; owners with more headroom mint another one. */
-export const GATEWAY_ALLOWANCE_CAP_MICRO_CENTS = 500_000_000;
-
 export const CAPABILITY_SIGNING_KEY_ENV = "CAPABILITY_SIGNING_KEY";
 export const CAPABILITY_SIGNING_KID_ENV = "CAPABILITY_SIGNING_KID";
+export const GATEWAY_GRANT_SETTLEMENT_GRACE_MS = 10 * 60_000;
 
-/**
- * Where the renderer's own model calls go. The Electron runtime learns the
- * gateway origin from the `/api/stella/models` catalog; renderer code that
- * talks to the gateway directly (dictation cleanup, one-shot helpers) reads it
- * here over the authenticated Convex client instead of re-fetching the catalog.
- */
+const MAX_UNRELEASED_GRANTS_PER_OWNER = 256;
+const GRANT_RELEASE_BATCH_SIZE = 200;
+
+const releaseExpiredGatewayCapabilityGrantsRef = makeFunctionReference<
+  "mutation",
+  { now?: number; batchSize?: number },
+  { released: number; refundedRequests: number; hasMore: boolean }
+>("gateway_capabilities:releaseExpiredGatewayCapabilityGrantsInternal");
+
 export const getModelGatewayConfig = query({
   args: {},
   returns: v.object({ origin: v.string() }),
@@ -94,46 +101,73 @@ type OwnerModelAllowanceArgs = {
   ownerId: string;
   ownerGeneration: string;
   isAnonymous?: boolean;
-  deviceId?: string;
+  ipHash?: string;
 };
 
-const readAnonymousOwnerModelAllowance = async (
+const readAnonymousRequestAllowance = async (
   ctx: QueryCtx | MutationCtx,
-  args: OwnerModelAllowanceArgs,
-): Promise<OwnerModelAllowance> => {
-  await assertOwnerMigrationWriteAllowed(
-    ctx,
-    args.ownerId,
-    args.ownerGeneration,
-  );
-  const deviceId =
-    args.deviceId?.trim() || anonymousTrialDeviceId(args.ownerId);
-  // Fail closed: without the salt the counter cannot be read, and an
-  // uncounted trial would be unbounded.
-  let remaining = 0;
+  args: Pick<OwnerModelAllowanceArgs, "ownerId" | "ipHash">,
+): Promise<number> => {
   try {
-    remaining = (
-      await readDeviceAllowance(ctx, {
-        deviceId,
-        maxRequests: getMaxAnonRequests(),
-      })
-    ).remaining;
+    const owner = await readDeviceAllowance(ctx, {
+      deviceId: anonymousTrialOwnerKey(args.ownerId),
+      maxRequests: getMaxAnonRequests(),
+    });
+    const ipHash = args.ipHash?.trim();
+    const network = ipHash
+      ? await readDeviceAllowance(ctx, {
+          deviceId: anonymousIpBucketDeviceId(ipHash),
+          maxRequests: getMaxAnonRequestsPerIp(),
+        })
+      : null;
+    return Math.max(
+      0,
+      Math.min(
+        owner.remaining,
+        network?.remaining ?? Number.POSITIVE_INFINITY,
+        GATEWAY_ANONYMOUS_REQUEST_CHUNK,
+      ),
+    );
   } catch (error) {
     if (!isAnonDeviceHashSaltMissingError(error)) throw error;
     logMissingSaltOnce("gateway-capabilities");
+    return 0;
   }
-  // Money is not the anonymous ceiling; the request count is. A zero budget
-  // would read as exhausted at the gateway's ledger.
-  return {
-    audience: "anonymous",
-    budgetMicroCents: GATEWAY_BUDGET_UNLIMITED,
-    maxRequests: remaining,
-    unlimited: false,
-  };
+};
+
+const listUnreleasedOwnerGrants = async (
+  ctx: QueryCtx | MutationCtx,
+  ownerId: string,
+) =>
+  await ctx.db
+    .query("gateway_capability_grants")
+    .withIndex("by_owner_released", (q) =>
+      q.eq("ownerId", ownerId).eq("released", false),
+    )
+    .take(MAX_UNRELEASED_GRANTS_PER_OWNER + 1);
+
+const reservedGrantMicroCents = async (
+  ctx: QueryCtx | MutationCtx,
+  ownerId: string,
+  now: number,
+): Promise<number> => {
+  const grants = await listUnreleasedOwnerGrants(ctx, ownerId);
+  if (grants.length > MAX_UNRELEASED_GRANTS_PER_OWNER) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return grants.reduce(
+    (total, grant) =>
+      grant.expiresAt + GATEWAY_GRANT_SETTLEMENT_GRACE_MS < now
+        ? total
+        : total + Math.max(0, grant.budgetMicroCents - grant.settledMicroCents),
+    0,
+  );
 };
 
 const toOwnerModelAllowance = (
   resolved: ManagedModelAllowanceResult,
+  reservedMicroCents: number,
+  maxRequests?: number,
 ): OwnerModelAllowance => {
   if (resolved.access.unlimited || resolved.remainingMicroCents === null) {
     return {
@@ -142,15 +176,18 @@ const toOwnerModelAllowance = (
       unlimited: true,
     };
   }
+  const chunk =
+    GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS[
+      limitsAudienceFor(resolved.access.modelAudience)
+    ];
+  const headroom = Math.max(
+    0,
+    Math.floor(resolved.remainingMicroCents - reservedMicroCents),
+  );
   return {
     audience: resolved.access.modelAudience,
-    budgetMicroCents: Math.max(
-      0,
-      Math.min(
-        Math.floor(resolved.remainingMicroCents),
-        GATEWAY_ALLOWANCE_CAP_MICRO_CENTS,
-      ),
-    ),
+    budgetMicroCents: Math.min(headroom, chunk),
+    ...(maxRequests !== undefined ? { maxRequests } : {}),
     unlimited: false,
   };
 };
@@ -159,55 +196,223 @@ export const runPeekOwnerModelAllowance = async (
   ctx: QueryCtx | MutationCtx,
   args: OwnerModelAllowanceArgs,
 ): Promise<OwnerModelAllowance> => {
-  if (args.isAnonymous) {
-    return await readAnonymousOwnerModelAllowance(ctx, args);
-  }
-  return toOwnerModelAllowance(
-    await runPeekManagedModelAllowance(ctx, {
+  const [resolved, maxRequests, reservedMicroCents] = await Promise.all([
+    runPeekManagedModelAllowance(ctx, {
       ownerId: args.ownerId,
       ownerGeneration: args.ownerGeneration,
+      isAnonymous: args.isAnonymous,
     }),
-  );
+    args.isAnonymous
+      ? readAnonymousRequestAllowance(ctx, args)
+      : Promise.resolve(undefined),
+    reservedGrantMicroCents(ctx, args.ownerId, Date.now()),
+  ]);
+  return toOwnerModelAllowance(resolved, reservedMicroCents, maxRequests);
 };
 
-/** Read-only allowance for owner snapshots and other control-plane reads. */
 export const peekOwnerModelAllowanceInternal = internalQuery({
   args: {
     ownerId: v.string(),
     ownerGeneration: v.string(),
     isAnonymous: v.optional(v.boolean()),
-    deviceId: v.optional(v.string()),
+    ipHash: v.optional(v.string()),
   },
   returns: ownerModelAllowanceValidator,
   handler: async (ctx, args): Promise<OwnerModelAllowance> =>
     await runPeekOwnerModelAllowance(ctx, args),
 });
 
-/**
- * Single source of truth for capability budgets. Signed-in owners get the
- * audience from `resolveManagedModelAccess` and `min(remaining allowance,
- * cap)`, or the unlimited sentinel; anonymous owners get no monetary budget
- * and the request-count trial that is left on their device counter.
- */
+const releaseGrant = async (
+  ctx: MutationCtx,
+  grant: Awaited<ReturnType<typeof listUnreleasedOwnerGrants>>[number],
+): Promise<number> => {
+  if (grant.released) return 0;
+  const unusedRequests =
+    grant.audience === "anonymous" && grant.maxRequests !== undefined
+      ? Math.max(0, grant.maxRequests - grant.settledRequests)
+      : 0;
+  let refundedRequests = 0;
+  if (unusedRequests > 0) {
+    try {
+      refundedRequests = await refundDeviceAllowanceAuthorized(ctx, {
+        deviceId: anonymousTrialOwnerKey(grant.ownerId),
+        count: unusedRequests,
+      });
+    } catch (error) {
+      if (!isAnonDeviceHashSaltMissingError(error)) throw error;
+      logMissingSaltOnce("gateway-grant-release");
+    }
+  }
+  await ctx.db.patch(grant._id, { released: true });
+  return refundedRequests;
+};
+
+const releaseExpiredOwnerGrants = async (
+  ctx: MutationCtx,
+  ownerId: string,
+  now: number,
+): Promise<void> => {
+  const grants = await listUnreleasedOwnerGrants(ctx, ownerId);
+  for (const grant of grants.slice(0, MAX_UNRELEASED_GRANTS_PER_OWNER)) {
+    if (grant.expiresAt + GATEWAY_GRANT_SETTLEMENT_GRACE_MS < now) {
+      await releaseGrant(ctx, grant);
+    }
+  }
+};
+
 export const getOwnerModelAllowanceInternal = internalMutation({
   args: {
     ownerId: v.string(),
     ownerGeneration: v.string(),
     isAnonymous: v.optional(v.boolean()),
-    deviceId: v.optional(v.string()),
   },
   returns: ownerModelAllowanceValidator,
   handler: async (ctx, args): Promise<OwnerModelAllowance> => {
-    if (args.isAnonymous) {
-      return await readAnonymousOwnerModelAllowance(ctx, args);
+    const enforcement = await readOwnerEnforcement(ctx, args.ownerId);
+    if (enforcement.status === "suspended") {
+      throw new ConvexError({
+        code: "OWNER_SUSPENDED",
+        message: "This owner is suspended.",
+      });
+    }
+    const resolved = await runResolveManagedModelAllowance(ctx, args);
+    const reservedMicroCents = await reservedGrantMicroCents(
+      ctx,
+      args.ownerId,
+      Date.now(),
+    );
+    return toOwnerModelAllowance(resolved, reservedMicroCents);
+  },
+});
+
+export const reserveOwnerSessionModelAllowanceInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    isAnonymous: v.optional(v.boolean()),
+    ipHash: v.optional(v.string()),
+    jti: v.string(),
+    issuedAt: v.number(),
+    expiresAt: v.number(),
+  },
+  returns: ownerModelAllowanceValidator,
+  handler: async (ctx, args): Promise<OwnerModelAllowance> => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    const enforcement = await readOwnerEnforcement(ctx, args.ownerId);
+    if (enforcement.status === "suspended") {
+      throw new ConvexError({
+        code: "OWNER_SUSPENDED",
+        message: "This owner is suspended.",
+      });
     }
 
-    return toOwnerModelAllowance(
-      await runResolveManagedModelAllowance(ctx, {
-        ownerId: args.ownerId,
-        ownerGeneration: args.ownerGeneration,
-      }),
+    await releaseExpiredOwnerGrants(ctx, args.ownerId, args.issuedAt);
+    const resolved = await runResolveManagedModelAllowance(ctx, {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      isAnonymous: args.isAnonymous,
+    });
+    if (resolved.access.unlimited || resolved.remainingMicroCents === null) {
+      return toOwnerModelAllowance(resolved, 0);
+    }
+
+    const maxRequests = args.isAnonymous
+      ? await readAnonymousRequestAllowance(ctx, args)
+      : undefined;
+    const reservedMicroCents = await reservedGrantMicroCents(
+      ctx,
+      args.ownerId,
+      args.issuedAt,
     );
+    const allowance = toOwnerModelAllowance(
+      resolved,
+      reservedMicroCents,
+      maxRequests,
+    );
+
+    const existing = await ctx.db
+      .query("gateway_capability_grants")
+      .withIndex("by_jti", (q) => q.eq("jti", args.jti))
+      .unique();
+    if (existing) {
+      throw new ConvexError({
+        code: "IDEMPOTENCY_CONFLICT",
+        message: "Capability grant id already exists.",
+      });
+    }
+    if (args.isAnonymous && maxRequests !== undefined && maxRequests > 0) {
+      await consumeDeviceAllowanceBulkAuthorized(ctx, {
+        deviceId: anonymousTrialOwnerKey(args.ownerId),
+        maxRequests: getMaxAnonRequests(),
+        count: maxRequests,
+      });
+    }
+    await ctx.db.insert("gateway_capability_grants", {
+      jti: args.jti,
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      audience: allowance.audience,
+      budgetMicroCents: allowance.budgetMicroCents,
+      ...(allowance.maxRequests !== undefined
+        ? { maxRequests: allowance.maxRequests }
+        : {}),
+      issuedAt: args.issuedAt,
+      expiresAt: args.expiresAt,
+      settledMicroCents: 0,
+      settledRequests: 0,
+      released: false,
+    });
+    return allowance;
+  },
+});
+
+export const releaseExpiredGatewayCapabilityGrantsInternal = internalMutation({
+  args: {
+    now: v.optional(v.number()),
+    batchSize: v.optional(v.number()),
+  },
+  returns: v.object({
+    released: v.number(),
+    refundedRequests: v.number(),
+    hasMore: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    const batchSize = Math.max(
+      1,
+      Math.min(
+        GRANT_RELEASE_BATCH_SIZE,
+        Math.floor(args.batchSize ?? GRANT_RELEASE_BATCH_SIZE),
+      ),
+    );
+    const cutoff = now - GATEWAY_GRANT_SETTLEMENT_GRACE_MS;
+    const grants = await ctx.db
+      .query("gateway_capability_grants")
+      .withIndex("by_released_expires", (q) =>
+        q.eq("released", false).lt("expiresAt", cutoff),
+      )
+      .take(batchSize);
+    let refundedRequests = 0;
+    for (const grant of grants) {
+      refundedRequests += await releaseGrant(ctx, grant);
+    }
+    const hasMore = grants.length === batchSize;
+    if (hasMore) {
+      await ctx.scheduler.runAfter(
+        0,
+        releaseExpiredGatewayCapabilityGrantsRef,
+        { now, batchSize },
+      );
+    }
+    return {
+      released: grants.length,
+      refundedRequests,
+      hasMore,
+    };
   },
 });
 
@@ -217,7 +422,6 @@ let cachedSigningKey: {
   key: Promise<CapabilitySigningKey>;
 } | null = null;
 
-/** Import the ES256 signing key from env once per isolate (re-imported on rotation). */
 export const loadCapabilitySigningKey = (): Promise<CapabilitySigningKey> => {
   const pem = process.env[CAPABILITY_SIGNING_KEY_ENV]?.trim();
   const kid = process.env[CAPABILITY_SIGNING_KID_ENV]?.trim();
@@ -232,7 +436,6 @@ export const loadCapabilitySigningKey = (): Promise<CapabilitySigningKey> => {
     cachedSigningKey.pem !== pem ||
     cachedSigningKey.kid !== kid
   ) {
-    // Env editors sometimes store the PEM with literal "\n" sequences.
     const key = importCapabilitySigningKey(pem.replace(/\\n/g, "\n"), kid);
     key.catch(() => {
       cachedSigningKey = null;
@@ -242,16 +445,25 @@ export const loadCapabilitySigningKey = (): Promise<CapabilitySigningKey> => {
   return cachedSigningKey.key;
 };
 
-/**
- * Mint a `session` capability for a desktop runtime. `gen` pins the owner's
- * current data generation so a capability minted before a reset is refused at
- * the gateway; claims come from `getOwnerModelAllowanceInternal`.
- */
+const getOwnerModelAllowanceRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    isAnonymous?: boolean;
+    ipHash?: string;
+    jti: string;
+    issuedAt: number;
+    expiresAt: number;
+  },
+  OwnerModelAllowance
+>("gateway_capabilities:reserveOwnerSessionModelAllowanceInternal");
+
 export const signSessionCapabilityInternal = internalAction({
   args: {
     ownerId: v.string(),
     isAnonymous: v.boolean(),
-    deviceId: v.optional(v.string()),
+    ipHash: v.optional(v.string()),
   },
   returns: v.object({
     capability: v.string(),
@@ -261,21 +473,31 @@ export const signSessionCapabilityInternal = internalAction({
     maxRequests: v.optional(v.number()),
   }),
   handler: async (ctx, args): Promise<GatewaySessionCapabilityResponse> => {
+    const signingKey = await loadCapabilitySigningKey();
     const { generation } = await assertOwnerDataAccessActive(ctx, args.ownerId);
+    const now = Date.now();
+    const jti = crypto.randomUUID();
+    const expiresAt =
+      (Math.floor(now / 1_000) +
+        Math.ceil(GATEWAY_SESSION_CAPABILITY_TTL_MS / 1_000)) *
+      1_000;
     const allowance: OwnerModelAllowance = await ctx.runMutation(
-      internal.gateway_capabilities.getOwnerModelAllowanceInternal,
+      getOwnerModelAllowanceRef,
       {
         ownerId: args.ownerId,
         ownerGeneration: generation,
         isAnonymous: args.isAnonymous,
-        ...(args.deviceId ? { deviceId: args.deviceId } : {}),
+        ...(args.ipHash ? { ipHash: args.ipHash } : {}),
+        jti,
+        issuedAt: now,
+        expiresAt,
       },
     );
-    const signingKey = await loadCapabilitySigningKey();
     const { token, claims } = await signCapability(
       {
         iss: GATEWAY_CAPABILITY_ISSUERS.convex,
         sub: args.ownerId,
+        jti,
         gen: generation,
         kind: "session",
         audience: allowance.audience,
@@ -285,11 +507,11 @@ export const signSessionCapabilityInternal = internalAction({
           : {}),
       },
       signingKey,
-      { ttlMs: GATEWAY_SESSION_CAPABILITY_TTL_MS },
+      { ttlMs: GATEWAY_SESSION_CAPABILITY_TTL_MS, now },
     );
     return {
       capability: token,
-      expiresAt: claims.exp * 1000,
+      expiresAt: claims.exp * 1_000,
       audience: allowance.audience,
       budgetMicroCents: allowance.budgetMicroCents,
       ...(allowance.maxRequests !== undefined

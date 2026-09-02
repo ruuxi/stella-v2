@@ -4,17 +4,24 @@ import { convexTest } from "convex-test";
 import { ConvexError } from "convex/values";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
+  GATEWAY_ANONYMOUS_REQUEST_CHUNK,
+  GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS,
+} from "@stella/contracts/gateway/api";
+import {
   GATEWAY_BUDGET_UNLIMITED,
   GATEWAY_CAPABILITY_AUDIENCE,
   GATEWAY_CAPABILITY_ISSUERS,
   GATEWAY_SESSION_CAPABILITY_TTL_MS,
 } from "@stella/contracts/gateway/capability";
 import { internal } from "./_generated/api";
-import { anonymousTrialDeviceId } from "./ai_proxy_data";
-import { GATEWAY_ALLOWANCE_CAP_MICRO_CENTS } from "./gateway_capabilities";
+import {
+  anonymousIpBucketDeviceId,
+  anonymousTrialOwnerKey,
+} from "./ai_proxy_data";
 import { dollarsToMicroCents } from "./lib/billing_money";
 import { getPlanConfig } from "./lib/billing_plans";
 import { base64UrlDecode } from "./lib/crypto_utils";
+import { GATEWAY_GRANT_SETTLEMENT_GRACE_MS } from "./gateway_capabilities";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -42,6 +49,7 @@ beforeAll(async () => {
     STELLA_GO_PRICE_CENTS: "1000",
     STELLA_PRO_PRICE_CENTS: "2000",
     STELLA_ANON_MAX_REQUESTS: String(ANON_MAX_REQUESTS),
+    STELLA_ANON_LIFETIME_LIMIT_USD: "0.10",
     ANON_DEVICE_ID_HASH_SALT: "gateway-test-salt",
     CAPABILITY_SIGNING_KID: "convex-test",
   };
@@ -80,7 +88,7 @@ const createTest = async (ownerIds: string[]) => {
 
 const allowance = (
   t: Awaited<ReturnType<typeof createTest>>,
-  args: { ownerId: string; isAnonymous?: boolean; deviceId?: string },
+  args: { ownerId: string; isAnonymous?: boolean },
 ) =>
   t.mutation(internal.gateway_capabilities.getOwnerModelAllowanceInternal, {
     ownerGeneration: OWNER_GENERATION,
@@ -89,7 +97,7 @@ const allowance = (
 
 const peekAllowance = (
   t: Awaited<ReturnType<typeof createTest>>,
-  args: { ownerId: string; isAnonymous?: boolean; deviceId?: string },
+  args: { ownerId: string; isAnonymous?: boolean; ipHash?: string },
 ) =>
   t.query(internal.gateway_capabilities.peekOwnerModelAllowanceInternal, {
     ownerGeneration: OWNER_GENERATION,
@@ -138,16 +146,16 @@ describe("getOwnerModelAllowanceInternal", () => {
     const ownerId = "https://convex.test|capped-owner";
     const t = await createTest([ownerId]);
     expect(freeRemainingMicroCents()).toBeGreaterThan(
-      GATEWAY_ALLOWANCE_CAP_MICRO_CENTS,
+      GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS.free,
     );
 
     expect(await allowance(t, { ownerId })).toEqual({
       audience: "free",
-      budgetMicroCents: GATEWAY_ALLOWANCE_CAP_MICRO_CENTS,
+      budgetMicroCents: GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS.free,
       unlimited: false,
     });
 
-    const spentMicroCents = dollarsToMicroCents(6);
+    const spentMicroCents = dollarsToMicroCents(7.5);
     await t.mutation(internal.billing.logManagedUsage, {
       ownerId,
       ownerGeneration: OWNER_GENERATION,
@@ -214,35 +222,38 @@ describe("getOwnerModelAllowanceInternal", () => {
     });
   });
 
-  it("gives anonymous owners the request trial that is left on their device", async () => {
+  it("gives anonymous owners finite money and owner/network request headroom", async () => {
     const ownerId = "https://convex.test|anonymous-owner";
     const t = await createTest([ownerId]);
-    expect(await allowance(t, { ownerId, isAnonymous: true })).toEqual({
+    expect(await peekAllowance(t, { ownerId, isAnonymous: true })).toEqual({
       audience: "anonymous",
-      budgetMicroCents: GATEWAY_BUDGET_UNLIMITED,
-      maxRequests: ANON_MAX_REQUESTS,
+      budgetMicroCents: dollarsToMicroCents(0.1),
+      maxRequests: Math.min(ANON_MAX_REQUESTS, GATEWAY_ANONYMOUS_REQUEST_CHUNK),
       unlimited: false,
     });
 
     await t.mutation(internal.ai_proxy_data.consumeDeviceAllowance, {
-      deviceId: anonymousTrialDeviceId(ownerId),
+      deviceId: anonymousTrialOwnerKey(ownerId),
       maxRequests: ANON_MAX_REQUESTS,
     });
-    expect(await allowance(t, { ownerId, isAnonymous: true })).toMatchObject({
+    expect(
+      await peekAllowance(t, { ownerId, isAnonymous: true }),
+    ).toMatchObject({
       maxRequests: ANON_MAX_REQUESTS - 1,
     });
 
-    for (let i = 0; i < ANON_MAX_REQUESTS + 1; i += 1) {
+    const ipHash = "network-a";
+    for (let i = 0; i < ANON_MAX_REQUESTS * 10; i += 1) {
       await t.mutation(internal.ai_proxy_data.consumeDeviceAllowance, {
-        deviceId: "device-exhausted",
-        maxRequests: ANON_MAX_REQUESTS,
+        deviceId: anonymousIpBucketDeviceId(ipHash),
+        maxRequests: ANON_MAX_REQUESTS * 10,
       });
     }
     expect(
-      await allowance(t, {
+      await peekAllowance(t, {
         ownerId,
         isAnonymous: true,
-        deviceId: "device-exhausted",
+        ipHash,
       }),
     ).toMatchObject({ maxRequests: 0 });
   });
@@ -264,12 +275,16 @@ describe("peekOwnerModelAllowanceInternal", () => {
     const ownerId = "https://convex.test|peek-anonymous-owner";
     const t = await createTest([ownerId]);
     await t.mutation(internal.ai_proxy_data.consumeDeviceAllowance, {
-      deviceId: anonymousTrialDeviceId(ownerId),
+      deviceId: anonymousTrialOwnerKey(ownerId),
       maxRequests: ANON_MAX_REQUESTS,
     });
 
     const peeked = await peekAllowance(t, { ownerId, isAnonymous: true });
-    expect(await allowance(t, { ownerId, isAnonymous: true })).toEqual(peeked);
+    expect(await allowance(t, { ownerId, isAnonymous: true })).toMatchObject({
+      audience: peeked.audience,
+      budgetMicroCents: peeked.budgetMicroCents,
+      unlimited: peeked.unlimited,
+    });
   });
 
   it("matches the mutation without normalizing stored billing windows", async () => {
@@ -388,7 +403,7 @@ describe("signSessionCapabilityInternal", () => {
 
     expect(response).toMatchObject({
       audience: "free",
-      budgetMicroCents: GATEWAY_ALLOWANCE_CAP_MICRO_CENTS,
+      budgetMicroCents: GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS.free,
     });
     expect(response.maxRequests).toBeUndefined();
     expect(await verifySignature(response.capability)).toBe(true);
@@ -402,7 +417,7 @@ describe("signSessionCapabilityInternal", () => {
       gen: OWNER_GENERATION,
       kind: "session",
       audience: "free",
-      budgetMicroCents: GATEWAY_ALLOWANCE_CAP_MICRO_CENTS,
+      budgetMicroCents: GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS.free,
     });
     expect(typeof claims.jti).toBe("string");
     expect(claims.exp).toBe(
@@ -412,22 +427,124 @@ describe("signSessionCapabilityInternal", () => {
     expect((claims.iat as number) * 1000).toBeGreaterThanOrEqual(before - 1000);
   });
 
-  it("carries the anonymous request ceiling and no monetary budget", async () => {
+  it("reserves the anonymous request ceiling and a finite monetary grant", async () => {
     const ownerId = "https://convex.test|signed-anon";
     const t = await createTest([ownerId]);
     const response = await t.action(
       internal.gateway_capabilities.signSessionCapabilityInternal,
-      { ownerId, isAnonymous: true, deviceId: "device-a" },
+      { ownerId, isAnonymous: true, ipHash: "network-a" },
     );
     expect(response).toMatchObject({
       audience: "anonymous",
-      budgetMicroCents: GATEWAY_BUDGET_UNLIMITED,
+      budgetMicroCents: dollarsToMicroCents(0.1),
       maxRequests: ANON_MAX_REQUESTS,
     });
     expect(decodeToken(response.capability).claims).toMatchObject({
       audience: "anonymous",
-      budgetMicroCents: GATEWAY_BUDGET_UNLIMITED,
+      budgetMicroCents: dollarsToMicroCents(0.1),
       maxRequests: ANON_MAX_REQUESTS,
+    });
+    const capabilityId = String(decodeToken(response.capability).claims.jti);
+    const reserved = await t.run(async (ctx) => ({
+      grant: await ctx.db
+        .query("gateway_capability_grants")
+        .withIndex("by_jti", (q) => q.eq("jti", capabilityId))
+        .unique(),
+      counters: await ctx.db.query("anon_device_usage").collect(),
+    }));
+    expect(reserved.grant).toMatchObject({
+      ownerId,
+      audience: "anonymous",
+      budgetMicroCents: dollarsToMicroCents(0.1),
+      maxRequests: ANON_MAX_REQUESTS,
+      settledMicroCents: 0,
+      settledRequests: 0,
+      released: false,
+    });
+    expect(reserved.counters).toHaveLength(1);
+    expect(reserved.counters[0]?.requestCount).toBe(ANON_MAX_REQUESTS);
+
+    const second = await t.action(
+      internal.gateway_capabilities.signSessionCapabilityInternal,
+      { ownerId, isAnonymous: true, ipHash: "network-a" },
+    );
+    expect(second).toMatchObject({ maxRequests: 0, budgetMicroCents: 0 });
+
+    const chargedMicroCents = dollarsToMicroCents(0.01);
+    await t.mutation(internal.billing.ingestGatewayUsageBatchInternal, {
+      now: Date.now(),
+      events: [
+        {
+          requestId: "anonymous-grant-request",
+          capabilityId,
+          ownerId,
+          ownerGeneration: OWNER_GENERATION,
+          audience: "anonymous",
+          agentType: "chat",
+          resolvedModel: "anthropic/claude-sonnet-4.6",
+          usage: {
+            inputTokens: 10,
+            outputTokens: 2,
+            reported: true,
+          },
+          chargedMicroCents,
+          outcome: "succeeded",
+          startedAt: 1,
+          finishedAt: 2,
+          billable: true,
+          anonymous: { ipHash: "network-a" },
+        },
+      ],
+    });
+    const settled = await t.run(async (ctx) => ({
+      grant: await ctx.db
+        .query("gateway_capability_grants")
+        .withIndex("by_jti", (q) => q.eq("jti", capabilityId))
+        .unique(),
+      window: await ctx.db
+        .query("billing_usage_windows")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+        .unique(),
+    }));
+    expect(settled.grant).toMatchObject({
+      settledMicroCents: chargedMicroCents,
+      settledRequests: 1,
+      released: false,
+    });
+    expect(settled.window).toMatchObject({
+      totalUsageMicroCents: chargedMicroCents,
+      totalRequestCount: 1,
+    });
+
+    const released = await t.mutation(
+      internal.gateway_capabilities
+        .releaseExpiredGatewayCapabilityGrantsInternal,
+      {
+        now: response.expiresAt + GATEWAY_GRANT_SETTLEMENT_GRACE_MS + 1,
+      },
+    );
+    expect(released).toMatchObject({ released: 2, refundedRequests: 2 });
+    const afterRelease = await t.run(async (ctx) => ({
+      grants: await ctx.db
+        .query("gateway_capability_grants")
+        .withIndex("by_owner_released", (q) =>
+          q.eq("ownerId", ownerId).eq("released", false),
+        )
+        .collect(),
+      counters: await ctx.db.query("anon_device_usage").collect(),
+    }));
+    expect(afterRelease.grants).toHaveLength(0);
+    expect(afterRelease.counters.map((row) => row.requestCount).sort()).toEqual(
+      [1, 1],
+    );
+
+    const reminted = await t.action(
+      internal.gateway_capabilities.signSessionCapabilityInternal,
+      { ownerId, isAnonymous: true, ipHash: "network-a" },
+    );
+    expect(reminted).toMatchObject({
+      budgetMicroCents: dollarsToMicroCents(0.09),
+      maxRequests: ANON_MAX_REQUESTS - 1,
     });
   });
 

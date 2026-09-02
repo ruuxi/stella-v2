@@ -474,6 +474,8 @@ const OWNER_GATE_REFUSAL_STATUS: Record<OwnerGateRefusalCode, number> = {
   quota_daily: 429,
   quota_concurrency: 429,
   owner_purged: 410,
+  sign_in_required: 403,
+  owner_suspended: 403,
   generation_stale: 409,
   internal: 503,
 };
@@ -1128,6 +1130,7 @@ type ConversationCaller = {
   sessionId: string;
   expiresAtMs: number;
   issuer: string;
+  isAnonymous: boolean;
 };
 
 /**
@@ -1433,10 +1436,11 @@ const forwardToDevicePresence = async (
  */
 type DispatchCaller =
   | { kind: "service"; ownerId: string; ownerGeneration: string }
-  | { kind: "user"; ownerId: string }
+  | { kind: "user"; ownerId: string; isAnonymous: boolean }
   | {
       kind: "mobile";
       ownerId: string;
+      isAnonymous: boolean;
       mobileDeviceId: string;
       desktopDeviceId: string;
     };
@@ -1482,7 +1486,11 @@ const handleDispatchSubmitRoute = async (
             false,
           );
     }
-    caller = { kind: "user", ownerId: auth.caller.ownerId };
+    caller = {
+      kind: "user",
+      ownerId: auth.caller.ownerId,
+      isAnonymous: auth.caller.isAnonymous,
+    };
   }
   let text: string;
   try {
@@ -1513,6 +1521,17 @@ const handleDispatchSubmitRoute = async (
   const parsed = parseDispatchSubmitRequest(body);
   if (!parsed.ok) {
     return dispatchErrorResponse("bad_request", parsed.message, false);
+  }
+  if (
+    caller.kind !== "service" &&
+    caller.isAnonymous &&
+    parsed.request.kind === "agent"
+  ) {
+    return dispatchErrorResponse(
+      "sign_in_required",
+      "Sign in to Stella to use cloud agents.",
+      false,
+    );
   }
   let submitted: DispatchSubmitRequest = parsed.request;
   const gate = env.OWNER_GATES.getByName(caller.ownerId);
@@ -1579,6 +1598,7 @@ const handleDispatchSubmitRoute = async (
     caller = {
       kind: "mobile",
       ownerId: caller.ownerId,
+      isAnonymous: caller.isAnonymous,
       mobileDeviceId: verified.mobileDeviceId,
       desktopDeviceId: verified.desktopDeviceId,
     };
@@ -9022,12 +9042,38 @@ export class BuildSession extends DurableObject<Env> {
           ),
         };
       }
+      if (snapshot.enforcement?.status === "suspended") {
+        return {
+          ok: false,
+          response: Response.json(
+            {
+              error: "This account can't use Stella's cloud right now.",
+              code: "owner_suspended",
+              retryable: false,
+            },
+            { status: 403, headers: { "cache-control": "no-store" } },
+          ),
+        };
+      }
       if (!snapshot.writable) {
         return {
           ok: false,
           response: json(
             { error: "This account's cloud data is no longer available." },
             410,
+          ),
+        };
+      }
+      if (snapshot.isAnonymous) {
+        return {
+          ok: false,
+          response: Response.json(
+            {
+              error: "Sign in to Stella to use cloud agents.",
+              code: "sign_in_required",
+              retryable: false,
+            },
+            { status: 403, headers: { "cache-control": "no-store" } },
           ),
         };
       }

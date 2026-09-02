@@ -20,6 +20,8 @@ export type RelayUsage = {
 
 export type RelayUsageParser = {
   pushText: (text: string) => void;
+  /** Usage reported by complete events consumed so far. */
+  current: () => RelayUsage | null;
   finish: () => RelayUsage | null;
 };
 
@@ -155,6 +157,8 @@ function createSseParser(
 ): RelayUsageParser {
   let buffer = "";
   let usage: RelayUsage = {};
+  const current = (): RelayUsage | null =>
+    Object.keys(usage).length > 0 ? { ...usage } : null;
 
   const consumeEvent = (rawEvent: string) => {
     const data = rawEvent
@@ -189,12 +193,13 @@ function createSseParser(
         consumeEvent(rawEvent);
       }
     },
+    current,
     finish() {
       if (buffer.trim()) {
         consumeEvent(buffer);
         buffer = "";
       }
-      return Object.keys(usage).length > 0 ? usage : null;
+      return current();
     },
   };
 }
@@ -218,6 +223,10 @@ export function createRelayUsageParser(
     });
     return {
       pushText: (text) => parser.pushText(text),
+      current: () => {
+        const usage = parser.current();
+        return usage ? grossAnthropicInput(usage) : usage;
+      },
       finish: () => {
         const usage = parser.finish();
         return usage ? grossAnthropicInput(usage) : usage;

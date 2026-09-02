@@ -219,6 +219,21 @@ describe("cloud conversation lifecycle authority", () => {
 });
 
 describe("app build lane reliable delivery", () => {
+  it("requires sign-in before starting build or routed app work", async () => {
+    const t = createTest();
+    const subject = "anonymous-app-owner";
+    const generation = "generation-anonymous-app";
+    await seedGeneration(t, ownerIdFor(subject), generation);
+    await expect(
+      anonymousIdentity(t, subject).mutation(startAppBuildTurn, {
+        prompt: "Build a notes app.",
+        appId: "app-anonymous-0001",
+        clientMsgId: "build:anonymous-0001",
+        expectedOwnerGeneration: generation,
+      }),
+    ).rejects.toMatchObject({ data: { code: "SIGN_IN_REQUIRED" } });
+  });
+
   it("creates the app on first use and replays a lost response with one turn and dispatch", async () => {
     const t = createTest();
     const subject = "build-replay-owner";

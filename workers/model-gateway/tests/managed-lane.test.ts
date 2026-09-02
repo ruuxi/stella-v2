@@ -20,6 +20,7 @@ import {
   json,
   MUSE_ALIAS,
   MUSE_RESOLVED,
+  OWNER_ID,
   OPENROUTER_KEY,
   PROBE_SECRET,
   readError,
@@ -186,6 +187,82 @@ describe("managed lane: authorization matrix", () => {
     expect(response.status).toBe(401);
     expect((await readError(response)).error.code).toBe("unauthorized");
     expect(response.headers.get(GATEWAY_TRACE_HEADER)).toBeTruthy();
+  });
+
+  test("suspended owners stop at KV before any gate or provider", async () => {
+    ctx.harness.enforcementValues.set(
+      OWNER_ID,
+      JSON.stringify({ status: "suspended", updatedAt: Date.now() }),
+    );
+    const { token } = await signSession();
+    const response = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: museBody(),
+        headers: agentHeaders(),
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect((await readError(response)).error.code).toBe("owner_suspended");
+    expect(ctx.harness.ownerGate.objects.size).toBe(0);
+    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
+  });
+
+  test("releases owner concurrency when validation fails", async () => {
+    const { token } = await signSession({
+      audience: "anonymous",
+      maxRequests: 1,
+    });
+    const headers = agentHeaders({ "cf-connecting-ip": "203.0.113.31" });
+    const malformed = await ctx.run(
+      relayRequest("/v1/relay/responses", { token, headers }),
+    );
+    expect(malformed.status).toBe(400);
+    const valid = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: museBody(),
+        headers,
+      }),
+    );
+    expect(valid.status).toBe(200);
+  });
+
+  test("tier breaker errors identify tier scope for anonymous and free", async () => {
+    for (const audience of ["anonymous", "free"] as const) {
+      resetConfigCacheForTests();
+      ctx = setup();
+      ctx.fetchMock.on(
+        (call) => call.url.pathname === "/api/gateway/config",
+        () =>
+          json(
+            configSnapshot({
+              tierCeilings: [
+                {
+                  audience,
+                  hourlyMicroCents: 1,
+                  dailyMicroCents: 1,
+                },
+              ],
+            }),
+          ),
+      );
+      const { token } = await signSession({ audience });
+      const response = await ctx.run(
+        relayRequest("/v1/relay/responses", {
+          token,
+          body: museBody(),
+          headers: agentHeaders({ "cf-connecting-ip": "203.0.113.32" }),
+        }),
+      );
+      expect(response.status).toBe(audience === "anonymous" ? 403 : 429);
+      expect((await readError(response)).error).toMatchObject({
+        code: audience === "anonymous" ? "sign_in_required" : "tier_paused",
+        quota: { scope: "tier" },
+      });
+      expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
+      expect(ctx.harness.ledger.objects.size).toBe(0);
+    }
   });
 
   test("expired capability -> 401 capability_expired", async () => {
@@ -511,7 +588,7 @@ describe("managed lane: completion, metering, replay", () => {
     expect(ctx.harness.usageEvents).toHaveLength(1);
   });
 
-  test("a concurrent request with the same id while in flight -> 409 retryable", async () => {
+  test("a concurrent request with the same id is stopped by the owner gate", async () => {
     const { token } = await signSession();
     ctx.fetchMock.on(
       (call) => call.url.host === "openrouter.ai",
@@ -530,10 +607,22 @@ describe("managed lane: completion, metering, replay", () => {
     const firstPromise = ctx.run(request());
     await new Promise((resolve) => setTimeout(resolve, 5));
     const second = await ctx.run(request());
+    // The owner gate passes the duplicate id through; the capability ledger
+    // owns idempotency and reports the request as still in flight.
     expect(second.status).toBe(409);
     const error = await readError(second);
-    expect(error.error).toMatchObject({ code: "bad_request", retryable: true });
+    expect(error.error).toMatchObject({ retryable: true });
     expect((await firstPromise).status).toBe(200);
+    // The retry must not have released the first request's slot early: a
+    // fresh id is admitted only once the first request has finished.
+    const third = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: museBody(),
+        headers: agentHeaders({ "x-stella-request-id": "req-after-race" }),
+      }),
+    );
+    expect(third.status).toBe(200);
   });
 
   test("assembles a ChatCompletion from Crof and bills the provider-exact cost", async () => {
@@ -632,6 +721,188 @@ describe("managed lane: completion, metering, replay", () => {
     expect(await ledger.replay({ requestId: "anything" })).toBeNull();
   });
 
+  test("a provider failure before output refunds the capability request count", async () => {
+    let providerCalls = 0;
+    ctx.fetchMock.on(
+      (call) => call.url.host === "openrouter.ai",
+      () => {
+        providerCalls += 1;
+        return providerCalls === 1
+          ? json({ error: { message: "busy" } }, 429)
+          : sseResponse(responsesFixture());
+      },
+    );
+    const { token, claims } = await signSession({ maxRequests: 1 });
+    const first = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: museBody(),
+        headers: agentHeaders({ "x-stella-request-id": "refund-first" }),
+      }),
+    );
+    expect(first.status).toBe(429);
+    const second = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: museBody(),
+        headers: agentHeaders({ "x-stella-request-id": "refund-second" }),
+      }),
+    );
+    expect(second.status).toBe(200);
+    const ledger = ctx.harness.ledger.namespace.get({ name: claims.jti });
+    expect(await ledger.snapshot()).toMatchObject({ requests: 1 });
+  });
+
+  test("aborts an SSE stream when its running cost crosses the capability budget", async () => {
+    ctx.fetchMock.on(
+      (call) => call.url.host === "openrouter.ai",
+      () =>
+        sseResponse(
+          sseText([
+            {
+              event: "response.output_text.delta",
+              data: {
+                type: "response.output_text.delta",
+                delta: "x".repeat(40),
+              },
+            },
+            {
+              event: "response.output_text.delta",
+              data: {
+                type: "response.output_text.delta",
+                delta: "this frame must never be needed",
+              },
+            },
+          ]),
+          { chunkSize: 4_096 },
+        ),
+    );
+    const { token, claims } = await signSession({ budgetMicroCents: 100 });
+    const response = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: museBody({ max_output_tokens: 1 }),
+        headers: agentHeaders({ "x-stella-request-id": "hard-stop" }),
+      }),
+    );
+    expect(response.status).toBe(402);
+    expect((await readError(response)).error).toMatchObject({
+      code: "budget_exhausted",
+      quota: { scope: "capability" },
+    });
+    expect(ctx.fetchMock.callsTo("openrouter.ai")[0]!.signal?.aborted).toBe(
+      true,
+    );
+    await ctx.harness.flush();
+    const event = ctx.harness.usageEvents[0] as GatewayUsageEvent;
+    expect(event).toMatchObject({
+      requestId: "hard-stop",
+      outcome: "failed",
+      usage: { reported: false },
+    });
+    expect(event.usage.outputTokens).toBeGreaterThan(0);
+    expect(event.chargedMicroCents).toBeGreaterThan(100);
+    const ledger = ctx.harness.ledger.namespace.get({ name: claims.jti });
+    expect(await ledger.snapshot()).toMatchObject({
+      requests: 1,
+      spentMicroCents: event.chargedMicroCents,
+      reservedMicroCents: 0,
+    });
+  });
+
+  test("runs enforcement, network, owner, tier, and ledger admission in order", async () => {
+    const order: string[] = [];
+    const namespace = (stub: object) => ({
+      idFromName: (name: string) => ({ name, toString: () => name }),
+      get: () => stub,
+    });
+    Object.assign(ctx.harness.env, {
+      OWNER_ENFORCEMENT: {
+        get: async () => {
+          order.push("enforcement");
+          return null;
+        },
+      },
+      NETWORK_GATE: namespace({
+        admitRelay: async () => {
+          order.push("network");
+          return { ok: true };
+        },
+      }),
+      OWNER_RELAY_GATE: namespace({
+        admitRelay: async () => {
+          order.push("owner");
+          return { ok: true };
+        },
+        releaseRelay: async () => {
+          order.push("owner-release");
+        },
+      }),
+      TIER_BUDGET: namespace({
+        reserve: async () => {
+          order.push("tier");
+          return { ok: true, minute: 1 };
+        },
+        settle: async () => {
+          order.push("tier-settle");
+        },
+      }),
+      CAPABILITY_LEDGER: namespace({
+        reserve: async () => {
+          order.push("ledger");
+          return { kind: "reserved", remainingMicroCents: 1_000_000 };
+        },
+        settle: async () => ({
+          ok: true,
+          spentMicroCents: 1,
+          reservedMicroCents: 0,
+          cached: true,
+        }),
+      }),
+    });
+    ctx.fetchMock.on(
+      (call) => call.url.pathname === "/api/gateway/config",
+      () =>
+        json(
+          configSnapshot({
+            tierCeilings: [
+              {
+                audience: "free",
+                hourlyMicroCents: 1_000_000,
+                dailyMicroCents: 10_000_000,
+              },
+            ],
+          }),
+        ),
+    );
+    ctx.fetchMock.on(
+      (call) => call.url.host === "openrouter.ai",
+      () => {
+        order.push("provider");
+        return sseResponse(responsesFixture());
+      },
+    );
+    const { token } = await signSession({ audience: "free" });
+    const response = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: museBody(),
+        headers: agentHeaders({ "cf-connecting-ip": "203.0.113.44" }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(order.slice(0, 6)).toEqual([
+      "enforcement",
+      "network",
+      "owner",
+      "tier",
+      "ledger",
+      "provider",
+    ]);
+    expect(order).toContain("tier-settle");
+    expect(order.at(-1)).toBe("owner-release");
+  });
+
   test("a provider 401 is reported as 502 upstream_error, never as the caller's problem", async () => {
     ctx.fetchMock.on(
       (call) => call.url.host === "openrouter.ai",
@@ -726,6 +997,56 @@ describe("managed lane: completion, metering, replay", () => {
     expect(await ledger.replay({ requestId: "req-abort" })).toBeNull();
   });
 
+  test("client abort before the first provider byte refunds the request count", async () => {
+    let providerCalls = 0;
+    ctx.fetchMock.on(
+      (call) => call.url.host === "openrouter.ai",
+      (call) => {
+        providerCalls += 1;
+        if (providerCalls > 1) return sseResponse(responsesFixture());
+        return new Promise<Response>((_resolve, reject) => {
+          const rejectAborted = () =>
+            reject(
+              new DOMException("The operation was aborted.", "AbortError"),
+            );
+          if (call.signal?.aborted) rejectAborted();
+          else
+            call.signal?.addEventListener("abort", rejectAborted, {
+              once: true,
+            });
+        });
+      },
+    );
+    const abort = new AbortController();
+    const { token, claims } = await signSession({ maxRequests: 1 });
+    setTimeout(() => abort.abort(), 5);
+    const canceled = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: museBody(),
+        headers: agentHeaders({ "x-stella-request-id": "abort-before-byte" }),
+        signal: abort.signal,
+      }),
+    );
+    expect(canceled.status).toBe(499);
+    const retry = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: museBody(),
+        headers: agentHeaders({ "x-stella-request-id": "after-abort" }),
+      }),
+    );
+    expect(retry.status).toBe(200);
+    const ledger = ctx.harness.ledger.namespace.get({ name: claims.jti });
+    expect(await ledger.snapshot()).toMatchObject({ requests: 1 });
+    await ctx.harness.flush();
+    expect(ctx.harness.usageEvents[0]).toMatchObject({
+      requestId: "abort-before-byte",
+      outcome: "aborted",
+      chargedMicroCents: 0,
+    });
+  });
+
   test("the probe secret grants a synthetic pro capability with no ledger and no usage events", async () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
@@ -788,6 +1109,21 @@ describe("POST /v1/models/resolve", () => {
       provider: "openrouter",
       protocol: "openai-responses",
       supportsImages: false,
+    });
+
+    const proFallback = await signSession({ audience: "pro_fallback" });
+    const fallbackPicker = await ctx.run(
+      relayRequest("/v1/models/resolve", {
+        token: proFallback.token,
+        body: { model: CROF_ALIAS, agentType: "orchestrator" },
+      }),
+    );
+    expect(fallbackPicker.status).toBe(200);
+    expect(
+      (await fallbackPicker.json()) as GatewayModelResolution,
+    ).toMatchObject({
+      requestedModel: "stella/default",
+      resolvedModel: MUSE_RESOLVED,
     });
 
     const turn = await signTurn();

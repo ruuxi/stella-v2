@@ -25,7 +25,6 @@ import type { RunnerContext } from "./types.js";
 
 export const createRunnerSiteConfig = (context: RunnerContext) => ({
   baseUrl: context.state.convexSiteUrl,
-  deviceId: context.deviceId,
   getAuthToken: () => context.state.authToken?.trim(),
   hasConnectedAccount: () => context.state.hasConnectedAccount,
   refreshAuthToken: async () => {

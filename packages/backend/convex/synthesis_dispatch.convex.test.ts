@@ -39,30 +39,6 @@ const welcomeRequest = (headers?: Record<string, string>) => ({
   body: JSON.stringify({ coreMemory: "The user likes calm interfaces." }),
 });
 
-const googleSse = [
-  `data: ${JSON.stringify({
-    candidates: [
-      {
-        content: {
-          role: "model",
-          parts: [
-            {
-              text: '<!doctype html><html><body><button data-stella-compose="hello">Hello</button></body></html>',
-            },
-          ],
-        },
-        finishReason: "STOP",
-      },
-    ],
-    usageMetadata: {
-      promptTokenCount: 10,
-      candidatesTokenCount: 12,
-      totalTokenCount: 22,
-    },
-    modelVersion: "gemini-3.6-flash",
-  })}\n\n`,
-].join("");
-
 describe("synthesis managed-provider owner authority", () => {
   it("rejects a legacy device-header-only caller before provider I/O", async () => {
     const t = convexTest(schema, modules);
@@ -86,7 +62,7 @@ describe("synthesis managed-provider owner authority", () => {
     ).toEqual([]);
   });
 
-  it("keeps an authenticated anonymous principal generation-fenced and lease-backed", async () => {
+  it("requires a connected identity for welcome HTML before provider I/O", async () => {
     const t = convexTest(schema, modules);
     rateLimiterTest.register(t);
     await t.run(async (ctx) => {
@@ -105,21 +81,31 @@ describe("synthesis managed-provider owner authority", () => {
       tokenIdentifier: OWNER_ID,
       isAnonymous: true,
     });
-    const upstream = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(googleSse, {
-        status: 200,
-        headers: { "content-type": "text/event-stream" },
-      }),
-    );
+    const upstream = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(
+        new Error("anonymous welcome synthesis must not dispatch"),
+      );
 
     const response = await anonymous.fetch(
       "/api/synthesize/welcome-html",
       welcomeRequest({ "X-Device-ID": "telemetry-only-device" }),
     );
 
-    expect(response.status).toBe(200);
-    expect(upstream).toHaveBeenCalledTimes(1);
-    expect(upstream.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "sign_in_required",
+    });
+    expect(upstream).not.toHaveBeenCalled();
+    const plain = await anonymous.fetch(
+      "/api/synthesize",
+      welcomeRequest({ "X-Device-ID": "telemetry-only-device" }),
+    );
+    expect(plain.status).toBe(400);
+    await expect(plain.json()).resolves.toEqual({
+      error: "formattedSections or formattedSignals is required",
+    });
+    expect(upstream).not.toHaveBeenCalled();
     const leases = await t.run(
       async (ctx) =>
         await ctx.db
@@ -129,34 +115,6 @@ describe("synthesis managed-provider owner authority", () => {
           )
           .collect(),
     );
-    expect(leases).toHaveLength(1);
-    expect(leases[0]).toMatchObject({
-      ownerId: OWNER_ID,
-      ownerGeneration: OWNER_GENERATION,
-      state: "terminal",
-      outcome: "succeeded",
-      billing: {
-        kind: "managed_usage",
-        agentType: "service:synthesis:welcome_html",
-        model: "google/gemini-3.6-flash",
-        providerState: "may_have_dispatched",
-        billingState: "billed",
-        capturedUsage: {
-          inputTokens: 10,
-          outputTokens: 12,
-          totalTokens: 22,
-          success: true,
-        },
-      },
-    });
-    const usage = await t.run(
-      async (ctx) =>
-        await ctx.db
-          .query("billing_usage_windows")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", OWNER_ID))
-          .unique(),
-    );
-    expect(usage?.totalRequestCount).toBe(1);
-    expect(usage?.totalUsageMicroCents).toBeGreaterThan(0);
+    expect(leases).toEqual([]);
   });
 });

@@ -46,8 +46,6 @@ export const STELLA_GATEWAY_ORIGIN_PENDING =
 
 export type StellaSiteConfig = {
   baseUrl: string | null;
-  /** Device identity forwarded on the session capability exchange. */
-  deviceId?: string;
   getAuthToken: () => string | null | undefined;
   refreshAuthToken?: () =>
     | Promise<string | null | undefined>
@@ -265,6 +263,7 @@ const createRelayModel = (args: {
   provider: ManagedGatewayProvider;
   agentType: string;
   registryModel?: Model<Api> | null;
+  fetch?: typeof fetch;
 }): Model<Api> => {
   const lookup = getManagedStellaRegistryLookup(args.resolvedModelId);
   const nativeId = providerNativeModelId(args.resolvedModelId, args.provider);
@@ -343,6 +342,17 @@ const createRelayModel = (args: {
     },
   } as Model<Api>;
 
+  if (args.fetch) {
+    // Transport closures carry live session state and cannot be
+    // structured-cloned with catalog model metadata. Keep the override on
+    // the executable route while excluding it from metadata spreads/clones.
+    Object.defineProperty(model, "fetch", {
+      configurable: true,
+      enumerable: false,
+      value: args.fetch,
+    });
+  }
+
   // Stash the resolved upstream model id so provider adapters can make
   // model-capability decisions (e.g. Anthropic adaptive vs budget-based
   // thinking, which Opus 4.7 rejects in budget form) when `model.id`
@@ -368,6 +378,74 @@ const createRelayModel = (args: {
 };
 
 export const normalizeStellaBase = readConfiguredStellaSiteUrl;
+
+const capabilityExhausted = async (response: Response): Promise<boolean> => {
+  if (response.status !== 402 && response.status !== 429) return false;
+  try {
+    const payload = (await response.clone().json()) as unknown;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return false;
+    }
+    const error = (payload as Record<string, unknown>).error;
+    if (!error || typeof error !== "object" || Array.isArray(error)) {
+      return false;
+    }
+    const code = (error as Record<string, unknown>).code;
+    return (
+      (response.status === 402 && code === "budget_exhausted") ||
+      (response.status === 429 && code === "request_limit")
+    );
+  } catch {
+    return false;
+  }
+};
+
+const sessionCapabilityFetch = (
+  session: ReturnType<typeof createGatewaySessionClient>,
+): typeof fetch => {
+  const relayFetch = async (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const requestInput =
+      typeof input === "string" || input instanceof URL ? null : input;
+    const retryRequest = requestInput?.clone();
+    const retryUrl = requestInput ? requestInput.url : input;
+    const response = await fetch(input, init);
+    if (!(await capabilityExhausted(response))) return response;
+    const capability = (await session.refreshCapability())?.trim();
+    if (!capability) return response;
+    const headers: Record<string, string> = {};
+    const sourceHeaders = init?.headers ?? retryRequest?.headers;
+    if (sourceHeaders instanceof Headers) {
+      sourceHeaders.forEach((value, key) => {
+        headers[key] = value;
+      });
+    } else if (Array.isArray(sourceHeaders)) {
+      for (const [key, value] of sourceHeaders) headers[key] = String(value);
+    } else if (sourceHeaders) {
+      for (const [key, value] of Object.entries(sourceHeaders)) {
+        headers[key] = String(value);
+      }
+    }
+    headers.authorization = `Bearer ${capability}`;
+    const retryBody =
+      retryRequest &&
+      retryRequest.method !== "GET" &&
+      retryRequest.method !== "HEAD"
+        ? await retryRequest.arrayBuffer()
+        : undefined;
+    return await fetch(retryUrl, {
+      ...init,
+      ...(retryRequest ? { method: retryRequest.method } : {}),
+      ...(init?.body === undefined && retryBody !== undefined
+        ? { body: retryBody }
+        : {}),
+      headers,
+    });
+  };
+  return Object.assign(relayFetch, { preconnect: fetch.preconnect });
+};
 
 export const createStellaRoute = (args: {
   site: StellaSiteConfig;
@@ -422,7 +500,6 @@ export const createStellaRoute = (args: {
       gatewayOrigin ?? getRememberedStellaGatewayOrigin(siteBaseUrl),
     getAuthToken: currentAuthToken,
     refreshAuthToken: args.site.refreshAuthToken ? refreshAuthToken : undefined,
-    deviceId: args.site.deviceId,
   });
 
   return {
@@ -435,11 +512,11 @@ export const createStellaRoute = (args: {
       provider: relayProvider,
       agentType: args.agentType,
       registryModel: args.registryModel,
+      fetch: sessionCapabilityFetch(session),
     }),
     getApiKey: () => session.getCapability(),
-    // A 401/402 from the gateway means the capability is no longer good
-    // (expired, revoked by a data-generation bump, or budget exhausted):
-    // drop it and exchange a fresh one for the retry.
+    // Auth failures and session-ledger exhaustion (402/429) exchange one
+    // fresh capability for the provider adapter's single retry.
     refreshApiKey: () => session.refreshCapability(),
   };
 };

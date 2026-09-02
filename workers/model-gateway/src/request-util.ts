@@ -136,7 +136,11 @@ export const sha256Hex = async (text: string): Promise<string> => {
   ).join("");
 };
 
-export type AbortCause = "client" | "idle" | "duration";
+/** Stable network key shared by mint admission and managed usage events. */
+export const ipHashFrom = async (request: Request): Promise<string> =>
+  (await sha256Hex(clientIp(request))).slice(0, 32);
+
+export type AbortCause = "client" | "idle" | "duration" | "budget";
 
 /**
  * One AbortController for an upstream call, tied to the client's signal, an
@@ -149,6 +153,7 @@ export const createUpstreamController = (args: {
 }): {
   signal: AbortSignal;
   touch(): void;
+  abort(reason: AbortCause): void;
   cause(): AbortCause | null;
   dispose(): void;
 } => {
@@ -187,6 +192,7 @@ export const createUpstreamController = (args: {
       if (idleTimer !== null) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => abort("idle"), args.idleTimeoutMs);
     },
+    abort,
     cause: () => cause,
     dispose,
   };

@@ -189,7 +189,9 @@ describe("owner gate placement client", () => {
       ...browserExecutionCancelArgs("exec:browser"),
     });
     expect(result.state).toBe("canceled");
-    expect(calls[0]!.url).toBe(`${ORIGIN}${dispatchCancelPath("exec:browser")}`);
+    expect(calls[0]!.url).toBe(
+      `${ORIGIN}${dispatchCancelPath("exec:browser")}`,
+    );
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({
       protocol: 1,
       cancelRequestId: "cancel:exec:browser",
@@ -254,6 +256,19 @@ describe("owner gate placement client", () => {
       code: "quota_daily",
       isQuota: true,
     });
+  });
+
+  test("maps anonymous and suspended cloud-agent refusals", () => {
+    expect(
+      new PlacementClientError({ code: "sign_in_required", status: 403 }),
+    ).toMatchObject({
+      message: "Sign in to Stella to use cloud agents.",
+      isAuth: true,
+    });
+    expect(
+      new PlacementClientError({ code: "owner_suspended", status: 403 })
+        .message,
+    ).toBe("This account can't use Stella's cloud right now.");
   });
 
   test("keeps a dropped request distinct from a refusal", async () => {

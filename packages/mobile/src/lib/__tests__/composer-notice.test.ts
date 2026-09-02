@@ -135,4 +135,13 @@ describe("classifyComposerNotice", () => {
     ).toBe(true);
     expect(getComposerNotices()[0]?.conversationId).toBe("c1");
   });
+
+  test("uses the guest agent sign-in prompt for anonymous agent refusals", () => {
+    expect(
+      classifyComposerNotice("Sign in to Stella to use cloud agents."),
+    ).toMatchObject({
+      kind: "sign-in",
+      title: "Sign in to run agents",
+    });
+  });
 });

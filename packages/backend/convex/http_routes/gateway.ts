@@ -9,6 +9,7 @@ import {
   CONVEX_GATEWAY_USAGE_PATH,
   GATEWAY_USAGE_EVENT_VERSION,
   type ConvexEngineAccessResponse,
+  type ConvexSessionCapabilityRequest,
   type GatewayConfigSnapshot,
   type GatewayUsageBatchResult,
 } from "@stella/contracts/gateway/usage";
@@ -16,12 +17,16 @@ import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { FunctionArgs } from "convex/server";
 import { resolveOwnerAccountAction } from "../auth";
-import { resolveEngineAccess, type CloudEngineProvider } from "../cloud_engines";
+import {
+  resolveEngineAccess,
+  type CloudEngineProvider,
+} from "../cloud_engines";
 import {
   getMaxAnonRequests,
   getMaxAnonRequestsPerIp,
 } from "../lib/anonymous_usage";
 import { constantTimeEqual } from "../lib/crypto_utils";
+import { dollarsToMicroCents } from "../lib/billing_money";
 import { assertOwnerDataAccessActive } from "../owner_lifecycle";
 
 /**
@@ -41,6 +46,7 @@ export const GATEWAY_USAGE_MAX_BATCH_EVENTS = 500;
 /** Events per ledger transaction, so one batch never approaches mutation limits. */
 const GATEWAY_USAGE_INGEST_CHUNK = 50;
 const MAX_ID_LENGTH = 512;
+const MAX_IP_HASH_LENGTH = 64;
 
 type UsageEventInput = FunctionArgs<
   typeof internal.billing.ingestGatewayUsageBatchInternal
@@ -56,13 +62,18 @@ export const requireGatewayServiceRequest = (
   const expected = process.env[GATEWAY_SERVICE_SECRET_ENV]?.trim() ?? "";
   if (!expected) {
     return json(
-      { error: "Gateway service routes are disabled.", env: GATEWAY_SERVICE_SECRET_ENV },
+      {
+        error: "Gateway service routes are disabled.",
+        env: GATEWAY_SERVICE_SECRET_ENV,
+      },
       503,
     );
   }
   const provided =
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ??
-    "";
+    request.headers
+      .get("authorization")
+      ?.replace(/^Bearer\s+/i, "")
+      .trim() ?? "";
   if (!provided || !constantTimeEqual(provided, expected)) {
     return json({ error: "unauthorized" }, 401);
   }
@@ -74,13 +85,18 @@ const requireBuilderServiceRequest = (request: Request): Response | null => {
   const expected = process.env[BUILDER_SERVICE_SECRET_ENV]?.trim() ?? "";
   if (!expected) {
     return json(
-      { error: "Cloud builder routes are disabled.", env: BUILDER_SERVICE_SECRET_ENV },
+      {
+        error: "Cloud builder routes are disabled.",
+        env: BUILDER_SERVICE_SECRET_ENV,
+      },
       503,
     );
   }
   const provided =
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ??
-    "";
+    request.headers
+      .get("authorization")
+      ?.replace(/^Bearer\s+/i, "")
+      .trim() ?? "";
   if (!provided || !constantTimeEqual(provided, expected)) {
     return json({ error: "unauthorized" }, 401);
   }
@@ -131,25 +147,31 @@ const sessionCapability = httpAction(async (ctx, request) => {
     !body ||
     !isId(body.ownerId) ||
     typeof body.isAnonymous !== "boolean" ||
-    (body.deviceId !== undefined &&
-      (typeof body.deviceId !== "string" || body.deviceId.length > 256))
+    (body.ipHash !== undefined &&
+      (typeof body.ipHash !== "string" ||
+        body.ipHash.length > MAX_IP_HASH_LENGTH))
   ) {
     return json({ error: "bad_request" }, 400);
   }
   const ownerId = body.ownerId;
   const account = await resolveOwnerAccountAction(ctx, ownerId);
   if (!account) return json({ error: "owner_unknown" }, 404);
-  // The account record is the authority on anonymity; a caller flag that
-  // disagrees cannot promote an anonymous owner to a billed audience.
-  const isAnonymous = account.isAnonymous || body.isAnonymous;
-  const deviceId =
-    typeof body.deviceId === "string" && body.deviceId.trim()
-      ? body.deviceId.trim()
+  // The account record is authoritative. The gateway's flag is checked by
+  // contract above but cannot change the owner's tier.
+  const isAnonymous = account.isAnonymous;
+  const ipHash =
+    typeof body.ipHash === "string" && body.ipHash.trim()
+      ? body.ipHash.trim()
       : undefined;
+  const capabilityRequest: ConvexSessionCapabilityRequest = {
+    ownerId,
+    isAnonymous,
+    ...(ipHash ? { ipHash } : {}),
+  };
   try {
     const result = await ctx.runAction(
       internal.gateway_capabilities.signSessionCapabilityInternal,
-      { ownerId, isAnonymous, ...(deviceId ? { deviceId } : {}) },
+      capabilityRequest,
     );
     return json(result);
   } catch (error) {
@@ -159,6 +181,8 @@ const sessionCapability = httpAction(async (ctx, request) => {
         return json({ error: "owner_unavailable" }, 404);
       case "SERVICE_UNAVAILABLE":
         return json({ error: "capability_signing_unavailable" }, 503);
+      case "OWNER_SUSPENDED":
+        return json({ error: "owner_suspended" }, 403);
       default:
         throw error;
     }
@@ -186,11 +210,14 @@ const parseUsageEvent = (raw: unknown): ParsedUsageEvent => {
     reason,
   });
   if (!record || !requestId) return reject("malformed_request_id");
-  if (record.v !== GATEWAY_USAGE_EVENT_VERSION) return reject("unsupported_version");
+  if (record.v !== GATEWAY_USAGE_EVENT_VERSION)
+    return reject("unsupported_version");
+  if (!isId(record.capabilityId)) return reject("malformed_capability_id");
   if (!isId(record.ownerId) || !isId(record.ownerGeneration)) {
     return reject("malformed_owner");
   }
-  if (!isManagedModelAudience(record.audience)) return reject("malformed_audience");
+  if (!isManagedModelAudience(record.audience))
+    return reject("malformed_audience");
   if (!isId(record.agentType) || !isId(record.resolvedModel)) {
     return reject("malformed_model");
   }
@@ -229,6 +256,7 @@ const parseUsageEvent = (raw: unknown): ParsedUsageEvent => {
     ok: true,
     event: {
       requestId,
+      capabilityId: record.capabilityId,
       ownerId: record.ownerId,
       ownerGeneration: record.ownerGeneration,
       audience: record.audience,
@@ -262,8 +290,11 @@ const parseUsageEvent = (raw: unknown): ParsedUsageEvent => {
       ...(anonymous
         ? {
             anonymous: {
-              ...(isId(anonymous.deviceId) ? { deviceId: anonymous.deviceId } : {}),
-              ...(isId(anonymous.ipHash) ? { ipHash: anonymous.ipHash } : {}),
+              ...(typeof anonymous.ipHash === "string" &&
+              anonymous.ipHash.trim().length > 0 &&
+              anonymous.ipHash.length <= MAX_IP_HASH_LENGTH
+                ? { ipHash: anonymous.ipHash.trim() }
+                : {}),
             },
           }
         : {}),
@@ -283,7 +314,10 @@ const usage = httpAction(async (ctx, request) => {
     return json({ error: "bad_request" }, 400);
   }
   if (body.events.length > GATEWAY_USAGE_MAX_BATCH_EVENTS) {
-    return json({ error: "batch_too_large", max: GATEWAY_USAGE_MAX_BATCH_EVENTS }, 413);
+    return json(
+      { error: "batch_too_large", max: GATEWAY_USAGE_MAX_BATCH_EVENTS },
+      413,
+    );
   }
 
   const result: GatewayUsageBatchResult = {
@@ -295,12 +329,23 @@ const usage = httpAction(async (ctx, request) => {
   for (const raw of body.events) {
     const parsed = parseUsageEvent(raw);
     if (parsed.ok) events.push(parsed.event);
-    else result.rejected.push({ requestId: parsed.requestId, reason: parsed.reason });
+    else
+      result.rejected.push({
+        requestId: parsed.requestId,
+        reason: parsed.reason,
+      });
   }
-  for (let index = 0; index < events.length; index += GATEWAY_USAGE_INGEST_CHUNK) {
+  for (
+    let index = 0;
+    index < events.length;
+    index += GATEWAY_USAGE_INGEST_CHUNK
+  ) {
     const chunk = await ctx.runMutation(
       internal.billing.ingestGatewayUsageBatchInternal,
-      { events: events.slice(index, index + GATEWAY_USAGE_INGEST_CHUNK), now: Date.now() },
+      {
+        events: events.slice(index, index + GATEWAY_USAGE_INGEST_CHUNK),
+        now: Date.now(),
+      },
     );
     result.accepted.push(...chunk.accepted);
     result.duplicate.push(...chunk.duplicate);
@@ -313,6 +358,15 @@ const usage = httpAction(async (ctx, request) => {
 // GET /api/gateway/config
 // ---------------------------------------------------------------------------
 
+const tierCeilingMicroCents = (envName: string, defaultUsd: number): number => {
+  const raw = process.env[envName]?.trim();
+  const value = raw ? Number(raw) : defaultUsd;
+  if (!Number.isFinite(value) || (value < 0 && value !== -1)) {
+    throw new Error(`${envName} must be -1 or a non-negative USD amount.`);
+  }
+  return value === -1 ? -1 : dollarsToMicroCents(value);
+};
+
 const config = httpAction(async (ctx, request) => {
   const denied = requireGatewayServiceRequest(request);
   if (denied) return denied;
@@ -324,9 +378,33 @@ const config = httpAction(async (ctx, request) => {
     v: 1,
     prices,
     anonymous: {
-      maxRequestsPerDevice: getMaxAnonRequests(),
+      maxRequestsPerOwner: getMaxAnonRequests(),
       maxRequestsPerIp: getMaxAnonRequestsPerIp(),
     },
+    tierCeilings: [
+      {
+        audience: "anonymous",
+        hourlyMicroCents: tierCeilingMicroCents(
+          "STELLA_TIER_CEILING_ANON_HOURLY_USD",
+          20,
+        ),
+        dailyMicroCents: tierCeilingMicroCents(
+          "STELLA_TIER_CEILING_ANON_DAILY_USD",
+          200,
+        ),
+      },
+      {
+        audience: "free",
+        hourlyMicroCents: tierCeilingMicroCents(
+          "STELLA_TIER_CEILING_FREE_HOURLY_USD",
+          100,
+        ),
+        dailyMicroCents: tierCeilingMicroCents(
+          "STELLA_TIER_CEILING_FREE_DAILY_USD",
+          1_000,
+        ),
+      },
+    ],
     updatedAt: updatedAt || Date.now(),
   };
   return json(snapshot);
@@ -385,15 +463,10 @@ const ownerSnapshot = httpAction(async (ctx, request) => {
   if (!isId(ownerId)) return json({ error: "bad_request" }, 400);
   const account = await resolveOwnerAccountAction(ctx, ownerId);
   if (!account) return json({ error: "owner_unknown" }, 404);
-  const deviceId = url.searchParams.get("deviceId")?.trim() || undefined;
   try {
     const snapshot = await ctx.runAction(
       internal.owner_snapshot.getOwnerSnapshotInternal,
-      {
-        ownerId,
-        isAnonymous: account.isAnonymous,
-        ...(deviceId && deviceId.length <= 256 ? { deviceId } : {}),
-      },
+      { ownerId },
     );
     return json(snapshot);
   } catch (error) {
@@ -418,8 +491,16 @@ export const registerGatewayRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: sessionCapability,
   });
-  http.route({ path: CONVEX_GATEWAY_USAGE_PATH, method: "POST", handler: usage });
-  http.route({ path: CONVEX_GATEWAY_CONFIG_PATH, method: "GET", handler: config });
+  http.route({
+    path: CONVEX_GATEWAY_USAGE_PATH,
+    method: "POST",
+    handler: usage,
+  });
+  http.route({
+    path: CONVEX_GATEWAY_CONFIG_PATH,
+    method: "GET",
+    handler: config,
+  });
   http.route({
     path: CONVEX_GATEWAY_ENGINE_ACCESS_PATH,
     method: "POST",

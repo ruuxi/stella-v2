@@ -15,16 +15,24 @@ describe("StellaEmptyState", () => {
   let container: HTMLDivElement;
   let root: Root;
   let hasFocus: boolean;
+  // The rig books its next frame from inside the current one, so frames are
+  // queued and stepped by hand rather than run synchronously.
+  let frames: FrameRequestCallback[];
+  const stepFrames = (now: number) => {
+    const batch = frames.splice(0, frames.length);
+    for (const cb of batch) cb(now);
+  };
 
   beforeEach(() => {
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
     hasFocus = true;
+    frames = [];
     vi.spyOn(document, "hasFocus").mockImplementation(() => hasFocus);
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
-      cb(16);
-      return 1;
+      frames.push(cb);
+      return frames.length;
     });
     vi.stubGlobal("cancelAnimationFrame", () => {});
     container = document.createElement("div");
@@ -43,6 +51,7 @@ describe("StellaEmptyState", () => {
     await act(async () => {
       root.render(<StellaEmptyState mood="listening" size={64} />);
     });
+    stepFrames(16);
 
     const hero = container.querySelector<HTMLElement>(".stella-empty-state");
     expect(hero).not.toBeNull();
@@ -56,26 +65,19 @@ describe("StellaEmptyState", () => {
   });
 
   it("stops scheduling frames once the window blurs", async () => {
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
-      frames.push(cb);
-      return frames.length;
-    });
-
     await act(async () => {
       root.render(<StellaEmptyState mood="idle" />);
     });
-    expect(frames.length).toBeGreaterThan(0);
+    stepFrames(16);
+    expect(frames.length).toBe(1);
 
     hasFocus = false;
     await act(async () => {
       window.dispatchEvent(new Event("blur"));
     });
 
-    // Drain whatever was queued before the blur: a paused rig runs the frame
-    // it already had and must not book another.
-    const queued = frames.splice(0, frames.length);
-    for (const cb of queued) cb(32);
+    // A paused rig runs the frame it already had and must not book another.
+    stepFrames(32);
     expect(frames.length).toBe(0);
   });
 });

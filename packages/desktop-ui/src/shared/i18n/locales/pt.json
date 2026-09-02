@@ -1612,6 +1612,8 @@
       "welcomeTitle": "Boas-vindas à Stella",
       "welcomeDescription": "Entre com seu e-mail para começar a usar a Stella.",
       "welcomeSub": "Use o Google ou seu e-mail para entrar. Sem precisar de senha.",
+      "finishingTitle": "Concluindo o login",
+      "finishingSub": "Estamos movendo suas conversas para esta conta. Isso leva só um instante.",
       "orUseEmail": "ou use o e-mail",
       "emailLabel": "E-mail",
       "emailPlaceholder": "voce@exemplo.com",

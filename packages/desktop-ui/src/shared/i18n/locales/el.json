@@ -1596,6 +1596,8 @@
       "welcomeTitle": "Καλώς ήρθατε στη Stella",
       "welcomeDescription": "Συνδεθείτε με το email σας για να αρχίσετε να χρησιμοποιείτε τη Stella.",
       "welcomeSub": "Χρησιμοποιήστε το Google ή το email σας για σύνδεση. Δεν χρειάζεται κωδικός.",
+      "finishingTitle": "Ολοκλήρωση σύνδεσης",
+      "finishingSub": "Μεταφέρουμε τις συνομιλίες σας σε αυτόν τον λογαριασμό. Θα πάρει μόνο μια στιγμή.",
       "orUseEmail": "ή χρησιμοποιήστε email",
       "emailLabel": "Email",
       "emailPlaceholder": "esis@paradeigma.com",

@@ -1612,6 +1612,8 @@
       "welcomeTitle": "ברוך הבא ל-Stella",
       "welcomeDescription": "התחבר עם האימייל שלך כדי להתחיל להשתמש ב-Stella.",
       "welcomeSub": "השתמש ב-Google או באימייל שלך כדי להתחבר. אין צורך בסיסמה.",
+      "finishingTitle": "משלימים את הכניסה",
+      "finishingSub": "מעבירים את הצ'אטים שלך לחשבון הזה. זה ייקח רק רגע.",
       "orUseEmail": "או השתמש באימייל",
       "emailLabel": "אימייל",
       "emailPlaceholder": "you@example.com",

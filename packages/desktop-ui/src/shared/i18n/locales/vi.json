@@ -1578,6 +1578,8 @@
       "welcomeTitle": "Chào mừng đến với Stella",
       "welcomeDescription": "Đăng nhập bằng email của bạn để bắt đầu dùng Stella.",
       "welcomeSub": "Dùng Google hoặc email của bạn để đăng nhập. Không cần mật khẩu.",
+      "finishingTitle": "Đang hoàn tất đăng nhập",
+      "finishingSub": "Đang chuyển các cuộc trò chuyện của bạn sang tài khoản này. Chỉ mất một lát.",
       "orUseEmail": "hoặc dùng email",
       "emailLabel": "Email",
       "emailPlaceholder": "you@example.com",

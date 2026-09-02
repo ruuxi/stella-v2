@@ -1596,6 +1596,8 @@
       "welcomeTitle": "Stella'ya hoş geldiniz",
       "welcomeDescription": "Stella'yı kullanmaya başlamak için e-postanızla giriş yapın.",
       "welcomeSub": "Giriş yapmak için Google'ı veya e-postanızı kullanın. Parolaya gerek yok.",
+      "finishingTitle": "Oturum açma tamamlanıyor",
+      "finishingSub": "Sohbetleriniz bu hesaba taşınıyor. Bu yalnızca birkaç saniye sürer.",
       "orUseEmail": "ya da e-posta kullanın",
       "emailLabel": "E-posta",
       "emailPlaceholder": "siz@ornek.com",

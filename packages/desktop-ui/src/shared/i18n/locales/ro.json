@@ -1612,6 +1612,8 @@
       "welcomeTitle": "Bun venit la Stella",
       "welcomeDescription": "Conectează-te cu adresa ta de e-mail pentru a începe să folosești Stella.",
       "welcomeSub": "Folosește Google sau e-mailul tău pentru conectare. Nu e nevoie de parolă.",
+      "finishingTitle": "Se finalizează autentificarea",
+      "finishingSub": "Îți mutăm conversațiile în acest cont. Durează doar o clipă.",
       "orUseEmail": "sau folosește e-mailul",
       "emailLabel": "E-mail",
       "emailPlaceholder": "tu@exemplu.com",

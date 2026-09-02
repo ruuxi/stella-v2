@@ -1660,6 +1660,8 @@
       "welcomeTitle": "مرحبًا بك في Stella",
       "welcomeDescription": "سجّل الدخول ببريدك الإلكتروني لبدء استخدام Stella.",
       "welcomeSub": "استخدم Google أو بريدك الإلكتروني لتسجيل الدخول. لا حاجة إلى كلمة مرور.",
+      "finishingTitle": "جارٍ إكمال تسجيل الدخول",
+      "finishingSub": "ننقل محادثاتك إلى هذا الحساب. لن يستغرق ذلك سوى لحظات.",
       "orUseEmail": "أو استخدم البريد الإلكتروني",
       "emailLabel": "البريد الإلكتروني",
       "emailPlaceholder": "you@example.com",

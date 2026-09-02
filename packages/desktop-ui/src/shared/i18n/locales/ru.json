@@ -1628,6 +1628,8 @@
       "welcomeTitle": "Добро пожаловать в Stella",
       "welcomeDescription": "Войдите по электронной почте, чтобы начать пользоваться Stella.",
       "welcomeSub": "Войдите через Google или по почте. Пароль не нужен.",
+      "finishingTitle": "Завершаем вход",
+      "finishingSub": "Переносим ваши чаты в этот аккаунт. Это займёт всего мгновение.",
       "orUseEmail": "или по почте",
       "emailLabel": "Эл. почта",
       "emailPlaceholder": "you@example.com",

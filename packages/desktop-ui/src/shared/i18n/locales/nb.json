@@ -1596,6 +1596,8 @@
       "welcomeTitle": "Velkommen til Stella",
       "welcomeDescription": "Logg på med e-posten din for å begynne å bruke Stella.",
       "welcomeSub": "Bruk Google eller e-posten din for å logge på. Ingen passord nødvendig.",
+      "finishingTitle": "Fullfører innloggingen",
+      "finishingSub": "Chattene dine flyttes til denne kontoen. Det tar bare et øyeblikk.",
       "orUseEmail": "eller bruk e-post",
       "emailLabel": "E-post",
       "emailPlaceholder": "deg@eksempel.no",

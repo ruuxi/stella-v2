@@ -1578,6 +1578,8 @@
       "welcomeTitle": "Selamat datang di Stella",
       "welcomeDescription": "Masuk dengan email Anda untuk mulai memakai Stella.",
       "welcomeSub": "Gunakan Google atau email Anda untuk masuk. Tidak perlu kata sandi.",
+      "finishingTitle": "Menyelesaikan proses masuk",
+      "finishingSub": "Memindahkan obrolan Anda ke akun ini. Hanya butuh sesaat.",
       "orUseEmail": "atau gunakan email",
       "emailLabel": "Email",
       "emailPlaceholder": "anda@contoh.com",

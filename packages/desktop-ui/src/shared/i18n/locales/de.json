@@ -1596,6 +1596,8 @@
       "welcomeTitle": "Willkommen bei Stella",
       "welcomeDescription": "Melde dich mit deiner E-Mail an, um Stella zu nutzen.",
       "welcomeSub": "Melde dich mit Google oder deiner E-Mail an. Kein Passwort nötig.",
+      "finishingTitle": "Anmeldung wird abgeschlossen",
+      "finishingSub": "Deine Chats werden in dieses Konto übernommen. Das dauert nur einen Moment.",
       "orUseEmail": "oder E-Mail verwenden",
       "emailLabel": "E-Mail",
       "emailPlaceholder": "du@beispiel.de",

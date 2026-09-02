@@ -1596,6 +1596,8 @@
       "welcomeTitle": "Stella में आपका स्वागत है",
       "welcomeDescription": "Stella उपयोग करना शुरू करने के लिए अपने ईमेल से साइन इन करें।",
       "welcomeSub": "साइन इन करने के लिए Google या अपना ईमेल उपयोग करें। पासवर्ड की ज़रूरत नहीं।",
+      "finishingTitle": "साइन-इन पूरा हो रहा है",
+      "finishingSub": "आपकी चैट इस खाते में स्थानांतरित की जा रही हैं। इसमें बस एक पल लगेगा।",
       "orUseEmail": "या ईमेल उपयोग करें",
       "emailLabel": "ईमेल",
       "emailPlaceholder": "you@example.com",

@@ -1578,6 +1578,8 @@
       "welcomeTitle": "Stella에 오신 것을 환영합니다",
       "welcomeDescription": "이메일로 로그인해 Stella를 사용해 보세요.",
       "welcomeSub": "Google이나 이메일로 로그인하세요. 비밀번호는 필요 없습니다.",
+      "finishingTitle": "로그인을 완료하는 중",
+      "finishingSub": "채팅을 이 계정으로 이동하고 있습니다. 잠시만 기다려 주세요.",
       "orUseEmail": "또는 이메일 사용",
       "emailLabel": "이메일",
       "emailPlaceholder": "you@example.com",

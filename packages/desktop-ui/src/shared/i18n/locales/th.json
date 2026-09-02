@@ -1578,6 +1578,8 @@
       "welcomeTitle": "ยินดีต้อนรับสู่ Stella",
       "welcomeDescription": "ลงชื่อเข้าใช้ด้วยอีเมลของคุณเพื่อเริ่มใช้ Stella",
       "welcomeSub": "ใช้ Google หรืออีเมลของคุณเพื่อลงชื่อเข้าใช้ ไม่ต้องใช้รหัสผ่าน",
+      "finishingTitle": "กำลังดำเนินการลงชื่อเข้าใช้ให้เสร็จสิ้น",
+      "finishingSub": "กำลังย้ายแชทของคุณมายังบัญชีนี้ ใช้เวลาเพียงครู่เดียว",
       "orUseEmail": "หรือใช้อีเมล",
       "emailLabel": "อีเมล",
       "emailPlaceholder": "you@example.com",

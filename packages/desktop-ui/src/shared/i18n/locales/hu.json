@@ -1596,6 +1596,8 @@
       "welcomeTitle": "Üdv a Stellában",
       "welcomeDescription": "Jelentkezz be az e-mail-címeddel a Stella használatához.",
       "welcomeSub": "Jelentkezz be Google-fiókkal vagy e-mailben. Jelszó nem kell.",
+      "finishingTitle": "Bejelentkezés befejezése",
+      "finishingSub": "Áthelyezzük a csevegéseidet erre a fiókra. Ez csak egy pillanat.",
       "orUseEmail": "vagy használj e-mailt",
       "emailLabel": "E-mail",
       "emailPlaceholder": "te@pelda.hu",

@@ -1596,6 +1596,8 @@
       "welcomeTitle": "Welkom bij Stella",
       "welcomeDescription": "Log in met je e-mailadres om Stella te gebruiken.",
       "welcomeSub": "Log in met Google of je e-mailadres. Geen wachtwoord nodig.",
+      "finishingTitle": "Inloggen afronden",
+      "finishingSub": "Je chats worden naar dit account verplaatst. Dit duurt maar even.",
       "orUseEmail": "of gebruik e-mail",
       "emailLabel": "E-mail",
       "emailPlaceholder": "jij@voorbeeld.nl",

@@ -1578,6 +1578,8 @@
       "welcomeTitle": "歡迎使用 Stella",
       "welcomeDescription": "用你的電子郵件登入即可開始使用 Stella。",
       "welcomeSub": "使用 Google 或你的電子郵件登入。不需要密碼。",
+      "finishingTitle": "正在完成登入",
+      "finishingSub": "正在將你的聊天移至此帳戶，只需片刻。",
       "orUseEmail": "或使用電子郵件",
       "emailLabel": "電子郵件",
       "emailPlaceholder": "you@example.com",

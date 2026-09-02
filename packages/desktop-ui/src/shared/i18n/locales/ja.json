@@ -1578,6 +1578,8 @@
       "welcomeTitle": "Stella へようこそ",
       "welcomeDescription": "メールでサインインして Stella を使い始めましょう。",
       "welcomeSub": "Google またはメールでサインインします。パスワードは不要です。",
+      "finishingTitle": "サインインを完了しています",
+      "finishingSub": "チャットをこのアカウントに移行しています。少しお待ちください。",
       "orUseEmail": "またはメールを使う",
       "emailLabel": "メールアドレス",
       "emailPlaceholder": "you@example.com",

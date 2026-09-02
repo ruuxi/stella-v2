@@ -1596,6 +1596,8 @@
       "welcomeTitle": "Tervetuloa Stellaan",
       "welcomeDescription": "Kirjaudu sisään sähköpostillasi aloittaaksesi Stellan käytön.",
       "welcomeSub": "Kirjaudu sisään Googlella tai sähköpostillasi. Salasanaa ei tarvita.",
+      "finishingTitle": "Viimeistellään kirjautumista",
+      "finishingSub": "Keskustelusi siirretään tälle tilille. Tämä kestää vain hetken.",
       "orUseEmail": "tai käytä sähköpostia",
       "emailLabel": "Sähköposti",
       "emailPlaceholder": "sina@esimerkki.fi",

@@ -1628,6 +1628,8 @@
       "welcomeTitle": "Witamy w Stelli",
       "welcomeDescription": "Zaloguj się e-mailem, aby zacząć korzystać ze Stelli.",
       "welcomeSub": "Zaloguj się przez Google lub e-mailem. Hasło niepotrzebne.",
+      "finishingTitle": "Kończenie logowania",
+      "finishingSub": "Przenosimy Twoje czaty na to konto. To zajmie tylko chwilę.",
       "orUseEmail": "albo użyj e-maila",
       "emailLabel": "E-mail",
       "emailPlaceholder": "ty@przyklad.com",

@@ -1628,6 +1628,8 @@
       "welcomeTitle": "Vítejte ve Stelle",
       "welcomeDescription": "Přihlaste se e-mailem a začněte Stellu používat.",
       "welcomeSub": "Přihlaste se přes Google nebo e-mailem. Heslo není potřeba.",
+      "finishingTitle": "Dokončování přihlášení",
+      "finishingSub": "Přesouváme vaše chaty do tohoto účtu. Zabere to jen chvilku.",
       "orUseEmail": "nebo použijte e-mail",
       "emailLabel": "E-mail",
       "emailPlaceholder": "vy@priklad.cz",

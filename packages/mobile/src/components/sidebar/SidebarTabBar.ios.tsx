@@ -12,6 +12,13 @@ import type { SidebarTabBarProps } from "./sidebar-tab-bar-types";
  * the strip above it is the (empty, transparent) tab content.
  */
 const HOST_HEIGHT = 72;
+/**
+ * The floating platter is the host width minus a fixed margin per side,
+ * so the host reaches past the dock to make the bar wider.
+ */
+const HOST_OVERHANG = 12;
+/** Pulls the bar down past the dock's bottom edge. */
+const HOST_DROP = 12;
 
 type Symbol = NonNullable<ComponentProps<typeof TabView.Tab>["systemImage"]>;
 /** PostScript name of the app's medium sans, as UIKit registers it. */
@@ -63,7 +70,7 @@ export function SidebarTabBar<K extends string>({
     return () => clearTimeout(handle);
   }, [value, applyChrome]);
   return (
-    <View ref={hostRef} collapsable={false} style={styles.host}>
+    <View ref={hostRef} collapsable={false} style={styles.wrap}>
       <Host
         colorScheme={isDark ? "dark" : "light"}
         seedColor={colors.text}
@@ -96,8 +103,13 @@ export function SidebarTabBar<K extends string>({
 }
 
 const styles = StyleSheet.create({
-  host: {
+  wrap: {
     alignSelf: "stretch",
     height: HOST_HEIGHT,
+    marginBottom: -HOST_DROP,
+    marginHorizontal: -HOST_OVERHANG,
+  },
+  host: {
+    flex: 1,
   },
 });

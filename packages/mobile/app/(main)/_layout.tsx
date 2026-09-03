@@ -275,10 +275,13 @@ export default function MainLayout() {
 
   // -- Animated styles --
   // Sidebar sits underneath the foreground at rest. As the drawer opens we
-  // gently fade and parallax it in (-12px → 0) so the reveal reads as the
-  // content lifting away rather than the menu sliding in.
+  // parallax it in (-12px → 0) so the reveal reads as the content lifting
+  // away rather than the menu sliding in. Deliberately no opacity fade:
+  // UIKit refuses to render Liquid Glass (UIVisualEffectView) beneath a
+  // superview whose alpha has been taken below 1, and the sidebar's glass
+  // pills stayed flat for exactly that reason. The opaque foreground hides
+  // the parked sidebar anyway, so the fade bought nothing visible.
   const sidebarStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(drawerProgress.value, [0, 0.4, 1], [0, 0.6, 1]),
     transform: [
       {
         translateX: interpolate(drawerProgress.value, [0, 1], [-12, 0]),

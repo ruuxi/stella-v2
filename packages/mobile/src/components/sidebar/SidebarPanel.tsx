@@ -19,7 +19,7 @@ import Animated, {
   useAnimatedKeyboard,
   useAnimatedStyle,
 } from "react-native-reanimated";
-import { GlassCard, GlassGroup, GlassSurface } from "../glass";
+import { GlassGroup, GlassSurface } from "../glass";
 import { Icon, type IconName } from "../Icon";
 import { StellaBrandMark } from "../StellaBrandMark";
 import {
@@ -107,6 +107,12 @@ const SEARCH_HEIGHT = 44;
 const DOCK_GAP = 10;
 /** Height of the Settings / Account pill on the brand row. */
 const HEADER_PILL_HEIGHT = 40;
+/**
+ * How far apart sibling glass buttons may be and still fuse. The buttons in
+ * a group abut with square inner edges, so this only needs to be enough to
+ * melt the shared seam; anything larger bulges the blend into blobs.
+ */
+const GLASS_MERGE_DISTANCE = 12;
 
 /**
  * Settled keyboard height as JS state, for the list's bottom inset. The dock's
@@ -619,19 +625,18 @@ export function SidebarPanel({
   };
 
   const accountLabel = signedIn ? t("mobile.nav.account") : t("mobile.nav.signIn");
-  // Selected tab: a soft text-colored tint on its glass.
-  const activeTabTint = fadeHex(colors.text, 0.12);
 
   return (
     <View style={[styles.root, { width }]}>
-      {/* The panel's own Liquid Glass is a background layer, not the parent
-          of everything else: iOS does not render a glass view nested inside
-          another glass view, so the pills below must be its siblings. */}
-      <GlassCard
+      {/* The panel itself is deliberately NOT glass. Apple suppresses Liquid
+          Glass layered over another glass surface (nested or merely beneath)
+          and renders the upper one flat, so a glass panel would strip the
+          pills below of their material. A translucent surface tint over the
+          app backdrop keeps the same legible look and leaves the pills as
+          the only glass here, like the top bar's buttons over the chat. */}
+      <View
         pointerEvents="none"
-        radius={0}
-        legible
-        style={StyleSheet.absoluteFill}
+        style={[StyleSheet.absoluteFill, styles.panelFill]}
       />
       <View
         style={[
@@ -655,7 +660,7 @@ export function SidebarPanel({
           {/* One glass group, two interactive glass buttons: the container
               melts them into a single pill while each keeps Apple's native
               press sheen. */}
-          <GlassGroup spacing={HEADER_PILL_HEIGHT} style={styles.headerGroup}>
+          <GlassGroup spacing={GLASS_MERGE_DISTANCE} style={styles.headerGroup}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={t("mobile.nav.settings")}
@@ -667,13 +672,12 @@ export function SidebarPanel({
               ]}
             >
               <GlassSurface
-                glass="clear"
+                glass="regular"
                 interactive
-                radius={HEADER_PILL_HEIGHT / 2}
+                radius={0}
                 fallbackColor={colors.surface}
-                style={styles.headerIconGlass}
+                style={[styles.headerIconGlass, styles.capStart]}
               >
-                <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.pillRing]} />
                 <Icon name="settings" size={18} color={colors.text} weight="semibold" />
               </GlassSurface>
             </Pressable>
@@ -688,13 +692,12 @@ export function SidebarPanel({
               ]}
             >
               <GlassSurface
-                glass="clear"
+                glass="regular"
                 interactive
-                radius={HEADER_PILL_HEIGHT / 2}
+                radius={0}
                 fallbackColor={colors.surface}
-                style={styles.headerAccountGlass}
+                style={[styles.headerAccountGlass, styles.capEnd]}
               >
-                <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.pillRing]} />
                 <Icon name="user" size={15} color={colors.text} weight="semibold" />
                 <Text
                   style={styles.headerAccountLabel}
@@ -767,9 +770,11 @@ export function SidebarPanel({
         {/* The tab bar: three interactive glass tabs in one glass group, so
             they read as a single pill and each answers a press with the
             native sheen. The active tab carries a tint on its glass. */}
-        <GlassGroup spacing={TAB_BAR_HEIGHT} style={styles.tabBar}>
+        <GlassGroup spacing={GLASS_MERGE_DISTANCE} style={styles.tabBar}>
           {TAB_ORDER.map((entry, index) => {
             const meta = TAB_META[entry];
+            const first = index === 0;
+            const last = index === TAB_ORDER.length - 1;
             const label = t(meta.labelKey);
             const active = tab === entry;
             return (
@@ -783,21 +788,22 @@ export function SidebarPanel({
                     : label
                 }
                 onPress={() => selectTab(entry)}
-                style={({ pressed }) => [
-                  styles.tabItem,
-                  index > 0 && styles.tabItemOverlap,
-                  pressed && styles.pressed,
-                ]}
+                style={({ pressed }) => [styles.tabItem, pressed && styles.pressed]}
               >
                 <GlassSurface
-                  glass="clear"
+                  glass="regular"
                   interactive
-                  radius={TAB_BAR_HEIGHT / 2}
-                  tintColor={active ? activeTabTint : undefined}
-                  fallbackColor={active ? activeTabTint : colors.surface}
-                  style={styles.tabGlass}
+                  radius={0}
+                  fallbackColor={colors.surface}
+                  style={[
+                    styles.tabGlass,
+                    first && styles.tabCapStart,
+                    last && styles.tabCapEnd,
+                  ]}
                 >
-                  <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.pillRing]} />
+                  {active ? (
+                    <View pointerEvents="none" style={styles.tabActiveLozenge} />
+                  ) : null}
                   <Icon
                     name={meta.icon}
                     size={14}
@@ -825,6 +831,9 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     root: {
       flex: 1,
+    },
+    panelFill: {
+      backgroundColor: fadeHex(colors.surface, 0.78),
     },
     body: {
       flex: 1,
@@ -860,11 +869,8 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
       overflow: "hidden",
     },
-    // Buttons overlap by a little more than nothing so the container's
-    // union reads as one smooth pill instead of two shapes with a waist.
     headerAccountButton: {
       height: HEADER_PILL_HEIGHT,
-      marginLeft: -10,
     },
     headerAccountGlass: {
       alignItems: "center",
@@ -875,16 +881,21 @@ const makeStyles = (colors: Colors) =>
       paddingLeft: 13,
       paddingRight: 15,
     },
+    // Grouped buttons round only their outer ends and abut square, so the
+    // glass container's union is one clean pill with nothing to pinch.
+    capStart: {
+      borderBottomStartRadius: HEADER_PILL_HEIGHT / 2,
+      borderTopStartRadius: HEADER_PILL_HEIGHT / 2,
+    },
+    capEnd: {
+      borderBottomEndRadius: HEADER_PILL_HEIGHT / 2,
+      borderTopEndRadius: HEADER_PILL_HEIGHT / 2,
+    },
     headerAccountLabel: {
       color: colors.text,
       fontFamily: fonts.sans.semiBold,
       fontSize: 13,
       letterSpacing: -0.2,
-    },
-    pillRing: {
-      borderColor: fadeHex(colors.border, 0.6),
-      borderRadius: 999,
-      borderWidth: StyleSheet.hairlineWidth,
     },
     listArea: {
       flex: 1,
@@ -958,9 +969,6 @@ const makeStyles = (colors: Colors) =>
       flex: 1,
       height: TAB_BAR_HEIGHT,
     },
-    tabItemOverlap: {
-      marginLeft: -12,
-    },
     tabGlass: {
       alignItems: "center",
       flex: 1,
@@ -969,6 +977,24 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
       overflow: "hidden",
       paddingHorizontal: 6,
+    },
+    tabCapStart: {
+      borderBottomStartRadius: TAB_BAR_HEIGHT / 2,
+      borderTopStartRadius: TAB_BAR_HEIGHT / 2,
+    },
+    tabCapEnd: {
+      borderBottomEndRadius: TAB_BAR_HEIGHT / 2,
+      borderTopEndRadius: TAB_BAR_HEIGHT / 2,
+    },
+    // Selected tab: a soft lozenge inset in its segment.
+    tabActiveLozenge: {
+      backgroundColor: fadeHex(colors.text, 0.1),
+      borderRadius: (TAB_BAR_HEIGHT - 8) / 2,
+      bottom: 4,
+      left: 4,
+      position: "absolute",
+      right: 4,
+      top: 4,
     },
     tabLabel: {
       color: colors.textMuted,

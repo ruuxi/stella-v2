@@ -1412,8 +1412,20 @@ function AssistantBubble({
     [entrance],
   );
 
+  // Desktop parity: the assistant bubble is the composer's translucent
+  // top→bottom panel material (`--chat-assistant-bubble-fill`), borderless.
+  const bubbleColors = useColors();
+
   return (
     <Animated.View style={[styles.assistantBubble, entranceStyle]}>
+      <LinearGradient
+        pointerEvents="none"
+        colors={[
+          bubbleColors.assistantBubbleFillTop,
+          bubbleColors.assistantBubbleFillBottom,
+        ]}
+        style={StyleSheet.absoluteFill}
+      />
       {children}
     </Animated.View>
   );
@@ -1573,7 +1585,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
             <View style={styles.userBubble}>
               <AssistantTextSelection
                 text={item.text}
-                colors={colors}
+                colors={{ ...colors, text: colors.userBubbleText }}
                 onDismiss={onEndSelecting}
               />
             </View>
@@ -4838,9 +4850,7 @@ const makeStyles = (colors: Colors) =>
     userRow: { flexDirection: "row", justifyContent: "flex-end" },
     userColumn: { alignItems: "flex-end", maxWidth: "92%" },
     userBubble: {
-      backgroundColor: colors.accentSoft,
-      borderColor: colors.borderStrong,
-      borderWidth: StyleSheet.hairlineWidth,
+      backgroundColor: colors.userBubbleFill,
       borderRadius: 18,
       borderBottomRightRadius: 4,
       padding: 12,
@@ -4887,7 +4897,7 @@ const makeStyles = (colors: Colors) =>
     },
 
     userText: {
-      color: colors.text,
+      color: colors.userBubbleText,
       fontFamily: fonts.sans.regular,
       fontSize: 17,
       letterSpacing: 0.03 * 17,
@@ -4895,7 +4905,8 @@ const makeStyles = (colors: Colors) =>
     },
     userToggle: {
       alignSelf: "flex-end",
-      color: colors.textMuted,
+      // Muted version of the bubble's own text color (desktop: 68% alpha).
+      color: fadeHex(colors.userBubbleText, 0.68),
       fontFamily: fonts.sans.medium,
       fontSize: 13,
       letterSpacing: -0.1,
@@ -4957,9 +4968,7 @@ const makeStyles = (colors: Colors) =>
      */
     assistantBubble: {
       alignSelf: "flex-start",
-      backgroundColor: colors.card,
-      borderColor: colors.border,
-      borderWidth: StyleSheet.hairlineWidth,
+      overflow: "hidden",
       borderRadius: 18,
       borderBottomLeftRadius: 4,
       maxWidth: "100%",
@@ -4996,7 +5005,7 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.muted,
     },
     assistantText: {
-      color: colors.text,
+      color: colors.assistantBubbleText,
       fontFamily: fonts.sans.regular,
       fontSize: 17,
       fontWeight: "400",
@@ -5124,7 +5133,7 @@ const makeStyles = (colors: Colors) =>
     },
 
     shell: {
-      borderColor: fadeHex(colors.border, 0.6),
+      borderColor: colors.panelSurfaceBorder,
       borderWidth: StyleSheet.hairlineWidth,
       overflow: "hidden",
       width: "100%",

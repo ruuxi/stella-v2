@@ -1,27 +1,51 @@
-import { soften } from "./oklch";
+/**
+ * The mobile color surface: the shared palette + derived tokens from
+ * `@stella/theme`, renamed onto the keys mobile components already use.
+ *
+ * Nothing here invents a color. Every value is either a palette entry or a
+ * token that desktop writes to a CSS variable of the same recipe, so a theme
+ * renders the same muted text, hairlines, bubbles, and panel tints on both.
+ */
+import {
+  deriveTokens,
+  getThemeById,
+  mixSrgbCss,
+  resolveThemeColors,
+  type ThemeColors,
+  type ThemeTokens,
+} from "@stella/theme";
 
 export type Colors = {
   // Core backgrounds
   background: string;
   backgroundWeak: string;
   backgroundStrong: string;
+  /** Opaque floating chrome (desktop `--overlay-surface`). */
   surface: string;
   panel: string;
+  /** Recessed surface (desktop `--surface-inset`). */
+  surfaceInset: string;
 
-  // Borders
+  // Borders (desktop `--border`, `--border-weak`, `--border-strong`)
   border: string;
   borderWeak: string;
   borderStrong: string;
 
-  // Text
+  // Text (desktop `--foreground` / `--text-*`)
   text: string;
+  textBase: string;
   textMuted: string;
+  textWeaker: string;
   textStrong: string;
+  textInteractive: string;
 
   // Brand / primary
   accent: string;
   accentHover: string;
+  /** Canonical "selected" fill (desktop `--select-fill`). */
   accentSoft: string;
+  /** Canonical "selected" hairline (desktop `--select-border`). */
+  selectBorder: string;
   accentForeground: string;
 
   // Decorative accent (distinct from brand — e.g. pink in Carbon, orange in Neon)
@@ -40,85 +64,89 @@ export type Colors = {
   muted: string;
   mutedForeground: string;
 
-  // Overlay
+  // Tint-only panels (desktop `--panel-surface-*`): the composer material,
+  // rendered top → bottom as a two-stop gradient.
+  panelSurfaceBgTop: string;
+  panelSurfaceBgBottom: string;
+  panelSurfaceBorder: string;
+  panelSurfaceHighlight: string;
+
+  // Chat bubbles (desktop `--chat-*-bubble-*`)
+  userBubbleFill: string;
+  userBubbleText: string;
+  assistantBubbleFillTop: string;
+  assistantBubbleFillBottom: string;
+  assistantBubbleText: string;
+
+  // Scrim
   overlay: string;
 };
 
-/** Fallback light palette — mirrors the Pearl theme (desktop default) so the
- *  pre-load flash matches the real theme rather than an unrelated palette. */
-export const lightColors: Colors = {
-  background: "#ffffff",
-  backgroundWeak: "#ffffff",
-  backgroundStrong: "#ffffff",
-  surface: "#ffffff",
-  panel: "#f6f6f6",
+/** Map the shared palette + tokens onto the mobile key set. */
+export function makeColors(palette: ThemeColors, tokens: ThemeTokens): Colors {
+  return {
+    background: palette.background,
+    backgroundWeak: palette.backgroundWeak,
+    backgroundStrong: palette.backgroundStrong,
+    surface: tokens.overlaySurface,
+    panel: palette.muted,
+    surfaceInset: tokens.surfaceInset,
 
-  border: "#e8e8e8",
-  borderWeak: "#f0f0f0",
-  borderStrong: "#dcdcdc",
+    border: palette.border,
+    borderWeak: tokens.borderWeak,
+    borderStrong: tokens.borderStrong,
 
-  text: "#111111",
-  textMuted: "#737373",
-  textStrong: "#000000",
+    text: tokens.textStrong,
+    textBase: tokens.textBase,
+    textMuted: tokens.textWeak,
+    textWeaker: tokens.textWeaker,
+    textStrong: tokens.textStrong,
+    textInteractive: tokens.textInteractive,
 
-  accent: "#2563eb",
-  accentHover: "#2563eb",
-  accentSoft: soften("#2563eb", "#ffffff", 0.12),
-  accentForeground: "#ffffff",
+    accent: palette.primary,
+    accentHover: palette.interactive,
+    accentSoft: tokens.selectFill,
+    selectBorder: tokens.selectBorder,
+    accentForeground: palette.primaryForeground,
 
-  decorative: "#f2f2f2",
-  decorativeForeground: "#111111",
+    decorative: palette.accent,
+    decorativeForeground: palette.accentForeground,
 
-  ok: "#16a34a",
-  warning: "#a16207",
-  danger: "#dc2626",
-  info: "#2563eb",
+    ok: palette.success,
+    warning: palette.warning,
+    danger: palette.error,
+    info: palette.info,
 
-  card: "#fbfbfb",
-  cardForeground: "#111111",
-  muted: "#f6f6f6",
-  mutedForeground: "#737373",
+    card: palette.card,
+    cardForeground: palette.cardForeground,
+    muted: palette.muted,
+    mutedForeground: palette.mutedForeground,
 
-  overlay: soften("#000000", "#ffffff", 0.38),
-};
+    panelSurfaceBgTop: tokens.panelSurfaceBgTop,
+    panelSurfaceBgBottom: tokens.panelSurfaceBgBottom,
+    panelSurfaceBorder: tokens.panelSurfaceBorder,
+    panelSurfaceHighlight: tokens.panelSurfaceHighlight,
 
-/** Fallback dark palette — mirrors the Noir theme so the pre-load flash matches
- *  the real theme rather than an unrelated palette. */
-export const darkColors: Colors = {
-  background: "#0a0a0a",
-  backgroundWeak: "#050505",
-  backgroundStrong: "#141414",
-  surface: "#050505",
-  panel: "#181818",
+    userBubbleFill: tokens.chatUserBubbleFill,
+    userBubbleText: tokens.chatUserBubbleText,
+    assistantBubbleFillTop: tokens.chatAssistantBubbleFillTop,
+    assistantBubbleFillBottom: tokens.chatAssistantBubbleFillBottom,
+    assistantBubbleText: tokens.chatAssistantBubbleText,
 
-  border: "#242424",
-  borderWeak: "#171717",
-  borderStrong: "#333333",
+    overlay: mixSrgbCss(palette.foregroundStrong, 38, palette.background),
+  };
+}
 
-  text: "#f0eee8",
-  textMuted: "#9a958c",
-  textStrong: "#fbfbf7",
+function fallbackFor(isDark: boolean): Colors {
+  const theme = getThemeById("default")!;
+  const { colors, flat } = resolveThemeColors(theme, isDark);
+  return makeColors(colors, deriveTokens(colors, isDark, { flat }));
+}
 
-  accent: "#f0eee8",
-  accentHover: "#f0eee8",
-  accentSoft: soften("#f0eee8", "#0a0a0a", 0.12),
-  accentForeground: "#0a0a0a",
-
-  decorative: "#202020",
-  decorativeForeground: "#f0eee8",
-
-  ok: "#4ade80",
-  warning: "#fbbf24",
-  danger: "#f87171",
-  info: "#60a5fa",
-
-  card: "#111111",
-  cardForeground: "#f0eee8",
-  muted: "#181818",
-  mutedForeground: "#9a958c",
-
-  overlay: soften("#fbfbf7", "#0a0a0a", 0.38),
-};
+/** Pre-load palettes — the Default theme, so the frame before AsyncStorage
+ *  resolves matches what most users actually see. */
+export const lightColors: Colors = fallbackFor(false);
+export const darkColors: Colors = fallbackFor(true);
 
 /** @deprecated Use `useColors()` from theme-context instead. */
 export const colors = lightColors;

@@ -33,6 +33,7 @@ import {
   type GradientMode,
   type ThemePreference,
 } from "../../src/theme/theme-context";
+import { resolveThemeColors } from "@stella/theme";
 import { fonts } from "../../src/theme/fonts";
 import { useT } from "../../src/i18n";
 
@@ -65,16 +66,17 @@ export default function SettingsScreen() {
   const {
     preference,
     setPreference,
-    theme: activeTheme,
+    selectedThemeId,
     setThemeId,
     themes,
     isDark,
+    flat,
     gradientPreference,
     setGradientPreference,
   } = useTheme();
-  // Pearl/Noir force flat — disable the Soft option so the toggle reflects
-  // the actual rendered surface instead of misleading the user.
-  const gradientLocked = Boolean(activeTheme.forcedMode);
+  // Flat themes (Default) paint no blob — disable the Soft option so the
+  // toggle reflects the actual rendered surface instead of misleading the user.
+  const gradientLocked = flat;
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -319,11 +321,10 @@ export default function SettingsScreen() {
 
       <View style={styles.themeDots}>
         {themes.map((th) => {
-          // Honor pinned-mode themes (Pearl/Noir) when previewing — otherwise
-          // the swatch shows a palette the user can never actually land on.
-          const previewDark = th.forcedMode ? th.forcedMode === "dark" : isDark;
-          const preview = previewDark ? th.dark : th.light;
-          const isActive = th.id === activeTheme.id;
+          // Resolve through the shared catalog so forced-mode themes preview
+          // in the appearance they actually render.
+          const preview = resolveThemeColors(th, isDark).colors;
+          const isActive = th.id === selectedThemeId;
           return (
             <Pressable
               key={th.id}
@@ -352,7 +353,7 @@ export default function SettingsScreen() {
                 <View
                   style={[
                     styles.themeDotAccent,
-                    { backgroundColor: preview.accent },
+                    { backgroundColor: preview.primary },
                   ]}
                 />
               </View>

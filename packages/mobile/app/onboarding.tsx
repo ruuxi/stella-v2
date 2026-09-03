@@ -16,6 +16,7 @@ import { markOnboardingSeen } from "../src/lib/onboarding";
 import { tapLight } from "../src/lib/haptics";
 import { type Colors } from "../src/theme/colors";
 import { useColors, useTheme } from "../src/theme/theme-context";
+import { resolveThemeColors } from "@stella/theme";
 import { fonts } from "../src/theme/fonts";
 import { fadeHex } from "../src/theme/oklch";
 import { useT } from "../src/i18n";
@@ -190,18 +191,16 @@ function ThemeStep({
   colors: Colors;
   t: Translate;
 }) {
-  const { theme: activeTheme, setThemeId, themes, isDark } = useTheme();
+  const { selectedThemeId, setThemeId, themes, isDark } = useTheme();
+  const selectedName = themes.find((t) => t.id === selectedThemeId)?.name ?? "";
   return (
     <View style={styles.stepBody}>
       <Text style={styles.title}>{t("mobile.onboarding.themeTitle")}</Text>
       <Text style={styles.body}>{t("mobile.onboarding.themeBody")}</Text>
       <View style={styles.themeDots}>
         {themes.map((th) => {
-          const previewDark = th.forcedMode
-            ? th.forcedMode === "dark"
-            : isDark;
-          const preview = previewDark ? th.dark : th.light;
-          const isActive = th.id === activeTheme.id;
+          const preview = resolveThemeColors(th, isDark).colors;
+          const isActive = th.id === selectedThemeId;
           return (
             <Pressable
               key={th.id}
@@ -228,7 +227,7 @@ function ThemeStep({
                 <View
                   style={[
                     styles.themeDotAccent,
-                    { backgroundColor: preview.accent },
+                    { backgroundColor: preview.primary },
                   ]}
                 />
               </View>
@@ -236,7 +235,7 @@ function ThemeStep({
           );
         })}
       </View>
-      <Text style={styles.themeName}>{activeTheme.name}</Text>
+      <Text style={styles.themeName}>{selectedName}</Text>
     </View>
   );
 }

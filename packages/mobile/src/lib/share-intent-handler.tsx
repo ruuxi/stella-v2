@@ -55,7 +55,9 @@ export function ShareIntentHandler() {
           ...(text ? { text } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
         });
-        router.replace("/chat");
+        // The chat is the base of the main stack; pop any detail page off it
+        // rather than replacing that page with a second chat.
+        router.dismissTo("/chat");
       }
       resetShareIntent();
     })();

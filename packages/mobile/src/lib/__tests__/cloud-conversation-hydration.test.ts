@@ -4,6 +4,8 @@ import {
   loadCloudConversationAuthority,
 } from "../cloud-conversation-authority";
 import {
+  encodeCloudConversationCacheMetadata,
+  readCloudConversationCache,
   rebuildCloudConversationCache,
   type CloudConversationCacheMetadata,
 } from "../cloud-conversation-cache";
@@ -253,5 +255,76 @@ describe("mobile cloud canonical hydration", () => {
       message:
         "Cloud conversation history is not available on this deployment.",
     });
+  });
+});
+
+describe("mobile cloud cache cold-start read", () => {
+  const authority = {
+    accountScope: metadata.accountScope,
+    ownerGeneration: metadata.ownerGeneration,
+    conversationId: metadata.conversationId,
+    socketOrigin: metadata.socketOrigin,
+  };
+
+  test("returns the committed projection when the fence matches", async () => {
+    let messagesRead = 0;
+    const cached = await readCloudConversationCache({
+      authority,
+      port: {
+        loadMetadata: async () =>
+          encodeCloudConversationCacheMetadata(metadata),
+        loadMessages: async () => {
+          messagesRead += 1;
+          return remoteMessages.map((message) => ({ ...message }));
+        },
+      },
+    });
+    expect(cached).toEqual(remoteMessages);
+    expect(messagesRead).toBe(1);
+  });
+
+  test("refuses another account, owner generation, or deployment without reading rows", async () => {
+    for (const stale of [
+      { ...metadata, accountScope: "account:user-2" },
+      { ...metadata, ownerGeneration: "owner-generation-0" },
+      { ...metadata, conversationId: "conversation-other" },
+      { ...metadata, socketOrigin: "wss://elsewhere.example" },
+    ]) {
+      let messagesRead = 0;
+      const cached = await readCloudConversationCache({
+        authority,
+        port: {
+          loadMetadata: async () => encodeCloudConversationCacheMetadata(stale),
+          loadMessages: async () => {
+            messagesRead += 1;
+            return remoteMessages;
+          },
+        },
+      });
+      expect(cached).toBeNull();
+      expect(messagesRead).toBe(0);
+    }
+  });
+
+  test("a missing or half-written cache and an empty snapshot yield nothing", async () => {
+    expect(
+      await readCloudConversationCache({
+        authority,
+        port: {
+          loadMetadata: async () => null,
+          loadMessages: async () => remoteMessages,
+        },
+      }),
+    ).toBeNull();
+    expect(
+      await readCloudConversationCache({
+        authority,
+        port: {
+          loadMetadata: async () =>
+            encodeCloudConversationCacheMetadata(metadata),
+          loadMessages: async () => [],
+        },
+      }),
+    ).toBeNull();
   });
 });

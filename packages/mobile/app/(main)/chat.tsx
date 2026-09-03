@@ -55,6 +55,7 @@ import {
 import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
 import { ChatPane } from "../../src/components/ChatPane";
+import { mainContentStyles } from "../../src/components/MainScreenSurface";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { CloudBrowserInterventionCard } from "../../src/components/CloudBrowserInterventionCard";
 import { ComposerNotice } from "../../src/components/ComposerNotice";
@@ -95,25 +96,26 @@ export default function ChatScreen() {
 
 function SignedInChatScreen() {
   const authority = useCloudConversationAuthority();
-  if (authority.status !== "ready") {
-    return (
-      <CloudAuthorityGate
-        loading={authority.status === "loading"}
-        issue={authority.issue?.message ?? null}
-        retry={
-          authority.status === "failed" && authority.issue.retryable
-            ? authority.retry
-            : null
-        }
-      />
-    );
-  }
   return (
-    <SignedInCanonicalChat
-      key={`${authority.authority.accountScope}:${authority.authority.ownerGeneration}:${authority.authority.conversationId}`}
-      authority={authority.authority}
-      reloadAuthority={authority.retry}
-    />
+    <View style={mainContentStyles.content}>
+      {authority.status !== "ready" ? (
+        <CloudAuthorityGate
+          loading={authority.status === "loading"}
+          issue={authority.issue?.message ?? null}
+          retry={
+            authority.status === "failed" && authority.issue.retryable
+              ? authority.retry
+              : null
+          }
+        />
+      ) : (
+        <SignedInCanonicalChat
+          key={`${authority.authority.accountScope}:${authority.authority.ownerGeneration}:${authority.authority.conversationId}`}
+          authority={authority.authority}
+          reloadAuthority={authority.retry}
+        />
+      )}
+    </View>
   );
 }
 

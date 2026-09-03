@@ -1,5 +1,6 @@
 import { useRouter } from "expo-router";
 import { CloudHomeSettings } from "../../src/components/CloudHomeSettings";
+import { MainDetailSurface } from "../../src/components/MainScreenSurface";
 import { authClient } from "../../src/lib/auth-client";
 import { observeCloudConversationIdentity } from "../../src/lib/cloud-conversation-auth";
 import { isGuest } from "../../src/lib/guest-mode";
@@ -12,11 +13,13 @@ export default function CloudHomeScreen() {
     : null;
 
   return (
-    <CloudHomeSettings
-      key={identity?.identityKey ?? "signed-out"}
-      identity={identity}
-      onBack={() => router.replace("/settings")}
-      onSignIn={() => router.replace("/login")}
-    />
+    <MainDetailSurface>
+      <CloudHomeSettings
+        key={identity?.identityKey ?? "signed-out"}
+        identity={identity}
+        onBack={() => router.back()}
+        onSignIn={() => router.replace("/login")}
+      />
+    </MainDetailSurface>
   );
 }

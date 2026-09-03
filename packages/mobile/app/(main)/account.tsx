@@ -11,6 +11,7 @@ import {
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "../../src/components/Icon";
+import { MainDetailSurface } from "../../src/components/MainScreenSurface";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { SubscriptionSection } from "../../src/components/SubscriptionSection";
 import { authClient } from "../../src/lib/auth-client";
@@ -140,147 +141,149 @@ export default function AccountScreen() {
   };
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={[
-        styles.scrollContent,
-        { paddingBottom: 32 + insets.bottom },
-      ]}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Text style={styles.title}>{t("mobile.account.title")}</Text>
+    <MainDetailSurface>
+      <ScrollView
+        style={styles.screen}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: 32 + insets.bottom },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.title}>{t("mobile.account.title")}</Text>
 
-      {isSignedIn ? (
-        <View style={styles.identityBlock}>
-          {userName ? (
-            <Text style={styles.identityName} numberOfLines={1}>
-              {userName}
+        {isSignedIn ? (
+          <View style={styles.identityBlock}>
+            {userName ? (
+              <Text style={styles.identityName} numberOfLines={1}>
+                {userName}
+              </Text>
+            ) : null}
+            {email ? (
+              <View
+                style={[
+                  styles.identityEmailRow,
+                  !userName && styles.identityEmailRowPrimary,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.identityEmail,
+                    !userName && styles.identityEmailPrimary,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {emailRevealed ? email : maskEmail(email)}
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    tapLight();
+                    setEmailRevealed((revealed) => !revealed);
+                  }}
+                  hitSlop={10}
+                  accessibilityLabel={
+                    emailRevealed
+                      ? t("mobile.settings.hideEmailLabel")
+                      : t("mobile.settings.showEmailLabel")
+                  }
+                  style={styles.identityEmailToggle}
+                >
+                  <Icon
+                    name={emailRevealed ? "eye-off" : "eye"}
+                    size={18}
+                    color={colors.textMuted}
+                  />
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+        ) : showLoadingHeader ? (
+          <Text style={styles.body}>{t("mobile.settings.loadingSession")}</Text>
+        ) : (
+          <View style={styles.signInBlock}>
+            <Text style={styles.signInTitle}>
+              {t("mobile.settings.signInTitle")}
             </Text>
-          ) : null}
-          {email ? (
-            <View
-              style={[
-                styles.identityEmailRow,
-                !userName && styles.identityEmailRowPrimary,
+            <PrimaryButton
+              label={t("mobile.settings.signIn")}
+              onPress={() => router.replace("/login")}
+              accessibilityLabel={t("mobile.settings.signInTitle")}
+              style={styles.signInButton}
+            />
+          </View>
+        )}
+
+        <SubscriptionSection />
+
+        <View style={styles.separator} />
+
+        <View style={styles.legalBlock}>
+          <Pressable
+            onPress={() => void Linking.openURL("https://stella.sh/terms")}
+            accessibilityLabel={t("mobile.settings.openTermsLabel")}
+            style={({ pressed }) => [
+              styles.legalRow,
+              pressed && styles.legalRowPressed,
+            ]}
+          >
+            <Text style={styles.legalLabel}>
+              {t("mobile.settings.termsOfService")}
+            </Text>
+            <Text style={styles.legalChevron}>›</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => void Linking.openURL("https://stella.sh/privacy")}
+            accessibilityLabel={t("mobile.settings.openPrivacyLabel")}
+            style={({ pressed }) => [
+              styles.legalRow,
+              pressed && styles.legalRowPressed,
+            ]}
+          >
+            <Text style={styles.legalLabel}>
+              {t("mobile.settings.privacyPolicy")}
+            </Text>
+            <Text style={styles.legalChevron}>›</Text>
+          </Pressable>
+        </View>
+
+        {isSignedIn ? (
+          <>
+            <Pressable
+              onPress={() => void signOut()}
+              disabled={isSigningOut || isDeletingAccount}
+              accessibilityLabel={t("mobile.settings.signOutLabel")}
+              style={({ pressed }) => [
+                styles.signOut,
+                pressed && styles.signOutPressed,
+                (isSigningOut || isDeletingAccount) && styles.signOutDisabled,
               ]}
             >
-              <Text
-                style={[
-                  styles.identityEmail,
-                  !userName && styles.identityEmailPrimary,
-                ]}
-                numberOfLines={1}
-              >
-                {emailRevealed ? email : maskEmail(email)}
+              <Text style={styles.signOutText}>
+                {isSigningOut
+                  ? t("mobile.settings.signingOut")
+                  : t("mobile.settings.signOut")}
               </Text>
-              <Pressable
-                onPress={() => {
-                  tapLight();
-                  setEmailRevealed((revealed) => !revealed);
-                }}
-                hitSlop={10}
-                accessibilityLabel={
-                  emailRevealed
-                    ? t("mobile.settings.hideEmailLabel")
-                    : t("mobile.settings.showEmailLabel")
-                }
-                style={styles.identityEmailToggle}
-              >
-                <Icon
-                  name={emailRevealed ? "eye-off" : "eye"}
-                  size={18}
-                  color={colors.textMuted}
-                />
-              </Pressable>
-            </View>
-          ) : null}
-        </View>
-      ) : showLoadingHeader ? (
-        <Text style={styles.body}>{t("mobile.settings.loadingSession")}</Text>
-      ) : (
-        <View style={styles.signInBlock}>
-          <Text style={styles.signInTitle}>
-            {t("mobile.settings.signInTitle")}
-          </Text>
-          <PrimaryButton
-            label={t("mobile.settings.signIn")}
-            onPress={() => router.replace("/login")}
-            accessibilityLabel={t("mobile.settings.signInTitle")}
-            style={styles.signInButton}
-          />
-        </View>
-      )}
+            </Pressable>
 
-      <SubscriptionSection />
-
-      <View style={styles.separator} />
-
-      <View style={styles.legalBlock}>
-        <Pressable
-          onPress={() => void Linking.openURL("https://stella.sh/terms")}
-          accessibilityLabel={t("mobile.settings.openTermsLabel")}
-          style={({ pressed }) => [
-            styles.legalRow,
-            pressed && styles.legalRowPressed,
-          ]}
-        >
-          <Text style={styles.legalLabel}>
-            {t("mobile.settings.termsOfService")}
-          </Text>
-          <Text style={styles.legalChevron}>›</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => void Linking.openURL("https://stella.sh/privacy")}
-          accessibilityLabel={t("mobile.settings.openPrivacyLabel")}
-          style={({ pressed }) => [
-            styles.legalRow,
-            pressed && styles.legalRowPressed,
-          ]}
-        >
-          <Text style={styles.legalLabel}>
-            {t("mobile.settings.privacyPolicy")}
-          </Text>
-          <Text style={styles.legalChevron}>›</Text>
-        </Pressable>
-      </View>
-
-      {isSignedIn ? (
-        <>
-          <Pressable
-            onPress={() => void signOut()}
-            disabled={isSigningOut || isDeletingAccount}
-            accessibilityLabel={t("mobile.settings.signOutLabel")}
-            style={({ pressed }) => [
-              styles.signOut,
-              pressed && styles.signOutPressed,
-              (isSigningOut || isDeletingAccount) && styles.signOutDisabled,
-            ]}
-          >
-            <Text style={styles.signOutText}>
-              {isSigningOut
-                ? t("mobile.settings.signingOut")
-                : t("mobile.settings.signOut")}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={confirmDeleteAccount}
-            disabled={isDeletingAccount || isSigningOut}
-            accessibilityLabel={t("mobile.settings.deleteAccountLabel")}
-            style={({ pressed }) => [
-              styles.deleteAccountLink,
-              pressed && styles.deleteAccountLinkPressed,
-            ]}
-          >
-            <Text style={styles.deleteAccountLinkText}>
-              {isDeletingAccount
-                ? t("mobile.settings.deletingAccount")
-                : t("mobile.settings.deleteAccount")}
-            </Text>
-          </Pressable>
-        </>
-      ) : null}
-    </ScrollView>
+            <Pressable
+              onPress={confirmDeleteAccount}
+              disabled={isDeletingAccount || isSigningOut}
+              accessibilityLabel={t("mobile.settings.deleteAccountLabel")}
+              style={({ pressed }) => [
+                styles.deleteAccountLink,
+                pressed && styles.deleteAccountLinkPressed,
+              ]}
+            >
+              <Text style={styles.deleteAccountLinkText}>
+                {isDeletingAccount
+                  ? t("mobile.settings.deletingAccount")
+                  : t("mobile.settings.deleteAccount")}
+              </Text>
+            </Pressable>
+          </>
+        ) : null}
+      </ScrollView>
+    </MainDetailSurface>
   );
 }
 

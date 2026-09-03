@@ -11,7 +11,10 @@ import {
 import { AppState } from "react-native";
 import { authClient } from "./auth-client";
 import { clearCachedToken, getConvexTokenOwnerForSubject } from "./auth-token";
-import { observeCloudConversationIdentity } from "./cloud-conversation-auth";
+import {
+  observeCloudConversationIdentity,
+  type CloudConversationIdentity,
+} from "./cloud-conversation-auth";
 import { decodeMobileCloudMemoryPreferenceForSubject } from "./cloud-memory-preference";
 import {
   CloudAuthorityError,
@@ -20,13 +23,18 @@ import {
   type CloudConversationAuthority,
   type CloudRealtimeConfig,
 } from "./cloud-conversation-authority";
-import { rebuildMobileCloudConversationCache } from "./cloud-conversation-cache";
+import { CloudConversationAuthorityStore } from "./cloud-conversation-authority-store";
+import {
+  readMobileCloudConversationCache,
+  rebuildMobileCloudConversationCache,
+} from "./cloud-conversation-cache";
 import { cancelCanonicalCloudExecution } from "./cloud-canonical-execution";
 import {
   conversationStore,
   retireCloudConversationClientAuthority,
   setCloudConversationAppActive,
   type ConversationState,
+  type ConversationStore,
 } from "./cloud-conversation-store";
 import {
   activeCloudTurnId,
@@ -127,6 +135,92 @@ export type CloudAuthorityHookState =
       retry: () => void;
     };
 
+const resolveMobileCloudConversationAuthority = async (
+  identity: CloudConversationIdentity,
+): Promise<CloudConversationAuthority> => {
+  const tokenOwner = await getConvexTokenOwnerForSubject(
+    identity.expectedSubject,
+  );
+  const ownerSubject = tokenOwner.tokenIdentifier;
+  return loadCloudConversationAuthority(identity, {
+    confirmIdentity: (args) =>
+      getConvexClient().query(confirmIdentityRef, args),
+    getOwnerGeneration: async () =>
+      await getConvexClient()
+        .query(memoryPreferenceFenceRef, {
+          expectedSubject: ownerSubject,
+        })
+        .then(
+          (preference) =>
+            decodeMobileCloudMemoryPreferenceForSubject(
+              preference,
+              ownerSubject,
+            ).ownerGeneration,
+        ),
+    ensureConversation: () =>
+      ensureAutomaticExecutionConversation({
+        threadId: "cloud",
+        title: "Chat",
+      }),
+    getRealtimeConfig: () => getConvexClient().query(realtimeConfigRef, {}),
+  });
+};
+
+/**
+ * The one process-wide authority handshake. Every surface on the session (the
+ * chat screen, the CarPlay bridge, the root primer) reads this store, so the
+ * handshake runs once per identity rather than once per mount.
+ */
+const authorityStore = new CloudConversationAuthorityStore({
+  resolve: resolveMobileCloudConversationAuthority,
+  describeFailure: safeAuthorityIssue,
+  onIdentityChange: (identity) => {
+    // A new identity key (sign-in, account switch, session rotation) is the
+    // one moment the previous subject's bearer token and sockets must go.
+    clearCachedToken();
+    retireCloudConversationClientAuthority(identity.accountScope);
+  },
+});
+
+/**
+ * Starts (or joins) the handshake for the session as soon as the root layout
+ * knows it, so the work overlaps the native splash instead of waiting for the
+ * chat screen to mount underneath a spinner.
+ */
+export const primeCloudConversationAuthority = (
+  identity: CloudConversationIdentity,
+  anonymous: boolean,
+): void => {
+  void authorityStore.ensure(identity, anonymous);
+};
+
+/** Drops the cached handshake once the session is gone (sign-out). */
+export const resetCloudConversationAuthority = (): void => {
+  authorityStore.reset();
+};
+
+/**
+ * True once the handshake for `identityKey` has landed (ready or failed), or
+ * when there is no identity to resolve. The root layout holds the native
+ * splash on this so a returning user lands on a chat that is already
+ * authorised rather than on the spinner.
+ */
+export const useCloudConversationAuthoritySettled = (
+  identityKey: string | null,
+): boolean => {
+  const entry = useSyncExternalStore(
+    authorityStore.subscribe,
+    authorityStore.getSnapshot,
+    authorityStore.getSnapshot,
+  );
+  if (!identityKey) return true;
+  return entry?.identityKey === identityKey && entry.status !== "loading";
+};
+
+const retryCloudConversationAuthority = (): void => {
+  void authorityStore.retry();
+};
+
 /** Resolves and account-fences the one signed-in mobile Chat conversation. */
 export const useCloudConversationAuthority = (): CloudAuthorityHookState => {
   const session = authClient.useSession();
@@ -136,96 +230,63 @@ export const useCloudConversationAuthority = (): CloudAuthorityHookState => {
     [session.data],
   );
   const identityKey = identity?.identityKey ?? null;
-  const accountScope = identity?.accountScope ?? null;
-  const [retryGeneration, setRetryGeneration] = useState(0);
-  const retry = useCallback(
-    () => setRetryGeneration((generation) => generation + 1),
-    [],
-  );
-  const [resolved, setResolved] = useState<
-    | { identityKey: string; authority: CloudConversationAuthority }
-    | { identityKey: string; issue: CloudAuthorityIssue }
-    | null
-  >(null);
-  const requestGenerationRef = useRef(0);
+  const pending = session.isPending;
 
+  // Layout timing keeps the auth boundary synchronous with the render that
+  // observed it: the previous subject's sockets retire before its teardown
+  // grace could leave one warm. For an identity the store already resolved
+  // this is a cache hit and does nothing.
   useLayoutEffect(() => {
-    requestGenerationRef.current += 1;
-    clearCachedToken();
-    if (accountScope) {
-      retireCloudConversationClientAuthority(accountScope);
-    }
-  }, [accountScope, identityKey]);
+    if (pending || !identity) return;
+    void authorityStore.ensure(identity, anonymous);
+    // `identity` is derived from the key; re-running on every session object
+    // identity would only churn the (idempotent) ensure call.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anonymous, identityKey, pending]);
 
-  useEffect(() => {
-    if (session.isPending || !identity) return;
-    const generation = ++requestGenerationRef.current;
-    setResolved(null);
-    void getConvexTokenOwnerForSubject(identity.expectedSubject)
-      .then((tokenOwner) => {
-        if (generation !== requestGenerationRef.current) return null;
-        const ownerSubject = tokenOwner.tokenIdentifier;
-        return loadCloudConversationAuthority(identity, {
-          confirmIdentity: (args) =>
-            getConvexClient().query(confirmIdentityRef, args),
-          getOwnerGeneration: async () =>
-            await getConvexClient()
-              .query(memoryPreferenceFenceRef, {
-                expectedSubject: ownerSubject,
-              })
-              .then(
-                (preference) =>
-                  decodeMobileCloudMemoryPreferenceForSubject(
-                    preference,
-                    ownerSubject,
-                  ).ownerGeneration,
-              ),
-          ensureConversation: () =>
-            ensureAutomaticExecutionConversation({
-              threadId: "cloud",
-              title: "Chat",
-            }),
-          getRealtimeConfig: () =>
-            getConvexClient().query(realtimeConfigRef, {}),
-        });
-      })
-      .then(
-        (authority) => {
-          if (!authority || generation !== requestGenerationRef.current) return;
-          setResolved({ identityKey: identity.identityKey, authority });
-        },
-        (error) => {
-          if (generation !== requestGenerationRef.current) return;
-          setResolved({
-            identityKey: identity.identityKey,
-            issue: safeAuthorityIssue(error, anonymous),
-          });
-        },
-      );
-    return () => {
-      requestGenerationRef.current += 1;
+  const entry = useSyncExternalStore(
+    authorityStore.subscribe,
+    authorityStore.getSnapshot,
+    authorityStore.getSnapshot,
+  );
+
+  if (pending || !identity) {
+    return {
+      status: "loading",
+      authority: null,
+      issue: null,
+      retry: retryCloudConversationAuthority,
     };
-  }, [anonymous, identity, retryGeneration, session.isPending]);
-
-  if (session.isPending || !identity) {
-    return { status: "loading", authority: null, issue: null, retry };
   }
-  if (!resolved || resolved.identityKey !== identity.identityKey) {
-    return { status: "loading", authority: null, issue: null, retry };
+  if (!entry || entry.identityKey !== identity.identityKey) {
+    return {
+      status: "loading",
+      authority: null,
+      issue: null,
+      retry: retryCloudConversationAuthority,
+    };
   }
-  if ("issue" in resolved) {
+  if (entry.status === "failed") {
     return {
       status: "failed",
       authority: null,
-      issue: resolved.issue,
-      retry,
+      issue: entry.issue,
+      retry: retryCloudConversationAuthority,
+    };
+  }
+  if (entry.status === "loading") {
+    return {
+      status: "loading",
+      authority: null,
+      issue: null,
+      retry: retryCloudConversationAuthority,
     };
   }
   return {
     status: "ready",
-    authority: resolved.authority,
+    authority: entry.authority,
     issue: null,
-    retry,
+    retry: retryCloudConversationAuthority,
   };
 };
 
@@ -418,13 +479,63 @@ export const useCloudCanonicalChatThread = (
       }),
     [authority.conversationId, state.hasOlder, state.records],
   );
+
+  // Cold start: the on-disk projection from the last session paints the
+  // transcript before the socket reconnects. It is read once per authority,
+  // only when the process-level store has nothing yet, and only ever shown
+  // while the journal has not reported an epoch: the first `ready` (even an
+  // empty one) is newer than anything on disk and replaces it.
+  const cacheAuthority = useMemo(
+    () => ({
+      accountScope: authority.accountScope,
+      ownerGeneration: authority.ownerGeneration,
+      conversationId: authority.conversationId,
+      socketOrigin: authority.socketOrigin,
+    }),
+    [
+      authority.accountScope,
+      authority.conversationId,
+      authority.ownerGeneration,
+      authority.socketOrigin,
+    ],
+  );
+  const [cachedProjection, setCachedProjection] = useState<{
+    store: ConversationStore;
+    messages: ChatMessage[];
+  } | null>(null);
+  useEffect(() => {
+    // Only the chat surface renders history; the CarPlay loop never paints it.
+    if (threadId !== "cloud") return;
+    const snapshot = store.getSnapshot();
+    if (snapshot.epoch !== null || snapshot.records.length > 0) return;
+    let active = true;
+    void readMobileCloudConversationCache(cacheAuthority).then(
+      (messages) => {
+        if (!active || !messages) return;
+        setCachedProjection({ store, messages });
+      },
+      () => undefined,
+    );
+    return () => {
+      active = false;
+    };
+  }, [cacheAuthority, store, threadId]);
+  const cacheVisible =
+    cachedProjection !== null &&
+    cachedProjection.store === store &&
+    state.epoch === null &&
+    state.records.length === 0;
+  const displayedProjection = cacheVisible
+    ? cachedProjection.messages
+    : projected;
+
   const acknowledgedDispatchIds = useMemo(
     () => canonicalCloudDispatchIds(state.records),
     [state.records],
   );
   const canonical = useMemo(
-    () => rebindCanonicalCloudMessages(projected, dispatchBindings),
-    [dispatchBindings, projected],
+    () => rebindCanonicalCloudMessages(displayedProjection, dispatchBindings),
+    [dispatchBindings, displayedProjection],
   );
   const messages = useMemo(
     () =>
@@ -533,7 +644,8 @@ export const useCloudCanonicalChatThread = (
     : null;
   const settledFailure =
     state.status === "blocked" || state.status === "offline";
-  const storageLoaded = (caughtUp || settledFailure) && !local.authorityIssue;
+  const storageLoaded =
+    (caughtUp || settledFailure || cacheVisible) && !local.authorityIssue;
 
   const trackSend = useCallback(
     (send: () => { userMessageId: string } | null) => {

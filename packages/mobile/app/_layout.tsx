@@ -32,6 +32,12 @@ import { loadAiConsent } from "../src/lib/ai-consent";
 import { loadNotificationsMuted } from "../src/lib/notifications-prefs";
 import { hasSeenOnboarding, loadOnboardingSeen } from "../src/lib/onboarding";
 import { loadLastMainTabHref } from "../src/lib/last-main-tab";
+import { observeCloudConversationIdentity } from "../src/lib/cloud-conversation-auth";
+import {
+  primeCloudConversationAuthority,
+  resetCloudConversationAuthority,
+  useCloudConversationAuthoritySettled,
+} from "../src/lib/use-cloud-canonical-chat-thread";
 import {
   criticalStellaFontAssets,
   deferredStellaFontAssets,
@@ -44,6 +50,13 @@ import { ShareIntentHandler } from "../src/lib/share-intent-handler";
 import { CarPlayBridge } from "../src/carplay/CarPlayBridge";
 
 void SplashScreen.preventAutoHideAsync();
+
+/**
+ * How much longer the splash may stay up for the account-authority handshake
+ * once auth has resolved. The handshake normally lands well inside this; on a
+ * bad network the splash lifts anyway and the chat shows its own progress.
+ */
+const SPLASH_AUTHORITY_WAIT_MS = 2_500;
 
 /** AsyncStorage key holding the last boot-crash breadcrumb (JSON). */
 const BOOT_CRASH_BREADCRUMB_KEY = "stella-mobile-last-boot-crash-v1";
@@ -203,6 +216,28 @@ function AuthenticatedLayout() {
       });
   }, [guestReady, router, session.data, session.isPending]);
 
+  // Start the account-authority handshake the moment the session is known,
+  // while the native splash is still up. The chat screen reads the same
+  // process-level result, so by the time the splash lifts it is usually ready
+  // instead of starting six round trips behind a spinner.
+  const cloudIdentity = useMemo(
+    () => observeCloudConversationIdentity(session.data),
+    [session.data],
+  );
+  const cloudIdentityKey = cloudIdentity?.identityKey ?? null;
+  const cloudAnonymous = session.data?.user?.isAnonymous === true;
+  useEffect(() => {
+    if (session.isPending) return;
+    if (!cloudIdentity) {
+      resetCloudConversationAuthority();
+      return;
+    }
+    primeCloudConversationAuthority(cloudIdentity, cloudAnonymous);
+    // Keyed on the identity key: a refetched session object with the same
+    // identity must not restart (or even re-poke) the handshake.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloudAnonymous, cloudIdentityKey, session.isPending]);
+
   useEffect(() => {
     let dispose: (() => void) | null = null;
     let cancelled = false;
@@ -289,11 +324,36 @@ function AuthenticatedLayout() {
   // network round-trip. This runs after the routing effect above, and the
   // double `requestAnimationFrame` lets the chosen destination paint underneath
   // the splash before it lifts.
+  //
+  // The session is the last of those to resolve, so the authority handshake
+  // started above would otherwise begin exactly as the splash lifts and run
+  // under a spinner. Hold the splash a bounded moment longer for it.
+  const authoritySettled =
+    useCloudConversationAuthoritySettled(cloudIdentityKey);
+  const [authorityWaitExpired, setAuthorityWaitExpired] = useState(false);
+  useEffect(() => {
+    if (session.isPending || !guestReady || !initialMainHref) return;
+    if (authoritySettled || authorityWaitExpired) return;
+    const timer = setTimeout(
+      () => setAuthorityWaitExpired(true),
+      SPLASH_AUTHORITY_WAIT_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [
+    authoritySettled,
+    authorityWaitExpired,
+    guestReady,
+    initialMainHref,
+    session.isPending,
+  ]);
   useEffect(() => {
     if (splashHiddenRef.current) {
       return;
     }
     if (session.isPending || !guestReady || !initialMainHref) {
+      return;
+    }
+    if (!authoritySettled && !authorityWaitExpired) {
       return;
     }
     splashHiddenRef.current = true;
@@ -302,7 +362,13 @@ function AuthenticatedLayout() {
         void SplashScreen.hideAsync();
       });
     });
-  }, [session.isPending, guestReady, initialMainHref]);
+  }, [
+    session.isPending,
+    guestReady,
+    initialMainHref,
+    authoritySettled,
+    authorityWaitExpired,
+  ]);
 
   return (
     <>

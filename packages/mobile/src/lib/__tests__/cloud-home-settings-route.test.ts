@@ -24,7 +24,7 @@ describe("mobile Cloud Home Settings reachability", () => {
       'key={identity?.identityKey ?? "signed-out"}',
     );
     expect(cloudHomeRoute).toContain("identity={identity}");
-    expect(cloudHomeRoute).toContain('router.replace("/settings")');
+    expect(cloudHomeRoute).toContain("onBack={() => router.back()}");
     expect(cloudHomeRoute).toContain('router.replace("/login")');
   });
 
@@ -121,18 +121,19 @@ describe("mobile Cloud Home Settings reachability", () => {
   });
 
   test("binds canonical owner-generation reads to the JWT tokenIdentifier", async () => {
-    const hook = await source("../use-cloud-canonical-chat-thread.ts");
+    const [hook, store] = await Promise.all([
+      source("../use-cloud-canonical-chat-thread.ts"),
+      source("../cloud-conversation-authority-store.ts"),
+    ]);
 
-    expect(hook).toContain(
-      "getConvexTokenOwnerForSubject(identity.expectedSubject)",
+    expect(hook).toMatch(
+      /getConvexTokenOwnerForSubject\(\s*identity\.expectedSubject,?\s*\)/u,
     );
     expect(hook).toContain("const ownerSubject = tokenOwner.tokenIdentifier");
-    expect(hook).toContain(
-      "if (generation !== requestGenerationRef.current) return null",
-    );
-    expect(hook).toContain(
-      "if (!authority || generation !== requestGenerationRef.current) return",
-    );
+    // The handshake result is process-level; a settled request for an
+    // identity the store has since moved past must not publish.
+    expect(store).toContain("if (generation !== this.generation) return;");
+    expect(hook).toContain("new CloudConversationAuthorityStore({");
     expect(hook.includes("env.convexSiteUrl")).toBe(false);
     expect(hook.includes("createMobileCloudMemoryOwnerSubject(")).toBe(false);
   });

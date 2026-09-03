@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StatusBar } from "expo-status-bar";
-import { Slot, usePathname, useRouter } from "expo-router";
+import {
+  DefaultTheme,
+  Stack,
+  ThemeProvider as NavigationThemeProvider,
+  usePathname,
+  useRouter,
+} from "expo-router";
 import { AiConsentModal } from "../../src/components/AiConsentModal";
 import {
   grantAiConsent,
@@ -58,6 +64,14 @@ import {
 } from "../../src/lib/main-shell-store";
 import { useT } from "../../src/i18n";
 import type { ChatArtifact } from "../../src/types";
+
+/**
+ * The chat is the base of the `(main)` stack. Settings, Account, and Cloud
+ * Home push over it, and a deep link or a restored last-tab of `/settings`
+ * still gets the chat inserted underneath, so "back" always has somewhere to
+ * go and the chat never has to remount for a visit to a detail page.
+ */
+export const unstable_settings = { anchor: "chat" };
 
 const SIDEBAR_WIDTH = 320;
 /** How far the foreground slides right when the drawer opens. Decoupled
@@ -158,9 +172,21 @@ export default function MainLayout() {
     drawerProgress.value = withSpring(0, DRAWER_SPRING);
   };
 
+  // Detail pages push over the chat rather than replacing it, so the chat
+  // keeps its mount (scroll position, draft, journal socket) and coming back
+  // is a pop, not a cold remount behind the authority spinner.
   const navigate = (destination: SidebarDestination) => {
     tapLight();
-    router.replace(destination);
+    if (destination === "/chat") {
+      if (!onChatSurface) router.dismissTo("/chat");
+    } else if (destination === "/login") {
+      router.replace("/login");
+    } else if (onChatSurface) {
+      router.push(destination);
+    } else if (pathname !== destination) {
+      // Already on a detail page: swap it so the stack stays chat + one page.
+      router.replace(destination);
+    }
     closeSidebar(false);
   };
 
@@ -172,7 +198,8 @@ export default function MainLayout() {
       return;
     }
     tapLight();
-    router.replace("/chat");
+    if (router.canGoBack()) router.back();
+    else router.replace("/chat");
   };
 
   const onPressComputer = () => {
@@ -331,7 +358,7 @@ export default function MainLayout() {
             />
             <View style={styles.content}>
               <View style={styles.contentSlot}>
-                <Slot />
+                <MainStack />
               </View>
             </View>
           </View>
@@ -455,7 +482,7 @@ export default function MainLayout() {
               </View>
 
               <View style={styles.content}>
-                <Slot />
+                <MainStack />
               </View>
 
               {/* Scrim — sits on top of the foreground while the drawer is
@@ -490,6 +517,39 @@ export default function MainLayout() {
     </SafeAreaView>
   );
 }
+
+/**
+ * The route stack under the shell chrome. Screens paint their own canvas: the
+ * chat shows the foreground backdrop through a transparent card, and detail
+ * routes carry an opaque one (`MainDetailSurface`) so the chat underneath
+ * never bleeds through a push. The stack's own edge-swipe stays off because
+ * the drawer's swipe-right owns the left edge on every route, as before.
+ */
+function MainStack() {
+  return (
+    <NavigationThemeProvider value={TRANSPARENT_NAVIGATION_THEME}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: "transparent" },
+          animation: "slide_from_right",
+          gestureEnabled: false,
+        }}
+      />
+    </NavigationThemeProvider>
+  );
+}
+
+/**
+ * React Navigation paints `colors.background` beneath every stack screen, and
+ * with no theme provided that is its light default (rgb 242), which covered
+ * the shell's backdrop. The shell owns the canvas, so the navigator gets a
+ * theme that paints nothing.
+ */
+const TRANSPARENT_NAVIGATION_THEME = {
+  ...DefaultTheme,
+  colors: { ...DefaultTheme.colors, background: "transparent" },
+};
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
@@ -615,11 +675,10 @@ const makeStyles = (colors: Colors) =>
       zIndex: 3,
     },
 
-    // Shared content area
+    // Shared content area. Routes apply their own inset (see
+    // `mainContentStyles`) so a pushed detail page can paint edge to edge.
     content: {
       flex: 1,
       minHeight: 0,
-      paddingHorizontal: 20,
-      paddingTop: 4,
     },
   } as const);

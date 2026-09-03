@@ -1,6 +1,8 @@
 import type { ChatMessage } from "../types";
 import {
   clearChatMessages,
+  loadChatSyncState,
+  loadRecentChatMessages,
   saveChatMessages,
   saveChatSyncState,
 } from "./offline-chat-storage";
@@ -16,6 +18,12 @@ export type CloudConversationCacheMetadata = {
   epoch: number;
   headSeq: number;
   floorSeq: number;
+};
+
+export type CloudConversationCacheReadPort = {
+  /** The encoded metadata the last rebuild committed, if any. */
+  loadMetadata(): Promise<string | null>;
+  loadMessages(): Promise<ChatMessage[]>;
 };
 
 export type CloudConversationCachePort = {
@@ -95,5 +103,54 @@ export const rebuildMobileCloudConversationCache = async (args: {
           conversationId: metadata.conversationId,
           cursor: encodeCloudConversationCacheMetadata(metadata),
         }),
+    },
+  });
+
+/** The fence a cached projection must match before it may be shown. */
+export type CloudConversationCacheAuthority = Pick<
+  CloudConversationCacheMetadata,
+  "accountScope" | "ownerGeneration" | "conversationId" | "socketOrigin"
+>;
+
+export const cloudConversationCacheMatches = (
+  metadata: CloudConversationCacheMetadata,
+  authority: CloudConversationCacheAuthority,
+): boolean =>
+  metadata.accountScope === authority.accountScope &&
+  metadata.ownerGeneration === authority.ownerGeneration &&
+  metadata.conversationId === authority.conversationId &&
+  metadata.socketOrigin === authority.socketOrigin;
+
+/**
+ * Reads the projection the last rebuild committed, for painting a returning
+ * user's transcript before the journal socket reconnects. Metadata commits
+ * last during a rebuild, so its presence proves the rows beside it are a
+ * complete canonical snapshot; a fence mismatch (another account, an owner
+ * reset, a different deployment) or an empty snapshot yields nothing rather
+ * than a wrong or blank-then-filled transcript.
+ */
+export const readCloudConversationCache = async (args: {
+  authority: CloudConversationCacheAuthority;
+  port: CloudConversationCacheReadPort;
+}): Promise<ChatMessage[] | null> => {
+  const metadata = decodeCloudConversationCacheMetadata(
+    await args.port.loadMetadata(),
+  );
+  if (!metadata || !cloudConversationCacheMatches(metadata, args.authority)) {
+    return null;
+  }
+  const messages = await args.port.loadMessages();
+  return messages.length > 0 ? messages : null;
+};
+
+export const readMobileCloudConversationCache = async (
+  authority: CloudConversationCacheAuthority,
+): Promise<ChatMessage[] | null> =>
+  readCloudConversationCache({
+    authority,
+    port: {
+      loadMetadata: async () => (await loadChatSyncState("cloud")).cursor,
+      loadMessages: async () =>
+        (await loadRecentChatMessages("cloud")).messages,
     },
   });

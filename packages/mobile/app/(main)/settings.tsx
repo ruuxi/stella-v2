@@ -10,6 +10,7 @@ import {
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlassToggle } from "../../src/components/glass";
+import { MainDetailSurface } from "../../src/components/MainScreenSurface";
 import { authClient } from "../../src/lib/auth-client";
 import { clearCachedDesktopBridge } from "../../src/lib/desktop-bridge-chat";
 import { isGuest } from "../../src/lib/guest-mode";
@@ -179,7 +180,8 @@ export default function SettingsScreen() {
   };
 
   return (
-    <ScrollView
+    <MainDetailSurface>
+      <ScrollView
       style={styles.screen}
       contentContainerStyle={[
         styles.scrollContent,
@@ -461,7 +463,8 @@ export default function SettingsScreen() {
         </Pressable>
       </View>
 
-    </ScrollView>
+      </ScrollView>
+    </MainDetailSurface>
   );
 }
 

@@ -142,10 +142,9 @@ export const registerDictationRoutes = (http: HttpRouter) => {
       }
 
       const audioSeconds = audioBytes / PCM_BYTES_PER_SECOND;
-      await ctx.runMutation(internal.billing.logManagedUsage, {
+      await ctx.runMutation(internal.billing.logDictationUsage, {
         ownerId,
         ownerGeneration,
-        agentType: "service:dictation",
         model: MUSE_DICTATION_MODEL,
         durationMs:
           typeof body?.durationMs === "number" &&

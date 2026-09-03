@@ -6,6 +6,7 @@ import {
   type ExactTurnCancellationRequest,
 } from "../src/execution-placement-turn-cancellation.js";
 import { agentComputeKey } from "../src/agent-compute-ladder.js";
+import { SandboxLifecycleDeferredError } from "../src/sandbox-lifecycle.js";
 import {
   turnComputePlan,
   turnComputePlanKey,
@@ -555,6 +556,7 @@ describe("BuildSession sandbox termination", () => {
     let processKills = 0;
     let destroys = 0;
     harness.instance["sandbox"] = () => ({
+      getState: async () => ({ status: "running" }),
       killAllProcesses: async () => {
         processKills += 1;
       },
@@ -711,6 +713,7 @@ describe("BuildSession sandbox termination", () => {
     const sensitive =
       "https://provider.invalid/private?token=secret <html>provider failure</html>";
     harness.instance["sandbox"] = () => ({
+      getState: async () => ({ status: "healthy" }),
       killAllProcesses: async () => {
         throw new Error(sensitive);
       },
@@ -4575,6 +4578,7 @@ const residentStopHarness = (turnId: string) => {
   harness.instance["sandbox"] = (sandboxId: string, size: string) => {
     sandboxCalls += 1;
     return {
+      getState: async () => ({ status: "running" }),
       killAllProcesses: async (sessionId: string) => {
         killed.push(sessionId);
       },
@@ -4757,5 +4761,455 @@ describe("resident placement exact Stop", () => {
       joined: true,
     });
     expect(driven.harness.values.has("pendingTerminal")).toBe(false);
+  });
+});
+
+describe("BuildSession teardown never revives the container it retires", () => {
+  const admitted = (turnId: string) => {
+    const harness = buildSessionHarness();
+    const current = { ...agentTurn(turnId), workspace: "stella" };
+    const sandboxId = `agent-${current.turnId}`;
+    harness.values.set("turn", current);
+    harness.values.set("sandboxId", sandboxId);
+    harness.values.set("sandboxSize", "large");
+    harness.values.set(`agentExecutionMarker:${current.turnId}:1`, {
+      schemaVersion: 1,
+      turnId: current.turnId,
+      attemptGeneration: 1,
+      sandboxId,
+      size: "large",
+      workspace: "stella",
+      workspaceRoot: "/workspace/stella",
+      startedAt: Date.now(),
+    });
+    return { harness, current };
+  };
+
+  test("skips the process sweep when the sandbox says its container is not running", async () => {
+    // A process kill is a container RPC. Against a container that already
+    // exited it boots the instance just to kill nothing, and with keep-alive
+    // still persisted that revived container never sleeps again.
+    const { harness, current } = admitted("agent-stopped-container");
+    const stubs: Array<{ keepAlive: boolean | undefined }> = [];
+    let processKills = 0;
+    let destroys = 0;
+    harness.instance["sandbox"] = (
+      _id: string,
+      _size: string,
+      _workload: string,
+      options?: { keepAlive?: boolean },
+    ) => {
+      stubs.push({ keepAlive: options?.keepAlive });
+      return {
+        getState: async () => ({ status: "stopped" }),
+        killAllProcesses: async () => {
+          processKills += 1;
+        },
+        setKeepAlive: async () => undefined,
+        destroy: async () => {
+          destroys += 1;
+        },
+      };
+    };
+    const previousError = console.error;
+    console.error = () => undefined;
+    try {
+      await terminateCurrentAgentSandbox(harness.instance, current);
+    } finally {
+      console.error = previousError;
+    }
+    expect(processKills).toBe(0);
+    expect(destroys).toBe(1);
+    // Retirement never holds a keep-alive stub for its target.
+    expect(stubs.length).toBeGreaterThanOrEqual(2);
+    for (const stub of stubs) expect(stub.keepAlive).toBe(false);
+  });
+
+  test("treats an unanswerable container state as not running", async () => {
+    const { harness, current } = admitted("agent-unknown-state");
+    let processKills = 0;
+    harness.instance["sandbox"] = () => ({
+      getState: async () => {
+        throw new Error("state read failed");
+      },
+      killAllProcesses: async () => {
+        processKills += 1;
+      },
+      setKeepAlive: async () => undefined,
+      destroy: async () => undefined,
+    });
+    const previousError = console.error;
+    console.error = () => undefined;
+    try {
+      await terminateCurrentAgentSandbox(harness.instance, current);
+    } finally {
+      console.error = previousError;
+    }
+    expect(processKills).toBe(0);
+  });
+
+  test("releases keep-alive as a method call on the stub", async () => {
+    // A workerd RPC property is only an RPC call when invoked on its stub. A
+    // detached reference run through Function.prototype.call is what every
+    // release did before, and what every fake with a plain function hid.
+    const { harness, current } = admitted("agent-method-release");
+    const invocations: Array<{ enabled: boolean; onStub: boolean }> = [];
+    const stub = {
+      getState: async () => ({ status: "stopped" }),
+      killAllProcesses: async () => undefined,
+      setKeepAlive(this: unknown, enabled: boolean) {
+        invocations.push({ enabled, onStub: this === stub });
+        return Promise.resolve();
+      },
+      destroy: async () => undefined,
+    };
+    harness.instance["sandbox"] = () => stub;
+    const previousError = console.error;
+    console.error = () => undefined;
+    try {
+      await terminateCurrentAgentSandbox(harness.instance, current);
+    } finally {
+      console.error = previousError;
+    }
+    expect(invocations).toEqual([{ enabled: false, onStub: true }]);
+  });
+});
+
+describe("a watchdog that has passed never waits on a container that will not die", () => {
+  const privateMethod = <T extends (...args: never[]) => unknown>(
+    name: string,
+  ): T =>
+    (BuildSession.prototype as unknown as Record<string, unknown>)[name] as T;
+
+  test("interrupts a hung local execution once the deadline has passed and drops its handle", async () => {
+    const harness = buildSessionHarness();
+    const current = { ...agentTurn("agent-hung-fiber"), workspace: "stella" };
+    harness.values.set("turn", current);
+    harness.values.set("agentWatchdogDeadlineAt", Date.now() - 1);
+    const interrupted: string[] = [];
+    const execution = {
+      interrupt: async (reason?: unknown) => {
+        interrupted.push(reason instanceof Error ? reason.message : "");
+      },
+    };
+    (harness.instance["agentTurnExecutions"] as Map<string, unknown>).set(
+      current.turnId,
+      execution,
+    );
+    const recovered: string[] = [];
+    harness.instance["runAlarmWithLease"] = async (turn: { turnId: string }) => {
+      recovered.push(turn.turnId);
+    };
+    harness.instance["trackTurn"] = async (
+      _turnId: string,
+      work: Promise<unknown>,
+    ) => await work;
+    const previousError = console.error;
+    console.error = () => undefined;
+    try {
+      await privateMethod<(this: unknown) => Promise<void>>(
+        "runScheduledTurnAlarm",
+      ).call(harness.instance);
+    } finally {
+      console.error = previousError;
+    }
+    expect(interrupted).toEqual(["The agent ran out of time and was stopped."]);
+    expect(
+      (harness.instance["agentTurnExecutions"] as Map<string, unknown>).has(
+        current.turnId,
+      ),
+    ).toBe(false);
+    // Recovery then runs against the attempt as if its isolate were replaced.
+    expect(recovered).toEqual([current.turnId]);
+  });
+
+  test("leaves a live execution alone while its deadline is still ahead", async () => {
+    const harness = buildSessionHarness();
+    const current = { ...agentTurn("agent-live-fiber"), workspace: "stella" };
+    harness.values.set("turn", current);
+    harness.values.set("agentWatchdogDeadlineAt", Date.now() + 60_000);
+    let interrupts = 0;
+    (harness.instance["agentTurnExecutions"] as Map<string, unknown>).set(
+      current.turnId,
+      {
+        interrupt: async () => {
+          interrupts += 1;
+        },
+      },
+    );
+    harness.instance["renewLiveAgentWorldLease"] = async () => ({
+      retry: false,
+    });
+    let recoveries = 0;
+    harness.instance["runAlarmWithLease"] = async () => {
+      recoveries += 1;
+    };
+    const previousError = console.error;
+    console.error = () => undefined;
+    try {
+      await privateMethod<(this: unknown) => Promise<void>>(
+        "runScheduledTurnAlarm",
+      ).call(harness.instance);
+    } finally {
+      console.error = previousError;
+    }
+    expect(interrupts).toBe(0);
+    expect(recoveries).toBe(0);
+    expect(
+      (harness.instance["agentTurnExecutions"] as Map<string, unknown>).has(
+        current.turnId,
+      ),
+    ).toBe(true);
+  });
+
+  test("delivers the executor-loss terminal and releases the world slot when the destroy is deferred", async () => {
+    const harness = buildSessionHarness();
+    const current = { ...agentTurn("agent-deferred-destroy"), workspace: "stella" };
+    harness.values.set("turn", current);
+    harness.instance["claimTerminalDecision"] = async () => true;
+    harness.instance["terminateCurrentAgentSandbox"] = async () => {
+      throw new SandboxLifecycleDeferredError();
+    };
+    const released: string[] = [];
+    harness.instance["releaseWorldLeaseDespiteDeferredDestroy"] = async (turn: {
+      turnId: string;
+    }) => {
+      released.push(turn.turnId);
+      return true;
+    };
+    const delivered: Array<Record<string, unknown>> = [];
+    harness.instance["deliverTerminal"] = async (
+      _turn: unknown,
+      pending: Record<string, unknown>,
+    ) => {
+      delivered.push(pending);
+      return true;
+    };
+    harness.instance["deleteTurnStoragePreservingExactCancellations"] =
+      async () => true;
+    const previousError = console.error;
+    console.error = () => undefined;
+    try {
+      await privateMethod<
+        (
+          this: unknown,
+          turn: unknown,
+          text: { message: string; threadError: string },
+        ) => Promise<void>
+      >("deliverExecutorLossTerminal").call(harness.instance, current, {
+        message: "lost",
+        threadError: "lost",
+      });
+    } finally {
+      console.error = previousError;
+    }
+    expect(released).toEqual([current.turnId]);
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]).toMatchObject({
+      kind: "failed",
+      terminateSandbox: false,
+      payload: { reason: "executor_recovered" },
+    });
+  });
+
+  test("still re-arms instead of delivering when the termination failed for another reason", async () => {
+    const harness = buildSessionHarness();
+    const current = { ...agentTurn("agent-storage-failure"), workspace: "stella" };
+    harness.values.set("turn", current);
+    harness.instance["claimTerminalDecision"] = async () => true;
+    harness.instance["terminateCurrentAgentSandbox"] = async () => {
+      throw new Error("storage transaction failed");
+    };
+    let released = 0;
+    harness.instance["releaseWorldLeaseDespiteDeferredDestroy"] = async () => {
+      released += 1;
+      return true;
+    };
+    let delivered = 0;
+    harness.instance["deliverTerminal"] = async () => {
+      delivered += 1;
+      return true;
+    };
+    const previousError = console.error;
+    console.error = () => undefined;
+    try {
+      await privateMethod<
+        (
+          this: unknown,
+          turn: unknown,
+          text: { message: string; threadError: string },
+        ) => Promise<void>
+      >("deliverExecutorLossTerminal").call(harness.instance, current, {
+        message: "lost",
+        threadError: "lost",
+      });
+    } finally {
+      console.error = previousError;
+    }
+    expect(released).toBe(0);
+    expect(delivered).toBe(0);
+  });
+
+  test("the early world-lease release retires exactly the attempt's own attached target", async () => {
+    const harness = buildSessionHarness();
+    const current = { ...agentTurn("agent-early-release"), workspace: "stella" };
+    harness.values.set("turn", current);
+    harness.values.set(agentComputeKey(current.turnId, 1), {
+      schemaVersion: 2,
+      turnId: current.turnId,
+      attemptGeneration: 1,
+      phase: "attached",
+      instanceSize: "small",
+      sandboxId: "agent-early-release-sandbox",
+      attachReason: "filesystem_tool",
+      worldLease: {
+        leaseId: "world-lease-1",
+        phase: "registered",
+        generation: "g1",
+        expiresAt: Date.now() + 60_000,
+      },
+    });
+    const retired: Array<Record<string, unknown>> = [];
+    harness.instance["retireWorldLeaseAfterConfirmedSandboxDestroy"] = async (
+      target: Record<string, unknown>,
+    ) => {
+      retired.push(target);
+      return true;
+    };
+    const result = await privateMethod<
+      (this: unknown, turn: unknown) => Promise<boolean>
+    >("releaseWorldLeaseDespiteDeferredDestroy").call(
+      harness.instance,
+      current,
+    );
+    expect(result).toBe(true);
+    expect(retired).toEqual([
+      {
+        sandboxId: "agent-early-release-sandbox",
+        size: "small",
+        workload: "resident-attachment",
+      },
+    ]);
+  });
+
+  test("a resident attempt with no container has no slot to release", async () => {
+    const harness = buildSessionHarness();
+    const current = { ...agentTurn("agent-resident-only"), workspace: "stella" };
+    harness.values.set("turn", current);
+    harness.values.set(agentComputeKey(current.turnId, 1), {
+      schemaVersion: 2,
+      turnId: current.turnId,
+      attemptGeneration: 1,
+      phase: "resident",
+      instanceSize: "small",
+    });
+    let retired = 0;
+    harness.instance["retireWorldLeaseAfterConfirmedSandboxDestroy"] =
+      async () => {
+        retired += 1;
+        return true;
+      };
+    const result = await privateMethod<
+      (this: unknown, turn: unknown) => Promise<boolean>
+    >("releaseWorldLeaseDespiteDeferredDestroy").call(
+      harness.instance,
+      current,
+    );
+    expect(result).toBe(true);
+    expect(retired).toBe(0);
+  });
+});
+
+describe("POST /expire-agent-turn expires the current agent turn for an operator", () => {
+  const expire = (
+    harness: ReturnType<typeof buildSessionHarness>,
+    body: unknown = {},
+  ) =>
+    harness.instance.fetch(
+      new Request("https://build-session/expire-agent-turn", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+
+  test("moves the watchdog to now, interrupts a hung fiber, releases the slot and re-arms the alarm", async () => {
+    const harness = buildSessionHarness();
+    const current = { ...agentTurn("agent-operator-expire"), workspace: "stella" };
+    harness.values.set("turn", current);
+    harness.values.set("agentWatchdogDeadlineAt", Date.now() + 10 * 60_000);
+    const interrupted: string[] = [];
+    (harness.instance["agentTurnExecutions"] as Map<string, unknown>).set(
+      current.turnId,
+      {
+        interrupt: async (reason?: unknown) => {
+          interrupted.push(reason instanceof Error ? reason.message : "");
+        },
+      },
+    );
+    const released: string[] = [];
+    harness.instance["releaseWorldLeaseDespiteDeferredDestroy"] = async (turn: {
+      turnId: string;
+    }) => {
+      released.push(turn.turnId);
+      return true;
+    };
+    const before = Date.now();
+    const response = await expire(harness, {
+      turnId: current.turnId,
+      attemptGeneration: 1,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      expired: true,
+      turnId: current.turnId,
+      attemptGeneration: 1,
+      worldLeaseReleased: true,
+      interruptedLocalExecution: true,
+    });
+    expect(interrupted).toEqual(["The agent turn was expired by an operator."]);
+    expect(
+      (harness.instance["agentTurnExecutions"] as Map<string, unknown>).has(
+        current.turnId,
+      ),
+    ).toBe(false);
+    expect(released).toEqual([current.turnId]);
+    const deadline = harness.values.get("agentWatchdogDeadlineAt") as number;
+    expect(deadline).toBeGreaterThanOrEqual(before);
+    expect(deadline).toBeLessThanOrEqual(Date.now());
+    expect(await harness.storage.getAlarm()).toBe(deadline);
+  });
+
+  test("refuses to expire a turn the operator did not name", async () => {
+    const harness = buildSessionHarness();
+    const current = { ...agentTurn("agent-operator-stale"), workspace: "stella" };
+    harness.values.set("turn", current);
+    harness.values.set("agentWatchdogDeadlineAt", Date.now() + 10 * 60_000);
+    let released = 0;
+    harness.instance["releaseWorldLeaseDespiteDeferredDestroy"] = async () => {
+      released += 1;
+      return true;
+    };
+    const response = await expire(harness, { turnId: "some-other-turn" });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      expired: false,
+      reason: "stale_turn",
+      turnId: current.turnId,
+    });
+    expect(released).toBe(0);
+    expect(harness.values.get("agentWatchdogDeadlineAt")).toBeGreaterThan(
+      Date.now(),
+    );
+  });
+
+  test("answers 404 when the object holds no agent turn", async () => {
+    const harness = buildSessionHarness();
+    const response = await expire(harness);
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      expired: false,
+      reason: "no_agent_turn",
+    });
   });
 });

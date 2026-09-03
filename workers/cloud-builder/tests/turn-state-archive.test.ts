@@ -1199,3 +1199,40 @@ describe("turn state archive", () => {
     expect(session.commands).toEqual([]);
   });
 });
+
+describe("archive scripts never leak shell state into the session", () => {
+  test("every archive command runs in a subshell", async () => {
+    // The scripts begin with `set -eu`/`umask 077` and hold the lock on fd 9.
+    // The session's persistent shell later runs the attached tool-host probe
+    // and every bridged call; a leaked errexit ends that shell on the first
+    // non-zero command and the daemon with it, which is exactly what every
+    // follow-up turn (the only turn that restores a checkpoint) hit.
+    const bytes = encoder.encode("subshell-archive-bytes");
+    const key = archiveKey("workspace");
+    const bucket = new FakeArchiveBucket();
+    const uploadSession = new FakeArchiveSession(bytes);
+    const uploaded = await uploadTurnStateArchive({
+      session: uploadSession.asSession(),
+      bucket: bucket.asUploadBucket(),
+      key,
+      target: { kind: "workspace" },
+    });
+    const restoreSession = new FakeArchiveSession(bytes);
+    await restoreTurnStateArchive({
+      session: restoreSession.asSession(),
+      bucket: bucket.asRestoreBucket(),
+      archive: uploaded.archive,
+      target: { kind: "workspace" },
+    });
+
+    const commands = [...uploadSession.commands, ...restoreSession.commands];
+    expect(commands.length).toBeGreaterThan(0);
+    for (const command of commands) {
+      expect(command.startsWith("( ")).toBe(true);
+      expect(command.endsWith(" )")).toBe(true);
+    }
+    // The strict options and the lock descriptor are still applied, inside.
+    expect(commands.some((command) => command.includes("set -eu"))).toBe(true);
+    expect(commands.some((command) => command.includes("exec 9<>"))).toBe(true);
+  });
+});

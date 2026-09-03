@@ -150,6 +150,20 @@ teardown) is faster to drive headless:
   failed by the heartbeat about a minute later. Dev container rollouts keep
   serving the previous image for a few minutes after a deploy, so give an
   image deploy time before judging a container-side change.
+- A thread stuck `running` past its watchdog is expired, not cancelled:
+  `POST $CLOUD_BUILDER_URL/sessions/<threadId>/expire` with the service bearer
+  and an optional `{"turnId","attemptGeneration"}` body. The BuildSession
+  moves its watchdog to now, interrupts a hung fiber, releases the owner's
+  world slot and re-arms its alarm; the ordinary timeout path then fails the
+  thread while the container's teardown stays alarm-owned debt. The cancel
+  route still answers 502 `sandbox_termination_failed` for such a thread.
+- Leaked containers (the inventory report's `orphan` rows) are retired
+  through the Worker, never Wrangler: `node scripts/retire-sandbox-instances.mjs
+  --environment dev --instance-id <id> --apply --confirm <printed> --adapter
+  scripts/retire-sandbox-adapter.mjs` with `CLOUD_BUILDER_URL` and
+  `BUILDER_SERVICE_SECRET` in the environment. The adapter posts each exact
+  tuple to `POST /internal/sandboxes/retire`, which releases keep-alive on
+  the sandbox object and destroys it.
 
 ## Feature Map maintenance
 

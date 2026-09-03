@@ -105,3 +105,15 @@ describe("Cloud Builder request ingress", () => {
     expect(boundedBodyStatus(invalidLength)).toBe(400);
   });
 });
+
+describe("operator lifecycle routes carry a tiny control body", () => {
+  test("bounds the expire and sandbox-retire routes", () => {
+    expect(serviceJsonBodyLimit("POST", "/sessions/thread-1/expire")).toBe(
+      CLOUD_BUILDER_BODY_LIMITS.tinyControl,
+    );
+    expect(serviceJsonBodyLimit("POST", "/internal/sandboxes/retire")).toBe(
+      CLOUD_BUILDER_BODY_LIMITS.tinyControl,
+    );
+    expect(serviceJsonBodyLimit("GET", "/internal/sandboxes/retire")).toBeNull();
+  });
+});

@@ -6,6 +6,7 @@ import {
   toolsRuntime,
 } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import { NATIVE_STATE_DIRECTORY } from "./native-state-checkpoint.js";
+import { inSubshell } from "./shell-subshell.js";
 import {
   TURN_STATE_OBJECT_FORMAT,
   TURN_STATE_OBJECT_PREFIX,
@@ -86,12 +87,21 @@ const scratchPaths = (target: TurnStateArchiveTarget, scratchId: string) => {
   } as const;
 };
 
+/**
+ * Every archive script begins with `set -eu` and `umask 077`, and the locked
+ * ones open the lock on fd 9. They run in the session's persistent shell, the
+ * same shell that later starts the attached tool-host daemon and runs the
+ * model's commands. Left unscoped, the first non-zero command after a restore
+ * ended that shell and the daemon with it, which is exactly what a follow-up
+ * turn (the only turn that restores a checkpoint) kept hitting. The subshell
+ * confines errexit, the umask and the lock descriptor to this one script.
+ */
 const runCommand = async (
   session: TurnStateArchiveSession,
   command: string,
   label: string,
 ): Promise<string> => {
-  const result = await session.exec(command, {
+  const result = await session.exec(inSubshell(command), {
     origin: "internal",
     timeout: 15 * 60 * 1_000,
   });

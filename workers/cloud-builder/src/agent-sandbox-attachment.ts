@@ -15,6 +15,8 @@
  */
 
 import type { ExecutionSession, Process } from "@cloudflare/sandbox";
+import { Effect } from "effect";
+import { runToolEffect } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import {
   ATTACHED_TOOL_DIR,
   ATTACHED_TOOL_HOST_INPUT_PATH,
@@ -104,17 +106,17 @@ const bounded = async <T>(
   fallback: T,
 ): Promise<T> => {
   if (!work) return fallback;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      work.catch(() => fallback),
-      new Promise<T>((resolve) => {
-        timer = setTimeout(() => resolve(fallback), DAEMON_RPC_DEADLINE_MS);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+  // The SDK call keeps running after the deadline; only this wait is bounded.
+  const settled = work.then(
+    (value) => value,
+    () => fallback,
+  );
+  return await runToolEffect(
+    Effect.raceFirst(
+      Effect.tryPromise({ try: () => settled, catch: () => fallback }),
+      Effect.sleep(DAEMON_RPC_DEADLINE_MS).pipe(Effect.map(() => fallback)),
+    ),
+  );
 };
 
 const describeDaemon = async (
@@ -182,10 +184,35 @@ export type AgentSandboxAttachmentDeps = Readonly<{
   prepareBrokerHandoff(args: {
     session: ExecutionSession;
   }): Promise<AttachedToolHostHandoff>;
+  /**
+   * Start the daemon as a sessionless background process, the way the eager
+   * container path starts its executor. A process started through an
+   * `ExecutionSession` belongs to that session's persistent shell and dies
+   * with it, and that shell also runs the readiness probe, the one-shot
+   * client and every boundary script. Starting the daemon outside any session
+   * means no shell exit can take the bridge down. Falls back to the session
+   * when absent so the phase machine stays testable with one fake.
+   */
+  startDaemon?: (
+    command: string,
+    options: Readonly<{ cwd: string }>,
+  ) => Promise<Process>;
   /** The exact teardown the cancellation sweeps perform. */
   destroy(sandboxId: string): Promise<void>;
   emitEvent?: (kind: string, payload: unknown) => void;
 }>;
+
+/**
+ * The SDK's persistent shell exited underneath a call. It reports this as a
+ * session-terminated error, and every later call on the same session id gets
+ * a fresh, empty shell. Recognised by name and by the message the SDK writes,
+ * so a wrapped or re-thrown copy is still classified.
+ */
+const SESSION_TERMINATED_MESSAGE = /shell exited|session .* ended/iu;
+export const isSessionTerminatedError = (error: unknown): boolean =>
+  error instanceof Error &&
+  (error.name === "SessionTerminatedError" ||
+    SESSION_TERMINATED_MESSAGE.test(error.message));
 
 const quoted = (argv: readonly string[]): string =>
   argv
@@ -243,6 +270,7 @@ export const createAgentSandboxAttachment = (
   let attached: ExecutionSession | undefined;
   let daemon: Process | undefined;
   let daemonLossReported = false;
+  let sessionTerminationReported = false;
 
   const requireSession = (): ExecutionSession => {
     if (!attached) {
@@ -272,28 +300,60 @@ export const createAgentSandboxAttachment = (
    * answer can never be read as this call's, and the client's own failure
    * frame is what surfaces a transport problem as a tool error.
    */
+  /**
+   * A shell that exited under a bridge call is reported once, with the SDK's
+   * own exit reason, and surfaces as a tool error rather than being swallowed
+   * into a generic "could not run that call". This is the signal that a
+   * boundary script leaked `set -e` into the session, which is otherwise
+   * invisible: the daemon dies with an empty stderr and the next call simply
+   * finds nothing listening.
+   */
+  const sessionTerminated = (
+    error: unknown,
+  ): AttachedToolHostUnavailableError => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!sessionTerminationReported) {
+      sessionTerminationReported = true;
+      deps.emitEvent?.("attached_session_terminated", {
+        reason: "The workspace shell exited under a bridge call",
+        error: message.slice(0, 400),
+      });
+    }
+    return new AttachedToolHostUnavailableError(
+      `The workspace shell exited under that call: ${message.slice(0, 400)}`,
+    );
+  };
+
   const roundTrip = async (
     frame: AttachedToolRequest | AttachedToolControlRequest,
   ): Promise<unknown> => {
     const session = requireSession();
     deps.context.assertActive();
-    await session.deleteFile(ATTACHED_TOOL_RESULT_PATH).catch(() => undefined);
-    await writeProtected(
-      session,
-      ATTACHED_TOOL_REQUEST_PATH,
-      encodeAttachedToolFrame(frame),
-    );
-    deps.context.assertActive();
-    const call = await session.exec(quoted(CLIENT_ARGV), {
-      cwd: EXECUTOR_ROOT,
-    });
-    if (!call.success) {
-      throw new AttachedToolHostUnavailableError(
-        "The workspace could not run that call.",
+    try {
+      // The stale result may simply not exist yet; only a dead shell is news.
+      await session.deleteFile(ATTACHED_TOOL_RESULT_PATH).catch((error) => {
+        if (isSessionTerminatedError(error)) throw error;
+      });
+      await writeProtected(
+        session,
+        ATTACHED_TOOL_REQUEST_PATH,
+        encodeAttachedToolFrame(frame),
       );
+      deps.context.assertActive();
+      const call = await session.exec(quoted(CLIENT_ARGV), {
+        cwd: EXECUTOR_ROOT,
+      });
+      if (!call.success) {
+        throw new AttachedToolHostUnavailableError(
+          "The workspace could not run that call.",
+        );
+      }
+      deps.context.assertActive();
+      return await readBoundedFrame(session, ATTACHED_TOOL_RESULT_PATH);
+    } catch (error) {
+      if (isSessionTerminatedError(error)) throw sessionTerminated(error);
+      throw error;
     }
-    deps.context.assertActive();
-    return await readBoundedFrame(session, ATTACHED_TOOL_RESULT_PATH);
   };
 
   /**
@@ -411,11 +471,17 @@ export const createAgentSandboxAttachment = (
       // account the way a model-controlled command is.
       // stderr also lands in a file: the SDK keeps nothing for a process
       // that died abruptly, and that file is how a dead bridge explains itself.
-      daemon = await world.session.startProcess(
-        `${quoted(DAEMON_ARGV)} 2>>${quoted([DAEMON_STDERR_PATH])}`,
-        { cwd: EXECUTOR_ROOT },
-      );
+      // Started outside the session shell when the caller can: a session
+      // process is a child of that persistent shell, and the shell has just
+      // run the restore scripts and will run every bridged call next.
+      const daemonCommand = `${quoted(DAEMON_ARGV)} 2>>${quoted([DAEMON_STDERR_PATH])}`;
+      daemon = deps.startDaemon
+        ? await deps.startDaemon(daemonCommand, { cwd: EXECUTOR_ROOT })
+        : await world.session.startProcess(daemonCommand, {
+            cwd: EXECUTOR_ROOT,
+          });
       daemonLossReported = false;
+      sessionTerminationReported = false;
       await waitForDaemon(world.session, daemon);
       return {
         coldStartMs: world.coldContainerStartMs,

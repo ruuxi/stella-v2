@@ -603,3 +603,116 @@ describe("the sandbox attachment is the container side of the ladder", () => {
     ).rejects.toThrow(AttachedToolHostUnavailableError);
   });
 });
+
+describe("the daemon outlives the session shell", () => {
+  test("boot starts the daemon through the sessionless facade when the caller provides one", async () => {
+    // A session process is a child of that session's persistent shell and
+    // dies with it. The facade start is the same path the eager container
+    // executor takes, so no shell exit can take the bridge down.
+    const fake = fakeSession({ socketAppearsAfter: 1 });
+    const started: Array<{ command: string; options: unknown }> = [];
+    const attachment = createAgentSandboxAttachment({
+      context: liveContext(),
+      attachWorld: async () => ({
+        session: fake.session as never,
+        coldContainerStartMs: 10,
+        restoreMs: 5,
+      }),
+      prepareBrokerHandoff: async () => HANDOFF,
+      startDaemon: async (command, options) => {
+        started.push({ command, options });
+        return {
+          getStatus: async () => "running",
+          getLogs: async () => ({ stdout: "", stderr: "" }),
+        } as never;
+      },
+      destroy: async () => undefined,
+    });
+
+    await attachment.boot({ sandboxId: "agent-turn-1", instanceSize: "small" });
+
+    expect(started).toEqual([
+      {
+        command:
+          "'bun' 'packages/executor-cloud/src/cli.ts' '--attached-tool-host' 2>>'/workspace/attached/daemon.stderr'",
+        options: { cwd: "/opt/stella" },
+      },
+    ]);
+    // Nothing was started inside the session shell.
+    expect(fake.processes).toEqual([]);
+  });
+
+  test("a shell that exits under a bridge call surfaces as a tool error and is reported once", async () => {
+    const fake = fakeSession({ resultFrame: COMPLETED_FRAME });
+    const shellExited = () => {
+      const error = new Error(
+        "Session 'agent-run-1-small' ended because its shell exited (exit code: 1)",
+      );
+      error.name = "SessionTerminatedError";
+      return error;
+    };
+    let deleteCalls = 0;
+    const session = {
+      ...fake.session,
+      deleteFile: async () => {
+        deleteCalls += 1;
+        throw shellExited();
+      },
+    };
+    const events: Array<{ kind: string; payload: unknown }> = [];
+    const attachment = createAgentSandboxAttachment({
+      context: liveContext(),
+      attachWorld: async () => ({
+        session: session as never,
+        coldContainerStartMs: 10,
+        restoreMs: 5,
+      }),
+      prepareBrokerHandoff: async () => HANDOFF,
+      destroy: async () => undefined,
+      emitEvent: (kind, payload) => {
+        events.push({ kind, payload });
+      },
+    });
+    await attachment.boot({ sandboxId: "agent-turn-1", instanceSize: "small" });
+
+    await expect(
+      attachment.callTool({ sandboxId: "agent-turn-1", request: TOOL_REQUEST }),
+    ).rejects.toThrow(/workspace shell exited under that call: .*shell exited \(exit code: 1\)/u);
+    await expect(
+      attachment.callTool({ sandboxId: "agent-turn-1", request: TOOL_REQUEST }),
+    ).rejects.toThrow(AttachedToolHostUnavailableError);
+
+    expect(deleteCalls).toBe(2);
+    const reported = events.filter((e) => e.kind === "attached_session_terminated");
+    expect(reported).toHaveLength(1);
+    expect(reported[0]!.payload).toMatchObject({
+      error: expect.stringContaining("shell exited (exit code: 1)"),
+    });
+  });
+
+  test("a missing stale result is still not an error", async () => {
+    const fake = fakeSession({ resultFrame: COMPLETED_FRAME });
+    const session = {
+      ...fake.session,
+      deleteFile: async () => {
+        throw new Error("ENOENT: no such file");
+      },
+    };
+    const attachment = createAgentSandboxAttachment({
+      context: liveContext(),
+      attachWorld: async () => ({
+        session: session as never,
+        coldContainerStartMs: 10,
+        restoreMs: 5,
+      }),
+      prepareBrokerHandoff: async () => HANDOFF,
+      destroy: async () => undefined,
+    });
+    await attachment.boot({ sandboxId: "agent-turn-1", instanceSize: "small" });
+    const response = await attachment.callTool({
+      sandboxId: "agent-turn-1",
+      request: TOOL_REQUEST,
+    });
+    expect(response).toMatchObject({ status: "completed" });
+  });
+});

@@ -18,6 +18,7 @@ import {
   GeneralAgentSandbox,
 } from "./sandbox-egress-classes.js";
 import { appBuildEgress, generalAgentEgress } from "./sandbox-egress-policy.js";
+import { inSubshell } from "./shell-subshell.js";
 import { OrchestratorSession } from "./orchestrator-session.js";
 import { deliverOutboxBatch, enqueueOutbox } from "./outbox.js";
 import {
@@ -328,6 +329,7 @@ import {
   SandboxLifecycleDeferredError,
   sandboxLifecycleFailureFields,
   sandboxLifecycleId,
+  SANDBOX_WORKLOADS,
   type SandboxDestroyDebt,
   type SandboxTarget,
   type SandboxWorkload,
@@ -414,12 +416,158 @@ AppBuildSandbox.outbound = appBuildEgress;
 
 type Env = Cloudflare.Env & {
   /**
-   * Set to `"1"` to let a Stella turn run its agent loop in this Durable
-   * Object. Absent means every turn takes the eager-container path, which is
-   * why the placement is recorded at admission rather than re-derived later:
-   * flipping this must not re-place a turn that is already running.
+   * Kill switch for the resident placement. Absent or any value other than
+   * `"0"` lets a Stella turn run its agent loop in this Durable Object; `"0"`
+   * sends every turn down the eager-container path. The placement is recorded
+   * at admission rather than re-derived later, so flipping this never
+   * re-places a turn that is already running.
    */
   RESIDENT_GENERAL_AGENT_TURNS?: string;
+};
+
+/** Container states in which a process sweep reaches a running process. */
+const SANDBOX_RUNNING_STATUSES: ReadonlySet<string> = new Set([
+  "running",
+  "healthy",
+]);
+
+/**
+ * The idle timeout the sandbox applies once keep-alive is off. The SDK ignores
+ * it while keep-alive is on, so a live turn is unaffected; it is what makes a
+ * teardown stub's container, or one a stray RPC revived after its destroy,
+ * stop on its own instead of running until the next successful destroy.
+ */
+const sandboxSleepAfterMs = (
+  env: Pick<Env, "SANDBOX_IDLE_TIMEOUT_MS">,
+): number | undefined => {
+  const value = Number(env.SANDBOX_IDLE_TIMEOUT_MS);
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+};
+
+/**
+ * One sandbox handle per exact tuple. Size selects the namespace as much as
+ * the id does: the container classes are separate namespaces, so a handle
+ * built for the wrong size silently addresses a different container.
+ */
+const sandboxHandle = (
+  env: Env,
+  target: SandboxTarget,
+  options: { keepAlive?: boolean } = {},
+) => {
+  const namespace =
+    target.workload === "app-build"
+      ? env.APP_BUILD_SANDBOX
+      : target.size === "small" && env.SANDBOX_SMALL
+        ? env.SANDBOX_SMALL
+        : env.Sandbox;
+  const sleepAfter = sandboxSleepAfterMs(env);
+  return getSandbox(namespace, target.sandboxId, {
+    transport: "rpc",
+    enableDefaultSession: false,
+    // A teardown stub asks the SDK to drop keep-alive as its configured
+    // state, so the sandbox itself records the release on its first call.
+    // A live stub keeps the container awake across the whole turn.
+    keepAlive: options.keepAlive ?? true,
+    ...(sleepAfter === undefined ? {} : { sleepAfter }),
+    normalizeId: true,
+    containerTimeouts: {
+      instanceGetTimeoutMS: 60_000,
+      portReadyTimeoutMS: 120_000,
+    },
+    labels: { service: "stella-v2", workload: target.workload },
+  });
+};
+
+/** Every id this worker mints: a lifecycle fingerprint or a diagnostic echo. */
+const RETIRE_SANDBOX_ID =
+  /^(?:(?:agent|agent-lg|app)-[0-9a-f]{40}|echo-[0-9a-f-]{36})$/u;
+
+/**
+ * Retire one container by its exact tuple, for the inventory reaper. There is
+ * no per-instance stop in Wrangler or the public API and only the sandbox
+ * object holds the container handle, so the reaper's adapter posts the tuple
+ * here and the worker performs the same release-then-destroy a turn's own
+ * teardown does. Never guesses a namespace from the id alone.
+ */
+const retireSandboxInstance = async (
+  env: Env,
+  request: Request,
+): Promise<Response> => {
+  const raw = (await request.json().catch(() => null)) as unknown;
+  const body =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const sandboxId = typeof body.sandboxId === "string" ? body.sandboxId : "";
+  const size = body.size;
+  const workload = body.workload;
+  if (
+    !RETIRE_SANDBOX_ID.test(sandboxId) ||
+    (size !== "small" && size !== "large") ||
+    typeof workload !== "string" ||
+    !(SANDBOX_WORKLOADS as readonly string[]).includes(workload)
+  ) {
+    return json({ ok: false, reason: "invalid_target" }, 400);
+  }
+  const target: SandboxTarget = {
+    sandboxId,
+    size,
+    workload: workload as SandboxWorkload,
+  };
+  const sandbox = sandboxHandle(env, target, { keepAlive: false });
+  const releasable = sandbox as typeof sandbox & {
+    setKeepAlive?: (enabled: boolean) => Promise<unknown>;
+  };
+  const releaseKeepAlive = async (): Promise<boolean> => {
+    if (typeof releasable.setKeepAlive !== "function") return true;
+    try {
+      await withInfrastructureDeadline(
+        releasable.setKeepAlive(false),
+        10_000,
+        "Sandbox keep-alive release did not settle.",
+      );
+      return true;
+    } catch (error) {
+      log("error", "sandbox_operator_keep_alive_release_failed", {
+        workload: target.workload,
+        instanceSize: target.size,
+        ...sandboxLifecycleFailureFields(error),
+      });
+      return false;
+    }
+  };
+  let keepAliveReleased = await releaseKeepAlive();
+  try {
+    await withInfrastructureDeadline(
+      sandbox.destroy(),
+      30_000,
+      "Sandbox destruction did not settle.",
+    );
+  } catch (error) {
+    const failure = sandboxLifecycleFailureFields(error);
+    log("error", "sandbox_operator_destroy_failed", {
+      workload: target.workload,
+      instanceSize: target.size,
+      ...failure,
+    });
+    return json(
+      {
+        ok: false,
+        reason: "destroy_failed",
+        target,
+        keepAliveReleased,
+        ...failure,
+      },
+      502,
+    );
+  }
+  if (!keepAliveReleased) keepAliveReleased = await releaseKeepAlive();
+  log("info", "sandbox_retired_by_operator", {
+    workload: target.workload,
+    instanceSize: target.size,
+    keepAliveReleased,
+  });
+  return json({ ok: true, target, keepAliveReleased });
 };
 
 /**
@@ -1842,8 +1990,10 @@ const TOOL_WORKSPACE_ROOTS = new Set([WORLD_ROOT, APP_BUILD_ROOT]);
 /**
  * Run a strict (`set -eu`) script without leaving those options behind in
  * the session's persistent shell. The subshell's exit status is the script's.
+ * Defined in `shell-subshell.ts` so the checkpoint archive scripts share it
+ * without importing this module.
  */
-export const inSubshell = (script: string): string => `( ${script} )`;
+export { inSubshell };
 
 /** Establish the post-mount fixed boundary before any model-shaped process. */
 export const normalizeToolWorkspaceRoot = async (
@@ -4914,6 +5064,64 @@ export class BuildSession extends DurableObject<Env> {
     return retired;
   }
 
+  /**
+   * Release this exact attempt's world slot without waiting for its container
+   * to be confirmed gone. The slot normally stays exclusive until the exact
+   * destroy settles, and that is right while the turn is alive. Once the turn
+   * is terminal, keeping the slot bound to a container that will not die only
+   * turns one stuck teardown into an owner who cannot attach anything: every
+   * new agent is refused with the owner-purge message until the tombstone's
+   * alarm finally wins. The container's teardown stays alarm-owned debt; the
+   * exposure given up is a second attach while the old instance may still
+   * exist, and the old attempt can no longer write its world because the run
+   * lease that authorizes checkpoints is already gone.
+   */
+  private async releaseWorldLeaseDespiteDeferredDestroy(
+    turn: TurnRequest,
+  ): Promise<boolean> {
+    if (
+      turn.kind !== "agent" ||
+      !Number.isSafeInteger(turn.attemptGeneration) ||
+      turn.attemptGeneration! < 1
+    ) {
+      return true;
+    }
+    const identity = {
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+    };
+    const compute = parsePersistedAgentCompute(
+      await this.ctx.storage.get(
+        agentComputeKey(identity.turnId, identity.attemptGeneration),
+      ),
+      identity,
+    );
+    if (!compute?.sandboxId || !compute.worldLease) return true;
+    const target: SandboxTarget = {
+      sandboxId: compute.sandboxId,
+      size: compute.instanceSize,
+      workload: "resident-attachment",
+    };
+    try {
+      const released =
+        await this.retireWorldLeaseAfterConfirmedSandboxDestroy(target);
+      log(released ? "info" : "error", "agent_world_lease_released_early", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        instanceSize: target.size,
+        released,
+      });
+      return released;
+    } catch (error) {
+      log("error", "agent_world_lease_early_release_failed", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        message: errorMessage(error),
+      });
+      return false;
+    }
+  }
+
   private async appendWorkspaceBackupDebt(
     workspaceKey: string,
     backupId: string,
@@ -5465,26 +5673,38 @@ export class BuildSession extends DurableObject<Env> {
     workload: SandboxWorkload = "app-build",
     options: { keepAlive?: boolean } = {},
   ) {
-    const namespace =
-      workload === "app-build"
-        ? this.env.APP_BUILD_SANDBOX
-        : size === "small" && this.env.SANDBOX_SMALL
-          ? this.env.SANDBOX_SMALL
-          : this.env.Sandbox;
-    return getSandbox(namespace, id, {
-      transport: "rpc",
-      enableDefaultSession: false,
-      // A teardown stub asks the SDK to drop keep-alive as its configured
-      // state, so the sandbox itself records the release on its first call.
-      // A live stub keeps the container awake across the whole turn.
-      keepAlive: options.keepAlive ?? true,
-      normalizeId: true,
-      containerTimeouts: {
-        instanceGetTimeoutMS: 60_000,
-        portReadyTimeoutMS: 120_000,
-      },
-      labels: { service: "stella-v2", workload },
-    });
+    return sandboxHandle(this.env, { sandboxId: id, size, workload }, options);
+  }
+
+  /**
+   * Whether the sandbox's container is running right now, answered by the
+   * sandbox object itself and never by the container. Every container RPC
+   * (process kills included) starts the instance if it is not running, so a
+   * teardown that asks the container anything boots the very thing it is
+   * retiring. An unanswerable state counts as not running: `destroy()` is the
+   * authoritative SIGKILL either way, and a skipped process sweep only costs
+   * a native child the prompt stop it would otherwise get.
+   */
+  private async sandboxContainerRunning(
+    sandbox: ReturnType<BuildSession["sandbox"]>,
+  ): Promise<boolean> {
+    const stateful = sandbox as typeof sandbox & {
+      getState?: () => Promise<{ status?: unknown } | undefined>;
+    };
+    if (typeof stateful.getState !== "function") return false;
+    try {
+      const state = await withInfrastructureDeadline(
+        stateful.getState(),
+        10_000,
+        "Sandbox state read did not settle.",
+      );
+      return SANDBOX_RUNNING_STATUSES.has(String(state?.status ?? ""));
+    } catch (error) {
+      log("error", "sandbox_state_read_failed", {
+        ...sandboxLifecycleFailureFields(error),
+      });
+      return false;
+    }
   }
 
   /**
@@ -5545,16 +5765,17 @@ export class BuildSession extends DurableObject<Env> {
     try {
       // A destroy is still attempted when this advisory transition fails. The
       // durable tombstone remains authority until destroy itself confirms.
-      const setKeepAlive = (
-        sandbox as typeof sandbox & {
-          setKeepAlive?: (enabled: boolean) => Promise<unknown>;
-        }
-      ).setKeepAlive;
+      // The release is invoked as a method on the stub, the one form every
+      // workerd RPC property supports: a detached reference invoked through
+      // `Function.prototype.call` is not an RPC call on the object.
+      const releasable = sandbox as typeof sandbox & {
+        setKeepAlive?: (enabled: boolean) => Promise<unknown>;
+      };
       const releaseKeepAlive = async (phase: "before" | "after") => {
-        if (typeof setKeepAlive !== "function") return true;
+        if (typeof releasable.setKeepAlive !== "function") return true;
         try {
           await withInfrastructureDeadline(
-            setKeepAlive.call(sandbox, false),
+            releasable.setKeepAlive(false),
             10_000,
             "Sandbox keep-alive release did not settle.",
           );
@@ -5646,12 +5867,23 @@ export class BuildSession extends DurableObject<Env> {
     try {
       await this.terminateCurrentAgentSandbox(turn);
     } catch (error) {
+      if (!(error instanceof SandboxLifecycleDeferredError)) {
+        log("error", "recovered_agent_sandbox_termination_deferred", {
+          turnId: turn.turnId,
+          threadId: turn.threadId,
+          message: errorMessage(error),
+        });
+        return;
+      }
+      // Same rule as the watchdog: a container whose destroy has not settled
+      // is alarm-owned debt, not a reason to leave the thread "running" and
+      // the owner's world slot held until it finally dies.
       log("error", "recovered_agent_sandbox_termination_deferred", {
         turnId: turn.turnId,
         threadId: turn.threadId,
-        message: errorMessage(error),
+        ...sandboxLifecycleFailureFields(error),
       });
-      return;
+      await this.releaseWorldLeaseDespiteDeferredDestroy(turn);
     }
     const delivered = await this.deliverTerminal(turn, {
       ...recoveredPending,
@@ -5862,27 +6094,44 @@ export class BuildSession extends DurableObject<Env> {
       };
     });
     if (!target) return;
-    const sandbox = this.sandbox(
-      target.sandboxId,
-      target.size,
-      target.workload,
-    );
     if (turn.kind === "agent" && target.executorAdmitted) {
+      // Retirement never holds a keep-alive stub for its target: the SDK
+      // records keep-alive as the sandbox's configured state on the stub's
+      // first call, and a live stub here would re-enable it for a container
+      // that is about to be destroyed. The process sweep is a container RPC,
+      // so it only runs against a container the sandbox says is running;
+      // against one that already exited it would boot the instance just to
+      // kill nothing, and with keep-alive persisted that revived container
+      // never sleeps again.
+      const sandbox = this.sandbox(
+        target.sandboxId,
+        target.size,
+        target.workload,
+        { keepAlive: false },
+      );
       const size = target.size;
       const executionSessionId = sessionName(
         `agent-run-${turn.turnId}-${size}`,
       );
-      await withInfrastructureDeadline(
-        sandbox.killAllProcesses(executionSessionId),
-        30_000,
-        "Agent process teardown did not settle.",
-      ).catch((error) => {
-        log("error", "agent_process_kill_failed", {
+      if (await this.sandboxContainerRunning(sandbox)) {
+        await withInfrastructureDeadline(
+          sandbox.killAllProcesses(executionSessionId),
+          30_000,
+          "Agent process teardown did not settle.",
+        ).catch((error) => {
+          log("error", "agent_process_kill_failed", {
+            turnId: turn.turnId,
+            sessionId: executionSessionId,
+            ...sandboxLifecycleFailureFields(error),
+          });
+        });
+      } else {
+        log("info", "agent_process_kill_skipped", {
           turnId: turn.turnId,
           sessionId: executionSessionId,
-          ...sandboxLifecycleFailureFields(error),
+          reason: "container_not_running",
         });
-      });
+      }
     }
     await this.destroySandboxDurably(target, "agent_termination");
   }
@@ -7056,6 +7305,36 @@ export class BuildSession extends DurableObject<Env> {
         });
         return;
       }
+      const running = this.agentTurnExecutions.get(turn.turnId);
+      if (
+        running &&
+        typeof watchdogDeadlineAt === "number" &&
+        Number.isFinite(watchdogDeadlineAt) &&
+        watchdogDeadlineAt <= Date.now()
+      ) {
+        // The watchdog passed while this isolate still holds the run's fiber,
+        // so the loop is hung, or stuck in a settlement it cannot finish.
+        // Give it the bounded interrupt a Stop would, then drop the handle:
+        // recovery below then treats the attempt the way it treats a replaced
+        // isolate, instead of re-interrupting a fiber that never settles on
+        // every alarm until the builder fallback gives up.
+        log("error", "agent_watchdog_interrupting_hung_execution", {
+          turnId: turn.turnId,
+          threadId: turn.threadId,
+          watchdogDeadlineAt,
+        });
+        await running
+          .interrupt(new Error("The agent ran out of time and was stopped."))
+          .catch((error) => {
+            log("error", "agent_watchdog_hung_execution_interrupt_failed", {
+              turnId: turn.turnId,
+              message: errorMessage(error),
+            });
+          });
+        if (this.agentTurnExecutions.get(turn.turnId) === running) {
+          this.agentTurnExecutions.delete(turn.turnId);
+        }
+      }
     }
     const hasTransientBuild = Boolean(
       await this.ctx.storage.get<string>(`transientBuild:${turn.turnId}`),
@@ -7521,21 +7800,34 @@ export class BuildSession extends DurableObject<Env> {
     }
     try {
       await this.terminateCurrentAgentSandbox(turn);
-      timeoutPending = { ...timeoutPending, terminateSandbox: false };
-      if (
-        !(await this.mutateExactTurn(turn, async (txn) => {
-          await txn.put("pendingTerminal", timeoutPending);
-        }))
-      ) {
+    } catch (error) {
+      if (!(error instanceof SandboxLifecycleDeferredError)) {
+        log("error", "timeout_sandbox_termination_failed", {
+          turnId: turn.turnId,
+          sandboxId,
+          ...sandboxLifecycleFailureFields(error),
+        });
+        await this.setExactTurnAlarm(turn, Date.now() + 30_000);
         return;
       }
-    } catch (error) {
-      log("error", "timeout_sandbox_termination_failed", {
+      // The container's tombstone was written before its first lifecycle
+      // RPC, so from here its teardown is alarm-owned debt that outlives the
+      // turn. A destroy that has not settled must not hold the thread
+      // "running" or keep the owner's world slot for as long as the container
+      // refuses to die: release the slot and deliver the terminal now.
+      log("error", "timeout_sandbox_termination_deferred", {
         turnId: turn.turnId,
         sandboxId,
         ...sandboxLifecycleFailureFields(error),
       });
-      await this.setExactTurnAlarm(turn, Date.now() + 30_000);
+      await this.releaseWorldLeaseDespiteDeferredDestroy(turn);
+    }
+    timeoutPending = { ...timeoutPending, terminateSandbox: false };
+    if (
+      !(await this.mutateExactTurn(turn, async (txn) => {
+        await txn.put("pendingTerminal", timeoutPending);
+      }))
+    ) {
       return;
     }
     log("error", "turn_timed_out", {
@@ -7582,6 +7874,91 @@ export class BuildSession extends DurableObject<Env> {
     }
     await this.setExactTurnAlarm(turn, Date.now() + 30_000);
     return false;
+  }
+
+  /**
+   * Operator-only: expire the current agent turn now instead of at its
+   * watchdog. Nothing here delivers a terminal directly. The watchdog deadline
+   * is moved to now, a hung local fiber gets the bounded interrupt a Stop
+   * would, the owner's world slot is released, and the alarm is re-armed so
+   * the ordinary timeout path (which tolerates a container that will not die)
+   * fails the thread. The optional body names the exact turn the operator
+   * looked at, so a stale request cannot expire a successor.
+   */
+  private async expireCurrentAgentTurn(request: Request): Promise<Response> {
+    const raw = (await request.json().catch(() => null)) as unknown;
+    const body =
+      raw && typeof raw === "object" && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
+    const turn = await this.ctx.storage.get<TurnRequest>("turn");
+    if (
+      !turn ||
+      turn.kind !== "agent" ||
+      !Number.isSafeInteger(turn.attemptGeneration) ||
+      turn.attemptGeneration! < 1
+    ) {
+      return json({ expired: false, reason: "no_agent_turn" }, 404);
+    }
+    if (
+      (body.turnId !== undefined && body.turnId !== turn.turnId) ||
+      (body.attemptGeneration !== undefined &&
+        body.attemptGeneration !== turn.attemptGeneration)
+    ) {
+      return json(
+        {
+          expired: false,
+          reason: "stale_turn",
+          turnId: turn.turnId,
+          attemptGeneration: turn.attemptGeneration,
+        },
+        409,
+      );
+    }
+    if (await this.ctx.storage.get<boolean>("terminalDelivered")) {
+      return json(
+        {
+          expired: false,
+          reason: "already_terminal",
+          turnId: turn.turnId,
+          attemptGeneration: turn.attemptGeneration,
+        },
+        409,
+      );
+    }
+    const now = Date.now();
+    await this.ctx.storage.put(AGENT_WATCHDOG_DEADLINE_KEY, now);
+    const running = this.agentTurnExecutions.get(turn.turnId);
+    if (running) {
+      await running
+        .interrupt(new Error("The agent turn was expired by an operator."))
+        .catch((error) => {
+          log("error", "agent_turn_expire_interrupt_failed", {
+            turnId: turn.turnId,
+            message: errorMessage(error),
+          });
+        });
+      if (this.agentTurnExecutions.get(turn.turnId) === running) {
+        this.agentTurnExecutions.delete(turn.turnId);
+      }
+    }
+    const worldLeaseReleased =
+      await this.releaseWorldLeaseDespiteDeferredDestroy(turn);
+    await this.setExactTurnAlarm(turn, now);
+    log("info", "agent_turn_expired_by_operator", {
+      turnId: turn.turnId,
+      threadId: turn.threadId,
+      attemptGeneration: turn.attemptGeneration,
+      worldLeaseReleased,
+      interruptedLocalExecution: Boolean(running),
+    });
+    return json({
+      expired: true,
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration,
+      worldLeaseReleased,
+      interruptedLocalExecution: Boolean(running),
+    });
   }
 
   /**
@@ -8742,6 +9119,9 @@ export class BuildSession extends DurableObject<Env> {
     }
     if (url.pathname === "/owner-purge-cancel") {
       return this.cancelForOwnerPurge(request);
+    }
+    if (url.pathname === "/expire-agent-turn") {
+      return await this.expireCurrentAgentTurn(request);
     }
     if (url.pathname === "/cancel") {
       const raw = await request.json().catch(() => null);
@@ -9998,10 +10378,12 @@ export class BuildSession extends DurableObject<Env> {
 
     let attachedWorkspaceRestore: TurnStateWorkspaceHead | undefined;
     let residentHistory: AgentHistoryRow[] = [];
+    let residentSandbox: ReturnType<BuildSession["sandbox"]> | undefined;
     const attachment = createAgentSandboxAttachment({
       context: execution,
       attachWorld: async ({ instanceSize: size }) => {
         await this.ctx.storage.put({ sandboxId, sandboxSize: size });
+        residentSandbox = this.sandbox(sandboxId, size, "resident-attachment");
         // The thread before this turn — exactly what the container path
         // resolves against. Read here rather than at admission so a
         // chat-only resident turn never pays for it. Resolving against an
@@ -10018,7 +10400,7 @@ export class BuildSession extends DurableObject<Env> {
         const attached = await this.attachAgentWorld({
           turn,
           execution,
-          sandbox: this.sandbox(sandboxId, size, "resident-attachment"),
+          sandbox: residentSandbox,
           size,
           nativeDescriptor: null,
           history: residentHistory,
@@ -10046,6 +10428,20 @@ export class BuildSession extends DurableObject<Env> {
           commandTimeoutMs,
           workspaceRestored: Boolean(attachedWorkspaceRestore),
         }),
+      // The daemon runs on the sessionless facade, exactly as the eager
+      // container path runs its executor: a background process started
+      // through the `agent-run` session is a child of that session's
+      // persistent shell and dies with it, and that shell is also where the
+      // restore scripts, the readiness probe and every bridged call run.
+      startDaemon: async (command, options) => {
+        if (!residentSandbox) {
+          throw new Error("The resident sandbox has not been attached.");
+        }
+        return await residentSandbox.startProcess(command, {
+          cwd: options.cwd,
+          env: executorSessionEnvironment(),
+        });
+      },
       destroy: async () => {
         await this.terminateCurrentAgentSandbox(turn);
       },
@@ -15100,6 +15496,28 @@ export default {
           body: await request.text(),
         },
       );
+    }
+    // Operator surface for a thread stuck "running": expire its watchdog now.
+    // The DO releases the owner's world slot, interrupts a hung local fiber,
+    // and re-arms its alarm so the ordinary timeout path delivers the terminal
+    // while the container's teardown stays alarm-owned debt.
+    const expireMatch = url.pathname.match(/^\/sessions\/([^/]+)\/expire$/);
+    if (request.method === "POST" && expireMatch) {
+      return env.BUILD_SESSIONS.getByName(expireMatch[1]!).fetch(
+        "https://build-session/expire-agent-turn",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: await request.text(),
+        },
+      );
+    }
+    // Operator surface for a container the inventory says is live but no
+    // Durable Object still owns. Wrangler cannot stop one instance and only the
+    // sandbox object holds the container handle, so retirement is a keep-alive
+    // release plus destroy on the exact tuple, by name.
+    if (request.method === "POST" && url.pathname === "/internal/sandboxes/retire") {
+      return await retireSandboxInstance(env, request);
     }
     // Owner-level object storage sweep, the storage half of account deletion.
     // Convex holds no credential for any bucket here and cannot enumerate this

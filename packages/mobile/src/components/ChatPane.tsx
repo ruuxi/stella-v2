@@ -4354,6 +4354,11 @@ export function ChatPane({
           )}
           <GlassSurface
             glass="regular"
+            // Interactive so a touch on the composer draws Apple's glow inside
+            // the glass, the way every other Liquid Glass control answers a
+            // tap. It does not take the touches: the input and buttons inside
+            // keep receiving them.
+            interactive
             // Softer than the menu tint: enough contrast for the input text
             // while keeping the composer visibly glassy over scrolling chat.
             tintColor={fadeHex(colors.surface, 0.5)}

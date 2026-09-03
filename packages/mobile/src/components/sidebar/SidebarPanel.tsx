@@ -19,7 +19,7 @@ import Animated, {
   useAnimatedKeyboard,
   useAnimatedStyle,
 } from "react-native-reanimated";
-import { GlassGroup, GlassSurface } from "../glass";
+import { GlassSurface } from "../glass";
 import { Icon, type IconName } from "../Icon";
 import { StellaBrandMark } from "../StellaBrandMark";
 import {
@@ -110,12 +110,6 @@ const SEARCH_HEIGHT = 44;
 const DOCK_GAP = 10;
 /** Height of the Settings / Account pill on the brand row. */
 const HEADER_PILL_HEIGHT = 40;
-/**
- * How far apart the two header buttons may be and still fuse. They abut with
- * square inner edges, so this only needs to melt the shared seam; anything
- * larger bulges the blend into blobs.
- */
-const GLASS_MERGE_DISTANCE = 12;
 
 /**
  * Settled keyboard height as JS state, for the list's bottom inset. The dock's
@@ -678,10 +672,16 @@ export function SidebarPanel({
           >
             <StellaBrandMark compact />
           </Pressable>
-          {/* One glass group, two interactive glass buttons: the container
-              melts them into a single pill while each keeps Apple's native
-              press sheen. */}
-          <GlassGroup spacing={GLASS_MERGE_DISTANCE} style={styles.headerGroup}>
+          {/* One interactive glass capsule holding both buttons, the way the
+              system groups bar buttons: a single shape, so there is no seam
+              to blend, and a touch anywhere draws the glow inside it. */}
+          <GlassSurface
+            glass="regular"
+            interactive
+            radius={HEADER_PILL_HEIGHT / 2}
+            fallbackColor={colors.surface}
+            style={styles.headerPill}
+          >
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={t("mobile.nav.settings")}
@@ -692,16 +692,9 @@ export function SidebarPanel({
                 pressed && styles.pressed,
               ]}
             >
-              <GlassSurface
-                glass="regular"
-                interactive
-                radius={0}
-                fallbackColor={colors.surface}
-                style={[styles.headerIconGlass, styles.capStart]}
-              >
-                <Icon name="settings" size={18} color={colors.text} weight="semibold" />
-              </GlassSurface>
+              <Icon name="settings" size={18} color={colors.text} weight="semibold" />
             </Pressable>
+            <View style={styles.headerDivider} />
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={accountLabel}
@@ -712,24 +705,16 @@ export function SidebarPanel({
                 pressed && styles.pressed,
               ]}
             >
-              <GlassSurface
-                glass="regular"
-                interactive
-                radius={0}
-                fallbackColor={colors.surface}
-                style={[styles.headerAccountGlass, styles.capEnd]}
+              <Icon name="user" size={15} color={colors.text} weight="semibold" />
+              <Text
+                style={styles.headerAccountLabel}
+                numberOfLines={1}
+                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
               >
-                <Icon name="user" size={15} color={colors.text} weight="semibold" />
-                <Text
-                  style={styles.headerAccountLabel}
-                  numberOfLines={1}
-                  maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-                >
-                  {accountLabel}
-                </Text>
-              </GlassSurface>
+                {accountLabel}
+              </Text>
             </Pressable>
-          </GlassGroup>
+          </GlassSurface>
         </View>
 
         <View style={styles.listArea}>{renderList()}</View>
@@ -826,42 +811,31 @@ const makeStyles = (colors: Colors) =>
       paddingLeft: 4,
       paddingVertical: 6,
     },
-    headerGroup: {
+    headerPill: {
       alignItems: "center",
       flexDirection: "row",
       height: HEADER_PILL_HEIGHT,
+      overflow: "hidden",
     },
     headerIconButton: {
-      height: HEADER_PILL_HEIGHT,
-      width: HEADER_PILL_HEIGHT + 4,
-    },
-    headerIconGlass: {
       alignItems: "center",
-      flex: 1,
+      height: HEADER_PILL_HEIGHT,
       justifyContent: "center",
-      overflow: "hidden",
+      paddingLeft: 14,
+      paddingRight: 12,
+    },
+    headerDivider: {
+      backgroundColor: fadeHex(colors.border, 0.9),
+      height: 18,
+      width: StyleSheet.hairlineWidth,
     },
     headerAccountButton: {
-      height: HEADER_PILL_HEIGHT,
-    },
-    headerAccountGlass: {
       alignItems: "center",
-      flex: 1,
       flexDirection: "row",
       gap: 6,
-      overflow: "hidden",
-      paddingLeft: 13,
-      paddingRight: 15,
-    },
-    // Grouped buttons round only their outer ends and abut square, so the
-    // glass container's union is one clean pill with nothing to pinch.
-    capStart: {
-      borderBottomStartRadius: HEADER_PILL_HEIGHT / 2,
-      borderTopStartRadius: HEADER_PILL_HEIGHT / 2,
-    },
-    capEnd: {
-      borderBottomEndRadius: HEADER_PILL_HEIGHT / 2,
-      borderTopEndRadius: HEADER_PILL_HEIGHT / 2,
+      height: HEADER_PILL_HEIGHT,
+      paddingLeft: 12,
+      paddingRight: 14,
     },
     headerAccountLabel: {
       color: colors.text,

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { StyleSheet } from "react-native";
 import { Host, Picker, Text as SwiftText } from "@expo/ui/swift-ui";
-import { font, pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
+import { frame, font, pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
 import { applySegmentedControlAppearance } from "../../../modules/stella-segmented-appearance";
 import { useColors, useTheme } from "../../theme/theme-context";
 import { fonts } from "../../theme/fonts";
@@ -33,12 +33,14 @@ export function SidebarTabBar<K extends string>({
   // not remove it) and blends the lens with the glass, so these are set by
   // measurement rather than copied: pure black under that fill is the
   // darkest track possible and lands within a few units of the top bar's
-  // buttons and the header capsule; the lens tint sits a step lighter.
+  // buttons and the header capsule; the lens stays in that same dark
+  // family, only a shade lighter than the track, rather than the system's
+  // bright gray.
   const themeKey = isDark ? "dark" : "light";
   useMemo(() => {
     applySegmentedControlAppearance({
       background: isDark ? "#000000" : colors.background,
-      selected: soften(colors.text, colors.background, isDark ? 0.26 : 0.2),
+      selected: soften(colors.text, colors.background, isDark ? 0.12 : 0.12),
     });
   }, [colors.background, colors.text, isDark]);
   return (
@@ -53,14 +55,16 @@ export function SidebarTabBar<K extends string>({
         label=""
         selection={value}
         onSelectionChange={onSelect}
-        modifiers={[pickerStyle("segmented")]}
+        // Taller than the control's default so it sits at the same weight
+        // as the header capsule and the composer.
+        modifiers={[pickerStyle("segmented"), frame({ height: TAB_BAR_HEIGHT })]}
       >
         {tabs.map((item) => (
           <SwiftText
             key={item.key}
             modifiers={[
               tag(item.key),
-              font({ family: fonts.sans.medium, size: 13 }),
+              font({ family: fonts.sans.medium, size: 14 }),
             ]}
           >
             {item.label}
@@ -70,6 +74,9 @@ export function SidebarTabBar<K extends string>({
     </Host>
   );
 }
+
+/** Track height; the segmented control scales its lens to fill it. */
+const TAB_BAR_HEIGHT = 44;
 
 const styles = StyleSheet.create({
   host: {

@@ -1368,6 +1368,10 @@
         "videoToVideo": {
           "description": "Transformă un videoclip cu instrucțiuni text",
           "name": "Video în video"
+        },
+        "referenceToVideo": {
+          "description": "Generează un video din referințe de imagine, video și audio",
+          "name": "Din referință în video"
         }
       },
       "imageFailure": {
@@ -1406,8 +1410,6 @@
         "generationFailed": "Generarea a eșuat",
         "lead": "Creează imagini, audio, muzică, video și 3D.",
         "openOutputsFolder": "Deschide folderul de rezultate",
-        "profileBest": "Cel mai bun",
-        "profileFast": "Rapid",
         "prompt": "Prompt",
         "promptPlaceholder": "Descrie ce ai vrea…",
         "quality": "Calitate",
@@ -1418,7 +1420,10 @@
         "sourceVideo": "Videoclip sursă",
         "submitting": "Se trimite…",
         "title": "Media",
-        "transformVideo": "Transformă videoclipul"
+        "transformVideo": "Transformă videoclipul",
+        "qualityHigh": "Ridicată",
+        "qualityMedium": "Medie",
+        "qualityLow": "Scăzută"
       }
     }
   },
@@ -1816,7 +1821,8 @@
       "nicknameDescription": "Alege un nume pe care Stella să-l folosească în toată aplicația.",
       "nicknameLabel": "Pseudonim",
       "nicknamePlaceholder": "Pseudonimul tău",
-      "notNow": "Nu acum"
+      "notNow": "Nu acum",
+      "emailNotSupported": "Acest furnizor de e-mail nu este acceptat. Folosește altă adresă."
     },
     "legal": {
       "terms": {
@@ -1905,7 +1911,10 @@
       "chat": "Chat",
       "settings": "Setări",
       "openLabel": "Deschide navigarea",
-      "closeLabel": "Închide navigarea"
+      "closeLabel": "Închide navigarea",
+      "account": "Cont",
+      "signIn": "Autentificare",
+      "backToChat": "Înapoi la chat"
     },
     "search": {
       "placeholder": "Caută în mesaje",
@@ -1954,7 +1963,8 @@
       "legalConjunction": " și ",
       "legalPrivacy": "Politica de confidențialitate",
       "legalSuffix": ".",
-      "continueAsGuest": "Continuă fără conectare"
+      "continueAsGuest": "Continuă fără conectare",
+      "emailNotSupported": "Acest furnizor de e-mail nu este acceptat. Folosește altă adresă."
     },
     "chat": {
       "emptyPrompt": "Întreab-o pe Stella orice",
@@ -2025,7 +2035,8 @@
       "statusAsleep": "În repaus",
       "connectingLabel": "Se conectează la computerul tău",
       "connectedLabel": "Computer conectat",
-      "disconnectedLabel": "Computer deconectat"
+      "disconnectedLabel": "Computer deconectat",
+      "pairLabel": "Asociază un computer"
     },
     "desktop": {
       "pairTitle": "Asociază-ți telefonul",
@@ -2181,6 +2192,21 @@
       "clearLabel": "Șterge diagnosticarea",
       "empty": "Nicio diagnosticare CarPlay înregistrată încă. Conectează-te o dată la CarPlay, apoi revino aici.",
       "clipboardEmpty": "(nicio diagnosticare CarPlay înregistrată)"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} în curs",
+        "one": "{count} în curs",
+        "few": "{count} în curs"
+      },
+      "openLabel": "Arată activitatea"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Caută în activitate și fișiere",
+      "signedOutHint": "Autentifică-te ca să vezi la ce lucrează Stella în fundal."
+    },
+    "account": {
+      "title": "Cont"
     }
   }
 }

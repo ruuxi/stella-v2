@@ -1,0 +1,383 @@
+.agent-thread-chat {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  color: var(--text-base);
+  /* Transparent like the panel's normal Chat tab
+     (`.chat-panel-tab .chat-sidebar-inner`) so the shared panel
+     background shows through instead of an opaque surface fill. */
+  background: transparent;
+}
+
+.agent-thread-chat__role {
+  font-size: var(--font-size-xs);
+  color: var(--text-weak);
+}
+
+.agent-thread-chat__scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.agent-thread-chat__refresh-error {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-base);
+  background: color-mix(in oklch, var(--destructive) 7%, var(--surface-base));
+  font-size: var(--font-size-xs);
+}
+
+.agent-thread-chat__refresh-error span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-thread-chat__refresh-error button,
+.agent-thread-chat__new-messages {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-base);
+  background: var(--card);
+  cursor: default;
+}
+
+.agent-thread-chat__refresh-error button {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+}
+
+.agent-thread-chat__refresh-error button:hover,
+.agent-thread-chat__refresh-error button:focus-visible,
+.agent-thread-chat__new-messages:hover,
+.agent-thread-chat__new-messages:focus-visible {
+  outline: none;
+  border-color: color-mix(in oklch, var(--foreground) 22%, var(--border));
+  background: color-mix(in oklch, var(--foreground) 5%, var(--card));
+}
+
+.agent-thread-chat__refresh-error button:focus-visible,
+.agent-thread-chat__new-messages:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--surface-base),
+    0 0 0 4px var(--ring);
+}
+
+.agent-thread-chat__refresh-error button:disabled {
+  opacity: 0.55;
+}
+
+.agent-thread-chat__messages {
+  display: flex;
+  flex-direction: column;
+  /* Tight chat rhythm: consecutive short narration lines should read as a
+     normal message stream, not island paragraphs. The shared `.event-item`
+     padding already contributes vertical air, so the list gap stays small
+     and the assistant items drop most of their block padding below. */
+  gap: 4px;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0;
+  list-style: none;
+}
+
+/* The shared compact-surface assistant item carries 10px block padding
+   (bubble chrome the sidebar chat wants); this transcript renders assistant
+   text chrome-less, so that padding just doubles the inter-message gap. */
+.agent-thread-chat__messages .event-item.assistant {
+  padding-block: 2px;
+}
+
+.agent-thread-chat__new-messages {
+  position: sticky;
+  bottom: 2px;
+  display: block;
+  min-height: 32px;
+  margin: 12px auto 0;
+  padding: 6px 12px;
+  box-shadow: var(--shadow-sm);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-thread-chat__message {
+  position: relative;
+  min-width: 0;
+}
+
+/* Hover timestamp in the left gutter: the message's real created time
+   (local timezone, h:mm AM/PM), revealed only while the row is hovered.
+   Absolutely positioned outside the row so it never shifts layout; in a
+   narrow panel the gutter clips it rather than squeezing the transcript. */
+.agent-thread-chat__timestamp {
+  position: absolute;
+  top: 4px;
+  right: calc(100% + 10px);
+  color: var(--text-weaker);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+  user-select: none;
+}
+
+.agent-thread-chat__message:hover .agent-thread-chat__timestamp {
+  opacity: 1;
+}
+
+.agent-thread-chat__role {
+  display: block;
+  margin: 0 0 4px 2px;
+}
+
+/* Message bubbles reuse the shared `.event-item.user` /
+   `.event-item.assistant` styles scoped by the
+   `chat-conversation-surface--sidebar` classes on the list, so they stay
+   identical to the normal sidebar chat. Only the role eyebrow above the
+   right-aligned user bubble needs local alignment. */
+.agent-thread-chat__message[data-role="user"] .agent-thread-chat__role {
+  text-align: right;
+  margin: 0 2px 4px 0;
+}
+
+/* Collapsed trace rows: consecutive tool calls / reasoning blocks between
+   two conversation messages render as one small clickable text line — no
+   card chrome — that expands into the individual trace items. */
+.agent-thread-chat__trace-group {
+  min-width: 0;
+}
+
+.agent-thread-chat__trace-group-toggle {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 2px 2px;
+  border: none;
+  background: none;
+  color: var(--text-weak);
+  cursor: default;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.agent-thread-chat__trace-group-toggle:hover,
+.agent-thread-chat__trace-group-toggle:focus-visible {
+  color: var(--text-base);
+}
+
+.agent-thread-chat__trace-group-toggle:focus-visible {
+  outline: none;
+  border-radius: 5px;
+  box-shadow:
+    0 0 0 2px var(--surface-base),
+    0 0 0 4px var(--ring);
+}
+
+.agent-thread-chat__trace-group-chevron {
+  font-size: 13px;
+  line-height: 1;
+  transform-origin: center;
+  transition: transform 120ms ease;
+}
+
+.agent-thread-chat__trace-group[data-expanded="true"]
+  .agent-thread-chat__trace-group-chevron {
+  transform: rotate(90deg);
+}
+
+.agent-thread-chat__trace-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  animation: agent-thread-trace-group-in 140ms ease;
+}
+
+@keyframes agent-thread-trace-group-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-thread-chat__trace-group-items {
+    animation: none;
+  }
+
+  .agent-thread-chat__trace-group-chevron {
+    transition: none;
+  }
+}
+
+.agent-thread-chat__trace {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--border) 84%, transparent);
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--card) 70%, transparent);
+}
+
+.agent-thread-chat__trace > summary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: var(--text-weak);
+  cursor: default;
+  font-size: var(--font-size-xs);
+  list-style: none;
+}
+
+.agent-thread-chat__trace > summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-thread-chat__trace > summary::before {
+  content: "›";
+  color: var(--text-weak);
+  font-size: 15px;
+  line-height: 1;
+  transform-origin: center;
+}
+
+.agent-thread-chat__trace[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.agent-thread-chat__trace[open] > summary {
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 84%, transparent);
+}
+
+.agent-thread-chat__trace-title {
+  color: var(--text-base);
+  font-weight: 550;
+}
+
+.agent-thread-chat__trace-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-thread-chat__trace-body {
+  max-height: 420px;
+  overflow: auto;
+  padding: 10px 12px;
+  color: var(--text-base);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.agent-thread-chat__tool-status {
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-thread-chat__trace[data-tool-status="error"]
+  .agent-thread-chat__tool-status {
+  color: var(--destructive);
+}
+
+.agent-thread-chat__tool-details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agent-thread-chat__tool-details section {
+  min-width: 0;
+}
+
+.agent-thread-chat__tool-details section > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-weak);
+  font-size: var(--font-size-xs);
+}
+
+.agent-thread-chat__tool-details pre {
+  max-height: 280px;
+  margin: 0;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 7px;
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
+  color: var(--text-base);
+  font: 11px/1.45 var(--font-mono);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.agent-thread-chat__tool-details p {
+  margin: 0;
+  color: var(--text-weak);
+}
+
+.agent-thread-chat__state {
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-weak);
+  text-align: center;
+}
+
+.agent-thread-chat__state button {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 5px 9px;
+  color: var(--text-base);
+  background: var(--card);
+}
+
+.agent-thread-chat__ownership-note {
+  flex: 0 0 auto;
+  padding: 9px 16px 11px;
+  border-top: 1px solid var(--border);
+  color: var(--text-weak);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+}
+
+.agent-thread-chat__announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 560px) {
+  .agent-thread-chat__scroll {
+    padding: 12px;
+  }
+}

@@ -1376,6 +1376,10 @@
         "videoToVideo": {
           "description": "Přeměňte video textovými pokyny",
           "name": "Video na video"
+        },
+        "referenceToVideo": {
+          "description": "Vygenerujte video z obrázkových, video a zvukových referencí",
+          "name": "Z reference na video"
         }
       },
       "imageFailure": {
@@ -1414,8 +1418,6 @@
         "generationFailed": "Generování selhalo",
         "lead": "Tvořte obrázky, zvuk, hudbu, video a 3D.",
         "openOutputsFolder": "Otevřít složku s výstupy",
-        "profileBest": "Nejlepší",
-        "profileFast": "Rychlé",
         "prompt": "Zadání",
         "promptPlaceholder": "Popište, co chcete…",
         "quality": "Kvalita",
@@ -1426,7 +1428,10 @@
         "sourceVideo": "Zdrojové video",
         "submitting": "Odesílání…",
         "title": "Média",
-        "transformVideo": "Přeměnit video"
+        "transformVideo": "Přeměnit video",
+        "qualityHigh": "Vysoká",
+        "qualityMedium": "Střední",
+        "qualityLow": "Nízká"
       }
     }
   },
@@ -1833,7 +1838,8 @@
       "nicknameDescription": "Vyberte jméno, které bude Stella používat v celé aplikaci.",
       "nicknameLabel": "Přezdívka",
       "nicknamePlaceholder": "Vaše přezdívka",
-      "notNow": "Teď ne"
+      "notNow": "Teď ne",
+      "emailNotSupported": "Tento e-mailový poskytovatel není podporován. Použijte jinou adresu."
     },
     "legal": {
       "terms": {
@@ -1923,7 +1929,10 @@
       "chat": "Chat",
       "settings": "Nastavení",
       "openLabel": "Otevřít navigaci",
-      "closeLabel": "Zavřít navigaci"
+      "closeLabel": "Zavřít navigaci",
+      "account": "Účet",
+      "signIn": "Přihlásit se",
+      "backToChat": "Zpět do chatu"
     },
     "search": {
       "placeholder": "Hledat ve zprávách",
@@ -1972,7 +1981,8 @@
       "legalConjunction": " a ",
       "legalPrivacy": "Zásadami ochrany osobních údajů",
       "legalSuffix": ".",
-      "continueAsGuest": "Pokračovat bez přihlášení"
+      "continueAsGuest": "Pokračovat bez přihlášení",
+      "emailNotSupported": "Tento e-mailový poskytovatel není podporován. Použijte jinou adresu."
     },
     "chat": {
       "emptyPrompt": "Zeptejte se Stelly na cokoli",
@@ -2043,7 +2053,8 @@
       "statusAsleep": "Spí",
       "connectingLabel": "Připojování k vašemu počítači",
       "connectedLabel": "Počítač připojen",
-      "disconnectedLabel": "Počítač odpojen"
+      "disconnectedLabel": "Počítač odpojen",
+      "pairLabel": "Spárovat počítač"
     },
     "desktop": {
       "pairTitle": "Spárujte svůj telefon",
@@ -2200,6 +2211,22 @@
       "clearLabel": "Vymazat diagnostiku",
       "empty": "Zatím není zaznamenaná žádná diagnostika CarPlay. Připojte se jednou k CarPlay a pak se sem vraťte.",
       "clipboardEmpty": "(žádná zaznamenaná diagnostika CarPlay)"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} probíhá",
+        "one": "{count} probíhá",
+        "few": "{count} probíhá",
+        "many": "{count} probíhá"
+      },
+      "openLabel": "Zobrazit aktivitu"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Hledat v aktivitě a souborech",
+      "signedOutHint": "Přihlaste se, abyste viděli, na čem Stella pracuje na pozadí."
+    },
+    "account": {
+      "title": "Účet"
     }
   }
 }

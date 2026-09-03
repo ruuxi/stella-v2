@@ -1352,6 +1352,10 @@
         "videoToVideo": {
           "description": "用文字指示轉換影片",
           "name": "影片轉影片"
+        },
+        "referenceToVideo": {
+          "description": "根據圖片、影片和音訊參考生成影片",
+          "name": "參考生成影片"
         }
       },
       "imageFailure": {
@@ -1390,8 +1394,6 @@
         "generationFailed": "生成失敗",
         "lead": "創作圖片、音訊、音樂、影片和 3D。",
         "openOutputsFolder": "開啟輸出資料夾",
-        "profileBest": "最佳",
-        "profileFast": "快速",
         "prompt": "提示",
         "promptPlaceholder": "描述你想要的內容…",
         "quality": "品質",
@@ -1402,7 +1404,10 @@
         "sourceVideo": "來源影片",
         "submitting": "正在送出…",
         "title": "媒體",
-        "transformVideo": "轉換影片"
+        "transformVideo": "轉換影片",
+        "qualityHigh": "高",
+        "qualityMedium": "中",
+        "qualityLow": "低"
       }
     }
   },
@@ -1780,7 +1785,8 @@
       "nicknameDescription": "選一個名字，Stella 會在整個 App 中使用它。",
       "nicknameLabel": "暱稱",
       "nicknamePlaceholder": "你的暱稱",
-      "notNow": "暫時不要"
+      "notNow": "暫時不要",
+      "emailNotSupported": "不支援該電子郵件服務商。請使用其他地址。"
     },
     "legal": {
       "terms": {
@@ -1867,7 +1873,10 @@
       "chat": "聊天",
       "settings": "設定",
       "openLabel": "開啟導覽",
-      "closeLabel": "關閉導覽"
+      "closeLabel": "關閉導覽",
+      "account": "帳戶",
+      "signIn": "登入",
+      "backToChat": "返回聊天"
     },
     "search": {
       "placeholder": "搜尋訊息",
@@ -1916,7 +1925,8 @@
       "legalConjunction": "和",
       "legalPrivacy": "隱私權政策",
       "legalSuffix": "。",
-      "continueAsGuest": "不登入繼續"
+      "continueAsGuest": "不登入繼續",
+      "emailNotSupported": "不支援該電子郵件服務商。請使用其他地址。"
     },
     "chat": {
       "emptyPrompt": "什麼都可以問 Stella",
@@ -1985,7 +1995,8 @@
       "statusAsleep": "睡眠中",
       "connectingLabel": "正在連線到您的電腦",
       "connectedLabel": "電腦已連線",
-      "disconnectedLabel": "電腦已中斷連線"
+      "disconnectedLabel": "電腦已中斷連線",
+      "pairLabel": "配對電腦"
     },
     "desktop": {
       "pairTitle": "配對您的手機",
@@ -2139,6 +2150,19 @@
       "clearLabel": "清除診斷資訊",
       "empty": "尚未記錄任何 CarPlay 診斷資訊。請先連線 CarPlay 一次，再回到這裡。",
       "clipboardEmpty": "（未記錄 CarPlay 診斷資訊）"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} 項進行中"
+      },
+      "openLabel": "顯示動態"
+    },
+    "sidebar": {
+      "searchPlaceholder": "搜尋動態和檔案",
+      "signedOutHint": "登入後即可查看 Stella 在背景進行的工作。"
+    },
+    "account": {
+      "title": "帳戶"
     }
   }
 }

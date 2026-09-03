@@ -8,13 +8,18 @@ import {
 } from "@stella/runtime/kernel/tools/shell";
 import { createSyncTempDirTracker } from "../../../helpers/temp.js";
 
-const officeWrapperPath = path.resolve(
-  process.cwd(),
-  "../stella-office",
-  "bin",
-  "stella-office.js",
-);
-const runIfOfficeBinary = existsSync(officeWrapperPath) ? it : it.skip;
+const officeBinDir = path.resolve(process.cwd(), "../stella-office", "bin");
+const officeWrapperPath = path.join(officeBinDir, "stella-office.js");
+const officeNativeReady = [
+  "stella-office-linux-x64",
+  "stella-office-linux-arm64",
+  "stella-office-darwin-arm64",
+  "stella-office-darwin-x64",
+  "stella-office-win32-x64.exe",
+  "stella-office-win32-arm64.exe",
+].some((name) => existsSync(path.join(officeBinDir, name)));
+const runIfOfficeBinary =
+  existsSync(officeWrapperPath) && officeNativeReady ? it : it.skip;
 const OFFICE_INTEGRATION_TEST_TIMEOUT_MS = 20_000;
 
 const tempDirs = createSyncTempDirTracker();

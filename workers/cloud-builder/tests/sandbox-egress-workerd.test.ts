@@ -1,16 +1,33 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { allocateWorkerdInspectorPort } from "./helpers/workerd-test-port.js";
 
 const packageRoot = new URL("..", import.meta.url);
+const packageRootPath = fileURLToPath(packageRoot);
 const port = 23_000 + Math.floor(Math.random() * 500);
 const origin = `http://127.0.0.1:${port}`;
 const FIXTURE_CONTAINER_NAME_PREFIX =
   "workerd-stella-sandbox-egress-workerd-acceptance-";
+
+const ensurePreparedSandboxImage = (): void => {
+  const marker = join(packageRootPath, ".image", "package.json");
+  if (existsSync(marker)) return;
+  const result = spawnSync(process.execPath, ["scripts/prepare-image.mjs"], {
+    cwd: packageRootPath,
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `Sandbox image prepare failed:\n${result.stdout}\n${result.stderr}`,
+    );
+  }
+};
 
 const pause = async (delayMs: number): Promise<void> => {
   await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
@@ -73,6 +90,7 @@ describe("sandbox egress policy in real Workerd + Sandbox SDK containers", () =>
   let initialFixtureContainers = new Set<string>();
 
   beforeAll(async () => {
+    ensurePreparedSandboxImage();
     initialFixtureContainers = await fixtureContainerIds();
     persistencePath = await mkdtemp(join(tmpdir(), "stella-egress-workerd-"));
     const inspectorPort = await allocateWorkerdInspectorPort();
@@ -95,7 +113,7 @@ describe("sandbox egress policy in real Workerd + Sandbox SDK containers", () =>
         String(inspectorPort),
         "--show-interactive-dev-session=false",
       ],
-      { cwd: packageRoot, stdio: ["ignore", "pipe", "pipe"] },
+      { cwd: packageRootPath, stdio: ["ignore", "pipe", "pipe"] },
     );
     const observe = (chunk: unknown) => {
       output += String(chunk);

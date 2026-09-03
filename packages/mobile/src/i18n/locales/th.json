@@ -1352,6 +1352,10 @@
         "videoToVideo": {
           "description": "แปลงวิดีโอด้วยคำสั่งข้อความ",
           "name": "วิดีโอเป็นวิดีโอ"
+        },
+        "referenceToVideo": {
+          "description": "สร้างวิดีโอจากข้อมูลอ้างอิงรูปภาพ วิดีโอ และเสียง",
+          "name": "จากข้อมูลอ้างอิงเป็นวิดีโอ"
         }
       },
       "imageFailure": {
@@ -1390,8 +1394,6 @@
         "generationFailed": "สร้างไม่สำเร็จ",
         "lead": "สร้างรูปภาพ เสียง เพลง วิดีโอ และ 3D",
         "openOutputsFolder": "เปิดโฟลเดอร์ผลลัพธ์",
-        "profileBest": "ดีที่สุด",
-        "profileFast": "เร็ว",
         "prompt": "พรอมต์",
         "promptPlaceholder": "อธิบายสิ่งที่คุณต้องการ…",
         "quality": "คุณภาพ",
@@ -1402,7 +1404,10 @@
         "sourceVideo": "วิดีโอต้นทาง",
         "submitting": "กำลังส่ง…",
         "title": "สื่อ",
-        "transformVideo": "แปลงวิดีโอ"
+        "transformVideo": "แปลงวิดีโอ",
+        "qualityHigh": "สูง",
+        "qualityMedium": "กลาง",
+        "qualityLow": "ต่ำ"
       }
     }
   },
@@ -1780,7 +1785,8 @@
       "nicknameDescription": "เลือกชื่อที่ Stella จะใช้เรียกคุณทั่วทั้งแอป",
       "nicknameLabel": "ชื่อเล่น",
       "nicknamePlaceholder": "ชื่อเล่นของคุณ",
-      "notNow": "ไว้ก่อน"
+      "notNow": "ไว้ก่อน",
+      "emailNotSupported": "ผู้ให้บริการอีเมลนี้ไม่รองรับ ใช้ที่อยู่อื่น"
     },
     "legal": {
       "terms": {
@@ -1867,7 +1873,10 @@
       "chat": "แชท",
       "settings": "การตั้งค่า",
       "openLabel": "เปิดเมนูนำทาง",
-      "closeLabel": "ปิดเมนูนำทาง"
+      "closeLabel": "ปิดเมนูนำทาง",
+      "account": "บัญชี",
+      "signIn": "เข้าสู่ระบบ",
+      "backToChat": "กลับไปที่แชท"
     },
     "search": {
       "placeholder": "ค้นหาข้อความ",
@@ -1916,7 +1925,8 @@
       "legalConjunction": "และ",
       "legalPrivacy": "นโยบายความเป็นส่วนตัว",
       "legalSuffix": "ของเรา",
-      "continueAsGuest": "ดำเนินการต่อโดยไม่เข้าสู่ระบบ"
+      "continueAsGuest": "ดำเนินการต่อโดยไม่เข้าสู่ระบบ",
+      "emailNotSupported": "ผู้ให้บริการอีเมลนี้ไม่รองรับ ใช้ที่อยู่อื่น"
     },
     "chat": {
       "emptyPrompt": "ถาม Stella อะไรก็ได้",
@@ -1985,7 +1995,8 @@
       "statusAsleep": "หลับอยู่",
       "connectingLabel": "กำลังเชื่อมต่อกับคอมพิวเตอร์ของคุณ",
       "connectedLabel": "เชื่อมต่อคอมพิวเตอร์แล้ว",
-      "disconnectedLabel": "ตัดการเชื่อมต่อคอมพิวเตอร์แล้ว"
+      "disconnectedLabel": "ตัดการเชื่อมต่อคอมพิวเตอร์แล้ว",
+      "pairLabel": "จับคู่คอมพิวเตอร์"
     },
     "desktop": {
       "pairTitle": "จับคู่มือถือของคุณ",
@@ -2139,6 +2150,19 @@
       "clearLabel": "ล้างข้อมูลวินิจฉัย",
       "empty": "ยังไม่มีการบันทึกข้อมูลวินิจฉัย CarPlay เชื่อมต่อ CarPlay สักครั้งแล้วกลับมาที่นี่",
       "clipboardEmpty": "(ไม่มีการบันทึกข้อมูลวินิจฉัย CarPlay)"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} กำลังดำเนินการ"
+      },
+      "openLabel": "แสดงกิจกรรม"
+    },
+    "sidebar": {
+      "searchPlaceholder": "ค้นหากิจกรรมและไฟล์",
+      "signedOutHint": "เข้าสู่ระบบเพื่อดูว่า Stella กำลังทำงานอะไรอยู่เบื้องหลัง"
+    },
+    "account": {
+      "title": "บัญชี"
     }
   }
 }

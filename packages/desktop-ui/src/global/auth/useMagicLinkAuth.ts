@@ -22,6 +22,7 @@ import {
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { useT, useTPlural } from "@/shared/i18n";
 import { getPlatformChallengeToken } from "@/platform/auth/challenge-token";
+import { magicLinkSendErrorKey } from "@/global/auth/magic-link-send-error";
 
 type Status = "idle" | "sending" | "sent" | "verifying" | "error";
 
@@ -162,8 +163,7 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
         error?: string;
       };
       if (!response.ok || !data.requestId) {
-        if (data.error) throw new Error(data.error);
-        throw new MagicLinkKeyError("global.auth.sendFailed");
+        throw new MagicLinkKeyError(magicLinkSendErrorKey(data.error));
       }
       setRequestId(data.requestId);
       setSentToEmail(targetEmail);

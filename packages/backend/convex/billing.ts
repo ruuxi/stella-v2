@@ -6618,6 +6618,32 @@ export const logManagedUsage = internalMutation({
     }),
 });
 
+export const logDictationUsage = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    model: v.string(),
+    durationMs: v.number(),
+    success: v.boolean(),
+    costMicroCents: v.optional(v.number()),
+  },
+  returns: v.object({
+    costMicroCents: v.number(),
+    creditConsumedMicroCents: v.number(),
+    plan: planValidator,
+  }),
+  handler: async (ctx, args) =>
+    await persistManagedUsage(ctx, {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      agentType: "proxy:service:dictation",
+      model: args.model,
+      durationMs: args.durationMs,
+      success: args.success,
+      costMicroCents: args.costMicroCents,
+    }),
+});
+
 // ---------------------------------------------------------------------------
 // Model gateway usage ingest
 // ---------------------------------------------------------------------------

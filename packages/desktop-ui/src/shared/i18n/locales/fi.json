@@ -1360,6 +1360,10 @@
         "videoToVideo": {
           "description": "Muunna video tekstiohjeilla",
           "name": "Videosta videoksi"
+        },
+        "referenceToVideo": {
+          "description": "Luo video kuva-, video- ja ääniviitteistä",
+          "name": "Viitteestä videoksi"
         }
       },
       "imageFailure": {
@@ -1398,8 +1402,6 @@
         "generationFailed": "Luonti epäonnistui",
         "lead": "Luo kuvia, ääntä, musiikkia, videoita ja 3D:tä.",
         "openOutputsFolder": "Avaa tuloskansio",
-        "profileBest": "Paras",
-        "profileFast": "Nopea",
         "prompt": "Kehote",
         "promptPlaceholder": "Kuvaile, mitä haluat…",
         "quality": "Laatu",
@@ -1410,7 +1412,10 @@
         "sourceVideo": "Lähdevideo",
         "submitting": "Lähetetään…",
         "title": "Media",
-        "transformVideo": "Muunna video"
+        "transformVideo": "Muunna video",
+        "qualityHigh": "Korkea",
+        "qualityMedium": "Keskitaso",
+        "qualityLow": "Matala"
       }
     }
   },
@@ -1799,7 +1804,8 @@
       "nicknameDescription": "Valitse nimi, jota Stella käyttää kaikkialla sovelluksessa.",
       "nicknameLabel": "Kutsumanimi",
       "nicknamePlaceholder": "Kutsumanimesi",
-      "notNow": "Ei nyt"
+      "notNow": "Ei nyt",
+      "emailNotSupported": "Tätä sähköpostipalvelua ei tueta. Käytä toista osoitetta."
     },
     "legal": {
       "terms": {
@@ -1887,7 +1893,10 @@
       "chat": "Keskustelu",
       "settings": "Asetukset",
       "openLabel": "Avaa navigointi",
-      "closeLabel": "Sulje navigointi"
+      "closeLabel": "Sulje navigointi",
+      "account": "Tili",
+      "signIn": "Kirjaudu sisään",
+      "backToChat": "Takaisin chattiin"
     },
     "search": {
       "placeholder": "Hae viesteistä",
@@ -1936,7 +1945,8 @@
       "legalConjunction": " ja ",
       "legalPrivacy": "tietosuojakäytännön",
       "legalSuffix": ".",
-      "continueAsGuest": "Jatka kirjautumatta sisään"
+      "continueAsGuest": "Jatka kirjautumatta sisään",
+      "emailNotSupported": "Tätä sähköpostipalvelua ei tueta. Käytä toista osoitetta."
     },
     "chat": {
       "emptyPrompt": "Kysy Stellalta mitä tahansa",
@@ -2006,7 +2016,8 @@
       "statusAsleep": "Lepotilassa",
       "connectingLabel": "Yhdistetään tietokoneeseesi",
       "connectedLabel": "Tietokone yhdistetty",
-      "disconnectedLabel": "Tietokoneen yhteys katkaistu"
+      "disconnectedLabel": "Tietokoneen yhteys katkaistu",
+      "pairLabel": "Yhdistä tietokone"
     },
     "desktop": {
       "pairTitle": "Pariliitä puhelimesi",
@@ -2161,6 +2172,20 @@
       "clearLabel": "Tyhjennä diagnostiikka",
       "empty": "CarPlay-diagnostiikkaa ei ole vielä tallennettu. Yhdistä CarPlayhin kerran ja palaa sitten tänne.",
       "clipboardEmpty": "(CarPlay-diagnostiikkaa ei ole tallennettu)"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} käynnissä",
+        "one": "{count} käynnissä"
+      },
+      "openLabel": "Näytä toiminta"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Hae toiminnasta ja tiedostoista",
+      "signedOutHint": "Kirjaudu sisään nähdäksesi, mitä Stella tekee taustalla."
+    },
+    "account": {
+      "title": "Tili"
     }
   }
 }

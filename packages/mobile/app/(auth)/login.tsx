@@ -171,7 +171,11 @@ export default function LoginScreen() {
         });
       const result = readMagicLinkSendBody(body);
       if (!response.ok || !result.requestId) {
-        throw new Error(result.error || t("mobile.login.sendFailed"));
+        throw new Error(
+          result.error === "email_not_supported"
+            ? t("mobile.login.emailNotSupported")
+            : t("mobile.login.sendFailed"),
+        );
       }
       setSubmitState({ type: "sent", requestId: result.requestId });
     } catch (error) {

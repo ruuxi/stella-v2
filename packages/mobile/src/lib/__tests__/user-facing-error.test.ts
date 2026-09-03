@@ -30,4 +30,13 @@ describe("userFacingError", () => {
       "Message is required.",
     );
   });
+
+  test("magic-link API codes become a sentence instead of the raw code", () => {
+    expect(userFacingError(new Error("email_not_supported"))).toBe(
+      "That email provider isn't supported. Use a different address.",
+    );
+    expect(userFacingError(new Error("challenge_required"))).toBe(
+      "Something went wrong. Please try again.",
+    );
+  });
 });

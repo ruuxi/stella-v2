@@ -59,8 +59,12 @@ describe("Stella Browser release contract", () => {
       scripts: Record<string, string>;
     };
     expect(packageJson.scripts.postinstall).toContain(
-      "ensure-stella-browser.mjs",
+      "postinstall-workspace.mjs",
     );
+    const postinstall = await readRepoFile(
+      "packages/desktop/scripts/postinstall-workspace.mjs",
+    );
+    expect(postinstall).toContain("ensure-stella-browser.mjs");
     expect(packageJson.scripts["electron:dev"]).toContain(
       "ensure-stella-browser.mjs --allow-build-fallback",
     );

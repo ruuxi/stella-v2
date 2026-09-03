@@ -1360,6 +1360,10 @@
         "videoToVideo": {
           "description": "Bir videoyu metin talimatlarıyla dönüştürün",
           "name": "Videodan Videoya"
+        },
+        "referenceToVideo": {
+          "description": "Görüntü, video ve ses referanslarından bir video oluşturun",
+          "name": "Referanstan videoya"
         }
       },
       "imageFailure": {
@@ -1398,8 +1402,6 @@
         "generationFailed": "Oluşturma başarısız oldu",
         "lead": "Görsel, ses, müzik, video ve 3B içerik oluşturun.",
         "openOutputsFolder": "Çıktı klasörünü aç",
-        "profileBest": "En iyi",
-        "profileFast": "Hızlı",
         "prompt": "İstem",
         "promptPlaceholder": "Ne istediğinizi anlatın…",
         "quality": "Kalite",
@@ -1410,7 +1412,10 @@
         "sourceVideo": "Kaynak video",
         "submitting": "Gönderiliyor…",
         "title": "Medya",
-        "transformVideo": "Videoyu dönüştür"
+        "transformVideo": "Videoyu dönüştür",
+        "qualityHigh": "Yüksek",
+        "qualityMedium": "Orta",
+        "qualityLow": "Düşük"
       }
     }
   },
@@ -1799,7 +1804,8 @@
       "nicknameDescription": "Stella'nın uygulama genelinde kullanacağı bir ad seçin.",
       "nicknameLabel": "Takma ad",
       "nicknamePlaceholder": "Takma adınız",
-      "notNow": "Şimdi değil"
+      "notNow": "Şimdi değil",
+      "emailNotSupported": "Bu e-posta sağlayıcısı desteklenmiyor. Farklı bir adres kullanın."
     },
     "legal": {
       "terms": {
@@ -1887,7 +1893,10 @@
       "chat": "Sohbet",
       "settings": "Ayarlar",
       "openLabel": "Gezinmeyi aç",
-      "closeLabel": "Gezinmeyi kapat"
+      "closeLabel": "Gezinmeyi kapat",
+      "account": "Hesap",
+      "signIn": "Oturum aç",
+      "backToChat": "Sohbete dön"
     },
     "search": {
       "placeholder": "Mesajlarda ara",
@@ -1936,7 +1945,8 @@
       "legalConjunction": " ve ",
       "legalPrivacy": "Gizlilik Politikasını",
       "legalSuffix": " kabul edersiniz.",
-      "continueAsGuest": "Giriş yapmadan devam et"
+      "continueAsGuest": "Giriş yapmadan devam et",
+      "emailNotSupported": "Bu e-posta sağlayıcısı desteklenmiyor. Farklı bir adres kullanın."
     },
     "chat": {
       "emptyPrompt": "Stella'ya istediğinizi sorun",
@@ -2006,7 +2016,8 @@
       "statusAsleep": "Uykuda",
       "connectingLabel": "Bilgisayarınıza bağlanılıyor",
       "connectedLabel": "Bilgisayar bağlandı",
-      "disconnectedLabel": "Bilgisayar bağlantısı kesildi"
+      "disconnectedLabel": "Bilgisayar bağlantısı kesildi",
+      "pairLabel": "Bilgisayar eşle"
     },
     "desktop": {
       "pairTitle": "Telefonunuzu eşleştirin",
@@ -2161,6 +2172,20 @@
       "clearLabel": "Tanılamayı temizle",
       "empty": "Henüz CarPlay tanılama kaydı yok. Bir kez CarPlay'e bağlanın, sonra buraya dönün.",
       "clipboardEmpty": "(CarPlay tanılama kaydı yok)"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} devam ediyor",
+        "one": "{count} devam ediyor"
+      },
+      "openLabel": "Etkinliği göster"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Etkinlik ve dosyalarda ara",
+      "signedOutHint": "Stella’nın arka planda ne üzerinde çalıştığını görmek için oturum açın."
+    },
+    "account": {
+      "title": "Hesap"
     }
   }
 }

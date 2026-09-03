@@ -1352,6 +1352,10 @@
         "videoToVideo": {
           "description": "Biến đổi video bằng hướng dẫn văn bản",
           "name": "Video thành video"
+        },
+        "referenceToVideo": {
+          "description": "Tạo video từ tham chiếu hình ảnh, video và âm thanh",
+          "name": "Từ tham chiếu sang video"
         }
       },
       "imageFailure": {
@@ -1390,8 +1394,6 @@
         "generationFailed": "Tạo thất bại",
         "lead": "Tạo hình ảnh, âm thanh, nhạc, video và 3D.",
         "openOutputsFolder": "Mở thư mục kết quả",
-        "profileBest": "Tốt nhất",
-        "profileFast": "Nhanh",
         "prompt": "Câu lệnh",
         "promptPlaceholder": "Mô tả điều bạn muốn…",
         "quality": "Chất lượng",
@@ -1402,7 +1404,10 @@
         "sourceVideo": "Video nguồn",
         "submitting": "Đang gửi…",
         "title": "Phương tiện",
-        "transformVideo": "Biến đổi video"
+        "transformVideo": "Biến đổi video",
+        "qualityHigh": "Cao",
+        "qualityMedium": "Trung bình",
+        "qualityLow": "Thấp"
       }
     }
   },
@@ -1780,7 +1785,8 @@
       "nicknameDescription": "Hãy chọn một cái tên để Stella dùng trong toàn ứng dụng.",
       "nicknameLabel": "Biệt danh",
       "nicknamePlaceholder": "Biệt danh của bạn",
-      "notNow": "Để sau"
+      "notNow": "Để sau",
+      "emailNotSupported": "Nhà cung cấp email đó không được hỗ trợ. Hãy dùng địa chỉ khác."
     },
     "legal": {
       "terms": {
@@ -1867,7 +1873,10 @@
       "chat": "Trò chuyện",
       "settings": "Cài đặt",
       "openLabel": "Mở điều hướng",
-      "closeLabel": "Đóng điều hướng"
+      "closeLabel": "Đóng điều hướng",
+      "account": "Tài khoản",
+      "signIn": "Đăng nhập",
+      "backToChat": "Quay lại trò chuyện"
     },
     "search": {
       "placeholder": "Tìm tin nhắn",
@@ -1916,7 +1925,8 @@
       "legalConjunction": " và ",
       "legalPrivacy": "Chính sách quyền riêng tư",
       "legalSuffix": ".",
-      "continueAsGuest": "Tiếp tục mà không đăng nhập"
+      "continueAsGuest": "Tiếp tục mà không đăng nhập",
+      "emailNotSupported": "Nhà cung cấp email đó không được hỗ trợ. Hãy dùng địa chỉ khác."
     },
     "chat": {
       "emptyPrompt": "Hỏi Stella bất cứ điều gì",
@@ -1985,7 +1995,8 @@
       "statusAsleep": "Đang ngủ",
       "connectingLabel": "Đang kết nối tới máy tính của bạn",
       "connectedLabel": "Máy tính đã kết nối",
-      "disconnectedLabel": "Máy tính đã ngắt kết nối"
+      "disconnectedLabel": "Máy tính đã ngắt kết nối",
+      "pairLabel": "Ghép nối máy tính"
     },
     "desktop": {
       "pairTitle": "Ghép nối điện thoại",
@@ -2139,6 +2150,19 @@
       "clearLabel": "Xóa chẩn đoán",
       "empty": "Chưa ghi được chẩn đoán CarPlay nào. Hãy kết nối CarPlay một lần rồi quay lại đây.",
       "clipboardEmpty": "(chưa ghi được chẩn đoán CarPlay nào)"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} đang thực hiện"
+      },
+      "openLabel": "Hiện hoạt động"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Tìm hoạt động và tệp",
+      "signedOutHint": "Đăng nhập để xem Stella đang làm gì trong nền."
+    },
+    "account": {
+      "title": "Tài khoản"
     }
   }
 }

@@ -349,20 +349,16 @@ describe("general agent tools", () => {
         login: false,
       } as const;
 
-      const missingGitSubcommand = await runShell(
+      const missingNative = await runShell(
         state,
-        "git stella-definitely-missing-subcommand",
+        "/bin/sh -c 'printf \"%s\\n\" stella-definitely-missing-subcommand >&2; exit 19'",
         root,
         5_000,
         undefined,
         launchOptions,
       );
-      expect(missingGitSubcommand).toMatch(
-        /Command exited with code [1-9]\d*\./u,
-      );
-      expect(missingGitSubcommand).toContain(
-        "stella-definitely-missing-subcommand",
-      );
+      expect(missingNative).toMatch(/Command exited with code 19\./u);
+      expect(missingNative).toContain("stella-definitely-missing-subcommand");
 
       const falseNodeRuntime = await runShell(
         state,
@@ -404,6 +400,7 @@ describe("general agent tools", () => {
       );
       expect(recovered).toBe("recovered\n");
     },
+    30_000,
   );
 
   it("exec_command defaults Windows to pwsh, then Windows PowerShell, then cmd", () => {

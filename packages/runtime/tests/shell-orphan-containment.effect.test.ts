@@ -149,14 +149,16 @@ describe("shell ownership on abort", () => {
         {
           session_id: sessionId,
           chars: "go\n",
-          yield_time_ms: 0,
+          // Stay in the advertised wait so abort cannot race a 250ms settle
+          // that finishes before the process echoes.
+          yield_time_ms: 5_000,
         },
         context,
         abort.signal,
       );
 
       // Seeing the marker while the call is still pending proves the write has
-      // reached its post-yield settle window rather than aborting before I/O.
+      // reached the child rather than aborting before I/O.
       await waitFor(() => record.unreadOutput.includes("settle-visible"));
       const unreadCursorAfterOutput = record.outputCursorBytes;
       abort.abort(new Error("abort during settle"));

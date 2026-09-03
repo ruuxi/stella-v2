@@ -14,7 +14,7 @@
     "types:check": "wrangler types worker-configuration.d.ts --include-runtime false --env= --check",
     "typecheck": "bun run types:check && tsc --noEmit",
     "test:unit": "bun test tests",
-    "test": "bun run test:unit && bun run test:code-workerd",
+    "test": "bun run image:prepare && bun run test:unit && bun run test:code-workerd",
     "build:dry-run": "node scripts/check-production-bundle.mjs",
     "test:code-workerd": "bun tests/cloud-code-workerd-acceptance.mjs"
   },

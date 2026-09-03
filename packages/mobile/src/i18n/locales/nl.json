@@ -1360,6 +1360,10 @@
         "videoToVideo": {
           "description": "Transformeer een video met tekstinstructies",
           "name": "Video naar video"
+        },
+        "referenceToVideo": {
+          "description": "Genereer een video uit beeld-, video- en audioreferenties",
+          "name": "Referentie naar video"
         }
       },
       "imageFailure": {
@@ -1398,8 +1402,6 @@
         "generationFailed": "Genereren mislukt",
         "lead": "Maak afbeeldingen, audio, muziek, video en 3D.",
         "openOutputsFolder": "Map met uitvoer openen",
-        "profileBest": "Beste",
-        "profileFast": "Snel",
         "prompt": "Prompt",
         "promptPlaceholder": "Beschrijf wat je wilt…",
         "quality": "Kwaliteit",
@@ -1410,7 +1412,10 @@
         "sourceVideo": "Bronvideo",
         "submitting": "Versturen…",
         "title": "Media",
-        "transformVideo": "Video transformeren"
+        "transformVideo": "Video transformeren",
+        "qualityHigh": "Hoog",
+        "qualityMedium": "Gemiddeld",
+        "qualityLow": "Laag"
       }
     }
   },
@@ -1799,7 +1804,8 @@
       "nicknameDescription": "Kies een naam die Stella overal in de app gebruikt.",
       "nicknameLabel": "Bijnaam",
       "nicknamePlaceholder": "Je bijnaam",
-      "notNow": "Niet nu"
+      "notNow": "Niet nu",
+      "emailNotSupported": "Die e-mailprovider wordt niet ondersteund. Gebruik een ander adres."
     },
     "legal": {
       "terms": {
@@ -1887,7 +1893,10 @@
       "chat": "Chat",
       "settings": "Instellingen",
       "openLabel": "Navigatie openen",
-      "closeLabel": "Navigatie sluiten"
+      "closeLabel": "Navigatie sluiten",
+      "account": "Account",
+      "signIn": "Inloggen",
+      "backToChat": "Terug naar chat"
     },
     "search": {
       "placeholder": "Berichten zoeken",
@@ -1936,7 +1945,8 @@
       "legalConjunction": " en ons ",
       "legalPrivacy": "Privacybeleid",
       "legalSuffix": ".",
-      "continueAsGuest": "Doorgaan zonder in te loggen"
+      "continueAsGuest": "Doorgaan zonder in te loggen",
+      "emailNotSupported": "Die e-mailprovider wordt niet ondersteund. Gebruik een ander adres."
     },
     "chat": {
       "emptyPrompt": "Vraag Stella wat je wilt",
@@ -2006,7 +2016,8 @@
       "statusAsleep": "In slaapstand",
       "connectingLabel": "Verbinden met je computer",
       "connectedLabel": "Computer verbonden",
-      "disconnectedLabel": "Computer niet verbonden"
+      "disconnectedLabel": "Computer niet verbonden",
+      "pairLabel": "Koppel een computer"
     },
     "desktop": {
       "pairTitle": "Koppel je telefoon",
@@ -2161,6 +2172,20 @@
       "clearLabel": "Diagnostiek wissen",
       "empty": "Nog geen CarPlay-diagnostiek vastgelegd. Maak één keer verbinding met CarPlay en kom hier terug.",
       "clipboardEmpty": "(geen CarPlay-diagnostiek vastgelegd)"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} bezig",
+        "one": "{count} bezig"
+      },
+      "openLabel": "Activiteit tonen"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Zoek in activiteit en bestanden",
+      "signedOutHint": "Log in om te zien waar Stella op de achtergrond aan werkt."
+    },
+    "account": {
+      "title": "Account"
     }
   }
 }

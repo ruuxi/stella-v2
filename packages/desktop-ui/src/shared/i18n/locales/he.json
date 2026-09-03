@@ -1368,6 +1368,10 @@
         "videoToVideo": {
           "description": "שנה וידאו בעזרת הוראות טקסט",
           "name": "מווידאו לווידאו"
+        },
+        "referenceToVideo": {
+          "description": "צרו וידאו ממקורות תמונה, וידאו ושמע",
+          "name": "ממקור לווידאו"
         }
       },
       "imageFailure": {
@@ -1406,8 +1410,6 @@
         "generationFailed": "היצירה נכשלה",
         "lead": "צור תמונות, אודיו, מוזיקה, וידאו ותלת-ממד.",
         "openOutputsFolder": "פתח את תיקיית הפלט",
-        "profileBest": "הטוב ביותר",
-        "profileFast": "מהיר",
         "prompt": "הנחיה",
         "promptPlaceholder": "תאר מה תרצה…",
         "quality": "איכות",
@@ -1418,7 +1420,10 @@
         "sourceVideo": "וידאו מקור",
         "submitting": "שולח…",
         "title": "מדיה",
-        "transformVideo": "שנה וידאו"
+        "transformVideo": "שנה וידאו",
+        "qualityHigh": "גבוהה",
+        "qualityMedium": "בינונית",
+        "qualityLow": "נמוכה"
       }
     }
   },
@@ -1816,7 +1821,8 @@
       "nicknameDescription": "בחר שם ש-Stella תשתמש בו בכל האפליקציה.",
       "nicknameLabel": "כינוי",
       "nicknamePlaceholder": "הכינוי שלך",
-      "notNow": "לא עכשיו"
+      "notNow": "לא עכשיו",
+      "emailNotSupported": "ספק הדוא\"ל הזה אינו נתמך. השתמשו בכתובת אחרת."
     },
     "legal": {
       "terms": {
@@ -1905,7 +1911,10 @@
       "chat": "צ׳אט",
       "settings": "הגדרות",
       "openLabel": "פתיחת הניווט",
-      "closeLabel": "סגירת הניווט"
+      "closeLabel": "סגירת הניווט",
+      "account": "חשבון",
+      "signIn": "התחברות",
+      "backToChat": "חזרה לצ'אט"
     },
     "search": {
       "placeholder": "חיפוש בהודעות",
@@ -1954,7 +1963,8 @@
       "legalConjunction": " ול",
       "legalPrivacy": "מדיניות הפרטיות",
       "legalSuffix": ".",
-      "continueAsGuest": "המשך ללא התחברות"
+      "continueAsGuest": "המשך ללא התחברות",
+      "emailNotSupported": "ספק הדוא\"ל הזה אינו נתמך. השתמשו בכתובת אחרת."
     },
     "chat": {
       "emptyPrompt": "שאלו את Stella כל דבר",
@@ -2025,7 +2035,8 @@
       "statusAsleep": "במצב שינה",
       "connectingLabel": "מתחבר למחשב שלכם",
       "connectedLabel": "המחשב מחובר",
-      "disconnectedLabel": "המחשב מנותק"
+      "disconnectedLabel": "המחשב מנותק",
+      "pairLabel": "צימוד מחשב"
     },
     "desktop": {
       "pairTitle": "חברו את הטלפון שלכם",
@@ -2181,6 +2192,21 @@
       "clearLabel": "ניקוי האבחון",
       "empty": "עדיין לא נרשמו נתוני אבחון של CarPlay. התחברו פעם אחת ל-CarPlay ואז חזרו לכאן.",
       "clipboardEmpty": "(לא נרשמו נתוני אבחון של CarPlay)"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} בתהליך",
+        "one": "{count} בתהליך",
+        "two": "{count} בתהליך"
+      },
+      "openLabel": "הצגת פעילות"
+    },
+    "sidebar": {
+      "searchPlaceholder": "חיפוש בפעילות ובקבצים",
+      "signedOutHint": "התחברו כדי לראות על מה Stella עובדת ברקע."
+    },
+    "account": {
+      "title": "חשבון"
     }
   }
 }

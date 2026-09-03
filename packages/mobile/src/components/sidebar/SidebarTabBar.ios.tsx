@@ -31,6 +31,7 @@ import type { SidebarTabBarProps } from "./sidebar-tab-bar-types";
 const BAR_HEIGHT = 44;
 /** Inset of the selection lens from the track edge. */
 const LENS_INSET = 3;
+const LENS_HEIGHT = BAR_HEIGHT - LENS_INSET * 2;
 
 /**
  * iOS tab bar built from Apple's Liquid Glass in SwiftUI, hosted through
@@ -99,34 +100,42 @@ export function SidebarTabBar<K extends string>({
                       onPress={() => onSelect(item.key)}
                       modifiers={[buttonStyle("plain")]}
                     >
-                      <SwiftText
-                        modifiers={[
-                          font({ family: fonts.sans.medium, size: 14 }),
-                          foregroundStyle(
-                            active ? colors.text : colors.textMuted,
-                          ),
-                          // The label is the button's hit area, so it fills the
-                          // segment; the glass lens is drawn on it as well.
-                          frame({
-                            width: segmentWidth,
-                            height: BAR_HEIGHT - LENS_INSET * 2,
-                          }),
-                          ...(active
-                            ? [
-                                glassEffect({
-                                  glass: {
-                                    variant: "regular",
-                                    interactive: true,
-                                  },
-                                  shape: "capsule",
-                                }),
-                                glassEffectId("lens", namespace),
-                              ]
-                            : []),
-                        ]}
-                      >
-                        {item.label}
-                      </SwiftText>
+                      {/* Two distinct views rather than one label with a
+                          toggled modifier: the glass container draws its
+                          glass above the content, so the label must be the
+                          glass view's own content, and SwiftUI only morphs a
+                          glass view that leaves one place and enters another
+                          under the same id. */}
+                      {active ? (
+                        <SwiftText
+                          key="lens"
+                          modifiers={[
+                            font({ family: fonts.sans.medium, size: 14 }),
+                            foregroundStyle(colors.text),
+                            frame({ width: segmentWidth, height: LENS_HEIGHT }),
+                            glassEffect({
+                              glass: { variant: "regular", interactive: true },
+                              shape: "capsule",
+                            }),
+                            glassEffectId("lens", namespace),
+                          ]}
+                        >
+                          {item.label}
+                        </SwiftText>
+                      ) : (
+                        <SwiftText
+                          key="label"
+                          modifiers={[
+                            font({ family: fonts.sans.medium, size: 14 }),
+                            foregroundStyle(colors.textMuted),
+                            // The label is the button's hit area, so it
+                            // fills the segment.
+                            frame({ width: segmentWidth, height: LENS_HEIGHT }),
+                          ]}
+                        >
+                          {item.label}
+                        </SwiftText>
+                      )}
                     </Button>
                   );
                 })}

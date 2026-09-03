@@ -40,7 +40,7 @@ export function SidebarTabBar<K extends string>({
   useMemo(() => {
     applySegmentedControlAppearance({
       background: isDark ? "#000000" : colors.background,
-      selected: soften(colors.text, colors.background, isDark ? 0.15 : 0.14),
+      selected: soften(colors.text, colors.background, isDark ? 0.18 : 0.14),
     });
   }, [colors.background, colors.text, isDark]);
   return (

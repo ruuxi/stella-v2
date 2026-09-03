@@ -5,7 +5,7 @@ import { frame, font, pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
 import { applySegmentedControlAppearance } from "../../../modules/stella-segmented-appearance";
 import { useColors, useTheme } from "../../theme/theme-context";
 import { fonts } from "../../theme/fonts";
-import { soften } from "../../theme/oklch";
+import { fadeHex } from "../../theme/oklch";
 import type { SidebarTabBarProps } from "./sidebar-tab-bar-types";
 
 /**
@@ -28,26 +28,25 @@ export function SidebarTabBar<K extends string>({
   // UIAppearance proxy instead. That only affects controls created
   // afterwards: the call happens during render, before this pass commits
   // its native views, and the Host is keyed by theme so a theme change
-  // recreates the control under the new colours. iOS 26 still lays its own
-  // thin light system fill over the track (clearing the track artwork does
-  // not remove it) and blends the lens with the glass, so these are set by
-  // measurement rather than copied: pure black under that fill is the
-  // darkest track possible and lands within a few units of the top bar's
-  // buttons and the header capsule; the lens stays in that same dark
-  // family, only a shade lighter than the track, rather than the system's
-  // bright gray.
-  const themeKey = isDark ? "dark" : "light";
+  // recreates the control under the new colours. Both colours are
+  // translucent on purpose: the rest of the chrome is glass that takes on
+  // whatever theme backdrop sits behind it, and an opaque track or lens
+  // would stay one flat gray across every palette. iOS 26 lays its own thin
+  // light fill over the track regardless, so a dark wash underneath only
+  // pulls it toward the glass capsules; the lens is a light wash of the
+  // text colour over that.
+  const themeKey = `${colors.background}:${colors.text}`;
   useMemo(() => {
     applySegmentedControlAppearance({
-      background: isDark ? "#000000" : colors.background,
-      selected: soften(colors.text, colors.background, isDark ? 0.18 : 0.14),
+      background: isDark ? fadeHex("#000000", 0.45) : fadeHex("#ffffff", 0.3),
+      selected: fadeHex(colors.text, isDark ? 0.2 : 0.16),
     });
-  }, [colors.background, colors.text, isDark]);
+  }, [colors.text, isDark]);
   return (
     <Host
       key={themeKey}
       matchContents={{ vertical: true }}
-      colorScheme={themeKey}
+      colorScheme={isDark ? "dark" : "light"}
       style={styles.host}
       onLayoutContent={(event) => onHeight?.(event.nativeEvent.height)}
     >

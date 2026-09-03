@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   applyDevHarnessOptions,
   resolveDevHarnessOptions,
+  resolveDevHarnessSessionToken,
   STELLA_DEV_HARNESS_APP_NAME_PREFIX,
 } from "@stella/desktop/electron/bootstrap/dev-harness-options.js";
 
@@ -216,5 +217,46 @@ describe("applyDevHarnessOptions", () => {
       ["appendSwitch", "remote-debugging-address", "127.0.0.1"],
       ["appendSwitch", "remote-debugging-port", "9333"],
     ]);
+  });
+});
+
+describe("resolveDevHarnessSessionToken", () => {
+  const tokenEnv = {
+    STELLA_DEV_HARNESS: "1",
+    STELLA_DEV_HARNESS_SESSION_TOKEN: "  test-session-token  ",
+  };
+
+  it("returns a trimmed token only for an empty unpackaged harness profile", () => {
+    expect(
+      resolveDevHarnessSessionToken({
+        isPackaged: false,
+        hasStoredBearer: false,
+        env: tokenEnv,
+      }),
+    ).toBe("test-session-token");
+    expect(
+      resolveDevHarnessSessionToken({
+        isPackaged: false,
+        hasStoredBearer: true,
+        env: tokenEnv,
+      }),
+    ).toBeNull();
+  });
+
+  it("ignores the token in packaged builds and when the harness flag is absent", () => {
+    expect(
+      resolveDevHarnessSessionToken({
+        isPackaged: true,
+        hasStoredBearer: false,
+        env: tokenEnv,
+      }),
+    ).toBeNull();
+    expect(
+      resolveDevHarnessSessionToken({
+        isPackaged: false,
+        hasStoredBearer: false,
+        env: { STELLA_DEV_HARNESS_SESSION_TOKEN: "test-session-token" },
+      }),
+    ).toBeNull();
   });
 });

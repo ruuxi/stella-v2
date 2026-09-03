@@ -46,6 +46,8 @@ node .agents/skills/verify-stella/control-stella.mjs session doctor
 
 Pass `--replace` only after inspecting `cleanup plan` when a stale verifier run is recorded.
 
+Launch is anonymous by default. Pass `--account signed-in`, `--account go`, or `--account pro` to boot with a signed-in test account on that plan (minted per run at `agent-<runId>@test.stella.local` through the dev deployment's admin API; needs `CONVEX_SITE_URL` and `STELLA_ADMIN_API_SECRET`, the latter read via `bunx convex env get` when not exported). The run record and `session describe` report `account.mode`, `account.ownerId`, and `account.email`; the bearer is handed to Electron only through its environment and never written to disk.
+
 Launch creates an isolated run under `.agents/skills/verify-stella/.run/<runId>/`, an isolated durable Stella data directory, and a temporary Chromium user-data directory. It seeds onboarding complete, builds the Electron development main/preload bundle, allocates ephemeral Vite and CDP ports, launches Electron with the verifier harness environment, and writes owned Vite/Electron logs. It preserves protected-storage behavior with a run-scoped key rather than using the developer's keyring.
 
 Doctor exits successfully only when the recorded Vite and Electron processes are alive, Vite answers, CDP has Stella's page target, the conversation top bar exists, Electron device identity is available, and the runtime host answers its health check. A painted shell alone is not healthy.

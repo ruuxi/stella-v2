@@ -7,12 +7,19 @@ import { httpAction } from "../_generated/server";
 import { components, internal } from "../_generated/api";
 import { requireAdminRequest } from "../http_shared/admin";
 import {
+  readBetterAuthResponseUserId,
+  readBetterAuthSessionToken,
+} from "../http_shared/better_auth_response";
+import { requireTestAccountsEnabled } from "../http_shared/test_accounts";
+import {
+  createAuth,
   resolveOwnerAccountAction,
   tokenIdentifierForBetterAuthUserId,
 } from "../auth";
 
 const ADMIN_DELETE_PATH = "/api/admin/delete";
 const ADMIN_BILLING_PLAN_PATH = "/api/admin/billing/plan";
+const ADMIN_TEST_ACCOUNT_SESSION_PATH = "/api/admin/test-accounts/session";
 const ADMIN_OWNER_ENFORCEMENT_PATH = "/api/admin/owners/enforcement";
 const ADMIN_OWNER_LOOKUP_PATH = "/api/admin/owners/lookup";
 const ADMIN_OWNER_TOP_PATH = "/api/admin/owners/top";
@@ -30,6 +37,12 @@ type AdminBillingPlanBody = {
   usageMode?: string;
   subscriptionStatus?: string;
   resetUsage?: boolean;
+};
+
+type AdminTestAccountBody = {
+  email?: unknown;
+  plan?: unknown;
+  usageMode?: unknown;
 };
 
 type AdminOwnerEnforcementBody = {
@@ -134,6 +147,86 @@ const readDeleteBody = async (
 
 const isBillingPlan = (value: string): value is "free" | "go" | "pro" =>
   value === "free" || value === "go" || value === "pro";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const randomLetters = (length: number): string => {
+  const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  return Array.from(
+    crypto.getRandomValues(new Uint8Array(length)),
+    (byte) => alphabet[byte % alphabet.length],
+  ).join("");
+};
+
+const defaultTestAccountEmail = (): string =>
+  `agent-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}@test.stella.local`;
+
+const readTestAccountBody = async (
+  request: Request,
+): Promise<
+  | {
+      email: string;
+      plan?: "free" | "go" | "pro";
+      usageMode?: "default" | "unlimited";
+    }
+  | Response
+> => {
+  const parsed = await parseRequestJson(request);
+  if (!isRecord(parsed)) {
+    return jsonResponse(400, { error: "Body must be a JSON object." });
+  }
+  const body: AdminTestAccountBody = parsed;
+
+  if (body.email !== undefined && typeof body.email !== "string") {
+    return jsonResponse(400, { error: "email must be a string." });
+  }
+  const email =
+    typeof body.email === "string"
+      ? body.email.trim().toLowerCase()
+      : defaultTestAccountEmail();
+  if (!email.endsWith("@test.stella.local")) {
+    return jsonResponse(400, {
+      error: "email must end with @test.stella.local.",
+    });
+  }
+
+  if (body.plan !== undefined && typeof body.plan !== "string") {
+    return jsonResponse(400, { error: "plan must be free, go, or pro." });
+  }
+  const rawPlan =
+    typeof body.plan === "string" ? body.plan.trim().toLowerCase() : "";
+  if (rawPlan && !isBillingPlan(rawPlan)) {
+    return jsonResponse(400, { error: `Unsupported plan: ${rawPlan}` });
+  }
+
+  if (body.usageMode !== undefined && typeof body.usageMode !== "string") {
+    return jsonResponse(400, {
+      error: "usageMode must be default or unlimited.",
+    });
+  }
+  const rawUsageMode =
+    typeof body.usageMode === "string"
+      ? body.usageMode.trim().toLowerCase()
+      : "";
+  if (
+    rawUsageMode &&
+    rawUsageMode !== "default" &&
+    rawUsageMode !== "unlimited"
+  ) {
+    return jsonResponse(400, {
+      error: `Unsupported usageMode: ${rawUsageMode}`,
+    });
+  }
+
+  return {
+    email,
+    ...(isBillingPlan(rawPlan) ? { plan: rawPlan } : {}),
+    ...(rawUsageMode === "default" || rawUsageMode === "unlimited"
+      ? { usageMode: rawUsageMode }
+      : {}),
+  };
+};
 
 const readBillingPlanBody = async (
   request: Request,
@@ -252,6 +345,64 @@ const isOwnerEnforcementStatus = (
 };
 
 export const registerAdminRoutes = (http: HttpRouter) => {
+  http.route({
+    path: ADMIN_TEST_ACCOUNT_SESSION_PATH,
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      const admin = requireAdminRequest(request);
+      if (!admin.ok) return admin.response;
+      const enabled = requireTestAccountsEnabled();
+      if (!enabled.ok) return enabled.response;
+
+      const parsed = await readTestAccountBody(request);
+      if (parsed instanceof Response) return parsed;
+
+      const auth = createAuth(ctx);
+      const context = await auth.$context;
+      const token = randomLetters(32);
+      await context.internalAdapter.createVerificationValue({
+        identifier: token,
+        value: JSON.stringify({ email: parsed.email, name: "" }),
+        expiresAt: new Date(Date.now() + 5 * 60_000),
+      });
+      const verifyRes = await auth.api.magicLinkVerify({
+        query: { token },
+        headers: new Headers(),
+        returnHeaders: true,
+      });
+      const sessionToken = readBetterAuthSessionToken(verifyRes);
+      const userId = readBetterAuthResponseUserId(verifyRes);
+      if (!sessionToken || !userId) {
+        return jsonResponse(500, {
+          error: "Better Auth did not return a test account session.",
+        });
+      }
+
+      const ownerId = tokenIdentifierForBetterAuthUserId(userId);
+      let activePlan: "free" | "go" | "pro" = "free";
+      if (parsed.plan) {
+        const billing = await ctx.runMutation(
+          internal.billing.setAdminBillingPlan,
+          {
+            ownerId,
+            plan: parsed.plan,
+            ...(parsed.usageMode ? { usageMode: parsed.usageMode } : {}),
+          },
+        );
+        activePlan = billing.activePlan;
+      }
+
+      return jsonResponse(200, {
+        ownerId,
+        userId,
+        email: parsed.email,
+        sessionToken,
+        plan: activePlan,
+        siteUrl: process.env.CONVEX_SITE_URL,
+      });
+    }),
+  });
+
   http.route({
     path: ADMIN_OWNER_ENFORCEMENT_PATH,
     method: "POST",

@@ -107,6 +107,7 @@ Run from `packages/backend`: `npx convex env set NAME value` (dev) and `npx conv
 | `STELLA_EMAIL_DOMAIN_BLOCKLIST` | empty | Extra disposable-email domains, comma separated |
 | `STELLA_RISK_WEIGHTS_JSON` | built-in weights | Risk-score weights override |
 | `STELLA_ALERT_WEBHOOK_URL` | unset | Slack-compatible webhook for enforcement changes and gateway alerts forwarded through Convex |
+| `STELLA_TEST_ACCOUNTS` | unset = disabled | Set to `1` on dev only to enable admin-minted `@test.stella.local` sessions; never set it on production |
 | `TURNSTILE_SECRET_KEY` | unset = OFF | See section 3 |
 | `STELLA_APP_INTEGRITY_MODE` | `enforce` if any platform env is set, else `off` | See section 6; set `off` on dev |
 | `STELLA_APP_ATTEST_ALLOW_DEVELOPMENT` | unset | `1` accepts App Attest's development environment (debug builds on real iPhones); dev only |

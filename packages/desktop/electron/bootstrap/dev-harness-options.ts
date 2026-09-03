@@ -25,6 +25,27 @@ export type DevHarnessElectronTarget = {
 
 type DevHarnessEnvironment = Readonly<Record<string, string | undefined>>;
 
+export type ResolveDevHarnessSessionTokenInput = {
+  isPackaged: boolean;
+  hasStoredBearer: boolean;
+  env?: DevHarnessEnvironment;
+};
+
+export const resolveDevHarnessSessionToken = ({
+  isPackaged,
+  hasStoredBearer,
+  env = process.env,
+}: ResolveDevHarnessSessionTokenInput): string | null => {
+  if (
+    isPackaged ||
+    env.STELLA_DEV_HARNESS !== "1" ||
+    hasStoredBearer
+  ) {
+    return null;
+  }
+  return env.STELLA_DEV_HARNESS_SESSION_TOKEN?.trim() || null;
+};
+
 export type ResolveDevHarnessOptionsInput = {
   isPackaged: boolean;
   workspaceDir: string;

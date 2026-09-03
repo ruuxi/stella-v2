@@ -8,12 +8,16 @@ import {
 } from "../helpers/protected-storage.js";
 
 const electronMocks = vi.hoisted(() => ({
+  isPackaged: false,
   userDataPath: "",
   powerResumeListeners: [] as (() => void)[],
 }));
 
 vi.mock("electron", () => ({
   app: {
+    get isPackaged() {
+      return electronMocks.isPackaged;
+    },
     getPath: vi.fn(() => electronMocks.userDataPath),
     getAppPath: vi.fn(() => "/tmp/stella-auth-service-test/app"),
     isReady: vi.fn(() => false),
@@ -115,16 +119,21 @@ const installAuthRoutes = (routes: Record<string, AuthRoute>) => {
 
 describe("AuthService main-process token authority", () => {
   beforeEach(() => {
+    electronMocks.isPackaged = false;
     electronMocks.userDataPath = fs.mkdtempSync(
       path.join(os.tmpdir(), "stella-auth-service-"),
     );
     electronMocks.powerResumeListeners.length = 0;
+    delete process.env.STELLA_DEV_HARNESS;
+    delete process.env.STELLA_DEV_HARNESS_SESSION_TOKEN;
     installTestSafeStorage();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     resetTestSafeStorage();
+    delete process.env.STELLA_DEV_HARNESS;
+    delete process.env.STELLA_DEV_HARNESS_SESSION_TOKEN;
     fs.rmSync(electronMocks.userDataPath, { force: true, recursive: true });
   });
 
@@ -138,6 +147,26 @@ describe("AuthService main-process token authority", () => {
       baseUrl: SITE_URL,
       authToken: freshToken,
     });
+  });
+
+  it("adopts a harness bearer during construction before auth bootstrap", async () => {
+    process.env.STELLA_DEV_HARNESS = "1";
+    process.env.STELLA_DEV_HARNESS_SESSION_TOKEN = "harness-bearer";
+    const { service } = createService();
+    const seen: Array<string | null> = [];
+    installAuthRoutes({
+      "/convex/token": (request) => {
+        seen.push(request.headers.get("authorization"));
+        return json({ token: futureJwt() });
+      },
+      "/get-session": connectedSession,
+    });
+    configure(service);
+
+    await service.refreshRuntimeAuth();
+
+    expect(seen).toContain("Bearer harness-bearer");
+    expect(process.env.STELLA_DEV_HARNESS_SESSION_TOKEN).toBeUndefined();
   });
 
   it("does not inject a stale fallback token when minting fails", async () => {

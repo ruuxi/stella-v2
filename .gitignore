@@ -3,7 +3,6 @@
 !.agents/skills/
 !.agents/skills/**
 skills-lock.json
-CLAUDE.md
 AGENTS.md
 AGENT.md
 docs/

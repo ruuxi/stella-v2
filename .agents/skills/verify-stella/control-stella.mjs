@@ -5,7 +5,7 @@
  * script did not start.
  */
 import { createRequire } from "node:module";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   closeSync,
   existsSync,
@@ -373,6 +373,113 @@ const seedDataDir = (dataDir) => {
   });
 };
 
+const ACCOUNT_MODES = ["anonymous", "signed-in", "go", "pro"];
+const TEST_ACCOUNT_EMAIL_DOMAIN = "test.stella.local";
+
+const readBackendEnvLocal = (name) => {
+  const envPath = path.join(repoRoot, "packages/backend/.env.local");
+  if (!existsSync(envPath)) return "";
+  const line = readFileSync(envPath, "utf8")
+    .split("\n")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith(`${name}=`));
+  return line ? line.slice(name.length + 1).split(" #")[0].trim() : "";
+};
+
+const resolveAdminApiSecret = () => {
+  const fromEnv = process.env.STELLA_ADMIN_API_SECRET?.trim();
+  if (fromEnv) return fromEnv;
+  try {
+    return execFileSync(
+      "bunx",
+      ["convex", "env", "get", "STELLA_ADMIN_API_SECRET"],
+      {
+        cwd: path.join(repoRoot, "packages/backend"),
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 60_000,
+      },
+    ).trim();
+  } catch {
+    return "";
+  }
+};
+
+/**
+ * Mint a signed-in (non-anonymous) test account on the dev deployment via
+ * the admin API. Returns the bearer token Electron adopts at boot, plus the
+ * identifiers recorded in the run pointer. The token is never persisted.
+ */
+const mintTestAccount = async (runId, mode) => {
+  const siteUrl = (
+    process.env.CONVEX_SITE_URL?.trim() || readBackendEnvLocal("CONVEX_SITE_URL")
+  ).replace(/\/+$/, "");
+  if (!siteUrl)
+    fail("CONVEX_SITE_URL is not set and packages/backend/.env.local has none.", 2, {
+      errorCode: "TEST_ACCOUNT_SITE_URL_MISSING",
+      recovery:
+        "Export CONVEX_SITE_URL or write it to packages/backend/.env.local (see AGENTS.md).",
+    });
+  const secret = resolveAdminApiSecret();
+  if (!secret)
+    fail("STELLA_ADMIN_API_SECRET is unavailable.", 2, {
+      errorCode: "TEST_ACCOUNT_SECRET_MISSING",
+      recovery:
+        "Export STELLA_ADMIN_API_SECRET, or make `bunx convex env get STELLA_ADMIN_API_SECRET` work from packages/backend (CONVEX_DEPLOY_KEY or a logged-in Convex CLI).",
+    });
+  const body = { email: `agent-${runId}@${TEST_ACCOUNT_EMAIL_DOMAIN}` };
+  if (mode === "go" || mode === "pro") {
+    body.plan = mode;
+    body.usageMode = "unlimited";
+  }
+  let response;
+  try {
+    response = await fetch(`${siteUrl}/api/admin/test-accounts/session`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${secret}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    fail(
+      `Test account request failed: ${error instanceof Error ? error.message : String(error)}`,
+      2,
+      { errorCode: "TEST_ACCOUNT_REQUEST_FAILED", retryable: true },
+    );
+  }
+  const text = await response.text();
+  let payload = null;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    payload = null;
+  }
+  if (!response.ok || !payload?.sessionToken) {
+    fail(
+      `Test account mint returned HTTP ${response.status}: ${payload?.error ?? text.slice(0, 200)}`,
+      2,
+      {
+        errorCode: "TEST_ACCOUNT_MINT_FAILED",
+        recovery:
+          response.status === 404
+            ? "The deployment has no STELLA_TEST_ACCOUNTS=1; only the dev deployment enables test accounts."
+            : "Check STELLA_ADMIN_API_SECRET and that the backend at CONVEX_SITE_URL is deployed with the test-accounts route.",
+      },
+    );
+  }
+  return {
+    sessionToken: payload.sessionToken,
+    account: {
+      mode,
+      ownerId: payload.ownerId,
+      email: payload.email,
+      plan: payload.plan,
+    },
+  };
+};
+
 const spawnLogged = (command, args, options) => {
   mkdirSync(path.dirname(options.logPath), { recursive: true });
   const logFd = openSync(options.logPath, "a");
@@ -499,8 +606,15 @@ const cmdLaunch = async (options) => {
     await cmdStop({ silent: true });
   }
 
+  const accountMode = options.account ?? "anonymous";
+  if (!ACCOUNT_MODES.includes(accountMode))
+    fail(`Unknown --account ${accountMode}. Use one of ${ACCOUNT_MODES.join(", ")}.`);
+
   const runId = randomUUID().slice(0, 8);
   const runDir = path.join(skillRoot, ".run", runId);
+  const minted =
+    accountMode === "anonymous" ? null : await mintTestAccount(runId, accountMode);
+  const account = minted?.account ?? { mode: "anonymous" };
   const dataDir = path.join(runDir, "data");
   const userDataDir = path.join(
     os.tmpdir(),
@@ -567,6 +681,7 @@ const cmdLaunch = async (options) => {
     electronPid: null,
     startedAt: new Date().toISOString(),
     evidenceDir: DEFAULT_EVIDENCE_DIR,
+    account,
   };
   writeJson(POINTER_PATH, run);
   writeJson(path.join(runDir, "run.json"), run);
@@ -607,6 +722,9 @@ const cmdLaunch = async (options) => {
         STELLA_DEV_SERVER_URL: viteUrl,
         STELLA_DEV_HARNESS: "1",
         STELLA_DEV_HARNESS_STORAGE_KEY: randomBytes(32).toString("base64url"),
+        ...(minted
+          ? { STELLA_DEV_HARNESS_SESSION_TOKEN: minted.sessionToken }
+          : {}),
         STELLA_V2_DEV_USER_DATA_DIR: userDataDir,
         STELLA_REMOTE_DEBUG_PORT: String(cdpPort),
         NODE_ENV: "development",

@@ -103,7 +103,7 @@ export const helpText = () => {
     lines.push("");
   }
   lines.push("Common forms:");
-  lines.push("  session launch [--replace]");
+  lines.push("  session launch [--replace] [--account anonymous|signed-in|go|pro]");
   lines.push("  chat send --text <message> [--timeout <ms>]");
   lines.push("  settings tab --name <tab>");
   lines.push("  settings search --query <text>");

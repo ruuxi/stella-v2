@@ -35,6 +35,30 @@ bun run electron:dev
 `STELLA_DATA_DIR` is ignored, and destructive reset commands require the
 explicit isolated override.
 
+## Test accounts
+
+Launch the isolated Electron verifier with a signed-in paid account:
+
+```sh
+node .agents/skills/verify-stella/control-stella.mjs session launch --account pro
+```
+
+The harness reads `CONVEX_SITE_URL` from the environment or
+`packages/backend/.env.local`. It reads `STELLA_ADMIN_API_SECRET` from the
+environment or runs `bunx convex env get STELLA_ADMIN_API_SECRET` in
+`packages/backend`. For a non-Electron client, mint a session directly:
+
+```sh
+curl -sS -X POST \
+  -H "Authorization: Bearer $STELLA_ADMIN_API_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"agent-manual@test.stella.local","plan":"pro","usageMode":"unlimited"}' \
+  "$CONVEX_SITE_URL/api/admin/test-accounts/session"
+```
+
+The dev deployment has `STELLA_TEST_ACCOUNTS=1`; production never does. The
+route accepts only addresses ending in `@test.stella.local`.
+
 ## Packaged macOS test build
 
 The locally built app is staged at:

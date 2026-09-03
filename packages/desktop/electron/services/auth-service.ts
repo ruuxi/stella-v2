@@ -36,6 +36,7 @@ import {
   AUTH_CHALLENGE_STATE_PARAM,
   AUTH_CHALLENGE_TOKEN_PARAM,
 } from "@stella/contracts/auth-challenge";
+import { resolveDevHarnessSessionToken } from "../bootstrap/dev-harness-options.js";
 /** Mint a replacement Convex JWT this long before the cached one expires. */
 const HOST_AUTH_TOKEN_REFRESH_MARGIN_MS = 60_000;
 /**
@@ -179,7 +180,23 @@ export class AuthService {
   private powerResumeBound = false;
   private readonly pendingChallenges = new Map<string, PendingChallenge>();
 
-  constructor(private readonly options: AuthServiceOptions) {}
+  constructor(private readonly options: AuthServiceOptions) {
+    const harnessSessionToken = resolveDevHarnessSessionToken({
+      isPackaged: app.isPackaged,
+      hasStoredBearer: Boolean(this.getBearerToken()),
+    });
+    if (!app.isPackaged && process.env.STELLA_DEV_HARNESS === "1") {
+      delete process.env.STELLA_DEV_HARNESS_SESSION_TOKEN;
+    }
+    if (harnessSessionToken) {
+      void this.applySessionToken(harnessSessionToken).catch((error) => {
+        console.warn(
+          "[auth] Failed to adopt the development harness session:",
+          (error as Error).message,
+        );
+      });
+    }
+  }
 
   private getAuthStoragePath() {
     return path.join(app.getPath("userData"), AUTH_STORAGE_FILE);

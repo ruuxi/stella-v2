@@ -38,6 +38,10 @@ import {
   rateLimitResponse,
 } from "../http_shared/webhook_controls";
 import { readJsonBody } from "../http_shared/request";
+import {
+  readBetterAuthResponseUserId,
+  readBetterAuthSessionToken,
+} from "../http_shared/better_auth_response";
 import { getClientAddressKey } from "../lib/http_utils";
 import { isDisposableEmail } from "../lib/disposable_email_domains";
 import {
@@ -174,46 +178,6 @@ const resolveAnonymousLinkOwnerBinding = async (
           : {}),
       }
     : {};
-};
-
-const readBetterAuthResponseHeader = (
-  result: unknown,
-  wantedName: string,
-): string => {
-  if (!result || typeof result !== "object") return "";
-  const headers = (result as { headers?: unknown }).headers;
-  if (headers instanceof Headers) {
-    return headers.get(wantedName)?.trim() ?? "";
-  }
-  const headersList = (
-    headers as { _headersList?: Array<[string, string]> } | null | undefined
-  )?._headersList;
-  if (!Array.isArray(headersList)) return "";
-  const normalizedWantedName = wantedName.toLowerCase();
-  return (
-    headersList
-      .find(([name]) => name.toLowerCase() === normalizedWantedName)?.[1]
-      ?.trim() ?? ""
-  );
-};
-
-/**
- * The opaque bearer token the `bearer()` plugin emits for a newly established
- * session. This replaces reading `set-better-auth-cookie` / `set-cookie`:
- * native clients have no cookie jar, and the cookie mirroring that emulated
- * one is gone.
- */
-const readBetterAuthSessionToken = (result: unknown): string =>
-  readBetterAuthResponseHeader(result, "set-auth-token");
-
-const readBetterAuthResponseUserId = (result: unknown): string => {
-  if (!result || typeof result !== "object") return "";
-  const response = (result as { response?: unknown }).response;
-  if (!response || typeof response !== "object") return "";
-  const user = (response as { user?: unknown }).user;
-  if (!user || typeof user !== "object") return "";
-  const id = (user as { id?: unknown }).id;
-  return typeof id === "string" ? id.trim() : "";
 };
 
 const browserAuthBridgeResponse = (

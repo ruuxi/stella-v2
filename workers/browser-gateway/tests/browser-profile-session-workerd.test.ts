@@ -29,11 +29,31 @@ const freePort = (): number => {
   return port;
 };
 
+const parseJsonBody = async (response: Response): Promise<unknown> => {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      `Expected JSON from ${response.url} (${response.status}): ${text.slice(0, 200)}`,
+    );
+  }
+};
+
+const fetchJson = async (
+  url: string,
+  init?: RequestInit,
+): Promise<{ response: Response; value: unknown }> => {
+  const response = await fetch(url, init);
+  return { response, value: await parseJsonBody(response) };
+};
+
 const startWorker = async (
   port: number,
   persistenceRoot: string,
   envFile: string,
   config = "./tests/fixtures/browser-profile-session-workerd.wrangler.jsonc",
+  readyPath = "/not-found",
 ): Promise<RunningWorker> => {
   const inspectorPort = freePort();
   const process = Bun.spawn(
@@ -69,6 +89,7 @@ const startWorker = async (
   running.push(worker);
   const origin = `http://127.0.0.1:${port}`;
   const deadline = Date.now() + 30_000;
+  let lastError = "no probe yet";
   while (Date.now() < deadline) {
     if (
       await Promise.race([
@@ -79,26 +100,48 @@ const startWorker = async (
       throw new Error(`Workerd exited before readiness.\n${await output}`);
     }
     try {
-      await fetch(`${origin}/not-found`);
+      await fetchJson(`${origin}${readyPath}`);
       return worker;
-    } catch {
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
       await Bun.sleep(100);
     }
   }
-  throw new Error(`Workerd did not become ready.\n${await output}`);
+  throw new Error(
+    `Workerd did not become ready.\n${lastError}\n${await output}`,
+  );
 };
 
 const post = async (origin: string, path: string, body: unknown) => {
-  const response = await fetch(`${origin}${path}`, {
+  const { response, value } = await fetchJson(`${origin}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  const value = await response.json();
   if (!response.ok) {
     throw new Error(`Fixture request failed with ${response.status}.`);
   }
   return value as any;
+};
+
+const pollJson = async (
+  url: string,
+  deadlineMs: number,
+  intervalMs: number,
+  match: (value: any) => boolean,
+): Promise<any> => {
+  const deadline = Date.now() + deadlineMs;
+  let lastValue: any;
+  while (Date.now() < deadline) {
+    try {
+      lastValue = (await fetchJson(url)).value;
+      if (match(lastValue)) return lastValue;
+    } catch {
+      // Wrangler can accept TCP and serve HTML before the worker is live.
+    }
+    await Bun.sleep(intervalMs);
+  }
+  return lastValue;
 };
 
 describe("BrowserProfileSession in real workerd", () => {
@@ -203,23 +246,18 @@ describe("BrowserProfileSession in real workerd", () => {
       persistenceRoot,
       envFile,
       config,
+      "/__test/state",
     );
 
     const setup = await post(origin, "/__test/setup", {});
-    const partialDeadline = Date.now() + 5_000;
-    let partial: any;
-    while (Date.now() < partialDeadline) {
-      partial = await fetch(`${origin}/__test/state`).then((response) =>
-        response.json(),
-      );
-      if (
-        partial.interaction?.state === "expired" &&
-        partial.state?.active_interaction_id === setup.interactionId
-      ) {
-        break;
-      }
-      await Bun.sleep(20);
-    }
+    const partial = await pollJson(
+      `${origin}/__test/state`,
+      5_000,
+      20,
+      (value) =>
+        value?.interaction?.state === "expired" &&
+        value?.state?.active_interaction_id === setup.interactionId,
+    );
     expect(partial).toMatchObject({
       state: {
         phase: "HUMAN_CONTROL",
@@ -240,9 +278,7 @@ describe("BrowserProfileSession in real workerd", () => {
       interactionRevision: 1,
       result: "expired",
     });
-    const afterReplay = await fetch(`${origin}/__test/state`).then(
-      (response) => response.json() as Promise<any>,
-    );
+    const afterReplay = (await fetchJson(`${origin}/__test/state`)).value as any;
     expect(afterReplay.state.active_interaction_id).toBe(setup.interactionId);
     expect(afterReplay.alarm).toBeNumber();
 
@@ -250,22 +286,22 @@ describe("BrowserProfileSession in real workerd", () => {
     await worker.process.exited;
     running.splice(running.indexOf(worker), 1);
     await worker.output;
-    worker = await startWorker(port, persistenceRoot, envFile, config);
+    worker = await startWorker(
+      port,
+      persistenceRoot,
+      envFile,
+      config,
+      "/__test/state",
+    );
 
-    const recoveredDeadline = Date.now() + 10_000;
-    let recovered: any;
-    while (Date.now() < recoveredDeadline) {
-      recovered = await fetch(`${origin}/__test/state`).then((response) =>
-        response.json(),
-      );
-      if (
-        recovered.state?.phase === "AGENT_CONTROL" &&
-        recovered.state?.active_interaction_id === null
-      ) {
-        break;
-      }
-      await Bun.sleep(50);
-    }
+    const recovered = await pollJson(
+      `${origin}/__test/state`,
+      10_000,
+      50,
+      (value) =>
+        value?.state?.phase === "AGENT_CONTROL" &&
+        value?.state?.active_interaction_id === null,
+    );
     expect(recovered).toMatchObject({
       state: {
         phase: "AGENT_CONTROL",

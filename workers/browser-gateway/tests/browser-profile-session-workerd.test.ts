@@ -278,7 +278,14 @@ describe("BrowserProfileSession in real workerd", () => {
       interactionRevision: 1,
       result: "expired",
     });
-    const afterReplay = (await fetchJson(`${origin}/__test/state`)).value as any;
+    const afterReplay = await pollJson(
+      `${origin}/__test/state`,
+      5_000,
+      50,
+      (value) =>
+        value?.state?.active_interaction_id === setup.interactionId &&
+        typeof value?.alarm === "number",
+    );
     expect(afterReplay.state.active_interaction_id).toBe(setup.interactionId);
     expect(afterReplay.alarm).toBeNumber();
 

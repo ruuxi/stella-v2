@@ -30,6 +30,11 @@ import {
   makeActivityRowStyles,
   type GroupSubagent,
 } from "./activity-rows";
+import { SidebarTabBar } from "./SidebarTabBar";
+import {
+  SIDEBAR_TAB_BAR_HEIGHT,
+  type SidebarTabItem,
+} from "./sidebar-tab-bar-types";
 import { filterHubArtifacts, filterHubTasks } from "../../lib/activity-hub-search";
 import {
   activityHubGroupRowKey,
@@ -99,8 +104,6 @@ const EMPTY_TASKS: MobileTask[] = [];
 const EMPTY_ARTIFACTS: ChatArtifact[] = [];
 const EMPTY_BY_TASK: ReadonlyMap<string, ChatArtifact[]> = new Map();
 
-/** Height of the floating glass tab bar at the bottom. */
-const TAB_BAR_HEIGHT = 50;
 /** Height of the glass search field that rides above the tab bar. */
 const SEARCH_HEIGHT = 44;
 /** Gap between the search field and the tab bar. */
@@ -108,9 +111,9 @@ const DOCK_GAP = 10;
 /** Height of the Settings / Account pill on the brand row. */
 const HEADER_PILL_HEIGHT = 40;
 /**
- * How far apart sibling glass buttons may be and still fuse. The buttons in
- * a group abut with square inner edges, so this only needs to be enough to
- * melt the shared seam; anything larger bulges the blend into blobs.
+ * How far apart the two header buttons may be and still fuse. They abut with
+ * square inner edges, so this only needs to melt the shared seam; anything
+ * larger bulges the blend into blobs.
  */
 const GLASS_MERGE_DISTANCE = 12;
 
@@ -510,8 +513,10 @@ export function SidebarPanel({
   const keyboardHeight = useKeyboardHeight();
   const keyboardExtra = Math.max(0, keyboardHeight - insets.bottom);
 
+  // The bar's height is the platform control's own; it reports it back.
+  const [tabBarHeight, setTabBarHeight] = useState(SIDEBAR_TAB_BAR_HEIGHT);
   const dockHeight =
-    TAB_BAR_HEIGHT + (searchOpen ? SEARCH_HEIGHT + DOCK_GAP : 0);
+    tabBarHeight + (searchOpen ? SEARCH_HEIGHT + DOCK_GAP : 0);
   const listBottomPadding = dockHeight + insets.bottom + 28 + keyboardExtra;
   const listContentStyle = useMemo(
     () => [styles.listContent, { paddingBottom: listBottomPadding }],
@@ -625,6 +630,22 @@ export function SidebarPanel({
   };
 
   const accountLabel = signedIn ? t("mobile.nav.account") : t("mobile.nav.signIn");
+  const tabItems = useMemo<SidebarTabItem<SidebarTab>[]>(
+    () =>
+      TAB_ORDER.map((entry) => {
+        const label = t(TAB_META[entry].labelKey);
+        return {
+          key: entry,
+          label,
+          accessibilityLabel:
+            entry === "search" && searchOpen
+              ? t("mobile.activityHub.search.close")
+              : label,
+          icon: TAB_META[entry].icon,
+        };
+      }),
+    [t, searchOpen],
+  );
 
   return (
     <View style={[styles.root, { width }]}>
@@ -767,61 +788,12 @@ export function SidebarPanel({
           </View>
         ) : null}
 
-        {/* The tab bar: three interactive glass tabs in one glass group, so
-            they read as a single pill and each answers a press with the
-            native sheen. The active tab carries a tint on its glass. */}
-        <GlassGroup spacing={GLASS_MERGE_DISTANCE} style={styles.tabBar}>
-          {TAB_ORDER.map((entry, index) => {
-            const meta = TAB_META[entry];
-            const first = index === 0;
-            const last = index === TAB_ORDER.length - 1;
-            const label = t(meta.labelKey);
-            const active = tab === entry;
-            return (
-              <Pressable
-                key={entry}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                accessibilityLabel={
-                  entry === "search" && active
-                    ? t("mobile.activityHub.search.close")
-                    : label
-                }
-                onPress={() => selectTab(entry)}
-                style={({ pressed }) => [styles.tabItem, pressed && styles.pressed]}
-              >
-                <GlassSurface
-                  glass="regular"
-                  interactive
-                  radius={0}
-                  fallbackColor={colors.surface}
-                  style={[
-                    styles.tabGlass,
-                    first && styles.tabCapStart,
-                    last && styles.tabCapEnd,
-                  ]}
-                >
-                  {active ? (
-                    <View pointerEvents="none" style={styles.tabActiveLozenge} />
-                  ) : null}
-                  <Icon
-                    name={meta.icon}
-                    size={14}
-                    color={active ? colors.text : colors.textMuted}
-                    weight={active ? "semibold" : "medium"}
-                  />
-                  <Text
-                    style={[styles.tabLabel, active && styles.tabLabelActive]}
-                    numberOfLines={1}
-                    maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-                  >
-                    {label}
-                  </Text>
-                </GlassSurface>
-              </Pressable>
-            );
-          })}
-        </GlassGroup>
+        <SidebarTabBar
+          tabs={tabItems}
+          value={tab}
+          onSelect={selectTab}
+          onHeight={setTabBarHeight}
+        />
       </Animated.View>
     </View>
   );
@@ -959,52 +931,5 @@ const makeStyles = (colors: Colors) =>
       fontSize: 15,
       letterSpacing: -0.2,
       padding: 0,
-    },
-    tabBar: {
-      alignItems: "center",
-      flexDirection: "row",
-      height: TAB_BAR_HEIGHT,
-    },
-    tabItem: {
-      flex: 1,
-      height: TAB_BAR_HEIGHT,
-    },
-    tabGlass: {
-      alignItems: "center",
-      flex: 1,
-      flexDirection: "row",
-      gap: 5,
-      justifyContent: "center",
-      overflow: "hidden",
-      paddingHorizontal: 6,
-    },
-    tabCapStart: {
-      borderBottomStartRadius: TAB_BAR_HEIGHT / 2,
-      borderTopStartRadius: TAB_BAR_HEIGHT / 2,
-    },
-    tabCapEnd: {
-      borderBottomEndRadius: TAB_BAR_HEIGHT / 2,
-      borderTopEndRadius: TAB_BAR_HEIGHT / 2,
-    },
-    // Selected tab: a soft lozenge inset in its segment.
-    tabActiveLozenge: {
-      backgroundColor: fadeHex(colors.text, 0.1),
-      borderRadius: (TAB_BAR_HEIGHT - 8) / 2,
-      bottom: 4,
-      left: 4,
-      position: "absolute",
-      right: 4,
-      top: 4,
-    },
-    tabLabel: {
-      color: colors.textMuted,
-      flexShrink: 1,
-      fontFamily: fonts.sans.medium,
-      fontSize: 12,
-      letterSpacing: -0.1,
-    },
-    tabLabelActive: {
-      color: colors.text,
-      fontFamily: fonts.sans.semiBold,
     },
   });

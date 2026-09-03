@@ -14,6 +14,10 @@ import {
   mergeBundledAndExtensionAgents,
 } from "../agents/agents.js";
 import { loadExtensions } from "../extensions/loader.js";
+import {
+  configureRemotePrompts,
+  scheduleRemotePromptRevalidation,
+} from "../prompts/remote-prompts.js";
 import type { ExtensionServices } from "../extensions/services.js";
 import { createExtensionRuntimeApi } from "../extensions/runtime-api.js";
 import { modelRuntime } from "../../ai/model-runtime.js";
@@ -278,6 +282,14 @@ export const createRuntimeInitialization = (
       providers: extensions.providers.length,
       prompts: extensions.prompts.length,
     });
+    // System prompts come from the Convex publication (bundle as fallback).
+    // Bind the store now and start the first conditional fetch off the
+    // critical path; every orchestrator turn revalidates again.
+    configureRemotePrompts({
+      stellaDataDir: context.stellaDataDir,
+      getSiteUrl: () => context.state.convexSiteUrl ?? null,
+    });
+    scheduleRemotePromptRevalidation();
   };
 
   /**

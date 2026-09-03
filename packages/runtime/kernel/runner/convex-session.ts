@@ -1,4 +1,5 @@
 import { ConvexClient } from "convex/browser";
+import { scheduleRemotePromptRevalidation } from "../prompts/remote-prompts.js";
 import type { RunnerContext } from "./types.js";
 import { sanitizeConvexDeploymentUrl, sanitizeStellaBase } from "./shared.js";
 
@@ -132,12 +133,14 @@ export const createConvexSession = (
     }
     if (!process.env.STELLA_LLM_PROXY_URL) {
       context.state.convexSiteUrl = sanitizeStellaBase(value);
+      scheduleRemotePromptRevalidation();
     }
   };
 
   const setConvexSiteUrl = (value: string | null) => {
     if (process.env.STELLA_LLM_PROXY_URL) return;
     context.state.convexSiteUrl = sanitizeStellaBase(value);
+    scheduleRemotePromptRevalidation();
   };
 
   const setAuthToken = (

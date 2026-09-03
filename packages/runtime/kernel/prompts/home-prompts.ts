@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { resolveRuntimeSourceAsset } from "../shared/runtime-paths.js";
+import { getRemotePromptBody } from "./remote-prompts.js";
 
 const promptsDir = (): string =>
   process.env.STELLA_RUNTIME_PROMPTS_DIR?.trim() ||
@@ -13,6 +14,9 @@ const promptsDir = (): string =>
  * exists for tests.
  */
 export const readRuntimePrompt = (id: string): string | undefined => {
+  // Served publication first (`remote-prompts`), bundled file as fallback.
+  const served = getRemotePromptBody(`prompts/${id}.md`);
+  if (served) return served;
   try {
     const content = fs
       .readFileSync(path.join(promptsDir(), `${id}.md`), "utf-8")

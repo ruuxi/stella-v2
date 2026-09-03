@@ -1,7 +1,6 @@
 import { Context, Effect, Layer } from "effect";
 import type { App } from "electron";
 
-import type { BundledSyncReport } from "./bundled-sync.js";
 import {
   getOrCreateDeviceIdentityEffect,
   resetDeviceIdentityEffect,
@@ -11,16 +10,6 @@ import {
   reconcileBundledExtensionsEffect,
   type ExtensionsSyncReport,
 } from "./extensions-sync.js";
-import { reconcilePersonalityEffect } from "./personality-sync.js";
-import {
-  applyPromptManifestIfCurrentEffect,
-  reconcileRemotePromptManifestEffect,
-  recordAppliedPromptManifestEffect,
-  resolvePromptManifestEffect,
-  type AppliedPromptState,
-  type PromptManifestResolution,
-  type RemotePromptManifest,
-} from "./prompt-manifest-sync.js";
 import {
   reconcileBundledSkillsEffect,
   type SkillsSyncOptions,
@@ -29,7 +18,6 @@ import {
 import {
   ensureStellaDataDirSeededEffect,
   resolveStellaDataDirEffect,
-  syncStellaPromptSnapshotEffect,
   type StellaDataDir,
   type StellaDataDirSeedReport,
 } from "./stella-home.js";
@@ -47,13 +35,7 @@ export interface Interface {
   readonly ensureStellaDataDirSeeded: (
     stellaAppDir: string,
     stellaDataDir: string,
-    options?: { promptSiteUrl?: string | null },
   ) => Effect.Effect<StellaDataDirSeedReport, unknown>;
-  readonly syncStellaPromptSnapshot: (
-    stellaAppDir: string,
-    stellaDataDir: string,
-    promptSiteUrl: string,
-  ) => Effect.Effect<PromptManifestResolution, unknown>;
   readonly resolveStellaDataDir: (
     app: App,
     explicitRoot?: string,
@@ -75,27 +57,7 @@ export interface Interface {
     bundledExtensionsDir: string,
     homeExtensionsDir: string,
   ) => Effect.Effect<ExtensionsSyncReport, unknown>;
-  readonly reconcilePersonality: (
-    stellaDataDir: string,
-    sourceRevision: string,
-  ) => Effect.Effect<BundledSyncReport, unknown>;
-  readonly resolvePromptManifest: (
-    args: Parameters<typeof resolvePromptManifestEffect>[0],
-  ) => Effect.Effect<PromptManifestResolution, unknown>;
-  readonly recordAppliedPromptManifest: (
-    args: Parameters<typeof recordAppliedPromptManifestEffect>[0],
-  ) => Effect.Effect<AppliedPromptState, unknown>;
-  readonly applyPromptManifestIfCurrent: <T>(args: {
-    stellaDataDir: string;
-    endpoint: string;
-    manifest: RemotePromptManifest;
-    reconcile: Effect.Effect<T, unknown>;
-  }) => Effect.Effect<T, unknown>;
-  readonly reconcileRemotePromptManifest: (
-    manifest: RemotePromptManifest,
-    stellaDataDir: string,
-    agentMetadataDir: string,
-  ) => Effect.Effect<BundledSyncReport[], unknown>;
+
 }
 
 export class Service extends Context.Service<Service, Interface>()(
@@ -104,29 +66,8 @@ export class Service extends Context.Service<Service, Interface>()(
 
 const make = (): Interface => ({
   ensureStellaDataDirSeeded: Effect.fn("HomeService.ensureStellaDataDirSeeded")(
-    function* (
-      stellaAppDir: string,
-      stellaDataDir: string,
-      options?: { promptSiteUrl?: string | null },
-    ) {
-      return yield* ensureStellaDataDirSeededEffect(
-        stellaAppDir,
-        stellaDataDir,
-        options,
-      );
-    },
-  ),
-  syncStellaPromptSnapshot: Effect.fn("HomeService.syncStellaPromptSnapshot")(
-    function* (
-      stellaAppDir: string,
-      stellaDataDir: string,
-      promptSiteUrl: string,
-    ) {
-      return yield* syncStellaPromptSnapshotEffect(
-        stellaAppDir,
-        stellaDataDir,
-        promptSiteUrl,
-      );
+    function* (stellaAppDir: string, stellaDataDir: string) {
+      return yield* ensureStellaDataDirSeededEffect(stellaAppDir, stellaDataDir);
     },
   ),
   resolveStellaDataDir: Effect.fn("HomeService.resolveStellaDataDir")(
@@ -168,38 +109,6 @@ const make = (): Interface => ({
     return yield* reconcileBundledExtensionsEffect(
       bundledExtensionsDir,
       homeExtensionsDir,
-    );
-  }),
-  reconcilePersonality: Effect.fn("HomeService.reconcilePersonality")(
-    function* (stellaDataDir: string, sourceRevision: string) {
-      return yield* reconcilePersonalityEffect(stellaDataDir, sourceRevision);
-    },
-  ),
-  resolvePromptManifest: Effect.fn("HomeService.resolvePromptManifest")(
-    function* (args: Parameters<typeof resolvePromptManifestEffect>[0]) {
-      return yield* resolvePromptManifestEffect(args);
-    },
-  ),
-  recordAppliedPromptManifest: Effect.fn(
-    "HomeService.recordAppliedPromptManifest",
-  )(function* (args: Parameters<typeof recordAppliedPromptManifestEffect>[0]) {
-    return yield* recordAppliedPromptManifestEffect(args);
-  }),
-  // Generic in the reconcile result; delegated without a span wrapper so the
-  // type parameter survives the interface boundary.
-  applyPromptManifestIfCurrent: (args) =>
-    applyPromptManifestIfCurrentEffect(args),
-  reconcileRemotePromptManifest: Effect.fn(
-    "HomeService.reconcileRemotePromptManifest",
-  )(function* (
-    manifest: RemotePromptManifest,
-    stellaDataDir: string,
-    agentMetadataDir: string,
-  ) {
-    return yield* reconcileRemotePromptManifestEffect(
-      manifest,
-      stellaDataDir,
-      agentMetadataDir,
     );
   }),
 });

@@ -9,6 +9,17 @@ This is Stella's built-in Pi-style runtime extension.
   for each active bundled agent.
 - `prompts/*.md`: authoritative active non-agent prompt bodies.
 
+## Shipping a prompt change
+
+Edit the file here, run `bun run prompts:sync-defaults` (CI's
+`prompts:check-defaults` fails if the Convex copy drifts), and deploy Convex.
+Both the desktop runtime and the cloud worker read the published set with a
+conditional GET on every orchestrator turn (`kernel/prompts/remote-prompts.ts`,
+`workers/cloud-builder/src/cloud-prompt.ts`), so the change reaches every
+client on the next message. The bundled files are the offline/BYOK fallback
+and the source the publication is generated from; nothing is written to the
+user's data dir.
+
 ## Why it exists
 
 Stella's runtime was already partially derived from Pi, but core agent setup had

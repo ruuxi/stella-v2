@@ -9,21 +9,11 @@ import {
   migrateLegacyHomeLayout,
   migrateLegacySystemSkillRoot,
 } from "./legacy-migration.js";
-import { type BundledSyncReport } from "./bundled-sync.js";
 import {
   listIncludedBundledSkillIds,
   reconcileBundledSkillsEffect,
   summarizeSkillsSync,
 } from "./skills-sync.js";
-import {
-  StalePromptManifestError,
-  applyPromptManifestIfCurrentEffect,
-  reconcileRemotePromptManifestEffect,
-  resolvePromptManifestEffect,
-  type PromptManifestResolution,
-} from "./prompt-manifest-sync.js";
-import { reconcilePersonalityEffect } from "./personality-sync.js";
-import { PromptEndpointMissingError } from "./errors.js";
 import { withHome } from "./home-runtime.js";
 import {
   resolveBundledAgentMetadataDir,
@@ -54,11 +44,7 @@ export type StellaDataDir = {
 };
 
 export type StellaDataDirSeedReport = {
-  /** Whether the bundled-skill reconciliation changed the canonical root. */
   synced: boolean;
-  /** Present only when the cloud prompt-parity path ran (prompt site URL supplied). */
-  promptResolution?: PromptManifestResolution["source"];
-  personalitySync?: BundledSyncReport;
 };
 
 /** Adapt a leaf Promise IO call, failing with the raw thrown value. */
@@ -103,7 +89,6 @@ const STELLA_DATA_SEED_ENTRIES = [path.join("outputs", "README.md")] as const;
 export const ensureStellaDataDirSeededEffect = (
   stellaAppDir: string,
   stellaDataDir: string,
-  options: { promptSiteUrl?: string | null } = {},
 ): Effect.Effect<StellaDataDirSeedReport, unknown> =>
   Effect.gen(function* () {
     yield* tryIO(() => ensureDir(stellaDataDir));
@@ -145,118 +130,22 @@ export const ensureStellaDataDirSeededEffect = (
       );
     }
 
-    // Cloud prompt parity: the remote prompt manifest pipeline runs only when
-    // a prompt site URL is supplied. The local-first path stays bundle-only —
-    // system prompts never materialize into the data dir.
-    let promptResolution: PromptManifestResolution["source"] | undefined;
-    let personalitySync: BundledSyncReport | undefined;
-    if (options.promptSiteUrl) {
-      const resolution = yield* resolvePromptManifestEffect({
-        stellaDataDir,
-        siteUrl: options.promptSiteUrl,
-      });
-      promptResolution = resolution.source;
-      if (resolution.manifest) {
-        if (!resolution.endpoint) {
-          return yield* Effect.fail(new PromptEndpointMissingError());
-        }
-        yield* applyPromptManifestIfCurrentEffect({
-          stellaDataDir,
-          endpoint: resolution.endpoint,
-          manifest: resolution.manifest,
-          reconcile: Effect.gen(function* () {
-            yield* reconcileRemotePromptManifestEffect(
-              resolution.manifest!,
-              stellaDataDir,
-              resolveBundledAgentMetadataDir(stellaAppDir),
-            );
-            personalitySync = yield* reconcilePersonalityEffect(
-              stellaDataDir,
-              resolution.manifest!.revision,
-            );
-          }),
-        }).pipe(
-          Effect.catch((error) =>
-            error instanceof StalePromptManifestError
-              ? Effect.sync(() => {
-                  personalitySync = { actions: [] };
-                })
-              : Effect.fail(error),
-          ),
-        );
-      }
-    }
-
-    return {
-      synced: applied,
-      ...(promptResolution ? { promptResolution } : {}),
-      ...(personalitySync ? { personalitySync } : {}),
-    };
+    // System prompts are not materialized here: the runtime reads the Convex
+    // publication (bundle as fallback) — see `prompts/remote-prompts.ts`.
+    return { synced: applied };
   });
 
 export const ensureStellaDataDirSeeded = (
   stellaAppDir: string,
   stellaDataDir: string,
-  options: { promptSiteUrl?: string | null } = {},
 ): Promise<StellaDataDirSeedReport> =>
-  withHome((home) =>
-    home.ensureStellaDataDirSeeded(stellaAppDir, stellaDataDir, options),
-  );
+  withHome((home) => home.ensureStellaDataDirSeeded(stellaAppDir, stellaDataDir));
 
 /**
  * Re-run only the remote prompt portion after the renderer supplies a site URL
  * later than main-process startup. Agent bodies are live-read per turn and the
  * extension watcher observes the atomic replacements.
  */
-export const syncStellaPromptSnapshotEffect = (
-  stellaAppDir: string,
-  stellaDataDir: string,
-  promptSiteUrl: string,
-): Effect.Effect<PromptManifestResolution, unknown> =>
-  Effect.gen(function* () {
-    const resolution = yield* resolvePromptManifestEffect({
-      stellaDataDir,
-      siteUrl: promptSiteUrl,
-    });
-    if (resolution.manifest) {
-      if (!resolution.endpoint) {
-        return yield* Effect.fail(new PromptEndpointMissingError());
-      }
-      yield* applyPromptManifestIfCurrentEffect({
-        stellaDataDir,
-        endpoint: resolution.endpoint,
-        manifest: resolution.manifest,
-        reconcile: Effect.gen(function* () {
-          yield* reconcileRemotePromptManifestEffect(
-            resolution.manifest!,
-            stellaDataDir,
-            resolveBundledAgentMetadataDir(stellaAppDir),
-          );
-          yield* reconcilePersonalityEffect(
-            stellaDataDir,
-            resolution.manifest!.revision,
-          );
-        }),
-      }).pipe(
-        Effect.catch((error) =>
-          error instanceof StalePromptManifestError
-            ? Effect.void
-            : Effect.fail(error),
-        ),
-      );
-    }
-    return resolution;
-  });
-
-export const syncStellaPromptSnapshot = (
-  stellaAppDir: string,
-  stellaDataDir: string,
-  promptSiteUrl: string,
-): Promise<PromptManifestResolution> =>
-  withHome((home) =>
-    home.syncStellaPromptSnapshot(stellaAppDir, stellaDataDir, promptSiteUrl),
-  );
-
 export const resolveStellaDataDirEffect = (
   app: App,
   explicitRoot?: string,

@@ -21,7 +21,7 @@ import {
   STELLA_PROMPT_IDS as RUNTIME_PROMPT_IDS,
   STELLA_PROMPT_SCHEMA_VERSION as RUNTIME_PROMPT_SCHEMA_VERSION,
 } from "../../contracts/stella-prompts";
-import { parseRemotePromptManifest } from "../../runtime/kernel/home/prompt-manifest-sync";
+import { parseRemotePromptManifest } from "../../runtime/kernel/prompts/remote-prompts";
 import {
   STELLA_PROMPT_SOURCE_ENTRIES,
   backendCloudPromptSourceRoot,

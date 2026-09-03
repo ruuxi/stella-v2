@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IPC_MEDIA_SAVE_OUTPUT } from "@stella/contracts/desktop/ipc-channels";
+import { DEVICE_SIGNING_PROBE_INPUT } from "@stella/contracts/gateway/dpop";
 
 const ipc = vi.hoisted(() => ({
   handles: new Map<string, (...args: unknown[]) => unknown>(),
@@ -299,14 +300,17 @@ describe("Electron IPC registration integrity", () => {
     registerSystemHandlers(options);
 
     const signDevice = ipc.handles.get("auth:signDevice");
-    await expect(signDevice?.({}, "canonical-input")).resolves.toEqual({
+    await expect(signDevice?.({}, "canonical-input")).rejects.toThrow(
+      "Blocked device-signing input outside the DPoP contract.",
+    );
+    await expect(signDevice?.({}, DEVICE_SIGNING_PROBE_INPUT)).resolves.toEqual({
       alg: "ed25519",
       rawPublicKey: Array.from({ length: 32 }, (_, index) => index),
       signature: "device-signature",
     });
     expect(assertPrivilegedSender).toHaveBeenCalledWith({}, "auth:signDevice");
     expect(loadDeviceSigner).toHaveBeenCalledOnce();
-    expect(sign).toHaveBeenCalledWith("canonical-input");
+    expect(sign).toHaveBeenCalledWith(DEVICE_SIGNING_PROBE_INPUT);
   });
 
   it("wires the connector credential service into system registration", () => {

@@ -42,20 +42,51 @@ mock.module("../http", () => ({
   postJson: (path: string, body: unknown, options?: Record<string, unknown>) =>
     transport({ method: "POST", path, body, options: options ?? {} }),
 }));
+// Convex traffic is recorded by function name so a test can assert which
+// control-plane query fenced a call, not just that one did.
+let convexCalls: Array<{ kind: "query" | "mutation"; name: string }> = [];
+const convexFunction = (
+  kind: "query" | "mutation",
+  ref: unknown,
+  args: unknown,
+) => {
+  const name = getFunctionName(ref as FunctionReference<"query">);
+  convexCalls.push({ kind, name });
+  switch (name) {
+    case "cloud_apps:getCloudRealtimeConfig":
+      return {
+        httpOrigin: "https://convex.example",
+        socketOrigin: BUILDER_ORIGIN,
+        protocol: 1,
+      };
+    case "cloud_apps:getMyCloudConversationIdentity":
+      return { ownerId: "owner-1", ownerGeneration: "gen-1" };
+    case "cloud_apps:createMyConversation":
+      return {
+        conversationId: `conv:${(args as { clientCreateId: string }).clientCreateId}`,
+      };
+    default:
+      throw new Error(`unexpected convex ${kind} ${name}`);
+  }
+};
 mock.module("../convex", () => ({
   getConvexClient: () => ({
-    query: async () => ({
-      httpOrigin: "https://convex.example",
-      socketOrigin: BUILDER_ORIGIN,
-      protocol: 1,
-    }),
+    query: async (ref: unknown, args: unknown) =>
+      convexFunction("query", ref, args),
+    mutation: async (ref: unknown, args: unknown) =>
+      convexFunction("mutation", ref, args),
   }),
 }));
 
 const BUILDER_ORIGIN = "https://builder.example";
 
+const { getFunctionName } = await import("convex/server");
+type FunctionReference<T extends "query" | "mutation"> = import(
+  "convex/server"
+).FunctionReference<T>;
 const {
   cancelAutomaticExecution,
+  ensureAutomaticExecutionConversation,
   getAutomaticExecutionStatus,
   listExecutionDevices,
   submitAutomaticExecution,
@@ -113,6 +144,7 @@ const transport = async (call: Call) => {
 
 beforeEach(() => {
   calls = [];
+  convexCalls = [];
   respond = () => ({ protocol: 1, dispatch: dispatch() });
 });
 
@@ -288,6 +320,25 @@ describe("mobile execution placement client", () => {
         cancelRequestId: "cancel:mobile:one",
       }),
     ).rejects.toThrow("No computer with what this needs is online.");
+  });
+
+  test("fences conversation creation on the conversation identity, not device placement", async () => {
+    // Hosted chat is open to the anonymous owner; the execution-placement
+    // identity query refuses anonymous callers because it registers desktops
+    // for remote execution. Admitting a chat conversation through it made
+    // account-free mobile chat fail on its first turn.
+    const conversationId = await ensureAutomaticExecutionConversation({
+      threadId: "cloud",
+      title: "Chat",
+    });
+    expect(conversationId).toBe("conv:mobile-placement:cloud");
+    expect(convexCalls).toEqual([
+      { kind: "query", name: "cloud_apps:getMyCloudConversationIdentity" },
+      { kind: "mutation", name: "cloud_apps:createMyConversation" },
+    ]);
+    expect(convexCalls.map((call) => call.name)).not.toContain(
+      "execution_placement:getMyExecutionPlacementIdentity",
+    );
   });
 
   test("maps anonymous and suspended placement refusals to client copy", async () => {

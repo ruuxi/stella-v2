@@ -46,6 +46,15 @@ describe("anonymous mobile Chat entry", () => {
     );
   });
 
+  test("admits the anonymous conversation without the connected-only placement identity", async () => {
+    const placement = await source("../execution-placement.ts");
+
+    expect(placement).toContain('"cloud_apps:getMyCloudConversationIdentity"');
+    expect(placement).not.toContain(
+      "execution_placement:getMyExecutionPlacementIdentity",
+    );
+  });
+
   test("preserves anonymous intent after the session becomes available", async () => {
     const layout = await source("../../../app/_layout.tsx");
 

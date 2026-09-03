@@ -454,5 +454,8 @@
     "sharp",
     "sqlite3",
     "uiohook-napi"
-  ]
+  ],
+  "patchedDependencies": {
+    "@siteed/audio-studio@3.2.0": "patches/@siteed%2Faudio-studio@3.2.0.patch"
+  }
 }

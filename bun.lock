@@ -481,6 +481,7 @@
   ],
   "patchedDependencies": {
     "react-native-carplay@2.3.0": "patches/react-native-carplay@2.3.0.patch",
+    "@siteed/audio-studio@3.2.0": "patches/@siteed%2Faudio-studio@3.2.0.patch",
     "react-native@0.86.3": "patches/react-native@0.86.3.patch",
     "react-native-nitro-markdown@0.6.2": "patches/react-native-nitro-markdown@0.6.2.patch",
   },

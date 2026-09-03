@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -13,9 +15,11 @@ import {
   type LegendListRenderItemProps,
 } from "@legendapp/list/react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArtifactCard } from "../ArtifactCard";
-import { GlassCard, GlassSurface } from "../glass";
-import { GlassIconButton } from "../GlassIconButton";
+import Animated, {
+  useAnimatedKeyboard,
+  useAnimatedStyle,
+} from "react-native-reanimated";
+import { GlassCard, GlassGroup, GlassSurface } from "../glass";
 import { Icon, type IconName } from "../Icon";
 import { StellaBrandMark } from "../StellaBrandMark";
 import {
@@ -56,14 +60,21 @@ import { fonts } from "../../theme/fonts";
 import { fadeHex } from "../../theme/oklch";
 import type { ChatArtifact, MobileTask } from "../../types";
 
-type SidebarTab = "activity" | "schedule" | "files";
+/**
+ * Bottom tab bar entries. Activity carries the conversation's files too (they
+ * nest under the agent that produced them, with a "This conversation" row for
+ * the main thread's own), so there is no separate Files tab. Search is a mode
+ * rather than a list of its own: selecting it reveals the search field and
+ * narrows the activity + files list to matches.
+ */
+type SidebarTab = "activity" | "schedule" | "search";
 
-const TAB_ORDER: SidebarTab[] = ["activity", "schedule", "files"];
+const TAB_ORDER: SidebarTab[] = ["activity", "schedule", "search"];
 
 const TAB_META: Record<SidebarTab, { labelKey: string; icon: IconName }> = {
   activity: { labelKey: "mobile.activityHub.tabs.activity", icon: "waveform" },
   schedule: { labelKey: "mobile.activityHub.tabs.schedule", icon: "clock" },
-  files: { labelKey: "mobile.activityHub.tabs.files", icon: "file-text" },
+  search: { labelKey: "mobile.activityHub.tabs.search", icon: "search" },
 };
 
 export type SidebarDestination = "/chat" | "/settings" | "/account" | "/login";
@@ -78,8 +89,6 @@ type ActivityListRow =
   | { kind: "task"; task: MobileTask; artifacts: ChatArtifact[] }
   | { kind: "conversation"; artifacts: ChatArtifact[] };
 
-type FileRow = { kind: "file"; artifact: ChatArtifact };
-
 const activityListRowKey = (row: ActivityListRow): string => {
   if (row.kind === "group") return activityHubGroupRowKey(row);
   if (row.kind === "task") return activityHubTaskRowKey(row.task);
@@ -90,18 +99,52 @@ const EMPTY_TASKS: MobileTask[] = [];
 const EMPTY_ARTIFACTS: ChatArtifact[] = [];
 const EMPTY_BY_TASK: ReadonlyMap<string, ChatArtifact[]> = new Map();
 
-/** Height reserved under the lists for the floating dock. */
-const DOCK_HEIGHT = 44;
+/** Height of the floating glass tab bar at the bottom. */
+const TAB_BAR_HEIGHT = 50;
+/** Height of the glass search field that rides above the tab bar. */
+const SEARCH_HEIGHT = 44;
+/** Gap between the search field and the tab bar. */
+const DOCK_GAP = 10;
+/** Height of the Settings / Account pill on the brand row. */
+const HEADER_PILL_HEIGHT = 40;
 
 /**
- * The left sidebar: the conversation's background activity, schedules and
- * files under a search field, with Settings and Account docked at the
- * bottom as floating glass controls.
+ * Settled keyboard height as JS state, for the list's bottom inset. The dock's
+ * own motion is driven on the UI thread by `useAnimatedKeyboard`; this only
+ * needs the resting value so results can scroll clear of the keyboard.
+ */
+function useKeyboardHeight(): number {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(
+      showEvent,
+      (e: { endCoordinates: { height: number } }) => {
+        setHeight(e.endCoordinates.height);
+      },
+    );
+    const hideSub = Keyboard.addListener(hideEvent, () => setHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+  return height;
+}
+
+/**
+ * The left sidebar. The brand row sits at the top with Settings and Account
+ * in one glass pill on its right; the conversation's activity (files nested
+ * under the agents that made them) and schedules fill the middle; and a
+ * floating glass tab bar (Activity · Schedule · Search) rides the bottom so
+ * every control is within thumb reach. The Search tab reveals a glass search
+ * field above the tab bar, which lifts with the keyboard.
  *
- * This replaces both the old two-item nav (Chat / Settings — the app has one
- * chat, so it navigated nowhere) and the activity-hub sheet, whose lists now
- * live here at sidebar scale. Data arrives through the shell store the chat
- * route publishes into, so the panel needs no props from the router.
+ * Data arrives through the shell store the chat route publishes into, so the
+ * panel needs no props from the router.
  */
 export function SidebarPanel({
   open,
@@ -139,6 +182,7 @@ export function SidebarPanel({
   const [tab, setTab] = useState<SidebarTab>("activity");
   const [query, setQuery] = useState("");
   const searchInputRef = useRef<TextInput>(null);
+  const searchOpen = tab === "search";
 
   const [schedules, setSchedules] = useState<MobileSchedule[]>([]);
   const [schedulesLoading, setSchedulesLoading] = useState(false);
@@ -170,13 +214,22 @@ export function SidebarPanel({
     });
   }, []);
 
-  // Closing the drawer clears the search and drops the keyboard, so the next
-  // reveal always starts from the plain overview.
+  // Closing the drawer leaves search mode, clears the query and drops the
+  // keyboard, so the next reveal always starts from the plain overview.
   useEffect(() => {
     if (open) return;
     setQuery("");
     searchInputRef.current?.blur();
+    setTab((current) => (current === "search" ? "activity" : current));
   }, [open]);
+
+  // The search field mounts when the Search tab is chosen; focus it as soon
+  // as it exists so the keyboard comes up in the same gesture.
+  useEffect(() => {
+    if (!searchOpen || !open) return;
+    const handle = setTimeout(() => searchInputRef.current?.focus(), 40);
+    return () => clearTimeout(handle);
+  }, [searchOpen, open]);
 
   useEffect(() => {
     setActivityWindow((current) =>
@@ -286,7 +339,7 @@ export function SidebarPanel({
     [busyScheduleKey, applyScheduleAction, t],
   );
 
-  const searching = query.trim().length > 0;
+  const searching = searchOpen && query.trim().length > 0;
 
   const matchingTasks = useMemo(
     () => filterHubTasks(hubTasks, query),
@@ -380,13 +433,6 @@ export function SidebarPanel({
     shownConversationArtifacts,
   ]);
 
-  // Files tab: everything the conversation produced, newest first, noise
-  // already filtered by the collector. Search narrows it; otherwise show all.
-  const fileRows = useMemo<FileRow[]>(() => {
-    const source = searching ? matchingArtifacts : artifacts;
-    return source.map((artifact) => ({ kind: "file" as const, artifact }));
-  }, [artifacts, matchingArtifacts, searching]);
-
   const releasePagingLock = () => {
     setTimeout(() => {
       pagingLockedRef.current = false;
@@ -409,10 +455,25 @@ export function SidebarPanel({
     releasePagingLock();
   };
 
+  // Search is a toggle: tapping it again puts the search field away and
+  // returns to the overview. Leaving search for another tab does the same.
   const selectTab = (next: SidebarTab) => {
-    if (next === tab) return;
     tapLight();
+    if (next === "search" && tab === "search") {
+      closeSearch();
+      return;
+    }
+    if (next === tab) return;
+    if (tab === "search") {
+      setQuery("");
+      searchInputRef.current?.blur();
+    }
     setTab(next);
+  };
+  const closeSearch = () => {
+    setQuery("");
+    searchInputRef.current?.blur();
+    setTab("activity");
   };
 
   const openArtifact = useCallback(
@@ -430,7 +491,22 @@ export function SidebarPanel({
     setNowMs(Date.now());
   }, [schedules]);
 
-  const listBottomPadding = DOCK_HEIGHT + insets.bottom + 28;
+  // The dock rests `insets.bottom + 14` above the screen bottom. When the
+  // keyboard is up (only the search field summons it here), lift the dock by
+  // the keyboard height minus that already-reserved band so the search field
+  // lands a constant gap above the keyboard, tracked frame-for-frame.
+  const keyboard = useAnimatedKeyboard();
+  const dockKeyboardStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: -Math.max(0, keyboard.height.value - insets.bottom) },
+    ],
+  }));
+  const keyboardHeight = useKeyboardHeight();
+  const keyboardExtra = Math.max(0, keyboardHeight - insets.bottom);
+
+  const dockHeight =
+    TAB_BAR_HEIGHT + (searchOpen ? SEARCH_HEIGHT + DOCK_GAP : 0);
+  const listBottomPadding = dockHeight + insets.bottom + 28 + keyboardExtra;
   const listContentStyle = useMemo(
     () => [styles.listContent, { paddingBottom: listBottomPadding }],
     [styles.listContent, listBottomPadding],
@@ -485,38 +561,8 @@ export function SidebarPanel({
         />
       );
     }
-    if (tab === "files") {
-      if (fileRows.length === 0) {
-        return (
-          <Text style={styles.empty}>
-            {searching
-              ? t("mobile.activityHub.files.emptyFiltered")
-              : t("mobile.activityHub.files.empty")}
-          </Text>
-        );
-      }
-      return (
-        <LegendList<FileRow>
-          style={styles.list}
-          contentContainerStyle={listContentStyle}
-          data={fileRows}
-          keyExtractor={(row) => row.artifact.id}
-          renderItem={({ item }: LegendListRenderItemProps<FileRow>) => (
-            <ArtifactCard
-              artifact={item.artifact}
-              colors={colors}
-              onPress={openArtifact}
-            />
-          )}
-          ItemSeparatorComponent={() => <View style={styles.rowSeparator} />}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          showsVerticalScrollIndicator={false}
-          estimatedItemSize={62}
-          recycleItems
-        />
-      );
-    }
+    // Activity (and Search, which narrows the same list): agents with their
+    // files nested underneath, plus the main thread's own files.
     return (
       <LegendList<ActivityListRow>
         style={styles.list}
@@ -572,50 +618,157 @@ export function SidebarPanel({
     );
   };
 
-  return (
-    <GlassCard
-      radius={0}
-      legible
-      style={[styles.root, { width, paddingTop: insets.top + 10 }]}
-    >
-      <View style={[styles.body, { paddingRight: contentInsetRight }]}>
-        <Pressable
-          onPress={() => onNavigate("/chat")}
-          accessibilityRole="button"
-          accessibilityLabel={t("mobile.nav.chat")}
-          hitSlop={8}
-          style={({ pressed }) => [styles.header, pressed && styles.pressed]}
-        >
-          <StellaBrandMark compact />
-        </Pressable>
+  const accountLabel = signedIn ? t("mobile.nav.account") : t("mobile.nav.signIn");
+  // Selected tab: a soft text-colored tint on its glass.
+  const activeTabTint = fadeHex(colors.text, 0.12);
 
-        <View style={styles.searchWrap}>
-          <Icon name="search" size={14} color={colors.textMuted} />
-          <TextInput
-            ref={searchInputRef}
-            value={query}
-            onChangeText={setQuery}
-            placeholder={t("mobile.sidebar.searchPlaceholder")}
-            placeholderTextColor={fadeHex(colors.textMuted, 0.7)}
-            style={styles.searchInput}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-            maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-          />
-          {query.length > 0 ? (
+  return (
+    <View style={[styles.root, { width }]}>
+      {/* The panel's own Liquid Glass is a background layer, not the parent
+          of everything else: iOS does not render a glass view nested inside
+          another glass view, so the pills below must be its siblings. */}
+      <GlassCard
+        pointerEvents="none"
+        radius={0}
+        legible
+        style={StyleSheet.absoluteFill}
+      />
+      <View
+        style={[
+          styles.body,
+          { paddingRight: contentInsetRight, paddingTop: insets.top + 10 },
+        ]}
+      >
+        {/* Brand row: the wordmark on the left (tap: back to the chat) and
+            Settings + Account together in one glass pill on the right. Both
+            are low-frequency, so they live at the top, out of thumb range. */}
+        <View style={styles.header}>
+          <Pressable
+            onPress={() => onNavigate("/chat")}
+            accessibilityRole="button"
+            accessibilityLabel={t("mobile.nav.chat")}
+            hitSlop={8}
+            style={({ pressed }) => [styles.brand, pressed && styles.pressed]}
+          >
+            <StellaBrandMark compact />
+          </Pressable>
+          {/* One glass group, two interactive glass buttons: the container
+              melts them into a single pill while each keeps Apple's native
+              press sheen. */}
+          <GlassGroup spacing={HEADER_PILL_HEIGHT} style={styles.headerGroup}>
             <Pressable
-              accessibilityLabel={t("mobile.activityHub.search.clear")}
-              hitSlop={8}
-              onPress={() => setQuery("")}
+              accessibilityRole="button"
+              accessibilityLabel={t("mobile.nav.settings")}
+              hitSlop={4}
+              onPress={() => onNavigate("/settings")}
+              style={({ pressed }) => [
+                styles.headerIconButton,
+                pressed && styles.pressed,
+              ]}
             >
-              <Icon name="x" size={13} color={colors.textMuted} />
+              <GlassSurface
+                glass="clear"
+                interactive
+                radius={HEADER_PILL_HEIGHT / 2}
+                fallbackColor={colors.surface}
+                style={styles.headerIconGlass}
+              >
+                <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.pillRing]} />
+                <Icon name="settings" size={18} color={colors.text} weight="semibold" />
+              </GlassSurface>
             </Pressable>
-          ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={accountLabel}
+              hitSlop={4}
+              onPress={() => onNavigate(signedIn ? "/account" : "/login")}
+              style={({ pressed }) => [
+                styles.headerAccountButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <GlassSurface
+                glass="clear"
+                interactive
+                radius={HEADER_PILL_HEIGHT / 2}
+                fallbackColor={colors.surface}
+                style={styles.headerAccountGlass}
+              >
+                <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.pillRing]} />
+                <Icon name="user" size={15} color={colors.text} weight="semibold" />
+                <Text
+                  style={styles.headerAccountLabel}
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                >
+                  {accountLabel}
+                </Text>
+              </GlassSurface>
+            </Pressable>
+          </GlassGroup>
         </View>
 
-        <View style={styles.segments}>
-          {TAB_ORDER.map((entry) => {
+        <View style={styles.listArea}>{renderList()}</View>
+      </View>
+
+      {/* Floating dock: the search field (Search tab only) over the tab bar,
+          both glass, riding the list's bottom edge clear of the home
+          indicator and lifting with the keyboard. */}
+      <Animated.View
+        pointerEvents="box-none"
+        style={[
+          styles.dock,
+          {
+            bottom: insets.bottom + 14,
+            right: contentInsetRight + 16,
+          },
+          dockKeyboardStyle,
+        ]}
+      >
+        {searchOpen ? (
+          <View style={styles.searchShadow}>
+            <GlassSurface
+              glass="regular"
+              tintColor={fadeHex(colors.surface, 0.5)}
+              radius={SEARCH_HEIGHT / 2}
+              fallbackColor={colors.surface}
+              style={styles.searchGlass}
+            >
+              <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.searchRing]} />
+              <Icon name="search" size={15} color={colors.textMuted} />
+              <TextInput
+                ref={searchInputRef}
+                value={query}
+                onChangeText={setQuery}
+                placeholder={t("mobile.sidebar.searchPlaceholder")}
+                placeholderTextColor={fadeHex(colors.textMuted, 0.7)}
+                selectionColor={colors.accent}
+                style={styles.searchInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+              />
+              {query.length > 0 ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t("mobile.activityHub.search.clear")}
+                  hitSlop={10}
+                  onPress={() => setQuery("")}
+                  style={({ pressed }) => [pressed && styles.pressed]}
+                >
+                  <Icon name="x" size={14} color={colors.textMuted} />
+                </Pressable>
+              ) : null}
+            </GlassSurface>
+          </View>
+        ) : null}
+
+        {/* The tab bar: three interactive glass tabs in one glass group, so
+            they read as a single pill and each answers a press with the
+            native sheen. The active tab carries a tint on its glass. */}
+        <GlassGroup spacing={TAB_BAR_HEIGHT} style={styles.tabBar}>
+          {TAB_ORDER.map((entry, index) => {
             const meta = TAB_META[entry];
             const label = t(meta.labelKey);
             const active = tab === entry;
@@ -624,85 +777,47 @@ export function SidebarPanel({
                 key={entry}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: active }}
-                accessibilityLabel={label}
+                accessibilityLabel={
+                  entry === "search" && active
+                    ? t("mobile.activityHub.search.close")
+                    : label
+                }
                 onPress={() => selectTab(entry)}
                 style={({ pressed }) => [
-                  styles.segment,
-                  active && styles.segmentActive,
-                  pressed && !active && styles.pressed,
+                  styles.tabItem,
+                  index > 0 && styles.tabItemOverlap,
+                  pressed && styles.pressed,
                 ]}
               >
-                <Icon
-                  name={meta.icon}
-                  size={13}
-                  color={active ? colors.text : colors.textMuted}
-                  weight={active ? "semibold" : "medium"}
-                />
-                <Text
-                  style={[styles.segmentLabel, active && styles.segmentLabelActive]}
-                  numberOfLines={1}
-                  maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                <GlassSurface
+                  glass="clear"
+                  interactive
+                  radius={TAB_BAR_HEIGHT / 2}
+                  tintColor={active ? activeTabTint : undefined}
+                  fallbackColor={active ? activeTabTint : colors.surface}
+                  style={styles.tabGlass}
                 >
-                  {label}
-                </Text>
+                  <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.pillRing]} />
+                  <Icon
+                    name={meta.icon}
+                    size={14}
+                    color={active ? colors.text : colors.textMuted}
+                    weight={active ? "semibold" : "medium"}
+                  />
+                  <Text
+                    style={[styles.tabLabel, active && styles.tabLabelActive]}
+                    numberOfLines={1}
+                    maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                  >
+                    {label}
+                  </Text>
+                </GlassSurface>
               </Pressable>
             );
           })}
-        </View>
-
-        <View style={styles.listArea}>{renderList()}</View>
-      </View>
-
-      {/* Floating dock: Settings and Account ride over the list's bottom
-          edge as glass, clear of the home indicator. */}
-      <View
-        pointerEvents="box-none"
-        style={[
-          styles.dock,
-          {
-            bottom: insets.bottom + 14,
-            right: contentInsetRight + 16,
-          },
-        ]}
-      >
-        <GlassIconButton
-          icon="settings"
-          size={DOCK_HEIGHT}
-          iconSize={20}
-          accessibilityLabel={t("mobile.nav.settings")}
-          onPress={() => onNavigate("/settings")}
-        />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={signedIn ? t("mobile.nav.account") : t("mobile.nav.signIn")}
-          onPress={() => onNavigate(signedIn ? "/account" : "/login")}
-          style={({ pressed }) => [styles.accountPressable, pressed && styles.pressed]}
-        >
-          <GlassSurface
-            glass="clear"
-            interactive
-            radius={DOCK_HEIGHT / 2}
-            fallbackColor={colors.surface}
-            style={styles.accountGlass}
-          >
-            <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.accountRing]} />
-            <Icon
-              name="user"
-              size={17}
-              color={colors.text}
-              weight="semibold"
-            />
-            <Text
-              style={styles.accountLabel}
-              numberOfLines={1}
-              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-            >
-              {signedIn ? t("mobile.nav.account") : t("mobile.nav.signIn")}
-            </Text>
-          </GlassSurface>
-        </Pressable>
-      </View>
-    </GlassCard>
+        </GlassGroup>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -719,72 +834,61 @@ const makeStyles = (colors: Colors) =>
       opacity: 0.7,
     },
     header: {
-      alignSelf: "flex-start",
-      paddingBottom: 14,
-      paddingHorizontal: 20,
-      paddingTop: 6,
-    },
-    searchWrap: {
       alignItems: "center",
-      backgroundColor: fadeHex(colors.text, 0.06),
-      borderRadius: 10,
       flexDirection: "row",
-      gap: 7,
-      height: 34,
-      marginHorizontal: 16,
-      paddingHorizontal: 10,
+      justifyContent: "space-between",
+      paddingBottom: 12,
+      paddingHorizontal: 16,
+      paddingTop: 4,
     },
-    searchInput: {
-      color: colors.text,
-      flex: 1,
-      fontFamily: fonts.sans.regular,
-      fontSize: 14,
-      letterSpacing: -0.2,
-      padding: 0,
+    brand: {
+      paddingLeft: 4,
+      paddingVertical: 6,
     },
-    // iOS-style segmented control: a soft track with the active segment lifted
-    // onto a surface tile.
-    segments: {
-      backgroundColor: fadeHex(colors.text, 0.06),
-      borderRadius: 10,
-      flexDirection: "row",
-      marginHorizontal: 16,
-      marginTop: 10,
-      padding: 2,
-    },
-    segment: {
+    headerGroup: {
       alignItems: "center",
-      borderRadius: 8,
-      flex: 1,
       flexDirection: "row",
-      gap: 5,
-      height: 28,
+      height: HEADER_PILL_HEIGHT,
+    },
+    headerIconButton: {
+      height: HEADER_PILL_HEIGHT,
+      width: HEADER_PILL_HEIGHT + 4,
+    },
+    headerIconGlass: {
+      alignItems: "center",
+      flex: 1,
       justifyContent: "center",
-      paddingHorizontal: 6,
+      overflow: "hidden",
     },
-    segmentActive: {
-      backgroundColor: colors.surface,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.08,
-      shadowRadius: 2,
-      elevation: 1,
+    // Buttons overlap by a little more than nothing so the container's
+    // union reads as one smooth pill instead of two shapes with a waist.
+    headerAccountButton: {
+      height: HEADER_PILL_HEIGHT,
+      marginLeft: -10,
     },
-    segmentLabel: {
-      color: colors.textMuted,
-      flexShrink: 1,
-      fontFamily: fonts.sans.medium,
-      fontSize: 12,
-      letterSpacing: -0.1,
+    headerAccountGlass: {
+      alignItems: "center",
+      flex: 1,
+      flexDirection: "row",
+      gap: 6,
+      overflow: "hidden",
+      paddingLeft: 13,
+      paddingRight: 15,
     },
-    segmentLabelActive: {
+    headerAccountLabel: {
       color: colors.text,
       fontFamily: fonts.sans.semiBold,
+      fontSize: 13,
+      letterSpacing: -0.2,
+    },
+    pillRing: {
+      borderColor: fadeHex(colors.border, 0.6),
+      borderRadius: 999,
+      borderWidth: StyleSheet.hairlineWidth,
     },
     listArea: {
       flex: 1,
       minHeight: 0,
-      marginTop: 6,
     },
     list: {
       flexGrow: 1,
@@ -792,7 +896,7 @@ const makeStyles = (colors: Colors) =>
     },
     listContent: {
       paddingHorizontal: 16,
-      paddingTop: 8,
+      paddingTop: 4,
     },
     centeredState: {
       alignItems: "center",
@@ -812,40 +916,69 @@ const makeStyles = (colors: Colors) =>
       height: 2,
     },
     dock: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: 10,
+      gap: DOCK_GAP,
       left: 16,
       position: "absolute",
     },
-    accountPressable: {
-      flex: 1,
-      height: DOCK_HEIGHT,
+    searchShadow: {
+      height: SEARCH_HEIGHT,
       shadowColor: "#000",
       shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.06,
-      shadowRadius: 5,
-      elevation: 2,
+      shadowOpacity: 0.08,
+      shadowRadius: 6,
+      elevation: 3,
     },
-    accountGlass: {
+    searchGlass: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 8,
+      height: SEARCH_HEIGHT,
+      overflow: "hidden",
+      paddingHorizontal: 15,
+    },
+    searchRing: {
+      borderColor: fadeHex(colors.border, 0.6),
+      borderRadius: SEARCH_HEIGHT / 2,
+      borderWidth: StyleSheet.hairlineWidth,
+    },
+    searchInput: {
+      color: colors.text,
+      flex: 1,
+      fontFamily: fonts.sans.regular,
+      fontSize: 15,
+      letterSpacing: -0.2,
+      padding: 0,
+    },
+    tabBar: {
+      alignItems: "center",
+      flexDirection: "row",
+      height: TAB_BAR_HEIGHT,
+    },
+    tabItem: {
+      flex: 1,
+      height: TAB_BAR_HEIGHT,
+    },
+    tabItemOverlap: {
+      marginLeft: -12,
+    },
+    tabGlass: {
       alignItems: "center",
       flex: 1,
       flexDirection: "row",
-      gap: 8,
+      gap: 5,
       justifyContent: "center",
       overflow: "hidden",
-      paddingHorizontal: 16,
+      paddingHorizontal: 6,
     },
-    accountRing: {
-      borderColor: fadeHex(colors.border, 0.6),
-      borderRadius: DOCK_HEIGHT / 2,
-      borderWidth: StyleSheet.hairlineWidth,
-    },
-    accountLabel: {
-      color: colors.text,
+    tabLabel: {
+      color: colors.textMuted,
       flexShrink: 1,
+      fontFamily: fonts.sans.medium,
+      fontSize: 12,
+      letterSpacing: -0.1,
+    },
+    tabLabelActive: {
+      color: colors.text,
       fontFamily: fonts.sans.semiBold,
-      fontSize: 14,
-      letterSpacing: -0.2,
     },
   });

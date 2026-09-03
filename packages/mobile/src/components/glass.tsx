@@ -9,6 +9,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import {
+  GlassContainer,
   GlassView,
   isLiquidGlassAvailable,
   type GlassStyle,
@@ -144,6 +145,25 @@ export function GlassSurface({
       {children}
     </View>
   );
+}
+
+type GlassGroupProps = ViewProps & {
+  /** Distance under which sibling glass surfaces start merging into one. */
+  spacing?: number;
+};
+
+/**
+ * Apple's glass container: sibling {@link GlassSurface}s inside it blend into
+ * one fluid shape (a segmented pill of individually interactive buttons, for
+ * instance). Size it to the group exactly — the native container ignores
+ * `pointerEvents`, so a larger one would swallow touches around it. A plain
+ * `View` off iOS 26 so the fallback tints keep their own layout.
+ */
+export function GlassGroup({ spacing = 24, style, ...rest }: GlassGroupProps) {
+  if (liquidGlassSupported) {
+    return <GlassContainer spacing={spacing} style={style} {...rest} />;
+  }
+  return <View style={style} {...rest} />;
 }
 
 type GlassCardProps = ViewProps & {

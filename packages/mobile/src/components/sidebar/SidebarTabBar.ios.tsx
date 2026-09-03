@@ -1,5 +1,5 @@
-import { useId } from "react";
-import { StyleSheet } from "react-native";
+import { useId, useState } from "react";
+import { StyleSheet, View } from "react-native";
 import {
   Button,
   GlassEffectContainer,
@@ -31,8 +31,6 @@ import type { SidebarTabBarProps } from "./sidebar-tab-bar-types";
 const BAR_HEIGHT = 44;
 /** Inset of the selection lens from the track edge. */
 const LENS_INSET = 3;
-/** Any large value: SwiftUI reads it as "fill", so segments share the width. */
-const FILL = 10000;
 
 /**
  * iOS tab bar built from Apple's Liquid Glass in SwiftUI, hosted through
@@ -58,63 +56,86 @@ export function SidebarTabBar<K extends string>({
   const { isDark } = useTheme();
   const namespace = useId();
   const selectedIndex = tabs.findIndex((item) => item.key === value);
+  // SwiftUI only sizes to what it is proposed, and the host proposes its
+  // own measured width late, so the bar and its segments take explicit
+  // widths from the React Native container instead.
+  const [width, setWidth] = useState(0);
+  const segmentWidth = (width - LENS_INSET * 2) / Math.max(1, tabs.length);
   return (
-    <Host
-      matchContents={{ vertical: true }}
-      colorScheme={isDark ? "dark" : "light"}
+    <View
       style={styles.host}
-      onLayoutContent={(event) => onHeight?.(event.nativeEvent.height)}
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
     >
-      <Namespace id={namespace}>
-        <GlassEffectContainer spacing={0}>
-          <HStack
-            spacing={0}
-            modifiers={[
-              padding({ all: LENS_INSET }),
-              frame({ maxWidth: FILL, height: BAR_HEIGHT }),
-              background(fadeHex(colors.text, isDark ? 0.06 : 0.05), shapes.capsule()),
-              strokeBorder({ color: fadeHex(colors.border, 0.6), shape: "capsule" }),
-              animation(Animation.spring({ duration: 0.4 }), selectedIndex),
-            ]}
-          >
-            {tabs.map((item) => {
-              const active = item.key === value;
-              return (
-                <Button
-                  key={item.key}
-                  onPress={() => onSelect(item.key)}
-                  modifiers={[buttonStyle("plain")]}
-                >
-                  <SwiftText
-                    modifiers={[
-                      font({
-                        family: active ? fonts.sans.semiBold : fonts.sans.medium,
-                        size: 14,
-                      }),
-                      foregroundStyle(active ? colors.text : colors.textMuted),
-                      // The label is the button's hit area, so it fills the
-                      // segment; the glass lens is drawn on it as well.
-                      frame({ maxWidth: FILL, height: BAR_HEIGHT - LENS_INSET * 2 }),
-                      ...(active
-                        ? [
-                            glassEffect({
-                              glass: { variant: "regular", interactive: true },
-                              shape: "capsule",
-                            }),
-                            glassEffectId("lens", namespace),
-                          ]
-                        : []),
-                    ]}
-                  >
-                    {item.label}
-                  </SwiftText>
-                </Button>
-              );
-            })}
-          </HStack>
-        </GlassEffectContainer>
-      </Namespace>
-    </Host>
+      {width > 0 ? (
+        <Host
+          matchContents={{ vertical: true }}
+          colorScheme={isDark ? "dark" : "light"}
+          style={styles.host}
+          onLayoutContent={(event) => onHeight?.(event.nativeEvent.height)}
+        >
+          <Namespace id={namespace}>
+            <GlassEffectContainer spacing={0}>
+              <HStack
+                spacing={0}
+                modifiers={[
+                  padding({ all: LENS_INSET }),
+                  frame({ width, height: BAR_HEIGHT }),
+                  background(
+                    fadeHex(colors.text, isDark ? 0.06 : 0.05),
+                    shapes.capsule(),
+                  ),
+                  strokeBorder({
+                    color: fadeHex(colors.border, 0.6),
+                    shape: "capsule",
+                  }),
+                  animation(Animation.spring({ duration: 0.4 }), selectedIndex),
+                ]}
+              >
+                {tabs.map((item) => {
+                  const active = item.key === value;
+                  return (
+                    <Button
+                      key={item.key}
+                      onPress={() => onSelect(item.key)}
+                      modifiers={[buttonStyle("plain")]}
+                    >
+                      <SwiftText
+                        modifiers={[
+                          font({ family: fonts.sans.medium, size: 14 }),
+                          foregroundStyle(
+                            active ? colors.text : colors.textMuted,
+                          ),
+                          // The label is the button's hit area, so it fills the
+                          // segment; the glass lens is drawn on it as well.
+                          frame({
+                            width: segmentWidth,
+                            height: BAR_HEIGHT - LENS_INSET * 2,
+                          }),
+                          ...(active
+                            ? [
+                                glassEffect({
+                                  glass: {
+                                    variant: "regular",
+                                    interactive: true,
+                                  },
+                                  shape: "capsule",
+                                }),
+                                glassEffectId("lens", namespace),
+                              ]
+                            : []),
+                        ]}
+                      >
+                        {item.label}
+                      </SwiftText>
+                    </Button>
+                  );
+                })}
+              </HStack>
+            </GlassEffectContainer>
+          </Namespace>
+        </Host>
+      ) : null}
+    </View>
   );
 }
 

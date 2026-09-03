@@ -719,6 +719,69 @@ describe("POST /api/gateway/session-capability", () => {
     expect(await response.json()).toEqual({ error: "owner_suspended" });
   });
 
+  it("skips challenges while Turnstile is off so dev owners never dead-end", async () => {
+    const t = await createTest();
+    const ownerId = await seedUser(t, "challenged-off", false);
+    await t.mutation(internal.owner_enforcement.setOwnerEnforcementInternal, {
+      ownerId,
+      status: "challenged",
+      reason: "risk signal",
+      actor: "test",
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(Response.json({ ok: true }));
+
+    const minted = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
+      ownerId,
+      isAnonymous: false,
+      deviceKeyHash: DEVICE_KEY_HASH,
+    });
+    expect(minted.status).toBe(200);
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+      expect.anything(),
+    );
+
+    // Sybil pressure is skipped the same way: the fifth anonymous owner on
+    // one IP in a day would be challenged with Turnstile on.
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 5; index += 1) {
+        await ctx.db.insert("owner_origins", {
+          ownerId: `owner-${index}`,
+          ipHash: "shared-ip",
+          identityLevel: 0,
+          createdAt: now - 1_000,
+          updatedAt: now - 1_000,
+        });
+      }
+    });
+    const anonymousOwner = await seedUser(t, "anon-shared-ip", true);
+    const anonymous = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
+      ownerId: anonymousOwner,
+      isAnonymous: true,
+      ipHash: "shared-ip",
+      deviceKeyHash: DEVICE_KEY_HASH,
+    });
+    expect(anonymous.status).toBe(200);
+
+    // Suspension and sign-in requirements are not challenges and still hold.
+    await t.mutation(internal.owner_enforcement.setOwnerEnforcementInternal, {
+      ownerId,
+      status: "suspended",
+      reason: "abuse",
+      actor: "test",
+    });
+    const suspended = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
+      ownerId,
+      isAnonymous: false,
+      deviceKeyHash: DEVICE_KEY_HASH,
+    });
+    expect(suspended.status).toBe(403);
+    expect(await suspended.json()).toEqual({ error: "owner_suspended" });
+  });
+
   it("requires step-up for a challenged owner without clearing enforcement", async () => {
     const t = await createTest();
     const ownerId = await seedUser(t, "challenged", false);
@@ -728,6 +791,7 @@ describe("POST /api/gateway/session-capability", () => {
       reason: "risk signal",
       actor: "test",
     });
+    process.env.TURNSTILE_SECRET_KEY = "turnstile-secret";
 
     const missing = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
       ownerId,
@@ -737,7 +801,6 @@ describe("POST /api/gateway/session-capability", () => {
     expect(missing.status).toBe(403);
     expect(await missing.json()).toEqual({ error: "challenge_required" });
 
-    process.env.TURNSTILE_SECRET_KEY = "turnstile-secret";
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(Response.json({ success: true }));
@@ -776,6 +839,10 @@ describe("POST /api/gateway/session-capability", () => {
     const t = await createTest();
     const freeOwner = await seedUser(t, "hosting-free", false);
     const anonymousOwner = await seedUser(t, "hosting-anon", true);
+    process.env.TURNSTILE_SECRET_KEY = "turnstile-secret";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ success: true }),
+    );
 
     const challenged = await post(t, CONVEX_GATEWAY_SESSION_CAPABILITY_PATH, {
       ownerId: freeOwner,

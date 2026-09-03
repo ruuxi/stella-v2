@@ -105,11 +105,12 @@ describe("agent tool suspension", () => {
     );
   });
 
-  it("keeps cloud code denied unless the trusted host injects its browser transport", async () => {
+  it("keeps sandbox code denied unless the trusted host injects its browser transport", async () => {
     const stateRoot = await mkdtemp(
       path.join(os.tmpdir(), "stella-cloud-code-host-"),
     );
     const context: ToolContext = {
+      executionHost: "sandbox",
       conversationId: "conversation-1",
       deviceId: "cloud",
       requestId: "turn-1",
@@ -150,7 +151,7 @@ describe("agent tool suspension", () => {
       await expect(
         denied.executeTool("code", { code: "1 + 1" }, context),
       ).resolves.toEqual({
-        error: "code is not available in cloud execution.",
+        error: "code is not available in sandbox execution.",
       });
       await expect(
         allowed.executeTool("code", { code: "1 + 1" }, context),

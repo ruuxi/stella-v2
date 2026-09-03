@@ -968,6 +968,7 @@ export const layer = Layer.effect(
           message,
         },
         {
+          executionHost: "device",
           conversationId,
           deviceId: config.deviceId || "local",
           requestId,

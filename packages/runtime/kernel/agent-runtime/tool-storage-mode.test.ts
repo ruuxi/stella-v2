@@ -8,6 +8,7 @@ import {
 } from "./tool-adapters.js";
 
 const baseContextArgs = {
+  executionHost: "device" as const,
   toolCallId: "tool-1",
   runId: "run-1",
   conversationId: "conversation-1",
@@ -15,15 +16,18 @@ const baseContextArgs = {
   deviceId: "device-1",
 };
 
-describe("runtime tool conversation storage mode", () => {
-  test("preserves cloud ownership and defaults legacy callers to local", () => {
+describe("runtime tool execution context", () => {
+  test("keeps execution host independent from conversation storage mode", () => {
     expect(
       buildRuntimeToolContext({
         ...baseContextArgs,
         storageMode: "cloud",
-      }).storageMode,
-    ).toBe("cloud");
-    expect(buildRuntimeToolContext(baseContextArgs).storageMode).toBe("local");
+      }),
+    ).toMatchObject({ executionHost: "device", storageMode: "cloud" });
+    expect(buildRuntimeToolContext(baseContextArgs)).toMatchObject({
+      executionHost: "device",
+      storageMode: "local",
+    });
   });
 
   test("threads cloud ownership through native Pi tools", async () => {
@@ -58,7 +62,10 @@ describe("runtime tool conversation storage mode", () => {
       new AbortController().signal,
       undefined,
     );
-    expect(receivedContexts.at(-1)?.storageMode).toBe("cloud");
+    expect(receivedContexts.at(-1)).toMatchObject({
+      executionHost: "device",
+      storageMode: "cloud",
+    });
   });
 
   test("threads cloud ownership through the external-engine adapter", async () => {
@@ -74,6 +81,9 @@ describe("runtime tool conversation storage mode", () => {
         return { result: "ok" };
       },
     });
-    expect(receivedContexts.at(-1)?.storageMode).toBe("cloud");
+    expect(receivedContexts.at(-1)).toMatchObject({
+      executionHost: "device",
+      storageMode: "cloud",
+    });
   });
 });

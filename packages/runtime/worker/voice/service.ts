@@ -357,6 +357,7 @@ export class VoiceRuntimeService {
       };
     } else {
       result = await runner.executeTool(executionName, payload.args, {
+        executionHost: "device",
         conversationId: payload.conversationId,
         deviceId: this.options.getDeviceId() ?? "unknown",
         requestId: payload.callId,
@@ -468,6 +469,7 @@ export class VoiceRuntimeService {
     const executionName = payload.name === "web_search" ? "web" : payload.name;
     const rawResult: ToolResult = allowed.has(payload.name)
       ? await runner.executeTool(executionName, payload.args, {
+          executionHost: "device",
           conversationId: payload.conversationId,
           deviceId: this.options.getDeviceId() ?? "unknown",
           requestId: payload.callId,

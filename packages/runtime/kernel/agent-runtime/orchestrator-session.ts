@@ -391,6 +391,7 @@ export class OrchestratorSession extends PiSessionCore {
     };
 
     const tools = createPiTools({
+      executionHost: opts.executionHost,
       runId,
       rootRunId: opts.rootRunId ?? runId,
       agentId: opts.agentId,

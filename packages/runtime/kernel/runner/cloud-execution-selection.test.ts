@@ -2,10 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import {
-  createStateContext,
-  handleSpawnAgent,
-} from "../tools/state.js";
+import { createStateContext, handleSpawnAgent } from "../tools/state.js";
 import type { AgentToolApi, ToolContext } from "../tools/types.js";
 import { initializeDesktopDatabase } from "../storage/database-init.js";
 import { SessionStore } from "../storage/session-store.js";
@@ -18,6 +15,13 @@ const toolContext = {
   conversationId: "local-conversation",
   requestId: "request-1",
   storageMode: "local",
+} as ToolContext;
+
+const cloudStoredDesktopToolContext = {
+  ...toolContext,
+  executionHost: "device",
+  storageMode: "cloud",
+  ownerGeneration: "owner-generation-1",
 } as ToolContext;
 
 const agentApi = (overrides: Partial<AgentToolApi>): AgentToolApi =>
@@ -53,6 +57,65 @@ const createStore = () => {
 };
 
 describe("desktop cloud execution selection", () => {
+  test("keeps omitted and computer placements on the local manager for a cloud-stored desktop conversation", async () => {
+    const localCreates: unknown[] = [];
+    const cloudDispatches: unknown[] = [];
+    const state = createStateContext(
+      "/tmp/stella-cloud-selection-test",
+      agentApi({
+        createAgent: async (request) => {
+          localCreates.push(request);
+          return { threadId: `thr-local-${localCreates.length}` };
+        },
+        cloudDispatch: async (request) => {
+          cloudDispatches.push(request);
+          return cloudResult("thr-cloud-unexpected");
+        },
+      }),
+    );
+
+    const omitted = await handleSpawnAgent(
+      state,
+      {
+        description: "Default local",
+        prompt: "Run this on the default computer placement.",
+      },
+      cloudStoredDesktopToolContext,
+    );
+    const explicit = await handleSpawnAgent(
+      state,
+      {
+        placement: "computer",
+        description: "Explicit local",
+        prompt: "Run this explicitly on the computer.",
+      },
+      cloudStoredDesktopToolContext,
+    );
+
+    expect(cloudDispatches).toEqual([]);
+    expect(localCreates).toHaveLength(2);
+    expect(localCreates).toEqual([
+      expect.objectContaining({
+        conversationId: "local-conversation",
+        description: "Default local",
+        storageMode: "cloud",
+        ownerGeneration: "owner-generation-1",
+      }),
+      expect.objectContaining({
+        conversationId: "local-conversation",
+        description: "Explicit local",
+        storageMode: "cloud",
+        ownerGeneration: "owner-generation-1",
+      }),
+    ]);
+    expect(omitted).toMatchObject({
+      result: { thread_id: "thr-local-1", created: true },
+    });
+    expect(explicit).toMatchObject({
+      result: { thread_id: "thr-local-2", created: true },
+    });
+  });
+
   test("serializes an inherited managed General-agent route without an override", async () => {
     const resolutions: unknown[] = [];
     const dispatches: unknown[] = [];
@@ -79,7 +142,7 @@ describe("desktop cloud execution selection", () => {
         description: "Research",
         prompt: "Research this subject.",
       },
-      toolContext,
+      cloudStoredDesktopToolContext,
     );
 
     expect(resolutions).toEqual([{}]);
@@ -87,6 +150,7 @@ describe("desktop cloud execution selection", () => {
       {
         conversationId: "local-conversation",
         requestId: "request-1",
+        ownerGeneration: "owner-generation-1",
         description: "Research",
         prompt: "Research this subject.",
         execution: managedSelection,
@@ -374,7 +438,9 @@ describe("desktop cloud execution selection", () => {
 
     const callCount = calls.length;
     signedIn = false;
-    expect(await createCloudSpawnDispatcher(options)(request)).toEqual(replayed);
+    expect(await createCloudSpawnDispatcher(options)(request)).toEqual(
+      replayed,
+    );
     expect(calls).toHaveLength(callCount);
     await expect(
       createCloudSpawnDispatcher(options)({

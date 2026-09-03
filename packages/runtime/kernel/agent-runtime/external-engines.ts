@@ -194,11 +194,11 @@ export const buildToolResultContent = async (
     runId: string;
     toolCallId: string;
   }>,
-  storageMode: "cloud" | "local" = "local",
+  executionHost: "device" | "sandbox" = "device",
 ): Promise<(TextContent | ImageContent)[]> => {
   const rawText = buildToolResultText(toolResult);
   const { text, images } =
-    storageMode === "cloud"
+    executionHost === "sandbox"
       ? {
           text: neutralizeLegacyAttachImageMarkers(rawText),
           images: [],
@@ -1252,6 +1252,7 @@ const runClaudeHostedTurn = async (args: {
       }),
     });
     const toolResult = await executeRuntimeToolCall({
+      executionHost: args.opts.executionHost,
       toolCallId,
       toolName,
       args: toolArgs,
@@ -1308,7 +1309,7 @@ const runClaudeHostedTurn = async (args: {
             runId,
             toolCallId,
           },
-          args.opts.storageMode,
+          args.opts.executionHost,
         ),
         isError: Boolean(toolResult.error),
         timestamp: now(),

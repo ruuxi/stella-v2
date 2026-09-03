@@ -77,10 +77,10 @@ describe("external-engine preamble→tool boundary", () => {
   });
 });
 
-describe("external-engine cloud image authority", () => {
+describe("external-engine sandbox image authority", () => {
   it("neutralizes path markers without reopening them", async () => {
     const directory = fs.mkdtempSync(
-      path.join(os.tmpdir(), "stella-external-cloud-image-"),
+      path.join(os.tmpdir(), "stella-external-sandbox-image-"),
     );
     const imagePath = path.join(directory, "legacy.png");
     fs.writeFileSync(
@@ -98,7 +98,7 @@ describe("external-engine cloud image authority", () => {
         },
         { provider: "anthropic" },
         undefined,
-        "cloud",
+        "sandbox",
       );
 
       expect(content).toEqual([

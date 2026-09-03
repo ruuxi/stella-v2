@@ -860,6 +860,7 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
       );
 
       const context: ToolContext = {
+        executionHost: "sandbox",
         conversationId: input.threadId,
         deviceId: "cloud",
         requestId: crypto.randomUUID(),

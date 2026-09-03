@@ -69,6 +69,7 @@ describe("real Linux cloud workspace privilege boundary", () => {
       gid: CLOUD_TOOL_PROCESS_IDENTITY.gid,
     };
     const context: ToolContext = {
+      executionHost: "sandbox",
       conversationId: "linux-boundary",
       deviceId: "cloud",
       requestId: "request-1",

@@ -223,6 +223,8 @@ export type RuntimeRunCallbacks = {
 };
 
 export type BaseRunOptions = {
+  /** Physical tool host. Transcript storage mode must not be used as a proxy. */
+  executionHost: "device" | "sandbox";
   runId?: string;
   rootRunId?: string;
   agentId?: string;

@@ -400,6 +400,7 @@ export const launchPreparedOrchestratorRun = (args: {
       }
 
       const runPromise = runOrchestratorTurn({
+        executionHost: "device",
         runId: prepared.runId,
         conversationId: prepared.conversationId,
         storageMode: prepared.storageMode,

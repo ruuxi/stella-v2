@@ -19,6 +19,7 @@ const context = (
   conversationId: string,
   options: { agentId?: string; requestId?: string; runId?: string } = {},
 ): ToolContext => ({
+  executionHost: "device",
   conversationId,
   deviceId: "live-exec-acceptance",
   requestId: options.requestId ?? `request-${conversationId}`,

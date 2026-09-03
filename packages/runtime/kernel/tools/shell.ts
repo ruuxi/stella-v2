@@ -2165,15 +2165,15 @@ const resolveManagedShellCommand = (
       : resolveToolFallbackCwd(
           context?.toolWorkspaceRoot ?? context?.stellaAppDir,
         );
-  if (context?.storageMode === "cloud") {
+  if (context?.executionHost === "sandbox") {
     const workspaceRoot = context.toolWorkspaceRoot?.trim();
     if (!workspaceRoot || !path.isAbsolute(workspaceRoot)) {
-      throw new Error("Cloud shell commands require a workspace boundary.");
+      throw new Error("Sandbox shell commands require a workspace boundary.");
     }
     const lexicalRoot = path.resolve(workspaceRoot);
     const lexicalCwd = path.resolve(cwd);
     if (!pathInside(lexicalCwd, lexicalRoot)) {
-      throw new Error("Cloud shell workdir must stay inside the workspace.");
+      throw new Error("Sandbox shell workdir must stay inside the workspace.");
     }
     let canonicalRoot: string;
     let canonicalCwd: string;
@@ -2181,7 +2181,9 @@ const resolveManagedShellCommand = (
       canonicalRoot = realpathSync.native(lexicalRoot);
       canonicalCwd = realpathSync.native(lexicalCwd);
     } catch {
-      throw new Error("Cloud shell workdir must be an existing real directory.");
+      throw new Error(
+        "Sandbox shell workdir must be an existing real directory.",
+      );
     }
     if (
       canonicalRoot !== lexicalRoot ||
@@ -2189,7 +2191,7 @@ const resolveManagedShellCommand = (
       !pathInside(canonicalCwd, canonicalRoot)
     ) {
       throw new Error(
-        "Cloud shell workdir must be canonical and contain no symbolic links.",
+        "Sandbox shell workdir must be canonical and contain no symbolic links.",
       );
     }
     cwd = canonicalCwd;

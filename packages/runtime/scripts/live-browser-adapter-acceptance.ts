@@ -162,6 +162,7 @@ const registry = new CodeKernelRegistry({
 const codeTool = createCodeTool({ registry });
 
 const [modelTool] = createPiTools({
+  executionHost: "device",
   runId,
   rootRunId: runId,
   conversationId,

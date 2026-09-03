@@ -44,6 +44,7 @@ const fixture = async <T>(
 };
 
 const contextFor = (workspace: string) => ({
+  executionHost: "sandbox" as const,
   conversationId: "cloud-thread",
   deviceId: "cloud",
   requestId: "request-1",
@@ -58,6 +59,31 @@ const contextFor = (workspace: string) => ({
 });
 
 describe("workspace file descriptor boundary", () => {
+  it("fails closed when a sandbox context has no absolute workspace root", async () => {
+    const host = createToolHost({
+      stellaAppDir: process.cwd(),
+      recoverStaleSecrets: false,
+      enableShellShims: false,
+    });
+    try {
+      await expect(
+        host.executeTool(
+          "exec_command",
+          { cmd: "pwd" },
+          {
+            executionHost: "sandbox",
+            conversationId: "invalid-sandbox",
+            deviceId: "cloud",
+            requestId: "request-invalid-sandbox",
+            storageMode: "local",
+          },
+        ),
+      ).rejects.toThrow("absolute workspace boundary");
+    } finally {
+      await host.shutdown();
+    }
+  });
+
   it("keeps cloud host startup away from model-owned recovery and shim paths", async () => {
     if (process.platform === "win32") return;
     await fixture(async ({ workspace, privateState, secret }) => {
@@ -74,9 +100,12 @@ describe("workspace file descriptor boundary", () => {
         enableShellShims: false,
       });
       try {
-        const context = { ...contextFor(workspace), storageMode: "cloud" as const };
+        const context = {
+          ...contextFor(workspace),
+          storageMode: "cloud" as const,
+        };
         const code = await host.executeTool("code", { code: "1 + 1" }, context);
-        expect(code.error).toContain("not available in cloud execution");
+        expect(code.error).toContain("not available in sandbox execution");
 
         const outside = await host.executeTool(
           "exec_command",
@@ -88,6 +117,63 @@ describe("workspace file descriptor boundary", () => {
         await host.shutdown();
       }
       expect(await readFile(secret, "utf8")).toBe("private resume authority\n");
+    });
+  });
+
+  it("lets a cloud-stored device context use shell and code without a workspace boundary", async () => {
+    await fixture(async ({ workspace }) => {
+      const host = createToolHost({ stellaAppDir: workspace });
+      const context = {
+        executionHost: "device" as const,
+        conversationId: "device-cloud-thread",
+        deviceId: "device",
+        requestId: "request-device-cloud",
+        agentType: "general",
+        storageMode: "cloud" as const,
+      };
+      try {
+        const shell = await host.executeTool(
+          "exec_command",
+          { cmd: "echo device-shell-ok", yield_time_ms: 3_000 },
+          context,
+        );
+        expect(shell.error).toBeUndefined();
+        expect(JSON.stringify(shell.result)).toContain("device-shell-ok");
+
+        const code = await host.executeTool(
+          "code",
+          { code: "21 * 2" },
+          context,
+        );
+        expect(code.error).toBeUndefined();
+        expect(JSON.stringify(code.result)).toContain("42");
+      } finally {
+        await host.shutdown();
+      }
+    });
+  });
+
+  it("lets a cloud-stored desktop orchestrator use code without a workspace boundary", async () => {
+    await fixture(async ({ workspace }) => {
+      const host = createToolHost({ stellaAppDir: workspace });
+      try {
+        const code = await host.executeTool(
+          "code",
+          { code: "6 * 7" },
+          {
+            executionHost: "device",
+            conversationId: "device-cloud-orchestrator",
+            deviceId: "device",
+            requestId: "request-device-cloud-orchestrator",
+            agentType: "orchestrator",
+            storageMode: "cloud",
+          },
+        );
+        expect(code.error).toBeUndefined();
+        expect(JSON.stringify(code.result)).toContain("42");
+      } finally {
+        await host.shutdown();
+      }
     });
   });
 

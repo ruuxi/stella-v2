@@ -46,6 +46,7 @@ export const runStubTurn = (
             "Read",
             { file_path: markerPath },
             {
+              executionHost: "sandbox",
               conversationId: "m0-stub",
               deviceId: "cloud",
               requestId: crypto.randomUUID(),

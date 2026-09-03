@@ -60,6 +60,8 @@ export const TOOL_RESULT_AUTHORIZED_IMAGES = Symbol(
 );
 
 export type ToolContext = {
+  /** Where tools execute; independent from where the conversation is stored. */
+  executionHost: "device" | "sandbox";
   conversationId: string;
   deviceId: string;
   requestId: string;

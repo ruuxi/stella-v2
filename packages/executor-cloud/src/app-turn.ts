@@ -159,6 +159,7 @@ export const runAppTurn = (
           }).pipe(Effect.orDie),
       );
       const context = {
+        executionHost: "sandbox" as const,
         conversationId: "cloud-app-turn",
         deviceId: "cloud",
         requestId: crypto.randomUUID(),

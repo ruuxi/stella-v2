@@ -18,6 +18,7 @@ const assert: (condition: unknown, message: string) => asserts condition = (
 };
 
 const context: ToolContext = {
+  executionHost: "device",
   conversationId: "code-live-acceptance",
   deviceId: "local-device",
   requestId: "code-live-acceptance",

@@ -390,6 +390,7 @@ export const runAttachedToolHost = (
       );
 
       const context: ToolContext = {
+        executionHost: "sandbox",
         conversationId: input.threadId,
         deviceId: "cloud",
         requestId: crypto.randomUUID(),

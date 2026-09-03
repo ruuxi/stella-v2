@@ -481,16 +481,25 @@ export const createToolHost = ({
       context,
     });
 
-    // Cloud execution deliberately has no unrestricted in-process REPL. Keep
+    if (context.executionHost === "sandbox") {
+      const workspaceRoot = context.toolWorkspaceRoot?.trim();
+      if (!workspaceRoot || !path.isAbsolute(workspaceRoot)) {
+        throw new Error(
+          "Sandbox tool execution requires an absolute workspace boundary.",
+        );
+      }
+    }
+
+    // Sandbox execution deliberately has no unrestricted in-process REPL. Keep
     // this at the dispatcher as well as the catalog so a replayed/hallucinated
     // legacy call cannot bypass the cloud adapter's allowlist.
     if (
-      context.storageMode === "cloud" &&
+      context.executionHost === "sandbox" &&
       (toolName === "code" || toolName === LEGACY_NODE_REPL_TOOL_NAME) &&
       !(allowCloudCode && browserSessionFactory)
     ) {
       return {
-        error: `${toolName} is not available in cloud execution.`,
+        error: `${toolName} is not available in sandbox execution.`,
       } satisfies ToolResult;
     }
 

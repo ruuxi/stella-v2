@@ -649,6 +649,7 @@ export const createAgentOrchestration = (
         : `${taskDescription}\n\n${taskPrompt}`;
 
       const result = await runSubagentTask({
+        executionHost: "device",
         conversationId,
         storageMode: persistToConvex ? "cloud" : "local",
         ownerGeneration,

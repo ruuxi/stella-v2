@@ -327,6 +327,7 @@ export const runExplore = async (args: RunExploreArgs): Promise<string> => {
               toolName,
               sanitized.args,
               {
+                executionHost: "device",
                 conversationId,
                 deviceId: context.deviceId,
                 requestId: `explore-${Date.now()}`,
@@ -456,6 +457,7 @@ export const runExplore = async (args: RunExploreArgs): Promise<string> => {
             toolCall.name,
             sanitized.args,
             {
+              executionHost: "device",
               conversationId,
               deviceId: context.deviceId,
               requestId: `explore-${Date.now()}`,

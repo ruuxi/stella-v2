@@ -994,6 +994,7 @@ export const extractCodeImageBlocks = async (
 export const extractNodeReplImageBlocks = extractCodeImageBlocks;
 
 type RuntimeToolContextArgs = {
+  executionHost: "device" | "sandbox";
   toolCallId: string;
   runId: string;
   rootRunId?: string;
@@ -1029,6 +1030,7 @@ export const buildRuntimeToolContext = (
     workingDirectory: args.toolWorkspaceRoot,
   });
   return {
+    executionHost: args.executionHost,
     conversationId: args.conversationId,
     deviceId: args.deviceId,
     requestId: args.toolCallId,
@@ -1142,6 +1144,7 @@ export const executeRuntimeToolCall = async (
 };
 
 export const createPiTools = (opts: {
+  executionHost: "device" | "sandbox";
   runId: string;
   rootRunId?: string;
   agentId?: string;
@@ -1256,6 +1259,7 @@ export const createPiTools = (opts: {
       const args = (params as Record<string, unknown>) ?? {};
       const toolResult = await executeRuntimeToolCall({
         toolCallId,
+        executionHost: opts.executionHost,
         toolName,
         args,
         runId: opts.runId,
@@ -1302,18 +1306,18 @@ export const createPiTools = (opts: {
           : undefined,
       });
       const formatted = formatToolResult(toolResult, toolName);
-      // Local diagnostic tools retain their legacy path-marker bridge. Cloud
-      // tool output is model-controlled and must never authorize the root
-      // adapter to reopen a pathname, so neutralize it without I/O there.
+      // Device tools retain their legacy path-marker bridge. Sandbox tool
+      // output is model-controlled and must never authorize the host adapter
+      // to reopen a pathname, so neutralize it without I/O there.
       const { text: forwardedText, images: legacyImages } =
-        opts.storageMode === "cloud"
+        opts.executionHost === "sandbox"
           ? {
               text: neutralizeLegacyAttachImageMarkers(formatted.text),
               images: [],
             }
           : await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
       const codeImages =
-        opts.storageMode === "cloud"
+        opts.executionHost === "sandbox"
           ? []
           : await extractCodeImageBlocks(
               formatted.details,

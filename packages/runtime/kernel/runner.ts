@@ -691,6 +691,7 @@ export const createStellaHostRunner = (
         threadHistory: parseCanonicalCloudHistory(cloudHistory.history),
       };
       const instructions = await buildRuntimeSystemPrompt({
+        executionHost: "device",
         runId,
         conversationId,
         userMessageId: runId,

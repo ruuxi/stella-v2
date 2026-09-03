@@ -93,11 +93,19 @@ const createConversationRef = makeFunctionReference<
   CloudConversationProjection
 >("cloud_apps:createMyConversation");
 
-const placementIdentityRef = makeFunctionReference<
+/**
+ * The owner generation that fences conversation creation. This is the
+ * conversation-domain query, not `execution_placement:*`: ordinary hosted chat
+ * is open to the Better Auth anonymous owner, while the placement identity
+ * query refuses anonymous callers because it exists to register desktops for
+ * remote execution. Reusing it here made account-free chat fail on its very
+ * first turn with "Sign in with an account to use execution placement."
+ */
+const conversationIdentityRef = makeFunctionReference<
   "query",
   Record<string, never>,
   { ownerGeneration: string }
->("execution_placement:getMyExecutionPlacementIdentity");
+>("cloud_apps:getMyCloudConversationIdentity");
 
 const realtimeConfigRef = makeFunctionReference<
   "query",
@@ -215,10 +223,10 @@ const readDispatchEnvelope = (
 };
 
 /**
- * Creates (or replays) the account-owned conversation used by a mobile
- * surface. A client key, rather than a cached server UUID, makes a lost
- * mutation response and an app restart safe without ever creating two cloud
- * conversation identities for one surface.
+ * Creates (or replays) the owner's conversation used by a mobile surface, for
+ * connected and anonymous owners alike. A client key, rather than a cached
+ * server UUID, makes a lost mutation response and an app restart safe without
+ * ever creating two cloud conversation identities for one surface.
  */
 export const ensureAutomaticExecutionConversation = async (args: {
   threadId: string;
@@ -228,7 +236,7 @@ export const ensureAutomaticExecutionConversation = async (args: {
     args.threadId,
   );
   const client = getConvexClient();
-  const identity = await client.query(placementIdentityRef, {});
+  const identity = await client.query(conversationIdentityRef, {});
   const expectedOwnerGeneration = identity?.ownerGeneration?.trim();
   if (!expectedOwnerGeneration) {
     throw new Error(

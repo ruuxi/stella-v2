@@ -5,7 +5,7 @@ import { font, pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
 import { applySegmentedControlAppearance } from "../../../modules/stella-segmented-appearance";
 import { useColors, useTheme } from "../../theme/theme-context";
 import { fonts } from "../../theme/fonts";
-import { fadeHex } from "../../theme/oklch";
+import { soften } from "../../theme/oklch";
 import type { SidebarTabBarProps } from "./sidebar-tab-bar-types";
 
 /**
@@ -28,15 +28,19 @@ export function SidebarTabBar<K extends string>({
   // UIAppearance proxy instead. That only affects controls created
   // afterwards: the call happens during render, before this pass commits
   // its native views, and the Host is keyed by theme so a theme change
-  // recreates the control under the new colours. Matched to the app's
-  // regular-glass chrome (the header capsule, the top bar buttons).
+  // recreates the control under the new colours. iOS 26 still lays its own
+  // thin light system fill over the track (clearing the track artwork does
+  // not remove it) and blends the lens with the glass, so these are set by
+  // measurement rather than copied: pure black under that fill is the
+  // darkest track possible and lands within a few units of the top bar's
+  // buttons and the header capsule; the lens tint sits a step lighter.
   const themeKey = isDark ? "dark" : "light";
   useMemo(() => {
     applySegmentedControlAppearance({
-      background: fadeHex(colors.surface, isDark ? 0.55 : 0.7),
-      selected: fadeHex(colors.text, isDark ? 0.14 : 0.1),
+      background: isDark ? "#000000" : colors.background,
+      selected: soften(colors.text, colors.background, isDark ? 0.26 : 0.2),
     });
-  }, [colors.surface, colors.text, isDark]);
+  }, [colors.background, colors.text, isDark]);
   return (
     <Host
       key={themeKey}

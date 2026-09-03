@@ -29,6 +29,10 @@ describe("first Stella workspace seed", () => {
 
     await normalizeToolWorkspaceRoot(session as never, "/workspace/world");
 
+    // Strict mode stays inside a subshell: the session shell is persistent,
+    // and a leaked `set -e` kills it on the next non-zero exit.
+    expect(command.startsWith("( set -eu; ")).toBe(true);
+    expect(command.endsWith(" )")).toBe(true);
     expect(command).toContain(
       "else mkdir -m 0750 '/workspace/world/drive' && chown 42424:42424 '/workspace/world/drive'; fi",
     );

@@ -118,6 +118,7 @@ import {
   CLOUD_TOOL_PROCESS_IDENTITY,
   proveStrictCloudProcessIsolation,
 } from "./cloud-process-isolation.js";
+import { cloudAgentToolContext } from "./cloud-tool-context.js";
 import {
   isAgentToolSuspendedError,
   type AgentToolSuspendedError,
@@ -859,25 +860,12 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
           }).pipe(Effect.orDie),
       );
 
-      const context: ToolContext = {
-        executionHost: "sandbox",
-        conversationId: input.threadId,
-        deviceId: "cloud",
-        requestId: crypto.randomUUID(),
-        agentType: "general",
-        workingDirectory: workspaceRoot,
-        stellaAppDir: workspaceRoot,
-        stellaDataDir: workspaceStateDir,
-        toolWorkspaceRoot: workspaceRoot,
-        storageMode: "cloud",
-        toolProcessIdentity: {
-          ...CLOUD_TOOL_PROCESS_IDENTITY,
-          home: toolHome,
-        },
-        agentId: input.threadId,
-        agentDepth: 1,
-        maxAgentDepth: 1,
-      };
+      const context: ToolContext = cloudAgentToolContext({
+        threadId: input.threadId,
+        workspaceRoot,
+        workspaceStateDir,
+        toolHome,
+      });
 
       const cloudCodeToolCallIds: string[] = [];
 

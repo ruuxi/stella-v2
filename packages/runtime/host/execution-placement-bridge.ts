@@ -1,4 +1,4 @@
-import { createHash, createPrivateKey, randomUUID, sign } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { anyApi } from "convex/server";
 import WebSocket from "ws";
 import {
@@ -13,6 +13,7 @@ import {
   devicePresencePath,
   dispatchCancelPath,
   dispatchPath,
+  executionDeviceRegistration,
   type DeviceAvailability,
   type DevicePresenceDeviceFrame,
   type DevicePresenceServerFrame,
@@ -103,16 +104,27 @@ export type ExecutionPlacementSocket = {
   on(event: "error", listener: (error: unknown) => void): unknown;
 };
 
+/**
+ * The public half of the device identity. The Ed25519 private key stays with
+ * whoever loaded the identity (Electron main or the headless host) and is only
+ * reachable through `signPresenceProof`, so the bridge never holds key bytes.
+ */
 type DeviceIdentity = {
   deviceId: string;
   publicKey: string;
-  privateKey: string;
 };
 
 type PlacementBridgeOptions = {
   client: ExecutionPlacementClient;
   database: SqliteDatabase;
   deviceIdentity: DeviceIdentity;
+  /**
+   * Signs the presence challenge
+   * (`stella-device-presence\0<connectionId>\0<nonce>`, UTF-8) with the device
+   * key and returns the Ed25519 signature as base64url. The owner gate checks
+   * it against the public key this device registered.
+   */
+  signPresenceProof: (message: string) => Promise<string>;
   appVersion: string;
   deviceName?: string;
   platform?: string;
@@ -760,7 +772,6 @@ export type DispatchWatchHandle = { unsubscribe(): void };
 export class ExecutionPlacementBridge {
   readonly client: ExecutionPlacementClient;
   private readonly inbox: ExecutionPlacementInbox;
-  private readonly privateKey: ReturnType<typeof createPrivateKey>;
   private readonly fetchImpl: typeof fetch;
   private heartbeatTimer: HostTimerHandle | null = null;
   private ownerId: string | null = null;
@@ -804,11 +815,6 @@ export class ExecutionPlacementBridge {
     this.client = options.client;
     this.inbox = new ExecutionPlacementInbox(options.database);
     this.fetchImpl = options.fetch ?? globalThis.fetch;
-    this.privateKey = createPrivateKey({
-      key: Buffer.from(options.deviceIdentity.privateKey, "base64"),
-      format: "der",
-      type: "pkcs8",
-    });
   }
 
   get isRunning() {
@@ -1223,14 +1229,16 @@ export class ExecutionPlacementBridge {
       challenge.connectionId,
       challenge.nonce,
     ].join("\u0000");
-    const proof: DevicePresenceDeviceFrame = {
-      type: "proof",
-      signature: sign(
-        null,
-        Buffer.from(message, "utf8"),
-        this.privateKey,
-      ).toString("base64url"),
-    };
+    let signature: string;
+    try {
+      signature = await this.options.signPresenceProof(message);
+    } catch (error) {
+      // An unsigned connection is never proven: the gate closes it and the
+      // ordinary reconnect path retries, rather than the bridge dying here.
+      this.log("warn", "The device presence proof could not be signed.", error);
+      return;
+    }
+    const proof: DevicePresenceDeviceFrame = { type: "proof", signature };
     if (this.socket !== socket || socket.readyState !== 1) return;
     socket.send(JSON.stringify(proof));
     this.advertisedAvailability = JSON.stringify(availability);
@@ -1453,12 +1461,13 @@ export class ExecutionPlacementBridge {
     const availability = await this.options.getAvailability();
     await this.client.mutation(
       anyApi.execution_placement.registerMyExecutionDevice,
-      {
+      executionDeviceRegistration({
         deviceId: this.options.deviceIdentity.deviceId,
-        publicKey: this.options.deviceIdentity.publicKey,
-        ...(this.options.deviceName ? { label: this.options.deviceName } : {}),
-        capabilities: [...new Set(availability.capabilities)].sort(),
-      },
+        devicePublicKey: this.options.deviceIdentity.publicKey,
+        deviceName: this.options.deviceName,
+        platform: this.options.platform,
+        capabilities: availability.capabilities,
+      }),
     );
   }
 

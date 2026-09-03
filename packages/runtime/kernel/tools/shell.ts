@@ -1689,8 +1689,9 @@ export const resolveToolProcessIdentity = (
     );
   }
   const home = path.resolve(identity.home);
-  const roots = [workspaceRoot, context?.stellaDataDir]
+  const roots = [workspaceRoot, context?.stellaDataDir, context?.toolHomeRoot]
     .filter((candidate): candidate is string => Boolean(candidate?.trim()))
+    .filter((candidate) => path.isAbsolute(candidate))
     .map((candidate) => path.resolve(candidate));
   if (
     !path.isAbsolute(identity.home) ||

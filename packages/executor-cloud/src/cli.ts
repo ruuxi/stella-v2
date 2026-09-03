@@ -24,11 +24,37 @@ registerBuiltInApiProviders();
 // The daemon and the one-call client never produce a turn result, so they exit
 // before the turn-result plumbing below.
 if (process.argv.includes("--attached-tool-host")) {
+  // A daemon that dies must say so on stderr: the worker reads it back when
+  // the bridge stops answering, and a bare exit explains nothing.
+  for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+    process.on(signal, () => {
+      console.error(`attached tool host received ${signal}`);
+      process.exit(1);
+    });
+  }
+  process.on("uncaughtException", (error) => {
+    console.error(`attached tool host crashed: ${String(error?.stack ?? error)}`);
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (error) => {
+    console.error(
+      `attached tool host rejected: ${String((error as { stack?: string })?.stack ?? error)}`,
+    );
+    process.exit(1);
+  });
   const raw = await readFile(ATTACHED_TOOL_HOST_INPUT_PATH, "utf8");
   await rm(ATTACHED_TOOL_HOST_INPUT_PATH, { force: true });
-  const report = await Effect.runPromise(
-    runAttachedToolHost(parseAttachedToolHostInput(JSON.parse(raw) as unknown)),
-  );
+  let report: unknown;
+  try {
+    report = await Effect.runPromise(
+      runAttachedToolHost(parseAttachedToolHostInput(JSON.parse(raw) as unknown)),
+    );
+  } catch (error) {
+    console.error(
+      `attached tool host failed: ${String((error as { stack?: string })?.stack ?? error)}`,
+    );
+    process.exit(1);
+  }
   process.stdout.write(`${JSON.stringify(report)}\n`);
   process.exit(0);
 }

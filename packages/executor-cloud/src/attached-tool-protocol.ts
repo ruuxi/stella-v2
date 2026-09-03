@@ -20,13 +20,12 @@
 /**
  * The tools the daemon serves.
  *
- * `code` is deliberately absent. Cloud `code` is not a tool the tool host can
- * answer on its own: it needs the turn-broker browser session factory, it
- * needs `endBrowserTurn` to be called for its exact tool-call ids when the
- * turn quiesces, and a login handoff makes the whole turn suspend rather than
- * returning a tool result. Those are agent-host concerns, not tool-host ones,
- * so `code` keeps its refusal stub until the resident Dynamic Worker path
- * lands.
+ * `code` is deliberately absent. A resident turn runs `code` in a Dynamic
+ * Worker the Durable Object loads itself (see `general-agent-tools.ts`,
+ * placement `js_sandbox`), so it never crosses this channel: there is no
+ * container to attach for it and nothing for the daemon to serve. The
+ * in-container `code` of an eager container turn is a different tool host
+ * with the turn-broker browser session factory; it is not bridged either.
  *
  * `view_image` is absent for a different reason: it has no runtime definition
  * and no descriptor, so it never reaches the model and the daemon has nothing

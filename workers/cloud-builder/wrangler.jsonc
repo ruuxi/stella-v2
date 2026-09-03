@@ -114,15 +114,23 @@
       "class_name": "Sandbox",
       "image": "./Dockerfile",
       "instance_type": "standard-4",
-      "max_instances": 1,
+      "max_instances": 2,
       // TURN_TIMEOUT_MS plus one minute for exact Stop/teardown settlement.
       "rollout_active_grace_period": 960,
     },
     {
+      // Every turn mints its own sandbox id and a follow-up dispatched from
+      // the completion wake attaches while the finished attempt is still
+      // tearing down, so two live containers per thread is normal for a
+      // moment. A cap of one starved the very next cloud agent turn
+      // (observed 2026-09-03: "Maximum number of running container instances
+      // exceeded"), and a teardown skipped under a successor turn leaked
+      // containers on keep-alive until it was fixed; six matches production
+      // and leaves room for the leak-fix rollout to retire stragglers.
       "class_name": "SandboxSmall",
       "image": "./Dockerfile",
       "instance_type": "standard-2",
-      "max_instances": 1,
+      "max_instances": 6,
       "rollout_active_grace_period": 960,
     },
     {

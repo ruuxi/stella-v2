@@ -257,6 +257,21 @@ describe("canonical cloud prompts", () => {
     });
   });
 
+  test("cloud session overlay lists agent_status with the other agent tools", () => {
+    const prompt = buildCloudSystemPrompt({
+      canonicalBody: "canonical",
+      personalityBody: null,
+      localeDirective: undefined,
+      residentSection: "",
+      skillSection: "",
+      memoryEnabled: true,
+    });
+    expect(prompt).toContain(
+      "code, spawn_agent, send_input, pause_agent, agent_status, web, Recall, Remember, Schedule",
+    );
+    expect(prompt).toContain("check on it with agent_status");
+  });
+
   test("memory-off system prompt exposes no Recall/Remember tool contract", () => {
     const prompt = buildCloudSystemPrompt({
       canonicalBody: "canonical",

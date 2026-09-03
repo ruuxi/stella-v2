@@ -8,6 +8,7 @@ import {
   GENERAL_AGENT_TOOL_DESCRIPTORS,
   GENERAL_AGENT_TOOL_NAMES,
   LEGACY_VIEW_IMAGE_TOOL_NAME,
+  NO_JS_SANDBOX_MESSAGE,
   NO_WORKSPACE_ATTACHED_MESSAGE,
   PUBLISH_STELLA_INTERIOR_TOOL_NAME,
   UnknownGeneralAgentToolError,
@@ -41,7 +42,6 @@ describe("general-agent capability table", () => {
       "Read",
       "apply_patch",
       LEGACY_VIEW_IMAGE_TOOL_NAME,
-      "code",
     ]);
   });
 
@@ -52,8 +52,9 @@ describe("general-agent capability table", () => {
     ]);
   });
 
-  test("places nothing in the JS sandbox yet", () => {
-    expect([...generalAgentToolNamesFor("js_sandbox")]).toEqual([]);
+  test("places code, and only code, in the JS sandbox", () => {
+    expect([...generalAgentToolNamesFor("js_sandbox")]).toEqual(["code"]);
+    expect(computeForTool("code")).toBe("js_sandbox");
   });
 
   test("is closed over the names it advertises", () => {
@@ -167,7 +168,7 @@ describe("pinned resident catalog", () => {
     ]);
   });
 
-  test("keeps code refused even with a ladder, because the daemon cannot serve it", async () => {
+  test("never sends code to the ladder; without a JS sandbox it refuses with its own reason", async () => {
     const catalog = createResidentGeneralAgentTools(doLocalStubs(), {
       execute: async () => {
         throw new Error("the ladder should never see code");
@@ -179,8 +180,47 @@ describe("pinned resident catalog", () => {
       .execute("call-1", {});
 
     expect(result.isError).toBe(true);
-    expect(JSON.stringify(result.content)).toContain(
+    expect(JSON.stringify(result.content)).toContain(NO_JS_SANDBOX_MESSAGE);
+    expect(JSON.stringify(result.content)).not.toContain(
       NO_WORKSPACE_ATTACHED_MESSAGE,
+    );
+  });
+
+  test("runs code in the JS sandbox the caller supplied, with no container involved", async () => {
+    let ladderCalls = 0;
+    const catalog = createResidentGeneralAgentTools(
+      doLocalStubs(),
+      {
+        execute: async () => {
+          ladderCalls += 1;
+          throw new Error("the ladder should never see code");
+        },
+      },
+      new Map([
+        [
+          "code",
+          {
+            name: "code",
+            label: "Code",
+            description: "dynamic worker",
+            parameters: { type: "object" } as never,
+            execute: async (toolCallId: string) => ({
+              content: [{ type: "text" as const, text: `ran code ${toolCallId}` }],
+              details: null,
+            }),
+          },
+        ],
+      ]),
+    );
+
+    const code = catalog.find((entry) => entry.name === "code")!;
+    const result = await code.execute("call-7", { code: "1+1" });
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toEqual([{ type: "text", text: "ran code call-7" }]);
+    expect(ladderCalls).toBe(0);
+    // Descriptor order is the model-visible order and must not move.
+    expect(catalog.map((entry) => entry.name)).toEqual(
+      GENERAL_AGENT_TOOL_DESCRIPTORS.map((entry) => entry.name),
     );
   });
 

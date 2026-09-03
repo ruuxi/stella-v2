@@ -115,6 +115,44 @@ describe("shell hardening", () => {
     ).toThrow("only on POSIX");
   });
 
+  it("accepts a home inside the trusted home root the host declared, and nothing else", () => {
+    const root = createTempDir();
+    const trustedHome = createTempDir();
+    const identity = {
+      uid: 42424,
+      gid: 42424,
+      home: path.join(trustedHome, "home"),
+      user: "stella-tools",
+    };
+    // The cloud keeps the tool home beside the checkpointed world; the host
+    // names that directory explicitly after validating it.
+    expect(
+      resolveToolProcessIdentity({
+        ...toolContext("identity-home-root"),
+        toolWorkspaceRoot: root,
+        toolHomeRoot: trustedHome,
+        toolProcessIdentity: identity,
+      }),
+    ).toMatchObject({ home: path.join(trustedHome, "home") });
+    // Without the declaration the same home is still an escape.
+    expect(() =>
+      resolveToolProcessIdentity({
+        ...toolContext("identity-home-root-missing"),
+        toolWorkspaceRoot: root,
+        toolProcessIdentity: identity,
+      }),
+    ).toThrow("must stay inside the workspace");
+    // A relative declaration is ignored rather than widening the boundary.
+    expect(() =>
+      resolveToolProcessIdentity({
+        ...toolContext("identity-home-root-relative"),
+        toolWorkspaceRoot: root,
+        toolHomeRoot: "relative/home",
+        toolProcessIdentity: identity,
+      }),
+    ).toThrow("must stay inside the workspace");
+  });
+
   it("drops shell credentials and moves its writable home into the workspace", async () => {
     const uid = process.getuid?.();
     const gid = process.getgid?.();

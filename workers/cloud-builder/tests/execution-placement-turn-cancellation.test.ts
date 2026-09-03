@@ -303,7 +303,7 @@ type ExecutableCloudTool = {
 const cloudAgentTool = async (
   instance: OrchestratorSession & Record<string, unknown>,
   targetTurn: ReturnType<typeof turn>,
-  name: "spawn_agent" | "send_input" | "pause_agent",
+  name: "spawn_agent" | "send_input" | "pause_agent" | "agent_status",
 ): Promise<ExecutableCloudTool> => {
   const tools = await (
     instance["createTools"] as (
@@ -567,6 +567,125 @@ describe("BuildSession sandbox termination", () => {
 
     expect(processKills).toBe(1);
     expect(destroys).toBe(1);
+  });
+
+  test("destroys a finished attempt's exact container even after its successor took over the turn", async () => {
+    // The completion wake dispatches the follow-up within the second, so the
+    // successor is admitted (and owns `turn`) before the finished attempt's
+    // teardown runs. The exact compute record still names attempt 1's own
+    // container; fencing that on the current turn leaked it on keep-alive.
+    const harness = buildSessionHarness();
+    const finished = { ...agentTurn("agent-finished"), workspace: "stella" };
+    const successor = {
+      ...agentTurn("agent-successor"),
+      attemptGeneration: 2,
+      workspace: "stella",
+    };
+    harness.values.set("turn", successor);
+    harness.values.set(agentComputeKey(finished.turnId, 1), {
+      schemaVersion: 2,
+      turnId: finished.turnId,
+      attemptGeneration: 1,
+      phase: "attached",
+      instanceSize: "small",
+      sandboxId: "sandbox-finished-attempt",
+      attachReason: "process_tool",
+    });
+    const sandboxes: Array<{
+      id: string;
+      size: string;
+      workload: string;
+      keepAlive: boolean | undefined;
+    }> = [];
+    let destroys = 0;
+    harness.instance["sandbox"] = (
+      id: string,
+      size: string,
+      workload: string,
+      options?: { keepAlive?: boolean },
+    ) => {
+      sandboxes.push({ id, size, workload, keepAlive: options?.keepAlive });
+      return {
+        setKeepAlive: async () => undefined,
+        destroy: async () => {
+          destroys += 1;
+        },
+      };
+    };
+
+    await terminateCurrentAgentSandbox(harness.instance, finished);
+
+    expect(destroys).toBe(1);
+    // Both the process sweep and the durable destroy resolve the same exact
+    // target; neither may fall back to the successor's mirror.
+    expect(sandboxes.length).toBeGreaterThanOrEqual(1);
+    for (const sandbox of sandboxes) {
+      expect(sandbox).toMatchObject({
+        id: "sandbox-finished-attempt",
+        size: "small",
+        workload: "resident-attachment",
+      });
+    }
+    // The teardown stub carries keep-alive off as its configured state, so
+    // the sandbox records the release even when the explicit call fails.
+    expect(sandboxes.some((sandbox) => sandbox.keepAlive === false)).toBe(
+      true,
+    );
+  });
+
+  test("still fences the shared sandbox mirror on the current turn", async () => {
+    // Without an exact record the mirror may already name the successor's
+    // container, so a stale terminate must not destroy it.
+    const harness = buildSessionHarness();
+    const finished = { ...agentTurn("agent-stale"), workspace: "stella" };
+    const successor = {
+      ...agentTurn("agent-stale-successor"),
+      workspace: "stella",
+    };
+    harness.values.set("turn", successor);
+    harness.values.set("sandboxId", "sandbox-of-successor");
+    harness.values.set("sandboxSize", "large");
+    let destroys = 0;
+    harness.instance["sandbox"] = () => ({
+      destroy: async () => {
+        destroys += 1;
+      },
+    });
+
+    await terminateCurrentAgentSandbox(harness.instance, finished);
+
+    expect(destroys).toBe(0);
+  });
+
+  test("retries the keep-alive release after destroy when the first release fails", async () => {
+    // A destroyed container boots again on the next RPC to its sandbox; with
+    // keep-alive still persisted it then never sleeps.
+    const harness = buildSessionHarness();
+    const current = { ...agentTurn("agent-keepalive"), workspace: "stella" };
+    const sandboxId = `agent-${current.turnId}`;
+    harness.values.set("turn", current);
+    harness.values.set("sandboxId", sandboxId);
+    harness.values.set("sandboxSize", "large");
+    const calls: string[] = [];
+    let releases = 0;
+    harness.instance["sandbox"] = () => ({
+      setKeepAlive: async (enabled: boolean) => {
+        releases += 1;
+        calls.push(`keepAlive:${enabled}`);
+        if (releases === 1) throw new Error("rpc failed");
+      },
+      destroy: async () => {
+        calls.push("destroy");
+      },
+    });
+    const previousError = console.error;
+    console.error = () => undefined;
+    try {
+      await terminateCurrentAgentSandbox(harness.instance, current);
+    } finally {
+      console.error = previousError;
+    }
+    expect(calls).toEqual(["keepAlive:false", "destroy", "keepAlive:false"]);
   });
 
   test("captures only safe lifecycle diagnostics when SDK errors contain provider HTML and URLs", async () => {
@@ -2235,10 +2354,16 @@ describe("execution-placement exact cloud turn cancellation", () => {
       alarmRecoveryCalls += 1;
     };
 
+    const before = Date.now();
     await harness.instance.alarm();
 
     expect(alarmRecoveryCalls).toBe(0);
-    expect(await harness.storage.getAlarm()).toBe(watchdogDeadlineAt);
+    // Re-armed for the live fiber's next heartbeat, never past the watchdog.
+    const rearmed = await harness.storage.getAlarm();
+    expect(rearmed).not.toBeNull();
+    expect(rearmed!).toBeGreaterThanOrEqual(before + 60_000);
+    expect(rearmed!).toBeLessThanOrEqual(Date.now() + 60_000);
+    expect(rearmed!).toBeLessThan(watchdogDeadlineAt);
     expect(harness.values.get("turn")).toEqual(current);
     expect(harness.values.get("terminal")).toBe(false);
   });
@@ -4060,6 +4185,154 @@ describe("execution-placement exact cloud turn cancellation", () => {
       threadId: "thread-equal-clock",
       attemptGeneration: 2,
     });
+  });
+
+  test("spawn_agent's result names the new thread and says it is running", async () => {
+    const harness = sessionHarness();
+    const calls = installBuildSessions(harness, acceptedAgentTurn);
+    const spawn = await cloudAgentTool(
+      harness.instance,
+      turn("turn-spawn-named"),
+      "spawn_agent",
+    );
+    const result = await spawn.execute("tool-spawn-named", {
+      description: "Shell marker",
+      prompt: "Run the marker.",
+    });
+    const threadId = calls[0]?.threadId;
+    expect(threadId).toMatch(UUID_SHAPE);
+    expect(result.content[0]?.text).toContain(`thread_id: ${threadId}`);
+    expect(result.content[0]?.text).toContain("status: running");
+    expect(result.details).toMatchObject({
+      thread_id: threadId,
+      status: "running",
+      description: "Shell marker",
+    });
+    // The spawn's label survives on the receipt for agent_status to name.
+    const status = await cloudAgentTool(
+      harness.instance,
+      turn("turn-spawn-named"),
+      "agent_status",
+    );
+    const snapshot = await status.execute("tool-spawn-named-status", {
+      thread_id: threadId,
+    });
+    expect(snapshot.details).toMatchObject({
+      thread_id: threadId,
+      status: "active",
+      status_detail: "running",
+      description: "Shell marker",
+    });
+  });
+
+  test("agent_status reads this conversation's receipt and never reaches the BuildSession", async () => {
+    const harness = sessionHarness();
+    const remember = (
+      harness.instance["rememberCloudAgentControlReceipt"] as (
+        value: unknown,
+      ) => Promise<unknown>
+    ).bind(harness.instance);
+    await remember({
+      threadId: "thread-status-1",
+      attemptGeneration: 1,
+      threadUpdatedAt: 1_700_000_000_000,
+      status: "running",
+      turnId: "agent-turn-status-1",
+      description: "Shell marker",
+    });
+    const calls = installBuildSessions(harness, () => {
+      throw new Error("agent_status must not contact the BuildSession");
+    });
+    const status = await cloudAgentTool(
+      harness.instance,
+      turn("turn-status"),
+      "agent_status",
+    );
+    const running = await status.execute("tool-status-running", {
+      thread_id: "thread-status-1",
+    });
+    expect(calls).toHaveLength(0);
+    expect(running.details).toMatchObject({
+      thread_id: "thread-status-1",
+      status: "active",
+      status_detail: "running",
+      description: "Shell marker",
+      last_active_at: "2023-11-14T22:13:20.000Z",
+    });
+    expect(running.content[0]?.text).toContain("active");
+    expect(running.content[0]?.text).toContain("Shell marker");
+
+    // A lifecycle receipt carries no description; the snapshot keeps the
+    // spawn's, and a finished thread reads as paused with its exact status.
+    await remember({
+      threadId: "thread-status-1",
+      attemptGeneration: 1,
+      threadUpdatedAt: 1_700_000_001_000,
+      status: "completed",
+    });
+    const finished = await status.execute("tool-status-finished", {
+      thread_id: "thread-status-1",
+    });
+    expect(finished.details).toMatchObject({
+      status: "paused",
+      status_detail: "completed",
+      description: "Shell marker",
+      last_active_at: "2023-11-14T22:13:21.000Z",
+    });
+
+    // Another conversation's agent is not this one's to see.
+    await expect(
+      status.execute("tool-status-unknown", { thread_id: "thread-elsewhere" }),
+    ).rejects.toThrow("Thread not found in this conversation: thread-elsewhere");
+  });
+
+  test("a busy-workspace refusal names this conversation's running agent", async () => {
+    const gates = fakeOwnerGates({
+      admit: () => ({
+        ok: false,
+        code: "quota_concurrency",
+        message:
+          "Another agent is already running in this workspace. Wait for it to finish.",
+        retryable: true,
+        retryAfterMs: 5_000,
+      }),
+    });
+    const harness = sessionHarness(new Map(), { gates });
+    const remember = (
+      harness.instance["rememberCloudAgentControlReceipt"] as (
+        value: unknown,
+      ) => Promise<unknown>
+    ).bind(harness.instance);
+    await remember({
+      threadId: "thread-busy-1",
+      attemptGeneration: 1,
+      threadUpdatedAt: 10,
+      status: "running",
+      turnId: "agent-turn-busy-1",
+      description: "Shell marker",
+    });
+    await remember({
+      threadId: "thread-done-1",
+      attemptGeneration: 1,
+      threadUpdatedAt: 20,
+      status: "completed",
+      description: "Earlier work",
+    });
+    const calls = installBuildSessions(harness, acceptedAgentTurn);
+    const spawn = await cloudAgentTool(
+      harness.instance,
+      turn("turn-spawn-busy"),
+      "spawn_agent",
+    );
+    await expect(
+      spawn.execute("tool-spawn-busy", {
+        description: "Second",
+        prompt: "Again.",
+      }),
+    ).rejects.toThrow(
+      'Another agent is already running in this workspace. Wait for it to finish. This conversation\'s running agent: thread-busy-1 ("Shell marker"). Check it with agent_status, or stop it with pause_agent before spawning another.',
+    );
+    expect(calls).toHaveLength(0);
   });
 
   test("pause cancels the exact running attempt at its BuildSession and records one outcome", async () => {

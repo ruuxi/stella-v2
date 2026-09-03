@@ -72,6 +72,36 @@ export const CLOUD_CAPABILITIES: readonly ExecutionCapability[] = [
   "attachments",
 ];
 
+/**
+ * The argument shape of the Convex mutation
+ * `execution_placement.registerMyExecutionDevice`, shared so the desktop
+ * bridge that sends it and the backend test that accepts it cannot drift
+ * apart again. The bridge once sent `publicKey`/`label` against a validator
+ * that wanted `devicePublicKey`/`deviceName`, and every registration failed
+ * with an opaque server error.
+ */
+export type ExecutionDeviceRegistration = {
+  deviceId: string;
+  devicePublicKey: string;
+  deviceName?: string;
+  platform?: string;
+  capabilities: ExecutionCapability[];
+};
+
+export const executionDeviceRegistration = (input: {
+  deviceId: string;
+  devicePublicKey: string;
+  deviceName?: string | undefined;
+  platform?: string | undefined;
+  capabilities: readonly ExecutionCapability[];
+}): ExecutionDeviceRegistration => ({
+  deviceId: input.deviceId,
+  devicePublicKey: input.devicePublicKey,
+  ...(input.deviceName?.trim() ? { deviceName: input.deviceName.trim() } : {}),
+  ...(input.platform?.trim() ? { platform: input.platform.trim() } : {}),
+  capabilities: [...new Set(input.capabilities)].sort(),
+});
+
 export type DispatchState =
   | "offering"
   | "computer_claimed"

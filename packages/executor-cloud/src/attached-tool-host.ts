@@ -66,6 +66,7 @@ import {
   CLOUD_TOOL_HOME,
   CLOUD_TOOL_PROCESS_IDENTITY,
 } from "./cloud-process-isolation.js";
+import { cloudAgentToolContext } from "./cloud-tool-context.js";
 import {
   WORLD_DRIVE_ROOT,
   WORLD_DRIVE_WORKSPACE,
@@ -389,25 +390,12 @@ export const runAttachedToolHost = (
           }).pipe(Effect.orDie),
       );
 
-      const context: ToolContext = {
-        executionHost: "sandbox",
-        conversationId: input.threadId,
-        deviceId: "cloud",
-        requestId: crypto.randomUUID(),
-        agentType: "general",
-        workingDirectory: workspaceRoot,
-        stellaAppDir: workspaceRoot,
-        stellaDataDir: workspaceStateDir,
-        toolWorkspaceRoot: workspaceRoot,
-        storageMode: "cloud",
-        toolProcessIdentity: {
-          ...CLOUD_TOOL_PROCESS_IDENTITY,
-          home: CLOUD_TOOL_HOME,
-        },
-        agentId: input.threadId,
-        agentDepth: 1,
-        maxAgentDepth: 1,
-      };
+      const context: ToolContext = cloudAgentToolContext({
+        threadId: input.threadId,
+        workspaceRoot,
+        workspaceStateDir,
+        toolHome: CLOUD_TOOL_HOME,
+      });
 
       const calls = new Map<string, CallState>();
       const notice = driveHydrationNotice(driveSync);
@@ -490,14 +478,25 @@ export const runAttachedToolHost = (
       });
 
       const serve = async (socket: Socket): Promise<void> => {
+        let frame: unknown;
         try {
-          const frame = await readFrame(
-            socket,
-            ATTACHED_TOOL_REQUEST_MAX_BYTES,
-          );
-          await writeFrame(socket, await dispatcher.answer(frame));
+          frame = await readFrame(socket, ATTACHED_TOOL_REQUEST_MAX_BYTES);
         } catch (error) {
           console.error(`attached tool call failed: ${asError(error).message}`);
+          socket.end();
+          return;
+        }
+        try {
+          await writeFrame(socket, await dispatcher.answer(frame));
+        } catch (error) {
+          const message = asError(error).message;
+          console.error(`attached tool call failed: ${message}`);
+          // A failed answer is still an answer. Closing the socket instead
+          // left the client with a bare transport failure, so the worker
+          // learned nothing about why a quiesce or tool call failed.
+          await writeFrame(socket, attachedToolAnswerFailure(frame, message)).catch(
+            () => undefined,
+          );
         } finally {
           socket.end();
         }
@@ -554,6 +553,34 @@ export const attachedToolTransportFailure = (
   fingerprint,
   error: message.slice(0, 8_000) || "The attached tool host is unreachable.",
 });
+
+/**
+ * The frame the daemon answers with when producing the real answer threw.
+ * Shaped by the request it failed to answer, so the client can parse it as
+ * a failed control response or a failed tool response and carry the message
+ * to the worker instead of reporting a closed socket.
+ */
+export const attachedToolAnswerFailure = (
+  frame: unknown,
+  message: string,
+): AttachedToolControlResponse | AttachedToolResponse => {
+  const row =
+    frame && typeof frame === "object" && !Array.isArray(frame)
+      ? (frame as Record<string, unknown>)
+      : {};
+  if ("control" in row) {
+    return {
+      version: ATTACHED_TOOL_PROTOCOL_VERSION,
+      status: "failed",
+      error: message.slice(0, 8_000) || "The attached tool host failed.",
+    };
+  }
+  return attachedToolTransportFailure(
+    typeof row.toolCallId === "string" ? row.toolCallId : "",
+    typeof row.fingerprint === "string" ? row.fingerprint : "",
+    message,
+  );
+};
 
 export const ATTACHED_TOOL_HOST_RESPONSE_MAX_BYTES =
   ATTACHED_TOOL_RESPONSE_MAX_BYTES;

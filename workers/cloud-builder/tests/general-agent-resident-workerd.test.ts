@@ -4,7 +4,10 @@ import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NO_WORKSPACE_ATTACHED_MESSAGE } from "../src/general-agent-tools.js";
+import {
+  NO_JS_SANDBOX_MESSAGE,
+  NO_WORKSPACE_ATTACHED_MESSAGE,
+} from "../src/general-agent-tools.js";
 import { allocateWorkerdInspectorPort } from "./helpers/workerd-test-port.js";
 
 const packageRoot = new URL("..", import.meta.url);
@@ -198,6 +201,29 @@ describe("resident general-agent turn in workerd", () => {
       "assistant",
     ]);
     expect(rows[2]?.payloadJson).toContain(NO_WORKSPACE_ATTACHED_MESSAGE);
+  }, 90_000);
+
+  test("runs code in a Dynamic Worker without attaching a workspace", async () => {
+    const turn = await requestJson("/turn", { script: "code_tool" });
+
+    expect(turn.status).toBe(200);
+    expect(turn.body.result.outcome).toBe("completed");
+    const rows = turn.body.transcript.rows as {
+      role: string;
+      payloadJson: string;
+    }[];
+    expect(rows.map((row) => row.role)).toEqual([
+      "user",
+      "assistant",
+      "toolResult",
+      "assistant",
+    ]);
+    // The value came back from the isolate, which has no Node globals, and
+    // neither refusal reached the transcript.
+    expect(rows[2]?.payloadJson).toContain("CL-RESIDENT-CODE-42");
+    expect(rows[2]?.payloadJson).toMatch(/hasProcess\\?":\s*false/u);
+    expect(rows[2]?.payloadJson).not.toContain(NO_WORKSPACE_ATTACHED_MESSAGE);
+    expect(rows[2]?.payloadJson).not.toContain(NO_JS_SANDBOX_MESSAGE);
   }, 90_000);
 
   test("places a Stella turn resident and demotes it under the kill switch", async () => {

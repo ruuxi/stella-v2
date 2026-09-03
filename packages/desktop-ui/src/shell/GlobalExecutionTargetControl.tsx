@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import type { DeviceDestination } from "@stella/contracts/turn-plane/placement";
 import { cloudApi } from "@/features/cloud/cloud-api";
-import { listExecutionDevices } from "@/features/cloud/placement-client";
+import {
+  listExecutionDevices,
+  placementHttpOrigin,
+} from "@/features/cloud/placement-client";
 import { getConvexToken } from "@/global/auth/services/auth-token";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
@@ -36,10 +39,15 @@ export function GlobalExecutionTargetControl() {
     cloudApi.getCloudRealtimeConfig,
     isCloudConversationReady && hasConnectedAccount ? {} : "skip",
   );
+  // The device list is an HTTPS read of the gate. Prefer the config's HTTP
+  // origin and fall back to the socket origin normalized to HTTP; a raw
+  // `wss://` origin cannot be fetched.
   const socketOrigin =
-    typeof realtime?.socketOrigin === "string" && realtime.socketOrigin
-      ? realtime.socketOrigin
-      : null;
+    typeof realtime?.httpOrigin === "string" && realtime.httpOrigin
+      ? realtime.httpOrigin
+      : typeof realtime?.socketOrigin === "string" && realtime.socketOrigin
+        ? placementHttpOrigin(realtime.socketOrigin)
+        : null;
   const [destinations, setDestinations] = useState<
     DeviceDestination[] | undefined
   >(undefined);

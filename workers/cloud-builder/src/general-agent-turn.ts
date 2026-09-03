@@ -139,7 +139,7 @@ export type GeneralAgentTurnPlan =
 export type TurnDurability =
   | Readonly<{
       kind: "none";
-      reason: "preflight_failed" | "canceled" | "sandbox_lost";
+      reason: "preflight_failed" | "canceled" | "sandbox_lost" | "commit_failed";
     }>
   | Readonly<{
       kind: "transcript_only";
@@ -904,12 +904,31 @@ export const runResidentStellaLoop = async (
   }
 
   const sealed = await journal.seal({ suspended: false });
-  const durability = input.commit
-    ? await input.commit(sealed, finalText)
-    : ({
-        kind: "transcript_only",
-        transcript: await control.appendAndVerifyTranscript(sealed),
-      } as const);
+  // A commit that throws is still this turn's terminal. Letting it reject the
+  // whole run left the thread "running" with no terminal ever delivered: the
+  // teardown ran, the loop was gone, and only the watchdog could notice.
+  let durability: TurnDurability;
+  try {
+    durability = input.commit
+      ? await input.commit(sealed, finalText)
+      : ({
+          kind: "transcript_only",
+          transcript: await control.appendAndVerifyTranscript(sealed),
+        } as const);
+  } catch (commitError) {
+    const message =
+      commitError instanceof Error
+        ? commitError.message
+        : String(commitError);
+    return {
+      outcome: "failed",
+      ok: false,
+      error: `Committing the turn failed: ${message}`,
+      usage,
+      compute: RESIDENT_COMPUTE,
+      durability: { kind: "none", reason: "commit_failed" },
+    };
+  }
   journal.clearAfterCanonicalCommit();
   return error
     ? {

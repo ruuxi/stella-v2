@@ -274,6 +274,7 @@ describe("sandbox lifecycle identity and safe diagnostics", () => {
     expect(JSON.parse(captured)).toEqual({
       event: "sandbox_destroy_deferred",
       failureCode: "sandbox_rpc_failed",
+      errorName: "Error",
       detailBytes: new TextEncoder().encode(`Error:${sensitive}`).byteLength,
       detailBytesCapped: false,
     });

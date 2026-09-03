@@ -14,7 +14,11 @@ import {
   openSqlStorageFake,
   type SqlStorageFake,
 } from "./fixtures/sql-storage.js";
-import { readThreadHistory } from "../src/thread-transcript.js";
+import { nativeHistoryCursorFromRows } from "../src/native-state-checkpoint.js";
+import {
+  appendThreadMessages,
+  readThreadHistory,
+} from "../src/thread-transcript.js";
 import { fakeOutbox } from "./helpers/turn-plane-fakes.js";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 
@@ -321,6 +325,150 @@ describe("resident agent turn recovery", () => {
     });
   });
 
+  test("a live resident turn re-arms a heartbeat alarm well ahead of its watchdog", async () => {
+    // A resident turn holds no world lease, so nothing but this heartbeat
+    // would wake the alarm before the watchdog. That alarm is the only thing
+    // that notices an isolate replaced under a running turn (a deploy), so the
+    // heartbeat bounds how long a lost turn can sit as "running".
+    const harness = recoveryHarness();
+    const turn = residentTurn();
+    seedResidentTurn(harness, turn);
+    const now = Date.now();
+    const watchdogDeadlineAt = now + 15 * 60_000;
+    harness.values.set("agentWatchdogDeadlineAt", watchdogDeadlineAt);
+    (harness.instance["agentTurnExecutions"] as Map<string, unknown>).set(
+      turn.turnId,
+      {},
+    );
+    await (
+      (BuildSession.prototype as unknown as Record<string, unknown>)[
+        "runScheduledTurnAlarm"
+      ] as (this: unknown) => Promise<void>
+    ).call(harness.instance);
+
+    const alarm = await harness.storage.getAlarm();
+    expect(alarm).not.toBeNull();
+    expect(alarm!).toBeGreaterThanOrEqual(now + 60_000);
+    expect(alarm!).toBeLessThanOrEqual(Date.now() + 60_000);
+    expect(alarm!).toBeLessThan(watchdogDeadlineAt);
+    // A heartbeat is not a recovery: the live turn was left alone.
+    expect(harness.delivered).toHaveLength(0);
+  });
+
+  test("a lazy resident attach resolves against the thread's prior turns, never an empty history", async () => {
+    // The container path resolves its world against the transcript before
+    // the current turn. The resident attach used to pass an empty history,
+    // so every follow-up named the empty cursor: the previous turn's
+    // checkpoint could not be published or restored and the attach refused
+    // as "still recovering a previous agent turn".
+    const harness = recoveryHarness();
+    const turn = residentTurn();
+    seedResidentTurn(harness, turn);
+    const previous = {
+      role: "assistant",
+      payloadJson: JSON.stringify({
+        role: "assistant",
+        content: [{ type: "text", text: "previous turn report" }],
+      }),
+    };
+    appendThreadMessages(harness.storage.sql, {
+      turnId: "turn-previous",
+      attemptGeneration: 1,
+      now: 1_700_000_000_000,
+      messages: [
+        {
+          ordinal: 0,
+          role: "user",
+          payloadJson: JSON.stringify({
+            role: "user",
+            content: [{ type: "text", text: "first task" }],
+          }),
+        },
+        { ordinal: 1, ...previous },
+      ],
+    });
+    appendThreadMessages(harness.storage.sql, {
+      turnId: turn.turnId,
+      attemptGeneration: 1,
+      now: 1_700_000_001_000,
+      messages: [
+        {
+          ordinal: 0,
+          role: "user",
+          payloadJson: JSON.stringify({
+            role: "user",
+            content: [{ type: "text", text: "follow-up task" }],
+          }),
+        },
+      ],
+    });
+    const history = (
+      harness.instance["residentAttachHistory"] as (
+        turn: unknown,
+        execution: { signal?: AbortSignal },
+      ) => AgentHistoryRow[]
+    ).call(harness.instance, turn, {});
+    expect(history.map((row) => row.turnId)).toEqual([
+      "turn-previous",
+      "turn-previous",
+    ]);
+    expect(await nativeHistoryCursorFromRows(history)).toBe(
+      await nativeHistoryCursorFromRows([
+        { turnId: "turn-previous", ...previous },
+      ]),
+    );
+    expect(await nativeHistoryCursorFromRows(history)).not.toBe(
+      await nativeHistoryCursorFromRows([]),
+    );
+  });
+
+  test("an attached resident turn publishes its checkpoint at completion like the container path", async () => {
+    const harness = recoveryHarness();
+    const turn = { ...residentTurn(), conversationId: "conversation-1" };
+    const published: Array<{ cursor: string; operationId: string }> = [];
+    harness.instance["publishAgentTurnWorkspace"] = async (
+      _turn: unknown,
+      cursor: string,
+      operationId: string,
+    ) => {
+      published.push({ cursor, operationId });
+      return {};
+    };
+    const receipt = {
+      schemaVersion: 1 as const,
+      operationId: "a".repeat(64),
+      historyCursor: `v1:${"b".repeat(64)}`,
+      workspaceSha256: "c".repeat(64),
+      receipt: "d".repeat(64),
+      replayed: false,
+    };
+    const publish = (
+      harness.instance["publishResidentTurnWorkspace"] as (
+        turn: unknown,
+        execution: { assertActive: () => void },
+        checkpoint: typeof receipt,
+      ) => Promise<void>
+    ).bind(harness.instance);
+    await publish(turn, { assertActive: () => undefined }, receipt);
+    expect(published).toEqual([
+      { cursor: receipt.historyCursor, operationId: receipt.operationId },
+    ]);
+
+    // A turn that lost authority never publishes under its name.
+    await expect(
+      publish(
+        turn,
+        {
+          assertActive: () => {
+            throw new Error("turn canceled");
+          },
+        },
+        receipt,
+      ),
+    ).rejects.toThrow("turn canceled");
+    expect(published).toHaveLength(1);
+  });
+
   test("an admitted attach without an execution marker destroys and retires before resident recovery", async () => {
     const harness = recoveryHarness();
     const turn = residentTurn();
@@ -506,6 +654,62 @@ describe("resident agent turn recovery", () => {
 
     expect(harness.values.has("sandboxId")).toBe(false);
     expect(harness.values.has("sandboxSize")).toBe(false);
+  });
+
+  test("a builder fallback that keeps failing is abandoned with a failed terminal", async () => {
+    // Every retry boots the lost container again to read its disk. Left
+    // unbounded, a disk that can no longer be read kept the thread "running"
+    // and restarted a container every thirty seconds indefinitely.
+    const harness = recoveryHarness();
+    const turn = residentTurn();
+    seedResidentTurn(harness, turn);
+    const sandboxId = `agent-${turn.turnId}`;
+    harness.values.set("sandboxId", sandboxId);
+    harness.values.set("sandboxSize", "large");
+    harness.values.set(`agentExecutionMarker:${turn.turnId}:1`, {
+      schemaVersion: 1,
+      turnId: turn.turnId,
+      attemptGeneration: 1,
+      sandboxId,
+      size: "large",
+      startedAt: 1_700_000_000_000,
+    });
+    harness.values.set(agentComputeKey(turn.turnId, 1), {
+      schemaVersion: 1,
+      turnId: turn.turnId,
+      attemptGeneration: 1,
+      phase: "attached",
+      instanceSize: "large",
+      sandboxId,
+    });
+    let attempts = 0;
+    harness.instance["reconcileAgentCheckpointAfterQuiescence"] = async () => {
+      attempts += 1;
+      throw new Error("Session 'turn-state' shell exited (exit code: 1)");
+    };
+    const previousError = console.error;
+    console.error = () => undefined;
+    try {
+      for (let pass = 1; pass <= 9; pass += 1) {
+        const before = Date.now();
+        await runAlarm(harness.instance, turn);
+        expect(harness.delivered).toHaveLength(0);
+        const alarm = await harness.storage.getAlarm();
+        expect(alarm).not.toBeNull();
+        expect(alarm!).toBeGreaterThanOrEqual(before + 30_000);
+      }
+      await runAlarm(harness.instance, turn);
+    } finally {
+      console.error = previousError;
+    }
+    expect(attempts).toBe(10);
+    expect(harness.delivered).toHaveLength(1);
+    expect(harness.delivered[0]).toMatchObject({
+      kind: "failed",
+      payload: { reason: "executor_recovered" },
+      threadError:
+        "The agent stopped unexpectedly and its workspace could not be recovered.",
+    });
   });
 
   test("an evicted attached turn feeds the journal into the builder fallback", async () => {

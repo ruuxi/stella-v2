@@ -16,17 +16,47 @@ import path from "node:path";
 import { Effect } from "effect";
 import {
   ATTACHED_TOOL_DIR,
+  ATTACHED_TOOL_PROTOCOL_VERSION,
   ATTACHED_TOOL_REQUEST_MAX_BYTES,
   ATTACHED_TOOL_REQUEST_PATH,
   ATTACHED_TOOL_RESPONSE_MAX_BYTES,
   ATTACHED_TOOL_RESULT_PATH,
   ATTACHED_TOOL_SOCKET_PATH,
   AttachedToolProtocolError,
+  type AttachedToolControlResponse,
+  type AttachedToolResponse,
   decodeAttachedToolFrame,
   encodeAttachedToolFrame,
   parseAttachedToolControlResponse,
   parseAttachedToolResponse,
 } from "./attached-tool-protocol.js";
+
+/**
+ * The frame the client writes when the daemon could not be reached or did not
+ * answer with a valid frame. It is the only way the worker learns why a call
+ * failed, so it must parse as a current-protocol failure: a stale version
+ * here turned every transport failure into "frame field version is invalid"
+ * and hid the real error behind it.
+ */
+export const attachedToolClientFailure = (
+  request: unknown,
+  message: string,
+): AttachedToolControlResponse | AttachedToolResponse => {
+  const isControl =
+    Boolean(request) &&
+    typeof request === "object" &&
+    "control" in (request as Record<string, unknown>);
+  const error = message.slice(0, 8_000) || "The attached tool host is unreachable.";
+  return isControl
+    ? { version: ATTACHED_TOOL_PROTOCOL_VERSION, status: "failed", error }
+    : {
+        version: ATTACHED_TOOL_PROTOCOL_VERSION,
+        status: "failed",
+        toolCallId: toolCallIdOf(request),
+        fingerprint: fingerprintOf(request),
+        error,
+      };
+};
 
 const asError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
@@ -130,21 +160,7 @@ export const runAttachedToolClient = (
       catch: asError,
     }).pipe(
       Effect.catch((error: Error) =>
-        Effect.succeed(
-          isControl
-            ? ({
-                version: 1,
-                status: "failed",
-                error: error.message.slice(0, 8_000),
-              } as const)
-            : ({
-                version: 1,
-                status: "failed",
-                toolCallId: toolCallIdOf(request),
-                fingerprint: fingerprintOf(request),
-                error: error.message.slice(0, 8_000),
-              } as const),
-        ),
+        Effect.succeed(attachedToolClientFailure(request, error.message)),
       ),
     );
     yield* Effect.tryPromise({

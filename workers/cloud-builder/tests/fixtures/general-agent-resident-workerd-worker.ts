@@ -27,10 +27,12 @@ import {
   type GeneralAgentTurnRequest,
 } from "../../src/general-agent-turn.js";
 import { createResidentGeneralAgentTools } from "../../src/general-agent-tools.js";
+import { createCloudCodeAgentTool } from "../../src/cloud-code-tool.js";
 import { createTurnRetryCancellation } from "../../src/turn-cancellation.js";
 
 type FixtureEnv = {
   RESIDENT_TURNS: DurableObjectNamespace<ResidentTurnHarness>;
+  LOADER: WorkerLoader;
 };
 
 const MODEL = {
@@ -95,18 +97,32 @@ const assistantText = (text: string): AssistantMessage => ({
   usage,
 });
 
-const assistantCalls = (name: string): AssistantMessage => ({
+const assistantCalls = (
+  name: string,
+  args: Record<string, unknown> = { cmd: "ls" },
+): AssistantMessage => ({
   ...assistantHeader,
-  content: [{ type: "toolCall", id: "call-1", name, arguments: { cmd: "ls" } }],
+  content: [{ type: "toolCall", id: "call-1", name, arguments: args }],
   stopReason: "toolUse",
   usage,
 });
+
+/** Runs in a Dynamic Worker: no Node globals, and a value the test can pin. */
+const RESIDENT_CODE_SCRIPT = `async () => ({
+  value: "CL-RESIDENT-CODE-" + String(6 * 7),
+  hasProcess: typeof process !== "undefined",
+  hasRequire: typeof require !== "undefined",
+})`;
 
 const SCRIPTS: Record<string, readonly AssistantMessage[]> = {
   text: [assistantText("We decided to ship the ladder.")],
   container_tool: [
     assistantCalls("exec_command"),
     assistantText("I answered without a workspace."),
+  ],
+  code_tool: [
+    assistantCalls("code", { code: RESIDENT_CODE_SCRIPT, timeout_ms: 5_000 }),
+    assistantText("The code ran in the JS sandbox."),
   ],
 };
 
@@ -143,12 +159,33 @@ const doLocalTool = (name: string): AgentTool => ({
   }),
 });
 
-const TOOLS = createResidentGeneralAgentTools(
-  new Map([
-    ["web", doLocalTool("web")],
-    ["publish_stella_interior", doLocalTool("publish_stella_interior")],
-  ]),
-);
+const DO_LOCAL = new Map([
+  ["web", doLocalTool("web")],
+  ["publish_stella_interior", doLocalTool("publish_stella_interior")],
+]);
+
+/** Names only; the executable catalog is built per turn with the loader. */
+const TOOLS = createResidentGeneralAgentTools(DO_LOCAL);
+
+/**
+ * Exactly what `BuildSession.runResidentAgentTurn` builds: the do-local tools,
+ * no ladder, and `code` on the Dynamic Worker loader.
+ */
+const residentTools = async (env: FixtureEnv) =>
+  createResidentGeneralAgentTools(
+    DO_LOCAL,
+    undefined,
+    new Map([
+      [
+        "code",
+        await createCloudCodeAgentTool({
+          loader: env.LOADER,
+          tools: [...DO_LOCAL.values()],
+          executionScope: "workerd:resident-code",
+        }),
+      ],
+    ]),
+  );
 
 const TERMINAL = {
   prompt: TURN.prompt,
@@ -251,7 +288,7 @@ export class ResidentTurnHarness extends DurableObject {
       },
       modelGateway: MODEL_GATEWAY,
       sql: this.ctx.storage.sql,
-      tools: TOOLS,
+      tools: await residentTools(this.env),
       workspacePrompt: { office: false },
       now: () => TERMINAL.timestamp,
       createModel: async () => MODEL,

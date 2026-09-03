@@ -20,6 +20,8 @@ import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { connectorLocalFollowupDeliveryId, resolveConnectorFollowupAction, resolveConnectorTerminalFollowup, } from "./connector-followup.js";
 import { ConnectorFollowupOutbox } from "./connector-followup-outbox.js";
 import { createExecutionPlacementBridge, placementLocalAgentThreadId, placementLocalChatRunId, } from "./execution-placement-bridge.js";
+import { isExecutionPlacementEligible } from "./execution-placement-eligibility.js";
+import { isCloudHandedOff } from "./placed-dispatch.js";
 import { placementAttachmentPaths, resolvePlacementAttachments, } from "./placement-attachments.js";
 import { getDesktopDatabasePath, initializeDesktopDatabase, } from "../kernel/storage/database-init.js";
 import { METHOD_NAMES, NOTIFICATION_NAMES, STELLA_RUNTIME_PROTOCOL_VERSION, } from "@stella/contracts/protocol";
@@ -1197,16 +1199,17 @@ export class StellaRuntimeHost {
         return await operation;
     }
     async syncHostExecutionPlacementNow() {
-        const eligible = Boolean(this.started &&
-            this.hostReady &&
-            this.deviceIdentity?.deviceId &&
-            this.deviceIdentity?.publicKey &&
-            this.deviceIdentity?.privateKey &&
-            this.connectorFollowupDatabase &&
-            this.configCache.hasConnectedAccount &&
-            this.configCache.cloudSyncEnabled &&
-            this.getConfiguredHostAuthToken() &&
-            this.getConfiguredHostConvexUrl());
+        const eligible = isExecutionPlacementEligible({
+            started: this.started,
+            hostReady: this.hostReady,
+            deviceIdentity: this.deviceIdentity,
+            hasDatabase: Boolean(this.connectorFollowupDatabase),
+            hasConnectedAccount: this.configCache.hasConnectedAccount,
+            cloudSyncEnabled: this.configCache.cloudSyncEnabled,
+            authToken: this.getConfiguredHostAuthToken(),
+            convexUrl: this.getConfiguredHostConvexUrl(),
+            canSignDeviceInput: typeof this.options.hostHandlers.signDeviceInput === "function",
+        });
         const client = eligible ? this.ensureHostConvexClient() : null;
         if (this.hostExecutionPlacementBridge &&
             client &&
@@ -1235,6 +1238,16 @@ export class StellaRuntimeHost {
             client,
             database: this.connectorFollowupDatabase,
             deviceIdentity: this.deviceIdentity,
+            // The Ed25519 device key never enters the host. Electron main (or
+            // the headless host) signs the presence nonce through the same
+            // delegate the worker's DPoP path uses.
+            signPresenceProof: async (message) => {
+                const signed = await this.options.hostHandlers.signDeviceInput(message);
+                if (!signed || typeof signed.signature !== "string" || !signed.signature) {
+                    throw new Error("Stella device signing returned no signature.");
+                }
+                return signed.signature;
+            },
             appVersion: "stella-desktop-v2",
             deviceName: hostname().trim().slice(0, 96) || undefined,
             platform: process.platform,
@@ -1833,6 +1846,22 @@ export class StellaRuntimeHost {
         };
         const onStatus = (status) => {
             if (!status || status.dispatchId !== dispatch.dispatchId || terminal) return;
+            // Cloud placement is a hand-off, not an execution this desktop
+            // follows to the end: the gate starts the conversation's own
+            // Durable Object turn, records its id, and never settles the
+            // dispatch itself. The web shell stops watching the dispatch as
+            // soon as `cloudTurnId` is known and tracks the turn over the
+            // conversation socket. Do the same here: drop the watcher and the
+            // bookkeeping, or the status poll runs against the gate forever.
+            // The renderer keeps its own view of the turn from the socket, so
+            // no synthetic terminal event is sent for a turn that is still
+            // streaming elsewhere.
+            if (isCloudHandedOff(status)) {
+                terminal = true;
+                placed.subscription?.unsubscribe();
+                this.placedDispatchByRunId.delete(runId);
+                return;
+            }
             if (Number.isFinite(status.revision) && status.revision > lastRevision) {
                 lastRevision = status.revision;
                 const statusText = status.state === "offering" || status.state === "computer_claimed" ? "Connecting" : status.state === "computer_accepted" || status.state === "computer_running" || status.state === "cloud_running" ? "Working" : status.state === "cloud_committed" ? "Starting" : null;

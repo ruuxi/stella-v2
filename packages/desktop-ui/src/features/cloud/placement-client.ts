@@ -36,6 +36,18 @@ import {
 /** Bound on one owner-gate round trip. Placement answers before the run. */
 export const PLACEMENT_REQUEST_TIMEOUT_MS = 30_000;
 
+/**
+ * The gate's HTTP origin for the dispatch and device routes. The realtime
+ * config hands out the presence socket's `wss://` origin; the same host serves
+ * these routes over HTTPS, and `fetch` refuses websocket schemes outright, so
+ * every request goes through this normalization.
+ */
+export const placementHttpOrigin = (origin: string): string =>
+  origin
+    .replace(/\/+$/, "")
+    .replace(/^wss:\/\//i, "https://")
+    .replace(/^ws:\/\//i, "http://");
+
 export type PlacementTokenOptions = { forceRefresh?: boolean };
 export type PlacementGetToken = (
   options?: PlacementTokenOptions,
@@ -235,7 +247,7 @@ const requestOnce = async (
   const fetchImpl = args.fetch ?? globalThis.fetch;
   try {
     return await fetchImpl(
-      `${args.socketOrigin.replace(/\/+$/, "")}${args.path}`,
+      `${placementHttpOrigin(args.socketOrigin)}${args.path}`,
       {
         method: args.method,
         headers: {

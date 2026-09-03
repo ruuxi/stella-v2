@@ -368,6 +368,8 @@ import {
 import { createAgentControlPlane } from "./agent-control-plane.js";
 import { createGeneralAgentDoLocalTools } from "./general-agent-do-local-tools.js";
 import { createResidentGeneralAgentTools } from "./general-agent-tools.js";
+import { createCloudCodeAgentTool } from "./cloud-code-tool.js";
+import { CODE_TOOL_NAME } from "@stella/runtime/kernel/tools/defs/code-def.js";
 import {
   EMPTY_NATIVE_HISTORY_CURSOR,
   NATIVE_STATE_DIRECTORY,
@@ -1837,6 +1839,12 @@ const exactTurnSandboxId = async (
  */
 const TOOL_WORKSPACE_ROOTS = new Set([WORLD_ROOT, APP_BUILD_ROOT]);
 
+/**
+ * Run a strict (`set -eu`) script without leaving those options behind in
+ * the session's persistent shell. The subshell's exit status is the script's.
+ */
+export const inSubshell = (script: string): string => `( ${script} )`;
+
 /** Establish the post-mount fixed boundary before any model-shaped process. */
 export const normalizeToolWorkspaceRoot = async (
   session: Pick<ExecutionSession, "exec">,
@@ -1870,7 +1878,10 @@ export const normalizeToolWorkspaceRoot = async (
     'test "$(readlink -f /home/stella-host-state)" = /home/stella-host-state',
     "test \"$(stat -c '%u:%g:%a' /home/stella-host-state)\" = 0:0:700",
   ].join("; ");
-  const result = await session.exec(command);
+  // The session shell is persistent, so `set -eu` must stay inside a
+  // subshell: leaked into the session it turns the next non-zero exit (for
+  // one, the attached tool-host readiness probe) into a dead shell.
+  const result = await session.exec(inSubshell(command));
   if (!result.success) {
     throw new Error("Cloud workspace mount boundary validation failed.");
   }
@@ -2406,6 +2417,25 @@ const nativeStateIntegrityKeyFor = async (
     ].join("\u0000"),
   );
 const AGENT_WATCHDOG_DEADLINE_KEY = "agentWatchdogDeadlineAt";
+/**
+ * How many alarm passes a builder-fallback recovery may fail before the turn
+ * is failed outright. Each pass boots the lost container again; unbounded,
+ * a container whose disk can no longer be read kept a thread "running" and a
+ * container restarting every thirty seconds indefinitely.
+ */
+const BUILDER_FALLBACK_MAX_RETRIES = 10;
+const builderFallbackRetryKey = (
+  turnId: string,
+  attemptGeneration: number,
+): string => `builderFallbackRetries:${turnId}:${attemptGeneration}`;
+/**
+ * How often a live agent turn re-arms its alarm when nothing else (a world
+ * lease renewal) would. The alarm is the only thing that notices a turn whose
+ * isolate was replaced under it — a deploy, an eviction — so without this a
+ * resident turn lost that way sat as "running" until its full watchdog
+ * deadline, holding the owner's agent lane for the whole wait.
+ */
+const AGENT_TURN_HEARTBEAT_MS = 60_000;
 const AGENT_RECOVERY_PENDING_KEY = "agentRecoveryPending";
 const agentRecoveryIdentity = (turn: TurnRequest): string =>
   `${turn.turnId}:${turn.attemptGeneration ?? 0}`;
@@ -5433,6 +5463,7 @@ export class BuildSession extends DurableObject<Env> {
     id: string,
     size: InstanceSize = "large",
     workload: SandboxWorkload = "app-build",
+    options: { keepAlive?: boolean } = {},
   ) {
     const namespace =
       workload === "app-build"
@@ -5443,7 +5474,10 @@ export class BuildSession extends DurableObject<Env> {
     return getSandbox(namespace, id, {
       transport: "rpc",
       enableDefaultSession: false,
-      keepAlive: true,
+      // A teardown stub asks the SDK to drop keep-alive as its configured
+      // state, so the sandbox itself records the release on its first call.
+      // A live stub keeps the container awake across the whole turn.
+      keepAlive: options.keepAlive ?? true,
       normalizeId: true,
       containerTimeouts: {
         instanceGetTimeoutMS: 60_000,
@@ -5506,6 +5540,7 @@ export class BuildSession extends DurableObject<Env> {
       target.sandboxId,
       target.size,
       target.workload,
+      { keepAlive: false },
     );
     try {
       // A destroy is still attempted when this advisory transition fails. The
@@ -5515,25 +5550,37 @@ export class BuildSession extends DurableObject<Env> {
           setKeepAlive?: (enabled: boolean) => Promise<unknown>;
         }
       ).setKeepAlive;
-      if (typeof setKeepAlive === "function") {
-        await withInfrastructureDeadline(
-          setKeepAlive.call(sandbox, false),
-          10_000,
-          "Sandbox keep-alive release did not settle.",
-        ).catch((error) => {
+      const releaseKeepAlive = async (phase: "before" | "after") => {
+        if (typeof setKeepAlive !== "function") return true;
+        try {
+          await withInfrastructureDeadline(
+            setKeepAlive.call(sandbox, false),
+            10_000,
+            "Sandbox keep-alive release did not settle.",
+          );
+          return true;
+        } catch (error) {
           log("error", "sandbox_keep_alive_release_failed", {
             lifecycleReason: event,
+            phase,
             workload: target.workload,
             instanceSize: target.size,
             ...sandboxLifecycleFailureFields(error),
           });
-        });
-      }
+          return false;
+        }
+      };
+      const released = await releaseKeepAlive("before");
       await withInfrastructureDeadline(
         sandbox.destroy(),
         30_000,
         "Sandbox destruction did not settle.",
       );
+      // A destroyed container is not gone for good: any later RPC to its
+      // sandbox boots it again, and with keep-alive still persisted it then
+      // never sleeps. The release is durable sandbox state, so retry it once
+      // the destroy has settled rather than accepting the first failure.
+      if (!released) await releaseKeepAlive("after");
     } catch (error) {
       const advanced = advanceSandboxDestroyDebt(debt, Date.now());
       await persistSandboxDestroyDebt(this.ctx.storage, advanced);
@@ -5558,6 +5605,65 @@ export class BuildSession extends DurableObject<Env> {
       instanceSize: target.size,
       attempts: debt.attemptCount + 1,
     });
+  }
+
+  /** One more failed builder-fallback pass for this exact attempt; returns the total. */
+  private async recordBuilderFallbackRetry(turn: TurnRequest): Promise<number> {
+    const key = builderFallbackRetryKey(turn.turnId, turn.attemptGeneration!);
+    const retries = ((await this.ctx.storage.get<number>(key)) ?? 0) + 1;
+    await this.ctx.storage.put(key, retries);
+    return retries;
+  }
+
+  /**
+   * Fail a turn whose executor was lost and whose report cannot be recovered.
+   * The exact terminal decision is claimed first, then the container is torn
+   * down, then the terminal is delivered; a step that cannot complete re-arms
+   * the alarm instead of leaving the thread without a terminal.
+   */
+  private async deliverExecutorLossTerminal(
+    turn: TurnRequest,
+    text: { message: string; threadError: string },
+  ): Promise<void> {
+    const recoveredPending: PendingTerminal = {
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+      kind: "failed",
+      payload: { message: text.message, reason: "executor_recovered" },
+      threadError: text.threadError,
+      terminateSandbox: true,
+    };
+    if (
+      !(await this.claimTerminalDecision(
+        turn,
+        recoveredPending,
+        Date.now() + 30_000,
+      ))
+    ) {
+      await this.setExactTurnAlarm(turn, Date.now() + 1_000);
+      return;
+    }
+    try {
+      await this.terminateCurrentAgentSandbox(turn);
+    } catch (error) {
+      log("error", "recovered_agent_sandbox_termination_deferred", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        message: errorMessage(error),
+      });
+      return;
+    }
+    const delivered = await this.deliverTerminal(turn, {
+      ...recoveredPending,
+      terminateSandbox: false,
+    });
+    if (delivered && (await this.ownsExactTurn(turn))) {
+      if (await this.settleAgentTransientBackup(turn)) {
+        await this.deleteTurnStoragePreservingExactCancellations(turn, true);
+      } else {
+        await this.setExactTurnAlarm(turn, Date.now() + 30_000);
+      }
+    }
   }
 
   /** Alarm-owned retry pass. Every target is exact; no id-only guessing. */
@@ -5722,7 +5828,17 @@ export class BuildSession extends DurableObject<Env> {
       // attach; preferring it would destroy the wrong container and falsely
       // ACK Stop while leaking the current one.
       const sandboxId = compute ? compute.sandboxId : storedSandboxId;
-      if (!sandboxId || !exactTurnIdentityMatches(current, turn)) {
+      // An exact compute record names this attempt's own container, so its
+      // teardown proceeds even after a successor turn was admitted and took
+      // over `turn` — a follow-up dispatched from the completion wake lands
+      // within the second, before the finished attempt's teardown runs, and
+      // skipping here leaked that container on keep-alive for good. Only the
+      // shared mirror needs the identity fence: that key may already name the
+      // successor's container.
+      if (
+        !sandboxId ||
+        (!compute && !exactTurnIdentityMatches(current, turn))
+      ) {
         return undefined;
       }
       const size = compute
@@ -5838,15 +5954,17 @@ export class BuildSession extends DurableObject<Env> {
     try {
       turnExecution.assertActive();
       const preparedBuildRoot = await session.exec(
-        [
-          "set -eu",
-          "test ! -L /workspace/.stella-interior-build 2>/dev/null || exit 1",
-          "if [ -e /workspace/.stella-interior-build ]; then test -d /workspace/.stella-interior-build && test \"$(stat -c '%u:%g:%a' /workspace/.stella-interior-build)\" = 0:0:700; else mkdir /workspace/.stella-interior-build && chmod 0700 /workspace/.stella-interior-build; fi",
-          `rm -rf '${buildRoot}'`,
-          `mkdir '${buildRoot}'`,
-          `chown 42424:42424 '${buildRoot}'`,
-          `chmod 0700 '${buildRoot}'`,
-        ].join("; "),
+        inSubshell(
+          [
+            "set -eu",
+            "test ! -L /workspace/.stella-interior-build 2>/dev/null || exit 1",
+            "if [ -e /workspace/.stella-interior-build ]; then test -d /workspace/.stella-interior-build && test \"$(stat -c '%u:%g:%a' /workspace/.stella-interior-build)\" = 0:0:700; else mkdir /workspace/.stella-interior-build && chmod 0700 /workspace/.stella-interior-build; fi",
+            `rm -rf '${buildRoot}'`,
+            `mkdir '${buildRoot}'`,
+            `chown 42424:42424 '${buildRoot}'`,
+            `chmod 0700 '${buildRoot}'`,
+          ].join("; "),
+        ),
       );
       if (!preparedBuildRoot.success) {
         throw new Error(
@@ -6925,7 +7043,11 @@ export class BuildSession extends DurableObject<Env> {
         // enter crash recovery while the local Effect fiber is still alive.
         await this.setExactTurnAlarm(
           turn,
-          Math.min(watchdogDeadlineAt, renewal.nextAt ?? watchdogDeadlineAt),
+          Math.min(
+            watchdogDeadlineAt,
+            Date.now() + AGENT_TURN_HEARTBEAT_MS,
+            renewal.nextAt ?? watchdogDeadlineAt,
+          ),
         );
         log("info", "agent_watchdog_alarm_rearmed", {
           turnId: turn.turnId,
@@ -7260,12 +7382,32 @@ export class BuildSession extends DurableObject<Env> {
               : undefined,
           );
         } catch (error) {
+          const retries = await this.recordBuilderFallbackRetry(turn);
           log("error", "agent_builder_fallback_alarm_retry", {
             turnId: turn.turnId,
             threadId: turn.threadId,
+            retries,
             message: errorMessage(error),
           });
-          await this.setExactTurnAlarm(turn, Date.now() + 30_000);
+          if (retries < BUILDER_FALLBACK_MAX_RETRIES) {
+            await this.setExactTurnAlarm(turn, Date.now() + 30_000);
+            return;
+          }
+          // Every retry boots the lost container again to read its disk. A
+          // recovery that keeps failing must end, or the thread stays
+          // "running" forever while an alarm restarts a container every
+          // thirty seconds for nobody.
+          log("error", "agent_builder_fallback_abandoned", {
+            turnId: turn.turnId,
+            threadId: turn.threadId,
+            retries,
+          });
+          await this.deliverExecutorLossTerminal(turn, {
+            message:
+              "The agent stopped unexpectedly and its workspace could not be recovered afterwards. Its report was lost.",
+            threadError:
+              "The agent stopped unexpectedly and its workspace could not be recovered.",
+          });
           return;
         }
         let recoveredSuspension: CloudBrowserSuspension | null;
@@ -7342,53 +7484,12 @@ export class BuildSession extends DurableObject<Env> {
           });
           return;
         }
-        const recoveredPending: PendingTerminal = {
-          turnId: turn.turnId,
-          attemptGeneration: turn.attemptGeneration!,
-          kind: "failed",
-          payload: {
-            message:
-              "The agent stopped unexpectedly. Its workspace changes were saved, but its report could not be recovered.",
-            reason: "executor_recovered",
-          },
+        await this.deliverExecutorLossTerminal(turn, {
+          message:
+            "The agent stopped unexpectedly. Its workspace changes were saved, but its report could not be recovered.",
           threadError:
             "The agent stopped unexpectedly after saving its workspace changes.",
-          terminateSandbox: true,
-        };
-        if (
-          !(await this.claimTerminalDecision(
-            turn,
-            recoveredPending,
-            Date.now() + 30_000,
-          ))
-        ) {
-          await this.setExactTurnAlarm(turn, Date.now() + 1_000);
-          return;
-        }
-        try {
-          await this.terminateCurrentAgentSandbox(turn);
-        } catch (error) {
-          log("error", "recovered_agent_sandbox_termination_deferred", {
-            turnId: turn.turnId,
-            threadId: turn.threadId,
-            message: errorMessage(error),
-          });
-          return;
-        }
-        const delivered = await this.deliverTerminal(turn, {
-          ...recoveredPending,
-          terminateSandbox: false,
         });
-        if (delivered && (await this.ownsExactTurn(turn))) {
-          if (await this.settleAgentTransientBackup(turn)) {
-            await this.deleteTurnStoragePreservingExactCancellations(
-              turn,
-              true,
-            );
-          } else {
-            await this.setExactTurnAlarm(turn, Date.now() + 30_000);
-          }
-        }
         return;
       }
       const computeRecovery = await this.recoverOrphanedAgentCompute(turn);
@@ -9495,7 +9596,9 @@ export class BuildSession extends DurableObject<Env> {
       Date.now() + Math.max(1_000, turn.watchdogMs ?? 15 * 60_000);
     await this.mutateExactTurn(turn, async (txn) => {
       await txn.put(AGENT_WATCHDOG_DEADLINE_KEY, watchdogDeadlineAt);
-      await txn.setAlarm(watchdogDeadlineAt);
+      await txn.setAlarm(
+        Math.min(watchdogDeadlineAt, Date.now() + AGENT_TURN_HEARTBEAT_MS),
+      );
     });
     // Projected before the run starts: Convex has to know the attempt exists
     // even if this isolate dies in the next millisecond, and the outbox is
@@ -9899,6 +10002,13 @@ export class BuildSession extends DurableObject<Env> {
       context: execution,
       attachWorld: async ({ instanceSize: size }) => {
         await this.ctx.storage.put({ sandboxId, sandboxSize: size });
+        // The thread before this turn — exactly what the container path
+        // resolves against. Read here rather than at admission so a
+        // chat-only resident turn never pays for it. Resolving against an
+        // empty history instead named the wrong cursor on every follow-up:
+        // the previous turn's checkpoint could never be published or
+        // restored, and each attach refused as "still recovering".
+        residentHistory = this.residentAttachHistory(turn, execution);
         const restore = await this.resolveAgentWorldRestore(
           turn,
           execution,
@@ -9938,6 +10048,20 @@ export class BuildSession extends DurableObject<Env> {
         }),
       destroy: async () => {
         await this.terminateCurrentAgentSandbox(turn);
+      },
+      // Without this the attachment's own diagnostics (a daemon that exited
+      // before listening, or stopped answering mid-turn, with its stderr)
+      // were thrown away, and a dead workspace bridge looked like a bare
+      // "connection refused" to everyone downstream.
+      emitEvent: (kind, payload) => {
+        void this.event(
+          turn,
+          "auto",
+          kind,
+          payload,
+          false,
+          execution.signal,
+        ).catch(() => undefined);
       },
     });
 
@@ -10060,6 +10184,23 @@ export class BuildSession extends DurableObject<Env> {
       now: () => Date.now(),
       signal: execution.signal,
     });
+    // `code` runs in a Dynamic Worker the DO loads on demand, the same
+    // executor the cloud orchestrator uses, so a resident agent evaluates
+    // JavaScript without reserving a container. Only the DO-local tools are
+    // reachable from inside code, and only the read-only ones among them; a
+    // deployment without the loader keeps the model-visible refusal instead.
+    const jsSandbox = this.env.LOADER
+      ? new Map([
+          [
+            CODE_TOOL_NAME,
+            await createCloudCodeAgentTool({
+              loader: this.env.LOADER,
+              tools: [...doLocal.values()],
+              executionScope: `${turn.ownerGeneration}:${turn.threadId}:${turn.turnId}:${attemptGeneration}`,
+            }),
+          ],
+        ])
+      : undefined;
 
     try {
       execution.assertActive();
@@ -10099,7 +10240,7 @@ export class BuildSession extends DurableObject<Env> {
           fetch: (input, init) => modelGatewayBinding.fetch(input, init),
         },
         sql: this.ctx.storage.sql,
-        tools: createResidentGeneralAgentTools(doLocal, ladder),
+        tools: createResidentGeneralAgentTools(doLocal, ladder, jsSandbox),
         workspacePrompt: { office: false },
         now: () => Date.now(),
         onAgentStarted: (abort) => {
@@ -10170,7 +10311,43 @@ export class BuildSession extends DurableObject<Env> {
       historyCursor: sealed.historyCursor,
     });
     const transcript = await control.appendAndVerifyTranscript(sealed);
+    await this.publishResidentTurnWorkspace(turn, execution, checkpoint);
     return { kind: "workspace_checkpoint", transcript, checkpoint };
+  }
+
+  /** What a lazy resident attach restores against: the thread before this turn. */
+  private residentAttachHistory(
+    turn: TurnRequest,
+    execution: TurnExecutionContext,
+  ): AgentHistoryRow[] {
+    return this.fetchCanonicalAgentHistory(turn, {
+      excludeCurrentTurn: true,
+      signal: execution.signal,
+    });
+  }
+
+  /**
+   * Publish the checkpoint an attached resident turn just committed, the way
+   * the container path does at its own completion. Left as a candidate, it
+   * could only be published by the thread's next turn, and only while that
+   * turn's history cursor still matched; a chat-only turn in between moved
+   * the cursor and left every later attach refusing as "still recovering".
+   * The transcript is already verified canonical, so the receipt's cursor is
+   * the one cloud history names.
+   */
+  private async publishResidentTurnWorkspace(
+    turn: TurnRequest,
+    execution: TurnExecutionContext,
+    checkpoint: TurnBrokerTurnStateCheckpointReceipt,
+  ): Promise<void> {
+    execution.assertActive();
+    this.assertAgentTurnIdentity(turn);
+    await this.publishAgentTurnWorkspace(
+      turn,
+      checkpoint.historyCursor,
+      checkpoint.operationId,
+    );
+    execution.assertActive();
   }
 
   /**
@@ -10576,7 +10753,9 @@ export class BuildSession extends DurableObject<Env> {
           AGENT_WATCHDOG_DEADLINE_KEY,
           watchdogDeadlineAt,
         );
-        await this.ctx.storage.setAlarm(watchdogDeadlineAt);
+        await this.ctx.storage.setAlarm(
+          Math.min(watchdogDeadlineAt, Date.now() + AGENT_TURN_HEARTBEAT_MS),
+        );
         execution.assertActive();
         log("info", "agent_turn_resized", {
           turnId: turn.turnId,
@@ -14018,8 +14197,12 @@ export default {
     if (request.method === "POST" && url.pathname === DISPATCH_SUBMIT_PATH) {
       return await handleDispatchSubmitRoute(request, env, requestId);
     }
+    // Dispatch ids carry a colon (`dsp:<uuid>`), and every client builds this
+    // path with `encodeURIComponent`, so the segment arrives as `dsp%3A…`.
+    // The class admits the escape and the handler decodes it; a pattern that
+    // rejected `%` let every status poll fall through to the service gate.
     const dispatchMatch = url.pathname.match(
-      /^\/owners\/me\/dispatches\/([A-Za-z0-9._:~-]{1,64})(\/cancel)?$/,
+      /^\/owners\/me\/dispatches\/([A-Za-z0-9._:~%-]{1,96})(\/cancel)?$/,
     );
     if (dispatchMatch) {
       const cancel = Boolean(dispatchMatch[2]);

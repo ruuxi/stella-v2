@@ -57,8 +57,9 @@ import {
  *
  * `container` needs a real process or the world filesystem, so the first such
  * call attaches the Cloudflare Sandbox. `do_local` runs against worker-side
- * capabilities the DO already holds. `js_sandbox` runs in a Dynamic Worker;
- * nothing in today's general-agent catalog is placed there.
+ * capabilities the DO already holds. `js_sandbox` runs in a fresh Dynamic
+ * Worker isolate the DO loads on demand: no container, no cold start, no
+ * per-turn compute reservation.
  */
 export type GeneralAgentToolCompute = "container" | "do_local" | "js_sandbox";
 
@@ -70,11 +71,14 @@ export const PUBLISH_STELLA_INTERIOR_TOOL_NAME = "publish_stella_interior";
 export const LEGACY_VIEW_IMAGE_TOOL_NAME = "view_image";
 
 /**
- * `code` is classified `container` deliberately. Cloud `code` requires the
- * turn-broker browser session factory the container executor supplies, and no
- * Dynamic Worker equivalent has a browser facility, so a resident fast path
- * for browserless code is a product decision rather than something to slip in
- * with a compute ladder.
+ * `code` runs in the JS sandbox, exactly as the cloud orchestrator's `code`
+ * does: the same Dynamic Worker executor, the same read-only nested-tool
+ * rules, and no browser facility. The resident agent therefore never boots a
+ * container just to evaluate JavaScript; a turn that needs a process or the
+ * world filesystem still attaches on its first container tool. Until this
+ * classification, `code` sat in `container` yet was never bridged to the
+ * daemon, so every cloud background agent that reached for code mode got the
+ * "no workspace attached" refusal and nothing else.
  */
 const GENERAL_AGENT_TOOL_COMPUTE = {
   [EXEC_COMMAND_TOOL_NAME]: "container",
@@ -82,7 +86,7 @@ const GENERAL_AGENT_TOOL_COMPUTE = {
   [READ_TOOL_NAME]: "container",
   [APPLY_PATCH_TOOL_NAME]: "container",
   [LEGACY_VIEW_IMAGE_TOOL_NAME]: "container",
-  [CODE_TOOL_NAME]: "container",
+  [CODE_TOOL_NAME]: "js_sandbox",
   [WEB_TOOL_NAME]: "do_local",
   [PUBLISH_STELLA_INTERIOR_TOOL_NAME]: "do_local",
 } as const satisfies Record<string, GeneralAgentToolCompute>;
@@ -213,12 +217,18 @@ export const descriptorForTool = (
 export const NO_WORKSPACE_ATTACHED_MESSAGE =
   "This turn has no workspace attached yet";
 
+export const NO_JS_SANDBOX_MESSAGE =
+  "The cloud code runtime is not available for this turn";
+
 /**
  * With no ladder supplied, a container tool returns a model-visible tool error
  * rather than throwing: a throw fails the turn, while an error result lets the
  * model answer from the conversation or tell the user why it cannot.
  */
-const refusalStub = (descriptor: GeneralAgentToolDescriptor): AgentTool => ({
+const refusalStub = (
+  descriptor: GeneralAgentToolDescriptor,
+  reason: string = NO_WORKSPACE_ATTACHED_MESSAGE,
+): AgentTool => ({
   name: descriptor.name,
   label: descriptor.label,
   ...(descriptor.workingText ? { workingText: descriptor.workingText } : {}),
@@ -228,7 +238,7 @@ const refusalStub = (descriptor: GeneralAgentToolDescriptor): AgentTool => ({
     content: [
       {
         type: "text",
-        text: `${NO_WORKSPACE_ATTACHED_MESSAGE}, so ${descriptor.name} cannot run. Answer from the conversation, or tell the user this needs a workspace.`,
+        text: `${reason}, so ${descriptor.name} cannot run. Answer from the conversation, or tell the user this needs a workspace.`,
       },
     ],
     details: null,
@@ -257,9 +267,8 @@ export type GeneralAgentComputeBridge = Readonly<{
  * The tools the ladder can serve. A container tool outside this set keeps the
  * refusal stub even when a ladder is supplied, because the daemon has no
  * handler for it and a bridged call would fail with a protocol error the model
- * cannot act on. `code` is the one that matters here: it needs the browser
- * session factory and the end-of-turn suspension path the tool host cannot
- * supply on its own.
+ * cannot act on. `code` is not a container tool at all; it is placed in the
+ * JS sandbox and supplied by the caller.
  */
 const BRIDGED_TOOL_NAMES: ReadonlySet<string> = new Set([
   EXEC_COMMAND_TOOL_NAME,
@@ -299,20 +308,30 @@ const bridgedTool = (
 
 /**
  * The resident catalog: one entry per descriptor, in descriptor order. The
- * caller supplies the do-local tools it executes itself. A container tool the
- * ladder can serve is bridged to it; every other one keeps the refusal stub,
- * so no tool leaves the model's list merely because its execution path is not
- * wired yet.
+ * caller supplies the do-local tools it executes itself and, when the DO can
+ * load Dynamic Workers, the JS-sandbox tools. A container tool the ladder can
+ * serve is bridged to it; every other container tool keeps the refusal stub,
+ * and a JS-sandbox tool without an implementation refuses with its own
+ * reason, so no tool leaves the model's list merely because its execution
+ * path is not wired on this deployment.
  */
 export const createResidentGeneralAgentTools = (
   doLocal: ReadonlyMap<string, AgentTool>,
   compute?: GeneralAgentComputeBridge,
+  jsSandbox?: ReadonlyMap<string, AgentTool>,
 ): readonly AgentTool[] =>
   GENERAL_AGENT_TOOL_DESCRIPTORS.map((descriptor) => {
-    if (computeForTool(descriptor.name) === "container") {
+    const placement = computeForTool(descriptor.name);
+    if (placement === "container") {
       return compute && BRIDGED_TOOL_NAMES.has(descriptor.name)
         ? bridgedTool(descriptor, compute)
         : refusalStub(descriptor);
+    }
+    if (placement === "js_sandbox") {
+      return (
+        jsSandbox?.get(descriptor.name) ??
+        refusalStub(descriptor, NO_JS_SANDBOX_MESSAGE)
+      );
     }
     const tool = doLocal.get(descriptor.name);
     if (!tool) {

@@ -4,6 +4,7 @@ import { register as registerRateLimiter } from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { executionDeviceRegistration } from "@stella/contracts/turn-plane/placement";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -122,6 +123,67 @@ describe("execution device identity", () => {
 });
 
 describe("registerMyExecutionDevice", () => {
+  it("accepts exactly the payload the desktop placement bridge sends", async () => {
+    // The bridge builds its registration through the shared contract; this is
+    // the argument validator's side of that contract. The desktop advertises
+    // every capability a Mac or Windows host can carry.
+    const t = createTest();
+    const registration = executionDeviceRegistration({
+      deviceId: "23ea5501-2d2e-46c3-b16c-625a5e4f07c0",
+      devicePublicKey: "MCowBQYDK2VwAyEA",
+      deviceName: "Studio MacBook",
+      platform: "darwin",
+      capabilities: [
+        "chat",
+        "agent",
+        "local-files",
+        "attachments",
+        "computer-use",
+        "local-apps",
+      ],
+    });
+    expect(Object.keys(registration).sort()).toEqual([
+      "capabilities",
+      "deviceId",
+      "deviceName",
+      "devicePublicKey",
+      "platform",
+    ]);
+    const result = await asOwner(t).mutation(refs.register, registration);
+    expect(result).toMatchObject({
+      deviceId: registration.deviceId,
+      remoteExecutionEnabled: true,
+      rotated: false,
+    });
+    const rows = await devices(t);
+    expect(rows[0]).toMatchObject({
+      devicePublicKey: "MCowBQYDK2VwAyEA",
+      deviceName: "Studio MacBook",
+      platform: "darwin",
+      executionCapabilities: [
+        "agent",
+        "attachments",
+        "chat",
+        "computer-use",
+        "local-apps",
+        "local-files",
+      ],
+    });
+  });
+
+  it("rejects the pre-contract bridge payload instead of registering half a device", async () => {
+    const t = createTest();
+    await expect(
+      asOwner(t).mutation(refs.register, {
+        deviceId: "desktop-legacy",
+        publicKey: "key-a",
+        label: "Studio",
+        capabilities: ["chat"],
+      }),
+    ).rejects.toThrow();
+    expect(await devices(t)).toHaveLength(0);
+  });
+
   it("binds the key, label and capabilities without any presence lease", async () => {
     const t = createTest();
     const result = await asOwner(t).mutation(refs.register, {

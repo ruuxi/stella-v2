@@ -353,7 +353,15 @@ type CloudAgentControlReceipt = {
   turnId?: string;
   /** The execution the thread runs with; a continuation inherits it. */
   execution?: CloudExecutionSelection;
+  /**
+   * The spawn's short label, kept so `agent_status` can name the thread
+   * without a Convex round trip. A lifecycle receipt never carries it.
+   */
+  description?: string;
 };
+
+/** Longest description a control receipt keeps; the spawn schema is shorter. */
+const CLOUD_AGENT_DESCRIPTION_CHARS = 200;
 
 /** The one workspace a cloud owner has: one running sandboxed agent at a time. */
 const OWNER_WORLD_WORKSPACE = "world";
@@ -639,6 +647,12 @@ const normalizeCloudAgentControlReceipt = (
       ? undefined
       : parseCloudExecutionSelection(candidate.execution);
   if (candidate.execution !== undefined && !execution) return null;
+  // Tolerated rather than validated: an older receipt has none, and a
+  // malformed one must not make the whole control state unreadable.
+  const description =
+    typeof candidate.description === "string"
+      ? candidate.description.trim().slice(0, CLOUD_AGENT_DESCRIPTION_CHARS)
+      : "";
   return {
     threadId,
     attemptGeneration: candidate.attemptGeneration!,
@@ -646,6 +660,7 @@ const normalizeCloudAgentControlReceipt = (
     status: status as CloudAgentControlStatus,
     ...(turnId ? { turnId } : {}),
     ...(execution ? { execution } : {}),
+    ...(description ? { description } : {}),
   };
 };
 
@@ -676,6 +691,9 @@ const advanceCloudAgentControlReceipt = (
       : {}),
     ...(winner.execution === undefined && existing.execution !== undefined
       ? { execution: existing.execution }
+      : {}),
+    ...(winner.description === undefined && existing.description !== undefined
+      ? { description: existing.description }
       : {}),
   });
   if (!existingTerminal && receiptTerminal) return merged(receipt);
@@ -8453,7 +8471,13 @@ export class OrchestratorSession extends DurableObject<Env> {
         workspace: OWNER_WORLD_WORKSPACE,
         expectedGeneration: turn.ownerGeneration,
       });
-      if (!admission.ok) throw new Error(admission.message);
+      if (!admission.ok) {
+        throw new Error(
+          admission.code === "quota_concurrency"
+            ? await describeBusyWorkspace(admission.message)
+            : admission.message,
+        );
+      }
       const release = () =>
         this.releaseOwnerGate({ ownerId: turn.ownerId, turnId: args.turnId });
       if (
@@ -8582,6 +8606,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         status: "running",
         turnId: args.turnId,
         execution: args.execution,
+        description: args.description,
       };
     };
 
@@ -8598,6 +8623,68 @@ export class OrchestratorSession extends DurableObject<Env> {
           semanticInput,
         ]),
       );
+    /**
+     * The agents this conversation spawned that are still executing. Scoped
+     * to this conversation's own receipts on purpose: another conversation's
+     * agents are not this one's to see, steer, or stop.
+     */
+    const runningAgentsHere = async (): Promise<CloudAgentControlReceipt[]> => {
+      const entries = await this.ctx.storage.list<unknown>({
+        prefix: CLOUD_AGENT_CONTROL_PREFIX,
+      });
+      const running: CloudAgentControlReceipt[] = [];
+      for (const value of entries.values()) {
+        const receipt = normalizeCloudAgentControlReceipt(value);
+        if (receipt && isCloudAgentControlActive(receipt.status)) {
+          running.push(receipt);
+        }
+      }
+      return running;
+    };
+    /**
+     * A busy-workspace refusal is only actionable if the model knows which
+     * of its own agents holds the workspace; the gate itself cannot say.
+     */
+    const describeBusyWorkspace = async (message: string): Promise<string> => {
+      const running = await runningAgentsHere();
+      if (running.length === 0) return message;
+      const named = running
+        .map(
+          (receipt) =>
+            `${receipt.threadId}${receipt.description ? ` ("${receipt.description}")` : ""}`,
+        )
+        .join(", ");
+      return `${message} This conversation's running agent: ${named}. Check it with agent_status, or stop it with pause_agent before spawning another.`;
+    };
+    const agentStatusResult = (control: CloudAgentControlReceipt) => {
+      const active = isCloudAgentControlActive(control.status);
+      const status = active ? "active" : "paused";
+      const lastActiveAt = new Date(control.threadUpdatedAt).toISOString();
+      const currentTime = new Date().toISOString();
+      const text = [
+        `Thread ${control.threadId}: ${status} (${control.status}).`,
+        control.description ? `Description: ${control.description}.` : "",
+        `Last lifecycle change: ${lastActiveAt}. Current time: ${currentTime}.`,
+        active
+          ? "It is executing a turn right now; its report arrives as an [Agent completed] message. This snapshot did not interrupt it."
+          : "It is idle; send_input resumes it with its history. This snapshot did not message it.",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return {
+        content: [{ type: "text" as const, text }],
+        details: {
+          thread_id: control.threadId,
+          status,
+          status_detail: control.status,
+          ...(control.description ? { description: control.description } : {}),
+          last_active_at: lastActiveAt,
+          attempt_generation: control.attemptGeneration,
+          current_time: currentTime,
+          note: "Read-only snapshot; the agent was NOT interrupted or messaged. To steer or ask it something, use send_input.",
+        },
+      };
+    };
     const pauseResult = (
       control: CloudAgentControlReceipt,
       disposition: NonNullable<CloudAgentToolOutcome["disposition"]>,
@@ -8675,11 +8762,13 @@ export class OrchestratorSession extends DurableObject<Env> {
             content: [
               {
                 type: "text",
-                text: `Spawned agent ${control.threadId} ("${args.description}"). It is not finished yet — an [Agent completed] message will arrive with its report.`,
+                text: `Spawned agent (thread_id: ${control.threadId}, status: running, description: "${args.description}"). It is running in the background and has NOT finished — an [Agent completed] message will arrive on this conversation with its report. Check on it with agent_status, steer it with send_input, or stop it with pause_agent.`,
               },
             ],
             details: {
               thread_id: control.threadId,
+              status: "running",
+              description: args.description,
               attempt_generation: control.attemptGeneration,
               thread_updated_at: control.threadUpdatedAt,
             },
@@ -8769,6 +8858,36 @@ export class OrchestratorSession extends DurableObject<Env> {
               thread_updated_at: control.threadUpdatedAt,
             },
           };
+        },
+      },
+      {
+        name: "agent_status",
+        label: "Agent status",
+        description:
+          "READ-ONLY status snapshot of a sub-agent thread spawned in this conversation: active (executing a turn right now) or paused (idle, resumable with send_input), its description, and when it last changed. It NEVER interrupts, messages, or resumes the agent — use it to check on a running or paused thread; never use send_input just to ask for status.",
+        parameters: {
+          type: "object",
+          properties: {
+            thread_id: {
+              type: "string",
+              description: "Durable thread id of the agent to check.",
+            },
+          },
+          required: ["thread_id"],
+        } as unknown as TSchema,
+        execute: async (_toolCallId, params) => {
+          const args = params as { thread_id?: string };
+          const threadId = (args.thread_id ?? "").trim();
+          if (!threadId) throw new Error("thread_id is required.");
+          const control = normalizeCloudAgentControlReceipt(
+            await this.ctx.storage.get<unknown>(cloudAgentControlKey(threadId)),
+          );
+          if (!control || control.threadId !== threadId) {
+            throw new Error(
+              `Thread not found in this conversation: ${threadId}. agent_status only sees agents spawned from this conversation.`,
+            );
+          }
+          return agentStatusResult(control);
         },
       },
       {

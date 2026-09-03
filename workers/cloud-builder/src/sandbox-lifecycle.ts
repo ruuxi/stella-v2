@@ -77,6 +77,12 @@ export type SandboxLifecycleFailureFields = Readonly<{
     | "deadline_exceeded"
     | "out_of_memory"
     | "sandbox_rpc_failed";
+  /**
+   * The error's class name only (letters and digits), never its message:
+   * enough to tell an SDK transport error from a platform reset without
+   * carrying provider text into logs.
+   */
+  errorName: string;
   detailBytes: number;
   detailBytesCapped: boolean;
 }>;
@@ -109,8 +115,14 @@ export const sandboxLifecycleFailureFields = (
       : name.includes("outofmemory") || name.includes("out_of_memory")
         ? "out_of_memory"
         : "sandbox_rpc_failed";
+  const errorName = (
+    error instanceof Error ? error.constructor.name || error.name : "unknown"
+  )
+    .replace(/[^A-Za-z0-9]/gu, "")
+    .slice(0, 40);
   return {
     failureCode,
+    errorName: errorName || "unknown",
     detailBytes: Math.min(bytes, FAILURE_DETAIL_BYTE_CAP),
     detailBytesCapped: bytes > FAILURE_DETAIL_BYTE_CAP,
   };

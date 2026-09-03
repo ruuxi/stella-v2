@@ -506,6 +506,37 @@ describe("dispatch status and cancel", () => {
     ]);
   });
 
+  test("a percent-encoded dispatch id reaches the gate decoded", async () => {
+    // Every client builds this path with `encodeURIComponent`, and dispatch
+    // ids carry a colon, so the wire form is `dsp%3Aabc`. A route that only
+    // admitted the literal colon let each status poll fall through to the
+    // service gate's generic 401, and the desktop never saw a terminal state.
+    const { env, statuses, cancels } = await environment();
+    const status = await worker.fetch(
+      new Request("https://builder.example/owners/me/dispatches/dsp%3Aabc", {
+        headers: { authorization: `Bearer ${await userJwt()}` },
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(status.status).toBe(200);
+    expect(statuses).toEqual([
+      { ownerId: `${ISSUER}|user_1`, dispatchId: "dsp:abc" },
+    ]);
+
+    const cancel = await worker.fetch(
+      post(
+        "/owners/me/dispatches/dsp%3Aabc/cancel",
+        { protocol: PLACEMENT_PROTOCOL, cancelRequestId: "cancel-0001" },
+        { authorization: `Bearer ${await userJwt()}` },
+      ),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(cancel.status).toBe(200);
+    expect(cancels[0]!.input.dispatchId).toBe("dsp:abc");
+  });
+
   test("a service caller reads with the owner header it names", async () => {
     const { env, statuses } = await environment();
     const response = await worker.fetch(

@@ -115,6 +115,42 @@ node .agents/skills/verify-stella/control-stella.mjs cleanup apply
 
 Cleanup targets only the recorded Electron and Vite PIDs, verifier pointer, and temporary Chromium profile. It preserves the isolated durable data and proof artifacts. Do not kill by process name.
 
+## Cloud cells without the desktop
+
+The Electron verifier is only needed for what the desktop itself does: the
+execution-target picker, device presence, and the dispatch hand-off. Every
+cloud-side cell (cloud orchestrator tools, cloud background agents, follow-ups,
+teardown) is faster to drive headless:
+
+- `node .agents/skills/verify-stella/cloud-turn.mjs --prompt "<orchestrator prompt>"`
+  mints a Pro test owner through the admin API, posts one turn to the dev
+  worker's `POST /conversations/:id/turns` with the service bearer and the
+  owner on the trusted headers, and polls `agent_events` until the turn
+  completes. Pass `--conversation <id>` to keep sending into one conversation
+  (follow-ups, `agent_status`, `pause_agent` all need that). Secrets come from
+  `bunx convex env get STELLA_ADMIN_API_SECRET` and `BUILDER_SERVICE_SECRET`;
+  the script never prints them.
+- Objective placement evidence is `bunx convex data agent_events --limit 20
+  --order desc` (`sandbox_ready` means a container attached; its absence on a
+  completed turn means the work stayed in the Durable Object) and
+  `bunx convex data cloud_agent_threads --limit 3 --order desc` for status,
+  attempt and error message. `bunx wrangler tail --format json` in
+  `workers/cloud-builder` captures worker logs, but it samples under load and
+  dies with the shell that started it; treat it as supplementary.
+- Reproduce executor bugs before deploying. The worker tests already run the
+  real BuildSession and real Sandbox containers in workerd
+  (`tests/general-agent-resident-workerd.test.ts`,
+  `tests/sandbox-egress-workerd.test.ts`), and the built sandbox image can run
+  the attached tool host locally (`docker run --rm --entrypoint sh
+  stella-v2-cloud-builder-dev-sandboxsmall:<version>`), where stderr is on the
+  terminal instead of in a diagnostic event three minutes later.
+- A worker-only `bun run deploy:dev` takes about two minutes; one that
+  rebuilds the image takes six. Never deploy while a cloud thread is
+  `running`: the deploy replaces the resident loop's isolate and the turn is
+  failed by the heartbeat about a minute later. Dev container rollouts keep
+  serving the previous image for a few minutes after a deploy, so give an
+  image deploy time before judging a container-side change.
+
 ## Feature Map maintenance
 
 The Feature Map is a checked contract, not optional prose. Every sibling Markdown file under `features/` must be indexed once and contain the required four sections in order. Validate it and the registered CLI commands with:

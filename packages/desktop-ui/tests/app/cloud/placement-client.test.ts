@@ -11,6 +11,7 @@ import {
   cancelDispatch,
   getDispatchStatus,
   listExecutionDevices,
+  placementHttpOrigin,
   submitDispatch,
 } from "../../../src/features/cloud/placement-client";
 import {
@@ -331,5 +332,36 @@ describe("owner gate placement client", () => {
       online: true,
     });
     expect(response.cloud.capabilities).toContain("agent");
+  });
+});
+
+describe("placementHttpOrigin", () => {
+  test("maps the realtime socket origin onto the gate's HTTPS routes", () => {
+    expect(placementHttpOrigin("wss://builder.example")).toBe(
+      "https://builder.example",
+    );
+    expect(placementHttpOrigin("ws://127.0.0.1:8787/")).toBe(
+      "http://127.0.0.1:8787",
+    );
+    expect(placementHttpOrigin("https://builder.example/")).toBe(
+      "https://builder.example",
+    );
+  });
+
+  test("device reads never fetch a websocket scheme", async () => {
+    const urls: string[] = [];
+    const response = await listExecutionDevices({
+      socketOrigin: "wss://builder.example",
+      getToken: async () => "jwt",
+      fetch: async (input) => {
+        urls.push(String(input));
+        return new Response(
+          JSON.stringify({ protocol: 1, devices: [], cloud: { capabilities: [] } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+    expect(urls).toEqual(["https://builder.example/owners/me/devices"]);
+    expect(response.devices).toEqual([]);
   });
 });

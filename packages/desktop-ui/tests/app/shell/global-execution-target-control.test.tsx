@@ -9,18 +9,24 @@ const mocks = vi.hoisted(() => ({
   isCloudConversationReady: true,
   queryCalls: [] as unknown[],
   deviceReads: [] as unknown[],
+  realtime: {
+    httpOrigin: null as string | null,
+    socketOrigin: "https://builder.example",
+    protocol: 1,
+  },
 }));
 
 vi.mock("convex/react", () => ({
   useQuery: (_reference: unknown, args: unknown) => {
     mocks.queryCalls.push(args);
-    return args === "skip"
-      ? undefined
-      : { httpOrigin: null, socketOrigin: "https://builder.example", protocol: 1 };
+    return args === "skip" ? undefined : { ...mocks.realtime };
   },
 }));
 
-vi.mock("@/features/cloud/placement-client", () => ({
+vi.mock("@/features/cloud/placement-client", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/features/cloud/placement-client")
+  >()),
   listExecutionDevices: async (args: unknown) => {
     mocks.deviceReads.push(args);
     return {
@@ -109,6 +115,11 @@ describe("GlobalExecutionTargetControl", () => {
     mocks.isCloudConversationReady = true;
     mocks.queryCalls = [];
     mocks.deviceReads = [];
+    mocks.realtime = {
+      httpOrigin: null,
+      socketOrigin: "https://builder.example",
+      protocol: 1,
+    };
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -158,5 +169,52 @@ describe("GlobalExecutionTargetControl", () => {
       },
     ]);
     expect(container.textContent).toContain("Studio iMac");
+  });
+
+  it("reads device presence over HTTPS even when the config only names the wss origin", async () => {
+    // The realtime config advertises the presence socket. Electron's fetch
+    // rejects "wss:" outright, which is how the picker used to fail silently.
+    mocks.hasConnectedAccount = true;
+    mocks.realtime = {
+      httpOrigin: null,
+      socketOrigin: "wss://builder.example",
+      protocol: 1,
+    };
+    await act(async () => {
+      root.render(<GlobalExecutionTargetControl />);
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("button[data-open-picker]")
+        ?.click();
+    });
+
+    expect(mocks.deviceReads).toEqual([
+      {
+        socketOrigin: "https://builder.example",
+        getToken: expect.any(Function),
+      },
+    ]);
+  });
+
+  it("prefers the config's HTTP origin for device reads", async () => {
+    mocks.hasConnectedAccount = true;
+    mocks.realtime = {
+      httpOrigin: "https://gate.example",
+      socketOrigin: "wss://gate.example",
+      protocol: 1,
+    };
+    await act(async () => {
+      root.render(<GlobalExecutionTargetControl />);
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("button[data-open-picker]")
+        ?.click();
+    });
+
+    expect(mocks.deviceReads).toEqual([
+      { socketOrigin: "https://gate.example", getToken: expect.any(Function) },
+    ]);
   });
 });

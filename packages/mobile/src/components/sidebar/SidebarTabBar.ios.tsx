@@ -1,19 +1,52 @@
-import { useMemo } from "react";
+import { useId } from "react";
 import { StyleSheet } from "react-native";
-import { Host, Picker, Text as SwiftText } from "@expo/ui/swift-ui";
-import { frame, font, pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
-import { applySegmentedControlAppearance } from "../../../modules/stella-segmented-appearance";
+import {
+  Button,
+  GlassEffectContainer,
+  HStack,
+  Host,
+  Namespace,
+  Text as SwiftText,
+} from "@expo/ui/swift-ui";
+import {
+  Animation,
+  animation,
+  background,
+  buttonStyle,
+  font,
+  foregroundStyle,
+  frame,
+  glassEffect,
+  glassEffectId,
+  padding,
+  shapes,
+  strokeBorder,
+} from "@expo/ui/swift-ui/modifiers";
 import { useColors, useTheme } from "../../theme/theme-context";
 import { fonts } from "../../theme/fonts";
 import { fadeHex } from "../../theme/oklch";
 import type { SidebarTabBarProps } from "./sidebar-tab-bar-types";
 
+/** Track height, matched to the header capsule and the composer. */
+const BAR_HEIGHT = 44;
+/** Inset of the selection lens from the track edge. */
+const LENS_INSET = 3;
+/** Any large value: SwiftUI reads it as "fill", so segments share the width. */
+const FILL = 10000;
+
 /**
- * iOS tab bar: the system segmented control, hosted from SwiftUI. On iOS 26
- * it is Apple's own Liquid Glass selection: a glass lens sits on the chosen
- * segment, refracts the labels beneath, slides on tap and follows a drag.
- * Nothing built from separate glass views reproduces that, so this uses the
- * real control rather than imitating it.
+ * iOS tab bar built from Apple's Liquid Glass in SwiftUI, hosted through
+ * @expo/ui. The track is a translucent wash of the theme (so it takes on
+ * the backdrop exactly like the header capsule and the composer do), and
+ * the selected segment carries a real regular-glass capsule, the same
+ * material as those capsules. All three segments sit in one glass
+ * container and share a glass id, so on selection the lens morphs across
+ * to the tapped segment instead of appearing there.
+ *
+ * This replaced the system segmented control: that control paints its
+ * own gray fill over any track colour, which never matched the glass
+ * chrome on any theme. What it had that this does not is dragging the lens
+ * with a finger; here it animates to the tapped segment.
  */
 export function SidebarTabBar<K extends string>({
   tabs,
@@ -23,59 +56,67 @@ export function SidebarTabBar<K extends string>({
 }: SidebarTabBarProps<K>) {
   const colors = useColors();
   const { isDark } = useTheme();
-  // UIKit paints the control's track and selected lens with its own fills,
-  // out of reach of SwiftUI modifiers, so the colours go through the
-  // UIAppearance proxy instead. That only affects controls created
-  // afterwards: the call happens during render, before this pass commits
-  // its native views, and the Host is keyed by theme so a theme change
-  // recreates the control under the new colours. Both colours are
-  // translucent on purpose: the rest of the chrome is glass that takes on
-  // whatever theme backdrop sits behind it, and an opaque track or lens
-  // would stay one flat gray across every palette. iOS 26 lays its own thin
-  // light fill over the track regardless, so a dark wash underneath only
-  // pulls it toward the glass capsules; the lens is a light wash of the
-  // text colour over that.
-  const themeKey = `${colors.background}:${colors.text}`;
-  useMemo(() => {
-    applySegmentedControlAppearance({
-      background: isDark ? fadeHex("#000000", 0.45) : fadeHex("#ffffff", 0.3),
-      selected: fadeHex(colors.text, isDark ? 0.2 : 0.16),
-    });
-  }, [colors.text, isDark]);
+  const namespace = useId();
+  const selectedIndex = tabs.findIndex((item) => item.key === value);
   return (
     <Host
-      key={themeKey}
       matchContents={{ vertical: true }}
       colorScheme={isDark ? "dark" : "light"}
       style={styles.host}
       onLayoutContent={(event) => onHeight?.(event.nativeEvent.height)}
     >
-      <Picker<K>
-        label=""
-        selection={value}
-        onSelectionChange={onSelect}
-        // Taller than the control's default so it sits at the same weight
-        // as the header capsule and the composer.
-        modifiers={[pickerStyle("segmented"), frame({ height: TAB_BAR_HEIGHT })]}
-      >
-        {tabs.map((item) => (
-          <SwiftText
-            key={item.key}
+      <Namespace id={namespace}>
+        <GlassEffectContainer spacing={0}>
+          <HStack
+            spacing={0}
             modifiers={[
-              tag(item.key),
-              font({ family: fonts.sans.medium, size: 14 }),
+              padding({ all: LENS_INSET }),
+              frame({ maxWidth: FILL, height: BAR_HEIGHT }),
+              background(fadeHex(colors.text, isDark ? 0.06 : 0.05), shapes.capsule()),
+              strokeBorder({ color: fadeHex(colors.border, 0.6), shape: "capsule" }),
+              animation(Animation.spring({ duration: 0.4 }), selectedIndex),
             ]}
           >
-            {item.label}
-          </SwiftText>
-        ))}
-      </Picker>
+            {tabs.map((item) => {
+              const active = item.key === value;
+              return (
+                <Button
+                  key={item.key}
+                  onPress={() => onSelect(item.key)}
+                  modifiers={[buttonStyle("plain")]}
+                >
+                  <SwiftText
+                    modifiers={[
+                      font({
+                        family: active ? fonts.sans.semiBold : fonts.sans.medium,
+                        size: 14,
+                      }),
+                      foregroundStyle(active ? colors.text : colors.textMuted),
+                      // The label is the button's hit area, so it fills the
+                      // segment; the glass lens is drawn on it as well.
+                      frame({ maxWidth: FILL, height: BAR_HEIGHT - LENS_INSET * 2 }),
+                      ...(active
+                        ? [
+                            glassEffect({
+                              glass: { variant: "regular", interactive: true },
+                              shape: "capsule",
+                            }),
+                            glassEffectId("lens", namespace),
+                          ]
+                        : []),
+                    ]}
+                  >
+                    {item.label}
+                  </SwiftText>
+                </Button>
+              );
+            })}
+          </HStack>
+        </GlassEffectContainer>
+      </Namespace>
     </Host>
   );
 }
-
-/** Track height; the segmented control scales its lens to fill it. */
-const TAB_BAR_HEIGHT = 44;
 
 const styles = StyleSheet.create({
   host: {

@@ -53,6 +53,12 @@ function mapMessage(raw: string): string {
   ) {
     return "Check your connection and try again.";
   }
+  if (t === "email_not_supported") {
+    return "That email provider isn't supported. Use a different address.";
+  }
+  if (/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(t)) {
+    return "Something went wrong. Please try again.";
+  }
   if (t.length > 160) {
     return "Something went wrong. Please try again.";
   }

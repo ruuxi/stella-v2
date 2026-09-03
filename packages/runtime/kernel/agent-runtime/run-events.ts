@@ -40,6 +40,7 @@ import type {
   RuntimeToolStartEvent,
 } from "./types.js";
 import type { RuntimeAgentEventPayload } from "@stella/contracts/protocol";
+import { splitReplyRefs } from "@stella/contracts/reply-refs";
 
 const logger = createRuntimeLogger("agent-runtime.events");
 
@@ -101,7 +102,12 @@ export const createRunEventRecorder = ({
     text: string,
     timestamp: number = now(),
   ): RuntimeAssistantMessageEvent | null => {
-    const trimmedText = text.trim();
+    // The reply-refs fence is model-facing: it leaves here as structured
+    // citations and never reaches a user-visible copy of the text. The
+    // model's own thread history is persisted from the raw AgentMessage, so
+    // it still sees the block it wrote.
+    const { text: visibleText, refs: replyRefs } = splitReplyRefs(text);
+    const trimmedText = visibleText.trim();
     if (!trimmedText) {
       return null;
     }
@@ -120,6 +126,7 @@ export const createRunEventRecorder = ({
       timestamp,
       ...(firstTextAtMs !== null ? { firstTextAtMs } : {}),
       ...(responseTarget ? { responseTarget } : {}),
+      ...(replyRefs.length > 0 ? { replyRefs } : {}),
       ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
     };
   };

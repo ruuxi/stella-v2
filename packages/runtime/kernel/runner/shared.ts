@@ -106,7 +106,7 @@ export const buildAgentEventPrompt = (
       );
     } else {
       lines.push(
-        "presentation: for a report or dense result, present it as a canvas with the `html` tool (write the complete HTML document yourself) and keep the chat reply short; for a quick answer, reply directly in chat. Be concise and human-friendly — the user delegated this and lacks the context, so say what happened in plain terms rather than implementation detail.",
+        "presentation: for a report or dense result, present it as a canvas with the `html` tool (write the complete HTML document yourself) and keep the chat reply short; for a quick answer, reply directly in chat. Be concise and human-friendly — the user delegated this and lacks the context, so say what happened in plain terms rather than implementation detail. End the reply with a `refs` block citing this thread_id (see Replies in your instructions) so the update attaches to the work it reports on.",
       );
     }
   }

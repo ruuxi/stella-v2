@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
+import { parseReplyRefs } from "@/features/chat/lib/reply-refs";
 import type { EventRecord } from "@/features/chat/lib/event-transforms";
 import type { MessagePayload } from "@/features/chat/lib/event-transforms";
 import {
@@ -744,6 +745,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
             | {
                 runtime?: {
                   responseTarget?: AgentResponseTarget;
+                  replyRefs?: unknown;
                   followedByToolCall?: boolean;
                   turnComplete?: boolean;
                   heldForHandoff?: boolean;
@@ -759,6 +761,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           continue;
         }
         const responseTarget = runtimeMetadata?.responseTarget;
+        const replyRefs = parseReplyRefs(runtimeMetadata?.replyRefs);
         // Unified key for both in-memory overlays (synthetic
         // `_id`s) and the eventual persisted rows for the same
         // `(userMessageId, indexInTurn)` slot. The display merge
@@ -810,6 +813,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
             : {}),
           ...(isIntraTurn ? { isIntraTurn: true } : {}),
           ...(responseTarget ? { responseTarget } : {}),
+          ...(replyRefs.length > 0 ? { replyRefs } : {}),
           ...(replyToUserMessageId ? { replyToUserMessageId } : {}),
           ...(officePreviewRef ? { officePreviewRef } : {}),
           ...(resourcePayload ? { resourcePayload } : {}),

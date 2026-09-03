@@ -46,10 +46,8 @@ import {
   importLocalMedia,
   isSupportedMediaFile,
 } from "@/features/workspace-display/media-files";
-import {
-  openAgentThreadTab,
-  openDisplayPayloadTab,
-} from "@/features/workspace-display/open-payload";
+import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
+import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
 import { useActiveSidebarSection } from "@/features/workspace-display/sidebar-sections";
 import {
   useDisplayPanelOpen,
@@ -106,15 +104,11 @@ function AgentThreadButton({ task, conversationId }) {
       className="files-list__open"
       onClick={() =>
         conversationId
-          ? openAgentThreadTab({
-              threadId: task.id,
+          ? openConversationFocus({
               conversationId,
-              agentType: task.agentType,
+              root: { kind: "agent", threadId: task.id },
               title:
                 task.description.trim() || task.agentType || "Agent thread",
-              source: task.source,
-              readOnly: task.readOnly,
-              parentAgentId: task.parentAgentId,
             })
           : undefined
       }
@@ -188,19 +182,15 @@ function AgentGroupRow({ hierarchy, conversationId, expanded, onToggle }) {
           className="files-list__group-open"
           onClick={() =>
             conversationId
-              ? openAgentThreadTab({
-                  threadId: owner.id,
+              ? openConversationFocus({
                   conversationId,
-                  agentType: owner.agentType,
+                  root: { kind: "agent", threadId: owner.id },
                   title: label,
-                  source: owner.source,
-                  readOnly: owner.readOnly,
-                  parentAgentId: owner.parentAgentId,
                 })
               : undefined
           }
-          aria-label="View agent thread"
-          title="View agent thread"
+          aria-label="Focus on this task"
+          title="Focus on this task"
         >
           <Eye size={13} strokeWidth={2} aria-hidden="true" />
         </button>

@@ -20,6 +20,7 @@ import {
   type ImageDescriptionService,
 } from "./image-description.js";
 import { getAgentCompletion, now } from "./shared.js";
+import { splitReplyRefs } from "@stella/contracts/reply-refs";
 import type { RuntimeRunCallbacks } from "./types.js";
 import {
   persistThreadCustomMessage,
@@ -435,7 +436,7 @@ export const executeRuntimeAgentPrompt = async (args: {
       const completion = getAgentCompletion(args.agent);
       return {
         ...completion,
-        finalText: completion.finalText.trim(),
+        finalText: splitReplyRefs(completion.finalText).text.trim(),
       };
     }
     const imageTarget = args.agent.state.model
@@ -599,7 +600,7 @@ export const executeRuntimeAgentPrompt = async (args: {
 
     return {
       ...completion,
-      finalText: completion.finalText.trim(),
+      finalText: splitReplyRefs(completion.finalText).text.trim(),
     };
   } finally {
     idleSettled = true;

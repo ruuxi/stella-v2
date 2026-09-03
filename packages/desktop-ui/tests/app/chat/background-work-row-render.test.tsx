@@ -26,8 +26,11 @@ vi.mock("@/features/chat/hooks/use-thread-activity", () => ({
   }),
 }));
 
-vi.mock("@/features/workspace-display/open-payload", () => ({
-  openAgentThreadTab: vi.fn(),
+vi.mock("@/features/chat/services/conversation-focus-store", () => ({
+  openConversationFocus: vi.fn(),
+}));
+vi.mock("@/features/chat/services/reply-counts-store", () => ({
+  useReplyCounts: () => ({ messages: {}, agents: {} }),
 }));
 
 import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";

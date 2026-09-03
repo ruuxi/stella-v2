@@ -64,7 +64,11 @@ import {
   identityLevelValidator,
   resolveIdentityLevel,
 } from "./lib/identity_level";
-import { verifyTurnstileToken } from "./lib/turnstile";
+import {
+  isTurnstileEnabled,
+  logTurnstileDisabledOnce,
+  verifyTurnstileToken,
+} from "./lib/turnstile";
 import { evaluateSybilPressure, type SybilPressure } from "./lib/sybil";
 import { recordOwnerOrigin } from "./owner_origins";
 import { recordOwnerRiskSignals } from "./risk";
@@ -459,7 +463,12 @@ export const reserveOwnerSessionModelAllowanceInternal = internalMutation({
     if (sybil.action === "sign_in_required") {
       throw signInRequiredError(sybil);
     }
+    // A challenge is only meaningful when Turnstile can verify an answer.
+    // Without TURNSTILE_SECRET_KEY (dev deployments) no client can satisfy
+    // one, so the challenge outcomes are skipped; sign-in and suspension
+    // still apply.
     if (
+      isTurnstileEnabled() &&
       (challengeState.challengeRequired || sybil.action === "challenge") &&
       !args.challengeVerified
     ) {
@@ -684,12 +693,14 @@ export const signSessionCapabilityInternal = internalAction({
       },
     );
     const turnstileToken = args.turnstileToken?.trim();
+    const challengesEnabled = isTurnstileEnabled();
+    if (!challengesEnabled) logTurnstileDisabledOnce();
     let challengeVerified = false;
-    if (turnstileToken) {
+    if (turnstileToken && challengesEnabled) {
       const verification = await verifyTurnstileToken(turnstileToken);
       challengeVerified = verification.ok;
     }
-    if (challengeState.challengeRequired) {
+    if (challengeState.challengeRequired && challengesEnabled) {
       if (!turnstileToken) throw challengeRequiredError();
       if (!challengeVerified) throw challengeRequiredError();
     }

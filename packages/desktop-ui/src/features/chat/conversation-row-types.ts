@@ -14,6 +14,7 @@ import type { ToolActivityGroup } from "@/features/chat/lib/tool-activity";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
 import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import type { VoiceSessionSummaryMetadata } from "@stella/contracts/local-chat";
+import type { ReplyRef } from "@stella/contracts/reply-refs";
 
 export type UserRowViewModel = {
   kind: "user";
@@ -79,6 +80,12 @@ export type AssistantRowViewModel = {
   /** True for a pre-tool assistant segment within a still-running turn. */
   isIntraTurn?: boolean;
   responseTarget?: AgentResponseTarget;
+  /**
+   * What this reply is about: earlier messages and/or agent threads the
+   * orchestrator cited (`reply-refs`). Rendered as the iMessage-style reply
+   * preview above the bubble; each entry opens focus on its target.
+   */
+  replyRefs?: ReplyRef[];
   /** User turn this assistant row belongs to (for inline-image coalescing). */
   replyToUserMessageId?: string;
   officePreviewRef?: OfficePreviewRef;

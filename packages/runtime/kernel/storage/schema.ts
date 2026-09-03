@@ -27,7 +27,7 @@ import {
   legacyTablesPresent,
 } from "./legacy-import.js";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const FTS_TOKENIZER = "'porter unicode61 remove_diacritics 2'";
 
@@ -210,6 +210,25 @@ CREATE TABLE IF NOT EXISTS runtime_conversation_state (
   conversation_id TEXT PRIMARY KEY,
   force_reminder_on_next_turn INTEGER NOT NULL DEFAULT 0
 );
+`;
+
+/**
+ * Reply references: which earlier message or agent thread an assistant
+ * entry replied to. Written from the entry's own payload
+ * (`metadata.runtime.replyRefs`) inside the entry write, so the index can
+ * never disagree with the row. Read by the focus (lineage) query and the
+ * reply-count affordance.
+ */
+export const ENTRY_REF_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS entry_ref (
+  conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  entry_seq INTEGER NOT NULL,
+  target_kind TEXT NOT NULL CHECK (target_kind IN ('message', 'agent')),
+  target_key TEXT NOT NULL,
+  PRIMARY KEY (conversation_id, entry_seq, target_kind, target_key)
+);
+CREATE INDEX IF NOT EXISTS idx_entry_ref_target
+  ON entry_ref(conversation_id, target_kind, target_key, entry_seq);
 `;
 
 /**
@@ -516,6 +535,12 @@ const MIGRATIONS: Migration[] = [
            ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = excluded.updated_at`,
         ).run("fts_ready", Date.now());
       }
+    },
+  },
+  {
+    version: 2,
+    apply: (db) => {
+      db.exec(ENTRY_REF_SCHEMA_SQL);
     },
   },
 ];

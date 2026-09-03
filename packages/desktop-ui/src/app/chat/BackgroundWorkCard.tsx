@@ -39,7 +39,8 @@ import {
   deriveAgentCardPresentationStatus,
   deriveThreadAndOwnedPresentationStatus,
 } from "@/features/chat/lib/agent-activity-presentation";
-import { openAgentThreadTab } from "@/features/workspace-display/open-payload";
+import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
+import { useReplyCounts } from "@/features/chat/services/reply-counts-store";
 import { ArrowRight, Check, ChevronRight } from "@/ui/icons";
 import { StellaStarGlyph } from "./AgentActivityGlyph";
 import { useT, useTPlural } from "@/shared/i18n";
@@ -185,14 +186,22 @@ export function BackgroundWorkCard({
         tPlural("app.chat.backgroundWork.taskCount", threadIds.length)
       : resolved[0] || t("app.chat.backgroundWork.title");
 
+  // "N replies": how many of Stella's replies cited this task. Opening the
+  // row already focuses the task, so the count is a label, not a control.
+  const replyCounts = useReplyCounts(conversationId);
+  const replyCount = threadIds.reduce(
+    (total, id) => total + (replyCounts.agents[id] ?? 0),
+    0,
+  );
+
   if (threadIds.length === 0) return null;
   const openThread = (threadId: string) => {
     const record = threadActivity.get(threadId);
-    openAgentThreadTab({
-      threadId,
+    openConversationFocus({
       conversationId,
-      agentType: record?.agentType ?? "Agent",
+      root: { kind: "agent", threadId },
       title:
+        record?.description?.trim() ||
         descriptions?.[threadId]?.trim() ||
         t("app.chat.backgroundWork.agentThread"),
     });
@@ -256,6 +265,15 @@ export function BackgroundWorkCard({
           title
         )}
       </span>
+      {replyCount > 0 ? (
+        <span
+          className="agent-activity-row__replies"
+          data-testid="agent-reply-count"
+          data-reply-count={replyCount}
+        >
+          {tPlural("app.chat.replyCount.label", replyCount)}
+        </span>
+      ) : null}
       <ChevronRight
         size={13}
         strokeWidth={1.75}

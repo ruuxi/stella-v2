@@ -1167,6 +1167,16 @@
         "copy": "Copy",
         "save": "Save"
       },
+      "focus": {
+        "agentFallback": "Task",
+        "ariaLabel": "Focus: {title}",
+        "close": "Close focus",
+        "closeHint": "Back to the whole conversation (Esc)",
+        "error": "Couldn't load this thread.",
+        "kickerAgent": "Task",
+        "kickerMessage": "Message",
+        "messageFallback": "Message"
+      },
       "generatedImage": {
         "generating": "Generating...",
         "generatingImage": "Generating image...",
@@ -1192,15 +1202,15 @@
         "previewFailed": "The map preview couldn’t load."
       },
       "messageActions": {
-        "selectText": "Select text",
-        "share": "Share",
-        "quote": "Quote",
         "copied": "Copied",
         "copy": "Copy",
         "fork": "Fork to new chat",
+        "quote": "Quote",
         "readAloud": "Read aloud",
         "rewind": "Rewind here",
         "rewindConfirm": "Click again to rewind",
+        "selectText": "Select text",
+        "share": "Share",
         "stopReading": "Stop reading"
       },
       "messageRow": {
@@ -1269,9 +1279,32 @@
           "other": "{count} messages queued"
         }
       },
+      "replyCount": {
+        "label": {
+          "one": "{count} reply",
+          "other": "{count} replies"
+        }
+      },
       "replyPeek": {
         "dismiss": "Dismiss preview",
         "jumpToLatest": "Jump to latest reply"
+      },
+      "replyPreview": {
+        "emptyMessage": "(empty message)",
+        "hideReport": "Hide report",
+        "more": "+{count} more",
+        "openMessage": "Show this message and its replies",
+        "openTask": "Show this task and its updates",
+        "replyingToStella": "Replying to Stella",
+        "replyingToYou": "Replying to you",
+        "reportEmpty": "No report yet.",
+        "reportLoading": "Loading report…",
+        "reportUnavailable": "The report is no longer available.",
+        "showReport": "Report",
+        "statusDone": "Done",
+        "statusFailed": "Failed",
+        "statusPaused": "Paused",
+        "statusRunning": "Working"
       },
       "screenshotPreview": {
         "alt": "Screenshot preview {index}"

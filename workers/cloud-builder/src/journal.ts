@@ -24,6 +24,7 @@
  */
 
 import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
+import { formatMessageRefTag } from "@stella/contracts/reply-refs";
 import { estimateTokens } from "@stella/executor-cloud/prune-history";
 import {
   CONTEXT_SCAN_ROW_CAP,
@@ -417,8 +418,48 @@ export type OwnerTransferObjectRow = {
   state: "copying" | "cleanup";
 };
 
+/**
+ * Stamp each visible user message with its journal sequence number so the
+ * model can cite it (`reply-refs`: a reply ends with `#<seq>` lines that the
+ * clients resolve against the same journal). Applied after spill hydration
+ * so a hydrated payload keeps its tag; hidden rows (lifecycle prompts) carry
+ * their thread id instead and are left alone. The journal itself stays raw:
+ * the tag exists only in model context.
+ */
+export const stampUserMessageSequences = (
+  messages: AgentMessage[],
+  rows: WindowSelection["rows"],
+): AgentMessage[] =>
+  messages.map((message, index) => {
+    const row = rows[index];
+    if (!row || row.role !== "user" || row.hidden) return message;
+    if (message.role !== "user" || !Array.isArray(message.content)) {
+      return message;
+    }
+    const tag = formatMessageRefTag(row.seq);
+    const content = message.content.slice();
+    let stamped = false;
+    for (let blockIndex = content.length - 1; blockIndex >= 0; blockIndex -= 1) {
+      const block = content[blockIndex] as { type?: string; text?: string };
+      if (block?.type === "text" && typeof block.text === "string") {
+        content[blockIndex] = {
+          ...block,
+          text: `${block.text.replace(/\s+$/u, "")}\n\n${tag}`,
+        } as (typeof content)[number];
+        stamped = true;
+        break;
+      }
+    }
+    if (!stamped) {
+      content.push({ type: "text", text: tag } as (typeof content)[number]);
+    }
+    return { ...message, content } as AgentMessage;
+  });
+
 export type WindowSelection = {
   messages: AgentMessage[];
+  /** Journal row per message (same order), for sequence stamping. */
+  rows: Array<{ seq: number; role: string | null; hidden: boolean }>;
   startSeq: number;
   endSeq: number;
   /** Rows whose payload lives in R2; the caller hydrates what it can afford. */
@@ -1398,6 +1439,7 @@ export class Journal {
     if (scan.length === 0) {
       return {
         messages: [],
+        rows: [],
         startSeq: meta.next_seq,
         endSeq: meta.next_seq - 1,
         spilled: [],
@@ -1417,6 +1459,7 @@ export class Journal {
     if (start >= scan.length) {
       return {
         messages: [],
+        rows: [],
         startSeq: meta.next_seq,
         endSeq: meta.next_seq - 1,
         spilled: [],
@@ -1427,11 +1470,12 @@ export class Journal {
       .exec<{
         seq: number;
         role: string | null;
+        hidden: number;
         tool_call_id: string | null;
         payload_json: string;
         spill_key: string | null;
       }>(
-        `SELECT seq, role, tool_call_id, payload_json, spill_key FROM journal
+        `SELECT seq, role, hidden, tool_call_id, payload_json, spill_key FROM journal
           WHERE seq >= ? AND kind = 'message' AND model_skip = 0 AND turn_id != ?
           ORDER BY seq ASC`,
         startSeq,
@@ -1439,8 +1483,14 @@ export class Journal {
       )
       .toArray();
     const messages: AgentMessage[] = [];
+    const selectedRows: WindowSelection["rows"] = [];
     const spilled: WindowSelection["spilled"] = [];
     for (const row of rows) {
+      selectedRows.push({
+        seq: row.seq,
+        role: row.role,
+        hidden: row.hidden === 1,
+      });
       let parsed: unknown;
       try {
         parsed = JSON.parse(row.payload_json);
@@ -1464,6 +1514,7 @@ export class Journal {
     }
     return {
       messages,
+      rows: selectedRows,
       startSeq,
       endSeq: rows.length > 0 ? rows[rows.length - 1]!.seq : startSeq,
       spilled,

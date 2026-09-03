@@ -2,6 +2,7 @@ import {
   LEADING_TIME_TAG_RE,
   TRAILING_TIME_TAG_RE,
 } from "@stella/contracts/message-timestamp";
+import { stripMessageRefTag } from "@stella/contracts/reply-refs";
 
 const isMessageEventType = (type: string) =>
   type === "user_message" || type === "assistant_message";
@@ -41,6 +42,11 @@ export const prepareStoredLocalChatPayload = (args: {
   }
 
   const nextPayload = { ...payloadRecord };
+  // The sequence tag is model-facing only (see reply-refs); a prompt that
+  // flows back into the transcript (follow-up sends) must not display it.
+  if (typeof nextPayload.text === "string") {
+    nextPayload.text = stripMessageRefTag(nextPayload.text);
+  }
   const rawText = nextPayload.text;
   if (typeof rawText !== "string" || rawText.trim().length === 0) {
     return nextPayload;

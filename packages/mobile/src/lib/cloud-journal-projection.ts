@@ -1,4 +1,5 @@
 import type { ChatArtifact, ChatMessage, MobileDisplayPayload } from "../types";
+import { splitReplyRefs } from "@stella/contracts/reply-refs";
 import type { ToolStep } from "./tool-activity";
 import {
   hasToolCalls,
@@ -130,7 +131,9 @@ export const projectCloudConversationMessages = (args: {
           },
         ];
       });
-      const value = messageText(record.payload);
+      // The trailing `refs` fence is model-facing (see `reply-refs`); it
+      // never renders. Mobile shows the plain text only.
+      const value = splitReplyRefs(messageText(record.payload)).text;
       if (!value && !tools.length) continue;
       messages.push({
         id: `cloud:${turnId}:message:${record.seq}`,

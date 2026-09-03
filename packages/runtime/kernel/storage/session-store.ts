@@ -1857,6 +1857,34 @@ export class SessionStore {
     );
   }
 
+  resolveReplyRefs(
+    conversationIdInput: unknown,
+    raw: Parameters<ChatLog["resolveReplyRefs"]>[1],
+    options?: Parameters<ChatLog["resolveReplyRefs"]>[2],
+  ) {
+    return this.chat.resolveReplyRefs(
+      this.sanitizeConversationId(conversationIdInput),
+      raw,
+      options,
+    );
+  }
+
+  listReplyCounts(conversationIdInput: unknown) {
+    return this.chat.listReplyCounts(
+      this.sanitizeConversationId(conversationIdInput),
+    );
+  }
+
+  listLineageMessages(
+    conversationIdInput: unknown,
+    args: Parameters<ChatLog["listLineageMessages"]>[1],
+  ) {
+    return this.chat.listLineageMessages(
+      this.sanitizeConversationId(conversationIdInput),
+      args,
+    );
+  }
+
   listMobileTaskContext(conversationIdInput: unknown, agentIds: string[]) {
     return this.chat.listMobileTaskContext(
       this.sanitizeConversationId(conversationIdInput),

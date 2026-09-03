@@ -7,6 +7,7 @@
 import { createRequire } from "node:module";
 import { execFileSync, spawn } from "node:child_process";
 import {
+  chmodSync,
   closeSync,
   existsSync,
   mkdirSync,
@@ -94,7 +95,12 @@ const parseArgs = (argv) => {
   const options = { _: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--replace" || arg === "--dry-run" || arg === "--help") {
+    if (
+      arg === "--replace" ||
+      arg === "--reuse" ||
+      arg === "--dry-run" ||
+      arg === "--help"
+    ) {
       options[arg.slice(2).replaceAll("-", "_")] = true;
       continue;
     }
@@ -405,12 +411,7 @@ const resolveAdminApiSecret = () => {
   }
 };
 
-/**
- * Mint a signed-in (non-anonymous) test account on the dev deployment via
- * the admin API. Returns the bearer token Electron adopts at boot, plus the
- * identifiers recorded in the run pointer. The token is never persisted.
- */
-const mintTestAccount = async (runId, mode) => {
+const resolveSiteUrl = () => {
   const siteUrl = (
     process.env.CONVEX_SITE_URL?.trim() || readBackendEnvLocal("CONVEX_SITE_URL")
   ).replace(/\/+$/, "");
@@ -420,6 +421,122 @@ const mintTestAccount = async (runId, mode) => {
       recovery:
         "Export CONVEX_SITE_URL or write it to packages/backend/.env.local (see AGENTS.md).",
     });
+  return siteUrl;
+};
+
+/**
+ * One anonymous session per machine, kept for `--reuse`. A fresh profile
+ * has no stored bearer, so without this every launch signs up a new
+ * anonymous user on the dev deployment and the per-IP sybil counters fill
+ * up within a handful of runs. The file holds a dev anonymous bearer only
+ * and is owner-readable.
+ */
+const ANONYMOUS_SESSION_PATH = path.join(
+  skillRoot,
+  ".run",
+  "anonymous-session.json",
+);
+
+const writeSecretJson = (filePath, value) => {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, {
+    mode: 0o600,
+  });
+  chmodSync(filePath, 0o600);
+};
+
+const authHeaders = (token) => ({
+  accept: "application/json",
+  "content-type": "application/json",
+  ...(token ? { authorization: `Bearer ${token}` } : {}),
+});
+
+const sessionIsAlive = async (siteUrl, token) => {
+  try {
+    const response = await fetch(`${siteUrl}/api/auth/get-session`, {
+      headers: authHeaders(token),
+    });
+    if (!response.ok) return false;
+    const payload = await response.json().catch(() => null);
+    return Boolean(payload?.user?.id);
+  } catch {
+    return false;
+  }
+};
+
+const mintAnonymousSession = async (siteUrl) => {
+  let response;
+  try {
+    response = await fetch(`${siteUrl}/api/auth/sign-in/anonymous`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: "{}",
+    });
+  } catch (error) {
+    fail(
+      `Anonymous sign-in request failed: ${error instanceof Error ? error.message : String(error)}`,
+      2,
+      { errorCode: "ANONYMOUS_SESSION_REQUEST_FAILED", retryable: true },
+    );
+  }
+  const token = response.headers.get("set-auth-token")?.trim() ?? "";
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !token || !payload?.user?.id) {
+    fail(
+      `Anonymous sign-in returned HTTP ${response.status}: ${payload?.error ?? payload?.message ?? "no session token"}`,
+      2,
+      {
+        errorCode: "ANONYMOUS_SESSION_MINT_FAILED",
+        recovery:
+          "Check that the backend at CONVEX_SITE_URL is deployed and allows anonymous sign-in without a Turnstile token (dev leaves TURNSTILE_SECRET_KEY unset).",
+      },
+    );
+  }
+  return {
+    siteUrl,
+    token,
+    userId: payload.user.id,
+    createdAt: new Date().toISOString(),
+  };
+};
+
+/**
+ * Return the saved anonymous session when it still verifies against this
+ * backend; otherwise mint one and save it. `reused` tells the run record
+ * which happened.
+ */
+const ensureReusableAnonymousSession = async () => {
+  const siteUrl = resolveSiteUrl();
+  if (existsSync(ANONYMOUS_SESSION_PATH)) {
+    let saved = null;
+    try {
+      saved = readJson(ANONYMOUS_SESSION_PATH);
+    } catch {
+      saved = null;
+    }
+    if (
+      saved?.siteUrl === siteUrl &&
+      typeof saved.token === "string" &&
+      (await sessionIsAlive(siteUrl, saved.token))
+    ) {
+      return { session: saved, reused: true };
+    }
+    process.stderr.write(
+      "Saved anonymous session is missing, for another backend, or no longer valid; creating a new one.\n",
+    );
+  }
+  const session = await mintAnonymousSession(siteUrl);
+  writeSecretJson(ANONYMOUS_SESSION_PATH, session);
+  return { session, reused: false };
+};
+
+/**
+ * Mint a signed-in (non-anonymous) test account on the dev deployment via
+ * the admin API. Returns the bearer token Electron adopts at boot, plus the
+ * identifiers recorded in the run pointer. The token is never persisted.
+ */
+const mintTestAccount = async (runId, mode) => {
+  const siteUrl = resolveSiteUrl();
   const secret = resolveAdminApiSecret();
   if (!secret)
     fail("STELLA_ADMIN_API_SECRET is unavailable.", 2, {
@@ -610,11 +727,21 @@ const cmdLaunch = async (options) => {
   if (!ACCOUNT_MODES.includes(accountMode))
     fail(`Unknown --account ${accountMode}. Use one of ${ACCOUNT_MODES.join(", ")}.`);
 
+  if (options.reuse && accountMode !== "anonymous")
+    fail("--reuse applies to anonymous launches only; test accounts are minted per run.");
+
   const runId = randomUUID().slice(0, 8);
   const runDir = path.join(skillRoot, ".run", runId);
-  const minted =
-    accountMode === "anonymous" ? null : await mintTestAccount(runId, accountMode);
-  const account = minted?.account ?? { mode: "anonymous" };
+  let minted = null;
+  let account = { mode: "anonymous", reused: false };
+  if (accountMode !== "anonymous") {
+    minted = await mintTestAccount(runId, accountMode);
+    account = minted.account;
+  } else if (options.reuse) {
+    const { session, reused } = await ensureReusableAnonymousSession();
+    minted = { sessionToken: session.token };
+    account = { mode: "anonymous", reused, userId: session.userId };
+  }
   const dataDir = path.join(runDir, "data");
   const userDataDir = path.join(
     os.tmpdir(),

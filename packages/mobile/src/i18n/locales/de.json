@@ -1167,6 +1167,16 @@
         "copy": "Kopieren",
         "save": "Speichern"
       },
+      "focus": {
+        "agentFallback": "Task",
+        "ariaLabel": "Focus: {title}",
+        "close": "Close focus",
+        "closeHint": "Back to the whole conversation (Esc)",
+        "error": "Couldn't load this thread.",
+        "kickerAgent": "Task",
+        "kickerMessage": "Message",
+        "messageFallback": "Message"
+      },
       "generatedImage": {
         "generating": "Wird erzeugt...",
         "generatingImage": "Bild wird erzeugt...",
@@ -1269,9 +1279,32 @@
           "other": "{count} Nachrichten in Warteschlange"
         }
       },
+      "replyCount": {
+        "label": {
+          "one": "{count} reply",
+          "other": "{count} replies"
+        }
+      },
       "replyPeek": {
         "dismiss": "Vorschau schließen",
         "jumpToLatest": "Zur neuesten Antwort springen"
+      },
+      "replyPreview": {
+        "emptyMessage": "(empty message)",
+        "hideReport": "Hide report",
+        "more": "+{count} more",
+        "openMessage": "Show this message and its replies",
+        "openTask": "Show this task and its updates",
+        "replyingToStella": "Replying to Stella",
+        "replyingToYou": "Replying to you",
+        "reportEmpty": "No report yet.",
+        "reportLoading": "Loading report…",
+        "reportUnavailable": "The report is no longer available.",
+        "showReport": "Report",
+        "statusDone": "Done",
+        "statusFailed": "Failed",
+        "statusPaused": "Paused",
+        "statusRunning": "Working"
       },
       "screenshotPreview": {
         "alt": "Screenshot-Vorschau {index}"

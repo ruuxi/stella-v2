@@ -4,7 +4,7 @@ import { causeToThrowable } from "./errors.js";
 
 /**
  * Requirements-free effect runner for the home modules that are reachable
- * from the Bun worker bundle (personality-sync via kernel/personality). The
+ * from the Bun worker bundle (kernel/personality). The
  * HomeService runtime in home-runtime.ts statically imports the full home
  * graph — including electron-only modules (stella-home.ts, skills-sync.ts) —
  * which the worker bundle must never reach. Effects that require no service

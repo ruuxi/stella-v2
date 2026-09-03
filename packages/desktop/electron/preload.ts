@@ -49,6 +49,9 @@ import {
   IPC_LOCAL_CHAT_FORK_CONVERSATION,
   IPC_LOCAL_CHAT_LIST_CONVERSATIONS,
   IPC_LOCAL_CHAT_LIST_MESSAGES_AFTER,
+  IPC_LOCAL_CHAT_LIST_LINEAGE_MESSAGES,
+  IPC_LOCAL_CHAT_LIST_REPLY_COUNTS,
+  IPC_LOCAL_CHAT_GET_AGENT_REPORT,
   IPC_LOCAL_CHAT_LIST_MESSAGE_TOOL_EVENTS,
   IPC_LOCAL_CHAT_LIST_MODEL_USAGE,
   IPC_MEDIA_COPY_IMAGE,
@@ -1890,8 +1893,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }) => ipcRenderer.invoke("localChat:listActivity", payload),
     listThreadActivity: (payload: { conversationId: string }) =>
       ipcRenderer.invoke("localChat:listThreadActivity", payload),
-    listAgentThreadMessages: (payload = {}) =>
-      ipcRenderer.invoke("localChat:listAgentThreadMessages", payload),
+    listLineageMessages: (payload: {
+      conversationId: string;
+      root: { kind: "message"; id: string } | { kind: "agent"; threadId: string };
+      beforeSequence?: number;
+      limit?: number;
+    }) => ipcRenderer.invoke(IPC_LOCAL_CHAT_LIST_LINEAGE_MESSAGES, payload),
+    listReplyCounts: (payload: { conversationId: string }) =>
+      ipcRenderer.invoke(IPC_LOCAL_CHAT_LIST_REPLY_COUNTS, payload),
+    getAgentReport: (payload: { threadId: string }) =>
+      ipcRenderer.invoke(IPC_LOCAL_CHAT_GET_AGENT_REPORT, payload),
     listModelUsage: (payload: {
       fromMs?: number;
       toMs?: number;

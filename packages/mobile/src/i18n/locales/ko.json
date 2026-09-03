@@ -1161,6 +1161,16 @@
         "copy": "복사",
         "save": "저장"
       },
+      "focus": {
+        "agentFallback": "Task",
+        "ariaLabel": "Focus: {title}",
+        "close": "Close focus",
+        "closeHint": "Back to the whole conversation (Esc)",
+        "error": "Couldn't load this thread.",
+        "kickerAgent": "Task",
+        "kickerMessage": "Message",
+        "messageFallback": "Message"
+      },
       "generatedImage": {
         "generating": "생성 중...",
         "generatingImage": "이미지 생성 중...",
@@ -1261,9 +1271,32 @@
           "other": "메시지 {count}개 대기 중"
         }
       },
+      "replyCount": {
+        "label": {
+          "one": "{count} reply",
+          "other": "{count} replies"
+        }
+      },
       "replyPeek": {
         "dismiss": "미리보기 닫기",
         "jumpToLatest": "최신 답변으로 이동"
+      },
+      "replyPreview": {
+        "emptyMessage": "(empty message)",
+        "hideReport": "Hide report",
+        "more": "+{count} more",
+        "openMessage": "Show this message and its replies",
+        "openTask": "Show this task and its updates",
+        "replyingToStella": "Replying to Stella",
+        "replyingToYou": "Replying to you",
+        "reportEmpty": "No report yet.",
+        "reportLoading": "Loading report…",
+        "reportUnavailable": "The report is no longer available.",
+        "showReport": "Report",
+        "statusDone": "Done",
+        "statusFailed": "Failed",
+        "statusPaused": "Paused",
+        "statusRunning": "Working"
       },
       "screenshotPreview": {
         "alt": "스크린샷 미리보기 {index}"

@@ -24,11 +24,6 @@ const activityCss = fs.readFileSync(
   "utf8",
 );
 
-const threadCss = fs.readFileSync(
-  path.join(SOURCE_ROOT, "shell/display/agent-thread-chat-tab.css"),
-  "utf8",
-);
-
 const openWithCss = fs.readFileSync(
   path.join(SOURCE_ROOT, "app/chat/open-with-menu.css"),
   "utf8",
@@ -92,32 +87,3 @@ describe("agent-activity file pills", () => {
   });
 });
 
-describe("agent-thread transcript spacing + hover timestamp", () => {
-  it("keeps the message list gap tight", () => {
-    const list = blockFor(threadCss, ".agent-thread-chat__messages");
-    const gap = /gap:\s*(\d+)px/.exec(list);
-    expect(gap).not.toBeNull();
-    expect(Number(gap![1])).toBeLessThanOrEqual(6);
-  });
-
-  it("strips the inherited block padding from chrome-less assistant items", () => {
-    const item = blockFor(
-      threadCss,
-      ".agent-thread-chat__messages .event-item.assistant",
-    );
-    const padding = /padding-block:\s*(\d+)px/.exec(item);
-    expect(padding).not.toBeNull();
-    expect(Number(padding![1])).toBeLessThanOrEqual(4);
-  });
-
-  it("reveals the left-gutter timestamp only on row hover", () => {
-    const stamp = blockFor(threadCss, ".agent-thread-chat__timestamp");
-    expect(stamp).toContain("opacity: 0");
-    expect(stamp).toContain("right: calc(100% + 10px)");
-    const hover = blockFor(
-      threadCss,
-      ".agent-thread-chat__message:hover .agent-thread-chat__timestamp",
-    );
-    expect(hover).toContain("opacity: 1");
-  });
-});

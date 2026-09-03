@@ -15,6 +15,7 @@ import {
   AGENT_STREAM_EVENT_TYPES,
 } from "@stella/contracts/agent-runtime";
 import type { ImageCapTarget } from "../../../ai/utils/image-caps.js";
+import type { RawReplyRef, ReplyRef } from "@stella/contracts/reply-refs";
 import { prepareStoredLocalChatPayload } from "../../../kernel/storage/local-chat-payload.js";
 import type { LocalChatEventRecord } from "../../../kernel/storage/shared.js";
 import {
@@ -160,13 +161,31 @@ export const layer = Layer.effect(
       seq: number;
       timezone?: string;
       responseTarget?: RuntimeAgentEventPayload["responseTarget"];
+      replyRefs?: RawReplyRef[];
       streamStartedAtMs?: number;
       followedByToolCall?: boolean;
-    }): LocalChatEventRecord | null => {
+    }): { event: LocalChatEventRecord; replyRefs: ReplyRef[] } | null => {
       const trimmedText = args.text.trim();
       if (!trimmedText) {
         return null;
       }
+
+      // Citations the model wrote resolve against this conversation now, so
+      // the stored row (and the `entry_ref` index written with it) never
+      // points at a message or thread that does not exist. A lifecycle turn
+      // that cited nothing still attaches to the agent it reports on.
+      const fallbackAgentId =
+        args.responseTarget && args.responseTarget.type !== "user_turn"
+          ? args.responseTarget.agentId
+          : undefined;
+      const replyRefs = storage.chatStore.resolveReplyRefs(
+        args.conversationId,
+        args.replyRefs ?? [],
+        {
+          excludeMessageId: args.userMessageId,
+          ...(fallbackAgentId ? { fallbackAgentId } : {}),
+        },
+      );
 
       const runtimeMetadata = {
         runtime: {
@@ -174,6 +193,7 @@ export const layer = Layer.effect(
           ...(args.responseTarget
             ? { responseTarget: args.responseTarget }
             : {}),
+          ...(replyRefs.length > 0 ? { replyRefs } : {}),
           ...(Number.isFinite(args.streamStartedAtMs)
             ? { streamStartedAtMs: args.streamStartedAtMs }
             : {}),
@@ -181,7 +201,7 @@ export const layer = Layer.effect(
       };
 
       const eventId = `assistant-msg-${args.runId}-${args.seq}`;
-      return storage.appendChatEventAndNotify({
+      const event = storage.appendChatEventAndNotify({
         conversationId: args.conversationId,
         eventId,
         type: "assistant_message",
@@ -197,6 +217,7 @@ export const layer = Layer.effect(
           timezone: args.timezone,
         }),
       });
+      return { event, replyRefs };
     };
 
     const markAssistantTurnComplete = (args: {
@@ -531,7 +552,7 @@ export const layer = Layer.effect(
             // lifecycle cards before and after the block. Falls back to now()
             // so an engine that never reports deltas still gets an anchor.
             const streamStartedAtMs = ev.firstTextAtMs ?? Date.now();
-            const assistantEvent = persistLocalTranscript
+            const appended = persistLocalTranscript
               ? appendAssistantMessageForTurn({
                   conversationId: payload.conversationId,
                   text: ev.text,
@@ -543,9 +564,11 @@ export const layer = Layer.effect(
                     ? { followedByToolCall: true }
                     : {}),
                   responseTarget: ev.responseTarget,
+                  ...(ev.replyRefs ? { replyRefs: ev.replyRefs } : {}),
                   streamStartedAtMs,
                 })
               : null;
+            const assistantEvent = appended?.event ?? null;
             if (assistantEvent) {
               lastAssistantMessageEvent = assistantEvent;
             }
@@ -584,6 +607,9 @@ export const layer = Layer.effect(
                 assistantMessageText: ev.text,
                 ...(ev.responseTarget
                   ? { responseTarget: ev.responseTarget }
+                  : {}),
+                ...(appended && appended.replyRefs.length > 0
+                  ? { replyRefs: appended.replyRefs }
                   : {}),
                 // Preamble → tool-call handoff: when this finalized message
                 // ends with a tool call, the renderer keeps the working

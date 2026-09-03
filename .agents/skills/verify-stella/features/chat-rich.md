@@ -10,6 +10,7 @@ Rich chat extends the primary composer and timeline with context, attachments, m
 - `chat-queue` queues, stops, retries, or resumes work while a turn is active.
 - `chat-actions` copies, retries, or otherwise acts on a rendered message.
 - `chat-artifacts` opens files, previews, citations, and agent completion output.
+- `chat-replies` shows what a reply is about: an iMessage-style preview bubble above Stella's reply quoting the earlier message or task it cited, a "N replies" count under the original, and a focus view (`[data-testid="conversation-focus"]`) that dims the timeline to that message's or task's lineage. Tasks rows, inline agent cards, and reply previews all open focus; Escape or the close button returns to the whole conversation.
 
 ## How to get to it (user POV)
 
@@ -30,6 +31,7 @@ Preconditions:
 - **Model/runtime.** Open the visible selector, choose an option, then read it back from the closed control and `chat state`.
 - **Keyboard.** Use `drive press --key Shift+Enter` for a newline and chord syntax for shortcuts. Assert the composer value before any send.
 - **Messages/artifacts.** After a suitable turn exists, open actions or an artifact with `drive click`; require the copied-state feedback, retry state, or resulting display tab.
+- **Replies/focus.** Send a request that Stella delegates, wait for the completion reply, and require `[data-testid="reply-preview"]` above it naming the task. Click the preview (or a Tasks row, or a "N replies" badge) and require `[data-testid="conversation-focus"]` with only the lineage rows; press Escape and require it gone with the timeline scroll position unchanged. The agent preview's **Report** toggle must expand the agent's full result inline.
 - **Proof.** Capture before and after snapshots plus screenshots. Use bounded `diagnostics console` or `diagnostics network-summary` for failures.
 
 ## Gotchas

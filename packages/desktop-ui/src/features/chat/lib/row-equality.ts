@@ -6,6 +6,7 @@
  * `<AssistantMessageRow>` `memo()` use, without dragging React component
  * imports into the hook (Fast Refresh).
  */
+import { replyRefsKey } from "@/features/chat/lib/reply-refs";
 import type {
   Attachment,
   ChannelEnvelope,
@@ -400,6 +401,7 @@ const assistantRowEqual = (
   (a.replyToUserMessageId ?? null) === (b.replyToUserMessageId ?? null) &&
   JSON.stringify(a.responseTarget ?? null) ===
     JSON.stringify(b.responseTarget ?? null) &&
+  replyRefsKey(a.replyRefs) === replyRefsKey(b.replyRefs) &&
   (a.officePreviewRef?.sessionId ?? null) ===
     (b.officePreviewRef?.sessionId ?? null) &&
   resourcePayloadEqual(a.resourcePayload, b.resourcePayload) &&

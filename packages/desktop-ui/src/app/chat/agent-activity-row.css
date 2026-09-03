@@ -313,3 +313,13 @@
     transition: none;
   }
 }
+
+/* "N replies" label on a task row once Stella's replies cited it. */
+.agent-activity-row__replies {
+  flex: none;
+  margin-left: auto;
+  padding-right: 4px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}

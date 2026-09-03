@@ -117,7 +117,7 @@ Run from `packages/backend`: `npx convex env set NAME value` (dev) and `npx conv
 
 ### 4.3 Recommended per deployment
 
-Dev: `STELLA_APP_INTEGRITY_MODE=off`; leave `TURNSTILE_SECRET_KEY` unset unless testing Turnstile; set `STELLA_ANON_LIFETIME_LIMIT_USD` (required).
+Dev: `STELLA_APP_INTEGRITY_MODE=off`; leave `TURNSTILE_SECRET_KEY` unset unless testing Turnstile (with it unset, sybil and risk-cron challenges at capability mint are skipped too, since nothing could answer them; suspension and sign-in requirements still apply); set `STELLA_ANON_LIFETIME_LIMIT_USD` (required).
 
 Production: set `TURNSTILE_SECRET_KEY`, `APPLE_APP_ATTEST_TEAM_ID`, `GOOGLE_PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON` together. With only one of Turnstile or app integrity configured, the server refuses account creation from the other platform's clients (a web request must carry a Turnstile token, a mobile request must carry an integrity proof, and there is no third option in enforce mode).
 

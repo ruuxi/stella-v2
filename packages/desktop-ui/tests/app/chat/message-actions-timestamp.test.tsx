@@ -9,8 +9,7 @@
  *   1. Assistant + user rows thread `timestampMs` into the strip and render
  *      the locale-formatted time inside `.message-actions__timestamp`.
  *   2. A row without a created time renders no stamp element at all.
- * The agent-thread transcript's left-gutter stamp shares the same format via
- * `AgentThreadChatTab`'s `formatMessageTime` (same `toLocaleTimeString`
+ * The message-row timestamp uses `toLocaleTimeString` (same
  * options), pinned by the CSS contract test alongside the glyph contract.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";

@@ -1,4 +1,6 @@
 import path from "path";
+import { resolveRuntimeSourceAsset } from "../shared/runtime-paths.js";
+import { stripMessageRefTag } from "@stella/contracts/reply-refs";
 import { createFashionApi } from "./fashion-api.js";
 import {
   createCloudSpawnDispatcher,
@@ -159,7 +161,7 @@ const getStoredMessagePreview = (
  * event text so the legacy transition dedup keeps matching.
  */
 const stripUserTranscriptDecoration = (value: string): string =>
-  value.replace(TRAILING_TIME_TAG_RE, "").trim();
+  stripMessageRefTag(value).replace(TRAILING_TIME_TAG_RE, "").trim();
 
 const getLocalEventText = (event: LocalContextEvent): string => {
   if (!event.payload || typeof event.payload !== "object") {
@@ -1058,7 +1060,12 @@ export const createRunnerContext = ({
     getDefaultConversationId,
     cloudTranscript,
     paths: {
-      extensionsPath: path.join(stellaDataDir, "extensions"),
+      // The stella-runtime extension (agent definitions, orchestrator hooks)
+      // ships in the app bundle and is loaded from there. The data dir has no
+      // extensions tier and nothing seeds one — pointing the loader at
+      // `<data>/extensions` silently drops every bundled agent, leaving the
+      // orchestrator with the fallback prompt and no tools.
+      extensionsPath: resolveRuntimeSourceAsset("extensions"),
     },
     state: {
       convexSiteUrl: envProxyBaseUrl,

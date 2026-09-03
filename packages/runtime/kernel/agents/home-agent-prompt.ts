@@ -29,6 +29,7 @@ import {
 } from "../prompts/prompt-presets.js";
 import { resolveRuntimeSourceAsset } from "../shared/runtime-paths.js";
 import { statSignature } from "../shared/fs-signature.js";
+import { getRemotePromptBody } from "../prompts/remote-prompts.js";
 
 type CachedPrompt = { sig: string; body: string | undefined };
 
@@ -85,6 +86,14 @@ export const loadAgentSystemPrompt = async (
     statSignature(bundledPath),
     presetPath ? statSignature(presetPath) : Promise.resolve(null),
   ]);
+  const hasPreset = presetPath !== null && presetSig !== null;
+  // The Convex-served body is the source of truth once loaded
+  // (`prompts/remote-prompts`); a user's selected preset still wins, and the
+  // bundled file is the offline/BYOK fallback.
+  if (!hasPreset) {
+    const served = getRemotePromptBody(`agents/${agentType}.md`);
+    if (served) return served;
+  }
   if (bundledSig === null && presetSig === null) {
     promptCache.delete(bundledPath);
     return undefined;
@@ -98,13 +107,12 @@ export const loadAgentSystemPrompt = async (
   }
 
   let body: string | undefined;
-  if (presetPath && presetSig !== null) {
+  if (hasPreset && presetPath) {
     body = await readBody(presetPath);
   }
   if (body === undefined && bundledSig !== null) {
     body = await readBody(bundledPath);
   }
-
   promptCache.set(cacheKey, { sig, body });
   return body;
 };

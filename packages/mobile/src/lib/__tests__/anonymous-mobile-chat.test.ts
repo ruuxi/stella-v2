@@ -46,6 +46,25 @@ describe("anonymous mobile Chat entry", () => {
     );
   });
 
+  test("keeps the connected-only cloud browser subscription off anonymous sessions", async () => {
+    const [browser, chat] = await Promise.all([
+      source("../cloud-browser.ts"),
+      source("../../../app/(main)/chat.tsx"),
+    ]);
+
+    // cloud_browser:* refuses anonymous owners; subscribing anyway throws out
+    // of render and lands on the root boot crash screen.
+    expect(browser).toContain("session.data?.user?.isAnonymous !== true");
+    expect(browser).toContain('useQuery(listRef, enabled ? {} : "skip")');
+    expect(browser).not.toContain('isAuthenticated ? {} : "skip"');
+    expect(chat).toContain(
+      "<CloudBoundary resetKey={thread.conversationId}>",
+    );
+    expect(chat.indexOf("<CloudBoundary")).toBeLessThan(
+      chat.indexOf("<CloudBrowserInterventionCard"),
+    );
+  });
+
   test("admits the anonymous conversation without the connected-only placement identity", async () => {
     const placement = await source("../execution-placement.ts");
 

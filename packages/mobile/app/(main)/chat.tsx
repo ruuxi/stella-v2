@@ -58,6 +58,7 @@ import { ChatPane } from "../../src/components/ChatPane";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { CloudBrowserInterventionCard } from "../../src/components/CloudBrowserInterventionCard";
 import { ComposerNotice } from "../../src/components/ComposerNotice";
+import { CloudBoundary } from "../../src/components/CloudBoundary";
 import { ComputerDeviceSheet } from "../../src/components/ComputerDeviceSheet";
 import { PairPhoneSheet } from "../../src/components/PairPhoneSheet";
 import type { ChatArtifact } from "../../src/types";
@@ -582,9 +583,11 @@ function ChatSurface(props: {
         placeholder={t("mobile.chat.composerPlaceholder")}
         composerIntervention={
           <>
-            <CloudBrowserInterventionCard
-              conversationId={thread.conversationId}
-            />
+            <CloudBoundary resetKey={thread.conversationId}>
+              <CloudBrowserInterventionCard
+                conversationId={thread.conversationId}
+              />
+            </CloudBoundary>
             <ComposerNotice conversationId={thread.conversationId} />
           </>
         }

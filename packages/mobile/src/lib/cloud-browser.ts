@@ -2,6 +2,7 @@ import { makeFunctionReference } from "convex/server";
 import { useAction, useConvexAuth, useQuery } from "convex/react";
 import * as Crypto from "expo-crypto";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { authClient } from "./auth-client";
 import { selectCurrentConversationBrowserInteraction } from "./cloud-browser-interaction-selection";
 
 export type CloudBrowserInteractionKind = "login_takeover" | "device_code";
@@ -130,22 +131,37 @@ let resetRequestId: string | null = null;
 
 const newRequestId = (): string => Crypto.randomUUID();
 
-export function usePendingCloudBrowserInteractions(): readonly CloudBrowserInteractionSummary[] {
+/**
+ * The cloud browser is a connected-account feature: every `cloud_browser:*`
+ * function refuses the Better Auth anonymous owner. An anonymous session is
+ * still an authenticated Convex connection, so `useConvexAuth` alone would
+ * subscribe and the refused query would throw out of render and take the app
+ * to the boot crash screen. Mirrors desktop's `hasConnectedAccount` gate.
+ */
+const useCloudBrowserAccess = (): boolean => {
   const { isAuthenticated } = useConvexAuth();
-  return useQuery(listRef, isAuthenticated ? {} : "skip") ?? EMPTY_INTERACTIONS;
+  const session = authClient.useSession();
+  const hasConnectedAccount =
+    Boolean(session.data) && session.data?.user?.isAnonymous !== true;
+  return isAuthenticated && hasConnectedAccount;
+};
+
+export function usePendingCloudBrowserInteractions(): readonly CloudBrowserInteractionSummary[] {
+  const enabled = useCloudBrowserAccess();
+  return useQuery(listRef, enabled ? {} : "skip") ?? EMPTY_INTERACTIONS;
 }
 
 export function useCloudBrowserInteraction(
   interactionId: string | null | undefined,
 ): CloudBrowserInteractionDetail | null | undefined {
-  const { isAuthenticated } = useConvexAuth();
+  const enabled = useCloudBrowserAccess();
   const pending = usePendingCloudBrowserInteractions();
   const revision = pending.find(
     (entry) => entry.interactionId === interactionId,
   )?.revision;
   const getDetail = useAction(detailRef);
   const key =
-    isAuthenticated && interactionId
+    enabled && interactionId
       ? `${interactionId}:${revision ?? "direct"}`
       : null;
   const [result, setResult] = useState<{

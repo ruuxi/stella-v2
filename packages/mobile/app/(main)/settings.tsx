@@ -182,287 +182,286 @@ export default function SettingsScreen() {
   return (
     <MainDetailSurface>
       <ScrollView
-      style={styles.screen}
-      contentContainerStyle={[
-        styles.scrollContent,
-        { paddingBottom: 32 + insets.bottom },
-      ]}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Text style={styles.title}>{t("mobile.settings.title")}</Text>
+        style={styles.screen}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: 32 + insets.bottom },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.title}>{t("mobile.settings.title")}</Text>
 
-
-      {isSignedIn ? (
-        <>
-          <Text style={styles.sectionLabel}>
-            {t("mobile.cloudHome.settingsSection")}
-          </Text>
-          <Pressable
-            onPress={() => router.push("/cloud-home")}
-            accessibilityLabel={t("mobile.cloudHome.openSettingsLabel")}
-            style={({ pressed }) => [
-              styles.legalRow,
-              pressed && styles.legalRowPressed,
-            ]}
-          >
-            <View style={styles.toggleCopy}>
-              <Text style={styles.legalLabel}>
-                {t("mobile.cloudHome.settingsRowTitle")}
-              </Text>
-              <Text style={styles.toggleSub}>
-                {t("mobile.cloudHome.settingsRowBody")}
-              </Text>
-            </View>
-            <Text style={styles.legalChevron}>›</Text>
-          </Pressable>
-
-          <View style={styles.separator} />
-          <Text style={styles.sectionLabel}>
-            {t("cloudBrowser.settings.title")}
-          </Text>
-          <View style={styles.toggleRow}>
-            <View style={styles.toggleCopy}>
-              <Text style={styles.toggleLabel}>
-                {t("cloudBrowser.settings.defaultProfile")}
-              </Text>
-              <Text style={styles.toggleSub}>
-                {t("cloudBrowser.settings.description")}
-              </Text>
-            </View>
-            <Pressable
-              onPress={confirmResetCloudBrowser}
-              disabled={isResettingCloudBrowser}
-              accessibilityRole="button"
-              accessibilityLabel={t("cloudBrowser.settings.reset")}
-              style={({ pressed }) => [
-                styles.forgetButton,
-                pressed && styles.forgetButtonPressed,
-                isResettingCloudBrowser && styles.forgetButtonDisabled,
-              ]}
-            >
-              <Text style={styles.resetBrowserText}>
-                {isResettingCloudBrowser
-                  ? t("cloudBrowser.settings.resetting")
-                  : t("cloudBrowser.settings.reset")}
-              </Text>
-            </Pressable>
-          </View>
-        </>
-      ) : null}
-
-      {isSignedIn ? <View style={styles.separator} /> : null}
-
-      <Text style={styles.sectionLabel}>
-        {t("mobile.settings.appearanceSection")}
-      </Text>
-      <View style={styles.themeRow}>
-        {APPEARANCE_OPTIONS.map((opt) => (
-          <Pressable
-            key={opt.value}
-            onPress={() => {
-              tapLight();
-              setPreference(opt.value);
-            }}
-            accessibilityLabel={t("mobile.settings.useAppearanceLabel", {
-              name: t(opt.labelKey),
-            })}
-            style={[
-              styles.themeOption,
-              preference === opt.value && styles.themeOptionActive,
-            ]}
-          >
-            <Text
-              style={[
-                styles.themeOptionText,
-                preference === opt.value && styles.themeOptionTextActive,
-              ]}
-            >
-              {t(opt.labelKey)}
+        {isSignedIn ? (
+          <>
+            <Text style={styles.sectionLabel}>
+              {t("mobile.cloudHome.settingsSection")}
             </Text>
-          </Pressable>
-        ))}
-      </View>
+            <Pressable
+              onPress={() => router.push("/cloud-home")}
+              accessibilityLabel={t("mobile.cloudHome.openSettingsLabel")}
+              style={({ pressed }) => [
+                styles.legalRow,
+                pressed && styles.legalRowPressed,
+              ]}
+            >
+              <View style={styles.toggleCopy}>
+                <Text style={styles.legalLabel}>
+                  {t("mobile.cloudHome.settingsRowTitle")}
+                </Text>
+                <Text style={styles.toggleSub}>
+                  {t("mobile.cloudHome.settingsRowBody")}
+                </Text>
+              </View>
+              <Text style={styles.legalChevron}>›</Text>
+            </Pressable>
 
-      <View style={styles.themeRow}>
-        {GRADIENT_OPTIONS.map((opt) => {
-          const isSelected = gradientLocked
-            ? opt.value === "flat"
-            : gradientPreference === opt.value;
-          const disabled = gradientLocked && opt.value !== "flat";
-          return (
+            <View style={styles.separator} />
+            <Text style={styles.sectionLabel}>
+              {t("cloudBrowser.settings.title")}
+            </Text>
+            <View style={styles.toggleRow}>
+              <View style={styles.toggleCopy}>
+                <Text style={styles.toggleLabel}>
+                  {t("cloudBrowser.settings.defaultProfile")}
+                </Text>
+                <Text style={styles.toggleSub}>
+                  {t("cloudBrowser.settings.description")}
+                </Text>
+              </View>
+              <Pressable
+                onPress={confirmResetCloudBrowser}
+                disabled={isResettingCloudBrowser}
+                accessibilityRole="button"
+                accessibilityLabel={t("cloudBrowser.settings.reset")}
+                style={({ pressed }) => [
+                  styles.forgetButton,
+                  pressed && styles.forgetButtonPressed,
+                  isResettingCloudBrowser && styles.forgetButtonDisabled,
+                ]}
+              >
+                <Text style={styles.resetBrowserText}>
+                  {isResettingCloudBrowser
+                    ? t("cloudBrowser.settings.resetting")
+                    : t("cloudBrowser.settings.reset")}
+                </Text>
+              </Pressable>
+            </View>
+          </>
+        ) : null}
+
+        {isSignedIn ? <View style={styles.separator} /> : null}
+
+        <Text style={styles.sectionLabel}>
+          {t("mobile.settings.appearanceSection")}
+        </Text>
+        <View style={styles.themeRow}>
+          {APPEARANCE_OPTIONS.map((opt) => (
             <Pressable
               key={opt.value}
               onPress={() => {
-                if (disabled) return;
                 tapLight();
-                setGradientPreference(opt.value);
+                setPreference(opt.value);
               }}
-              disabled={disabled}
-              accessibilityLabel={t("mobile.settings.useBackgroundLabel", {
+              accessibilityLabel={t("mobile.settings.useAppearanceLabel", {
                 name: t(opt.labelKey),
               })}
-              accessibilityState={{ selected: isSelected, disabled }}
               style={[
                 styles.themeOption,
-                isSelected && styles.themeOptionActive,
-                disabled && styles.themeOptionDisabled,
+                preference === opt.value && styles.themeOptionActive,
               ]}
             >
               <Text
                 style={[
                   styles.themeOptionText,
-                  isSelected && styles.themeOptionTextActive,
+                  preference === opt.value && styles.themeOptionTextActive,
                 ]}
               >
                 {t(opt.labelKey)}
               </Text>
             </Pressable>
-          );
-        })}
-      </View>
+          ))}
+        </View>
 
-      <View style={styles.themeDots}>
-        {themes.map((th) => {
-          // Resolve through the shared catalog so forced-mode themes preview
-          // in the appearance they actually render.
-          const preview = resolveThemeColors(th, isDark).colors;
-          const isActive = th.id === selectedThemeId;
-          return (
-            <Pressable
-              key={th.id}
-              onPress={() => {
-                tapLight();
-                setThemeId(th.id);
-              }}
-              accessibilityLabel={t("mobile.settings.useThemeLabel", {
-                name: th.name,
-              })}
-              accessibilityState={{ selected: isActive }}
-              style={[
-                styles.themeDotOuter,
-                isActive && { borderColor: colors.accent },
-              ]}
-            >
-              <View
+        <View style={styles.themeRow}>
+          {GRADIENT_OPTIONS.map((opt) => {
+            const isSelected = gradientLocked
+              ? opt.value === "flat"
+              : gradientPreference === opt.value;
+            const disabled = gradientLocked && opt.value !== "flat";
+            return (
+              <Pressable
+                key={opt.value}
+                onPress={() => {
+                  if (disabled) return;
+                  tapLight();
+                  setGradientPreference(opt.value);
+                }}
+                disabled={disabled}
+                accessibilityLabel={t("mobile.settings.useBackgroundLabel", {
+                  name: t(opt.labelKey),
+                })}
+                accessibilityState={{ selected: isSelected, disabled }}
                 style={[
-                  styles.themeDotSwatch,
-                  {
-                    backgroundColor: preview.background,
-                    borderColor: preview.border,
-                  },
+                  styles.themeOption,
+                  isSelected && styles.themeOptionActive,
+                  disabled && styles.themeOptionDisabled,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.themeOptionText,
+                    isSelected && styles.themeOptionTextActive,
+                  ]}
+                >
+                  {t(opt.labelKey)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <View style={styles.themeDots}>
+          {themes.map((th) => {
+            // Resolve through the shared catalog so forced-mode themes preview
+            // in the appearance they actually render.
+            const preview = resolveThemeColors(th, isDark).colors;
+            const isActive = th.id === selectedThemeId;
+            return (
+              <Pressable
+                key={th.id}
+                onPress={() => {
+                  tapLight();
+                  setThemeId(th.id);
+                }}
+                accessibilityLabel={t("mobile.settings.useThemeLabel", {
+                  name: th.name,
+                })}
+                accessibilityState={{ selected: isActive }}
+                style={[
+                  styles.themeDotOuter,
+                  isActive && { borderColor: colors.accent },
                 ]}
               >
                 <View
                   style={[
-                    styles.themeDotAccent,
-                    { backgroundColor: preview.primary },
+                    styles.themeDotSwatch,
+                    {
+                      backgroundColor: preview.background,
+                      borderColor: preview.border,
+                    },
                   ]}
-                />
-              </View>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <View style={styles.separator} />
-
-      <Text style={styles.sectionLabel}>
-        {t("mobile.settings.notificationsSection")}
-      </Text>
-      <View style={styles.toggleRow}>
-        <View style={styles.toggleCopy}>
-          <Text style={styles.toggleLabel}>
-            {t("mobile.settings.pushToggleLabel")}
-          </Text>
-          <Text style={styles.toggleSub}>
-            {t("mobile.settings.pushToggleSub")}
-          </Text>
+                >
+                  <View
+                    style={[
+                      styles.themeDotAccent,
+                      { backgroundColor: preview.primary },
+                    ]}
+                  />
+                </View>
+              </Pressable>
+            );
+          })}
         </View>
-        <GlassToggle
-          value={!notificationsMuted}
-          onValueChange={toggleNotifications}
-          accessibilityLabel={t("mobile.settings.pushToggleA11y")}
-        />
-      </View>
 
-      {isSignedIn ? (
-        <>
-          <View style={styles.separator} />
+        <View style={styles.separator} />
 
-          <Text style={styles.sectionLabel}>
-            {t("mobile.settings.pairedSection")}
-          </Text>
-          {pairedDesktops.length === 0 ? (
-            <Text style={styles.emptyHint}>
-              {t("mobile.settings.pairedEmpty")}
+        <Text style={styles.sectionLabel}>
+          {t("mobile.settings.notificationsSection")}
+        </Text>
+        <View style={styles.toggleRow}>
+          <View style={styles.toggleCopy}>
+            <Text style={styles.toggleLabel}>
+              {t("mobile.settings.pushToggleLabel")}
             </Text>
-          ) : (
-            <View style={styles.pairedList}>
-              {pairedDesktops.map((access) => {
-                const label = platformLabelFor(
-                  t,
-                  access,
-                  desktopPlatforms[access.desktopDeviceId],
-                );
-                const removing = removingDesktopId === access.desktopDeviceId;
-                return (
-                  <View key={access.desktopDeviceId} style={styles.pairedRow}>
-                    <View style={styles.pairedCopy}>
-                      <Text style={styles.pairedName}>{label}</Text>
-                      <Text style={styles.pairedSub}>
-                        {t("mobile.settings.pairedOn", {
-                          date: new Date(access.approvedAt).toLocaleDateString(
-                            undefined,
-                            {
+            <Text style={styles.toggleSub}>
+              {t("mobile.settings.pushToggleSub")}
+            </Text>
+          </View>
+          <GlassToggle
+            value={!notificationsMuted}
+            onValueChange={toggleNotifications}
+            accessibilityLabel={t("mobile.settings.pushToggleA11y")}
+          />
+        </View>
+
+        {isSignedIn ? (
+          <>
+            <View style={styles.separator} />
+
+            <Text style={styles.sectionLabel}>
+              {t("mobile.settings.pairedSection")}
+            </Text>
+            {pairedDesktops.length === 0 ? (
+              <Text style={styles.emptyHint}>
+                {t("mobile.settings.pairedEmpty")}
+              </Text>
+            ) : (
+              <View style={styles.pairedList}>
+                {pairedDesktops.map((access) => {
+                  const label = platformLabelFor(
+                    t,
+                    access,
+                    desktopPlatforms[access.desktopDeviceId],
+                  );
+                  const removing = removingDesktopId === access.desktopDeviceId;
+                  return (
+                    <View key={access.desktopDeviceId} style={styles.pairedRow}>
+                      <View style={styles.pairedCopy}>
+                        <Text style={styles.pairedName}>{label}</Text>
+                        <Text style={styles.pairedSub}>
+                          {t("mobile.settings.pairedOn", {
+                            date: new Date(
+                              access.approvedAt,
+                            ).toLocaleDateString(undefined, {
                               month: "short",
                               day: "numeric",
-                            },
-                          ),
+                            }),
+                          })}
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => confirmForgetDesktop(access)}
+                        disabled={removing}
+                        accessibilityLabel={t("mobile.settings.forgetLabel", {
+                          name: label,
                         })}
-                      </Text>
+                        style={({ pressed }) => [
+                          styles.forgetButton,
+                          pressed && styles.forgetButtonPressed,
+                          removing && styles.forgetButtonDisabled,
+                        ]}
+                      >
+                        <Text style={styles.forgetText}>
+                          {removing ? "\u2026" : t("mobile.settings.forget")}
+                        </Text>
+                      </Pressable>
                     </View>
-                    <Pressable
-                      onPress={() => confirmForgetDesktop(access)}
-                      disabled={removing}
-                      accessibilityLabel={t("mobile.settings.forgetLabel", {
-                        name: label,
-                      })}
-                      style={({ pressed }) => [
-                        styles.forgetButton,
-                        pressed && styles.forgetButtonPressed,
-                        removing && styles.forgetButtonDisabled,
-                      ]}
-                    >
-                      <Text style={styles.forgetText}>
-                        {removing ? "\u2026" : t("mobile.settings.forget")}
-                      </Text>
-                    </Pressable>
-                  </View>
-                );
-              })}
-            </View>
-          )}
-        </>
-      ) : null}
+                  );
+                })}
+              </View>
+            )}
+          </>
+        ) : null}
 
-      <View style={styles.separator} />
+        <View style={styles.separator} />
 
-      <View style={styles.legalBlock}>
-        <Pressable
-          onPress={() => router.push("/carplay-diagnostics")}
-          accessibilityLabel={t("mobile.settings.openCarPlayDiagnosticsLabel")}
-          style={({ pressed }) => [
-            styles.legalRow,
-            pressed && styles.legalRowPressed,
-          ]}
-        >
-          <Text style={styles.legalLabel}>
-            {t("mobile.settings.carPlayDiagnostics")}
-          </Text>
-          <Text style={styles.legalChevron}>›</Text>
-        </Pressable>
-      </View>
-
+        <View style={styles.legalBlock}>
+          <Pressable
+            onPress={() => router.push("/carplay-diagnostics")}
+            accessibilityLabel={t(
+              "mobile.settings.openCarPlayDiagnosticsLabel",
+            )}
+            style={({ pressed }) => [
+              styles.legalRow,
+              pressed && styles.legalRowPressed,
+            ]}
+          >
+            <Text style={styles.legalLabel}>
+              {t("mobile.settings.carPlayDiagnostics")}
+            </Text>
+            <Text style={styles.legalChevron}>›</Text>
+          </Pressable>
+        </View>
       </ScrollView>
     </MainDetailSurface>
   );

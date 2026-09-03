@@ -1161,6 +1161,16 @@
         "copy": "コピー",
         "save": "保存"
       },
+      "focus": {
+        "agentFallback": "Task",
+        "ariaLabel": "Focus: {title}",
+        "close": "Close focus",
+        "closeHint": "Back to the whole conversation (Esc)",
+        "error": "Couldn't load this thread.",
+        "kickerAgent": "Task",
+        "kickerMessage": "Message",
+        "messageFallback": "Message"
+      },
       "generatedImage": {
         "generating": "生成中...",
         "generatingImage": "画像を生成中...",
@@ -1261,9 +1271,32 @@
           "other": "{count} 件のメッセージをキューに追加"
         }
       },
+      "replyCount": {
+        "label": {
+          "one": "{count} reply",
+          "other": "{count} replies"
+        }
+      },
       "replyPeek": {
         "dismiss": "プレビューを閉じる",
         "jumpToLatest": "最新の返信へ移動"
+      },
+      "replyPreview": {
+        "emptyMessage": "(empty message)",
+        "hideReport": "Hide report",
+        "more": "+{count} more",
+        "openMessage": "Show this message and its replies",
+        "openTask": "Show this task and its updates",
+        "replyingToStella": "Replying to Stella",
+        "replyingToYou": "Replying to you",
+        "reportEmpty": "No report yet.",
+        "reportLoading": "Loading report…",
+        "reportUnavailable": "The report is no longer available.",
+        "showReport": "Report",
+        "statusDone": "Done",
+        "statusFailed": "Failed",
+        "statusPaused": "Paused",
+        "statusRunning": "Working"
       },
       "screenshotPreview": {
         "alt": "スクリーンショットのプレビュー {index}"

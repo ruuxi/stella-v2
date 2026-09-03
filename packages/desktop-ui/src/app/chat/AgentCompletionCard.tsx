@@ -23,10 +23,8 @@ import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
 import { Check, ChevronDown, ChevronRight } from "@/ui/icons";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-model-configs";
-import {
-  openAgentThreadTab,
-  openDisplayPayloadTab,
-} from "@/features/workspace-display/open-payload";
+import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
+import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
 import { displayTabKindForPayload } from "@/features/workspace-display/payload-kind";
 import {
   basenameOf,
@@ -182,10 +180,9 @@ export function AgentCompletionCard({
   }, []);
   const openSection = useCallback(
     (section: AgentCompletionSection) =>
-      openAgentThreadTab({
-        threadId: section.agentId,
+      openConversationFocus({
         conversationId,
-        agentType: section.agentType ?? "Agent",
+        root: { kind: "agent", threadId: section.agentId },
         title: section.title,
       }),
     [conversationId],

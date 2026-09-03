@@ -4,6 +4,7 @@ import type {
   AgentStreamEventType,
   TaskToolActivity,
 } from "./agent-runtime.js";
+import type { ReplyRef } from "./reply-refs.js";
 
 export type AgentResponseTarget =
   | { type: "user_turn" }
@@ -81,4 +82,6 @@ export type AgentStreamEvent = {
    * across the gap between this message and the tool it precedes.
    */
   followedByToolCall?: boolean;
+  /** Resolved citations for an `ASSISTANT_MESSAGE` boundary (`reply-refs`). */
+  replyRefs?: ReplyRef[];
 };

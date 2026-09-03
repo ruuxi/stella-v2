@@ -48,7 +48,6 @@
     "./electron/process-resources/mobile-bridge-resource.js": "./electron/process-resources/mobile-bridge-resource.js",
     "./electron/recent-apps.js": "./electron/recent-apps.js",
     "./electron/runtime-host-adapter.js": "./electron/runtime-host-adapter.js",
-    "./electron/services/agent-thread-history.js": "./electron/services/agent-thread-history.js",
     "./electron/services/capture-service.js": "./electron/services/capture-service.js",
     "./electron/services/in-app-browser-auth-policy.js": "./electron/services/in-app-browser-auth-policy.js",
     "./electron/services/connector-connect-service.js": "./electron/services/connector-connect-service.js",

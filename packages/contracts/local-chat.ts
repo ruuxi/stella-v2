@@ -398,6 +398,28 @@ export type LocalChatMessageWindow = {
   nextCursor?: LocalChatTimelineCursor;
 };
 
+/**
+ * One focus (lineage) page: the rows that belong to a message or agent
+ * thread — the root, the turn that spawned the agent, and every reply that
+ * cited either — newest-first paged on `beforeSequence`.
+ */
+export type LocalChatLineageWindow = {
+  messages: MessageRecord[];
+  hasOlder: boolean;
+};
+
+/** The full report an agent returned, for the expandable reply preview. */
+export type LocalChatAgentReport = {
+  threadId: string;
+  description: string;
+  agentType: string;
+  status: "running" | "completed" | "error" | "canceled";
+  result?: string;
+  error?: string;
+  startedAt: number;
+  completedAt?: number;
+};
+
 export type LocalChatToolEventPage = {
   events: EventRecord[];
   nextCursor?: LocalChatTimelineCursor;

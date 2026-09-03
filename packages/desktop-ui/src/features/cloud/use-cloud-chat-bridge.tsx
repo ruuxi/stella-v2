@@ -23,6 +23,11 @@ import {
   mergeCanonicalMessagesWithLocalCache,
 } from "./journal-message-records";
 import {
+  countReplyRefs,
+  provideReplyCounts,
+} from "@/features/chat/services/reply-counts-store";
+import { provideLineageSource } from "@/features/chat/services/lineage-messages-store";
+import {
   journalRecordsToCloudActivityEvents,
   journalRecordsToCloudFileEvents,
   mergeCanonicalCloudEventsWithLocalOverlay,
@@ -470,6 +475,31 @@ export function useCloudChatBridge({
       });
     });
   }, [conversation, enabled, webShell]);
+
+  // Reply references in cloud mode resolve client-side from the loaded
+  // journal window (there is no local `entry_ref` index for a cloud
+  // conversation), so the counts and focus lineage come from here.
+  useEffect(() => {
+    if (!enabled || !conversationId) return;
+    provideReplyCounts(conversationId, countReplyRefs(persistedMessages));
+    provideLineageSource(conversationId, {
+      messages: persistedMessages,
+      hasOlder: conversation.state.hasOlder,
+      loadOlder: conversation.loadOlder,
+      tasks,
+    });
+    return () => {
+      provideReplyCounts(conversationId, null);
+      provideLineageSource(conversationId, null);
+    };
+  }, [
+    conversation.loadOlder,
+    conversation.state.hasOlder,
+    conversationId,
+    enabled,
+    persistedMessages,
+    tasks,
+  ]);
 
   const extraTail = useMemo<ReactNode>(
     () =>

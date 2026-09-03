@@ -355,12 +355,14 @@ export const IPC_LOCAL_CHAT_LIST_MESSAGE_TOOL_EVENTS =
 export const IPC_LOCAL_CHAT_LIST_ACTIVITY = "localChat:listActivity" as const;
 export const IPC_LOCAL_CHAT_LIST_THREAD_ACTIVITY =
   "localChat:listThreadActivity" as const;
-export const IPC_LOCAL_CHAT_LIST_AGENT_THREAD_MESSAGES =
-  "localChat:listAgentThreadMessages" as const;
+export const IPC_LOCAL_CHAT_LIST_LINEAGE_MESSAGES =
+  "localChat:listLineageMessages" as const;
+export const IPC_LOCAL_CHAT_LIST_REPLY_COUNTS =
+  "localChat:listReplyCounts" as const;
+export const IPC_LOCAL_CHAT_GET_AGENT_REPORT =
+  "localChat:getAgentReport" as const;
 export const IPC_LOCAL_CHAT_LIST_MODEL_USAGE =
   "localChat:listModelUsage" as const;
-export const IPC_LOCAL_CHAT_LIST_AGENT_THREAD_MESSAGE_PAGE =
-  "localChat:listAgentThreadMessagePage" as const;
 export const IPC_LOCAL_CHAT_LIST_FILES = "localChat:listFiles" as const;
 export const IPC_LOCAL_CHAT_GET_EVENT_COUNT =
   "localChat:getEventCount" as const;

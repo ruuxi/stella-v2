@@ -11,6 +11,8 @@ import {
 } from "../agent-runtime/thread-memory.js";
 import { ORCHESTRATOR_ROSTER_CUSTOM_TYPE } from "../storage/shared.js";
 import { decorateUserTranscriptContent } from "../agent-runtime/transcript-decoration.js";
+import { appendMessageRefTag } from "@stella/contracts/reply-refs";
+import { scheduleRemotePromptRevalidation } from "../prompts/remote-prompts.js";
 import { buildRuntimeThreadKey } from "../thread-runtime.js";
 import { createRuntimeLogger } from "../debug.js";
 import type { AgentMessage } from "../agent-core/types.js";
@@ -187,6 +189,9 @@ export const createOrchestratorController = (
     if (context.state.activeOrchestratorRunId) {
       throw new Error(args.alreadyRunningError);
     }
+    // This turn uses the prompt already loaded; the conditional fetch runs
+    // alongside it and the next turn picks up any change (`remote-prompts`).
+    scheduleRemotePromptRevalidation();
 
     const runId = `local:${crypto.randomUUID()}`;
     const steerableCallbacks = createSteerableCallbacks(args.callbacks);
@@ -753,6 +758,26 @@ export const createOrchestratorController = (
     });
   };
 
+  const tagUserPromptWithSequence = (
+    conversationId: string,
+    userMessageId: string | undefined,
+    userPrompt: string,
+  ): string => {
+    if (!userPrompt || !userMessageId) return userPrompt;
+    try {
+      const cursor = context.runtimeStore.getEventCursor(
+        conversationId,
+        userMessageId,
+      );
+      return typeof cursor?.sequence === "number"
+        ? appendMessageRefTag(userPrompt, cursor.sequence)
+        : userPrompt;
+    } catch {
+      // Tagging is best-effort; a store read failure must not block the turn.
+      return userPrompt;
+    }
+  };
+
   const startLocalChatTurn = async (
     payload: ChatPayload,
     callbacks: AgentCallbacks,
@@ -760,7 +785,7 @@ export const createOrchestratorController = (
     const {
       conversationId,
       agentType,
-      userPrompt,
+      userPrompt: rawUserPrompt,
       promptMessages,
       attachments,
       storageMode,
@@ -769,9 +794,18 @@ export const createOrchestratorController = (
     const hasPromptMessages = Boolean(
       promptMessages?.some((message) => message.text.trim().length > 0),
     );
-    if (!userPrompt && attachments.length === 0 && !hasPromptMessages) {
+    if (!rawUserPrompt && attachments.length === 0 && !hasPromptMessages) {
       throw new Error("Missing user prompt");
     }
+    // Tell the model this message's conversation number so a later reply can
+    // cite it (`reply-refs`). The tag rides only the model-facing prompt: the
+    // transcript row was appended by the host before this turn started and
+    // keeps the raw text.
+    const userPrompt = tagUserPromptWithSequence(
+      conversationId,
+      payload.userMessageId,
+      rawUserPrompt,
+    );
 
     const liveSession = getLiveOrchestratorSession(conversationId, agentType);
     if (liveSession && storageMode !== "cloud") {

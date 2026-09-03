@@ -1,4 +1,5 @@
 import type { AgentMessage } from "../agent-core/types.js";
+import type { RawReplyRef } from "@stella/contracts/reply-refs";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
 import type { ImageDescriptionService } from "./image-description.js";
@@ -138,6 +139,12 @@ export type RuntimeAssistantMessageEvent = {
   timestamp: number;
   uiVisibility?: "visible" | "hidden";
   responseTarget?: RuntimeAgentEventPayload["responseTarget"];
+  /**
+   * Citations the model wrote in its trailing `refs` fence, unresolved. The
+   * worker validates them against the conversation when it persists the
+   * row (see `reply-refs`).
+   */
+  replyRefs?: RawReplyRef[];
   /**
    * True when this assistant message ends with a tool call, i.e. it is an
    * interim/preamble message rather than the run's final answer. The renderer

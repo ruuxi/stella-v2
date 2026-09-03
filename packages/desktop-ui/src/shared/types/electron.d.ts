@@ -11,6 +11,8 @@ import type { Theme } from "@/shared/theme/themes/types";
 import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
 import type { StellaBrowserBridgeStatus } from "@stella/contracts/browser-bridge-status";
 import type {
+  LocalChatAgentReport,
+  LocalChatLineageWindow,
   ConversationSummaryCursor,
   ConversationSummaryPage,
   LocalModelUsagePage,
@@ -21,6 +23,10 @@ import type {
   LocalChatMessageWindow,
   LocalChatToolEventPage,
 } from "@stella/contracts/local-chat";
+import type {
+  ConversationFocusRoot,
+  ReplyCounts,
+} from "@stella/contracts/reply-refs";
 import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
 import type {
   ChatContext as SharedChatContext,
@@ -1316,33 +1322,18 @@ export type ElectronLocalChatApi = {
   listThreadActivity: (payload: {
     conversationId: string;
   }) => Promise<ThreadActivityRecord[]>;
-  listAgentThreadMessages: (payload: {
-    threadId: string;
+  listLineageMessages: (payload: {
+    conversationId: string;
+    root: ConversationFocusRoot;
+    beforeSequence?: number;
     limit?: number;
-  }) => Promise<
-    Array<{
-      entryId?: string;
-      timestamp: number;
-      role:
-        | "user"
-        | "assistant"
-        | "reasoning"
-        | "tool"
-        | "checkpoint"
-        | "lifecycle";
-      content: string;
-      toolActivity?: {
-        toolCallId: string;
-        toolName: string;
-        status: "running" | "completed" | "error";
-        input?: string;
-        output?: string;
-        completedAt?: number;
-      };
-      lifecycleEvent?: EventRecord;
-      source?: string;
-    }>
-  >;
+  }) => Promise<LocalChatLineageWindow>;
+  listReplyCounts: (payload: {
+    conversationId: string;
+  }) => Promise<ReplyCounts>;
+  getAgentReport: (payload: {
+    threadId: string;
+  }) => Promise<LocalChatAgentReport | null>;
   listModelUsage: (payload: {
     fromMs?: number;
     toMs?: number;

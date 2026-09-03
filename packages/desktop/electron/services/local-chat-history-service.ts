@@ -31,11 +31,16 @@ import type {
 import type {
   ConversationSummaryCursor,
   ConversationSummaryPage,
+  LocalChatAgentReport,
   LocalModelUsagePage,
   LocalChatUpdatedPayload,
   TaskDecorationUpdatedPayload,
   ThreadActivityRecord,
 } from "@stella/contracts/local-chat";
+import type {
+  ConversationFocusRoot,
+  ReplyCounts,
+} from "@stella/contracts/reply-refs";
 import {
   buildMobileSyncMessagesPage,
   buildMobileSyncMessages,
@@ -44,7 +49,6 @@ import {
   type LocalChatMobileHistoryPage,
   type LocalChatSyncMessageWithArtifacts,
 } from "./local-chat-artifacts.js";
-import { listAgentThreadMessages } from "./agent-thread-history.js";
 import { CloudConversationCacheStore } from "./cloud-conversation-cache-store.js";
 
 type LocalChatHistoryServiceOptions = {
@@ -389,8 +393,53 @@ export class LocalChatHistoryService {
     }) as unknown as ThreadActivityRecord[];
   }
 
-  listAgentThreadMessages(args = {}) {
-    return listAgentThreadMessages(this.getStore(), args);
+  /**
+   * Focus (lineage) page for one message or agent thread. Reads the
+   * `entry_ref` index the runtime writes with every assistant row, so the
+   * cost is proportional to the lineage, not the conversation.
+   */
+  listLineageMessages(args: {
+    conversationId: string;
+    root: ConversationFocusRoot;
+    beforeSequence?: number;
+    limit?: number;
+  }): { messages: LocalChatMessageRecord[]; hasOlder: boolean } {
+    const window = this.getStore().listLineageMessages(args.conversationId, {
+      root: args.root,
+      ...(typeof args.beforeSequence === "number"
+        ? { beforeSequence: args.beforeSequence }
+        : {}),
+      ...(typeof args.limit === "number" ? { limit: args.limit } : {}),
+    });
+    return { messages: window.messages, hasOlder: window.hasOlder };
+  }
+
+  listReplyCounts(args: { conversationId: string }): ReplyCounts {
+    return this.getStore().listReplyCounts(args.conversationId);
+  }
+
+  /** The untruncated report an agent returned (the activity list ships a
+   *  bounded excerpt; this is the on-demand full read behind the reply
+   *  preview's expand affordance). */
+  getAgentReport(args: { threadId: string }): LocalChatAgentReport | null {
+    const record = this.getStore().getAgentRecord(args.threadId);
+    if (!record) return null;
+    return {
+      threadId: record.threadId,
+      description: record.description,
+      agentType: record.agentType,
+      status: record.status,
+      ...(typeof record.result === "string" && record.result.trim()
+        ? { result: record.result }
+        : {}),
+      ...(typeof record.error === "string" && record.error.trim()
+        ? { error: record.error }
+        : {}),
+      startedAt: record.startedAt,
+      ...(typeof record.completedAt === "number"
+        ? { completedAt: record.completedAt }
+        : {}),
+    };
   }
 
   listFiles(args: {

@@ -191,6 +191,7 @@ import {
   JournalContextIntegrityError,
   JournalHeadConflictError,
   type JournalRow,
+  stampUserMessageSequences,
 } from "./journal.js";
 import { ConversationArchive } from "./archive.js";
 import { ConversationIndex } from "./index-flush.js";
@@ -3939,7 +3940,10 @@ export class OrchestratorSession extends DurableObject<Env> {
         turn.turnId,
         CLOUD_HISTORY_TOKEN_BUDGET,
       );
-      const history = await this.hydrateWindow(selection);
+      const history = stampUserMessageSequences(
+        await this.hydrateWindow(selection),
+        selection.rows,
+      );
       await assertExactTurnActive();
       this.journal.setTurnContext(
         turn.turnId,
@@ -6321,7 +6325,10 @@ export class OrchestratorSession extends DurableObject<Env> {
       turnId,
       CLOUD_HISTORY_TOKEN_BUDGET,
     );
-    const messages = await this.hydrateWindow(selection);
+    const messages = stampUserMessageSequences(
+      await this.hydrateWindow(selection),
+      selection.rows,
+    );
     return {
       history: messages.map((message) => JSON.stringify(message)),
       contextStartSeq: selection.startSeq,

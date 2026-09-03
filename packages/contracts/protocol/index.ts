@@ -8,6 +8,7 @@ import type {
   AgentRunFinishOutcome,
   TaskLifecycleStatus,
 } from "@stella/contracts/agent-runtime";
+import type { ReplyRef } from "@stella/contracts/reply-refs";
 import type {
   RuntimeListModelsRequest,
   RuntimeModelCatalogModel,
@@ -658,6 +659,8 @@ export type RuntimeAgentEventPayload = {
       };
   assistantMessageEventId?: string;
   assistantMessageText?: string;
+  /** Resolved citations for an `ASSISTANT_MESSAGE` boundary (`reply-refs`). */
+  replyRefs?: ReplyRef[];
 };
 
 export type RuntimeVoiceAgentEventPayload = {

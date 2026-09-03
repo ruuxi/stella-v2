@@ -13,6 +13,7 @@
  * with persisted SQLite-backed messages.
  */
 import { useCallback, type Dispatch, type MutableRefObject } from 'react'
+import type { ReplyRef } from "@stella/contracts/reply-refs"
 import { showToast } from '@/ui/toast'
 import {
   decorateTask,
@@ -85,6 +86,7 @@ type UseAgentEventHandlerOptions = {
       responseTarget?: AgentResponseTarget | null
       canonicalMessageId?: string
       canonicalText?: string
+      replyRefs?: ReplyRef[]
       followedByToolCall?: boolean
     }) => void
     finalizeRunOnFinish: (args: { runId: string }) => void
@@ -385,6 +387,9 @@ export function useAgentEventHandler({
                 : {}),
               ...(event.assistantMessageText !== undefined
                 ? { canonicalText: event.assistantMessageText }
+                : {}),
+              ...(event.replyRefs && event.replyRefs.length > 0
+                ? { replyRefs: event.replyRefs }
                 : {}),
               followedByToolCall: Boolean(event.followedByToolCall),
             })

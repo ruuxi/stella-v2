@@ -20,10 +20,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { withI18n } from "../../helpers/i18n";
 
 const openDisplayPayloadTab = vi.fn();
-const openAgentThreadTab = vi.fn();
+const openConversationFocus = vi.fn();
 vi.mock("@/features/workspace-display/open-payload", () => ({
   openDisplayPayloadTab: (...args: unknown[]) => openDisplayPayloadTab(...args),
-  openAgentThreadTab: (...args: unknown[]) => openAgentThreadTab(...args),
+}));
+vi.mock("@/features/chat/services/conversation-focus-store", () => ({
+  openConversationFocus: (...args: unknown[]) => openConversationFocus(...args),
 }));
 
 import { AgentCompletionCard } from "@/app/chat/AgentCompletionCard";
@@ -168,7 +170,7 @@ describe("AgentCompletionCard minimal row rendering", () => {
     expect(openDisplayPayloadTab).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "markdown", filePath: "/tmp/report.md" }),
     );
-    expect(openAgentThreadTab).not.toHaveBeenCalled();
+    expect(openConversationFocus).not.toHaveBeenCalled();
   });
 
   it("stacks one row per section when several agents complete together", async () => {

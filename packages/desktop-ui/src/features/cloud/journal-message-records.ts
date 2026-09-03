@@ -2,6 +2,73 @@ import type { EventRecord, MessageRecord } from "@stella/contracts/local-chat";
 import { groupEventsIntoMessages } from "@/features/chat/lib/group-events-into-messages";
 import type { JournalRecord } from "./conversation-protocol";
 import { messageText } from "./conversation-protocol";
+import {
+  splitReplyRefs,
+  toReplyPreview,
+  type RawReplyRef,
+  type ReplyRef,
+} from "@stella/contracts/reply-refs";
+
+type JournalMessageRecord = Extract<JournalRecord, { kind: "message" }>;
+
+const userEventId = (record: JournalMessageRecord): string =>
+  record.clientMsgId ?? `cloud:${record.turnId}:message:${record.seq}`;
+
+const LIFECYCLE_THREAD_RE =
+  /^\[(?:Agent completed|Task failed|Task canceled|Subagent paused)\][\s\S]*?^thread_id:\s*(\S+)/m;
+
+/**
+ * Resolve the citations an assistant journal record carried against the
+ * loaded journal window. The cloud journal has no `entry_ref` index, so this
+ * is the client-side twin of the runtime's `resolveReplyRefs`: message
+ * citations map to the record with that journal `seq`, agent citations keep
+ * their thread id (the live title comes from thread activity), and a
+ * lifecycle turn that cited nothing attaches to the agent named in its hidden
+ * prompt. The message directly above the reply is never a reference.
+ */
+export const resolveJournalReplyRefs = (args: {
+  raw: readonly RawReplyRef[];
+  recordsBySeq: ReadonlyMap<number, JournalMessageRecord>;
+  turnUserRecord: JournalMessageRecord | undefined;
+}): ReplyRef[] => {
+  const refs: ReplyRef[] = [];
+  const seen = new Set<string>();
+  const push = (ref: ReplyRef) => {
+    const key = ref.kind === "message" ? `m:${ref.id}` : `a:${ref.threadId}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    refs.push(ref);
+  };
+  for (const ref of args.raw) {
+    if (ref.kind === "agent") {
+      push({ kind: "agent", threadId: ref.threadId, title: ref.threadId });
+      continue;
+    }
+    const record = args.recordsBySeq.get(ref.sequence);
+    if (!record || record.hidden) continue;
+    if (record.role !== "user" && record.role !== "assistant") continue;
+    if (args.turnUserRecord && record.seq === args.turnUserRecord.seq) continue;
+    const text = messageText(record.payload);
+    push({
+      kind: "message",
+      sequence: ref.sequence,
+      id:
+        record.role === "user"
+          ? userEventId(record)
+          : `cloud:${record.turnId}:message:${record.seq}`,
+      role: record.role,
+      preview: toReplyPreview(
+        record.role === "assistant" ? splitReplyRefs(text).text : text,
+      ),
+    });
+  }
+  if (refs.length === 0 && args.turnUserRecord?.hidden) {
+    const match = LIFECYCLE_THREAD_RE.exec(messageText(args.turnUserRecord.payload));
+    const threadId = match?.[1]?.trim();
+    if (threadId) push({ kind: "agent", threadId, title: threadId });
+  }
+  return refs;
+};
 
 type AgentMessagePayload = Record<string, unknown>;
 
@@ -31,11 +98,15 @@ const textPayload = (
   record: Extract<JournalRecord, { kind: "message" }>,
   text: string,
   userMessageId?: string,
+  replyRefs?: ReplyRef[],
 ): Record<string, unknown> => {
   const voiceSession = asRecord(record.payload.voiceSession);
   const metadata = {
     ...(record.hidden ? { ui: { visibility: "hidden" as const } } : {}),
     ...(voiceSession ? { voiceSession } : {}),
+    ...(replyRefs && replyRefs.length > 0
+      ? { runtime: { replyRefs } }
+      : {}),
   };
   return {
     text,
@@ -127,21 +198,25 @@ export const journalRecordsToMessageRecords = (
   records: readonly JournalRecord[],
 ): MessageRecord[] => {
   const byTurn = new Map<string, JournalRecord[]>();
+  const recordsBySeq = new Map<number, JournalMessageRecord>();
   for (const record of records) {
     const turn = byTurn.get(record.turnId);
     if (turn) turn.push(record);
     else byTurn.set(record.turnId, [record]);
+    if (record.kind === "message") recordsBySeq.set(record.seq, record);
   }
 
   const messages: MessageRecord[] = [];
   for (const [turnId, turnRecords] of byTurn) {
     const events: EventRecord[] = [];
     let userMessageId: string | undefined;
+    let turnUserRecord: JournalMessageRecord | undefined;
 
     for (const record of turnRecords) {
       if (record.kind !== "message") continue;
       const timestamp = timestampOf(record.payload, record.createdAtMs);
       if (record.role === "user") {
+        turnUserRecord = record;
         userMessageId =
           record.clientMsgId ?? `cloud:${turnId}:message:${record.seq}`;
         events.push({
@@ -154,13 +229,20 @@ export const journalRecordsToMessageRecords = (
       }
 
       if (record.role === "assistant") {
-        const text = messageText(record.payload);
+        // The trailing `refs` fence is model-facing (it stays in the journal
+        // so the model sees its own citations); the user sees chips instead.
+        const { text, refs } = splitReplyRefs(messageText(record.payload));
         if (text) {
           events.push({
             _id: `cloud:${turnId}:message:${record.seq}`,
             timestamp,
             type: "assistant_message",
-            payload: textPayload(record, text, userMessageId),
+            payload: textPayload(
+              record,
+              text,
+              userMessageId,
+              resolveJournalReplyRefs({ raw: refs, recordsBySeq, turnUserRecord }),
+            ),
           });
         }
         for (const [index, block] of contentBlocks(record.payload).entries()) {

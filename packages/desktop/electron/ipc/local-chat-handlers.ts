@@ -1,5 +1,6 @@
 import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import type { ConversationSummaryCursor } from "@stella/contracts/local-chat";
+import type { ConversationFocusRoot } from "@stella/contracts/reply-refs";
 import {
   IPC_CLOUD_CONVERSATION_CACHE_ACTIVATE_AUTHORITY,
   IPC_CLOUD_CONVERSATION_CACHE_PURGE_CONVERSATION,
@@ -9,6 +10,9 @@ import {
   IPC_LOCAL_CHAT_DELETE_CONVERSATION,
   IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
   IPC_LOCAL_CHAT_FORK_CONVERSATION,
+  IPC_LOCAL_CHAT_GET_AGENT_REPORT,
+  IPC_LOCAL_CHAT_LIST_LINEAGE_MESSAGES,
+  IPC_LOCAL_CHAT_LIST_REPLY_COUNTS,
   IPC_LOCAL_CHAT_LIST_CONVERSATIONS,
   IPC_LOCAL_CHAT_LIST_MESSAGES_AFTER,
   IPC_LOCAL_CHAT_LIST_MESSAGE_TOOL_EVENTS,
@@ -23,6 +27,24 @@ import {
   parseCloudConversationCacheReplaceInput,
 } from "../services/cloud-conversation-cache-store.js";
 import { assertPrivilegedRequest } from "./privileged-ipc.js";
+
+const parseConversationFocusRoot = (
+  value: unknown,
+): ConversationFocusRoot | null => {
+  if (!value || typeof value !== "object") return null;
+  const record = value as { kind?: unknown; id?: unknown; threadId?: unknown };
+  if (record.kind === "message" && typeof record.id === "string" && record.id) {
+    return { kind: "message", id: record.id };
+  }
+  if (
+    record.kind === "agent" &&
+    typeof record.threadId === "string" &&
+    record.threadId
+  ) {
+    return { kind: "agent", threadId: record.threadId };
+  }
+  return null;
+};
 
 type LocalChatHandlersOptions = {
   localChatHistoryService: LocalChatHistoryService;
@@ -396,17 +418,62 @@ export const registerLocalChatHandlers = (
   );
 
   ipcMain.handle(
-    "localChat:listAgentThreadMessages",
-    async (event, payload) =>
+    IPC_LOCAL_CHAT_LIST_LINEAGE_MESSAGES,
+    async (
+      event,
+      payload: {
+        conversationId?: string;
+        root?: unknown;
+        beforeSequence?: number;
+        limit?: number;
+      },
+    ) =>
       await withLocalChatClient(
         options,
         event,
-        "localChat:listAgentThreadMessages",
+        IPC_LOCAL_CHAT_LIST_LINEAGE_MESSAGES,
+        (client) => {
+          const root = parseConversationFocusRoot(payload?.root);
+          if (!root) {
+            throw new Error("A focus root is required.");
+          }
+          return client.listLineageMessages({
+            conversationId: payload?.conversationId ?? "",
+            root,
+            ...(typeof payload?.beforeSequence === "number"
+              ? { beforeSequence: payload.beforeSequence }
+              : {}),
+            ...(typeof payload?.limit === "number"
+              ? { limit: payload.limit }
+              : {}),
+          });
+        },
+      ),
+  );
+
+  ipcMain.handle(
+    IPC_LOCAL_CHAT_LIST_REPLY_COUNTS,
+    async (event, payload: { conversationId?: string }) =>
+      await withLocalChatClient(
+        options,
+        event,
+        IPC_LOCAL_CHAT_LIST_REPLY_COUNTS,
         (client) =>
-          client.listAgentThreadMessages({
-            threadId: payload?.threadId ?? "",
-            limit: payload?.limit,
+          client.listReplyCounts({
+            conversationId: payload?.conversationId ?? "",
           }),
+      ),
+  );
+
+  ipcMain.handle(
+    IPC_LOCAL_CHAT_GET_AGENT_REPORT,
+    async (event, payload: { threadId?: string }) =>
+      await withLocalChatClient(
+        options,
+        event,
+        IPC_LOCAL_CHAT_GET_AGENT_REPORT,
+        (client) =>
+          client.getAgentReport({ threadId: payload?.threadId ?? "" }),
       ),
   );
 

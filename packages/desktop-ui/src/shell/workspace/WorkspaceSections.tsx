@@ -71,7 +71,7 @@ import {
   mergeAgentFileEvents,
 } from "@/features/workspace-display/agent-files";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
-import { openAgentThreadTab } from "@/features/workspace-display/open-payload";
+import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
 import { useOpenConversationFile } from "@/features/cloud/use-cloud-drive-open";
 import { CloudBrowserNeedsYouList } from "@/features/cloud/CloudBrowserNeedsYouList";
 import { usePendingCloudBrowserInteractions } from "@/features/cloud/use-cloud-browser-interactions";
@@ -988,21 +988,17 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     [openConversationFile],
   );
 
-  // Exact thread identity is the durable viewer key. Opening Activity chat
-  // never mutates composer context and never navigates the root transcript;
-  // `openAgentThreadTab` lands it in the Tasks section, so a row clicked from
-  // Search leads to the same drill-down rather than a dead end.
+  // Selecting a task focuses the conversation on it: the timeline dims and
+  // only the request that spawned it, its cards, and Stella's updates about
+  // it stay readable. Never mutates composer context; a row clicked from
+  // Search lands in the same focus view.
   const handleSelectTask = useCallback(
     (task: TaskItem) => {
       if (!conversationId) return;
-      openAgentThreadTab({
-        threadId: task.id,
+      openConversationFocus({
         conversationId,
-        agentType: task.agentType,
-        title: task.description.trim() || task.agentType || "Agent thread",
-        source: task.source,
-        readOnly: task.readOnly,
-        parentAgentId: task.parentAgentId,
+        root: { kind: "agent", threadId: task.id },
+        title: task.description.trim() || task.agentType || undefined,
       });
       onNavigate?.();
     },

@@ -28,6 +28,7 @@ import { ConnectorConnectCard } from "./ConnectorConnectCard";
 import { ComposerNotice } from "./ComposerNotice";
 import { CloudBrowserInterventionCard } from "@/features/cloud/CloudBrowserInterventionCard";
 import { ConversationEvents } from "./ConversationEvents";
+import { ConversationFocusOverlay } from "./ConversationFocusOverlay";
 import { useChatMessages } from "@/context/use-chat-messages";
 import { Composer } from "./Composer";
 import { HomeContent } from "@/app/home/HomeContent";
@@ -381,6 +382,11 @@ export const ChatColumn = memo(function ChatColumn({
           />
         </div>
       </div>
+
+      <ConversationFocusOverlay
+        conversationId={conversationId}
+        agentModelConfigByThread={agentModelConfigByThread}
+      />
 
       {homeVisible && (
         <div

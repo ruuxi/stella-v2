@@ -132,6 +132,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                         ? { canonicalMessageId: args.canonicalMessageId }
                         : {}),
                     canonicalText,
+                    ...(args.replyRefs ? { replyRefs: args.replyRefs } : {}),
                 });
             }
             return [
@@ -143,6 +144,9 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                     text: canonicalText,
                     ...(args.responseTarget
                         ? { responseTarget: args.responseTarget }
+                        : {}),
+                    ...(args.replyRefs && args.replyRefs.length > 0
+                        ? { replyRefs: args.replyRefs }
                         : {}),
                     timestamp: Date.now(),
                     runId: args.runId,

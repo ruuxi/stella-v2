@@ -11,19 +11,6 @@ import type { DisplayTabSpec, OpenTabOptions } from "./types";
 type WorkspaceDisplayPayloadAdapter = {
   payloadToTabSpec: (payload: DisplayTabPayload) => DisplayTabSpec;
   createSourceDiffTabSpec: () => DisplayTabSpec;
-  createAgentThreadTabSpec: (args: AgentThreadTabArgs) => DisplayTabSpec;
-};
-
-export type AgentThreadTabArgs = {
-  threadId: string;
-  conversationId: string;
-  agentType: string;
-  title: string;
-  /** Passive Claude children reuse the thread viewer but never acquire
-   * Stella lifecycle controls. Omitted callers are Stella-managed threads. */
-  source?: "stella" | "claude-native";
-  readOnly?: boolean;
-  parentAgentId?: string;
 };
 
 let adapter: WorkspaceDisplayPayloadAdapter | null = null;
@@ -62,18 +49,6 @@ export const openDisplayPayloadTab = (
   if (isFilesPayload(payload) && (opts?.activate ?? true)) {
     sidebarSections.openLocation("files", spec.id);
   }
-};
-
-/**
- * A read-only agent thread is a Work-section drill-down. Opening one registers
- * the viewer and opens the resizable right sidebar on that exact thread.
- * Every entry point relies on this: Activity rows, Work rows, and the inline
- * agent cards in the transcript.
- */
-export const openAgentThreadTab = (args: AgentThreadTabArgs): void => {
-  const spec = getAdapter().createAgentThreadTabSpec(args);
-  displayTabs.openTab(spec);
-  sidebarSections.openLocation("files", spec.id);
 };
 
 export const openSourceDiffBatch = (batch: SourceDiffBatch): void => {

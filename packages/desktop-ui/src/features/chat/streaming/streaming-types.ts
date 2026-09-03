@@ -9,6 +9,7 @@ export type {
 } from "@stella/contracts/agent-stream";
 
 import type { AgentResponseTarget } from "@stella/contracts/agent-stream";
+import type { ReplyRef } from "@stella/contracts/reply-refs";
 
 /**
  * In-memory assistant message the renderer is showing ahead of SQLite.
@@ -40,6 +41,8 @@ export type StreamingAssistantOverlay = {
   indexInTurn: number;
   text: string;
   responseTarget?: AgentResponseTarget;
+  /** Resolved citations from the assistant-message boundary (`reply-refs`). */
+  replyRefs?: ReplyRef[];
   timestamp: number;
   runId: string;
   /** Exact persisted twin learned from the assistant-message boundary. */
@@ -62,6 +65,7 @@ export const reconcileStreamingAssistantCanonicalMessage = (
     indexInTurn: number;
     canonicalMessageId?: string;
     canonicalText: string;
+    replyRefs?: ReplyRef[];
   },
 ): StreamingAssistantOverlay[] => {
   const index = overlays.findIndex(
@@ -73,10 +77,12 @@ export const reconcileStreamingAssistantCanonicalMessage = (
   const current = overlays[index]!;
   const canonicalMessageId =
     args.canonicalMessageId ?? current.canonicalMessageId;
+  const replyRefs = args.replyRefs ?? current.replyRefs;
   if (
     current.text === args.canonicalText &&
     current.locked &&
-    current.canonicalMessageId === canonicalMessageId
+    current.canonicalMessageId === canonicalMessageId &&
+    replyRefs === current.replyRefs
   ) {
     return overlays;
   }
@@ -86,6 +92,7 @@ export const reconcileStreamingAssistantCanonicalMessage = (
     text: args.canonicalText,
     locked: true,
     ...(canonicalMessageId ? { canonicalMessageId } : {}),
+    ...(replyRefs && replyRefs.length > 0 ? { replyRefs } : {}),
   };
   return next;
 };

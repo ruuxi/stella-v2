@@ -359,6 +359,9 @@ export const overlayToMessageRecord = (
           ...(overlay.responseTarget
             ? { responseTarget: overlay.responseTarget }
             : {}),
+          ...(overlay.replyRefs && overlay.replyRefs.length > 0
+            ? { replyRefs: overlay.replyRefs }
+            : {}),
           ...(overlay.heldForHandoff ? { heldForHandoff: true } : {}),
         },
       },

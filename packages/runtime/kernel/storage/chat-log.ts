@@ -9,6 +9,13 @@
 
 import { isUiHiddenChatMessagePayload } from "@stella/contracts/chat-event-visibility";
 import {
+  toReplyPreview,
+  type ConversationFocusRoot,
+  type RawReplyRef,
+  type ReplyCounts,
+  type ReplyRef,
+} from "@stella/contracts/reply-refs";
+import {
   DEFAULT_CONVERSATION_SETTING_KEY,
   MAX_EVENTS_PER_CONVERSATION,
   asFiniteNumber,
@@ -113,6 +120,47 @@ export const computeSearchText = (
   if (type !== "user_message" && type !== "assistant_message") return null;
   const text = payload?.text;
   return typeof text === "string" ? text : null;
+};
+
+
+/** Reply references an assistant payload carries, if any. */
+export const readReplyRefs = (
+  payload: Record<string, unknown> | undefined,
+): ReplyRef[] => {
+  const metadata = asObject(payload?.metadata);
+  const runtime = asObject(metadata?.runtime);
+  const refs = runtime?.replyRefs;
+  if (!Array.isArray(refs)) return [];
+  const result: ReplyRef[] = [];
+  for (const candidate of refs) {
+    const ref = asObject(candidate);
+    if (!ref) continue;
+    if (
+      ref.kind === "message" &&
+      typeof ref.sequence === "number" &&
+      Number.isSafeInteger(ref.sequence) &&
+      typeof ref.id === "string"
+    ) {
+      result.push({
+        kind: "message",
+        sequence: ref.sequence,
+        id: ref.id,
+        role: ref.role === "assistant" ? "assistant" : "user",
+        preview: typeof ref.preview === "string" ? ref.preview : "",
+      });
+    } else if (
+      ref.kind === "agent" &&
+      typeof ref.threadId === "string" &&
+      ref.threadId.trim()
+    ) {
+      result.push({
+        kind: "agent",
+        threadId: ref.threadId.trim(),
+        title: typeof ref.title === "string" ? ref.title : ref.threadId.trim(),
+      });
+    }
+  }
+  return result;
 };
 
 export class ChatLog {
@@ -546,6 +594,11 @@ export class ChatLog {
       | { conversationId: string; seq: number; visible: number }
       | undefined;
     if (existing && existing.conversationId !== args.conversationId) {
+      this.db
+        .prepare(
+          "DELETE FROM entry_ref WHERE conversation_id = ? AND entry_seq = ?",
+        )
+        .run(existing.conversationId, existing.seq);
       this.db.prepare("DELETE FROM entry WHERE id = ?").run(args.eventId);
     }
     if (existing && existing.conversationId === args.conversationId) {
@@ -579,6 +632,12 @@ export class ChatLog {
       if (args.type === "user_message" && existing.visible !== visible) {
         this.reassignTurns(args.conversationId, existing.seq);
       }
+      this.syncEntryRefs(
+        args.conversationId,
+        existing.seq,
+        args.type,
+        args.payload,
+      );
       return {
         id: args.eventId,
         timestamp: args.timestamp,
@@ -617,6 +676,7 @@ export class ChatLog {
         args.timestamp,
         args.timestamp,
       );
+    this.syncEntryRefs(args.conversationId, seq, args.type, args.payload);
     return { id: args.eventId, timestamp: args.timestamp, sequence: seq };
   }
 
@@ -2019,5 +2079,374 @@ export class ChatLog {
           }
         : {}),
     };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Reply references                                                    */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Mirror an assistant entry's `metadata.runtime.replyRefs` into the
+   * `entry_ref` index. Runs inside the entry write, so the index is exactly
+   * the payload and never has to be rebuilt.
+   */
+  private syncEntryRefs(
+    conversationId: string,
+    entrySeq: number,
+    type: string,
+    payload: Record<string, unknown> | undefined,
+  ): void {
+    this.db
+      .prepare(
+        "DELETE FROM entry_ref WHERE conversation_id = ? AND entry_seq = ?",
+      )
+      .run(conversationId, entrySeq);
+    if (type !== "assistant_message") return;
+    const refs = readReplyRefs(payload);
+    if (refs.length === 0) return;
+    const insert = this.db.prepare(
+      `INSERT OR IGNORE INTO entry_ref (
+         conversation_id, entry_seq, target_kind, target_key
+       ) VALUES (?, ?, ?, ?)`,
+    );
+    for (const ref of refs) {
+      insert.run(
+        conversationId,
+        entrySeq,
+        ref.kind,
+        ref.kind === "message" ? String(ref.sequence) : ref.threadId,
+      );
+    }
+  }
+
+  /**
+   * Validate the citations a reply carried against this conversation.
+   * Unknown sequence numbers and unknown thread ids drop silently; the
+   * message right above the reply is dropped too (a chip pointing at the
+   * adjacent bubble is noise). When nothing survives and the turn was an
+   * agent lifecycle turn, the agent itself is the reference.
+   */
+  resolveReplyRefs(
+    conversationId: string,
+    raw: readonly RawReplyRef[],
+    options: { excludeMessageId?: string; fallbackAgentId?: string } = {},
+  ): ReplyRef[] {
+    const resolved: ReplyRef[] = [];
+    const seen = new Set<string>();
+    const push = (ref: ReplyRef) => {
+      const key =
+        ref.kind === "message" ? `m:${ref.sequence}` : `a:${ref.threadId}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      resolved.push(ref);
+    };
+    const resolveAgent = (threadId: string): ReplyRef | null => {
+      const row = this.db
+        .prepare(
+          `SELECT description FROM agent
+           WHERE thread_id = ? AND conversation_id = ? LIMIT 1`,
+        )
+        .get(threadId, conversationId) as
+        | { description?: string | null }
+        | undefined;
+      if (!row) return null;
+      return {
+        kind: "agent",
+        threadId,
+        title: asTrimmedString(row.description) || threadId,
+      };
+    };
+    for (const ref of raw) {
+      if (ref.kind === "agent") {
+        const agent = resolveAgent(ref.threadId.trim());
+        if (agent) push(agent);
+        continue;
+      }
+      const row = this.db
+        .prepare(
+          `SELECT id, type, payload AS payloadJson FROM entry
+           WHERE conversation_id = ? AND seq = ?
+             AND type IN (${placeholders(CHAT_MESSAGE_TYPES)})
+             AND visible = 1
+           LIMIT 1`,
+        )
+        .get(conversationId, ref.sequence, ...CHAT_MESSAGE_TYPES) as
+        | { id: string; type: string; payloadJson: string | null }
+        | undefined;
+      if (!row) continue;
+      if (options.excludeMessageId && row.id === options.excludeMessageId) {
+        continue;
+      }
+      const payload = parseJsonRecord(row.payloadJson) ?? undefined;
+      push({
+        kind: "message",
+        sequence: ref.sequence,
+        id: row.id,
+        role: row.type === "user_message" ? "user" : "assistant",
+        preview: toReplyPreview(eventTextFromPayload(payload)),
+      });
+    }
+    if (resolved.length === 0 && options.fallbackAgentId) {
+      const agent = resolveAgent(options.fallbackAgentId.trim());
+      if (agent) push(agent);
+    }
+    return resolved;
+  }
+
+  /** Reply counts for every cited message and agent in a conversation. */
+  listReplyCounts(conversationId: string): ReplyCounts {
+    const rows = this.db
+      .prepare(
+        `SELECT target_kind AS kind, target_key AS key, COUNT(*) AS count
+         FROM entry_ref
+         WHERE conversation_id = ?
+         GROUP BY target_kind, target_key`,
+      )
+      .all(conversationId) as Array<{
+      kind: string;
+      key: string;
+      count: number;
+    }>;
+    const counts: ReplyCounts = { messages: {}, agents: {} };
+    const messageSeqs: number[] = [];
+    const countBySeq = new Map<number, number>();
+    for (const row of rows) {
+      if (row.kind === "agent") {
+        counts.agents[row.key] = row.count;
+        continue;
+      }
+      const seq = Number.parseInt(row.key, 10);
+      if (!Number.isSafeInteger(seq)) continue;
+      messageSeqs.push(seq);
+      countBySeq.set(seq, row.count);
+    }
+    for (let index = 0; index < messageSeqs.length; index += 500) {
+      const chunk = messageSeqs.slice(index, index + 500);
+      const idRows = this.db
+        .prepare(
+          `SELECT id, seq FROM entry
+           WHERE conversation_id = ? AND seq IN (${placeholders(chunk)})`,
+        )
+        .all(conversationId, ...chunk) as Array<{ id: string; seq: number }>;
+      for (const row of idRows) {
+        counts.messages[row.id] = countBySeq.get(row.seq) ?? 0;
+      }
+    }
+    return counts;
+  }
+
+  /**
+   * The lineage of one message or one agent thread: the root itself, the
+   * turn that spawned the agent, and every reply that cited either. Newest
+   * first, keyset-paged on `beforeSequence`, so a long-lived thread the user
+   * keeps steering pages exactly like the main timeline.
+   */
+  listLineageMessages(
+    conversationId: string,
+    args: {
+      root: ConversationFocusRoot;
+      beforeSequence?: number;
+      limit?: number;
+    },
+  ): {
+    messages: ChatMessageRecord[];
+    visibleMessageCount: number;
+    hasOlder: boolean;
+  } {
+    const limit = Math.max(1, Math.min(200, Math.floor(args.limit ?? 80)));
+    const lineageSeqs = new Set<number>();
+    const rootSeqs: number[] = [];
+    if (args.root.kind === "message") {
+      const row = this.db
+        .prepare(
+          `SELECT seq FROM entry
+           WHERE conversation_id = ? AND id = ?
+             AND type IN (${placeholders(CHAT_MESSAGE_TYPES)})
+           LIMIT 1`,
+        )
+        .get(conversationId, args.root.id, ...CHAT_MESSAGE_TYPES) as
+        | { seq: number }
+        | undefined;
+      if (!row) return { messages: [], visibleMessageCount: 0, hasOlder: false };
+      rootSeqs.push(row.seq);
+    } else {
+      const threadId = args.root.threadId;
+      const starts = this.db
+        .prepare(
+          `SELECT seq, turn_seq AS turnSeq FROM entry
+           WHERE conversation_id = ? AND type = 'agent-started'
+             AND json_extract(payload, '$.agentId') = ?
+           ORDER BY seq ASC`,
+        )
+        .all(conversationId, threadId) as Array<{
+        seq: number;
+        turnSeq: number | null;
+      }>;
+      for (const start of starts) {
+        if (typeof start.turnSeq === "number") rootSeqs.push(start.turnSeq);
+        // The visible row the spawn card is anchored on: the turn's last
+        // visible chat message before the start event, if any.
+        const anchor = this.db
+          .prepare(
+            `SELECT seq FROM entry
+             WHERE conversation_id = ? AND visible = 1
+               AND type IN (${placeholders(CHAT_MESSAGE_TYPES)})
+               AND seq < ? AND seq >= ?
+             ORDER BY seq DESC LIMIT 1`,
+          )
+          .get(
+            conversationId,
+            ...CHAT_MESSAGE_TYPES,
+            start.seq,
+            start.turnSeq ?? 0,
+          ) as { seq: number } | undefined;
+        if (anchor) lineageSeqs.add(anchor.seq);
+      }
+      const agentRefs = this.db
+        .prepare(
+          `SELECT entry_seq AS seq FROM entry_ref
+           WHERE conversation_id = ? AND target_kind = 'agent' AND target_key = ?`,
+        )
+        .all(conversationId, threadId) as Array<{ seq: number }>;
+      for (const row of agentRefs) lineageSeqs.add(row.seq);
+    }
+    for (const seq of rootSeqs) {
+      lineageSeqs.add(seq);
+      const refs = this.db
+        .prepare(
+          `SELECT entry_seq AS seq FROM entry_ref
+           WHERE conversation_id = ? AND target_kind = 'message' AND target_key = ?`,
+        )
+        .all(conversationId, String(seq)) as Array<{ seq: number }>;
+      for (const row of refs) lineageSeqs.add(row.seq);
+    }
+    if (lineageSeqs.size === 0) {
+      return { messages: [], visibleMessageCount: 0, hasOlder: false };
+    }
+    const candidateSeqs = [...lineageSeqs]
+      .filter(
+        (seq) =>
+          typeof args.beforeSequence !== "number" || seq < args.beforeSequence,
+      )
+      .sort((a, b) => b - a)
+      .slice(0, limit + 1);
+    const hasOlder = candidateSeqs.length > limit;
+    const pageSeqs = candidateSeqs.slice(0, limit);
+    if (pageSeqs.length === 0) {
+      return { messages: [], visibleMessageCount: 0, hasOlder: false };
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT ${ENTRY_SELECT} FROM entry
+         WHERE entry.conversation_id = ?
+           AND entry.type IN (${placeholders(CHAT_MESSAGE_TYPES)})
+           AND entry.visible = 1
+           AND entry.seq IN (${placeholders(pageSeqs)})
+         ORDER BY entry.seq ASC`,
+      )
+      .all(conversationId, ...CHAT_MESSAGE_TYPES, ...pageSeqs) as EntryRow[];
+    const messages: ChatMessageRecord[] = rows.map((row) => {
+      const record = this.deserializeEventRow(row);
+      const cursor: Cursor = {
+        timestamp: record.timestamp,
+        id: record._id,
+        ...(typeof record.sequence === "number"
+          ? { sequence: record.sequence }
+          : {}),
+      };
+      // Same range the main timeline attaches to an anchor: from the turn's
+      // user message when this is the turn's first assistant reply,
+      // otherwise from the row itself, up to the next visible chat message.
+      const previous = this.findPreviousVisibleMessageCursor(
+        conversationId,
+        cursor,
+      );
+      const previousIsTurnUser =
+        previous !== null &&
+        record.type === "assistant_message" &&
+        this.isUserMessageCursor(conversationId, previous);
+      const start = previousIsTurnUser ? previous : cursor;
+      const end = this.findVisibleMessageCursorAfter(conversationId, cursor);
+      const { events, totalCount, eventCountTruncated, detailTruncated } =
+        this.fetchBoundedToolEvents(conversationId, start, end);
+      return {
+        ...record,
+        toolEvents: events,
+        toolEventSummary: {
+          totalCount,
+          loadedCount: events.length,
+          truncated: detailTruncated,
+          ...(eventCountTruncated ? { totalCountIsLowerBound: true } : {}),
+        },
+      };
+    });
+    if (args.root.kind === "agent" && messages.length > 0) {
+      // A completion event lands between an unrelated row and the reply that
+      // cites the agent; pull the thread's lifecycle events onto the nearest
+      // preceding lineage row so the spawn and completion cards still render.
+      const lifecycle = this.db
+        .prepare(
+          `SELECT ${ENTRY_SELECT} FROM entry
+           WHERE entry.conversation_id = ?
+             AND entry.type IN (${placeholders(LIFECYCLE_EVENT_TYPES)})
+             AND json_extract(entry.payload, '$.agentId') = ?
+           ORDER BY entry.seq ASC`,
+        )
+        .all(conversationId, ...LIFECYCLE_EVENT_TYPES, args.root.threadId) as EntryRow[];
+      for (const row of lifecycle) {
+        const event = projectLocalChatUpdateEventWithMetadata(
+          this.deserializeEventRow(row),
+        ).event;
+        let host = messages[0]!;
+        for (const message of messages) {
+          if ((message.sequence ?? 0) <= row.sequence) host = message;
+          else break;
+        }
+        if (host.toolEvents.some((existing) => existing._id === event._id)) {
+          continue;
+        }
+        host.toolEvents = [...host.toolEvents, event].sort((a, b) =>
+          compareTimelineCursor(
+            { timestamp: a.timestamp, id: a._id, sequence: a.sequence },
+            { timestamp: b.timestamp, id: b._id, sequence: b.sequence },
+          ),
+        );
+      }
+    }
+    return { messages, visibleMessageCount: messages.length, hasOlder };
+  }
+
+  private findPreviousVisibleMessageCursor(
+    conversationId: string,
+    before: Cursor,
+  ): Cursor | null {
+    const keyset = this.keyset(
+      "<",
+      this.resolveCursorSequence(conversationId, before),
+    );
+    const row = this.db
+      .prepare(
+        `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
+         FROM entry
+         WHERE entry.conversation_id = ?
+           AND entry.visible = 1
+           AND entry.type IN (${placeholders(CHAT_MESSAGE_TYPES)})
+           AND ${keyset.clause}
+         ORDER BY entry.seq DESC
+         LIMIT 1`,
+      )
+      .get(conversationId, ...CHAT_MESSAGE_TYPES, ...keyset.params) as
+      | { timestamp?: number; id?: string; sequence?: number }
+      | undefined;
+    return row ? this.cursorFromRow(row) : null;
+  }
+
+  private isUserMessageCursor(conversationId: string, cursor: Cursor): boolean {
+    const row = this.db
+      .prepare(
+        "SELECT type FROM entry WHERE conversation_id = ? AND id = ? LIMIT 1",
+      )
+      .get(conversationId, cursor.id) as { type?: string } | undefined;
+    return row?.type === "user_message";
   }
 }

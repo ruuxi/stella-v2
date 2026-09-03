@@ -28,7 +28,6 @@ import {
   TrashTabContent,
 } from "./tab-content";
 import { CanvasTabContent } from "./canvas-tab/CanvasTabContent";
-import { AgentThreadChatTab } from "./AgentThreadChatTab";
 import {
   addCanvasHtmlItem,
   canvasDisplayTabId,
@@ -36,10 +35,7 @@ import {
 import type { DisplayTabSpec } from "@/features/workspace-display/types";
 import { kindForPath } from "@/features/workspace-display/path-to-viewer";
 import { SOURCE_DIFF_TAB_ID } from "@/features/workspace-display/source-diff-batches";
-import {
-  registerWorkspaceDisplayPayloadAdapter,
-  type AgentThreadTabArgs,
-} from "@/features/workspace-display/open-payload";
+import { registerWorkspaceDisplayPayloadAdapter } from "@/features/workspace-display/open-payload";
 import { displayTabKindForPayload } from "@/features/workspace-display/payload-kind";
 import {
   recordArtifactFileEntry,
@@ -454,37 +450,7 @@ export const payloadToTabSpec = (
   }
 };
 
-export const createAgentThreadTabSpec = (
-  args: AgentThreadTabArgs,
-): DisplayTabSpec => ({
-  id: `agent-thread:${args.threadId}`,
-  kind: "chat",
-  title: args.title,
-  tooltip:
-    args.source === "claude-native"
-      ? "Claude subagent · read-only"
-      : `${args.agentType} · read-only`,
-  metadata: {
-    kind: "agent-thread",
-    threadId: args.threadId,
-    conversationId: args.conversationId,
-    source: args.source ?? "stella",
-    readOnly: args.readOnly ?? true,
-    ...(args.parentAgentId ? { parentAgentId: args.parentAgentId } : {}),
-  },
-  render: () =>
-    createElement(AgentThreadChatTab, {
-      threadId: args.threadId,
-      conversationId: args.conversationId,
-      agentType: args.agentType,
-      source: args.source ?? "stella",
-      readOnly: args.readOnly ?? true,
-      parentAgentId: args.parentAgentId,
-    }),
-});
-
 registerWorkspaceDisplayPayloadAdapter({
   payloadToTabSpec,
   createSourceDiffTabSpec,
-  createAgentThreadTabSpec,
 });

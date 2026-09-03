@@ -13,27 +13,36 @@ public final class StellaTabBarChromeModule: Module {
   public func definition() -> ModuleDefinition {
     Name("StellaTabBarChrome")
 
-    Function("apply") { (viewTag: Int, titleFontFamily: String?, titleSize: Double) in
+    Function("apply") { (viewTag: Int, titleFontFamily: String?, titleSize: Double, iconPointSize: Double) in
       DispatchQueue.main.async {
         guard let root = self.appContext?.findView(withTag: viewTag, ofType: UIView.self) else {
           return
         }
         let font = titleFontFamily.flatMap { UIFont(name: $0, size: CGFloat(titleSize)) }
-        Self.walk(root, font: font)
+        let symbols = iconPointSize > 0
+          ? UIImage.SymbolConfiguration(pointSize: CGFloat(iconPointSize))
+          : nil
+        Self.walk(root, font: font, symbols: symbols)
       }
     }
   }
 
-  private static func walk(_ view: UIView, font: UIFont?) {
+  private static func walk(_ view: UIView, font: UIFont?, symbols: UIImage.SymbolConfiguration?) {
     let name = NSStringFromClass(type(of: view))
     if name.contains("UILayoutContainerView") || name.contains("TabHostingController") {
       view.backgroundColor = .clear
     }
-    if let font, name.contains("_UITabButton"), let label = view as? UILabel {
-      label.font = font
+    if name.contains("_UITabButton") {
+      if let font, let label = view as? UILabel {
+        label.font = font
+      }
+    }
+    if let symbols, let image = view as? UIImageView,
+       NSStringFromClass(type(of: view.superview ?? view)).contains("_UITabButton") {
+      image.preferredSymbolConfiguration = symbols
     }
     for child in view.subviews {
-      walk(child, font: font)
+      walk(child, font: font, symbols: symbols)
     }
   }
 }

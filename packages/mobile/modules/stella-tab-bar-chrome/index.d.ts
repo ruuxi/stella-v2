@@ -4,4 +4,6 @@ export function applyTabBarChrome(options: {
   /** Registered family name for the tab titles; null keeps the system font. */
   titleFontFamily: string | null;
   titleSize: number;
+  /** Symbol point size for the tab icons; 0 or omitted keeps the system size. */
+  iconPointSize?: number;
 }): void;

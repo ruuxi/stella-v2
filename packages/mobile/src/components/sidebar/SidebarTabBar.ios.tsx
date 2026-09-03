@@ -18,7 +18,7 @@ const HOST_HEIGHT = 72;
  */
 const HOST_OVERHANG = 12;
 /** Pulls the bar down past the dock's bottom edge. */
-const HOST_DROP = 12;
+const HOST_DROP = 22;
 
 type Symbol = NonNullable<ComponentProps<typeof TabView.Tab>["systemImage"]>;
 /** PostScript name of the app's medium sans, as UIKit registers it. */
@@ -62,6 +62,7 @@ export function SidebarTabBar<K extends string>({
       // UIKit knows the font by its PostScript name, not the Expo alias.
       titleFontFamily: TAB_TITLE_FONT,
       titleSize: 10,
+      iconPointSize: 20,
     });
   }, []);
   // Selection re-creates the bar's labels, so re-apply after it settles.

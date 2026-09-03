@@ -14,10 +14,20 @@ const StellaTabBarChrome =
  * `viewTag` is the React node handle of the host view. Call once the host
  * has laid out, and again after anything that re-creates the bar's labels.
  */
-export function applyTabBarChrome({ viewTag, titleFontFamily, titleSize }) {
+export function applyTabBarChrome({
+  viewTag,
+  titleFontFamily,
+  titleSize,
+  iconPointSize = 0,
+}) {
   if (!StellaTabBarChrome || viewTag == null) return;
   try {
-    StellaTabBarChrome.apply(viewTag, titleFontFamily ?? null, titleSize);
+    StellaTabBarChrome.apply(
+      viewTag,
+      titleFontFamily ?? null,
+      titleSize,
+      iconPointSize,
+    );
   } catch {
     /* an older native build without the module: keep the system look */
   }

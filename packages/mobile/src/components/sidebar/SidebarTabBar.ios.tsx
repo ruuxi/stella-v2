@@ -1,8 +1,11 @@
+import { useMemo } from "react";
 import { StyleSheet } from "react-native";
 import { Host, Picker, Text as SwiftText } from "@expo/ui/swift-ui";
 import { font, pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
-import { useTheme } from "../../theme/theme-context";
+import { applySegmentedControlAppearance } from "../../../modules/stella-segmented-appearance";
+import { useColors, useTheme } from "../../theme/theme-context";
 import { fonts } from "../../theme/fonts";
+import { fadeHex } from "../../theme/oklch";
 import type { SidebarTabBarProps } from "./sidebar-tab-bar-types";
 
 /**
@@ -18,11 +21,27 @@ export function SidebarTabBar<K extends string>({
   onSelect,
   onHeight,
 }: SidebarTabBarProps<K>) {
+  const colors = useColors();
   const { isDark } = useTheme();
+  // UIKit paints the control's track and selected lens with its own fills,
+  // out of reach of SwiftUI modifiers, so the colours go through the
+  // UIAppearance proxy instead. That only affects controls created
+  // afterwards: the call happens during render, before this pass commits
+  // its native views, and the Host is keyed by theme so a theme change
+  // recreates the control under the new colours. Matched to the app's
+  // regular-glass chrome (the header capsule, the top bar buttons).
+  const themeKey = isDark ? "dark" : "light";
+  useMemo(() => {
+    applySegmentedControlAppearance({
+      background: fadeHex(colors.surface, isDark ? 0.55 : 0.7),
+      selected: fadeHex(colors.text, isDark ? 0.14 : 0.1),
+    });
+  }, [colors.surface, colors.text, isDark]);
   return (
     <Host
+      key={themeKey}
       matchContents={{ vertical: true }}
-      colorScheme={isDark ? "dark" : "light"}
+      colorScheme={themeKey}
       style={styles.host}
       onLayoutContent={(event) => onHeight?.(event.nativeEvent.height)}
     >

@@ -19,6 +19,7 @@ export function applyTabBarChrome({
   titleFontFamily,
   titleSize,
   iconPointSize = 0,
+  scale = 1,
 }) {
   if (!StellaTabBarChrome || viewTag == null) return;
   try {
@@ -27,6 +28,7 @@ export function applyTabBarChrome({
       titleFontFamily ?? null,
       titleSize,
       iconPointSize,
+      scale,
     );
   } catch {
     /* an older native build without the module: keep the system look */

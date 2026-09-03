@@ -16,7 +16,9 @@ const HOST_HEIGHT = 72;
  * The floating platter is the host width minus a fixed margin per side,
  * so the host reaches past the dock to make the bar wider.
  */
-const HOST_OVERHANG = 12;
+const HOST_OVERHANG = 18;
+/** The system bar is a little tall for the dock; shrunk about its bottom edge. */
+const BAR_SCALE = 0.9;
 /** Pulls the bar down past the dock's bottom edge. */
 const HOST_DROP = 22;
 
@@ -63,6 +65,7 @@ export function SidebarTabBar<K extends string>({
       titleFontFamily: TAB_TITLE_FONT,
       titleSize: 10,
       iconPointSize: 20,
+      scale: BAR_SCALE,
     });
   }, []);
   // Selection re-creates the bar's labels, so re-apply after it settles.

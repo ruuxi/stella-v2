@@ -112,10 +112,13 @@
     0 0 0 0.5px rgba(0, 0, 0, 0.06),
     0 10px 30px -6px rgba(0, 0, 0, 0.16);
 
-  /* Secondary button surface — subtle neutral fill that shifts on hover via
-     color, never opacity. */
-  --button-secondary-base: color-mix(in srgb, var(--foreground) 5%, var(--card));
-  --button-secondary-hover: color-mix(in srgb, var(--foreground) 9%, var(--card));
+  /* Derived color tokens (text ramp, hairlines, surface ladder, panel tint,
+     overlay chrome, secondary button, selection, chat bubbles) are NOT
+     defined in CSS. `@stella/theme`'s deriveTokens() computes them once
+     from the palette and ThemeProvider writes them onto :root before first
+     paint, so desktop and mobile render the identical values. Only the
+     composites that need CSS syntax (gradients, shadows) are assembled here
+     from those variables. */
 
   /* Overlays (dropdowns, popovers, dialogs, command palette, toasts) carry the
      same soft "panel surface" tint as the sidebars / composer, but composited
@@ -132,57 +135,18 @@
      semi-transparent theme tint + soft top-to-bottom gradient and an inset
      top highlight. No backdrop-filter, so it reads like soft glass over the
      shifting gradient while staying cheap to paint. */
-  --panel-surface-bg: color-mix(in srgb, var(--background) 50%, transparent);
   --panel-surface-bg-gradient: linear-gradient(
     to bottom,
-    color-mix(in srgb, var(--background) 46%, transparent),
-    color-mix(in srgb, var(--background) 58%, transparent)
+    var(--panel-surface-bg-top),
+    var(--panel-surface-bg-bottom)
   );
-  --panel-surface-border: color-mix(in oklch, var(--border) 60%, transparent);
-  --panel-surface-border-hover: color-mix(
-    in oklch,
-    var(--foreground) 18%,
-    var(--panel-surface-border)
-  );
-  --panel-surface-highlight: inset 0 1px 0
-    color-mix(in oklch, white 42%, transparent);
+  --panel-surface-highlight: inset 0 1px 0 var(--panel-surface-highlight-color);
 
-  /* Opaque surface ladder. */
-  --surface-inset: color-mix(in srgb, var(--foreground) 5%, var(--background));
-  --surface-raised: var(--card);
-  --surface-raised-hover: color-mix(in srgb, var(--foreground) 4%, var(--card));
-  --surface-raised-stronger-non-alpha: var(--card);
-
-  /* Floating chrome that must stay discoverable over live content.
-     `--card` / `--border` track the page too closely (and several colorful
-     themes give `--card` an alpha channel), so overlays that sit on selected
-     text need a dedicated opaque surface + high-contrast silhouette. */
-  --overlay-surface: var(--background-strong);
-  --overlay-border: color-mix(in srgb, var(--foreground) 32%, var(--background));
-  --overlay-border-strong: color-mix(
-    in srgb,
-    var(--foreground) 44%,
-    var(--background)
-  );
+  /* Floating chrome that must stay discoverable over live content. */
   --overlay-shadow: 0 8px 22px -10px rgba(0, 0, 0, 0.28);
-
-  /* Text hierarchy — SOLID, opaque colors mixed toward the background so
-     contrast is deterministic (always WCAG-checked), never composited over a
-     moving substrate. Still theme-tracking via --foreground/--background. */
-  --text-strong: var(--foreground);
-  --text-base: color-mix(in srgb, var(--foreground) 80%, var(--background));
-  --text-weak: color-mix(in srgb, var(--foreground) 58%, var(--background));
-  --text-weaker: color-mix(in srgb, var(--foreground) 40%, var(--background));
-  --text-interactive-base: var(--primary);
 
   /* Color scheme */
   color-scheme: light;
-
-  /* Border tokens — derived from foreground over the opaque background so they
-     read as solid hairlines. */
-  --border-strong: color-mix(in srgb, var(--foreground) 20%, var(--background));
-  --border-base: color-mix(in srgb, var(--foreground) 12%, var(--background));
-  --border-weak: color-mix(in srgb, var(--foreground) 7%, var(--background));
 
   /* ── Semantic colors — macOS-native light. ── */
   --background: #ffffff;
@@ -263,9 +227,7 @@
      looks like a different shade on every surface ("desynced"). An opaque
      fill renders the identical color everywhere. `--select-fill-raised` is
      kept as an alias so segmented thumbs and rows match exactly. */
-  --select-fill: color-mix(in oklch, var(--primary) 15%, var(--surface-raised));
   --select-fill-raised: var(--select-fill);
-  --select-border: color-mix(in oklch, var(--primary) 38%, var(--surface-raised));
   --select-text: var(--text-strong);
   --select-chip-shadow: var(--shadow-sm);
 
@@ -292,29 +254,22 @@
      edge of the band: L ≤ 0.65 clamps down to 0.55, L > 0.65 clamps up
      to 0.70. The text token then flips off the same 0.65 threshold, so
      fill and text can never disagree. Worst-case contrast ≈ 4.6:1
-     (L 0.55 fill + white text); every other theme lands higher. */
-  --chat-user-bubble-fill: oklch(
-    from var(--primary)
-    calc(
-      (1 - clamp(0, (l - 0.65) * 10000, 1)) * min(l, 0.55)
-      + clamp(0, (l - 0.65) * 10000, 1) * max(l, 0.70)
-    )
-    calc(c * 0.75)
-    h
-  );
-  /* Near-white on dark fills, near-black on light fills; keeps a whisper
-     of the fill's hue so the text doesn't read as foreign. */
-  --chat-user-bubble-text: oklch(
-    from var(--chat-user-bubble-fill)
-    calc(0.985 - clamp(0, (l - 0.65) * 10000, 1) * 0.835)
-    calc(c * 0.12)
-    h
-  );
-  /* Incoming messages reuse the composer's fill exactly. The user bubble
+     (L 0.55 fill + white text); every other theme lands higher.
+
+     The fill and text values themselves come from deriveTokens() in
+     `@stella/theme` (--chat-user-bubble-fill / --chat-user-bubble-text),
+     which is the same relative-OKLCH recipe mobile renders.
+
+     Incoming messages reuse the composer's fill exactly. The user bubble
      owns the saturated color; assistant messages read as the same quiet
-     material as the input surface. */
-  --chat-assistant-bubble-fill: var(--panel-surface-bg-gradient);
-  --chat-assistant-bubble-text: var(--text-strong);
+     material as the input surface. On flat themes deriveTokens() collapses
+     both stops to the solid `muted` fill, since the translucent tint would
+     otherwise resolve into the plain page. */
+  --chat-assistant-bubble-fill: linear-gradient(
+    to bottom,
+    var(--chat-assistant-bubble-fill-top),
+    var(--chat-assistant-bubble-fill-bottom)
+  );
 
   /* ── Type scale (fixed px — native, never viewport-scaled). ── */
   --font-size-2xs: 10px; /* micro labels, badge counts, mono timestamps */
@@ -353,14 +308,6 @@
   --focus-ring: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
 }
 
-/* Default is a flat theme, so the composer's translucent fill resolves into
-   the page behind it. Assistant bubbles need a real neutral surface there.
-   Custom starts as an invisible overlay of Default, hence the base selector. */
-:root[data-theme="default"],
-:root[data-base-theme="default"] {
-  --chat-assistant-bubble-fill: var(--muted);
-}
-
 .dark {
   /* Dark mode accent ramp (Apple system colors, dark). */
   --stella-animation-color-1: #0a84ff;
@@ -395,53 +342,12 @@
     0 0 0 0.5px rgba(0, 0, 0, 0.5),
     0 12px 36px -6px rgba(0, 0, 0, 0.6);
 
-  --button-secondary-base: color-mix(in srgb, var(--foreground) 8%, var(--card));
-  --button-secondary-hover: color-mix(in srgb, var(--foreground) 14%, var(--card));
-
   --glass-bg: var(--panel-surface-bg-gradient), var(--card);
   --panel-glass-bg: var(--panel-surface-bg-gradient), var(--card);
 
-  --panel-surface-bg: color-mix(in srgb, var(--background) 62%, transparent);
-  --panel-surface-bg-gradient: linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--background) 56%, transparent),
-    color-mix(in srgb, var(--background) 70%, transparent)
-  );
-  --panel-surface-border: var(--border);
-  --panel-surface-border-hover: color-mix(
-    in oklch,
-    var(--foreground) 18%,
-    var(--panel-surface-border)
-  );
-  --panel-surface-highlight: inset 0 1px 0
-    color-mix(in oklch, white 10%, transparent);
-
-  --surface-inset: color-mix(in srgb, var(--foreground) 6%, var(--background));
-  --surface-raised: var(--card);
-  --surface-raised-hover: color-mix(in srgb, var(--foreground) 6%, var(--card));
-  --surface-raised-stronger-non-alpha: var(--card);
-
-  --overlay-surface: var(--background-strong);
-  --overlay-border: color-mix(in srgb, var(--foreground) 42%, var(--background));
-  --overlay-border-strong: color-mix(
-    in srgb,
-    var(--foreground) 56%,
-    var(--background)
-  );
   --overlay-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.5);
 
-  /* Solid, theme-tracking text ramp (mixed toward the dark background). */
-  --text-strong: var(--foreground);
-  --text-base: color-mix(in srgb, var(--foreground) 82%, var(--background));
-  --text-weak: color-mix(in srgb, var(--foreground) 60%, var(--background));
-  --text-weaker: color-mix(in srgb, var(--foreground) 42%, var(--background));
-  --text-interactive-base: var(--primary);
-
   color-scheme: dark;
-
-  --border-strong: color-mix(in srgb, var(--foreground) 24%, var(--background));
-  --border-base: color-mix(in srgb, var(--foreground) 16%, var(--background));
-  --border-weak: color-mix(in srgb, var(--foreground) 10%, var(--background));
 
   /* ── Semantic colors — macOS-native dark. ── */
   --background: #1c1c1e;

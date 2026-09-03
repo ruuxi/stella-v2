@@ -7,7 +7,7 @@ import {
   type ReactElement,
 } from "react";
 import { useTheme, useThemeControl } from "@/context/theme-context";
-import { isHiddenOverlay } from "@/shared/theme/themes";
+import { isHiddenOverlay } from "@stella/theme";
 import { Popover, PopoverContent, PopoverTrigger, PopoverBody } from "@/ui/popover";
 import { Button } from "@/ui/button";
 import { ThemeOrb } from "@/ui/theme-orb";

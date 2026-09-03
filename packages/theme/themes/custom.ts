@@ -1,4 +1,4 @@
-import type { Theme } from "./types";
+import type { Theme } from "../types";
 import defaultTheme from "./default";
 
 // The "Custom" overlay theme. Every user is on this by default. While it is

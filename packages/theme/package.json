@@ -1,0 +1,11 @@
+{
+  "name": "@stella/theme",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Single source of truth for Stella's themes: palettes, OKLCH/color-mix math, derived semantic tokens, and the shifting-gradient blob background. Consumed unchanged by desktop-ui and mobile.",
+  "exports": {
+    ".": "./index.ts",
+    "./*": "./*.ts"
+  }
+}

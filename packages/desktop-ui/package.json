@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@stella/contracts": "workspace:*"
+    "@stella/contracts": "workspace:*",
+    "@stella/theme": "workspace:*"
   },
   "devDependencies": {
     "@stella/desktop": "workspace:*",

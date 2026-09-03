@@ -1,4 +1,4 @@
-import type { Theme, ThemeColors } from "./types";
+import type { Theme, ThemeColors } from "../types";
 
 // "Default" — the single macOS-native default theme with a light and a dark
 // variant. Unlike the old separate "Light"/"Dark" themes (which pinned their

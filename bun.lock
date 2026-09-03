@@ -190,6 +190,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@stella/contracts": "workspace:*",
+        "@stella/theme": "workspace:*",
       },
       "devDependencies": {
         "@stella/desktop": "workspace:*",
@@ -238,6 +239,7 @@
         "@react-native-masked-view/masked-view": "0.3.2",
         "@siteed/audio-studio": "3.2.0",
         "@stella/contracts": "workspace:*",
+        "@stella/theme": "workspace:*",
         "better-auth": "^1.4.9",
         "convex": "^1.44.0",
         "expo": "~57.0.19",
@@ -356,6 +358,10 @@
       "bin": {
         "stella-office": "./bin/stella-office.js",
       },
+    },
+    "packages/theme": {
+      "name": "@stella/theme",
+      "version": "0.0.0",
     },
     "packages/website": {
       "name": "stella-website",
@@ -1449,6 +1455,8 @@
     "@stella/runtime": ["@stella/runtime@workspace:packages/runtime"],
 
     "@stella/telemetry-worker": ["@stella/telemetry-worker@workspace:workers/telemetry"],
+
+    "@stella/theme": ["@stella/theme@workspace:packages/theme"],
 
     "@swc/helpers": ["@swc/helpers@0.5.15", "", { "dependencies": { "tslib": "^2.8.0" } }, "sha512-JQ5TuMi45Owi4/BIMAJBoSQoOJu12oOk/gADqlcUL9JEdHB8vyjUSsxqeNXnmXHjYKMi2WcYtezGEEhqUI/E2g=="],
 

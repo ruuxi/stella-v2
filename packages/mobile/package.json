@@ -33,6 +33,7 @@
     "@react-native-masked-view/masked-view": "0.3.2",
     "@siteed/audio-studio": "3.2.0",
     "@stella/contracts": "workspace:*",
+    "@stella/theme": "workspace:*",
     "better-auth": "^1.4.9",
     "convex": "^1.44.0",
     "expo": "~57.0.19",

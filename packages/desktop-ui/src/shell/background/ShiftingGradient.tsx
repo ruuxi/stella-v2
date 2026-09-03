@@ -1,30 +1,17 @@
-import {
-  memo,
-  useEffect,
-  useRef,
-  useCallback,
-} from "react";
+import { memo, useEffect, useRef } from "react";
 import { useTheme } from "@/context/theme-context";
 import { shouldUseLowPowerEffects } from "@/shared/lib/device-perf";
 import {
-  BASE_POSITIONS,
-  FALLBACK_BACKGROUND,
-  buildGradientPalette,
-  parseThemeColor,
+  gradientBufferSize,
+  planGradientFrame,
+  renderGradientPixels,
+  type Blob,
   type GradientColor,
   type GradientMode,
   type RGB,
-} from "@/shared/theme/gradient-palette";
+} from "@stella/theme";
 import { cn } from "@/shared/lib/utils";
 import "./ShiftingGradient.css";
-
-interface Blob {
-  x: number;
-  y: number;
-  radius: number;
-  alpha: number;
-  color: RGB;
-}
 
 interface ShiftingGradientProps {
   className?: string;
@@ -37,119 +24,28 @@ interface ShiftingGradientProps {
   contained?: boolean;
 }
 
-function rand(min: number, max: number): number {
-  return min + Math.random() * (max - min);
-}
-
-// ─── Blue noise dithering ───────────────────────────────────────────────
-// 64x64 blue noise threshold map, generated from a void-and-cluster algorithm.
-// We only need a small tile — it repeats seamlessly.
-function generateBlueNoise(size: number): Float32Array {
-  // Use a deterministic hash-based approach that approximates blue noise properties.
-  // Each value is in [0, 1). The interleaved gradient noise (IGN) pattern
-  // has excellent blue-noise-like spectral properties.
-  const data = new Float32Array(size * size);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      // Interleaved gradient noise (Jorge Jimenez, 2014)
-      data[y * size + x] = (52.9829189 * ((0.06711056 * x + 0.00583715 * y) % 1)) % 1;
-    }
-  }
-  return data;
-}
-
-const NOISE_SIZE = 64;
-const blueNoise = generateBlueNoise(NOISE_SIZE);
-
-// ─── Blob generation ────────────────────────────────────────────────────
-
-function generateBlobs(colors: RGB[], mode: GradientMode = "soft"): Blob[] {
-  if (mode === "flat") {
-    // Single dominant color filling the entire canvas
-    const color = colors[0];
-    return [{ x: 0.5, y: 0.5, radius: 3, alpha: 0.5, color }];
-  }
-
-  return BASE_POSITIONS.map((base, index) => ({
-    x: rand(base.x - 0.04, base.x + 0.04),
-    y: rand(base.y - 0.04, base.y + 0.04),
-    radius: rand(0.7, 0.95) * 0.65,
-    alpha: rand(0.25, 0.4),
-    color: colors[index % colors.length],
-  }));
-}
-
 // ─── Canvas rendering ───────────────────────────────────────────────────
-// Renders at RENDER_SCALE for performance; the browser's bilinear upscale
-// provides additional free smoothing on top of the dithering.
-
-const RENDER_SCALE = 0.6;
+// The blob palette, layout, and per-pixel blend live in `@stella/theme`
+// (`planGradientFrame` / `renderGradientPixels`) so mobile paints the very
+// same frame. This file only owns the canvas plumbing. The buffer renders at
+// a fraction of the surface size; the browser's bilinear upscale adds free
+// smoothing on top of the dithering.
 
 function renderGradient(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
   bg: RGB,
-  blobs: Blob[],
-  overlayAlpha: number,
+  blobs: readonly Blob[],
 ) {
-  const w = Math.round(width * RENDER_SCALE);
-  const h = Math.round(height * RENDER_SCALE);
-
+  const { w, h } = gradientBufferSize(width, height);
   if (w === 0 || h === 0) return;
 
   ctx.canvas.width = w;
   ctx.canvas.height = h;
 
   const imageData = ctx.createImageData(w, h);
-  const pixels = imageData.data;
-  const maxDim = Math.max(w, h);
-
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      // Start with background color
-      let r = bg.r;
-      let g = bg.g;
-      let b = bg.b;
-
-      // Additively blend each blob
-      for (let i = 0; i < blobs.length; i++) {
-        const blob = blobs[i];
-        const dx = x / w - blob.x;
-        const dy = y / h - blob.y;
-        // Use aspect-corrected distance
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const radius = blob.radius * (maxDim / w);
-
-        if (dist >= radius) continue;
-
-        // Smooth quintic falloff — no visible rings
-        const t = dist / radius;
-        const falloff = 1 - t * t * t * (t * (t * 6 - 15) + 10);
-        const strength = falloff * blob.alpha;
-
-        r = r + (blob.color.r - r) * strength;
-        g = g + (blob.color.g - g) * strength;
-        b = b + (blob.color.b - b) * strength;
-      }
-
-      // Semi-transparent overlay (matches the original's background wash)
-      r = r + (bg.r - r) * overlayAlpha;
-      g = g + (bg.g - g) * overlayAlpha;
-      b = b + (bg.b - b) * overlayAlpha;
-
-      // Blue noise dithering: ±0.5/255 jitter to break quantization bands
-      const noise = blueNoise[(y % NOISE_SIZE) * NOISE_SIZE + (x % NOISE_SIZE)];
-      const dither = (noise - 0.5) * (1.5 / 255);
-
-      const idx = (y * w + x) * 4;
-      pixels[idx] = Math.max(0, Math.min(255, Math.round(r + dither * 255)));
-      pixels[idx + 1] = Math.max(0, Math.min(255, Math.round(g + dither * 255)));
-      pixels[idx + 2] = Math.max(0, Math.min(255, Math.round(b + dither * 255)));
-      pixels[idx + 3] = 255;
-    }
-  }
-
+  renderGradientPixels(imageData.data, w, h, bg, blobs);
   ctx.putImageData(imageData, 0, 0);
 }
 
@@ -169,7 +65,7 @@ export const ShiftingGradient = memo(function ShiftingGradient({
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
-  const blobsRef = useRef<Blob[]>([]);
+  const frameRef = useRef<{ bg: RGB; blobs: Blob[] } | null>(null);
   const prevKeyRef = useRef("");
   // Whether renderGradient has actually painted at a non-zero size. A fresh
   // canvas reports the 300x150 default for width/height, so the dimensions
@@ -177,12 +73,6 @@ export const ShiftingGradient = memo(function ShiftingGradient({
   // inside a display:none host (e.g. the right sidebar before the shell is
   // visible) measures 0x0 on the first settings pass.
   const paintedRef = useRef(false);
-
-  const getPalette = useCallback(
-    (): RGB[] =>
-      buildGradientPalette(colors, resolvedColorMode === "dark", colorMode),
-    [resolvedColorMode, colorMode, colors],
-  );
 
   // Render to canvas when settings change
   useEffect(() => {
@@ -212,22 +102,27 @@ export const ShiftingGradient = memo(function ShiftingGradient({
     const ctx = ctxRef.current;
     if (!ctx) return;
 
-    const palette = getPalette();
     // Flat themes (the stock Default, plus any forcedMode-pinned theme) want a
-    // clean, flat single-color surface — no blob at all, otherwise the
-    // brand-derived palette tints the whole canvas.
-    const blobs = flat ? [] : generateBlobs(palette, mode);
-    blobsRef.current = blobs;
+    // clean, flat single-color surface — no blob at all; planGradientFrame
+    // returns zero blobs for them. The blob jitter is seeded by the theme id
+    // so the layout is stable across launches and identical on mobile.
+    const frame = planGradientFrame({
+      colors,
+      isDark: resolvedColorMode === "dark",
+      mode,
+      colorMode,
+      flat,
+      seedKey: theme.id,
+    });
+    frameRef.current = frame;
 
-    const bg = parseThemeColor(colors.background) ?? FALLBACK_BACKGROUND;
     const rect = canvas.parentElement?.getBoundingClientRect();
     const w = rect?.width ?? window.innerWidth;
     const h = rect?.height ?? window.innerHeight;
 
-    renderGradient(ctx, w, h, bg, blobs, 0.25);
+    renderGradient(ctx, w, h, frame.bg, frame.blobs);
     paintedRef.current = w > 0 && h > 0;
-
-  }, [theme.id, resolvedColorMode, mode, colorMode, getPalette, lightweight, colors, flat]);
+  }, [theme.id, resolvedColorMode, mode, colorMode, lightweight, colors, flat]);
 
   // First-render fallback only. We intentionally do NOT re-render on
   // window/parent resize: the blob positions are normalized fractions
@@ -250,15 +145,15 @@ export const ShiftingGradient = memo(function ShiftingGradient({
 
     const renderOnce = () => {
       const ctx = ctxRef.current;
-      // prevKeyRef doubles as "the settings effect has run": blobsRef alone
+      const frame = frameRef.current;
+      // prevKeyRef doubles as "the settings effect has run": the frame alone
       // can't gate this because flat themes intentionally paint zero blobs.
-      if (!ctx || prevKeyRef.current === "") return false;
-      const bg = parseThemeColor(colors.background) ?? FALLBACK_BACKGROUND;
+      if (!ctx || !frame || prevKeyRef.current === "") return false;
       const rect = canvas.parentElement?.getBoundingClientRect();
       const w = rect?.width ?? 0;
       const h = rect?.height ?? 0;
       if (w === 0 || h === 0) return false;
-      renderGradient(ctx, w, h, bg, blobsRef.current, 0.25);
+      renderGradient(ctx, w, h, frame.bg, frame.blobs);
       paintedRef.current = true;
       return true;
     };

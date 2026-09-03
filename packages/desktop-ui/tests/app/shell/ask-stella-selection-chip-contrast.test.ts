@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  deriveTokens,
+  getThemeById,
+  parseColor,
+  resolveThemeColors,
+} from "@stella/theme";
 
 const tokensCss = readFileSync(
   resolve(__dirname, "../../../src/index.css"),
@@ -32,47 +38,50 @@ const extractDecl = (block: string, name: string): string => {
   return match![1].replace(/\s+/g, " ").replace(/\( /g, "(").trim();
 };
 
+/** How far a derived hairline sits from the background, 0–1 per channel. */
+const distanceFromBackground = (token: string, background: string): number => {
+  const a = parseColor(token)!;
+  const b = parseColor(background)!;
+  return (Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b)) / (3 * 255);
+};
+
+const tokensFor = (isDark: boolean) => {
+  const theme = getThemeById("default")!;
+  const { colors, flat } = resolveThemeColors(theme, isDark);
+  return { colors, tokens: deriveTokens(colors, isDark, { flat }) };
+};
+
 describe("selection toolbar contrast contract", () => {
   const light = extractBlock(tokensCss, ":root {");
   const dark = extractBlock(tokensCss, ".dark {");
 
-  it("defines a reusable opaque overlay surface and high-contrast border", () => {
+  it("keeps the overlay shadow in the stylesheet and the overlay colors in the shared derivation", () => {
     for (const block of [light, dark]) {
-      expect(extractDecl(block, "--overlay-surface")).toBe(
-        "var(--background-strong)",
-      );
-      expect(extractDecl(block, "--overlay-border")).toMatch(
-        /color-mix\(in srgb, var\(--foreground\) \d+%, var\(--background\)\s*\)/,
-      );
-      expect(extractDecl(block, "--overlay-border-strong")).toMatch(
-        /color-mix\(in srgb, var\(--foreground\) \d+%, var\(--background\)\s*\)/,
-      );
-      expect(extractDecl(block, "--overlay-shadow")).toMatch(
-        /rgba\(0, 0, 0,/,
-      );
+      expect(extractDecl(block, "--overlay-shadow")).toMatch(/rgba\(0, 0, 0,/);
+    }
+    for (const isDark of [false, true]) {
+      const { colors, tokens } = tokensFor(isDark);
+      expect(tokens.overlaySurface).toBe(colors.backgroundStrong);
+      // Opaque, foreground-over-background hairlines — never the theme border.
+      expect(parseColor(tokens.overlayBorder)!.a).toBe(1);
+      expect(parseColor(tokens.overlayBorderStrong)!.a).toBe(1);
+      expect(tokens.overlayBorder).not.toBe(colors.border);
     }
   });
 
-  it("mixes a stronger silhouette in dark than in light without using theme-identical borders", () => {
-    const lightMix = Number(
-      extractDecl(light, "--overlay-border").match(/(\d+)%/)?.[1],
-    );
-    const darkMix = Number(
-      extractDecl(dark, "--overlay-border").match(/(\d+)%/)?.[1],
-    );
-    const lightStrong = Number(
-      extractDecl(light, "--overlay-border-strong").match(/(\d+)%/)?.[1],
-    );
-    const darkStrong = Number(
-      extractDecl(dark, "--overlay-border-strong").match(/(\d+)%/)?.[1],
-    );
+  it("mixes a stronger silhouette in dark than in light", () => {
+    const l = tokensFor(false);
+    const d = tokensFor(true);
+    const lightMix = distanceFromBackground(l.tokens.overlayBorder, l.colors.background);
+    const darkMix = distanceFromBackground(d.tokens.overlayBorder, d.colors.background);
+    const lightStrong = distanceFromBackground(l.tokens.overlayBorderStrong, l.colors.background);
+    const darkStrong = distanceFromBackground(d.tokens.overlayBorderStrong, d.colors.background);
 
-    expect(lightMix).toBeGreaterThanOrEqual(28);
+    // Light mixes ≥28% of a near-black foreground into white.
+    expect(lightMix).toBeGreaterThanOrEqual(0.28 * (0xff - 0x1f) / 0xff);
     expect(darkMix).toBeGreaterThan(lightMix);
     expect(lightStrong).toBeGreaterThan(lightMix);
     expect(darkStrong).toBeGreaterThan(darkMix);
-    expect(extractDecl(light, "--overlay-border")).not.toBe("var(--border)");
-    expect(extractDecl(dark, "--overlay-border")).not.toBe("var(--border)");
   });
 
   it("paints the Ask Stella toolbar as an opaque overlay with a crisp ring", () => {

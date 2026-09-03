@@ -20,6 +20,7 @@
     "logs": "node packages/desktop/scripts/open-logs.mjs",
     "test": "cd packages/desktop-ui && vitest",
     "test:run": "cd packages/desktop-ui && vitest run",
+    "theme:test": "cd packages/theme && bun test",
     "test:electron": "cd packages/desktop-ui && vitest run --config vitest.electron.config.ts",
     "test:verification": "node --test packages/desktop/scripts/tests/*.test.mjs packages/stella-office/scripts/tests/*.test.mjs",
     "test:stella-browser": "cargo test --manifest-path packages/stella-browser/cli/Cargo.toml -- --skip test_all_documented_actions_are_handled && node --test packages/stella-browser/extension/*.test.js packages/stella-browser/extension/**/*.test.js && vitest run packages/desktop-ui/tests/runtime/kernel/browser-use/*.test.ts",

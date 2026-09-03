@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
   useCallback,
@@ -11,16 +12,16 @@ import {
 import {
   getThemeById,
   defaultTheme,
+  deriveTokens,
+  migrateLegacyThemeId,
   registerTheme,
   resolveThemeColors,
   subscribeThemes,
   getThemesSnapshot,
   type Theme,
   type ThemeColors,
-} from "../shared/theme/themes";
-import {
-  generateGradientTokens,
-} from "../shared/theme/color";
+  type ThemeTokens,
+} from "@stella/theme";
 import { uiState } from "../platform/ui-state";
 
 type ColorMode = "light" | "dark" | "system";
@@ -91,11 +92,9 @@ function getSystemColorMode(): "light" | "dark" {
 }
 
 // The old separate "light"/"dark" themes were `forcedMode`-pinned and are now a
-// single mode-driven "Default" theme. Migrate any stored selection onto Default.
-const LEGACY_FORCED_THEME_IDS = new Set(["light", "dark"]);
-function migrateThemeId<T extends string | null>(id: T): T | string {
-  return id && LEGACY_FORCED_THEME_IDS.has(id) ? "default" : id;
-}
+// single mode-driven "Default" theme. Migrate any stored selection onto Default
+// (the table lives with the catalog so mobile migrates identically).
+const migrateThemeId = migrateLegacyThemeId;
 // The pinned appearance a legacy "light"/"dark" selection was actually showing,
 // so migration can carry it onto the Appearance mode toggle instead of silently
 // flipping the look. Reads the raw stored ids (theme first, then Custom base).
@@ -107,27 +106,71 @@ function readLegacyForcedAppearance(): "light" | "dark" | null {
   return null;
 }
 
-// Module-level single-entry memo for the OKLCH gradient math. The inputs only
-// change when the palette or light/dark mode changes, so on mount (and on
-// unrelated re-renders that re-run the apply effect) we reuse the last result
-// instead of recomputing. Cached by a structural signature of the exact inputs
-// passed to `generateGradientTokens`.
-type GradientPalette = Parameters<typeof generateGradientTokens>[0];
-let gradientTokensCacheSignature: string | null = null;
-let gradientTokensCacheValue: ReturnType<typeof generateGradientTokens> | null =
-  null;
-function getGradientTokens(palette: GradientPalette, isDark: boolean) {
-  const signature = `${isDark ? "d" : "l"}|${palette.primary}|${palette.success}|${palette.warning}|${palette.info}|${palette.interactive}`;
-  if (signature !== gradientTokensCacheSignature || !gradientTokensCacheValue) {
-    gradientTokensCacheSignature = signature;
-    gradientTokensCacheValue = generateGradientTokens(palette, isDark);
-  }
-  return gradientTokensCacheValue;
-}
+/**
+ * Every derived token, keyed by the CSS custom property it lands on. The
+ * derivation itself lives in `@stella/theme` so mobile reads the identical
+ * values; this table is only the CSS naming.
+ */
+const TOKEN_VARS: ReadonlyArray<readonly [string, keyof ThemeTokens]> = [
+  ["--background", "background"],
+  ["--background-strong", "backgroundStrong"],
+  ["--foreground", "foreground"],
+  ["--card", "card"],
+  ["--card-foreground", "cardForeground"],
+  ["--popover", "card"],
+  ["--popover-foreground", "cardForeground"],
+  ["--surface-raised-stronger-non-alpha", "card"],
+  ["--primary", "primary"],
+  ["--primary-foreground", "primaryForeground"],
+  ["--secondary", "muted"],
+  ["--secondary-foreground", "foreground"],
+  ["--muted", "muted"],
+  ["--muted-foreground", "mutedForeground"],
+  ["--accent", "accent"],
+  ["--accent-foreground", "accentForeground"],
+  ["--destructive", "destructive"],
+  ["--border", "border"],
+  ["--input", "border"],
+  ["--ring", "interactive"],
+  ["--stella-animation-color-1", "interactive"],
+  ["--stella-animation-color-2", "success"],
+  ["--stella-animation-color-3", "warning"],
+  ["--text-interactive-base", "textInteractive"],
+
+  ["--text-strong", "textStrong"],
+  ["--text-base", "textBase"],
+  ["--text-weak", "textWeak"],
+  ["--text-weaker", "textWeaker"],
+  ["--border-strong", "borderStrong"],
+  ["--border-base", "borderBase"],
+  ["--border-weak", "borderWeak"],
+  ["--surface-inset", "surfaceInset"],
+  ["--surface-raised", "surfaceRaised"],
+  ["--surface-raised-hover", "surfaceRaisedHover"],
+  ["--button-secondary-base", "buttonSecondaryBase"],
+  ["--button-secondary-hover", "buttonSecondaryHover"],
+  ["--overlay-surface", "overlaySurface"],
+  ["--overlay-border", "overlayBorder"],
+  ["--overlay-border-strong", "overlayBorderStrong"],
+  ["--panel-surface-bg", "panelSurfaceBg"],
+  ["--panel-surface-bg-top", "panelSurfaceBgTop"],
+  ["--panel-surface-bg-bottom", "panelSurfaceBgBottom"],
+  ["--panel-surface-border", "panelSurfaceBorder"],
+  ["--panel-surface-border-hover", "panelSurfaceBorderHover"],
+  ["--panel-surface-highlight-color", "panelSurfaceHighlight"],
+  ["--select-fill", "selectFill"],
+  ["--select-border", "selectBorder"],
+  ["--chat-user-bubble-fill", "chatUserBubbleFill"],
+  ["--chat-user-bubble-text", "chatUserBubbleText"],
+  ["--chat-assistant-bubble-fill-top", "chatAssistantBubbleFillTop"],
+  ["--chat-assistant-bubble-fill-bottom", "chatAssistantBubbleFillBottom"],
+  ["--chat-assistant-bubble-text", "chatAssistantBubbleText"],
+];
 
 function applyThemeToDocument(
   colors: ThemeColors,
   isDark: boolean,
+  flat: boolean,
   themeId: string,
   baseThemeId?: string,
 ) {
@@ -145,46 +188,10 @@ function applyThemeToDocument(
   }
   root.style.setProperty("color-scheme", isDark ? "dark" : "light");
 
-  root.style.setProperty("--background", colors.background);
-  root.style.setProperty("--background-strong", colors.backgroundStrong);
-  root.style.setProperty("--foreground", colors.foreground);
-  root.style.setProperty("--card", colors.card);
-  root.style.setProperty("--card-foreground", colors.cardForeground);
-  root.style.setProperty("--popover", colors.card);
-  root.style.setProperty("--popover-foreground", colors.cardForeground);
-  root.style.setProperty("--surface-raised-stronger-non-alpha", colors.card);
-  root.style.setProperty("--primary", colors.primary);
-  root.style.setProperty("--primary-foreground", colors.primaryForeground);
-  root.style.setProperty("--secondary", colors.muted);
-  root.style.setProperty("--secondary-foreground", colors.foreground);
-  root.style.setProperty("--muted", colors.muted);
-  root.style.setProperty("--muted-foreground", colors.mutedForeground);
-  root.style.setProperty("--accent", colors.accent);
-  root.style.setProperty("--accent-foreground", colors.accentForeground);
-  root.style.setProperty("--destructive", colors.error);
-  root.style.setProperty("--border", colors.border);
-  root.style.setProperty("--input", colors.border);
-  root.style.setProperty("--ring", colors.interactive);
-
-  root.style.setProperty("--stella-animation-color-1", colors.interactive);
-  root.style.setProperty("--stella-animation-color-2", colors.success);
-  root.style.setProperty("--stella-animation-color-3", colors.warning);
-
-  const gradientTokens = getGradientTokens(
-    {
-      primary: colors.primary,
-      success: colors.success,
-      warning: colors.warning,
-      info: colors.info,
-      interactive: colors.interactive,
-    },
-    isDark,
-  );
-
-  root.style.setProperty(
-    "--text-interactive-base",
-    gradientTokens.textInteractive,
-  );
+  const tokens = deriveTokens(colors, isDark, { flat });
+  for (const [cssVar, key] of TOKEN_VARS) {
+    root.style.setProperty(cssVar, tokens[key]);
+  }
 }
 
 // ─── Persistence helpers ─────────────────────────────────────────────────
@@ -459,14 +466,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setThemeId("custom");
   }, [customPopulated, rawThemeId, setCustomBase, setThemeId]);
 
-  useEffect(() => {
+  // Layout effect: the derived tokens are the only definition of the text,
+  // border, and surface ramps (the stylesheet no longer computes them), so
+  // they must be on the root before the first paint.
+  useLayoutEffect(() => {
     applyThemeToDocument(
       colors,
       resolvedColorMode === "dark",
+      flat,
       theme.id,
       baseThemeId,
     );
-  }, [colors, resolvedColorMode, theme.id, baseThemeId]);
+  }, [colors, resolvedColorMode, flat, theme.id, baseThemeId]);
 
   const readValue = useMemo<ThemeReadValue>(
     () => ({

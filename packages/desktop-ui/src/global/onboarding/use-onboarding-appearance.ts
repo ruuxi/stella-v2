@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useTheme, useThemeControl } from "@/context/theme-context";
-import { isHiddenOverlay } from "@/shared/theme/themes";
+import { isHiddenOverlay } from "@stella/theme";
 
 export function useOnboardingAppearance() {
   const { selectedThemeId, themes, colorMode, gradientMode, gradientColor, forcedMode } =

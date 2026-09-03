@@ -66,6 +66,9 @@ jobs:
       - name: Test desktop UI
         run: bun run test:run
 
+      - name: Test shared theme package
+        run: bun run theme:test
+
       - name: Test Electron services
         run: bun run test:electron
 

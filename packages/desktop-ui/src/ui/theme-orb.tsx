@@ -1,14 +1,15 @@
 import { useMemo } from "react";
 import { cn } from "@/shared/lib/utils";
-import { resolveThemeColors, type Theme } from "@/shared/theme/themes";
 import {
   BASE_POSITIONS,
   FALLBACK_BACKGROUND,
   buildGradientPalette,
   parseThemeColor,
+  resolveThemeColors,
   rgbToCss,
   type GradientColor,
-} from "@/shared/theme/gradient-palette";
+  type Theme,
+} from "@stella/theme";
 
 /**
  * How hard the swatch leans on its blobs.

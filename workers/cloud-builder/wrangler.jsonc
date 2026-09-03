@@ -106,7 +106,7 @@
       // Create one namespace per environment, then replace this id. Keys are
       // decimal ASN numbers and values are NetworkClass strings.
       "binding": "ASN_POLICY",
-      "id": "REPLACE_ME_ASN_POLICY_DEV",
+      "id": "a255c73f45c94af094c46f604aaa50e8",
     },
   ],
   "containers": [
@@ -238,7 +238,7 @@
         "ENABLE_DEV_ACCEPTANCE_PROBES": "1",
         "STELLA_DEPLOYMENT_IDENTITY": "preview:basic-nightingale-118",
         "MODEL_GATEWAY_URL": "https://stella-v2-model-gateway-dev.lolruuxi.workers.dev",
-        "CAPABILITY_SIGNING_KID": "builder-1",
+        "CAPABILITY_SIGNING_KID": "builder-bn118-1",
         "CLOUD_BUILDER_PUBLIC_URL": "https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev",
       },
       "secrets": {
@@ -293,7 +293,7 @@
         },
         {
           "binding": "ASN_POLICY",
-          "id": "REPLACE_ME_ASN_POLICY_BN118",
+          "id": "18bca150be764b999d069d84841d30d8",
         },
       ],
       "containers": [
@@ -389,16 +389,16 @@
         "producers": [
           {
             "binding": "TURN_OUTBOX",
-            "queue": "stella-v2-turn-outbox-dev",
+            "queue": "stella-v2-turn-outbox-basic-nightingale-118",
           },
         ],
         "consumers": [
           {
-            "queue": "stella-v2-turn-outbox-dev",
+            "queue": "stella-v2-turn-outbox-basic-nightingale-118",
             "max_batch_size": 50,
             "max_batch_timeout": 2,
             "max_retries": 10,
-            "dead_letter_queue": "stella-v2-turn-outbox-dlq-dev",
+            "dead_letter_queue": "stella-v2-turn-outbox-dlq-basic-nightingale-118",
           },
         ],
       },
@@ -418,7 +418,7 @@
         "STELLA_CONVEX_CLOUD_URL": "https://intent-jackal-330.convex.cloud",
         "STELLA_DEPLOYMENT_IDENTITY": "prod:intent-jackal-330",
         "MODEL_GATEWAY_URL": "https://stella-v2-model-gateway.lolruuxi.workers.dev",
-        "CAPABILITY_SIGNING_KID": "builder-1",
+        "CAPABILITY_SIGNING_KID": "builder-prod-1",
         "CLOUD_BUILDER_PUBLIC_URL": "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev",
       },
       "secrets": {
@@ -473,7 +473,7 @@
         },
         {
           "binding": "ASN_POLICY",
-          "id": "REPLACE_ME_ASN_POLICY_PROD",
+          "id": "ead91aec5ef6410d92a530974f220797",
         },
       ],
       "containers": [

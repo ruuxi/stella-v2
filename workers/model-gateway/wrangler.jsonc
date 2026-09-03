@@ -31,7 +31,7 @@
     // issuers (Convex `CAPABILITY_SIGNING_KID` and cloud-builder's). Ops
     // Keep the public keys in deployment config so future deploys cannot
     // accidentally restore the fail-closed empty placeholder.
-    "CAPABILITY_JWKS": "{\"keys\":[{\"kid\":\"convex-1\",\"issuer\":\"stella-convex\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"z3UW7w02DZv-HzQqRwzPTEYN3PIO9hIxjcj7d8DRo3E\",\"y\":\"oGXA5AT_zPGJrJxcv5UgwyV2fhC4mQEAGckZEmn15W0\",\"alg\":\"ES256\",\"use\":\"sig\"}},{\"kid\":\"builder-1\",\"issuer\":\"stella-cloud-builder\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"_zTj5c7FMbjcMng9baQbQRXtkHak6jk4-1boqSnt59A\",\"y\":\"tR-kttYxzHOPR__VorAqBes7AkaI9uvAiyuM7h7DMEk\",\"alg\":\"ES256\",\"use\":\"sig\"}}]}",
+    "CAPABILITY_JWKS": "{\"keys\":[{\"kid\":\"convex-1\",\"issuer\":\"stella-convex\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"z3UW7w02DZv-HzQqRwzPTEYN3PIO9hIxjcj7d8DRo3E\",\"y\":\"oGXA5AT_zPGJrJxcv5UgwyV2fhC4mQEAGckZEmn15W0\",\"alg\":\"ES256\",\"use\":\"sig\"}},{\"kid\":\"builder-1\",\"issuer\":\"stella-cloud-builder\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"_zTj5c7FMbjcMng9baQbQRXtkHak6jk4-1boqSnt59A\",\"y\":\"tR-kttYxzHOPR__VorAqBes7AkaI9uvAiyuM7h7DMEk\",\"alg\":\"ES256\",\"use\":\"sig\"}},{\"kid\":\"builder-bn118-1\",\"issuer\":\"stella-cloud-builder\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"3B2uhLMZ0nFNovFPfyHOqiVeXac4vJO0YhR1F7U1xQc\",\"y\":\"_vW3crzH0DnvV5yjUqvxa9qH5_lygAfXR7FWiI7MLAA\",\"alg\":\"ES256\",\"use\":\"sig\"}}]}",
   },
   "secrets": {
     "required": [
@@ -84,13 +84,13 @@
   "kv_namespaces": [
     {
       "binding": "OWNER_ENFORCEMENT",
-      "id": "REPLACE_ME_DEV",
+      "id": "4db6e39e36a7452d819cd91244e68655",
     },
     {
       // Create one namespace per environment, then replace this id. Keys are
       // decimal ASN numbers and values are NetworkClass strings.
       "binding": "ASN_POLICY",
-      "id": "REPLACE_ME_ASN_POLICY_DEV",
+      "id": "a255c73f45c94af094c46f604aaa50e8",
     },
   ],
   "queues": {
@@ -130,8 +130,8 @@
         "ENVIRONMENT": "production",
         // Pinned to the packaged desktop release authority.
         "STELLA_CONVEX_SITE_URL": "https://intent-jackal-330.convex.site",
-        // Replaced by ops with the production issuers' public keys.
-        "CAPABILITY_JWKS": "{\"keys\":[]}",
+        // Public production keys for the Convex and cloud-builder issuers.
+        "CAPABILITY_JWKS": "{\"keys\":[{\"kid\":\"convex-prod-1\",\"issuer\":\"stella-convex\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"LSAu5q_qmUxnER3kfeTUc61NiBoO_A8nk7srI9-EBNg\",\"y\":\"iK4eBIPxte1DlIdQLsLSVCCMapC5nBF-y6pTRSnDkvc\",\"alg\":\"ES256\",\"use\":\"sig\"}},{\"kid\":\"builder-prod-1\",\"issuer\":\"stella-cloud-builder\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"7OPXbcbubpfZqHAZEptNA8Bu1w9Y5D0pq547cg8rYuo\",\"y\":\"tv8_giBW3W4shXI5YPuZMneKHs22dSncE41399_mEmI\",\"alg\":\"ES256\",\"use\":\"sig\"}}]}",
       },
       "secrets": {
         "required": [
@@ -182,11 +182,11 @@
       "kv_namespaces": [
         {
           "binding": "OWNER_ENFORCEMENT",
-          "id": "REPLACE_ME_PROD",
+          "id": "2068e4c44e614da893a3e937342ebb94",
         },
         {
           "binding": "ASN_POLICY",
-          "id": "REPLACE_ME_ASN_POLICY_PROD",
+          "id": "ead91aec5ef6410d92a530974f220797",
         },
       ],
       "queues": {
